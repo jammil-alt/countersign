@@ -123,11 +123,168 @@ const ERROR_REASON_WORDS: Record<string, string> = {
  */
 export function runErrorLine(error: unknown, stepName?: string | null): string {
   const parts = runErrorParts(error);
+  const plain = parts.reason ? checkFailureWords(parts.reason) : null;
   const first = parts.reason?.split("\n")[0]?.trim() ?? "";
-  const reason = first
-    ? (ERROR_REASON_WORDS[first] ?? (first.length > 120 ? `${first.slice(0, 119)}…` : first))
-    : "Failed without a reason";
+  const reason =
+    plain ??
+    (first
+      ? (ERROR_REASON_WORDS[first] ?? (first.length > 120 ? `${first.slice(0, 119)}…` : first))
+      : "Failed without a reason");
   return stepName ? `${reason} · at ${stepName}` : reason;
+}
+
+/** A failed check's message (Zod's) in a few plain words: what was wrong with the value. */
+const CHECK_WORDS: [RegExp, string | ((m: RegExpExecArray) => string)][] = [
+  [/^invalid uuid$/i, "an id isn't in the right form"],
+  [/^invalid email/i, "an email address isn't in the right form"],
+  [/^invalid (url|uri)/i, "a link isn't in the right form"],
+  [/^invalid (iso )?(date|datetime)/i, "a date isn't in the right form"],
+  [/^required$/i, "a value is missing"],
+  [/expected [\w ]+, received (undefined|null)$/i, "a value is missing"],
+  [/^invalid input: expected (\w+)/i, (m) => `a value isn't ${article(m[1] ?? "")}`],
+  [/^invalid (option|enum value)/i, "a value isn't one of the choices"],
+  [/^too (small|big)/i, "a value is out of range"],
+  [/^unrecognized key/i, "it has a field it shouldn't"],
+];
+
+const KIND_WORDS: Record<string, string> = {
+  string: "text",
+  number: "a number",
+  int: "a whole number",
+  boolean: "yes or no",
+  array: "a list",
+  object: "a set of fields",
+  date: "a date",
+};
+
+function article(kind: string): string {
+  return KIND_WORDS[kind.toLowerCase()] ?? kind;
+}
+
+/** One failed check: its message and, when given, the field it is about. */
+interface CheckIssue {
+  message: string;
+  path: string | null;
+}
+
+/**
+ * The failed checks in a reason, when the reason is a validation report rather than words: Zod's
+ * pretty form ("✖ Invalid UUID\n  → at trigger.documentId") or its issues as JSON.
+ */
+function checkIssues(reason: string): CheckIssue[] | null {
+  const text = reason.trim();
+  if (text.startsWith("✖")) {
+    const issues: CheckIssue[] = [];
+    for (const line of text.split("\n")) {
+      const t = line.trim();
+      if (t.startsWith("✖")) issues.push({ message: t.slice(1).trim(), path: null });
+      else if (t.startsWith("→ at ")) {
+        const last = issues[issues.length - 1];
+        if (last) last.path = t.slice(5).trim();
+      }
+    }
+    return issues.length ? issues : null;
+  }
+  if (text.startsWith("[")) {
+    try {
+      const parsed: unknown = JSON.parse(text);
+      if (!Array.isArray(parsed)) return null;
+      const issues = parsed.flatMap((i): CheckIssue[] => {
+        if (!i || typeof i !== "object" || typeof i.message !== "string") return [];
+        const path = Array.isArray(i.path) && i.path.length ? i.path.join(".") : null;
+        return [{ message: i.message, path }];
+      });
+      return issues.length ? issues : null;
+    } catch {
+      return null;
+    }
+  }
+  return null;
+}
+
+/**
+ * A validation report as one plain sentence for a list row: "The input wasn't valid: an id isn't
+ * in the right form (documentId)", "… and 2 more". Null when the reason is not one; the run page
+ * keeps the raw text.
+ */
+// DECISION (QA, runs and dates): the runs list shows a failed check in words, from Zod's own
+// report; the field is its path's last part. The report itself stays on the run page.
+export function checkFailureWords(reason: string): string | null {
+  const issues = checkIssues(reason);
+  const first = issues?.[0];
+  if (!issues || !first) return null;
+  let what = "a value isn't in the right form";
+  for (const [pattern, words] of CHECK_WORDS) {
+    const m = pattern.exec(first.message);
+    if (m) {
+      what = typeof words === "string" ? words : words(m);
+      break;
+    }
+  }
+  const field = first.path?.split(".").filter(Boolean).pop();
+  const more = issues.length > 1 ? `, and ${plural(issues.length - 1, "more", "more")}` : "";
+  return `The input wasn't valid: ${what}${field ? ` (${field})` : ""}${more}`;
+}
+
+/**
+ * The runs a list row stands for: one run, or several failed runs alike (`sameFailure`) folded
+ * into one row that opens to show them.
+ */
+export type RunListItem<R> = { kind: "run"; run: R } | { kind: "same"; key: string; runs: R[] };
+
+/** The fewest alike failures folded into one row. */
+export const FOLD_AT = 3;
+
+/**
+ * What makes failed runs alike enough to fold: the same client, agent, mode, step and error in
+ * words. Null for a run that isn't failed.
+ */
+export function sameFailureKey(r: {
+  status: string;
+  tenantId: string;
+  agentId: string;
+  mode: string;
+  error: unknown;
+  errorStep?: string | null | undefined;
+}): string | null {
+  if (r.status !== "failed") return null;
+  return [r.tenantId, r.agentId, r.mode, runErrorLine(r.error, r.errorStep)].join("|");
+}
+
+/**
+ * The list's rows in its order: failed runs alike, `FOLD_AT` or more, become one row where the
+ * first of them is; the rest stay as they are.
+ */
+// DECISION (QA, runs and dates): repeated identical failures fold into one row ("32 failed test
+// runs, same error") that opens in place, rather than test runs being hidden by default: the same
+// failure repeated is the noise whatever the mode, and a hidden test run would hide the failure.
+export function foldSameFailures<R extends Parameters<typeof sameFailureKey>[0] & { id: string }>(
+  runs: readonly R[],
+): RunListItem<R>[] {
+  const byKey = new Map<string, R[]>();
+  for (const r of runs) {
+    const key = sameFailureKey(r);
+    if (key) byKey.set(key, [...(byKey.get(key) ?? []), r]);
+  }
+  const out: RunListItem<R>[] = [];
+  const placed = new Set<string>();
+  for (const r of runs) {
+    const key = sameFailureKey(r);
+    const alike = key ? byKey.get(key) : undefined;
+    if (!key || !alike || alike.length < FOLD_AT) {
+      out.push({ kind: "run", run: r });
+    } else if (!placed.has(key)) {
+      placed.add(key);
+      out.push({ kind: "same", key, runs: alike });
+    }
+  }
+  return out;
+}
+
+/** "32 failed test runs, same error". */
+export function sameFailureWords(runs: readonly { mode: string }[]): string {
+  const test = runs.every((r) => r.mode === "test");
+  return `${runs.length} failed ${test ? "test runs" : "runs"}, same error`;
 }
 
 // ── Run oversight (ARCHITECTURE §10.11) ──

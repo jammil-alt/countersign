@@ -3,12 +3,18 @@
 // on someone, and what the client sees of it; then the client's work, what waits on us (only when
 // something does), the client's health (its supervisor and what it found), and on the rail its
 // Mezonas lead (set here) and its threads with what is unread for you. Billing is in Settings.
-import type { AgentStage, GoLive, OpsAgentActivity } from "@countersign/core";
+import {
+  type AgentStage,
+  type GoLive,
+  type OpsAgentActivity,
+  pauseReasonWords,
+} from "@countersign/core";
 import { useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import type { ResponseOf } from "../../api/client";
 import { type AgentSummary, apiRoutes } from "../../api/routes";
 import { type ApiState, useApi, useApiClient } from "../../api/useApi";
+import { EN } from "../../i18n/i18n";
 import { shortTime } from "../../runs/format";
 import { ActivityRow } from "../../ui/activity";
 import { AgentBadge, PersonBadge } from "../../ui/badges";
@@ -31,8 +37,7 @@ import { ClientWork } from "./ClientWork";
 
 const STAGES: AgentStage[] = ["bench", "trial", "signoff", "live"];
 
-const shortDate = (iso: string) =>
-  new Date(iso).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+const shortDate = (iso: string) => EN.fmt.day(iso);
 
 export function ClientOverviewScreen() {
   const { clientId = "" } = useParams();
@@ -184,7 +189,8 @@ export function nextRunLine(a: OpsAgentActivity): string | null {
 export function stageNote(g: GoLive): string | null {
   if (g.pause) {
     const who = g.pause.side === "client" ? "the client" : "us";
-    return `Paused by ${who}: ${g.pause.reason}`;
+    const why = pauseReasonWords(g.pause.reason);
+    return why ? `Paused by ${who}: ${why}` : `Paused by ${who}`;
   }
   if (g.stage === "trial" && g.trial) {
     return `Day ${g.trial.days} of ${g.trial.minDays} · ${g.trial.runs} of ${g.trial.minRuns} live runs${g.trial.ready ? " · ready for sign-off" : ""}`;

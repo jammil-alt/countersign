@@ -1,5 +1,30 @@
 import { describe, expect, it } from "vitest";
-import { mayResume, PauseBody, pauseEnded, pauseUntilProblem, readPause } from "./pause";
+import {
+  mayResume,
+  PauseBody,
+  pauseEnded,
+  pauseReasonWords,
+  pauseUntilProblem,
+  readPause,
+} from "./pause";
+
+describe("pauseReasonWords", () => {
+  it("drops a reason that only echoes the action or says who paused", () => {
+    expect(pauseReasonWords("Pause")).toBeNull();
+    expect(pauseReasonWords(" paused. ")).toBeNull();
+    expect(pauseReasonWords("")).toBeNull();
+    expect(pauseReasonWords(null)).toBeNull();
+    expect(pauseReasonWords("paused by the operator")).toBeNull();
+  });
+
+  it("keeps a real reason, and words a credits-out pause", () => {
+    expect(pauseReasonWords("Month-end close")).toBe("Month-end close");
+    expect(pauseReasonWords("Pause until the new price list")).toBe(
+      "Pause until the new price list",
+    );
+    expect(pauseReasonWords("credits_out")).toBe("the month's credits ran out");
+  });
+});
 
 const now = new Date("2026-11-06T12:00:00Z");
 const at = now.toISOString();
