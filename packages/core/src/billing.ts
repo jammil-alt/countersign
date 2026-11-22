@@ -491,7 +491,7 @@ export const ProviderFeePayload = z.object({
 export type ProviderFeePayload = z.infer<typeof ProviderFeePayload>;
 
 // §1.210 (build plans 11's metering): what we pay vendors for outside a run's model calls, one
-// `metered_usage` row each (migration 0081).
+// `metered_usage` row each (migration 0095).
 
 /** What a `metered_usage` row counts: a `billing_unit_cost` measure, or a model call (`model`). */
 export const METERED_MEASURES = [
@@ -537,7 +537,7 @@ export const METER_SOURCES = [
 export type MeterSource = (typeof METER_SOURCES)[number];
 
 /**
- * The unit costs migrations 0009 and 0081 seeded, all placeholders until checked against each
+ * The unit costs migrations 0009 and 0095 seeded, all placeholders until checked against each
  * vendor's own price page (as the model prices' `PRICES_CHECKED_ON`): Twilio's US text, a call
  * minute through Twilio and ElevenLabs, Resend's Pro overage, Browser Run's browser hour, Twilio
  * Verify's verification and an assumed Plaid Transactions item-month. The operator changes them
