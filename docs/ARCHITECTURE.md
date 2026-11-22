@@ -3419,6 +3419,15 @@ an hourly check at minute 37, record a revision a change site missed as "Recorde
 and report it to Sentry. A connection with an error still counts as connected (its health is the
 Connectors page's): connecting and disconnecting change the SOP, a failing sync doesn't.
 
+**Asking and across agents (S2).** Sloan reads an agent's SOP with `sop.read`: the SOP tab's own
+view (`readSop` in `apps/api/src/routes/sop.ts`) for one agent of the asker's client, through the
+account port, so who asks is checked as for every account tool (a limited client user has no
+Sloan). It answers from it and names the section and step. The portal's **Procedures** page
+(`/procedures`, `GET /api/sops`) lists every agent's SOP the reader can open (a limited client user,
+their own agents only) in a row made by core's `sopListItem` from that agent's SOP: stage, revision,
+revision date, what changed last, the systems it uses and what it may do there, and who else takes
+part, with filters across them. Neither carries anything the SOP tab doesn't.
+
 **Invariants.** 1: one client per request, names resolved within it. 3: revisions are append-only
 (trigger); a step's purpose changes only by a new version. 8 and 13: a write's line is
 `decideToolCall`. 11: no bundle, instructions, prompts, budgets or cost; each AI step's model is

@@ -39,6 +39,8 @@ describe("the account tools", () => {
         "account.draft_change",
         "account.pass_to_lead",
         "account.pass_to_agent",
+        // S2 (docs/sop-plan.md §6): the SOP the portal shows.
+        "sop.read",
         // v0.19: the guide, the asker's history and the client's ideas.
         "account.help",
         "account.history",
