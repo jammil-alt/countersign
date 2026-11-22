@@ -150,11 +150,15 @@ Round 4: H9's first-load cut #553 (`docs/plan.md` §1.208), the records test's f
 metering #559 and #580 (§1.210, migration 0095), the verifier and evidence #569 (§1.211), the eval
 harness #554 (§1.212), file and email intake #555 (§1.213), R4 #556 (§1.214).
 Wave X: C5.3 #562 (`docs/plan.md` §1.219); C7 #564, #565, #567, #570, #572 and #573 (§1.220).
+Wave Y: pack manifests #563 (`docs/plan.md` §1.230); C6 #576, #578, #587, #588, #589, #592, #595,
+#599, #600, #601, #602 and #603 (§1.231; SOP-B, G6 and A3 wait for a model key); the Close pack
+#575 and #583 (§1.232); the AP pack #584 and #585 (§1.233); the work-delivered statement #590
+(§1.234); R5 #582 (§1.235); R6 #577 and #581 (§1.236).
 
 - [x] C0.1 [x] C0.2 [ ] C0.3 [x] C0.4
 - [x] C1.1 [x] C1.2 [x] C1.3
 - [x] C2.1 [x] C2.2 [x] C2.3 [x] C2.4 [ ] C2.5
-- [x] R1 [x] R2 [x] R3 [x] R4 [ ] R5 [ ] R6
+- [x] R1 [x] R2 [x] R3 [x] R4 [x] R5 [x] R6
 - [x] C4.1 [x] C4.2 [x] C4.3 [x] C4.4 [x] C4.5 [x] C4.6 [x] C4.7 [x] C4.8 [x] C4.9 [x] C4.10 [x] C4.11
 - [x] C5.1 [x] C5.2 [x] C5.3
-- [ ] C6 [x] C7 [ ] C8
+- [x] C6 [x] C7 [ ] C8
