@@ -201,6 +201,7 @@ import { welcomeRoutes } from "./routes/welcome";
 import { whatsappMetaRoutes } from "./routes/whatsapp-meta";
 // §1.124 back office work
 import { workRouteHandlers } from "./routes/work";
+import { workStatementRouteHandlers } from "./routes/work-statement";
 // v0.14 W4-B
 import { zohoRoutes } from "./routes/zoho";
 import { cronTick, dispatchByIds, senseEmitter, USAGE_SWEEP_MINUTE } from "./runs/dispatch";
@@ -326,6 +327,8 @@ export function createApp(deps: AppDeps = defaultDeps): Hono<AppEnv> {
   usageRouteHandlers(app);
   // R4 (docs/plan.md §1.214): the report per agent, both surfaces.
   agentReportRouteHandlers(app);
+  // Y5 (docs/plan.md §1.234): the work statement, both surfaces and its PDF.
+  workStatementRouteHandlers(app);
   recordRouteHandlers(app);
   approverRuleRoutes(app);
   // §1.215: a client's saved match rules.
@@ -620,7 +623,17 @@ export async function runCron(env: Bindings, scheduledTime: Date, deps: AppDeps 
       // v0.12 W2-G: `origin` for the credits notifications the pass queues.
       // A failure is reported; the vault, retention and pack passes below still run.
       await billingTick(
-        { db, stripe: stripeFor(deps, env), origin: originOf(env) },
+        {
+          db,
+          stripe: stripeFor(deps, env),
+          origin: originOf(env),
+          // §1.234: each invoice sent here takes the month's work statement by email.
+          workStatement: {
+            mailer: mailerFromEnv(env, deps.fetch?.(env)),
+            covered: parseCoveredProcessors(env.BAA_PROCESSORS),
+            catalog: platform.catalog,
+          },
+        },
         scheduledTime,
       ).catch((error: unknown) => reportHandled("billing tick failed", error, { job: "billing" }));
       // Client data keys: re-wrap after a master key rotation, move v1 envelopes to v2. A failure

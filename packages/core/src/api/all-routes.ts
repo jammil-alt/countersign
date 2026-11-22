@@ -18,6 +18,7 @@ import { manualRoutes } from "./manual";
 import { routes } from "./routes";
 import { setupRoutes } from "./setup";
 import { sopRoutes } from "./sop";
+import { workStatementRoutes } from "./work-statement";
 
 /**
  * docs/plan.md §1.125: the Dev queue's routes, and §1.149: onboarding v1's (the client file,
@@ -57,4 +58,6 @@ export const allRoutes = {
   ...desktopRoutes,
   // R4 (docs/plan.md §1.214): the report per agent; its tabs load lazily, and its schema with them.
   ...agentReportRoutes,
+  // Y5 (docs/plan.md §1.234): the work statement; its screens load lazily, and its schema with them.
+  ...workStatementRoutes,
 } as const;

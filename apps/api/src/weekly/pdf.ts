@@ -6,9 +6,9 @@ import { type Locale, WEEKLY_WORDS, type WeeklyTableView } from "@countersign/co
 import { PageSizes, PDFDocument, type PDFFont, type PDFPage, rgb, StandardFonts } from "pdf-lib";
 
 // The design system's ink, muted ink and slate (packages/design-system/tokens.css).
-const INK = rgb(0x15 / 255, 0x1a / 255, 0x21 / 255);
-const MUTED = rgb(0x53 / 255, 0x5b / 255, 0x65 / 255);
-const SLATE = rgb(0x23 / 255, 0x41 / 255, 0x5e / 255);
+export const INK = rgb(0x15 / 255, 0x1a / 255, 0x21 / 255);
+export const MUTED = rgb(0x53 / 255, 0x5b / 255, 0x65 / 255);
+export const SLATE = rgb(0x23 / 255, 0x41 / 255, 0x5e / 255);
 const LINE = rgb(0xdc / 255, 0xdf / 255, 0xe2 / 255);
 
 const MARGIN = 56;
@@ -45,7 +45,8 @@ export function winAnsi(font: PDFFont, text: string): string {
   return out;
 }
 
-class Writer {
+/** Text that flows onto more pages, shared with the work statement's PDF (§1.234). */
+export class Writer {
   private page: PDFPage;
   private y: number;
   constructor(

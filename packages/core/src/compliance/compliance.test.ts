@@ -16,6 +16,7 @@ import {
   processorForModel,
   processorsForOffer,
   processorsForTool,
+  WORK_STATEMENT_EMAIL_FEATURE,
 } from "./processors";
 
 describe("card numbers", () => {
@@ -255,6 +256,26 @@ describe("processors", () => {
         parseCoveredProcessors("cloudflare neon workos resend"),
         ONBOARDING_EMAIL_FEATURE.processors,
         ONBOARDING_EMAIL_FEATURE.what,
+      ),
+    ).toBeNull();
+  });
+
+  it("declares the work statement's email as Resend's, refused in HIPAA mode until covered", () => {
+    expect(WORK_STATEMENT_EMAIL_FEATURE.processors).toEqual(["resend"]);
+    expect(
+      processingRefusal(
+        { hipaa: true },
+        all,
+        WORK_STATEMENT_EMAIL_FEATURE.processors,
+        WORK_STATEMENT_EMAIL_FEATURE.what,
+      ),
+    ).toMatch(/Resend, which has no signed BAA/);
+    expect(
+      processingRefusal(
+        { hipaa: false },
+        all,
+        WORK_STATEMENT_EMAIL_FEATURE.processors,
+        WORK_STATEMENT_EMAIL_FEATURE.what,
       ),
     ).toBeNull();
   });

@@ -1600,6 +1600,9 @@ export const es: Messages = {
   "billing.soFarNote": "{period}. El importe final llega a principios del mes que viene.",
   "billing.byService": "Por agente",
   "billing.statements": "Facturas",
+  // §1.234: the link to the work statement.
+  "billing.workStatement": "Lo que hicieron sus agentes cada mes",
+  "billing.workDone": "Trabajo hecho",
   "billing.noStatements": "Aún no hay facturas. La primera llega a principios del mes que viene.",
   "billing.column.item": "Concepto",
   "billing.pricePerMonth": "{price} al mes",

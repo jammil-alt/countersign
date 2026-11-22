@@ -1628,6 +1628,9 @@ export const fr: Messages = {
   "billing.soFarNote": "{period}. Le montant final arrive au début du mois prochain.",
   "billing.byService": "Par agent",
   "billing.statements": "Factures",
+  // §1.234: the link to the work statement.
+  "billing.workStatement": "Ce que vos agents ont fait chaque mois",
+  "billing.workDone": "Travail fait",
   "billing.noStatements":
     "Aucune facture pour l'instant. La première arrive au début du mois prochain.",
   "billing.column.item": "Élément",

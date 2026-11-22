@@ -1649,6 +1649,9 @@ export const de: Messages = {
   "billing.soFarNote": "{period}. Der endgültige Betrag kommt Anfang nächsten Monats.",
   "billing.byService": "Nach Agent",
   "billing.statements": "Rechnungen",
+  // §1.234: the link to the work statement.
+  "billing.workStatement": "Was Ihre Agenten jeden Monat erledigt haben",
+  "billing.workDone": "Erledigte Arbeit",
   "billing.noStatements": "Noch keine Rechnungen. Die erste kommt Anfang nächsten Monats.",
   "billing.column.item": "Posten",
   "billing.pricePerMonth": "{price} pro Monat",

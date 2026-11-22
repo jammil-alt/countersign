@@ -1559,6 +1559,9 @@ export const en = {
   "billing.soFarNote": "{period}. The final amount comes at the start of next month.",
   "billing.byService": "By agent",
   "billing.statements": "Statements",
+  // §1.234: the link to the work statement.
+  "billing.workStatement": "What your agents did each month",
+  "billing.workDone": "Work done",
   "billing.noStatements": "No statements yet. Your first one comes at the start of next month.",
   "billing.column.item": "Item",
   "billing.pricePerMonth": "{price} a month",

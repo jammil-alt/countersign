@@ -1602,6 +1602,9 @@ export const ptBR: Messages = {
   "billing.soFarNote": "{period}. O valor final chega no início do próximo mês.",
   "billing.byService": "Por agente",
   "billing.statements": "Faturas",
+  // §1.234: the link to the work statement.
+  "billing.workStatement": "O que seus agentes fizeram a cada mês",
+  "billing.workDone": "Trabalho feito",
   "billing.noStatements": "Nenhuma fatura ainda. A primeira chega no início do próximo mês.",
   "billing.column.item": "Item",
   "billing.pricePerMonth": "{price} por mês",
