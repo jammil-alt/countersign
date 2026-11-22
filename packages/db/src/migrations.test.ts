@@ -253,6 +253,9 @@ describe.skipIf(!online)("migrations on an empty database", () => {
       "organization",
       "organization_change",
       "audit_event",
+      // §1.218 (0096): the access review's record.
+      "access_review",
+      "access_review_item",
       // Wave 1 (0018–0025): nothing gets DELETE.
       "usage_platform_daily",
       "notification",
