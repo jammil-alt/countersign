@@ -17,6 +17,8 @@ function connection(over: Partial<ClaudeConnection> = {}): ClaudeConnection {
     startedAt: "2026-11-16T14:05:00.000Z",
     requestedAt: "2026-11-16T14:05:00.000Z",
     expiresAt: "2026-11-16T14:35:00.000Z",
+    client: "Claude",
+    place: "Ashburn, US",
     ...over,
   };
 }
@@ -74,6 +76,11 @@ describe("approving a Claude connection", () => {
     expect(screen.getByTestId("connect-claude-requested")).toHaveTextContent(
       "Claude gave you this link at",
     );
+    // H6: who is asking and from where.
+    expect(screen.getByTestId("connect-claude-client")).toHaveTextContent("Asking: Claude.");
+    expect(screen.getByTestId("connect-claude-place")).toHaveTextContent(
+      "The request came from Ashburn, US.",
+    );
     expect(screen.getByTestId("connect-claude-card")).toHaveTextContent("Waiting for you");
     // Not one click: the code Claude showed comes first.
     const approve = within(waiting).getByTestId("connect-claude-approve");
@@ -93,12 +100,15 @@ describe("approving a Claude connection", () => {
 
   it("opens in the portal for a client's person", async () => {
     const api = renderWith(
-      () => connection(),
+      // A link made before H6 says nothing about who asked.
+      () => connection({ client: null, place: null }),
       () => connection({ status: "approved" }),
       { path: `/connect-claude/${CODE}`, session: CLIENT_SESSION },
     );
     await screen.findByTestId("connect-claude-waiting", {}, { timeout: 10_000 });
     expect(screen.getByTestId("shell-portal")).toBeInTheDocument();
+    expect(screen.queryByTestId("connect-claude-client")).toBeNull();
+    expect(screen.queryByTestId("connect-claude-place")).toBeNull();
     await userEvent.type(screen.getByTestId("connect-claude-confirm"), "654321");
     await userEvent.click(screen.getByTestId("connect-claude-approve"));
     await screen.findByTestId("connect-claude-approved");

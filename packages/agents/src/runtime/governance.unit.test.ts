@@ -28,6 +28,8 @@ import type { RuntimeDeps, StepContext } from "./context";
 import { readGovernance, stepProfile } from "./governance";
 import { composeReachMessage } from "./planned";
 import type { PinnedAgent, RunLog, RuntimeStore } from "./ports";
+import { systemText } from "./prompt";
+import { previewStepPrompt } from "./prompt-preview";
 import { runAgent } from "./run-agent";
 
 const TENANT = "11111111-1111-4111-8111-111111111111";
@@ -348,5 +350,143 @@ describe("a step's profile", () => {
     });
     expect(g.read.every((r) => r.source === "mezonas")).toBe(true);
     expect(g.text).toContain("### Writing into tools (Mezonas)");
+  });
+});
+
+// Owner, 2026-11-21 (docs/plan.md §1.180): "a way to look at what the prompt will look like when
+// it comes in". The preview is built by the loop's own builders, so it is what a run sends.
+describe("the preview of a step's prompt", () => {
+  const sent = async (skill: SkillDefinition) => {
+    const { deps, pinned, tools } = setUp();
+    const model = new FakeModel([finish]);
+    await runAgent(deps(model), {
+      tenantId: TENANT,
+      agentVersionId: "v1",
+      skill: skill.id,
+      input: {},
+      runId: RUN,
+      stepId: "s",
+    });
+    const request = model.requests[0];
+    const preview = previewStepPrompt({
+      tools,
+      agent: pinned,
+      skillRef: skill.id,
+      skill,
+      step: { id: "s" },
+      client: CLIENT,
+      memory: [],
+    });
+    return { request, preview };
+  };
+
+  it("is the system prompt and the tools a run of an agent-mode skill sends", async () => {
+    const { request, preview } = await sent(FIX);
+    expect(preview.runs).toBe("model");
+    expect(systemText(preview.system)).toBe(String(request?.system));
+    expect(preview.tools.map((t) => t.name)).toEqual(request?.tools?.map((t) => t.name));
+    expect(preview.model).toEqual({ id: "claude-sonnet-5-5", maxTokens: 1024 });
+    expect(preview.system.map((p) => p.key)).toEqual([
+      "governance",
+      "finish",
+      "identity",
+      "agent_instructions",
+      "task",
+    ]);
+    // What the governance part holds, as the run records it.
+    expect(preview.governance.map((r) => r.tier).slice(0, 2)).toEqual(["guardrails", "charter"]);
+  });
+
+  it("is the same for a task skill: our guardrails and its own instructions only", async () => {
+    const { request, preview } = await sent(READ);
+    expect(systemText(preview.system)).toBe(String(request?.system));
+    expect(preview.system.map((p) => p.key)).toEqual(["governance", "finish", "task"]);
+    expect(preview.governance.map((r) => r.tier)).toEqual(["guardrails"]);
+    expect(systemText(preview.system)).not.toContain("A family lumber yard.");
+    // A task skill is never handed the agent's notes.
+    expect(preview.data).toEqual({
+      keys: ["input"],
+      memory: { enabled: false, given: false, notes: [] },
+    });
+  });
+
+  it("adds the step's own instructions, settings and model, and says what stops it", () => {
+    const { pinned, tools } = setUp();
+    const preview = previewStepPrompt({
+      tools,
+      agent: pinned,
+      skillRef: FIX.id,
+      skill: FIX,
+      step: {
+        id: "s",
+        model: { id: "claude-haiku-5-5", maxTokens: 512 },
+        customize: { addInstructions: "Round to cents." },
+      },
+      client: null,
+      memory: [],
+    });
+    expect(preview.model?.id).toBe("claude-haiku-5-5");
+    const task = preview.system.find((p) => p.key === "task")?.text ?? "";
+    expect(task).toContain("Do the task.");
+    expect(task).toContain("Round to cents.");
+    // No client: no charter.
+    expect(preview.governance.some((r) => r.tier === "charter")).toBe(false);
+    expect(preview.problems).toEqual([]);
+  });
+
+  it("hands an agent-mode step the agent's notes when it keeps them", () => {
+    const { pinned, tools } = setUp();
+    const keeps = {
+      ...pinned,
+      bundle: {
+        ...pinned.bundle,
+        definition: { ...pinned.bundle.definition, memory: { enabled: true } },
+      } as AgentBundle,
+    };
+    const notes = ["Acme bills in euros.", "The yard manager signs over $500."];
+    const fix = previewStepPrompt({
+      tools,
+      agent: keeps,
+      skillRef: FIX.id,
+      skill: FIX,
+      step: { id: "s" },
+      client: CLIENT,
+      memory: notes,
+    });
+    expect(fix.data).toEqual({
+      keys: ["input", "memory"],
+      memory: { enabled: true, given: true, notes },
+    });
+    const read = previewStepPrompt({
+      tools,
+      agent: keeps,
+      skillRef: READ.id,
+      skill: READ,
+      step: { id: "s" },
+      client: CLIENT,
+      memory: notes,
+    });
+    expect(read.data.memory).toEqual({ enabled: true, given: false, notes: [] });
+  });
+
+  it("says a step no model does has no prompt", () => {
+    const { pinned, tools } = setUp();
+    const code: SkillDefinition = {
+      ...base,
+      id: "custom:sum",
+      name: "Sum",
+      mode: "tool",
+      tools: [],
+    };
+    const preview = previewStepPrompt({
+      tools,
+      agent: pinned,
+      skillRef: code.id,
+      skill: code,
+      step: { id: "s" },
+      client: CLIENT,
+      memory: [],
+    });
+    expect(preview).toMatchObject({ runs: "code", model: null, system: [], tools: [] });
   });
 });

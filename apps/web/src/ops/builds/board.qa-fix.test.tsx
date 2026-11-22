@@ -9,7 +9,7 @@ import { render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { describe, expect, it } from "vitest";
 import { BuildsBoard } from "./BuildsBoard";
-import { plural } from "./words";
+import { buildHref, plural } from "./words";
 
 const at = "2026-11-19T10:00:00.000Z";
 const ID = "00000000-0000-4000-8000-0000000c0001";
@@ -33,6 +33,7 @@ const summary: BuildSummary = {
   updatedAt: at,
   phaseAt: at,
   path: "new",
+  flow: "phases",
   templateId: null,
   promisedOn: null,
   origin: null,
@@ -128,5 +129,39 @@ describe("the board's count of what's open, beside the build page's", () => {
       </MemoryRouter>,
     );
     expect(screen.getByTestId(`builds-card-${ID}`)).toHaveTextContent("2 open items");
+  });
+});
+
+// docs/plan.md §1.172 (owner, 2026-11-21: "when you leave the builder and come back to the drafts it
+// takes you back to the old UI"): a build started on Describe it opens where it was being built.
+describe("where a card on the Drafts board opens", () => {
+  const hrefOf = (b: BuildSummary) => {
+    const { unmount } = render(
+      <MemoryRouter>
+        <BuildsBoard builds={[b]} />
+      </MemoryRouter>,
+    );
+    const href = screen.getByTestId(`builds-card-${ID}`).getAttribute("href");
+    unmount();
+    return href;
+  };
+
+  it("a build started on its build page keeps it", () => {
+    expect(hrefOf(summary)).toBe(`/ops/builds/${ID}`);
+    // An answer from before the column says nothing about it: the build page, as before.
+    const { flow: _flow, ...old } = summary;
+    expect(buildHref(old)).toBe(`/ops/builds/${ID}`);
+  });
+
+  it("a build started on Describe it opens in the builder once it has a draft", () => {
+    expect(hrefOf({ ...summary, flow: "describe" })).toBe(
+      `/ops/agents/${summary.agentId}/workflow`,
+    );
+  });
+
+  it("and on Check the steps until it has one", () => {
+    expect(hrefOf({ ...summary, flow: "describe", phase: "intake", agentId: null })).toBe(
+      `/ops/lab/check/${ID}`,
+    );
   });
 });

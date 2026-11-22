@@ -1,7 +1,7 @@
 // UI cleanup (stream A): a run waiting on a person is "waiting for approval" on every run shape the
 // back office reads (the runs list and its status filter, a run, search, the command center, the
-// clients list), with who it waits on and since when; an approval waiting over a day, or one that
-// nobody can act on, needs us; and the counts agree with each other.
+// clients list), with who it waits on and since when; an approval nobody can act on needs us (QA,
+// 2026-11-22: one waiting long that someone can act on waits on the client); counts agree.
 import { inboxItem, run } from "@countersign/db";
 import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -118,15 +118,20 @@ describe.skipIf(!h)("waiting for approval", () => {
     expect(j(one.json).run.waiting).toMatchObject({ on: "client_admin" });
   });
 
-  it("counts it in the command center, and an approval over a day needs us", async () => {
+  it("counts it in the command center, and an approval nobody can act on needs us", async () => {
     const cc = j((await H.call(OPERATOR, "GET", "/api/ops/command-center")).json);
     expect(cc.runningNow.runs).toBe(1);
     expect(cc.waitingForApproval).toMatchObject({ runs: 2, overdue: 1, nobodyToAct: 2 });
     expect(cc.failedToday).toEqual({ runs: 1 });
+    // QA (2026-11-22): nobody was told of either (no email sender), the one reason for both, so
+    // they need us once: one escalation that names both items, and no single run.
     const approvals = cc.escalations.filter((e: { kind: string }) => e.kind === "approval");
-    expect(approvals.map((e: { runId: string }) => e.runId).sort()).toEqual(
-      [ids.waiting, ids.named].sort(),
-    );
+    expect(approvals).toHaveLength(1);
+    expect(approvals[0]).toMatchObject({
+      runId: null,
+      wait: { nobodyToAct: "no_email", items: 2 },
+    });
+    expect(approvals[0].itemIds).toHaveLength(2);
     const agentRow = cc.agents.find((a: { id: string }) => a.id === ids.agent);
     expect(agentRow).toMatchObject({ openRuns: 3, waitingRuns: 2 });
     expect(agentRow.recentRuns.find((r: { id: string }) => r.id === ids.waiting).waiting).toBe(

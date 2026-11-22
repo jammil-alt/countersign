@@ -387,6 +387,37 @@ async function opsWalk(w) {
       await w.goto(agent);
       await w.follow((p) => p.startsWith(`${agent}/workflow`), { scope: "main" });
     });
+    // The builder is one frame as tall as the window under the header: the page's scroll ends
+    // with the builder filling the window, whichever step's panel is open (owner, 2026-11-21: a
+    // field hidden in a step's panel made the page longer, and it scrolled on past the builder).
+    // A phone stacks the builder's parts and the page scrolls, so this is the desktop's.
+    await w.step("Workflow builder, the page ends with it", async () => {
+      const frame = '[data-testid="builder-frame"]';
+      if (!(await w.page.locator(frame).count())) throw new Skip("the agent has no workflow open");
+      if ((w.page.viewportSize()?.width ?? 0) <= 900) return;
+      const past = () =>
+        w.page.evaluate((sel) => {
+          const f = document.querySelector(sel);
+          if (!f) return 0;
+          const bottom = f.getBoundingClientRect().bottom + window.scrollY;
+          return Math.round(document.documentElement.scrollHeight - bottom);
+        }, frame);
+      const boxes = await w.page.$$eval('[data-testid^="flow-box-"]', (els) =>
+        els.map((el) => el.getAttribute("data-testid")),
+      );
+      for (const id of [null, ...boxes]) {
+        if (id) {
+          await w.page.evaluate((t) => document.querySelector(`[data-testid="${t}"]`)?.click(), id);
+          await w.page.waitForTimeout(100);
+        }
+        const px = await past();
+        if (px > 1) {
+          throw new Error(
+            `the page scrolls ${px}px past the builder${id ? ` with ${id} open` : ""}`,
+          );
+        }
+      }
+    });
   }
 
   // R8: skills, connectors and the other banks are in the Library.

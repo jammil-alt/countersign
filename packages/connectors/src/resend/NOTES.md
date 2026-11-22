@@ -56,6 +56,23 @@ and fake where they differ.
 
 - Inbound email through Resend: replies come back through Cloudflare Email Routing to the
   client's forwarding address.
-- Bounces and complaints (Resend's webhooks) are not read. A bounce doesn't opt a contact out yet.
+- Complaints are not read, and a bounce of an agent's email doesn't opt a contact out yet: only
+  the onboarding emails' delivered and bounced are read (below).
 - HTML email and open or click tracking. Agents send plain text, with PDFs and images
   attached (P-3).
+
+## Webhooks (§1.220, C7)
+
+- `POST /api/hooks/resend` takes Resend's events for the whole account, signed as Svix signs:
+  `svix-id`, `svix-timestamp`, `svix-signature` (`v1,<base64>` list), HMAC-SHA256 of
+  `<id>.<timestamp>.<body>` under the base64 key after `whsec_` (`webhook.ts`). The scheme is
+  checked against Svix's published example; that Resend sends these header names (and not the
+  `webhook-*` names of Standard Webhooks) is UNCHECKED.
+- The event shape: `{type, created_at, data: {email_id, to, tags, bounce?: {type, subType,
+  message}}}`. UNCHECKED: whether `data.tags` comes back as an object (`{name: value}`) or as the
+  send's list (`[{name, value}]`); both are read. That `email_id` is the `id` the send answered.
+- `tags: [{name, value}]` on `POST /emails` (letters, digits, `_`, `-`, at most 256 each). The
+  onboarding emails carry `mz_tenant` and `mz_notification` (ids only).
+- Whether Resend says `email.bounced` only after its own retries of a soft bounce (we assume so,
+  and leave the lead a to-do for any bounce).
+- How long Resend retries an unanswered delivery; each is applied once per email and kind.

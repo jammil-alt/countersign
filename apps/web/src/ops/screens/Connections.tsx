@@ -46,15 +46,66 @@ import {
 
 type Data = ResponseOf<typeof apiRoutes.opsClientConnections>;
 type OldConnection = Data["connections"][number];
+type ClientPackView = ResponseOf<typeof apiRoutes.opsClientPacks>["packs"][number];
+
+/** "your" → "their", keeping a capital at the start of a sentence. */
+function theirs(word: string, to: string): string {
+  return word[0] === word[0]?.toUpperCase() ? to[0]?.toUpperCase() + to.slice(1) : to;
+}
 
 /**
  * A connector's description for the back office: its manifest writes to the client ("You sign in
- * to QuickBooks yourself."), so the sentences addressed to them are left out here.
+ * to QuickBooks yourself.", "in your QuickBooks Online"), so the sentences addressed to them are
+ * left out, and the rest speak of the client: "in their QuickBooks Online", "the sheets they pick".
  */
 export function operatorBlurb(description: string): string {
   const sentences = description.match(/[^.!?]+[.!?]*/g) ?? [description];
   const kept = sentences.filter((s) => !/^\s*you\b/i.test(s));
-  return (kept.length > 0 ? kept : sentences).join("").trim();
+  return (kept.length > 0 ? kept : sentences)
+    .join("")
+    .trim()
+    .replace(/\byours\b/gi, (w) => theirs(w, "theirs"))
+    .replace(/\byour\b/gi, (w) => theirs(w, "their"))
+    .replace(/\byou(?=[.,;!?]|$)/gi, (w) => theirs(w, "them"))
+    .replace(/\bas you\b/gi, (w) => theirs(w, "as them"))
+    .replace(/\byou\b/gi, (w) => theirs(w, "they"));
+}
+
+/**
+ * The connectors that fit a client and that it hasn't connected, each with why: the connections
+ * the areas it has on work through (an area's need already met by one of its alternatives asks
+ * for nothing more), and the connectors its agents can't run without.
+ */
+// DECISION (QA, 2026-11-22): what we suggest recommending comes from two signals the screen
+// already has: the client's areas that are on (the pack manifest's `connections`, §1.162) and its
+// agents' "not connected" gaps (the connectors their skills and steps use). With neither, nothing
+// is suggested; the rest of the catalog stays one click away, never listed as recommended.
+export function connectorFits(input: {
+  areas: readonly ClientPackView[];
+  agents: readonly OpsAgentNeedsState[];
+  /** Connector ids the client has a connection of (not disconnected). */
+  connected: ReadonlySet<string>;
+}): Map<string, string[]> {
+  const fits = new Map<string, string[]>();
+  const add = (connector: string, why: string) => {
+    if (input.connected.has(connector)) return;
+    const list = fits.get(connector) ?? [];
+    if (!list.includes(why)) list.push(why);
+    fits.set(connector, list);
+  };
+  for (const area of input.areas) {
+    if (!area.enabled) continue;
+    for (const need of area.connections) {
+      if (need.connectors.some((c) => input.connected.has(c))) continue;
+      for (const c of need.connectors) add(c, `Their ${area.area ?? area.name} area uses it`);
+    }
+  }
+  for (const a of input.agents) {
+    for (const g of a.gaps) {
+      if (g.kind === "not_connected") add(g.connector, `${a.agent.name} needs it`);
+    }
+  }
+  return fits;
 }
 
 export function OpsConnectionsScreen() {
@@ -75,6 +126,8 @@ function Connections({ clientId }: { clientId: string }) {
     params: { id: clientId },
   });
   const client = useApi(apiRoutes.opsClient, { params: { id: clientId } });
+  // The client's areas, for what fits it (a failed answer only means fewer suggestions).
+  const areas = useApi(apiRoutes.opsClientPacks, { params: { id: clientId } });
   const clientName = client.data?.client.name ?? "the client";
 
   if ((loading && !data) || (tab.loading && !tab.data)) return <Loading />;
@@ -87,6 +140,14 @@ function Connections({ clientId }: { clientId: string }) {
 
   const sandbox = tab.data?.sandbox ?? data.sandbox;
   const oldOf = (id: string) => data.connections.find((c) => c.id === id);
+  const connected = new Set(
+    data.connections.filter((c) => c.status !== "disconnected").map((c) => c.connector),
+  );
+  const fits = connectorFits({
+    areas: areas.data?.packs ?? [],
+    agents: tab.data?.agents ?? [],
+    connected,
+  });
   return (
     <div>
       <p className="mb-6 text-ink-muted" data-testid="ops-connections-intro">
@@ -172,7 +233,10 @@ function Connections({ clientId }: { clientId: string }) {
 
         <Offering
           clientId={clientId}
+          clientName={clientName}
           data={{ ...data, sandbox }}
+          connected={connected}
+          fits={fits}
           onConnect={async (connector) => {
             await api.call(apiRoutes.opsConnectSandbox, { params: { id: clientId, connector } });
             reloadAll();
@@ -596,15 +660,27 @@ function ConnectionCard({
   );
 }
 
+/**
+ * What we recommend to the client: those we recommend now and those that fit it (its areas, its
+ * agents' needs), never one it has connected. The rest of the catalog is behind "Recommend another
+ * connector". The Sandbox lists every connector it hasn't connected, since we connect it here.
+ */
 function Offering({
   clientId,
+  clientName,
   data,
+  connected: inUse,
+  fits,
   onSave,
   onConnect,
   onSignIn,
 }: {
   clientId: string;
+  clientName: string;
   data: Data;
+  /** Connector ids the client has a connection of (not disconnected). */
+  connected: ReadonlySet<string>;
+  fits: ReadonlyMap<string, string[]>;
   onSave: (offered: string[]) => Promise<void>;
   /** The Sandbox only: the operator connects a connector that needs no sign-in. */
   onConnect: (connector: string) => Promise<void>;
@@ -616,21 +692,41 @@ function Offering({
   const [offered, setOffered] = useState<string[]>(known);
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<unknown>(null);
+  const [showAll, setShowAll] = useState(false);
   const savedKey = known.join(",");
   // biome-ignore lint/correctness/useExhaustiveDependencies: reset when the saved offering or client changes.
   useEffect(() => setOffered(savedKey ? savedKey.split(",") : []), [savedKey, clientId]);
   const dirty = [...offered].sort().join(",") !== [...known].sort().join(",");
-  const connected = new Set(
-    data.connections.filter((c) => c.status === "connected").map((c) => c.connector),
-  );
+  // Never one the client has: it is under Connected already.
+  const open = data.connectors.filter((c) => !inUse.has(c.id));
+  const suggested = data.sandbox
+    ? open
+    : open.filter((c) => known.includes(c.id) || fits.has(c.id));
+  const others = data.sandbox ? [] : open.filter((c) => !suggested.includes(c));
+  const shown = showAll ? [...suggested, ...others] : suggested;
 
   return (
     <section>
-      <SectionLabel>Recommended to this client</SectionLabel>
+      <SectionLabel>Recommend to {clientName}</SectionLabel>
+      <p className="mb-3 text-sm text-ink-muted" data-testid="ops-connections-offering-intro">
+        {data.sandbox
+          ? "Every connector the Sandbox hasn't connected. Recommended ones show first in its portal."
+          : `Recommended connectors show first in ${clientName}'s portal. Listed: the ones we recommend now, and the ones their areas or agents need that they haven't connected.`}
+      </p>
       <Card testId="ops-connections-offering">
         <ul>
-          {data.connectors.map((c) => {
+          {suggested.length === 0 && !data.sandbox ? (
+            <li
+              className="border-b border-line px-4 py-3 text-sm text-ink-muted last:border-b-0"
+              data-testid="ops-connections-offering-none"
+            >
+              None recommended. No area {clientName} has on, and none of their agents, needs a
+              connector they haven't connected.
+            </li>
+          ) : null}
+          {shown.map((c) => {
             const on = offered.includes(c.id);
+            const why = fits.get(c.id) ?? [];
             return (
               <li
                 key={c.id}
@@ -648,6 +744,14 @@ function Offering({
                 />
                 <label htmlFor={`offer-${c.id}`} className="min-w-0 flex-1">
                   <span className="font-medium text-ink">{c.name}</span>
+                  {why.length > 0 ? (
+                    <span
+                      className="block text-sm text-ink-muted"
+                      data-testid={`ops-connections-offer-${c.id}-why`}
+                    >
+                      {why.join(" · ")}
+                    </span>
+                  ) : null}
                   <span className="block text-sm text-ink">{operatorBlurb(c.description)}</span>
                   <span className="block text-xs text-ink-muted">
                     {plural(c.tools.length, "tool")} ·{" "}
@@ -656,9 +760,7 @@ function Offering({
                 </label>
                 {data.sandbox &&
                 (c.auth === "none" || (c.auth === "oauth2" && known.includes(c.id))) ? (
-                  connected.has(c.id) ? (
-                    <Badge tone="positive">Connected</Badge>
-                  ) : c.available ? (
+                  c.available ? (
                     <Button
                       data-testid={`ops-connections-connect-${c.id}`}
                       disabled={busy}
@@ -684,6 +786,21 @@ function Offering({
               </li>
             );
           })}
+          {others.length > 0 ? (
+            <li className="border-b border-line px-4 py-2 last:border-b-0">
+              <button
+                type="button"
+                className="ds-btn ds-btn--link text-sm"
+                aria-expanded={showAll}
+                onClick={() => setShowAll((v) => !v)}
+                data-testid="ops-connections-offering-more"
+              >
+                {showAll
+                  ? "Show only what fits"
+                  : `Recommend another connector · ${others.length} more`}
+              </button>
+            </li>
+          ) : null}
           {unknown.length > 0 ? (
             <li className="px-4 py-3 text-sm text-ink-muted">
               {unknown.length === 1
@@ -701,7 +818,7 @@ function Offering({
         {dirty ? (
           <div className="flex items-center justify-between gap-3 border-t border-line px-4 py-3">
             <p className="text-sm text-ink-muted">
-              Recommended connectors show first in the client's portal. Taking one off leaves an
+              Recommended connectors show first in {clientName}'s portal. Taking one off leaves an
               existing connection as it is.
             </p>
             <Button

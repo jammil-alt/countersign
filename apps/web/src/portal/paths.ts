@@ -5,6 +5,14 @@ export const PORTAL_PATHS = {
   home: "/",
   // §1.149.2: Getting started (the welcome page goes on here after sign-in).
   start: "/start",
+  // docs/setup-plan.md (§1.206): Getting started's chapters; See it work and Go live per agent.
+  // DECISION: under `/getting-started`, not `/start`: `/start/:token` is the invite's welcome page.
+  startTools: "/getting-started/tools",
+  startPeople: "/getting-started/people",
+  startSee: (agentId?: string | null) =>
+    agentId ? `/getting-started/see/${agentId}` : "/getting-started/see",
+  startLive: (agentId?: string | null) =>
+    agentId ? `/getting-started/live/${agentId}` : "/getting-started/live",
   inbox: "/inbox",
   runs: "/runs",
   // DECISION: the portal addresses an agent by its service id (`/agents/:id`), not a slug: every
@@ -12,8 +20,13 @@ export const PORTAL_PATHS = {
   // template's slug only to pick the agent's own view).
   agent: (serviceId: string) => `/agents/${serviceId}`,
   agentRuns: (serviceId: string) => `/agents/${serviceId}/runs`,
-  // docs/builder-plan.md §5 (B3): the agent's manual.
-  agentManual: (serviceId: string) => `/agents/${serviceId}/manual`,
+  // docs/sop-plan.md S1: the agent's SOP, in the manual's place (its old address goes there).
+  agentSop: (serviceId: string) => `/agents/${serviceId}/sop`,
+  // R4 (docs/plan.md §1.214)
+  agentReport: (serviceId: string) => `/agents/${serviceId}/report`,
+  // docs/sop-plan.md §6a: the process as the builder's chart, read only (the Workflow tab). Its
+  // address says "flow": no portal path names a workflow, which is the operator's to set up.
+  agentFlow: (serviceId: string) => `/agents/${serviceId}/flow`,
   // The Access tab became Agent settings (2026-11-11); `/agents/:id/access` lands here.
   agentSettings: (serviceId: string) => `/agents/${serviceId}/settings`,
   // Connectors C5 (docs/connectors-plan.md §3): the client's one place for their tools. Accounts

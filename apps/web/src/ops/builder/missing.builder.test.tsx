@@ -188,12 +188,13 @@ function setup() {
 describe("a missing step in the builder", () => {
   it("shows the hole, lists what's left, and empties the list as it is filled", async () => {
     const { sent, user } = setup();
-    await screen.findByTestId("builder-canvas");
+    await screen.findByTestId("flow-chart");
 
-    // The canvas: the missing step in its place, with its word (never colour alone).
-    const card = screen.getByTestId("builder-step-m1");
-    expect(within(card).getByTestId("builder-step-m1-missing")).toHaveTextContent("Missing");
-    expect(screen.queryByTestId("builder-step-m1-invalid")).toBeNull();
+    // The chart: the missing step in its place, flagged in words (never colour alone), and
+    // counted on the bar with what else is left to settle.
+    expect(screen.getByTestId("flow-box-m1")).toHaveTextContent("Missing");
+    expect(screen.getByTestId("flow-flag-m1")).toHaveTextContent("1 issue");
+    expect(screen.getByTestId("flow-bar-issues")).toHaveTextContent("1 issue");
 
     // What's left: the missing step, the pack that's off, a test run; not "Valid".
     const left = screen.getByTestId("builder-whats-left");
@@ -207,7 +208,8 @@ describe("a missing step in the builder", () => {
     expect(await screen.findByTestId("builder-left-test")).toHaveTextContent("Test-run it");
     expect(screen.queryByTestId("builder-valid")).toBeNull();
     expect(screen.queryByTestId("builder-problems")).toBeNull();
-    expect(screen.getByTestId("builder-publish")).toBeDisabled();
+    // A new agent's action is Turn on (F4), held like Publish until the draft is valid.
+    expect(screen.getByTestId("flow-bar-turn-on")).toBeDisabled();
 
     // The agent's data at a glance.
     expect(screen.getByTestId("builder-data-summary-reads")).toHaveTextContent("vendors");
@@ -219,10 +221,13 @@ describe("a missing step in the builder", () => {
     expect(within(inspector).getByTestId("builder-missing-need")).toHaveTextContent(
       "There is no card feed connector",
     );
+    expect(screen.getByTestId("flow-panel-settle")).toHaveTextContent(
+      "Nothing in the library does this yet",
+    );
 
     // Renamed, a draft with a missing step is saved as it is.
-    await user.type(within(inspector).getByTestId("builder-inspector-name"), " daily");
-    await user.click(screen.getByTestId("builder-save"));
+    await user.type(screen.getByTestId("flow-panel-name"), " daily");
+    await user.click(screen.getByTestId("flow-bar-save"));
     await waitFor(() => expect(sent.length).toBeGreaterThan(0));
     const saved = AnyAgentBundle.parse(sent.at(-1)?.bundle).workflows[0]?.workflow;
     expect(saved?.schemaVersion === 4 && saved.steps[0]).toMatchObject({
@@ -236,24 +241,24 @@ describe("a missing step in the builder", () => {
 
     // Replace it with a step from the palette: it takes the missing step's place and id.
     await user.click(within(inspector).getByTestId("builder-missing-replace"));
-    await user.click(await screen.findByTestId("builder-palette-item-logic:wait-add"));
-    expect(screen.queryByTestId("builder-step-m1-missing")).toBeNull();
-    expect(screen.getByTestId("builder-step-m1")).toHaveTextContent("Wait");
+    await user.click(await screen.findByTestId("flow-rail-item-logic:wait"));
+    expect(screen.queryByTestId("flow-flag-m1")).toBeNull();
+    expect(screen.getByTestId("flow-box-m1")).toHaveTextContent("Wait");
     expect(screen.queryByTestId("builder-left-missing")).toBeNull();
   });
 
   it("removes it, and says what each step reads and keeps", async () => {
     const { user } = setup();
-    await screen.findByTestId("builder-canvas");
-    await user.click(screen.getByTestId("builder-step-m1-select"));
-    expect(screen.getByTestId("builder-inspector-delete")).toHaveTextContent("Remove it");
-    await user.click(screen.getByTestId("builder-inspector-delete"));
-    expect(screen.queryByTestId("builder-step-m1")).toBeNull();
+    await screen.findByTestId("flow-chart");
+    await user.click(screen.getByTestId("flow-box-m1"));
+    expect(screen.getByTestId("flow-panel-remove")).toHaveTextContent("Remove it");
+    await user.click(screen.getByTestId("flow-panel-remove"));
+    expect(screen.queryByTestId("flow-box-m1")).toBeNull();
     expect(screen.queryByTestId("builder-left-missing")).toBeNull();
 
     // The read step: what it reads and where that comes from, that it keeps nothing, and the
     // pack the client hasn't turned on.
-    await user.click(screen.getByTestId("builder-step-r1-select"));
+    await user.click(screen.getByTestId("flow-box-r1"));
     const data = await screen.findByTestId("builder-data");
     const lines = within(data)
       .getAllByTestId("builder-data-line")
@@ -267,6 +272,10 @@ describe("a missing step in the builder", () => {
         "The Materials pack is off for Millwork",
       ),
     );
-    expect(screen.getByTestId("builder-step-r1-needs")).toBeInTheDocument();
+    // What the client lacks for it is a question on the step, in the client's words.
+    expect(screen.getByTestId("flow-flag-r1")).toHaveTextContent("1 question");
+    expect(screen.getByTestId("flow-panel-settle")).toHaveTextContent(
+      "Turn on the Materials pack for Millwork",
+    );
   });
 });

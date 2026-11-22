@@ -58,6 +58,11 @@ export interface Secrets {
   RESEND_FALLBACK_DOMAIN?: string;
   /** Resend's id for that domain, so fallback keys can send only from it. */
   RESEND_FALLBACK_DOMAIN_ID?: string;
+  /**
+   * §1.220: the signing secret (`whsec_…`) of Resend's webhook endpoint, /api/hooks/resend: an
+   * onboarding email delivered or bounced. Without it the endpoint answers 503.
+   */
+  RESEND_WEBHOOK_SECRET?: string;
   /** Google Cloud's OAuth client "Mezonas web": Gmail, send only (ARCHITECTURE §6.4). */
   GOOGLE_CLIENT_ID?: string;
   GOOGLE_CLIENT_SECRET?: string;
@@ -229,6 +234,12 @@ export interface OptionalBindings {
   BROWSER?: BrowserService;
   /** Cloudflare's rate limiting: MCP calls per operator (src/mcp/limits.ts); unset, per isolate. */
   MCP_RATE_LIMIT?: RateLimiterBinding;
+  /**
+   * Cloudflare's rate limiting: requests per target on the public inbound route, for the
+   * Marketing pack beacons per measured site (src/routes/pack-inbound.ts, docs/plan.md §1.198);
+   * unset, per isolate.
+   */
+  INBOUND_TARGET_RATE_LIMIT?: RateLimiterBinding;
   // M46 (docs/plan.md §1.76): the bucket published guides go to, which the site Worker reads
   // (docs/marketing-plan.md §11.4). Not in wrangler.jsonc until the owner sets it; unset, the
   // `website` connector refuses every write ("publishing isn't set up"), so nothing public changes.

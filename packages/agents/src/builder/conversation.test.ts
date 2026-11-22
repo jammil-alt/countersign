@@ -557,6 +557,52 @@ describe("a turn about one step", () => {
     ]);
   });
 
+  // Staging, 2026-11-22 (MEZONAS-API-G; docs/plan.md §1.183): a question ("how can we add a
+  // second trigger?") was answered in plain words, without the tool, and the answer thrown away.
+  const asked = async (turns: ConstructorParameters<typeof FakeModel>[0]) => {
+    const working = draft();
+    const model = new FakeModel(turns);
+    const result = agentTurn(
+      {
+        working,
+        origin: working,
+        history: [],
+        message: "How can we add a second trigger?",
+        command: null,
+        ctx: context(),
+      },
+      { llm: createLlmClient({ transport: model }), validate, newId },
+    );
+    return { result, model };
+  };
+
+  it("asks once more when the model answers in words, without its tool", async () => {
+    const { result, model } = await asked([
+      { text: "Open the start box and press Another way to start." },
+      editing(() => undefined) as never,
+    ]);
+    const out = await result;
+    expect(model.requests).toHaveLength(2);
+    // Its own words are handed back, with the ask to give them through the tool.
+    const again = model.requests[1]?.messages ?? [];
+    expect(again.at(-2)).toEqual({
+      role: "assistant",
+      content: "Open the start box and press Another way to start.",
+    });
+    expect(String(again.at(-1)?.content)).toContain("did not call the `submit_turn` tool");
+    // Both calls are counted, and nothing in the draft changed.
+    expect(out.calls).toHaveLength(2);
+    expect(stepsOf(out.bundle).map((s) => s.name)).toEqual([
+      "Match the receipt",
+      "Note it on the record",
+    ]);
+  });
+
+  it("fails after a second answer without the tool", async () => {
+    const { result } = await asked([{ text: "First." }, { text: "Second." }]);
+    await expect(result).rejects.toThrow("the model answered without calling submit_turn");
+  });
+
   it("says nothing of a step without a focus, or with one the draft doesn't have", async () => {
     const plain = await focused();
     expect(plain.prompt).not.toContain("working on one step");

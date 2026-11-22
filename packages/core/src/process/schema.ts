@@ -15,6 +15,7 @@ import {
   AutomationRef,
   ClientVisibility,
   PersonChoice,
+  StepPurpose,
   Trigger,
   WorkflowHandoff,
 } from "../schemas/workflow";
@@ -174,6 +175,8 @@ const base = {
   id: NodeId,
   name: z.string(),
   client: ClientVisibility.optional(),
+  /** Why the step is there, for the agent's SOP (docs/sop-plan.md §3); as the v3 step's. */
+  purpose: StepPurpose.optional(),
   checks: Checks.optional(),
   /** The owner's review of this step: `off`, `always`, or (absent) the owner decides. */
   review: StepReview.optional(),

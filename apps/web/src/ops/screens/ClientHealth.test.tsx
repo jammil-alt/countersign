@@ -82,7 +82,7 @@ describe("the client's health in the back office", () => {
           state: "attention",
           runs: { total: 9, failed: 2 },
           connections: { total: 2, needsAttention: 0 },
-          waiting: { count: 1, oldestHours: 4 },
+          waiting: { count: 1, oldestHours: 239 },
           agents: { active: 2, paused: 0 },
           openFindings: 1,
         },
@@ -121,6 +121,10 @@ describe("the client's health in the back office", () => {
     expect(screen.getByTestId("ops-client-supervisor-state")).toHaveTextContent("Watching");
     expect(screen.getByTestId("ops-client-health-summary")).toHaveTextContent(
       "9 live runs in a day, 2 failed",
+    );
+    // QA (2026-11-22): counts in words that agree with them, and long ages in days.
+    expect(screen.getByTestId("ops-client-health-summary")).toHaveTextContent(
+      "0 of 2 connections need a person · 1 item waiting, oldest 9 days",
     );
   });
 

@@ -3,7 +3,7 @@
 // from the dialog that explains the six kinds (saved as a new draft with a new id) and removing an
 // added one.
 import { type AgentBundleInput, AnyAgentBundle, type AnyAgentBundleInput } from "@countersign/core";
-import { render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { describe, expect, it } from "vitest";
@@ -160,6 +160,11 @@ describe("Triggers", () => {
   it("refuses a cron line out of range and a time zone it doesn't know", async () => {
     const { saved, user } = setup();
     await user.click(screen.getByTestId("triggers-add"));
+    // The schedule is picked in words; a cron line is written under Custom.
+    expect(screen.getByTestId("trigger-form-schedule-words")).toHaveTextContent(
+      "Runs: Weekdays at 8:00 AM, in the client's time zone.",
+    );
+    await user.selectOptions(screen.getByTestId("trigger-form-schedule-repeats"), "custom");
     await user.clear(screen.getByTestId("trigger-form-cron"));
     await user.type(screen.getByTestId("trigger-form-cron"), "99 99 99 99 99");
     await user.click(screen.getByTestId("trigger-form-save"));
@@ -167,6 +172,7 @@ describe("Triggers", () => {
 
     await user.clear(screen.getByTestId("trigger-form-cron"));
     await user.type(screen.getByTestId("trigger-form-cron"), "0 8 * * 1-5");
+    await user.selectOptions(screen.getByTestId("trigger-form-schedule-zone"), "other");
     await user.type(screen.getByTestId("trigger-form-tz"), "Not/AZone");
     await user.click(screen.getByTestId("trigger-form-save"));
     expect(screen.getByTestId("trigger-form-error")).toHaveTextContent(/time zone/);
@@ -177,6 +183,7 @@ describe("Triggers", () => {
     const { saved, changed, user } = setup();
     await user.click(screen.getByTestId("triggers-add"));
     expect(screen.getByTestId("trigger-kind-schedule")).toHaveAttribute("aria-pressed", "true");
+    await user.selectOptions(screen.getByTestId("trigger-form-schedule-repeats"), "custom");
     await user.clear(screen.getByTestId("trigger-form-cron"));
     await user.click(screen.getByTestId("trigger-form-save"));
     expect(screen.getByTestId("trigger-form-error")).toHaveTextContent(/cron/);
@@ -197,6 +204,51 @@ describe("Triggers", () => {
     expect(more.map((t) => t.id).slice(0, 2)).toEqual(["t-msg", "t-hook"]);
     expect(more[2]?.on).toEqual({ type: "schedule", cron: "0 8 * * 1-5", skipHolidays: true });
     expect(more[2]?.id).toMatch(/^[0-9a-f-]{36}$/);
+  });
+
+  // Owner, 2026-11-21 (docs/plan.md §1.177): "human readable time and days… the first Monday of
+  // the month, or every other Monday or the third Thursday".
+  it("picks a schedule in words: the third Thursday, then every other Monday", async () => {
+    const { saved, user } = setup();
+    await user.click(screen.getByTestId("triggers-add"));
+    const words = () => screen.getByTestId("trigger-form-schedule-words");
+    await user.selectOptions(screen.getByTestId("trigger-form-schedule-repeats"), "month");
+    await user.selectOptions(screen.getByTestId("trigger-form-schedule-month-week"), "3");
+    await user.selectOptions(screen.getByTestId("trigger-form-schedule-month-weekday"), "4");
+    fireEvent.change(screen.getByTestId("trigger-form-schedule-time"), {
+      target: { value: "14:30" },
+    });
+    await user.selectOptions(screen.getByTestId("trigger-form-schedule-zone"), "America/Chicago");
+    expect(words()).toHaveTextContent(
+      "Runs: The third Thursday of every month at 2:30 PM, Central Time.",
+    );
+
+    await user.selectOptions(screen.getByTestId("trigger-form-schedule-repeats"), "week");
+    // It starts on Mondays; Thursday is added and taken off again.
+    expect(screen.getByTestId("trigger-form-schedule-day-1")).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    await user.click(screen.getByTestId("trigger-form-schedule-day-4"));
+    expect(words()).toHaveTextContent("Runs: Mondays and Thursdays at 2:30 PM, Central Time.");
+    await user.click(screen.getByTestId("trigger-form-schedule-day-4"));
+    await user.selectOptions(screen.getByTestId("trigger-form-schedule-weeks"), "2");
+    fireEvent.change(screen.getByTestId("trigger-form-schedule-from"), {
+      target: { value: "2026-11-25" },
+    });
+    expect(words()).toHaveTextContent("Runs: Every other Monday at 2:30 PM, Central Time.");
+    await user.click(screen.getByTestId("trigger-form-save"));
+    expect(await screen.findByTestId("triggers-saved")).toBeInTheDocument();
+    const body = saved[0] as {
+      bundle: { workflows: { workflow: { moreTriggers: { on: unknown }[] } }[] };
+    };
+    // Stored as a cron and, beside it, the weeks it skips, counted from that week's Sunday.
+    expect(body.bundle.workflows[0]?.workflow.moreTriggers[2]?.on).toEqual({
+      type: "schedule",
+      cron: "30 14 * * 1",
+      tz: "America/Chicago",
+      every: { weeks: 2, from: "2026-11-22" },
+    });
   });
 
   it("won't add a message trigger nobody may start", async () => {

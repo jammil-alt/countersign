@@ -15,6 +15,7 @@ import {
   connection,
   externalAction,
   inboxItem,
+  notification,
   run,
   stepRun,
 } from "@countersign/db";
@@ -32,6 +33,7 @@ import {
   user,
 } from "./api.test-helper";
 import type { Mailer, MailMessage, Texter } from "./notify/mailer";
+import { sendQueued } from "./notify/outbox";
 import { quietNow } from "./quiet-hours.test-helper";
 import { executeRun } from "./runs/execute";
 import type { RunParams } from "./runs/instances";
@@ -507,9 +509,15 @@ describe.skipIf(!h)("v4 processes in apps/api", () => {
   describe("an urgent notice's person is told at once", () => {
     const mail: MailMessage[] = [];
     const texts: { to: string; body: string }[] = [];
+    /** C4.10: how many email sends fail before they go. */
+    let emailFailures = 0;
     const mailer: Mailer = {
       isConfigured: true,
       async send(m) {
+        if (emailFailures > 0) {
+          emailFailures--;
+          throw new Error("Resend is down");
+        }
         mail.push(m);
         return `mail-${mail.length}`;
       },
@@ -571,6 +579,67 @@ describe.skipIf(!h)("v4 processes in apps/api", () => {
         cloudflareStepRunner(step),
       );
       expect(result).toEqual({ status: "succeeded" });
+      expect(mail).toHaveLength(1);
+      expect(texts).toHaveLength(1);
+      // C4.10: through the outbox, as `urgent`: one row per channel, sent, though the admin's
+      // texts are off (they override the person's switches) and it is their quiet hours.
+      const rows = await H.t.db
+        .select()
+        .from(notification)
+        .where(and(eq(notification.tenantId, H.A.tenantId), eq(notification.kind, "urgent")));
+      expect(rows.map((r) => [r.channel, r.status, r.userId]).sort()).toEqual([
+        ["email", "sent", H.A.admin],
+        ["sms", "sent", H.A.admin],
+      ]);
+      expect(rows.every((r) => r.link === "https://app.mezonas.test/inbox")).toBe(true);
+      expect(rows.every((r) => r.dedupeKey.startsWith("urgent:"))).toBe(true);
+    });
+
+    it("a send that fails stays in the outbox, and its next pass sends it", async () => {
+      mail.length = 0;
+      texts.length = 0;
+      emailFailures = 1;
+      const version = await processVersion(
+        proc([
+          {
+            id: "warn-again",
+            kind: "notify",
+            name: "Warn the admin again",
+            notify: {
+              to: [H.A.admin],
+              channel: "email",
+              message: "Look at {{trigger.id}}",
+              urgent: { ackWithin: "15 minutes" },
+            },
+          },
+        ]),
+      );
+      const step = new FakeWorkflowStep(async (_name, type) =>
+        resolveAs(type, () => ({ answer: "Seen" })),
+      );
+      const result = await executeRun(
+        { ...deps(), notify: notifyDeps },
+        params(version, { id: "r10" }),
+        cloudflareStepRunner(step),
+      );
+      // The step isn't held by a failed send: the text went, the email waits for a retry.
+      expect(result).toEqual({ status: "succeeded" });
+      expect(mail).toHaveLength(0);
+      expect(texts).toHaveLength(1);
+      const waiting = await H.t.db
+        .select()
+        .from(notification)
+        .where(
+          and(
+            eq(notification.tenantId, H.A.tenantId),
+            eq(notification.kind, "urgent"),
+            eq(notification.status, "queued"),
+          ),
+        );
+      expect(waiting.map((r) => [r.channel, r.reason])).toEqual([["email", "send_failed:1"]]);
+      // The outbox's next pass, in the admin's quiet hours still: it goes.
+      const summary = await sendQueued(H.db, notifyDeps, H.A.tenantId, new Date());
+      expect(summary).toMatchObject({ sent: 1, held: 0 });
       expect(mail).toHaveLength(1);
       expect(texts).toHaveLength(1);
     });

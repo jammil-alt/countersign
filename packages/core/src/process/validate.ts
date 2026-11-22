@@ -122,6 +122,9 @@ import { isLogic, stepCount, walkSteps } from "./walk";
 /** v3's codes (same meaning, same names) plus what v4 adds. */
 export type ProcessValidationCode =
   | ValidationCode
+  // Setup-plan §4.1: a seat the bundle doesn't declare, or one whose kind can't do what is asked.
+  | "unknown_seat"
+  | "seat_kind"
   // An `if` with no path (v3's `fork_no_paths`).
   | "if_no_paths"
   // A read step whose tool changes something, a write step whose tool only reads.
@@ -249,6 +252,12 @@ export interface ProcessValidationContext extends TypingContext {
   // live). Until a caller passes one, `{{settings.…}}` is in scope and untyped, like an unknown
   // trigger payload: any path reads.
   settings?: JsonSchema;
+  /**
+   * The builder on one screen, F7 (docs/plan.md §1.170): the steps are an automation's, opened in
+   * the builder. Their scopes read `{{input.…}}` typed by this schema in place of a trigger, as
+   * `validateProcessAutomation` types them.
+   */
+  input?: JsonSchema;
   /**
    * Skill model (2026-11-10): the step ids of the version this one was made from. A skill step
    * whose id isn't among them is new, and a new step may not use a retired kind of skill
@@ -581,8 +590,10 @@ function itemSchemaOf(over: string, scope: ProcessScope): JsonSchema | undefined
 function scopeList(
   process: Pick<Process, "triggers" | "steps">,
   ctx: ProcessValidationContext,
-  input?: ProcessScope["input"],
+  given?: ProcessScope["input"],
 ): { step: Step; scope: ProcessScope }[] {
+  // F7: an automation's steps opened in the builder say so through the context.
+  const input = given ?? (ctx.input ? { schema: ctx.input } : undefined);
   const trigger = input ? undefined : processTriggerSchema(process, ctx);
   // A duplicated id (an error anyway) reads as its last step, as v3 does.
   const byId = new Map<string, Step>();

@@ -1,7 +1,9 @@
-// The top bar's client picker. Picking a client opens its page in the back office; "All clients"
-// opens Home. Feedback (2026-11-10): "make the drop down searchable", and "is it supposed to log me
-// into the client's accounts?" It is a list you can type into, and its first line says what it
-// does: you stay signed in as yourself, and it never signs in to a client's tools.
+// The top bar's client picker: it opens a client's page, and shows the client of the page you're on
+// (./pickedClient.tsx). It filters nothing: Runs, Escalations, Sales and search list every client
+// whatever it shows, so on a page with no client it reads "Open a client", not a client's name.
+// "All clients" opens the Clients list. Feedback (2026-11-10): "make the drop down searchable",
+// and "is it supposed to log me into the client's accounts?" It is a list you can type into, and
+// its first line says what it does: it opens a page, and never signs in to a client's tools.
 import { type KeyboardEvent, useEffect, useId, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { cx } from "../ui/cx";
@@ -26,14 +28,16 @@ export function filterClients(
   });
 }
 
+/** The trigger's words when the page belongs to no client: an action, never a filter's value. */
+export const NO_CLIENT_LABEL = "Open a client";
+
 export function ClientPicker({
   selected,
   clients,
-  onPick,
 }: {
+  /** The page's own client, or null. */
   selected: string | null;
   clients: readonly PickerClient[];
-  onPick: (id: string | null) => void;
 }) {
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
@@ -43,7 +47,7 @@ export function ClientPicker({
   const input = useRef<HTMLInputElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
   const listId = useId();
-  // A remembered client this operator no longer serves shows as all clients.
+  // A page's client this operator doesn't serve (or not yet loaded) shows as no client.
   const current = selected ? (clients.find((c) => c.id === selected) ?? null) : null;
   const searching = query.trim() !== "";
   const options = useMemo(
@@ -81,9 +85,7 @@ export function ClientPicker({
   }
 
   function pick(id: string) {
-    const next = id || null;
-    onPick(next);
-    navigate(next ? OPS_PATHS.client(next) : OPS_PATHS.command);
+    navigate(id ? OPS_PATHS.client(id) : OPS_PATHS.clients);
     close();
   }
 
@@ -114,12 +116,15 @@ export function ClientPicker({
         data-value={current?.id ?? ""}
         aria-haspopup="listbox"
         aria-expanded={open}
-        aria-label={`Client: ${current?.name ?? "All clients"}`}
+        aria-label={current ? `Client: ${current.name}. Open another client` : NO_CLIENT_LABEL}
         title="Open a client's page"
         onClick={() => (open ? close() : show())}
-        className="ds-select flex h-8 max-w-56 items-center bg-surface-subtle pr-8 pl-2 text-left text-sm font-medium hover:border-line-strong"
+        className={cx(
+          "ds-select flex h-8 max-w-56 items-center bg-surface-subtle pr-8 pl-2 text-left text-sm hover:border-line-strong",
+          current ? "font-medium" : "text-ink-muted",
+        )}
       >
-        <span className="truncate">{current?.name ?? "All clients"}</span>
+        <span className="truncate">{current?.name ?? NO_CLIENT_LABEL}</span>
       </button>
       <Icon
         name="chevron-down"
@@ -131,7 +136,8 @@ export function ClientPicker({
           className="absolute top-full left-0 z-30 mt-2 flex w-80 max-w-[calc(100vw-32px)] flex-col gap-2 rounded-md border border-line bg-surface p-3"
         >
           <p className="text-xs text-ink-muted" data-testid="ops-client-switcher-hint">
-            Opens the client's page here in the back office. You stay signed in as yourself; it
+            Opens the client's page here in the back office. It doesn't filter other pages: Runs,
+            Escalations, Sales and search show every client. You stay signed in as yourself; it
             never signs in to a client's tools.
           </p>
           <input
@@ -160,7 +166,8 @@ export function ClientPicker({
             className="flex max-h-72 flex-col overflow-y-auto"
           >
             {options.map((c, i) => {
-              const chosen = (current?.id ?? "") === c.id;
+              // "All clients" is a page to open, never a state to show as chosen.
+              const chosen = !!current && current.id === c.id;
               return (
                 // biome-ignore lint/a11y/useKeyWithClickEvents: the search box's arrows and Enter pick by keyboard.
                 <div

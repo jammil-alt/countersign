@@ -42,6 +42,19 @@ const RequirementsScreen = lazy(() =>
 const GettingStartedScreen = lazy(() =>
   import("./screens/GettingStarted").then((m) => ({ default: m.GettingStartedScreen })),
 );
+// docs/setup-plan.md (§1.206): Getting started's chapters.
+const ToolsChapterScreen = lazy(() =>
+  import("./screens/setup/ToolsChapter").then((m) => ({ default: m.ToolsChapterScreen })),
+);
+const PeopleChapterScreen = lazy(() =>
+  import("./screens/setup/PeopleChapter").then((m) => ({ default: m.PeopleChapterScreen })),
+);
+const SeeChapterScreen = lazy(() =>
+  import("./screens/setup/SeeChapter").then((m) => ({ default: m.SeeChapterScreen })),
+);
+const LiveChapterScreen = lazy(() =>
+  import("./screens/setup/LiveChapter").then((m) => ({ default: m.LiveChapterScreen })),
+);
 // Staging CI (2026-11-19): Knowledge (with the charter and policy tags, docs/builder-plan.md §8)
 // loads when opened, so the first load stays in its budget (docs/plan.md §1.146).
 const PortalKnowledgeScreen = lazy(() =>
@@ -54,6 +67,14 @@ const ConnectorsScreen = lazy(() =>
 );
 const ConnectorPageScreen = lazy(() =>
   import("./screens/ConnectorPage").then((m) => ({ default: m.ConnectorPageScreen })),
+);
+// §1.216: books health, the owner's one page on its QuickBooks, loads when opened.
+const BooksHealthScreen = lazy(() =>
+  import("../books-health/BooksHealth").then((m) => ({ default: m.PortalBooksHealthScreen })),
+);
+// §1.234: the work statement, for the client admin, from Billing and the invoice's email.
+const WorkStatementScreen = lazy(() =>
+  import("./screens/WorkStatement").then((m) => ({ default: m.PortalWorkStatementScreen })),
 );
 /** `/access`, `/accounts/access`: the vault's old pages, now Connectors' website logins. */
 function VaultRedirect() {
@@ -90,12 +111,35 @@ export const portalRoutes = (
       }
     />
     <Route path="contacts" element={<ContactsScreen />} />
+    {/* §1.216: books health, for the client admin; reached from Reports */}
+    <Route
+      path="books-health"
+      element={
+        <OnDemand>
+          <BooksHealthScreen />
+        </OnDemand>
+      }
+    />
+
+    {/* §1.234: the work statement, for the client admin; reached from Billing */}
+    <Route
+      path="billing/work"
+      element={
+        <OnDemand>
+          <WorkStatementScreen />
+        </OnDemand>
+      }
+    />
 
     {/* An agent: Overview, Runs, Access */}
     <Route path="agents/:id" element={<AgentScreen tab="overview" />} />
     <Route path="agents/:id/runs" element={<AgentScreen tab="runs" />} />
-    {/* docs/builder-plan.md §5 (B3): the agent's manual, read only */}
-    <Route path="agents/:id/manual" element={<AgentScreen tab="manual" />} />
+    {/* docs/sop-plan.md S1: the agent's SOP, read only, in the manual's place */}
+    <Route path="agents/:id/flow" element={<AgentScreen tab="workflow" />} />
+    <Route path="agents/:id/sop" element={<AgentScreen tab="sop" />} />
+    {/* R4 (docs/plan.md §1.214): the agent's report */}
+    <Route path="agents/:id/report" element={<AgentScreen tab="report" />} />
+    <Route path="agents/:id/manual" element={<Redirect to="/agents/:id/sop" />} />
     <Route path="agents/:id/settings" element={<AgentScreen tab="settings" />} />
     <Route path="agents/:id/access" element={<Redirect to="/agents/:id/settings" />} />
 
@@ -124,6 +168,55 @@ export const portalRoutes = (
       element={
         <OnDemand>
           <GettingStartedScreen />
+        </OnDemand>
+      }
+    />
+    {/* docs/setup-plan.md (§1.206): its chapters */}
+    <Route
+      path="getting-started/tools"
+      element={
+        <OnDemand>
+          <ToolsChapterScreen />
+        </OnDemand>
+      }
+    />
+    <Route
+      path="getting-started/people"
+      element={
+        <OnDemand>
+          <PeopleChapterScreen />
+        </OnDemand>
+      }
+    />
+    <Route
+      path="getting-started/see"
+      element={
+        <OnDemand>
+          <SeeChapterScreen />
+        </OnDemand>
+      }
+    />
+    <Route
+      path="getting-started/see/:agentId"
+      element={
+        <OnDemand>
+          <SeeChapterScreen />
+        </OnDemand>
+      }
+    />
+    <Route
+      path="getting-started/live"
+      element={
+        <OnDemand>
+          <LiveChapterScreen />
+        </OnDemand>
+      }
+    />
+    <Route
+      path="getting-started/live/:agentId"
+      element={
+        <OnDemand>
+          <LiveChapterScreen />
         </OnDemand>
       }
     />

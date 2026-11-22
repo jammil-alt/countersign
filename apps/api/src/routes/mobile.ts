@@ -10,16 +10,20 @@ import {
   mobileHandoff,
   mobileRedeem,
   mobileSessionFromSetCookies,
+  mobileSignInApp,
   mobileStartCookie,
   SECOND_FACTOR_PAGE,
   secondFactorGate,
+  type WorkOSAdapter,
   withMobileSession,
   workosStateOf,
 } from "@countersign/auth";
 import {
   isOperatorRole,
+  MOBILE_CONFIRM_PATH,
   MOBILE_SESSION_HEADER,
   MOBILE_SIGNED_IN_URL,
+  MobileApp,
   type MyPush,
   PkceChallenge,
   personPush,
@@ -31,7 +35,7 @@ import { createMiddleware } from "hono/factory";
 import { auditAlone, auditInTx } from "../audit";
 import { authDirectory } from "../auth";
 import type { Bindings } from "../env";
-import { type AppEnv, HttpError, mount, mountPublic } from "../http";
+import { type AppContext, type AppEnv, HttpError, mount, mountPublic } from "../http";
 import {
   myDevice,
   myDevices,
@@ -84,6 +88,102 @@ const signInOff = createMiddleware<AppEnv>(async (c, next) => {
 
 const toApp = (reason: string) => `${MOBILE_SIGNED_IN_URL}?error=${encodeURIComponent(reason)}`;
 
+/** The audit row of the handoff itself (§1.219): which app, who, and how it ended. */
+export const HANDOFF_ACTION = "session.mobile_handoff";
+
+/** Where a sign-in for an app stands, in the browser, before its session may go to the app. */
+type HandoffGate =
+  | {
+      readonly go: true;
+      readonly app: MobileApp;
+      readonly userId: string;
+      /** The session as the API just read it (a WorkOS refresh may have rotated it). */
+      readonly setCookies: readonly string[];
+    }
+  | {
+      readonly go: false;
+      readonly app: MobileApp | null;
+      readonly userId: string | null;
+      readonly reason: "no_start" | "no_session" | "operator" | "second_factor_pending";
+      readonly redirectTo: string;
+      readonly setCookies: readonly string[];
+    };
+
+/**
+ * Every check before the handoff, for the redirect, the confirm page and its answer alike: the
+ * app's sign-in in date, the session as every route reads it (idle and 12-hour limits, a WorkOS
+ * refresh), never an operator, and the second step passed (§1.100).
+ */
+async function handoffGate(
+  c: AppContext,
+  workos: WorkOSAdapter,
+  password: string,
+  now: Date,
+): Promise<HandoffGate> {
+  const app = await mobileSignInApp(c.req.raw, password, now);
+  const stop = (
+    reason: "no_start" | "no_session" | "operator" | "second_factor_pending",
+    redirectTo: string,
+    userId: string | null = null,
+    setCookies: readonly string[] = [],
+  ): HandoffGate => ({ go: false, app, userId, reason, redirectTo, setCookies });
+  if (!app) return stop("no_start", toApp("no_start"));
+  const identified = await workos.identify(c.req.raw, now);
+  if (!identified.ok) return stop("no_session", toApp("no_session"));
+  // DECISION (audit, 2026-11-17): our apps are for a client's people (docs/plan.md §1.116); an
+  // operator's session never leaves the browser for one. The browser keeps its session; the app is
+  // told why, with no code.
+  const memberships = await authDirectory(c.get("req").services().db).memberships(
+    identified.userId,
+  );
+  if (memberships.some((m) => isOperatorRole(m.role))) {
+    return stop("operator", toApp("operator"), identified.userId, [
+      clearCookie(MOBILE_START_COOKIE),
+      ...identified.setCookies,
+    ]);
+  }
+  // A pending step goes to its page and comes back here; the start cookie stays for that.
+  if (secondFactorGate(identified)) {
+    const query = new URLSearchParams({ return_to: MOBILE_HANDOFF_PATH });
+    return stop(
+      "second_factor_pending",
+      `${SECOND_FACTOR_PAGE}?${query}`,
+      identified.userId,
+      identified.setCookies,
+    );
+  }
+  return { go: true, app, userId: identified.userId, setCookies: identified.setCookies };
+}
+
+function sendCookies(c: AppContext, cookies: readonly string[]): void {
+  for (const cookie of cookies) c.header("Set-Cookie", cookie, { append: true });
+}
+
+async function auditHandoff(
+  c: AppContext,
+  entry: {
+    readonly userId: string | null;
+    readonly app: MobileApp | null;
+    readonly outcome: "ok" | "refused";
+    readonly reason?: string;
+  },
+): Promise<void> {
+  const db = c.get("req").services().db;
+  await auditAlone(db, c, {
+    tenantId: null,
+    actorKind: entry.userId ? "user" : "anonymous",
+    actorUserId: entry.userId,
+    actorEmail: entry.userId ? ((await authDirectory(db).user(entry.userId))?.email ?? null) : null,
+    action: HANDOFF_ACTION,
+    outcome: entry.outcome,
+    httpStatus: 200,
+    target: {
+      ...(entry.app ? { app: entry.app } : {}),
+      ...(entry.reason ? { reason: entry.reason } : {}),
+    },
+  });
+}
+
 async function myPush(tx: Tx, tenantId: string, userId: string): Promise<MyPush> {
   const t = await tenantRow(tx, tenantId);
   const p = personPush((t?.settings ?? {}) as Record<string, unknown>, userId);
@@ -95,6 +195,7 @@ export function mobileRoutes(app: Hono<AppEnv>): void {
   for (const path of [
     routes.mobileSignIn.path,
     routes.mobileHandoff.path,
+    routes.mobileHandoffPending.path,
     routes.mobileSession.path,
   ]) {
     app.use(path, signInOff);
@@ -109,49 +210,86 @@ export function mobileRoutes(app: Hono<AppEnv>): void {
     }
     const query = PkceChallenge.safeParse(c.req.query("challenge"));
     if (!query.success) return c.redirect(toApp("bad_request"), 302);
+    // §1.219: which app is asking; absent is the phone, as phones already in the field send it.
+    const asking = MobileApp.safeParse(c.req.query("app") ?? "phone");
+    if (!asking.success) return c.redirect(toApp("bad_request"), 302);
     const now = new Date();
     const r = await choice.workos.signIn({ returnTo: MOBILE_HANDOFF_PATH }, now);
     if (!r.ok) return c.redirect(toApp(r.code), 302);
-    c.header("Set-Cookie", await mobileStartCookie(query.data, password, now), {
+    c.header("Set-Cookie", await mobileStartCookie(query.data, password, now, asking.data), {
       append: true,
     });
     for (const cookie of r.setCookies) c.header("Set-Cookie", cookie, { append: true });
     return c.redirect(r.redirectTo, 302);
   });
 
-  // 2. After sign-in, still in the browser: the session goes to the app, sealed with the challenge.
+  // 2. After sign-in, still in the browser: the page that asks before the session goes to the app.
+  // DECISION (open.md M8, D7; §1.219): never straight to the app. Another app on the phone or the
+  // computer may have registered `mezonas://` and started this sign-in with its own challenge;
+  // with the browser already signed in (or SSO), it would finish with nobody looking. The page
+  // names the app and the person, and the session leaves only when they press Open.
   app.get(routes.mobileHandoff.path, async (c) => {
     const choice = c.get("req").services().auth();
     const password = workosPassword(c);
     if (!choice.ok || !choice.workos || !password) return c.redirect(toApp("dev_sign_in"), 302);
+    const gate = await handoffGate(c, choice.workos, password, new Date());
+    sendCookies(c, gate.setCookies);
+    if (!gate.go) {
+      // A refusal is the handoff's end: written here. A pending step comes back here after it.
+      if (gate.reason !== "second_factor_pending") {
+        await auditHandoff(c, { ...gate, outcome: "refused" });
+      }
+      return c.redirect(gate.redirectTo, 302);
+    }
+    return c.redirect(MOBILE_CONFIRM_PATH, 302);
+  });
+
+  // 2a. The confirm page reads what it asks about: which app, and who is signed in.
+  mountPublic(app, routes.mobileHandoffPending, async ({ c, services }) => {
+    const choice = services.auth();
+    const password = workosPassword(c);
+    if (!choice.ok || !choice.workos || !password) {
+      throw new HttpError(404, "dev_sign_in", "sign in with the dev sign-in locally");
+    }
+    const gate = await handoffGate(c, choice.workos, password, new Date());
+    sendCookies(c, gate.setCookies);
+    if (!gate.go) throw new HttpError(404, gate.reason, "start signing in again from the app");
+    const email = (await authDirectory(services.db).user(gate.userId))?.email ?? "";
+    return { app: gate.app, email };
+  });
+
+  // 2b. The person's answer: Open hands the session over, sealed with the app's challenge; the
+  // browser keeps neither. Cancel ends the app's sign-in and leaves the browser's session be.
+  mountPublic(app, routes.mobileHandoffConfirm, async ({ c, body }) => {
+    const choice = c.get("req").services().auth();
+    const password = workosPassword(c);
+    if (!choice.ok || !choice.workos || !password) {
+      throw new HttpError(404, "dev_sign_in", "sign in with the dev sign-in locally");
+    }
     const now = new Date();
-    // The session as every route reads it: idle and 12-hour limits, a WorkOS refresh, and the
-    // second step (§1.100). A pending step goes to its page and comes back here; the start
-    // cookie stays for that.
-    const identified = await choice.workos.identify(c.req.raw, now);
-    if (!identified.ok) return c.redirect(toApp("no_session"), 302);
-    // DECISION (audit, 2026-11-17): the phone app is for a client's people (docs/plan.md §1.116);
-    // an operator's session never leaves the browser for it. The browser keeps its session; the
-    // app is told why, with no code.
-    const memberships = await authDirectory(c.get("req").services().db).memberships(
-      identified.userId,
-    );
-    if (memberships.some((m) => isOperatorRole(m.role))) {
+    const gate = await handoffGate(c, choice.workos, password, now);
+    sendCookies(c, gate.setCookies);
+    if (!body.open) {
       c.header("Set-Cookie", clearCookie(MOBILE_START_COOKIE), { append: true });
-      for (const cookie of identified.setCookies) c.header("Set-Cookie", cookie, { append: true });
-      return c.redirect(toApp("operator"), 302);
+      await auditHandoff(c, { ...gate, outcome: "refused", reason: "cancelled" });
+      return { redirectTo: "/" };
     }
-    if (secondFactorGate(identified)) {
-      const query = new URLSearchParams({ return_to: MOBILE_HANDOFF_PATH });
-      for (const cookie of identified.setCookies) c.header("Set-Cookie", cookie, { append: true });
-      return c.redirect(`${SECOND_FACTOR_PAGE}?${query}`, 302);
+    if (!gate.go) {
+      if (gate.reason !== "second_factor_pending") {
+        await auditHandoff(c, { ...gate, outcome: "refused" });
+      }
+      return { redirectTo: gate.redirectTo };
     }
-    // A WorkOS refresh just now rotated the session: the phone gets the new one.
-    const current = mobileSessionFromSetCookies(identified.setCookies);
+    // A WorkOS refresh just now rotated the session: the app gets the new one.
+    const current = mobileSessionFromSetCookies(gate.setCookies);
     const r = await mobileHandoff(c.req.raw, password, now, current || null);
-    if (!r.ok) return c.redirect(toApp(r.reason), 302);
-    for (const cookie of r.setCookies) c.header("Set-Cookie", cookie, { append: true });
-    return c.redirect(r.redirectTo, 302);
+    if (!r.ok) {
+      await auditHandoff(c, { ...gate, outcome: "refused", reason: r.reason });
+      return { redirectTo: toApp(r.reason) };
+    }
+    sendCookies(c, r.setCookies);
+    await auditHandoff(c, { userId: gate.userId, app: r.app, outcome: "ok" });
+    return { redirectTo: r.redirectTo };
   });
 
   // 3. The app trades the code and its verifier for the session.
@@ -180,7 +318,8 @@ export function mobileRoutes(app: Hono<AppEnv>): void {
       action: "session.mobile_sign_in",
       outcome: "ok",
       httpStatus: 200,
-      target: {},
+      // §1.219: which app took the session.
+      target: { app: r.app },
     });
     return { session: r.session, expiresAt: r.expiresAt.toISOString() };
   });

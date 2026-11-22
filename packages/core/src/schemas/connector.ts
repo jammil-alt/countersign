@@ -94,6 +94,12 @@ export const ConnectorManifest = z
   .object({
     id: z.string().regex(/^[a-z][a-z0-9_-]*$/),
     name: z.string(),
+    /**
+     * The service behind it, where its name doesn't say ("Plaid" for the bank feed, "Twilio" for
+     * texts). The workflow builder names the connector with it (`connectorTitle`); a client's
+     * portal keeps the plain name.
+     */
+    vendor: z.string().min(1).max(60).optional(),
     description: z.string(),
     icon: z.string(),
     auth: ConnectorAuth,
@@ -214,4 +220,16 @@ export function connectorShown(
   where: Parameters<typeof showsTestOnly>[0],
 ): boolean {
   return manifest.testOnly !== true || showsTestOnly(where);
+}
+
+/**
+ * A connector's name with the service behind it, as the workflow builder and the Builder say it:
+ * "Bank and card feeds (Plaid)". The plain name where it has no vendor, or already names it.
+ */
+// DECISION (owner, 2026-11-21: "for all connectors in the workflow, let's call it by vendor name
+// as well"): the name first, the vendor after it in brackets, so both words find it.
+export function connectorTitle(c: { name: string; vendor?: string | undefined }): string {
+  const vendor = c.vendor?.trim();
+  if (!vendor || c.name.toLowerCase().includes(vendor.toLowerCase())) return c.name;
+  return `${c.name} (${vendor})`;
 }

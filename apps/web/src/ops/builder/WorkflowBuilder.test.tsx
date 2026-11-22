@@ -1,7 +1,8 @@
-// The workflow builder on a fake API: adding from the palette, reordering and moving into and out
-// of fork paths with the keyboard (dnd-kit's keyboard sensor), deleting and undoing, the Approval
-// control's enabled and disabled rules, invalid markers with a clickable summary, and the bundle
-// it saves keeping every step, path and id. R8: the fixture is a stored v3 version; the builder
+// The workflow builder on a fake API, on its one-screen view (docs/builder-plan.md §12, F6): adding
+// from the rail, reordering and moving into and out of a decision's paths with the keyboard
+// (dnd-kit's keyboard sensor, on the chart's boxes), removing and undoing, the Approval control's
+// enabled and disabled rules, issues on their steps with a clickable summary, and the bundle it
+// saves keeping every step, path and id. R8: the fixture is a stored v3 version; the builder
 // opens it as a v4 process and saves processes (schemaVersion 4) as a new version.
 import {
   AgentBundle,
@@ -23,6 +24,7 @@ import type { AgentSummary, VersionDetail } from "../../api/routes";
 import { ApiProvider } from "../../api/useApi";
 import { BUILDER_DRAFT_PREFIX, builderDraftKey } from "../../session/drafts";
 import { SessionProvider, useOptionalSession } from "../../session/session";
+import { fakeChartRects, keyboardDrag, listOrder, rootOrder } from "../../test/chart";
 import { fakeApi, OPERATOR_SESSION, Reply } from "../../test/fixtures";
 import { typingContext } from "./catalog";
 import { readProcessBundle } from "./model";
@@ -341,7 +343,7 @@ interface Setup {
   people?: { kind: "user" | "contact"; id: string; name: string; hours: null }[];
   /** More routes, answering from the first render. */
   routes?: Parameters<typeof fakeApi>[0];
-  /** §1.108: the Steps tab's list view. */
+  /** §1.108: the Steps tab opens the builder on its List. */
   view?: "canvas" | "steps";
   /** Who is signed in; the builder then shows only once the session has answered, as in the app. */
   session?: SessionResponse;
@@ -406,7 +408,7 @@ function setup(options: Setup = {}) {
   let changed = 0;
 
   function Page() {
-    const { workflow = "" } = useParams();
+    const { workflow = "", tab } = useParams();
     return (
       <WorkflowBuilder
         agent={agent}
@@ -420,7 +422,7 @@ function setup(options: Setup = {}) {
         onChanged={() => {
           changed += 1;
         }}
-        {...(options.view ? { view: options.view } : {})}
+        view={tab === "steps" ? "steps" : "canvas"}
       />
     );
   }
@@ -429,13 +431,15 @@ function setup(options: Setup = {}) {
   }
   const routes = (
     <Routes>
-      <Route path={`${BASE}/workflows/:workflow`} element={<Page />} />
+      <Route path={`${BASE}/:tab/:workflow`} element={<Page />} />
       <Route path="/ops/runs/:id" element={<p>The run page</p>} />
     </Routes>
   );
   render(
     <ApiProvider client={api.client}>
-      <MemoryRouter initialEntries={[`${BASE}/workflows/new-bill`]}>
+      <MemoryRouter
+        initialEntries={[`${BASE}/${options.view === "steps" ? "steps" : "workflows"}/new-bill`]}
+      >
         {options.session ? (
           <SessionProvider>
             <SignedIn>{routes}</SignedIn>
@@ -449,26 +453,7 @@ function setup(options: Setup = {}) {
   return { api, sent, changed: () => changed };
 }
 
-/** Top-level step ids as the canvas shows them, top to bottom. */
-function rootOrder(): string[] {
-  const list = screen.getByTestId("builder-list-root");
-  return [...list.querySelectorAll(":scope > li > [data-testid^='builder-step-']")].map((el) =>
-    (el.getAttribute("data-testid") ?? "").replace("builder-step-", ""),
-  );
-}
-
-function listOrder(container: string): string[] {
-  const list = screen.queryByTestId(`builder-list-${container}`);
-  if (!list) return [];
-  return [...list.querySelectorAll(":scope > li > [data-testid^='builder-step-']")].map((el) =>
-    (el.getAttribute("data-testid") ?? "").replace("builder-step-", ""),
-  );
-}
-
-// jsdom lays nothing out, so dnd-kit's keyboard sensor would see every droppable at 0,0. Give each
-// draggable or droppable node a rect by its place in the document (one row of 50px each), and the
-// drag overlay the rect of the step being dragged, where a browser would place it.
-const realRect = HTMLElement.prototype.getBoundingClientRect;
+let restoreRects = () => {};
 beforeEach(() => {
   try {
     window.localStorage.clear();
@@ -476,38 +461,12 @@ beforeEach(() => {
   } catch {
     // no storage in this environment
   }
-  HTMLElement.prototype.getBoundingClientRect = function (this: HTMLElement) {
-    const nodes = [...document.querySelectorAll("[data-dnd-node]")];
-    let target: Element = this;
-    if (this.matches("[data-drag-overlay]") || this.querySelector("[data-drag-overlay]")) {
-      // The handle being dragged (the zoom switch's pressed button isn't one).
-      target =
-        document
-          .querySelector('[data-dnd-node] [aria-pressed="true"]')
-          ?.closest("[data-dnd-node]") ?? this;
-    }
-    const i = nodes.indexOf(target);
-    if (i === -1) return realRect.call(this);
-    const top = i * 50;
-    return {
-      x: 0,
-      y: top,
-      top,
-      left: 0,
-      right: 300,
-      bottom: top + 40,
-      width: 300,
-      height: 40,
-      toJSON: () => ({}),
-    } as DOMRect;
-  };
+  restoreRects = fakeChartRects();
 });
-afterEach(() => {
-  HTMLElement.prototype.getBoundingClientRect = realRect;
-});
+afterEach(() => restoreRects());
 
 async function ready() {
-  return screen.findByTestId("builder-canvas");
+  return screen.findByTestId("flow-chart");
 }
 
 /** The builder's draft keys in this browser's localStorage. */
@@ -515,63 +474,45 @@ function builderKeys(): string[] {
   return Object.keys(window.localStorage).filter((k) => k.startsWith(BUILDER_DRAFT_PREFIX));
 }
 
-/** Picks a step up by its handle, presses the arrows, and drops it. */
-async function keyboardMove(user: ReturnType<typeof userEvent.setup>, id: string, keys: string) {
-  // After a drop dnd-kit gives focus back to the dropped step's handle on the next frame; let it.
-  await act(() => new Promise((resolve) => setTimeout(resolve, 50)));
-  const handle = screen.getByTestId(`builder-step-${id}-handle`);
-  act(() => handle.focus());
-  await user.keyboard("[Space]");
-  for (const key of keys.split(" ")) await user.keyboard(`[${key}]`);
-  await user.keyboard("[Space]");
+/** Picks a step's box up with the keyboard, moves it onto another box or a +, and drops it. */
+const keyboardMove = (user: ReturnType<typeof userEvent.setup>, id: string, onto: string) =>
+  keyboardDrag(user, `flow-box-${id}`, onto);
+
+/** A box's details, shown once the pointer has rested on it. */
+async function tipOf(user: ReturnType<typeof userEvent.setup>, id: string) {
+  await user.hover(screen.getByTestId(`flow-box-${id}`));
+  return screen.findByTestId("flow-tip");
 }
 
 describe("WorkflowBuilder", () => {
-  it("lays the workflow out with numbers, kinds and the header's counts", async () => {
+  it("lays the workflow out with numbers, kinds and the bar's counts", async () => {
     setup();
     await ready();
     const user = userEvent.setup();
     expect(rootOrder()).toEqual(["find", "read", "confidence", "update"]);
-    expect(screen.getByTestId("builder-step-find-number")).toHaveTextContent("1");
+    expect(screen.getByTestId("flow-box-find")).toHaveAttribute("data-number", "1");
     // Labels, never ids: the event, the tool and its connector, the person a step asks.
-    expect(screen.getByTestId("builder-trigger")).toHaveTextContent(
-      "When a bill or purchase arrives",
-    );
-    expect(screen.getByTestId("builder-trigger")).not.toHaveTextContent("transaction.created");
-    // A card is one line; what the step does is in its tooltip.
-    await user.hover(screen.getByTestId("builder-step-update"));
-    expect(screen.getByTestId("builder-step-tip")).toHaveTextContent(
+    expect(screen.getByTestId("flow-start")).toHaveTextContent("When a bill or purchase arrives");
+    expect(screen.getByTestId("flow-start")).not.toHaveTextContent("transaction.created");
+    // A box is two short lines; what the step does reads in full once the pointer rests on it.
+    expect(await tipOf(user, "update")).toHaveTextContent(
       "Testkit · Update a record · needs approval",
     );
-    await user.hover(screen.getByTestId("builder-step-ask"));
-    expect(screen.getByTestId("builder-step-tip")).toHaveTextContent("Ask · client admin · 2 days");
-    await user.unhover(screen.getByTestId("builder-step-ask"));
-    expect(screen.queryByTestId("builder-step-tip")).toBeNull();
-    expect(screen.getByTestId("builder-step-find")).not.toHaveTextContent("docs.find-support");
+    await user.unhover(screen.getByTestId("flow-box-update"));
+    expect(await tipOf(user, "ask")).toHaveTextContent("Ask · client admin · 2 days");
+    await user.unhover(screen.getByTestId("flow-box-ask"));
+    expect(screen.queryByTestId("flow-tip")).toBeNull();
+    expect(screen.getByTestId("flow-box-find")).not.toHaveTextContent("docs.find-support");
     expect(listOrder("path:low")).toEqual(["ask"]);
-    expect(screen.getByTestId("builder-counts")).toHaveTextContent(
-      "Purchasing · 5 steps · 1 if · 1 changes a tool · 1 needs approval",
+    expect(screen.getByTestId("flow-bar-counts")).toHaveTextContent(
+      "5 steps · 1 decision · 1 writes to a tool · 1 needs approval",
     );
-    expect(screen.getByTestId("builder-version")).toHaveTextContent("Draft · v1");
+    expect(screen.getByTestId("flow-bar-version")).toHaveTextContent("Draft · v1");
     expect(screen.getByTestId("builder-valid")).toBeInTheDocument();
-    expect(screen.getByTestId("builder-step-update-approval")).toHaveTextContent("Needs approval");
+    expect(screen.getByTestId("flow-box-update")).toHaveTextContent("needs approval");
   });
 
-  it("keeps each fork path readable and lets the canvas scroll sideways in its own box", async () => {
-    setup();
-    await ready();
-    const fork = screen.getByTestId("builder-fork-confidence");
-    // Two paths and otherwise, each at least a card's width (180px plus its padding).
-    expect(fork.style.minWidth).toBe("628px");
-    expect((fork.querySelector(".grid") as HTMLElement).style.gridTemplateColumns).toBe(
-      "minmax(198px, 1fr) minmax(198px, 1fr) minmax(198px, 1fr)",
-    );
-    // The fork scrolls sideways in its own box; the top-level steps keep to the canvas.
-    expect(screen.getByTestId("builder-fork-confidence-scroll")).toHaveClass("overflow-x-auto");
-    expect(screen.getByTestId("builder-canvas").style.minWidth).toBe("");
-  });
-
-  it("draws a fork as lettered paths that end or join, and zooms out to titles and a map", async () => {
+  it("draws a decision as lettered paths that end or come back, on the chart and the List", async () => {
     // Otherwise stops the run: that path ends instead of rejoining the line.
     const input = structuredClone(BUNDLE_INPUT);
     const steps = input.workflows?.[0]?.workflow.steps as { id: string; otherwise?: unknown }[];
@@ -586,92 +527,81 @@ describe("WorkflowBuilder", () => {
     await ready();
     const user = userEvent.setup();
 
-    // The fork's card lists its paths by letter before the line splits.
-    const paths = screen.getByTestId("builder-step-confidence-paths");
-    expect(
-      within(paths)
-        .getAllByRole("listitem")
-        .map((li) => li.textContent),
-    ).toEqual(["AAny line below 90%", "BBig change", "COtherwise"]);
-    expect(screen.getByRole("region", { name: "Path A: Any line below 90%" })).toBeInTheDocument();
-    expect(screen.getByRole("region", { name: "Path C: Otherwise" })).toBeInTheDocument();
-    // A path's steps are numbered by the fork's number and the path's letter (feedback,
+    // Each path's label carries its letter, in order; Otherwise comes last.
+    expect(screen.getByTestId("flow-path-low")).toHaveTextContent("AAny line below 90%");
+    expect(screen.getByTestId("flow-path-big")).toHaveTextContent("BBig change");
+    expect(screen.getByTestId("flow-path-else")).toHaveTextContent("Otherwise");
+    // A path's steps are numbered by the decision's number and the path's letter (feedback,
     // 2026-11-15: "5 A1"); top-level numbers stay as they were.
-    const forkNumber = screen.getByTestId("builder-step-confidence-number").textContent;
-    expect(screen.getByTestId("builder-step-ask-path-number")).toHaveTextContent(
-      `${forkNumber} A1`,
-    );
-    expect(screen.getByTestId("builder-step-halt-path-number")).toHaveTextContent(
-      `${forkNumber} C1`,
-    );
-    expect(screen.getByTestId("builder-step-update-number")).toHaveTextContent("4");
-    // Otherwise ends; the paths that carry on don't.
-    expect(screen.getByTestId("builder-fork-confidence-otherwise-ends")).toHaveTextContent(
-      "Ends here",
-    );
-    expect(screen.queryByTestId("builder-fork-confidence-path-low-ends")).toBeNull();
+    const forkNumber = screen.getByTestId("flow-box-confidence").getAttribute("data-number");
+    expect(forkNumber).toBe("3");
+    expect(screen.getByTestId("flow-box-ask")).toHaveAttribute("data-number", `${forkNumber} A1`);
+    expect(screen.getByTestId("flow-box-halt")).toHaveAttribute("data-number", `${forkNumber} C1`);
+    expect(screen.getByTestId("flow-box-update")).toHaveAttribute("data-number", "4");
+    // Otherwise ends at its Stop.
+    expect(screen.getByTestId("flow-box-halt")).toHaveTextContent("Stop");
 
-    // Steps: titles only, nothing to drag or drop.
-    await user.click(screen.getByTestId("builder-zoom-out"));
-    expect(screen.getByTestId("builder-canvas")).toHaveAttribute("data-zoom", "steps");
-    expect(screen.getByTestId("builder-zoom-steps")).toHaveAttribute("aria-pressed", "true");
-    expect(screen.getByTestId("builder-step-read")).toHaveTextContent("Read a document");
-    expect(screen.queryByTestId("builder-step-read-handle")).toBeNull();
-    expect(screen.queryByTestId("builder-drop-root")).toBeNull();
+    // Zooming keeps every box; a click on one still opens it.
+    await user.click(screen.getByTestId("flow-zoom-out"));
+    expect(screen.getByTestId("flow-zoom-level")).toHaveTextContent("90%");
+    await user.click(screen.getByTestId("flow-box-ask"));
+    expect(screen.getByTestId("flow-box-ask")).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByTestId("flow-panel")).toHaveAttribute("data-step", "ask");
 
-    // Map: shapes named for screen readers, no text on them.
-    await user.click(screen.getByTestId("builder-zoom-map"));
-    expect(screen.getByTestId("builder-zoom-out")).toBeDisabled();
-    const ask = screen.getByTestId("builder-step-ask-select");
-    expect(ask).toHaveAccessibleName("Person: Ask Jammil");
-    expect(ask).toHaveTextContent("");
-
-    // A click zooms back in on the step and opens it.
-    await user.click(ask);
-    expect(screen.getByTestId("builder-canvas")).toHaveAttribute("data-zoom", "detail");
-    expect(screen.getByTestId("builder-step-ask")).toHaveAttribute("data-selected", "true");
-    expect(screen.getByTestId("builder-rail-step")).toHaveAttribute("aria-selected", "true");
+    // The List says it in words: Otherwise ends; the paths that carry on come back.
+    await user.click(screen.getByTestId("flow-bar-view-list"));
+    const list = await screen.findByTestId("flow-list");
+    expect(within(list).getByTestId("flow-list-otherwise:else")).toHaveTextContent(
+      "otherwise · ends there",
+    );
+    expect(within(list).getByTestId("flow-list-path:low")).toHaveTextContent("comes back");
   });
 
-  it("shows the selected step on the canvas and opens it in the side panel", async () => {
+  it("shows the selected step on the chart and opens it in the side panel", async () => {
     setup();
     await ready();
     const user = userEvent.setup();
-    expect(screen.getByTestId("builder-rail-builder")).toHaveAttribute("aria-selected", "true");
-    await user.click(screen.getByTestId("builder-step-read-select"));
-    const card = screen.getByTestId("builder-step-read");
-    expect(card).toHaveAttribute("data-selected", "true");
-    expect(card).toHaveClass("border-slate", "bg-slate-tint");
-    expect(screen.getByTestId("builder-step-read-select")).toHaveAttribute("aria-current", "true");
-    expect(screen.getByTestId("builder-step-find")).not.toHaveAttribute("data-selected");
-    expect(screen.getByTestId("builder-rail-step")).toHaveAttribute("aria-selected", "true");
-    // Where the panel sits below the canvas (jsdom lays nothing out), the inspector takes focus.
+    expect(screen.queryByTestId("flow-panel")).toBeNull();
+    await user.click(screen.getByTestId("flow-box-read"));
+    const box = screen.getByTestId("flow-box-read");
+    expect(box).toHaveAttribute("aria-pressed", "true");
+    expect(box).toHaveClass("is-sel");
+    expect(screen.getByTestId("flow-box-find")).toHaveAttribute("aria-pressed", "false");
+    const panel = screen.getByTestId("flow-panel");
+    expect(panel).toHaveAttribute("data-step", "read");
+    expect(screen.getByTestId("flow-panel-eyebrow")).toHaveTextContent("Skill · AI · step 2 of 4");
+    // Where the panel sits below the chart (jsdom lays nothing out), the inspector takes focus.
     await waitFor(() => expect(screen.getByTestId("builder-inspector")).toHaveFocus());
     // The skill reads by its name, not its reference.
-    expect(screen.getByTestId("builder-inspector")).toHaveTextContent("Read a document");
-    expect(screen.getByTestId("builder-inspector")).not.toHaveTextContent("docs.extract");
+    expect(screen.getByTestId("flow-panel-name")).toHaveValue("Read a document");
+    expect(panel).not.toHaveTextContent("docs.extract");
+    // Closing it clears the selection.
+    await user.click(screen.getByTestId("flow-panel-close"));
+    expect(screen.queryByTestId("flow-panel")).toBeNull();
+    expect(screen.getByTestId("flow-box-read")).toHaveAttribute("aria-pressed", "false");
   });
 
-  it("opens the palette from an add point, adds into that fork path, and closes on pick or Escape", async () => {
+  it("adds where a + was pressed, into that path, and forgets the place on a pick or Escape", async () => {
     setup();
     await ready();
     const user = userEvent.setup();
-    expect(screen.queryByTestId("builder-palette")).toBeNull();
-    await user.click(screen.getByTestId("builder-add-path:big"));
-    expect(screen.getByTestId("builder-rail-add")).toHaveAttribute("aria-selected", "true");
+    expect(screen.queryByTestId("builder-palette-target")).toBeNull();
+    await user.click(screen.getByTestId("flow-insert-path:big-0"));
     expect(screen.getByTestId("builder-palette-target")).toHaveTextContent("to “Big change”");
-    expect(screen.getByTestId("builder-palette-search")).toHaveFocus();
+    await waitFor(() => expect(screen.getByTestId("flow-rail-search")).toHaveFocus());
     await user.keyboard("[Escape]");
-    expect(screen.queryByTestId("builder-palette")).toBeNull();
-    expect(screen.getByTestId("builder-rail-builder")).toHaveAttribute("aria-selected", "true");
+    expect(screen.queryByTestId("builder-palette-target")).toBeNull();
 
-    await user.click(screen.getByTestId("builder-add-path:big"));
-    await user.click(screen.getByTestId("builder-palette-item-logic:wait-add"));
+    await user.click(screen.getByTestId("flow-insert-path:big-0"));
+    await user.click(screen.getByTestId("flow-rail-item-logic:wait"));
     expect(listOrder("path:big")).toHaveLength(1);
     expect(rootOrder()).toHaveLength(4);
-    // Picking closes the palette; the new step opens in the inspector.
-    expect(screen.queryByTestId("builder-palette")).toBeNull();
-    expect(screen.getByTestId("builder-rail-step")).toHaveAttribute("aria-selected", "true");
+    // The pick is made: the place is forgotten and the new step opens in the side panel.
+    expect(screen.queryByTestId("builder-palette-target")).toBeNull();
+    expect(screen.getByTestId("flow-panel")).toHaveAttribute("data-step", listOrder("path:big")[0]);
+    // With no place chosen, a pick goes to the end.
+    await user.click(screen.getByTestId("flow-rail-item-logic:stop"));
+    expect(rootOrder()).toHaveLength(5);
   });
 
   // v0.17: a repeat from the palette, its steps in its own block.
@@ -679,29 +609,27 @@ describe("WorkflowBuilder", () => {
     setup();
     await ready();
     const user = userEvent.setup();
-    await user.click(screen.getByTestId("builder-add-step"));
-    await user.click(screen.getByTestId("builder-palette-item-logic:repeat-add"));
-    const block = document.querySelector<HTMLElement>('[data-testid^="builder-repeat-"]');
-    expect(block).not.toBeNull();
-    expect(block).toHaveTextContent("up to 3 times");
-    expect(screen.getByTestId("builder-inspector")).toHaveTextContent("again until its rule holds");
+    await user.click(screen.getByTestId("flow-rail-item-logic:repeat"));
+    const added = rootOrder()[4] as string;
+    expect(screen.getByTestId(`flow-box-${added}`)).toHaveTextContent("up to 3 times");
+    expect(screen.getByTestId("flow-panel-eyebrow")).toHaveTextContent("Repeat · step 5 of 5");
     // A controlled number field: one change, as typing digit by digit would clamp on the way.
     fireEvent.change(screen.getByTestId("builder-repeat-max"), { target: { value: "5" } });
     await user.type(screen.getByTestId("builder-repeat-between"), "1 hour");
     await user.selectOptions(screen.getByTestId("builder-repeat-on-limit"), "proceed");
-    expect(block).toHaveTextContent("up to 5 times · 1 hour apart");
+    expect(screen.getByTestId(`flow-box-${added}`)).toHaveTextContent("up to 5 times");
+    expect(screen.getByTestId("builder-repeat-between")).toHaveValue("1 hour");
     expect(screen.getByTestId("builder-repeat-on-limit")).toHaveValue("proceed");
   });
 
-  it("opens a step from a click anywhere on its card, a fork's paths included (feedback, 2026-11-15)", async () => {
+  it("opens a decision from a click on one of its paths (feedback, 2026-11-15)", async () => {
     setup();
     await ready();
     const user = userEvent.setup();
-    const card = screen.getByTestId("builder-step-confidence");
-    expect(card).not.toHaveAttribute("data-selected");
-    const paths = screen.getByTestId("builder-step-confidence-paths");
-    await user.click(within(paths).getAllByRole("listitem")[0] as HTMLElement);
-    expect(screen.getByTestId("builder-step-confidence")).toHaveAttribute("data-selected", "true");
+    expect(screen.getByTestId("flow-box-confidence")).toHaveAttribute("aria-pressed", "false");
+    await user.click(screen.getByTestId("flow-path-low"));
+    expect(screen.getByTestId("flow-box-confidence")).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByTestId("flow-panel")).toHaveAttribute("data-step", "confidence");
   });
 
   // M61: an if the agent decides, each path saying when to take it.
@@ -709,7 +637,7 @@ describe("WorkflowBuilder", () => {
     setup();
     await ready();
     const user = userEvent.setup();
-    await user.click(screen.getByTestId("builder-step-confidence-select"));
+    await user.click(screen.getByTestId("flow-box-confidence"));
     expect(screen.queryByTestId("builder-path-low-describe")).toBeNull();
     await user.click(screen.getByTestId("builder-if-agent"));
     await user.type(screen.getByTestId("builder-path-low-describe"), "a line looks wrong");
@@ -720,70 +648,76 @@ describe("WorkflowBuilder", () => {
     expect(screen.queryByTestId("builder-if-unsure")).toBeNull();
   });
 
-  it("groups triggers into a few kinds with plain names", async () => {
-    setup();
+  it("offers another start, in plain names, while the start is open", async () => {
+    const { sent } = setup();
     await ready();
     const user = userEvent.setup();
-    await user.click(screen.getByTestId("builder-add-step"));
-    const triggers = screen.getByTestId("builder-palette-triggers");
-    expect([...triggers.querySelectorAll("summary")].map((s) => s.firstChild?.textContent)).toEqual(
-      ["On a schedule", "A record changes", "A person asks"],
-    );
-    expect(
-      within(screen.getByTestId("builder-palette-triggers-record")).getByText(
-        "When a bill or purchase arrives",
-      ),
-    ).toBeInTheDocument();
+    // The rail is for steps until the start is opened.
+    expect(screen.queryByTestId("flow-rail-triggers")).toBeNull();
+    await user.click(screen.getByTestId("flow-start"));
+    expect(screen.getByTestId("flow-panel-eyebrow")).toHaveTextContent("Starts when");
+    const triggers = screen.getByTestId("flow-rail-triggers");
+    expect(within(triggers).getByText("When a bill or purchase arrives")).toBeInTheDocument();
+    expect(within(triggers).getByText("On a schedule")).toBeInTheDocument();
     expect(triggers).not.toHaveTextContent("transaction.created");
+    // A pick replaces how it starts: the trigger keeps its id.
+    await user.click(within(triggers).getByText("On a schedule"));
+    expect(screen.getByTestId("flow-start")).toHaveTextContent("On a schedule");
+    await user.click(screen.getByTestId("flow-bar-save"));
+    await waitFor(() => expect(sent).toHaveLength(1));
+    const saved = AnyAgentBundle.parse(sent[0]?.body.bundle).workflows[0]?.workflow;
+    expect(saved?.schemaVersion === 4 ? saved.triggers.map((t) => t.id) : null).toEqual(["t1"]);
   });
 
-  it("adds a step from the palette with +, approval on for a write, and marks what is invalid", async () => {
+  it("adds a step from the rail, approval on for a write, and marks what is invalid", async () => {
     setup();
     await ready();
     const user = userEvent.setup();
-    await user.click(screen.getByTestId("builder-add-step"));
 
-    // The agent's own skills come first, then the library; reads and writes are grouped by connector.
-    const skills = screen.getByTestId("builder-palette-skills");
+    // The agent's own skills come first, then the library; reads and writes are grouped by tool.
+    const skills = screen.getByTestId("flow-rail-skills");
     expect(
       within(skills)
-        .getAllByRole("listitem")
-        .map((li) => li.textContent),
+        .getAllByRole("button")
+        .map((b) => b.textContent),
     ).toEqual([
       expect.stringContaining("Read a document"),
       expect.stringContaining("Find supporting document"),
       expect.stringContaining("Track price changes"),
     ]);
-    // Each connected tool has its own section, by its name.
-    const actions = screen.getByTestId("builder-palette-connector:testkit");
-    expect(within(actions).getByRole("heading")).toHaveTextContent("Testkit");
-    expect(within(actions).getByText("Update a record")).toBeInTheDocument();
-    expect(actions).not.toHaveTextContent("testkit.record.update");
-    // R8: reads are offered too, as read steps, before the changes.
-    expect(
-      within(actions).getByTestId("builder-palette-item-read:testkit.record.query"),
-    ).toHaveTextContent("Read");
+    // Each connected tool has its own group, by its name, with its reads and writes counted.
+    const tool = screen.getByTestId("flow-rail-tool-testkit");
+    expect(tool).toHaveTextContent("Testkit");
+    expect(screen.getByTestId("flow-rail-tool-testkit-line")).toHaveTextContent("1 read · 1 write");
+    expect(within(tool).getByText("Update a record")).toBeInTheDocument();
+    expect(tool).not.toHaveTextContent("testkit.record.update");
+    // R8: reads are offered too, as read steps.
+    expect(within(tool).getByTestId("flow-rail-item-read:testkit.record.query")).toHaveTextContent(
+      "Read",
+    );
 
-    await user.click(screen.getByTestId("builder-palette-item-write:testkit.record.update-add"));
+    await user.click(screen.getByTestId("flow-rail-item-write:testkit.record.update"));
     const order = rootOrder();
     expect(order).toHaveLength(5);
     const added = order[4] as string;
-    expect(screen.getByTestId(`builder-step-${added}-approval`)).toHaveTextContent(
-      "Needs approval",
-    );
-    // Its required input is missing: the step is marked, and the summary names it.
-    expect(screen.getByTestId(`builder-step-${added}-invalid`)).toBeInTheDocument();
+    expect(screen.getByTestId(`flow-box-${added}`)).toHaveTextContent("needs approval");
+    // Its required input is missing: the step is flagged, the bar counts it, the panel and the
+    // summary name it.
+    expect(screen.getByTestId(`flow-flag-${added}`)).toHaveTextContent("1 issue");
+    expect(screen.getByTestId("flow-bar-issues")).toHaveTextContent("1 issue");
+    expect(screen.getByTestId("flow-panel-settle")).toHaveTextContent("Id is required.");
     const problems = screen.getByTestId("builder-problems");
     expect(problems).toHaveTextContent("Update a record: Id is required.");
     expect(screen.getByTestId("builder-publish")).toBeDisabled();
-    expect(screen.getByTestId("builder-test-run")).toBeDisabled();
+    expect(screen.getByTestId("flow-bar-try")).toBeDisabled();
 
     // Clicking the problem selects the step and focuses the field.
     await user.click(screen.getByTestId("builder-problem-0"));
     const field = within(screen.getByTestId("builder-inspector")).getByTestId("builder-input-id");
     expect(field).toHaveFocus();
     await user.type(field, "r-1");
-    expect(screen.queryByTestId(`builder-step-${added}-invalid`)).toBeNull();
+    expect(screen.queryByTestId(`flow-flag-${added}`)).toBeNull();
+    expect(screen.queryByTestId("flow-bar-issues")).toBeNull();
     expect(screen.getByTestId("builder-valid")).toBeInTheDocument();
   });
 
@@ -824,13 +758,9 @@ describe("WorkflowBuilder", () => {
       },
     });
     await ready();
-    const user = userEvent.setup();
-    await user.click(screen.getByTestId("builder-add-step"));
     // The client connected the Testkit, but it isn't the Sandbox; Zoho isn't connected at all.
-    await waitFor(() =>
-      expect(screen.queryByTestId("builder-palette-connector:testkit")).toBeNull(),
-    );
-    expect(screen.queryByTestId("builder-palette-connector:zoho_crm")).toBeNull();
+    await waitFor(() => expect(screen.queryByTestId("flow-rail-tool-testkit")).toBeNull());
+    expect(screen.queryByTestId("flow-rail-tool-zoho_crm")).toBeNull();
     expect(screen.getByTestId("builder-palette-connected")).toHaveTextContent(
       "Only the tools this client has connected show here.",
     );
@@ -840,12 +770,11 @@ describe("WorkflowBuilder", () => {
     const { sent } = setup();
     await ready();
     const user = userEvent.setup();
-    await user.click(screen.getByTestId("builder-add-step"));
-    await user.type(screen.getByTestId("builder-palette-search"), "price");
-    expect(screen.queryByTestId("builder-palette-connector:testkit")).toBeNull();
-    await user.click(screen.getByTestId("builder-palette-item-skill:custom:price-watch-add"));
+    await user.type(screen.getByTestId("flow-rail-search"), "price");
+    expect(screen.queryByTestId("flow-rail-tool-testkit")).toBeNull();
+    await user.click(screen.getByTestId("flow-rail-item-skill:custom:price-watch"));
     expect(screen.getByTestId("builder-valid")).toBeInTheDocument();
-    await user.click(screen.getByTestId("builder-save"));
+    await user.click(screen.getByTestId("flow-bar-save"));
     await waitFor(() => expect(sent).toHaveLength(1));
     const bundle = sent[0]?.body.bundle as AgentBundle;
     expect(bundle.definition.skills.map((s) => s.skill)).toEqual([
@@ -855,76 +784,83 @@ describe("WorkflowBuilder", () => {
     ]);
   });
 
-  it("reorders with the keyboard: pick up by the handle, arrow, drop", async () => {
+  it("reorders with the keyboard: pick up a box, arrow to a +, drop", async () => {
     setup();
     await ready();
     const user = userEvent.setup();
-    await keyboardMove(user, "read", "ArrowUp");
+    await keyboardMove(user, "read", "flow-insert-root-0");
     await waitFor(() => expect(rootOrder()).toEqual(["read", "find", "confidence", "update"]));
-    expect(screen.getByTestId("builder-step-read-number")).toHaveTextContent("1");
+    expect(screen.getByTestId("flow-box-read")).toHaveAttribute("data-number", "1");
     // Moving the reader above the step it reads from breaks its reference: marked invalid.
-    expect(screen.getByTestId("builder-step-read-invalid")).toBeInTheDocument();
+    expect(screen.getByTestId("flow-flag-read")).toBeInTheDocument();
   });
 
-  it("moves a step into a fork path and back out", async () => {
+  it("moves a step into a decision's path and back out", async () => {
     setup();
     await ready();
     const user = userEvent.setup();
-    // From the bottom: past otherwise's drop zone into the "Big change" path's.
-    await keyboardMove(user, "update", "ArrowUp ArrowUp");
+    // Onto the + of the empty "Big change" path.
+    await keyboardMove(user, "update", "flow-insert-path:big-0");
     await waitFor(() => expect(listOrder("path:big")).toEqual(["update"]));
     expect(rootOrder()).toEqual(["find", "read", "confidence"]);
-    // A step inside a path has no number.
-    expect(screen.queryByTestId("builder-step-update-number")).toBeNull();
+    // A step on a path is numbered by its decision and its path's letter.
+    expect(screen.getByTestId("flow-box-update")).toHaveAttribute("data-number", "3 B1");
 
-    // And out of a path: down past the other path's step and the drop zones to the end of the list.
-    await keyboardMove(user, "ask", "ArrowDown ArrowDown ArrowDown ArrowDown ArrowDown");
+    // And out of a path: onto "Add a step" under the last step.
+    await keyboardMove(user, "ask", "flow-tail");
     await waitFor(() => expect(rootOrder()).toEqual(["find", "read", "confidence", "ask"]));
     expect(listOrder("path:low")).toEqual([]);
     expect(listOrder("path:big")).toEqual(["update"]);
-    expect(screen.getByTestId("builder-step-ask-number")).toHaveTextContent("4");
+    expect(screen.getByTestId("flow-box-ask")).toHaveAttribute("data-number", "4");
 
-    // Onto a top-level step from inside a path: it goes in just before that step.
-    await keyboardMove(user, "update", "ArrowDown ArrowDown ArrowDown");
+    // Onto a top-level box from inside a path: it comes right after that step.
+    await keyboardMove(user, "update", "flow-box-confidence");
     await waitFor(() =>
       expect(rootOrder()).toEqual(["find", "read", "confidence", "update", "ask"]),
     );
   });
 
-  it("folds the side panel and opens it again on a step, a tab or the expand button", async () => {
+  it("folds the rail and remembers it, and opens one side at a time: a step, or the Builder", async () => {
     setup();
     await ready();
     const user = userEvent.setup();
-    await user.click(screen.getByTestId("builder-rail-collapse"));
-    expect(screen.getByTestId("builder-rail")).toHaveAttribute("data-open", "false");
-    expect(window.localStorage.getItem("mezonas.builder.panel")).toBe("closed");
-    expect(screen.queryByTestId("builder-inspector")).toBeNull();
-    // Clicking a step opens the panel on it.
-    await user.click(screen.getByTestId("builder-step-read-select"));
-    expect(screen.getByTestId("builder-rail")).toHaveAttribute("data-open", "true");
+    await user.click(screen.getByTestId("flow-rail-fold"));
+    expect(screen.getByTestId("flow-rail")).toHaveAttribute("data-folded");
+    expect(window.localStorage.getItem("mezonas.builder.rail")).toBe("folded");
+    // Pressing a + on the chart shows it again, to pick from.
+    await user.click(screen.getByTestId("flow-insert-root-0"));
+    expect(screen.getByTestId("flow-rail")).not.toHaveAttribute("data-folded");
+    expect(window.localStorage.getItem("mezonas.builder.rail")).toBe("shown");
+
+    // Nothing is open on the right until asked for.
+    expect(screen.getByTestId("builder-side")).not.toHaveAttribute("data-side");
+    await user.click(screen.getByTestId("flow-box-read"));
+    expect(screen.getByTestId("builder-side")).toHaveAttribute("data-side", "step");
     expect(screen.getByTestId("builder-inspector")).toBeInTheDocument();
-    // Folded again, a tab's icon or the expand button opens it.
-    await user.click(screen.getByTestId("builder-rail-collapse"));
-    await user.click(screen.getByTestId("builder-rail-builder-folded"));
-    expect(screen.getByTestId("builder-rail-builder")).toHaveAttribute("aria-selected", "true");
-    await user.click(screen.getByTestId("builder-rail-collapse"));
-    await user.click(screen.getByTestId("builder-rail-expand"));
-    expect(screen.getByTestId("builder-rail")).toHaveAttribute("data-open", "true");
-    window.localStorage.removeItem("mezonas.builder.panel");
+    // "Ask the Builder" takes the side; a click on a step takes it back.
+    await user.click(screen.getByTestId("flow-bar-builder"));
+    expect(screen.getByTestId("builder-side")).toHaveAttribute("data-side", "builder");
+    expect(screen.queryByTestId("builder-inspector")).toBeNull();
+    await user.click(screen.getByTestId("flow-box-find"));
+    expect(screen.getByTestId("flow-panel")).toHaveAttribute("data-step", "find");
+    await user.click(screen.getByTestId("flow-bar-builder"));
+    await user.click(screen.getByTestId("builder-side-close"));
+    expect(screen.getByTestId("builder-side")).not.toHaveAttribute("data-side");
+    window.localStorage.removeItem("mezonas.builder.rail");
   });
 
   it("deletes a step, then undoes and redoes it", async () => {
     setup();
     await ready();
     const user = userEvent.setup();
-    await user.click(screen.getByTestId("builder-step-read-select"));
-    await user.click(screen.getByTestId("builder-inspector-delete"));
+    await user.click(screen.getByTestId("flow-box-read"));
+    await user.click(screen.getByTestId("flow-panel-remove"));
     expect(rootOrder()).toEqual(["find", "confidence", "update"]);
-    expect(screen.getByTestId("builder-unsaved")).toBeInTheDocument();
-    await user.click(screen.getByTestId("builder-undo"));
+    expect(screen.getByTestId("flow-bar-version")).toHaveTextContent("Unsaved");
+    await user.click(screen.getByTestId("flow-bar-undo"));
     expect(rootOrder()).toEqual(["find", "read", "confidence", "update"]);
-    expect(screen.queryByTestId("builder-unsaved")).toBeNull();
-    await user.click(screen.getByTestId("builder-redo"));
+    expect(screen.getByTestId("flow-bar-version")).not.toHaveTextContent("Unsaved");
+    await user.click(screen.getByTestId("flow-bar-redo"));
     expect(rootOrder()).toEqual(["find", "confidence", "update"]);
   });
 
@@ -932,7 +868,7 @@ describe("WorkflowBuilder", () => {
     async function selectUpdate() {
       await ready();
       const user = userEvent.setup();
-      await user.click(screen.getByTestId("builder-step-update-select"));
+      await user.click(screen.getByTestId("flow-box-update"));
       return { user, toggle: screen.getByTestId("builder-approval-toggle") };
     }
 
@@ -943,10 +879,12 @@ describe("WorkflowBuilder", () => {
       expect(toggle).toBeEnabled();
       await user.click(toggle);
       expect(toggle).not.toBeChecked();
-      expect(screen.getByTestId("builder-step-update-approval")).toHaveTextContent("On its own");
-      expect(screen.getByTestId("builder-counts")).toHaveTextContent(
-        "1 changes a tool · 0 need approval",
+      expect(screen.getByTestId("flow-box-update")).toHaveTextContent("on its own");
+      // Nothing waits for approval now: the bar's line leaves that part out.
+      expect(screen.getByTestId("flow-bar-counts")).toHaveTextContent(
+        "5 steps · 1 decision · 1 writes to a tool",
       );
+      expect(screen.getByTestId("flow-bar-counts")).not.toHaveTextContent("approval");
     });
 
     it("keeps it on where the connection requires approval, and says why", async () => {
@@ -997,14 +935,12 @@ describe("WorkflowBuilder", () => {
       });
       setup({ bundle: off, update: "approval" });
       const { user, toggle } = await selectUpdate();
-      expect(screen.getByTestId("builder-step-update-invalid")).toBeInTheDocument();
-      expect(screen.getByTestId("builder-step-update-approval")).toHaveTextContent(
-        "Needs approval",
-      );
+      expect(screen.getByTestId("flow-flag-update")).toBeInTheDocument();
+      expect(screen.getByTestId("flow-box-update")).toHaveTextContent("needs approval");
       // Switching it back on is always allowed.
       expect(toggle).toBeEnabled();
       await user.click(toggle);
-      expect(screen.queryByTestId("builder-step-update-invalid")).toBeNull();
+      expect(screen.queryByTestId("flow-flag-update")).toBeNull();
       expect(toggle).toBeDisabled();
     });
   });
@@ -1013,36 +949,46 @@ describe("WorkflowBuilder", () => {
     setup();
     await ready();
     const user = userEvent.setup();
-    await user.click(screen.getByTestId("builder-step-confidence-select"));
+    await user.click(screen.getByTestId("flow-box-confidence"));
     const big = screen.getByTestId("builder-path-big");
     await user.click(within(big).getByTestId("builder-path-big-add-condition"));
     // The new rule names no field yet: the path is invalid until it does.
-    expect(screen.getByTestId("builder-step-confidence-invalid")).toBeInTheDocument();
+    expect(screen.getByTestId("flow-flag-confidence")).toBeInTheDocument();
     await user.click(within(big).getByTestId("builder-path-big-rule-1-field-pick"));
     await user.click(
       within(big).getByTestId("builder-path-big-rule-1-field-path-steps.read.output.total"),
     );
     await user.type(within(big).getByTestId("builder-path-big-rule-1-value"), "1000");
-    expect(screen.queryByTestId("builder-step-confidence-invalid")).toBeNull();
-    expect(screen.getByTestId("builder-fork-confidence-path-big")).toHaveTextContent(
-      "if Read a document · total > 500 and Read a document · total = 1000",
-    );
+    expect(screen.queryByTestId("flow-flag-confidence")).toBeNull();
+    expect(within(big).getByTestId("builder-path-big-rule-1-value")).toHaveDisplayValue("1000");
 
+    // A path added in the panel, then one from the chart's "+ Add a path": each its own column.
+    const paths = () => document.querySelectorAll('[data-testid^="flow-path-"]');
+    expect(paths()).toHaveLength(3);
     await user.click(screen.getByTestId("builder-fork-add-path"));
-    expect(
-      within(screen.getByTestId("builder-fork-confidence")).getAllByRole("region"),
-    ).toHaveLength(4);
+    expect(paths()).toHaveLength(4);
+    await user.click(screen.getByTestId("flow-add-path-confidence"));
+    expect(paths()).toHaveLength(5);
+    // It asks what the new path is first: its name is ready to type over, and when a run takes
+    // it is a question on the decision (gold), not an issue (owner, 2026-11-21).
+    await waitFor(() => expect(document.activeElement).toHaveDisplayValue("Path 4"));
+    const name = document.activeElement as HTMLInputElement;
+    expect(name.selectionEnd).toBe("Path 4".length);
+    const flag = screen.getByTestId("flow-flag-confidence");
+    expect(flag).toHaveTextContent("2 questions");
+    expect(flag).not.toHaveTextContent("issue");
+    expect(screen.getByTestId("flow-panel")).toHaveTextContent("When does a run take “Path 4”?");
   });
 
   it("saves the bundle with every step, path and id it had, as a draft of the version it opened", async () => {
     const { sent, changed } = setup();
     await ready();
     const user = userEvent.setup();
-    await user.click(screen.getByTestId("builder-step-find-select"));
-    const name = screen.getByTestId("builder-inspector-name");
+    await user.click(screen.getByTestId("flow-box-find"));
+    const name = screen.getByTestId("flow-panel-name");
     await user.clear(name);
     await user.type(name, "Find the invoice");
-    await user.click(screen.getByTestId("builder-save"));
+    await user.click(screen.getByTestId("flow-bar-save"));
     await waitFor(() => expect(sent).toHaveLength(1));
     const body = sent[0]?.body as { bundle: AgentBundle; parentVersionId: string };
     expect(body.parentVersionId).toBe(V1);
@@ -1058,7 +1004,7 @@ describe("WorkflowBuilder", () => {
     const ctx = typingContext({ catalog: CATALOG, events: EVENTS.events });
     expect(canonicalJson(renamed)).toBe(canonicalJson(readProcessBundle(BUNDLE, ctx)));
     expect(await screen.findByTestId("builder-notice")).toHaveTextContent("Saved v2 as a draft.");
-    expect(screen.getByTestId("builder-version")).toHaveTextContent("Draft · v2");
+    expect(screen.getByTestId("flow-bar-version")).toHaveTextContent("Draft · v2");
     expect(changed()).toBe(1);
   });
 
@@ -1075,7 +1021,7 @@ describe("WorkflowBuilder", () => {
     const publish = screen.getByTestId("builder-publish");
     expect(publish).toHaveTextContent("Publishing…");
     expect(publish).toBeDisabled();
-    expect(screen.getByTestId("builder-version")).not.toHaveTextContent("Live");
+    expect(screen.getByTestId("flow-bar-version")).not.toHaveTextContent("Live");
     answer({ version: version(V1, 1, "live", null) });
     expect(await screen.findByTestId("builder-notice")).toHaveTextContent("Published v1.");
   });
@@ -1089,10 +1035,10 @@ describe("WorkflowBuilder", () => {
     expect(await screen.findByTestId("builder-notice")).toHaveTextContent("Published v1.");
     // Live with nothing new: the bar says Live and offers no publish.
     expect(screen.queryByTestId("builder-publish")).toBeNull();
-    expect(screen.getByTestId("builder-version")).toHaveTextContent("Live · v1");
+    expect(screen.getByTestId("flow-bar-version")).toHaveTextContent("Live · v1");
 
-    await user.click(screen.getByTestId("builder-step-update-select"));
-    await user.click(screen.getByTestId("builder-inspector-delete"));
+    await user.click(screen.getByTestId("flow-box-update"));
+    await user.click(screen.getByTestId("flow-panel-remove"));
     await user.click(screen.getByTestId("builder-publish"));
     await waitFor(() =>
       expect(sent.map((s) => s.path)).toEqual([`publish ${V1}`, "save", `publish ${V2}`]),
@@ -1239,8 +1185,8 @@ describe("WorkflowBuilder", () => {
     setup();
     await ready();
     const user = userEvent.setup();
-    await user.click(screen.getByTestId("builder-step-read-select"));
-    await user.click(screen.getByTestId("builder-inspector-delete"));
+    await user.click(screen.getByTestId("flow-box-read"));
+    await user.click(screen.getByTestId("flow-panel-remove"));
     await user.click(screen.getByTestId("builder-workflow-add"));
     await user.type(screen.getByTestId("builder-workflow-name"), "Weekly digest");
     expect(screen.getByTestId("builder-workflow-slug")).toHaveValue("weekly-digest");
@@ -1250,7 +1196,7 @@ describe("WorkflowBuilder", () => {
       "aria-current",
       "page",
     );
-    expect(screen.getByTestId("builder-trigger")).toHaveTextContent("On a schedule");
+    expect(screen.getByTestId("flow-start")).toHaveTextContent("On a schedule");
     expect(rootOrder()).toEqual([]);
 
     await user.click(screen.getByTestId("builder-workflow-new-bill-select"));
@@ -1261,8 +1207,8 @@ describe("WorkflowBuilder", () => {
     const first = setup({ session: OPERATOR_SESSION });
     await ready();
     const user = userEvent.setup();
-    await user.click(screen.getByTestId("builder-step-read-select"));
-    await user.click(screen.getByTestId("builder-inspector-delete"));
+    await user.click(screen.getByTestId("flow-box-read"));
+    await user.click(screen.getByTestId("flow-panel-remove"));
     await waitFor(
       () =>
         expect(screen.getByTestId("builder-draft-status")).toHaveTextContent(
@@ -1282,15 +1228,15 @@ describe("WorkflowBuilder", () => {
     expect(rootOrder()).toEqual(["find", "confidence", "update"]);
     await user.click(screen.getByTestId("builder-discard-draft"));
     expect(rootOrder()).toEqual(["find", "read", "confidence", "update"]);
-    expect(screen.queryByTestId("builder-unsaved")).toBeNull();
+    expect(screen.getByTestId("flow-bar-version")).not.toHaveTextContent("Unsaved");
   });
 
   it("never shows one person's draft to another, and keeps none with no one signed in", async () => {
     setup({ session: OPERATOR_SESSION });
     await ready();
     const user = userEvent.setup();
-    await user.click(screen.getByTestId("builder-step-read-select"));
-    await user.click(screen.getByTestId("builder-inspector-delete"));
+    await user.click(screen.getByTestId("flow-box-read"));
+    await user.click(screen.getByTestId("flow-panel-remove"));
     await waitFor(() => expect(builderKeys()).toHaveLength(1), { timeout: 3500 });
 
     cleanup();
@@ -1304,8 +1250,8 @@ describe("WorkflowBuilder", () => {
     window.localStorage.clear();
     setup();
     await ready();
-    await user.click(screen.getByTestId("builder-step-read-select"));
-    await user.click(screen.getByTestId("builder-inspector-delete"));
+    await user.click(screen.getByTestId("flow-box-read"));
+    await user.click(screen.getByTestId("flow-panel-remove"));
     expect(screen.getByTestId("builder-draft-status")).toHaveTextContent("Unsaved changes");
     await new Promise((r) => setTimeout(r, 2200));
     expect(builderKeys()).toEqual([]);
@@ -1320,10 +1266,12 @@ describe("WorkflowBuilder", () => {
     );
     await ready();
     const user = userEvent.setup();
-    await user.click(screen.getByTestId("builder-step-find-select"));
-    await user.type(screen.getByTestId("builder-inspector-name"), "!");
-    await user.click(screen.getByTestId("builder-save"));
-    await waitFor(() => expect(screen.queryByTestId("builder-unsaved")).toBeNull());
+    await user.click(screen.getByTestId("flow-box-find"));
+    await user.type(screen.getByTestId("flow-panel-name"), "!");
+    await user.click(screen.getByTestId("flow-bar-save"));
+    await waitFor(() =>
+      expect(screen.getByTestId("flow-bar-version")).not.toHaveTextContent("Unsaved"),
+    );
     expect(screen.queryByTestId("builder-error")).toBeNull();
   });
 
@@ -1390,11 +1338,11 @@ describe("WorkflowBuilder", () => {
       },
     });
     await ready();
-    await user.hover(screen.getByTestId("builder-step-follow"));
-    expect(screen.getByTestId("builder-step-tip")).toHaveTextContent("Polite follow-up · v2");
-    await user.click(screen.getByTestId("builder-step-follow-select"));
+    expect(await tipOf(user, "follow")).toHaveTextContent("Polite follow-up · v2");
+    await user.unhover(screen.getByTestId("flow-box-follow"));
+    await user.click(screen.getByTestId("flow-box-follow"));
     expect(screen.getByTestId("builder-automation")).toHaveTextContent("Polite follow-up · v2");
-    expect(screen.queryByTestId("builder-step-follow-invalid")).toBeNull();
+    expect(screen.queryByTestId("flow-flag-follow")).toBeNull();
   });
 });
 
@@ -1402,25 +1350,26 @@ describe("WorkflowBuilder", () => {
 describe("WorkflowBuilder's Steps tab", () => {
   it("lists the steps with their numbers, kinds and status, and opens one in the side panel", async () => {
     setup({ view: "steps" });
-    const list = await screen.findByTestId("builder-steps-list");
-    expect(screen.queryByTestId("builder-canvas")).toBeNull();
+    const list = await screen.findByTestId("flow-list");
+    expect(screen.queryByTestId("flow-chart")).toBeNull();
+    expect(screen.getByTestId("flow-bar-view-list")).toHaveAttribute("aria-pressed", "true");
     const rows = within(list).getAllByRole("row").slice(1);
     expect(rows.map((r) => r.querySelector("td")?.textContent)).toEqual(
       expect.arrayContaining(["1", "2"]),
     );
     expect(list).toHaveTextContent("Ready");
-    // Needs work narrows the list to the steps that aren't ready.
-    await userEvent.click(within(list).getByTestId("builder-steps-filter-work"));
+    // Needs you narrows the list to the steps that aren't ready.
+    await userEvent.click(within(list).getByTestId("flow-list-needs"));
     for (const badge of within(list).queryAllByText("Ready")) {
       expect(badge.closest("tr")).toBeNull();
     }
-    await userEvent.click(within(list).getByTestId("builder-steps-filter-all"));
-    const first = rows[0]?.getAttribute("data-testid")?.replace("builder-steps-row-", "") ?? "";
-    await userEvent.click(within(list).getByTestId(`builder-steps-open-${first}`));
-    expect(await screen.findByTestId("builder-inspector")).toHaveAttribute("data-node", first);
-    expect(within(list).getByTestId(`builder-steps-row-${first}`).className).toContain(
-      "bg-slate-tint",
-    );
+    await userEvent.click(within(list).getByTestId("flow-list-all"));
+    await userEvent.click(within(list).getByTestId("flow-list-open-find"));
+    expect(await screen.findByTestId("builder-inspector")).toHaveAttribute("data-node", "find");
+    expect(within(list).getByTestId("flow-list-row-find").className).toContain("bg-slate-tint");
+    // The bar switches to the chart, the same step still open.
+    await userEvent.click(screen.getByTestId("flow-bar-view-chart"));
+    expect(await screen.findByTestId("flow-box-find")).toHaveAttribute("aria-pressed", "true");
   });
 });
 
@@ -1493,13 +1442,16 @@ describe("WorkflowBuilder with the Builder", () => {
     });
     await ready();
     const user = userEvent.setup();
+    // "Ask the Builder" opens the whole-flow Builder beside the chart.
+    await user.click(screen.getByTestId("flow-bar-builder"));
+    expect(screen.getByTestId("builder-side")).toHaveAttribute("data-side", "builder");
     expect(screen.getByTestId("builder-chat-empty")).toBeInTheDocument();
     await user.type(screen.getByTestId("builder-chat-composer-input"), "Drop the update step");
     await user.click(screen.getByTestId("builder-chat-composer-send"));
     await waitFor(() => expect(rootOrder()).toEqual(["find", "read", "confidence"]));
     expect(bodies[0]).toEqual({ kind: "agent", agentId: AGENT_ID, fromVersionId: V1 });
     expect(bodies[1]).toEqual({ text: "Drop the update step" });
-    expect(screen.getByTestId("builder-unsaved")).toBeInTheDocument();
+    expect(screen.getByTestId("flow-bar-version")).toHaveTextContent("Unsaved");
 
     await user.click(screen.getByTestId("builder-change-undo"));
     await waitFor(() => expect(rootOrder()).toEqual(["find", "read", "confidence", "update"]));
@@ -1591,8 +1543,8 @@ describe("WorkflowBuilder with the Builder", () => {
     await ready();
     // jsdom has no layout, so the panel counts as below the canvas: a step's click focuses the
     // panel on the next frame. A field focused before then keeps it, so typing isn't lost.
-    act(() => screen.getByTestId("builder-step-find-select").click());
-    const name = screen.getByTestId("builder-inspector-name");
+    act(() => screen.getByTestId("flow-box-find").click());
+    const name = screen.getByTestId("flow-panel-name");
     act(() => name.focus());
     await act(() => new Promise((resolve) => setTimeout(resolve, 50)));
     expect(document.activeElement).toBe(name);
@@ -1611,9 +1563,9 @@ describe("WorkflowBuilder with the Builder", () => {
     }));
     await ready();
     const user = userEvent.setup();
-    await user.click(screen.getByTestId("builder-step-find-select"));
-    await user.type(screen.getByTestId("builder-inspector-name"), "!");
-    await user.click(screen.getByTestId("builder-rail-builder"));
+    await user.click(screen.getByTestId("flow-box-find"));
+    await user.type(screen.getByTestId("flow-panel-name"), "!");
+    await user.click(screen.getByTestId("flow-bar-builder"));
     await user.type(screen.getByTestId("builder-chat-composer-input"), "Why is the fork there?");
     await user.click(screen.getByTestId("builder-chat-composer-send"));
     await waitFor(() => expect(starts).toHaveLength(1));
@@ -1710,8 +1662,7 @@ describe("WorkflowBuilder with the Builder", () => {
     });
     await ready();
     const user = userEvent.setup();
-    await user.click(screen.getByTestId("builder-add-step"));
-    await user.click(screen.getByTestId("builder-palette-item-process:polite-follow-up@2-add"));
+    await user.click(screen.getByTestId("flow-rail-item-process:polite-follow-up@2"));
     expect(rootOrder()).toHaveLength(5);
     expect(screen.getByTestId("builder-automation")).toHaveTextContent("Polite follow-up · v2");
   });
@@ -1725,11 +1676,11 @@ describe("WorkflowBuilder with the Builder", () => {
     }));
     await ready();
     const user = userEvent.setup();
-    await user.click(screen.getByTestId("builder-step-find-select"));
+    await user.click(screen.getByTestId("flow-box-find"));
     const select = await screen.findByTestId("builder-inspector-model");
     await screen.findByText("Fast · $1.00 / $5.00");
     await user.selectOptions(select, "claude-haiku-4-5");
-    await user.click(screen.getByTestId("builder-save"));
+    await user.click(screen.getByTestId("flow-bar-save"));
     await waitFor(() => expect(sent).toHaveLength(1));
     const saved = AnyAgentBundle.parse((sent[0]?.body as { bundle: unknown } | undefined)?.bundle);
     const find = saved.workflows[0]?.workflow.steps[0];
@@ -1758,12 +1709,12 @@ describe("WorkflowBuilder on processes", () => {
 
   async function select(user: ReturnType<typeof userEvent.setup>, id: string) {
     await ready();
-    await user.click(screen.getByTestId(`builder-step-${id}-select`));
+    await user.click(screen.getByTestId(`flow-box-${id}`));
   }
 
   async function save(user: ReturnType<typeof userEvent.setup>, sent: unknown[]) {
     const before = sent.length;
-    await user.click(screen.getByTestId("builder-save"));
+    await user.click(screen.getByTestId("flow-bar-save"));
     await waitFor(() => expect(sent.length).toBe(before + 1));
   }
 
@@ -1775,14 +1726,18 @@ describe("WorkflowBuilder on processes", () => {
       "v1 is stored in the older workflow format",
     );
     // Reading it converted is not an edit: nothing to save until something changes.
-    expect(screen.getByTestId("builder-save")).toBeDisabled();
-    expect(screen.queryByTestId("builder-unsaved")).toBeNull();
+    expect(screen.getByTestId("flow-bar-save")).toBeDisabled();
+    expect(screen.getByTestId("flow-bar-version")).not.toHaveTextContent("Unsaved");
     // The v3 fork is an if, the action a write with its approval; the canvas words follow.
-    expect(screen.getByTestId("builder-step-confidence")).toHaveTextContent("If");
+    expect(screen.getByTestId("flow-box-confidence")).toHaveAccessibleName(/: If$/);
     // Skill model (2026-11-10): a write to a client's tool reads "Change in <its name>".
-    expect(screen.getByTestId("builder-step-update-kind")).toHaveTextContent("Change in Testkit");
+    // On the box its badge says "Change"; where it writes is the badge's full words and the
+    // line under the name (docs/plan.md §1.178).
+    expect(screen.getByTestId("flow-badge-update")).toHaveTextContent("Change");
+    expect(screen.getByTestId("flow-badge-update")).toHaveAttribute("title", "Change in Testkit");
+    expect(screen.getByTestId("flow-box-update")).toHaveAccessibleName(/Change in Testkit/);
     await select(user, "find");
-    await user.type(screen.getByTestId("builder-inspector-name"), "!");
+    await user.type(screen.getByTestId("flow-panel-name"), "!");
     await save(user, sent);
     const body = sent[0]?.body as {
       bundle: { workflows: { workflow: { schemaVersion: number } }[] };
@@ -1841,7 +1796,7 @@ describe("WorkflowBuilder on processes", () => {
     await waitFor(() => expect(sent.map((s) => s.path)).toEqual([`publish ${V1}`]));
     // Once edited, the next save is a process, which v4 holds to an agent that acts.
     await select(user, "update");
-    await user.type(screen.getByTestId("builder-inspector-name"), "!");
+    await user.type(screen.getByTestId("flow-panel-name"), "!");
     expect(screen.getByTestId("builder-problems")).toHaveTextContent("1 problem");
     expect(screen.getByTestId("builder-publish")).toBeDisabled();
   });
@@ -1885,14 +1840,12 @@ describe("WorkflowBuilder on processes", () => {
     });
     await ready();
     const user = userEvent.setup();
-    await user.click(screen.getByTestId("builder-add-step"));
-    await user.click(screen.getByTestId("builder-palette-item-process:correct@1-add"));
+    await user.click(screen.getByTestId("flow-rail-item-process:correct@1"));
     expect(screen.getByTestId("builder-approval-none")).toHaveTextContent(
       "approved inside that automation",
     );
     expect(screen.getByTestId("builder-approval-none")).not.toHaveTextContent("changes nothing");
-    await user.click(screen.getByTestId("builder-add-step"));
-    await user.click(screen.getByTestId("builder-palette-item-conversation-add"));
+    await user.click(screen.getByTestId("flow-rail-item-conversation"));
     expect(screen.getByTestId("builder-approval-conversation")).toHaveTextContent(
       "signed under its message settings",
     );
@@ -1927,9 +1880,7 @@ describe("WorkflowBuilder on processes", () => {
     await user.type(screen.getByTestId("builder-confer-0-focus"), "Do the amounts match?");
     await user.click(screen.getByTestId("builder-confer-add-person"));
     await user.selectOptions(screen.getByTestId("builder-confer-1-person"), "lead");
-    const after = screen.getByTestId("builder-confer-1-deadline-after");
-    await user.clear(after);
-    await user.type(after, "4 hours");
+    await user.selectOptions(screen.getByTestId("builder-confer-1-deadline-after"), "4 hours");
     await user.selectOptions(screen.getByTestId("builder-confer-1-deadline-hours"), "business");
     expect(screen.getByTestId("builder-confer-1-deadline-business")).toHaveTextContent(
       "Counts only while the person asked is working",
@@ -1942,9 +1893,7 @@ describe("WorkflowBuilder on processes", () => {
     );
     await user.clear(screen.getByTestId("builder-confer-1-when-rule-0-value"));
     await user.type(screen.getByTestId("builder-confer-1-when-rule-0-value"), "disagree");
-    expect(screen.getByTestId("builder-step-update-confer")).toHaveTextContent(
-      "Checked with a person",
-    );
+    expect(screen.getByTestId("flow-box-update")).toHaveTextContent("Checked with a person");
     expect(screen.getByTestId("builder-valid")).toBeInTheDocument();
     await save(user, sent);
     expect(savedStep(sent, "update")?.checks?.confer).toEqual({
@@ -2059,7 +2008,7 @@ describe("WorkflowBuilder on processes", () => {
     expect(screen.getByTestId("builder-approval-when")).toBeInTheDocument();
     await user.click(screen.getByTestId("builder-approval-when-always"));
     await user.click(screen.getByTestId("builder-approval-toggle"));
-    expect(screen.getByTestId("builder-step-update-approval")).toHaveTextContent("On its own");
+    expect(screen.getByTestId("flow-box-update")).toHaveTextContent("on its own");
     await save(user, sent);
     expect(savedStep(sent, "update")?.checks?.approval).toMatchObject({
       required: "not_required",
@@ -2075,10 +2024,8 @@ describe("WorkflowBuilder on processes", () => {
     await user.type(screen.getByTestId("builder-notify-0-message"), "The bill changed");
     await user.selectOptions(screen.getByTestId("builder-notify-0-to-add"), "lead");
     await user.click(screen.getByTestId("builder-notify-0-urgent"));
-    const ack = screen.getByTestId("builder-notify-0-ack");
-    await user.clear(ack);
-    await user.type(ack, "15 minutes");
-    expect(screen.getByTestId("builder-step-update-notify")).toHaveTextContent("Urgent notice");
+    await user.selectOptions(screen.getByTestId("builder-notify-0-ack"), "15 minutes");
+    expect(screen.getByTestId("flow-box-update")).toHaveTextContent("Urgent notice");
     await save(user, sent);
     expect(savedStep(sent, "update")?.checks?.notify).toEqual([
       {
@@ -2095,13 +2042,14 @@ describe("WorkflowBuilder on processes", () => {
     const user = userEvent.setup();
     await select(user, "ask");
     await user.selectOptions(screen.getByTestId("builder-person-deadline-hours"), "business");
+    // Reminders that aren't evenly apart are written out.
+    await user.selectOptions(screen.getByTestId("builder-person-deadline-remind-times"), "set");
     await user.type(screen.getByTestId("builder-person-deadline-remind"), "1 hour, 4 hours");
     await user.selectOptions(screen.getByTestId("builder-person-deadline-then"), "skip");
     await user.selectOptions(screen.getByTestId("builder-person-deadline-tell-add"), "operator");
-    // A card is one line; its deadline is in its tooltip.
-    await user.hover(screen.getByTestId("builder-step-ask"));
-    expect(screen.getByTestId("builder-step-tip")).toHaveTextContent("2 days in business hours");
-    await user.unhover(screen.getByTestId("builder-step-ask"));
+    // Its deadline reads on its box, in full once the pointer rests on it.
+    expect(await tipOf(user, "ask")).toHaveTextContent("2 days in business hours");
+    await user.unhover(screen.getByTestId("flow-box-ask"));
     await save(user, sent);
     expect(savedStep(sent, "ask")).toMatchObject({
       deadline: {
@@ -2111,6 +2059,35 @@ describe("WorkflowBuilder on processes", () => {
         ifNoAnswer: "skip",
         tell: ["operator"],
       },
+    });
+  });
+
+  // Owner, 2026-11-21 (docs/plan.md §1.177): "a time picker not an open field… custom should have
+  // weeks, days, hours, minutes… how many times to remind them".
+  it("picks a wait and its reminders: a common time, a custom one, so many times so far apart", async () => {
+    const { sent } = setup();
+    const user = userEvent.setup();
+    await select(user, "ask");
+    const after = screen.getByTestId("builder-person-deadline-after");
+    // The stored "2 days" is one of the common times.
+    expect(after).toHaveValue("2 days");
+    expect(screen.queryByTestId("builder-person-deadline-after-custom")).toBeNull();
+    await user.selectOptions(after, "custom");
+    await user.clear(screen.getByTestId("builder-person-deadline-after-days"));
+    await user.type(screen.getByTestId("builder-person-deadline-after-days"), "1");
+    await user.type(screen.getByTestId("builder-person-deadline-after-hours"), "12");
+    // Five reminders, one every 30 minutes; then three, an hour apart.
+    const times = screen.getByTestId("builder-person-deadline-remind-times");
+    expect(times).toHaveValue("none");
+    await user.selectOptions(times, "5");
+    expect(screen.getByTestId("builder-person-deadline-remind-words")).toHaveTextContent(
+      "Reminds them 5 times, every 30 minutes: the last 2 hours 30 minutes after asking.",
+    );
+    await user.selectOptions(times, "3");
+    await user.selectOptions(screen.getByTestId("builder-person-deadline-remind-every"), "1 hour");
+    await save(user, sent);
+    expect(savedStep(sent, "ask")).toMatchObject({
+      deadline: { after: "36 hours", remind: ["1 hour", "2 hours", "3 hours"] },
     });
   });
 
@@ -2156,8 +2133,7 @@ describe("WorkflowBuilder on processes", () => {
     const { sent } = setup({ catalog: { ...CATALOG, skills: [...CATALOG.skills, categorize] } });
     await ready();
     const user = userEvent.setup();
-    await user.click(screen.getByTestId("builder-add-step"));
-    await user.click(screen.getByTestId("builder-palette-item-skill:custom:categorize-add"));
+    await user.click(screen.getByTestId("flow-rail-item-skill:custom:categorize"));
     expect(screen.getByTestId("builder-customize-method")).toHaveTextContent(
       "Rules, then AI for what they leave open",
     );
@@ -2210,8 +2186,7 @@ describe("WorkflowBuilder on processes", () => {
     const { sent } = setup();
     await ready();
     const user = userEvent.setup();
-    await user.click(screen.getByTestId("builder-add-step"));
-    await user.click(screen.getByTestId("builder-palette-item-conversation-add"));
+    await user.click(screen.getByTestId("flow-rail-item-conversation"));
     await user.type(screen.getByTestId("builder-conversation-with"), "c-42");
     await user.selectOptions(screen.getByTestId("builder-conversation-channel"), "call");
     await user.type(screen.getByTestId("builder-conversation-goal"), "Confirm the delivery date");
@@ -2262,8 +2237,7 @@ describe("WorkflowBuilder on processes", () => {
     });
     await ready();
     const user = userEvent.setup();
-    await user.click(screen.getByTestId("builder-add-step"));
-    await user.click(screen.getByTestId("builder-palette-item-skill:comms.reach-out-add"));
+    await user.click(screen.getByTestId("flow-rail-item-skill:comms.reach-out"));
     expect(screen.getByTestId("builder-approval")).toHaveTextContent(
       "This step contacts people outside the client's team.",
     );
@@ -2279,8 +2253,7 @@ describe("WorkflowBuilder on processes", () => {
     setup({ agent: { kind: "template", tenantId: null, bindings: {} } });
     await ready();
     const user = userEvent.setup();
-    await user.click(screen.getByTestId("builder-add-step"));
-    await user.click(screen.getByTestId("builder-palette-item-conversation-add"));
+    await user.click(screen.getByTestId("flow-rail-item-conversation"));
     expect(screen.getByTestId("builder-conversation-first")).toBeDisabled();
     expect(
       within(screen.getByTestId("builder-conversation-later")).getByRole("option", {
@@ -2395,7 +2368,7 @@ describe("WorkflowBuilder on processes", () => {
       await save(user, sent);
       expect(savedStep(sent, "find")).not.toHaveProperty("onError");
       // A person step has no failure of its own to carry on past.
-      await user.click(screen.getByTestId("builder-step-ask-select"));
+      await user.click(screen.getByTestId("flow-box-ask"));
       expect(screen.queryByTestId("builder-on-error")).toBeNull();
     });
   });
@@ -2439,24 +2412,21 @@ describe("action write steps", () => {
     setup();
     await ready();
     const user = userEvent.setup();
-    await user.click(screen.getByTestId("builder-add-step"));
-    const group = screen.getByTestId("builder-palette-actions");
-    expect(within(group).getByRole("heading")).toHaveTextContent("Actions");
+    const group = screen.getByTestId("flow-rail-tool-actions");
+    expect(group).toHaveTextContent("Actions");
     for (const [action, title] of [
       ["send_email", "Send email"],
       ["send_text", "Send text"],
       ["create_bill", "Create bill"],
       ["create_vendor", "Create vendor"],
     ]) {
-      expect(within(group).getByTestId(`builder-palette-item-action:${action}`)).toHaveTextContent(
+      expect(within(group).getByTestId(`flow-rail-item-action:${action}`)).toHaveTextContent(
         title as string,
       );
     }
-    await user.click(screen.getByTestId("builder-palette-item-action:create_bill-add"));
+    await user.click(screen.getByTestId("flow-rail-item-action:create_bill"));
     const added = rootOrder()[4] as string;
-    expect(screen.getByTestId(`builder-step-${added}-approval`)).toHaveTextContent(
-      "Needs approval",
-    );
+    expect(screen.getByTestId(`flow-box-${added}`)).toHaveTextContent("needs approval");
     // The inspector says which tool it will use for this agent: it has no accounting connection.
     const inspector = screen.getByTestId("builder-inspector");
     expect(within(inspector).getByTestId("builder-action-target")).toHaveTextContent(
@@ -2469,8 +2439,7 @@ describe("action write steps", () => {
     setup({ catalog });
     await ready();
     const user = userEvent.setup();
-    await user.click(screen.getByTestId("builder-add-step"));
-    await user.click(screen.getByTestId("builder-palette-item-skill:ap.prepare-bill-add"));
+    await user.click(screen.getByTestId("flow-rail-item-skill:ap.prepare-bill"));
     const prep = rootOrder()[4] as string;
     const offer = within(screen.getByTestId("builder-inspector")).getByTestId(
       "builder-offer-create_bill",
@@ -2482,10 +2451,8 @@ describe("action write steps", () => {
     expect(order).toHaveLength(6);
     expect(order[4]).toBe(prep);
     const added = order[5] as string;
-    expect(screen.getByTestId(`builder-step-${added}`)).toHaveTextContent("Create bill");
-    expect(screen.getByTestId(`builder-step-${added}-approval`)).toHaveTextContent(
-      "Needs approval",
-    );
+    expect(screen.getByTestId(`flow-box-${added}`)).toHaveTextContent("Create bill");
+    expect(screen.getByTestId(`flow-box-${added}`)).toHaveTextContent("needs approval");
     // The new step is selected, its fields filled from the skill's result.
     const inspector = screen.getByTestId("builder-inspector");
     expect(within(inspector).getByTestId("builder-action-target")).toBeInTheDocument();

@@ -28,9 +28,11 @@ import {
   parseLocale,
   processingRefusal,
   type RenderedEmail,
+  readTenantGuide,
   renderColleagueEmail,
   renderInviteEmail,
   renderMoreQuestionsEmail,
+  renderSetupNudgeEmail,
   userLanguage,
 } from "@countersign/core";
 import {
@@ -39,13 +41,14 @@ import {
   intake,
   intakeEvent,
   intakePerson,
+  membership,
   notification,
   type Tx,
   tenant as tenantTable,
   withOperator,
 } from "@countersign/db";
-import { leadDisplayName } from "@countersign/threads";
-import { and, desc, eq } from "drizzle-orm";
+import { leadDisplayName, leadOf } from "@countersign/threads";
+import { and, desc, eq, inArray, like, sql } from "drizzle-orm";
 import type { Bindings } from "../env";
 import { HttpError } from "../http";
 import { HELLO_LOCAL_PART, type MailMessage, mailerFromEnv } from "../notify/mailer";
@@ -57,6 +60,14 @@ import {
   welcomeLinksAvailable,
   welcomeLinkUrl,
 } from "./link";
+
+/**
+ * §1.220: the Resend tags an onboarding email carries, so Resend's webhook finds the client and the
+ * outbox row a delivered or bounced event is about (`../routes/resend-hooks.ts`). Ids only: nothing
+ * of the client's goes in a tag.
+ */
+export const ONBOARDING_TAG_TENANT = "mz_tenant";
+export const ONBOARDING_TAG_NOTIFICATION = "mz_notification";
 
 export type OnboardingEmailKind = "invite" | "colleague" | "more_questions";
 
@@ -80,6 +91,11 @@ export type OnboardingEmail =
       kind: "invite";
       /** Invite's "Send at": written `scheduled`, sent by the pass from then (`intake.send_at`). */
       sendAt?: Date | null;
+      /**
+       * §1.220: sent again in place of this earlier invite, which didn't go out (`unsentInvite`).
+       * Keyed by it, so pressing Send it again twice sends once.
+       */
+      again?: string;
     })
   | (OnboardingEmailBase & {
       kind: "colleague";
@@ -208,7 +224,9 @@ export async function sendOnboardingEmail(
 
   // What the email is about, kept on the intake: the pass renders it from there.
   let ref: string | undefined;
-  if (email.kind === "colleague") {
+  if (email.kind === "invite" && email.again) {
+    ref = `again-${email.again}`;
+  } else if (email.kind === "colleague") {
     // Keyed per ask, so a second ask of the same colleague emails them again.
     ref =
       (await event("colleague_invited", {
@@ -221,7 +239,12 @@ export async function sendOnboardingEmail(
         added: titles(email.added),
         ...(email.note?.trim() ? { note: email.note.trim().slice(0, 2000) } : {}),
       })) ?? undefined;
-  } else if (email.sendAt !== undefined && email.sendAt?.getTime() !== row.sendAt?.getTime()) {
+  }
+  if (
+    email.kind === "invite" &&
+    email.sendAt !== undefined &&
+    email.sendAt?.getTime() !== row.sendAt?.getTime()
+  ) {
     await tx
       .update(intake)
       .set({ sendAt: email.sendAt })
@@ -321,8 +344,9 @@ export type PreparedOnboardingEmail =
   | {
       kind: "send";
       message: Omit<MailMessage, "idempotencyKey">;
-      intakeId: string;
-      personId: string;
+      /** Null for the setup nudge, which goes to a member, not an intake's person (§1.206). */
+      intakeId: string | null;
+      personId: string | null;
     };
 
 export interface OnboardingSendDeps {
@@ -348,12 +372,13 @@ export async function prepareOnboardingEmail(
   const skip = (reason: string, intakeId: string | null = null, personId: string | null = null) =>
     ({ kind: "skip", reason, intakeId, personId }) as const;
   if (!isOnboardingNotificationKind(row.kind)) return skip("not_onboarding");
+  if (row.kind === "intake_reminder") return prepareSetupNudge(tx, t, row, deps);
   if (
     row.kind !== "intake_invite" &&
     row.kind !== "intake_colleague" &&
     row.kind !== "intake_more_questions"
   ) {
-    // The reminder, "Your scope is ready" and "What happens next" are next wave's.
+    // "Your scope is ready" and "What happens next" are next wave's.
     return skip("unsupported");
   }
   const personId = intakePersonOfKey(row.dedupeKey);
@@ -463,6 +488,81 @@ export async function prepareOnboardingEmail(
       html: rendered.html,
       from: { name: lead.name, localPart: HELLO_LOCAL_PART },
       ...(lead.email ? { replyTo: lead.email } : {}),
+      tags: { [ONBOARDING_TAG_TENANT]: t.id, [ONBOARDING_TAG_NOTIFICATION]: row.id },
+    },
+  };
+}
+
+/**
+ * The setup nudge (docs/setup-plan.md §8; §1.206, SU6), written by Nudge on the Setup tab as an
+ * `intake_reminder` row for one of the client's members: from the client's lead (else its newest
+ * intake's, else Mezonas),
+ * in the member's language, listing what the nudge listed (`setupGuide.nudgeItems`), with a link
+ * to Getting started. A member who left, or a nudge with nothing left to list, gets nothing.
+ */
+// DECISION: the nudge goes to a member, not an intake's person: who a setup waits on is anyone
+// asked (a seat, a tool), on the intake or not. So it carries no welcome link (they sign in) and
+// nothing is logged on an intake.
+async function prepareSetupNudge(
+  tx: Tx,
+  t: typeof tenantTable.$inferSelect,
+  row: NotificationRow,
+  deps: OnboardingSendDeps,
+): Promise<PreparedOnboardingEmail> {
+  const skip = (reason: string) =>
+    ({ kind: "skip", reason, intakeId: null, personId: null }) as const;
+  if (!row.userId) return skip("not_found");
+  const [member] = await tx
+    .select({ name: appUser.name, email: appUser.email })
+    .from(membership)
+    .innerJoin(appUser, eq(appUser.id, membership.userId))
+    .where(
+      and(
+        eq(membership.tenantId, t.id),
+        eq(membership.userId, row.userId),
+        inArray(membership.role, ["client_admin", "client_user"]),
+      ),
+    );
+  if (!member) return skip("not_a_member");
+  const settings = (t.settings ?? {}) as Record<string, unknown>;
+  if (onboardingEmailRefusal(settings, deps.covered)) return skip("hipaa");
+  if (!deps.mailerConfigured) return skip("not_configured");
+  const items = readTenantGuide(settings).nudgeItems?.[row.userId] ?? [];
+  if (items.length === 0) return skip("nothing_left");
+  // The client's lead, else the lead on its newest intake, else Mezonas.
+  const lead = await leadOf(tx, t.id);
+  let from: { name: string; email: string | null } | null = lead
+    ? { name: leadDisplayName(lead), email: lead.email }
+    : null;
+  if (!from) {
+    const [it] = await tx
+      .select({ leadUserId: intake.leadUserId })
+      .from(intake)
+      .where(eq(intake.tenantId, t.id))
+      .orderBy(desc(intake.createdAt))
+      .limit(1);
+    if (it?.leadUserId) from = await intakeLead(tx, it);
+  }
+  const rendered = renderSetupNudgeEmail({
+    locale: userLanguage(settings, row.userId) ?? clientLanguage(settings) ?? "en",
+    client: t.name,
+    to: { name: member.name?.trim() || member.email, email: member.email },
+    lead: { name: from?.name ?? "Mezonas", photoUrl: null },
+    items,
+    link: row.link,
+    origin: deps.origin,
+  });
+  return {
+    kind: "send",
+    intakeId: null,
+    personId: null,
+    message: {
+      to: member.email,
+      subject: rendered.subject,
+      text: rendered.text,
+      html: rendered.html,
+      from: { name: from?.name ?? "Mezonas", localPart: HELLO_LOCAL_PART },
+      ...(from?.email ? { replyTo: from.email } : {}),
     },
   };
 }
@@ -502,12 +602,65 @@ export async function logOnboardingSend(
   });
 }
 
+/** The lead's to-do for an onboarding email that didn't go out (`leaveUnsentTodo`). */
+export const unsentTodoKey = (notificationId: string) => `intake-unsent:${notificationId}`;
+
+/** Skip reasons that mean the email never left and may be sent again (not closed or not found). */
+const RESENDABLE_SKIPS = new Set(["hipaa", "not_configured", "no_link_key"]);
+
+/**
+ * §1.220: the person's latest invite, when it didn't go out: skipped for a reason that can pass
+ * (`hipaa`, `not_configured`, `no_link_key`), given up on (`failed`), or sent and bounced (Resend's
+ * webhook). Null when their latest invite went, is still waiting, or there was none (the sign-in
+ * provider's invitation went instead).
+ */
+export async function unsentInvite(
+  tx: Tx,
+  tenantId: string,
+  personId: string,
+): Promise<string | null> {
+  const [latest] = await tx
+    .select({ id: notification.id, status: notification.status, reason: notification.reason })
+    .from(notification)
+    .where(
+      and(
+        eq(notification.tenantId, tenantId),
+        eq(notification.channel, "email"),
+        eq(notification.kind, ONBOARDING_EMAIL_NOTIFICATION.invite),
+        like(notification.dedupeKey, `${ONBOARDING_EMAIL_NOTIFICATION.invite}:${personId}%`),
+      ),
+    )
+    .orderBy(desc(notification.createdAt))
+    .limit(1);
+  if (!latest) return null;
+  if (latest.status === "failed") return latest.id;
+  if (latest.status === "skipped") {
+    return latest.reason && RESENDABLE_SKIPS.has(latest.reason) ? latest.id : null;
+  }
+  if (latest.status !== "sent") return null;
+  const [bounced] = await tx
+    .select({ id: intakeEvent.id })
+    .from(intakeEvent)
+    .where(
+      and(
+        eq(intakeEvent.tenantId, tenantId),
+        eq(intakeEvent.personId, personId),
+        eq(intakeEvent.kind, "bounced"),
+        sql`${intakeEvent.meta} ->> 'notificationId' = ${latest.id}`,
+      ),
+    )
+    .limit(1);
+  return bounced ? latest.id : null;
+}
+
 /** Why an onboarding email didn't go, in the lead's to-do. Others (closed, not found) need none. */
 const UNSENT_WHY: Record<string, string> = {
   hipaa: "The client is in HIPAA mode and our email service isn't covered yet.",
   not_configured: "Email isn't set up here.",
   no_link_key: "Welcome links can't be signed here (no ENCRYPTION_KEY).",
   failed: "Our email service didn't take it after several tries.",
+  // §1.220: Resend's webhook said it came back.
+  bounced: "It bounced: the address may be wrong, or their mail server refused it.",
 };
 
 const UNSENT_WORDS: Record<OnboardingEmailKind, string> = {
@@ -559,7 +712,7 @@ export async function leaveUnsentTodo(
       source: "system",
       why,
       dueAt: input.now ?? new Date(),
-      dedupeKey: `intake-unsent:${input.notificationId}`,
+      dedupeKey: unsentTodoKey(input.notificationId),
     });
   });
 }

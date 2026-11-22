@@ -7,6 +7,7 @@
 import { z } from "zod";
 import { ConverseOpsView, ConversePortalView } from "../converse";
 import { isUuid } from "../ids";
+import { ItemFingerprint } from "../mobile/mobile";
 import { defineRoute } from "./contract";
 
 const Id = z.string().refine((v) => isUuid(v), "not an id");
@@ -32,6 +33,13 @@ export type ReassignTarget = z.infer<typeof ReassignTarget>;
 /** The text a person approves in place of a drafted message (a conversation's or a reach-out's). */
 export const EditedMessage = z.string().trim().min(1).max(EDITED_MESSAGE_MAX);
 
+/**
+ * Audit 3.4: the item as the operator saw it (`itemFingerprint` of the back office's item,
+ * `OpsInboxItem`), from before any edit sent with it. The route requires it and refuses a step-in
+ * on an item that changed since (409 `changed`), as the portal's resolve does.
+ */
+const Seen = ItemFingerprint.optional();
+
 export const StepInBody = z
   .discriminatedUnion("action", [
     z.strictObject({
@@ -40,14 +48,26 @@ export const StepInBody = z
       note: z.string().max(2000).optional(),
       /** A message waiting for approval: the text to send instead (edit, then approve). */
       message: EditedMessage.optional(),
+      fingerprint: Seen,
     }),
     z.strictObject({
       action: z.literal("reject"),
       reason: StepInReason,
       note: z.string().max(2000).optional(),
+      fingerprint: Seen,
     }),
-    z.strictObject({ action: z.literal("answer"), reason: StepInReason, answer: z.unknown() }),
-    z.strictObject({ action: z.literal("reassign"), reason: StepInReason, to: ReassignTarget }),
+    z.strictObject({
+      action: z.literal("answer"),
+      reason: StepInReason,
+      answer: z.unknown(),
+      fingerprint: Seen,
+    }),
+    z.strictObject({
+      action: z.literal("reassign"),
+      reason: StepInReason,
+      to: ReassignTarget,
+      fingerprint: Seen,
+    }),
   ])
   .meta({ id: "StepInBody" });
 export type StepInBody = z.infer<typeof StepInBody>;

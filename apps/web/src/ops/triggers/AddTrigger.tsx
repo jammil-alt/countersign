@@ -19,6 +19,7 @@ import { apiRoutes } from "../../api/routes";
 import { useApi } from "../../api/useApi";
 import { Button } from "../../ui/primitives";
 import { Field, Select, TextInput } from "../agents/ui";
+import { SchedulePicker, type ScheduleValue } from "./SchedulePicker";
 import { channelWords, eventLabels, eventWords, takesTrigger } from "./words";
 
 /** The six kinds, in the order the screen explains them. */
@@ -86,8 +87,9 @@ export function AddTriggerForm({
 }) {
   const open = bundle.workflows.filter((w) => takesTrigger(w.workflow));
   const [workflow, setWorkflow] = useState(open[0]?.slug ?? "");
-  const [cron, setCron] = useState("0 8 * * 1-5");
-  const [tz, setTz] = useState("");
+  const [schedule, setSchedule] = useState<ScheduleValue>({ cron: "0 8 * * 1-5" });
+  const cron = schedule.cron;
+  const tz = schedule.tz ?? "";
   const [skipHolidays, setSkipHolidays] = useState(false);
   const events = useApi(apiRoutes.opsEventCatalog, kind === "event" ? { life: "catalog" } : null);
   const [event, setEvent] = useState("");
@@ -154,6 +156,7 @@ export function AddTriggerForm({
           type: "schedule",
           cron: cron.trim(),
           ...(tz.trim() ? { tz: tz.trim() } : {}),
+          ...(schedule.every ? { every: schedule.every } : {}),
           ...(skipHolidays ? { skipHolidays: true } : {}),
         };
       case "event":
@@ -231,31 +234,20 @@ export function AddTriggerForm({
       ) : null}
 
       {kind === "schedule" ? (
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-          <Field label="When (cron)" hint="0 8 * * 1-5 is weekdays at 8:00.">
-            <TextInput
-              data-testid="trigger-form-cron"
-              className="font-mono"
-              value={cron}
-              onChange={(e) => setCron(e.target.value)}
-            />
-          </Field>
-          <Field label="Time zone" hint="Empty: the client's.">
-            <TextInput
-              data-testid="trigger-form-tz"
-              value={tz}
-              placeholder="America/Chicago"
-              onChange={(e) => setTz(e.target.value)}
-            />
-          </Field>
-          <div className="flex items-end pb-2">
-            <Check
-              label="Skip holidays"
-              checked={skipHolidays}
-              onChange={setSkipHolidays}
-              testId="trigger-form-holidays"
-            />
-          </div>
+        <div className="flex max-w-xl flex-col gap-3">
+          <SchedulePicker
+            testId="trigger-form-schedule"
+            cronTestId="trigger-form-cron"
+            tzTestId="trigger-form-tz"
+            value={schedule}
+            onChange={setSchedule}
+          />
+          <Check
+            label="Skip holidays"
+            checked={skipHolidays}
+            onChange={setSkipHolidays}
+            testId="trigger-form-holidays"
+          />
         </div>
       ) : null}
 

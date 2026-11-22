@@ -65,6 +65,7 @@ function detail(items: Item[] = ITEMS): BuildDetail {
       updatedAt: at,
       phaseAt: at,
       path: "new",
+      flow: "phases",
       templateId: null,
       promisedOn: null,
       origin: null,
@@ -115,7 +116,11 @@ function setup(turn?: () => unknown) {
     routes[`PATCH /api/ops/builds/${ID}/items/${i.id}`] = ({ init }) => {
       const body = JSON.parse(String(init.body));
       updates.push({ item: i.id, body });
-      items = items.map((x) => (x.id === i.id ? { ...x, ...body } : x));
+      // As the server does (§1.169): a drop is done, with its note kept in the detail.
+      const change = body.drop
+        ? { state: "done", detail: withNote(i.detail, NOT_NEEDED_NOTE) }
+        : body;
+      items = items.map((x) => (x.id === i.id ? { ...x, ...change } : x));
       return detail(items);
     };
   }
@@ -138,12 +143,8 @@ describe("closing out an issue on its row", () => {
     // Its words at full width; where it came from, who has it and its status in full words.
     expect(row).toHaveTextContent("The brief doesn't say.");
     expect(row).toHaveTextContent("From Intake");
-    expect(within(row).getByLabelText("Who has it: Who approves new vendors")).toHaveDisplayValue(
-      "You",
-    );
-    expect(within(row).getByLabelText("Status: Who approves new vendors")).toHaveDisplayValue(
-      "Open",
-    );
+    expect(within(row).getByTestId(`build-item-${Q}-owner`)).toHaveTextContent("Who has it: You");
+    expect(within(row).getByTestId(`build-item-${Q}-state`)).toHaveTextContent("Open");
 
     // Cancel shuts the box and sends nothing.
     await userEvent.click(within(row).getByTestId(`build-item-${Q}-answer`));
@@ -189,39 +190,28 @@ describe("closing out an issue on its row", () => {
     expect(await within(view).findByTestId(`build-item-${Q}-answer-box-input`)).toHaveValue("Dana");
   });
 
-  it("closes a question from its Close menu: done, put off, or not needed", async () => {
+  it("closes a question from its Close menu: put off or not needed, never done by saying so", async () => {
     const { updates, turns } = setup();
     const view = await screen.findByTestId("build-view");
     const close = within(view).getByTestId(`build-item-${Q}-close`);
     expect(close).toHaveAttribute("aria-expanded", "false");
     await userEvent.click(close);
     expect(close).toHaveAttribute("aria-expanded", "true");
-    expect(within(view).getByTestId(`build-item-${Q}-close-done`)).toHaveTextContent(
-      "Done (answered elsewhere)",
-    );
+    // docs/plan.md §1.169: a question closes by its answer; there is no "answered elsewhere".
+    expect(within(view).queryByTestId(`build-item-${Q}-close-done`)).toBeNull();
     await userEvent.click(within(view).getByTestId(`build-item-${Q}-close-deferred`));
     await waitFor(() => expect(updates).toEqual([{ item: Q, body: { state: "deferred" } }]));
-    // Put off: no longer open, so its Close menu goes; set back to Open, it comes back.
+    // Put off: no longer open, so its Close menu goes; taken up again, it comes back.
     expect(within(view).queryByTestId(`build-item-${Q}-close`)).toBeNull();
-    await userEvent.selectOptions(within(view).getByTestId(`build-item-${Q}-state`), "Open");
-    await waitFor(() => expect(updates).toHaveLength(2));
+    await userEvent.click(within(view).getByTestId(`build-item-${Q}-reopen`));
+    await waitFor(() => expect(updates.at(-1)).toEqual({ item: Q, body: { state: "open" } }));
 
-    await userEvent.click(await within(view).findByTestId(`build-item-${Q}-close`));
-    await userEvent.click(within(view).getByTestId(`build-item-${Q}-close-done`));
-    await waitFor(() => expect(updates.at(-1)).toEqual({ item: Q, body: { state: "done" } }));
-    await userEvent.selectOptions(within(view).getByTestId(`build-item-${Q}-state`), "Open");
-    await waitFor(() => expect(updates).toHaveLength(4));
-
-    // Not needed is done, with a note kept in its detail.
+    // Not needed is a drop: the server closes it, with a note kept in its detail.
     await userEvent.click(await within(view).findByTestId(`build-item-${Q}-close`));
     await userEvent.click(within(view).getByTestId(`build-item-${Q}-close-not-needed`));
-    await waitFor(() =>
-      expect(updates.at(-1)).toEqual({
-        item: Q,
-        body: { state: "done", detail: "The brief doesn't say.\nClosed as not needed." },
-      }),
-    );
+    await waitFor(() => expect(updates.at(-1)).toEqual({ item: Q, body: { drop: true } }));
     expect(within(view).getByTestId(`build-item-${Q}`)).toHaveTextContent("Closed as not needed.");
+    expect(within(view).getByTestId(`build-item-${Q}-reopen`)).toHaveTextContent("Reopen");
     expect(turns).toEqual([]);
   });
 
@@ -234,8 +224,6 @@ describe("closing out an issue on its row", () => {
     await waitFor(() => expect(turns).toHaveLength(1));
     await userEvent.click(within(gap).getByRole("button", { name: "A person does it" }));
     await waitFor(() => expect(turns).toHaveLength(2));
-    await userEvent.click(within(gap).getByRole("button", { name: "Drop it" }));
-    await waitFor(() => expect(turns).toHaveLength(3));
     expect(turns).toEqual([
       {
         text: "About “Read handwritten delivery notes”: build it. Cover it in the draft.",
@@ -245,22 +233,26 @@ describe("closing out an issue on its row", () => {
         text: "About “Read handwritten delivery notes”: a person does it. Make it a person step.",
         about: `item:${GAP}`,
       },
-      {
-        text: "About “Read handwritten delivery notes”: drop it. Take it out of scope.",
-        about: `item:${GAP}`,
-      },
     ]);
+    // Put off and Drop it are the gap's own; dropping isn't sent to the Builder (§1.169).
+    expect(within(gap).getByTestId(`build-item-${GAP}-put-off`)).toHaveTextContent("Put off");
+    await userEvent.click(within(gap).getByRole("button", { name: "Drop it" }));
+    await waitFor(() => expect(updates).toEqual([{ item: GAP, body: { drop: true } }]));
+    expect(turns).toHaveLength(2);
 
     await userEvent.click(within(view).getByTestId(`build-item-${NOTE}-done`));
-    await waitFor(() => expect(updates).toEqual([{ item: NOTE, body: { state: "done" } }]));
+    await waitFor(() => expect(updates.at(-1)).toEqual({ item: NOTE, body: { state: "done" } }));
 
     // A test keeps its own path: what settles it, and its status; no close-out buttons.
     const test = within(view).getByTestId(`build-item-${TEST}`);
     expect(within(test).getByTestId(`build-item-${TEST}-how`)).toHaveTextContent(
       "Fix what failed, then run the tests again.",
     );
-    expect(within(test).getByLabelText("Who has it: Totals match the invoice")).toHaveDisplayValue(
-      "Mezonas engineering",
+    expect(within(test).getByTestId(`build-item-${TEST}-owner`)).toHaveTextContent(
+      "Who has it: Mezonas engineering",
+    );
+    expect(within(test).getByTestId(`build-item-${TEST}-how`)).toHaveTextContent(
+      "It closes when the test passes.",
     );
     expect(within(test).queryByTestId(`build-item-${TEST}-done`)).toBeNull();
     expect(within(test).queryByTestId(`build-item-${TEST}-answer`)).toBeNull();

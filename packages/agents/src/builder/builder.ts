@@ -132,11 +132,11 @@ export function modelUnavailable(error: unknown): Error {
 export const RULES = `You are the Builder for Mezonas, a managed-agents service for back-office work. The operator describes an agent; you answer with an agent bundle that the operator will review, test and publish.
 
 Rules:
-- Use only the skills and tools in the catalog, by their exact ids. Never invent a skill, tool, connector, event or agent. If the job needs something the catalog doesn't have (a connector, a data source, a skill), put a missing step where that part belongs instead of leaving it out: {"kind": "missing", "name": what the step would do, "need": what is missing, one plain sentence (e.g. "There is no card feed connector, so it can't read card charges."), "fill": "skill", "tool" or "connector", whichever would fill it}. Later steps may use its output. Never use a missing step for something the catalog has. Only what has no place in a workflow goes in "gaps", one plain sentence each.
+- Use only the skills and tools in the catalog, by their exact ids. Never invent a skill, tool, connector, event or agent. If the job needs something the catalog doesn't have (a connector, a data source, a skill), put a missing step where that part belongs instead of leaving it out: {"kind": "missing", "name": what the step would do, "need": what is missing, one plain sentence (e.g. "There is no payroll connector, so it can't read the pay run."), "fill": "skill", "tool" or "connector", whichever would fill it}. Later steps may use its output. Never use a missing step for something the catalog has. A service named in the request may be in the catalog under another name: each connector's "description" says what it does and names the service behind it (a bank feed's names its provider), so look for a service by what it does before calling it missing, and use that connector's tools. Only what has no place in a workflow goes in "gaps", one plain sentence each.
 - Each workflow is a process ("schemaVersion": 4): one or more "triggers", then "steps" that run top to bottom. Step kinds: read (calls a tool whose sideEffect is "none"), write (calls a tool that changes something: "external" changes the client's tool, "internal" a platform record), skill (runs a skill), person (asks or gets approval from a person, with a "deadline"), conversation (talks with a contact until its goal is met, with a "deadline"), notify (a note to the client's team or ours), if (ordered paths with rules; the first path whose rules match runs, else "otherwise"; then the process continues), for_each (runs its steps for each item of a list), wait, stop, process (runs an automation from the catalog: "process" is its ref, "slug@version"), missing (a part that can't be built yet; it never runs, and the operator fills it).
 - A skill whose mode is "tool" only wraps one tool: use a read or write step on that tool instead.
 - Checks on a step ("checks"): "approval" (a person's yes before the step's write), "confer" (a second opinion), "notify" (tell someone after).
-- Triggers: "manual" (with an input JSON Schema), "event" (an event type from the catalog), "schedule" (cron), "command".
+- Triggers: "manual" (with an input JSON Schema), "event" (an event type from the catalog), "schedule" (a five-field cron; "1#1" in its last field is the first Monday of the month, "4#3" the third Thursday, "5L" the last Friday, "L" as the day is the last day; for every other week add "every": {"weeks": 2, "from": a Sunday's date}), "command".
 - References inside step inputs, titles, messages and rules: {{trigger.<path>}}, {{steps.<step id>.output.<path>}}, {{item}} and {{index}} inside a for_each. Refer only to steps that run before.
 - New agents have permissions.mode "suggest_only". Every step that changes a client's tool keeps its approval check on ({"required": "required"}, with no "when", never going ahead when nobody answers). Never loosen an approval or a conversation's message settings: only the operator does that.
 - New agents review their own failed steps: definition.oversight is {"review": "failures"}.
@@ -284,6 +284,7 @@ export async function ask<T extends { bundle: ProcessAgentBundle; gaps: string[]
   const messages: CallToolInput<unknown>["messages"] = [{ role: "user", content: input.first }];
   let repairs = options.repairs ?? 1;
   let shortened = false;
+  let reasked = false;
   for (;;) {
     let answer: T;
     try {
@@ -311,6 +312,26 @@ export async function ask<T extends { bundle: ProcessAgentBundle; gaps: string[]
               content: `That answer did not match the schema:\n${error.message}\n\nAnswer again with the whole corrected answer.`,
             },
           );
+          continue;
+        }
+        // Staging, 2026-11-22 (MEZONAS-API-G; docs/plan.md §1.183): asked "how can we add a
+        // second trigger?", the model answered in plain words, without the tool, and the answer
+        // was thrown away. The models always think, so the call can't be forced
+        // (`ANSWER_TOOL_CHOICE`); asked once more with what it wrote, it answers through the
+        // tool. The build page's Builder has done this since MEZONAS-API-6 (../build/turn.ts).
+        // DECISION: its own single retry, not one of the schema's repairs, so an answer that
+        // then fails the schema still gets its repair.
+        if (error.code === "no_tool_call" && !reasked) {
+          reasked = true;
+          const said = error.result.message.content
+            .flatMap((b) => (b.type === "text" ? [b.text] : []))
+            .join("\n")
+            .trim();
+          if (said) messages.push({ role: "assistant", content: said.slice(0, 20_000) });
+          messages.push({
+            role: "user",
+            content: `${said ? "That answer" : "Your last answer"} did not call the \`${input.toolName}\` tool, so it can't be used. Answer again by calling \`${input.toolName}\` exactly once, with the whole answer in it. A question is answered in its words, with no change to the draft.`,
+          });
           continue;
         }
         // Cut off: once, ask for a smaller answer (the main path, the rest named in gaps), so a

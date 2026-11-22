@@ -147,6 +147,10 @@ describe.skipIf(!h)("agents a client user sees (§1.122)", () => {
     expect((await H.call(user("a"), "GET", `/api/services/${ids.one}`)).status).toBe(200);
     expect((await H.call(user("a"), "GET", `/api/services/${ids.two}`)).status).toBe(404);
     expect((await H.call(user("a"), "GET", `/api/services/${ids.two}/run-forms`)).status).toBe(404);
+    // docs/sop-plan.md S0: the manual of their agent opens; another agent's is "not found".
+    const manual = await H.call(user("a"), "GET", `/api/services/${ids.one}/manual`);
+    expect(manual.status, JSON.stringify(manual.json)).toBe(200);
+    expect((await H.call(user("a"), "GET", `/api/services/${ids.two}/manual`)).status).toBe(404);
 
     const inbox = j((await H.call(user("a"), "GET", "/api/inbox")).json).items;
     expect(inbox.map((i: { id: string }) => i.id)).toContain(ids.itemOne);

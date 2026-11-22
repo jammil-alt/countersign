@@ -41,13 +41,30 @@ export const ASSIGNED_USER_ROUTES: readonly string[] = [
   "GET /api/services/:id/view",
   "GET /api/services/:id/run-forms",
   "GET /api/services/:id/triggers",
+  // Its manual (docs/builder-plan.md §5): read only; the Manual tab shows for everyone who sees
+  // the agent, so a limited user's agent answers and another agent is "not found" (docs/sop-plan.md S0).
+  "GET /api/services/:id/manual",
+  // Its SOP (docs/sop-plan.md S1), which takes the Manual tab's place: read only, as the manual.
+  "GET /api/services/:id/sop",
+  // Its architecture and security, the SOP's section 14 (docs/agent-assurance-plan.md §5).
+  "GET /api/services/:id/assurance",
   "POST /api/services/:id/workflows/:slug/run",
+  // R4 (docs/plan.md §1.214): its report, read only, for an agent on their list.
+  "GET /api/services/:id/report",
+  "GET /api/services/:id/report.csv",
   // Their agents' runs.
   "GET /api/runs",
   "GET /api/runs/:id",
   "GET /api/runs/:id/status",
   "GET /api/runs/:id/audit",
   "POST /api/runs/:id/conversations/:stepRunId",
+  // R6 (docs/plan.md §1.236): their saved views of the runs list. DECISION: a view only names a
+  // filter, so they keep their own; they save one only on agents they see, and a shared view
+  // naming an agent off their list isn't shown to them (apps/api `portal-views.ts`).
+  "GET /api/views",
+  "POST /api/views",
+  "PATCH /api/views/:id",
+  "DELETE /api/views/:id",
   // Their inbox (items assigned to them, or to client users, for their agents).
   "GET /api/inbox",
   "POST /api/inbox/:id/resolve",
@@ -65,6 +82,10 @@ export const ASSIGNED_USER_ROUTES: readonly string[] = [
   // only when a run, step or inbox item of one of their agents names it, else 404
   // (apps/api `ensureSeesDocument`).
   "GET /api/documents/:id",
+  // R3 (docs/plan.md §1.200): the runs about a record, for the Runs panel of a document they can
+  // open. DECISION: only their agents' runs answer (apps/api `recordRuns`), so it shows nothing
+  // their runs list doesn't; the records pages themselves stay closed.
+  "GET /api/records/:id/runs",
 ];
 
 const allowed = new Set(ASSIGNED_USER_ROUTES);

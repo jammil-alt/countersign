@@ -19,6 +19,7 @@ import {
   useParams,
   useSearchParams,
 } from "react-router-dom";
+import { agentStage, agentStatusLine } from "../../agents/status";
 import type { ResponseOf } from "../../api/client";
 import { type AgentSummary, apiRoutes, type VersionDetail } from "../../api/routes";
 import { type ApiState, useApi } from "../../api/useApi";
@@ -38,7 +39,7 @@ import {
   Tabs,
 } from "../../ui/primitives";
 import { Skeleton, SkeletonBlock, SkeletonCard, SkeletonLine } from "../../ui/skeleton";
-import { StatusChip, serviceChipState } from "../../ui/status";
+import { StatusChip } from "../../ui/status";
 import type { Member } from "../builder/Inspector";
 import { BuildView } from "../builds/BuildView";
 import { labPath } from "../lab/back";
@@ -47,7 +48,6 @@ import { OPS_PATHS } from "../paths";
 import { TriggersPanel } from "../triggers/TriggersScreen";
 import { liveAndDraft, parseAnyBundle, versionBadges } from "../versions";
 import { workflowStats } from "../workflow/describe";
-import { StepList } from "../workflow/StepList";
 import { ReviseTab } from "./BuilderParts";
 import { DefinitionEditor, type SaveResult } from "./DefinitionEditor";
 import { canDiscard, DiscardButton, DiscardedNotice } from "./DiscardDraft";
@@ -65,17 +65,14 @@ export type AgentDetail = ResponseOf<typeof apiRoutes.opsAgent>;
 
 // The builder (with drag and drop) is its own chunk inside /ops, fetched when a workflow opens.
 const WorkflowBuilder = lazy(() => import("../builder/WorkflowBuilder"));
+// F6: an older version's workflow as the chart, read only (with the builder's drag-and-drop code,
+// so fetched only when one is opened).
+const ReadOnlyFlow = lazy(() => import("../flow/ReadOnlyFlow"));
 // B3: the Manual tab is its own chunk (with its route's schema), fetched when it opens.
 const OpsManualTab = lazy(() => import("./ManualTab").then((m) => ({ default: m.OpsManualTab })));
-
-// An agent's own status (switched on, paused…), not a run's: "Active", never "Running", so it
-// can't be read as a run's status (the owner's decision 1).
-const RUN_STATUS_WORDS: Record<string, string> = {
-  active: "Active",
-  paused: "Paused",
-  retired: "Retired",
-  draft: "Not started",
-};
+// R4 (docs/plan.md §1.214): a client agent's report, its own chunk with its route's schema.
+const ReportTab = lazy(() => import("./ReportTab").then((m) => ({ default: m.ReportTab })));
+const SecurityTab = lazy(() => import("./SecurityTab").then((m) => ({ default: m.SecurityTab })));
 
 /** The page's tabs; the Workflow tab opens the builder on `workflow` (its first workflow). */
 function AgentTabs({
@@ -138,6 +135,10 @@ function AgentTabs({
           // docs/builder-plan.md §5 (B3): the agent's manual.
           { to: `${base}/manual${keep}`, label: "Manual" },
           { to: `${base}/runs${keep}`, label: "Runs" },
+          // R4: a client agent's report.
+          ...(isClient ? [{ to: `${base}/report`, label: "Report" }] : []),
+          // docs/agent-assurance-plan.md §5: a client agent's architecture and security checks.
+          ...(isClient ? [{ to: `${base}/security${keep}`, label: "Security" }] : []),
           {
             to: `${base}/versions${keep}`,
             label: "Versions",
@@ -442,7 +443,6 @@ export function AgentScreen({
             // The workflow's first step is how it starts: the agent's triggers, then the canvas.
             <div className="flex flex-col gap-4" data-testid="agent-workflow-top">
               {openBuild ? <BackToBuild build={openBuild} /> : null}
-              {lineage}
               <TriggersPanel
                 agent={view}
                 latest={latest}
@@ -455,6 +455,11 @@ export function AgentScreen({
           members={members}
           onChanged={reload}
           view={stepsTab ? "steps" : "canvas"}
+          // F6: the line under the builder's bar (whose agent this is, what it owes its template),
+          // and the open build's issues on their steps.
+          detail={data}
+          templateDetail={template.data ?? null}
+          buildId={openBuild?.id ?? null}
         />
       </Suspense>
     );
@@ -500,7 +505,13 @@ export function AgentScreen({
             element={
               blocked ??
               (bundle ? (
-                <OverviewTab agent={view} bundle={bundle} base={base} skills={skills} />
+                <OverviewTab
+                  agent={view}
+                  bundle={bundle}
+                  base={base}
+                  skills={skills}
+                  known={data.names}
+                />
               ) : null)
             }
           />
@@ -541,6 +552,28 @@ export function AgentScreen({
               <Suspense fallback={<Loading />}>
                 <OpsManualTab agentId={view.id} version={shown?.version ?? null} />
               </Suspense>
+            }
+          />
+          {/* docs/agent-assurance-plan.md §5: the architecture and every check, with its evidence. */}
+          <Route
+            path="security"
+            element={
+              <Suspense fallback={<Loading />}>
+                <SecurityTab agentId={view.id} />
+              </Suspense>
+            }
+          />
+          {/* R4 (docs/plan.md §1.214): a client agent's report. */}
+          <Route
+            path="report"
+            element={
+              isClient ? (
+                <Suspense fallback={<Loading />}>
+                  <ReportTab agentId={view.id} />
+                </Suspense>
+              ) : (
+                <EmptyState>Templates don't run for clients, so they have no report.</EmptyState>
+              )
             }
           />
           {/* Triggers moved into the Workflow tab (its first step); the old address opens it. */}
@@ -666,8 +699,16 @@ function AgentBar({
   children: ReactNode;
 }) {
   const stats = bundle ? workflowStats(bundle) : null;
-  const status = view.runStatus ?? "draft";
   const kind = agentKindBadge(view);
+  // A client agent's status (agents/status), never a run's (the owner's decision 1): its stage
+  // and the version it runs, "In trial · v4", as Home, the client's Overview and Agents tab say
+  // it. Its version is in that chip, so the badges beside it carry only a newer draft; a
+  // template (or a test copy) has no stage, and its badges say "Live · v4" as before.
+  const withStage = view.kind === "client" && !view.testCopy;
+  const stage = withStage ? agentStage(view) : null;
+  const badges = withStage
+    ? versionBadges(null, draft).filter((b) => b.label !== "No versions" || live === null)
+    : versionBadges(live, draft);
   // Fix 1 of the design pass: the title is the name the client knows (the service name); the
   // bundle's own name, where it differs, is in the line under it, the one place it matters.
   const title = view.serviceName ?? view.name;
@@ -729,7 +770,7 @@ function AgentBar({
                   {pending ? (
                     <SkeletonLine size="small" width={96} />
                   ) : (
-                    versionBadges(live, draft).map((b) => (
+                    badges.map((b) => (
                       <Badge key={b.label} tone={b.tone}>
                         {b.label}
                       </Badge>
@@ -737,9 +778,9 @@ function AgentBar({
                   )}
                   {view.status === "disabled" ? <Badge tone="neutral">Discarded</Badge> : null}
                 </span>
-                {view.kind === "client" && !view.testCopy ? (
-                  <StatusChip state={serviceChipState(status)} testId="agent-bar-status">
-                    {RUN_STATUS_WORDS[status] ?? status}
+                {stage ? (
+                  <StatusChip state={stage.state} testId="agent-bar-status">
+                    {agentStatusLine({ stage, version: live?.version })}
                   </StatusChip>
                 ) : null}
               </div>
@@ -856,9 +897,9 @@ function WorkflowTab({ bundle, version }: { bundle: AnyAgentBundle; version: Ver
   return (
     <div className="flex flex-col gap-8">
       <p className="text-sm text-ink-muted">
-        Steps run top to bottom; a fork takes the first path whose rules match, then continues after
-        the fork. This is v{version.version} as it was saved; the workflow builder edits the latest
-        version.
+        Steps run top to bottom; a decision takes the first path whose rules match, then goes on
+        after it unless that path stops. This is v{version.version} as it was saved; the workflow
+        builder edits the latest version.
       </p>
       {bundle.workflows.map((w) => (
         <section key={w.slug} data-testid={`workflow-${w.slug}`}>
@@ -866,9 +907,15 @@ function WorkflowTab({ bundle, version }: { bundle: AnyAgentBundle; version: Ver
             {w.name}
             {w.enabled ? "" : " · off"}
           </SectionLabel>
-          <div className="rounded-lg border border-line bg-surface-subtle px-6 py-6">
-            <StepList workflow={w.workflow} />
-          </div>
+          <Suspense
+            fallback={
+              <Skeleton label="Opening the workflow…">
+                <SkeletonBlock height={520} />
+              </Skeleton>
+            }
+          >
+            <ReadOnlyFlow workflow={w} />
+          </Suspense>
         </section>
       ))}
     </div>

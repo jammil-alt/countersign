@@ -32,7 +32,7 @@ export const de: Messages = {
   "common.expired": "Abgelaufen",
   "common.notBuiltTitle": "Noch nicht fertig",
   "common.notBuiltBody": "Diese Seite kommt in einem späteren Schritt.",
-  "common.notFoundTitle": "Nicht gefunden",
+  "common.notFoundTitle": "Seite nicht gefunden",
   "common.notFoundBody": "Hier gibt es keine Seite.",
   "common.yes": "Ja",
   "common.no": "Nein",
@@ -157,6 +157,10 @@ export const de: Messages = {
   "search.group.records": "Einträge",
   "search.group.people": "Personen",
   "search.group.documents": "Dokumente",
+  "search.runsAbout": {
+    one: "{count} Ablauf zu {name}",
+    other: "{count} Abläufe zu {name}",
+  },
   "nav.table": "Der Tisch",
   "nav.desk": "Ihr Schreibtisch",
   "nav.yourAgents": "Ihre Agenten",
@@ -300,9 +304,21 @@ export const de: Messages = {
   "agent.pauseHelp": "Es starten keine neuen Abläufe. Laufende Abläufe werden beendet.",
   "agent.pauseConfirm": "{name} pausieren",
   "agent.pausedByYou": "Von Ihnen pausiert: {reason}",
+  "agent.pausedByYouAlone": "Von Ihnen pausiert",
   "agent.pausedByUs": "Von uns pausiert: {reason}",
+  "agent.pausedByUsAlone": "Von uns pausiert",
   "agent.pausedUntil": "Bis {time}",
   "agent.resumeOurs": "Wir haben pausiert. Bitten Sie Ihren Ansprechpartner, fortzusetzen.",
+  "agent.missed": {
+    one: "Während der Pause, zwischen {from} und {to}, kam {count} Ereignis, mit dem es gestartet wäre. Es ist nicht von selbst gestartet.",
+    other:
+      "Während der Pause, zwischen {from} und {to}, kamen {count} Ereignisse, mit denen es gestartet wäre. Keines ist von selbst gestartet.",
+  },
+  "agent.missedOrMore":
+    "Während der Pause, zwischen {from} und {to}, kamen {count} oder mehr Ereignisse, mit denen es gestartet wäre. Keines ist von selbst gestartet.",
+  "agent.missedUncounted":
+    "Während der Pause, zwischen {from} und {to}, kamen mehr Ereignisse, als wir auf einmal prüfen können. Manche hätten es vielleicht gestartet. Keines ist von selbst gestartet.",
+  "agent.missedAsk": "Bitten Sie Ihren Ansprechpartner, sie auszuführen, wenn Sie sie brauchen.",
   "agent.rightNow": "Gerade jetzt",
   "agent.nothingRunning":
     "Gerade läuft nichts. Der nächste Ablauf erscheint hier, Schritt für Schritt.",
@@ -544,6 +560,8 @@ export const de: Messages = {
   "duration.minutes": "{n} Min.",
   "duration.hours": "{n} Std.",
   "duration.hoursMinutes": "{h} Std. {m} Min.",
+  "duration.days": "{n} T.",
+  "duration.daysHours": "{d} T. {h} Std.",
   "run.started": "Gestartet {time}",
   "run.notStarted": "Noch nicht gestartet",
   "run.took": "Dauer {duration}",
@@ -1090,7 +1108,7 @@ export const de: Messages = {
 
   // ── Feedback ──
   "feedback.button": "Problem mit der App melden",
-  "feedback.short": "Feedback",
+  "feedback.short": "Problem melden",
   "feedback.tapWhere": "Tippen Sie auf die Stelle mit dem Problem",
   "feedback.noSpot": "Keine bestimmte Stelle",
   "feedback.capturing": "Bild wird aufgenommen…",
@@ -1182,6 +1200,7 @@ export const de: Messages = {
   "reports.subtitle": "Was Ihre Agenten erledigt haben.",
   "reports.subtitlePeriod": "Was Ihre Agenten erledigt haben, {period}.",
   "reports.activity": "Aktivität",
+  "reports.account": "Konto",
   "reports.period": "Zeitraum",
   "reports.period.month": "Dieser Monat",
   "reports.period.last": "Letzter Monat",
@@ -1246,6 +1265,13 @@ export const de: Messages = {
   "record.col.transaction": "Buchung",
   "record.documents": "Dokumente",
   "record.noDocuments": "Noch kein Dokument verknüpft.",
+  "record.runs": "Abläufe",
+  "record.runs.empty": "Noch kein Ablauf hat sich damit befasst.",
+  "record.runs.role.read": "Gelesen",
+  "record.runs.role.decided": "Abgeglichen",
+  "record.runs.role.changed": "Geändert",
+  "record.runs.role.changedIn": "Geändert in {tool}",
+  "record.runs.hide": "Abläufe ausblenden",
   "record.value": "Wert",
   "record.rawTitle": "{type} aus {tool}",
   "record.fileRow": "{file}, Zeile {row}",
@@ -1541,6 +1567,8 @@ export const de: Messages = {
   "contacts.status.read": "gelesen",
   "contacts.status.received": "empfangen",
   "contacts.status.unverified": "empfangen, Absender nicht bestätigt",
+  "contacts.status.other_sender":
+    "von einer anderen Adresse der Firma empfangen, nicht die Antwort",
   "contacts.status.replied": "beantwortet",
   "contacts.status.not_sent": "nicht gesendet",
   "contacts.status.no_reply": "keine Antwort",
@@ -1622,6 +1650,9 @@ export const de: Messages = {
   "billing.soFarNote": "{period}. Der endgültige Betrag kommt Anfang nächsten Monats.",
   "billing.byService": "Nach Agent",
   "billing.statements": "Rechnungen",
+  // §1.234: the link to the work statement.
+  "billing.workStatement": "Was Ihre Agenten jeden Monat erledigt haben",
+  "billing.workDone": "Erledigte Arbeit",
   "billing.noStatements": "Noch keine Rechnungen. Die erste kommt Anfang nächsten Monats.",
   "billing.column.item": "Posten",
   "billing.pricePerMonth": "{price} pro Monat",
@@ -2061,11 +2092,24 @@ export const de: Messages = {
   "runsPage.chip.attemptsOver": "Versuche über",
   "runsPage.chip.amount": "Betrag",
   "runsPage.chip.text": "Wörter",
+  "runsPage.chip.about": "zu",
+  "runsPage.about.remove": "{name} aus dem Filter nehmen",
+  "runsPage.about.record": "ein Eintrag",
   "runsPage.ask.label": "Fragen Sie in eigenen Worten nach Ihren Abläufen",
   "runsPage.ask.placeholder": 'In eigenen Worten: "Rechnungen über $5,000 in diesem Monat"',
   "runsPage.ask.send": "Fragen",
   "runsPage.ask.asking": "Wird gesucht…",
   "runsPage.ask.clear": "Zurücksetzen",
+  "runsPage.views.label": "Gespeicherte Ansichten",
+  "runsPage.views.save": "Diese Ansicht speichern",
+  "runsPage.views.name": "Name der Ansicht",
+  "runsPage.views.namePlaceholder": "Ansicht benennen",
+  "runsPage.views.share": "Mit Ihrem Team teilen",
+  "runsPage.views.shareShort": "Teilen",
+  "runsPage.views.stopSharing": "Nicht mehr teilen",
+  "runsPage.views.shared": "Geteilt",
+  "runsPage.views.by": "Geteilt von {name}",
+  "runsPage.views.delete": "Ansicht {name} löschen",
   "runsPage.ask.unclear":
     "Daraus konnten wir keinen Filter machen. Nennen Sie einen Agenten, einen Status oder eine Zeit.",
   "runsPage.ask.leftOut": "Nicht in diesem Filter: {parts}",
@@ -2316,9 +2360,329 @@ export const de: Messages = {
   "home.weekly.ready": "Ihre Ansprechperson hat den Wochenüberblick geschickt.",
   "agent.tab.overview": "Überblick",
   "agent.tab.runs": "Abläufe",
+  "agent.tab.report": "Bericht",
   "agent.tab.settings": "Agent-Einstellungen",
   // B3: the agent manual (docs/builder-plan.md §5)
   "agent.tab.manual": "Handbuch", // fluent review
+  // docs/sop-plan.md S1: the agent's SOP tab.
+  "agent.tab.sop": "SOP", // fluent review
+  "sop.title": "{agent}: Standardarbeitsanweisung", // fluent review
+  "sop.subtitle":
+    "Erstellt aus der heutigen Einrichtung von {agent}. Sie ändert sich, wenn sich die Einrichtung ändert.", // fluent review
+  "sop.asOf": "Stand {date}", // fluent review
+  "sop.contents": "Inhalt", // fluent review
+  "sop.revision": "Revision", // fluent review
+  "sop.revisionDate": "Revisionsdatum", // fluent review
+  "sop.previous": "Vorherige Revision", // fluent review
+  "sop.notRecorded": "Noch nicht erfasst", // fluent review
+  "sop.stage": "Phase", // fluent review
+  "sop.area": "Bereich", // fluent review
+  "sop.accountable": "Verantwortlich", // fluent review
+  "sop.areaOwner": "Bereichsverantwortliche", // fluent review
+  "sop.lead": "Ihre Ansprechperson bei Mezonas", // fluent review
+  "sop.whatChanged": "Was sich in Revision {number} geändert hat", // fluent review
+  "sop.was": "vorher {value}", // fluent review
+  "sop.allRevisions": "Alle Revisionen", // fluent review
+  "sop.find": "In dieser SOP suchen: ein Schritt, eine Person, ein System, ein Datensatz", // fluent review
+  "sop.find.count": "{count} Stellen passen zu „{text}“.", // fluent review
+  "sop.find.none": "Nichts passt zu „{text}“.", // fluent review
+  "sop.filter.party": "Es werden die Schritte gezeigt, an denen {name} beteiligt ist.", // fluent review
+  "sop.filter.system": "Es werden die Schritte gezeigt, die {name} nutzen.", // fluent review
+  "sop.showAll": "Alles zeigen", // fluent review
+  "sop.ask": "Fragen zu dieser SOP", // fluent review
+  "sop.askLine": "SOP von {agent}", // fluent review
+  "sop.askText": "Zur SOP von {agent}: „{line}“ ", // fluent review
+  "sop.print": "Drucken oder als PDF speichern", // fluent review
+  "sop.printFooter": "{code} · {agent} · Revision {number} vom {date}", // fluent review
+  "sop.sec.control": "Dokumentenlenkung", // fluent review
+  "sop.sec.purpose": "Zweck", // fluent review
+  "sop.sec.scope": "Geltungsbereich", // fluent review
+  "sop.sec.roles": "Rollen", // fluent review
+  "sop.sec.start": "Wie er beginnt", // fluent review
+  "sop.sec.procedure": "Ablauf", // fluent review
+  "sop.sec.controls": "Kontrollen", // fluent review
+  "sop.sec.systems": "Systeme", // fluent review
+  "sop.sec.data": "Daten", // fluent review
+  "sop.sec.exceptions": "Ausnahmen", // fluent review
+  "sop.sec.decisions": "Entscheidungen und Einstellungen", // fluent review
+  "sop.sec.measures": "Kennzahlen", // fluent review
+  "sop.sec.references": "Verweise", // fluent review
+  "sop.sec.history": "Revisionsverlauf", // fluent review
+  "assurance.sec": "Architektur und Sicherheit", // fluent review
+  "assurance.lede":
+    "Woher die Arbeit von {agent} kommt, was sie ausführt, welcher KI-Anbieter was sieht, welche Ihrer Systeme es wie erreicht und wo Ihre Daten liegen. Die Sicherheitsprüfungen laufen jede Nacht.", // fluent review
+  "assurance.diagramLabel":
+    "{agent}: woher die Arbeit kommt, was sie ausführt, welcher KI-Anbieter was sieht und wo Daten liegen", // fluent review
+  "assurance.diagramKey":
+    "Gestrichelte Bereiche sind Vertrauensgrenzen. C1, C3… sind die Kontrollen aus Abschnitt 6; DAT-3 und ähnliche sind die Sicherheitskontrollen von Mezonas (mezonas.com/security).", // fluent review
+  "assurance.result.verified": "Bestätigt", // fluent review
+  "assurance.result.in_review": "In Prüfung", // fluent review
+  "assurance.result.not_checked": "Noch nicht geprüft", // fluent review
+  "assurance.result.not_applicable": "Nicht zutreffend", // fluent review
+  "assurance.resultWhat.verified": "Die Prüfung lief und fand, was sie sollte.", // fluent review
+  "assurance.resultWhat.in_review":
+    "Die Prüfung hat etwas gefunden, das wir uns ansehen. Seit wann, steht dabei; Sie müssen nichts tun, außer wir fragen.", // fluent review
+  "assurance.resultWhat.not_checked":
+    "Ein neuer Agent oder eine neue Version, vor der ersten Nacht.", // fluent review
+  "assurance.resultWhat.not_applicable":
+    "Trifft auf diesen Agenten nicht zu; der Grund steht dabei.", // fluent review
+  "assurance.stat.checks": "Prüfungen", // fluent review
+  "assurance.stat.lastChecked": "Zuletzt geprüft", // fluent review
+  "assurance.stat.never": "Noch nicht", // fluent review
+  "assurance.col.check": "Prüfung", // fluent review
+  "assurance.col.how": "Wie", // fluent review
+  "assurance.col.result": "Ergebnis", // fluent review
+  "assurance.col.found": "Was sie fand", // fluent review
+  "assurance.col.evidence": "Nachweis", // fluent review
+  "assurance.col.checked": "Geprüft", // fluent review
+  "assurance.kind.setup": "Einrichtung", // fluent review
+  "assurance.kind.runs": "Läufe", // fluent review
+  "assurance.kind.attack": "Angriff", // fluent review
+  "assurance.inReviewSince":
+    "In Prüfung seit {date}. Wir sehen es uns an; Sie müssen nichts tun, außer wir fragen.", // fluent review
+  "assurance.openIssue": "Vorgang öffnen", // fluent review
+  "assurance.soc2Note":
+    "SOC-2-Verweise nennen die Trust Services Criteria, die jede Kontrolle erfüllt, nach unserer eigenen Zuordnung. Sie bedeuten keine Zertifizierung: Ein Prüfer bestätigt die Zuordnung, und wir haben noch keinen SOC-2-Bericht.", // fluent review
+  "assurance.coverage.title": "Jede Kontrolle erfasst", // fluent review
+  "assurance.coverage.lede":
+    "Jede Sicherheitskontrolle von Mezonas, die die Arbeit dieses Agenten betrifft, in einem von drei Zuständen.", // fluent review
+  "assurance.state.checked": "Für diesen Agenten geprüft", // fluent review
+  "assurance.state.inherited": "Von der Plattform übernommen", // fluent review
+  "assurance.state.not_applicable": "Nicht zutreffend", // fluent review
+  "assurance.status.in_place": "Umgesetzt", // fluent review
+  "assurance.status.partial": "Teilweise umgesetzt", // fluent review
+  "assurance.status.planned": "Geplant", // fluent review
+  "assurance.data.title": "Daten: was abgerufen, was gespeichert wird und wo", // fluent review
+  "assurance.data.lede":
+    "Gespeichert ist alles verschlüsselt (AES-256); bei der Übertragung TLS 1.2 oder neuer.", // fluent review
+  "assurance.col.data": "Daten", // fluent review
+  "assurance.col.from": "Abgerufen aus", // fluent review
+  "assurance.col.keptWhere": "Gespeichert in", // fluent review
+  "assurance.col.keptFor": "Gespeichert für", // fluent review
+  "assurance.col.whoSees": "Wer es sehen kann", // fluent review
+  "assurance.ai.title": "Was an die KI geht und wie es geschützt ist", // fluent review
+  "assurance.ai.none": "Er nutzt keine KI.", // fluent review
+  "assurance.col.use": "Verwendet für", // fluent review
+  "assurance.col.provider": "Anbieter und Modell", // fluent review
+  "assurance.col.sent": "Was gesendet wird", // fluent review
+  "assurance.col.protection": "Schutz", // fluent review
+  "assurance.col.providerKeeps": "Beim Anbieter gespeichert", // fluent review
+  "assurance.access.title": "Zugriff auf jedes Ihrer Tools", // fluent review
+  "assurance.col.tool": "Tool", // fluent review
+  "assurance.col.signsIn": "Anmeldung per", // fluent review
+  "assurance.col.credential": "Die Zugangsdaten", // fluent review
+  "assurance.col.agentMay": "Der Agent darf", // fluent review
+  "assurance.col.whoChanges": "Wer es ändern darf", // fluent review
+  "sop.noPurpose": "Noch nicht geschrieben.", // fluent review
+  "sop.covers": "Beginnt, wenn", // fluent review
+  "sop.notCovered": "Nicht abgedeckt", // fluent review
+  "sop.never": "Niemals", // fluent review
+  "sop.nothingLeftOut": "Nichts, was wir kennen.", // fluent review
+  "sop.roles.lede":
+    "Wer welchen Teil übernimmt. Klicken Sie auf einen Namen, um nur dessen Schritte zu sehen.", // fluent review
+  "sop.whoElse": "Wer sonst beteiligt ist, nach Schritt", // fluent review
+  "sop.whoElse.hint": "{agent} übernimmt alles Übrige", // fluent review
+  "sop.cell.does": "Erledigt", // fluent review
+  "sop.cell.approves": "Genehmigt", // fluent review
+  "sop.cell.checks": "Prüft", // fluent review
+  "sop.cell.told": "Informiert", // fluent review
+  "sop.col.step": "Schritt", // fluent review
+  "sop.hours": "Arbeitet zu Ihren Geschäftszeiten: {hours}", // fluent review
+  "sop.legend.person": "Eine Person", // fluent review
+  "sop.legend.agent": "Ein Agent", // fluent review
+  "sop.legend.rules": "Regeln: dieselbe Eingabe ergibt immer dasselbe Ergebnis", // fluent review
+  "sop.legend.ai": "KI: ein Modell erarbeitet es; das Modell wird genannt", // fluent review
+  "sop.summary.lead":
+    "{agent} erledigt jeden Schritt, sofern dort keine Person oder kein anderer Agent genannt ist.", // fluent review
+  "sop.summary.counts":
+    "{steps} Schritte: {rules} nach Regeln, {ai} mit KI, {mixed} nach Regeln und dann KI, {person} durch eine Person.", // fluent review
+  "sop.summary.writes": "Jede Änderung in Ihren Tools erfolgt nach Regeln.", // fluent review
+  "sop.summary.owner": "{owner} prüft fehlgeschlagene Schritte und Schritte vor einer Änderung", // fluent review
+  "sop.method.rules": "Regeln", // fluent review
+  "sop.method.rulesThen": "Regeln, dann", // fluent review
+  "sop.method.ai": "KI", // fluent review
+  "sop.level.auto": "Selbstständig", // fluent review
+  "sop.level.ask": "Erst fragen", // fluent review
+  "sop.level.off": "Aus", // fluent review
+  "sop.level.on": "An", // fluent review
+  "sop.approves": "Genehmigt", // fluent review
+  "sop.within": "innerhalb von {when}", // fluent review
+  "sop.ifNoAnswer": "wenn niemand antwortet: {what}", // fluent review
+  "sop.ifRejected": "Bei Ablehnung: {what}", // fluent review
+  "sop.onError": "Bei einem Fehler: {what}", // fluent review
+  "sop.told": "Informiert", // fluent review
+  "sop.controls": "Kontrollen", // fluent review
+  "sop.path.if": "Wenn", // fluent review
+  "sop.path.otherwise": "Sonst", // fluent review
+  "sop.path.straightOn": "direkt weiter", // fluent review
+  "sop.controls.lede":
+    "Was diesen Ablauf richtig hält, wo es gilt und wo der Nachweis zu finden ist.", // fluent review
+  "sop.col.control": "Kontrolle", // fluent review
+  "sop.col.kind": "Art", // fluent review
+  "sop.col.how": "Wie", // fluent review
+  "sop.col.steps": "Schritte", // fluent review
+  "sop.col.owner": "Verantwortlich", // fluent review
+  "sop.col.evidence": "Nachweis", // fluent review
+  "sop.kind.prevents": "Verhindert", // fluent review
+  "sop.kind.catches": "Erkennt", // fluent review
+  "sop.how.person": "Durch eine Person", // fluent review
+  "sop.how.automatic": "Automatisch", // fluent review
+  "sop.how.rules": "Nach Regeln", // fluent review
+  "sop.how.ai": "Mit KI", // fluent review
+  "sop.allSteps": "Alle", // fluent review
+  "sop.systems.lede":
+    "Die Tools, die dieser Agent nutzt, und was er in jedem darf: die strengere von Ihrer Verbindungseinstellung und dem Zugriff, den wir ihm gegeben haben.", // fluent review
+  "sop.noSystems": "Er nutzt keines Ihrer Tools.", // fluent review
+  "sop.col.system": "System", // fluent review
+  "sop.col.read": "Lesen", // fluent review
+  "sop.col.create": "Anlegen", // fluent review
+  "sop.col.update": "Ändern", // fluent review
+  "sop.col.delete": "Löschen", // fluent review
+  "sop.connectedBy": "Verbunden von {name}", // fluent review
+  "sop.notConnected": "Nicht verbunden", // fluent review
+  "sop.data.lede":
+    "Was der Agent liest, speichert und ändert, wo es liegt und wie lange es aufbewahrt wird.", // fluent review
+  "sop.col.record": "Datensatz", // fluent review
+  "sop.col.livesIn": "Liegt in", // fluent review
+  "sop.col.agentDoes": "Der Agent", // fluent review
+  "sop.col.readByAi": "Von KI gelesen", // fluent review
+  "sop.col.kept": "Aufbewahrt", // fluent review
+  "sop.no": "Nein", // fluent review
+  "sop.data.ai":
+    "KI-Modelle lesen Daten nur in den mit KI markierten Schritten und trainieren nie damit. Unsere Anbieter stehen unter mezonas.com/subprocessors.", // fluent review
+  "sop.learned": "Was er für Sie gelernt hat", // fluent review
+  "sop.col.decision": "Entscheidung", // fluent review
+  "sop.col.setBy": "Festgelegt von", // fluent review
+  "sop.onStep": "Schritt {step}", // fluent review
+  "sop.us": "Wir", // fluent review
+  "sop.confirmedWithYou": "Mit Ihnen bestätigt", // fluent review
+  "sop.noDecisions": "Keine Entscheidungen erfasst.", // fluent review
+  "sop.settings": "Was Sie anpassen können", // fluent review
+  "sop.setup": "Was wir mit Ihnen eingerichtet haben", // fluent review
+  "sop.follows": "Woran er sich hält", // fluent review
+  "sop.handsOverTo": "Übergibt an", // fluent review
+  "sop.takesOverFrom": "Übernimmt von", // fluent review
+  "sop.knowledge": "Wissen", // fluent review
+  "sop.history.lede":
+    "Jede Änderung an der Arbeitsweise von {agent}, neueste zuerst. Eine neue Revision entsteht, wenn sich Schritte, beteiligte Personen, Genehmigungen, Befugnisse in Ihren Tools oder Einstellungen ändern.", // fluent review
+  "sop.col.revision": "Revision", // fluent review
+  "sop.col.date": "Datum", // fluent review
+  "sop.col.changes": "Was sich geändert hat", // fluent review
+  "sop.col.by": "Geändert von", // fluent review
+  "agent.tab.workflow": "Ablauf", // fluent review
+  "workflow.viewOnly": "Nur ansehen", // fluent review
+  "workflow.revision": "Revision {number}", // fluent review
+  "workflow.hint":
+    "Zeigen Sie auf einen Schritt, um zu sehen, was er tut; klicken Sie für seine Karte.", // fluent review
+  "workflow.which": "Welcher Ablauf", // fluent review
+  "workflow.askChange": "Änderung anfragen", // fluent review
+  "workflow.changeLine": "Ablauf von {agent}", // fluent review
+  "workflow.empty": "Dieser Agent hat noch keine Schritte.", // fluent review
+  "workflow.foot":
+    "Sie sehen jeden Schritt, wer ihn ausführt, wie er entscheidet und seine Einstellungen; hier können Sie nichts ändern. Wir ändern Schritte, und jede Änderung wird eine neue SOP-Revision.", // fluent review
+  "workflow.noModel": "Regeln", // fluent review
+  "workflow.noModel.title": "Läuft nach Regeln, ohne KI", // fluent review
+  "workflow.rulesThenAi": "Erst Regeln, dann KI", // fluent review
+  "workflow.kind.read": "Lesen", // fluent review
+  "workflow.kind.change": "Ändern", // fluent review
+  "workflow.kind.person": "Person", // fluent review
+  "workflow.kind.conversation": "Gespräch", // fluent review
+  "workflow.kind.notify": "Benachrichtigen", // fluent review
+  "workflow.kind.wait": "Warten", // fluent review
+  "workflow.kind.stop": "Stopp", // fluent review
+  "workflow.kind.process": "Automation", // fluent review
+  "workflow.kind.handoff": "Übergabe", // fluent review
+  "workflow.kind.decision": "Entscheidung", // fluent review
+  "workflow.kind.forEach": "Für jedes", // fluent review
+  "workflow.kind.repeat": "Wiederholen", // fluent review
+  "workflow.kind.aiSkill": "KI-Fähigkeit", // fluent review
+  "workflow.kind.rulesSkill": "Regel-Fähigkeit", // fluent review
+  "workflow.aPerson": "Eine Person", // fluent review
+  "workflow.card.doneBy": "Ausgeführt von", // fluent review
+  "workflow.card.deadline": "Bis wann", // fluent review
+  "workflow.card.ifRejected": "Bei Ablehnung", // fluent review
+  "workflow.card.ifFails": "Wenn er fehlschlägt", // fluent review
+  "workflow.card.inSop": "Schritt {step} in der SOP", // fluent review
+  "workflow.close": "Schließen", // fluent review
+  // ── The workflow chart (shared with the builder) ──
+  "flow.zoomOut": "Verkleinern", // fluent review
+  "flow.zoomReset": "Zurück auf 100 %", // fluent review
+  "flow.zoomIn": "Vergrößern", // fluent review
+  "flow.fit": "Einpassen", // fluent review
+  "flow.key": "Legende", // fluent review
+  "flow.keyLabel": "Was die Zeichen bedeuten", // fluent review
+  "flow.dragHint": "Ziehen Sie den Hintergrund, um sich zu bewegen", // fluent review
+  "flow.otherwise": "Sonst", // fluent review
+  "flow.path": "Pfad {letter}", // fluent review
+  "flow.forEach": "Einmal für jeden Eintrag", // fluent review
+  "flow.repeat": "Wieder, bis es erledigt ist", // fluent review
+  "flow.repeatUpTo": {
+    one: "Wieder, bis es erledigt ist · bis zu {count}-mal",
+    other: "Wieder, bis es erledigt ist · bis zu {count}-mal",
+  }, // fluent review
+  "flow.stop": "Ende", // fluent review
+  "flow.neverRuns": "Läuft nie", // fluent review
+  "flow.neverRuns.why": "Jeder Pfad darüber endet vorher.", // fluent review
+  "flow.fold": "Zu einem Kasten zusammenklappen", // fluent review
+  "flow.unfold": {
+    one: "Den {count} Schritt darin zeigen",
+    other: "Die {count} Schritte darin zeigen",
+  }, // fluent review
+  "flow.more": "und {count} weitere", // fluent review
+  "flow.whyHere": "Warum er hier ist: {purpose}", // fluent review
+  "flow.runsOn": "läuft mit {model}", // fluent review
+  "flow.runsOnTitle": "Läuft mit {model}", // fluent review
+  "flow.ai": "KI", // fluent review
+  "flow.doer.person": "Person", // fluent review
+  "flow.doer.personTitle": "Das erledigt eine Person", // fluent review
+  "flow.doer.code": "Code", // fluent review
+  "flow.doer.codeTitle": "Läuft als Code, ohne Modell", // fluent review
+  "flow.badge.aiSkill": "KI-Fähigkeit", // fluent review
+  "flow.badge.rulesSkill": "Regel-Fähigkeit", // fluent review
+  "flow.mark.read": "Liest", // fluent review
+  "flow.mark.write": "Speichert in unseren Datensätzen", // fluent review
+  "flow.mark.person": "Das erledigt eine Person", // fluent review
+  "flow.mark.conversation": "Ein Gespräch mit einer Person", // fluent review
+  "flow.mark.notify": "Benachrichtigt jemanden", // fluent review
+  "flow.mark.wait": "Wartet", // fluent review
+  "flow.mark.forEach": "Wiederholt sich für jeden Eintrag", // fluent review
+  "flow.mark.repeat": "Wiederholt sich, bis es erledigt ist", // fluent review
+  "flow.mark.process": "Eine Automatisierung: gespeicherte Schritte", // fluent review
+  "flow.mark.handoff": "Übergibt an einen anderen Agenten", // fluent review
+  "flow.mark.missing": "Noch nicht gebaut", // fluent review
+  "flow.mark.readsFrom": "Liest aus {name}", // fluent review
+  "flow.mark.readsFromAi": "Liest aus {name}, mit einem Modell", // fluent review
+  "flow.mark.changes": "Ändert {name}", // fluent review
+  "flow.mark.changesAi": "Ändert {name}, mit einem Modell", // fluent review
+  "flow.mark.handoffTo": "Übergibt an {name}", // fluent review
+  "flow.mark.aiSkill": "Eine Fähigkeit, die ein Modell ausführt", // fluent review
+  "flow.mark.rulesSkill": "Eine Fähigkeit, die nach Regeln läuft", // fluent review
+  "flow.mark.ai": "Das erledigt ein Modell", // fluent review
+  "flow.key.connector": "Liest aus einem verbundenen Tool oder ändert es", // fluent review
+  "flow.key.ai": "Ein Modell erledigt es", // fluent review
+  "flow.key.rules": "Läuft nach Regeln, ohne Modell", // fluent review
+  "flow.channel.inbox": "Der Posteingang", // fluent review
+  "flow.channel.email": "E-Mail", // fluent review
+  "flow.channel.sms": "SMS", // fluent review
+  "flow.channel.call": "Anruf", // fluent review
+  "flow.does.read": "Liest Datensätze. Ändert nichts.", // fluent review
+  "flow.does.write": "Ändert oder speichert einen Datensatz.", // fluent review
+  "flow.does.skill": "Wendet eine Fähigkeit auf das an, was die Schritte davor ergeben haben.", // fluent review
+  "flow.does.person": "Fragt eine Person und wartet auf ihre Antwort.", // fluent review
+  "flow.does.approve": "Bittet eine Person um Freigabe und wartet auf ihre Antwort.", // fluent review
+  "flow.does.ask": "Stellt einer Person eine Frage und wartet auf ihre Antwort.", // fluent review
+  "flow.does.conversation": "Spricht mit jemandem hin und her, bis sein Ziel erreicht ist.", // fluent review
+  "flow.does.notify": "Benachrichtigt jemanden und macht weiter.", // fluent review
+  "flow.does.if":
+    "Schickt den Lauf auf den ersten Pfad, dessen Regel zutrifft, sonst auf den Pfad Sonst.", // fluent review
+  "flow.does.forEach": "Führt seine Schritte einmal für jeden Eintrag einer Liste aus.", // fluent review
+  "flow.does.repeat":
+    "Wiederholt seine Schritte, bis sie erledigt sind oder die Grenze erreicht ist.", // fluent review
+  "flow.does.wait": "Hält den Lauf für eine festgelegte Zeit an.", // fluent review
+  "flow.does.stop": "Beendet den Lauf hier.", // fluent review
+  "flow.does.process": "Führt eine Automatisierung aus: eine gespeicherte Folge von Schritten.", // fluent review
+  "flow.does.handoff": "Übergibt die Arbeit an einen anderen Agenten, der selbstständig läuft.", // fluent review
+  "flow.does.missing": "Hält den Platz für einen Schritt, den noch niemand gebaut hat.", // fluent review
   "manual.whatItDoes": "Was er tut", // fluent review
   "manual.howItWorks": "Wie er arbeitet", // fluent review
   "manual.decisions": "Entscheidungen", // fluent review
@@ -3289,6 +3653,9 @@ export const de: Messages = {
     "Dieser Link gilt bis {time}. Nach der Freigabe gilt sie, bis diese Claude-Anmeldung endet, höchstens 12 Stunden.",
   "connectClaude.requested":
     "Claude hat Ihnen diesen Link um {time} gegeben. Wenn Sie Claude nicht gerade selbst gefragt haben, geben Sie ihn nicht frei.",
+  "connectClaude.client": "Es fragt: {client}.",
+  "connectClaude.place":
+    "Die Anfrage kam aus {place}. Claude im Web fragt von den Servern von Anthropic aus, also steht hier deren Standort, nicht Ihrer.",
   "connectClaude.confirm": "Der Code, den Claude Ihnen gezeigt hat",
   "connectClaude.confirmHint":
     "Claude zeigt mit diesem Link einen 6-stelligen Code. Geben Sie den ein, den Ihr eigenes Claude zeigt, nie einen, den Ihnen jemand anderes schickt.",
@@ -3655,4 +4022,288 @@ export const de: Messages = {
   "connectors.notice.undo": "Auf der Seite von {tool} rückgängig machen oder ändern",
   "agent.reachReady": "Bereit",
   "agent.reachNeeds": "Braucht etwas",
+
+  // ── setup: people ── Getting started: chapters and Your people (SU2)
+  "setup.trial.title": "Vor der Testphase jedes Agenten",
+  "setup.trial.hint": "Was noch fehlt und auf wen es wartet",
+  "setup.left": { one: "1 offen", other: "{count} offen" },
+  "setup.ready": "Bereit für die Testphase",
+  "setup.who.you": "Sie",
+  "setup.minutes": {
+    one: "Noch etwa eine Minute. Sie können jederzeit aufhören und hier weitermachen.",
+    other: "Noch etwa {count} Minuten. Sie können jederzeit aufhören und hier weitermachen.",
+  },
+  "setup.chapters": "Kapitel",
+  "setup.chapters.hint": "In beliebiger Reihenfolge",
+  "setup.chapter.business": "Ihr Unternehmen",
+  "setup.chapter.tools": "Ihre Tools",
+  "setup.chapter.people": "Ihre Leute",
+  "setup.chapter.see": "So arbeitet es",
+  "setup.chapter.live": "Live gehen",
+  "setup.chapter.business.about": "Die Fragen dazu, wie Sie arbeiten, und die jedes Agenten.",
+  "setup.chapter.tools.about":
+    "Verbinden Sie die Tools, in denen die Agenten arbeiten. Sie melden sich auf der Seite des jeweiligen Tools an.",
+  "setup.chapter.people.about": "Wer genehmigt, wer antwortet und wer informiert wird.",
+  "setup.chapter.see.about":
+    "Lesen Sie jeden Schritt mit Ihren eigenen Namen und probieren Sie es dann an etwas Echtem aus.",
+  "setup.chapter.live.about":
+    "Unterschreiben Sie Ihren Umfang. Dann folgt eine zweiwöchige Testphase, in der Sie jede Änderung unterschreiben.",
+  "setup.state.done": "Erledigt",
+  "setup.state.open": "{done} von {total}",
+  "setup.state.notStarted": "Nicht begonnen",
+  "setup.state.notNeeded": "Nichts zu tun",
+  "setup.frame.eyebrow": "Kapitel {n} von 5",
+  "setup.frame.back": "Zurück zu Erste Schritte",
+  "setup.frame.next": "Weiter: {chapter}",
+  "setup.notBuilt": "Dieses Kapitel kommt bald",
+  "setup.notBuiltBody": "Bis dahin führt Ihr Ansprechpartner Sie durch.",
+  "setup.people.intro":
+    "Wir haben eingetragen, was Sie uns gesagt haben; prüfen Sie jeden Eintrag. Genehmigungen bleiben an: Hier geht es darum, wer unterschreibt, nicht ob.",
+  "setup.people.kind.signs": "Unterschreibt",
+  "setup.people.kind.answers": "Antwortet",
+  "setup.people.kind.told": "Wird informiert",
+  "setup.people.kind.reached": "Wird kontaktiert",
+  "setup.people.checked": "Geprüft",
+  "setup.people.toCheck": "Zu prüfen",
+  "setup.people.weThink": "Wir denken: {names}, nach Ihrer Antwort „{from}“.",
+  "setup.people.yes": "Ja",
+  "setup.people.change": "Ändern",
+  "setup.people.backup": "Bei Abwesenheit",
+  "setup.people.add": "Jemanden hinzufügen",
+  "setup.people.addBackup": "Vertretung hinzufügen",
+  "setup.people.remove": "{name} entfernen",
+  "setup.people.choose": "Jemanden wählen",
+  "setup.people.signsIn": "Meldet sich an",
+  "setup.people.notJoined": "Eingeladen, noch nicht angemeldet",
+  "setup.people.viewer": "Nur Lesezugriff",
+  "setup.people.byEmail": "Per E-Mail informiert",
+  "setup.people.you": "Sie",
+  "setup.people.nobody": "Noch niemand. Bis Sie wählen, geht es an Ihren Administrator.",
+  "setup.people.inviteNew": "Jemand Neues? Laden Sie die Person zuerst unter Team ein.",
+  "setup.people.adminOnly": "Ihr Administrator besetzt diese Rollen.",
+  "setup.people.matrix": "Sehen Sie in der Arbeitsanweisung von {agent}, wer was macht",
+  "setup.people.looksRight": "Passt so",
+  "setup.people.confirmed": "Geprüft von {name}",
+  "setup.people.none": "Ihre Agenten brauchen noch niemanden.",
+  "setup.people.notSigner":
+    "Diese Person hat nur Lesezugriff und kann nicht genehmigen. Ändern Sie das unter Team.",
+  // (end setup: people)
+
+  // ── setup: tools ── Getting started: Your tools (SU3)
+  "setup.tools.intro":
+    "Die Agenten arbeiten in Ihren eigenen Konten. Sie melden sich auf der Seite des jeweiligen Tools an; wir sehen nie ein Passwort.",
+  "setup.tools.none": "Ihre Agenten brauchen noch keine Tools.",
+  "setup.tools.adminOnly": "Ihr Admin verbindet und prüft sie.",
+  "setup.tools.usedBy": "Genutzt von {agents}",
+  "setup.tools.connected": "Verbunden",
+  "setup.tools.waitingYou": "Wartet auf Sie",
+  "setup.tools.waitingOn": "Wartet auf {name}",
+  "setup.tools.account":
+    "Sie haben sich bei {account} angemeldet. Ist das die Firma, die die Agenten nutzen sollen?",
+  "setup.tools.accountChecked":
+    "Sie haben sich bei {account} angemeldet. Die Agenten nutzen diese Firma.",
+  "setup.tools.yes": "Ja",
+  "setup.tools.different": "Eine andere Firma",
+  "setup.tools.checked": "Geprüft",
+  "setup.tools.reads": "Wir lesen",
+  "setup.tools.changes": "Wir dürfen ändern",
+  "setup.tools.never": "Niemals",
+  "setup.tools.nothing": "Nichts",
+  "setup.tools.asksFirst": "Wir fragen Sie jedes Mal vorher.",
+  "setup.tools.access": "Sehen und festlegen, was die Agenten in {tool} dürfen",
+  "setup.tools.whoSignsIn": "Wer meldet sich bei {tool} an?",
+  "setup.tools.connect": "Ich: {tool} verbinden",
+  "setup.tools.someoneElse": "Jemand anderes",
+  "setup.tools.sendTo": "Nur diese Karte senden an",
+  "setup.tools.choose": "Jemanden auswählen",
+  "setup.tools.send": "Senden",
+  "setup.tools.asked": "Wir haben {name} gefragt. Es liegt in deren Posteingang.",
+  "setup.tools.askedYou": "Sie wurden gebeten, dieses zu verbinden.",
+  "setup.tools.adminConnects": "Ihr Admin verbindet das.",
+  "setup.tools.cannotConnect":
+    "Nur ein Admin kann {tool} verbinden. Machen Sie die Person unter Team zum Admin, oder verbinden Sie es selbst.",
+  "setup.tools.noOne":
+    "In Ihrem Team ist noch niemand sonst. Laden Sie die Person zuerst unter Team ein.",
+  "setup.tools.lookTitle": "Was wir in {tool} sehen",
+  "setup.tools.lookHint":
+    "Aus Ihren Daten gezählt, nicht geschätzt. Prüfen Sie jede Zeile, und die Agenten starten damit.",
+  // (end setup: tools)
+
+  // ── setup: see ── Getting started: See it work (SU4, SU5)
+  "setup.see.none": "Gerade wird kein Agent eingerichtet.",
+  "setup.see.pick": "Wählen Sie einen Agenten, um zu sehen, wie er arbeitet.",
+  "setup.see.agents": "Agenten in Einrichtung",
+  "setup.see.intro":
+    "Wie {name} die Arbeit erledigt, mit Ihren Leuten und Ihren Tools. Sagen Sie uns bei jedem Schritt, der nicht Ihrer Arbeitsweise entspricht, Bescheid.",
+  "setup.see.readOnly":
+    "Sie können lesen, wie er arbeitet. Wer in Ihrem Team unterschreiben darf, sagt, was stimmt, und probiert ihn aus.",
+  "setup.see.steps": "So arbeitet er",
+  "setup.see.noSteps": "Es gibt noch keine Schritte zum Lesen.",
+  "setup.see.person": "Person",
+  "setup.see.who": "Wer: {name}",
+  "setup.see.asksFirst": "Fragt zuerst {names}",
+  "setup.see.told": "Informiert {names}",
+  "setup.see.otherwise": "Sonst",
+  "setup.see.looksRight": "Stimmt so",
+  "setup.see.lookedRight": "Stimmt so",
+  "setup.see.lookedRightBy": "Stimmt so · {name}",
+  "setup.see.different": "Wir machen es anders",
+  "setup.see.differentLabel": "Wie machen Sie es?",
+  "setup.see.differentHint":
+    "In Ihren eigenen Worten. Nichts ändert sich, bevor Sie die Änderung gesehen haben.",
+  "setup.see.sendTo": "An {lead} senden",
+  "setup.see.youSaid": "Sie sagten: „{text}“",
+  "setup.see.withLead": "{lead} kümmert sich darum. Wir zeigen Ihnen die Änderung, bevor sie gilt.",
+  "setup.see.withUs": "Wir kümmern uns darum. Wir zeigen Ihnen die Änderung, bevor sie gilt.",
+  "setup.see.request": "Anfrage Nr. {number}",
+  "setup.see.asked": "Gesendet",
+  "setup.see.try.title": "An einem echten Fall ausprobieren",
+  "setup.see.try.hint": "Ein Testlauf: Nichts wird in Ihre Tools geschrieben, niemand wird gefragt",
+  "setup.see.try.left": {
+    one: "Noch 1 von {max} Versuchen.",
+    other: "Noch {count} von {max} Versuchen.",
+  },
+  "setup.see.try.usedUp": "Fragen Sie uns, wenn Sie noch einen möchten.",
+  "setup.see.try.usedUpLead": "Fragen Sie {lead}, wenn Sie noch einen möchten.",
+  "setup.see.try.wait": "Ein Versuch läuft. Der nächste kann starten, sobald er fertig ist.",
+  "setup.see.try.none":
+    "Noch gibt es nichts zum Ausprobieren. Sobald ein Dokument eingeht, mit dem er arbeitet, erscheint es hier.",
+  "setup.see.try.from": "Von {from}, {when}",
+  "setup.see.try.this": "Damit ausprobieren",
+  "setup.see.try.badge": "Testlauf · nichts geschrieben oder gesendet",
+  "setup.see.try.status.running": "Läuft",
+  "setup.see.try.status.done": "Fertig",
+  "setup.see.try.status.failed": "Angehalten",
+  "setup.see.try.starting": "Startet. Die Schritte erscheinen hier, sobald sie laufen.",
+  "setup.see.try.state.done": "Erledigt",
+  "setup.see.try.state.running": "In Arbeit",
+  "setup.see.try.state.waiting": "Würde hier warten",
+  "setup.see.try.state.skipped": "Übersprungen",
+  "setup.see.try.state.failed": "Hat nicht geklappt",
+  "setup.see.try.right": "Richtig",
+  "setup.see.try.notRight": "Nicht richtig, weil…",
+  "setup.see.try.because": "Was hätte er tun sollen?",
+  "setup.see.try.saidRight": "Sie sagten: richtig",
+  "setup.see.try.saidNotRight": "Sie sagten: nicht richtig.",
+  // (end setup: see)
+
+  // ── setup: live ── Getting started: Go live (SU6)
+  "setup.live.none": "Kein Agent wartet darauf, live zu gehen.",
+  "setup.live.pick": "Wählen Sie einen Agenten, um seinen Umfang zu lesen.",
+  "setup.live.signed": "Unterschrieben",
+  "setup.live.toSign": "Zu unterschreiben",
+  "setup.live.eyebrow": "Umfang · {agent} · Version {version}",
+  "setup.live.does": "Was er tut",
+  "setup.live.reads": "Was er liest",
+  "setup.live.changes": "Was er ändern darf",
+  "setup.live.signs": "Wer unterschreibt",
+  "setup.live.answers": "Wer antwortet",
+  "setup.live.choices": "Ihre Entscheidungen",
+  "setup.live.open": "Noch offen",
+  "setup.live.nothing": "Nichts",
+  "setup.live.waiting": "Wartet auf Sie",
+  "setup.live.waitingAdmin": "Wartet auf Ihren Administrator",
+  "setup.live.yourScope": "Ihr Umfang",
+  "setup.live.ready": "Ihr {agent} ist bereit für die Testphase.",
+  "setup.live.signBody": "Unterschreiben Sie den Umfang oben, dann startet {lead} die Testphase.",
+  "setup.live.adminSigns":
+    "Ihr Administrator unterschreibt den Umfang. Dann startet {lead} die Testphase.",
+  "setup.live.signedBy": "Unterschrieben von {name} am {date}. {lead} startet die Testphase.",
+  "setup.live.signedOlder":
+    "Version {version} wurde unterschrieben. Diese Version hat sich geändert und muss erneut unterschrieben werden.",
+  "setup.live.yourLead": "Ihr Ansprechpartner",
+  "setup.live.checkedBy": "Geprüft von {lead}, Ihrem Ansprechpartner",
+  "setup.live.sign": "Unterschreiben",
+  "setup.live.next": "Wie es weitergeht",
+  "setup.live.next.today": "Heute",
+  "setup.live.next.todayBody": "Sie unterschreiben den Umfang.",
+  "setup.live.next.start": "Danach",
+  "setup.live.next.startBody": "{lead} startet die Testphase. Sie beginnt nie von selbst.",
+  "setup.live.next.trial": "{days} Tage",
+  "setup.live.next.trialBody":
+    "Sie unterschreiben jede Änderung auf Ihrem Schreibtisch, bevor sie gemacht wird. Stimmt etwas nicht, sagen Sie es direkt beim Eintrag.",
+  "setup.live.next.checkin": "Tag 7",
+  "setup.live.next.checkinBody": "Ein kurzes Gespräch mit {lead}.",
+  "setup.live.next.after": "Nach der Testphase",
+  "setup.live.next.afterBody":
+    "Sie entscheiden, was ohne Rückfrage laufen darf. Freigaben bleiben aktiv, solange Sie sie nicht ändern.",
+  "setup.live.fromCall": "Aus unserem Gespräch: bitte prüfen",
+  // (end setup: live)
+  // §1.216: books health
+  "books.title": "Zustand der Buchhaltung",
+  "books.subtitle": "Was wir in Ihrem QuickBooks gefunden haben, die größten Beträge zuerst.",
+  "books.none": "Verbinden Sie QuickBooks, dann prüfen wir Ihre Buchhaltung hier.",
+  "books.syncing":
+    "Wir prüfen Ihre Buchhaltung, sobald die erste Synchronisierung mit QuickBooks fertig ist.",
+  "books.asOf": "Stand {day}",
+  "books.since": "aus Buchungen ab {day}",
+  "books.allClean": "Keine Prüfung hat etwas gefunden.",
+  "books.clean": "Nichts gefunden bei: {checks}.",
+  "books.fixedBy": "Erledigt durch {area}",
+  "books.on": "Eingeschaltet",
+  "books.off": "Nicht eingeschaltet",
+  "books.examples": "Beispiele",
+  "books.check.unreconciled_accounts": "Nicht abgestimmte Konten",
+  "books.check.uncategorized": "Nicht zugeordnete Buchungen",
+  "books.check.duplicate_vendors": "Doppelte Lieferanten",
+  "books.check.duplicate_bills": "Doppelte Eingangsrechnungen",
+  "books.check.receivables_aging": "Überfällige Rechnungen",
+  "books.check.payables_aging": "Überfällige Eingangsrechnungen",
+  "books.check.negative_balances": "Salden unter null",
+  "books.check.undeposited_funds": "Nicht eingezahlte Zahlungen",
+  "books.check.price_drift": "Steigende Lieferantenpreise",
+  // (end books health)
+  // Plan entry §1.233: the AP pack's Bills to pay and its approve-to-pay card.
+  "ap.bills.title": "Zu zahlende Rechnungen",
+  "ap.bills.description":
+    "Die Lieferantenrechnungen jeder Woche zur Freigabe, gegen ihre Bestellungen geprüft. Hier wird nichts bezahlt.",
+  "ap.list.loading": "Rechnungen werden geladen…",
+  "ap.list.empty": "Keine Rechnungen auf der Liste dieser Woche.",
+  "ap.list.heading": {
+    one: "{count} Rechnung für {day}:",
+    other: "{count} Rechnungen für {day}:",
+  },
+  "ap.list.needsYou": {
+    one: "{count} braucht Sie",
+    other: "{count} brauchen Sie",
+  },
+  "ap.list.needsYouTitle": "Braucht Sie",
+  "ap.list.ready": "Bereit zur Freigabe: {amount}",
+  "ap.list.approved": "Freigegeben: {amount}",
+  "ap.list.approveReady": "Bereite Rechnungen freigeben",
+  "ap.list.decided": "Entschieden",
+  "ap.list.done": "Fertig für diese Woche",
+  "ap.list.week": "Woche",
+  "ap.list.weekOf": "Woche vom {day}",
+  "ap.status.open": "Zu entscheiden",
+  "ap.status.approved": "Freigegeben",
+  "ap.status.held": "Zurückgestellt",
+  "ap.status.rejected": "Abgelehnt",
+  "ap.bill.due": "Fällig am {day}",
+  "ap.bill.order": "Bestellung {reference}",
+  "ap.bill.noOrder": "Keine Bestellung",
+  "ap.bill.account": "Konto",
+  "ap.bill.chooseAccount": "Konto wählen",
+  "ap.bill.take": "{account} verwenden",
+  "ap.bill.confirmOrder": "Es ist diese Bestellung",
+  "ap.bill.notThisOrder": "Nicht diese Bestellung",
+  "ap.bill.received": "Bestellung als erhalten markieren",
+  "ap.bill.note": "Warum (zum Zurückstellen, Ablehnen oder Freigeben einer markierten Rechnung)",
+  "ap.bill.approve": "Freigeben",
+  "ap.bill.hold": "Zurückstellen",
+  "ap.bill.reject": "Ablehnen",
+  "ap.flag.duplicate": "Doppelt",
+  "ap.flag.possible_duplicate": "Möglicherweise doppelt",
+  "ap.flag.price_over_order": "Preis über der Bestellung",
+  "ap.flag.price_under_order": "Preis unter der Bestellung",
+  "ap.flag.unit_not_compared": "Andere Einheit, nicht verglichen",
+  "ap.flag.qty_over_order": "Mehr berechnet als bestellt",
+  "ap.flag.qty_over_received": "Mehr berechnet als erhalten",
+  "ap.flag.not_received": "Nicht als erhalten markiert",
+  "ap.flag.amount_differs": "Summe weicht von der Bestellung ab",
+  "ap.flag.no_order": "Keine Bestellung",
+  "ap.flag.order_to_confirm": "Bestellung zu bestätigen",
+  "ap.flag.uncoded": "Zeilen ohne Konto",
+  "ap.flag.read_again": "Neu gelesen",
+  "ap.flag.other": "Hinweis",
 };

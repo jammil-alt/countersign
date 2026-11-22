@@ -30,8 +30,11 @@ backups. Where the code enforces a rule, the table says how.
 | Second-factor and release codes | Until used, at most 10 minutes | Deleted automatically |
 | Users' account data (name, email, role) | While the person has access, then with the client's data | Access removed by the client's admin or the security officer; the client's users are purged with its rows; the audit log keeps their id |
 | Audit log | 6 years | Removed yearly by the security officer once older than 6 years. After a client's purge it keeps ids only |
+| Prospects' client files (what we noted about a company before it became a client) | 12 months after the last of its deals closed without a sale | Deleted automatically with their notes (hourly job); the deals stay without them |
 | Website measurement (mezonas.com and clients' sites) | Raw events 90 days; visits 13 months; daily totals kept; the daily salt is deleted after its day | Deleted automatically (nightly job) |
 | Error reports (Sentry) | Sentry's retention for our plan | Contain no client content, emails, IPs or keys |
+| Run histories: each run's steps and their results | While the client uses the service | Purged with the client's rows within 30 days after the service ends (`db:purge-client`) |
+| Our copies of AI requests and answers (kept to review and debug a run, under the client's prefix in our file store) | While the client uses the service | Deleted with the client's files 30 days after the client is retired (hourly job) |
 | Data sent to AI model providers | Only for the task; never used for training | Held by the provider as its API terms state |
 | Billing records (Stripe) | As tax law requires | Closed with the client's Stripe customer after the last invoice |
 | Backups (Neon point-in-time history) | 7 days | Expire automatically, so deleted data leaves backups within 7 days |

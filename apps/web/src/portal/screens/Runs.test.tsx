@@ -22,7 +22,29 @@ const run = (id: string, status: string) => ({
   costUsd: "0.1200",
 });
 
-function setup() {
+const ACME = "00000000-0000-4000-8000-00000000e001";
+const BRICKS = "00000000-0000-4000-8000-00000000e002";
+
+/** R2: what a question about Acme was found to be about. */
+const ABOUT_ANSWER = {
+  understood: true,
+  filter: {
+    about: [
+      { kind: "vendor", id: ACME },
+      { kind: "vendor", id: BRICKS },
+    ],
+  },
+  chips: [
+    { key: "about", value: "Acme Supply", about: `vendor:${ACME}` },
+    { key: "about", value: "Acme Bricks", about: `vendor:${BRICKS}` },
+  ],
+  leftOut: [],
+  aboutText: "Acme",
+  query: { about: `vendor:${ACME},vendor:${BRICKS}` },
+  runs: [],
+};
+
+function setup(options: { at?: string; answer?: unknown } = {}) {
   const queries: URLSearchParams[] = [];
   const asks: unknown[] = [];
   const api = fakeApi({
@@ -48,28 +70,35 @@ function setup() {
         },
         run(RUN_B, "succeeded"),
       ].filter((r) => !statuses || statuses.split(",").includes(r.status));
+      // R2: the records `about` names, as the list names them back.
+      const about = url.searchParams.get("about");
       return {
         runs,
         perDay: [
           { day: "2026-11-04", runs: 3, failed: 1 },
           { day: "2026-11-05", runs: 2, failed: 0 },
         ],
+        ...(about?.includes(ACME)
+          ? { about: [{ kind: "vendor", id: ACME, label: "Acme Supply", number: null }] }
+          : {}),
       };
     },
     "POST /api/runs/ask": ({ init }) => {
       asks.push(JSON.parse(String(init.body)));
-      return {
-        understood: true,
-        filter: { statuses: ["succeeded"] },
-        chips: [{ key: "statuses", value: "succeeded" }],
-        leftOut: ["by Iris"],
-        query: { statuses: "succeeded" },
-        runs: [],
-      };
+      return (
+        options.answer ?? {
+          understood: true,
+          filter: { statuses: ["succeeded"] },
+          chips: [{ key: "statuses", value: "succeeded" }],
+          leftOut: ["by Iris"],
+          query: { statuses: "succeeded" },
+          runs: [],
+        }
+      );
     },
   });
   render(
-    <MemoryRouter initialEntries={["/runs"]}>
+    <MemoryRouter initialEntries={[options.at ?? "/runs"]}>
       <AppProviders client={api.client}>
         <AppRoutes />
       </AppProviders>
@@ -221,6 +250,39 @@ describe("portal runs", () => {
     await userEvent.click(screen.getByTestId("portal-runs-ask-clear"));
     expect(screen.queryByTestId("portal-runs-chip")).not.toBeInTheDocument();
   });
+
+  // R2 (docs/plan.md §1.193)
+  it("opens on the runs about a record from a link, named, and takes it out", async () => {
+    const { queries } = setup({ at: `/runs?about=vendor:${ACME},PO-1032` });
+    await screen.findByTestId("portal-runs");
+    expect(queries[0]?.get("about")).toBe(`vendor:${ACME},PO-1032`);
+    const chips = await screen.findAllByTestId("portal-runs-chip");
+    expect(chips.map((c) => c.textContent)).toEqual(["about Acme Supply", "about PO-1032"]);
+    await userEvent.click(
+      screen.getByRole("button", { name: "Take Acme Supply out of the filter" }),
+    );
+    await waitFor(() => expect(queries.at(-1)?.get("about")).toBe("PO-1032"));
+    await userEvent.click(screen.getByRole("button", { name: "Take PO-1032 out of the filter" }));
+    await waitFor(() => expect(queries.at(-1)?.has("about")).toBe(false));
+    expect(screen.queryByTestId("portal-runs-chip")).not.toBeInTheDocument();
+  });
+
+  it("shows what a question was about as chips, each one taken out on its own", async () => {
+    const { queries } = setup({ answer: ABOUT_ANSWER });
+    await screen.findByTestId("portal-runs");
+    await userEvent.type(screen.getByTestId("portal-runs-ask-input"), "runs about Acme");
+    await userEvent.click(screen.getByTestId("portal-runs-ask-send"));
+    const chips = await screen.findAllByTestId("portal-runs-chip");
+    expect(chips.map((c) => c.textContent)).toEqual(["about Acme Supply", "about Acme Bricks"]);
+    await waitFor(() =>
+      expect(queries.at(-1)?.get("about")).toBe(`vendor:${ACME},vendor:${BRICKS}`),
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: "Take Acme Bricks out of the filter" }),
+    );
+    await waitFor(() => expect(queries.at(-1)?.get("about")).toBe(`vendor:${ACME}`));
+    expect(screen.getAllByTestId("portal-runs-chip")).toHaveLength(1);
+  });
 });
 
 // Review of #259: a filter of one agent's list keeps that agent's rows, dimmed, while a status
@@ -273,5 +335,17 @@ describe("the runs list's kept rows", () => {
     );
     expect(screen.getByTestId(`portal-run-row-${RUN_Y}`)).toBeInTheDocument();
     expect(screen.queryByTestId(`portal-run-row-${RUN_X}`)).toBeNull();
+  });
+  // R4 (docs/plan.md §1.214): a report's figure opens the list on exactly its runs.
+  it("opens on a report figure's filter from its address, as chips, and clears it", async () => {
+    const since = "2026-11-01T00:00:00.000Z";
+    const { queries } = setup({ at: `/runs?statuses=failed&since=${since}` });
+    await waitFor(() => expect(queries[0]?.get("statuses")).toBe("failed"));
+    expect(queries[0]?.get("since")).toBe(since);
+    const chips = await screen.findAllByTestId("portal-runs-chip");
+    expect(chips).toHaveLength(2);
+    await userEvent.click(screen.getByTestId("portal-runs-ask-clear"));
+    await waitFor(() => expect(queries.at(-1)?.has("statuses")).toBe(false));
+    expect(queries.at(-1)?.has("since")).toBe(false);
   });
 });

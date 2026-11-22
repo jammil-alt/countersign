@@ -41,6 +41,7 @@ import {
   recordLineDays,
   tenantBilling,
 } from "./ledger";
+import { emailWorkStatement, type WorkStatementMail } from "./work-statement";
 
 /** Runs work in a transaction scoped to the client: a fresh one (cron) or the request's own. */
 export type Runner = <T>(fn: (tx: Tx) => Promise<T>) => Promise<T>;
@@ -183,7 +184,14 @@ const monthName = (period: string) =>
 export async function sendStatement(
   run: Runner,
   stripe: StripeClient,
-  input: { tenantId: string; statementId: string; actorId: string | null; config: BillingConfig },
+  input: {
+    tenantId: string;
+    statementId: string;
+    actorId: string | null;
+    config: BillingConfig;
+    /** §1.234: the work statement's PDF, emailed once the invoice is sent; absent: not emailed. */
+    workStatement?: WorkStatementMail;
+  },
 ): Promise<{ statement: StatementRow; error: string | null }> {
   const { tenantId, statementId } = input;
   const state = await run(async (tx) => {
@@ -303,6 +311,14 @@ export async function sendStatement(
       sentBy: input.actorId,
       sendError: null,
     });
+    // §1.234: the work statement goes with the invoice, in our own email (Stripe's can't carry a
+    // file). Only on the send that marked it sent, so a statement is emailed once.
+    const mail = input.workStatement;
+    if (mail) {
+      await run((tx) =>
+        emailWorkStatement(tx, mail, { tenantId, statementId: s.id, period: s.period }),
+      );
+    }
     return { statement: s, error: null };
   } catch (error) {
     const message =
@@ -327,7 +343,13 @@ export async function sendStatement(
 // already there after the first: a pass that failed is caught up an hour later (plan §1.32).
 export async function billingTick(
   // v0.12 W2-G: `origin` (APP_ORIGIN) for the credits notifications' links.
-  deps: { db: Db; stripe: StripeClient | null; origin?: string },
+  deps: {
+    db: Db;
+    stripe: StripeClient | null;
+    origin?: string;
+    /** §1.234: how the work statement is emailed with each invoice sent here. */
+    workStatement?: Omit<WorkStatementMail, "origin">;
+  },
   at: Date,
 ): Promise<void> {
   // The tenant table is global: the clients set up for billing are found without a client scope.
@@ -392,6 +414,14 @@ export async function billingTick(
           statementId: d.id,
           actorId: null,
           config,
+          ...(deps.workStatement
+            ? {
+                workStatement: {
+                  ...deps.workStatement,
+                  origin: deps.origin ?? DEFAULT_APP_ORIGIN,
+                },
+              }
+            : {}),
         }).catch((error: unknown) => {
           reportHandled(`sending statement ${d.id} failed`, error, { job: "billing" });
         });

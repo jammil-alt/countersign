@@ -13,6 +13,25 @@
 > and click a step for its setup, what is left to settle on it and the Builder. Design only: its answers and its
 > try are scripted and no route is called. Its own "About this prototype" says what it stands on.
 
+> **The agent's SOP** (owner, 2026-11-21): [`sop.html`](sop.html) is a clickable mock-up of the
+> portal's SOP tab for a made-up agent: a standard operating procedure made by code from the agent's
+> setup (purpose, scope, roles and who does what by step, how it starts, the procedure, controls,
+> systems, data, exceptions, decisions, measures, references and history), with Find, filters by
+> person or system, and a print layout. Each step says whether it runs on rules, AI (with its model) or a
+> person, and why it is there; icons tell people from agents; nothing in it waits on anyone, and it carries
+> its revision, revision date and history. Three screens (the SOP tab, Procedures across every agent, and a
+> shared link as an auditor sees it), and two more for agent assurance (`docs/agent-assurance-plan.md`):
+> each agent's architecture and its checked controls in the SOP, and the back office's Security tab;
+> captures of each are in
+> [`screens/sop/`](screens/sop/). Design only; the plan is [`docs/sop-plan.md`](../sop-plan.md).
+
+> **Setting up a client** (2026-11-22, for the owner): [`setup.html`](setup.html) is a clickable mock-up of
+> Getting started grown into five chapters (your business, tools, people, see it work, go live), with
+> Sloan beside them proposing into the same cards, and the back office's Setup tab (who it waits on,
+> change asks, Do it on a call, the runbook). The People chapter shows **seats**: a template names
+> "approves bills over $5,000" and each client puts its own people in it. Design only; the plan is
+> [`docs/setup-plan.md`](../setup-plan.md).
+
 ## v1 screens (2026-11-03, superseded by the prototype)
 
 > **The design system is now Mezonas** (`packages/design-system`, owner, 2026-11-03): its tokens,

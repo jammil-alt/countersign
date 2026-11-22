@@ -14,6 +14,7 @@ import { useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { apiRoutes } from "../../api/routes";
 import { useApi, useApiClient } from "../../api/useApi";
+import { EN } from "../../i18n/i18n";
 import { StatusFilter } from "../../inbox/StatusFilter";
 import { useSession } from "../../session/session";
 import { Field, Select, TextInput } from "../../ui/forms";
@@ -53,16 +54,9 @@ export const ROLE_NAMES: Record<string, string> = {
 };
 const roleName = (role: string | null) => (role ? (ROLE_NAMES[role] ?? role) : null);
 
-/** "Nov 5, 2026, 9:14:03 AM": an audit row wants the second and the year. */
+/** "5 Nov 2026, 09:14:03": an audit row wants the second and the year. */
 export function auditTime(iso: string): string {
-  return new Date(iso).toLocaleString(undefined, {
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-    second: "2-digit",
-  });
+  return EN.fmt.stamp(iso);
 }
 
 /**
@@ -487,7 +481,7 @@ export function accessReviewCsv(users: AccessReviewUser[]): string {
   return `${lines.map((l) => l.map(csvCell).join(",")).join("\r\n")}\r\n`;
 }
 
-function download(name: string, text: string) {
+export function download(name: string, text: string) {
   const url = URL.createObjectURL(new Blob([text], { type: "text/csv;charset=utf-8" }));
   const a = document.createElement("a");
   a.href = url;

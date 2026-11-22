@@ -1,0 +1,1072 @@
+/* The builder on one screen (docs/builder-plan.md §12): the chart's own styles, on the design
+ * system's tokens only (no new colours, fonts, radii or shadows; borders, not shadows). In the
+ * components layer, like the design system's classes, so a Tailwind utility still applies. */
+@layer components {
+  /* ── The chart: a viewport that scrolls and pans, a stage as big as the zoomed chart. ── */
+  .flow-chart {
+    position: relative;
+    height: 100%;
+    min-height: 0;
+    min-width: 0;
+  }
+  .flow-chart__viewport {
+    height: 100%;
+    overflow: auto;
+    cursor: grab;
+    background-color: var(--paper);
+    background-image: radial-gradient(var(--line) 1px, transparent 1px);
+    background-size: 18px 18px;
+    background-attachment: local;
+    overscroll-behavior: contain;
+  }
+  .flow-chart.is-panning .flow-chart__viewport {
+    cursor: grabbing;
+    user-select: none;
+  }
+  .flow-chart__stage {
+    position: relative;
+    margin: 0 auto;
+  }
+  .flow-graph {
+    position: absolute;
+    top: 0;
+    left: 0;
+    transform-origin: 0 0;
+    cursor: default;
+  }
+
+  /* ── Arrows, frames and diamonds (SVG). ── */
+  .flow-svg {
+    position: absolute;
+    inset: 0;
+    overflow: visible;
+    pointer-events: none;
+  }
+  .flow-edge {
+    fill: none;
+    stroke: var(--line-strong);
+    stroke-width: 1.25;
+  }
+  .flow-edge.is-on {
+    stroke: var(--positive);
+    stroke-width: 2;
+  }
+  .flow-edge.is-dashed {
+    stroke: var(--slate);
+    stroke-dasharray: 3 3;
+  }
+  .flow-svg.is-tried .flow-edge:not(.is-on),
+  .flow-svg.is-tried .flow-diamond:not(.is-on) {
+    opacity: 0.4;
+  }
+  .flow-ah {
+    fill: var(--line-strong);
+    stroke: none;
+  }
+  .flow-ah--on {
+    fill: var(--positive);
+  }
+  .flow-diamond {
+    fill: var(--surface);
+    stroke: var(--line-strong);
+    stroke-width: 1.25;
+  }
+  .flow-diamond.is-sel {
+    stroke: var(--slate);
+    stroke-width: 2.5;
+  }
+  .flow-diamond.has-issue {
+    stroke: var(--risk);
+    stroke-width: 2;
+  }
+  .flow-diamond.is-dead {
+    opacity: 0.45;
+  }
+  .flow-frame rect {
+    fill: var(--paper);
+    stroke: var(--line-strong);
+    stroke-dasharray: 4 4;
+  }
+  .flow-frame text {
+    font: 500 9.5px var(--font-mono);
+    fill: var(--ink-muted);
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+  }
+  .flow-frame.is-dead {
+    opacity: 0.45;
+  }
+
+  /* ── Boxes. ── */
+  .flow-box {
+    position: absolute;
+    box-sizing: border-box;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 2px;
+    padding: 6px 12px;
+    background: var(--surface);
+    border: 1px solid var(--line-strong);
+    border-radius: var(--radius-sm);
+    color: var(--ink);
+    cursor: pointer;
+    user-select: none;
+    -webkit-user-select: none;
+    touch-action: none;
+  }
+  .flow-box:hover {
+    border-color: var(--slate);
+  }
+  .flow-box:focus-visible {
+    outline: 2px solid var(--focus-ring);
+    outline-offset: 2px;
+  }
+  .flow-box.is-sel {
+    border-color: var(--slate);
+    outline: 1.5px solid var(--slate);
+    outline-offset: 0;
+  }
+  .flow-box__t {
+    font: 500 13px / 17px var(--font-sans);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .flow-box__n {
+    font: 500 11px / 17px var(--font-mono);
+    color: var(--ink-faint);
+    margin-right: 6px;
+  }
+  .flow-box__s {
+    font: 500 10.5px / 14px var(--font-mono);
+    color: var(--ink-muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .flow-box__s b {
+    font-weight: 500;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    margin-right: 5px;
+  }
+  /* A step's box (D2, docs/plan.md §1.178): its kind is a badge on the top-left corner, its name
+   * has two lines, who does it (the model, "code", "person") and what it works through sit at the
+   * right behind a hairline, and the top edge is the colour of whose work it is. The design
+   * system's tokens only: ink for the agent's own work, slate for a client's tool (lighter for a
+   * read), copper for people, the strong line for rules and plumbing. A step's state keeps the
+   * border and the flags; this never fills the box. */
+  .flow-box--marked {
+    flex-direction: row;
+    align-items: stretch;
+    justify-content: flex-start;
+    gap: 8px;
+    padding: 12px 9px 7px 11px;
+    border-top: 3px solid var(--by, var(--line-strong));
+  }
+  .flow-box--by-agent {
+    --by: var(--ink);
+    --by-ink: var(--ink);
+  }
+  .flow-box--by-rules,
+  .flow-box--by-flow {
+    --by: var(--line-strong);
+    --by-ink: var(--ink-muted);
+  }
+  .flow-box--by-read {
+    --by: var(--data-seq-4);
+    --by-ink: var(--slate);
+  }
+  .flow-box--by-write {
+    --by: var(--slate);
+    --by-ink: var(--slate);
+  }
+  .flow-box--by-people {
+    --by: var(--copper);
+    --by-ink: var(--copper-ink);
+  }
+  /* The top edge keeps its colour whatever the rest of the border says (hover, selected, an issue). */
+  .flow-box--marked,
+  .flow-box--marked:hover,
+  .flow-box--marked.is-sel,
+  .flow-box--marked.has-issue,
+  .flow-box--marked.has-issue:hover {
+    border-top-color: var(--by, var(--line-strong));
+    border-top-width: 3px;
+  }
+  .flow-box__badge {
+    position: absolute;
+    top: -12px;
+    left: 8px;
+    box-sizing: border-box;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    height: 19px;
+    /* Never past the box's middle, where the arrow from the step before arrives. */
+    max-width: calc(50% - 14px);
+    padding: 0 7px 0 5px;
+    border: 1px solid var(--line-strong);
+    border-radius: var(--radius-pill);
+    background: var(--surface);
+    color: var(--ink-muted);
+    pointer-events: none;
+  }
+  .flow-box__kind {
+    min-width: 0;
+    overflow: hidden;
+    font: 500 10px / 1 var(--font-mono);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .flow-box__text {
+    display: flex;
+    flex: 1;
+    min-width: 0;
+    flex-direction: column;
+    justify-content: center;
+    gap: 3px;
+  }
+  .flow-box--marked .flow-box__t {
+    display: -webkit-box;
+    white-space: normal;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+  }
+  .flow-box__side {
+    display: flex;
+    flex: none;
+    flex-direction: column;
+    align-items: flex-end;
+    justify-content: center;
+    gap: 5px;
+    max-width: 78px;
+    padding-left: 8px;
+    border-left: 1px solid var(--line);
+  }
+  .flow-box__doer {
+    box-sizing: border-box;
+    display: inline-block;
+    max-width: 100%;
+    height: 18px;
+    padding: 0 6px;
+    overflow: hidden;
+    border: 1px solid var(--line-strong);
+    border-radius: 4px;
+    background: var(--surface);
+    color: var(--ink);
+    font: 500 10px / 16px var(--font-mono);
+    letter-spacing: 0.02em;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .flow-box__doer--none {
+    border-color: var(--line);
+    border-style: dashed;
+    background: none;
+    color: var(--ink-muted);
+  }
+  .flow-box__tools {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+  }
+  .flow-box__mark {
+    display: inline-flex;
+    flex: none;
+    width: 24px;
+    height: 24px;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid var(--line);
+    border-radius: var(--radius-sm);
+    background: var(--surface-subtle);
+    color: var(--ink-muted);
+  }
+  .flow-box__mark--logo {
+    position: relative;
+    border: 0;
+    background: none;
+  }
+  /* An agent's avatar on a hand-off, at the mark's size. */
+  .flow-box__mark--logo .ui-agentbadge {
+    width: 24px;
+    height: 24px;
+    font-size: 9.5px;
+  }
+  /* "AI" on a connector's logo: the step's tool calls a model inside. */
+  .flow-box__mark-ai {
+    position: absolute;
+    right: -5px;
+    bottom: -4px;
+    padding: 1px 2px;
+    border-radius: 3px;
+    background: var(--ink);
+    color: var(--paper);
+    font: 600 7.5px / 1 var(--font-mono);
+    font-style: normal;
+    letter-spacing: 0.02em;
+  }
+  .flow-box__mark--ai {
+    color: var(--ink);
+    font: 600 9.5px / 1 var(--font-mono);
+    letter-spacing: 0.04em;
+  }
+  .flow-box__mark--person {
+    border-color: transparent;
+    background: var(--surface);
+    color: var(--copper-ink);
+  }
+  /* In the corner badge: the kind's icon or "AI", in the colour of whose work it is, no tile. */
+  .flow-box__mark--badge {
+    width: 14px;
+    height: 14px;
+    border: 0;
+    border-radius: 0;
+    background: none;
+    color: var(--by-ink, var(--ink-muted));
+  }
+  .flow-box__mark--badge.flow-box__mark--ai {
+    font-size: 9px;
+    letter-spacing: 0.02em;
+  }
+  .flow-box__mark--badge.flow-box__mark--logo .ui-agentbadge {
+    width: 14px;
+    height: 14px;
+    font-size: 6.5px;
+  }
+  /* At the box's right: a connector's logo or a channel's icon, 18px. */
+  .flow-box__mark--tool {
+    width: 18px;
+    height: 18px;
+    border-radius: 4px;
+  }
+  .flow-box__mark--tool > span[data-mark] {
+    width: 18px;
+    height: 18px;
+    border-radius: 4px;
+    font-size: 7.5px;
+  }
+  .flow-box__mark--tool img,
+  .flow-box__mark--tool svg {
+    width: 12px;
+    height: 12px;
+  }
+  .flow-box--end {
+    background: var(--slate-tint);
+    border-color: var(--slate-tint);
+    align-items: stretch;
+    text-align: left;
+    font: inherit;
+  }
+  .flow-box--write {
+    border-color: var(--slate);
+    border-width: 1.5px;
+  }
+  /* A person's step and a conversation were filled with the copper tint, which read as red
+   * (owner, 2026-11-21: "what do the red cards mean?"). Copper is now their top edge and badge. */
+  .flow-box--missing {
+    background: var(--signal-tint);
+    border-color: var(--signal);
+    border-style: dashed;
+  }
+  .flow-box--diamond,
+  .flow-box--diamond:hover,
+  .flow-box--diamond.is-sel {
+    background: none;
+    border-color: transparent;
+    outline: none;
+    align-items: center;
+    text-align: center;
+    padding: 0 36px;
+  }
+  .flow-box--diamond .flow-box__t {
+    white-space: normal;
+    font-size: 12px;
+    line-height: 15px;
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    -webkit-box-orient: vertical;
+  }
+  .flow-box--pill {
+    border-radius: var(--radius-pill);
+    flex-direction: row;
+    align-items: center;
+    justify-content: center;
+    background: var(--surface-subtle);
+    padding: 0 10px;
+  }
+  .flow-box--pill .flow-box__t {
+    font-size: 12px;
+    line-height: 1;
+  }
+  .flow-box.has-fold {
+    padding-right: 44px;
+  }
+  .flow-box.has-issue,
+  .flow-box.has-issue:hover {
+    border-color: var(--risk);
+    border-width: 1.5px;
+  }
+  .flow-box--diamond.has-issue,
+  .flow-box--diamond.has-issue:hover {
+    border-color: transparent;
+  }
+  .flow-box.is-dead,
+  .flow-box.is-off {
+    opacity: 0.45;
+  }
+  .flow-box.is-lifted {
+    z-index: 5;
+    opacity: 0.85;
+    cursor: grabbing;
+  }
+  .flow-box.is-over {
+    outline: 2px solid var(--slate);
+    outline-offset: 3px;
+  }
+
+  /* Marks on a box: what to settle (top right), customized (top left), what a try did (bottom right). */
+  .flow-flag,
+  .flow-tag,
+  .flow-mark {
+    position: absolute;
+    padding: 0 7px;
+    font-size: 10px;
+    line-height: 15px;
+    pointer-events: none;
+  }
+  .flow-flag {
+    top: -9px;
+    right: 8px;
+  }
+  .flow-tag {
+    top: -9px;
+    left: 8px;
+  }
+  /* The badge has the top-left corner of a step's box: "Customized" sits under it, at the foot. */
+  .flow-box--marked .flow-tag {
+    top: auto;
+    bottom: -9px;
+  }
+  .flow-mark {
+    bottom: -9px;
+    right: 8px;
+  }
+  .flow-box--diamond .flow-flag,
+  .flow-box--diamond .flow-mark {
+    right: 0;
+  }
+
+  .flow-fold {
+    all: unset;
+    box-sizing: border-box;
+    position: absolute;
+    right: 6px;
+    top: 50%;
+    transform: translateY(-50%);
+    display: flex;
+    align-items: center;
+    gap: 1px;
+    padding: 3px 4px 3px 6px;
+    border-radius: var(--radius-sm);
+    font: 500 11px / 14px var(--font-mono);
+    color: var(--ink-muted);
+    cursor: pointer;
+  }
+  .flow-fold:hover {
+    background: var(--surface-subtle);
+    color: var(--ink);
+  }
+  .flow-fold:focus-visible {
+    outline: 2px solid var(--slate);
+    outline-offset: 1px;
+  }
+
+  /* The dot under a box: drag it onto the step that should come next. */
+  .flow-dot {
+    position: absolute;
+    left: 50%;
+    bottom: -7px;
+    width: 13px;
+    height: 13px;
+    margin-left: -6.5px;
+    padding: 0;
+    appearance: none;
+    box-sizing: border-box;
+    border-radius: var(--radius-pill);
+    background: var(--surface);
+    border: 1.5px solid var(--line-strong);
+    cursor: crosshair;
+    opacity: 0;
+    transition: opacity 120ms;
+    z-index: 2;
+    touch-action: none;
+  }
+  .flow-box:hover .flow-dot,
+  .flow-box.is-sel .flow-dot,
+  .flow-dot:focus-visible,
+  .flow-dot.is-lifted {
+    opacity: 1;
+  }
+  .flow-dot:hover,
+  .flow-dot.is-lifted {
+    background: var(--slate);
+    border-color: var(--slate);
+  }
+  @media (hover: none) {
+    .flow-dot {
+      opacity: 1;
+    }
+  }
+
+  /* ── + on an arrow, path labels, "+ Add a path", "+ Add a step". ── */
+  .flow-plus {
+    all: unset;
+    box-sizing: border-box;
+    position: absolute;
+    transform: translate(-50%, -50%);
+    width: 16px;
+    height: 16px;
+    border-radius: var(--radius-pill);
+    background: var(--surface);
+    border: 1px solid var(--line-strong);
+    color: var(--ink-muted);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    z-index: 1;
+  }
+  .flow-plus svg {
+    width: 10px;
+    height: 10px;
+  }
+  .flow-plus:hover,
+  .flow-plus.is-over {
+    background: var(--slate);
+    border-color: var(--slate);
+    color: var(--on-slate);
+  }
+  .flow-chart.is-dragging .flow-plus {
+    width: 24px;
+    height: 24px;
+    border-color: var(--slate);
+    color: var(--slate);
+  }
+  .flow-chart.is-dragging .flow-plus.is-over {
+    color: var(--on-slate);
+  }
+  .flow-plus:focus-visible,
+  .flow-label:focus-visible,
+  .flow-add-path:focus-visible,
+  .flow-tail:focus-visible {
+    outline: 2px solid var(--slate);
+    outline-offset: 2px;
+  }
+  .flow-label {
+    all: unset;
+    box-sizing: border-box;
+    position: absolute;
+    transform: translateX(-50%);
+    height: 19px;
+    padding: 0 9px;
+    border-radius: var(--radius-pill);
+    border: 1px solid var(--line-strong);
+    background: var(--surface);
+    color: var(--ink);
+    font: 500 11px / 17px var(--font-sans);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    cursor: pointer;
+    z-index: 1;
+  }
+  .flow-label b {
+    font: 600 10px / 17px var(--font-sans);
+    color: var(--slate);
+    margin-right: 5px;
+  }
+  .flow-label.is-on {
+    border-color: var(--positive);
+    color: var(--positive);
+  }
+  .flow-add-path {
+    all: unset;
+    box-sizing: border-box;
+    position: absolute;
+    height: 22px;
+    padding: 0 9px;
+    border: 1px dashed var(--slate);
+    border-radius: var(--radius-pill);
+    background: var(--surface);
+    color: var(--slate);
+    font: 500 11px / 20px var(--font-sans);
+    white-space: nowrap;
+    cursor: pointer;
+  }
+  .flow-add-path:hover {
+    background: var(--slate-tint);
+  }
+  .flow-tail {
+    all: unset;
+    box-sizing: border-box;
+    position: absolute;
+    border: 1px dashed var(--line-strong);
+    border-radius: var(--radius-sm);
+    background: var(--paper);
+    color: var(--ink-muted);
+    font: 500 12px / 34px var(--font-sans);
+    text-align: center;
+    cursor: pointer;
+  }
+  .flow-tail:hover,
+  .flow-tail.is-over {
+    border-color: var(--slate);
+    color: var(--slate);
+  }
+
+  /* ── Details on hover: on the stage, not in the zoomed chart, at a size of their own (Chart's
+   * tipScale), so they still read when the chart is zoomed far out. ── */
+  .flow-tip {
+    position: absolute;
+    z-index: 6;
+    transform-origin: 0 0;
+    width: 292px;
+    box-sizing: border-box;
+    background: var(--surface);
+    border: 1px solid var(--line-strong);
+    border-radius: var(--radius-md);
+    padding: 12px;
+    display: grid;
+    gap: 8px;
+    font: 400 12.5px / 17px var(--font-sans);
+    color: var(--ink);
+    pointer-events: none;
+  }
+  .flow-tip__h {
+    font: 500 14px / 19px var(--font-sans);
+  }
+  .flow-tip__d {
+    color: var(--ink-muted);
+  }
+  .flow-tip__runs {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px 6px;
+  }
+  /* What the step does: the tip's one sentence, in ink, under its name. */
+  .flow-tip__does {
+    color: var(--ink);
+    font-size: 12.5px;
+    line-height: 18px;
+  }
+
+  /* ── The key: what each mark on the chart means, above the zoom bar. ── */
+  .flow-key {
+    position: absolute;
+    z-index: 7;
+    right: 16px;
+    bottom: 60px;
+    margin: 0;
+    padding: 10px 12px;
+    list-style: none;
+    display: grid;
+    gap: 8px;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-md);
+    font: 400 12.5px / 17px var(--font-sans);
+    color: var(--ink);
+  }
+  .flow-key li {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+  }
+  /* How to work the chart, said once under the marks. */
+  .flow-key li.flow-key__how {
+    display: block;
+    max-width: 260px;
+    padding-top: 8px;
+    border-top: 1px solid var(--line);
+    color: var(--ink-muted);
+    font-size: 11.5px;
+    line-height: 16px;
+  }
+
+  /* ── Zoom: −, the percent, +, Fit. ── */
+  .flow-zoom {
+    position: absolute;
+    z-index: 7;
+    right: 16px;
+    bottom: 16px;
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    padding: 3px;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-md);
+  }
+  .flow-zoom button {
+    all: unset;
+    box-sizing: border-box;
+    min-width: 30px;
+    height: 28px;
+    padding: 0 8px;
+    border-radius: var(--radius-sm);
+    font: 500 12px / 28px var(--font-sans);
+    color: var(--ink);
+    text-align: center;
+    cursor: pointer;
+    font-variant-numeric: tabular-nums;
+  }
+  .flow-zoom button:hover {
+    background: var(--surface-subtle);
+  }
+  .flow-zoom button:disabled {
+    color: var(--ink-faint);
+    cursor: default;
+    background: none;
+  }
+  .flow-zoom button:focus-visible {
+    outline: 2px solid var(--slate);
+    outline-offset: 1px;
+  }
+  .flow-zoom i {
+    width: 1px;
+    height: 18px;
+    background: var(--line);
+    margin: 0 2px;
+  }
+  .flow-zoom__hint {
+    padding: 0 8px 0 6px;
+    font: 400 12px / 28px var(--font-sans);
+    color: var(--ink-muted);
+    white-space: nowrap;
+  }
+  @media (max-width: 720px) {
+    .flow-zoom__hint {
+      display: none;
+    }
+  }
+
+  /* F8 */
+  /* ── The lineage strip under the bar, the customizations list, a step against its template. ── */
+  .flow-lineage {
+    border-bottom: 1px solid var(--line);
+    background: var(--surface-subtle);
+    font: 400 13px / 20px var(--font-sans);
+    color: var(--ink-muted);
+  }
+  .flow-lineage__line {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px 8px;
+    padding: 6px 16px;
+    min-height: 36px;
+  }
+  .flow-lineage__end {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    margin-left: auto;
+  }
+  .flow-lineage__below {
+    border-top: 1px solid var(--line);
+    background: var(--surface);
+    padding: 12px 16px;
+    position: relative;
+    max-height: 45vh;
+    overflow-y: auto;
+  }
+  .flow-lineage__link {
+    all: unset;
+    cursor: pointer;
+    color: var(--link);
+  }
+  .flow-lineage__link:hover,
+  .flow-lineage__link.is-open {
+    text-decoration: underline;
+  }
+  .flow-lineage__link:focus-visible {
+    outline: 2px solid var(--slate);
+    outline-offset: 1px;
+  }
+  .flow-custom-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    gap: 8px 16px;
+    padding: 10px 0;
+  }
+  .flow-custom-row[data-selected] {
+    background: var(--surface-subtle);
+  }
+  .flow-custom-row__name {
+    all: unset;
+    cursor: pointer;
+    font-weight: 500;
+    color: var(--ink);
+  }
+  .flow-custom-row__name:hover {
+    text-decoration: underline;
+  }
+  .flow-custom-row__name:focus-visible {
+    outline: 2px solid var(--slate);
+    outline-offset: 1px;
+  }
+  .flow-step-diff {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius-sm);
+    background: var(--surface-subtle);
+    padding: 10px 12px;
+  }
+  /* The merge screen's chart: read only, in a frame of its own height. */
+  .flow-merge-chart {
+    height: 520px;
+    max-height: 70vh;
+    border: 1px solid var(--line);
+    border-radius: var(--radius-sm);
+    overflow: hidden;
+  }
+}
+
+/* F7: an automation in the builder (./automation): the frame that holds the bar, the rail, the
+ * chart and the side panel, and the rows of its Takes in and Gives back. */
+@layer components {
+  .flow-auto {
+    display: flex;
+    flex-direction: column;
+    height: calc(100dvh - var(--space-24) - var(--space-16));
+    min-height: 520px;
+    overflow: hidden;
+    border: 1px solid var(--line);
+    border-radius: var(--radius-md);
+    background: var(--surface);
+  }
+  .flow-auto__body {
+    display: grid;
+    flex: 1;
+    min-height: 0;
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+  .flow-auto__body[data-panel] {
+    grid-template-columns: auto minmax(0, 1fr) minmax(320px, 420px);
+  }
+  .flow-auto__main {
+    display: flex;
+    min-width: 0;
+    min-height: 0;
+    flex-direction: column;
+  }
+  .flow-auto__main > .flow-chart {
+    flex: 1;
+  }
+  .flow-auto__list {
+    position: relative;
+    flex: 1;
+    min-height: 0;
+    overflow: auto;
+    padding: var(--space-4);
+  }
+  .flow-auto__hint {
+    padding: var(--space-2) var(--space-4);
+    border-bottom: 1px solid var(--line);
+    background: var(--surface-subtle);
+    font: 400 13px / 20px var(--font-sans);
+    color: var(--ink);
+  }
+  .flow-end-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: var(--space-2);
+    align-items: start;
+    padding: var(--space-3);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-sm);
+  }
+  .flow-end-row__fields {
+    display: flex;
+    min-width: 0;
+    flex-direction: column;
+    gap: var(--space-2);
+  }
+  .flow-end-row__pair {
+    display: grid;
+    grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
+    gap: var(--space-2);
+  }
+  .flow-end-row__problem {
+    grid-column: 1 / -1;
+    font: 400 13px / 18px var(--font-sans);
+    color: var(--risk-ink);
+  }
+  @media (max-width: 900px) {
+    .flow-auto {
+      height: auto;
+    }
+    .flow-auto__body,
+    .flow-auto__body[data-panel] {
+      grid-template-columns: minmax(0, 1fr);
+    }
+    .flow-auto__main > .flow-chart {
+      min-height: 420px;
+    }
+  }
+}
+
+/* F6 */
+/* The workflow builder as the one screen (docs/builder-plan.md §12, F6): the bar, then the rail,
+ * the chart or the List, and the side panel in one frame as tall as the window under the header. */
+@layer components {
+  .flow-host {
+    display: flex;
+    flex-direction: column;
+    height: calc(100vh - var(--header-h));
+    min-height: 560px;
+    border-top: 1px solid var(--line);
+    background: var(--surface);
+  }
+  .flow-host__crumb {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 16px;
+    border-bottom: 1px solid var(--line);
+    background: var(--surface-subtle);
+    font: 400 13px / 20px var(--font-sans);
+    color: var(--ink-muted);
+  }
+  .flow-host__body {
+    display: flex;
+    flex: 1;
+    min-height: 0;
+  }
+  .flow-host__rail {
+    display: flex;
+    flex: none;
+    flex-direction: column;
+    min-height: 0;
+  }
+  .flow-host__note {
+    max-width: 16rem;
+    padding: 8px 16px;
+    border-right: 1px solid var(--line);
+    border-bottom: 1px solid var(--line);
+    background: var(--slate-tint);
+    font: 400 13px / 18px var(--font-sans);
+    color: var(--ink);
+  }
+  .flow-host__foot {
+    max-width: 16rem;
+    padding: 12px 16px;
+    border-top: 1px solid var(--line);
+    border-right: 1px solid var(--line);
+    background: var(--surface);
+  }
+  .flow-host__main {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    min-width: 0;
+    min-height: 0;
+    background: var(--surface-subtle);
+  }
+  /* Each part that scrolls is positioned, so anything inside it placed out of the flow (a field
+   * kept for screen readers only) scrolls with it and is clipped by it. Left to the page, one
+   * made the page longer than the frame, and the page scrolled on past the builder. */
+  .flow-host__strip {
+    position: relative;
+    flex: none;
+    max-height: 34%;
+    overflow-y: auto;
+    padding: 12px 16px 0;
+    border-bottom: 1px solid var(--line);
+    background: var(--surface);
+  }
+  /* The try's bar, at the top of the chart. */
+  .flow-host__try {
+    flex: none;
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--line);
+    background: var(--surface);
+  }
+  .flow-host__stage {
+    position: relative;
+    flex: 1;
+    min-height: 0;
+  }
+  .flow-host__list {
+    position: relative;
+    height: 100%;
+    overflow: auto;
+    padding: 16px;
+  }
+  .flow-host__side {
+    flex: none;
+    width: 420px;
+    max-width: 100%;
+    min-height: 0;
+    background: var(--surface);
+  }
+  .flow-host__sheet {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    min-height: 0;
+    padding: 16px 20px;
+    border-left: 1px solid var(--line);
+    position: relative;
+    overflow-y: auto;
+  }
+  /* An older version, read only: the chart in a box of its own. */
+  .flow-readonly {
+    height: 520px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius-md);
+    overflow: hidden;
+  }
+  /* A loop's "open its steps" beside its fold. */
+  .flow-fold--beside {
+    right: 40px;
+  }
+  /* Narrow: the rail, the chart and the panel stack, and the page scrolls. */
+  @media (max-width: 900px) {
+    .flow-host {
+      height: auto;
+    }
+    .flow-host__body {
+      flex-direction: column;
+    }
+    /* The chart comes first on a phone, then the step's panel, then the rail to add from. */
+    .flow-host__stage {
+      flex: none;
+      height: 70vh;
+      order: 1;
+    }
+    .flow-host__side {
+      width: 100%;
+      order: 2;
+    }
+    .flow-host__rail {
+      width: 100%;
+      order: 3;
+      border-top: 1px solid var(--line);
+    }
+    .flow-host__sheet {
+      border-top: 1px solid var(--line);
+      border-left: 0;
+    }
+  }
+}

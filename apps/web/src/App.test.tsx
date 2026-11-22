@@ -118,18 +118,31 @@ describe("app", () => {
       within(await screen.findByTestId("ops-client-tabs")).getByRole("link", { name: "Agents" }),
     );
     const card = await screen.findByTestId("ops-agent-card-material-costs");
-    expect(within(card).getByText("Live")).toBeInTheDocument();
+    // Its stage in words (agents/status): the fixture agent has none, so it hasn't started; a
+    // published version alone is never "Live" (QA 2026-11-22).
+    expect(within(card).getByText("Not started")).toBeInTheDocument();
     await user.click(within(card).getByText("Material costs"));
 
     const badges = await screen.findByTestId("agent-version-badges");
-    expect(badges).toHaveTextContent("Live · v1");
+    expect(await screen.findByTestId("agent-bar-status")).toHaveTextContent("Not started · v1");
+    expect(badges).not.toHaveTextContent("Live");
     expect(badges).toHaveTextContent("Draft · v2");
     const tabs = screen.getByRole("navigation", { name: "Sections" });
     expect(
       within(tabs)
         .getAllByRole("link")
         .map((l) => l.textContent),
-    ).toEqual(["Overview", "Workflow", "Steps", "Manual", "Runs", "Versions2", "Settings"]);
+    ).toEqual([
+      "Overview",
+      "Workflow",
+      "Steps",
+      "Manual",
+      "Runs",
+      "Report",
+      "Security",
+      "Versions2",
+      "Settings",
+    ]);
     expect(screen.getByText(/How it works · 5 steps, 1 fork$/)).toBeInTheDocument();
 
     await user.click(within(tabs).getByRole("link", { name: /^Versions/ }));
@@ -140,18 +153,19 @@ describe("app", () => {
     // Opening the draft from the versions list shows its workflow.
     await user.click(within(versions).getByRole("link", { name: "v2" }));
     expect(await screen.findByTestId("agent-shown-version")).toHaveTextContent("v2 (draft)");
-    expect(screen.getByTestId("step-list")).toBeInTheDocument();
-    expect(screen.getByTestId("fork-confidence")).toBeInTheDocument();
+    // It is drawn as the chart, read only: every box, nothing to add or move.
+    const shown = await screen.findByTestId("flow-readonly-new-bill");
+    expect(within(shown).getByTestId("flow-box-confidence")).toBeInTheDocument();
+    expect(shown.querySelector('[data-testid^="flow-insert-"]')).toBeNull();
+    expect(within(shown).queryByTestId("flow-tail")).toBeNull();
 
     // The Workflow tab opens the builder on the latest version's first workflow.
     await user.click(within(tabs).getByRole("link", { name: "Workflow" }));
-    const canvas = await screen.findByTestId("builder-canvas");
-    expect(within(canvas).getByTestId("builder-step-confidence")).toBeInTheDocument();
-    expect(screen.getByTestId("builder-version")).toHaveTextContent("Draft · v2");
-    expect(screen.getByTestId("builder-workflow-new-bill-select")).toHaveAttribute(
-      "aria-current",
-      "page",
-    );
+    const canvas = await screen.findByTestId("flow-chart");
+    expect(within(canvas).getByTestId("flow-box-confidence")).toBeInTheDocument();
+    expect(within(canvas).getByTestId("flow-tail")).toBeInTheDocument();
+    expect(screen.getByTestId("flow-bar-version")).toHaveTextContent("Draft · v2");
+    expect(screen.getByTestId("flow-bar-name")).toHaveTextContent("New bill");
   });
 
   it("signs a client admin in by email when the API lists no users, landing in the portal", async () => {

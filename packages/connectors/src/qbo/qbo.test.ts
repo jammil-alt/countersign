@@ -25,6 +25,7 @@ import { ConnectorRegistry } from "../registry";
 import { fromUtf8, utf8 } from "../runtime";
 import { FAKE_QBO_CLIENT, FAKE_QBO_REALM, fakeQbo, jsonResponse, QBO_FIXTURES } from "../testing";
 import {
+  BANKING_FIND_TOOL,
   BANKING_TOOLS,
   createQboConnector,
   intuitTidOf,
@@ -167,7 +168,7 @@ describe("qbo connector: manifest and sign-in", () => {
     expect(qbo.requests).toHaveLength(0);
   });
 
-  it("declares thirteen reads and nineteen approval-gated writes, no delete", () => {
+  it("declares fourteen reads and nineteen approval-gated writes, no delete", () => {
     const { connector } = setup();
     new ConnectorRegistry([connector]);
     expect(connector.manifest.auth).toBe("oauth2");
@@ -200,6 +201,8 @@ describe("qbo connector: manifest and sign-in", () => {
       [BANKING_TOOLS.purchaseCreate, "external", "create"],
       [BANKING_TOOLS.depositCreate, "external", "create"],
       [BANKING_TOOLS.transferCreate, "external", "create"],
+      // §1.187: a booking already written, found by its mark.
+      [BANKING_FIND_TOOL, "none", "read"],
       // The ledger's set-up, each always signed.
       [LEDGER_WRITE_TOOLS.accountCreate, "external", "create"],
       [LEDGER_WRITE_TOOLS.accountUpdate, "external", "update"],

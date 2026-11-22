@@ -14,6 +14,7 @@ import {
   resolveApprover,
   runAgent,
   type StepContext,
+  type SubjectToolLookup,
   signerItemsTx,
   unsignedRefusal,
 } from "@countersign/agents";
@@ -71,10 +72,12 @@ import { type ConversePort, converseState } from "../converse/service";
 // §1.121: forms, "Request info"
 import { type FormsPort, formsState } from "../forms/service";
 import { toRunResolution } from "../inbox";
-import type { NotifyDeps } from "../notify/outbox";
-import { tellUrgentNow } from "../notify/urgent";
+import { type NotifyDeps, sendQueued } from "../notify/outbox";
+import { queueUrgent } from "../notify/urgent";
+import { reportHandled } from "../observability/report";
 import { type ReachPort, reachOutState } from "../reach/service";
 import { leaseWaitDone, leaseWaitOf, leaseWaitOutcome, MAX_LEASE_WAITS } from "./lease-wait";
+import { keepStepSubjects } from "./subject-log";
 
 const TERMINAL = new Set(["succeeded", "failed", "skipped", "cancelled"]);
 
@@ -82,7 +85,12 @@ const TERMINAL = new Set(["succeeded", "failed", "skipped", "cancelled"]);
  * `step_run` rows for one run. `start` is an upsert on (run_id, node_id): a retried step (or a
  * step's failure record) gets the row its first attempt wrote, never a second one.
  */
-export function dbStepLog(db: Db, run: RunInfo): StepLog {
+export function dbStepLog(
+  db: Db,
+  run: RunInfo,
+  // docs/plan.md §1.188: what a finished step was about, kept beside its row; absent, nothing is.
+  subjects?: { tools: SubjectToolLookup; visible: (nodeId: string) => boolean },
+): StepLog {
   return {
     start(entry) {
       return withTenant(db, run.tenantId, async (tx) => {
@@ -141,6 +149,10 @@ export function dbStepLog(db: Db, run: RunInfo): StepLog {
             ...(TERMINAL.has(u.status) ? { finishedAt: new Date() } : {}),
           })
           .where(and(eq(stepRun.id, stepRunId), eq(stepRun.tenantId, run.tenantId)));
+        // A step that finished (done or failed) keeps what it was about, in its own savepoint.
+        if (subjects && (u.status === "succeeded" || u.status === "failed")) {
+          await keepStepSubjects(tx, { tenantId: run.tenantId, stepRunId, ...subjects });
+        }
       });
     },
   };
@@ -382,7 +394,17 @@ export function agentPort(
       }
     },
 
-    async runAction({ run, step, nodeId, stepRunId, input, approval, keyNode, binding }) {
+    async runAction({
+      run,
+      step,
+      nodeId,
+      stepRunId,
+      input,
+      approval,
+      keyNode,
+      binding,
+      afterUnwritten,
+    }) {
       const base = await platformStep(run, stepRunId, keyNode ?? nodeId, approval);
       const ctx: StepContext = {
         // v0.13 W2-I: an oversight retry with a corrected input keys its own write.
@@ -400,6 +422,9 @@ export function agentPort(
           : {}),
         // The step as written in the version: fixed inputs are checked against it, not `input`.
         literalInput: step.input,
+        // A test run's write on what an unmade write would have returned (callTool skips its
+        // before state; outside a test run it is ignored).
+        ...(afterUnwritten && run.mode === "test" ? { afterUnwritten: true } : {}),
       };
       // Review 2, item 5: the step's own input: another one under its key fails the step.
       const o = await callTool(deps, ctx, { toolId: step.tool, input, ownInput: true });
@@ -864,13 +889,29 @@ export function threadNotifyPort(
     });
     if (seen && notifyDeps && run.mode !== "test") {
       const deliver = notifyDeps;
-      await withTenant(db, run.tenantId, async (tx) => {
+      const now = new Date();
+      // C4.10: queued in the outbox as `urgent`, then sent at once, outside that transaction;
+      // what doesn't go now (a failed send, a pass cut off) the outbox's next pass sends.
+      const queued = await withTenant(db, run.tenantId, async (tx) => {
         const [row] = await tx
           .select()
           .from(inboxItem)
           .where(and(eq(inboxItem.id, seen), eq(inboxItem.tenantId, run.tenantId)));
-        if (row?.status === "open") await tellUrgentNow(tx, deliver, row, new Date());
+        return row?.status === "open" ? queueUrgent(tx, deliver.origin, row, now) : [];
       });
+      if (queued.length > 0) {
+        await sendQueued(db, deliver, run.tenantId, now, queued.length, queued).catch(
+          (error: unknown) =>
+            reportHandled(
+              "sending an urgent notice failed; the outbox's next pass sends it",
+              error,
+              {
+                job: "notify",
+                client: run.tenantId,
+              },
+            ),
+        );
+      }
     }
     return { ackItemId: seen };
   };

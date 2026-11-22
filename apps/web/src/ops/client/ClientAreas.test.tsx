@@ -203,7 +203,82 @@ describe("the client page's Areas tab", () => {
     expect(screen.queryByTestId("ops-connections-offering")).toBeNull();
   });
 
-  it("opens from the old Packs address; Setup keeps Connectors", async () => {
+  // §1.230: a pack with settings switches on with them, through the one install route, and one
+  // that is on shows what the client has and changes only what the operator changed.
+  it("switches a pack with settings on with them, and changes them once it is on", async () => {
+    const CLOSE = {
+      id: "close",
+      name: "Close",
+      area: "Month-end close",
+      areaId: "bookkeeping",
+      description: "The month-end close.",
+      enabled: false,
+      enabledAt: null,
+      screens: [],
+      connections: [],
+      config: {
+        fields: [
+          {
+            key: "close_day",
+            label: "Close the books on this day",
+            type: "number",
+            default: 5,
+            min: 1,
+            max: 28,
+          },
+          {
+            key: "basis",
+            label: "Accounting basis",
+            type: "choice",
+            options: [
+              { value: "accrual", label: "Accrual" },
+              { value: "cash", label: "Cash" },
+            ],
+            default: "accrual",
+          },
+        ],
+        values: { close_day: 5, basis: "accrual" },
+      },
+      processors: [{ id: "openai", name: "OpenAI", heldForHipaa: true }],
+    };
+    const { api } = demoApi();
+    let close: typeof CLOSE = CLOSE;
+    const installs: unknown[] = [];
+    api.on(`GET /api/ops/clients/${DEMO}/packs`, () => ({ packs: [close] }));
+    api.on(`POST /api/ops/clients/${DEMO}/packs/close/install`, ({ init }) => {
+      const body = JSON.parse(String(init.body)) as { config: Record<string, unknown> };
+      installs.push(body);
+      const values = { ...close.config.values, ...body.config } as typeof CLOSE.config.values;
+      close = { ...close, enabled: true, config: { ...close.config, values } };
+      return { pack: close, installed: [] };
+    });
+    renderAt(`/ops/clients/${DEMO}/areas`, api);
+    const area = await screen.findByTestId("ops-client-area-close");
+    expect(within(area).queryByTestId(`pack-enable-close-${DEMO}`)).toBeNull();
+    expect(within(area).getByTestId("ops-client-area-held-close")).toHaveTextContent(
+      "Held in HIPAA mode: OpenAI",
+    );
+    const day = await within(area).findByTestId("pack-settings-close-close_day");
+    await userEvent.clear(day);
+    await userEvent.type(day, "12");
+    await userEvent.click(within(area).getByTestId("pack-settings-close-save"));
+    await waitFor(() =>
+      expect(installs).toEqual([{ config: { close_day: 12, basis: "accrual" } }]),
+    );
+    expect(
+      await within(area).findByTestId("pack-settings-close-close_day-value"),
+    ).toHaveTextContent("12");
+    expect(within(area).getByTestId("pack-settings-close-basis-value")).toHaveTextContent(
+      "Accrual",
+    );
+
+    await userEvent.click(within(area).getByTestId("pack-settings-close-edit"));
+    await userEvent.selectOptions(within(area).getByTestId("pack-settings-close-basis"), "cash");
+    await userEvent.click(within(area).getByTestId("pack-settings-close-save"));
+    await waitFor(() => expect(installs.at(-1)).toEqual({ config: { basis: "cash" } }));
+  });
+
+  it("opens from the old Packs address; Setup opens on its Progress board", async () => {
     const { api } = demoApi();
     renderAt(`/ops/clients/${DEMO}/packs`, api);
     expect(await screen.findByTestId("ops-client-areas")).toBeInTheDocument();
@@ -215,7 +290,7 @@ describe("the client page's Areas tab", () => {
     expect(tabs.queryByRole("link", { name: "Packs" })).toBeNull();
     expect(tabs.getByRole("link", { name: "Setup" })).toHaveAttribute(
       "href",
-      `/ops/clients/${DEMO}/connections`,
+      `/ops/clients/${DEMO}/progress`,
     );
   });
 });

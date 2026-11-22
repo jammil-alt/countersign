@@ -237,6 +237,43 @@ describe.skipIf(!h)("draft it now", () => {
     expect(b.gate.reasons).toEqual([]);
   });
 
+  // docs/builder-plan.md §12.4: a gap names the step that stands for it, so the chart shows it there.
+  it("puts each gap on the person step that does it for now, and leaves the rest on none", async () => {
+    const started = await ok("POST", "/api/ops/builds", { kind: "agent", title: "Gap steps" });
+    const id = started.build.id;
+    model.push(
+      draftAnswer(
+        [
+          {
+            id: "portal",
+            kind: "person",
+            name: "Read the vendor's portal",
+            mode: "ask",
+            assignee: "client_admin",
+            title: "Check the vendor's portal and enter the amount",
+            deadline: { after: "2 days" },
+          },
+          update,
+        ],
+        {
+          gaps: [
+            "No connector reads the vendor's portal, so a person checks it for now.",
+            "Nothing sends the monthly summary yet.",
+          ],
+        },
+      ),
+    );
+    const b = await ok("POST", `/api/ops/builds/${id}/draft-now`, { description: DESCRIPTION });
+    // The step's id is the saved draft's (the server makes ids), not the model's.
+    const portal = b.draft?.steps.find((s) => s.name === "Read the vendor's portal")?.stepId;
+    expect(portal).toEqual(expect.any(String));
+    expect(portal).not.toBe("portal");
+    expect(b.items.map((i) => [i.title, i.stepId])).toEqual([
+      ["No connector reads the vendor's portal, so a person checks it for now.", portal],
+      ["Nothing sends the monthly summary yet.", null],
+    ]);
+  });
+
   it("leaves the build where it was when the draft fails, and says the words once", async () => {
     const started = await ok("POST", "/api/ops/builds", { kind: "agent", title: "Record fixer 2" });
     const id = started.build.id;

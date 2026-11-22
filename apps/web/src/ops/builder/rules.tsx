@@ -6,6 +6,7 @@
 // dropdown in words, and an if's path can add "Approve the bill: was rejected" in one pick.
 import type { Rule, RuleOp, Rules } from "@countersign/core";
 import { Icon } from "../../ui/icons";
+import { cx } from "../../ui/primitives";
 import { type FieldErrors, SmallInput, SmallSelect, TemplateInput } from "./fields";
 import type { PickPath, QuickRule } from "./outcomes";
 
@@ -199,7 +200,11 @@ export function RulesEditor({
         );
       })}
       {errors.at(`${prefix}.rules`).map((m) => (
-        <span key={m} className="text-xs text-risk">
+        // No condition yet is something still to say (gold, with its words), not a mistake.
+        <span
+          key={m}
+          className={cx("text-xs", rules.rules.length === 0 ? "text-signal-ink" : "text-risk")}
+        >
           {m}
         </span>
       ))}

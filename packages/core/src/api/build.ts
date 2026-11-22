@@ -34,6 +34,12 @@ import { StepCodeRequest } from "./step-code-request";
 const Id = z.string().refine((v) => isUuid(v), "not an id");
 const IsoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "a date such as 2026-12-24");
 export const BuildPath = z.enum(["new", "template"]);
+/**
+ * Where a build opens (docs/plan.md §1.172): `phases`, on its build page; `describe`, started on
+ * the lab's Describe it, in the one-screen builder (Check the steps until it has a draft).
+ */
+export const BuildFlow = z.enum(["phases", "describe"]);
+export type BuildFlow = z.infer<typeof BuildFlow>;
 export type BuildPath = z.infer<typeof BuildPath>;
 /** What started a build or a deal (docs/plan.md §1.124). */
 export const WorkOriginKind = z.enum(["deal", "ask", "enhancement", "issue"]);
@@ -68,6 +74,8 @@ export const BuildSummary = z.object({
   // docs/plan.md §1.124: the build as back office work.
   /** `new`: built through the phases; `template`: forked from a template for the client. */
   path: BuildPath,
+  /** Where it opens. An answer from before the column reads as the build page. */
+  flow: BuildFlow.default("phases"),
   templateId: z.string().nullable(),
   promisedOn: z.string().nullable(),
   origin: z.object({ kind: WorkOriginKind, id: z.string() }).nullable(),
@@ -337,6 +345,20 @@ export const DraftBuildNow = z.strictObject({
   description: storable(z.string().trim().min(1).max(4000)).optional(),
 });
 
+/**
+ * docs/plan.md §1.173: what clearing the lab's Drafts would archive here. `allowed` is false in
+ * production, where the counts are 0 and the action is refused.
+ */
+export const ClearedDrafts = z.object({
+  /** Builds in progress on the Drafts board, stopped. */
+  builds: z.number().int(),
+  /** Drafts never published, discarded: those builds' own, and the ones with no build. */
+  drafts: z.number().int(),
+});
+export type ClearedDrafts = z.infer<typeof ClearedDrafts>;
+export const ClearDraftsPreview = ClearedDrafts.extend({ allowed: z.boolean() });
+export type ClearDraftsPreview = z.infer<typeof ClearDraftsPreview>;
+
 export const UpdateBuild = z.strictObject({
   title: storable(z.string().trim().min(1).max(200)).optional(),
   brief: Brief.optional(),
@@ -347,6 +369,11 @@ export const UpdateBuild = z.strictObject({
   waitingOn: WorkWaitingOn.optional(),
   statusLine: storable(z.string().trim().max(120)).optional(),
   stuck: z.boolean().optional(),
+  /**
+   * docs/plan.md §1.172: move an agent build that started on its build page to the one-screen
+   * builder, or back. A skill build has no builder (422 `no_builder`).
+   */
+  flow: BuildFlow.optional(),
 });
 
 /** An item made from a failed case or a rejected write is made once (its key is the case or write). */
@@ -364,6 +391,11 @@ export const UpdateBuildItem = z.strictObject({
   detail: storable(z.string().trim().max(2000)).optional(),
   owner: BuildItemOwner.optional(),
   state: BuildItemState.optional(),
+  /**
+   * docs/plan.md §1.169: drop it as not needed. A question, gap, test or feedback item is closed
+   * only by its own step or this; `state: "done"` on its own is refused (409 `settled_by_its_step`).
+   */
+  drop: z.literal(true).optional(),
 });
 
 /**
@@ -632,5 +664,24 @@ export const buildRoutes = {
     params: IdParams,
     body: z.strictObject({ reason: Reason }),
     response: BuildDetail,
+  }),
+  // docs/plan.md §1.173: a test environment's Drafts cleared in one press, to build again.
+  opsClearDraftsPreview: defineRoute({
+    method: "GET",
+    path: "/api/ops/lab/drafts/clear",
+    auth: "session",
+    roles: OPS,
+    summary:
+      "Whether this environment lets the lab's Drafts be cleared (never production), and how many builds and drafts that would archive",
+    response: ClearDraftsPreview,
+  }),
+  opsClearDrafts: defineRoute({
+    method: "POST",
+    path: "/api/ops/lab/drafts/clear",
+    auth: "session",
+    roles: OPS,
+    summary:
+      "Clear the lab's Drafts on a test environment: stop every build in progress and discard the drafts never published. Nothing is deleted; refused in production",
+    response: ClearedDrafts,
   }),
 } as const;

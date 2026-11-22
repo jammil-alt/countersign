@@ -64,11 +64,18 @@ import { mayControlConversation } from "../converse/control";
 // P-4
 import { portalConversation, runConversations } from "../converse/views";
 import { type AppEnv, HttpError, iso, mount, notFound } from "../http";
-import { type InboxRow, resolveInboxItem, scrubForPortal, sendResolution } from "../inbox";
+import {
+  fingerprintRequired,
+  type InboxRow,
+  resolveInboxItem,
+  scrubForPortal,
+  sendResolution,
+} from "../inbox";
 import { checkDeviceSignature, signatureRequired } from "../mobile/devices";
 // v0.13 W2-I
 import { timelineOversight } from "../oversight/views";
 import type { Platform } from "../platform";
+import { aboutNames } from "../runs/about";
 import {
   clientRunsPerDay,
   clientStatusWhere,
@@ -248,7 +255,8 @@ async function summarize(
       tenantId,
       rows.map((r) => r.id),
     ),
-    platform ? runSubjects(tx, [tenantId], rows, platform) : undefined,
+    // docs/plan.md §1.188: only what the client's timeline shows.
+    platform ? runSubjects(tx, [tenantId], rows, platform, { surface: "portal" }) : undefined,
   ]);
   return rows.map((r) => {
     const w = waits.get(r.id);
@@ -940,13 +948,7 @@ export function portalRouteHandlers(app: Hono<AppEnv>): void {
     // signature (which carries one).
     // DECISION (audit 3.4): required, with no grace for older clients: the phone app has no store
     // build yet, and a browser tab from before is told to reload.
-    if (!body.fingerprint && !body.deviceSignature) {
-      throw new HttpError(
-        400,
-        "fingerprint_required",
-        "This page is out of date; reload it and look again",
-      );
-    }
+    if (!body.fingerprint && !body.deviceSignature) throw fingerprintRequired();
     // Locked, so what is compared with what the person saw is what is then answered.
     const [visible] = await tx
       .select()
@@ -972,6 +974,8 @@ export function portalRouteHandlers(app: Hono<AppEnv>): void {
         userId: session.user.id,
         item: shown,
         decision: body.decision,
+        answer: body.answer,
+        note: body.note,
         signature: body.deviceSignature,
         now: new Date(),
       });
@@ -990,6 +994,7 @@ export function portalRouteHandlers(app: Hono<AppEnv>): void {
           decision: body.decision ?? "",
           fingerprint: body.deviceSignature.fingerprint,
           at: body.deviceSignature.at,
+          version: body.deviceSignature.version ?? "v1",
         },
       });
     }
@@ -1034,19 +1039,25 @@ export function portalRouteHandlers(app: Hono<AppEnv>): void {
     const { statuses, ...filter } = portalRunFilter(query.filter);
     const theirs = agentWhere(run.agentId, agents);
     const where = [
-      ...runFilterWhere(filter, services.platform.ctx.tools.specs()),
+      // R2: what runs were about, from the rows the client's timeline shows only.
+      ...runFilterWhere(filter, services.platform.ctx.tools.specs(), "portal"),
       ...clientStatusWhere(statuses),
       // §1.122: a client user limited to some agents sees only their runs.
       ...(theirs ? [theirs] : []),
     ];
     const runs = await runSummaries(tx, tenantId, where, query.limit, services.platform);
-    if (!query.perDay) return { runs };
+    const about = await aboutNames(tx, [tenantId], filter.about, "portal", theirs);
+    if (!query.perDay) return { runs, ...(about ? { about } : {}) };
     const scope = [eq(run.tenantId, tenantId), eq(run.mode, "live"), ...where];
     const [t] = await tx
       .select({ timezone: tenant.timezone })
       .from(tenant)
       .where(eq(tenant.id, tenantId));
-    return { runs, perDay: await clientRunsPerDay(tx, scope, t?.timezone ?? "UTC") };
+    return {
+      runs,
+      perDay: await clientRunsPerDay(tx, scope, t?.timezone ?? "UTC"),
+      ...(about ? { about } : {}),
+    };
   });
 
   mount(

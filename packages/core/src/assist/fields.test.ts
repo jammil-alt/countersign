@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { allRoutes } from "../api/all-routes";
 import { AssistDraftRequest, assistRoutes } from "../api/assist";
+import { StartBuild } from "../api/build";
 import { BRIEF_FIELDS, BriefField, FitReason, SetupFieldDraft } from "../build/build";
 import {
   ASSIST_FIELD_IDS,
@@ -17,6 +18,7 @@ describe("the fields Draft knows", () => {
   it("has every brief field, and the build's, the deal's and the client file's long fields", () => {
     for (const k of BRIEF_FIELDS) expect(isAssistField(`build.brief.${k}`)).toBe(true);
     for (const id of [
+      "build.name",
       "build.answer",
       "build.item.answer",
       "build.decision.change",
@@ -32,7 +34,7 @@ describe("the fields Draft knows", () => {
       expect(isAssistField(id), id).toBe(true);
     }
     expect(isAssistField("toString")).toBe(false);
-    expect(ASSIST_FIELD_IDS).toHaveLength(BRIEF_FIELDS.length + 11);
+    expect(ASSIST_FIELD_IDS).toHaveLength(BRIEF_FIELDS.length + 12);
   });
 
   it("describes each field: a label, its purpose, a length, its sources and what it needs", () => {
@@ -59,6 +61,10 @@ describe("the fields Draft knows", () => {
     }
     expect(ASSIST_FIELDS["build.fit.reason"].maxLength).toBeLessThanOrEqual(
       FitReason.maxLength ?? 0,
+    );
+    // A new agent's name is its build's title.
+    expect(ASSIST_FIELDS["build.name"].maxLength).toBeLessThanOrEqual(
+      StartBuild.shape.title.maxLength ?? 0,
     );
     expect(ASSIST_FIELDS["build.setup.hint"].maxLength).toBeLessThanOrEqual(
       SetupFieldDraft.shape.hint.unwrap().maxLength ?? 0,

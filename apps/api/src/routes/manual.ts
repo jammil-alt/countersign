@@ -20,7 +20,7 @@ const LEARNED_MAX = 50;
  * The agent's own live notes for its client: never a test run's (their scope is the run's), never
  * an area owner's or a person's, never another agent's or client's.
  */
-async function learnedNotes(tx: Tx, a: { id: string; tenantId: string | null }) {
+export async function learnedNotes(tx: Tx, a: { id: string; tenantId: string | null }) {
   if (!a.tenantId) return [];
   const rows = await tx
     .select({ id: memoryNote.id, note: memoryNote.note, createdAt: memoryNote.createdAt })

@@ -705,6 +705,7 @@ export function defineConnector(
   const {
     id,
     name,
+    vendor,
     description,
     icon,
     auth,
@@ -738,6 +739,7 @@ export function defineConnector(
   const parsed = ConnectorManifest.safeParse({
     id,
     name,
+    ...(vendor === undefined ? {} : { vendor }),
     description,
     icon,
     auth,

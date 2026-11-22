@@ -27,9 +27,9 @@ import {
 import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { Icon } from "../../ui/icons";
 import { Button, cx } from "../../ui/primitives";
+import { SchedulePicker } from "../triggers/SchedulePicker";
 import { actionKindLabel, PROCESS_KIND_LABEL } from "../workflow/describe";
 import { toolLabel, whenEvent } from "../workflow/labels";
-import { processClientVisible } from "./Canvas";
 // P-4
 import { ConversationFields, ConverseFields } from "./ConverseFields";
 import {
@@ -44,6 +44,7 @@ import { ChecksPanel, NotifyEditor } from "./checks";
 import { ConnectionsSection, type MoveRequest } from "./connections-step";
 import { CustomizeSection } from "./customize";
 import { DeadlineEditor } from "./deadline";
+import { DurationPicker } from "./duration";
 import {
   EventOptions,
   type FieldErrors,
@@ -66,6 +67,7 @@ import {
   looseningBlocked,
   newPath,
   type Process,
+  processClientVisible,
   type Step,
 } from "./model";
 import {
@@ -78,6 +80,7 @@ import {
 } from "./outcomes";
 import { type People, PersonPicker } from "./people";
 import { fieldLabel, stepNamer } from "./problems";
+import { PromptPreview } from "./prompt-preview";
 import { ReachOutFields } from "./ReachOutFields";
 import { ReadTableSample } from "./read-table-step";
 // Reshape data (2026-11-11)
@@ -85,6 +88,7 @@ import { inputsUnfilled, isReshape, type ReshapeOffer, reshapeOffers } from "./r
 import { ReshapeFields } from "./reshape-step";
 import { RulesEditor } from "./rules";
 import { RunsOnRow, type SkillMove, StepParameters, VersionSection } from "./skill-step";
+import { hasStartsDecision, otherwiseStart, STARTS_DECISION, splitStarts } from "./starts";
 import { WebhookSample } from "./webhook-sample";
 
 export type { Member } from "./people";
@@ -96,6 +100,8 @@ export interface FocusRequest {
   node: string;
   field: string;
   nonce: number;
+  /** Select the field's words too, so typing replaces them (a new path's "Path 2"). */
+  select?: boolean;
 }
 
 export interface InspectorProps {
@@ -119,6 +125,8 @@ export interface InspectorProps {
   onTrigger(id: string, on: TriggerOn, key: string): void;
   onAddTrigger(on: TriggerOn): void;
   onRemoveTrigger(id: string): void;
+  /** Adds the decision that gives each start its own first steps (./starts). */
+  onSplitStarts?: (() => void) | undefined;
   onDelete(id: string): void;
   /** Wave 5: put an `if` right after the step, routed on how it ended ("Add a route for this"). */
   onAddRoute?(stepId: string, option: RouteOption): void;
@@ -159,6 +167,13 @@ export interface InspectorProps {
   onAddHere?: ((stepId: string, where: "before" | "after") => void) | undefined;
   /** Makes a move and asks the Builder to resolve what it breaks. */
   onAskBuilder?: ((move: MoveRequest) => void) | undefined;
+  // The builder on one screen (docs/builder-plan.md §12, F2)
+  /**
+   * `panel`: inside the step's side panel (../flow/StepPanel), which shows the step's kind, name,
+   * problems, connections and Remove itself. The inspector then leaves those out and folds its
+   * less used settings into "More settings". Absent: as it always was.
+   */
+  layout?: "panel" | undefined;
 }
 
 function errorsFor(errors: readonly BuilderProblem[], node: string): FieldErrors {
@@ -180,6 +195,7 @@ function useFocus(root: React.RefObject<HTMLElement | null>, focus: FocusRequest
       const el = scope.querySelector<HTMLElement>(`[data-field="${CSS.escape(field)}"]`);
       if (el) {
         el.focus();
+        if (focus.select && el instanceof HTMLInputElement) el.select();
         return;
       }
       const cut = field.lastIndexOf(".");
@@ -245,6 +261,54 @@ function Heading({
       <h2 className="mt-1 type-heading text-ink">{title}</h2>
       {intro ? <p className="mt-2 text-sm text-ink">{intro}</p> : null}
     </div>
+  );
+}
+
+/**
+ * F2: the panel's fold for the less used settings, closed until asked for (or until a problem's
+ * Fix points into it). Says whether any of them is set away from its default.
+ */
+function MoreSettings({
+  changed,
+  focus,
+  node,
+  children,
+}: {
+  changed: boolean;
+  focus: FocusRequest | null;
+  node: string;
+  children: ReactNode;
+}) {
+  const [open, setOpen] = useState(false);
+  // A focus request on this step may name a field inside: open first, so it can be focused.
+  useEffect(() => {
+    if (focus && focus.node === node) setOpen(true);
+  }, [focus, node]);
+  return (
+    <details
+      open={open}
+      onToggle={(e) => setOpen(e.currentTarget.open)}
+      data-testid="builder-inspector-more"
+      className="border-t border-line pt-4"
+    >
+      <summary className="cursor-pointer text-sm font-medium text-ink">
+        More settings{" "}
+        <span className="font-normal text-ink-muted">
+          · {changed ? "some changed from their defaults" : "all on their defaults"}
+        </span>
+      </summary>
+      <div className="mt-4 flex flex-col gap-4">{children}</div>
+    </details>
+  );
+}
+
+/** Whether a step's folded settings say anything beyond their defaults. */
+function moreChanged(step: Step, checksFolded: boolean): boolean {
+  return (
+    (checksFolded && step.checks !== undefined && Object.keys(step.checks).length > 0) ||
+    step.client !== undefined ||
+    step.review !== undefined ||
+    (step.kind === "skill" && (step.model !== undefined || step.customize !== undefined))
   );
 }
 
@@ -342,6 +406,7 @@ function StepInspector(props: InspectorProps & { step: Step }) {
         tenantId={props.tenantId}
         onDelete={onDelete}
         onName={(name) => set("name", (s) => ({ ...s, name }))}
+        layout={props.layout}
       />
     );
   }
@@ -375,13 +440,174 @@ function StepInspector(props: InspectorProps & { step: Step }) {
         : "Saves to our own records. Approval is off by default; add one below if someone should say yes first."
       : STEP_INTRO[step.kind];
 
+  const heading = (
+    <Heading
+      eyebrow={`${stepNumber(workflow, step.id)} · ${label}${kind ? ` · ${SKILL_KIND_LABEL[kind]}` : ""}`}
+      title={step.name || label}
+      intro={intro}
+    />
+  );
+  const connections =
+    props.assess && props.onProcess ? (
+      <ConnectionsSection
+        step={step}
+        workflow={workflow}
+        ctx={ctx}
+        assess={props.assess}
+        onProcess={props.onProcess}
+        onAddHere={props.onAddHere ? (where) => props.onAddHere?.(step.id, where) : undefined}
+        onAskBuilder={props.onAskBuilder}
+      />
+    ) : null;
+  const kindFields = <KindFields {...props} paths={paths} fieldErrors={fieldErrors} set={set} />;
+  const dataSection = data ? <DataSection lines={data.lines} warnings={data.warnings} /> : null;
+  const runsOn =
+    step.kind === "skill" && skill ? (
+      <RunsOnRow
+        step={step}
+        skill={skill}
+        bundle={props.bundle}
+        ctx={ctx}
+        fieldErrors={fieldErrors}
+        set={set}
+      />
+    ) : null;
+  const parameters =
+    step.kind === "skill" && skill ? (
+      <StepParameters step={step} skill={skill} bundle={props.bundle} set={set} />
+    ) : null;
+  const version =
+    step.kind === "skill" && skill && props.agentId && props.onMoveSkill ? (
+      <VersionSection
+        step={step}
+        skill={skill}
+        agentId={props.agentId}
+        tenantId={props.tenantId ?? null}
+        workflow={workflow}
+        onMove={props.onMoveSkill}
+      />
+    ) : null;
+  const customize =
+    step.kind === "skill" && skill && !isReshape(step) ? (
+      <CustomizeSection
+        step={step}
+        ctx={ctx}
+        bundle={props.bundle}
+        template={props.template}
+        errors={fieldErrors}
+        set={set}
+      />
+    ) : null;
+  // Owner, 2026-11-21 (docs/plan.md §1.180): what the model is sent, from the draft as drawn.
+  const prompt =
+    step.kind === "skill" && skill && props.agentId && !isReshape(step) ? (
+      <PromptPreview
+        key={step.id}
+        agentId={props.agentId}
+        workflow={workflow}
+        definition={props.bundle.definition}
+        step={step}
+      />
+    ) : null;
+  const checks = LOGIC.has(step.kind) ? null : (
+    <ChecksPanel
+      step={step}
+      set={set}
+      env={props.env}
+      people={props.people}
+      data={props.data}
+      errors={fieldErrors}
+      pathsBefore={(confer) =>
+        labelPaths(
+          workflow,
+          processes.processPathsAt(workflow, step.id, ctx, {
+            own: processes.outputBeforeChecks(step, ctx),
+            confer,
+          }),
+        )
+      }
+      pathsAfter={labelPaths(
+        workflow,
+        processes.processPathsAt(workflow, step.id, ctx, {
+          own: true,
+          confer: step.checks?.confer?.with.length ?? 0,
+        }),
+      )}
+    />
+  );
+  const onError = takesOnError(step) ? <OnErrorSection step={step} set={set} /> : null;
+  const routes = props.onAddRoute ? (
+    <RoutesSection step={step} onAdd={(option) => props.onAddRoute?.(step.id, option)} />
+  ) : null;
+  const actionOffers =
+    step.kind === "skill" && props.onAddAction && !isReshape(step) ? (
+      <ActionOffers
+        step={step}
+        ctx={props.ctx}
+        onAdd={(fit) => props.onAddAction?.(step.id, fit)}
+        {...(props.onAddReshape
+          ? {
+              onReshape: (action: processes.WriteAction) =>
+                props.onAddReshape?.({ after: step.id, action }),
+            }
+          : {})}
+      />
+    ) : null;
+  const reshapeBefore =
+    props.onAddReshape && inputsUnfilled(step, errors) ? (
+      <Section title="Inputs">
+        <p className="text-sm text-ink-muted">
+          Some of this step's inputs can't be filled from what earlier steps give. A Reshape step
+          before it can turn their results into what it takes.
+        </p>
+        <div>
+          <Button
+            variant="ghost"
+            data-testid="builder-offer-reshape-before"
+            onClick={() => props.onAddReshape?.({ before: step.id })}
+          >
+            <Icon name="add" />
+            Add a Reshape step before this
+          </Button>
+        </div>
+      </Section>
+    ) : null;
+  // DECISION (wave 5, web): an if is hidden from the client by default, as before; the operator
+  // may show it, and its row then says the route it took and why, naming only steps the client
+  // sees.
+  const timeline =
+    LOGIC.has(step.kind) && step.kind !== "if" ? null : <TimelineSection step={step} set={set} />;
+
+  if (props.layout === "panel") {
+    // F2 (docs/builder-plan.md §12): the panel shows the kind, the name, the problems, where the
+    // step comes after and goes to, and Remove; the main fields of each kind come first and the
+    // rest fold away. A write's approval stays out of the fold: it is what a write is about.
+    const checksMain = step.kind === "write";
+    return (
+      <div className="flex flex-col gap-4">
+        {kindFields}
+        {parameters}
+        {prompt}
+        {checksMain ? checks : null}
+        {reshapeBefore}
+        {actionOffers}
+        {onError}
+        <MoreSettings changed={moreChanged(step, !checksMain)} focus={props.focus} node={step.id}>
+          {dataSection}
+          {runsOn}
+          {version}
+          {customize}
+          {checksMain ? null : checks}
+          {routes}
+          {timeline}
+        </MoreSettings>
+      </div>
+    );
+  }
+
   return (
     <div className="flex flex-col gap-4">
-      <Heading
-        eyebrow={`${stepNumber(workflow, step.id)} · ${label}${kind ? ` · ${SKILL_KIND_LABEL[kind]}` : ""}`}
-        title={step.name || label}
-        intro={intro}
-      />
+      {heading}
       <NodeErrors errors={errors} node={step.id} onFix={props.onFix} />
       <Row label="Name" field="name" errors={fieldErrors}>
         <SmallInput
@@ -391,121 +617,40 @@ function StepInspector(props: InspectorProps & { step: Step }) {
           onChange={(e) => set("name", (s) => ({ ...s, name: e.target.value }))}
         />
       </Row>
-      {props.assess && props.onProcess ? (
-        <ConnectionsSection
-          step={step}
-          workflow={workflow}
-          ctx={ctx}
-          assess={props.assess}
-          onProcess={props.onProcess}
-          onAddHere={props.onAddHere ? (where) => props.onAddHere?.(step.id, where) : undefined}
-          onAskBuilder={props.onAskBuilder}
+      {/* docs/sop-plan.md §3: why the step is there, one sentence the client reads in the agent's
+          SOP. Empty removes it, and the SOP writes a plain line from the step instead. */}
+      <Row label="Purpose" field="purpose" errors={fieldErrors}>
+        <SmallInput
+          data-field="purpose"
+          data-testid="builder-inspector-purpose"
+          maxLength={200}
+          placeholder="Why this step is there, in one sentence the client reads in its SOP"
+          value={(step as { purpose?: string }).purpose ?? ""}
+          onChange={(e) => {
+            const purpose = e.target.value;
+            set("purpose", (s) => {
+              const { purpose: _old, ...rest } = s as typeof s & { purpose?: string };
+              return (purpose.trim() ? { ...rest, purpose } : rest) as typeof s;
+            });
+          }}
         />
-      ) : null}
+      </Row>
+      {connections}
 
-      <KindFields {...props} paths={paths} fieldErrors={fieldErrors} set={set} />
-      {data ? <DataSection lines={data.lines} warnings={data.warnings} /> : null}
+      {kindFields}
+      {dataSection}
 
-      {step.kind === "skill" && skill ? (
-        <>
-          <RunsOnRow
-            step={step}
-            skill={skill}
-            bundle={props.bundle}
-            ctx={ctx}
-            fieldErrors={fieldErrors}
-            set={set}
-          />
-          <StepParameters step={step} skill={skill} bundle={props.bundle} set={set} />
-          {props.agentId && props.onMoveSkill ? (
-            <VersionSection
-              step={step}
-              skill={skill}
-              agentId={props.agentId}
-              tenantId={props.tenantId ?? null}
-              workflow={workflow}
-              onMove={props.onMoveSkill}
-            />
-          ) : null}
-          {isReshape(step) ? null : (
-            <CustomizeSection
-              step={step}
-              ctx={ctx}
-              bundle={props.bundle}
-              template={props.template}
-              errors={fieldErrors}
-              set={set}
-            />
-          )}
-        </>
-      ) : null}
-      {LOGIC.has(step.kind) ? null : (
-        <ChecksPanel
-          step={step}
-          set={set}
-          env={props.env}
-          people={props.people}
-          data={props.data}
-          errors={fieldErrors}
-          pathsBefore={(confer) =>
-            labelPaths(
-              workflow,
-              processes.processPathsAt(workflow, step.id, ctx, {
-                own: processes.outputBeforeChecks(step, ctx),
-                confer,
-              }),
-            )
-          }
-          pathsAfter={labelPaths(
-            workflow,
-            processes.processPathsAt(workflow, step.id, ctx, {
-              own: true,
-              confer: step.checks?.confer?.with.length ?? 0,
-            }),
-          )}
-        />
-      )}
-      {takesOnError(step) ? <OnErrorSection step={step} set={set} /> : null}
-      {props.onAddRoute ? (
-        <RoutesSection step={step} onAdd={(option) => props.onAddRoute?.(step.id, option)} />
-      ) : null}
-      {step.kind === "skill" && props.onAddAction && !isReshape(step) ? (
-        <ActionOffers
-          step={step}
-          ctx={props.ctx}
-          onAdd={(fit) => props.onAddAction?.(step.id, fit)}
-          {...(props.onAddReshape
-            ? {
-                onReshape: (action: processes.WriteAction) =>
-                  props.onAddReshape?.({ after: step.id, action }),
-              }
-            : {})}
-        />
-      ) : null}
-      {props.onAddReshape && inputsUnfilled(step, errors) ? (
-        <Section title="Inputs">
-          <p className="text-sm text-ink-muted">
-            Some of this step's inputs can't be filled from what earlier steps give. A Reshape step
-            before it can turn their results into what it takes.
-          </p>
-          <div>
-            <Button
-              variant="ghost"
-              data-testid="builder-offer-reshape-before"
-              onClick={() => props.onAddReshape?.({ before: step.id })}
-            >
-              <Icon name="add" />
-              Add a Reshape step before this
-            </Button>
-          </div>
-        </Section>
-      ) : null}
-      {/* DECISION (wave 5, web): an if is hidden from the client by default, as before; the operator
-          may show it, and its row then says the route it took and why, naming only steps the
-          client sees. */}
-      {LOGIC.has(step.kind) && step.kind !== "if" ? null : (
-        <TimelineSection step={step} set={set} />
-      )}
+      {runsOn}
+      {parameters}
+      {version}
+      {customize}
+      {prompt}
+      {checks}
+      {onError}
+      {routes}
+      {actionOffers}
+      {reshapeBefore}
+      {timeline}
 
       <div className="flex justify-end border-t border-line pt-4">
         {step.kind === "if" ? null : (
@@ -962,14 +1107,14 @@ function KindFields(
       );
     case "wait":
       return (
-        <Row label="Wait for" field="for" errors={fieldErrors} hint='e.g. "2 hours" or "3 days"'>
-          <SmallInput
-            data-field="for"
-            data-testid="builder-wait-for"
-            value={step.for}
-            onChange={(e) => set("for", (s) => ({ ...s, for: e.target.value }) as Step)}
-          />
-        </Row>
+        <DurationPicker
+          label="Wait for"
+          field="for"
+          testId="builder-wait-for"
+          errors={fieldErrors}
+          value={step.for}
+          onChange={(value) => set("for", (s) => ({ ...s, for: value }) as Step)}
+        />
       );
     // A read-only card for the process, and its input as a form from its schema (docs/plan.md
     // §1.45). The process's own steps are not in the bundle.
@@ -1463,7 +1608,10 @@ function IfEditor(
       ) : null}
       {step.paths.map((p, i) => {
         const pathErrors = errorsFor(errors, p.id);
-        const invalid = errors.some((e) => e.stepId === p.id);
+        const mine = errors.filter((e) => e.stepId === p.id);
+        const invalid = mine.length > 0;
+        // Only its condition still to say: a question (gold), as the panel's top says it.
+        const unsaid = invalid && mine.every((e) => e.code === "rules_empty");
         return (
           <section
             key={p.id}
@@ -1471,7 +1619,7 @@ function IfEditor(
             data-testid={`builder-path-${p.id}`}
             className={cx(
               "flex flex-col gap-2 rounded-md border bg-surface-subtle p-3",
-              invalid ? "border-risk" : "border-line",
+              unsaid ? "border-signal" : invalid ? "border-risk" : "border-line",
             )}
           >
             <div className="flex items-center gap-2">
@@ -1487,6 +1635,12 @@ function IfEditor(
                 {p.steps.length} {p.steps.length === 1 ? "step" : "steps"}
               </span>
             </div>
+            {/^Path \d+$/.test(p.name.trim()) && p.when.rules.length === 0 ? (
+              // A path just added: what it is first, then when a run takes it.
+              <p className="text-xs text-ink-muted" data-testid={`builder-path-${p.id}-new`}>
+                Name this path for what it is, then say when a run takes it.
+              </p>
+            ) : null}
             {byAgent ? (
               <Row label="Take this when" field="describe" errors={pathErrors}>
                 <SmallInput
@@ -1590,6 +1744,9 @@ function TriggerInspector(props: InspectorProps & { trigger: Trigger }) {
   const fieldErrors = errorsFor(errors, trigger.id);
   // A trigger's filter reads that trigger's own payload.
   const paths = useMemo(() => pathOptions(triggerOnSchema(on, ctx), "trigger"), [on, ctx]);
+  // Whether each start can have a path of its own, and why not when it can't.
+  const split = useMemo(() => splitStarts(workflow, ctx), [workflow, ctx]);
+  const otherwise = useMemo(() => otherwiseStart(workflow, ctx), [workflow, ctx]);
   const set = (next: TriggerOn, key: string) => onTrigger(trigger.id, next, key);
   // Events of connectors the agent may use (as the palette offers them); the platform's always.
   const events = data.events.filter(
@@ -1598,16 +1755,20 @@ function TriggerInspector(props: InspectorProps & { trigger: Trigger }) {
   const many = workflow.triggers.length > 1;
   return (
     <div className="flex flex-col gap-4">
-      <Heading
-        eyebrow="Trigger"
-        title="How it starts"
-        intro={
-          many
-            ? "Any of this workflow's triggers starts a run."
-            : "This trigger starts each run of this workflow."
-        }
-      />
-      <NodeErrors errors={errors} node={trigger.id} onFix={props.onFix} />
+      {props.layout === "panel" ? null : (
+        <>
+          <Heading
+            eyebrow="Trigger"
+            title="How it starts"
+            intro={
+              many
+                ? "Any of this workflow's triggers starts a run."
+                : "This trigger starts each run of this workflow."
+            }
+          />
+          <NodeErrors errors={errors} node={trigger.id} onFix={props.onFix} />
+        </>
+      )}
       <Row label="Starts" field="on.type" errors={fieldErrors}>
         <SmallSelect
           data-field="on.type"
@@ -1673,27 +1834,19 @@ function TriggerInspector(props: InspectorProps & { trigger: Trigger }) {
         </>
       ) : null}
       {on.type === "schedule" ? (
-        <div className="grid grid-cols-2 gap-3">
-          <Row label="Cron" field="on.cron" errors={fieldErrors} hint="e.g. 0 7 * * 1-5">
-            <SmallInput
-              data-field="on.cron"
-              data-testid="builder-trigger-cron"
-              value={on.cron}
-              className="font-mono"
-              onChange={(e) => set({ ...on, cron: e.target.value }, "trigger:cron")}
-            />
-          </Row>
-          <Row label="Time zone" field="on.tz" errors={fieldErrors} hint="Empty: the client's">
-            <SmallInput
-              data-field="on.tz"
-              value={on.tz ?? ""}
-              onChange={(e) => {
-                const { tz: _tz, ...rest } = on;
-                set(e.target.value ? { ...rest, tz: e.target.value } : rest, "trigger:tz");
-              }}
-            />
-          </Row>
-        </div>
+        // Owner, 2026-11-21 (docs/plan.md §1.177): how often, which days and what time, picked;
+        // the cron it stores is under Custom.
+        <SchedulePicker
+          small
+          testId="builder-trigger-schedule"
+          cronTestId="builder-trigger-cron"
+          value={on}
+          cronError={fieldErrors.at("on.cron")[0]}
+          onChange={(next) => {
+            const { cron: _c, tz: _tz, every: _e, ...rest } = on;
+            set({ ...rest, ...next } as TriggerOn, "trigger:schedule");
+          }}
+        />
       ) : null}
       {on.type === "manual" ? (
         <Row label="Input (JSON Schema)" field="on.input" errors={fieldErrors}>
@@ -1741,6 +1894,44 @@ function TriggerInspector(props: InspectorProps & { trigger: Trigger }) {
           </Button>
         ) : null}
       </div>
+      {many && props.onSplitStarts ? (
+        // Owner, 2026-11-22 (docs/plan.md §1.184): each start with its own first steps.
+        <div
+          className="flex flex-col gap-2 border-t border-line pt-4"
+          data-testid="builder-trigger-split"
+        >
+          <span className="text-sm font-medium text-ink">Different first steps for each start</span>
+          {hasStartsDecision(workflow) ? (
+            <p className="text-sm text-ink-muted" data-testid="builder-trigger-split-done">
+              “{STARTS_DECISION}” is the first step, with a path for each start. Put each start's
+              own steps on its path; what comes after the decision is shared.
+              {otherwise ? ` Runs that start “${otherwise}” take the Otherwise path.` : ""}
+            </p>
+          ) : split.ok ? (
+            <>
+              <p className="text-sm text-ink-muted">
+                Adds a decision as the first step, with a path for each way it starts. Drag the
+                steps only one start needs onto its path. The paths meet again at the step after the
+                decision, and everything from there is shared.
+              </p>
+              <div>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  data-testid="builder-trigger-split-add"
+                  onClick={() => props.onSplitStarts?.()}
+                >
+                  Give each start its own first steps
+                </Button>
+              </div>
+            </>
+          ) : (
+            <p className="text-sm text-ink-muted" data-testid="builder-trigger-split-why">
+              Not available here: {split.why}
+            </p>
+          )}
+        </div>
+      ) : null}
     </div>
   );
 }

@@ -47,6 +47,11 @@ export const directoryGet = defineInternalTool({
   sideEffect: "none",
   entity: "contact",
   area: "shared",
+  // docs/plan.md §1.188: the person or organization it read.
+  about: [
+    { kind: "person", id: "person.id", label: "person.name" },
+    { kind: "organization", id: "organization.id", label: "organization.name" },
+  ],
   summary: "Read a directory entry",
   input: DirectoryGetInput,
   output: DirectoryGetOutput,

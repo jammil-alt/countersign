@@ -22,10 +22,11 @@ export const ASSIST_SOURCES = ["build", "brief", "ref", "deal", "file"] as const
 export type AssistSource = (typeof ASSIST_SOURCES)[number];
 
 /** How the text is laid out. */
-export const ASSIST_SHAPES = ["sentence", "paragraph", "list", "message"] as const;
+export const ASSIST_SHAPES = ["name", "sentence", "paragraph", "list", "message"] as const;
 export type AssistShape = (typeof ASSIST_SHAPES)[number];
 
 export const ASSIST_SHAPE_RULES: Record<AssistShape, string> = {
+  name: "A name of two to five words on one line. No full stop, no quotation marks, no list.",
   sentence: "One sentence, two at most. No list, no heading.",
   paragraph: "One short paragraph of short sentences. No list, no heading.",
   list: 'One item per line, each line starting with "- ". No heading, no closing summary.',
@@ -139,6 +140,22 @@ const BRIEF_ASSIST = Object.fromEntries(
 ) as Record<BriefAssistFieldId, AssistField>;
 
 const OTHER_FIELDS = {
+  // Owner, 2026-11-21: "let's create the name of the template with AI based on the description…
+  // make it editable." The notes are the operator's own description; no record is read.
+  "build.name": {
+    label: "Name (a new agent)",
+    purpose:
+      'The name of a new agent, made from the operator\'s description of what it should do. Good: the work itself, as a person would label the job on a list, e.g. "Invoice intake", "Purchase requests", "Weekly cash report".',
+    shape: "name",
+    rules: [
+      "Name the work, not the worker: no agent, assistant, bot, template or automation in it.",
+      "No client's, person's or company's name, and no tool's name unless the work is only about that tool.",
+    ],
+    maxLength: 60,
+    audience: "operator",
+    uses: [],
+    needs: null,
+  },
   "build.answer": {
     label: "Message to the Builder",
     purpose:

@@ -25,10 +25,22 @@ export const ClientVisibility = z.object({
   label: z.string().optional(),
 });
 
+/** The most a step's purpose may say: one sentence (docs/sop-plan.md §3). */
+export const STEP_PURPOSE_MAX = 200;
+
+/**
+ * Why a step is there, in one sentence the client reads in the agent's SOP ("Looks the vendor up
+ * in QuickBooks so the bill goes to the right vendor"). Written when the step is built and edited
+ * by the operator, like its name; versioned and merged with the step. Optional with no default, so
+ * stored bundles parse and hash as they were (docs/sop-plan.md §3, owner 2026-11-21).
+ */
+export const StepPurpose = z.string().trim().min(1).max(STEP_PURPOSE_MAX);
+
 const base = {
   id: NodeId,
   name: z.string(),
   client: ClientVisibility.optional(),
+  purpose: StepPurpose.optional(),
 };
 
 export const SkillStep = z.object({
@@ -307,6 +319,17 @@ export const TriggerOn = z.discriminatedUnion("type", [
     tz: z.string().optional(),
     // v0.12 W2-E: skip US federal holidays (observed) and the client's own dates, in its zone.
     skipHolidays: z.boolean().optional(),
+    // DECISION (owner, 2026-11-21: "every other Monday"; docs/plan.md §1.177): cron cannot say
+    // "every other week", so the trigger says it beside its cron: of the cron's ticks, only those
+    // in every `weeks`th week run, in whole weeks counted from `from` (a date in the trigger's
+    // zone; the builder writes the Sunday that starts the first week). Optional, so stored
+    // versions parse and hash as before.
+    every: z
+      .object({
+        weeks: z.number().int().min(2).max(8),
+        from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "a date such as 2026-11-22"),
+      })
+      .optional(),
   }),
   z.object({
     type: z.literal("manual"),

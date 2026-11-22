@@ -6,7 +6,7 @@
 // modified and removed; amounts are decimals with a direction; Plaid's webhook JWT is checked
 // (valid, tampered body, stale iat, unknown key, other algorithms); an item that needs the
 // client's sign-in asks for a reconnect; disconnect removes the item; there are no write tools.
-import { DEFAULT_PERMISSIONS, decideToolCall } from "@countersign/core";
+import { connectorTitle, DEFAULT_PERMISSIONS, decideToolCall } from "@countersign/core";
 import { describe, expect, it } from "vitest";
 import type { ConnectionContext, ConnectionRef } from "../connector";
 import { CredentialCipher, generateEncryptionKey, memoryTenantKeys } from "../credentials";
@@ -127,6 +127,18 @@ describe("bankfeed: the manifest", () => {
     expect(m.sharedNamespaces).toEqual(["card", "bank"]);
     expect(PLAID_PRODUCTS).toEqual(["transactions"]);
     expect(isBankfeedConnector(connector)).toBe(true);
+  });
+
+  // Owner, 2026-11-21: "where is the Plaid connector?" It is this one: the builder says so.
+  it("names its vendor: Plaid, beside its own name in the workflow builder", () => {
+    const { connector } = setup();
+    expect(connector.manifest.name).toBe("Bank and card feeds");
+    expect(connector.manifest.vendor).toBe("Plaid");
+    expect(connectorTitle(connector.manifest)).toBe("Bank and card feeds (Plaid)");
+    // A name that already says it, or no vendor at all, is left alone.
+    expect(connectorTitle({ name: "Plaid bank feeds", vendor: "plaid" })).toBe("Plaid bank feeds");
+    expect(connectorTitle({ name: "QuickBooks Online" })).toBe("QuickBooks Online");
+    expect(connectorTitle({ name: "Uploads", vendor: " " })).toBe("Uploads");
   });
 
   it("signs in only when the client id and secret are set; reads PLAID_ENV leniently", () => {

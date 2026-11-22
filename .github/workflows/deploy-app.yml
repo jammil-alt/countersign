@@ -53,6 +53,8 @@ jobs:
       ELEVENLABS_API_KEY: ${{ secrets.ELEVENLABS_API_KEY }}
       ELEVENLABS_WEBHOOK_SECRET: ${{ secrets.ELEVENLABS_WEBHOOK_SECRET }}
       RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+      # §1.220: the signing secret of Resend's webhook endpoint (/api/hooks/resend).
+      RESEND_WEBHOOK_SECRET: ${{ secrets.RESEND_WEBHOOK_SECRET }}
       STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
       STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
       # The code service's own Twilio subaccount (plan §1.26), not the clients' messaging account.
@@ -182,18 +184,22 @@ jobs:
         run: |
           set -euo pipefail
           env_name=$([ "$TARGET" = production ] && echo production || echo staging)
-          put() { printf '%s' "$2" | pnpm exec wrangler secret put "$1" --env "$env_name" > /dev/null; echo "set $1"; }
+          put_now=()
+          put() { printf '%s' "$2" | pnpm exec wrangler secret put "$1" --env "$env_name" > /dev/null; put_now+=("$1"); echo "set $1"; }
           # The codes Twilio subaccount: copied on every deploy when set, so a rotated token takes
           # effect. Unset: adding a phone number answers not_configured and inbound texts are refused.
           for name in MFA_TWILIO_ACCOUNT_SID MFA_TWILIO_AUTH_TOKEN; do
             if [ -n "${!name:-}" ]; then put "$name" "${!name}"; fi
           done
           # Generated once inside Cloudflare and never shown or stored anywhere else, as ENCRYPTION_KEY
-          # is for apps/api. If the list of existing secrets can't be read, this step fails (set -e)
-          # rather than risk replacing MFA_ENCRYPTION_KEY, which would make every stored
-          # authenticator secret unreadable.
-          existing=$(pnpm exec wrangler secret list --env "$env_name" --format json | jq -r '.[].name')
-          if grep -qx MFA_ENCRYPTION_KEY <<<"$existing"; then
+          # is for apps/api. Replacing MFA_ENCRYPTION_KEY would make every stored authenticator
+          # secret unreadable, so it is generated only when two reads of the Worker's secrets, each
+          # naming every secret just put (scripts/worker-secrets.sh), both lack it; a list that can't
+          # be trusted fails the step.
+          first=$("$GITHUB_WORKSPACE/scripts/worker-secrets.sh" "$env_name" "${put_now[@]}")
+          sleep 5
+          second=$("$GITHUB_WORKSPACE/scripts/worker-secrets.sh" "$env_name" "${put_now[@]}")
+          if grep -qx MFA_ENCRYPTION_KEY <<<"$first"$'\n'"$second"; then
             echo "MFA_ENCRYPTION_KEY already set"
           else
             value=$(openssl rand -base64 32)
@@ -289,7 +295,8 @@ jobs:
         run: |
           set -euo pipefail
           env_name=$([ "$TARGET" = production ] && echo production || echo staging)
-          put() { printf '%s' "$2" | pnpm exec wrangler secret put "$1" --env "$env_name" > /dev/null; echo "set $1"; }
+          put_now=()
+          put() { printf '%s' "$2" | pnpm exec wrangler secret put "$1" --env "$env_name" > /dev/null; put_now+=("$1"); echo "set $1"; }
           # Copied from the GitHub environment's secrets on every deploy, so a rotated key takes effect.
           if [ -n "${WORKOS_API_KEY:-}" ]; then put WORKOS_API_KEY "$WORKOS_API_KEY"; fi
           if [ -n "${ANTHROPIC_API_KEY:-}" ]; then put ANTHROPIC_API_KEY "$ANTHROPIC_API_KEY"; fi
@@ -298,7 +305,7 @@ jobs:
           if [ -n "${GEMINI_API_KEY:-}" ]; then put GEMINI_API_KEY "$GEMINI_API_KEY"; fi
           for name in TWILIO_ACCOUNT_SID TWILIO_AUTH_TOKEN TWILIO_VERIFY_API_KEY_SID TWILIO_VERIFY_API_KEY_SECRET \
             ELEVENLABS_API_KEY ELEVENLABS_WEBHOOK_SECRET \
-            RESEND_API_KEY STRIPE_SECRET_KEY STRIPE_WEBHOOK_SECRET \
+            RESEND_API_KEY RESEND_WEBHOOK_SECRET STRIPE_SECRET_KEY STRIPE_WEBHOOK_SECRET \
             ZOHO_CLIENT_ID ZOHO_CLIENT_SECRET PODIO_CLIENT_ID PODIO_CLIENT_SECRET \
             GOOGLE_CLIENT_ID GOOGLE_CLIENT_SECRET QBO_CLIENT_ID QBO_CLIENT_SECRET QBO_WEBHOOK_VERIFIER \
             OUTLOOK_CLIENT_ID OUTLOOK_CLIENT_SECRET RAMP_CLIENT_ID RAMP_CLIENT_SECRET \
@@ -308,10 +315,23 @@ jobs:
             META_APP_ID META_APP_SECRET META_WEBHOOK_VERIFY_TOKEN META_CONFIG_ID; do
             if [ -n "${!name:-}" ]; then put "$name" "${!name}"; fi
           done
-          # Generated once inside Cloudflare and never shown or stored anywhere else. If the list of
-          # existing secrets can't be read, this step fails (set -e) rather than risk replacing
-          # ENCRYPTION_KEY, which would make stored connection credentials unreadable.
-          existing=$(pnpm exec wrangler secret list --env "$env_name" --format json | jq -r '.[].name')
+          # Generated once inside Cloudflare and never shown or stored anywhere else. Replacing
+          # ENCRYPTION_KEY makes every client's stored credentials unreadable for good (staging,
+          # 2026-11-21, Sentry MEZONAS-API-C: a list that came back without it, though wrangler
+          # exited 0). So a secret is generated only when two reads of the Worker's secrets, each
+          # naming every secret just put (scripts/worker-secrets.sh), both lack it; a list that
+          # can't be trusted fails the step.
+          first=$("$GITHUB_WORKSPACE/scripts/worker-secrets.sh" "$env_name" "${put_now[@]}")
+          sleep 5
+          second=$("$GITHUB_WORKSPACE/scripts/worker-secrets.sh" "$env_name" "${put_now[@]}")
+          existing="$first"$'\n'"$second"
+          # ENCRYPTION_KEY and WORKOS_COOKIE_PASSWORD were made together on the Worker's first deploy:
+          # one without the other means the Worker has run before and its key is missing, which a
+          # person restores (docs/operations.md, "Secrets"). Never generate over that.
+          if ! grep -qx ENCRYPTION_KEY <<<"$existing" && grep -qx WORKOS_COOKIE_PASSWORD <<<"$existing"; then
+            echo "::error::ENCRYPTION_KEY is missing from a Worker that has run before. Generating a new one would make every stored credential unreadable; restore it instead (docs/operations.md, Secrets)."
+            exit 1
+          fi
           # OAUTH_STATE_SECRET signs OAuth sign-ins in progress (Zoho, Podio); replacing it only breaks
           # sign-ins that are under way.
           for name in ENCRYPTION_KEY WORKOS_COOKIE_PASSWORD OAUTH_STATE_SECRET; do

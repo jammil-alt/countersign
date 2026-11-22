@@ -15,6 +15,11 @@ import {
 } from "@countersign/db";
 import { and, desc, eq, gte, inArray, ne, or, sql } from "drizzle-orm";
 import type { HealthAgent, HealthConnection, HealthPort, HealthRun } from "../tools/types";
+import {
+  ACCESS_RESTORED_CHANGE,
+  ATTENTION_ISSUE_KINDS,
+  refreshFailingOpen,
+} from "./connection-attention";
 
 export interface HealthPortOptions {
   /** A connector id's display name (apps/api passes the registry's); default the id. */
@@ -115,15 +120,23 @@ export function dbHealthPort(db: Db, options: HealthPortOptions = {}): HealthPor
                 connectionChange.connectionId,
                 rows.map((r) => r.id),
               ),
-              inArray(sql<string>`${connectionChange.change}->>'kind'`, ATTENTION_KINDS),
+              inArray(sql<string>`${connectionChange.change}->>'kind'`, [
+                ...ATTENTION_KINDS,
+                ACCESS_RESTORED_CHANGE,
+              ]),
             ),
           )
           .orderBy(desc(connectionChange.createdAt));
         return rows.map((c): HealthConnection => {
           const config = (c.config ?? {}) as Record<string, unknown>;
           const state = BrowserConnectionState.safeParse(config.browserState);
-          const last = changes.find((ch) => ch.connectionId === c.id);
+          const mine = changes.filter((ch) => ch.connectionId === c.id);
+          const kindOf = (ch: (typeof mine)[number]) => (ch.change as { kind?: unknown }).kind;
+          const last = mine.find((ch) => ATTENTION_KINDS.includes(kindOf(ch) as string));
           const change = (last?.change ?? {}) as Record<string, unknown>;
+          const issue = mine.find((ch) =>
+            (ATTENTION_ISSUE_KINDS as readonly unknown[]).includes(kindOf(ch)),
+          );
           const name = nameOf(c.connector);
           return {
             id: c.id,
@@ -142,6 +155,11 @@ export function dbHealthPort(db: Db, options: HealthPortOptions = {}): HealthPor
                   at: last.createdAt.toISOString(),
                 }
               : null,
+            // DECISION: open only while the connection is still `connected`: a connection in error
+            // or disconnected since already needs a person for that, and is counted as such.
+            accessFailing:
+              c.status === "connected" &&
+              refreshFailingOpen(issue?.change as Record<string, unknown> | undefined),
             usedBy: agents
               .filter((a) => Object.values(a.bindings).includes(c.id))
               .map((a) => a.serviceName ?? a.name),

@@ -104,10 +104,13 @@ describe("AgentScreen", () => {
     });
     const bar = await screen.findByTestId("agent-bar");
     expect(within(bar).getByRole("heading", { name: "Material costs" })).toBeInTheDocument();
-    expect(within(bar).getByTestId("agent-version-badges")).toHaveTextContent("Live · v1");
+    // A newer draft beside it; the version it runs is in its status (agents/status), never
+    // "Live · v1" for a published version that may still be in trial (QA 2026-11-22).
     expect(within(bar).getByTestId("agent-version-badges")).toHaveTextContent("Draft · v2");
-    // An agent's own status, never a run's word.
-    expect(within(bar).getByTestId("agent-bar-status")).toHaveTextContent("Active");
+    expect(within(bar).getByTestId("agent-version-badges")).not.toHaveTextContent("Live");
+    // An agent's own status, never a run's word: its stage, then its version. The fixture
+    // agent has no stage, so it reads as not started.
+    expect(within(bar).getByTestId("agent-bar-status")).toHaveTextContent("Not started · v1");
     // Its client starts the bar's breadcrumb, a link to the client's page.
     expect(within(within(bar).getByTestId("agent-bar-crumbs")).getByRole("link")).toHaveTextContent(
       "Harbor Millwork",
@@ -126,7 +129,17 @@ describe("AgentScreen", () => {
       within(within(bar).getByRole("navigation"))
         .getAllByRole("link")
         .map((l) => l.textContent),
-    ).toEqual(["Overview", "Workflow", "Steps", "Manual", "Runs", "Versions2", "Settings"]);
+    ).toEqual([
+      "Overview",
+      "Workflow",
+      "Steps",
+      "Manual",
+      "Runs",
+      "Report",
+      "Security",
+      "Versions2",
+      "Settings",
+    ]);
     expect(within(bar).getByTestId("agent-test-run")).toHaveAttribute(
       "href",
       `${BASE}/versions#tests`,
@@ -199,7 +212,11 @@ describe("AgentScreen", () => {
     it("shows an older version's process, and edits the definition of one", async () => {
       setup(`${BASE}/workflow?version=1`, routes);
       const list = await screen.findByTestId("workflow-new-bill");
-      expect(within(list).getByTestId("step-update")).toHaveTextContent("needs approval");
+      // F6: drawn as the chart, read only.
+      expect(await within(list).findByTestId("flow-box-update")).toHaveTextContent(
+        "needs approval",
+      );
+      expect(within(list).queryByTestId("flow-tail")).toBeNull();
       cleanup();
       setup(`${BASE}/settings/definition`, routes);
       expect(await screen.findByTestId("agent-editor")).toBeInTheDocument();
@@ -344,16 +361,39 @@ describe("AgentScreen", () => {
     );
   });
 
+  it("names its connection and skills from the agent, without waiting on the catalogs", async () => {
+    // QA (2026-11-22): "Qbo" and "Skills it uses: Loading…" while the builder's catalog and the
+    // skills list were still on their way. Here neither ever answers.
+    setup(BASE, {
+      [`GET /api/ops/agents/${ID}`]: () => ({
+        ...AGENT_DETAIL,
+        names: {
+          connectors: { qbo: "QuickBooks Online" },
+          skills: { "docs.extract": "Read a document", "docs.find-support": "Find support" },
+        },
+      }),
+      [`GET /api/ops/agents/${ID}/skills`]: () => new Promise(() => {}),
+      [`GET /api/ops/agents/${ID}/builder-catalog`]: () => new Promise(() => {}),
+    });
+    expect(await screen.findByTestId("agent-works-in")).toHaveTextContent("QuickBooks Online");
+    expect(screen.getByTestId("agent-works-in")).not.toHaveTextContent("Qbo");
+    expect(screen.getByTestId("agent-skills")).toHaveTextContent("Read a document");
+    expect(screen.getByTestId("agent-skills")).toHaveTextContent("Find support");
+  });
+
   it("offers no publish when the live version is the newest", async () => {
     setup(BASE, {
       [`GET /api/ops/agents/${ID}`]: () => ({
         ...AGENT_DETAIL,
+        agent: { ...AGENT_DETAIL.agent, stage: "trial" },
         versions: [AGENT_DETAIL.versions[1]],
         latest: AGENT_DETAIL.live,
       }),
     });
     const bar = await screen.findByTestId("agent-bar");
-    expect(within(bar).getByTestId("agent-version-badges")).toHaveTextContent("Live · v1");
+    // The AP bill clerk as QA found it: switched on, in trial, running v1 (QA 2026-11-22).
+    expect(within(bar).getByTestId("agent-bar-status")).toHaveTextContent("In trial · v1");
+    expect(within(bar).getByTestId("agent-version-badges")).not.toHaveTextContent("Live");
     expect(within(bar).queryByTestId("agent-publish")).toBeNull();
   });
 
@@ -414,7 +454,18 @@ describe("AgentScreen", () => {
       within(within(bar).getByRole("navigation"))
         .getAllByRole("link")
         .map((l) => l.textContent?.replace(/\d+$/, "")),
-    ).toEqual(["Build", "Overview", "Workflow", "Steps", "Manual", "Runs", "Versions", "Settings"]);
+    ).toEqual([
+      "Build",
+      "Overview",
+      "Workflow",
+      "Steps",
+      "Manual",
+      "Runs",
+      "Report",
+      "Security",
+      "Versions",
+      "Settings",
+    ]);
     const view = await screen.findByTestId("build-view");
     // On the agent page the build has no header of its own: the agent's bar is it.
     expect(within(view).queryByTestId("build-header")).toBeNull();

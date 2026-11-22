@@ -144,6 +144,11 @@ export const contractSave = defineTool({
   description:
     "Saves a vendor's contract or agreed price sheet: its terms (dates, payment terms, early-pay discount, freight, minimum order, the signed document) and its item prices into the vendor's catalog, each an agreed price dated the contract's start. The vendor by id, else by name (added when new). Saving the same vendor and start date again updates it. A row no master item is known for is listed as unplaced. A test run saves nothing.",
   sideEffect: "internal",
+  // docs/plan.md §1.188: the contract by its name, and its vendor.
+  about: [
+    { kind: "record", id: "contract.id", label: "contract.name" },
+    { kind: "vendor", id: "vendorId", label: "vendorName" },
+  ],
   summary: "Saved {{contract.name}}: {{prices.updated}} prices updated, {{prices.created}} added",
   input: z
     .object({

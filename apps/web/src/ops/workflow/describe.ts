@@ -124,6 +124,11 @@ export interface StepLabels {
   skill?(ref: string): string | undefined;
   automation?(ref: string): string | undefined;
   connector?(toolId: string): string | undefined;
+  /**
+   * The connector a read or a write step is on, with its name, for the chart's mark on the box
+   * (its logo). Undefined for a step on no connector, or one the catalog doesn't know.
+   */
+  connectorOf?(step: processes.Step): { id: string; name: string } | undefined;
   person?(id: string): string | undefined;
   /** Hand off (2026-11-11): the target agent's name and its step's "5 · Itemize the invoice". */
   handoff?(to: { agent: string; step: string }): { name: string; at: string } | undefined;

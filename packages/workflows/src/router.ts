@@ -16,7 +16,9 @@ import {
   type HandoffRunPayload,
   handoffRunId,
   type InboundMessagePayload,
+  inWeekCycle,
   isDayOff,
+  localDate,
   MAX_HANDOFF_DEPTH,
   type MessageChannel,
   type MessageRunPayload,
@@ -599,6 +601,8 @@ export async function dueSchedules(input: DueSchedulesInput): Promise<RouteResul
         problems.push({ agentId: agent.id, workflowSlug: slug, message: String(error) });
         continue;
       }
+      // Every other week (docs/plan.md §1.177): only the ticks in a week the schedule runs.
+      ticks = ticks.filter((t) => inCycle(t, tz, on.every));
       // v0.12 W2-E: a tick on a holiday, in the zone it is scheduled in, is skipped.
       if (on.skipHolidays) {
         const own = input.holidays?.[agent.tenantId] ?? [];
@@ -646,7 +650,9 @@ export function nextSchedules(
         } catch {
           break;
         }
-        const first = ticks.find((t) => !on.skipHolidays || !isDayOff(t, tz, own));
+        const first = ticks.find(
+          (t) => inCycle(t, tz, on.every) && (!on.skipHolidays || !isDayOff(t, tz, own)),
+        );
         if (!first) continue;
         const known = out.get(agent.id);
         if (!known || first < known) out.set(agent.id, first);
@@ -655,6 +661,15 @@ export function nextSchedules(
     }
   }
   return out;
+}
+
+/** Whether a tick is in a week its schedule runs: always, unless the trigger skips weeks. */
+function inCycle(
+  tick: Date,
+  tz: string,
+  every: { weeks: number; from: string } | undefined,
+): boolean {
+  return !every || inWeekCycle(localDate(tick, tz), every);
 }
 
 // A guard against expressions like "* * * * * *" over a long window.

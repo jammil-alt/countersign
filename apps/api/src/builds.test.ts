@@ -139,6 +139,36 @@ describe.skipIf(!h)("builds", () => {
     ).toBe(404);
   });
 
+  // docs/plan.md §1.172, migration 0073: where the lab's Drafts opens a build.
+  it("opens a new agent build in the builder, a skill build on its page, and can be moved", async () => {
+    const agent = await ok("POST", "/api/ops/builds", {
+      kind: "agent",
+      title: "Started on Describe",
+    });
+    expect(agent.build.flow).toBe("describe");
+    const skill = await ok("POST", "/api/ops/builds", { kind: "skill", title: "A skill" });
+    expect(skill.build.flow).toBe("phases");
+    // The board's list says it too.
+    const list = await H.call(OPERATOR, "GET", "/api/ops/builds?status=open");
+    expect(list.status).toBe(200);
+    const flows = new Map(
+      (list.json as { builds: { id: string; flow: string }[] }).builds.map((b) => [b.id, b.flow]),
+    );
+    expect(flows.get(agent.build.id)).toBe("describe");
+    expect(flows.get(skill.build.id)).toBe("phases");
+    // Moved to its build page and back, by the operator.
+    const back = await ok("PATCH", `/api/ops/builds/${agent.build.id}`, { flow: "phases" });
+    expect(back.build.flow).toBe("phases");
+    const again = await ok("PATCH", `/api/ops/builds/${agent.build.id}`, { flow: "describe" });
+    expect(again.build.flow).toBe("describe");
+    // A skill build has no builder to open in.
+    const refused = await H.call(OPERATOR, "PATCH", `/api/ops/builds/${skill.build.id}`, {
+      flow: "describe",
+    });
+    expect(refused.status).toBe(422);
+    expect((refused.json as { error: { code: string } }).error.code).toBe("no_builder");
+  });
+
   it("takes a template from intake to live", async () => {
     let b = await ok("POST", "/api/ops/builds", { kind: "agent", title: "Record review" });
     expect(b.build).toMatchObject({ phase: "intake", status: "open", client: null });
@@ -1109,6 +1139,9 @@ describe.skipIf(!h)("builds", () => {
     );
     b = await ok("POST", `/api/ops/builds/${id}/turns`, { text: "And again?" });
     expect(b.messages.at(-1)?.proposal).toBeUndefined();
+    // Staging (2026-11-21, MEZONAS-API-9 again): said in the message, not dropped in silence.
+    expect(b.messages.at(-1)?.text).toContain("I'd draft it again.");
+    expect(b.messages.at(-1)?.text).toContain("already has a skill build under way");
   });
 
   // QA on staging (2026-11-16): the fit-gap failed three times out of three. The raw validation

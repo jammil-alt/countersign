@@ -1,8 +1,36 @@
-# Mezonas — Architecture v0.20
+# Mezonas — Architecture v0.22
 
 > **Name and design (2026-11-03, owner):** the product is **Mezonas** (mezonas.com; `countersign` is the
 > code name), built with the Mezonas design system in `packages/design-system`, which replaces Groundwork.
 > Domains: `app.mezonas.com` (production), `staging.mezonas.com`.
+
+> **v0.22, evidence and a verifier before writes (2026-11-22, owner):** **Every write an agent
+> proposes to a client's tool carries proof a person can check in seconds.** Outside v1's scope
+> (§1); the owner agreed it on 2026-11-22 (round 4, item D, "Evidence and verifier layer"). Before a
+> write reaches the inbox or goes ahead, an agent with `oversight.verify: writes` has a second model
+> call work the write out again from the run's sources, without seeing the proposal; code compares
+> the two: **agreed** goes on as before, **disagreed** goes to a person with both answers, **can't
+> verify** goes to the operator. Each card has an **evidence panel** (portal and back office): what
+> the write rests on, the step and rule that produced it, the confidence and the second check,
+> read from rows that already exist. Each client may set **dollar thresholds** that only tighten:
+> at or over one, every write waits for a person. On for new agents, Builder drafts and templates;
+> off for agents saved before. No migration. Changed: §10.18 (new); `docs/plan.md` §1.211.
+
+> **v0.21, the agent's SOP (2026-11-21, owner):** **Every client agent has an SOP: one formal
+> document made by code from how it is set up now**, in the portal's SOP tab (the Manual tab's
+> place; its old address opens it). Thirteen sections: purpose, scope, roles and who else takes
+> part by step, how it starts, the procedure, controls, systems, data, exceptions, decisions and
+> settings, measures, references and the revision history. Each step says whether it runs on
+> **rules, AI (with the model the runtime would call), rules then AI, or a person**, and why it is
+> there (a step's new optional `purpose`, else a line made by code). The agent itself is named once,
+> never on its steps; people and agents carry their own icons. A write's line is the gate's own
+> decision (`decideToolCall`) and a step's model the runtime's own rule (`runModel`). Nothing in it
+> waits on anyone. It carries its **revision and revision date** and what changed: a revision
+> (`sop_revision`, migration 0074, never updated or deleted) is recorded in the change's transaction
+> for the routes that change what an SOP says, with who made the change and where; a read and an
+> hourly check record any the change sites missed, and report them. Find, filters by person or
+> system, and a print layout; "Ask about this" and "This is wrong" as on the manual. Changed:
+> §10.17 (new); `docs/sop-plan.md`; `docs/plan.md` §1.179.
 
 > **v0.20, builds that work first (2026-11-19, owner):** **A build makes the normal case work on
 > real examples first, writes down every decision it takes, and the agent carries a manual.** In
@@ -3360,7 +3388,147 @@ step's own parameter from the back office; the setup answers written into the ma
 governance in the oversight review, the AI check, path choice, chat and the Builder; a run-level pin
 of the governance versions. `docs/open.md`, "Builds that work first", lists them.
 
+### 10.17 The agent's SOP (v0.21, owner 2026-11-21)
+
+The owner's ask: "a documented SOP for each of the agents… clickable, readable, queryable… look
+and print and share based on the current set up of their agent… a process, owners, controls,
+systems, data". The plan and its decisions are `docs/sop-plan.md`; what was built is
+`docs/plan.md` §1.179. The SOP is the client's manual made formal (§10.16): the portal's Manual
+tab became the SOP tab; the back office keeps its Manual tab, and agents keep reading manuals with
+`manual.read`, never the SOP.
+
+| Part | Where it lives | Made by |
+|---|---|---|
+| The SOP | Core's `sopView` (`packages/core/src/sop/`), from the live version (else the latest), the agent row, its connections and grants, the client's approver rules, business hours and compliance mode, the area owner and the lead | Code, on every read; no model |
+| A step's purpose | `purpose` on v3 and v4 steps, optional, at most 200 characters | The operator in the step panel; a line made by code when absent |
+| A step's method and model | The skill's method (`skillMethod`), the tools' `usesModel`, `if` and `repeat` deciding by the agent; the model by core's `runModel`, which the runtime calls too | Code |
+| Revisions | `sop_revision`: the SOP as it was, what changed (`sopChanges`), who and where, numbered `<version>.<setup changes>` | Code, in the change's transaction |
+| Model names | `clientModelName` in `packages/llm` ("Claude Sonnet 5.5"), never a price or effort | Code |
+
+**Nothing open.** The SOP says how the process runs. No "Waiting on you", no "never discussed",
+no setup still to answer: a decision says who set it ("Us", "Confirmed with you", a client's
+person). What is open stays where it is worked on (the manual, the checklist, the Desk). A pause or
+a safety hold is a state of the moment, shown on the agent's page, not in the SOP.
+
+**Revisions.** `mount()` records them after the routes listed in `SOP_CHANGE_ROUTES`
+(`apps/api/src/sop/change-routes.ts`: a version going live, the agent's settings and stage, grants,
+a connection's permissions and connecting, approval rules, business hours, area owners, the
+client's adjustments and setup answers), with the signed-in person. Only a change in what the SOP
+says makes one (its fingerprint), so listing an agent that didn't change costs nothing. A read, and
+an hourly check at minute 37, record a revision a change site missed as "Recorded by our check"
+and report it to Sentry. A connection with an error still counts as connected (its health is the
+Connectors page's): connecting and disconnecting change the SOP, a failing sync doesn't.
+
+**Invariants.** 1: one client per request, names resolved within it. 3: revisions are append-only
+(trigger); a step's purpose changes only by a new version. 8 and 13: a write's line is
+`decideToolCall`. 11: no bundle, instructions, prompts, budgets or cost; each AI step's model is
+named (owner, 2026-11-21); contract tests cover both routes.
+
+### 10.18 Evidence and a verifier before writes (v0.22, owner 2026-11-22)
+
+The owner's round 4, item D: every write an agent proposes to a client's tool carries proof a
+person can check in seconds. **Outside v1's scope (§1); the owner said yes on 2026-11-22.** It
+builds on what was there: `sources` (invariant 10), the external action with its before state
+(invariant 8), approvals bound to what was seen (`docs/plan.md` §1.138), run oversight (§10.11)
+and the approval settings. The decisions are `docs/plan.md` §1.211.
+
+| Part | Where it lives | Made by |
+|---|---|---|
+| The setting | `definition.oversight.verify`: `off` or `writes`. Absent is off, so every agent saved before runs as it did; `NEW_AGENT_OVERSIGHT` (new agents, Builder drafts) and the Bookkeeper's v7 and Vendor contracts' v4 set `writes` | The operator |
+| The verifier | `packages/agents/src/runtime/verify.ts`, called by the gate (`call-tool.ts`) after the before state is read and before the action is proposed, for every write, live or test. One model call on the agent's oversight model (else its own), recorded as a `check` | Code and a model |
+| Its sources | `dbVerifyPort`: the run's trigger, its earlier steps' outputs, what it read (`run_subject`, role `read`) and each document's latest reading. Data in a tool result (invariant 9); the proposal is never shown | Rows the run left |
+| The comparison | Core's `verificationOf`: only the fields the verifier gave; amounts as decimals, text without case or spaces | Code |
+| The outcome | `agreed`: unchanged. `disagreed`: never automatic; the card goes to the client's approver with both answers. `cannot_verify` (no sources, not derivable, nothing compared, the call failed): never automatic; the card goes to the operator. Kept on the card's payload as `verification` (no note, model or cost) | Code |
+| Thresholds | `tenant.settings.write_thresholds` (one amount per currency): a write whose amount (`ToolSpec.amount`) is at or over one is never automatic. Only tightens. We may lower or add one; the client's admin may also raise or remove theirs | The client's admin; the operator |
+| Evidence | `GET /api/inbox/:id/evidence` and `/api/ops/inbox/:id/evidence`: sources, the step and the steps its input reads, the rule (`when`) above it, the confidence (the document's reading, else the producing step's), the values before and after, the check and the threshold. The portal's names no agent version and shows only subjects its timeline shows | Code, from existing rows |
+| The panel | `apps/web/src/inbox/EvidencePanel.tsx`, lazily loaded on every change card (the Desk's, batches' and the back office's), with its own words in six languages | Code |
+
+**Only tightens.** The verifier and a threshold can make a write wait for a person; nothing here
+makes one go ahead that the gate would hold (invariant 8). A disagreement always goes to a person.
+The verifier never changes a step, an approval, a permission or the plan (invariant 9).
+
+**Invariants.** 1: one client per read and per call. 6: amounts compared as decimals. 8: only
+tightens; test runs are checked and still never write. 9: the sources are data in a tool result.
+10: the verifier cites record ids. 11: no portal route returns a prompt, a model, a cost or an
+agent version.
+
+### 10.19 The process interview (owner, 2026-11-22; Wave X X3)
+
+The owner's build plan 8: before a client's agent is built, ask the person who does the work how
+it is done today. Outside v1's §1 scope with the owner's yes; what was built is `docs/plan.md`
+§1.217. The interview reuses what is there: the signed public link of a form request (§1.121),
+the intake's questions for the process's business area (§1.149.2), the documents capability's
+store for sample files, and the Builder's Draft it now (§1.165) with the reuse check's find pass
+(§1.125).
+
+| Part | Where it lives | Made by |
+|---|---|---|
+| The interview | `process_interview` (one client, one contact, one process): the questions and answers, the waiting question, the sample files, the outputs, the reuse check, the build | The operator starts it; the contact answers it on `/i/<token>` |
+| The next question | `nextQuestion` (`packages/agents/src/interview/`): one model call per answer, the interview so far as data | The model, held by code to one question and never a secret (core `oneQuestion`) |
+| The map and the open questions | `summarizeInterview`, then core `groundOutputs` | The model, held by code to the answers: a step names the answers it came from, or it comes off the map and is asked instead; an estimate is the person's mark |
+| The draft | A new agent build for the client, drafted at once from the map's numbered steps | The Builder (§1.165): approval on for every write, a person where the catalog has no part |
+| The reuse check | Per step of the map, the catalog's three best matches (§1.125's find pass, no judge) | Code |
+
+**Invariants.** 1: the link names one interview in one client; every read and write is in that
+client. 8: the draft starts with approval on, as every Builder draft does. 9: answers and file
+names are data in the prompt's tags, never instructions; the map is held to them by code. 11: the
+public page shows the client's name and the process, never an agent, a prompt or a cost; the
+contract test covers its routes. 14: the model calls are held to the client's HIPAA mode, which is
+checked before a link is made.
+
+### 10.24 Accounts payable: bills to an approved list (Wave Y item Y4, owner 2026-11-22)
+
+**Outside v1's scope (§1); the owner said yes for Wave Y.** The AP pack (`ap`) takes vendor bills
+from email and uploads to a weekly approve-to-pay list a person approves. **It never pays:** nothing
+in it pays a bill, schedules a payment or writes to a client's tool. It is its own pack in the
+Purchasing area (`extends: "materials"`, core's `AREA_OF_PACK`), beside the Materials pack in
+`packs/materials/src/ap` because it reads that pack's purchase orders and a pack never imports
+another. The decisions are `docs/plan.md` §1.233.
+
+| Part | Where it lives | Made by |
+|---|---|---|
+| Intake | An invoice forwarded or uploaded is read and gets its purchase (`docs.record_purchase`, §1.104), as for Vendor contracts; the pack's template runs on `document.extracted` with valid totals | The platform |
+| The bill | `ap_bill`, one per purchase, and `ap_bill_line`, one per invoice line plus freight, each surcharge and tax: `ap.bill.prepare` (a Save to records write) | Code |
+| The order | Core's matching engine, configuration `bill_to_po`: the PO number the bill prints against each order's references, then a part of an order, then vendor and amount; a different PO number or currency is a hard veto (invariant 7). The fuzzy tier's pair is only proposed. Lines meet order lines by catalog item | Code; a person confirms a proposal |
+| Coding | A line takes the vendor's account only when its last year of bills (this pack's and QuickBooks') went to one account. A model may suggest one (`ap.suggest-accounts`); it is kept apart (`proposed_ledger_account_id`) until a person takes it | Code; a model suggests; a person codes |
+| Flags | A duplicate (vendor and invoice number, a copy, or a QuickBooks bill), a possible duplicate (amount and days), a price above the order beyond the client's tolerance (only in the same unit: never across units without a conversion rule), more billed than ordered or received, no order, not received, lines to code, read again. Each carries its records (invariant 10) | Code |
+| Receipts | `ap_receipt`, a log: an agent (`ap.receipt.record`) or a person on the card marks an order, or its lines, received | An agent or a person |
+| The weekly list | `ap.pay_list.build` puts the bills due by the pay day (plus the client's days) on that week's list (`pay_week`, a Monday); the card `ap.pay_list` takes a person's decisions: approve (the ready ones together, a flagged one only with a note), hold or reject with a reason | A person |
+| Configuration | `tenant.settings.packs.ap`: pay day, days after it, price tolerance, the duplicate window, whether a missing order or receipt blocks | The operator |
+| Screens | Bills to pay (`/reports/ap/bills`, portal and back office) and the card, both loaded when opened | Code |
+
+**Invariants.** 1: three tables with forced RLS and composite keys. 6: amounts `numeric(14,4)` and
+decimal.js. 7: rules first, the engine's vetoes, a model only suggests, a person decides each bill.
+8: no write to a client's tool; a step that adds one starts with approval on. 9: invoice and vendor
+text only in tool results. 10: every bill, flag and suggestion names its records and agent version.
+11: the report and card show no agent, prompt or cost.
+
 ---
+
+### 10.25 The work-delivered statement (Wave Y, Y5, owner 2026-11-22)
+
+Outside v1's scope (§1); the owner said yes (build plan 10). Each billing month, a client sees what
+its agents delivered beside what it pays: five counters per agent, per business area and in total.
+
+| Counter | What it counts (over the client agents' live runs created in the month) |
+|---|---|
+| Items processed | Different records a run decided on or changed, or that started it (`run_subject`), once per agent |
+| Posted automatically | Writes done with no approval item (`external_action`) |
+| Sent for approval | The client's own approval items (`inbox_item` of kind `external_action` or `approval`, not routed to us) |
+| Exceptions caught | Alerts its runs raised (not dismissed before the month ended), and writes the verifier disagreed with (§10.18) |
+| Dollars identified | Those alerts' dollar impact, per currency |
+
+- **One definition.** Core's `WORK_COUNTERS` says what each counter means; `workCounts` in
+  `packages/db` is the one query that counts them. The portal's page, its PDF, the PDF sent with
+  the invoice and the back office's view all read it, so they agree.
+- **A month that has ended never changes.** Months are UTC, as billing months are (§11.5 and
+  `docs/plan.md` §1.32), and only what was recorded before the month ended counts.
+- **Work, never our cost.** The statement shows work counts and dollars identified for the client;
+  never our cost, margin, model or vendor spend, bundles, instructions or prompts (invariant 11),
+  and only ever one client. The portal's page is the client admin's, as billing is.
+- **With the invoice.** Stripe's invoice email can't carry a file, so when an invoice is sent the
+  statement goes as a PDF in our own email (Resend) to the same billing address, once. A client in
+  HIPAA mode sees it in the portal only until Resend is covered (`docs/plan.md` §1.234).
 
 ## 11. Inbox and threads
 
@@ -3646,6 +3814,33 @@ operator views in the back office. Installing a pack adds its templates (agents 
 as template v1 rows the operator edits like any other. Enabling it for a client inserts `tenant_pack`
 (its tables start holding that client's data) and allows forking its templates into that client.
 
+### 12.1.1 One manifest, one install path (Wave Y, owner's yes; docs/plan.md §1.230)
+
+Outside v0.15's v1 scope, with the owner's yes. Every pack's manifest (`PackManifest` in
+`packages/core/src/schemas/pack.ts`, documented in its comments) also names:
+
+- `area`: the business area (§12.0) whose shared data it holds; one pack per area.
+- `config`: the fields the operator sets when switching the pack on for a client, each a word, a
+  number, a yes or no, or one of a few choices, with its default (`PackConfigField`). Never a
+  secret: credentials go to the client's vault through a connection. A client's values are kept in
+  `tenant.settings.packs.<id>` (no table) and read with core's `packConfigOf`, defaults filling any
+  field not set.
+- `processors`: the vendors of ours the pack itself sends a client's data to (the compliance
+  register's names), beyond its steps' models and its connectors, which are gated where they are
+  called. The Areas tab shows them, marking those a client's HIPAA mode holds back.
+- `reports`: the names of the reports it registers; `apps/api` holds them equal to its handlers.
+- `extends` (optional): the pack whose area this one builds on (the Close pack extends
+  `bookkeeping`, the AP pack `materials`). One pack per area, except packs that extend one; an
+  extending pack sits in its base's area, and its base must be registered.
+
+The back office installs any pack the same way, from the client page's Areas tab (the Packs tab),
+with configuration only: `POST /api/ops/clients/:id/packs/:pack/install` checks the configuration
+against the manifest (a bad one switches nothing on), keeps it with a `tenant_change` row, switches
+the pack on, and installs its templates (approval on) and Library skills once for the deployment.
+Calling it again changes only the configuration. Nothing in `packages/*` or `apps/api` names a
+pack to install it: a new pack (the Close and AP packs) is one manifest in this shape, registered
+in `apps/api/src/packs.ts` with its handlers.
+
 ### 12.2 Materials pack
 
 Tables:
@@ -3807,6 +4002,33 @@ and 7 only: an alias (with no vendor, every vendor's description alias when they
 one candidate equal on every key attribute. Anything else keeps its candidates for a person; no model
 adjudicates it. Only the bill backfill creates new items (step 6's rule).
 
+### 12.3a The matching engine (Wave X item X1, owner 2026-11-22; plan §1.215)
+
+One reconciliation service for any two lists of items, generalised from the three matchers that
+came first (§12.3's item matching, Sales' match to CRM, Bookkeeping's reconciliation). It lives in
+the platform (`packages/core/src/matching`, pure: no database, no model client); packs call it
+with a **configuration**, and the platform never names a pack.
+
+- **Tiers**, in invariant 7's order: (1) the client's **saved rules**; (2) the configuration's
+  **deterministic** rules in its order (`reference`, `reference_group`, `counterparty_amount`,
+  `amount_date`, `group`, `partial`: exact and tolerance on amount, a date window, reference,
+  counterparty); (3) **fuzzy** (names, dates, amounts; one sure candidate each way); (4) the
+  **model**, only for what is left, given by the caller as a function and held to the same hard
+  rules; then a person.
+- **Hard rules** veto a pair whatever else agrees: an amount beyond the tolerance (unless the
+  configuration allows a partial match), dates outside the window, two references both stated that
+  differ (where the configuration says), two currencies.
+- **Match types**: 1:1, 1:many, many:1 and partial. **Every result states its tier and the rule**
+  that made it (a rule's name, `similar`, `model`, or `client_rule:<id>`).
+- **Saved rules** (`match_rule`, migration 0085): an operator's correction kept for one client and
+  one configuration (on side A, a reference or counterparty that is side B's value). Tenant RLS,
+  retired never deleted, back office only (`/api/ops/clients/:id/match-rules`). A rule makes two
+  keys equal; it never loosens an amount, a window or a currency.
+- **Configurations**: `bank_to_ledger` (Bookkeeping's reconciliation, §1.80, deterministic only)
+  and `invoice_two_systems` (one invoice in the client's books and another party's system: the
+  ROMCO case). Materials' item keys run as a pack scorer in the fuzzy tier; Sales' rule decision is
+  the engine's `decideRanked`. The goldens (`fixtures/matching`, ≥ 95% precision on "same") hold.
+
 ### 12.4 Pricing and alerts
 
 - `materials.prices.record`: `unit_price_std = unit_price / conversion(uom_raw → standard_uom)`; freight
@@ -3852,6 +4074,33 @@ adjudicates it. Only the bill backfill creates new items (step 6's rule).
   (raw record and line id), idempotent, per the item's standard unit (bill lines carry no unit).
 
 ---
+
+
+### 12.5 Books health (Wave X, owner 2026-11-22; `docs/plan.md` §1.216)
+
+Outside v1's scope, with the owner's yes (the owner's build plan 9; its prospect connection waits on
+Intuit). **A fixed set of deterministic checks over the QuickBooks records we sync, and a one-page
+report for the client's owner, ranked by dollars.**
+
+- **The checks** (core `books-health/`, a pure library with one entry point, `checkBooks(snapshot,
+  { asOf, checks? })`, and the list `BOOKS_CHECKS`): accounts not reconciled and their age,
+  uncategorized transactions, duplicate vendors, duplicate bills, overdue invoices, overdue bills,
+  balances below zero, undeposited funds and vendor price drift. Each finding has a dollar figure, a
+  count, a few example transactions, its parts (accounts, aging buckets, vendor groups) and its
+  `sources`, the raw records it rests on (invariant 10). No model reads the books (invariant 7);
+  amounts are decimal (invariant 6).
+- **The snapshot** (connectors `loadQboBooks`): each record's latest synced version that isn't
+  deleted, inside `withTenant()`. What QuickBooks' API doesn't say comes from the caller: which
+  accounts were reconciled, and through when (today, the Bookkeeping pack's signed-off
+  reconciliations, read in `apps/api`). A pack (the Close pack, next) reuses the library and the
+  loader as they are.
+- **Who fixes it** is data on each check: the business area and its pack (`bookkeeping`,
+  `materials`, or none for receivables), never an import (invariant 2). The report says whether
+  that pack is switched on for the client.
+- **Where it shows:** `GET /api/books-health` (the client admin, in the portal at `/books-health`,
+  linked from Reports) and `GET /api/ops/clients/:id/books-health` (the back office's Data tab).
+  Read only; computed on request from what was synced, so nothing is stored and there is no
+  migration. Both screens load on their own.
 
 ## 13. Usage, cost and observability
 
@@ -4160,6 +4409,19 @@ data:
   a client's records stay in that client (§9.10). Model-call bodies are stored under the client's
   prefix with card numbers redacted, for operators only (§10.10). Search and plain-words questions run
   inside the request's scope and never become SQL (§11.6).
+- **SOC 2 readiness (owner's build plan 12, Wave X, 2026-11-22; `docs/plan.md` §1.218).** Outside
+  v1's scope, with the owner's yes. `/ops/security/soc2` lists each Trust Services Criterion in our
+  scope (Security, Availability, Confidentiality) as in place, partial or missing, with its owner
+  and evidence. It is computed from the security register (`packages/core/src/compliance`): the
+  controls that map to a criterion, plus live checks for what only the data knows (this quarter's
+  access review recorded; a deletion drill passed within a year; each policy adopted or a draft).
+  The **quarterly access review** is recorded in `access_review` (operator-only) and
+  `access_review_item` (each client's own, RLS on `tenant_id`, purged with the client): everyone
+  in the clients served as they were that day, and who should lose access. Records are never
+  updated or deleted; access itself is removed where it always is. The **deletion drill**
+  (`db:deletion-drill`, as `cs_owner`, on staging) fills a throwaway Sandbox client, retires and
+  purges it with the purge workflow's own code, checks nothing of it is left and nothing of
+  another client was touched, and writes `client.deletion_drill` to the audit log.
 
 ---
 

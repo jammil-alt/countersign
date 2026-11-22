@@ -16,6 +16,7 @@ import {
   type NotificationCounts,
   type NotificationKind,
   notificationLink,
+  overridesSwitches,
   type Processor,
   renderNotification,
   renderPush,
@@ -27,6 +28,7 @@ import {
 import { type Db, notification, personDevice, type Tx, withTenant } from "@countersign/db";
 import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import type { Bindings } from "../env";
+import { meter } from "../metering";
 import { reportHandled, reportProblem } from "../observability/report";
 import {
   leaveUnsentTodo,
@@ -216,8 +218,11 @@ export async function sendQueued(
   tenantId: string,
   now: Date,
   limit = 200,
+  /** C4.10: only these rows (an urgent notice's, sent as soon as they are queued). */
+  only?: readonly string[],
 ): Promise<SendSummary | null> {
   const out: SendSummary = { sent: 0, skipped: 0, failed: 0, held: 0 };
+  if (only && only.length === 0) return out;
   const pusher = deps.pusher ?? unconfiguredPusher;
   // §1.149: onboarding emails that didn't go, each left as a to-do for the lead after its settle.
   const unsent: Parameters<typeof leaveUnsentTodo>[1][] = [];
@@ -232,6 +237,7 @@ export async function sendQueued(
         and(
           eq(notification.tenantId, t.id),
           eq(notification.status, "queued"),
+          ...(only ? [inArray(notification.id, [...only])] : []),
           sql`case when ${notification.reason} like 'sending:%' then split_part(${notification.reason}, ':', 2)::bigint < ${leaseEnded} else true end`,
         ),
       )
@@ -330,11 +336,14 @@ export async function sendQueued(
         await skip("not_a_member");
         continue;
       }
-      if (row.channel === "email" && !person.prefs.email) {
+      // C4.10: an urgent notice goes whatever the person's switches say; a text still needs a
+      // number that may be texted (their consent, no STOP).
+      const switches = !overridesSwitches(row.kind);
+      if (row.channel === "email" && switches && !person.prefs.email) {
         await skip(NOTIFICATION_REASONS.turnedOff);
         continue;
       }
-      if (row.channel === "sms" && !wantsText(person)) {
+      if (row.channel === "sms" && (switches ? !wantsText(person) : person.phone === null)) {
         await skip(NOTIFICATION_REASONS.turnedOff);
         continue;
       }
@@ -434,9 +443,20 @@ export async function sendQueued(
       } else {
         // DECISION (audit 4.3): the texter reads the client's Twilio credentials under the
         // client's scope, so a text's send has a transaction of its own, held for that one call.
-        providerId = await withTenant(db, tenantId, (tx) =>
-          deps.texter.send(tx, t.id, { to: person.phone as string, body: rendered.text }),
-        );
+        providerId = await withTenant(db, tenantId, async (tx) => {
+          const sid = await deps.texter.send(tx, t.id, {
+            to: person.phone as string,
+            body: rendered.text,
+          });
+          // §1.210: a text no run sent is the client's own usage.
+          await meter(tx, {
+            tenantId: t.id,
+            measure: "messages",
+            source: "notification",
+            key: `twilio:${sid}`,
+          });
+          return sid;
+        });
       }
     } catch (error) {
       failure = error;
@@ -457,8 +477,9 @@ export async function sendQueued(
               ),
             );
         }
+        // §1.206: the setup nudge goes to a member and is logged on no intake.
         const logged = (status: "sent" | "failed") =>
-          onboarding
+          onboarding?.intakeId && onboarding.personId
             ? logOnboardingSend(tx, {
                 tenantId: t.id,
                 intakeId: onboarding.intakeId,
@@ -470,6 +491,15 @@ export async function sendQueued(
             : Promise.resolve();
         if (failure === null) {
           await settle(tx, row, { status: "sent", reason: null, providerId, sentAt: now }, claim);
+          // §1.210: an email through Resend (onboarding's too), once per notification.
+          if (onboarding || row.channel === "email") {
+            await meter(tx, {
+              tenantId: t.id,
+              measure: "emails",
+              source: "notification",
+              key: `notify:${row.id}`,
+            });
+          }
           await logged("sent");
           return;
         }
@@ -482,7 +512,7 @@ export async function sendQueued(
             claim,
           );
           await logged("failed");
-          if (onboarding) {
+          if (onboarding?.intakeId && onboarding.personId) {
             unsent.push({
               tenantId: t.id,
               intakeId: onboarding.intakeId,

@@ -3,6 +3,7 @@
 // tools it is bound to), drafts dashed, and New agent. Each card opens the agent's page.
 // Each started one also links to what the client sees of it (§1.163).
 import { Link, useParams } from "react-router-dom";
+import { agentStage } from "../../agents/status";
 import { type AgentSummary, apiRoutes } from "../../api/routes";
 import { useApi } from "../../api/useApi";
 import { connectorName } from "../../inbox/change";
@@ -10,21 +11,13 @@ import { AgentBadge } from "../../ui/badges";
 import { Columns, Section } from "../../ui/page";
 import { Badge, buttonClass, Card, EmptyState, Tag } from "../../ui/primitives";
 import { Skeleton, SkeletonCard } from "../../ui/skeleton";
-import { StatusChip, serviceChipState } from "../../ui/status";
+import { StatusChip } from "../../ui/status";
 import { prefetchAgent, useIntent } from "../agents/prefetch";
 import { OPS_PATHS } from "../paths";
 import type { AgentLinkState } from "../screens/AgentPage";
-import { summaryBadge } from "../versions";
 import { ClientViewLink } from "./ClientAgentView";
 import { ClientFrame, useClientPage } from "./ClientFrame";
 import { OwnersSection } from "./ClientOwners";
-
-const RUN_STATUS_WORDS: Record<string, string> = {
-  active: "Running",
-  paused: "Paused",
-  retired: "Retired",
-  draft: "Not started",
-};
 
 export function ClientAgentsScreen() {
   const { clientId = "" } = useParams();
@@ -104,7 +97,6 @@ function AgentCard({
   agent: AgentSummary;
   names: Record<string, string>;
 }) {
-  const badge = summaryBadge(agent);
   const connectors = Object.keys(agent.bindings);
   const origin = agent.testCopy
     ? "template test copy"
@@ -112,7 +104,9 @@ function AgentCard({
       ? "from a template"
       : "built for this client";
   const name = agent.serviceName ?? agent.name;
-  const status = agent.runStatus ?? "draft";
+  // agents/status: where it is (In trial, Live, …), the same words as every other screen. A
+  // published version is not "Live" (it may still be in trial); a card without one says Draft.
+  const stage = agentStage(agent);
   const intent = useIntent();
   return (
     <Card dashed={agent.liveVersionId === null} pad testId={`ops-agent-card-${agent.slug}`}>
@@ -132,13 +126,13 @@ function AgentCard({
               </span>
             </span>
           </Link>
-          <StatusChip state={serviceChipState(status)}>
-            {RUN_STATUS_WORDS[status] ?? status}
+          <StatusChip state={stage.state} testId={`ops-agent-card-${agent.slug}-status`}>
+            {stage.words}
           </StatusChip>
         </div>
         {agent.serviceDescription ? <p className="text-ink">{agent.serviceDescription}</p> : null}
         <div className="flex flex-wrap items-center gap-1.5">
-          <Badge tone={badge.tone}>{badge.label}</Badge>
+          {agent.liveVersionId === null ? <Badge tone="neutral">Draft</Badge> : null}
           {connectors.map((c) => (
             <Tag key={c}>{names[c] ?? connectorName(c)}</Tag>
           ))}

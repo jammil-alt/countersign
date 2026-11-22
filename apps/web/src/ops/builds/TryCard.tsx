@@ -168,14 +168,18 @@ function TryRow({
   );
 }
 
+/** A file for a try: uploaded to the Sandbox and kept quiet (`for=try`), so no agent picks it up. */
+export function tryUpload(file: File, clientId: string): ReturnType<typeof uploadFiles> {
+  return uploadFiles([file], undefined, `${sandboxUploadPath(clientId)}?for=try`);
+}
+
 export function TryCard({
   detail,
   live,
   busy,
   act,
   onWrong,
-  upload = (file, clientId) =>
-    uploadFiles([file], undefined, `${sandboxUploadPath(clientId)}?for=try`),
+  upload = tryUpload,
 }: {
   detail: BuildDetail;
   /** The POC test is the build's current phase: examples can be tried. */

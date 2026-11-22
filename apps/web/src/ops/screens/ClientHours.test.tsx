@@ -86,18 +86,18 @@ describe("client business hours, from the back office", () => {
     const week = await screen.findByTestId("ops-client-business-hours");
     expect(week).toHaveTextContent("Their week");
     expect(within(week).getByTestId("ops-client-business-hours-summary-week")).toHaveTextContent(
-      "Mon to Thu8:00 AM to 6:00 PM",
+      "Mon to Thu08:00 to 18:00",
     );
     expect(week).toHaveTextContent("Time zone: America/Chicago");
     expect(week).toHaveTextContent("Open on US federal holidays.");
-    expect(week).toHaveTextContent("Dec 24, 2026");
+    expect(week).toHaveTextContent("24 Dec 2026");
     const people = screen.getByTestId("ops-client-people-hours");
     expect(people).toHaveTextContent("2 of 3");
     expect(screen.getByTestId(`ops-client-person-hours-${DANA}`)).toHaveTextContent(
-      "Mon7:00 AM to 3:00 PM",
+      "Mon07:00 to 15:00",
     );
     expect(screen.getByTestId(`ops-client-person-hours-${MARCO}`)).toHaveTextContent(
-      "Dec 21, 2026 to Jan 2, 2027",
+      "21 Dec 2026 to 2 Jan 2027",
     );
     expect(screen.queryByTestId(`ops-client-person-hours-${LISA}`)).toBeNull();
     expect(people).toHaveTextContent("Everyone else works the business's hours.");

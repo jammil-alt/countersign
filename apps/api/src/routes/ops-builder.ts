@@ -55,6 +55,7 @@ import {
   type ClosestTemplate,
   classifyChange,
   closestBundles,
+  connectorTitle,
   diffBundles,
   isToolWrapper,
   newStepSkillReason,
@@ -82,7 +83,7 @@ import {
   tenantPack,
   testCase,
 } from "@countersign/db";
-import { createLlmClient, knownModelIds, type LlmTransport } from "@countersign/llm";
+import { knownModelIds, type LlmTransport } from "@countersign/llm";
 import { and, desc, eq, inArray, isNull, or } from "drizzle-orm";
 import type { Hono } from "hono";
 import {
@@ -103,6 +104,7 @@ import {
 } from "../builder/sessions";
 import { clientModels } from "../compliance/models";
 import { type AppEnv, ensureClient, type HandlerCtx, HttpError, mount, notFound } from "../http";
+import { meteredLlm, tokensMeta } from "../metering";
 import { reportHandled } from "../observability/report";
 import { agentSummary, versionSummary } from "./mappers";
 import { builderAutomations } from "./ops-automations";
@@ -286,9 +288,12 @@ export function platformBuilderContext(
             !(SPLIT_MODEL_TOOLS.has(t.id) || t.id.startsWith(ACCOUNT_TOOL_PREFIX)),
         ),
       skills,
-      connectors: platform.connectors
-        .list()
-        .map((c) => ({ id: c.manifest.id, name: c.manifest.name })),
+      // With each one's description: it names the service behind it (the bank feed's says Plaid).
+      connectors: platform.connectors.list().map((c) => ({
+        id: c.manifest.id,
+        name: connectorTitle(c.manifest),
+        description: c.manifest.description,
+      })),
       // P-9: the packs this deployment registers (docs/plan.md §1.71); a client's own are in
       // `client`.
       packs: platform.packs.map((p) => ({ id: p.manifest.id, name: p.manifest.name })),
@@ -405,7 +410,11 @@ export function opsBuilderRoutes(app: Hono<AppEnv>): void {
         ctx: bctx,
       },
       {
-        llm: createLlmClient({ transport: transport(ctx, clientId) }),
+        // §1.210: the draft's calls are ours, recorded whether or not it is saved.
+        llm: meteredLlm(
+          { db: services.db, defer: ctx.defer },
+          { transport: transport(ctx, clientId), tenantId: clientId, source: "builder" },
+        ).llm,
         // Review: a new agent from the Builder is a first version: every step is new.
         validate: (bundle) =>
           validateForPublish(tx, pseudo, stored(bundle), services.platform.ctx, {
@@ -502,7 +511,11 @@ export function opsBuilderRoutes(app: Hono<AppEnv>): void {
         ctx: bctx,
       },
       {
-        llm: createLlmClient({ transport: transport(ctx, row.tenantId) }),
+        // §1.210: the revision's calls are ours, recorded whether or not it is saved.
+        llm: meteredLlm(
+          { db: services.db, defer: ctx.defer },
+          { transport: transport(ctx, row.tenantId), tenantId: row.tenantId, source: "builder" },
+        ).llm,
         validate: (bundle) =>
           validateForPublish(tx, row, stored(bundle), services.platform.ctx, { previous }),
       },
@@ -831,7 +844,13 @@ function builderSessionRoutes(app: Hono<AppEnv>): void {
     const history = turns
       .filter((t) => t.command !== "/start")
       .map((t) => ({ role: t.role, text: t.text }));
-    const llm = createLlmClient({ transport: transport(ctx, s.tenantId) });
+    // §1.210: a turn's cost is saved on its Builder row; a turn that fails saves none, so its
+    // calls are recorded as ours once the request ends, unless the turn was saved (`settled`).
+    const metered = meteredLlm(
+      { db: services.db, defer: ctx.defer },
+      { transport: transport(ctx, s.tenantId), tenantId: s.tenantId, source: "builder" },
+    );
+    const llm = metered.llm;
     const builderTurnId = uuidv7();
 
     if (s.kind === "skill") {
@@ -868,11 +887,13 @@ function builderSessionRoutes(app: Hono<AppEnv>): void {
           gaps: result.gaps,
           notes: result.notes,
           errors: skillErrors(result.problems),
+          ...tokensMeta(result.calls),
         },
         costUsd: result.costUsd,
       });
       if (changes.length > 0) await updateSession(tx, s.id, { bundle: result.draft });
       const detail = await sessionDetail(ctx, await readSession(ctx, s.id));
+      metered.settled();
       return { ...detail, turn: turnView(turn, new Set()) };
     }
 
@@ -943,11 +964,13 @@ function builderSessionRoutes(app: Hono<AppEnv>): void {
         notes: result.notes,
         errors: checkErrors(result.errors),
         ...(model ? { model } : {}),
+        ...tokensMeta(result.calls),
       },
       costUsd: result.costUsd,
     });
     if (result.changes.length > 0) await updateSession(tx, s.id, { bundle: result.bundle });
     const detail = await sessionDetail(ctx, await readSession(ctx, s.id));
+    metered.settled();
     return { ...detail, turn: turnView(turn, new Set()) };
   });
 

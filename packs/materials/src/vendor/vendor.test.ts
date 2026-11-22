@@ -1742,7 +1742,15 @@ describe.skipIf(!online)("the vendor catalog's tools", () => {
       .select()
       .from(priceObservation)
       .where(eq(priceObservation.vendorId, v));
-    expect(price).toMatchObject({ unitPriceStd: "0.1100", vendorItemId: null });
+    // §1.189: filed under a vendor item of its own in the standard unit, never the box.
+    expect(price).toMatchObject({ unitPriceStd: "0.1100" });
+    expect(price?.vendorItemId).not.toBe(box.id);
+    expect(await vendorItemRow(price?.vendorItemId ?? "")).toMatchObject({
+      vendorUom: "each",
+      stdPerVendorUom: "1.0000",
+      lastPrice: "0.1100",
+      ext: { from: "qbo_bill" },
+    });
     expect(await vendorItemRow(box.id)).toMatchObject({ lastPrice: "9.0000" });
   });
 

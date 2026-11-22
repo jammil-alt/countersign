@@ -7,6 +7,8 @@ import { eq, sql } from "drizzle-orm";
 import type { Db } from "./client";
 import {
   accessRelease,
+  accessReview,
+  accessReviewItem,
   agent,
   agentChange,
   agentGrant,
@@ -33,6 +35,8 @@ import {
   contactChange,
   conversation,
   conversationChange,
+  desktopDevice,
+  desktopJob,
   docExtraction,
   docLine,
   document,
@@ -46,6 +50,7 @@ import {
   ledgerAccount,
   ledgerAccountNote,
   ledgerDimension,
+  matchRule,
   membership,
   memoryNote,
   message,
@@ -77,8 +82,6 @@ import {
   toolCall,
   transaction,
   transactionLine,
-  usageDaily,
-  usagePlatformDaily,
   vendor,
   weeklyTable,
 } from "./schema";
@@ -295,15 +298,22 @@ export async function insertClient(db: Db, name: string): Promise<ClientFixture>
   await db.$client`
     insert into memory_note (tenant_id, agent_id, note, source_message_id)
     values (${tenantId}, ${a.id}, 'remember', ${m.id})`;
-  await db.insert(usageDaily).values({ tenantId, day: "2026-11-03", agentId: a.id, runs: 1 });
-  await db.insert(usagePlatformDaily).values({
-    tenantId,
-    day: "2026-11-03",
-    documents: 1,
-    tokensIn: 1200,
-    tokensOut: 300,
-    costUsd: "0.0123",
-  });
+  // 0095 added measure columns to both rollups: their columns named, not drizzle's whole list, so
+  // a client seeded on a database migrated only to an earlier migration gets these rows too.
+  await db.$client`
+    insert into usage_daily (tenant_id, day, agent_id, runs)
+    values (${tenantId}, '2026-11-03', ${a.id}, 1)`;
+  await db.$client`
+    insert into usage_platform_daily (tenant_id, day, documents, tokens_in, tokens_out, cost_usd)
+    values (${tenantId}, '2026-11-03', 1, 1200, 300, 0.0123)`;
+  // §1.210 (0095): an email the agent's run sent through Resend, where the table exists.
+  const [metered] = await db.$client<{ ok: boolean }[]>`
+    select to_regclass('public.metered_usage') is not null as ok`;
+  if (metered?.ok) {
+    await db.$client`
+      insert into metered_usage (tenant_id, agent_id, run_id, measure, source, key)
+      values (${tenantId}, ${a.id}, ${r.id}, 'emails', 'run', ${`fixture:${tenantId}`})`;
+  }
   await db.insert(threadRead).values({ tenantId, threadId: th.id, userId: u.id });
   // 0055: its columns named, not drizzle's whole list (which has `action`), so a client seeded on
   // a database migrated only to an earlier migration gets this row too.
@@ -574,6 +584,52 @@ export async function insertClient(db: Db, name: string): Promise<ClientFixture>
     await db.$client`
       insert into billing_phone_line_day (tenant_id, day, phone_number, agent_id, agent_name, monthly_price)
       values (${tenantId}, '2026-10-01', '+15555550123', ${a.id}, 'Test agent', '10.0000')`;
+  }
+  // 0074: the agent's SOP, its first revision (docs/sop-plan.md §6). Plain SQL, only where the
+  // table exists, as above.
+  const [sops] = await db.$client<{ ok: boolean }[]>`
+    select to_regclass('public.sop_revision') is not null as ok`;
+  if (sops?.ok) {
+    await db.$client`
+      insert into sop_revision (tenant_id, agent_id, major, minor, agent_version_id, fingerprint,
+        view, changed_by_side, source)
+      values (${tenantId}, ${a.id}, 1, 0, ${av.id}, ${"0".repeat(64)}, '{}'::jsonb, 'system', 'first')`;
+  }
+  // 0075: one security check of the agent (docs/agent-assurance-plan.md §6), where it exists.
+  const [checks] = await db.$client<{ ok: boolean }[]>`
+    select to_regclass('public.control_check') is not null as ok`;
+  if (checks?.ok) {
+    await db.$client`
+      insert into control_check (tenant_id, agent_id, agent_version_id, check_id, kind, controls,
+        result, trigger)
+      values (${tenantId}, ${a.id}, ${av.id}, 'delete_off', 'setup', '{AGT-1}', 'verified', 'nightly')`;
+  }
+  // 0077: what the run was about (docs/reporting-plan.md §3 R1), where it exists.
+  const [subjects] = await db.$client<{ ok: boolean }[]>`
+    select to_regclass('public.run_subject') is not null as ok`;
+  if (subjects?.ok) {
+    await db.$client`
+      insert into run_subject (tenant_id, run_id, step_run_id, kind, role, connector, external_id,
+        label, number, amount, currency, client_visible)
+      values (${tenantId}, ${r.id}, ${sr.id}, 'document', 'changed', 'qbo', 'bill-1',
+        'Acme Supply', 'INV-1001', 120.5000, 'USD', true)`;
+  }
+  // 0087: a process interview with one of the client's contacts (docs/plan.md §1.217).
+  const [interviews] = await db.$client<{ ok: boolean }[]>`
+    select to_regclass('public.process_interview') is not null as ok`;
+  if (interviews?.ok) {
+    await db.$client`
+      insert into process_interview (tenant_id, contact_id, process, expires_at, question)
+      values (${tenantId}, ${ct.id}, 'Invoice reconciliation', now() + interval '14 days',
+        'How does it start?')`;
+  }
+  // 0098: a saved view of the portal's runs list, shared with the team (docs/plan.md §1.236).
+  const [views] = await db.$client<{ ok: boolean }[]>`
+    select to_regclass('public.portal_view') is not null as ok`;
+  if (views?.ok) {
+    await db.$client`
+      insert into portal_view (tenant_id, user_id, name, filters, shared)
+      values (${tenantId}, ${u.id}, 'Waiting on us', '{"statuses":["waiting"]}', true)`;
   }
   const [st] = await db
     .insert(billingStatement)
@@ -893,6 +949,71 @@ export async function insertClient(db: Db, name: string): Promise<ClientFixture>
       pushToken: "ExponentPushToken[fixture]",
       publicKey: { kty: "EC", crv: "P-256", x: "A".repeat(43), y: "B".repeat(43) },
     });
+  // §1.151: a paired computer and one answered job, once migration 0080 is there.
+  const [computers] = await db.$client<{ present: boolean }[]>`
+    select to_regclass('public.desktop_device') is not null as present`;
+  if (computers?.present) {
+    const [computer] = await db
+      .insert(desktopDevice)
+      .values({
+        tenantId,
+        connectionId: c.id,
+        name: "Front office PC",
+        platform: "windows",
+        appVersion: "0.1.0",
+        publicKey: { kty: "EC", crv: "P-256", x: "C".repeat(43), y: "D".repeat(43) },
+        pairedBy: u.id,
+      })
+      .returning();
+    if (!computer) throw new Error("desktop_device insert failed");
+    await db.insert(desktopJob).values({
+      tenantId,
+      deviceId: computer.id,
+      kind: "files.list",
+      request: { kind: "files.list", folderId: crypto.randomUUID(), depth: 1, limit: 200 },
+      expiresAt: new Date(Date.now() + 120_000),
+      sentAt: new Date(),
+      answeredAt: new Date(),
+      result: { ok: true, output: { entries: [], truncated: false } },
+    });
+  }
+  // §1.218: one access review that found this client's user, once migration 0096 is there.
+  const [reviews] = await db.$client<{ present: boolean }[]>`
+    select to_regclass('public.access_review') is not null as present`;
+  if (reviews?.present) {
+    const [review] = await db
+      .insert(accessReview)
+      .values({
+        period: "2026-Q4",
+        reviewedBy: u.id,
+        reviewerEmail: "reviewer@example.com",
+        clients: 1,
+        people: 1,
+        removals: 0,
+      })
+      .returning();
+    if (!review) throw new Error("access_review insert failed");
+    await db.insert(accessReviewItem).values({
+      reviewId: review.id,
+      tenantId,
+      userId: u.id,
+      email: `${name.toLowerCase()}@example.com`,
+      role: "client_admin",
+      decision: "keep",
+    });
+  }
+  // §1.215: a saved match rule, once migration 0085 is there.
+  const [rules] = await db.$client<{ present: boolean }[]>`
+    select to_regclass('public.match_rule') is not null as present`;
+  if (rules?.present)
+    await db.insert(matchRule).values({
+      tenantId,
+      config: "bank_to_ledger",
+      field: "counterparty",
+      aValue: "amzn mktp",
+      bValue: "amazon",
+      createdBy: u.id,
+    });
   await db.insert(ledgerAccountNote).values({
     tenantId,
     ledgerAccountId: la.id,
@@ -1093,6 +1214,14 @@ export async function insertOperatorRows(db: Db): Promise<{
     .values({ sessionId: bs.id, seq: 1, role: "operator", text: "Draft a card receipts agent." })
     .returning();
   if (!bt) throw new Error("no builder turn");
+  // §1.210 (0095): the platform's own vendor cost, an operator's sign-in code, where it exists.
+  const [metered] = await db.$client<{ ok: boolean }[]>`
+    select to_regclass('public.metered_usage') is not null as ok`;
+  if (metered?.ok) {
+    await db.$client`
+      insert into metered_usage (measure, source, ours, key)
+      values ('verifications', 'sign_in_code', true, ${`fixture:op:${bt.id}`})`;
+  }
   return {
     agentVersionId: av?.id ?? "",
     automationVersionId: auv.id,

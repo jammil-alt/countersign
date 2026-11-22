@@ -38,8 +38,16 @@ const builtins = platform.catalog.list();
 // Look up CRM records, Confirmed matches), each a wrapper of its tool; data.read-table and
 // data.write-table, built-in code skills (not wrappers); Zoho CRM's field list
 // (zoho_crm.field.list), a connector read, so a wrapper.
-const BUILTINS = 149;
-const WRAPPERS = 103;
+// §1.187: QuickBooks' qbo.banking.find (a booking already written), a connector read, so a
+// wrapper.
+// §1.205 (C2.4): Materials' materials.qbo-item (a catalog item tied to its QuickBooks item), a
+// tool skill over one handler, so a wrapper.
+// §1.204: the desktop app's three reads (desktop.files.list, desktop.file.read,
+// desktop.xlsx.read), each a wrapper.
+// §1.233: the AP pack's five tool skills (prepare a bill, look one up, record goods received, make
+// and read the week's list), each a wrapper of its tool, and Suggest accounts (an agent skill).
+const BUILTINS = 160;
+const WRAPPERS = 113;
 
 describe("built-in skills under the R2 skill schema", () => {
   it("registers the platform's, the packs' and each connector's read skills, once each", () => {

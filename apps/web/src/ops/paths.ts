@@ -5,6 +5,9 @@ export const OPS_PATHS = {
   runs: "/ops/runs",
   clients: "/ops/clients",
   client: (id: string) => `/ops/clients/${id}`,
+  /** R5 (docs/plan.md §1.235): every client side by side; one client's report. */
+  accounts: "/ops/accounts",
+  clientReport: (id: string) => `/ops/clients/${id}/report`,
   /** docs/plan.md §1.101: Reggie; `askReggie` starts a conversation about one client. */
   reggie: "/ops/reggie",
   askReggie: (clientId: string) => `/ops/reggie?client=${clientId}`,
@@ -17,6 +20,8 @@ export const OPS_PATHS = {
   labDrafts: "/ops/lab?tab=drafts",
   labNew: (kind: "template" | "client" | "skill" = "template") => `/ops/lab?tab=drafts&new=${kind}`,
   build: (id: string) => `/ops/builds/${id}`,
+  /** docs/plan.md §1.170: a new agent build's Check the steps, after Describe it. */
+  buildCheck: (id: string) => `/ops/lab/check/${id}`,
   // O5 New agent, O6 Workflow builder, O7 Triggers (UI-2c), under the agent page (UI-2b).
   newTemplate: "/ops/templates/new",
   newAgent: (clientId: string) => `/ops/clients/${clientId}/agents/new`,

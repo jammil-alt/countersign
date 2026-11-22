@@ -485,11 +485,18 @@ export function TestRun({
 // DECISION (1.5, the lead's call on the per-screen gate): the names stay on the builder catalog,
 // which the Workflow tab needs whole, so the move to that tab finds it in the store. A catalog's
 // life keeps it fresh for five minutes; the agent page asks it beside the agent on the Overview.
-export function useConnectorNames(agentId: string): (id: string) => string {
+export function useConnectorNames(
+  agentId: string,
+  /** The manifests' names the agent brought (`names.connectors` on its detail), used first. */
+  known?: Readonly<Record<string, string>> | undefined,
+): (id: string) => string {
   const catalog = useApi(apiRoutes.opsBuilderCatalog, { params: { id: agentId }, life: "catalog" });
   return (id: string) => {
     const [connector, site] = id.split(":");
+    // QA (2026-11-22): the builder's catalog still loading (or failed) read "Qbo" here; the
+    // agent's own names come first, and the id in capitals only for a connector none names.
     const name =
+      (connector ? known?.[connector] : undefined) ??
       catalog.data?.connectors.find((c) => c.id === connector)?.name ??
       (connector ? connector.charAt(0).toUpperCase() + connector.slice(1) : id);
     return site ? `${name} · ${site}` : name;

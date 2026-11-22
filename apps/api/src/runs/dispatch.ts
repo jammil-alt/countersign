@@ -12,6 +12,7 @@ import {
   agentChange,
   agentVersion,
   type Db,
+  isDatabaseDrop,
   run,
   type Tx,
   tenant,
@@ -31,12 +32,14 @@ import {
 import {
   dueSchedules,
   type RoutableAgent,
+  type RunRange,
   type RunRequest,
   routeEvent,
   type StepRunner,
 } from "@countersign/workflows";
 import { and, eq, gte, inArray, isNotNull, sql } from "drizzle-orm";
-import { reportHandled, reportProblem } from "../observability/report";
+import { meterBankItems } from "../metering";
+import { reportDrop, reportHandled, reportProblem } from "../observability/report";
 import { matchRepliesIn, wakeAll } from "../reach/replies";
 // v0.12 W2-E
 import { countLimited, overLimit } from "../triggers/limits";
@@ -59,7 +62,15 @@ export interface DispatchDeps {
    * (findings for failed runs and connections, the 08:00 daily check in its time zone).
    */
   healthTick?: (tenantId: string, at: Date, timeZone: string | null) => Promise<unknown>;
+  /**
+   * docs/plan.md §1.213: scheduled reports that didn't arrive raise their alerts (every
+   * INTAKE_CHECK_MINUTES).
+   */
+  intakeTick?: (tenantId: string, at: Date, timeZone: string | null) => Promise<unknown>;
 }
+
+// DECISION: missing reports are looked for every 5 minutes: a report's grace is in hours.
+export const INTAKE_CHECK_MINUTES = 5;
 
 /** A client's agents with their live bundles: what the router chooses from. */
 export async function routableAgents(tx: Tx, tenantId: string): Promise<RoutableAgent[]> {
@@ -90,7 +101,12 @@ export async function routableAgents(tx: Tx, tenantId: string): Promise<Routable
 }
 
 /** Writes the run row (idempotent by id) in the caller's transaction. */
-export async function createRunRow(tx: Tx, request: RunRequest): Promise<void> {
+// A test's range of steps is kept with the trigger, as its payload is: the reconciler rebuilds a
+// run's parameters from its row (`paramsOfRow`), and a range needs no column of its own.
+export async function createRunRow(
+  tx: Tx,
+  request: RunRequest & { range?: RunRange },
+): Promise<void> {
   await createRun(tx, {
     id: request.runId,
     tenantId: request.tenantId,
@@ -98,7 +114,11 @@ export async function createRunRow(tx: Tx, request: RunRequest): Promise<void> {
     agentVersionId: request.agentVersionId,
     workflowSlug: request.workflowSlug,
     mode: request.mode,
-    trigger: { ...request.trigger, payload: request.payload } as Record<string, unknown>,
+    trigger: {
+      ...request.trigger,
+      payload: request.payload,
+      ...(request.range ? { range: request.range } : {}),
+    } as Record<string, unknown>,
   });
 }
 
@@ -485,13 +505,18 @@ export async function cronTick(deps: DispatchDeps, scheduledTime: Date): Promise
       for (const request of due) await startRun(deps, request);
       await redeliverResolutions(deps, client.id, scheduledTime);
       if (to.getUTCMinutes() === USAGE_SWEEP_MINUTE) {
-        await withTenant(deps.db, client.id, (tx) =>
-          rollupUsageDays(tx, { tenantId: client.id, days: usageSweepDays(to) }),
-        );
+        await withTenant(deps.db, client.id, async (tx) => {
+          // §1.210: this month's connected banks, before the rollup counts them.
+          await meterBankItems(tx, client.id, to);
+          await rollupUsageDays(tx, { tenantId: client.id, days: usageSweepDays(to) });
+        });
       }
       if (deps.reachTick) await deps.reachTick(client.id, scheduledTime);
       if (deps.codesTick) await deps.codesTick(client.id, scheduledTime);
       if (deps.healthTick) await deps.healthTick(client.id, to, client.timezone ?? null);
+      if (deps.intakeTick && to.getUTCMinutes() % INTAKE_CHECK_MINUTES === 0) {
+        await deps.intakeTick(client.id, to, client.timezone ?? null);
+      }
       // v0.12 W1-H: what this pass emitted (reach-outs, code alerts, usage) goes now, not a tick
       // later.
       // DECISION: the cron's tenant pass opens its transactions in many places, so at its end it
@@ -499,6 +524,18 @@ export async function cronTick(deps: DispatchDeps, scheduledTime: Date): Promise
       // the sweep's, and the claim keeps a concurrent dispatch from taking any twice.
       await dispatchTenant(deps, client.id, { newerThanSeconds: 60 });
     } catch (error) {
+      // The database went away mid-pass: the next tick's 15-minute lookback does this pass's work.
+      if (isDatabaseDrop(error)) {
+        reportDrop(
+          "the database connection dropped during a client's cron pass; the next tick catches up",
+          error,
+          {
+            job: "schedules",
+            client: client.id,
+          },
+        );
+        continue;
+      }
       reportHandled(`cron for client ${client.id} failed`, error, {
         job: "schedules",
         client: client.id,

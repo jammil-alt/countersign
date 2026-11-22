@@ -27,6 +27,7 @@ import {
 } from "@countersign/db";
 import { createLlmClient, type LlmCallRecord, type LlmTransport } from "@countersign/llm";
 import { and, asc, desc, eq, gte, isNotNull, isNull, lte, sql } from "drizzle-orm";
+import { meterModelCalls } from "../metering";
 
 /** How long a conversation is quiet before it is summarized. */
 export const SUMMARY_AFTER_MS = 30 * 60_000;
@@ -160,7 +161,7 @@ async function sloan(db: Db, tenantId: string) {
  * for it), and its audit row, whose `error` outcome keeps the thread back for an hour.
  */
 // DECISION (review of audit 4.1, following ARCHITECTURE §10.15): a summary is Sloan's cost, free
-// to the client, so it is logged as an operator cost as the back office's questions are
+// to the client, so it is the operator's cost as the back office's questions are (§1.210: recorded as ours)
 // (runs-ask/usage.ts). A `model_call` row needs a run and a step, which a summary no longer has.
 async function recordSummary(
   tx: Tx,
@@ -174,19 +175,13 @@ async function recordSummary(
 ): Promise<void> {
   const { record } = input;
   if (record) {
-    console.info(
-      JSON.stringify({
-        event: "account.summary.cost",
-        who: "operator",
-        tenantId: input.tenantId,
-        model: record.model,
-        tokensIn:
-          record.usage.inputTokens + record.usage.cacheWriteTokens + record.usage.cacheReadTokens,
-        tokensOut: record.usage.outputTokens,
-        costUsd: record.costUsd,
-        ok: input.failed === null,
-      }),
-    );
+    // §1.210: Sloan's summary is ours, recorded on the client (failed or not).
+    await meterModelCalls(tx, {
+      tenantId: input.tenantId,
+      source: "summaries",
+      key: `summaries:${input.threadId}:${input.at.toISOString()}`,
+      calls: [record],
+    });
   }
   await tx.insert(auditEvent).values({
     tenantId: input.tenantId,

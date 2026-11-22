@@ -13,18 +13,13 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { apiRoutes } from "../../api/routes";
 import { useApi, useApiClient } from "../../api/useApi";
+import { EN } from "../../i18n/i18n";
 import { cx } from "../../ui/cx";
 import { ErrorNotice } from "../../ui/ErrorState";
 import { TodoAdd, TodoRow, useTodoDone } from "../work/call/TodosPanel";
 import { Kpis, StandingPill, todayIso, UrgencyPill } from "../work/parts";
 
-const when = (iso: string) =>
-  new Date(iso).toLocaleString(undefined, {
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  });
+const when = (iso: string) => EN.fmt.dateTime(iso);
 
 function Bucket({ name, cards }: { name: string; cards: WorkCard[] }) {
   return (

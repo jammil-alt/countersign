@@ -115,10 +115,37 @@ describe("Intl formatting", () => {
     const de = createI18n("de").fmt;
     expect(de.date(iso)).toMatch(/3\. Nov\. 2026/);
     expect(de.time(iso, later)).toMatch(/^3\. Nov\., \d{2}:04$/);
-    expect(createI18n("en").fmt.date(iso)).toBe("Nov 3, 2026");
+    expect(createI18n("en").fmt.date(iso)).toBe("3 Nov 2026");
     expect(createI18n("es").fmt.date(iso)).toMatch(/3 nov 2026/);
     expect(createI18n("en").fmt.bytes(1536 * 1024)).toBe("1.5 MB");
     expect(createI18n("de").fmt.bytes(1536 * 1024)).toBe("1,5 MB");
+  });
+
+  it("writes English dates in the house format, whatever the browser's region", () => {
+    // Local times, so the test reads the same in any time zone.
+    const now = new Date(2026, 10, 22, 12, 0);
+    const at = (y: number, mo: number, d: number, h: number, mi: number) =>
+      new Date(y, mo - 1, d, h, mi).toISOString();
+    for (const fmt of [createI18n("en").fmt, createI18n("en", ["en-US"]).fmt]) {
+      expect(fmt.time(at(2026, 11, 21, 8, 0), now)).toBe("21 Nov, 08:00");
+      expect(fmt.time(at(2026, 11, 22, 16, 40), now)).toBe("16:40");
+      expect(fmt.time(at(2025, 11, 5, 9, 5), now)).toBe("5 Nov 2025, 09:05");
+      expect(fmt.dateTime(at(2026, 11, 22, 16, 40), now)).toBe("22 Nov, 16:40");
+      expect(fmt.date(at(2026, 11, 5, 9, 0))).toBe("5 Nov 2026");
+      expect(fmt.day(at(2026, 11, 5, 9, 0), now)).toBe("5 Nov");
+      expect(fmt.day(at(2025, 11, 5, 9, 0), now)).toBe("5 Nov 2025");
+      expect(fmt.clock(at(2026, 11, 5, 7, 2))).toBe("07:02");
+      expect(fmt.month(at(2026, 11, 5, 9, 0))).toBe("Nov 2026");
+    }
+    // Money keeps the reader's region.
+    expect(createI18n("en", ["en-US"]).fmt.money("1000.5")).toBe("$1,000.50");
+  });
+
+  it("reads a calendar day as that day wherever the viewer is", () => {
+    const en = createI18n("en").fmt;
+    expect(en.date("2026-11-01")).toBe("1 Nov 2026");
+    expect(en.day("2026-11-01", new Date(2026, 5, 1))).toBe("1 Nov");
+    expect(en.date("not a date")).toBe("not a date");
   });
 });
 

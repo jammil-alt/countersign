@@ -116,7 +116,7 @@ describe("the skill model's template versions", () => {
       "seed bill-clerk v3",
       "seed document-clerk v2",
       "seed supervisor v5",
-      "bookkeeping bookkeeper v5",
+      "bookkeeping bookkeeper v7",
       "marketing site-report v3",
       "marketing titles v3",
       "marketing article-drafts v3",
@@ -136,6 +136,10 @@ describe("the skill model's template versions", () => {
     "bookkeeping bookkeeper v4": ["split_long"],
     // v5 is v4 with a statement's currency passed to the reconciliation: the same advice.
     "bookkeeping bookkeeper v5": ["split_long"],
+    // v6 is v5 with a read of QuickBooks and a check before each write: the same advice.
+    "bookkeeping bookkeeper v6": ["split_long"],
+    // Round 4 D (§1.211): v7 is v6 with its writes verified: the same advice.
+    "bookkeeping bookkeeper v7": ["split_long"],
     "marketing forum-watch v3": ["split_deep"],
   };
 
@@ -341,11 +345,12 @@ describe.skipIf(!h)("installing, offering and publishing the skill model's versi
     const later = await loadSeedVersions();
     const latest = (slug: string) =>
       Math.max(...later.filter((v) => v.slug === slug).map((v) => v.version));
-    expect(latest("bill-clerk")).toBe(3);
+    // Setup-plan §4.1: the Bill clerk's v4 names seats.
+    expect(latest("bill-clerk")).toBe(4);
     expect(latest("document-clerk")).toBe(2);
     // v0.19: Sloan's v6 is the chat only (ARCHITECTURE §10.15).
     expect(latest("supervisor")).toBe(6);
-    expect(latestSeededVersion("bill-clerk")).toBe(3);
+    expect(latestSeededVersion("bill-clerk")).toBe(4);
     expect(latestSeededVersion("document-clerk")).toBe(2);
     expect(latestSeededVersion("supervisor")).toBe(6);
     // The v1s are as they were (stored history is never edited).
@@ -467,7 +472,7 @@ describe.skipIf(!h)("installing, offering and publishing the skill model's versi
     expect(JSON.stringify(version?.bundle)).toContain("supervisor.explain");
   });
 
-  it("gives the Bookkeeper its v3, v4 and v5 by Update templates over v2, offered to a fork of v2", async () => {
+  it("gives the Bookkeeper its v3 to v7 by Update templates over v2, offered to a fork of v2", async () => {
     const t = bookkeepingManifest.templates[0];
     const [v2] = t?.versions ?? [];
     if (!t || !v2) throw new Error("no bookkeeper v2");
@@ -500,18 +505,21 @@ describe.skipIf(!h)("installing, offering and publishing the skill model's versi
 
     const update = await H.call(OPERATOR, "POST", "/api/ops/packs/bookkeeping/templates/update");
     expect(update.status, JSON.stringify(update.json)).toBe(200);
-    // v4 (2026-11-17, the posting loop goes on past a refused write) and v5 (2026-11-20, a
-    // statement's currency) follow v3 in the same update.
+    // v4 (2026-11-17, the posting loop goes on past a refused write), v5 (2026-11-20, a
+    // statement's currency), v6 (2026-11-22, each money written once) and v7 (2026-11-22, its
+    // writes verified, §1.211) follow v3 in the same update.
     expect(j(update.json).updated).toEqual([
       { slug: "bookkeeper", templateId: tpl.id, version: 3, published: true },
       { slug: "bookkeeper", templateId: tpl.id, version: 4, published: true },
       { slug: "bookkeeper", templateId: tpl.id, version: 5, published: true },
+      { slug: "bookkeeper", templateId: tpl.id, version: 6, published: true },
+      { slug: "bookkeeper", templateId: tpl.id, version: 7, published: true },
     ]);
     const usedBy = await H.call(OPERATOR, "GET", `/api/ops/templates/${tpl.id}/used-by`);
     const entry = j(usedBy.json).agents.find(
       (x: { agent: { id: string } }) => x.agent.id === old.id,
     );
-    expect(entry).toMatchObject({ baseVersion: 2, behind: 3 });
+    expect(entry).toMatchObject({ baseVersion: 2, behind: 5 });
 
     const fork = await forkAndPublish(tpl.id, "bookkeeper-v3", { qbo: conn.qbo });
     expect(fork.pub.status, JSON.stringify(fork.pub.json)).toBe(200);

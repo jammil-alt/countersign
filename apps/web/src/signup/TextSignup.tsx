@@ -131,6 +131,23 @@ export function TextSignupScreen() {
       </Frame>
     );
   }
+  // DECISION: an invitation signs up once (§1.142). Used by a submit that signed no one up, the
+  // page says so instead of a form that can only be refused (§1.197).
+  if (v.state === "used") {
+    return (
+      <Frame>
+        <h1 className="type-heading text-ink">{w("usedTitle")}</h1>
+        <p className="mt-2 text-ink" data-testid="text-signup-used">
+          {w("used", { client })}
+        </p>
+        {v.number ? (
+          <p className="mt-2 text-sm text-ink-muted" data-testid="text-signup-start-again">
+            {w("startAgain", { number: shown(v.number) })}
+          </p>
+        ) : null}
+      </Frame>
+    );
+  }
 
   async function decline() {
     setBusy(true);

@@ -4,7 +4,12 @@
 // admin and signing client users (inside withTenant, one client).
 
 import { getAgent } from "@countersign/agents";
-import { type PortalSetupAgent, routes, setupRoutes } from "@countersign/core";
+import {
+  type MissedWhilePaused,
+  type PortalSetupAgent,
+  routes,
+  setupRoutes,
+} from "@countersign/core";
 import type { Hono } from "hono";
 import { ensureSeesAgent } from "../assigned";
 import { type AppEnv, type HandlerCtx, HttpError, mount, notFound } from "../http";
@@ -17,6 +22,7 @@ import {
   serviceControl,
 } from "../lifecycle/pause";
 import {
+  type MissedEvents,
   missedWhilePaused,
   runForms,
   runMissedEvents,
@@ -24,6 +30,7 @@ import {
   runOnEvent,
 } from "../lifecycle/runs";
 import { goLiveView, moveStage, type StageActor, setTrialMinimums } from "../lifecycle/stages";
+import { turnOn, turnOnPreview } from "../lifecycle/turn-on";
 import { startAfterCommit } from "../runs/reconcile";
 import {
   agentSetupView,
@@ -55,6 +62,22 @@ function personName(ctx: Pick<HandlerCtx<never>, "session">): string | null {
 }
 
 /**
+ * What came in while the agent was paused, as a count and the pause's start and end: never the
+ * events or anything they say (invariants 9 and 11).
+ */
+// DECISION (H7, docs/plan.md §1.195): the portal's resume answer carries the go-live panel's view,
+// so the client admin is told the same as the operator; running them stays the operator's.
+function missedView(missed: MissedEvents | null): MissedWhilePaused | null {
+  if (!missed) return null;
+  return {
+    count: missed.events.length,
+    from: missed.from.toISOString(),
+    to: missed.to.toISOString(),
+    more: missed.more,
+  };
+}
+
+/**
  * The checklist as the client sees it: an item we recorded for them reads "by us", never an
  * operator's name or email.
  */
@@ -70,6 +93,13 @@ function clientSide(a: PortalSetupAgent): PortalSetupAgent {
 
 export function lifecycleRoutes(app: Hono<AppEnv>): void {
   // ── The operator ───────────────────────────────────────────────────────────────────────────────
+
+  // Turn on in one button (docs/builder-plan.md §12.4): one transaction, audited as any route.
+  mount(app, routes.opsAgentTurnOnPreview, (ctx) =>
+    turnOnPreview(ctx, ctx.params.id, ctx.query.client),
+  );
+
+  mount(app, routes.opsAgentTurnOn, (ctx) => turnOn(ctx, ctx.params.id, ctx.body));
 
   mount(app, routes.opsAgentGoLive, async (ctx) => {
     const row = await clientAgentInScope(ctx, ctx.params.id);
@@ -118,17 +148,7 @@ export function lifecycleRoutes(app: Hono<AppEnv>): void {
   // Audit 4.2: what came in while the agent was paused (none of it started by itself).
   mount(app, routes.opsMissedEvents, async (ctx) => {
     const row = await clientAgentInScope(ctx, ctx.params.id);
-    const missed = await missedWhilePaused(ctx.tx, row);
-    return {
-      missed: missed
-        ? {
-            count: missed.events.length,
-            from: missed.from.toISOString(),
-            to: missed.to.toISOString(),
-            more: missed.more,
-          }
-        : null,
-    };
+    return { missed: missedView(await missedWhilePaused(ctx.tx, row)) };
   });
 
   mount(app, routes.opsRunMissedEvents, async (ctx) => {
@@ -214,7 +234,11 @@ export function lifecycleRoutes(app: Hono<AppEnv>): void {
     });
     // Audit 4.2: counted, never started: whoever paused it had a reason.
     const missed = await missedWhilePaused(tx, row);
-    return { service: serviceControl(row), missedEvents: missed?.events.length ?? 0 };
+    return {
+      service: serviceControl(row),
+      missedEvents: missed?.events.length ?? 0,
+      missed: missedView(missed),
+    };
   });
 
   mount(app, routes.portalPauseAll, async ({ tx, tenantIds, body, session }) => {

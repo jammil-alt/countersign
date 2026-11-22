@@ -38,6 +38,7 @@ import {
   type FitRow,
   fitChangeKind,
   fitScope,
+  gapSteps,
   issueByKey,
   issueLine,
   isUuid,
@@ -45,6 +46,7 @@ import {
   mergeBrief,
   mergeDecisions,
   mergeFitGap,
+  NOT_NEEDED_NOTE,
   nextPhase,
   operatorFitGap,
   PHASE_WORDS,
@@ -57,16 +59,18 @@ import {
   readQa,
   readTestPlan,
   routes,
+  SETTLE_OWNER,
   SETTLE_WORDS,
   SETUP_WORDS,
   type SettleWay,
   setDecisionStatus,
+  settledByStep,
   settleFits,
   sliceWhole,
   testCaseProblems,
+  withNote,
 } from "@countersign/core";
 import {
-  agent,
   build,
   buildEvent,
   buildItem,
@@ -76,9 +80,10 @@ import {
   skillVersion,
   type Tx,
 } from "@countersign/db";
-import { createLlmClient, DEFAULT_MODELS, type LlmTransport } from "@countersign/llm";
-import { and, asc, desc, eq, inArray, like, sql } from "drizzle-orm";
+import { DEFAULT_MODELS, type LlmTransport } from "@countersign/llm";
+import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 import type { Hono } from "hono";
+import { freeSlug, moveToClientTest } from "../build/client-test";
 import { withBuildManual } from "../build/manual";
 import { draftSetupItems, withSetupItems } from "../build/setup";
 import {
@@ -118,6 +123,7 @@ import {
   type Services,
   toHttpError,
 } from "../http";
+import { meterDepsOf, meteredLlm, tokensMeta } from "../metering";
 import { reportHandled, reportProblem } from "../observability/report";
 import { bindTestCopy } from "./ops-agents";
 import { builderContext, builderHttpError } from "./ops-builder";
@@ -135,21 +141,6 @@ function transport(services: Pick<Services, "deps" | "env" | "db">, row: BuildRo
 }
 
 const now = () => new Date();
-
-/** The template's slug in the client, or the first free `<slug>-2`, `-3`, … */
-async function freeSlug(tx: Tx, clientId: string, slug: string): Promise<string> {
-  const taken = new Set(
-    (
-      await tx
-        .select({ slug: agent.slug })
-        .from(agent)
-        .where(and(eq(agent.tenantId, clientId), like(agent.slug, `${slug}%`)))
-    ).map((r) => r.slug),
-  );
-  if (!taken.has(slug)) return slug;
-  for (let n = 2; n < 100; n++) if (!taken.has(`${slug}-${n}`)) return `${slug}-${n}`;
-  throw new HttpError(409, "slug_taken", "the client has too many agents from this template");
-}
 
 function refuseClosed(row: BuildRow): void {
   if (row.status !== "open") {
@@ -326,7 +317,8 @@ function changeLines(
   return out;
 }
 
-interface LongCtx {
+/** A slow build route's context; the process interview's draft (§1.217) passes its own. */
+export interface LongCtx {
   c: AppContext;
   app: Hono<AppEnv>;
   session: Parameters<typeof invokeRoute>[2];
@@ -507,6 +499,13 @@ async function turn(
   });
   const { row } = prep;
   let result: Awaited<ReturnType<typeof buildTurn>>;
+  // §1.210: an answer's cost is saved on its message; a turn that fails, or whose answer isn't
+  // saved, keeps none, so its calls are recorded as ours once the request ends.
+  const metered = meteredLlm(meterDepsOf(ctx), {
+    transport: transport(ctx.services, row),
+    tenantId: row.clientId,
+    source: "build",
+  });
   try {
     result = await buildTurn(
       {
@@ -526,7 +525,7 @@ async function turn(
         ctx: prep.bctx,
         otherWork: prep.otherWork,
       },
-      { llm: createLlmClient({ transport: transport(ctx.services, row) }) },
+      { llm: metered.llm },
     );
   } catch (error) {
     await failTurn(ctx, id, row.phase, failedTurnText(row.phase, error), error);
@@ -587,7 +586,7 @@ async function turn(
           : null) ??
         prep.focused?.key ??
         null;
-      const proposal = answer.proposal
+      const fit = answer.proposal
         ? fitProposal(
             answer.proposal,
             prep.detail,
@@ -595,10 +594,18 @@ async function turn(
             await proposalFacts(scoped.tx, ctx.services, fresh, answer.proposal),
           )
         : null;
-      if (answer.proposal && !proposal) {
+      const proposal = fit && "proposal" in fit ? fit.proposal : null;
+      // Staging (2026-11-21, Sentry MEZONAS-API-9 again): "Build a skill" on an issue whose step
+      // already had its skill build. The Builder proposed it anyway; the card was dropped, the
+      // Builder's words said it was started, and nothing happened. A change that is already under
+      // way is said so in the message, not reported: nothing is wrong. Anything else is reported
+      // with why, so the next one says which rule it broke.
+      const already = fit && "why" in fit && fit.why === "already_settled" ? fit.said : null;
+      if (answer.proposal && fit && "why" in fit && fit.why !== "already_settled") {
         reportProblem("the Builder proposed a change that doesn't fit the build", {
           kind: "build",
           action: answer.proposal.action.do,
+          why: fit.why,
           build: id,
         });
       }
@@ -607,7 +614,7 @@ async function turn(
         fresh.phase === row.phase ? readFitGap(set.fitgap ?? fresh.fitgap).decisions : [];
       await addMessage(scoped.tx, fresh, {
         role: "builder",
-        text: answer.text,
+        text: already ? `${answer.text}\n\n${already}` : answer.text,
         meta: {
           chips: answer.chips,
           changes: [
@@ -621,6 +628,7 @@ async function turn(
           ],
           costUsd: result.costUsd,
           model: result.calls[0]?.model ?? null,
+          ...tokensMeta(result.calls),
           ...(about ? { about } : {}),
           ...(proposal ? { proposal: { ...proposal, state: "proposed" } } : {}),
           // docs/plan.md §1.165: the Builder's word that the operator asked for this change. Only
@@ -629,6 +637,7 @@ async function turn(
         },
       });
     });
+    metered.settled();
   } catch (error) {
     if (error instanceof HttpError) throw error;
     // BUILDER_QA INPUT-3: an answer the database wouldn't take is a failed turn with Retry, as a
@@ -680,6 +689,33 @@ async function makeAtOnce(ctx: LongCtx, id: string, settle: SettleWay | null): P
       build: id,
     }),
   );
+}
+
+/**
+ * docs/plan.md §1.169 (owner, 2026-11-21: "give it an action, not just mark it"): a way chosen on
+ * an item gives it to whoever takes that step (the Builder, or Mezonas engineering) and starts it;
+ * one put off is taken back up. What closes it is the step's result, never this.
+ */
+async function giveTo(ctx: LongCtx, id: string, about: string, way: SettleWay): Promise<void> {
+  const itemId = /^item:([0-9a-f-]{36})$/i.exec(about)?.[1];
+  if (!itemId) return;
+  await ctx.inTx(async (scoped) => {
+    const row = await readBuild(scoped.tx, id, true);
+    refuseClosed(row);
+    const [item] = await scoped.tx
+      .select({ id: buildItem.id, state: buildItem.state })
+      .from(buildItem)
+      .where(and(eq(buildItem.id, itemId), eq(buildItem.buildId, row.id)));
+    if (!item || item.state === "done") return;
+    await scoped.tx
+      .update(buildItem)
+      .set({
+        owner: SETTLE_OWNER[way],
+        state: item.state === "waiting" ? "waiting" : "in_progress",
+        resolvedAt: null,
+      })
+      .where(eq(buildItem.id, item.id));
+  });
 }
 
 /** A failed Builder turn, said in the conversation and reported (Sentry). */
@@ -807,7 +843,14 @@ async function reviewHolds(ctx: LongCtx, row: BuildRow): Promise<boolean> {
           issues: prep.issues,
           ctx: prep.bctx,
         },
-        { llm: createLlmClient({ transport: transport(ctx.services, row) }) },
+        // §1.210: the review's calls are ours; nothing else keeps their cost.
+        {
+          llm: meteredLlm(meterDepsOf(ctx), {
+            transport: transport(ctx.services, row),
+            tenantId: row.clientId,
+            source: "build",
+          }).llm,
+        },
       )
     ).concerns;
   } catch (error) {
@@ -941,6 +984,23 @@ async function proposalFacts(
   return out;
 }
 
+/** Why a proposal doesn't fit the build. `already_settled`: what it asks for is already under way. */
+type ProposalMiss =
+  | "already_settled"
+  | "not_an_open_item"
+  | "not_a_closed_item"
+  | "not_a_failed_check"
+  | "not_an_earlier_phase"
+  | "wrong_phase"
+  | "unknown_step"
+  | "unknown_request";
+
+/** A proposal as it fits the build, or why it doesn't (and, when already settled, what to say). */
+type ProposalFit =
+  | { proposal: BuildProposal }
+  | { why: Exclude<ProposalMiss, "already_settled"> }
+  | { why: "already_settled"; said: string };
+
 /**
  * The Builder's proposal if it fits the build: an item it names is this build's and in the state
  * the change needs, a check is failing in QA, going back is to an earlier phase, tests run in the
@@ -953,46 +1013,61 @@ function fitProposal(
   d: BuildDetail,
   phase: BuildPhase,
   f: ProposalFacts,
-): BuildProposal | null {
+): ProposalFit {
   const a = p.action;
   const itemOf = (raw: string) => d.items.find((i) => i.id === raw.replace(/^item:/, ""));
+  const ok = (proposal: BuildProposal): ProposalFit => ({ proposal });
+  const no = (why: Exclude<ProposalMiss, "already_settled">): ProposalFit => ({ why });
   switch (a.do) {
     case "close_item": {
       const item = itemOf(a.itemId);
-      return item && itemOpen(item.state) ? { ...p, action: { ...a, itemId: item.id } } : null;
+      if (!item || !itemOpen(item.state)) return no("not_an_open_item");
+      // docs/plan.md §1.169: the Builder doesn't close by saying so what only its step closes;
+      // it may put one off. Nothing is wrong, so it is said in the message, not reported.
+      if (a.state === "done" && settledByStep(item.kind)) {
+        return {
+          why: "already_settled",
+          said: `“${item.title}” closes when its step is settled, not by saying so, so I left it open.`,
+        };
+      }
+      return ok({ ...p, action: { ...a, itemId: item.id } });
     }
     case "reopen_item": {
       const item = itemOf(a.itemId);
-      return item && !itemOpen(item.state) ? { ...p, action: { ...a, itemId: item.id } } : null;
+      return item && !itemOpen(item.state)
+        ? ok({ ...p, action: { ...a, itemId: item.id } })
+        : no("not_a_closed_item");
     }
     case "accept_check":
       return phase === "qa" && d.qaChecks.some((c) => c.id === a.check && c.state === "fail")
-        ? p
-        : null;
+        ? ok(p)
+        : no("not_a_failed_check");
     case "go_back":
       return phaseIndex(d.build.kind, a.to) >= 0 &&
         phaseIndex(d.build.kind, a.to) < phaseIndex(d.build.kind, phase)
-        ? p
-        : null;
+        ? ok(p)
+        : no("not_an_earlier_phase");
     case "run_tests":
-      return phase === "poc" && d.draft ? p : null;
+      return phase === "poc" && d.draft ? ok(p) : no("wrong_phase");
     case "edit_draft":
       // BUILDER_QA AI-4: a step it names is one of the draft's.
-      if (a.stepId && f.stepIds && !f.stepIds.has(a.stepId)) return null;
+      if (a.stepId && f.stepIds && !f.stepIds.has(a.stepId)) return no("unknown_step");
       // The draft is what the POC tests; from the client test on, the change goes back first.
       return (phase === "draft" || phase === "poc") &&
         (d.build.kind === "agent" ? !!d.draft?.versionId : !!d.draft?.sessionId)
-        ? p
-        : null;
+        ? ok(p)
+        : no("wrong_phase");
     // docs/plan.md §1.125: a gap's two buckets, and the Dev queue's link and approval.
     case "file_code_request":
     case "link_code_request":
     case "draft_skill": {
-      if (phase !== "fitgap" && phase !== "draft" && phase !== "poc") return null;
+      if (phase !== "fitgap" && phase !== "draft" && phase !== "poc") return no("wrong_phase");
       // BUILDER_QA AI-4: the request to link is there, under the ref it names, and still open.
       if (a.do === "link_code_request") {
         const r = f.request;
-        if (!r || parseDqNumber(a.ref) !== r.number || r.status === "closed") return null;
+        if (!r || parseDqNumber(a.ref) !== r.number || r.status === "closed") {
+          return no("unknown_request");
+        }
       }
       // A step that already has its skill build is settled that way.
       if (
@@ -1000,25 +1075,39 @@ function fitProposal(
         a.stepId &&
         d.items.some((i) => i.stepId === a.stepId && i.ref.buildId && itemOpen(i.state))
       ) {
-        return null;
+        return {
+          why: "already_settled",
+          said: "That step already has a skill build under way, so I didn't start another. It's in the issues list.",
+        };
       }
       const item = a.itemId ? itemOf(a.itemId) : undefined;
       // QA on staging (2026-11-19, Sentry MEZONAS-API-9): in the draft the issues are the draft's
       // problems, so the Builder named a `problem:` key (or no open gap) and the whole proposal
       // was dropped: it said it had proposed the skill, and no card showed. A key that isn't an
       // open gap is left out instead; the change makes its own gap item, as a request's link does.
-      if (!item || !itemOpen(item.state) || item.kind !== "gap") {
+      // docs/plan.md §1.169: a gap put off (a known risk) is settled the same way; the change
+      // takes it back up.
+      if (!item || item.state === "done" || item.kind !== "gap") {
         const { itemId: _, ...rest } = a;
-        return { ...p, action: rest };
+        return ok({ ...p, action: rest });
       }
       // A gap already waiting on a request, or with its skill build, is settled that way.
-      if (item.ref.codeRequestId || (a.do === "draft_skill" && item.ref.buildId)) return null;
-      return { ...p, action: { ...a, itemId: item.id } };
+      if (item.ref.codeRequestId || (a.do === "draft_skill" && item.ref.buildId)) {
+        return {
+          why: "already_settled",
+          said: item.ref.codeRequestId
+            ? `“${item.title}” is already waiting on a code request, so I left it as it is.`
+            : `“${item.title}” already has a skill build under way, so I didn't start another.`,
+        };
+      }
+      return ok({ ...p, action: { ...a, itemId: item.id } });
     }
     case "approve_code_request": {
       // BUILDER_QA AI-4: only a request this build waits on, under its own ref, still in triage.
       const r = f.request;
-      return r?.waitedOn && r.status === "triage" && parseDqNumber(a.ref) === r.number ? p : null;
+      return r?.waitedOn && r.status === "triage" && parseDqNumber(a.ref) === r.number
+        ? ok(p)
+        : no("unknown_request");
     }
   }
 }
@@ -1511,6 +1600,21 @@ async function makeDraft(
   return { set: { sessionId: started.session.id }, decisions: [], kept: false };
 }
 
+/** The draft's step standing for each gap (a person step that asks, or a missing step), or null. */
+async function draftGapSteps(
+  tx: Tx,
+  agentId: string | null | undefined,
+  gaps: readonly string[],
+): Promise<(string | null)[]> {
+  const latest = agentId ? await latestVersion(tx, agentId) : null;
+  const parsed = latest ? AnyAgentBundle.safeParse(latest.bundle) : null;
+  if (!parsed?.success) return gaps.map(() => null);
+  const drafted = parsed.data.workflows.flatMap((w) =>
+    w.workflow.schemaVersion === 4 ? [w.workflow] : [],
+  );
+  return gapSteps(gaps, drafted);
+}
+
 /** A short, stable fingerprint of a fit-gap's first version. */
 function fitGapHash(fitgap: FitGap): string {
   const rows = fitgap.rows
@@ -1711,7 +1815,8 @@ export function draftedNowText(o: {
 // challenge... apply defaults to the settings and make decisions and tweak after it is built".
 // The phases stay (a build can still go back to its intake or fit-gap with a reason); this is the
 // way past them. Agent builds only: a skill is drafted in its own Builder conversation.
-async function draftNow(ctx: LongCtx, id: string, given: string | null): Promise<void> {
+/** Draft it now (§1.165); the process interview drafts its build through it too (§1.217). */
+export async function draftNow(ctx: LongCtx, id: string, given: string | null): Promise<void> {
   const userId = ctx.session.user.id;
   // 1. The build is an open agent build with no draft yet, and there is something to draft from.
   //    The move is claimed by the phase, as a move into the draft is (STATE-1).
@@ -1799,6 +1904,8 @@ async function draftNow(ctx: LongCtx, id: string, given: string | null): Promise
       payload: { brief: readBrief(r.brief) },
       userId,
     });
+    // docs/builder-plan.md §12.4: each gap names the step that stands for it, when one clearly does.
+    const onSteps = gaps.length > 0 ? await draftGapSteps(scoped.tx, made.set.agentId, gaps) : [];
     await addItems(
       scoped.tx,
       r,
@@ -1810,6 +1917,7 @@ async function draftNow(ctx: LongCtx, id: string, given: string | null): Promise
           "Not in the catalog yet, so a person does this part in the first version. Build it when the runs show it is worth it.",
         owner: "builder" as const,
         state: "deferred" as const,
+        stepId: onSteps[i] ?? null,
         key: `now:gap:${i}`,
       })),
       userId,
@@ -2077,6 +2185,43 @@ async function move(
 }
 
 /**
+ * docs/plan.md §1.169: a draft edit made for a gap, a test or client feedback (the conversation on
+ * it) settles it: the item closes, its detail ending with what changed. Its state before is kept
+ * on the decision, so the edit's undo opens it again. A note or a precondition is left to a click.
+ */
+async function closeByEdit(
+  tx: Tx,
+  buildId: string,
+  about: string | null,
+  said: string,
+): Promise<{ itemId: string; title: string; before: BuildItemState } | null> {
+  const itemId = about ? /^item:([0-9a-f-]{36})$/i.exec(about)?.[1] : undefined;
+  if (!itemId) return null;
+  const [item] = await tx
+    .select({
+      id: buildItem.id,
+      title: buildItem.title,
+      kind: buildItem.kind,
+      state: buildItem.state,
+      detail: buildItem.detail,
+    })
+    .from(buildItem)
+    .where(and(eq(buildItem.id, itemId), eq(buildItem.buildId, buildId)));
+  if (!item || item.state === "done" || item.kind === "question" || !settledByStep(item.kind)) {
+    return null;
+  }
+  await tx
+    .update(buildItem)
+    .set({
+      state: "done",
+      resolvedAt: now(),
+      detail: withNote(item.detail, clip(`Settled by the change: ${said}`, 600)),
+    })
+    .where(eq(buildItem.id, item.id));
+  return { itemId: item.id, title: item.title, before: item.state };
+}
+
+/**
  * The operator's decision on a proposal: agreed (the change is made, as the operator, through the
  * build's own routes), declined, or an agreed one undone. `asked` (docs/plan.md §1.165): the
  * change was asked for in words or by an issue's button and is made at once, so the claim is the
@@ -2273,10 +2418,32 @@ async function decideProposal(
       if (shipped.length > 0) {
         changed.push(`That settles ${shipped.map((t) => `“${t}”`).join(", ")}, so I closed it.`);
       }
+      // docs/plan.md §1.169: the change made for an item is the step that settles it.
+      const closed = await lc.inTx((scoped) => closeByEdit(scoped.tx, id, about, said));
+      if (closed) {
+        settled = { ...settled, closed: { itemId: closed.itemId, before: closed.before } };
+        changed.push(`That settles “${closed.title}”, so I closed it. Undo opens it again.`);
+      }
     } else {
       const edit = found.edit;
       if (!edit) throw new HttpError(409, "no_undo", "this change has no undo here");
       await guarded(() => undoEdit(lc, id, edit, p.summary));
+      // The item the edit closed is open again, as it was before.
+      const closed = found.decided?.closed;
+      if (closed) {
+        await lc.inTx(async (scoped) => {
+          await scoped.tx
+            .update(buildItem)
+            .set({ state: closed.before, resolvedAt: null })
+            .where(
+              and(
+                eq(buildItem.id, closed.itemId),
+                eq(buildItem.buildId, id),
+                eq(buildItem.state, "done"),
+              ),
+            );
+        });
+      }
     }
   } else {
     const action = decide === "agree" ? p.action : proposalUndo(p.action, p.before);
@@ -2289,11 +2456,12 @@ async function decideProposal(
     const next = issues.find((i) => i.open && i.key !== about);
     const item = issues.find((i) => i.key === about && i.source === "item" && i.open);
     if (decide === "agree" && changed.length > 0 && item) {
-      // A draft edit for an open item: whether it settles the item is the operator's to say.
+      // A draft edit for an open item that a click closes (a note, a precondition): whether it
+      // is done is the operator's to say. A gap, test or feedback item closed by it above.
       await addMessage(scoped.tx, fresh, {
         role: "builder",
-        text: `Changed the draft: ${changed.join(" ")} “${item.title}” stays open until you close it. Does this settle it?`,
-        meta: { about: item.key, chips: ["Yes, close it", "Not yet"], ...settled },
+        text: `Changed the draft: ${changed.join(" ")} “${item.title}” stays open until you mark it done.`,
+        meta: { about: item.key, ...settled },
       });
       return;
     }
@@ -2368,6 +2536,11 @@ export function opsBuildRoutes(app: Hono<AppEnv>): void {
         clientId,
         createdBy: ctx.session.user.id,
         path,
+        // docs/plan.md §1.172: a new agent build starts on the lab's Describe it (the only place
+        // one starts since §1.170), so it opens in the one-screen builder. A build from a template
+        // and a skill build keep the build page.
+        // DECISION: the server says so, from what it is; the screens send nothing for it.
+        flow: ctx.body.kind === "agent" && path === "new" ? "describe" : "phases",
         templateId: path === "template" ? (ctx.body.templateId ?? null) : null,
         agentId,
         originKind: ctx.body.origin?.kind ?? null,
@@ -2390,7 +2563,11 @@ export function opsBuildRoutes(app: Hono<AppEnv>): void {
   mount(app, routes.opsUpdateBuild, async (ctx) => {
     const row = await readBuild(ctx.tx, ctx.params.id, true);
     refuseClosed(row);
-    const { title, brief, testPlan, promisedOn, waitingOn, statusLine, stuck } = ctx.body;
+    const { title, brief, testPlan, promisedOn, waitingOn, statusLine, stuck, flow } = ctx.body;
+    // §1.172: only an agent build has the one-screen builder to open in.
+    if (flow === "describe" && row.kind !== "agent") {
+      throw new HttpError(422, "no_builder", "only an agent build opens in the builder");
+    }
     let fitgap: FitGap | undefined;
     if (ctx.body.fitgap) {
       // What's in scope and what needs to be true; a verdict changes only with a reason.
@@ -2410,6 +2587,7 @@ export function opsBuildRoutes(app: Hono<AppEnv>): void {
         ...(waitingOn ? { waitingOn } : {}),
         ...(statusLine !== undefined ? { statusLine } : {}),
         ...(stuck !== undefined ? { stuck } : {}),
+        ...(flow ? { flow } : {}),
         updatedAt: now(),
       })
       .where(eq(build.id, row.id));
@@ -2427,6 +2605,7 @@ export function opsBuildRoutes(app: Hono<AppEnv>): void {
       throw new HttpError(400, "settle_needs_issue", "say which issue it settles");
     }
     const text = ctx.body.text ?? (settle ? SETTLE_WORDS[settle].ask : null);
+    if (settle && ctx.body.about) await giveTo(lc, ctx.params.id, ctx.body.about, settle);
     await turn(lc, ctx.params.id, text, { retry: !text, about: ctx.body.about ?? null });
     await makeAtOnce(lc, ctx.params.id, settle);
     return detailOf(ctx, ctx.params.id);
@@ -2537,9 +2716,16 @@ export function opsBuildRoutes(app: Hono<AppEnv>): void {
     if (!plan.datasets.some((d) => d.source === "generate")) {
       throw new HttpError(409, "nothing_to_generate", "the test plan has no dataset to generate");
     }
+    // §1.210: the cases' cost is saved on the message that says so; calls that end in an error
+    // are recorded as ours once the request ends.
+    const generating = meteredLlm(meterDepsOf(ctx), {
+      transport: transport(ctx.services, prep.row),
+      tenantId: prep.row.clientId,
+      source: "build",
+    });
     const made = await makeTestCases(
       { kind: prep.target.kind, testPlan: plan, target: prep.target.text },
-      { llm: createLlmClient({ transport: transport(ctx.services, prep.row) }) },
+      { llm: generating.llm },
     ).catch(builderHttpError);
     let created = 0;
     for (const c of made.cases) {
@@ -2580,9 +2766,10 @@ export function opsBuildRoutes(app: Hono<AppEnv>): void {
           created === made.cases.length
             ? `I made ${created} test ${created === 1 ? "case" : "cases"} from the plan. Run them when you're ready.`
             : `I made ${created} test ${created === 1 ? "case" : "cases"} from the plan; ${made.cases.length - created} didn't fit the draft or the test bench and were left out.`,
-        meta: { costUsd: made.costUsd },
+        meta: { costUsd: made.costUsd, ...tokensMeta(made.calls) },
       });
     });
+    generating.settled();
     return { ...(await detailOf(ctx, ctx.params.id)), created };
   });
 
@@ -2708,38 +2895,12 @@ export function opsBuildRoutes(app: Hono<AppEnv>): void {
     }
     await ctx.inTx(async (scoped) => {
       const r = await readBuild(scoped.tx, ctx.params.id, true);
-      await scoped.tx
-        .update(build)
-        .set({ phase: "client_test", phaseAt: now(), testClientId: clientId, testAgentId })
-        .where(eq(build.id, r.id));
-      await addEvent(scoped.tx, r, { kind: "phase", from: "poc", to: "client_test", userId });
-      await addEvent(scoped.tx, r, {
-        kind: "record",
-        payload: { testPlan: readTestPlan(r.testPlan) },
+      await moveToClientTest(scoped.tx, r, {
+        clientId,
+        testAgentId,
         userId,
-      });
-      const moved = { ...r, phase: "client_test" as const };
-      if (blocked) {
-        await addItems(
-          scoped.tx,
-          moved,
-          [
-            {
-              phase: "client_test",
-              kind: "precondition",
-              title: blocked.title,
-              detail: blocked.detail,
-              key: blockKey || `start:${testAgentId}`,
-            },
-          ],
-          userId,
-        );
-      }
-      await addMessage(scoped.tx, moved, {
-        role: "builder",
-        text: blocked
-          ? "It's at the client, but its trial hasn't started: it needs one thing first, now an open item."
-          : "It's published and at the client, in its trial: every write it makes waits for the client's signature until sign-off.",
+        blocked,
+        key: blockKey,
       });
     });
     return detailOf(ctx, ctx.params.id);
@@ -2837,6 +2998,23 @@ export function opsBuildRoutes(app: Hono<AppEnv>): void {
         .set({ status: "live", qa: { ...qa, decision: "go" } })
         .where(eq(build.id, row.id));
       await addEvent(scoped.tx, row, { kind: "decision", payload: { go: true }, userId });
+      // docs/plan.md §1.169: a skill build that goes live settles the issue that started it.
+      if (row.kind === "skill") {
+        const note = "Settled: its skill build went live.";
+        await scoped.tx
+          .update(buildItem)
+          .set({
+            state: "done",
+            resolvedAt: now(),
+            detail: sql`left(case when ${buildItem.detail} = '' then ${note} else ${buildItem.detail} || ${`\n${note}`} end, 2000)`,
+          })
+          .where(
+            and(
+              sql`${buildItem.ref}->>'buildId' = ${row.id}`,
+              inArray(buildItem.state, ["open", "in_progress", "waiting", "deferred"]),
+            ),
+          );
+      }
     });
     return detailOf(ctx, ctx.params.id);
   });
@@ -2879,12 +3057,25 @@ export function opsBuildRoutes(app: Hono<AppEnv>): void {
       .where(and(eq(buildItem.id, ctx.params.itemId), eq(buildItem.buildId, row.id)));
     if (!item) throw notFound("open item");
     const b = ctx.body;
-    const state = b.state ?? item.state;
+    // docs/plan.md §1.169 (owner, 2026-11-21: "just because I say it is closed does not close
+    // it"): a question, gap, test or client feedback is closed by its own step (its answer, the
+    // change made for it, its skill build live, its request shipped), or dropped as not needed.
+    if (b.state === "done" && !b.drop && item.state !== "done" && settledByStep(item.kind)) {
+      throw new HttpError(
+        409,
+        "settled_by_its_step",
+        item.kind === "question"
+          ? "a question closes when it is answered: answer it, or drop it as not needed"
+          : "this closes when the step that settles it is done: change the process, build a skill or ask for code, or drop it as not needed",
+      );
+    }
+    const state = b.drop ? "done" : (b.state ?? item.state);
+    const detail = b.drop ? withNote(b.detail ?? item.detail, NOT_NEEDED_NOTE) : b.detail;
     await ctx.tx
       .update(buildItem)
       .set({
         ...(b.title ? { title: b.title } : {}),
-        ...(b.detail !== undefined ? { detail: b.detail } : {}),
+        ...(detail !== undefined ? { detail } : {}),
         ...(b.owner ? { owner: b.owner } : {}),
         state,
         resolvedAt: itemOpen(state) ? null : (item.resolvedAt ?? now()),

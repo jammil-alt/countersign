@@ -13,7 +13,7 @@ import {
   Reply,
   SANDBOX_DETAIL,
 } from "../../test/fixtures";
-import { operatorBlurb } from "./Connections";
+import { connectorFits, operatorBlurb } from "./Connections";
 
 const SANDBOX = "00000000-0000-4000-8000-00000000a001";
 const DEMO = "00000000-0000-4000-8000-00000000a002";
@@ -146,18 +146,176 @@ afterEach(() => {
 });
 
 describe("a connector's description in the back office", () => {
-  it("leaves out what its manifest says to the client", () => {
+  it("leaves out what its manifest says to the client, and speaks of them", () => {
     expect(
       operatorBlurb(
         "Bills, purchases and vendors in your QuickBooks Online. You sign in to QuickBooks yourself.",
       ),
-    ).toBe("Bills, purchases and vendors in your QuickBooks Online.");
+    ).toBe("Bills, purchases and vendors in their QuickBooks Online.");
     expect(
       operatorBlurb(
         "Read the transactions of your bank accounts. You connect them yourself. Nothing here can move money.",
       ),
-    ).toBe("Read the transactions of your bank accounts. Nothing here can move money.");
+    ).toBe("Read the transactions of their bank accounts. Nothing here can move money.");
     expect(operatorBlurb("Upload tools.")).toBe("Upload tools.");
+    expect(operatorBlurb("Your Podio workspaces, apps and items.")).toBe(
+      "Their Podio workspaces, apps and items.",
+    );
+    expect(
+      operatorBlurb("Read and add rows in the Google Sheets you pick. We can open only those."),
+    ).toBe("Read and add rows in the Google Sheets they pick. We can open only those.");
+    expect(
+      operatorBlurb("Post to your LinkedIn page. We can't read your messages or post as you."),
+    ).toBe("Post to their LinkedIn page. We can't read their messages or post as them.");
+  });
+});
+
+describe("what fits a client", () => {
+  const area = (over: Record<string, unknown>) => ({
+    id: "materials",
+    name: "Materials",
+    area: "Purchasing",
+    description: "",
+    enabled: true,
+    enabledAt: null,
+    screens: [],
+    connections: [
+      { connectors: ["qbo"], use: "Bills and vendors" },
+      { connectors: ["gmail", "outlook"], use: "Asking vendors" },
+    ],
+    config: { fields: [], values: {} },
+    processors: [],
+    ...over,
+  });
+  const agent = (name: string, connector: string) => ({
+    agent: { id: "00000000-0000-4000-8000-0000000000b1", name },
+    ready: false,
+    gaps: [
+      {
+        kind: "not_connected",
+        connector,
+        connectorName: connector,
+        connectionId: null,
+        blocking: true,
+        fixBy: "client",
+        needs: [],
+      },
+    ],
+  });
+
+  it("is what the areas it has on and its agents need, never one it has connected", () => {
+    const fits = connectorFits({
+      areas: [area({}), area({ id: "marketing", area: "Marketing", enabled: false })],
+      agents: [agent("Buyer", "slack")] as never,
+      connected: new Set(["qbo"]),
+    });
+    expect([...fits.keys()].sort()).toEqual(["gmail", "outlook", "slack"]);
+    expect(fits.get("gmail")).toEqual(["Their Purchasing area uses it"]);
+    expect(fits.get("slack")).toEqual(["Buyer needs it"]);
+  });
+
+  it("asks nothing more of a need one alternative meets, and nothing with no signal", () => {
+    expect([
+      ...connectorFits({
+        areas: [area({})],
+        agents: [],
+        connected: new Set(["qbo", "outlook"]),
+      }).keys(),
+    ]).toEqual([]);
+    expect(connectorFits({ areas: [], agents: [], connected: new Set() }).size).toBe(0);
+  });
+});
+
+describe("what we recommend to a real client", () => {
+  const real = (over: Record<string, unknown> = {}) => ({
+    ...connections({ offered: [] }),
+    sandbox: false,
+    connectors: [
+      connector("qbo", "QuickBooks Online", "oauth2", true),
+      connector("gmail", "Gmail", "oauth2", true),
+      connector("slack", "Slack", "oauth2", true),
+      connector("zoho_crm", "Zoho CRM", "oauth2", true),
+    ],
+    connections: [
+      {
+        id: "00000000-0000-4000-8000-0000000000c9",
+        tenantId: SANDBOX,
+        connector: "qbo",
+        status: "connected",
+        externalAccountId: "9341458640918607",
+        config: { accountName: "Hartley Millwork LLC" },
+        permissions: {
+          read: "auto",
+          create: "approval",
+          update: "approval",
+          delete: "off",
+          scope: null,
+        },
+        lastSyncAt: null,
+        connectedBy: OPERATOR_SESSION.user.id,
+        createdAt: "2026-11-05T18:00:00.000Z",
+      },
+    ],
+    ...over,
+  });
+  const packs = {
+    packs: [
+      {
+        id: "materials",
+        name: "Materials",
+        area: "Purchasing",
+        description: "",
+        enabled: true,
+        enabledAt: null,
+        screens: [],
+        connections: [
+          { connectors: ["qbo"], use: "Bills and vendors" },
+          { connectors: ["gmail"], use: "Asking vendors" },
+        ],
+      },
+    ],
+  };
+
+  it("lists what fits and what we recommend, never a connected one; the rest is one click away", async () => {
+    const api = fakeApi({
+      "GET /api/session": () => OPERATOR_SESSION,
+      [`GET /api/ops/clients/${SANDBOX}`]: () => SANDBOX_DETAIL,
+      [`GET /api/ops/clients/${SANDBOX}/packs`]: () => packs,
+      [`GET /api/ops/clients/${SANDBOX}/connections`]: () => real({ offered: ["slack"] }),
+    });
+    renderAt(`/ops/clients/${SANDBOX}/connections`, api);
+    const offering = await screen.findByTestId("ops-connections-offering", {}, { timeout: 10_000 });
+    await waitFor(() =>
+      expect(within(offering).getByTestId("ops-connections-offer-gmail-why")).toHaveTextContent(
+        "Their Purchasing area uses it",
+      ),
+    );
+    expect(within(offering).getByTestId("ops-connections-offer-slack-toggle")).toBeChecked();
+    expect(within(offering).queryByTestId("ops-connections-offer-qbo-toggle")).toBeNull();
+    expect(within(offering).queryByTestId("ops-connections-offer-zoho_crm-toggle")).toBeNull();
+    const more = within(offering).getByTestId("ops-connections-offering-more");
+    expect(more).toHaveTextContent("Recommend another connector · 1 more");
+    await userEvent.setup().click(more);
+    expect(within(offering).getByTestId("ops-connections-offer-zoho_crm-toggle")).not.toBeChecked();
+    expect(within(offering).queryByTestId("ops-connections-offer-qbo-toggle")).toBeNull();
+  });
+
+  it("recommends none when nothing fits and nothing is recommended", async () => {
+    const api = fakeApi({
+      "GET /api/session": () => OPERATOR_SESSION,
+      [`GET /api/ops/clients/${SANDBOX}`]: () => SANDBOX_DETAIL,
+      [`GET /api/ops/clients/${SANDBOX}/packs`]: () => ({ packs: [] }),
+      [`GET /api/ops/clients/${SANDBOX}/connections`]: () => real(),
+    });
+    renderAt(`/ops/clients/${SANDBOX}/connections`, api);
+    const offering = await screen.findByTestId("ops-connections-offering", {}, { timeout: 10_000 });
+    expect(within(offering).getByTestId("ops-connections-offering-none")).toHaveTextContent(
+      "None recommended.",
+    );
+    expect(within(offering).queryAllByRole("checkbox")).toHaveLength(0);
+    expect(within(offering).getByTestId("ops-connections-offering-more")).toHaveTextContent(
+      "3 more",
+    );
   });
 
   it("names the tools offered with the right plural and how the client connects", async () => {
@@ -165,7 +323,7 @@ describe("a connector's description in the back office", () => {
       "GET /api/session": () => OPERATOR_SESSION,
       [`GET /api/ops/clients/${SANDBOX}`]: () => SANDBOX_DETAIL,
       [`GET /api/ops/clients/${SANDBOX}/connections`]: () => ({
-        ...connections({ offered: [] }),
+        ...connections({ offered: ["qbo"] }),
         sandbox: false,
         connectors: [
           {
@@ -180,7 +338,8 @@ describe("a connector's description in the back office", () => {
     });
     renderAt(`/ops/clients/${SANDBOX}/connections`, api);
     const offering = await screen.findByTestId("ops-connections-offering", {}, { timeout: 10_000 });
-    expect(offering).toHaveTextContent("Bills in your QuickBooks Online.");
+    expect(offering).toHaveTextContent("Bills in their QuickBooks Online.");
+    expect(offering).not.toHaveTextContent("your");
     expect(offering).not.toHaveTextContent("yourself");
     expect(offering).toHaveTextContent("1 tool · the client signs in from their portal");
     expect(offering).not.toHaveTextContent("oauth2");

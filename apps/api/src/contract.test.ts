@@ -5,17 +5,22 @@
 
 import { createOAuthState } from "@countersign/connectors";
 import {
+  accountReportRoutes,
   adjustRoutes,
+  agentReportRoutes,
   allRoutes,
   buildPath,
   checkRouteContract,
   forbiddenPortalFields,
   manualRoutes,
+  portalViewRoutes,
   type RouteSpec,
   routeFamily,
   routes,
+  sopRoutes,
 } from "@countersign/core";
 import { afterAll, describe, expect, it } from "vitest";
+import { z } from "zod";
 import { admin, createApiHarness, OPERATOR, user } from "./api.test-helper";
 
 const ROUTES = Object.entries(allRoutes) as [string, RouteSpec][];
@@ -65,9 +70,78 @@ describe("route contract (static)", () => {
     expect(manualRoutes.opsAgentManual.roles).toEqual(["operator"]);
   });
 
+  // docs/sop-plan.md S1: the agent's SOP reaches the portal as a view made by code, never the
+  // bundle, its definition, instructions, prompts or cost. The running route is checked in
+  // sop.test.ts.
+  it("keeps the agent SOP's portal route to a view with no forbidden fields", () => {
+    expect(routeFamily(sopRoutes.portalAgentSop)).toBe("portal");
+    expect(sopRoutes.portalAgentSop.roles).toEqual(["client_admin", "client_user"]);
+    expect(forbiddenPortalFields(sopRoutes.portalAgentSop.response)).toEqual([]);
+    expect(sopRoutes.opsAgentSop.roles).toEqual(["operator"]);
+  });
+
   // §1.163: what a client sees for one agent, opened in the back office: operator-only, and the
   // portal page's own answer, so it carries nothing the portal may not. The running route is
   // checked in ops-client-agent-view.test.ts.
+  // R4 (docs/plan.md §1.214): the report per agent.
+  it("keeps the agent report's portal routes to clients, with no cost, tokens or errors", () => {
+    for (const r of [
+      agentReportRoutes.portalServiceReport,
+      agentReportRoutes.portalServiceReportCsv,
+    ]) {
+      expect(routeFamily(r)).toBe("portal");
+      expect(r.roles).toEqual(["client_admin", "client_user"]);
+      expect(forbiddenPortalFields(r.response)).toEqual([]);
+    }
+    const json = JSON.stringify(
+      z.toJSONSchema(agentReportRoutes.portalServiceReport.response, { unrepresentable: "any" }),
+    );
+    for (const key of ['"errors"', '"spend"', '"errorKey"', '"costOver"', '"mode"', '"clients"']) {
+      expect(json).not.toContain(key);
+    }
+    expect(agentReportRoutes.opsAgentReport.roles).toEqual(["operator"]);
+    expect(agentReportRoutes.opsAgentReportCsv.roles).toEqual(["operator"]);
+  });
+
+  // R5 (docs/plan.md §1.235): the report per account.
+  it("keeps the account report's portal routes to clients, with no cost, errors or Needs us", () => {
+    for (const r of [
+      accountReportRoutes.portalAccountReport,
+      accountReportRoutes.portalAccountReportCsv,
+    ]) {
+      expect(routeFamily(r)).toBe("portal");
+      expect(r.roles).toEqual(["client_admin", "client_user"]);
+      expect(forbiddenPortalFields(r.response)).toEqual([]);
+    }
+    const json = JSON.stringify(
+      z.toJSONSchema(accountReportRoutes.portalAccountReport.response, { unrepresentable: "any" }),
+    );
+    for (const key of ['"needsUs"', '"errorKey"', '"costOver"', '"mode"', '"clients"']) {
+      expect(json).not.toContain(key);
+    }
+    for (const r of [
+      accountReportRoutes.opsClientReport,
+      accountReportRoutes.opsClientReportCsv,
+      accountReportRoutes.opsAccounts,
+    ]) {
+      expect(routeFamily(r)).toBe("ops");
+      expect(r.roles).toEqual(["operator"]);
+    }
+  });
+
+  // R6 (docs/plan.md §1.236): the portal's saved views carry the portal's filter only.
+  it("keeps the portal's saved views to clients, with no back-office filter keys", () => {
+    for (const r of Object.values(portalViewRoutes)) {
+      expect(routeFamily(r)).toBe("portal");
+      expect(r.roles).toEqual(["client_admin", "client_user"]);
+      expect(forbiddenPortalFields(r.response)).toEqual([]);
+      const json = JSON.stringify(z.toJSONSchema(r.response, { unrepresentable: "any" }));
+      for (const key of ['"errorKey"', '"costOver"', '"mode"', '"clients"', '"tenantId"']) {
+        expect(json).not.toContain(key);
+      }
+    }
+  });
+
   it("keeps the back office's client view of an agent to operators, as the portal's answer", () => {
     expect(routeFamily(routes.opsClientAgentView)).toBe("ops");
     expect(routes.opsClientAgentView.roles).toEqual(["operator"]);

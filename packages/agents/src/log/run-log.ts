@@ -1,7 +1,7 @@
 // What ran, as rows (ARCHITECTURE §5.3, §13): runs, step runs with cost and tokens written as each
 // model call returns, and tool calls. Each write is one short client-scoped transaction.
 
-import { readApproverRuleSet, redactCardNumbersDeep } from "@countersign/core";
+import { Decimal, readApproverRuleSet, redactCardNumbersDeep } from "@countersign/core";
 import {
   agent,
   type Db,
@@ -17,6 +17,7 @@ import { AgentsError, notFound } from "../errors";
 import type { RunLog } from "../runtime/ports";
 import type { RunMode } from "../tools/types";
 import { closeRunApprovalsTx } from "./external-actions";
+import { keepSubjects, triggerSubjectIds, writeTriggerSubjectsTx } from "./run-subjects";
 import { rollupUsageForRun } from "./usage";
 
 type RunStatus = (typeof run.$inferSelect)["status"];
@@ -74,7 +75,9 @@ export async function createRun(tx: Tx, input: CreateRunInput): Promise<typeof r
       agentId: a.id,
       agentVersionId: versionId,
       workflowSlug: input.workflowSlug,
-      config: { bindings: a.bindings, approver: a.approver, approverRules },
+      // Setup-plan §4.1: who sat in each seat when the run started (`agent.people`), so every
+      // approval and question of the run goes to the same people, however the seats change after.
+      config: { bindings: a.bindings, approver: a.approver, approverRules, people: a.people },
       mode: input.mode,
       trigger: input.trigger ?? {},
       status: "running",
@@ -82,6 +85,19 @@ export async function createRun(tx: Tx, input: CreateRunInput): Promise<typeof r
     })
     .returning();
   if (!row) throw new Error("run insert returned nothing");
+  // docs/plan.md §1.188: what started the run (its document or message) is its first subject,
+  // kept in a savepoint so it never stops the run starting.
+  const named = triggerSubjectIds(row.trigger);
+  if (named.documentId || named.messageId) {
+    await keepSubjects(tx, (sp) =>
+      writeTriggerSubjectsTx(sp, {
+        tenantId: input.tenantId,
+        runId: row.id,
+        trigger: row.trigger,
+        mode: row.mode,
+      }),
+    );
+  }
   return row;
 }
 
@@ -217,18 +233,24 @@ export function dbRunLog(db: Db): RunLog {
     },
 
     addUsage(tenantId, ids, usage) {
+      // The step's and run's cost are numeric(14,4), but a call's cost has 6 places: added as is,
+      // each addition rounds to the nearest ten-thousandth, so a call under $0.00005 (a short
+      // Haiku call) added nothing and a run of them read $0.00. Each call is rounded up to a
+      // ten-thousandth first, as its model_call row is, so the run is the sum of its calls.
+      // DECISION: round up per call, matching model_call, rather than widen the columns.
+      const cost = new Decimal(usage.costUsd).toDecimalPlaces(4, Decimal.ROUND_UP).toFixed(4);
       return withTenant(db, tenantId, async (tx) => {
         await tx
           .update(stepRun)
           .set({
-            costUsd: sql`${stepRun.costUsd} + ${usage.costUsd}::numeric`,
+            costUsd: sql`${stepRun.costUsd} + ${cost}::numeric`,
             tokensIn: sql`${stepRun.tokensIn} + ${usage.tokensIn}`,
             tokensOut: sql`${stepRun.tokensOut} + ${usage.tokensOut}`,
           })
           .where(and(eq(stepRun.id, ids.stepRunId), eq(stepRun.tenantId, tenantId)));
         await tx
           .update(run)
-          .set({ costUsd: sql`${run.costUsd} + ${usage.costUsd}::numeric` })
+          .set({ costUsd: sql`${run.costUsd} + ${cost}::numeric` })
           .where(and(eq(run.id, ids.runId), eq(run.tenantId, tenantId)));
       });
     },
