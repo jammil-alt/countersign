@@ -4,8 +4,16 @@
 // matches. Then the model's proposals and a person's decisions on the card, the residual worked
 // out again after each, and the sign-off, only when explained.
 
-import { CurrencyCode, DECIMAL_RE, dec, isoToday, once, toNumeric } from "@countersign/core";
-import { type Tx, tenant } from "@countersign/db";
+import {
+  BANK_TO_LEDGER,
+  CurrencyCode,
+  DECIMAL_RE,
+  dec,
+  isoToday,
+  once,
+  toNumeric,
+} from "@countersign/core";
+import { liveMatchRules, type Tx, tenant } from "@countersign/db";
 import { and, asc, desc, eq, gt, inArray, lte, notInArray, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import { PackRefusal } from "../pack";
@@ -459,7 +467,9 @@ export async function runReconciliation(
       (c.side === "a" ? a.side : b.side).items.push(item);
     }
   }
-  const result = reconcile(a.side, b.side, settings, asOf);
+  // §1.215: the client's saved corrections for bank lines to the ledger.
+  const rules = await liveMatchRules(tx, who.tenantId, BANK_TO_LEDGER.id);
+  const result = reconcile(a.side, b.side, settings, asOf, rules);
   // PLATFORM_QA INPUT-4: every amount kept fits `numeric(14,4)`; a sum or a difference can grow
   // past what each figure given could.
   for (const [what, v] of [
@@ -587,6 +597,8 @@ export async function runReconciliation(
       aItemIds: m.a.map((i) => ids.a[i] as string),
       bItemIds: m.b.map((j) => ids.b[j] as string),
       confidence: "1.000",
+      // The saved rule that made it, when one did (§1.215).
+      reason: m.rule.startsWith("client_rule:") ? `Saved rule ${m.rule.slice(12)}` : null,
       agentVersionId: who.agentVersionId,
       decidedAt: new Date(),
     });
