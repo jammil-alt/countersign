@@ -1765,6 +1765,37 @@ export const savedView = pgTable(
   ],
 );
 
+/**
+ * R6 (docs/plan.md §1.236): a client person's named filters for the portal's runs list. `filters`
+ * is core's `RunFilter` (the portal's keys only). A view is its owner's; a client admin may share
+ * one with the client's team. Tenant table (RLS on `app.tenant_ids`); the routes pick the person's
+ * own rows, or the shared ones, by `user_id` and `shared`. Changed in place and deleted (not
+ * history).
+ */
+export const portalView = pgTable(
+  "portal_view",
+  {
+    id: id(),
+    tenantId: tenantId(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => appUser.id),
+    name: text("name").notNull(),
+    filters: json("filters").notNull().default({}),
+    shared: boolean("shared").notNull().default(false),
+    createdAt: createdAt(),
+    updatedAt: ts("updated_at")
+      .notNull()
+      .defaultNow()
+      .$onUpdate(() => new Date()),
+  },
+  (t) => [
+    unique("portal_view_name_key").on(t.tenantId, t.userId, t.name),
+    index("portal_view_shared_idx").on(t.tenantId).where(sql`${t.shared}`),
+    check("portal_view_name_check", sql`length(trim(${t.name})) between 1 and 80`),
+  ],
+);
+
 export const toolCall = pgTable(
   "tool_call",
   {
@@ -6743,6 +6774,8 @@ export const TENANT_TABLES = [
   "metered_usage",
   // §1.215 (0085): a client's saved match rules.
   "match_rule",
+  // §1.236 (0098): a client's saved views of the portal's runs list.
+  "portal_view",
   // 0057: area owners and their versions (ARCHITECTURE v0.19 §10.15).
   "area_owner",
   "area_owner_version",

@@ -81,6 +81,8 @@ export * from "./api/hours";
 export * from "./api/intake";
 // §1.164: the builder's sample-file check for a Read table step.
 export * from "./api/intake-reports";
+// docs/plan.md §1.217: the process interview
+export * from "./api/interviews";
 export * from "./api/invite";
 export * from "./api/knowledge";
 export * from "./api/language";
@@ -106,6 +108,7 @@ export * from "./api/owners";
 export * from "./api/packs";
 export * from "./api/people";
 export * from "./api/phone-approval";
+export * from "./api/portal-views";
 // The skill model (owner, 2026-11-10)
 export * from "./api/prompt-preview";
 export * from "./api/qbo";
@@ -138,6 +141,8 @@ export * from "./api/skill-model";
 export * from "./api/slack";
 // §1.150
 export * from "./api/sloan-reach";
+// docs/plan.md §1.218: SOC 2 readiness and the access review's record (served beside the registry).
+export * from "./api/soc2";
 export * from "./api/sop";
 export * from "./api/step-code-request";
 export * from "./api/step-data";
@@ -211,6 +216,7 @@ export * from "./codes/service";
 export * from "./compliance/card-numbers";
 export * from "./compliance/controls";
 export * from "./compliance/processors";
+export * from "./compliance/soc2";
 // P-4: conversations with people
 export * from "./converse";
 export * from "./desk/item";
@@ -270,6 +276,8 @@ export * from "./i18n/timeline";
 export * from "./i18n/weekly";
 export * from "./i18n/work-statement";
 export * from "./ids";
+// docs/plan.md §1.217: the process interview
+export * from "./interview";
 export * from "./json";
 // v0.12 W2-G: agent KPIs
 export * from "./kpi/format";

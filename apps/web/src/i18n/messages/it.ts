@@ -2059,6 +2059,16 @@ export const it: Messages = {
   "runsPage.ask.send": "Chiedi",
   "runsPage.ask.asking": "Ricerca…",
   "runsPage.ask.clear": "Cancella",
+  "runsPage.views.label": "Viste salvate",
+  "runsPage.views.save": "Salva questa vista",
+  "runsPage.views.name": "Nome della vista",
+  "runsPage.views.namePlaceholder": "Dai un nome a questa vista",
+  "runsPage.views.share": "Condividi con il tuo team",
+  "runsPage.views.shareShort": "Condividi",
+  "runsPage.views.stopSharing": "Non condividere più",
+  "runsPage.views.shared": "Condivisa",
+  "runsPage.views.by": "Condivisa da {name}",
+  "runsPage.views.delete": "Elimina la vista {name}",
   "runsPage.ask.unclear":
     "Non siamo riusciti a farne un filtro. Prova a indicare un agente, uno stato o una data.",
   "runsPage.ask.leftOut": "Fuori da questo filtro: {parts}",
@@ -2544,6 +2554,84 @@ export const it: Messages = {
   "workflow.card.ifFails": "Se non riesce", // fluent review
   "workflow.card.inSop": "Passaggio {step} nella SOP", // fluent review
   "workflow.close": "Chiudi", // fluent review
+  // ── The workflow chart (shared with the builder) ──
+  "flow.zoomOut": "Riduci", // fluent review
+  "flow.zoomReset": "Torna al 100%", // fluent review
+  "flow.zoomIn": "Ingrandisci", // fluent review
+  "flow.fit": "Adatta", // fluent review
+  "flow.key": "Legenda", // fluent review
+  "flow.keyLabel": "Cosa vogliono dire i simboli", // fluent review
+  "flow.dragHint": "Trascina lo sfondo per spostarti", // fluent review
+  "flow.otherwise": "Altrimenti", // fluent review
+  "flow.path": "Percorso {letter}", // fluent review
+  "flow.forEach": "Una volta per ogni elemento", // fluent review
+  "flow.repeat": "Di nuovo fino alla fine", // fluent review
+  "flow.repeatUpTo": {
+    one: "Di nuovo fino alla fine · fino a {count} volta",
+    other: "Di nuovo fino alla fine · fino a {count} volte",
+  }, // fluent review
+  "flow.stop": "Fine", // fluent review
+  "flow.neverRuns": "Non viene mai eseguito", // fluent review
+  "flow.neverRuns.why": "Tutti i percorsi sopra finiscono prima.", // fluent review
+  "flow.fold": "Comprimi in un solo riquadro", // fluent review
+  "flow.unfold": {
+    one: "Mostra il passaggio all’interno",
+    other: "Mostra i {count} passaggi all’interno",
+  }, // fluent review
+  "flow.more": "e altri {count}", // fluent review
+  "flow.whyHere": "Perché è qui: {purpose}", // fluent review
+  "flow.runsOn": "funziona con {model}", // fluent review
+  "flow.runsOnTitle": "Funziona con {model}", // fluent review
+  "flow.ai": "IA", // fluent review
+  "flow.doer.person": "persona", // fluent review
+  "flow.doer.personTitle": "Lo fa una persona", // fluent review
+  "flow.doer.code": "codice", // fluent review
+  "flow.doer.codeTitle": "Funziona come codice, senza modello", // fluent review
+  "flow.badge.aiSkill": "Abilità IA", // fluent review
+  "flow.badge.rulesSkill": "Abilità a regole", // fluent review
+  "flow.mark.read": "Legge", // fluent review
+  "flow.mark.write": "Salva nei nostri archivi", // fluent review
+  "flow.mark.person": "Lo fa una persona", // fluent review
+  "flow.mark.conversation": "Una conversazione con una persona", // fluent review
+  "flow.mark.notify": "Avvisa qualcuno", // fluent review
+  "flow.mark.wait": "Attende", // fluent review
+  "flow.mark.forEach": "Si ripete per ogni elemento", // fluent review
+  "flow.mark.repeat": "Si ripete fino alla fine", // fluent review
+  "flow.mark.process": "Un’automazione: passaggi salvati", // fluent review
+  "flow.mark.handoff": "Passa il lavoro a un altro agente", // fluent review
+  "flow.mark.missing": "Non ancora creato", // fluent review
+  "flow.mark.readsFrom": "Legge da {name}", // fluent review
+  "flow.mark.readsFromAi": "Legge da {name}, con un modello", // fluent review
+  "flow.mark.changes": "Modifica {name}", // fluent review
+  "flow.mark.changesAi": "Modifica {name}, con un modello", // fluent review
+  "flow.mark.handoffTo": "Passa il lavoro a {name}", // fluent review
+  "flow.mark.aiSkill": "Un’abilità svolta da un modello", // fluent review
+  "flow.mark.rulesSkill": "Un’abilità che funziona con regole", // fluent review
+  "flow.mark.ai": "Lo fa un modello", // fluent review
+  "flow.key.connector": "Legge o modifica uno strumento collegato", // fluent review
+  "flow.key.ai": "Lo fa un modello", // fluent review
+  "flow.key.rules": "Funziona con regole, senza modello", // fluent review
+  "flow.channel.inbox": "La posta in arrivo", // fluent review
+  "flow.channel.email": "Email", // fluent review
+  "flow.channel.sms": "SMS", // fluent review
+  "flow.channel.call": "Telefonata", // fluent review
+  "flow.does.read": "Legge i record. Non modifica nulla.", // fluent review
+  "flow.does.write": "Modifica o salva un record.", // fluent review
+  "flow.does.skill": "Applica un’abilità a ciò che hanno prodotto i passaggi precedenti.", // fluent review
+  "flow.does.person": "Chiede a una persona e attende la sua risposta.", // fluent review
+  "flow.does.approve": "Chiede a una persona di approvare e attende la sua risposta.", // fluent review
+  "flow.does.ask": "Fa una domanda a una persona e attende la sua risposta.", // fluent review
+  "flow.does.conversation": "Parla con qualcuno finché non raggiunge il suo obiettivo.", // fluent review
+  "flow.does.notify": "Avvisa qualcuno e prosegue.", // fluent review
+  "flow.does.if":
+    "Manda l’esecuzione sul primo percorso la cui regola vale, altrimenti sul percorso Altrimenti.", // fluent review
+  "flow.does.forEach": "Esegue i suoi passaggi una volta per ogni elemento di un elenco.", // fluent review
+  "flow.does.repeat": "Ripete i suoi passaggi finché non sono finiti o raggiunge il limite.", // fluent review
+  "flow.does.wait": "Mette in pausa l’esecuzione per un tempo stabilito.", // fluent review
+  "flow.does.stop": "Termina l’esecuzione qui.", // fluent review
+  "flow.does.process": "Esegue un’automazione: un insieme di passaggi salvato.", // fluent review
+  "flow.does.handoff": "Passa il lavoro a un altro agente, che funziona da solo.", // fluent review
+  "flow.does.missing": "Tiene il posto di un passaggio che nessuno ha ancora creato.", // fluent review
   "manual.whatItDoes": "Cosa fa", // fluent review
   "manual.howItWorks": "Come funziona", // fluent review
   "manual.decisions": "Decisioni", // fluent review

@@ -18,7 +18,12 @@
 // box's left into a badge on its top-left corner, with the kind in words; the model that does the
 // step and what it works through (a connector's logo, a channel) sit at the box's right; and the
 // box's top edge takes the colour of whose work it is (`boxFamily`).
+//
+// The words are in the reader's language (`t`, English by default): the client's chart reads in
+// theirs (docs/sop-plan.md §6a), the back office in English.
 import { ConnectorMark } from "../../connections/ConnectorMark";
+import type { PlainKey, Translate } from "../../i18n/catalog";
+import { EN, useI18n } from "../../i18n/i18n";
 import { AgentBadge } from "../../ui/badges";
 import { Icon, type IconName } from "../../ui/icons";
 import { cx } from "../../ui/primitives";
@@ -34,19 +39,20 @@ export type BoxMarkSpec =
 
 // DECISION: the design system's icons only, each the nearest in its set of 37: no icon is drawn
 // for this. Search reads, the table is our own records, the gear is rules with no model.
-const KIND_ICON: Partial<Record<Step["kind"], { icon: IconName; words: string; person?: true }>> = {
-  read: { icon: "search", words: "Reads" },
-  write: { icon: "table", words: "Saves to our records" },
-  person: { icon: "lead", words: "A person does this", person: true },
-  conversation: { icon: "message", words: "A conversation with a person", person: true },
-  notify: { icon: "notifications", words: "Tells someone" },
-  wait: { icon: "calendar", words: "Waits" },
-  for_each: { icon: "copy", words: "Repeats for each item" },
-  repeat: { icon: "copy", words: "Repeats until it is done" },
-  process: { icon: "worksheet", words: "An automation: saved steps" },
-  handoff: { icon: "arrow", words: "Hands off to another agent" },
-  missing: { icon: "alert", words: "Not built yet" },
-};
+const KIND_ICON: Partial<Record<Step["kind"], { icon: IconName; words: PlainKey; person?: true }>> =
+  {
+    read: { icon: "search", words: "flow.mark.read" },
+    write: { icon: "table", words: "flow.mark.write" },
+    person: { icon: "lead", words: "flow.mark.person", person: true },
+    conversation: { icon: "message", words: "flow.mark.conversation", person: true },
+    notify: { icon: "notifications", words: "flow.mark.notify" },
+    wait: { icon: "calendar", words: "flow.mark.wait" },
+    for_each: { icon: "copy", words: "flow.mark.forEach" },
+    repeat: { icon: "copy", words: "flow.mark.repeat" },
+    process: { icon: "worksheet", words: "flow.mark.process" },
+    handoff: { icon: "arrow", words: "flow.mark.handoff" },
+    missing: { icon: "alert", words: "flow.mark.missing" },
+  };
 
 /**
  * The mark for a step: its connector's when it is on one, "AI" or the gear for a skill, else its
@@ -61,32 +67,37 @@ export function boxMark(
     /** The agent a hand-off goes to, by its name. */
     agent?: { name: string } | undefined;
   } = {},
+  t: Translate = EN.t,
 ): BoxMarkSpec | null {
   if (step.kind === "if" || step.kind === "stop") return null;
   if (known.connector && (step.kind === "read" || step.kind === "write")) {
-    const verb = step.kind === "read" ? "Reads from" : "Changes";
     const ai = known.skillKind === "AI";
+    const name = known.connector.name;
     return {
       type: "connector",
       ...known.connector,
-      words: `${verb} ${known.connector.name}${ai ? ", with a model" : ""}`,
+      words:
+        step.kind === "read"
+          ? t(ai ? "flow.mark.readsFromAi" : "flow.mark.readsFrom", { name })
+          : t(ai ? "flow.mark.changesAi" : "flow.mark.changes", { name }),
       ...(ai ? { ai } : {}),
     };
   }
   if (step.kind === "handoff" && known.agent) {
-    return { type: "agent", name: known.agent.name, words: `Hands off to ${known.agent.name}` };
+    const name = known.agent.name;
+    return { type: "agent", name, words: t("flow.mark.handoffTo", { name }) };
   }
   if (step.kind === "skill") {
     return known.skillKind === "AI"
-      ? { type: "ai", words: "A skill a model does" }
-      : { type: "icon", icon: "settings", person: false, words: "A skill that runs by rules" };
+      ? { type: "ai", words: t("flow.mark.aiSkill") }
+      : { type: "icon", icon: "settings", person: false, words: t("flow.mark.rulesSkill") };
   }
   // A read or a write whose tool calls a model inside says so too.
   if (known.skillKind === "AI" && (step.kind === "read" || step.kind === "write")) {
-    return { type: "ai", words: "A model does this" };
+    return { type: "ai", words: t("flow.mark.ai") };
   }
   const k = KIND_ICON[step.kind];
-  return k ? { type: "icon", icon: k.icon, person: k.person === true, words: k.words } : null;
+  return k ? { type: "icon", icon: k.icon, person: k.person === true, words: t(k.words) } : null;
 }
 
 /**
@@ -131,15 +142,24 @@ export function boxDoer(
     skillKind?: string | undefined;
     noModel?: { word: string; title: string } | undefined;
   } = {},
+  t: Translate = EN.t,
 ): { word: string; title: string; model: boolean } | null {
   if (known.model) {
-    return { word: modelShort(known.model), title: `Runs on ${known.model}`, model: true };
+    const model = known.model;
+    return { word: modelShort(model), title: t("flow.runsOnTitle", { model }), model: true };
   }
-  if (step.kind === "person") return { word: "person", title: "A person does this", model: false };
+  if (step.kind === "person") {
+    return { word: t("flow.doer.person"), title: t("flow.doer.personTitle"), model: false };
+  }
   if (step.kind === "skill" || step.kind === "read" || step.kind === "write") {
     return known.skillKind === "AI"
       ? null
-      : { word: "code", title: "Runs as code, no model", ...known.noModel, model: false };
+      : {
+          word: t("flow.doer.code"),
+          title: t("flow.doer.codeTitle"),
+          ...known.noModel,
+          model: false,
+        };
   }
   return null;
 }
@@ -153,12 +173,13 @@ export interface BoxTool {
   icon?: IconName;
 }
 
-const CHANNEL_TOOL: Record<string, BoxTool> = {
-  inbox: { key: "inbox", name: "The inbox", icon: "desk" },
-  email: { key: "email", name: "Email", icon: "email" },
-  sms: { key: "sms", name: "Text message", icon: "message" },
-  whatsapp: { key: "whatsapp", name: "WhatsApp", connector: "whatsapp_meta" },
-  call: { key: "call", name: "Phone call", icon: "phone" },
+const CHANNEL_TOOL: Record<string, Omit<BoxTool, "name"> & { name: PlainKey | null }> = {
+  inbox: { key: "inbox", name: "flow.channel.inbox", icon: "desk" },
+  email: { key: "email", name: "flow.channel.email", icon: "email" },
+  sms: { key: "sms", name: "flow.channel.sms", icon: "message" },
+  // A name, the same in every language.
+  whatsapp: { key: "whatsapp", name: null, connector: "whatsapp_meta" },
+  call: { key: "call", name: "flow.channel.call", icon: "phone" },
 };
 
 /**
@@ -168,13 +189,14 @@ const CHANNEL_TOOL: Record<string, BoxTool> = {
 export function boxTools(
   step: Step,
   known: { connector?: { id: string; name: string } | undefined } = {},
+  t: Translate = EN.t,
 ): BoxTool[] {
   if ((step.kind === "read" || step.kind === "write") && known.connector) {
     return [{ key: known.connector.id, name: known.connector.name, connector: known.connector.id }];
   }
   if (step.kind === "conversation" || step.kind === "person") {
     const tool = CHANNEL_TOOL[step.channel];
-    return tool ? [tool] : [];
+    return tool ? [{ ...tool, name: tool.name ? t(tool.name) : "WhatsApp" }] : [];
   }
   return [];
 }
@@ -187,9 +209,12 @@ export function boxTools(
 export function badgeWord(
   step: Step,
   known: { kind: string; skillKind?: string | undefined },
+  t: Translate = EN.t,
 ): string {
   if (step.kind === "write") return known.kind.split(" ")[0] ?? known.kind;
-  if (step.kind === "skill") return known.skillKind === "AI" ? "AI skill" : "Rules skill";
+  if (step.kind === "skill") {
+    return t(known.skillKind === "AI" ? "flow.badge.aiSkill" : "flow.badge.rulesSkill");
+  }
   return known.kind;
 }
 
@@ -208,6 +233,7 @@ export function BoxMark({
   /** `tile`: the key's 24px tile. `badge`: in a box's corner badge. `tool`: at a box's right. */
   size?: "tile" | "badge" | "tool";
 }) {
+  const { t } = useI18n();
   const sized = size === "tile" ? null : `flow-box__mark--${size}`;
   if (mark.type === "connector") {
     return (
@@ -219,7 +245,7 @@ export function BoxMark({
         data-connector={mark.id}
       >
         <ConnectorMark name={mark.name} connector={mark.id} size="xs" />
-        {mark.ai ? <i className="flow-box__mark-ai">AI</i> : null}
+        {mark.ai ? <i className="flow-box__mark-ai">{t("flow.ai")}</i> : null}
       </span>
     );
   }
@@ -247,7 +273,7 @@ export function BoxMark({
       data-testid={testId}
       data-mark={mark.type === "ai" ? "ai" : mark.icon}
     >
-      {mark.type === "ai" ? "AI" : <Icon name={mark.icon} size={14} />}
+      {mark.type === "ai" ? t("flow.ai") : <Icon name={mark.icon} size={14} />}
     </span>
   );
 }
@@ -263,7 +289,7 @@ export interface KeyLine {
  * The key for a chart: one line per kind of mark on it, in the order they first appear. Every
  * connector's logo is one line ("A connected tool"), shown with the first one's mark.
  */
-export function chartKey(marks: readonly BoxMarkSpec[]): KeyLine[] {
+export function chartKey(marks: readonly BoxMarkSpec[], t: Translate = EN.t): KeyLine[] {
   const lines = new Map<string, KeyLine>();
   for (const m of marks) {
     const key =
@@ -274,13 +300,13 @@ export function chartKey(marks: readonly BoxMarkSpec[]): KeyLine[] {
       mark: m,
       words:
         m.type === "connector"
-          ? "Reads from or changes a connected tool"
+          ? t("flow.key.connector")
           : m.type === "agent"
-            ? "Hands off to another agent"
+            ? t("flow.mark.handoff")
             : m.type === "ai"
-              ? "A model does it"
+              ? t("flow.key.ai")
               : m.icon === "settings"
-                ? "Runs by rules, no model"
+                ? t("flow.key.rules")
                 : m.words,
     });
   }
