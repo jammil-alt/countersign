@@ -18,6 +18,7 @@ import {
 import { and, asc, desc, eq } from "drizzle-orm";
 import type { Hono } from "hono";
 import { type AppEnv, ensureClient, iso, mount, notFound } from "../http";
+import { recordRuns } from "../runs/record-runs";
 import { documentDetail, recentDocuments } from "./documents";
 import { isSandbox } from "./ops-clients";
 import { listRecords } from "./record-list";
@@ -186,6 +187,32 @@ export function recordRouteHandlers(app: Hono<AppEnv>): void {
     const record = await findRecord(ctx.tx, ctx.params.id, ctx.params.recordId);
     if (!record) throw notFound("record");
     return { record };
+  });
+
+  // R3 (docs/plan.md §1.194): the runs about a record. The portal: its live runs, the rows its
+  // timeline shows, and a limited person's agents only.
+  mount(
+    app,
+    routes.portalRecordRuns,
+    async ({ tx, tenantIds, params, query, services, agents }) => ({
+      runs: await recordRuns(tx, tenantIds[0] as string, params.id, {
+        surface: "portal",
+        platform: services.platform,
+        agents,
+        limit: query.limit,
+      }),
+    }),
+  );
+
+  mount(app, routes.opsClientRecordRuns, async (ctx) => {
+    ensureClient(ctx, ctx.params.id);
+    return {
+      runs: await recordRuns(ctx.tx, ctx.params.id, ctx.params.recordId, {
+        surface: "ops",
+        platform: ctx.services.platform,
+        limit: ctx.query.limit,
+      }),
+    };
   });
 
   // v0.12 W1-H: the portal's list of the client's own records (docs/plan.md §1.43): the back

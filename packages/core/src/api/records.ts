@@ -1,8 +1,11 @@
 import { z } from "zod";
 import { isUuid } from "../ids";
 import { isPlainObject } from "../json";
+import { RunSubjectRole } from "../schemas/tool-about";
 import { defineRoute } from "./contract";
 import { DocumentDetail, DocumentSummary } from "./documents";
+import { RunSubject } from "./run-subject";
+import { RunStatusSchema } from "./runs-filter";
 
 // Record pages (docs/plan.md §1.16): what a source id (invariant 10) names, in both surfaces, and
 // the back office's view of a client's documents and records. Alerts, step outputs and messages cite
@@ -276,6 +279,47 @@ export const PortalRecordListQuery = z.object({
   limit: z.coerce.number().int().min(1).max(200).optional(),
 });
 
+/**
+ * R3: what one run did with a record (docs/plan.md §1.194): its role, the client's tool for a
+ * change ("changed in QuickBooks") and the line of the step that did it. The portal reads only
+ * the rows its timeline shows.
+ */
+export const RecordRunRole = z.object({
+  role: RunSubjectRole,
+  /** The client's tool a change was made in (a connector id), when there is one. */
+  connector: z.string().nullable(),
+  /** The step's plain line, as the run's timeline shows it; null for what started the run. */
+  summary: z.string().nullable(),
+});
+export type RecordRunRole = z.infer<typeof RecordRunRole>;
+
+/** One run about a record, as both surfaces list it. */
+export const RecordRun = z.object({
+  id: z.string(),
+  service: z.object({ id: z.string(), name: z.string() }),
+  status: RunStatusSchema,
+  /** The back office only: a test run is listed too. */
+  mode: z.enum(["live", "test"]).optional(),
+  startedAt: z.string().nullable(),
+  finishedAt: z.string().nullable(),
+  /** The portal only: the run waits on someone of the client now. */
+  waitingOnYou: z.boolean().optional(),
+  /** What the run is about, for its title (RunSubject). */
+  subject: RunSubject.optional(),
+  /** What it did with this record, in the order it did it. */
+  roles: z.array(RecordRunRole),
+});
+export type RecordRun = z.infer<typeof RecordRun>;
+
+export const RECORD_RUNS_LIMIT = 20;
+
+export const RecordRunsQuery = z.object({
+  limit: z.coerce.number().int().min(1).max(50).optional(),
+});
+
+export const RecordRuns = z.object({ runs: z.array(RecordRun) });
+export type RecordRuns = z.infer<typeof RecordRuns>;
+
 export const recordRoutes = {
   // v0.12 W1-H: the portal's records list (docs/plan.md §1.43).
   portalRecords: defineRoute({
@@ -305,6 +349,29 @@ export const recordRoutes = {
     summary: "A client's record, by the id a run or message cites: its kind, fields and source",
     params: z.object({ id: Id, recordId: Id }),
     response: z.object({ record: RecordView }),
+  }),
+  // R3 (docs/reporting-plan.md §3, docs/plan.md §1.194): from a record to its runs.
+  portalRecordRuns: defineRoute({
+    method: "GET",
+    path: "/api/records/:id/runs",
+    auth: "session",
+    roles: CLIENT,
+    summary:
+      "The runs about one of your records, newest first: what each did with it and the step's line, as your timeline shows them",
+    params: z.object({ id: Id }),
+    query: RecordRunsQuery,
+    response: RecordRuns,
+  }),
+  opsClientRecordRuns: defineRoute({
+    method: "GET",
+    path: "/api/ops/clients/:id/records/:recordId/runs",
+    auth: "session",
+    roles: OPS,
+    summary:
+      "The runs about a client's record, newest first, test runs included: what each did with it and the step's line",
+    params: z.object({ id: Id, recordId: Id }),
+    query: RecordRunsQuery,
+    response: RecordRuns,
   }),
   opsClientRecords: defineRoute({
     method: "GET",
