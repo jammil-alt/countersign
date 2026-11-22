@@ -51,6 +51,11 @@ const EMPTY_GUIDE: Guide = {
   totals: { known: 0, toConfirm: 0, toAsk: 0, later: 0, tools: 0, minutes: 0 },
 };
 
+/** A guide with nothing in it (Just the account's welcome, §1.220). */
+export function emptyGuide(): Guide {
+  return structuredClone(EMPTY_GUIDE);
+}
+
 /** The stored guide; an unreadable one is empty (nothing asked), never a failure. */
 export function guideOf(row: Pick<IntakeRow, "guide">): Guide {
   const parsed = GuideSchema.safeParse(row.guide);

@@ -2288,6 +2288,7 @@ export const ptBR: Messages = {
   "home.weekly.ready": "Seu responsável enviou o resumo desta semana.",
   "agent.tab.overview": "Visão geral",
   "agent.tab.runs": "Execuções",
+  "agent.tab.report": "Relatório",
   "agent.tab.settings": "Configurações do agente",
   // B3: the agent manual (docs/builder-plan.md §5)
   "agent.tab.manual": "Manual", // fluent review

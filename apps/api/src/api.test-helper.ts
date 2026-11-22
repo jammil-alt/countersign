@@ -297,11 +297,21 @@ export async function createApiHarness(options: HarnessOptions = {}): Promise<Ap
     return body;
   };
   const pending: Promise<unknown>[] = [];
-  const executionCtx = {
-    waitUntil: (p: Promise<unknown>) => void pending.push(p),
-    passThroughOnException: () => {},
-    props: {},
-  };
+  // DECISION: every request through the harness's app has its after-the-response work (event
+  // dispatch, a document's reading, closing the request's database) kept in `pending`, whatever
+  // execution context the test passed, or none (docs/plan.md §1.209). A test that passed its own
+  // still gets the promises too. Without this, work handed to a discarded `waitUntil` ran on its
+  // own: it raced what the test did next, and `close()` ended the pool under it.
+  const request = app.request;
+  app.request = (input, init, requestEnv, ctx) =>
+    request(input, init, requestEnv, {
+      waitUntil: (p: Promise<unknown>) => {
+        pending.push(p);
+        ctx?.waitUntil(p);
+      },
+      passThroughOnException: () => ctx?.passThroughOnException(),
+      props: ctx?.props ?? {},
+    } as ExecutionContext);
   return {
     t,
     db,
@@ -343,7 +353,6 @@ export async function createApiHarness(options: HarnessOptions = {}): Promise<Ap
             : { body: typeof body === "string" ? body : JSON.stringify(body) }),
         },
         env,
-        executionCtx as unknown as ExecutionContext,
       );
       const text = await res.text();
       let json: unknown = null;
@@ -355,7 +364,8 @@ export async function createApiHarness(options: HarnessOptions = {}): Promise<Ap
       return { status: res.status, json, headers: res.headers };
     },
     async close() {
-      await Promise.all(pending);
+      // Work still running after the response is awaited first: the pools end only after it.
+      while (pending.length > 0) await Promise.allSettled(pending.splice(0));
       if (appDb !== db) await appDb.$client.end();
       await db.$client.end();
       await t.drop();

@@ -2301,6 +2301,7 @@ export const it: Messages = {
   "home.weekly.ready": "Il tuo referente ha inviato il riepilogo della settimana.",
   "agent.tab.overview": "Panoramica",
   "agent.tab.runs": "Esecuzioni",
+  "agent.tab.report": "Report",
   "agent.tab.settings": "Impostazioni dell’agente",
   // B3: the agent manual (docs/builder-plan.md §5)
   "agent.tab.manual": "Manuale", // fluent review

@@ -56,6 +56,7 @@ import { a2pRoutes } from "./routes/a2p";
 import { accessRoutes } from "./routes/access";
 // v0.12 W2-D: Sloan, the account agent
 import { accountRoutes } from "./routes/account";
+import { agentReportRouteHandlers } from "./routes/agent-report";
 import { approverRuleRoutes } from "./routes/approver-rules";
 import { assistDraftRoutes } from "./routes/assist";
 import { assuranceEnv, assuranceRouteHandlers } from "./routes/assurance";
@@ -114,6 +115,7 @@ import { libraryRoutes } from "./routes/library";
 import { lifecycleRoutes } from "./routes/lifecycle";
 // docs/builder-plan.md §5 (B3): the agent manual
 import { manualRouteHandlers } from "./routes/manual";
+import { matchRuleRoutes } from "./routes/match-rules";
 import { messagingSetupRoutes } from "./routes/messaging-setup";
 // §1.116: the phone app
 import { mobileRoutes, mobileSession } from "./routes/mobile";
@@ -156,6 +158,7 @@ import { recordRouteHandlers } from "./routes/records";
 import { reggieRoutes } from "./routes/reggie";
 import { releaseRoutes } from "./routes/release";
 import { requestRouteHandlers } from "./routes/requests";
+import { resendHookRoutes } from "./routes/resend-hooks";
 import { runAuditRouteHandlers } from "./routes/run-audit";
 import { runControlRoutes } from "./routes/run-controls";
 import {
@@ -321,8 +324,12 @@ export function createApp(deps: AppDeps = defaultDeps): Hono<AppEnv> {
   requestRouteHandlers(app);
   languageRouteHandlers(app);
   usageRouteHandlers(app);
+  // R4 (docs/plan.md §1.214): the report per agent, both surfaces.
+  agentReportRouteHandlers(app);
   recordRouteHandlers(app);
   approverRuleRoutes(app);
+  // §1.215: a client's saved match rules.
+  matchRuleRoutes(app);
   // Round 4 D (docs/plan.md §1.211)
   evidenceRouteHandlers(app);
   contactRoutes(app);
@@ -348,6 +355,8 @@ export function createApp(deps: AppDeps = defaultDeps): Hono<AppEnv> {
   inviteRoutes(app);
   intakeRoutes(app);
   welcomeRoutes(app);
+  // §1.220: onboarding emails delivered or bounced, from Resend's webhook
+  resendHookRoutes(app);
   // docs/plan.md §1.109: voice typing
   voiceRoutes(app);
   // docs/plan.md §1.168: Draft for long text fields

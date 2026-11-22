@@ -61,6 +61,14 @@ import {
   welcomeLinkUrl,
 } from "./link";
 
+/**
+ * §1.220: the Resend tags an onboarding email carries, so Resend's webhook finds the client and the
+ * outbox row a delivered or bounced event is about (`../routes/resend-hooks.ts`). Ids only: nothing
+ * of the client's goes in a tag.
+ */
+export const ONBOARDING_TAG_TENANT = "mz_tenant";
+export const ONBOARDING_TAG_NOTIFICATION = "mz_notification";
+
 export type OnboardingEmailKind = "invite" | "colleague" | "more_questions";
 
 /** The notification kind each email is written as (packages/db ONBOARDING_NOTIFICATION_KINDS). */
@@ -468,6 +476,7 @@ export async function prepareOnboardingEmail(
       html: rendered.html,
       from: { name: lead.name, localPart: HELLO_LOCAL_PART },
       ...(lead.email ? { replyTo: lead.email } : {}),
+      tags: { [ONBOARDING_TAG_TENANT]: t.id, [ONBOARDING_TAG_NOTIFICATION]: row.id },
     },
   };
 }
@@ -587,6 +596,8 @@ const UNSENT_WHY: Record<string, string> = {
   not_configured: "Email isn't set up here.",
   no_link_key: "Welcome links can't be signed here (no ENCRYPTION_KEY).",
   failed: "Our email service didn't take it after several tries.",
+  // §1.220: Resend's webhook said it came back.
+  bounced: "It bounced: the address may be wrong, or their mail server refused it.",
 };
 
 const UNSENT_WORDS: Record<OnboardingEmailKind, string> = {

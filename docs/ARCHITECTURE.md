@@ -3926,6 +3926,33 @@ and 7 only: an alias (with no vendor, every vendor's description alias when they
 one candidate equal on every key attribute. Anything else keeps its candidates for a person; no model
 adjudicates it. Only the bill backfill creates new items (step 6's rule).
 
+### 12.3a The matching engine (Wave X item X1, owner 2026-11-22; plan §1.215)
+
+One reconciliation service for any two lists of items, generalised from the three matchers that
+came first (§12.3's item matching, Sales' match to CRM, Bookkeeping's reconciliation). It lives in
+the platform (`packages/core/src/matching`, pure: no database, no model client); packs call it
+with a **configuration**, and the platform never names a pack.
+
+- **Tiers**, in invariant 7's order: (1) the client's **saved rules**; (2) the configuration's
+  **deterministic** rules in its order (`reference`, `reference_group`, `counterparty_amount`,
+  `amount_date`, `group`, `partial`: exact and tolerance on amount, a date window, reference,
+  counterparty); (3) **fuzzy** (names, dates, amounts; one sure candidate each way); (4) the
+  **model**, only for what is left, given by the caller as a function and held to the same hard
+  rules; then a person.
+- **Hard rules** veto a pair whatever else agrees: an amount beyond the tolerance (unless the
+  configuration allows a partial match), dates outside the window, two references both stated that
+  differ (where the configuration says), two currencies.
+- **Match types**: 1:1, 1:many, many:1 and partial. **Every result states its tier and the rule**
+  that made it (a rule's name, `similar`, `model`, or `client_rule:<id>`).
+- **Saved rules** (`match_rule`, migration 0085): an operator's correction kept for one client and
+  one configuration (on side A, a reference or counterparty that is side B's value). Tenant RLS,
+  retired never deleted, back office only (`/api/ops/clients/:id/match-rules`). A rule makes two
+  keys equal; it never loosens an amount, a window or a currency.
+- **Configurations**: `bank_to_ledger` (Bookkeeping's reconciliation, §1.80, deterministic only)
+  and `invoice_two_systems` (one invoice in the client's books and another party's system: the
+  ROMCO case). Materials' item keys run as a pack scorer in the fuzzy tier; Sales' rule decision is
+  the engine's `decideRanked`. The goldens (`fixtures/matching`, ≥ 95% precision on "same") hold.
+
 ### 12.4 Pricing and alerts
 
 - `materials.prices.record`: `unit_price_std = unit_price / conversion(uom_raw → standard_uom)`; freight
