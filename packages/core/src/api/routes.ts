@@ -63,6 +63,8 @@ import { feedbackRoutes } from "./feedback";
 // docs/plan.md §1.121: forms, "Request info"
 import { formRoutes } from "./forms";
 import { gchatRoutes } from "./gchat";
+// v0.12 W1-A: go-live stages and client controls
+import { gettingStartedRoutes } from "./getting-started";
 // v0.14 W4-D: Google Sheets' picking
 import { gsheetsRoutes } from "./gsheets";
 // R4: business hours, person hours and channels
@@ -72,7 +74,6 @@ import { languageRoutes, SessionLanguage } from "./language";
 import { ledgerRoutes } from "./ledger";
 // R8: the Library's banks
 import { libraryRoutes } from "./library";
-// v0.12 W1-A: go-live stages and client controls
 import { GoLive, lifecycleRoutes } from "./lifecycle";
 import { messagingRoutes } from "./messaging";
 // §1.116: the phone app
@@ -2498,6 +2499,8 @@ export const routes = {
   ...runControlRoutes,
   // v0.12 W1-A: go-live stages and client controls
   ...lifecycleRoutes,
+  // docs/setup-plan.md (§1.185)
+  ...gettingStartedRoutes,
   // v0.12 W1-B: notifications, the Table and the Weekly Table
   ...notifyRoutes,
   // §1.116: the phone app

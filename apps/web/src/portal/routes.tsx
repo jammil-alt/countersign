@@ -42,6 +42,19 @@ const RequirementsScreen = lazy(() =>
 const GettingStartedScreen = lazy(() =>
   import("./screens/GettingStarted").then((m) => ({ default: m.GettingStartedScreen })),
 );
+// docs/setup-plan.md (§1.185): Getting started's chapters.
+const ToolsChapterScreen = lazy(() =>
+  import("./screens/setup/ToolsChapter").then((m) => ({ default: m.ToolsChapterScreen })),
+);
+const PeopleChapterScreen = lazy(() =>
+  import("./screens/setup/PeopleChapter").then((m) => ({ default: m.PeopleChapterScreen })),
+);
+const SeeChapterScreen = lazy(() =>
+  import("./screens/setup/SeeChapter").then((m) => ({ default: m.SeeChapterScreen })),
+);
+const LiveChapterScreen = lazy(() =>
+  import("./screens/setup/LiveChapter").then((m) => ({ default: m.LiveChapterScreen })),
+);
 // Staging CI (2026-11-19): Knowledge (with the charter and policy tags, docs/builder-plan.md §8)
 // loads when opened, so the first load stays in its budget (docs/plan.md §1.146).
 const PortalKnowledgeScreen = lazy(() =>
@@ -126,6 +139,55 @@ export const portalRoutes = (
       element={
         <OnDemand>
           <GettingStartedScreen />
+        </OnDemand>
+      }
+    />
+    {/* docs/setup-plan.md (§1.185): its chapters */}
+    <Route
+      path="getting-started/tools"
+      element={
+        <OnDemand>
+          <ToolsChapterScreen />
+        </OnDemand>
+      }
+    />
+    <Route
+      path="getting-started/people"
+      element={
+        <OnDemand>
+          <PeopleChapterScreen />
+        </OnDemand>
+      }
+    />
+    <Route
+      path="getting-started/see"
+      element={
+        <OnDemand>
+          <SeeChapterScreen />
+        </OnDemand>
+      }
+    />
+    <Route
+      path="getting-started/see/:agentId"
+      element={
+        <OnDemand>
+          <SeeChapterScreen />
+        </OnDemand>
+      }
+    />
+    <Route
+      path="getting-started/live"
+      element={
+        <OnDemand>
+          <LiveChapterScreen />
+        </OnDemand>
+      }
+    />
+    <Route
+      path="getting-started/live/:agentId"
+      element={
+        <OnDemand>
+          <LiveChapterScreen />
         </OnDemand>
       }
     />

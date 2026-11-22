@@ -3895,4 +3895,79 @@ export const de: Messages = {
   "connectors.notice.undo": "Auf der Seite von {tool} rückgängig machen oder ändern",
   "agent.reachReady": "Bereit",
   "agent.reachNeeds": "Braucht etwas",
+
+  // ── setup: people ── Getting started: chapters and Your people (SU2)
+  "setup.trial.title": "Vor der Testphase jedes Agenten",
+  "setup.trial.hint": "Was noch fehlt und auf wen es wartet",
+  "setup.left": { one: "1 offen", other: "{count} offen" },
+  "setup.ready": "Bereit für die Testphase",
+  "setup.who.you": "Sie",
+  "setup.minutes": {
+    one: "Noch etwa eine Minute. Sie können jederzeit aufhören und hier weitermachen.",
+    other: "Noch etwa {count} Minuten. Sie können jederzeit aufhören und hier weitermachen.",
+  },
+  "setup.chapters": "Kapitel",
+  "setup.chapters.hint": "In beliebiger Reihenfolge",
+  "setup.chapter.business": "Ihr Unternehmen",
+  "setup.chapter.tools": "Ihre Tools",
+  "setup.chapter.people": "Ihre Leute",
+  "setup.chapter.see": "So arbeitet es",
+  "setup.chapter.live": "Live gehen",
+  "setup.chapter.business.about": "Die Fragen dazu, wie Sie arbeiten, und die jedes Agenten.",
+  "setup.chapter.tools.about":
+    "Verbinden Sie die Tools, in denen die Agenten arbeiten. Sie melden sich auf der Seite des jeweiligen Tools an.",
+  "setup.chapter.people.about": "Wer genehmigt, wer antwortet und wer informiert wird.",
+  "setup.chapter.see.about":
+    "Lesen Sie jeden Schritt mit Ihren eigenen Namen und probieren Sie es dann an etwas Echtem aus.",
+  "setup.chapter.live.about":
+    "Unterschreiben Sie Ihren Umfang. Dann folgt eine zweiwöchige Testphase, in der Sie jede Änderung unterschreiben.",
+  "setup.state.done": "Erledigt",
+  "setup.state.open": "{done} von {total}",
+  "setup.state.notStarted": "Nicht begonnen",
+  "setup.state.notNeeded": "Nichts zu tun",
+  "setup.frame.eyebrow": "Kapitel {n} von 5",
+  "setup.frame.back": "Zurück zu Erste Schritte",
+  "setup.frame.next": "Weiter: {chapter}",
+  "setup.notBuilt": "Dieses Kapitel kommt bald",
+  "setup.notBuiltBody": "Bis dahin führt Ihr Ansprechpartner Sie durch.",
+  "setup.people.intro":
+    "Wir haben eingetragen, was Sie uns gesagt haben; prüfen Sie jeden Eintrag. Genehmigungen bleiben an: Hier geht es darum, wer unterschreibt, nicht ob.",
+  "setup.people.kind.signs": "Unterschreibt",
+  "setup.people.kind.answers": "Antwortet",
+  "setup.people.kind.told": "Wird informiert",
+  "setup.people.kind.reached": "Wird kontaktiert",
+  "setup.people.checked": "Geprüft",
+  "setup.people.toCheck": "Zu prüfen",
+  "setup.people.weThink": "Wir denken: {names}, nach Ihrer Antwort „{from}“.",
+  "setup.people.yes": "Ja",
+  "setup.people.change": "Ändern",
+  "setup.people.backup": "Bei Abwesenheit",
+  "setup.people.add": "Jemanden hinzufügen",
+  "setup.people.addBackup": "Vertretung hinzufügen",
+  "setup.people.remove": "{name} entfernen",
+  "setup.people.choose": "Jemanden wählen",
+  "setup.people.signsIn": "Meldet sich an",
+  "setup.people.notJoined": "Eingeladen, noch nicht angemeldet",
+  "setup.people.viewer": "Nur Lesezugriff",
+  "setup.people.byEmail": "Per E-Mail informiert",
+  "setup.people.you": "Sie",
+  "setup.people.nobody": "Noch niemand. Bis Sie wählen, geht es an Ihren Administrator.",
+  "setup.people.inviteNew": "Jemand Neues? Laden Sie die Person zuerst unter Team ein.",
+  "setup.people.adminOnly": "Ihr Administrator besetzt diese Rollen.",
+  "setup.people.matrix": "Sehen Sie in der Arbeitsanweisung von {agent}, wer was macht",
+  "setup.people.looksRight": "Passt so",
+  "setup.people.confirmed": "Geprüft von {name}",
+  "setup.people.none": "Ihre Agenten brauchen noch niemanden.",
+  "setup.people.notSigner":
+    "Diese Person hat nur Lesezugriff und kann nicht genehmigen. Ändern Sie das unter Team.",
+  // (end setup: people)
+
+  // ── setup: tools ── Getting started: Your tools (SU3)
+  // (end setup: tools)
+
+  // ── setup: see ── Getting started: See it work (SU4, SU5)
+  // (end setup: see)
+
+  // ── setup: live ── Getting started: Go live (SU6)
+  // (end setup: live)
 };

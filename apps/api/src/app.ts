@@ -92,6 +92,7 @@ import { feedbackRouteHandlers } from "./routes/feedback";
 import { formRoutes } from "./routes/forms";
 // v0.14 W4-E: Google Chat
 import { gchatRoutes } from "./routes/gchat";
+import { gettingStartedRoutes } from "./routes/getting-started";
 // v0.14 W4-D: Google Sheets' picking
 import { gsheetsRoutes } from "./routes/gsheets";
 import { hookRoutes } from "./routes/hooks";
@@ -360,6 +361,8 @@ export function createApp(deps: AppDeps = defaultDeps): Hono<AppEnv> {
   runControlRoutes(app);
   // v0.12 W1-A: go-live stages and client controls
   lifecycleRoutes(app);
+  // docs/setup-plan.md (§1.185): Getting started's chapters and the Setup tab.
+  gettingStartedRoutes(app);
   exportRoutes(app);
   // v0.12 W1-B: notifications, the Table and the Weekly Table
   notifyRouteHandlers(app);

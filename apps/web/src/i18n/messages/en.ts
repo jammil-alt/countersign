@@ -3710,4 +3710,76 @@ export const en = {
   "connectors.notice.undo": "Undo or change it on {tool}'s page",
   "agent.reachReady": "Ready",
   "agent.reachNeeds": "Needs something",
+
+  // ── setup: people ── Getting started: chapters and Your people (SU2)
+  "setup.trial.title": "Before each agent's trial",
+  "setup.trial.hint": "What's left, and who it's waiting on",
+  "setup.left": { one: "1 left", other: "{count} left" },
+  "setup.ready": "Ready for its trial",
+  "setup.who.you": "you",
+  "setup.minutes": {
+    one: "About a minute left. You can stop any time and pick up here.",
+    other: "About {count} minutes left. You can stop any time and pick up here.",
+  },
+  "setup.chapters": "Chapters",
+  "setup.chapters.hint": "In any order",
+  "setup.chapter.business": "Your business",
+  "setup.chapter.tools": "Your tools",
+  "setup.chapter.people": "Your people",
+  "setup.chapter.see": "See it work",
+  "setup.chapter.live": "Go live",
+  "setup.chapter.business.about": "The questions about how you work, and each agent's own.",
+  "setup.chapter.tools.about":
+    "Connect the tools the agents work in. You sign in on each tool's own page.",
+  "setup.chapter.people.about": "Who approves, who answers, and who hears about it.",
+  "setup.chapter.see.about": "Read each step with your own names, then try it on something real.",
+  "setup.chapter.live.about": "Sign your scope. Then a two-week trial where you sign every change.",
+  "setup.state.done": "Done",
+  "setup.state.open": "{done} of {total}",
+  "setup.state.notStarted": "Not started",
+  "setup.state.notNeeded": "Nothing to do",
+  "setup.frame.eyebrow": "Chapter {n} of 5",
+  "setup.frame.back": "Back to Getting started",
+  "setup.frame.next": "Next: {chapter}",
+  "setup.notBuilt": "This chapter is on its way",
+  "setup.notBuiltBody": "Your lead will walk you through it for now.",
+  "setup.people.intro":
+    "We filled in what you told us; check each one. Approvals stay on: this decides who signs, not whether.",
+  "setup.people.kind.signs": "Signs",
+  "setup.people.kind.answers": "Answers",
+  "setup.people.kind.told": "Told",
+  "setup.people.kind.reached": "Contacted",
+  "setup.people.checked": "Checked",
+  "setup.people.toCheck": "To check",
+  "setup.people.weThink": "We think: {names}, from your answer “{from}”.",
+  "setup.people.yes": "Yes",
+  "setup.people.change": "Change",
+  "setup.people.backup": "If they're away",
+  "setup.people.add": "Add someone",
+  "setup.people.addBackup": "Add a backup",
+  "setup.people.remove": "Remove {name}",
+  "setup.people.choose": "Choose someone",
+  "setup.people.signsIn": "Signs in",
+  "setup.people.notJoined": "Invited, hasn't signed in yet",
+  "setup.people.viewer": "Can view only",
+  "setup.people.byEmail": "Told by email",
+  "setup.people.you": "You",
+  "setup.people.nobody": "Nobody yet. Until you choose, your admin gets it.",
+  "setup.people.inviteNew": "Someone new? Invite them on Team first.",
+  "setup.people.adminOnly": "Your admin fills these seats.",
+  "setup.people.matrix": "See who does what in {agent}'s SOP",
+  "setup.people.looksRight": "Looks right",
+  "setup.people.confirmed": "Checked by {name}",
+  "setup.people.none": "Your agents don't need anyone named yet.",
+  "setup.people.notSigner": "They can view only, so they can't approve. Change that on Team.",
+  // (end setup: people)
+
+  // ── setup: tools ── Getting started: Your tools (SU3)
+  // (end setup: tools)
+
+  // ── setup: see ── Getting started: See it work (SU4, SU5)
+  // (end setup: see)
+
+  // ── setup: live ── Getting started: Go live (SU6)
+  // (end setup: live)
 } as const;

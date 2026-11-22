@@ -11,6 +11,7 @@ import {
   GENERAL_SECTION,
   type GENERIC_AREA_SUFFIXES,
   genericAreaSection,
+  gettingStartedRoutes,
   INTAKE_AREA_TITLES,
   type IntakeAnswerView,
   type IntakeArea,
@@ -35,6 +36,7 @@ import { Loaded, Page } from "../../ui/page";
 import { Badge, Button, Card, EmptyState, ErrorNotice, PageHeader, Tag } from "../../ui/primitives";
 import { PORTAL_PATHS } from "../paths";
 import { SetupChecklists } from "./SetupChecklists";
+import { hasSetup, SetupOverview } from "./setup/Overview";
 
 type View = PortalIntakeView;
 type Offered = ResponseOf<typeof apiRoutes.portalConnections>["connections"][number];
@@ -44,7 +46,11 @@ type Member = ResponseOf<typeof apiRoutes.portalTeam>["members"][number];
 export const CARD_QUESTIONS = 5;
 
 export function GettingStartedScreen() {
+  const { t } = useI18n();
   const state = useApi(portalIntakeRoutes.portalCurrentIntake);
+  // docs/setup-plan.md (§1.185): each agent's line of what is left, and the chapters.
+  const overview = useApi(gettingStartedRoutes.portalGettingStarted);
+  const setup = hasSetup(overview.data) ? overview.data : null;
   return (
     <Page width="narrow" testId="portal-start">
       <Loaded state={state}>
@@ -53,7 +59,16 @@ export function GettingStartedScreen() {
           // (or on its own when no intake is open).
           d.intake ? (
             <div className="flex flex-col gap-6">
-              <GettingStarted initial={d.intake} />
+              <GettingStarted
+                initial={d.intake}
+                overview={setup ? <SetupOverview view={setup} /> : null}
+              />
+              <SetupChecklists />
+            </div>
+          ) : setup ? (
+            <div className="flex flex-col gap-6">
+              <PageHeader title={t("start.title")} />
+              <SetupOverview view={setup} />
               <SetupChecklists />
             </div>
           ) : (
@@ -213,7 +228,7 @@ const ANSWERED = new Set(["answered", "confirmed", "corrected"]);
 
 // ── The page ────────────────────────────────────────────────────────────────────────────────────
 
-function GettingStarted({ initial }: { initial: View }) {
+function GettingStarted({ initial, overview }: { initial: View; overview: ReactNode }) {
   const i18n = useI18n();
   const { t } = i18n;
   const api = useApiClient();
@@ -273,6 +288,7 @@ function GettingStarted({ initial }: { initial: View }) {
         }
       />
       {view.intake.leadNote ? <LeadNote view={view} /> : null}
+      {overview}
       {error ? <ErrorNotice error={error} /> : null}
       {view.sections.map((s) => (
         <SectionCard key={s.key} section={s} ctx={ctx} />

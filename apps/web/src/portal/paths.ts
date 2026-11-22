@@ -5,6 +5,14 @@ export const PORTAL_PATHS = {
   home: "/",
   // §1.149.2: Getting started (the welcome page goes on here after sign-in).
   start: "/start",
+  // docs/setup-plan.md (§1.185): Getting started's chapters; See it work and Go live per agent.
+  // DECISION: under `/getting-started`, not `/start`: `/start/:token` is the invite's welcome page.
+  startTools: "/getting-started/tools",
+  startPeople: "/getting-started/people",
+  startSee: (agentId?: string | null) =>
+    agentId ? `/getting-started/see/${agentId}` : "/getting-started/see",
+  startLive: (agentId?: string | null) =>
+    agentId ? `/getting-started/live/${agentId}` : "/getting-started/live",
   inbox: "/inbox",
   runs: "/runs",
   // DECISION: the portal addresses an agent by its service id (`/agents/:id`), not a slug: every

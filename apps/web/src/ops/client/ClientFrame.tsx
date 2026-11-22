@@ -70,6 +70,8 @@ export const CLIENT_TABS: {
     id: "setup",
     label: "Setup",
     pages: [
+      // docs/setup-plan.md §8 (§1.185): where the client's setup stands, by chapter, first.
+      ["progress", "Progress"],
       // Connectors C6: the client's Connectors (its address stays `connections`).
       ["connections", "Connectors"],
       ["messaging", "Messaging"],

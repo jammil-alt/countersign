@@ -3873,4 +3873,80 @@ export const fr: Messages = {
   "connectors.notice.undo": "L'annuler ou le modifier sur la page de {tool}",
   "agent.reachReady": "Prêt",
   "agent.reachNeeds": "Il manque quelque chose",
+
+  // ── setup: people ── Getting started: chapters and Your people (SU2)
+  "setup.trial.title": "Avant l'essai de chaque agent",
+  "setup.trial.hint": "Ce qui reste, et qui on attend",
+  "setup.left": { one: "1 restant", other: "{count} restants" },
+  "setup.ready": "Prêt pour son essai",
+  "setup.who.you": "vous",
+  "setup.minutes": {
+    one: "Environ une minute restante. Vous pouvez vous arrêter et reprendre ici.",
+    other: "Environ {count} minutes restantes. Vous pouvez vous arrêter et reprendre ici.",
+  },
+  "setup.chapters": "Chapitres",
+  "setup.chapters.hint": "Dans l'ordre de votre choix",
+  "setup.chapter.business": "Votre entreprise",
+  "setup.chapter.tools": "Vos outils",
+  "setup.chapter.people": "Votre équipe",
+  "setup.chapter.see": "Voyez-le travailler",
+  "setup.chapter.live": "Mise en service",
+  "setup.chapter.business.about":
+    "Les questions sur votre façon de travailler, et celles de chaque agent.",
+  "setup.chapter.tools.about":
+    "Connectez les outils où travaillent les agents. Vous vous connectez sur la page de chaque outil.",
+  "setup.chapter.people.about": "Qui approuve, qui répond, et qui est informé.",
+  "setup.chapter.see.about":
+    "Lisez chaque étape avec vos propres noms, puis essayez-le sur un vrai document.",
+  "setup.chapter.live.about":
+    "Signez votre périmètre. Puis un essai de deux semaines où vous signez chaque changement.",
+  "setup.state.done": "Terminé",
+  "setup.state.open": "{done} sur {total}",
+  "setup.state.notStarted": "Pas commencé",
+  "setup.state.notNeeded": "Rien à faire",
+  "setup.frame.eyebrow": "Chapitre {n} sur 5",
+  "setup.frame.back": "Retour à Pour commencer",
+  "setup.frame.next": "Ensuite : {chapter}",
+  "setup.notBuilt": "Ce chapitre arrive bientôt",
+  "setup.notBuiltBody": "En attendant, votre responsable vous accompagnera.",
+  "setup.people.intro":
+    "Nous avons rempli ce que vous nous avez dit ; vérifiez chacun. Les approbations restent actives : ceci décide qui signe, pas s'il faut signer.",
+  "setup.people.kind.signs": "Signe",
+  "setup.people.kind.answers": "Répond",
+  "setup.people.kind.told": "Informé",
+  "setup.people.kind.reached": "Contacté",
+  "setup.people.checked": "Vérifié",
+  "setup.people.toCheck": "À vérifier",
+  "setup.people.weThink": "Nous pensons : {names}, d'après votre réponse « {from} ».",
+  "setup.people.yes": "Oui",
+  "setup.people.change": "Modifier",
+  "setup.people.backup": "En cas d'absence",
+  "setup.people.add": "Ajouter quelqu'un",
+  "setup.people.addBackup": "Ajouter un remplaçant",
+  "setup.people.remove": "Retirer {name}",
+  "setup.people.choose": "Choisissez quelqu'un",
+  "setup.people.signsIn": "Se connecte",
+  "setup.people.notJoined": "Invité, pas encore connecté",
+  "setup.people.viewer": "Lecture seule",
+  "setup.people.byEmail": "Informé par e-mail",
+  "setup.people.you": "Vous",
+  "setup.people.nobody": "Personne pour l'instant. En attendant, votre administrateur le reçoit.",
+  "setup.people.inviteNew": "Quelqu'un de nouveau ? Invitez-le d'abord dans Équipe.",
+  "setup.people.adminOnly": "Votre administrateur remplit ces rôles.",
+  "setup.people.matrix": "Voir qui fait quoi dans la procédure de {agent}",
+  "setup.people.looksRight": "C'est bon",
+  "setup.people.confirmed": "Vérifié par {name}",
+  "setup.people.none": "Vos agents n'ont encore besoin de personne.",
+  "setup.people.notSigner":
+    "Cette personne ne peut que consulter, elle ne peut donc pas approuver. Modifiez cela dans Équipe.",
+  // (end setup: people)
+
+  // ── setup: tools ── Getting started: Your tools (SU3)
+  // (end setup: tools)
+
+  // ── setup: see ── Getting started: See it work (SU4, SU5)
+  // (end setup: see)
+
+  // ── setup: live ── Getting started: Go live (SU6)
+  // (end setup: live)
 };
