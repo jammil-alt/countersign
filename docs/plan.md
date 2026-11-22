@@ -6475,6 +6475,22 @@ could change between the phone and the API and the signature still matched (audi
 | The time window | Unchanged: ±5 minutes either way (`DEVICE_SIGNATURE_SKEW_SEC`), so a phone whose clock runs a little fast is not refused; a signature can't be made ahead by anyone without the phone's key. // DECISION |
 | Checked | `packages/core/src/mobile/mobile.test.ts` (the v2 lines, null and absent, key order, v1 ignoring both), `apps/mobile/src/device/signing.test.ts` (the app's v2 verifies only with its own answer and note, and isn't a v1), `apps/api/src/mobile.test.ts` (a v2 accepted with `version` in the audit row, a v1 with an answer still accepted, a v2 with another answer, another note, no note, or its version changed or taken off refused and the item left open). |
 
+### 1.200 From a record to its runs (R3, 2026-11-22; no migration)
+
+The design: `docs/reporting-plan.md` §3 R3. It reads what runs kept (`run_subject`, §1.188).
+
+| Topic | Decision |
+|---|---|
+| Routes | `GET /api/records/:id/runs` (portal) and `GET /api/ops/clients/:id/records/:recordId/runs` (back office), `limit` up to 50, 20 by default. Each run: its agent, status, times, title (`RunSubject`) and `roles`, what it did with the record in the order it did it (`read`, `decided`, `changed`), the tool of a change, and the line of the step that did it (`step_run.summary`; none for what started the run). One reader, `apps/api/src/runs/record-runs.ts`, for both. |
+| Which runs | A run that kept a row about the record, newest first: by our id, or, for a change to a client's tool, by the tool, its id there and a kind the record can be kept as. A transaction or receivable by its own tool and id; a raw record by its tool, id and entity's kind; a vendor, organization or person by its `external_refs`. So a QuickBooks vendor 56 is never a bill 56. A document, a message or a pack's record is matched by our id alone. // DECISION |
+| One line per step and role | A step that read the vendor twice says so once. Only a change names its tool. // DECISION |
+| The portal | Live runs only, rows the timeline shows (`client_visible`) only: the run list, its roles and its lines. A person limited to some agents sees only their agents' runs; the route is open to them (`ASSIGNED_USER_ROUTES`) for the document pages they can open, while the record pages stay closed. No cost, bundle, instructions or step data. // DECISION |
+| The back office | Every run of the one client the route names (`ensureClient`), test runs marked. |
+| Words | `read` reads "Read", `decided` reads "Matched" (an agent decides on a record by matching it: a vendor, a PO, a bill), `changed` reads "Changed in QuickBooks". Portal copy in all six languages. // DECISION |
+| Screens | `apps/web/src/records/RecordRuns.tsx`, the Runs panel, on: the record pages (transaction, raw record, vendor) and document pages of both surfaces; the portal People page's person sheet; and, behind a "Runs" toggle, each person and organization card of the directory on both surfaces (a customer is an organization there). A customer has no page of its own yet. |
+| Not built | An organization linked to a vendor record lists the runs about the organization; the vendor's page lists the vendor's. The panel shows the newest 20 and has no "more". |
+| Checked | `apps/api/src/record-runs.test.ts` against Postgres as `cs_worker` (newest first, test runs in the back office only; a change found by its tool and id, a vendor's tool id not mistaken for a bill's; one line per step; the portal's hidden step, test run, another client and a limited person's other agent left out, and no forbidden key); `apps/web` `RecordRuns.test.tsx` (lines, words, links, the empty state, a test run) and `Directory.test.tsx` (the toggle). |
+
 ### 1.199 A run's cost counts every call, however small (build plans 11's first fix, 2026-11-22; no migration)
 
 The build plans (2026-11-22, plan 11) found every production run showing $0.00. Two causes in the
