@@ -120,7 +120,7 @@ describe("back-office records", () => {
     );
     const row = within(table).getByTestId(`ops-records-row-${BILL}`);
     for (const text of [
-      "Nov 5, 2026",
+      "5 Nov 2026",
       "Bill",
       "Cal Telephone",
       "WH-1",

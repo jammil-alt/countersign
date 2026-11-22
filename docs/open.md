@@ -8,7 +8,7 @@ the rest.**
 
 **The order we work it in** (2026-11-22): `docs/work-plan.md`, one item and one PR at a time,
 code and the owner's steps side by side. Reporting and searching runs by their data is agreed
-in `docs/reporting-plan.md`.
+in `docs/reporting-plan.md`; R1 and R3 (a record's Runs panel, §1.200) are built.
 
 ## Where things stand
 
@@ -258,6 +258,13 @@ Requirements request reading its card. All against fakes. What it still needs:
   The full list: `docs/plan.md` §1.149.5 and §1.149.6.
 - The owner's call: whether the deal page's old "Set up the account" card stays now that Invite
   does the set-up.
+- **Built (2026-11-22), PR #522:** setting a client up from the intake to the first trial
+  (`docs/setup-plan.md`, SU1–SU6; decisions `docs/plan.md` §1.206): **seats** (a template names
+  "approves bills"; each client fills it), Getting started's chapters (Your tools, Your people, See
+  it work with a test run on a real document, Go live with a signed scope) and the back office's
+  Setup tab (Progress: the board, Nudge, Do it on a call, the runbook, Start trial). Open: Sloan
+  across the chapters (O4), the scope as O5's `intake_scope`, server-side words in six languages,
+  tries stopped at a person step, and a look in a browser.
 
 The plan, its steps (B1–O6) and the owner's open questions: `docs/cases-plan.md`. The screens:
 `docs/design/pipelines.html` and `docs/design/workflows.html` (onboarding not drawn yet).
@@ -466,6 +473,22 @@ Left:
 | A7 | **Check Twilio Verify for real**: every item under "To verify" in `packages/connectors/src/twilio/VERIFY_NOTES.md` (codes, TOTP factors, API-key auth, errors, rate limits), as A4 runs. | Built against an in-memory fake. |
 | A8 | **Approving a sign-in on the phone** (`docs/plan.md` §1.154; PRs #429, #431, #432): built and tested against fakes; live only once the app is (M2 to M5 below) and push is on (M6). Then check on staging: a password sign-in offers the phone, the notification arrives, one Face ID, the right number signs in, a wrong number and "It wasn't me" stop it, the browser is remembered if asked. | Nothing tried yet on a real phone, Face ID or a real push. |
 | A9 | Phone approval, not built: an email to the person when a request is turned down; a phone approving a Claude connection (§1.120); the desktop app approving (§1.151). Owner to say which, if any. | §1.154, "Not in this pass". |
+
+### The staging walk-through (owner, 2026-11-22; `STAGING_QA.md`, `docs/plan.md` §1.207)
+
+Fixed in one PR. What is still open from it:
+
+- **Owner decisions:** one way to start a client (New client, Sign up now, New deal and Invite
+  each work differently today), and the words: Areas or Packs (Purchasing or Materials), owners,
+  processes, supervisor, lead, Reggie, Sloan, Kit.
+- **Check on staging after the deploy:** the Your call badge on Library and New client (not seen
+  locally; a test now covers every route), and why `GET …/skills` hangs there (the agent page no
+  longer waits on it). Reading staging from a Claude session needs the operator to approve its
+  connect-claude link first.
+- **Code:** back-office questions and Sloan's thread summaries record their cost only in logs
+  (a table, so a migration PR of its own); schedule wording is still 12-hour; deal and contact time
+  zones are still free text; a dependent write the model makes inside one skill still reads its
+  before state in a test run.
 
 ### Owner decisions still open (`docs/plan.md` §7 and the sections named)
 

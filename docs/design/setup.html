@@ -1,0 +1,737 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Client setup</title>
+<!-- docs/setup-plan.md: setting up a client from the intake to the first agent on trial. Five
+     chapters on Getting started (business, tools, people, see it work, go live), Sloan beside them,
+     and the back office's Setup tab. Made-up data, wired to nothing. Built on the design system's own
+     files: open it from the repo (the links are relative); the strip at the top switches screens. -->
+<link rel="stylesheet" href="../../packages/design-system/tokens.css">
+<link rel="stylesheet" href="../../packages/design-system/components/bundle.css">
+<style>
+  body { margin: 0; background: var(--paper); color: var(--ink); font-family: var(--font-sans); font-size: 14px; line-height: 1.5; }
+  .switch { position: sticky; top: 0; z-index: 20; display: flex; gap: var(--space-2); flex-wrap: wrap; align-items: center;
+    padding: var(--space-3) var(--space-4); background: var(--surface); border-bottom: 1px solid var(--line); }
+  .switch .label { font-family: var(--font-mono); font-size: 12px; color: var(--ink-muted); text-transform: uppercase; letter-spacing: .06em; margin-right: var(--space-2); }
+  .switch .spacer { flex: 1; }
+  .app { display: flex; min-height: calc(100vh - 57px); }
+  .app > .ds-sidebar { flex: none; }
+  main { flex: 1; min-width: 0; padding: var(--space-10) var(--space-12); }
+  .wrap { max-width: 860px; }
+  .screen { display: none; } .screen.on { display: block; }
+  h1 { font-size: 28px; font-weight: 500; letter-spacing: -0.02em; margin: 0 0 var(--space-1); }
+  h2 { font-size: 16px; font-weight: 500; margin: 0; }
+  h3 { font-size: 15px; font-weight: 500; margin: 0; }
+  p { margin: 0; }
+  .sub { color: var(--ink-muted); margin: 0 0 var(--space-8); }
+  .muted { color: var(--ink-muted); } .small { font-size: 13px; }
+  section { margin-top: var(--space-10); }
+  .sechead { display: flex; align-items: baseline; justify-content: space-between; gap: var(--space-4); margin-bottom: var(--space-3); }
+  .box { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-md); padding: var(--space-5); }
+  .box + .box { margin-top: var(--space-3); }
+  .stack > * + * { margin-top: var(--space-3); }
+  .between { display: flex; justify-content: space-between; align-items: flex-start; gap: var(--space-4); }
+  .grow { flex: 1; min-width: 0; }
+  .note { display: flex; gap: var(--space-4); align-items: flex-start; }
+  .note .said { font-size: 15px; }
+  .lead-line { border-left: 2px solid var(--copper); padding-left: var(--space-4); }
+  .chips { display: flex; gap: var(--space-2); flex-wrap: wrap; margin-top: var(--space-2); }
+  .chip { display: inline-flex; gap: var(--space-1-5); align-items: center; font-size: 13px; padding: 2px var(--space-2-5);
+    border: 1px solid var(--line); border-radius: var(--radius-pill); background: var(--surface); color: var(--ink); cursor: pointer; font-family: inherit; }
+  .chip:hover { border-color: var(--line-strong); }
+  .chip .who { color: var(--ink-muted); }
+  .chapter { display: grid; grid-template-columns: 32px 1fr auto; gap: var(--space-4); align-items: center; padding: var(--space-4) var(--space-5);
+    border-top: 1px solid var(--line); cursor: pointer; background: none; border-left: 0; border-right: 0; border-bottom: 0; width: 100%; text-align: left; font: inherit; color: inherit; }
+  .chapter:first-of-type { border-top: 0; }
+  .chapter:hover { background: var(--surface-subtle); }
+  .chapter .n { width: 28px; height: 28px; border-radius: var(--radius-pill); display: grid; place-items: center; font-size: 13px; font-weight: 500;
+    border: 1px solid var(--line-strong); color: var(--ink-muted); }
+  .chapter.done .n { background: var(--positive); border-color: var(--positive); color: var(--on-slate); }
+  .chapter.current .n { background: var(--slate); border-color: var(--slate); color: var(--on-slate); }
+  .rows { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-md); overflow: hidden; }
+  .bar { height: 4px; border-radius: var(--radius-pill); background: var(--data-track); overflow: hidden; margin-top: var(--space-2); }
+  .bar i { display: block; height: 100%; background: var(--slate); }
+  .weThink { display: flex; gap: var(--space-3); align-items: center; flex-wrap: wrap; padding: var(--space-3) var(--space-4); border: 1px solid var(--line);
+    border-radius: var(--radius-md); background: var(--surface-subtle); margin-top: var(--space-3); }
+  .weThink .grow { min-width: 220px; }
+  .weThink.ok { background: var(--surface); }
+  .kv { display: grid; grid-template-columns: 140px 1fr; gap: var(--space-2) var(--space-4); margin-top: var(--space-4); font-size: 13px; }
+  .kv dt { color: var(--ink-muted); } .kv dd { margin: 0; }
+  .seat-kind { font-family: var(--font-mono); font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--ink-muted); }
+  .seat .people { display: flex; gap: var(--space-3); flex-wrap: wrap; align-items: center; margin-top: var(--space-3); }
+  .picker { display: none; margin-top: var(--space-3); max-width: 360px; }
+  .picker.on { display: block; }
+  table.matrix { width: 100%; border-collapse: collapse; font-size: 13px; }
+  table.matrix th, table.matrix td { padding: var(--space-2-5) var(--space-3); border-top: 1px solid var(--line); text-align: left; vertical-align: top; }
+  table.matrix thead th { border-top: 0; font-weight: 500; color: var(--ink-muted); font-size: 12px; }
+  .cell-person { color: var(--copper-ink); font-weight: 500; }
+  .cell-agent { color: var(--ink); }
+  .step { display: grid; grid-template-columns: 28px 1fr; gap: var(--space-4); padding: var(--space-5); border-top: 1px solid var(--line); }
+  .step:first-child { border-top: 0; }
+  .step .num { font-family: var(--font-mono); font-size: 13px; color: var(--ink-muted); padding-top: 2px; }
+  .how { display: inline-flex; align-items: center; gap: var(--space-1-5); font-size: 12px; color: var(--ink-muted); margin-left: var(--space-2); }
+  .how.person { color: var(--copper-ink); }
+  .actions { display: flex; gap: var(--space-2); flex-wrap: wrap; align-items: center; margin-top: var(--space-3); }
+  .differ { display: none; margin-top: var(--space-3); }
+  .differ.on { display: block; }
+  .inline-num { width: 110px; display: inline-block; height: 32px; padding: 0 var(--space-2); }
+  .try-list .ds-listrow { width: 100%; }
+  .run { display: none; margin-top: var(--space-4); }
+  .run.on { display: block; }
+  .run .rstep { display: grid; grid-template-columns: 20px 1fr auto; gap: var(--space-3); padding: var(--space-3) var(--space-4); border-top: 1px solid var(--line); opacity: .25; transition: opacity .25s; }
+  .run .rstep.shown { opacity: 1; }
+  .run .rstep:first-child { border-top: 0; }
+  .dot { width: 10px; height: 10px; border-radius: var(--radius-pill); background: var(--line-strong); margin-top: 6px; }
+  .rstep.shown .dot { background: var(--positive); }
+  .rstep.person.shown .dot { background: var(--copper); }
+  .timeline { display: grid; grid-template-columns: repeat(5, 1fr); gap: var(--space-2); margin-top: var(--space-4); }
+  .tl { border-top: 3px solid var(--line); padding-top: var(--space-2); font-size: 13px; }
+  .tl.done { border-color: var(--positive); } .tl.now { border-color: var(--slate); }
+  .tl b { display: block; font-weight: 500; }
+  /* Sloan */
+  .sloan { flex: none; width: 380px; border-left: 1px solid var(--line); background: var(--surface); display: none; flex-direction: column;
+    position: sticky; top: 57px; height: calc(100vh - 57px); }
+  .sloan.on { display: flex; }
+  .sloan header { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-4); border-bottom: 1px solid var(--line); }
+  .sloan .thread { flex: 1; overflow: auto; padding: var(--space-2) 0; }
+  .sloan .thread .ds-turn { padding-left: var(--space-4); padding-right: var(--space-4); }
+  .sloan .compose { border-top: 1px solid var(--line); padding: var(--space-3) var(--space-4); }
+  .proposal { margin: var(--space-2) var(--space-4) var(--space-3) 56px; border: 1px solid var(--line); border-radius: var(--radius-md); padding: var(--space-3) var(--space-4); background: var(--paper); font-size: 13px; }
+  .proposal ul { margin: var(--space-2) 0; padding-left: var(--space-4); }
+  /* back office */
+  .grid-board { width: 100%; border-collapse: collapse; font-size: 13px; }
+  .grid-board th, .grid-board td { padding: var(--space-3); border-top: 1px solid var(--line); text-align: left; vertical-align: top; }
+  .grid-board thead th { border-top: 0; font-weight: 500; color: var(--ink-muted); font-size: 12px; }
+  .grid-board td .m { display: block; color: var(--ink-muted); font-size: 12px; margin-top: 2px; }
+  .ask { display: grid; grid-template-columns: 1fr auto; gap: var(--space-4); padding: var(--space-4) var(--space-5); border-top: 1px solid var(--line); }
+  .ask:first-child { border-top: 0; }
+  .av-slate { background: var(--slate); color: var(--on-slate); }
+  .av-muted { background: var(--ink-muted); color: var(--on-slate); }
+  .notice { display: flex; gap: var(--space-3); align-items: center; padding: var(--space-3) var(--space-4); border: 1px solid var(--line);
+    border-radius: var(--radius-md); background: var(--signal-tint); color: var(--signal-ink); }
+  .notice--slate { background: var(--slate-tint); color: var(--ink); }
+  .callbar { display: none; margin-bottom: var(--space-6); }
+  .callbar.on { display: flex; }
+  .about li { margin: var(--space-2) 0; }
+  .about code { font-family: var(--font-mono); font-size: 12px; }
+  @media (max-width: 900px) {
+    main { padding: var(--space-6) var(--space-4); }
+    .app > .ds-sidebar { display: none; }
+    .switch { flex-wrap: nowrap; overflow-x: auto; }
+    .switch .ds-seg { flex: none; }
+    .switch > button { flex: none; }
+    .sloan { position: fixed; right: 0; top: 0; height: 100vh; width: 100%; max-width: 420px; z-index: 30; box-shadow: var(--shadow-pop); }
+    .kv { grid-template-columns: 1fr; }
+    .timeline { grid-template-columns: 1fr 1fr; }
+    .matrix-wrap, .board-wrap { overflow-x: auto; }
+  }
+</style>
+</head>
+<body>
+
+<nav class="switch" aria-label="Screens">
+  <span class="label">Setup mock-up</span>
+  <div class="ds-seg" role="group" id="screens">
+    <button aria-pressed="true" data-go="home">Getting started</button>
+    <button aria-pressed="false" data-go="tools">2 · Tools</button>
+    <button aria-pressed="false" data-go="people">3 · People</button>
+    <button aria-pressed="false" data-go="see">4 · See it work</button>
+    <button aria-pressed="false" data-go="live">5 · Go live</button>
+    <button aria-pressed="false" data-go="board">Back office: Setup</button>
+    <button aria-pressed="false" data-go="about">About</button>
+  </div>
+  <span class="spacer"></span>
+  <button class="ds-btn ds-btn--secondary ds-btn--sm" id="sloanToggle">Talk it through with Sloan</button>
+  <button class="ds-btn ds-btn--ghost ds-btn--sm" id="theme">Dark</button>
+</nav>
+
+<div class="app">
+  <aside class="ds-sidebar" id="portalNav">
+    <span class="ds-eyebrow" style="padding:6px 10px 10px">Hartley Millwork</span>
+    <button class="ds-navitem" aria-current="page" data-go="home">Getting started<span class="ds-num" id="navLeft">7</span></button>
+    <button class="ds-navitem">Your Desk</button>
+    <button class="ds-navitem">Agents</button>
+    <button class="ds-navitem">Connections</button>
+    <button class="ds-navitem">Team</button>
+    <button class="ds-navitem">Settings</button>
+  </aside>
+  <aside class="ds-sidebar" id="opsNav" style="display:none">
+    <span class="ds-eyebrow" style="padding:6px 10px 10px">Mezonas back office</span>
+    <button class="ds-navitem">Your call<span class="ds-num">4</span></button>
+    <button class="ds-navitem">Sales</button>
+    <button class="ds-navitem" aria-current="page">Clients</button>
+    <button class="ds-navitem">Build</button>
+    <button class="ds-navitem">Templates</button>
+  </aside>
+
+<main>
+<div class="wrap">
+
+<!-- ───────────────────────── Getting started ───────────────────────── -->
+<div class="screen on" id="s-home">
+  <h1>Getting started</h1>
+  <p class="sub">Two agents for Hartley Millwork. <span id="homeLeft">7 things left</span>, about 18 minutes. You can stop any time and pick up here.</p>
+
+  <div class="box note lead-line">
+    <span class="ds-avatar ds-avatar--lg mz-lead">AN</span>
+    <div class="grow">
+      <p class="said">Dana, we'll start with how bills reach you and get into QuickBooks. Most of this is checking what we already know from our call. Anything that doesn't fit how you work, tell me on that card.</p>
+      <p class="small muted" style="margin-top:var(--space-2)">Ana Navarro, your Mezonas lead</p>
+    </div>
+  </div>
+
+  <section>
+    <div class="sechead"><h2>Before each agent's trial</h2><span class="small muted">What's left, and who it's waiting on</span></div>
+    <div class="rows">
+      <div class="ds-listrow" style="cursor:default">
+        <span class="grow">
+          <span class="ds-listrow__title">Bill clerk</span>
+          <span class="ds-listrow__meta">Reads bills from your AP inbox and makes draft bills in QuickBooks. Asks first, every time.</span>
+          <span class="chips">
+            <button class="chip" data-go="tools">Connect Gmail <span class="who">· you</span></button>
+            <button class="chip" data-go="people" id="chipSeat">Approver over $5,000 <span class="who">· you</span></button>
+            <button class="chip" data-go="see">Try it on a real bill <span class="who">· you</span></button>
+          </span>
+        </span>
+        <span class="ds-pill ds-pill--warning">3 left</span>
+      </div>
+      <div class="ds-listrow" style="cursor:default">
+        <span class="grow">
+          <span class="ds-listrow__title">Vendor contracts and invoice review</span>
+          <span class="ds-listrow__meta">Checks each invoice against your agreed prices and tells you when a price creeps up.</span>
+          <span class="chips">
+            <button class="chip">Upload your price lists <span class="who">· Mark</span></button>
+            <button class="chip" data-go="people">Vendor contacts <span class="who">· you</span></button>
+          </span>
+        </span>
+        <span class="ds-pill ds-pill--warning">2 left</span>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="sechead"><h2>Chapters</h2><span class="small muted">In any order</span></div>
+    <div class="rows" id="chapters">
+      <button class="chapter done"><span class="n">✓</span><span><h3>Your business</h3><span class="small muted">6 of 6 answered. Ana filled 4 from your call; you checked them.</span></span><span class="ds-pill ds-pill--positive">Done</span></button>
+      <button class="chapter current" data-go="tools"><span class="n">2</span><span><h3>Your tools</h3><span class="small muted">QuickBooks is connected. Gmail is next.</span><span class="bar"><i style="width:50%"></i></span></span><span class="ds-pill ds-pill--warning">1 left</span></button>
+      <button class="chapter" data-go="people"><span class="n">3</span><span><h3>Your people</h3><span class="small muted" id="chPeople">Who approves, who answers, who hears about it. 3 of 5 seats checked.</span><span class="bar"><i id="peopleBar" style="width:60%"></i></span></span><span class="ds-pill ds-pill--warning" id="chPeoplePill">2 left</span></button>
+      <button class="chapter" data-go="see"><span class="n">4</span><span><h3>See it work</h3><span class="small muted">Read each step with your own names, then try it on a real bill.</span></span><span class="ds-pill ds-pill--neutral">About 8 min</span></button>
+      <button class="chapter" data-go="live"><span class="n">5</span><span><h3>Go live</h3><span class="small muted">Sign your scope, and we start a two-week trial where you sign every change.</span></span><span class="ds-pill ds-pill--neutral">Last</span></button>
+    </div>
+  </section>
+
+  <section>
+    <div class="box between">
+      <div><h3>Rather talk it through?</h3><p class="small muted" style="margin-top:4px">Sloan asks the same questions one at a time, and fills in these cards as you go. You check them before anything counts.</p></div>
+      <button class="ds-btn ds-btn--secondary" data-sloan>Talk to Sloan</button>
+    </div>
+    <p class="small muted" style="margin-top:var(--space-3)">We'll never ask for a password here, in chat or by email. You sign in to your tools on their own pages.</p>
+  </section>
+</div>
+
+<!-- ───────────────────────── Tools ───────────────────────── -->
+<div class="screen" id="s-tools">
+  <span class="ds-eyebrow">Chapter 2 of 5</span>
+  <h1>Your tools</h1>
+  <p class="sub">The agents work in your own accounts. You sign in on each tool's own page; we never see a password.</p>
+
+  <div class="box">
+    <div class="between">
+      <div class="note"><span class="ds-avatar av-slate">QB</span><div><h3>QuickBooks Online</h3><p class="small muted">Used by both agents</p></div></div>
+      <span class="ds-pill ds-pill--positive">Connected</span>
+    </div>
+    <div class="weThink ok" id="acctCheck">
+      <span class="grow">You signed in to <b>Hartley Millwork LLC</b>. Is that the company the agents should use?</span>
+      <button class="ds-btn ds-btn--primary ds-btn--sm" data-confirm="acctCheck">Yes</button>
+      <button class="ds-btn ds-btn--secondary ds-btn--sm">A different company</button>
+    </div>
+    <dl class="kv">
+      <dt>We'll read</dt><dd>Bills, vendors, items, your chart of accounts and jobs.</dd>
+      <dt>We may change</dt><dd>Create draft bills and attach their PDFs. <b>We ask you first, every time.</b></dd>
+      <dt>We never</dt><dd>Pay a bill, delete anything, or change a bill that's been paid.</dd>
+      <dt>Access</dt><dd><div class="ds-seg" role="group"><button aria-pressed="true">Allow what the agents need</button><button aria-pressed="false">Let me choose</button></div></dd>
+    </dl>
+    <div style="margin-top:var(--space-5)">
+      <span class="ds-eyebrow">What we see in QuickBooks</span>
+      <p class="small muted" style="margin-top:4px">Counted from your books, no AI. Check these and the agents start from them.</p>
+      <div class="weThink" id="wt1"><span class="grow">41 active vendors. Most bills come from <b>Northside Lumber</b>, <b>Hardwood Supply Co.</b> and <b>Metro Hardware</b>.</span><button class="ds-btn ds-btn--secondary ds-btn--sm" data-confirm="wt1">Yes</button><button class="ds-btn ds-btn--ghost ds-btn--sm">Change</button></div>
+      <div class="weThink" id="wt2"><span class="grow">About <b>330 bills a month</b> over the last three months. You told Ana about 340.</span><button class="ds-btn ds-btn--secondary ds-btn--sm" data-confirm="wt2">Yes</button><button class="ds-btn ds-btn--ghost ds-btn--sm">Change</button></div>
+      <div class="weThink" id="wt3"><span class="grow">Bills are coded to <b>18 open jobs</b> and 6 expense accounts.</span><button class="ds-btn ds-btn--secondary ds-btn--sm" data-confirm="wt3">Yes</button><button class="ds-btn ds-btn--ghost ds-btn--sm">Change</button></div>
+    </div>
+  </div>
+
+  <div class="box">
+    <div class="between">
+      <div class="note"><span class="ds-avatar av-muted">G</span><div><h3>Gmail: ap@hartleymillwork.com</h3><p class="small muted">Used by the Bill clerk</p></div></div>
+      <span class="ds-pill ds-pill--warning" id="gmailPill">Waiting on you</span>
+    </div>
+    <dl class="kv">
+      <dt>We'll read</dt><dd>Only messages to ap@ that have a PDF attached. We open a message's text only when a bill needs it.</dd>
+      <dt>We may change</dt><dd>Nothing. We don't send from this inbox.</dd>
+    </dl>
+    <div style="margin-top:var(--space-4)" id="gmailWho">
+      <span class="ds-label">Who signs in to ap@?</span>
+      <div class="actions">
+        <button class="ds-btn ds-btn--primary" id="gmailMe">I do: connect Gmail</button>
+        <button class="ds-btn ds-btn--secondary" id="gmailAsk">Someone else</button>
+        <button class="ds-btn ds-btn--ghost">Not now</button>
+      </div>
+      <div class="differ" id="gmailAskBox">
+        <label class="ds-field" style="max-width:360px"><span class="ds-label">Send just this card to</span>
+          <span class="ds-selectwrap"><select class="ds-select"><option>Mark Lee (mark@hartleymillwork.com)</option><option>Luis Ortega (luis@hartleymillwork.com)</option><option>Someone new…</option></select><img class="ds-icon" src="../../packages/design-system/assets/Icons/mz-chevron-down.svg" width="16" height="16" alt=""></span></label>
+        <div class="actions"><button class="ds-btn ds-btn--primary ds-btn--sm" id="gmailAskSend">Send</button></div>
+      </div>
+    </div>
+    <p class="small muted" style="margin-top:var(--space-4)">Or forward bills to <b>bills@hartley.mezonas.com</b>. <button class="ds-btn ds-btn--link">Send a test email</button> and we'll show it here.</p>
+  </div>
+</div>
+
+<!-- ───────────────────────── People ───────────────────────── -->
+<div class="screen" id="s-people">
+  <span class="ds-eyebrow">Chapter 3 of 5</span>
+  <h1>Your people</h1>
+  <p class="sub">Five seats across your two agents. We filled in what you told us; check each one. Approvals stay on. This decides who signs, not whether.</p>
+
+  <div class="box seat" id="seat1">
+    <div class="between"><div><span class="seat-kind">Signs · Bill clerk</span><h3>Approves bills up to $5,000</h3></div><span class="ds-pill ds-pill--positive">Checked</span></div>
+    <div class="people">
+      <span class="mz-person mz-person--role"><span class="ds-avatar ds-avatar--self">DR</span><span>Dana Ruiz<small>You · signs in</small></span></span>
+      <span class="small muted">If Dana is away:</span>
+      <span class="mz-person mz-person--role"><span class="ds-avatar av-slate">LO</span><span>Luis Ortega<small>Backup</small></span></span>
+    </div>
+  </div>
+
+  <div class="box seat" id="seat2">
+    <div class="between"><div><span class="seat-kind">Signs · Bill clerk, Vendor contracts</span><h3>Approves bills over $5,000</h3></div><span class="ds-pill ds-pill--warning" id="seat2Pill">To check</span></div>
+    <div class="weThink" id="seat2wt">
+      <span class="grow">We think: <b>Luis Ortega</b>, from your answer "Luis signs anything over five grand". If he's away: <b>you</b>.</span>
+      <button class="ds-btn ds-btn--primary ds-btn--sm" id="seat2Yes">Yes</button>
+      <button class="ds-btn ds-btn--secondary ds-btn--sm" data-picker="pick2">Change</button>
+    </div>
+    <div class="picker" id="pick2">
+      <label class="ds-field"><span class="ds-label">Who approves bills over $5,000</span>
+        <span class="ds-selectwrap"><select class="ds-select"><option>Luis Ortega</option><option>Dana Ruiz (you)</option><option>Mark Lee</option><option>Someone new…</option></select><img class="ds-icon" src="../../packages/design-system/assets/Icons/mz-chevron-down.svg" width="16" height="16" alt=""></span></label>
+      <div class="ds-seg" role="group" style="margin-top:var(--space-3)"><button aria-pressed="true">One at a time</button><button aria-pressed="false">Any of them</button><button aria-pressed="false">All of them</button></div>
+    </div>
+    <div class="notice" style="margin-top:var(--space-3)" id="seat2Invite">
+      <img class="ds-icon" src="../../packages/design-system/assets/Icons/mz-team.svg" width="16" height="16" alt="">
+      <span class="grow">Luis doesn't sign in to Mezonas yet. Approvers sign in so every signature is theirs.</span>
+      <button class="ds-btn ds-btn--secondary ds-btn--sm" id="inviteLuis">Invite Luis</button>
+    </div>
+  </div>
+
+  <div class="box seat">
+    <div class="between"><div><span class="seat-kind">Answers · Bill clerk</span><h3>Answers questions about job codes</h3></div><span class="ds-pill ds-pill--positive">Checked</span></div>
+    <div class="people">
+      <span class="mz-person mz-person--role"><span class="ds-avatar av-muted">ML</span><span>Mark Lee<small>Invited Nov 21 · not joined yet</small></span></span>
+      <button class="ds-btn ds-btn--link">Send the invite again</button>
+    </div>
+    <p class="small muted" style="margin-top:var(--space-2)">When the agent isn't sure which job a line belongs to, it asks Mark on his Desk and waits up to one business day.</p>
+  </div>
+
+  <div class="box seat">
+    <div class="between"><div><span class="seat-kind">Told · both agents</span><h3>Gets the weekly summary</h3></div><span class="ds-pill ds-pill--positive">Checked</span></div>
+    <div class="people">
+      <span class="mz-person mz-person--role"><span class="ds-avatar av-slate">LO</span><span>Luis Ortega<small>By email, Mondays</small></span></span>
+      <span class="mz-person mz-person--role"><span class="ds-avatar ds-avatar--self">DR</span><span>Dana Ruiz<small>On your Desk</small></span></span>
+      <button class="ds-btn ds-btn--link">Add someone</button>
+    </div>
+  </div>
+
+  <div class="box seat" id="seat5">
+    <div class="between"><div><span class="seat-kind">Contacted · Vendor contracts</span><h3>Vendor contacts</h3></div><span class="ds-pill ds-pill--warning" id="seat5Pill">To check</span></div>
+    <div class="weThink" id="seat5wt">
+      <span class="grow">From QuickBooks: <b>41 vendors, 12 with an email address</b>. The agent emails a vendor only about a price that doesn't match, and only once you've signed the message.</span>
+      <button class="ds-btn ds-btn--secondary ds-btn--sm">Review the 12</button>
+      <button class="ds-btn ds-btn--primary ds-btn--sm" id="seat5Yes">Use these</button>
+    </div>
+  </div>
+
+  <section>
+    <div class="sechead"><h2>Who does what</h2><span class="small muted">Bill clerk, step by step</span></div>
+    <div class="box matrix-wrap" style="padding:var(--space-2) var(--space-4)">
+      <table class="matrix">
+        <thead><tr><th>Step</th><th>The agent</th><th>Dana</th><th>Luis</th><th>Mark</th></tr></thead>
+        <tbody>
+          <tr><td>Reads the bill</td><td class="cell-agent">Does</td><td></td><td></td><td></td></tr>
+          <tr><td>Checks totals and vendor</td><td class="cell-agent">Does</td><td></td><td></td><td></td></tr>
+          <tr><td>Codes lines to jobs</td><td class="cell-agent">Does</td><td></td><td></td><td class="cell-person">Answers when unsure</td></tr>
+          <tr><td>Approves, up to $5,000</td><td></td><td class="cell-person">Approves</td><td class="cell-person">Backup</td><td></td></tr>
+          <tr><td>Approves, over $5,000</td><td></td><td class="cell-person">Backup</td><td class="cell-person" id="mxLuis">Approves</td><td></td></tr>
+          <tr><td>Draft bill in QuickBooks</td><td class="cell-agent">Does, after approval</td><td></td><td></td><td></td></tr>
+          <tr><td>Weekly summary</td><td class="cell-agent">Does</td><td class="cell-person">Told</td><td class="cell-person">Told</td><td></td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="actions"><button class="ds-btn ds-btn--primary" id="peopleDone">Looks right</button><button class="ds-btn ds-btn--ghost" data-sloan>Ask Sloan</button></div>
+  </section>
+</div>
+
+<!-- ───────────────────────── See it work ───────────────────────── -->
+<div class="screen" id="s-see">
+  <span class="ds-eyebrow">Chapter 4 of 5</span>
+  <h1>See it work</h1>
+  <p class="sub">How the Bill clerk will handle a bill, with your people and your tools. Tell us on any step that isn't how you do it.</p>
+  <div class="ds-seg" role="group" style="margin-bottom:var(--space-5)"><button aria-pressed="true">Bill clerk</button><button aria-pressed="false">Vendor contracts</button></div>
+
+  <div class="rows" id="walk">
+    <div class="step"><span class="num">1</span><div>
+      <h3>A bill arrives at ap@hartleymillwork.com<span class="how">How it starts</span></h3>
+      <p class="muted small">Or you forward one to bills@hartley.mezonas.com. Messages without a PDF are left alone.</p>
+      <div class="actions" data-walk><button class="ds-btn ds-btn--secondary ds-btn--sm" data-ok>Looks right</button><button class="ds-btn ds-btn--ghost ds-btn--sm" data-diff>We do it differently</button></div>
+    </div></div>
+    <div class="step"><span class="num">2</span><div>
+      <h3>Reads the bill<span class="how">AI · Claude Sonnet 5.5, Anthropic</span></h3>
+      <p class="muted small">Takes the vendor, bill number, dates, lines and total from the PDF.</p>
+      <div class="actions" data-walk><button class="ds-btn ds-btn--secondary ds-btn--sm" data-ok>Looks right</button><button class="ds-btn ds-btn--ghost ds-btn--sm" data-diff>We do it differently</button></div>
+    </div></div>
+    <div class="step"><span class="num">3</span><div>
+      <h3>Checks it before anything else<span class="how">Rules</span></h3>
+      <p class="muted small">The lines add up to the total, the vendor is in QuickBooks, and it isn't a bill you already have. If any check fails, it comes to you instead.</p>
+      <div class="actions" data-walk><button class="ds-btn ds-btn--secondary ds-btn--sm" data-ok>Looks right</button><button class="ds-btn ds-btn--ghost ds-btn--sm" data-diff>We do it differently</button></div>
+    </div></div>
+    <div class="step"><span class="num">4</span><div>
+      <h3>Codes each line to a job<span class="how">AI, then rules</span></h3>
+      <p class="muted small">From your 18 open jobs and this vendor's past bills. When it isn't sure, it asks <b>Mark</b>.</p>
+      <div class="actions" data-walk><button class="ds-btn ds-btn--secondary ds-btn--sm" data-ok>Looks right</button><button class="ds-btn ds-btn--ghost ds-btn--sm" data-diff>We do it differently</button></div>
+      <div class="differ on" id="diffSent">
+        <div class="weThink ok"><span class="grow small"><b>You said:</b> "Freight should go to overhead, not the job." <span class="muted">Ana has this. We'll show you the change before it's used.</span></span><span class="ds-pill ds-pill--accent">With Ana</span></div>
+      </div>
+    </div></div>
+    <div class="step"><span class="num">5</span><div>
+      <h3>Gets it approved<span class="how person">Person</span></h3>
+      <p class="small">Bills up to <input class="ds-input inline-num" id="threshold" value="$5,000" aria-label="Approval amount"> go to <b>Dana</b>. Over that, <b>Luis</b>, then Dana if he's away. Each has 2 business days.</p>
+      <p class="muted small" style="margin-top:4px" id="thresholdHelp">You can lower it any time. To raise it above $10,000, ask Ana.</p>
+      <div class="actions" data-walk><button class="ds-btn ds-btn--secondary ds-btn--sm" data-ok>Looks right</button><button class="ds-btn ds-btn--ghost ds-btn--sm" data-diff>We do it differently</button></div>
+    </div></div>
+    <div class="step"><span class="num">6</span><div>
+      <h3>Makes a draft bill in QuickBooks<span class="how">Change in QuickBooks · asks first</span></h3>
+      <p class="muted small">With the PDF attached, once it's approved. It never pays a bill.</p>
+      <div class="actions" data-walk><button class="ds-btn ds-btn--secondary ds-btn--sm" data-ok>Looks right</button><button class="ds-btn ds-btn--ghost ds-btn--sm" data-diff>We do it differently</button></div>
+    </div></div>
+    <div class="step"><span class="num">7</span><div>
+      <h3>Sends the weekly summary<span class="how">Mondays, 8:00</span></h3>
+      <p class="muted small">To Luis by email and to your Desk: bills handled, waiting and sent back.</p>
+      <div class="actions" data-walk><button class="ds-btn ds-btn--secondary ds-btn--sm" data-ok>Looks right</button><button class="ds-btn ds-btn--ghost ds-btn--sm" data-diff>We do it differently</button></div>
+    </div></div>
+  </div>
+
+  <section>
+    <div class="sechead"><h2>Try it on a real bill</h2><span class="small muted">A test run: nothing is written to QuickBooks and nobody is asked</span></div>
+    <div class="rows try-list">
+      <button class="ds-listrow" data-try="northside"><span><span class="ds-listrow__title">Northside Lumber · $4,812.50</span><span class="ds-listrow__meta">From ap@, Nov 19 · NL-20931.pdf</span></span><span class="ds-btn ds-btn--secondary ds-btn--sm">Try this one</span></button>
+      <button class="ds-listrow" data-try="hardwood"><span><span class="ds-listrow__title">Hardwood Supply Co. · $7,340.00</span><span class="ds-listrow__meta">From ap@, Nov 21 · INV-55120.pdf</span></span><span class="ds-btn ds-btn--secondary ds-btn--sm">Try this one</span></button>
+      <button class="ds-listrow"><span><span class="ds-listrow__title">Upload a bill</span><span class="ds-listrow__meta">A PDF or a photo</span></span><img class="ds-icon" src="../../packages/design-system/assets/Icons/mz-upload.svg" width="16" height="16" alt=""></button>
+    </div>
+    <div class="box run" id="run">
+      <div class="between" style="margin-bottom:var(--space-3)"><h3 id="runTitle">Northside Lumber · $4,812.50</h3><span class="ds-pill ds-pill--accent">Test run · nothing written or sent</span></div>
+      <div class="rows" id="runSteps"></div>
+      <div class="actions" id="runDone" style="display:none"><span class="small muted">2 of 3 tries left.</span><button class="ds-btn ds-btn--ghost ds-btn--sm" data-sloan>Ask Sloan about this</button></div>
+    </div>
+  </section>
+</div>
+
+<!-- ───────────────────────── Go live ───────────────────────── -->
+<div class="screen" id="s-live">
+  <span class="ds-eyebrow">Chapter 5 of 5</span>
+  <h1>Go live</h1>
+  <p class="sub">Your scope for the Bill clerk is everything you checked, in one place. Sign it and Ana starts the trial.</p>
+
+  <div class="box">
+    <span class="ds-eyebrow">Scope · Bill clerk · version 1</span>
+    <dl class="kv">
+      <dt>What it does</dt><dd>Reads bills sent to ap@, checks and codes them, and makes draft bills in QuickBooks once they're approved.</dd>
+      <dt>What it reads</dt><dd>Your AP inbox (messages with a PDF), and QuickBooks bills, vendors, jobs and accounts.</dd>
+      <dt>What it may change</dt><dd>Create draft bills in QuickBooks, with the PDF. Every one waits for a signature.</dd>
+      <dt>Who signs</dt><dd>Dana up to $5,000 (Luis if she's away); Luis over $5,000 (Dana if he's away).</dd>
+      <dt>Who answers</dt><dd>Mark, on job codes.</dd>
+      <dt>Your choices</dt><dd>Approval amount $5,000 (you set it).</dd>
+      <dt>Still open</dt><dd>Freight to overhead: Ana is changing step 4, and you'll see it before it's used.</dd>
+    </dl>
+  </div>
+
+  <section>
+    <article class="mz-sign">
+      <div class="ds-row" style="justify-content:space-between"><span class="ds-pill ds-pill--warning" id="signPill">Waiting on you</span><span class="ds-eyebrow">Your scope</span></div>
+      <h3 class="mz-sign__title">Your Bill clerk is ready for its trial.</h3>
+      <p class="mz-sign__body">Sign the scope above and Ana starts the trial tomorrow morning.</p>
+      <div class="mz-sign__change">
+        <div class="mz-sign__side"><span class="ds-eyebrow">Today</span>About 330 bills a month keyed into QuickBooks by hand.</div>
+        <div class="mz-sign__side"><span class="ds-eyebrow">In the trial</span>Draft bills made for you. You sign each one before it goes into QuickBooks.</div>
+      </div>
+      <div class="mz-sign__foot"><span class="mz-person mz-person--lead"><span class="ds-avatar ds-avatar--sm mz-lead">AN</span>Checked by Ana, your lead</span><span class="ds-row"><button class="ds-btn ds-btn--secondary" data-sloan>Ask a question</button><button class="ds-btn ds-btn--primary" id="signBtn">Sign</button></span></div>
+    </article>
+  </section>
+
+  <section>
+    <h2>What happens next</h2>
+    <div class="timeline">
+      <div class="tl now" id="tl1"><b>Today</b>You sign the scope</div>
+      <div class="tl"><b>Tomorrow</b>Ana starts the trial. Your first bills are waiting on your Desk by 9:00.</div>
+      <div class="tl"><b>Two weeks</b>You sign every change. Anything wrong, tell the Bill clerk on the bill.</div>
+      <div class="tl"><b>Dec 2</b>A 20-minute check-in with Ana</div>
+      <div class="tl"><b>Dec 9</b>You decide what can run without asking. Approvals stay on unless you change them.</div>
+    </div>
+  </section>
+</div>
+
+<!-- ───────────────────────── Back office ───────────────────────── -->
+<div class="screen" id="s-board">
+  <nav class="ds-crumbs small muted">Clients / Hartley Millwork</nav>
+  <h1>Hartley Millwork</h1>
+  <div class="ds-tabs" role="tablist" style="margin:var(--space-3) 0 var(--space-6)">
+    <button role="tab" aria-selected="false">Overview</button><button role="tab" aria-selected="true">Setup</button><button role="tab" aria-selected="false">Agents</button><button role="tab" aria-selected="false">Runs</button><button role="tab" aria-selected="false">Client file</button>
+  </div>
+
+  <div class="notice notice--slate callbar" id="callbar"><img class="ds-icon" src="../../packages/design-system/assets/Icons/mz-phone.svg" width="16" height="16" alt=""><span class="grow">On a call with Dana. Answers you give show to her as "From our call: please check". You can't connect a tool, fill a signing seat or sign for her.</span></div>
+
+  <div class="ds-kpis ds-kpis--compact">
+    <div class="ds-kpi"><span class="ds-kpi__label">Agents in setup</span><span class="ds-kpi__value">2</span></div>
+    <div class="ds-kpi ds-kpi--signal"><span class="ds-kpi__label">Waiting on the client</span><span class="ds-kpi__value">5</span></div>
+    <div class="ds-kpi"><span class="ds-kpi__label">Change asks</span><span class="ds-kpi__value">1</span></div>
+    <div class="ds-kpi"><span class="ds-kpi__label">Trial target</span><span class="ds-kpi__value">Nov 25</span></div>
+  </div>
+
+  <section>
+    <div class="sechead"><h2>Chapters</h2><button class="ds-choice" role="switch" aria-checked="false" id="callSwitch"><span class="ds-switch"></span>Do it on a call</button></div>
+    <div class="box board-wrap" style="padding:var(--space-2) var(--space-4)">
+      <table class="grid-board">
+        <thead><tr><th>Agent</th><th>Business</th><th>Tools</th><th>People</th><th>See it work</th><th>Go live</th></tr></thead>
+        <tbody>
+          <tr><td><b>Bill clerk</b><span class="m">Template v4 · on the bench</span></td>
+            <td><span class="ds-pill ds-pill--positive ds-pill--sm">Done</span></td>
+            <td><span class="ds-pill ds-pill--warning ds-pill--sm">Dana</span><span class="m">Gmail · 1 day</span></td>
+            <td><span class="ds-pill ds-pill--warning ds-pill--sm">Dana</span><span class="m">Over $5,000 · Luis not invited</span></td>
+            <td><span class="ds-pill ds-pill--neutral ds-pill--sm">Not started</span><span class="m">1 change ask</span></td>
+            <td><span class="ds-pill ds-pill--neutral ds-pill--sm">Scope draft</span></td></tr>
+          <tr><td><b>Vendor contracts</b><span class="m">Template v2 · on the bench</span></td>
+            <td><span class="ds-pill ds-pill--positive ds-pill--sm">Done</span></td>
+            <td><span class="ds-pill ds-pill--positive ds-pill--sm">Done</span></td>
+            <td><span class="ds-pill ds-pill--warning ds-pill--sm">Dana</span><span class="m">Vendor contacts</span></td>
+            <td><span class="ds-pill ds-pill--warning ds-pill--sm">Mark</span><span class="m">Price lists · invited 1 day ago</span></td>
+            <td><span class="ds-pill ds-pill--neutral ds-pill--sm">Not started</span></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <div class="sechead"><h2>Waiting on</h2><span class="small muted">Dana last here 3 hours ago</span></div>
+    <div class="rows">
+      <div class="ds-listrow" style="cursor:default"><span class="grow"><span class="ds-listrow__title">Dana Ruiz · 3 cards</span><span class="ds-listrow__meta">Connect Gmail, approver over $5,000, vendor contacts</span></span><button class="ds-btn ds-btn--secondary ds-btn--sm">Nudge</button></div>
+      <div class="ds-listrow" style="cursor:default"><span class="grow"><span class="ds-listrow__title">Mark Lee · invite not opened</span><span class="ds-listrow__meta">Price lists for Vendor contracts · Reggie drafted a reminder for tomorrow</span></span><button class="ds-btn ds-btn--secondary ds-btn--sm">Review the draft</button></div>
+    </div>
+  </section>
+
+  <section>
+    <div class="sechead"><h2>Change asks</h2><span class="small muted">From the walkthrough and tries</span></div>
+    <div class="rows">
+      <div class="ask"><div><span class="seat-kind">Bill clerk · step 4, codes lines to jobs</span><p style="margin-top:4px">"Freight should go to overhead, not the job."</p><p class="small muted">Dana, from the walkthrough · Sloan asked: "Every vendor?" "Yes, freight lines from any vendor."</p></div>
+        <div class="actions" style="margin-top:0"><button class="ds-btn ds-btn--primary ds-btn--sm">Add to the build</button><button class="ds-btn ds-btn--secondary ds-btn--sm">Answer</button><button class="ds-btn ds-btn--ghost ds-btn--sm">Decline</button></div></div>
+    </div>
+  </section>
+
+  <section>
+    <div class="sechead"><h2>Runbook</h2><span class="small muted">Day 2 of about 17</span></div>
+    <div class="timeline">
+      <div class="tl done"><b>Day 0 · Nov 20</b>Invite sent</div>
+      <div class="tl now"><b>Day 2 · today</b>Kickoff call, 30 min: walkthrough and a try</div>
+      <div class="tl"><b>Day 3</b>Scope signed, Start trial</div>
+      <div class="tl"><b>Day 10</b>Trial check-in</div>
+      <div class="tl"><b>Day 17</b>Sign-off and live</div>
+    </div>
+  </section>
+
+  <section>
+    <div class="box between">
+      <div><h3>Start the Bill clerk's trial</h3><p class="small muted" style="margin-top:4px">Waiting on 3 things: Gmail connected, the approver over $5,000, the scope signed.</p></div>
+      <button class="ds-btn ds-btn--primary" disabled>Start trial</button>
+    </div>
+  </section>
+</div>
+
+<!-- ───────────────────────── About ───────────────────────── -->
+<div class="screen about" id="s-about">
+  <h1>About this mock-up</h1>
+  <p class="sub">Design only. The plan is <code>docs/setup-plan.md</code>. The data is made up and no route is called.</p>
+  <div class="box stack">
+    <h3>What it stands on (built)</h3>
+    <ul>
+      <li>Getting started's intake cards, "We think", Connect and Ask someone else (<code>docs/plan.md</code> §1.149, O1–O3).</li>
+      <li>Each agent's setup checklist and what it guards (builder-plan §6), and adjustable settings within bounds (§7).</li>
+      <li>The bundle's <code>people</code> roles bound per client agent, approver rules, away, the directory and its QuickBooks import.</li>
+      <li>Test runs, which never write; the SOP's steps, methods, models and people matrix.</li>
+    </ul>
+    <h3>What's new</h3>
+    <ul>
+      <li><b>Seats</b>: a template names <code>seat:bill-approver</code>; each client fills it, and no version holds a person.</li>
+      <li>Five chapters with one line per agent of what's left and who it waits on.</li>
+      <li>The Tools card's "what it's for", account check and first look.</li>
+      <li>The walkthrough with choose, ask and never; try it on a real one, started from the portal.</li>
+      <li>Sloan across every chapter, proposing into the same cards.</li>
+      <li>The back office's Setup tab, Do it on a call, and the runbook.</li>
+    </ul>
+    <h3>Try</h3>
+    <ul>
+      <li>Open Sloan and press Confirm on "What we've got": the People card for over $5,000 fills in.</li>
+      <li>On See it work, change the approval amount to above $10,000, then press Try this one.</li>
+      <li>Switch "Do it on a call" on the back office's Setup tab.</li>
+    </ul>
+  </div>
+</div>
+
+</div>
+</main>
+
+<!-- ───────────────────────── Sloan ───────────────────────── -->
+<aside class="sloan" id="sloan" aria-label="Sloan">
+  <header>
+    <span class="ds-avatar av-slate">S</span>
+    <div class="grow"><h3>Sloan</h3><p class="small muted">Your account agent. I fill in the cards; you check them.</p></div>
+    <button class="ds-btn ds-btn--ghost ds-btn--icon" id="sloanClose" aria-label="Close"><img class="ds-icon" src="../../packages/design-system/assets/Icons/mz-close.svg" width="16" height="16" alt=""></button>
+  </header>
+  <div class="thread" id="thread">
+    <div class="ds-turn"><span class="ds-avatar av-slate">S</span><div><span class="ds-turn__who">Sloan</span><div class="ds-turn__said">Hi Dana. Ana says you handle the bills and Luis signs the big ones. Who else touches a bill before it's paid?</div></div><span></span></div>
+    <div class="ds-turn"><span class="ds-avatar ds-avatar--self">DR</span><div><span class="ds-turn__who">You</span><div class="ds-turn__said">Mark knows the job codes. Luis signs anything over five grand, and if he's out I do it.</div></div><span></span></div>
+    <div class="ds-turn"><span class="ds-avatar av-slate">S</span><div><span class="ds-turn__who">Sloan</span><div class="ds-turn__said">Got it. Here's what I've got. Check it and it goes on your People cards.</div></div><span></span></div>
+    <div class="proposal" id="proposal">
+      <span class="ds-eyebrow">What we've got</span>
+      <ul>
+        <li>Approves bills over $5,000: <b>Luis Ortega</b>. If he's away: <b>you</b>.</li>
+        <li>Answers questions about job codes: <b>Mark Lee</b>.</li>
+      </ul>
+      <div class="actions" style="margin-top:0"><button class="ds-btn ds-btn--primary ds-btn--sm" id="propYes">Confirm</button><button class="ds-btn ds-btn--ghost ds-btn--sm" data-go="people">Change on the cards</button></div>
+    </div>
+    <div class="ds-turn"><span class="ds-avatar av-slate">S</span><div><span class="ds-turn__who">Sloan</span><div class="ds-turn__said">Gmail isn't connected yet. I can't take passwords here. This opens Google's own sign-in.</div></div><span></span></div>
+    <div class="proposal"><div class="between"><span><b>Gmail</b>: ap@hartleymillwork.com</span><button class="ds-btn ds-btn--secondary ds-btn--sm">Connect Gmail</button></div></div>
+  </div>
+  <div class="compose">
+    <textarea class="ds-textarea" rows="2" placeholder="Type, or hold the mic to talk"></textarea>
+    <div class="between" style="margin-top:var(--space-2)"><span class="small muted">Rather use the cards? <button class="ds-btn ds-btn--link" data-go="home">Back to the page</button></span><button class="ds-btn ds-btn--primary ds-btn--sm">Send</button></div>
+  </div>
+</aside>
+</div>
+
+<script>
+(function () {
+  var $ = function (s, r) { return (r || document).querySelector(s); };
+  var $$ = function (s, r) { return Array.prototype.slice.call((r || document).querySelectorAll(s)); };
+  var left = 7;
+
+  function go(name) {
+    $$('.screen').forEach(function (s) { s.classList.toggle('on', s.id === 's-' + name); });
+    $$('#screens button').forEach(function (b) { b.setAttribute('aria-pressed', b.dataset.go === name); });
+    var ops = name === 'board';
+    $('#portalNav').style.display = ops ? 'none' : '';
+    $('#opsNav').style.display = ops ? '' : 'none';
+    $('#sloanToggle').style.display = ops || name === 'about' ? 'none' : '';
+    if (ops || name === 'about') $('#sloan').classList.remove('on');
+    window.scrollTo(0, 0);
+  }
+  function setLeft(n) { left = Math.max(0, n); $('#navLeft').textContent = left; $('#homeLeft').textContent = left + (left === 1 ? ' thing left' : ' things left'); }
+
+  document.addEventListener('click', function (e) {
+    var g = e.target.closest('[data-go]');
+    if (g) { go(g.dataset.go); return; }
+    if (e.target.closest('[data-sloan]')) { $('#sloan').classList.add('on'); return; }
+    var seg = e.target.closest('.ds-seg button');
+    if (seg) { $$('button', seg.parentNode).forEach(function (x) { x.setAttribute('aria-pressed', x === seg); }); }
+    var c = e.target.closest('[data-confirm]');
+    if (c) { var row = document.getElementById(c.dataset.confirm); row.classList.add('ok');
+      $$('button', row).forEach(function (b) { b.remove(); });
+      var p = document.createElement('span'); p.className = 'ds-pill ds-pill--positive'; p.textContent = 'Checked'; row.appendChild(p); }
+    var pk = e.target.closest('[data-picker]');
+    if (pk) document.getElementById(pk.dataset.picker).classList.toggle('on');
+    var ok = e.target.closest('[data-ok]');
+    if (ok) { var a = ok.parentNode; a.innerHTML = '<span class="ds-pill ds-pill--positive ds-pill--sm">Looks right</span>'; }
+    var df = e.target.closest('[data-diff]');
+    if (df) { var a2 = df.parentNode;
+      a2.insertAdjacentHTML('afterend', '<div class="differ on"><label class="ds-field"><span class="ds-label">What do you do instead?</span><textarea class="ds-textarea" rows="2" placeholder="In your own words. Sloan may ask one follow-up."></textarea></label><div class="actions"><button class="ds-btn ds-btn--primary ds-btn--sm" data-send>Send to Ana</button></div></div>');
+      a2.remove(); }
+    var sd = e.target.closest('[data-send]');
+    if (sd) { sd.closest('.differ').innerHTML = '<div class="weThink ok"><span class="grow small">Ana has this. We\'ll show you the change before it\'s used.</span><span class="ds-pill ds-pill--accent">With Ana</span></div>'; }
+    var tr = e.target.closest('[data-try]');
+    if (tr) tryRun(tr.dataset.try);
+  });
+
+  $('#sloanToggle').onclick = function () { $('#sloan').classList.toggle('on'); };
+  $('#sloanClose').onclick = function () { $('#sloan').classList.remove('on'); };
+  $('#theme').onclick = function () {
+    var dark = document.documentElement.getAttribute('data-theme') === 'dark';
+    document.documentElement.setAttribute('data-theme', dark ? 'light' : 'dark');
+    this.textContent = dark ? 'Dark' : 'Light';
+  };
+
+  function fillSeat2() {
+    if ($('#seat2Pill').textContent === 'Checked') return;
+    $('#seat2wt').classList.add('ok');
+    $('#seat2wt').innerHTML = '<span class="grow"><b>Luis Ortega</b> approves. If he\'s away: <b>you</b>. <span class="muted">From your chat with Sloan.</span></span><span class="ds-pill ds-pill--positive">Checked</span>';
+    $('#seat2Pill').className = 'ds-pill ds-pill--positive'; $('#seat2Pill').textContent = 'Checked';
+    $('#chipSeat').remove(); seatsChecked(1);
+  }
+  var checked = 3;
+  function seatsChecked(n) { checked += n; setLeft(left - n);
+    $('#chPeople').textContent = 'Who approves, who answers, who hears about it. ' + checked + ' of 5 seats checked.';
+    $('#peopleBar').style.width = (checked * 20) + '%';
+    var l = 5 - checked; $('#chPeoplePill').textContent = l ? l + ' left' : 'Done';
+    $('#chPeoplePill').className = 'ds-pill ' + (l ? 'ds-pill--warning' : 'ds-pill--positive'); }
+  $('#seat2Yes').onclick = fillSeat2;
+  $('#propYes').onclick = function () { fillSeat2();
+    $('#proposal').innerHTML = '<span class="ds-eyebrow">What we\'ve got</span><p style="margin-top:4px">Confirmed. It\'s on your People cards. <button class="ds-btn ds-btn--link" data-go="people">See them</button></p>';
+    $('#thread').insertAdjacentHTML('beforeend', '<div class="ds-turn"><span class="ds-avatar av-slate">S</span><div><span class="ds-turn__who">Sloan</span><div class="ds-turn__said">Luis doesn\'t sign in yet, and approvers do. Want me to get his invite ready? You\'ll send it.</div></div><span></span></div>');
+    $('#thread').scrollTop = 1e6; };
+  $('#seat5Yes').onclick = function () { $('#seat5wt').classList.add('ok');
+    $('#seat5wt').innerHTML = '<span class="grow">12 vendor contacts. The agent emails one only after you sign the message.</span><span class="ds-pill ds-pill--positive">Checked</span>';
+    $('#seat5Pill').className = 'ds-pill ds-pill--positive'; $('#seat5Pill').textContent = 'Checked'; seatsChecked(1); };
+  $('#inviteLuis').onclick = function () { $('#seat2Invite').innerHTML = '<img class="ds-icon" src="../../packages/design-system/assets/Icons/mz-check.svg" width="16" height="16" alt=""><span class="grow">Invite sent to luis@hartleymillwork.com. He can sign from his Desk, the phone app or the email.</span>'; };
+  $('#peopleDone').onclick = function () { this.outerHTML = '<span class="ds-pill ds-pill--positive">Chapter checked</span>'; };
+  $('#gmailMe').onclick = function () { $('#gmailPill').className = 'ds-pill ds-pill--positive'; $('#gmailPill').textContent = 'Connected';
+    $('#gmailWho').innerHTML = '<div class="weThink ok"><span class="grow">You signed in as <b>ap@hartleymillwork.com</b>. We found 214 messages with a PDF in the last 90 days.</span><span class="ds-pill ds-pill--positive">Checked</span></div>'; setLeft(left - 1); };
+  $('#gmailAsk').onclick = function () { $('#gmailAskBox').classList.toggle('on'); };
+  $('#gmailAskSend').onclick = function () { $('#gmailPill').textContent = 'Waiting on Mark';
+    $('#gmailAskBox').innerHTML = '<p class="small muted">Sent to Mark. You\'ll see it here when he connects it.</p>'; };
+  $('#signBtn').onclick = function () { $('#signPill').className = 'ds-pill ds-pill--positive'; $('#signPill').textContent = 'Signed';
+    this.outerHTML = '<span class="ds-pill ds-pill--positive">Signed by Dana Ruiz, just now</span>'; $('#tl1').className = 'tl done'; };
+  $('#callSwitch').addEventListener('click', function () {
+    var on = this.getAttribute('aria-checked') !== 'true'; this.setAttribute('aria-checked', on);
+    $('#callbar').classList.toggle('on', on); });
+
+  function amount() { var v = parseFloat(String($('#threshold').value).replace(/[^0-9.]/g, '')); return isNaN(v) ? 5000 : v; }
+  $('#threshold').addEventListener('change', function () {
+    var v = amount(); this.value = '$' + v.toLocaleString('en-US');
+    var h = $('#thresholdHelp');
+    if (v > 10000) h.innerHTML = '<span class="ds-pill ds-pill--warning ds-pill--sm">Goes to Ana</span> Above $10,000 is more than we set up. We\'ve asked Ana; until she answers, $5,000 stays.';
+    else if (v < 5000) h.innerHTML = '<span class="ds-pill ds-pill--positive ds-pill--sm">Saved</span> Lower is always fine. It applies now and shows in your scope.';
+    else h.textContent = 'You can lower it any time. To raise it above $10,000, ask Ana.';
+  });
+
+  var bills = {
+    northside: { title: 'Northside Lumber · $4,812.50', total: 4812.5 },
+    hardwood: { title: 'Hardwood Supply Co. · $7,340.00', total: 7340 }
+  };
+  function tryRun(key) {
+    // Above the bounds the change waits on the lead, so the run keeps $5,000.
+    var b = bills[key], limit = amount() > 10000 ? 5000 : amount();
+    var over = b.total > limit;
+    var steps = [
+      ['Found the bill in ap@', key === 'northside' ? 'NL-20931.pdf, from orders@northsidelumber.com' : 'INV-55120.pdf, from billing@hardwoodsupply.com', ''],
+      ['Read it', key === 'northside' ? 'Bill NL-20931, Nov 19, due Dec 19, 3 lines, $4,812.50' : 'Invoice INV-55120, Nov 21, due Dec 21, 5 lines, $7,340.00', ''],
+      ['Checked it', 'Lines add up. Vendor found in QuickBooks. Not a duplicate.', ''],
+      ['Coded the lines', key === 'northside' ? '2 lines to job 1187 Lakeview kitchens; freight to job 1187 (you asked for overhead: Ana has it)' : '5 lines to job 1192 Ortiz library; all sure', ''],
+      [over ? 'Would ask Luis' : 'Would ask Dana', over ? 'Over $' + limit.toLocaleString('en-US') + ', so Luis, with 2 business days. Nobody was asked: test run.' : 'Up to $' + limit.toLocaleString('en-US') + ', so Dana, with 2 business days. Nobody was asked: test run.', 'person'],
+      ['Would make a draft bill in QuickBooks', 'With the PDF attached. Nothing was written: test run.', '']
+    ];
+    $('#run').classList.add('on'); $('#runTitle').textContent = b.title; $('#runDone').style.display = 'none';
+    $('#runSteps').innerHTML = steps.map(function (s) {
+      return '<div class="rstep ' + s[2] + '"><span class="dot"></span><div><b style="font-weight:500">' + s[0] + '</b><p class="small muted">' + s[1] + '</p></div>' +
+        '<span class="actions" style="margin-top:0"><button class="ds-btn ds-btn--ghost ds-btn--sm" data-ok>Right</button><button class="ds-btn ds-btn--ghost ds-btn--sm" data-diff>Not right</button></span></div>';
+    }).join('');
+    $$('#runSteps .rstep').forEach(function (r, i) { setTimeout(function () { r.classList.add('shown'); if (i === steps.length - 1) $('#runDone').style.display = 'flex'; }, 350 * (i + 1)); });
+    $('#run').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+})();
+</script>
+</body>
+</html>

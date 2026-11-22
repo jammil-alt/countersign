@@ -18,6 +18,7 @@ import { useApi, useApiClient } from "../../api/useApi";
 import { ContactsPanel } from "../../contacts/ContactsPanel";
 // v0.14 capture
 import { ConversationsPanel } from "../../conversations/ConversationsPanel";
+import { EN } from "../../i18n/i18n";
 import { Field, Select, TextInput } from "../../ui/forms";
 import {
   Badge,
@@ -123,7 +124,7 @@ function TwilioSetup({
           // §1.160: a retired client's Twilio is given up hourly: numbers released, closed for good.
           <p className="text-ink-muted" data-testid="ops-twilio-closed">
             {twilio.closedAt
-              ? `The client is retired. We released its numbers and closed its subaccount on ${new Date(twilio.closedAt).toLocaleDateString()}. It can't be reopened.`
+              ? `The client is retired. We released its numbers and closed its subaccount on ${EN.fmt.date(twilio.closedAt)}. It can't be reopened.`
               : `The client is retired. We're releasing its numbers and closing its subaccount; Twilio refused the last try (${twilio.closeError}), so we try again every hour.`}
           </p>
         ) : twilio === null || twilio.status !== "connected" ? (
@@ -413,7 +414,7 @@ function A2pPanel({
           : "Registered in Twilio's console instead? Record the brand and Messaging Service here."}{" "}
         Texts to US numbers wait until both are approved.
         {a2p.checkedAt
-          ? ` Last checked ${new Date(a2p.checkedAt).toLocaleString()}: brand ${a2p.brandStatus ?? "none"}, campaign ${a2p.campaignStatus ?? "none"}.`
+          ? ` Last checked ${EN.fmt.dateTime(a2p.checkedAt)}: brand ${a2p.brandStatus ?? "none"}, campaign ${a2p.campaignStatus ?? "none"}.`
           : ""}
       </p>
       <form

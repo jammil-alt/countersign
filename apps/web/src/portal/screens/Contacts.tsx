@@ -39,6 +39,7 @@ import { PersonHoursEditor } from "../../hours/HoursParts";
 import type { PlainKey } from "../../i18n/catalog";
 import { type I18n, useI18n } from "../../i18n/i18n";
 import { AccessBadge, InviteContactAction } from "../../people/People";
+import { RecordRuns } from "../../records/RecordRuns";
 import { shortTime } from "../../runs/format";
 import { useAnswered, useDebounced } from "../../runs/useDebounced";
 import { useSession } from "../../session/session";
@@ -804,6 +805,13 @@ function PersonDetail({
           <RecentMessages contactId={p.id} />
         </DetailBlock>
       ) : null}
+      {/* R3 (docs/plan.md §1.200): what our agents did with them, as the timeline shows it. */}
+      <RecordRuns
+        source={{ surface: "portal" }}
+        recordId={p.id}
+        runHref={(r) => `${PORTAL_PATHS.runs}/${r}`}
+        testId="people-detail-runs"
+      />
     </SideSheet>
   );
 }

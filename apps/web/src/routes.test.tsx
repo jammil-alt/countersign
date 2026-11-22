@@ -11,6 +11,7 @@ import { portalRoutes } from "./portal/routes";
 import { CLIENT_SESSION, fakeApi, OPERATOR_SESSION } from "./test/fixtures";
 
 const ID = "00000000-0000-4000-8000-00000000e001";
+const YOURS = 8;
 
 function LocationProbe() {
   const { pathname, search, hash } = useLocation();
@@ -26,6 +27,23 @@ function renderAt(path: string, operator: boolean) {
       services: [],
       needsYou: { inbox: 0 },
       recentRuns: [],
+    }),
+    // Your call's count, which the back office's frame shows on every page.
+    "GET /api/ops/todos": () => ({
+      items: [],
+      counts: {
+        yours: YOURS,
+        reggie: 0,
+        client: 0,
+        doneToday: 0,
+        dueToday: 0,
+        criticalHeld: 0,
+        lateClient: 0,
+        questionsWeek: 0,
+        medianAnswerMinutes: null,
+      },
+      holds: [],
+      today: "2026-11-22",
     }),
   });
   return render(
@@ -102,7 +120,7 @@ describe("the portal's routes", () => {
     renderAt(path, false);
     await screen.findByTestId("shell-portal");
     await waitFor(() => expect(screen.queryByRole("status")).toBeNull(), { timeout: 10_000 });
-    expect(screen.queryByRole("heading", { name: "Not found" })).toBeNull();
+    expect(screen.queryByTestId("page-not-found")).toBeNull();
   });
 
   it.each([
@@ -127,7 +145,7 @@ describe("the portal's routes", () => {
     renderAt(from, false);
     await waitFor(() => expect(screen.getByTestId("location")).toHaveTextContent(to));
     await screen.findByTestId("shell-portal");
-    expect(screen.queryByRole("heading", { name: "Not found" })).toBeNull();
+    expect(screen.queryByTestId("page-not-found")).toBeNull();
   });
 
   it("keeps the providers' return addresses", () => {
@@ -144,7 +162,25 @@ describe("the back office's routes", () => {
   it.each(all)("%s renders a page", async (path) => {
     renderAt(path, true);
     await screen.findByTestId("shell-ops", {}, { timeout: 10_000 });
-    expect(screen.queryByRole("heading", { name: "Not found" })).toBeNull();
+    expect(screen.queryByTestId("page-not-found")).toBeNull();
+    // Staging QA (2026-11-22): Your call's count is on every page of the back office, in the top
+    // bar, the sidebar and the tab's title (it was reported gone on Library and New client).
+    await waitFor(() => expect(screen.getByTestId("shell-inbox")).toHaveTextContent(`${YOURS}`));
+    expect(screen.getByTestId("ops-nav-call")).toHaveTextContent(`${YOURS}`);
+    expect(document.title.startsWith(`(${YOURS}) `)).toBe(true);
+  });
+
+  // Staging QA (2026-11-22): an unknown address is "Page not found" with the way Home, never
+  // "Not built yet" (kept for a screen still to come).
+  it.each([
+    ["/ops/no-such-page", true, "/ops"],
+    ["/no-such-page", false, "/"],
+  ])("%s says the page is not found", async (path, operator, home) => {
+    renderAt(path, operator);
+    const page = await screen.findByTestId("page-not-found", {}, { timeout: 10_000 });
+    expect(page).toHaveTextContent("Page not found");
+    expect(page).not.toHaveTextContent("Not built yet");
+    expect(screen.getByTestId("not-found-home")).toHaveAttribute("href", home);
   });
 
   it("sends /ops/templates to the Agent lab", async () => {
@@ -162,7 +198,7 @@ describe("the back office's routes", () => {
   ])("%s renders a page", async (path) => {
     renderAt(path, true);
     await screen.findByTestId("shell-ops", {}, { timeout: 10_000 });
-    expect(screen.queryByRole("heading", { name: "Not found" })).toBeNull();
+    expect(screen.queryByTestId("page-not-found")).toBeNull();
   });
 
   it("keeps the template pages under /ops/templates", () => {

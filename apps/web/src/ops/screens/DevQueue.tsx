@@ -25,6 +25,7 @@ import { useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { ApiError } from "../../api/client";
 import { useApi, useApiClient } from "../../api/useApi";
+import { EN } from "../../i18n/i18n";
 import { Field, Select, TextArea, TextInput } from "../../ui/forms";
 import { Loaded } from "../../ui/page";
 import { Badge, Button, Card, EmptyState, type Tone } from "../../ui/primitives";
@@ -64,12 +65,7 @@ function age(iso: string, now = Date.now()): string {
 }
 
 function when(iso: string): string {
-  return new Date(iso).toLocaleString(undefined, {
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  });
+  return EN.fmt.dateTime(iso);
 }
 
 function messageOf(e: unknown): string {

@@ -40,6 +40,7 @@ import type { ReactNode } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import { apiRoutes } from "../../api/routes";
 import { useApi } from "../../api/useApi";
+import { EN } from "../../i18n/i18n";
 import { StatusFilter } from "../../inbox/StatusFilter";
 import { KpiStrip, StatTile } from "../../ui/figures";
 import { Columns, Loaded, Page } from "../../ui/page";
@@ -62,8 +63,7 @@ export function StatusBadge({ status }: { status: ControlStatus }) {
   );
 }
 
-const day = (iso: string) =>
-  new Date(iso).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
+const day = (iso: string) => EN.fmt.date(iso);
 
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
 

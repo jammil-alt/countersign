@@ -327,6 +327,39 @@ describe.skipIf(!h)("Your call", () => {
     ).toBe(422);
   });
 
+  it("leads every to-do about a record to the page where it is done", async () => {
+    // QA (2026-11-22): "Record Susana Test's agreed price" opened a sheet with Later and Done
+    // only; the terms form is on the deal's page.
+    const dealId = "00000000-0000-4000-8000-0000000d0e01";
+    const price = await seed({
+      title: "Record Susana Test's agreed price",
+      owner: "operator",
+      clientId: H.A.tenantId,
+      about: { kind: "deal", id: dealId },
+      source: "system",
+    });
+    // An ask has no page of its own: its client's page is where it is answered.
+    const askId = "00000000-0000-4000-8000-0000000a5c01";
+    const ask = await seed({
+      title: "Answer Hartley's question about the bill run",
+      owner: "operator",
+      clientId: H.A.tenantId,
+      about: { kind: "client_ask", id: askId },
+      source: "play",
+    });
+    const items = (await list()).items;
+    expect(items.find((i) => i.id === price.id)?.about).toEqual({
+      kind: "deal",
+      id: dealId,
+      href: `/ops/deals/${dealId}`,
+    });
+    expect(items.find((i) => i.id === ask.id)?.about).toEqual({
+      kind: "client_ask",
+      id: askId,
+      href: `/ops/clients/${H.A.tenantId}`,
+    });
+  });
+
   it("Do it sends a deal email through the deal's route, and a refusal leaves the to-do open", async () => {
     const t = await seed({
       title: "First reply to Ridgeline",

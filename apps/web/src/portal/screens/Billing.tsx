@@ -15,6 +15,7 @@ import {
   STATEMENT_STATUS,
   StatementLines,
 } from "../../billing/parts";
+import { dateLocaleFor } from "../../i18n/format";
 import { useI18n } from "../../i18n/i18n";
 import {
   Badge,
@@ -135,7 +136,7 @@ function StatementCard({ statement: s }: { statement: PortalStatement }) {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-col">
           <span className="font-medium text-ink">
-            {new Date(`${s.period.start}T00:00:00.000Z`).toLocaleDateString(intl, {
+            {new Date(`${s.period.start}T00:00:00.000Z`).toLocaleDateString(dateLocaleFor(intl), {
               month: "long",
               year: "numeric",
               timeZone: "UTC",

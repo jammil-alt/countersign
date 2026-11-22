@@ -28,9 +28,11 @@ import {
   parseLocale,
   processingRefusal,
   type RenderedEmail,
+  readTenantGuide,
   renderColleagueEmail,
   renderInviteEmail,
   renderMoreQuestionsEmail,
+  renderSetupNudgeEmail,
   userLanguage,
 } from "@countersign/core";
 import {
@@ -39,13 +41,14 @@ import {
   intake,
   intakeEvent,
   intakePerson,
+  membership,
   notification,
   type Tx,
   tenant as tenantTable,
   withOperator,
 } from "@countersign/db";
-import { leadDisplayName } from "@countersign/threads";
-import { and, desc, eq } from "drizzle-orm";
+import { leadDisplayName, leadOf } from "@countersign/threads";
+import { and, desc, eq, inArray } from "drizzle-orm";
 import type { Bindings } from "../env";
 import { HttpError } from "../http";
 import { HELLO_LOCAL_PART, type MailMessage, mailerFromEnv } from "../notify/mailer";
@@ -321,8 +324,9 @@ export type PreparedOnboardingEmail =
   | {
       kind: "send";
       message: Omit<MailMessage, "idempotencyKey">;
-      intakeId: string;
-      personId: string;
+      /** Null for the setup nudge, which goes to a member, not an intake's person (§1.206). */
+      intakeId: string | null;
+      personId: string | null;
     };
 
 export interface OnboardingSendDeps {
@@ -348,12 +352,13 @@ export async function prepareOnboardingEmail(
   const skip = (reason: string, intakeId: string | null = null, personId: string | null = null) =>
     ({ kind: "skip", reason, intakeId, personId }) as const;
   if (!isOnboardingNotificationKind(row.kind)) return skip("not_onboarding");
+  if (row.kind === "intake_reminder") return prepareSetupNudge(tx, t, row, deps);
   if (
     row.kind !== "intake_invite" &&
     row.kind !== "intake_colleague" &&
     row.kind !== "intake_more_questions"
   ) {
-    // The reminder, "Your scope is ready" and "What happens next" are next wave's.
+    // "Your scope is ready" and "What happens next" are next wave's.
     return skip("unsupported");
   }
   const personId = intakePersonOfKey(row.dedupeKey);
@@ -463,6 +468,80 @@ export async function prepareOnboardingEmail(
       html: rendered.html,
       from: { name: lead.name, localPart: HELLO_LOCAL_PART },
       ...(lead.email ? { replyTo: lead.email } : {}),
+    },
+  };
+}
+
+/**
+ * The setup nudge (docs/setup-plan.md §8; §1.206, SU6), written by Nudge on the Setup tab as an
+ * `intake_reminder` row for one of the client's members: from the client's lead (else its newest
+ * intake's, else Mezonas),
+ * in the member's language, listing what the nudge listed (`setupGuide.nudgeItems`), with a link
+ * to Getting started. A member who left, or a nudge with nothing left to list, gets nothing.
+ */
+// DECISION: the nudge goes to a member, not an intake's person: who a setup waits on is anyone
+// asked (a seat, a tool), on the intake or not. So it carries no welcome link (they sign in) and
+// nothing is logged on an intake.
+async function prepareSetupNudge(
+  tx: Tx,
+  t: typeof tenantTable.$inferSelect,
+  row: NotificationRow,
+  deps: OnboardingSendDeps,
+): Promise<PreparedOnboardingEmail> {
+  const skip = (reason: string) =>
+    ({ kind: "skip", reason, intakeId: null, personId: null }) as const;
+  if (!row.userId) return skip("not_found");
+  const [member] = await tx
+    .select({ name: appUser.name, email: appUser.email })
+    .from(membership)
+    .innerJoin(appUser, eq(appUser.id, membership.userId))
+    .where(
+      and(
+        eq(membership.tenantId, t.id),
+        eq(membership.userId, row.userId),
+        inArray(membership.role, ["client_admin", "client_user"]),
+      ),
+    );
+  if (!member) return skip("not_a_member");
+  const settings = (t.settings ?? {}) as Record<string, unknown>;
+  if (onboardingEmailRefusal(settings, deps.covered)) return skip("hipaa");
+  if (!deps.mailerConfigured) return skip("not_configured");
+  const items = readTenantGuide(settings).nudgeItems?.[row.userId] ?? [];
+  if (items.length === 0) return skip("nothing_left");
+  // The client's lead, else the lead on its newest intake, else Mezonas.
+  const lead = await leadOf(tx, t.id);
+  let from: { name: string; email: string | null } | null = lead
+    ? { name: leadDisplayName(lead), email: lead.email }
+    : null;
+  if (!from) {
+    const [it] = await tx
+      .select({ leadUserId: intake.leadUserId })
+      .from(intake)
+      .where(eq(intake.tenantId, t.id))
+      .orderBy(desc(intake.createdAt))
+      .limit(1);
+    if (it?.leadUserId) from = await intakeLead(tx, it);
+  }
+  const rendered = renderSetupNudgeEmail({
+    locale: userLanguage(settings, row.userId) ?? clientLanguage(settings) ?? "en",
+    client: t.name,
+    to: { name: member.name?.trim() || member.email, email: member.email },
+    lead: { name: from?.name ?? "Mezonas", photoUrl: null },
+    items,
+    link: row.link,
+    origin: deps.origin,
+  });
+  return {
+    kind: "send",
+    intakeId: null,
+    personId: null,
+    message: {
+      to: member.email,
+      subject: rendered.subject,
+      text: rendered.text,
+      html: rendered.html,
+      from: { name: from?.name ?? "Mezonas", localPart: HELLO_LOCAL_PART },
+      ...(from?.email ? { replyTo: from.email } : {}),
     },
   };
 }

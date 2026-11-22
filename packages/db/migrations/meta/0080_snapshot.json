@@ -1,6 +1,6 @@
 {
-  "id": "34f37568-616a-4e12-8f85-677b274aeb90",
-  "prevId": "c06fd2ae-8f2e-44d9-b0c0-df22f176517c",
+  "id": "ee3f2726-594b-4063-aca0-e8d0154b2635",
+  "prevId": "2078d933-ad82-42bf-99d4-94d4d6585132",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -15557,7 +15557,7 @@
         },
         "notification_kind_check": {
           "name": "notification_kind_check",
-          "value": "\"notification\".\"kind\" in ('items_waiting', 'weekly_table', 'reconnect', 'credits', 'lead_message', 'signoff', 'issue_update', 'intake_invite', 'intake_colleague', 'intake_more_questions', 'intake_reminder', 'intake_scope_ready', 'intake_next')"
+          "value": "\"notification\".\"kind\" in ('items_waiting', 'weekly_table', 'reconnect', 'credits', 'lead_message', 'signoff', 'issue_update', 'intake_invite', 'intake_colleague', 'intake_more_questions', 'intake_reminder', 'intake_scope_ready', 'intake_next', 'urgent')"
         },
         "notification_status_check": {
           "name": "notification_status_check",

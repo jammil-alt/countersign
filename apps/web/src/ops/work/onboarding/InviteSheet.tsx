@@ -32,6 +32,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { apiRoutes } from "../../../api/routes";
 import { useApi, useApiClient } from "../../../api/useApi";
+import { EN } from "../../../i18n/i18n";
 import { cx } from "../../../ui/cx";
 import { ErrorNotice } from "../../../ui/ErrorState";
 import { Field, Select, TextArea, TextInput } from "../../../ui/forms";
@@ -1015,12 +1016,7 @@ function WelcomePreview({ welcome }: { welcome: InvitePreview["welcome"] }) {
         <p className="m-0 text-ink-muted">Sign-in is filled in with {welcome.email}.</p>
       ) : null}
       <p className="m-0 text-xs text-ink-muted">
-        In {LOCALE_NAMES[welcome.language]}. The link works until{" "}
-        {new Date(welcome.expiresAt).toLocaleDateString("en-US", {
-          month: "short",
-          day: "numeric",
-        })}
-        .
+        In {LOCALE_NAMES[welcome.language]}. The link works until {EN.fmt.day(welcome.expiresAt)}.
       </p>
     </div>
   );

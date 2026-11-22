@@ -264,7 +264,7 @@ const base = () => ({
 describe("the words", () => {
   it("say the client's go-ahead, and what the button does", () => {
     expect(mezonasMayWords("Hartley Millwork", MAY)).toBe(
-      "Hartley Millwork lets us: make changes agents need, until Dec 20",
+      "Hartley Millwork lets us: make changes agents need, until 20 Dec",
     );
     expect(mezonasMayWords("Hartley Millwork", null)).toBe(
       "Hartley Millwork asks to approve each change here.",
@@ -318,7 +318,7 @@ describe("the client's Connectors tab", () => {
       "Waiting on Hartley Millwork",
     );
     expect(within(conn).getByTestId("ops-connection-may")).toHaveTextContent(
-      "Hartley Millwork lets us: make changes agents need, until Dec 20",
+      "Hartley Millwork lets us: make changes agents need, until 20 Dec",
     );
     expect(within(conn).getByTestId("ops-connection-open")).toHaveAttribute(
       "href",
@@ -399,7 +399,7 @@ describe("a connector's page: we change it as if it were ours", () => {
       "Tighter changes apply at once; anything looser goes to Hartley Millwork to approve.",
     );
     expect(within(conn).getByTestId("ops-client-connection-may")).toHaveTextContent(
-      "Hartley Millwork lets us: make changes agents need, until Dec 20",
+      "Hartley Millwork lets us: make changes agents need, until 20 Dec",
     );
     expect(within(conn).getByTestId("ops-access-row-create:purchase_order")).toHaveTextContent(
       "Buyer needs this",
