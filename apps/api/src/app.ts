@@ -111,6 +111,7 @@ import { libraryRoutes } from "./routes/library";
 import { lifecycleRoutes } from "./routes/lifecycle";
 // docs/builder-plan.md §5 (B3): the agent manual
 import { manualRouteHandlers } from "./routes/manual";
+import { matchRuleRoutes } from "./routes/match-rules";
 import { messagingSetupRoutes } from "./routes/messaging-setup";
 // §1.116: the phone app
 import { mobileRoutes, mobileSession } from "./routes/mobile";
@@ -318,6 +319,8 @@ export function createApp(deps: AppDeps = defaultDeps): Hono<AppEnv> {
   usageRouteHandlers(app);
   recordRouteHandlers(app);
   approverRuleRoutes(app);
+  // §1.215: a client's saved match rules.
+  matchRuleRoutes(app);
   contactRoutes(app);
   // docs/plan.md §1.98
   textSignupRoutes(app);

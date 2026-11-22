@@ -82,6 +82,7 @@ export * from "./api/library";
 // v0.12 W1-A: go-live stages and client controls
 export * from "./api/lifecycle";
 export * from "./api/manual";
+export * from "./api/match-rules";
 export * from "./api/messaging";
 // §1.116: the phone app
 export * from "./api/mobile";
@@ -274,6 +275,8 @@ export * from "./lifecycle/stage";
 export * from "./manual/manual";
 export * from "./mappers/qbo";
 export * from "./mappers/upload";
+// §1.215: the matching engine (one reconciliation service for packs).
+export * from "./matching";
 // P-8: US texting registration
 export * from "./messaging/a2p";
 export * from "./messaging/calling";
