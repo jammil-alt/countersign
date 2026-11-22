@@ -260,6 +260,11 @@ export const WalkthroughView = z.object({
   candidates: z.array(TryCandidate),
   /** Whether this person may try it (one who can sign; a viewer reads only). */
   canTry: z.boolean(),
+  /**
+   * Whether this person can sign: they say Looks right or We do it differently on a step, and
+   * Right or Not right on a try's step. A viewer reads only.
+   */
+  canSign: z.boolean(),
 });
 export type WalkthroughView = z.infer<typeof WalkthroughView>;
 
