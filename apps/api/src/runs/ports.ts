@@ -382,7 +382,17 @@ export function agentPort(
       }
     },
 
-    async runAction({ run, step, nodeId, stepRunId, input, approval, keyNode, binding }) {
+    async runAction({
+      run,
+      step,
+      nodeId,
+      stepRunId,
+      input,
+      approval,
+      keyNode,
+      binding,
+      afterUnwritten,
+    }) {
       const base = await platformStep(run, stepRunId, keyNode ?? nodeId, approval);
       const ctx: StepContext = {
         // v0.13 W2-I: an oversight retry with a corrected input keys its own write.
@@ -400,6 +410,9 @@ export function agentPort(
           : {}),
         // The step as written in the version: fixed inputs are checked against it, not `input`.
         literalInput: step.input,
+        // A test run's write on what an unmade write would have returned (callTool skips its
+        // before state; outside a test run it is ignored).
+        ...(afterUnwritten && run.mode === "test" ? { afterUnwritten: true } : {}),
       };
       // Review 2, item 5: the step's own input: another one under its key fails the step.
       const o = await callTool(deps, ctx, { toolId: step.tool, input, ownInput: true });

@@ -312,6 +312,11 @@ interface WorkOptions {
   mapInput?: (input: unknown) => unknown;
   /** The connection an action's channel resolved to (`ActionStepRequest.binding`). */
   binding?: { connector: string; connectionId: string };
+  /**
+   * A test run: the earlier steps this step's input reads that rest on a write the test never made
+   * (`Executor.restsOnUnwritten`). Absent: none, and the step runs as in a live run.
+   */
+  afterUnwritten?: readonly string[];
 }
 
 /** What `Executor.work` comes back with: the step ran on, or why it didn't (wave 5). */
@@ -704,6 +709,13 @@ class Executor {
    * a native v4 process. A stored v3 workflow's scope stays `{ output }` exactly.
    */
   records = false;
+  /**
+   * A test run's scope entries whose output rests on a write the test never made: a write's own
+   * (recorded as proposed; its output is the tool's stand-in, or nothing), and the entry of every
+   * step whose input read one of those. Entries, not ids, so a loop's copies of the scope share
+   * them; rebuilt on every replay from the steps' durable results, like the scope itself.
+   */
+  readonly unwritten = new WeakSet<object>();
 
   get testRun(): boolean {
     return this.ctx.run.mode === "test";
@@ -723,14 +735,38 @@ class Executor {
    * (`processes.StepRecord`), for an `if` after it to route on. Every value comes from the step's
    * stored durable results, so a replayed run records the same and takes the same path.
    */
-  record(frame: Frame, step: processes.Step, output: unknown, rec: processes.StepRecord = {}) {
+  record(
+    frame: Frame,
+    step: processes.Step,
+    output: unknown,
+    rec: processes.StepRecord = {},
+    unwritten = false,
+  ) {
     const entry: RunContext["steps"][string] = { output };
     if (this.records) {
       for (const [k, v] of Object.entries(rec)) {
         if (v !== undefined) (entry as unknown as Record<string, unknown>)[k] = v;
       }
     }
+    if (unwritten && this.testRun) this.unwritten.add(entry);
     frame.scope.steps[step.id] = entry;
+  }
+
+  /**
+   * A test run: the earlier steps a step's input reads (`{{steps.<id>…}}`) whose output rests on a
+   * write the test never made (`unwritten`). Their stand-in values (QuickBooks' "0") or missing
+   * fields name records that don't exist, so the step can't be tried on them as a live run would.
+   */
+  restsOnUnwritten(step: { input?: unknown }, frame: Frame): string[] {
+    if (!this.testRun || step.input === undefined) return [];
+    const ids = new Set<string>();
+    for (const ref of collectRefs(step.input).refs) {
+      const [root, id] = ref.path;
+      if (root !== "steps" || id === undefined) continue;
+      const entry = frame.scope.steps[id];
+      if (entry && this.unwritten.has(entry)) ids.add(id);
+    }
+    return [...ids];
   }
 
   /** Wave 5: whether the step goes on past a failure it reported (`onError: continue`). */
@@ -1118,8 +1154,13 @@ class Executor {
     rejected: boolean,
     notWritten = false,
     standIn = false,
+    afterUnwritten = false,
   ): string {
     if (rejected) return `${stepStateLabel(step, false)}: ${this.words.notApproved}`;
+    // A read or skill a test run couldn't try on what an unmade write would have returned.
+    if (notWritten && afterUnwritten && !this.writes(step)) {
+      return this.words.wouldAfterUnwritten(step.name);
+    }
     if (notWritten) return this.words.wouldWrite(step.name, standIn);
     const catalog = this.ctx.catalog ?? {};
     const template =
@@ -1135,6 +1176,16 @@ class Executor {
       }
     }
     return `${clientLabel(step)}: ${this.words.done}`;
+  }
+
+  /**
+   * Whether a step's own work is a write to a client's tool: an action step whose tool the catalog
+   * says is external, or doesn't know (a write, to be safe in what the timeline says). Skills: no.
+   */
+  writes(step: SkillStep | ActionStep): boolean {
+    if (step.kind === "skill") return false;
+    const spec = this.ctx.catalog?.tools?.[step.tool];
+    return spec === undefined || spec.sideEffect === "external";
   }
 
   /**
@@ -1175,6 +1226,7 @@ class Executor {
             turnedDown,
             this.testRun && done.notWritten === true,
             done.standIn === true,
+            done.afterUnwritten === true,
           ),
           ...extra,
         };
@@ -1338,7 +1390,10 @@ class Executor {
     const view = workView(runs, origin, gate);
     const approval: Approval =
       view.kind === "action" ? view.approval : (view.approval ?? DEFAULT_APPROVAL);
+    // A test run: what this step reads from writes the test never made (none in a live run).
+    const afterUnwritten = this.restsOnUnwritten(step, frame);
     const opts: WorkOptions = {
+      ...(afterUnwritten.length > 0 ? { afterUnwritten } : {}),
       // Any write the step proposes is signed in the native check's mode (a read-like skill's too,
       // should it propose one after all).
       ...(plan ? { plan } : {}),
@@ -1381,7 +1436,7 @@ class Executor {
       const done = await this.work(view, name, frame, approval, opts);
       approvals = done.approvals ?? [];
       if (!done.ran) {
-        this.record(frame, step, done.output, recorded(done.why));
+        this.record(frame, step, done.output, recorded(done.why), afterUnwritten.length > 0);
         return;
       }
       output = done.output;
@@ -1427,6 +1482,7 @@ class Executor {
             error.continued.outcome === "needs_help" ? "needs_help" : undefined,
           ),
         }),
+        afterUnwritten.length > 0,
       );
       return;
     }
@@ -1451,7 +1507,13 @@ class Executor {
       const decided = await this.signOff(step, name, stepRunId, signOff, output);
       if (decided.approval) approvals = [...approvals, decided.approval];
       if (!decided.go) {
-        this.record(frame, step, null, recorded(decided.why ?? "rejected"));
+        this.record(
+          frame,
+          step,
+          null,
+          recorded(decided.why ?? "rejected"),
+          afterUnwritten.length > 0,
+        );
         return;
       }
     }
@@ -1465,7 +1527,9 @@ class Executor {
     // after help that was turned down keeps the output it had and says why.
     const ended =
       why ?? (step.kind === "read" && processes.isEmptyOutput(output) ? "empty" : "done");
-    this.record(frame, step, output, recorded(ended));
+    // A test run's write was never made (test runs make none): its output, and what reads it, is
+    // only what the write would have returned.
+    this.record(frame, step, output, recorded(ended), proposed || afterUnwritten.length > 0);
   }
 
   /**
@@ -1758,7 +1822,8 @@ class Executor {
           // Follow-up 2: a platform retry of this attempt (its budgets go on from the earlier try).
           ...((tried?.attempt ?? 1) > 1 ? { retried: true } : {}),
         };
-        const outcome: StepOutcome =
+        const after = this.testRun ? (opts.afterUnwritten ?? []) : [];
+        const ran: StepOutcome =
           refused !== undefined
             ? { kind: "failed", error: refused }
             : step.kind === "skill"
@@ -1774,7 +1839,23 @@ class Executor {
                   ...request,
                   step,
                   ...(opts.binding ? { binding: opts.binding } : {}),
+                  // A test run: a write on what an unmade write would have returned.
+                  ...(after.length > 0 ? { afterUnwritten: true } : {}),
                 });
+        // DECISION (test runs never write, invariant 8): a test run's step that reads what a
+        // write the test never made would have returned (a stand-in id, or nothing) and fails on
+        // it is recorded as what it would have done, not as the run's failure: the record it
+        // names only exists in a live run. Its error stays in its output for the operator, and
+        // later steps that read it are treated the same way. A live run is unchanged.
+        const outcome: StepOutcome =
+          after.length > 0 && ran.kind === "failed"
+            ? {
+                kind: "done",
+                output: { wouldHaveDone: true, afterUnwritten: [...after], error: ran.error },
+                notWritten: true,
+                afterUnwritten: true,
+              }
+            : ran;
         return { stepRunId, outcome: await this.settle(step, stepRunId, outcome, false) };
       },
       this.ctx.stepConfig,
