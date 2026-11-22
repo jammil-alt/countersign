@@ -74,7 +74,7 @@ describe("a test of some of the steps", () => {
     const b = h.agentCalls.find((c) => c.step.id === "b");
     expect(b?.input).toMatchObject({ from: "typed by the tester" });
     const c = h.agentCalls.find((c2) => c2.step.id === "c");
-    expect(String((c?.input as { from: string }).from)).toContain("b:");
+    expect(String((c?.input as { from?: string } | undefined)?.from)).toContain("b:");
   });
 
   it("runs one step alone", async () => {
@@ -90,6 +90,6 @@ describe("a test of some of the steps", () => {
     expect(h.row("a")).toBeUndefined();
     expect(ran).toEqual(["b"]);
     const b = h.agentCalls.find((c) => c.step.id === "b");
-    expect((b?.input as { from?: unknown }).from ?? "").toBe("");
+    expect((b?.input as { from?: unknown } | undefined)?.from ?? "").toBe("");
   });
 });

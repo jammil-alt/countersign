@@ -500,7 +500,7 @@ export function opsAgentRoutes(app: Hono<AppEnv>): void {
     const { range } = ctx.body;
     if (range) {
       const wf = target.version.bundle.workflows.find((w) => w.slug === ctx.body.workflow);
-      if (!wf || wf.workflow.schemaVersion !== 4) {
+      if (wf?.workflow.schemaVersion !== 4) {
         throw new HttpError(
           422,
           "invalid_range",

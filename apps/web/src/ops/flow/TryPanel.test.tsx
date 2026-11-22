@@ -226,6 +226,86 @@ describe("TryPanel", () => {
     expect(onDone).toHaveBeenCalledTimes(1);
   });
 
+  // Owner, 2026-11-22 (docs/plan.md §1.185): "select one step or multiple… wherever you start it
+  // should allow you to add the relevant data… we see the output of each step".
+  it("tests some of the steps: asks for what they read from before, and shows each step's output", async () => {
+    const bodies: unknown[] = [];
+    const api = fakeApi({
+      ...common,
+      [`POST /api/ops/agents/${AGENT}/versions/${VERSION}/test-run`]: ({ init }) => {
+        bodies.push(JSON.parse(String(init.body)));
+        return { runId: RUN, agentId: AGENT, versionId: VERSION };
+      },
+      [`GET /api/ops/runs/${RUN}`]: () =>
+        run("succeeded", [
+          row("00000000-0000-4000-8000-000000002001", "find", "skill", "succeeded", {
+            output: { confidence: 0.5 },
+            summary: "given for this test, not run",
+          }),
+          row("00000000-0000-4000-8000-000000002002", "confidence", "if", "succeeded", {
+            output: { path: "low" },
+          }),
+        ]),
+    });
+    // Opened with the decision selected on the chart: the choice starts from that one step.
+    const { marks } = show(api, { ctx: {}, startAt: "confidence" });
+    const user = userEvent.setup();
+    expect(await screen.findByTestId("flow-try-some")).toBeChecked();
+    expect(screen.getByTestId("flow-try-from")).toHaveValue("confidence");
+    expect(screen.getByTestId("flow-try-to")).toHaveValue("confidence");
+    // It reads the step before it, so that step's output is asked for; the trigger's isn't.
+    const given = screen.getByTestId("flow-try-given-find");
+    expect(screen.getByTestId("flow-try-given")).toHaveTextContent(
+      "The output of “Find supporting document” · read by “Match confidence”",
+    );
+    expect(screen.queryByTestId("flow-try-input")).toBeNull();
+    await user.clear(given);
+    await user.type(given, '{{"confidence": 0.5}');
+    await user.click(screen.getByTestId("flow-try-input-start"));
+
+    await waitFor(() =>
+      expect(screen.getByTestId("flow-try-said")).toHaveTextContent(
+        "It ran the steps you picked. Nothing was written.",
+      ),
+    );
+    expect(bodies).toEqual([
+      {
+        workflow: "new-bill",
+        payload: {},
+        range: { from: "confidence", to: "confidence", given: { find: { confidence: 0.5 } } },
+      },
+    ]);
+    // The step after the last picked was never part of it.
+    expect(marks.at(-1)?.find((m) => m.stepId === "update")).toEqual({
+      stepId: "update",
+      status: "skipped",
+      summary: "Not part of this test",
+    });
+    // Every step that ran, with its output.
+    const steps = screen.getByTestId("flow-try-steps");
+    expect(steps).toHaveTextContent("What each step did");
+    expect(screen.getByTestId("flow-try-step-find")).toHaveTextContent(
+      "Find supporting documentDonegiven for this test, not run",
+    );
+    expect(screen.getByTestId("flow-try-step-confidence")).toHaveTextContent('"path": "low"');
+
+    // Back to the choice: all of them asks for the trigger's input again, and sends no range.
+    await user.click(screen.getByTestId("flow-try-choose"));
+    await user.click(screen.getByTestId("flow-try-all"));
+    expect(screen.getByTestId("flow-try-input")).toBeInTheDocument();
+    expect(screen.queryByTestId("flow-try-given")).toBeNull();
+    await user.click(screen.getByTestId("flow-try-input-start"));
+    await waitFor(() => expect(bodies).toHaveLength(2));
+    expect(bodies[1]).toEqual({ workflow: "new-bill", payload: {} });
+  });
+
+  it("offers no choice of steps without the registries' view, and none in a build's own try", async () => {
+    const api = fakeApi({ ...common });
+    show(api);
+    expect(await screen.findByTestId("flow-try-input")).toBeInTheDocument();
+    expect(screen.queryByTestId("flow-try-range")).toBeNull();
+  });
+
   it("tries a build's draft on a file through the build, and again on the same try", async () => {
     const bodies: unknown[] = [];
     const tried: BuildTryView = {

@@ -17,8 +17,8 @@ export interface TestRange {
 }
 
 export interface RangeNeeds {
-  /** The picked steps, in order. */
-  picked: { id: string; name: string }[];
+  /** The picked steps, in order; `ids` are each one's own id and those of the steps inside it. */
+  picked: { id: string; name: string; ids: string[] }[];
   /** Steps before the range that the picked steps read: their outputs are to be given. */
   earlier: { id: string; name: string; readBy: string[] }[];
   /** Whether a picked step reads what the trigger brought. */
@@ -73,7 +73,7 @@ export function rangeNeeds(
     }
   }
   return {
-    picked: picked.map((s) => ({ id: s.id, name: s.name })),
+    picked: picked.map((s) => ({ id: s.id, name: s.name, ids: s.ids })),
     // In the workflow's order.
     earlier: before.flatMap((b) => {
       const e = earlier.get(b.id);

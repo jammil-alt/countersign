@@ -2210,6 +2210,9 @@ function BuilderBody(
                     build={build}
                     clientId={trying.clientId}
                     sample={samplePayload(workflow, data.events)}
+                    // Some of the steps (docs/plan.md §1.185), starting from the one open here.
+                    ctx={ctx}
+                    startAt={selection?.type === "step" ? selection.id : null}
                     onMarks={setTried}
                     onDone={() => {
                       setTrying(null);
