@@ -504,6 +504,33 @@ export async function checkClose(
   throw new Error("unreachable");
 }
 
+/**
+ * A test run's entries to record: the month checked inside a savepoint, its ready entries read, and
+ * everything rolled back. A test run's check keeps nothing, so its period isn't there to read.
+ */
+export async function testReadyEntries(
+  tx: Tx,
+  actor: CloseActor,
+  input: { month?: string | undefined; today: Date },
+): Promise<Awaited<ReturnType<typeof readyEntries>>> {
+  class Done extends Error {
+    constructor(readonly entries: Awaited<ReturnType<typeof readyEntries>>) {
+      super("a test run keeps nothing");
+    }
+  }
+  try {
+    await tx.transaction(async (sp) => {
+      const t = sp as unknown as Tx;
+      const out = await doCheck(t, { ...actor, mode: "live" }, input);
+      throw new Done(await readyEntries(t, actor.tenantId, out.periodId));
+    });
+  } catch (error) {
+    if (error instanceof Done) return error.entries;
+    throw error;
+  }
+  throw new Error("unreachable");
+}
+
 async function doCheck(
   tx: Tx,
   actor: CloseActor,

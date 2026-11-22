@@ -10,7 +10,14 @@ import { z } from "zod";
 import { jsonSchemaOf, PackRefusal, type PackTool, type PackToolContext } from "../pack";
 import { CLOSE_PACK_ID } from "./ids";
 import { closePeriod } from "./schema";
-import { checkClose, closeConnection, entryWritten, proposeEntry, readyEntries } from "./store";
+import {
+  checkClose,
+  closeConnection,
+  entryWritten,
+  proposeEntry,
+  readyEntries,
+  testReadyEntries,
+} from "./store";
 
 /** A Close tool, named `close.<what>`, in the Bookkeeping area. */
 function defineCloseTool<I extends z.ZodType, O extends z.ZodType>(def: {
@@ -114,7 +121,14 @@ export const readyTool = defineCloseTool({
     "The month's proposed journal entries with no QuickBooks write laid out yet, each with the journal entry it becomes (qbo.journal.create's input).",
   sideEffect: "none",
   summary: "{{count}} journal entries to record",
-  input: z.object({ periodId: Id }),
+  input: z.object({
+    periodId: Id,
+    /** The month checked (yyyy-mm): a test run checks it again, since its check kept nothing. */
+    month: z
+      .string()
+      .regex(/^\d{4}-(0[1-9]|1[0-2])$/)
+      .optional(),
+  }),
   output: z.object({
     count: z.number().int(),
     entries: z.array(
@@ -135,8 +149,21 @@ export const readyTool = defineCloseTool({
     ),
   }),
   async run(input, ctx) {
+    // DECISION: a test run lays out what it would write from a check it then rolls back; the
+    // writes themselves are proposed and never made (test runs never write, invariant 8).
     const entries = await withTenant(ctx.db, ctx.tenantId, (tx) =>
-      readyEntries(tx, ctx.tenantId, input.periodId),
+      ctx.mode === "test"
+        ? testReadyEntries(
+            tx,
+            {
+              tenantId: ctx.tenantId,
+              agentVersionId: ctx.agentVersionId,
+              runId: ctx.runId,
+              mode: "test",
+            },
+            { month: input.month, today: new Date() },
+          )
+        : readyEntries(tx, ctx.tenantId, input.periodId),
     );
     return { count: entries.length, entries };
   },

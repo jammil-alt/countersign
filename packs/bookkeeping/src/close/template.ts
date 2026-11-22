@@ -84,7 +84,10 @@ export function closeSteps(): processes.Step[] {
       name: "Journal entries to record",
       kind: "read",
       tool: "close.entries.ready",
-      input: { periodId: "{{steps.check.output.periodId}}" },
+      input: {
+        periodId: "{{steps.check.output.periodId}}",
+        month: "{{steps.check.output.month}}",
+      },
       client: { visible: false },
     },
     {

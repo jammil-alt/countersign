@@ -8,7 +8,15 @@
 
 import { ContentStore, createQboConnector, generateEncryptionKey } from "@countersign/connectors";
 import { FAKE_QBO_CLIENT, FAKE_QBO_REALM, fakeQbo } from "@countersign/connectors/testing";
-import { agent, agentVersion, externalAction, stepRun, withTenant } from "@countersign/db";
+import {
+  agent,
+  agentVersion,
+  connection,
+  externalAction,
+  inboxItem,
+  stepRun,
+  withTenant,
+} from "@countersign/db";
 import { FakeModel, type LlmRequest } from "@countersign/llm";
 import { closeEntry, closePeriod } from "@countersign/pack-bookkeeping";
 import { and, eq, sql } from "drizzle-orm";
@@ -58,7 +66,7 @@ afterEach(() => vi.useRealTimers());
 describe.skipIf(!h)("Month-end close", () => {
   const H = h as ApiHarness;
   const A = () => H.A.tenantId;
-  const ids = { qbo: "", agentId: "" };
+  const ids = { qbo: "", agentId: "", versionId: "" };
   const cards: J[] = [];
   const signed: string[] = [];
 
@@ -212,6 +220,7 @@ describe.skipIf(!h)("Month-end close", () => {
     });
     expect(fork.status, JSON.stringify(fork.json)).toBe(200);
     ids.agentId = j(fork.json).agent.id;
+    ids.versionId = j(fork.json).version.id;
     const bound = await H.call(OPERATOR, "PATCH", `/api/ops/agents/${ids.agentId}/operation`, {
       bindings: { qbo: ids.qbo },
     });
@@ -224,6 +233,68 @@ describe.skipIf(!h)("Month-end close", () => {
     );
     expect(pub.status, JSON.stringify(pub.json)).toBe(200);
     await H.t.db.update(agent).set({ runStatus: "active" }).where(eq(agent.id, ids.agentId));
+    // Invariant 8 (main coordinator, 2026-11-22): the client's connection never allows journal
+    // entries without a person by default, even after the admin allows what the agent needs.
+    const [conn] = await H.t.db.select().from(connection).where(eq(connection.id, ids.qbo));
+    const matrix = j(conn?.permissions) ?? {};
+    expect(matrix.create ?? "approval").not.toBe("auto");
+    expect(matrix.entities?.journal_entry?.create ?? matrix.create ?? "approval").not.toBe("auto");
+  });
+
+  it("never posts a journal entry in a test run: the write is proposed, nothing is kept", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-11-05T14:00:00Z"));
+    const res = await H.call(
+      OPERATOR,
+      "POST",
+      `/api/ops/agents/${ids.agentId}/versions/${ids.versionId}/test-run`,
+      { workflow: "monthly" },
+    );
+    expect(res.status, JSON.stringify(res.json)).toBe(200);
+    const runId = j(res.json).runId;
+    const params = H.instances.started.get(runId);
+    if (!params) throw new Error("the test run was not started");
+    expect(params.mode).toBe("test");
+    // A test run's person steps go to the operator.
+    const operator = async (_name: string, type: string) => {
+      const items = await H.t.db.select().from(inboxItem).where(eq(inboxItem.status, "open"));
+      const item = items.find((i) => `inbox-${i.id.replace(/-/g, "")}` === type);
+      if (!item) throw new Error(`no open item for ${type}`);
+      const done = await H.call(OPERATOR, "POST", `/api/ops/inbox/${item.id}/resolve`, {
+        decision: "approve",
+      });
+      expect(done.status, JSON.stringify(done.json)).toBe(200);
+      return H.instances.events.find((e) => e.event.type === type)?.event.payload;
+    };
+    const result = await executeRun(
+      {
+        db: H.db,
+        platform: H.platform,
+        transport: new FakeModel(Array.from({ length: 2 }, () => verifier)),
+        instances: H.instances,
+        credentials: credentialsFor(H.db, { current: ENCRYPTION_KEY }),
+      },
+      params,
+      cloudflareStepRunner(new FakeWorkflowStep(operator)),
+    );
+    const steps = await H.t.db.select().from(stepRun).where(eq(stepRun.runId, runId));
+    expect(result, JSON.stringify(steps.map((s) => [s.nodeId, s.status, s.output]))).toEqual({
+      status: "succeeded",
+    });
+    // The journal entry was laid out and proposed, never sent to QuickBooks.
+    const actions = await H.t.db
+      .select()
+      .from(externalAction)
+      .where(eq(externalAction.runId, runId));
+    expect(actions.map((a) => [a.tool, a.status])).toEqual([["qbo.journal.create", "proposed"]]);
+    expect(
+      qbo.requests.filter((r) => r.method === "POST" && /\/journalentry(\?|$)/.test(r.url)),
+    ).toEqual([]);
+    // And the close itself kept nothing.
+    expect(await H.t.db.select().from(closePeriod).where(eq(closePeriod.tenantId, A()))).toEqual(
+      [],
+    );
+    expect(await H.t.db.select().from(closeEntry).where(eq(closeEntry.tenantId, A()))).toEqual([]);
   });
 
   it("closes October: the accrual written once after a signature, the month signed off on the card", async () => {
@@ -272,7 +343,9 @@ describe.skipIf(!h)("Month-end close", () => {
     const [action] = await H.t.db
       .select()
       .from(externalAction)
-      .where(and(eq(externalAction.tenantId, A()), eq(externalAction.tool, "qbo.journal.create")));
+      .where(
+        and(eq(externalAction.runId, params.runId), eq(externalAction.tool, "qbo.journal.create")),
+      );
     expect(action).toMatchObject({ status: "done" });
     expect(action?.approvedBy).not.toBeNull();
     const [period] = await H.t.db.select().from(closePeriod).where(eq(closePeriod.tenantId, A()));
