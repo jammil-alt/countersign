@@ -1,4 +1,4 @@
-// Getting started's overview (docs/setup-plan.md §2; docs/plan.md §1.185, SU2): one line per agent
+// Getting started's overview (docs/setup-plan.md §2; docs/plan.md §1.199, SU2): one line per agent
 // being set up with what is left before its trial and who it waits on, and the five chapters'
 // progress. Read from what each chapter keeps: the intake (business), the setup checklist's connect
 // items (tools), the seats (people), the walkthrough and tries (see it work) and the scope (go live).

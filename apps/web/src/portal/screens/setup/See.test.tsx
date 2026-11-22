@@ -1,4 +1,4 @@
-// See it work (docs/setup-plan.md §6; docs/plan.md §1.185, SU4 and SU5): the one agent being set up
+// See it work (docs/setup-plan.md §6; docs/plan.md §1.199, SU4 and SU5): the one agent being set up
 // opens at once (several: a picker); its steps from the SOP with how each works, who and why;
 // Looks right and We do it differently (sent to the lead); the settings within bounds; then a try
 // on a real document, its steps appearing as it runs (read again every two seconds), Right or Not

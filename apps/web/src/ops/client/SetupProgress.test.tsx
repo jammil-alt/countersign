@@ -1,4 +1,4 @@
-// The Setup tab's Progress (docs/setup-plan.md §8; docs/plan.md §1.185, SU6): the KPI boxes, the
+// The Setup tab's Progress (docs/setup-plan.md §8; docs/plan.md §1.199, SU6): the KPI boxes, the
 // board with who each cell waits on, Waiting on with Nudge and its result, the change asks linked
 // to their request, the runbook, Do it on a call saving the open intake's answers, and Start trial
 // off while anything holds it, else the existing Turn on.

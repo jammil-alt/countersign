@@ -4,6 +4,7 @@
 // where no route answers the question, through a query in the same operator scope. Every result is
 // fenced as untrusted data (./output.ts).
 
+import { ATTENTION_ISSUE_KINDS, refreshFailingOpen } from "@countersign/agents";
 import type { Session } from "@countersign/auth";
 import type { ObjectStore } from "@countersign/connectors";
 import {
@@ -61,7 +62,24 @@ export interface OpsToolCtx {
   audit: { outcome?: "preview" | "done"; target?: Record<string, string> };
   /** Who is calling: the MCP server (default) or Reggie, which reads with these tools (§1.101). */
   via?: "mcp" | "reggie";
+  /**
+   * §1.190: clients in HIPAA mode the MCP connector may not send data for (./hipaa.ts); the tools
+   * in LEAVE_OUT_HELD leave them out. Unset for Reggie, whose model calls are held instead.
+   */
+  hipaaHeld?: ReadonlySet<string>;
 }
+
+/** Of the clients from a list, those the connector may show; and how many it left out. */
+function shown<T extends { id: string }>(ctx: OpsToolCtx, clients: readonly T[]) {
+  const held = ctx.hipaaHeld;
+  const kept = held?.size ? clients.filter((c) => !held.has(c.id)) : [...clients];
+  return { kept, leftOut: clients.length - kept.length };
+}
+
+const leftOutNote = (n: number) =>
+  n === 0
+    ? ""
+    : ` ${plural(n, "client")} in HIPAA mode ${n === 1 ? "is" : "are"} left out here: Anthropic's BAA for Claude isn't signed.`;
 
 const Id = z.string().refine(isUuid, "not an id").describe("A Mezonas id (uuid)");
 const ClientId = Id.describe("A client's id (uuid), from clients_list");
@@ -163,11 +181,12 @@ const whoami: Tool<OpsToolCtx> = {
   input: z.strictObject({}),
   annotations: READ,
   async run(ctx) {
-    const { clients } = await route(ctx, routes.opsClients);
+    const listed = shown(ctx, (await route(ctx, routes.opsClients)).clients);
+    const clients = listed.kept;
     const { user } = ctx.session;
     return dataResult(
       "whoami",
-      `Signed in to Mezonas ${ctx.config.environment} as an operator serving ${plural(clients.length, "client")}.`,
+      `Signed in to Mezonas ${ctx.config.environment} as an operator serving ${plural(clients.length + listed.leftOut, "client")}.${leftOutNote(listed.leftOut)}`,
       {
         user: { id: user.id, email: user.email, name: user.name },
         environment: ctx.config.environment,
@@ -186,7 +205,8 @@ const clientsList: Tool<OpsToolCtx> = {
   input: z.strictObject({}),
   annotations: READ,
   async run(ctx) {
-    const { clients } = await route(ctx, routes.opsClients);
+    const listed = shown(ctx, (await route(ctx, routes.opsClients)).clients);
+    const clients = listed.kept;
     const extra = await asOperator(ctx, { tool: "clients_list" }, async ({ tx, tenantIds }) => {
       const ids = clients.map((c) => c.id).filter((id) => tenantIds.includes(id));
       const byStatus = ids.length
@@ -210,7 +230,7 @@ const clientsList: Tool<OpsToolCtx> = {
     const attention = out.filter((c) => c.health?.state === "attention").length;
     return dataResult(
       "clients_list",
-      `${plural(out.length, "client")}; ${attention} need attention by their latest health check.`,
+      `${plural(out.length, "client")}; ${attention} need attention by their latest health check.${leftOutNote(listed.leftOut)}`,
       { clients: out },
     );
   },
@@ -581,9 +601,16 @@ async function connectionsIn(tx: Tx, tenantIds: readonly string[], client: strin
         .orderBy(desc(connectionChange.createdAt))
     : [];
   return rows.map((row) => {
-    const last = changes.find((ch) => ch.connectionId === row.id);
+    const mine = changes.filter((ch) => ch.connectionId === row.id);
+    const last = mine[0];
+    const issue = mine.find((ch) =>
+      (ATTENTION_ISSUE_KINDS as readonly unknown[]).includes(
+        (ch.change as { kind?: unknown } | null)?.kind,
+      ),
+    );
     return {
       row,
+      attention: attentionOf(row.status, issue?.change as Record<string, unknown> | undefined),
       lastChange: last
         ? { at: last.createdAt.toISOString(), change: clip(last.change, 1000) }
         : null,
@@ -591,11 +618,27 @@ async function connectionsIn(tx: Tx, tenantIds: readonly string[], client: strin
   });
 }
 
+/**
+ * Why a connection needs a person, if it does: `error` (the grant is dead or a sync keeps failing:
+ * the client signs in again), or `refresh_failing` (renewing our access has failed for a day; it
+ * still shows as connected and the grant is not ended, so it is ours to look at).
+ */
+// DECISION: a failing renewal counts as needing attention here as in the daily check (docs/plan.md
+// §1.134), named apart from `error` so the operator knows the client need not sign in again.
+function attentionOf(
+  status: string,
+  issue: Record<string, unknown> | undefined,
+): "error" | "refresh_failing" | null {
+  if (status === "error") return "error";
+  if (status === "connected" && refreshFailingOpen(issue)) return "refresh_failing";
+  return null;
+}
+
 const connectionsList: Tool<OpsToolCtx> = {
   name: "connections_list",
   title: "List connections",
   description:
-    "Connections to clients' tools (QuickBooks, Gmail, uploads, …) across the clients you serve or for one client: status (error means it needs attention), last sync and the last change. Never credentials.",
+    "Connections to clients' tools (QuickBooks, Gmail, uploads, …) across the clients you serve or for one client: status, whether it needs attention and why (`attention`: error, the client signs in again; refresh_failing, still connected but renewing our access has failed for a day), last sync and the last change. Never credentials.",
   input: z.strictObject({ client: ClientId.optional() }),
   annotations: READ,
   async run(ctx, args) {
@@ -608,19 +651,21 @@ const connectionsList: Tool<OpsToolCtx> = {
       { tool: "connections_list", client: client ?? null },
       ({ tx, tenantIds }) => connectionsIn(tx, tenantIds, client),
     );
-    const failing = rows.filter((r) => r.row.status === "error").length;
+    const inError = rows.filter((r) => r.attention === "error").length;
+    const renewing = rows.filter((r) => r.attention === "refresh_failing").length;
     return dataResult(
       "connections_list",
-      `${plural(rows.length, "connection")}, ${failing} in error.`,
+      `${plural(rows.length, "connection")}, ${inError} in error, ${renewing} failing to renew our access.`,
       {
-        connections: rows.map(({ row, lastChange }) => {
+        connections: rows.map(({ row, attention, lastChange }) => {
           const c = opsConnection(row);
           return {
             id: c.id,
             client: { id: c.tenantId, name: clientName(ctx, c.tenantId) },
             connector: c.connector,
             status: c.status,
-            needsAttention: c.status === "error",
+            needsAttention: attention !== null,
+            attention,
             externalAccountId: c.externalAccountId,
             lastSyncAt: c.lastSyncAt,
             permissions: c.permissions,
@@ -755,6 +800,12 @@ const marketingReport: Tool<OpsToolCtx> = {
     return dataResult("marketing_report", `The client's Marketing report: ${report}.`, out.report);
   },
 };
+
+/**
+ * §1.190: the tools that leave a client in HIPAA mode out of their answer instead of being refused
+ * (they list clients, so the operator can still find the ones they may ask about).
+ */
+export const LEAVE_OUT_HELD: ReadonlySet<string> = new Set([whoami.name, clientsList.name]);
 
 export const OPS_TOOLS: readonly Tool<OpsToolCtx>[] = [
   whoami,

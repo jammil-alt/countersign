@@ -1,4 +1,4 @@
-// Getting started's stored state and its pure rules (docs/setup-plan.md; docs/plan.md §1.185).
+// Getting started's stored state and its pure rules (docs/setup-plan.md; docs/plan.md §1.199).
 // Per agent, in `agent.stage_state.guide` (operational, never in a version): what the client said
 // about each step, the tries started from the portal and their verdicts, and the scope's
 // signature. Per client, in `tenant.settings.setupGuide`: the People chapter's "Looks right" and

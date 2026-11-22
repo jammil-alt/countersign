@@ -1,4 +1,4 @@
-// The client page's Setup tab, Progress (docs/setup-plan.md §8; docs/plan.md §1.185, SU6): each
+// The client page's Setup tab, Progress (docs/setup-plan.md §8; docs/plan.md §1.199, SU6): each
 // agent being set up by chapter with who it waits on, the people waiting (Nudge), the change asks
 // from the walkthrough and tries, Do it on a call (the open intake's questions, answered for the
 // client as "From our call: please check"), the runbook and Start trial (the existing Turn on).

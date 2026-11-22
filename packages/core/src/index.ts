@@ -64,7 +64,7 @@ export * from "./api/feedback";
 // docs/plan.md §1.121: forms, "Request info"
 export * from "./api/forms";
 export * from "./api/gchat";
-// docs/setup-plan.md (§1.185): Getting started's chapters, seats and the Setup tab.
+// docs/setup-plan.md (§1.199): Getting started's chapters, seats and the Setup tab.
 export * from "./api/getting-started";
 // v0.14 W4-D
 export * from "./api/gsheets";
@@ -161,6 +161,7 @@ export * from "./api/zoho";
 export * from "./approvals/rules";
 export * from "./assist/fields";
 export * from "./assist/prompt";
+export * from "./assist/test-data";
 // docs/agent-assurance-plan.md: each agent's architecture and its security controls, checked
 export * from "./assurance/index";
 // P-3: attachments both ways
@@ -224,7 +225,7 @@ export * from "./email/authentication";
 export * from "./email/layout";
 export * from "./email/onboarding";
 export * from "./email/second-factor";
-// docs/plan.md §1.185 (SU6): the setup nudge, from the lead.
+// docs/plan.md §1.199 (SU6): the setup nudge, from the lead.
 export * from "./email/setup-nudge";
 // docs/plan.md §1.121: forms, "Request info"
 export * from "./forms";
@@ -330,6 +331,8 @@ export * from "./schemas/skill-model";
 // §1.164: a table file's expected columns (the `columns` skill parameter).
 export * from "./schemas/table";
 export * from "./schemas/tool";
+// docs/plan.md §1.188: what a tool's output is about, kept as the run's subjects.
+export * from "./schemas/tool-about";
 export * from "./schemas/tool-display";
 export * from "./schemas/workflow";
 export * from "./security/session-limits";

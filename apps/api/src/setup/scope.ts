@@ -1,4 +1,4 @@
-// Getting started's Go live (docs/setup-plan.md §7; docs/plan.md §1.185, SU6): stream LIVE. The scope
+// Getting started's Go live (docs/setup-plan.md §7; docs/plan.md §1.199, SU6): stream LIVE. The scope
 // in the client's words, read from what the chapters already settled: what it does (its
 // description), what it reads and may change (the SOP's systems and data, made by code from the
 // version: `sopInputFor` and core's `sopView`, the same reader as the SOP tab), who signs and who

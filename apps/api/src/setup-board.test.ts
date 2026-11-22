@@ -1,8 +1,8 @@
-// The back office's Setup tab through the API (docs/setup-plan.md §8; docs/plan.md §1.185, SU6):
+// The back office's Setup tab through the API (docs/setup-plan.md §8; docs/plan.md §1.199, SU6):
 // each agent being set up by chapter with who it waits on, what holds Start trial, the people
 // waiting, the client's change asks (not ours), the runbook; Nudge, an email from the lead at most
 // once a day per person; Do it on a call, the lead's answers sourced `call`, checked by field kind,
-// which count once the client says yes (owner, §1.185 q4). Only an operator who serves the client
+// which count once the client says yes (owner, §1.199 q4). Only an operator who serves the client
 // reaches any of it (invariants 1 and 11).
 import { TESTKIT_UPDATE_TOOL } from "@countersign/connectors";
 import { FAKE_RESEND_MAIN, fakeResend } from "@countersign/connectors/testing";

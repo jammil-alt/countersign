@@ -173,6 +173,25 @@ export interface ExecutorContext {
    * skipped: no rows, no outputs) and that step's input is `input`, as handed over.
    */
   start?: { at: string; input: unknown };
+  /** A test of some of the steps: see `RunRange`. */
+  range?: RunRange;
+}
+
+/**
+ * A test of some of a process's top-level steps (owner, 2026-11-22: "select one step or
+ * multiple… it then runs through the steps and we see the output of each step… until the last
+ * step selected"; docs/plan.md §1.185). Small JSON, kept on the run's row with its trigger.
+ */
+// DECISION: top-level steps only, as a retry's `resume` and a hand-off's `start` are: a decision
+// or a loop is tested whole. Unlike a retry, a step before `from` with nothing given is not run
+// (the point is to run only what was picked), so a later step that reads it fails saying so.
+export interface RunRange {
+  /** The first top-level step run; the ones before it are not run. Absent: from the top. */
+  from?: string;
+  /** The last top-level step run: the run ends after it, succeeded. Absent: to the end. */
+  to?: string;
+  /** What steps before `from` are taken to have produced, by step id, for later steps to read. */
+  given?: Record<string, unknown>;
 }
 
 /** What a retry starts from. Small JSON: apps/api loads it in a durable step. */
@@ -746,6 +765,11 @@ class Executor {
     // Hand off: a run a hand-off started skips the top-level steps before its entry step.
     const start = frame.top ? this.ctx.start : undefined;
     let entered = !start;
+    // A test of some of the steps (§1.185): the ones before its first are not run (what was given
+    // for one stands as its output), and the run ends after its last.
+    const range = frame.top ? this.ctx.range : undefined;
+    const first = range?.from;
+    let picked = first === undefined || !steps.some((s) => s.id === first);
     for (const step of steps) {
       if (start && !entered) {
         if (step.id !== start.at) continue;
@@ -758,8 +782,50 @@ class Executor {
           continue;
         }
       }
+      if (range && !picked) {
+        if (step.id === first) picked = true;
+        else {
+          if (range.given && Object.hasOwn(range.given, step.id)) {
+            await this.given(step, range.given[step.id], frame);
+          }
+          continue;
+        }
+      }
       await this.runStep(step, frame);
+      if (range && range.to === step.id) {
+        throw new RunEnd({ status: "succeeded", reason: "range", nodeId: step.id });
+      }
     }
+  }
+
+  /**
+   * A step before a test's first step, with what the tester gave as its output: not run. Its row
+   * says so, and later steps read the output as they would its own.
+   */
+  async given(step: processes.Step, output: unknown, frame: Frame): Promise<void> {
+    await this.runner.do(`${step.id}:given`, async () => {
+      const skillRef = this.skillRefOf(step);
+      const id = await this.ctx.log.start({
+        runId: this.ctx.run.id,
+        nodeId: step.id,
+        nodeType: storedKind(step, this.origin(step)) as never,
+        ...(skillRef ? { skillRef } : {}),
+      });
+      await this.ctx.log.update(id, {
+        status: "succeeded",
+        output,
+        summary: "given for this test, not run",
+      });
+      return null;
+    });
+    const row = { status: "succeeded" as const, output };
+    const outcome = processes.outcomeOfStoredRow(step, row);
+    this.record(
+      frame,
+      step,
+      processes.scopeOutputOfRow(row.status, row.output, step.kind),
+      outcome ? { outcome } : {},
+    );
   }
 
   /** `step_run.skill_ref` for a step: its skill, or the skill a converted read or write ran. */

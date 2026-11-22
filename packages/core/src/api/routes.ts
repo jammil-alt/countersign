@@ -260,9 +260,10 @@ export const ResolveBody = z.strictObject({
   /** §1.116: signed on a registered phone with Face ID or a fingerprint (checked, then recorded). */
   deviceSignature: DeviceSignature.optional(),
   /**
-   * Audit 3.4: the item as the person saw it (`itemFingerprint` of the portal's item). The portal
-   * requires it (or a phone's signature, which carries one) and refuses an answer to an item that
-   * changed since (409 `changed`).
+   * Audit 3.4: the item as the person saw it (`itemFingerprint` of the item as the route's own
+   * surface sends it: the portal's `PortalInboxItem`, the back office's `OpsInboxItem`). Both
+   * resolves require it (the portal also takes a phone's signature, which carries one) and refuse
+   * an answer to an item that changed since (409 `changed`).
    */
   fingerprint: ItemFingerprint.optional(),
 });
@@ -1772,6 +1773,17 @@ export const opsRoutes = {
       payload: z.unknown().optional(),
       /** A template only: the served client whose data it runs on (default: the Sandbox). */
       clientId: ApiId.optional(),
+      /**
+       * A test of some of the steps (docs/plan.md §1.185): the first and last top-level step to
+       * run, and what the steps before the first are taken to have produced, by step id.
+       */
+      range: z
+        .strictObject({
+          from: z.string().min(1).max(100).optional(),
+          to: z.string().min(1).max(100).optional(),
+          given: z.record(z.string().min(1).max(100), z.unknown()).optional(),
+        })
+        .optional(),
     }),
     // For a template, the run belongs to its test copy: agentId and versionId name that copy.
     response: z.object({ runId: z.string(), agentId: z.string(), versionId: z.string() }),
@@ -2499,7 +2511,7 @@ export const routes = {
   ...runControlRoutes,
   // v0.12 W1-A: go-live stages and client controls
   ...lifecycleRoutes,
-  // docs/setup-plan.md (§1.185)
+  // docs/setup-plan.md (§1.199)
   ...gettingStartedRoutes,
   // v0.12 W1-B: notifications, the Table and the Weekly Table
   ...notifyRoutes,

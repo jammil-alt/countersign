@@ -1,4 +1,4 @@
-// See it work through the API (docs/setup-plan.md §6; docs/plan.md §1.185, SU4 and SU5): each step
+// See it work through the API (docs/setup-plan.md §6; docs/plan.md §1.199, SU4 and SU5): each step
 // marked Looks right, or "We do it differently" filed as a request tied to the step; a try on one of
 // the client's own documents that is a test run (nothing written, nobody of the client's asked), up
 // to three per agent and one at a time, only by someone who can sign; the try in words ("Would …")

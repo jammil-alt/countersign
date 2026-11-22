@@ -1,4 +1,4 @@
-// Getting started's chapters (docs/setup-plan.md §2; docs/plan.md §1.185): their order, words and
+// Getting started's chapters (docs/setup-plan.md §2; docs/plan.md §1.199): their order, words and
 // addresses, shared by the overview and each chapter's page.
 import type { ChapterProgress, SetupChapter } from "@countersign/core";
 import type { PlainKey, Translate } from "../../../i18n/catalog";

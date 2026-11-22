@@ -2,7 +2,12 @@
 // and is the pack's own read or record (never a write outside); every skill uses tools that exist;
 // the Bookkeeper keeps approval on for every write and names only the QuickBooks writes it needs.
 
-import { BANKFEED_TOOLS, BANKING_TOOLS, QBO_REGISTER_TOOL } from "@countersign/connectors";
+import {
+  BANKFEED_TOOLS,
+  BANKING_TOOLS,
+  BANKING_FIND_TOOL as QBO_BANKING_FIND,
+  QBO_REGISTER_TOOL,
+} from "@countersign/connectors";
 import {
   type AgentBundle,
   PackManifest,
@@ -131,6 +136,69 @@ describe("the Bookkeeping manifest", () => {
     expect(diffs).toEqual([
       `.workflows.${payout}.workflow.steps.1.input.b.currency: undefined -> "{{steps.statement.output.currency}}"`,
     ]);
+  });
+
+  it("(§1.187) keeps v6 the same as v5 but for the read of QuickBooks and a check before each write", () => {
+    const [template] = bookkeepingManifest.templates;
+    const [, , , v5, v6] = (template?.versions ?? []) as (AgentBundle | undefined)[];
+    if (!v5 || !v6) throw new Error("no v5 or v6");
+    const NEW_STEPS = new Set(["find", "check-purchase", "check-deposit", "check-transfer"]);
+    const NEW_TOOLS = [QBO_BANKING_FIND, "bookkeeping.booking.write-check"];
+    // Where each new step is: the read after the layout, the found path first, a check right
+    // before each write.
+    let loops = 0;
+    for (const wf of v6.workflows) {
+      walkSteps(wf.workflow, ({ step }: { step: Step }) => {
+        if (step.kind !== "for_each" || step.id !== "post") return;
+        loops += 1;
+        const body = (step as unknown as { steps: { id: string; kind: string }[] }).steps;
+        expect(body.map((s) => s.id)).toEqual(["qin", "find", "which"]);
+        const which = body[2] as unknown as {
+          paths: { id: string; steps: { id: string; tool?: string }[] }[];
+        };
+        expect(which.paths.map((p) => [p.id, p.steps.map((s) => s.id)])).toEqual([
+          ["post-written", ["recorded"]],
+          ["post-purchase", ["check-purchase", "write-purchase", "posted-purchase"]],
+          ["post-deposit", ["check-deposit", "write-deposit", "posted-deposit"]],
+          ["post-transfer", ["check-transfer", "write-transfer", "posted-transfer"]],
+        ]);
+        expect(which.paths[0]?.steps[0]?.tool).toBe("bookkeeping.booking.posted");
+      });
+    }
+    expect(loops).toBe(1);
+    // Take them out again and v6 is v5, to the letter.
+    const strip = (steps: unknown[]): unknown[] =>
+      steps
+        .filter((s) => !NEW_STEPS.has((s as { id: string }).id))
+        .map((s) => {
+          const x = s as Record<string, unknown>;
+          const out: Record<string, unknown> = { ...x };
+          if (Array.isArray(x.steps)) out.steps = strip(x.steps);
+          if (Array.isArray(x.paths)) {
+            out.paths = (x.paths as Record<string, unknown>[])
+              .filter((p) => p.id !== "post-written")
+              .map((p) => ({ ...p, steps: strip(p.steps as unknown[]) }));
+          }
+          if (x.otherwise) {
+            const o = x.otherwise as Record<string, unknown>;
+            out.otherwise = { ...o, steps: strip(o.steps as unknown[]) };
+          }
+          return out;
+        });
+    const back = JSON.parse(JSON.stringify(v6));
+    for (const w of back.workflows) w.workflow.steps = strip(w.workflow.steps);
+    expect(back.definition.extraTools.slice(-2)).toEqual(NEW_TOOLS);
+    back.definition.extraTools = back.definition.extraTools.slice(0, -2);
+    expect(back).toEqual(JSON.parse(JSON.stringify(v5)));
+    // Every write still asks for its signature.
+    for (const wf of v6.workflows) {
+      walkSteps(wf.workflow, ({ step }: { step: Step }) => {
+        const s = step as unknown as { kind: string; tool?: string; checks?: unknown };
+        if (s.kind === "write" && s.tool?.startsWith("qbo.")) {
+          expect(s.checks).toMatchObject({ approval: { required: "required" } });
+        }
+      });
+    }
   });
 
   it("serves its cards, actions and reports by name", () => {

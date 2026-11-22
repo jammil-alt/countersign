@@ -457,7 +457,7 @@ export async function sendQueued(
               ),
             );
         }
-        // §1.185: the setup nudge goes to a member and is logged on no intake.
+        // §1.199: the setup nudge goes to a member and is logged on no intake.
         const logged = (status: "sent" | "failed") =>
           onboarding?.intakeId && onboarding.personId
             ? logOnboardingSend(tx, {

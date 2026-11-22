@@ -61,9 +61,10 @@ export interface ResolveInput {
    */
   tools?: Pick<ToolRegistry, "get">;
   /**
-   * Audit 3.4: the item as the person saw it (`fingerprint`, from the request) and how the portal
-   * shows the locked item now (`of`): an answer to an item that changed since is refused (409
-   * `changed`) before anything is recorded. The portal's routes set it; the back office's don't.
+   * Audit 3.4: the item as the person saw it (`fingerprint`, from the request) and how the route's
+   * surface shows the locked item now (`of`: the portal's `shownFingerprint`, the back office's
+   * `opsShownFingerprint`): an answer to an item that changed since is refused (409 `changed`)
+   * before anything is recorded. The portal's and the back office's resolves set it.
    */
   seen?: { fingerprint: string; of: (item: InboxRow) => Promise<string> };
   /**
@@ -76,6 +77,28 @@ export interface ResolveInput {
 
 /** Said when an item changed between the person opening it and answering it (audit 3.4). */
 export const CHANGED_MESSAGE = "This card changed since you opened it; look again";
+
+/**
+ * Audit 3.4: an answer that does not say which item the person saw (a page from before the
+ * fingerprint was sent): refused, and the person told to reload.
+ */
+export function fingerprintRequired(): HttpError {
+  return new HttpError(
+    400,
+    "fingerprint_required",
+    "This page is out of date; reload it and look again",
+  );
+}
+
+/** Audit 3.4: refuses an answer to an item that changed since the person saw it (409 `changed`). */
+export async function ensureSeen(
+  item: InboxRow,
+  seen: { fingerprint: string; of: (item: InboxRow) => Promise<string> } | undefined,
+): Promise<void> {
+  if (seen && (await seen.of(item)) !== seen.fingerprint) {
+    throw new HttpError(409, "changed", CHANGED_MESSAGE);
+  }
+}
 
 export interface ResolveOutcome {
   item: InboxRow;
@@ -154,9 +177,7 @@ export async function resolveInboxItem(tx: Tx, input: ResolveInput): Promise<Res
   const item = await lockItem(tx, input.tenantId, input.itemId);
   // Audit 3.4: the answer is to the item the person saw, compared under the item's lock (an edit
   // takes the same lock), so another person's edit in between is never signed by this answer.
-  if (input.seen && (await input.seen.of(item)) !== input.seen.fingerprint) {
-    throw new HttpError(409, "changed", CHANGED_MESSAGE);
-  }
+  await ensureSeen(item, input.seen);
   // A request for a code is resolved only by its code (docs/plan.md §1.26), never by a click.
   refuseGenericResolve(item);
   const { decision, answer, note } = input.body;

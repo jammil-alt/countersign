@@ -1,8 +1,9 @@
 // What each run is about (core RunSubject), for its title in the run lists, search and the run
-// pages of both surfaces; and the names of the records a run's steps cite. Derived here when a
-// response is built (no column, no migration): the document that started the run, else its first
-// change to a client's tool, else what started it. Every query names the clients as well as
-// relying on RLS (invariant 1).
+// pages of both surfaces; and the names of the records a run's steps cite. Built here when a
+// response is built, from what the run kept (`run_subject`, docs/plan.md §1.188) and falling back
+// to what it read before: the document that started the run, else its first change to a client's
+// tool, else the record its steps named, else what started it. Every query names the clients as
+// well as relying on RLS (invariant 1).
 import {
   changeSubject,
   isPlainObject,
@@ -15,11 +16,12 @@ import {
   document,
   externalAction,
   rawRecord,
+  runSubject,
   type Tx,
   transaction,
   vendor,
 } from "@countersign/db";
-import { and, desc, inArray, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { changeDisplay } from "../change-display";
 import type { Platform } from "../platform";
 
@@ -77,16 +79,90 @@ async function documentNames(
   return out;
 }
 
-/** What each run is about, by run id. Two or three queries for a whole list. */
+type KeptRow = Pick<
+  typeof runSubject.$inferSelect,
+  "runId" | "stepRunId" | "kind" | "role" | "recordId" | "label" | "number"
+>;
+
+/** What each run kept as its subjects (`run_subject`), oldest first; the portal's visible only. */
+async function keptSubjects(
+  tx: Tx,
+  tenantIds: readonly string[],
+  runIds: readonly string[],
+  clientOnly: boolean,
+): Promise<Map<string, KeptRow[]>> {
+  const out = new Map<string, KeptRow[]>();
+  if (runIds.length === 0 || tenantIds.length === 0) return out;
+  const rows = await tx
+    .select({
+      runId: runSubject.runId,
+      stepRunId: runSubject.stepRunId,
+      kind: runSubject.kind,
+      role: runSubject.role,
+      recordId: runSubject.recordId,
+      label: runSubject.label,
+      number: runSubject.number,
+    })
+    .from(runSubject)
+    .where(
+      and(
+        inArray(runSubject.tenantId, [...tenantIds]),
+        inArray(runSubject.runId, [...runIds]),
+        ...(clientOnly ? [eq(runSubject.clientVisible, true)] : []),
+      ),
+    )
+    .orderBy(runSubject.createdAt, runSubject.id);
+  for (const r of rows) {
+    const list = out.get(r.runId);
+    if (list) list.push(r);
+    else out.set(r.runId, [r]);
+  }
+  return out;
+}
+
+/** The record a run's steps kept that names it best: what it changed, decided on, then read. */
+// DECISION: a step's own row ranks by its role, oldest first within one; a row with neither a
+// name nor a number titles nothing (docs/plan.md §1.188).
+function headline(rows: readonly KeptRow[]): Extract<RunSubject, { kind: "record" }> | null {
+  for (const role of ["changed", "decided", "read"] as const) {
+    const row = rows.find(
+      (r) => r.stepRunId !== null && r.role === role && (r.label !== null || r.number !== null),
+    );
+    if (row) return { kind: "record", of: row.kind, label: row.label, number: row.number };
+  }
+  return null;
+}
+
+/**
+ * What each run is about, by run id. Three or four queries for a whole list. What the run kept
+ * (`run_subject`) is read first: the document that started it; then its first change to a
+ * client's tool (named by its tool's display, so read from the change itself); then the record
+ * its steps named best. A run kept nothing for falls back to its trigger's document, as before
+ * the backfill reached it. `surface: "portal"` reads only the rows the client's timeline shows.
+ */
 export async function runSubjects(
   tx: Tx,
   tenantIds: readonly string[],
   runs: readonly RunLike[],
   platform: Registries,
+  options: { surface?: "portal" | "ops" } = {},
 ): Promise<Map<string, RunSubject>> {
   const out = new Map<string, RunSubject>();
   if (runs.length === 0) return out;
-  const docOf = new Map(runs.map((r) => [r.id, triggerDocumentId(r.trigger)]));
+  const kept = await keptSubjects(
+    tx,
+    tenantIds,
+    runs.map((r) => r.id),
+    options.surface === "portal",
+  );
+  const docOf = new Map(
+    runs.map((r) => {
+      const started = kept
+        .get(r.id)
+        ?.find((s) => s.stepRunId === null && s.kind === "document" && s.recordId !== null);
+      return [r.id, started?.recordId ?? triggerDocumentId(r.trigger)];
+    }),
+  );
   const docs = await documentNames(tx, tenantIds, [
     ...new Set([...docOf.values()].filter((v): v is string => v !== null)),
   ]);
@@ -131,6 +207,11 @@ export async function runSubjects(
     const view = a ? changeDisplay(platform, a.tool) : null;
     if (a && view) {
       out.set(r.id, changeSubject(view.tool, view.connectorName, a.before, a.input));
+      continue;
+    }
+    const record = headline(kept.get(r.id) ?? []);
+    if (record) {
+      out.set(r.id, record);
       continue;
     }
     const trigger = isPlainObject(r.trigger) ? r.trigger : {};

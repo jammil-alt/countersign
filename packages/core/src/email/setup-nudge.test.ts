@@ -1,4 +1,4 @@
-// The setup nudge (docs/plan.md §1.185, SU6): from the lead, in each language, listing what's left.
+// The setup nudge (docs/plan.md §1.199, SU6): from the lead, in each language, listing what's left.
 import { describe, expect, it } from "vitest";
 import { LOCALES } from "../i18n/locale";
 import { renderSetupNudgeEmail } from "./setup-nudge";

@@ -132,6 +132,7 @@ import { createRunRow, dispatchEvents, dispatchingRunner, senseEmitter } from ".
 import { handoffPort, handoffStart } from "./handoff";
 import type { RunInstances, RunParams } from "./instances";
 import { agentPort, dbInboxPort, dbStepLog, threadNotifyPort } from "./ports";
+import { clientShowsNode, subjectTools } from "./subject-log";
 
 export interface RunDeps {
   db: Db;
@@ -697,7 +698,11 @@ export async function executeRun(
     inbox: dbInboxPort(db, info),
     // R3: v4 notices and deadlines' `tell` read who is who in the database.
     notify: threadNotifyPort(runtime, db, deps.notify),
-    log: dbStepLog(db, info),
+    // docs/plan.md §1.188: each finished step keeps what it was about, as the client would see it.
+    log: dbStepLog(db, info, {
+      tools: subjectTools(deps.platform),
+      visible: clientShowsNode(loaded.workflow),
+    }),
     catalog: {
       skills: Object.fromEntries(deps.platform.catalog.list().map((s) => [s.id, s])),
       tools: deps.platform.tools.specs(),
@@ -709,6 +714,8 @@ export async function executeRun(
     ...(loaded.resume ? { resume: loaded.resume } : {}),
     // Setup-plan §4.1
     ...(loaded.seats ? { seats: loaded.seats } : {}),
+    // A test of some of the steps (docs/plan.md §1.185): a test run's only, whatever the row says.
+    ...(params.range && params.mode === "test" ? { range: params.range } : {}),
     // v0.12 W2-B
     ...(loaded.automations ? { automations: loaded.automations } : {}),
     // R3 (docs/plan.md §1.86): v3 workflows are read as v4 with the registries' view, the

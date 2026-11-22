@@ -260,6 +260,8 @@ export const proposeTool = defineTool({
   description:
     "Proposes how to book one undecided transaction: the account (or a split across accounts whose amounts add up to the transaction's), how sure you are (0 to 1), a one-sentence reason and the other accounts you weighed. Below the client's threshold a person decides. Nothing is written to the accounting tool.",
   sideEffect: "internal",
+  // docs/plan.md §1.188: the booking it proposed (its bank transaction is among the sources).
+  about: [{ kind: "transaction", id: "bookingId", role: "decided" }],
   entity: "booking",
   summary: "Proposed a booking",
   input: z.object({

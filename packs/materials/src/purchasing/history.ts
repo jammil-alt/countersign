@@ -1,7 +1,9 @@
 // What the client bought before, for purchasing (docs/plan.md §1.67): which vendors sold an item
 // (`materials.vendors-for-items`) and what the client buys most (`materials.frequent-items`).
-// From price observations (what was paid, in the item's standard unit) and item aliases (a vendor
-// that has a name for the item sold it, even before a price was recorded). Reads only, one client.
+// From price observations (what was paid, in the item's standard unit), item aliases (a vendor
+// that has a name for the item sold it, even before a price was recorded) and the vendor catalog
+// (a vendor with an active item for it sells it; the client's preferred one first, §1.189). Reads
+// only, one client.
 
 import { dec, toNumeric } from "@countersign/core";
 import { type Tx, vendor } from "@countersign/db";
@@ -9,7 +11,7 @@ import { and, asc, desc, eq, gte, isNull, lte } from "drizzle-orm";
 import { liveItem } from "../catalog/store";
 import { fromLatestReading } from "../pricing/record";
 import { daysBefore } from "../pricing/rules";
-import { type Category, catalogItem, itemAlias, priceObservation } from "../schema";
+import { type Category, catalogItem, itemAlias, priceObservation, vendorItem } from "../schema";
 
 export interface VendorForItem {
   vendorId: string;
@@ -20,7 +22,9 @@ export interface VendorForItem {
   timesBought: number;
   qtyStd: string;
   currency: string | null;
-  /** Observation and alias ids behind this row (invariant 10). */
+  /** §1.189: the client's preferred vendor for the item (its vendor item marked preferred). */
+  preferred: boolean;
+  /** Observation, alias and vendor item ids behind this row (invariant 10). */
   sources: string[];
 }
 
@@ -34,9 +38,13 @@ export interface ItemVendors {
 }
 
 /**
- * For each item, the vendors that sold it, cheapest last price first (vendors known only by an
- * alias last). DECISION: over the last `days` (default 365) of prices; aliases have no date.
+ * For each item, the vendors that sold it, the client's preferred vendor first, then cheapest
+ * last price first (vendors known only by an alias or the vendor catalog last). DECISION: over
+ * the last `days` (default 365) of prices; aliases and vendor items have no date.
  */
+// DECISION (§1.189): the preferred vendor leads the list whatever its price, so it is always
+// among the vendors asked; which vendor is ordered from stays the comparison's (cheapest first,
+// the preferred one on a tie) and a person's.
 export async function vendorsForItems(
   tx: Tx,
   tenantId: string,
@@ -80,6 +88,18 @@ export async function vendorsForItems(
       .select({ id: itemAlias.id, vendorId: itemAlias.vendorId })
       .from(itemAlias)
       .where(and(eq(itemAlias.tenantId, tenantId), eq(itemAlias.catalogItemId, item.id)));
+    const listed = await tx
+      .select({ id: vendorItem.id, vendorId: vendorItem.vendorId, preferred: vendorItem.preferred })
+      .from(vendorItem)
+      .where(
+        and(
+          eq(vendorItem.tenantId, tenantId),
+          eq(vendorItem.catalogItemId, item.id),
+          eq(vendorItem.status, "active"),
+        ),
+      )
+      .orderBy(desc(vendorItem.preferred), asc(vendorItem.createdAt));
+    const preferredVendor = listed.find((v) => v.preferred)?.vendorId ?? null;
     // DECISION (review of fix/materials, finding 6): a vendor's row is per currency (a price in
     // one is never compared with one in another, nor added to its quantity), and a price whose
     // unit was assumed (a line with no unit, a QuickBooks bill line) counts as a purchase but not
@@ -97,6 +117,7 @@ export async function vendorsForItems(
           timesBought: 1,
           qtyStd: toNumeric(o.qtyStd),
           currency: o.currency,
+          preferred: o.vendorId === preferredVendor,
           sources: [o.id],
         });
       } else {
@@ -121,6 +142,7 @@ export async function vendorsForItems(
           timesBought: 1,
           qtyStd: toNumeric("0"),
           currency: null,
+          preferred: o.vendorId === preferredVendor,
           sources: [o.id],
         });
       }
@@ -137,7 +159,25 @@ export async function vendorsForItems(
           timesBought: 0,
           qtyStd: toNumeric("0"),
           currency: null,
+          preferred: a.vendorId === preferredVendor,
           sources: [a.id],
+        });
+      }
+    }
+    for (const v of listed) {
+      const row = rowsOf(v.vendorId)[0];
+      if (row) row.sources.push(v.id);
+      else {
+        byVendor.set(`${v.vendorId}|catalog`, {
+          vendorId: v.vendorId,
+          vendorName: names.get(v.vendorId) ?? "A vendor",
+          lastPrice: null,
+          lastOn: null,
+          timesBought: 0,
+          qtyStd: toNumeric("0"),
+          currency: null,
+          preferred: v.vendorId === preferredVendor,
+          sources: [v.id],
         });
       }
     }
@@ -155,6 +195,7 @@ export async function vendorsForItems(
       )
       .map(([c]) => c);
     const vendors = [...byVendor.values()].sort((a, b) => {
+      if (a.preferred !== b.preferred) return a.preferred ? -1 : 1;
       const ca = a.currency === null ? order.length : order.indexOf(a.currency);
       const cb = b.currency === null ? order.length : order.indexOf(b.currency);
       if (ca !== cb) return ca - cb;

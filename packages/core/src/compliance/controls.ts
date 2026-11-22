@@ -970,6 +970,8 @@ export const PROCESSOR_RECEIVES: Record<Processor, string> = {
   billcom: "Bills and payables, for clients that connect BILL",
   // §1.116
   expo_push: "Phone notifications: a phone's token, Mezonas or the business's name, and a count",
+  // §1.190
+  claude_ai: "What the back office's tools return to an operator's Claude, through our connector",
 };
 
 /** Vendors we use that are kept out of scope for client data, and how. */

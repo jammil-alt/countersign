@@ -1,4 +1,4 @@
-// Getting started through the API (docs/setup-plan.md; docs/plan.md §1.185): the overview's line
+// Getting started through the API (docs/setup-plan.md; docs/plan.md §1.199): the overview's line
 // per agent and its chapters, and Your people's seats, merged across the agents that share one,
 // filled by the client admin with checks on each person (a member who can sign, for a seat that
 // signs), and the lead told when who signs changes after a trial has started. No portal answer
@@ -249,7 +249,7 @@ describe.skipIf(!h)("Getting started", () => {
     expect(j(confirmed.json).people.confirmed).toMatchObject({ byName: expect.any(String) });
   });
 
-  it("tells the lead when who signs changes once a trial has started (owner, §1.185 q1)", async () => {
+  it("tells the lead when who signs changes once a trial has started (owner, §1.199 q1)", async () => {
     await withOperator(H.db, [A()], (tx) =>
       tx
         .update(agent)

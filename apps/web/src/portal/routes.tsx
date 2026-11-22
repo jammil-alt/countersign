@@ -42,7 +42,7 @@ const RequirementsScreen = lazy(() =>
 const GettingStartedScreen = lazy(() =>
   import("./screens/GettingStarted").then((m) => ({ default: m.GettingStartedScreen })),
 );
-// docs/setup-plan.md (§1.185): Getting started's chapters.
+// docs/setup-plan.md (§1.199): Getting started's chapters.
 const ToolsChapterScreen = lazy(() =>
   import("./screens/setup/ToolsChapter").then((m) => ({ default: m.ToolsChapterScreen })),
 );
@@ -142,7 +142,7 @@ export const portalRoutes = (
         </OnDemand>
       }
     />
-    {/* docs/setup-plan.md (§1.185): its chapters */}
+    {/* docs/setup-plan.md (§1.199): its chapters */}
     <Route
       path="getting-started/tools"
       element={

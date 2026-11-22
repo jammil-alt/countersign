@@ -481,7 +481,8 @@ describe.skipIf(!h)("the back office's run page, run lists and client page", () 
     };
     // Five of each are the session's and the audit row's (the scope, the user, the memberships),
     // in one transaction since 5.1 (§1.90).
-    expect(counts).toEqual({ client: 13, runs: 11, run: 20, status: 6 });
+    // The run list and page read what the runs kept (`run_subject`, §1.188) once more each.
+    expect(counts).toEqual({ client: 13, runs: 12, run: 21, status: 6 });
 
     // Another agent on trial, with runs on a second version: the same statements.
     const more = await agentOf("one-more");

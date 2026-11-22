@@ -1,4 +1,4 @@
-// Getting started's overview and Your people (docs/setup-plan.md §2, §4.2; docs/plan.md §1.185):
+// Getting started's overview and Your people (docs/setup-plan.md §2, §4.2; docs/plan.md §1.199):
 // each agent's line of what is left with who it waits on, the chapters; a seat's "We think" said
 // yes to, a seat changed with a backup, a viewer refused in words, and Looks right.
 import type { GettingStartedView, PeopleChapterView } from "@countersign/core";

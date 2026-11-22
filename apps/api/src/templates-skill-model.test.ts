@@ -116,7 +116,7 @@ describe("the skill model's template versions", () => {
       "seed bill-clerk v3",
       "seed document-clerk v2",
       "seed supervisor v5",
-      "bookkeeping bookkeeper v5",
+      "bookkeeping bookkeeper v6",
       "marketing site-report v3",
       "marketing titles v3",
       "marketing article-drafts v3",
@@ -136,6 +136,8 @@ describe("the skill model's template versions", () => {
     "bookkeeping bookkeeper v4": ["split_long"],
     // v5 is v4 with a statement's currency passed to the reconciliation: the same advice.
     "bookkeeping bookkeeper v5": ["split_long"],
+    // v6 is v5 with a read of QuickBooks and a check before each write: the same advice.
+    "bookkeeping bookkeeper v6": ["split_long"],
     "marketing forum-watch v3": ["split_deep"],
   };
 
@@ -468,7 +470,7 @@ describe.skipIf(!h)("installing, offering and publishing the skill model's versi
     expect(JSON.stringify(version?.bundle)).toContain("supervisor.explain");
   });
 
-  it("gives the Bookkeeper its v3, v4 and v5 by Update templates over v2, offered to a fork of v2", async () => {
+  it("gives the Bookkeeper its v3 to v6 by Update templates over v2, offered to a fork of v2", async () => {
     const t = bookkeepingManifest.templates[0];
     const [v2] = t?.versions ?? [];
     if (!t || !v2) throw new Error("no bookkeeper v2");
@@ -501,18 +503,20 @@ describe.skipIf(!h)("installing, offering and publishing the skill model's versi
 
     const update = await H.call(OPERATOR, "POST", "/api/ops/packs/bookkeeping/templates/update");
     expect(update.status, JSON.stringify(update.json)).toBe(200);
-    // v4 (2026-11-17, the posting loop goes on past a refused write) and v5 (2026-11-20, a
-    // statement's currency) follow v3 in the same update.
+    // v4 (2026-11-17, the posting loop goes on past a refused write), v5 (2026-11-20, a
+    // statement's currency) and v6 (2026-11-22, each money written once) follow v3 in the same
+    // update.
     expect(j(update.json).updated).toEqual([
       { slug: "bookkeeper", templateId: tpl.id, version: 3, published: true },
       { slug: "bookkeeper", templateId: tpl.id, version: 4, published: true },
       { slug: "bookkeeper", templateId: tpl.id, version: 5, published: true },
+      { slug: "bookkeeper", templateId: tpl.id, version: 6, published: true },
     ]);
     const usedBy = await H.call(OPERATOR, "GET", `/api/ops/templates/${tpl.id}/used-by`);
     const entry = j(usedBy.json).agents.find(
       (x: { agent: { id: string } }) => x.agent.id === old.id,
     );
-    expect(entry).toMatchObject({ baseVersion: 2, behind: 3 });
+    expect(entry).toMatchObject({ baseVersion: 2, behind: 4 });
 
     const fork = await forkAndPublish(tpl.id, "bookkeeper-v3", { qbo: conn.qbo });
     expect(fork.pub.status, JSON.stringify(fork.pub.json)).toBe(200);

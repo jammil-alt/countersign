@@ -324,7 +324,7 @@ export type PreparedOnboardingEmail =
   | {
       kind: "send";
       message: Omit<MailMessage, "idempotencyKey">;
-      /** Null for the setup nudge, which goes to a member, not an intake's person (§1.185). */
+      /** Null for the setup nudge, which goes to a member, not an intake's person (§1.199). */
       intakeId: string | null;
       personId: string | null;
     };
@@ -473,7 +473,7 @@ export async function prepareOnboardingEmail(
 }
 
 /**
- * The setup nudge (docs/setup-plan.md §8; §1.185, SU6), written by Nudge on the Setup tab as an
+ * The setup nudge (docs/setup-plan.md §8; §1.199, SU6), written by Nudge on the Setup tab as an
  * `intake_reminder` row for one of the client's members: from the client's lead (else its newest
  * intake's, else Mezonas),
  * in the member's language, listing what the nudge listed (`setupGuide.nudgeItems`), with a link

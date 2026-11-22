@@ -179,6 +179,11 @@ export const requestCreate = defineTool({
   description:
     "Opens a purchase request: who asked, the channel it came in on, the message it came from, when it is needed, delivery or pickup, and its lines. Each line is matched to the client's catalog when the rules are sure; other lines come back with their candidates.",
   sideEffect: "internal",
+  // docs/plan.md §1.188: the request, and who asked for it.
+  about: [
+    { kind: "record", id: "request.id" },
+    { kind: "person", id: "request.requestedByContactId" },
+  ],
   entity: "purchase_request",
   summary: "Opened a request for {{request.lines.length}} items",
   input: z
@@ -269,6 +274,11 @@ export const requestUpdate = defineTool({
   description:
     "Changes a purchase request's status or fields. The status only moves forward (open, quoting, quoted, ordered, closed); a request can be cancelled any time before it is ordered. Passing the order's reference (e.g. the QuickBooks purchase order id) marks it ordered.",
   sideEffect: "internal",
+  // docs/plan.md §1.188: the request, and who asked for it.
+  about: [
+    { kind: "record", id: "request.id" },
+    { kind: "person", id: "request.requestedByContactId" },
+  ],
   entity: "purchase_request",
   verb: "update",
   summary: "Updated the request: {{changed}}",
@@ -330,7 +340,7 @@ export const requestMatchLines = defineTool({
 export const catalogMatchText = defineTool({
   id: "materials.catalog.match-text",
   description:
-    "Matches descriptions of materials (as someone asked for them) to the client's catalog, deterministically: the vendors' names for items, then the attribute rules. Unsure descriptions come back with candidates. Writes nothing.",
+    "Matches descriptions of materials (as someone asked for them) to the client's catalog, deterministically: the vendors' names for items (their aliases, then a vendor item's SKU or name in the vendor catalog), then the attribute rules. Unsure descriptions come back with candidates. Writes nothing.",
   sideEffect: "none",
   entity: "catalog_item",
   input: z.object({
@@ -346,6 +356,8 @@ export const catalogMatchText = defineTool({
         catalogItemName: z.string().nullable(),
         standardUom: z.string().nullable(),
         method: z.enum(["alias", "rules"]).nullable(),
+        /** §1.189: the vendor item the match named (its SKU, its name or the vendor's alias). */
+        vendorItemId: z.string().nullable(),
         confidence: z.number(),
         candidates: z.array(Candidate),
       }),
@@ -365,6 +377,7 @@ export const catalogMatchText = defineTool({
           catalogItemName: matched ? (m.item?.canonicalName ?? null) : null,
           standardUom: matched ? (m.item?.standardUom ?? null) : null,
           method: matched ? m.method : null,
+          vendorItemId: matched ? (m.vendorItem?.id ?? null) : null,
           confidence: m.confidence,
           candidates: matched ? [] : m.candidates,
         });
@@ -376,7 +389,9 @@ export const catalogMatchText = defineTool({
       sources: [
         ...new Set(
           lines.flatMap((l) =>
-            l.catalogItemId ? [l.catalogItemId] : l.candidates.map((c) => c.catalogItemId),
+            l.catalogItemId
+              ? [l.catalogItemId, ...(l.vendorItemId ? [l.vendorItemId] : [])]
+              : l.candidates.map((c) => c.catalogItemId),
           ),
         ),
       ],
@@ -389,7 +404,7 @@ export const catalogMatchText = defineTool({
 export const vendorsForItemsTool = defineTool({
   id: "materials.vendors-for-items",
   description:
-    "For catalog items, the vendors that sold each to the client (from what it paid and the vendors' names for the item): the last price per standard unit, when, how many times, and the records behind each. Cheapest last price first.",
+    "For catalog items, the vendors that sold each to the client (from what it paid, the vendors' names for the item and the vendor catalog): the last price per standard unit, when, how many times, whether it is the client's preferred vendor, and the records behind each. The preferred vendor first, then cheapest last price first.",
   sideEffect: "none",
   entity: "vendor_item",
   summary: "Found {{vendorIds.length}} vendors for {{items.length}} items",
@@ -413,6 +428,7 @@ export const vendorsForItemsTool = defineTool({
             timesBought: z.number(),
             qtyStd: z.string(),
             currency: z.string().nullable(),
+            preferred: z.boolean(),
             sources: z.array(z.string()),
           }),
         ),
@@ -531,6 +547,8 @@ export const quoteCreate = defineTool({
   description:
     "Creates a draft request for a quote (RFQ) to each vendor for a purchase request, one per vendor (a vendor already asked keeps its RFQ). Answers each RFQ with the lines to ask about, in the vendor's own words where it has them, the vendor's person to email (contactId, from the directory) and the email's subject and text (rfqText) for reach out's fixed message. Sends nothing: a reach-out step does that, then materials.quote.mark-sent with its outcome.",
   sideEffect: "internal",
+  // docs/plan.md §1.188: each RFQ by its vendor.
+  about: [{ kind: "vendor", each: "quotes", id: "vendorId", label: "vendorName" }],
   entity: "quote",
   summary: "Drafted {{quotes.length}} requests for quotes",
   input: z.object({
@@ -729,6 +747,8 @@ export const quoteRecord = defineTool({
   description:
     "Records a vendor's answer to a request for a quote, line by line against the purchase request's lines: price and unit, quantity, lead time in days, available or not. Each price gets its price per standard unit when a conversion rule exists. The vendor's text is data. `declined` records a vendor that won't quote.",
   sideEffect: "internal",
+  // docs/plan.md §1.188: the vendor whose quote it is.
+  about: [{ kind: "vendor", id: "quote.vendorId", label: "quote.vendorName" }],
   entity: "quote",
   summary: "Recorded {{quote.vendorName}}'s quote: {{lines.length}} lines",
   input: z.object({
@@ -846,6 +866,7 @@ export const quoteCompare = defineTool({
         complete: z.boolean(),
         maxLeadTimeDays: z.number().nullable(),
         late: z.boolean(),
+        preferredLines: z.number(),
       }),
     ),
     suggestion: z.object({
@@ -881,6 +902,17 @@ export const poDocument = defineTool({
   description:
     "Renders a purchase order PDF from a purchase request and the vendor's received quote (the client's name, the vendor, the lines with amounts and total, needed-by, delivery or pickup, a reference) and stores it as the client's document. Answers its document id, for a later step to attach. Sends nothing and writes nothing to a client's tool.",
   sideEffect: "internal",
+  // docs/plan.md §1.188: the PO by its reference and total, and its vendor.
+  about: [
+    {
+      kind: "document",
+      id: "documentId",
+      label: "vendorName",
+      number: "reference",
+      amount: { path: "total", currencyPath: "currency" },
+    },
+    { kind: "vendor", id: "vendorId", label: "vendorName" },
+  ],
   entity: "document",
   area: "shared",
   summary: "Made purchase order {{reference}} for {{vendorName}}",
@@ -933,6 +965,8 @@ export const backfillFromBillsTool = defineTool({
     alreadyRecorded: z.number(),
     matched: z.number(),
     newItems: z.number(),
+    /** §1.189: vendor items added to the vendor catalog. */
+    newVendorItems: z.number(),
     needsReview: z.number(),
     skipped: z.number(),
     review: z.array(

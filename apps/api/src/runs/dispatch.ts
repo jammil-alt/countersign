@@ -32,6 +32,7 @@ import {
 import {
   dueSchedules,
   type RoutableAgent,
+  type RunRange,
   type RunRequest,
   routeEvent,
   type StepRunner,
@@ -91,7 +92,12 @@ export async function routableAgents(tx: Tx, tenantId: string): Promise<Routable
 }
 
 /** Writes the run row (idempotent by id) in the caller's transaction. */
-export async function createRunRow(tx: Tx, request: RunRequest): Promise<void> {
+// A test's range of steps is kept with the trigger, as its payload is: the reconciler rebuilds a
+// run's parameters from its row (`paramsOfRow`), and a range needs no column of its own.
+export async function createRunRow(
+  tx: Tx,
+  request: RunRequest & { range?: RunRange },
+): Promise<void> {
   await createRun(tx, {
     id: request.runId,
     tenantId: request.tenantId,
@@ -99,7 +105,11 @@ export async function createRunRow(tx: Tx, request: RunRequest): Promise<void> {
     agentVersionId: request.agentVersionId,
     workflowSlug: request.workflowSlug,
     mode: request.mode,
-    trigger: { ...request.trigger, payload: request.payload } as Record<string, unknown>,
+    trigger: {
+      ...request.trigger,
+      payload: request.payload,
+      ...(request.range ? { range: request.range } : {}),
+    } as Record<string, unknown>,
   });
 }
 

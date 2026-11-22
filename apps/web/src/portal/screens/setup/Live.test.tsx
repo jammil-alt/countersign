@@ -1,4 +1,4 @@
-// Go live (docs/setup-plan.md §7; docs/plan.md §1.185, SU6): with one agent it opens; the scope as
+// Go live (docs/setup-plan.md §7; docs/plan.md §1.199, SU6): with one agent it opens; the scope as
 // a list in the client's words; the sign card with Sign for the client admin; what happens next;
 // a version signed before asks again; someone who isn't the admin reads it only.
 import type { GettingStartedView, ScopeView } from "@countersign/core";

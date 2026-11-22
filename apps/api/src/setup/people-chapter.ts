@@ -1,11 +1,11 @@
-// Getting started's Your people (docs/setup-plan.md §4.2; docs/plan.md §1.185, SU2): each seat the
+// Getting started's Your people (docs/setup-plan.md §4.2; docs/plan.md §1.199, SU2): each seat the
 // client's agents declare (who approves, answers, is told or contacted), merged across the agents
 // so a seat two agents share is filled once; who is in it; and "We think" from the client's own
 // intake answers, matched to its members by name in code (never a model). Filling a seat writes the
 // same people to every agent that declares it, through the registry's `setPeople`, which checks
 // each person (a member who can see the agent; one who can sign, for a seat that signs).
 //
-// Owner, §1.185 q1: once an agent's trial has started, a change to who signs applies at once and
+// Owner, §1.199 q1: once an agent's trial has started, a change to who signs applies at once and
 // leaves the lead a to-do; adding a person or a backup tells nobody.
 
 import { agentRoles, setPeople } from "@countersign/agents";
@@ -300,7 +300,7 @@ export async function fillSeat(
   return { changedLive, label };
 }
 
-/** Owner, §1.185 q1: the lead hears about a change to who signs, once the trial has started. */
+/** Owner, §1.199 q1: the lead hears about a change to who signs, once the trial has started. */
 export async function tellLeadSeatChanged(
   db: Db,
   input: {

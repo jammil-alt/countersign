@@ -1,4 +1,4 @@
-// The setup nudge (docs/setup-plan.md §8; docs/plan.md §1.185, SU6): Nudge on the back office's
+// The setup nudge (docs/setup-plan.md §8; docs/plan.md §1.199, SU6): Nudge on the back office's
 // Setup tab writes it to the notifications outbox as `intake_reminder`; it goes from the client's
 // lead in the branded layout (`./layout`), in the person's language, listing what is still waiting
 // on them before their agents' trial, with one button to Getting started. What it lists are the

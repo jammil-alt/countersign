@@ -1,4 +1,4 @@
-// Getting started's Go live through the API (docs/setup-plan.md §7; docs/plan.md §1.185, SU6): the
+// Getting started's Go live through the API (docs/setup-plan.md §7; docs/plan.md §1.199, SU6): the
 // scope in the client's words (what it does, reads and may change, who signs and answers, their
 // open requests), nothing of ours (invariant 11); only the client admin signs, once per version,
 // and a new version is signed again; signing starts nothing; the overview's "Sign the scope"

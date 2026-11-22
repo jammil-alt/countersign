@@ -1,4 +1,4 @@
-// Getting started's See it work (docs/setup-plan.md §6; docs/plan.md §1.185, SU4 and SU5): stream
+// Getting started's See it work (docs/setup-plan.md §6; docs/plan.md §1.199, SU4 and SU5): stream
 // SEE. The walkthrough's marks and the tries started from the portal.
 //
 // The steps the client reads are the agent's SOP (`GET /api/services/:id/sop`, made by code from

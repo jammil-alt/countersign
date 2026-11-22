@@ -1,4 +1,4 @@
-// Getting started's overview (docs/setup-plan.md §2; docs/plan.md §1.185, SU2): a line per agent
+// Getting started's overview (docs/setup-plan.md §2; docs/plan.md §1.199, SU2): a line per agent
 // being set up with what is left before its trial and who it waits on, then the five chapters with
 // where each stands. Read from `/api/getting-started`: the client's own words and people only.
 import type { GettingStartedView, SetupLeft } from "@countersign/core";

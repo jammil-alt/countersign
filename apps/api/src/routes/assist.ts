@@ -6,6 +6,7 @@
 // is refused until the model's vendor is covered (`DRAFT_ASSIST_FEATURE`). A slow route: the model
 // runs outside any transaction; the audit row is the route's own (`mountLong`).
 
+import { getAgent } from "@countersign/agents";
 import {
   ASSIST_FIELDS,
   ASSIST_TOOL,
@@ -27,10 +28,17 @@ import {
   isUuid,
   LOCALE_ENGLISH_NAMES,
   parseCoveredProcessors,
+  processes,
   processingRefusal,
   readBrief,
   readFitGap,
+  readTestData,
   SETUP_WORDS,
+  TEST_DATA_SYSTEM,
+  TEST_DATA_TOOL,
+  TestDataAnswer,
+  testDataPieces,
+  testDataUserMessage,
 } from "@countersign/core";
 import { buildItem, clientFact, dealPerson, type Tx, tenant } from "@countersign/db";
 import { createLlmClient, DEFAULT_MODELS } from "@countersign/llm";
@@ -38,7 +46,7 @@ import { and, asc, desc, eq, inArray } from "drizzle-orm";
 import type { Hono } from "hono";
 import { type BuildRow, readBuild } from "../build/store";
 import { clientModels } from "../compliance/models";
-import { type AppEnv, ensureClient, HttpError, mountLong, type Services } from "../http";
+import { type AppEnv, ensureClient, HttpError, mountLong, notFound, type Services } from "../http";
 import { claimMetered } from "../metered";
 import { reportHandled } from "../observability/report";
 import { readFile } from "../onboarding/files";
@@ -242,6 +250,97 @@ async function gather(
 }
 
 export function assistDraftRoutes(app: Hono<AppEnv>): void {
+  // Made-up data to try steps on (owner, 2026-11-22; docs/plan.md §1.186): from the draft's
+  // shapes alone. The model is sent the step names, each piece's JSON Schema and how the steps
+  // read it; no record of any client's is read here.
+  // DECISION: counted and limited as a Draft is (the same kind of call, by the same person), and
+  // held to the agent's client's HIPAA mode as a Draft about that client is, though no client
+  // data goes: a client's own process is still that client's.
+  mountLong(app, assistRoutes.opsAssistTestData, async (ctx) => {
+    const { services, body } = ctx;
+    const row = await ctx.inTx(async (scoped) => {
+      const a = await getAgent(scoped.tx, ctx.params.id);
+      if (a.tenantId !== null && !ctx.tenantIds.includes(a.tenantId)) throw notFound("agent");
+      const [client] = a.tenantId
+        ? await scoped.tx
+            .select({ settings: tenant.settings })
+            .from(tenant)
+            .where(eq(tenant.id, a.tenantId))
+        : [];
+      return { tenantId: a.tenantId, settings: client?.settings ?? null };
+    });
+    if (row.settings) {
+      const refusal = processingRefusal(
+        complianceOf(row.settings as Record<string, unknown>),
+        parseCoveredProcessors(services.env.BAA_PROCESSORS),
+        DRAFT_ASSIST_FEATURE.processors,
+        DRAFT_ASSIST_FEATURE.what,
+      );
+      if (refusal) throw new HttpError(409, "hipaa", refusal);
+    }
+    const parsed = processes.Process.safeParse(body.process);
+    if (!parsed.success) {
+      throw new HttpError(422, "invalid_process", "the workflow doesn't read in the new format");
+    }
+    const ask = testDataPieces(parsed.data, { tools: services.platform.tools.specs() }, body.range);
+    if (ask.problems.length > 0) {
+      throw new HttpError(422, "invalid_range", ask.problems.join("; "), {
+        problems: ask.problems,
+      });
+    }
+    if (ask.pieces.length === 0) return { given: {}, missing: [] };
+    await ctx.inTx((scoped) =>
+      claimMetered(scoped.tx, ctx.c, {
+        kind: "assist.draft",
+        tenantId: row.tenantId,
+        session: ctx.session,
+        role: ctx.role,
+      }),
+    );
+    const llm = createLlmClient({
+      transport: clientModels(services, {
+        clients: row.tenantId ? [row.tenantId] : [],
+        read: services.db,
+      }),
+    });
+    try {
+      const out = await llm.callTool({
+        model: DEFAULT_MODELS.assist,
+        system: TEST_DATA_SYSTEM,
+        messages: [
+          {
+            role: "user",
+            content: testDataUserMessage({
+              workflow: body.workflow,
+              picked: ask.picked,
+              pieces: ask.pieces,
+              notes: body.notes,
+            }),
+          },
+        ],
+        tool: { ...TEST_DATA_TOOL, schema: TestDataAnswer },
+        maxTokens: 6000,
+        label: "assist.test_data",
+      });
+      console.info(
+        JSON.stringify({
+          event: "assist.test_data.cost",
+          who: "operator",
+          tenantId: row.tenantId,
+          model: out.record.model,
+          tokensIn: out.record.usage.inputTokens,
+          tokensOut: out.record.usage.outputTokens,
+          costUsd: out.record.costUsd,
+        }),
+      );
+      return readTestData(ask.pieces, out.value);
+    } catch (error) {
+      if (error instanceof ComplianceRefusal) throw error;
+      reportHandled("making up test data failed", error, { kind: "assist.test_data" });
+      throw new HttpError(502, "draft_failed", "we couldn't make up the data: try again");
+    }
+  });
+
   mountLong(app, assistRoutes.opsAssistDraft, async (ctx) => {
     const { field: id, notes, current, context } = ctx.body;
     const field = ASSIST_FIELDS[id];

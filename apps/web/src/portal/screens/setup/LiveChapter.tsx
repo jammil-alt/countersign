@@ -1,4 +1,4 @@
-// Go live (docs/setup-plan.md §7; docs/plan.md §1.185, SU6): pick the agent (with one, it opens),
+// Go live (docs/setup-plan.md §7; docs/plan.md §1.199, SU6): pick the agent (with one, it opens),
 // read its scope in your words (what it does, reads and may change, who signs and answers, your
 // choices, what is still open), sign it (the client admin), then what happens next. Signing never
 // starts the trial: the lead does, and every change waits for a signature until you say otherwise

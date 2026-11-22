@@ -1,4 +1,4 @@
-// Getting started's Your tools (docs/setup-plan.md §5; docs/plan.md §1.185, SU3): each tool the
+// Getting started's Your tools (docs/setup-plan.md §5; docs/plan.md §1.199, SU3): each tool the
 // agents being set up need, from their setup checklists' connect items and the tools their
 // versions use (Connectors C1's needs, the same ones the Connectors pages read); whether it is
 // connected and to which account; what the agents read and change there and what they never do,

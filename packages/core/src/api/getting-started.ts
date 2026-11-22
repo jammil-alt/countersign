@@ -1,4 +1,4 @@
-// Setting up a client (docs/setup-plan.md; docs/plan.md §1.185): Getting started's five chapters
+// Setting up a client (docs/setup-plan.md; docs/plan.md §1.199): Getting started's five chapters
 // (business, tools, people, see it work, go live), one line per agent of what is left before its
 // trial and who it waits on, and the back office's Setup tab. Each view is the client's own words
 // and people: never the agent's bundle, instructions, prompts, cost, a seat's role name beyond its
@@ -19,7 +19,7 @@ const AgentParams = z.object({ id: Id });
 
 // ── Chapters ─────────────────────────────────────────────────────────────────────────────────
 
-/** Getting started's chapters, in the order the page shows them (owner, §1.185 q6). */
+/** Getting started's chapters, in the order the page shows them (owner, §1.199 q6). */
 export const SETUP_CHAPTERS = ["business", "tools", "people", "see", "live"] as const;
 export const SetupChapter = z.enum(SETUP_CHAPTERS);
 export type SetupChapter = z.infer<typeof SetupChapter>;
@@ -243,7 +243,7 @@ export const TryView = z.object({
 });
 export type TryView = z.infer<typeof TryView>;
 
-/** Tries per agent during setup (owner, §1.185 q2). */
+/** Tries per agent during setup (owner, §1.199 q2). */
 export const SETUP_TRIES_MAX = 3;
 
 export const WalkthroughView = z.object({
@@ -283,7 +283,7 @@ export type TryVerdictBody = z.infer<typeof TryVerdictBody>;
 
 // ── Go live ──────────────────────────────────────────────────────────────────────────────────
 
-/** The trial's length, the same for every agent (owner, §1.185 q5). */
+/** The trial's length, the same for every agent (owner, §1.199 q5). */
 export const SETUP_TRIAL_DAYS = 14;
 
 /** An agent's scope in the client's words: what was checked in the chapters, in one place. */

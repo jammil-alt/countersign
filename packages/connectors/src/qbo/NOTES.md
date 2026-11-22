@@ -201,8 +201,13 @@ Built against the fake; check against the sandbox company:
 3. A Deposit's `DepositLineDetail.AccountRef` (an income account) and `ClassRef`; whether QuickBooks
    wants `Entity` on the line.
 4. A Transfer between a bank and a card account (a card payment) is accepted, and `Amount` comes back.
-5. The private note keeps our `[Mezonas bk-…]` mark as written (length, characters), so a retried
+5. The private note keeps our `[Mezonas bt-…]` mark as written (length, characters), so a retried
    write finds its own record.
+6. `qbo.banking.find` (`docs/plan.md` §1.187): `select * from Deposit where TxnDate = '…'` and the
+   same for Transfer and Purchase return `PrivateNote` with the mark as written, and a record
+   written a moment before (no lag), so the Bookkeeper finds a deposit or transfer it wrote and
+   never recorded instead of writing it again. Also whether more than 1000 records on one day need
+   `startposition` (we read the first 1000). Bookkeeping stays off for clients until this passes.
 
 ## The ledger's set-up (2026-11-08, docs/plan.md §1.79)
 
