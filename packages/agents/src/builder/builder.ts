@@ -284,6 +284,7 @@ export async function ask<T extends { bundle: ProcessAgentBundle; gaps: string[]
   const messages: CallToolInput<unknown>["messages"] = [{ role: "user", content: input.first }];
   let repairs = options.repairs ?? 1;
   let shortened = false;
+  let reasked = false;
   for (;;) {
     let answer: T;
     try {
@@ -311,6 +312,26 @@ export async function ask<T extends { bundle: ProcessAgentBundle; gaps: string[]
               content: `That answer did not match the schema:\n${error.message}\n\nAnswer again with the whole corrected answer.`,
             },
           );
+          continue;
+        }
+        // Staging, 2026-11-22 (MEZONAS-API-G; docs/plan.md §1.183): asked "how can we add a
+        // second trigger?", the model answered in plain words, without the tool, and the answer
+        // was thrown away. The models always think, so the call can't be forced
+        // (`ANSWER_TOOL_CHOICE`); asked once more with what it wrote, it answers through the
+        // tool. The build page's Builder has done this since MEZONAS-API-6 (../build/turn.ts).
+        // DECISION: its own single retry, not one of the schema's repairs, so an answer that
+        // then fails the schema still gets its repair.
+        if (error.code === "no_tool_call" && !reasked) {
+          reasked = true;
+          const said = error.result.message.content
+            .flatMap((b) => (b.type === "text" ? [b.text] : []))
+            .join("\n")
+            .trim();
+          if (said) messages.push({ role: "assistant", content: said.slice(0, 20_000) });
+          messages.push({
+            role: "user",
+            content: `${said ? "That answer" : "Your last answer"} did not call the \`${input.toolName}\` tool, so it can't be used. Answer again by calling \`${input.toolName}\` exactly once, with the whole answer in it. A question is answered in its words, with no change to the draft.`,
+          });
           continue;
         }
         // Cut off: once, ask for a smaller answer (the main path, the rest named in gaps), so a
