@@ -348,6 +348,22 @@ describe.skipIf(!online)("immutability", () => {
     }
   });
 
+  it("run_subject is insert only, for the owner and the Worker's role (0077)", async () => {
+    for (const statement of [
+      sql`update run_subject set label = 'Someone else' where tenant_id = ${A.tenantId}`,
+      sql`delete from run_subject where tenant_id = ${A.tenantId}`,
+    ]) {
+      expect(await errorCode(t.db.execute(statement))).toBe(RESTRICT_VIOLATION);
+      const code = await errorCode(
+        withTenant(t.db, A.tenantId, async (tx) => {
+          await asWorker(tx);
+          await tx.execute(statement);
+        }),
+      );
+      expect(code).toBe("42501");
+    }
+  });
+
   it("notification: only status, reason, provider_id and sent_at change; never deleted (0020)", async () => {
     await withTenant(t.db, A.tenantId, async (tx) => {
       await asWorker(tx);
