@@ -77,7 +77,9 @@ describe("connectorBrand", () => {
     // §1.114: no file or published path yet: the initials on the provider's colour.
     expect(connectorBrand("teams")).toEqual({ kind: "monogram", fill: "#5B5FC7", letters: "T" });
     expect(connectorBrand("outlook_calendar")?.kind).toBe("image");
-    expect(connectorBrand("bankfeed")).toEqual({ kind: "icon", icon: "bank" });
+    // The bank feed is Plaid's: Plaid's own mark (owner, 2026-11-21). One of ours keeps our icon.
+    expect(connectorBrand("bankfeed")?.kind).toBe("image");
+    expect(connectorBrand("upload")).toEqual({ kind: "icon", icon: "upload" });
     expect(connectorBrand("nope")).toBeNull();
     expect(connectorBrand(undefined)).toBeNull();
   });

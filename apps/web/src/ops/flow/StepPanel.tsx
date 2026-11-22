@@ -1,9 +1,9 @@
 // The step's side panel on the one-screen builder (docs/builder-plan.md §12.3: "the inspector
 // becomes the step's side panel with the Builder underneath"). From the top: what kind of step and
-// where it sits, its name, what is left to settle on it (issues red, questions gold, settled ones
-// with Change), what the Builder decided for it, where it comes after and goes to, its setup (the
-// inspector's fields, passed in), then the Builder on this step, folded to one line or in one of
-// three sizes, and Remove.
+// where it sits, its name and what it does in a sentence, what is left to settle on it (issues red,
+// questions gold, settled ones with Change), what the Builder decided for it, its setup (the
+// inspector's fields, passed in), where it comes after and goes to, Remove, then the Builder on
+// this step, folded to one line or in one of two sizes.
 // Props only: the host owns the process, the build's routes and the Builder session.
 import { type ReactNode, useEffect, useState } from "react";
 import { Icon } from "../../ui/icons";
@@ -59,6 +59,8 @@ export interface StepPanelProps {
   title: string;
   /** Makes the title an input; each change is the host's (one undo per typing run). */
   onRename?: ((name: string) => void) | undefined;
+  /** What the step does, in a sentence: the first thing read under its name. */
+  does?: string | null | undefined;
   /** The line it came from in the operator's list ("From your list: …"). */
   from?: string | null | undefined;
   status?: StepStatus | undefined;
@@ -135,14 +137,21 @@ export function StepPanel(props: StepPanelProps) {
           <Settle {...props} />
           {status?.tried ? <Tried status={status} /> : null}
           <Decided {...props} />
-          {props.connections ? (
-            <section className="flex flex-col gap-3" data-testid="flow-panel-connections">
-              {props.connections}
-            </section>
-          ) : null}
           {props.children ? (
             <section className="flex flex-col gap-4" data-testid="flow-panel-setup">
               {props.children}
+            </section>
+          ) : null}
+          {/* DECISION (owner, 2026-11-22, staging feedback: "move this to the bottom of the step.
+              It should not be the first thing you see… the first thing you see should be a
+              description of what the step does"): where the step comes after and goes to is the
+              last of its setup, above Remove; what it does is under its name in the head. */}
+          {props.connections ? (
+            <section
+              className="flex flex-col gap-3 border-t border-line pt-4"
+              data-testid="flow-panel-connections"
+            >
+              {props.connections}
             </section>
           ) : null}
           {props.onRemove ? (
@@ -290,6 +299,11 @@ function Header(props: StepPanelProps) {
           {props.title}
         </h2>
       )}
+      {props.does ? (
+        <p className="text-sm text-ink" data-testid="flow-panel-does">
+          {props.does}
+        </p>
+      ) : null}
       {props.from ? (
         <p className="text-sm text-ink-muted" data-testid="flow-panel-from">
           From your list: “{props.from}”
