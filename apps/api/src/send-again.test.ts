@@ -67,9 +67,10 @@ describe.skipIf(!h)("Send it again (§1.220)", () => {
 
   /** Queues an invite with no Resend here: skipped `not_configured`, with the lead's to-do. */
   async function unsentInviteFor(intakeId: string, personId: string) {
+    const { RESEND_API_KEY: _key, ...noResend } = H.env;
     const queued = await withTenant(H.db, H.A.tenantId, (tx) =>
       sendOnboardingEmail(
-        { tx, env: { ...H.env, RESEND_API_KEY: undefined } },
+        { tx, env: noResend },
         { kind: "invite", tenantId: H.A.tenantId, intakeId, personId },
       ),
     );
@@ -171,13 +172,13 @@ describe.skipIf(!h)("Send it again (§1.220)", () => {
     const ana = await addPerson(closed, "ana@a.example.com", "Ana");
     await unsentInviteFor(closed, ana);
     const key = H.env.RESEND_API_KEY;
-    H.env.RESEND_API_KEY = undefined;
+    delete H.env.RESEND_API_KEY;
     try {
       const off = await H.call(OPERATOR, "POST", path(closed, ana));
       expect(off.status).toBe(409);
       expect(JSON.stringify(off.json)).toContain("cannot_send");
     } finally {
-      H.env.RESEND_API_KEY = key;
+      if (key) H.env.RESEND_API_KEY = key;
     }
     await H.t.db
       .update(intake)
