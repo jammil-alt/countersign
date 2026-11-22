@@ -1,8 +1,24 @@
-# Mezonas — Architecture v0.20
+# Mezonas — Architecture v0.21
 
 > **Name and design (2026-11-03, owner):** the product is **Mezonas** (mezonas.com; `countersign` is the
 > code name), built with the Mezonas design system in `packages/design-system`, which replaces Groundwork.
 > Domains: `app.mezonas.com` (production), `staging.mezonas.com`.
+
+> **v0.21, the agent's SOP (2026-11-21, owner):** **Every client agent has an SOP: one formal
+> document made by code from how it is set up now**, in the portal's SOP tab (the Manual tab's
+> place; its old address opens it). Thirteen sections: purpose, scope, roles and who else takes
+> part by step, how it starts, the procedure, controls, systems, data, exceptions, decisions and
+> settings, measures, references and the revision history. Each step says whether it runs on
+> **rules, AI (with the model the runtime would call), rules then AI, or a person**, and why it is
+> there (a step's new optional `purpose`, else a line made by code). The agent itself is named once,
+> never on its steps; people and agents carry their own icons. A write's line is the gate's own
+> decision (`decideToolCall`) and a step's model the runtime's own rule (`runModel`). Nothing in it
+> waits on anyone. It carries its **revision and revision date** and what changed: a revision
+> (`sop_revision`, migration 0074, never updated or deleted) is recorded in the change's transaction
+> for the routes that change what an SOP says, with who made the change and where; a read and an
+> hourly check record any the change sites missed, and report them. Find, filters by person or
+> system, and a print layout; "Ask about this" and "This is wrong" as on the manual. Changed:
+> §10.17 (new); `docs/sop-plan.md`; `docs/plan.md` §1.179.
 
 > **v0.20, builds that work first (2026-11-19, owner):** **A build makes the normal case work on
 > real examples first, writes down every decision it takes, and the agent carries a manual.** In
@@ -3359,6 +3375,42 @@ Counting how often runs hit each known risk; deleting learned notes from the man
 step's own parameter from the back office; the setup answers written into the manual as changes;
 governance in the oversight review, the AI check, path choice, chat and the Builder; a run-level pin
 of the governance versions. `docs/open.md`, "Builds that work first", lists them.
+
+### 10.17 The agent's SOP (v0.21, owner 2026-11-21)
+
+The owner's ask: "a documented SOP for each of the agents… clickable, readable, queryable… look
+and print and share based on the current set up of their agent… a process, owners, controls,
+systems, data". The plan and its decisions are `docs/sop-plan.md`; what was built is
+`docs/plan.md` §1.179. The SOP is the client's manual made formal (§10.16): the portal's Manual
+tab became the SOP tab; the back office keeps its Manual tab, and agents keep reading manuals with
+`manual.read`, never the SOP.
+
+| Part | Where it lives | Made by |
+|---|---|---|
+| The SOP | Core's `sopView` (`packages/core/src/sop/`), from the live version (else the latest), the agent row, its connections and grants, the client's approver rules, business hours and compliance mode, the area owner and the lead | Code, on every read; no model |
+| A step's purpose | `purpose` on v3 and v4 steps, optional, at most 200 characters | The operator in the step panel; a line made by code when absent |
+| A step's method and model | The skill's method (`skillMethod`), the tools' `usesModel`, `if` and `repeat` deciding by the agent; the model by core's `runModel`, which the runtime calls too | Code |
+| Revisions | `sop_revision`: the SOP as it was, what changed (`sopChanges`), who and where, numbered `<version>.<setup changes>` | Code, in the change's transaction |
+| Model names | `clientModelName` in `packages/llm` ("Claude Sonnet 5.5"), never a price or effort | Code |
+
+**Nothing open.** The SOP says how the process runs. No "Waiting on you", no "never discussed",
+no setup still to answer: a decision says who set it ("Us", "Confirmed with you", a client's
+person). What is open stays where it is worked on (the manual, the checklist, the Desk). A pause or
+a safety hold is a state of the moment, shown on the agent's page, not in the SOP.
+
+**Revisions.** `mount()` records them after the routes listed in `SOP_CHANGE_ROUTES`
+(`apps/api/src/sop/change-routes.ts`: a version going live, the agent's settings and stage, grants,
+a connection's permissions and connecting, approval rules, business hours, area owners, the
+client's adjustments and setup answers), with the signed-in person. Only a change in what the SOP
+says makes one (its fingerprint), so listing an agent that didn't change costs nothing. A read, and
+an hourly check at minute 37, record a revision a change site missed as "Recorded by our check"
+and report it to Sentry. A connection with an error still counts as connected (its health is the
+Connectors page's): connecting and disconnecting change the SOP, a failing sync doesn't.
+
+**Invariants.** 1: one client per request, names resolved within it. 3: revisions are append-only
+(trigger); a step's purpose changes only by a new version. 8 and 13: a write's line is
+`decideToolCall`. 11: no bundle, instructions, prompts, budgets or cost; each AI step's model is
+named (owner, 2026-11-21); contract tests cover both routes.
 
 ---
 

@@ -14,6 +14,7 @@ import {
   type RouteSpec,
   routeFamily,
   routes,
+  sopRoutes,
 } from "@countersign/core";
 import { afterAll, describe, expect, it } from "vitest";
 import { admin, createApiHarness, OPERATOR, user } from "./api.test-helper";
@@ -63,6 +64,16 @@ describe("route contract (static)", () => {
     expect(manualRoutes.portalAgentManual.roles).toEqual(["client_admin", "client_user"]);
     expect(forbiddenPortalFields(manualRoutes.portalAgentManual.response)).toEqual([]);
     expect(manualRoutes.opsAgentManual.roles).toEqual(["operator"]);
+  });
+
+  // docs/sop-plan.md S1: the agent's SOP reaches the portal as a view made by code, never the
+  // bundle, its definition, instructions, prompts or cost. The running route is checked in
+  // sop.test.ts.
+  it("keeps the agent SOP's portal route to a view with no forbidden fields", () => {
+    expect(routeFamily(sopRoutes.portalAgentSop)).toBe("portal");
+    expect(sopRoutes.portalAgentSop.roles).toEqual(["client_admin", "client_user"]);
+    expect(forbiddenPortalFields(sopRoutes.portalAgentSop.response)).toEqual([]);
+    expect(sopRoutes.opsAgentSop.roles).toEqual(["operator"]);
   });
 
   // §1.163: what a client sees for one agent, opened in the back office: operator-only, and the

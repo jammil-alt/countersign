@@ -56,3 +56,27 @@ export const DEFAULT_MODELS = {
 export type ModelPurpose = keyof typeof DEFAULT_MODELS;
 
 export const DEFAULT_MODEL: ModelId = DEFAULT_MODELS.reasoning;
+
+/**
+ * A model's name as a client reads it in an agent's SOP (docs/sop-plan.md §3): its own name, which
+ * says its maker (Claude, GPT, Grok, Gemini). Never its price, effort or id. Null for a model with no
+ * client name, which the SOP calls "An AI model".
+ */
+const CLIENT_MODEL_NAMES: Readonly<Record<string, string>> = {
+  [MODELS.gpt]: "GPT-5.5",
+  [MODELS.grok]: "Grok 4.7",
+  [MODELS.geminiPro]: "Gemini 3.1 Pro",
+  [MODELS.geminiFlashLite]: "Gemini 3.5 Flash-Lite",
+};
+
+export function clientModelName(id: string): string | null {
+  const named = CLIENT_MODEL_NAMES[id];
+  if (named) return named;
+  // Claude: "claude-sonnet-5-5" → "Claude Sonnet 5.5", any version, so older ids keep a name.
+  const claude = /^claude-(opus|sonnet|haiku)-(\d+)(?:-(\d{1,2}))?(?:-\d{8})?$/.exec(id);
+  if (claude) {
+    const [, family = "", major, minor] = claude;
+    return `Claude ${family.charAt(0).toUpperCase()}${family.slice(1)} ${major}${minor ? `.${minor}` : ""}`;
+  }
+  return null;
+}

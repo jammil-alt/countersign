@@ -161,6 +161,7 @@ import { signInApprovalRoutes } from "./routes/sign-in-approvals";
 import { slackRoutes } from "./routes/slack";
 // §1.150: Sloan by email and text
 import { sloanReachRoutes } from "./routes/sloan-reach";
+import { sopRouteHandlers } from "./routes/sop";
 // v0.14 W4-A
 // P-6
 import { stepInRouteHandlers } from "./routes/step-in";
@@ -204,6 +205,7 @@ import { staleWritesTick } from "./runs/stale-writes";
 // M45: Search Console and Bing, nightly (docs/plan.md §1.75).
 import { searchSyncTick } from "./search-sync";
 import { securityHeaders } from "./security-headers";
+import { sopCheckTick } from "./sop/revisions";
 import {
   TRANSLATION_SWEEP_MINUTE,
   translationDepsFor,
@@ -370,6 +372,7 @@ export function createApp(deps: AppDeps = defaultDeps): Hono<AppEnv> {
   clientViewRoutes(app);
   // docs/builder-plan.md §5 (B3): the agent manual
   manualRouteHandlers(app);
+  sopRouteHandlers(app);
   auditExportRoutes(app);
   // v0.12 W2-C: the test bench, skill tests and the agent lab
   testbenchRoutes(app);
@@ -483,6 +486,10 @@ export async function runCron(env: Bindings, scheduledTime: Date, deps: AppDeps 
     );
     await lifecycleTick(db, scheduledTime).catch((error: unknown) =>
       reportHandled("lifecycle tick failed", error, { job: "lifecycle" }),
+    );
+    // docs/sop-plan.md §6: hourly, an agent whose SOP changed without a revision gets one.
+    await sopCheckTick(db, platform, scheduledTime).catch((error: unknown) =>
+      reportHandled("sop check tick failed", error, { job: "sop_check" }),
     );
     // Sloan on by default (docs/plan.md §1.47): hourly, clients without it get it turned on.
     await sloanTick(db, platform, scheduledTime).catch((error: unknown) =>

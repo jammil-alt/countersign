@@ -126,6 +126,7 @@ export * from "./api/skill-model";
 export * from "./api/slack";
 // §1.150
 export * from "./api/sloan-reach";
+export * from "./api/sop";
 export * from "./api/step-code-request";
 export * from "./api/step-data";
 // P-6
@@ -292,6 +293,7 @@ export * from "./permissions/release";
 // R1: processes, workflow schemaVersion 4 (docs/plan.md §1.86, §9), as the `processes` namespace.
 export * as processes from "./process";
 export * from "./process/change-class";
+export * from "./process/numbers";
 // Agent motion (docs/plan.md §1.106): the thinking state a running step shows.
 export { THINKING_STATES, type ThinkingState, thinkingOf } from "./process/thinking";
 // Invariant 9: what a prompt puts between its tags can't close them.
@@ -330,6 +332,8 @@ export * from "./setup/checklist";
 export * from "./setup/item";
 export * from "./setup/view";
 export * from "./skills/index";
+// docs/sop-plan.md: the agent's SOP, made by code from its setup, and its revisions
+export * from "./sop/index";
 export * from "./supervisor/health";
 // §1.164: reading and writing table files, outside `processes` (kept out of the web first load).
 export * as tableFiles from "./tables";
