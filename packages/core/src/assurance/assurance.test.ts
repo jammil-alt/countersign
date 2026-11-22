@@ -12,7 +12,7 @@ import {
   runAssuranceChecks,
 } from "./checks";
 import { agentCoverage, checkedControls, INHERITED_CONTROLS, notApplicable } from "./coverage";
-import { providerKeeps, providerTerms } from "./terms";
+import { providerKeeps, providerTerms, termsConfirmed } from "./terms";
 import { AssuranceView } from "./view";
 
 // Agent assurance (docs/agent-assurance-plan.md): the checks on "Bills in" at Harbor Millwork, the
@@ -173,7 +173,20 @@ describe("the checks (docs/agent-assurance-plan.md §4)", () => {
     }
     // OpenAI's page doesn't say where a project without data residency is processed.
     expect(providerTerms("openai").region).toBeNull();
-    expect(providerKeeps("openai")).toMatch(/up to 30 days.*Where: not recorded yet\.$/);
+    expect(providerKeeps("openai")).toMatch(
+      /up to 30 days.*Where: not recorded yet\. Not yet confirmed on the provider's own page\.$/,
+    );
+    // Each entry cites its pages, with the day checked and how each was read.
+    for (const p of ["anthropic", "openai", "xai", "google"] as const) {
+      expect(providerTerms(p).sources.length, p).toBeGreaterThan(0);
+      for (const s of providerTerms(p).sources) {
+        expect(s.url, p).toMatch(/^https:\/\//);
+        expect(s.checked, p).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+      }
+      // Read from search results until someone reads the pages themselves.
+      expect(termsConfirmed(p), p).toBe(false);
+    }
+    expect(providerTerms("twilio").sources).toEqual([]);
     expect(providerKeeps("xai")).toMatch(/^Requests and responses kept 30 days/);
     expect(providerKeeps("twilio")).toBe("Not recorded yet");
     const outs = runAssuranceChecks(

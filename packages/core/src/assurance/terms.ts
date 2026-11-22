@@ -20,9 +20,31 @@ export type ProviderTerms = {
   retention: string | null;
   /** Where it processes them. */
   region: string | null;
+  /** The pages the entry comes from, when each was checked and how it was read. */
+  sources: TermsSource[];
 };
 
-const NOT_RECORDED: ProviderTerms = { training: null, retention: null, region: null };
+export type TermsSource = {
+  url: string;
+  /** The day the entry was checked against this page (YYYY-MM-DD). */
+  checked: string;
+  /** "page": read on the page itself. "search-snippet": from a search result quoting the page,
+   * because the page couldn't be opened from where it was recorded; to be read on the page. */
+  read: "page" | "search-snippet";
+};
+
+const NOT_RECORDED: ProviderTerms = { training: null, retention: null, region: null, sources: [] };
+
+// DECISION (§1.231.1): the pages couldn't be opened from the session that recorded them (its
+// network allows none of these hosts), so every entry but Anthropic's region page is marked
+// "search-snippet" and its text says it is not yet confirmed on the page. Re-read each page and
+// set `read: "page"` with the day.
+const snippet = (url: string): TermsSource => ({
+  url,
+  checked: "2026-11-22",
+  read: "search-snippet",
+});
+const page = (url: string): TermsSource => ({ url, checked: "2026-11-22", read: "page" });
 
 export const PROVIDER_TERMS: Partial<Record<Processor, ProviderTerms>> = {
   anthropic: {
@@ -34,6 +56,15 @@ export const PROVIDER_TERMS: Partial<Record<Processor, ProviderTerms>> = {
       "Deleted from its backend within 30 days of receipt or generation, unless kept longer by agreement, by law or to enforce its Usage Policy",
     // https://platform.claude.com/docs/en/manage-claude/data-residency
     region: "Any available geography (the default, global; we don't ask for US only)",
+    sources: [
+      snippet("https://privacy.claude.com/en/articles/7996866-is-my-data-used-for-model-training"),
+      snippet(
+        "https://privacy.claude.com/en/articles/7996866-how-long-do-you-store-commercial-api-data",
+      ),
+      // Read on the page: "global" is the default; a workspace's `default_inference_geo` can
+      // change it, and ours sets none.
+      page("https://platform.claude.com/docs/en/manage-claude/data-residency"),
+    ],
   },
   openai: {
     // https://developers.openai.com/api/docs/guides/your-data
@@ -45,6 +76,10 @@ export const PROVIDER_TERMS: Partial<Record<Processor, ProviderTerms>> = {
     // https://developers.openai.com/api/docs/guides/data-residency: residency is a per-project
     // choice; the page doesn't say where a project without it is processed.
     region: null,
+    sources: [
+      snippet("https://developers.openai.com/api/docs/guides/your-data"),
+      snippet("https://developers.openai.com/api/docs/guides/data-residency"),
+    ],
   },
   xai: {
     // https://docs.x.ai/developers/faq/security
@@ -54,6 +89,10 @@ export const PROVIDER_TERMS: Partial<Record<Processor, ProviderTerms>> = {
       "Requests and responses kept 30 days, encrypted at rest, for auditing suspected abuse or misuse, then deleted",
     // https://docs.x.ai/developers/regions
     region: "No processing region guaranteed on the global endpoint (api.x.ai), which we use",
+    sources: [
+      snippet("https://docs.x.ai/developers/faq/security"),
+      snippet("https://docs.x.ai/developers/regions"),
+    ],
   },
   google: {
     // Gemini API Additional Terms of Service, Paid Services (a Cloud project with active billing):
@@ -65,6 +104,7 @@ export const PROVIDER_TERMS: Partial<Record<Processor, ProviderTerms>> = {
     // https://ai.google.dev/gemini-api/terms
     region:
       "May be stored transiently or cached in any country where Google or its agents maintain facilities",
+    sources: [snippet("https://ai.google.dev/gemini-api/terms")],
   },
 };
 
@@ -76,7 +116,17 @@ export function providerTerms(p: Processor): ProviderTerms {
 export function providerKeeps(p: Processor): string {
   const t = providerTerms(p);
   if (!t.retention && !t.region) return "Not recorded yet";
-  return [t.retention ?? "How long: not recorded yet", `Where: ${t.region ?? "not recorded yet"}`]
+  const text = [
+    t.retention ?? "How long: not recorded yet",
+    `Where: ${t.region ?? "not recorded yet"}`,
+  ]
     .join(". ")
     .concat(".");
+  return termsConfirmed(p) ? text : `${text} Not yet confirmed on the provider's own page.`;
+}
+
+/** True when every page an entry cites was read on the page itself, not from a search result. */
+export function termsConfirmed(p: Processor): boolean {
+  const t = providerTerms(p);
+  return t.sources.length > 0 && t.sources.every((s) => s.read === "page");
 }
