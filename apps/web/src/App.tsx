@@ -17,12 +17,7 @@ import { ErrorNotice } from "./ui/primitives";
  * reaches /ops.
  */
 const loadOpsApp = () => import("./ops/OpsApp");
-const opsAppEarly =
-  typeof window !== "undefined" && /^\/ops(\/|$)/.test(window.location.pathname)
-    ? loadOpsApp()
-    : null;
-// A client's session never renders the back office; a chunk that failed is reported where it is used.
-opsAppEarly?.catch(() => {});
+let opsAppEarly: ReturnType<typeof loadOpsApp> | null = null;
 const OpsApp = lazy(() => opsAppEarly ?? loadOpsApp());
 /**
  * The client portal's own chunk, the same way (H9, docs/plan.md §1.192): its layout and screens
@@ -35,13 +30,28 @@ const OpsApp = lazy(() => opsAppEarly ?? loadOpsApp());
 // routes above `/*` in AppRoutes, and a client's user lands on the portal from anywhere else.
 const NOT_PORTAL = /^\/(ops|sign-in|texts|f|start)(\/|$)/;
 const loadPortalApp = () => import("./portal/PortalApp").then((m) => ({ default: m.PortalApp }));
-const portalAppEarly =
-  typeof window !== "undefined" && !NOT_PORTAL.test(window.location.pathname)
-    ? loadPortalApp()
-    : null;
-// An operator's session never renders the portal; a chunk that failed is reported where it is used.
-portalAppEarly?.catch(() => {});
+let portalAppEarly: ReturnType<typeof loadPortalApp> | null = null;
 const PortalApp = lazy(() => portalAppEarly ?? loadPortalApp());
+
+/**
+ * Starts the chunk the address the app opened at will need, beside the session call. Called once by
+ * `main.tsx` before React mounts.
+ */
+// DECISION: the entry point starts it, not this module as it loads: a test renders AppRoutes in a
+// MemoryRouter while jsdom's address is `/`, so loading the module started the portal's whole tree
+// in every back-office screen test as well, and on a loaded CI runner a first screen then took
+// longer than its wait (RunView.test.tsx, PR #534).
+export function startChunksEarly(pathname: string): void {
+  if (/^\/ops(\/|$)/.test(pathname)) {
+    opsAppEarly = loadOpsApp();
+    // A client's session never renders the back office; a chunk that failed is reported where it is used.
+    opsAppEarly.catch(() => {});
+  } else if (!NOT_PORTAL.test(pathname)) {
+    portalAppEarly = loadPortalApp();
+    // An operator's session never renders the portal; a chunk that failed is reported where it is used.
+    portalAppEarly.catch(() => {});
+  }
+}
 // §1.100: the sign-in's second step, only on the way in: its own chunk.
 const SecondStepScreen = lazy(() =>
   import("./session/SecondStep").then((m) => ({ default: m.SecondStepScreen })),

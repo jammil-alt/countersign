@@ -3,7 +3,7 @@
 // design system (packages/design-system).
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
-import { App } from "./App";
+import { App, startChunksEarly } from "./App";
 import { reportScreenCrash, startErrorTracking } from "./observability";
 import { startSessionEarly } from "./session/early";
 import {
@@ -21,6 +21,8 @@ watchForNewBuild();
 applyStoredTheme();
 // Who is signed in, asked before React mounts; the session provider takes the answer (4.3).
 startSessionEarly();
+// The back office's or the portal's chunk, as the address needs, beside the session call.
+startChunksEarly(window.location.pathname);
 
 const root = document.getElementById("root");
 if (!root) throw new Error("index.html has no #root");
