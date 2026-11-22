@@ -143,12 +143,14 @@ Several sessions at once, one item each:
 
 Tick each one as it merges. Round 1 (2026-11-22): C1.1–C1.3 #525, C2.2 #529, C4.1 #526, C4.2 #527,
 C4.6 #528, C4.8 #531, R1 #524 and #530.
-Round 3: C4.11 #542, R3 #544, C5.1 #546, C5.2 #548.
+Round 2: C2.3 #533, R2 #534, C4.3 #535, C4.4 #536, C4.7 #537, C4.5 #538.
+Round 3: C2.4 #545, R3 #544, C4.9 #541 and #543, C4.10 #539 and #547, C4.11 #542, C5.1 #546,
+C5.2 #548; and a run's cost counting every call, #540 (`docs/plan.md` §1.199).
 
 - [x] C0.1 [x] C0.2 [ ] C0.3 [x] C0.4
 - [x] C1.1 [x] C1.2 [x] C1.3
-- [x] C2.1 [x] C2.2 [ ] C2.3 [x] C2.4 [ ] C2.5
-- [x] R1 [ ] R2 [x] R3 [ ] R4 [ ] R5 [ ] R6
-- [x] C4.1 [x] C4.2 [ ] C4.3 [ ] C4.4 [ ] C4.5 [x] C4.6 [ ] C4.7 [x] C4.8 [x] C4.9 [x] C4.10 [x] C4.11
+- [x] C2.1 [x] C2.2 [x] C2.3 [x] C2.4 [ ] C2.5
+- [x] R1 [x] R2 [x] R3 [ ] R4 [ ] R5 [ ] R6
+- [x] C4.1 [x] C4.2 [x] C4.3 [x] C4.4 [x] C4.5 [x] C4.6 [x] C4.7 [x] C4.8 [x] C4.9 [x] C4.10 [x] C4.11
 - [x] C5.1 [x] C5.2 [ ] C5.3
 - [ ] C6 [ ] C7 [ ] C8

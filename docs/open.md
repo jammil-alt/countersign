@@ -12,8 +12,8 @@ in `docs/reporting-plan.md`; R1 and R3 (a record's Runs panel, §1.200) are buil
 
 ## Where things stand
 
-- **Built:** everything through M69 (`docs/plan.md` §4) and the work recorded through §1.192,
-  migrations through 0077, merged to `main` and deployed to staging. That includes purchasing end
+- **Built:** everything through M69 (`docs/plan.md` §4) and the work recorded through §1.207,
+  migrations through 0080, merged to `main` and deployed to staging. That includes purchasing end
   to end by email (M42), the Marketing wave (M43–M50), the Bookkeeping area (M51–M57), the back
   office's Sales, onboarding and Build (M64–M69), the SOP and agent assurance.
 - **Every provider is built against a fake.** Nothing has yet run against live QuickBooks, Gmail,
@@ -86,9 +86,11 @@ emailed and the QuickBooks purchase order is created; every write is approved on
 
 ### 1.4 Known gaps (code, only if the test shows they matter)
 
-- A vendor's reply **from a colleague's address** is dropped. One that comes **after** the reach-out
-  ended, or from the vendor's address but not proven, is kept on the thread without answering
-  the reach-out (§1.129). Either way a person enters it (§1.65, §1.71).
+- A vendor's reply **from a colleague's address** (another address at the contact's own domain)
+  is kept on the thread without answering the reach-out (§1.194, #533), as one that comes
+  **after** the reach-out ended, or from the vendor's address but not proven, already is
+  (§1.129). Either way a person enters it (§1.65, §1.71). Not built: showing the colleague's
+  address on the thread line and adding them as a contact from there.
 - **More lines are held for a person** since the pack-size fix (`docs/plan.md` §1.144): a line
   with no clear pack size and no SKU gets no automatic match. Price observations filed wrongly
   before that fix stay as they are; nothing re-files them.
@@ -332,13 +334,13 @@ PRs #384–#414 closed the launch audit's findings for the first clients. What t
 | H1 | **Live checks on staging**: one run each of a conversation step, an agent-chosen path, an agent-judged repeat, an oversight review of a failed step and an AI second check, on the default models. | Owner, after merge | §1.149. The fake model now refuses what the API refuses, but nothing has run these on the live models. |
 | H2 | **The real-mail check** (§1 P5). | Owner, gate before production | §1.129. |
 | H3 | **GitHub and Hyperdrive settings** from PR #384: caching off on the two existing Hyperdrive configs (`wrangler hyperdrive update <id> --caching-disabled`, or run Bootstrap with `rotate_password` unticked); the `production` environment with required reviewers and deployment limited to `main` and `v*` tags. If `staging` allows only `main` to deploy, allow the branches that quick-deploy (`claude/*`). | Owner, by hand | `production` done (checked 2026-11-18: required reviewer, `main` and `v*` tags, no administrator bypass). Hyperdrive caching and `staging`'s branches not checked. `docs/operations.md`. |
-| H4 | **A per-site limit on the beacon** needs a Rate Limiting binding of its own, set well above the per-address limit; on the shared binding one address could empty a site's allowance. | Code and `wrangler.jsonc` | §1.141. Only a per-address limit today. |
-| H5 | **Transcription records no usage**: voice typing's model calls have no cost or usage row. | Code | §1.139. They are limited per person (a call per segment of live dictation: 30 a minute, 1,500 a day). |
+| H4 | ~~A per-site limit on the beacon~~ Done (#537, §1.198): its own binding `INBOUND_TARGET_RATE_LIMIT`, 3,000 a minute per site. Its namespaces are created by the next deploy. | Code and `wrangler.jsonc` | §1.141. |
+| H5 | ~~Transcription records no usage~~ Done (#536, §1.196): the portal's dictation is the client's usage under Sloan (one test run per segment), the back office's is logged as ours. Open: one live call on staging to check OpenAI's `usage` shape and prices; an action of its own on `model_call` needs a migration. | Code | §1.139. |
 | H6 | ~~"Who is asking" on the Claude approval page~~ Done (§1.201, migration 0078): the page shows the asking Claude client, in words, and where the request came from. | Migration, then code | §1.130. |
-| H7 | **The portal's resume screen** doesn't show the events that arrived while an agent was paused (`missedEvents`); the back office's go-live panel does. | Code, copy in six languages | §1.137. |
+| H7 | ~~The portal's resume screen~~ Done (#535, §1.195): it says how many events came in while the agent was paused. Open: a native speaker's check of the five other languages. | Code, copy in six languages | §1.137. |
 | H8 | **`refresh_failing` connections**: counted in the ops MCP's `needsAttention` and the daily troubled list since #527. Open: LinkedIn's and HubSpot's dead-grant codes come from their docs, not a live call. | Check live | §1.134. |
-| H9 | ~~The web app's first load~~ Done (#531, §1.192): 344 kB, budget 351 kB. Next toward 300 kB: each portal screen on its own, the route contract split per screen, English on demand. | Code | audit 4.6 |
-| H10 | **Texting edge cases**: a brand-new number submitted twice at once can hit the contact phone index and get a 500 (as before #411); after an invitation is used up by a skipped submit, the link still shows the form, and submitting it gives 409 `used`. | Code, small | §1.142. |
+| H9 | ~~The web app's first load~~ Done (#531, §1.192): 344 kB, budget 351 kB; main reached 350.8 kB with #523, and R2 (#534) raised the budget to 352 kB, so the headroom is used up. Next toward 300 kB: each portal screen on its own, the route contract split per screen, English on demand. | Code | audit 4.6 |
+| H10 | ~~Texting edge cases~~ Done (#538, §1.197; the link's own check of a number taken a moment before, fixed in #534). Open, for the owner: a forwarded invitation can still learn that a number is one of the client's contacts (`number_taken`), as before. | Code, small | §1.142. |
 
 ### The phone app (owner, 2026-11-13; `docs/plan.md` §1.116, `apps/mobile/README.md`)
 
@@ -495,6 +497,14 @@ Fixed in one PR. What is still open from it:
   (a table, so a migration PR of its own); schedule wording is still 12-hour; deal and contact time
   zones are still free text; a dependent write the model makes inside one skill still reads its
   before state in a test run.
+- **Costs not yet counted** (an audit of 2026-11-22, for build plans 11 and `docs/plan.md` §1.199):
+  - The dev queue's reuse check: its model calls' cost is dropped.
+  - Reggie and its read pass: cost in each message's metadata, never added up.
+  - Builder, build and reshape turns: cost on their rows, but no screen adds them up.
+  - Email through Resend, Browser Run's minutes, Plaid's and BILL's fees, and texts no agent's
+    run sent (notifications, sign-in codes, invitations, inbound): not counted at all.
+  - Texts and call minutes: counted at placeholder unit costs (0009). Model, embedding and
+    transcription prices are still unverified.
 
 ### Owner decisions still open (`docs/plan.md` §7 and the sections named)
 
