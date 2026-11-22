@@ -177,11 +177,12 @@ describe("definition form", () => {
       () => "0190a1b2-0000-7000-8000-000000000001",
     );
     expect(bundle.definition.permissions.mode).toBe("suggest_only");
-    // v0.13 W2-I: a new agent reviews its failed steps.
+    // v0.13 W2-I: a new agent reviews its failed steps; round 4 D (§1.211): and checks its writes.
     expect(bundle.definition.oversight).toEqual({
       review: "failures",
       maxPerRun: 3,
       maxCostUsd: "0.25",
+      verify: "writes",
     });
     expect(bundle.definition.model.id).toBe("claude-opus-5-5");
     expect(bundle.workflows).toHaveLength(1);
