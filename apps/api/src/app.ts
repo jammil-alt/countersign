@@ -66,6 +66,7 @@ import { autopilotRoutes } from "./routes/autopilot";
 // v0.12 bankfeed
 import { bankfeedRoutes } from "./routes/bankfeed";
 import { billingRouteHandlers } from "./routes/billing";
+import { booksHealthRoutes } from "./routes/books-health";
 import { browserRoutes } from "./routes/browser";
 import { browserScriptRoutes } from "./routes/browser-scripts";
 import { buildTryRoutes } from "./routes/build-tries";
@@ -114,6 +115,7 @@ import { libraryRoutes } from "./routes/library";
 import { lifecycleRoutes } from "./routes/lifecycle";
 // docs/builder-plan.md §5 (B3): the agent manual
 import { manualRouteHandlers } from "./routes/manual";
+import { matchRuleRoutes } from "./routes/match-rules";
 import { messagingSetupRoutes } from "./routes/messaging-setup";
 // §1.116: the phone app
 import { mobileRoutes, mobileSession } from "./routes/mobile";
@@ -326,6 +328,8 @@ export function createApp(deps: AppDeps = defaultDeps): Hono<AppEnv> {
   agentReportRouteHandlers(app);
   recordRouteHandlers(app);
   approverRuleRoutes(app);
+  // §1.215: a client's saved match rules.
+  matchRuleRoutes(app);
   // Round 4 D (docs/plan.md §1.211)
   evidenceRouteHandlers(app);
   contactRoutes(app);
@@ -360,6 +364,8 @@ export function createApp(deps: AppDeps = defaultDeps): Hono<AppEnv> {
   directoryRoutes(app);
   // The back office's chart of accounts (docs/plan.md §1.79).
   ledgerRoutes(app);
+  // docs/plan.md §1.216: books health
+  booksHealthRoutes(app);
   reachRoutes(app);
   messagingSetupRoutes(app);
   twilioHookRoutes(app);

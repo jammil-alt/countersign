@@ -114,6 +114,12 @@ export const salesManifest: PackManifest = lazyParse(PackManifest, () => ({
   version: "0.2.0",
   description:
     "The Sales area: the client's CRM records (leads, contacts, accounts, deals) kept ready to match, and rows from a file or a step matched to them by email, phone, website, name and meaning, a person deciding what isn't sure.",
+  area: "sales",
+  config: [],
+  // §1.230: the search by meaning sends CRM records' names to the embedding model's provider
+  // (core's CRM_EMBEDDING_FEATURE); packs.test.ts in apps/api holds the two equal.
+  processors: ["openai"],
+  reports: [],
   requiresConnectors: [],
   // §1.162: the connection the Sales area works through, for the client page's Areas tab.
   connections: [

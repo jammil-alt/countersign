@@ -31,6 +31,8 @@ export * from "./api/autopilot";
 // v0.12 bankfeed
 export * from "./api/bankfeed";
 export * from "./api/billing";
+// docs/plan.md §1.216: books health
+export * from "./api/books-health";
 export * from "./api/browser";
 export * from "./api/browser-scripts";
 // docs/plan.md §1.108: builds, from intake to go-live
@@ -88,6 +90,7 @@ export * from "./api/library";
 // v0.12 W1-A: go-live stages and client controls
 export * from "./api/lifecycle";
 export * from "./api/manual";
+export * from "./api/match-rules";
 export * from "./api/messaging";
 // §1.116: the phone app
 export * from "./api/mobile";
@@ -173,6 +176,8 @@ export * from "./assurance/index";
 // P-3: attachments both ways
 export * from "./attachments";
 export * from "./billing";
+// docs/plan.md §1.216: books health, the checks over a client's synced QuickBooks.
+export * from "./books-health";
 export * from "./browser/script";
 export * from "./browser/site";
 export * from "./build/build";
@@ -279,6 +284,8 @@ export * from "./lifecycle/stage";
 export * from "./manual/manual";
 export * from "./mappers/qbo";
 export * from "./mappers/upload";
+// §1.215: the matching engine (one reconciliation service for packs).
+export * from "./matching";
 // P-8: US texting registration
 export * from "./messaging/a2p";
 export * from "./messaging/calling";
@@ -331,6 +338,7 @@ export * from "./schemas/conversation";
 export * from "./schemas/event";
 export * from "./schemas/json-schemas";
 export * from "./schemas/pack";
+export * from "./schemas/pack-config";
 export * from "./schemas/permissions";
 // §1.213: file and email intake's report profiles.
 export * from "./schemas/report-profile";

@@ -4049,4 +4049,28 @@ export const es: Messages = {
     "Usted decide qué puede funcionar sin preguntar. Las aprobaciones siguen activas salvo que usted las cambie.",
   "setup.live.fromCall": "De nuestra llamada: revíselo, por favor",
   // (end setup: live)
+  // §1.216: books health
+  "books.title": "Salud de la contabilidad",
+  "books.subtitle": "Lo que encontramos en su QuickBooks, primero lo de más dinero.",
+  "books.none": "Conecte QuickBooks y revisaremos su contabilidad aquí.",
+  "books.syncing":
+    "Revisamos su contabilidad cuando termine la primera sincronización de QuickBooks.",
+  "books.asOf": "Al {day}",
+  "books.since": "con registros desde el {day}",
+  "books.allClean": "Todas las revisiones salieron limpias.",
+  "books.clean": "Nada encontrado en: {checks}.",
+  "books.fixedBy": "Lo resuelve {area}",
+  "books.on": "Activado",
+  "books.off": "Sin activar",
+  "books.examples": "Ejemplos",
+  "books.check.unreconciled_accounts": "Cuentas sin conciliar",
+  "books.check.uncategorized": "Transacciones sin categoría",
+  "books.check.duplicate_vendors": "Proveedores duplicados",
+  "books.check.duplicate_bills": "Facturas duplicadas",
+  "books.check.receivables_aging": "Facturas de clientes vencidas",
+  "books.check.payables_aging": "Facturas de proveedores vencidas",
+  "books.check.negative_balances": "Saldos bajo cero",
+  "books.check.undeposited_funds": "Fondos sin depositar",
+  "books.check.price_drift": "Precios de proveedores al alza",
+  // (end books health)
 };

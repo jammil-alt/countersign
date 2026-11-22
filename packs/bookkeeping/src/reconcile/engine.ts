@@ -1,7 +1,9 @@
 // The reconciliation engine (docs/plan.md §1.80): two sides, each a closing balance (and its opening
 // when known) with the items behind it, compared in decimal. Pure: no database, no model. Matching
-// runs in invariant 7's order (exact by reference, then amount and date with one candidate only,
-// then groups); the model's proposals and a person's decisions come after, outside this file.
+// is the platform's matching engine (§1.215) under its `bank_to_ledger` configuration, in
+// invariant 7's order (the client's saved rules, exact by reference, then amount and date with one
+// candidate only, then groups); the model's proposals and a person's decisions come after, outside
+// this file.
 //
 // The anchor: each side rolls forward (opening + its items = closing) and the difference is
 // explained by the items: (closing A − closing B) = Σ unmatched A − Σ unmatched B. What is left is
@@ -11,7 +13,15 @@
 // before the period (an entry deleted or edited in a month already signed off) that a person
 // explains.
 
-import { dec, toNumeric } from "@countersign/core";
+import {
+  alnumReference,
+  BANK_TO_LEDGER,
+  dec,
+  type MatchConfig,
+  matchItems,
+  type SavedMatchRule,
+  toNumeric,
+} from "@countersign/core";
 
 type Decimal = ReturnType<typeof dec>;
 
@@ -59,6 +69,8 @@ export type EngineLabel = "timing" | "missing" | "amount_differs" | "duplicate";
 
 export interface EngineMatch {
   method: EngineMethod;
+  /** The engine's rule: `reference`, `amount_date`, `group`, or `client_rule:<id>`. */
+  rule: string;
   /** Indexes into side A's and side B's items. */
   a: number[];
   b: number[];
@@ -98,8 +110,18 @@ function days(a: string | null, b: string | null): number {
 
 /** A reference compared on its letters and digits, lower case: "CHK #1042" is "chk1042". */
 export function normalizeReference(v: string | null | undefined): string | null {
-  const r = (v ?? "").toLowerCase().replace(/[^a-z0-9]/g, "");
-  return r.length >= 3 ? r : null;
+  return alnumReference(v);
+}
+
+/** The engine's `bank_to_ledger` configuration with a pair's own settings. */
+export function bankToLedger(settings: ReconSettings): MatchConfig {
+  return {
+    ...BANK_TO_LEDGER,
+    windowDays: settings.windowDays,
+    tolerance: settings.tolerance,
+    maxGroup: settings.maxGroup,
+    groupPoolMax: GROUP_POOL_MAX,
+  };
 }
 
 function sum(values: readonly Decimal[]): Decimal {
@@ -118,92 +140,37 @@ export function reconcile(
   b: ReconSide,
   settings: ReconSettings = DEFAULT_RECON_SETTINGS,
   asOf: string | null = null,
+  /** The client's live saved rules for `bank_to_ledger` (match_rule, §1.215). */
+  rules: readonly SavedMatchRule[] = [],
 ): EngineResult {
-  const tol = dec(settings.tolerance).abs();
   const ea = a.items.map((i) => dec(i.effect));
   const eb = b.items.map((i) => dec(i.effect));
-  const freeA = new Set(a.items.map((_, i) => i));
-  const freeB = new Set(b.items.map((_, i) => i));
-  const matches: EngineMatch[] = [];
-  const same = (x: Decimal, y: Decimal) => x.minus(y).abs().lte(tol);
-  const near = (i: number, j: number) =>
-    days(a.items[i]?.date ?? null, b.items[j]?.date ?? null) <= settings.windowDays;
-  const take = (method: EngineMethod, ai: number[], bj: number[]) => {
-    matches.push({ method, a: ai, b: bj });
-    for (const i of ai) freeA.delete(i);
-    for (const j of bj) freeB.delete(j);
+  const toItem = (i: ReconItem) => ({
+    amount: i.effect,
+    date: i.date,
+    reference: i.reference ?? null,
+    description: i.description ?? null,
+  });
+  const matched = matchItems(a.items.map(toItem), b.items.map(toItem), bankToLedger(settings), {
+    rules,
+  });
+  // DECISION: a match by a client's saved rule is kept as `exact` (the method's list is §1.80's);
+  // the rule that made it is kept beside it (`rule`, and the match row's reason).
+  const METHOD: Record<string, EngineMethod> = {
+    reference: "exact",
+    amount_date: "amount_date",
+    group: "group",
   };
-
-  // (1) Exact: the same reference, the same effect, within the window; one each way.
+  const matches: EngineMatch[] = matched.matches.map((m) => ({
+    method: METHOD[m.rule] ?? "exact",
+    rule: m.rule,
+    a: m.a,
+    b: m.b,
+  }));
+  const freeA = new Set(matched.unmatched.a);
+  const freeB = new Set(matched.unmatched.b);
   const refA = a.items.map((i) => normalizeReference(i.reference));
   const refB = b.items.map((i) => normalizeReference(i.reference));
-  for (const i of [...freeA]) {
-    const r = refA[i];
-    if (!r) continue;
-    const cands = [...freeB].filter(
-      (j) => refB[j] === r && same(ea[i] as Decimal, eb[j] as Decimal) && near(i, j),
-    );
-    if (cands.length !== 1) continue;
-    const j = cands[0] as number;
-    const back = [...freeA].filter(
-      (k) => refA[k] === r && same(ea[k] as Decimal, eb[j] as Decimal) && near(k, j),
-    );
-    if (back.length === 1) take("exact", [i], [j]);
-  }
-
-  // (2) The same effect within the window, one candidate each way; again until nothing changes.
-  let changed = true;
-  while (changed) {
-    changed = false;
-    for (const i of [...freeA]) {
-      const cands = [...freeB].filter(
-        (j) => same(ea[i] as Decimal, eb[j] as Decimal) && near(i, j),
-      );
-      if (cands.length !== 1) continue;
-      const j = cands[0] as number;
-      const back = [...freeA].filter((k) => same(ea[k] as Decimal, eb[j] as Decimal) && near(k, j));
-      if (back.length !== 1) continue;
-      take("amount_date", [i], [j]);
-      changed = true;
-    }
-  }
-
-  // (3) Groups: one item is the sum of 2..maxGroup on the other side, within the window, when
-  // exactly one group fits (a payout: charges − refunds − fees; a split transfer).
-  const groupFor = (target: Decimal, pool: number[], effects: Decimal[]): number[] | null => {
-    if (pool.length < 2 || pool.length > GROUP_POOL_MAX) return null;
-    let found: number[] | null = null;
-    let count = 0;
-    const pick: number[] = [];
-    const walk = (start: number, total: Decimal) => {
-      if (count > 1) return;
-      if (pick.length >= 2 && same(total, target)) {
-        count += 1;
-        found = [...pick];
-        // A group that sums with more items added is another group: keep looking.
-      }
-      if (pick.length >= settings.maxGroup) return;
-      for (let k = start; k < pool.length; k++) {
-        const idx = pool[k] as number;
-        pick.push(idx);
-        walk(k + 1, total.plus(effects[idx] as Decimal));
-        pick.pop();
-        if (count > 1) return;
-      }
-    };
-    walk(0, dec("0"));
-    return count === 1 ? found : null;
-  };
-  for (const i of [...freeA]) {
-    const pool = [...freeB].filter((j) => near(i, j));
-    const g = groupFor(ea[i] as Decimal, pool, eb);
-    if (g) take("group", [i], g);
-  }
-  for (const j of [...freeB]) {
-    const pool = [...freeA].filter((i) => near(i, j));
-    const g = groupFor(eb[j] as Decimal, pool, ea);
-    if (g) take("group", g, [j]);
-  }
 
   // Labels for what is left.
   const label = (
