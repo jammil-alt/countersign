@@ -7,6 +7,7 @@ import { type FormEvent, useState } from "react";
 import { isApiError } from "../../api/client";
 import { apiRoutes } from "../../api/routes";
 import { useApi, useApiClient } from "../../api/useApi";
+import { EN } from "../../i18n/i18n";
 import { Field, TextInput } from "../../ui/forms";
 import {
   Badge,
@@ -223,7 +224,7 @@ export function CallsPanel({ clientId }: { clientId: string }) {
                   ) : null}
                   <span className="figures text-ink-muted">{length(c.durationSecs)}</span>
                   {c.agentName ? <span className="text-ink-muted">· {c.agentName}</span> : null}
-                  <span className="text-ink-muted">· {new Date(c.startedAt).toLocaleString()}</span>
+                  <span className="text-ink-muted">· {EN.fmt.dateTime(c.startedAt)}</span>
                 </div>
                 {/* Written from what was said: shown as text, never as markup. */}
                 {c.summary ? (

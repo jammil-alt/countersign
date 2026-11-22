@@ -32,7 +32,7 @@ export const de: Messages = {
   "common.expired": "Abgelaufen",
   "common.notBuiltTitle": "Noch nicht fertig",
   "common.notBuiltBody": "Diese Seite kommt in einem späteren Schritt.",
-  "common.notFoundTitle": "Nicht gefunden",
+  "common.notFoundTitle": "Seite nicht gefunden",
   "common.notFoundBody": "Hier gibt es keine Seite.",
   "common.yes": "Ja",
   "common.no": "Nein",
@@ -300,7 +300,9 @@ export const de: Messages = {
   "agent.pauseHelp": "Es starten keine neuen Abläufe. Laufende Abläufe werden beendet.",
   "agent.pauseConfirm": "{name} pausieren",
   "agent.pausedByYou": "Von Ihnen pausiert: {reason}",
+  "agent.pausedByYouAlone": "Von Ihnen pausiert",
   "agent.pausedByUs": "Von uns pausiert: {reason}",
+  "agent.pausedByUsAlone": "Von uns pausiert",
   "agent.pausedUntil": "Bis {time}",
   "agent.resumeOurs": "Wir haben pausiert. Bitten Sie Ihren Ansprechpartner, fortzusetzen.",
   "agent.missed": {
@@ -554,6 +556,8 @@ export const de: Messages = {
   "duration.minutes": "{n} Min.",
   "duration.hours": "{n} Std.",
   "duration.hoursMinutes": "{h} Std. {m} Min.",
+  "duration.days": "{n} T.",
+  "duration.daysHours": "{d} T. {h} Std.",
   "run.started": "Gestartet {time}",
   "run.notStarted": "Noch nicht gestartet",
   "run.took": "Dauer {duration}",
@@ -1100,7 +1104,7 @@ export const de: Messages = {
 
   // ── Feedback ──
   "feedback.button": "Problem mit der App melden",
-  "feedback.short": "Feedback",
+  "feedback.short": "Problem melden",
   "feedback.tapWhere": "Tippen Sie auf die Stelle mit dem Problem",
   "feedback.noSpot": "Keine bestimmte Stelle",
   "feedback.capturing": "Bild wird aufgenommen…",

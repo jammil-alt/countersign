@@ -99,6 +99,25 @@ describe("Autopilot", () => {
     expect(screen.getByRole("link", { name: "Issues" })).toHaveAttribute("aria-current", "page");
   });
 
+  // Staging QA (2026-11-22): the control overlapped the play's name and its line wrapped a word at
+  // a time. The row wraps: the words (with the track line) take the room, the control sits beside
+  // them or under them, never in a fixed column of its own.
+  it("lays a play out as its words, then its control, in a row that wraps", async () => {
+    const api = fakeApi(common);
+    renderAt("/ops/autopilot/issues", api);
+    const fix = await screen.findByTestId("play-fix-fix_agent");
+    expect(fix).toHaveClass("flex", "flex-wrap");
+    expect(fix.className).not.toMatch(/grid-cols/);
+    const text = within(fix).getByTestId("play-text");
+    expect(text).toHaveClass("min-w-0");
+    expect(text).toHaveTextContent("Fix the agent");
+    expect(text).toHaveTextContent("No sends yet");
+    const control = within(fix).getByTestId("play-control");
+    expect(control).toHaveClass("shrink-0");
+    expect(within(control).getByRole("group", { name: /How far/ })).toBeInTheDocument();
+    expect(text.compareDocumentPosition(control) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
   it("sets a play's level, and offers to send once its record earns it", async () => {
     const api = fakeApi(common);
     let sent: unknown = null;

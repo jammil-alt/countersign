@@ -32,7 +32,7 @@ export const it: Messages = {
   "common.expired": "Scaduto",
   "common.notBuiltTitle": "Non ancora pronta",
   "common.notBuiltBody": "Questa schermata arriva in una prossima fase.",
-  "common.notFoundTitle": "Non trovata",
+  "common.notFoundTitle": "Pagina non trovata",
   "common.notFoundBody": "Qui non c'è nessuna pagina.",
   "common.yes": "Sì",
   "common.no": "No",
@@ -286,7 +286,9 @@ export const it: Messages = {
   "agent.pauseHelp": "Non partono nuove esecuzioni. Quelle già in corso finiscono.",
   "agent.pauseConfirm": "Metti in pausa {name}",
   "agent.pausedByYou": "In pausa da te: {reason}",
+  "agent.pausedByYouAlone": "In pausa da te",
   "agent.pausedByUs": "In pausa da noi: {reason}",
+  "agent.pausedByUsAlone": "In pausa da noi",
   "agent.pausedUntil": "Fino a {time}",
   "agent.resumeOurs": "L'abbiamo messo in pausa noi. Chiedi al tuo referente di riprenderlo.",
   "agent.missed": {
@@ -529,6 +531,8 @@ export const it: Messages = {
   "duration.minutes": "{n} min",
   "duration.hours": "{n} h",
   "duration.hoursMinutes": "{h} h {m} min",
+  "duration.days": "{n} g",
+  "duration.daysHours": "{d} g {h} h",
   "run.started": "Iniziata {time}",
   "run.notStarted": "Non ancora iniziata",
   "run.took": "durata {duration}",
@@ -1066,7 +1070,7 @@ export const it: Messages = {
 
   // ── Feedback ──
   "feedback.button": "Segnala un problema con l'app",
-  "feedback.short": "Feedback",
+  "feedback.short": "Segnala un problema",
   "feedback.tapWhere": "Tocca dove si trova il problema",
   "feedback.noSpot": "Nessun punto preciso",
   "feedback.capturing": "Acquisizione dell'immagine…",

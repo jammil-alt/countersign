@@ -397,7 +397,7 @@ describe("the agent page", () => {
     );
     expect(screen.getByTestId("agent-trigger-0")).toHaveTextContent("Last started");
     expect(screen.getByTestId("agent-trigger-1")).toHaveTextContent(
-      "Every Monday at 8:00 AMWeekly price review · Skips holidaysNot started yet",
+      "Every Monday at 08:00Weekly price review · Skips holidaysNot started yet",
     );
     const contact = await screen.findByTestId("agent-contact");
     expect(contact).toHaveTextContent("pia.harbor-millwork-abc@in.mezonas.com");
@@ -868,8 +868,8 @@ describe("trigger words", () => {
   const words = (o: Record<string, unknown>, name: string | null = "pia") =>
     triggerWords(trigger(o) as Parameters<typeof triggerWords>[0], name, EN);
   it("says each kind of trigger plainly, never its rules", () => {
-    expect(words({ type: "schedule", cron: "0 7 * * 1-5" })).toBe("Weekdays at 7:00 AM");
-    expect(words({ type: "schedule", cron: "30 18 * * *" })).toBe("Every day at 6:30 PM");
+    expect(words({ type: "schedule", cron: "0 7 * * 1-5" })).toBe("Weekdays at 07:00");
+    expect(words({ type: "schedule", cron: "30 18 * * *" })).toBe("Every day at 18:30");
     expect(words({ type: "schedule", cron: "*/5 * * * *" })).toBe("On a schedule");
     expect(words({ type: "manual", clientCanRun: true })).toBe("When you start it with Run now");
     expect(words({ type: "command" })).toBe("When someone types /pia in a thread");

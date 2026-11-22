@@ -9,6 +9,7 @@ import { useState } from "react";
 import type { ResponseOf } from "../../api/client";
 import { apiRoutes } from "../../api/routes";
 import { useApi, useApiClient } from "../../api/useApi";
+import { EN } from "../../i18n/i18n";
 import { usePoll } from "../../runs/usePoll";
 import { Field, Select, TextInput } from "../../ui/forms";
 import { Loaded, Section } from "../../ui/page";
@@ -26,8 +27,7 @@ const STATUS: Record<ClientExport["status"], { state: ChipState; words: string }
   failed: { state: "failed", words: "Failed" },
 };
 
-const when = (iso: string) =>
-  new Date(iso).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
+const when = (iso: string) => EN.fmt.dateTime(iso);
 
 function size(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;

@@ -17,7 +17,7 @@ import type { SearchRun } from "../shell/Search";
 import { AppShell, SidebarLink } from "../shell/Shell";
 import { portalSearchGroups } from "../shell/searchGroups";
 import { AgentBadge, AgentHuesProvider, PersonBadge } from "../ui/badges";
-import { Placeholder } from "../ui/primitives";
+import { NotFoundPage } from "../ui/primitives";
 import { INBOX_COUNT_POLL_MS, InboxCountProvider } from "./inboxCount";
 import { useIntentZone } from "./intent";
 import { askSloan, PORTAL_PATHS } from "./paths";
@@ -239,17 +239,11 @@ export function AskSloanButton() {
 }
 
 export function PortalApp() {
-  const { t } = useI18n();
   return (
     <PortalLayout>
       <Routes>
         {portalRoutes}
-        <Route
-          path="*"
-          element={
-            <Placeholder title={t("common.notFoundTitle")}>{t("common.notFoundBody")}</Placeholder>
-          }
-        />
+        <Route path="*" element={<NotFoundPage home="/" />} />
       </Routes>
     </PortalLayout>
   );

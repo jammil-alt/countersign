@@ -520,7 +520,13 @@ async function dispatch(
   }
 
   // A write to the client's tool: always an external_action, with its before state.
-  const captured = await captureBefore(tool.connector, tool.spec.id, input, ctx);
+  // DECISION (test runs never write, invariant 8): a test run's write on what an earlier unmade
+  // write would have returned (a stand-in id) names a record that only exists in a live run, so
+  // its before state isn't read from the client's tool (it would fail, or read the wrong record):
+  // the input is still checked, and the change is recorded with no before state.
+  const captured = await captureBefore(tool.connector, tool.spec.id, input, ctx, {
+    skipBefore: step.mode === "test" && step.afterUnwritten === true,
+  });
   // v0.12 W1-E: a retry carries the run retried's approved, not-done write with the same input,
   // under its original key; the gate above (stage included) has just allowed the write again.
   const carried = await carryApproval(deps, step, tool.spec.id, captured.input, decision);

@@ -1,6 +1,15 @@
 import { describe, expect, it } from "vitest";
 import { MODELS } from "./models";
-import { costOf, knownModelIds, knownModels, PRICES, sumCosts } from "./pricing";
+import {
+  baseModelId,
+  costOf,
+  knownModelIds,
+  knownModels,
+  PREVIOUS_PRICES,
+  PRICES,
+  priceFor,
+  sumCosts,
+} from "./pricing";
 import { type LlmUsage, ZERO_USAGE } from "./usage";
 
 const usage = (u: Partial<LlmUsage>): LlmUsage => ({ ...ZERO_USAGE, ...u });
@@ -50,6 +59,30 @@ describe("costOf", () => {
 
   it("returns null for a model with no price", () => {
     expect(costOf("claude-unknown-1", usage({ inputTokens: 10 }))).toBeNull();
+    expect(costOf("claude-unknown-1-20260101", usage({ inputTokens: 10 }))).toBeNull();
+  });
+
+  // QA (usage costs): staging recorded 30 calls of the API's dated answer id at $0.00.
+  it("prices a dated id as its model, and the previous Anthropic models", () => {
+    const u = usage({ inputTokens: 1_000_000, outputTokens: 1_000_000 });
+    expect(costOf("claude-sonnet-5-5-20261101", u)).toBe(costOf("claude-sonnet-5-5", u));
+    // Above 200k prompt tokens, Sonnet 4.5 is at its long-context rate ($6 / $22.50).
+    expect(costOf("claude-sonnet-4-5-20250929", u)).toBe("28.500000");
+    const small = usage({ inputTokens: 100_000, outputTokens: 100_000 });
+    expect(costOf("claude-sonnet-4-5-20250929", small)).toBe("1.800000");
+    expect(costOf("claude-sonnet-4-5@20250929", small)).toBe("1.800000");
+    expect(costOf("claude-haiku-4-5-20251001", u)).toBe("6.000000");
+    // 100k cache reads at 0.1x of $3.
+    expect(costOf("claude-sonnet-4-5", usage({ cacheReadTokens: 100_000 }))).toBe("0.030000");
+    expect(baseModelId("claude-opus-4-5-20251101")).toBe("claude-opus-4-5");
+    expect(baseModelId("openai:gpt-5.5")).toBe("openai:gpt-5.5");
+    expect(priceFor("claude-sonnet-4-5-20250929")).toBe(PREVIOUS_PRICES["claude-sonnet-4-5"]);
+    // The previous models price calls but are never offered to a step.
+    expect(knownModelIds()).not.toContain("claude-sonnet-4-5");
+  });
+
+  it("prices Sonnet 5.5's cache reads at $0.10", () => {
+    expect(costOf("claude-sonnet-5-5", usage({ cacheReadTokens: 1_000_000 }))).toBe("0.100000");
   });
 });
 

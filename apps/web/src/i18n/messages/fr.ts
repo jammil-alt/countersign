@@ -32,7 +32,7 @@ export const fr: Messages = {
   "common.expired": "Expiré",
   "common.notBuiltTitle": "Pas encore prêt",
   "common.notBuiltBody": "Cet écran arrive dans une prochaine étape.",
-  "common.notFoundTitle": "Introuvable",
+  "common.notFoundTitle": "Page introuvable",
   "common.notFoundBody": "Il n'y a pas de page ici.",
   "common.yes": "Oui",
   "common.no": "Non",
@@ -289,7 +289,9 @@ export const fr: Messages = {
   "agent.pauseHelp": "Aucune nouvelle exécution ne démarre. Celles en cours se terminent.",
   "agent.pauseConfirm": "Mettre {name} en pause",
   "agent.pausedByYou": "Mis en pause par vous : {reason}",
+  "agent.pausedByYouAlone": "Mis en pause par vous",
   "agent.pausedByUs": "Mis en pause par nous : {reason}",
+  "agent.pausedByUsAlone": "Mis en pause par nous",
   "agent.pausedUntil": "Jusqu'à {time}",
   "agent.resumeOurs": "Nous l'avons mis en pause. Demandez à votre interlocuteur de le relancer.",
   "agent.missed": {
@@ -539,6 +541,8 @@ export const fr: Messages = {
   "duration.minutes": "{n} min",
   "duration.hours": "{n} h",
   "duration.hoursMinutes": "{h} h {m} min",
+  "duration.days": "{n} j",
+  "duration.daysHours": "{d} j {h} h",
   "run.started": "Démarré {time}",
   "run.notStarted": "Pas encore démarré",
   "run.took": "durée {duration}",
@@ -1078,7 +1082,7 @@ export const fr: Messages = {
 
   // ── Feedback ──
   "feedback.button": "Signaler un problème dans l'app",
-  "feedback.short": "Avis",
+  "feedback.short": "Signaler un problème",
   "feedback.tapWhere": "Touchez l'endroit du problème",
   "feedback.noSpot": "Pas d'endroit précis",
   "feedback.capturing": "Capture de l'image…",

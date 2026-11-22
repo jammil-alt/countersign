@@ -32,7 +32,7 @@ export const en = {
   "common.expired": "Expired",
   "common.notBuiltTitle": "Not built yet",
   "common.notBuiltBody": "This screen comes in a later milestone.",
-  "common.notFoundTitle": "Not found",
+  "common.notFoundTitle": "Page not found",
   "common.notFoundBody": "No page here.",
   "common.yes": "Yes",
   "common.no": "No",
@@ -273,7 +273,9 @@ export const en = {
   "agent.pauseHelp": "No new runs start. Runs already going finish.",
   "agent.pauseConfirm": "Pause {name}",
   "agent.pausedByYou": "Paused by you: {reason}",
+  "agent.pausedByYouAlone": "Paused by you",
   "agent.pausedByUs": "Paused by us: {reason}",
+  "agent.pausedByUsAlone": "Paused by us",
   "agent.pausedUntil": "Until {time}",
   "agent.resumeOurs": "We paused it. Ask your lead to resume it.",
   "agent.missed": {
@@ -509,6 +511,8 @@ export const en = {
   "duration.minutes": "{n} min",
   "duration.hours": "{n} h",
   "duration.hoursMinutes": "{h} h {m} min",
+  "duration.days": "{n} d",
+  "duration.daysHours": "{d} d {h} h",
   "run.started": "Started {time}",
   "run.notStarted": "Not started yet",
   "run.took": "took {duration}",
@@ -1023,7 +1027,7 @@ export const en = {
 
   // ── Feedback ──
   "feedback.button": "Report a problem with the app",
-  "feedback.short": "Feedback",
+  "feedback.short": "Report a problem",
   "feedback.tapWhere": "Tap where the problem is",
   "feedback.noSpot": "No particular spot",
   "feedback.capturing": "Taking the picture…",

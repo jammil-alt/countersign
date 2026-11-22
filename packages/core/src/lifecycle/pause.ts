@@ -34,6 +34,38 @@ export function readPause(value: unknown): AgentPause | null {
   return parsed.success ? parsed.data : null;
 }
 
+/** Reasons that only repeat the action, or say who did it: no reason to show. */
+const NO_REASON = new Set([
+  "pause",
+  "paused",
+  "pausing",
+  "pause it",
+  "pause agent",
+  "stop",
+  "hold",
+  "paused by the operator",
+  "paused by the client",
+]);
+
+/**
+ * A pause's reason as a person should read it after "Paused by the client", or null when it gives
+ * none: blank, the action word itself ("Pause", the button's label sent as the reason), or who
+ * paused it. A credits-out pause reads in words.
+ */
+// DECISION (QA, runs and dates): "Paused by the client: Pause" read as a bug; a reason that only
+// echoes the action is dropped and the line reads "Paused by the client" alone. Stored as given.
+export function pauseReasonWords(reason: string | null | undefined): string | null {
+  const text = (reason ?? "").trim();
+  if (text === "credits_out") return "the month's credits ran out";
+  // Trailing stops, bangs and spaces cut by hand: a regex anchored at the end backtracks on long
+  // client-written text (CodeQL js/polynomial-redos).
+  let end = text.length;
+  while (end > 0 && ".! \t\n\r".includes(text.charAt(end - 1))) end--;
+  const bare = text.slice(0, end).toLowerCase();
+  if (bare === "" || NO_REASON.has(bare)) return null;
+  return text;
+}
+
 /** The client admin's pause request: a reason, and an end if they want one. */
 export const PauseBody = z.strictObject({
   reason: z.string().trim().min(1).max(MAX_PAUSE_REASON),

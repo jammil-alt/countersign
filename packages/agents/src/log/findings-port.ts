@@ -127,9 +127,12 @@ export function dbFindingsPort(db: Db, options: { emit?: Emit } = {}): FindingsP
               lastSeenAt: now.toISOString(),
               ...(due ? { reminders: state.reminders + 1, remindedAt: now.toISOString() } : {}),
             };
+            // DECISION (QA, 2026-11-22): the title is written again with each sighting, so a
+            // count in it ("3 client items have waited …") is today's, not the first day's.
             await tx
               .update(inboxItem)
               .set({
+                title: make().title.slice(0, 200),
                 payload: sql`${inboxItem.payload} || ${JSON.stringify({ finding: next })}::jsonb`,
               })
               .where(and(eq(inboxItem.id, existing.id), eq(inboxItem.tenantId, tenantId)));

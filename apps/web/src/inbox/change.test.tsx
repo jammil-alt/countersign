@@ -206,7 +206,7 @@ describe("the change tables", () => {
     // QA round 1: the date and total are the same before and after, so no table repeats them.
     expect(screen.queryByTestId("change-fields")).toBeNull();
     expect(screen.getByTestId("change-unchanged")).toHaveTextContent(
-      "Unchanged: Date Oct 28, 2026 · Total $9,742.35",
+      "Unchanged: Date 28 Oct 2026 · Total $9,742.35",
     );
   });
 

@@ -82,6 +82,12 @@ export type StepOutcome =
        * (docs/plan.md §1.94), so later steps run on it; the timeline says so.
        */
       standIn?: boolean;
+      /**
+       * With `notWritten`: the step read what a write the test never made would have returned,
+       * and couldn't be tried on it; the executor recorded what it would have done instead of its
+       * failure. Only set by the executor, in a test run.
+       */
+      afterUnwritten?: boolean;
       costUsd?: string;
       tokensIn?: number;
       tokensOut?: number;
@@ -197,6 +203,12 @@ export interface ActionStepRequest {
   automation?: string;
   // v0.13 W2-I
   keyNode?: string;
+  /**
+   * A test run only: the input reads what an earlier write the test never made would have
+   * returned (a stand-in id). A write proposed on it doesn't read its record's current state from
+   * the client's tool, since that record only exists in a live run. Never sent in a live run.
+   */
+  afterUnwritten?: boolean;
 }
 
 // Skill model (2026-11-10): action write steps.

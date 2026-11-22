@@ -7,7 +7,7 @@
 // and old addresses redirect (`packs` to `areas`); each
 // renders inside this frame, which loads the client once and hands it down (`useClientPage`). The
 // client's runs are on the Runs page, filtered to it, linked from the Overview.
-import { goLiveCounts } from "@countersign/core";
+import { clientAgentCounts } from "@countersign/core";
 import { createContext, type ReactNode, useContext, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { Link, Outlet, useLocation, useParams } from "react-router-dom";
@@ -109,15 +109,15 @@ export function clientPageOf(
 }
 
 /**
- * "2 of 3 agents live · 1 in trial": a template's test copies don't count. "Live" is core's
- * `isLiveAgent` (switched on, at the live stage), as the command center counts it (fix 4 of the
- * design pass: it read "live" for any published version, even one still on the bench).
+ * "2 of 3 agents live · 1 in trial": the client's agents as every count counts them (core
+ * `clientAgentCounts`: no template test copies, retired or discarded agents), so the command
+ * center's card, the clients list and this line agree. "Live" is core's `isLiveAgent` (switched
+ * on, at the live stage; fix 4 of the design pass: it read "live" for any published version).
  */
 export function clientLine(data: OpsClient): string {
-  const agents = data.agents.filter((a) => !a.testCopy);
-  const n = goLiveCounts(agents.map((a) => ({ runStatus: a.runStatus, stage: a.stage })));
+  const n = clientAgentCounts(data.agents);
   return [
-    `${n.live} of ${agents.length} ${agents.length === 1 ? "agent" : "agents"} live`,
+    `${n.live} of ${n.total} ${n.total === 1 ? "agent" : "agents"} live`,
     n.trial > 0 ? `${n.trial} in trial` : null,
     n.signoff > 0 ? `${n.signoff} in sign-off` : null,
   ]

@@ -32,7 +32,7 @@ export const ptBR: Messages = {
   "common.expired": "Expirado",
   "common.notBuiltTitle": "Ainda não está pronta",
   "common.notBuiltBody": "Esta tela chega em uma próxima etapa.",
-  "common.notFoundTitle": "Não encontrada",
+  "common.notFoundTitle": "Página não encontrada",
   "common.notFoundBody": "Não há nenhuma página aqui.",
   "common.yes": "Sim",
   "common.no": "Não",
@@ -283,7 +283,9 @@ export const ptBR: Messages = {
   "agent.pauseHelp": "Nenhuma execução nova começa. As que já estão em andamento terminam.",
   "agent.pauseConfirm": "Pausar {name}",
   "agent.pausedByYou": "Pausado por você: {reason}",
+  "agent.pausedByYouAlone": "Pausado por você",
   "agent.pausedByUs": "Pausado por nós: {reason}",
+  "agent.pausedByUsAlone": "Pausado por nós",
   "agent.pausedUntil": "Até {time}",
   "agent.resumeOurs": "Nós pausamos. Peça ao seu responsável para retomar.",
   "agent.missed": {
@@ -524,6 +526,8 @@ export const ptBR: Messages = {
   "duration.minutes": "{n} min",
   "duration.hours": "{n} h",
   "duration.hoursMinutes": "{h} h {m} min",
+  "duration.days": "{n} d",
+  "duration.daysHours": "{d} d {h} h",
   "run.started": "Iniciou {time}",
   "run.notStarted": "Ainda não começou",
   "run.took": "levou {duration}",
@@ -1058,7 +1062,7 @@ export const ptBR: Messages = {
 
   // ── Feedback ──
   "feedback.button": "Relatar um problema no app",
-  "feedback.short": "Feedback",
+  "feedback.short": "Relatar um problema",
   "feedback.tapWhere": "Toque onde está o problema",
   "feedback.noSpot": "Nenhum lugar específico",
   "feedback.capturing": "Capturando a imagem…",

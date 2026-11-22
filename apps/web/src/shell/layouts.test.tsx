@@ -160,7 +160,7 @@ describe("back office layout", () => {
     expect(within(nav).queryByTestId("ops-nav-agent-material-costs")).toBeNull();
   });
 
-  it("keeps the picked client on a page of its own, and on pages with no client", async () => {
+  it("shows the page's own client only: it opens a client, and filters nothing", async () => {
     const api = fakeApi({
       "GET /api/session": () => OPERATOR_SESSION,
       "GET /api/ops/clients": () => ({
@@ -172,24 +172,40 @@ describe("back office layout", () => {
         agents: [],
       }),
     });
-    const { unmount } = renderAt("/ops/lab", api);
-    const switcher = await screen.findByTestId("ops-client-switcher");
-    await waitFor(async () => expect(await clientOptions()).toHaveLength(3));
-    expect(switcher).toHaveAttribute("data-value", "");
-    await pickClient(DEMO);
-    await screen.findByRole("heading", { level: 1, name: "Demo client" });
-    unmount();
-
-    // A page with no client of its own (Agent lab) shows the last pick, in this tab's session.
     renderAt("/ops/lab", api);
-    const again = await screen.findByTestId("ops-client-switcher");
-    await waitFor(() => expect(again).toHaveAttribute("data-value", DEMO));
-    // "All clients" forgets it.
-    await pickClient("");
+    const user = userEvent.setup();
+    const switcher = await screen.findByTestId("ops-client-switcher");
+    await waitFor(async () => expect(await clientOptions(user)).toHaveLength(3));
+    // A page with no client reads as an action, never as a filter's value.
+    expect(switcher).toHaveAttribute("data-value", "");
+    expect(switcher).toHaveTextContent("Open a client");
+    await user.click(switcher);
+    expect(screen.getByTestId("ops-client-switcher-hint")).toHaveTextContent(
+      "It doesn't filter other pages: Runs, Escalations, Sales and search show every client.",
+    );
+    expect(screen.getByTestId("ops-client-switcher-option-all")).toHaveAttribute(
+      "aria-selected",
+      "false",
+    );
+    await user.keyboard("{Escape}");
+
+    await pickClient(DEMO, user);
+    await screen.findByRole("heading", { level: 1, name: "Demo client" });
+    expect(screen.getByTestId("ops-client-switcher")).toHaveAttribute("data-value", DEMO);
+
+    // Leaving the client's page for one that lists every client: the picker doesn't stay on it.
+    await user.click(screen.getByTestId("ops-nav-runs"));
     await waitFor(() =>
       expect(screen.getByTestId("ops-client-switcher")).toHaveAttribute("data-value", ""),
     );
+    expect(screen.getByTestId("ops-client-switcher")).toHaveTextContent("Open a client");
     expect(sessionStorage.getItem("mezonas.ops.client")).toBeNull();
+
+    // "All clients" opens the Clients list.
+    await pickClient("", user);
+    await waitFor(() =>
+      expect(screen.getByTestId("ops-nav-clients")).toHaveAttribute("aria-current", "page"),
+    );
   });
 
   it("keeps the badges fresh from the counts alone, and loads the clients list once", async () => {

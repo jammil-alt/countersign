@@ -13,11 +13,13 @@ import { Link, NavLink, useLocation, useParams } from "react-router-dom";
 import { isApiError } from "../../api/client";
 import { apiRoutes } from "../../api/routes";
 import { useApi, useApiClient } from "../../api/useApi";
+import { EN } from "../../i18n/i18n";
 import { InviteForm, MemberList } from "../../people/Members";
 import { inviteMessage } from "../../people/People";
 import { Field, TextInput } from "../../ui/forms";
 import { Section } from "../../ui/page";
 import { Badge, Button, Card, ErrorNotice, Loading } from "../../ui/primitives";
+import { TimeZoneSelect } from "../../ui/TimeZoneSelect";
 import { ClientExportsSection } from "../client/ClientExports";
 import { ClientFrame, clientPagePath, useClientPage } from "../client/ClientFrame";
 import { ClientApproverRules } from "./ClientApproverRules";
@@ -359,10 +361,11 @@ function Details({ settings, onSave }: { settings: OpsClientSettings; onSave: Sa
           hint="Schedules run in this timezone."
           className="min-w-0 flex-1 basis-64"
         >
-          <TextInput
+          <TimeZoneSelect
+            aria-label="Timezone"
             data-testid="ops-client-settings-timezone"
             value={timezone}
-            onChange={(e) => setTimezone(e.target.value)}
+            onChange={setTimezone}
           />
         </Field>
       </div>
@@ -437,7 +440,7 @@ function Approvals({ settings, onSave }: { settings: OpsClientSettings; onSave: 
           {settings.approvals.changes.map((c) => (
             <li key={c.id}>
               Changed to {APPROVER_LABEL[c.to]} by {c.by?.name ?? c.by?.email ?? "someone"} on{" "}
-              {new Date(c.createdAt).toLocaleDateString()}
+              {EN.fmt.date(c.createdAt)}
               {c.reason ? (
                 <>
                   : <span className="text-ink">{c.reason}</span>

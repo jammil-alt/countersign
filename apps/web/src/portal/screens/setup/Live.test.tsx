@@ -132,7 +132,7 @@ describe("Go live", () => {
       await waitFor(() => expect(sent).toEqual(["sign"]));
       expect(await screen.findByTestId("start-live-signed")).toHaveTextContent("Signed");
       expect(screen.getByTestId("start-live-sign-body")).toHaveTextContent(
-        "Signed by Dana Ruiz on Nov 22, 2026. Ana Navarro starts the trial.",
+        "Signed by Dana Ruiz on 22 Nov 2026. Ana Navarro starts the trial.",
       );
       expect(screen.queryByTestId("start-live-sign-button")).toBeNull();
     },

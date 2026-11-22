@@ -32,7 +32,7 @@ export const es: Messages = {
   "common.expired": "Vencido",
   "common.notBuiltTitle": "Aún no está lista",
   "common.notBuiltBody": "Esta pantalla llega en una próxima etapa.",
-  "common.notFoundTitle": "No encontrada",
+  "common.notFoundTitle": "Página no encontrada",
   "common.notFoundBody": "Aquí no hay ninguna página.",
   "common.yes": "Sí",
   "common.no": "No",
@@ -281,7 +281,9 @@ export const es: Messages = {
   "agent.pauseHelp": "No empiezan ejecuciones nuevas. Las que ya están en curso terminan.",
   "agent.pauseConfirm": "Pausar a {name}",
   "agent.pausedByYou": "Pausado por usted: {reason}",
+  "agent.pausedByYouAlone": "Pausado por usted",
   "agent.pausedByUs": "Pausado por nosotros: {reason}",
+  "agent.pausedByUsAlone": "Pausado por nosotros",
   "agent.pausedUntil": "Hasta {time}",
   "agent.resumeOurs": "Lo pausamos nosotros. Pida a su responsable que lo reanude.",
   "agent.missed": {
@@ -521,6 +523,8 @@ export const es: Messages = {
   "duration.minutes": "{n} min",
   "duration.hours": "{n} h",
   "duration.hoursMinutes": "{h} h {m} min",
+  "duration.days": "{n} d",
+  "duration.daysHours": "{d} d {h} h",
   "run.started": "Empezó {time}",
   "run.notStarted": "Aún no ha empezado",
   "run.took": "duró {duration}",
@@ -1055,7 +1059,7 @@ export const es: Messages = {
 
   // ── Feedback ──
   "feedback.button": "Informar de un problema con la app",
-  "feedback.short": "Comentarios",
+  "feedback.short": "Informar de un problema",
   "feedback.tapWhere": "Toque donde está el problema",
   "feedback.noSpot": "Ningún sitio en concreto",
   "feedback.capturing": "Tomando la imagen…",

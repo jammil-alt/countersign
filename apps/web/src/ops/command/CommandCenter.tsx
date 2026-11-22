@@ -18,8 +18,15 @@ import {
 } from "@countersign/core";
 import { type ReactNode, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
+import {
+  type AgentStageWords,
+  type AgentWords,
+  agentActivity,
+  agentStage,
+} from "../../agents/status";
 import { apiRoutes } from "../../api/routes";
 import { useApi } from "../../api/useApi";
+import { EN } from "../../i18n/i18n";
 import { shortTime, usd } from "../../runs/format";
 import { opsRunTitle } from "../../runs/subject";
 import { usePoll } from "../../runs/usePoll";
@@ -35,8 +42,8 @@ import { SkeletonLine, SkeletonRows, SkeletonStat } from "../../ui/skeleton";
 import { type ChipState, StatusChip } from "../../ui/status";
 import { useShareCounts } from "../OpsLayout";
 import { OPS_PATHS } from "../paths";
-import { failedRunsSince, RUNNING_RUNS, runsLink, WAITING_RUNS } from "../run/links";
-import { age, oversightLine, percent, plural, runChip } from "../run/words";
+import { failedRunsSince, runsLink, startOfLocalDay, WAITING_RUNS } from "../run/links";
+import { age, hoursWords, oversightLine, percent, plural, runChip } from "../run/words";
 import { escalationAction, escalationChip, escalationLine, escalationTone } from "./escalations";
 import { useKept } from "./kept";
 import { usePrefetchOnIntent } from "./prefetch";
@@ -53,7 +60,9 @@ type Agent = CommandCenter["agents"][number];
 type Grouping = "client" | "template" | "status";
 
 export function CommandCenterScreen() {
-  const state = useApi(apiRoutes.opsCommandCenter);
+  // QA (2026-11-22): "today" is this browser's day, sent as its start (an instant), so the
+  // figures, their links and Recent runs beside them read one day.
+  const state = useApi(apiRoutes.opsCommandCenter, { query: { today: startOfLocalDay() } });
   usePoll(state.reload, true, COMMAND_POLL_MS, state.loading);
   // DECISION: one request for the page (docs/plan.md §1.84). The agents table's "N versions behind"
   // and Run oversight come with the command center, and so do the badges' counts, which the frame
@@ -113,7 +122,13 @@ export function CommandCenterScreen() {
               state={state}
               skeleton={<ListCardSkeleton title="Needs us" kind="needs" rows={NEEDS_US_SHOWN} />}
             >
-              {(data) => <NeedsUs escalations={data.escalations} count={data.needUs.count} />}
+              {(data) => (
+                <NeedsUs
+                  escalations={data.escalations}
+                  count={data.needUs.count}
+                  waiting={data.waitingOnClients}
+                />
+              )}
             </Loaded>
             <RecentRuns />
           </Columns>
@@ -299,7 +314,9 @@ function Figures({ data }: { data: CommandCenter }) {
       ) : null}
       <StatTile
         testId="ops-command-runs-today"
-        to={running > 0 ? RUNNING_RUNS : runsLink({ mode: "live", since: data.today })}
+        // DECISION (QA, 2026-11-22): the tile counts today's live runs, so it opens them, even
+        // while some run now (its note says how many): one day for the figure and its list.
+        to={runsLink({ mode: "live", since: data.today })}
         label="Live runs today"
         value={data.runsToday.runs}
         tone="slate"
@@ -358,7 +375,16 @@ const NEEDS_KINDS: [Escalation["kind"], string][] = [
  * Needs us, longest blocked first, filtered by client and by type in the browser (the list is
  * already here, polled with the figures). Its filters match Recent runs' beside it.
  */
-function NeedsUs({ escalations, count }: { escalations: Escalation[]; count: number }) {
+function NeedsUs({
+  escalations,
+  count,
+  waiting,
+}: {
+  escalations: Escalation[];
+  count: number;
+  /** What only the clients can answer: not in Needs us, said under it with a link. */
+  waiting?: CommandCenter["waitingOnClients"] | undefined;
+}) {
   const [all, setAll] = useState(false);
   const [client, setClient] = useState("");
   const [kind, setKind] = useState("");
@@ -436,7 +462,7 @@ function NeedsUs({ escalations, count }: { escalations: Escalation[]; count: num
           tone="done"
           testId="ops-command-clear"
           title="Nothing needs us."
-          line="Failed runs, broken connections, low-confidence readings and approvals stuck at a client show here."
+          line="Failed runs, broken connections, low-confidence readings, items for us and approvals nobody at a client can act on show here."
         />
       ) : filtered.length === 0 ? (
         <EmptyState
@@ -485,40 +511,60 @@ function NeedsUs({ escalations, count }: { escalations: Escalation[]; count: num
           })}
         </div>
       )}
+      {waiting && waiting.count > 0 ? <WaitingOnClientsLine waiting={waiting} /> : null}
     </Card>
+  );
+}
+
+/**
+ * Under Needs us: what waits only on the clients, so it is seen without counting as ours. "24
+ * items wait on clients, 22 over 24 h. Only they can answer them."
+ */
+export function WaitingOnClientsLine({ waiting }: { waiting: CommandCenter["waitingOnClients"] }) {
+  const overdue = waiting.overdue ?? 0;
+  return (
+    <p className="ui-card__body text-sm text-ink-muted" data-testid="ops-needs-waiting-clients">
+      {plural(waiting.count, "item waits", "items wait")} on clients
+      {overdue > 0 ? `, ${overdue} over ${APPROVAL_OVERDUE_HOURS} h` : ""}.{" "}
+      {waiting.count === 1 ? "Only they can answer it." : "Only they can answer them."}{" "}
+      <Link
+        to={`${OPS_PATHS.escalations}?view=clients`}
+        className="text-link hover:underline"
+        data-testid="ops-needs-waiting-clients-link"
+      >
+        See what waits on clients
+      </Link>
+    </p>
   );
 }
 
 // ── All agents ──
 
 /**
- * An agent's state for its chip: waiting for approval when any of its runs waits on a person,
- * running with other open runs, its last run failed, paused, …
+ * An agent's Status chip: where it is on its way live (agents/status: Paused, Not started, In
+ * trial, Live, …), the same words as the client page and the agent's own page.
  */
-export function agentChip(
-  a: Pick<Agent, "status" | "openRuns" | "recentRuns"> & { waitingRuns?: number | undefined },
-): {
-  state: ChipState;
-  words: string;
-} {
-  if (a.status === "paused") return { state: "paused", words: "Paused" };
-  if (a.status === "retired") return { state: "idle", words: "Retired" };
-  if (a.status === "draft" || a.status === "testing")
-    return { state: "setup", words: "Setting up" };
-  const waiting =
-    (a.waitingRuns ?? 0) > 0 || a.recentRuns.some((r) => r.status === "waiting" || r.waiting);
-  if (waiting) return { state: "waiting", words: "Waiting for approval" };
-  if (a.openRuns > 0) return { state: "running", words: "Running" };
-  if (a.recentRuns[0]?.status === "failed") return { state: "failed", words: "Last run failed" };
-  return { state: "idle", words: "Idle" };
+export function agentChip(a: Pick<Agent, "status" | "stage">): AgentStageWords {
+  return agentStage({ runStatus: a.status, stage: a.stage });
 }
 
-const STAGE_WORDS: Record<string, string> = {
-  bench: "On the test bench",
-  trial: "In trial",
-  signoff: "In sign-off",
-};
+/**
+ * What its runs are doing (agents/status): waiting for approval when any of its runs waits on a
+ * person, running with other open runs, its last run failed, else idle.
+ */
+export function agentNowState(
+  a: Pick<Agent, "openRuns" | "recentRuns"> & { waitingRuns?: number | undefined },
+): AgentWords {
+  const waiting =
+    (a.waitingRuns ?? 0) > 0 || a.recentRuns.some((r) => r.status === "waiting" || r.waiting);
+  return agentActivity({
+    openRuns: a.openRuns,
+    waitingRuns: waiting ? Math.max(1, a.waitingRuns ?? 0) : 0,
+    lastRunStatus: a.recentRuns[0]?.status,
+  });
+}
 
+/** The Now column, after the Status chip (the one order: stage, then what it is doing). */
 function agentNow(a: Agent): ReactNode {
   const words: string[] = [];
   const waiting = a.waitingRuns ?? 0;
@@ -526,10 +572,10 @@ function agentNow(a: Agent): ReactNode {
   if (a.openRuns - waiting > 0) {
     words.push(`${plural(a.openRuns - waiting, "run", "runs")} running`);
   }
-  const stage = a.stage ? STAGE_WORDS[a.stage] : undefined;
-  if (stage) words.push(stage);
-  if (words.length === 0) return <span className="text-ink-muted">Nothing open</span>;
-  return words.join(" · ");
+  if (words.length > 0) return words.join(" · ");
+  // Idle, or its last run failed; an agent that isn't switched on has nothing to say here.
+  if (a.status === "active") return agentNowState(a).words;
+  return <span className="text-ink-muted">Nothing open</span>;
 }
 
 function groupKey(a: Agent, by: Grouping): string {
@@ -719,12 +765,11 @@ const HEALTH: Record<Health, { label: string; square: string }> = {
 
 /** Null for an agent that isn't on (paused, setting up, retired): it gets no square. */
 export function agentHealth(a: Agent): Health | null {
-  const chip = agentChip(a);
-  if (chip.state === "failed") return "failed";
-  if (chip.state === "waiting") return "waiting";
-  if (chip.state === "running" || chip.state === "idle")
-    return a.status === "active" ? "good" : null;
-  return null;
+  if (a.status !== "active") return null;
+  const now = agentNowState(a);
+  if (now.state === "failed") return "failed";
+  if (now.state === "waiting") return "waiting";
+  return "good";
 }
 
 /**
@@ -846,9 +891,8 @@ type RunState = (typeof RUN_STATES)[number][0];
 
 /** "10 Nov" over "08:23": the date stacked on the time, so the time column stays narrow. */
 export function dayTime(iso: string): ReactNode {
-  const d = new Date(iso);
-  const day = d.toLocaleDateString("en-GB", { day: "numeric", month: "short" });
-  const time = d.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
+  const day = EN.fmt.day(iso);
+  const time = EN.fmt.clock(iso);
   return (
     <span className="ops-when" title={`${day} ${time}`}>
       <span>{day}</span>
@@ -1051,7 +1095,7 @@ function HealthRow({
     clean ? `${clean} of ${plural(client.runs, "run", "runs")} clean` : "no live runs",
     client.medianResponseHours === null
       ? null
-      : `answers in ${Math.round(client.medianResponseHours)} h`,
+      : `answers in ${hoursWords(Math.round(client.medianResponseHours))}`,
     plural(client.openEscalations, "escalation", "escalations"),
   ].filter(Boolean);
   return (
