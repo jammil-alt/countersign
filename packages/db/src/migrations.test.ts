@@ -297,6 +297,8 @@ describe.skipIf(!online)("migrations on an empty database", () => {
       "vendor_contract",
       // §1.121 (0058): a form request is answered, expired or cancelled, never deleted.
       "form_request",
+      // §1.217 (0087): an interview is finished or closed, never deleted.
+      "process_interview",
       // §1.124 (0060–0063): issues are closed, asks told, to-dos dropped, deals lost; never deleted.
       "issue",
       "issue_event",
