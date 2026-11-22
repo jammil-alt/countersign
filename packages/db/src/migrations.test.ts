@@ -191,6 +191,10 @@ describe.skipIf(!online)("migrations on an empty database", () => {
         "crm_alias",
         "crm_match",
         "crm_record_key",
+        // §1.233 (0096): the AP pack's bills, their lines and goods received.
+        "ap_bill",
+        "ap_bill_line",
+        "ap_receipt",
       ].sort(),
     );
     expect(
