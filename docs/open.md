@@ -6,6 +6,10 @@ source for the details; this page says what is left and in what order. Priority 
 2026-11-08): **1. the purchasing agent working, 2. the marketing site, 3. the connectors and
 the rest.**
 
+**The order we work it in** (2026-11-22): `docs/work-plan.md`, one item and one PR at a time,
+code and the owner's steps side by side. Reporting and searching runs by their data is proposed
+in `docs/reporting-plan.md`.
+
 ## Where things stand
 
 - **Built:** everything through M50 (`docs/plan.md` §4), migrations through 0038, merged to `main`
