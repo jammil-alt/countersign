@@ -2061,7 +2061,7 @@ headed `// P-9: …`.
 | Import button | The client page's Packs tab gets "Import bill prices" with a date range, for the Materials pack when it is on. Back office only, English. // DECISION |
 | The proof | `apps/api/src/purchasing-email.test.ts`: the buyer built in the test from platform and pack parts, an email to its address through the Worker's email handler, Gmail and QuickBooks fakes and a FakeModel; three RFQs in a `for_each` (Keystone answers with a PDF, Northline in words, Cedar Ridge times out and expires), both cards answered through the portal's review routes, the vendor created in QuickBooks and the PO created, each after one approval, the PO emailed, the request ordered; and the portal's answers checked for forbidden fields. `apps/api/src/converse-email.test.ts`: the first email conversation test. // DECISION |
 | Email conversations | A conversation's later emails carry its first message's tag (§1.66), so a reply to any of them came to an ended reach-out and was dropped. Now a reply whose tag names an ended message of a conversation goes to that conversation's message waiting now, from the same contact. // DECISION |
-| Not built | Late replies (after a reach-out ended) and replies from a colleague's address are still dropped (§1.65); a vendor that answers that way is entered by a person. RFQs in the vendor's language. The portal channel for conversations (§1.66). |
+| Not built | Late replies (after a reach-out ended) and replies from a colleague's address are still dropped (§1.65); a vendor that answers that way is entered by a person (both are kept on the thread since §1.129 and §1.194). RFQs in the vendor's language. The portal channel for conversations (§1.66). |
 
 Open for the owner:
 
@@ -6381,6 +6381,20 @@ action, not just mark it... if it is an issue, just because I say it is closed d
 | On the page | An item's row reads "Who has it: …" and its status as a chip; neither is a select. A gap, test or feedback item in the draft or POC test shows "Settle it:" with the three ways (each button's title names who takes it), and when put off, "Take it up:" with the same three; then Put off and Drop it. A question has Answer it and a Close menu of Put off and Not needed ("Done (answered elsewhere)" is gone: type the answer). A closed item has Reopen; a put-off one no way takes up has Take it up. The Add footer has no owner: a new note is yours. Each kind's "To settle it" says what closes it. // DECISION |
 | Not built | The client as an owner: no step yet sends an item to the client and closes it by their answer (the requirements request asks the intake form's fields, not an item). Until there is one, "Client" is only set by the fit-gap's preconditions. |
 | Checked | `apps/api/src/build-settled-by-step.test.ts` (done by hand refused, a drop, a note done, the Builder's close left out; a put-off gap given to engineering then the Builder, closed by its change and opened by its undo; a test closed by a full passing run and not by a failing or partial one), `apps/web/src/ops/builds/closeout.test.tsx` and `builds.test.tsx` (no selects; Put off, Drop it, Reopen; Take it up on a put-off gap). The skill build's go-live closing has no test of its own. |
+
+### 1.194 Replies from a colleague's address are kept for a person (C2.3, 2026-11-22; no migration)
+
+A vendor's reply to an RFQ from another address at the vendor (a colleague the email was passed
+to, or someone answering for the contact) was dropped as a stranger's (§1.129). Now it is kept on
+the contact's thread the way a late or unproven reply is, and a person enters it (§1.65, §1.71).
+
+| Topic | Decision |
+|---|---|
+| Who is a colleague | The From header's address, else the envelope sender's, at exactly the contact's own email domain and not the contact's address (core `colleagueAddress`, `packages/core/src/email/colleague.ts`). A subdomain is another domain. A contact at a free mail service has no colleagues: the list (`FREE_MAIL_DOMAINS`) moved to core from the Sales pack, which now imports it. Proof is not needed, since the mail is only kept; it still had to reach the reach-out's reply address with its secret tag. // DECISION |
+| Kept, never the answer | `apps/api/src/reach/replies.ts`: a fourth kind of mail kept without answering (`keepOnly: "colleague"`): a raw record marked `unverified` with the colleague's address as `from`, its PDFs and images stored quietly (`meta.via = "late_reply"`, nothing reads or starts on them), and a thread line with status `other_sender`. It never ends the reach-out, wakes the run or completes the quote wait, so it is never read as the vendor's quote by itself. Its words stay data (invariant 9). Mail from the contact's own address, proven or not, is handled as before; anyone at another domain is still dropped. An out-of-office from a colleague is ignored, as the contact's is. // DECISION |
+| On the thread | The status reads "received from another address at their company, not their answer", in the six languages (`contacts.status.other_sender`); the five other than English need a fluent review. The address itself is on the raw record and the documents, not on the line. // DECISION |
+| Checked | `apps/api/src/reach.test.ts` (a colleague's reply with a PDF waits in the thread as `other_sender` while the reach-out stays open for the contact's own reply; one from an unrelated domain keeps nothing), `packages/core/src/email/colleague.test.ts`. |
+| Not built | Showing the colleague's address on the thread line, and adding the colleague as a contact of the vendor from there. |
 
 ### 1.192 The web app's first load back under budget (H9, 2026-11-22; no migration)
 

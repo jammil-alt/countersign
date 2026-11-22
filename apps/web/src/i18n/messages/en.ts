@@ -1451,6 +1451,8 @@ export const en = {
   "contacts.status.read": "read",
   "contacts.status.received": "received",
   "contacts.status.unverified": "received, sender not confirmed",
+  "contacts.status.other_sender":
+    "received from another address at their company, not their answer",
   "contacts.status.replied": "replied",
   "contacts.status.not_sent": "not sent",
   "contacts.status.no_reply": "no reply",

@@ -1496,6 +1496,7 @@ export const ptBR: Messages = {
   "contacts.status.read": "lido",
   "contacts.status.received": "recebido",
   "contacts.status.unverified": "recebido, remetente não confirmado",
+  "contacts.status.other_sender": "recebido de outro endereço da empresa, não é a resposta",
   "contacts.status.replied": "respondeu",
   "contacts.status.not_sent": "não enviado",
   "contacts.status.no_reply": "sem resposta",
