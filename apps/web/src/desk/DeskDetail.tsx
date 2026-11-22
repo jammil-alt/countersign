@@ -25,6 +25,7 @@ import { ChangeTables } from "../inbox/ChangePanel";
 import { changeHeading, connectorName, connectorOf } from "../inbox/change";
 import {
   accountChangeFacts,
+  ChangeEvidence,
   findingSteps,
   isAccountChangeItem,
   payloadFacts,
@@ -82,6 +83,9 @@ const DESK_PLUMBING = new Set([
   "form",
   // B3: the decisions its step rests on that nobody has discussed, shown as their own lines.
   "undiscussed",
+  // Round 4 D (§1.211): the second check and the threshold, shown in the evidence panel.
+  "verification",
+  "threshold",
 ]);
 
 export function DeskDetail({
@@ -381,6 +385,8 @@ export function DeskDetail({
           {lead.kind === "external_action" ? (
             <UndiscussedLines payload={lead.payload} testId="desk-undiscussed" />
           ) : null}
+          {/* Round 4 D (§1.211): what the change rests on, and the second check. */}
+          <ChangeEvidence item={lead} surface="portal" recordHref={(id) => `/records/${id}`} />
 
           {/* R5: an answer after we went ahead, and the undo a late no is offered (§1.86). */}
           <LateAnswer
@@ -742,12 +748,18 @@ function BatchList({
                   <summary className="cursor-pointer text-sm font-medium text-ink">
                     {h?.title ?? item.title}
                   </summary>
-                  <div className="mt-3">
+                  <div className="mt-3 flex flex-col gap-3">
                     <ChangeTables
                       before={item.payload.before}
                       input={signedInput(item.payload)}
                       display={item.display?.tool}
                       names={item.display?.names}
+                    />
+                    {/* Round 4 D (§1.211): each change of a batch has its own evidence. */}
+                    <ChangeEvidence
+                      item={item}
+                      surface="portal"
+                      recordHref={(id) => `/records/${id}`}
                     />
                   </div>
                 </details>

@@ -2,10 +2,14 @@
 // ordered approver rules, with a reason, and tries a sample change against them. The editor is its
 // own card, titled "Who approves".
 
+import { lazy, Suspense } from "react";
 import { apiRoutes } from "../../api/routes";
 import { useApi, useApiClient } from "../../api/useApi";
 import { ApproverRules } from "../../approvals/ApproverRules";
 import { ErrorNotice } from "../../ui/primitives";
+
+// Round 4 D (docs/plan.md §1.211): the client's thresholds, loaded on their own.
+const WriteThresholds = lazy(() => import("../../approvals/WriteThresholds"));
 
 export function ClientApproverRules({ clientId }: { clientId: string }) {
   const client = useApiClient();
@@ -27,6 +31,11 @@ export function ClientApproverRules({ clientId }: { clientId: string }) {
           }}
         />
       ) : null}
+      <Suspense fallback={null}>
+        <div className="mt-6">
+          <WriteThresholds surface="ops" clientId={clientId} canEdit />
+        </div>
+      </Suspense>
     </div>
   );
 }
