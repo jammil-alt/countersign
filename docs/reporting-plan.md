@@ -1,6 +1,6 @@
 # Reporting: runs, agents and accounts, searched by their data (agreed, 2026-11-22)
 
-Agreed by the owner on 2026-11-22 (§5). R1 is built (#524, #530); R2 is next. It extends the runs lists (ARCHITECTURE §10.10) and search
+Agreed by the owner on 2026-11-22 (§5). R1 is built (#524, #530), and R3 (#544, `docs/plan.md` §1.194); R2 is next. It extends the runs lists (ARCHITECTURE §10.10) and search
 and plain-words questions (§11.6). R1 is `docs/plan.md` §1.188, migration 0077.
 
 ## 1. What we have

@@ -5,6 +5,7 @@ import { apiRoutes } from "../../api/routes";
 import { useApi, useApiClient } from "../../api/useApi";
 import { DocumentDetailView } from "../../documents/DocumentDetail";
 import { useI18n } from "../../i18n/i18n";
+import { RecordRuns } from "../../records/RecordRuns";
 import { usePoll } from "../../runs/usePoll";
 import { ErrorNotice, Loading } from "../../ui/primitives";
 import { PORTAL_PATHS } from "../paths";
@@ -45,6 +46,14 @@ export function PortalDocumentScreen() {
             onOpenOriginal={() => void openOriginal()}
             transactionHref={(t) => `/records/${t}`}
             documentHref={(d) => `/documents/${d}`}
+          />
+        ) : null}
+        {/* R3 (docs/plan.md §1.194): what our agents did with it. */}
+        {data ? (
+          <RecordRuns
+            source={{ surface: "portal" }}
+            recordId={id}
+            runHref={(r) => `${PORTAL_PATHS.runs}/${r}`}
           />
         ) : null}
       </div>

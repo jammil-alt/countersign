@@ -8,6 +8,7 @@ import { apiRoutes } from "../../api/routes";
 import { sandboxUploadPath, uploadFiles } from "../../api/upload";
 import { useApi, useApiClient } from "../../api/useApi";
 import { DocumentDetailView } from "../../documents/DocumentDetail";
+import { RecordRuns } from "../../records/RecordRuns";
 import { documentStatus, MATCH_KIND_LABEL, money, sourceLabel } from "../../portal/documents";
 import { DropZone } from "../../portal/screens/Upload";
 import { shortTime } from "../../runs/format";
@@ -177,6 +178,14 @@ export function OpsDocumentScreen() {
           onOpenOriginal={() => void openOriginal()}
           transactionHref={(t) => `${base}/records/${t}`}
           documentHref={(id) => `${base}/documents/${id}`}
+        />
+      ) : null}
+      {/* R3 (docs/plan.md §1.194): what our agents did with it. */}
+      {data ? (
+        <RecordRuns
+          source={{ surface: "ops", clientId }}
+          recordId={documentId}
+          runHref={(r) => `/ops/runs/${r}`}
         />
       ) : null}
     </div>

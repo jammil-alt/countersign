@@ -34,6 +34,7 @@ import {
   PersonForm,
   RELATIONSHIP_KEY,
 } from "../../directory/DirectoryPanel";
+import { RecordRuns } from "../../records/RecordRuns";
 import { listedHours } from "../../hours/format";
 import { PersonHoursEditor } from "../../hours/HoursParts";
 import type { PlainKey } from "../../i18n/catalog";
@@ -804,6 +805,13 @@ function PersonDetail({
           <RecentMessages contactId={p.id} />
         </DetailBlock>
       ) : null}
+      {/* R3 (docs/plan.md §1.194): what our agents did with them, as the timeline shows it. */}
+      <RecordRuns
+        source={{ surface: "portal" }}
+        recordId={p.id}
+        runHref={(r) => `${PORTAL_PATHS.runs}/${r}`}
+        testId="people-detail-runs"
+      />
     </SideSheet>
   );
 }
