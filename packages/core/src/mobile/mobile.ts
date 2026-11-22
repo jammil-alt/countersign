@@ -82,6 +82,10 @@ export const DEVICE_SIGNATURE_SKEW_SEC = 5 * 60;
 /** An item's fingerprint (`itemFingerprint`): SHA-256, hex. */
 export const ItemFingerprint = z.string().regex(/^[0-9a-f]{64}$/);
 
+/** The signed texts the API accepts: `v1` (phones already in the field) and `v2` (§1.203). */
+export const DeviceSignedVersion = z.enum(["v1", "v2"]);
+export type DeviceSignedVersion = z.infer<typeof DeviceSignedVersion>;
+
 export const DeviceSignature = z.strictObject({
   deviceId: z.string().uuid(),
   /** When the person signed (ISO 8601), part of what is signed. */
@@ -90,27 +94,44 @@ export const DeviceSignature = z.strictObject({
   fingerprint: ItemFingerprint,
   /** ECDSA P-256 over SHA-256 of `deviceSignedText(...)`, r‖s (64 bytes), base64url. */
   signature: z.string().regex(/^[A-Za-z0-9\-_]{86}$/),
+  /**
+   * Which signed text (`deviceSignedText`): absent or `v1`, the decision on the item as shown;
+   * `v2` also the answer's text and the note sent with it (docs/plan.md §1.203).
+   */
+  version: DeviceSignedVersion.optional(),
 });
 export type DeviceSignature = z.infer<typeof DeviceSignature>;
 
 /**
  * What a phone signs: fixed lines, so the same inputs always give the same bytes. The decision is
- * part of it, so an approval's signature can't be replayed as anything else.
+ * part of it, so an approval's signature can't be replayed as anything else. `v2` adds two lines:
+ * the answer and the note sent with the decision, each as canonical JSON (`null` when there is
+ * none), so an answer's text or a note changed on the way is a signature that doesn't match.
  */
+// DECISION (§1.203): v2 is v1's lines with the answer and the note appended, each one line of
+// canonical JSON (JSON escapes a line break, so neither can add a line of its own), rather than
+// a hash of them: the text stays readable in a test, and the answer is any JSON the resolve takes,
+// not only a string. Absent and `null` are the same line: both are "no answer" to the resolve.
 export function deviceSignedText(input: {
   deviceId: string;
   itemId: string;
   decision: "approve" | "reject";
   fingerprint: string;
   at: string;
+  /** Absent: `v1`, the text phones already in the field sign. */
+  version?: DeviceSignedVersion;
+  /** `v2` only: the answer sent with the decision. */
+  answer?: unknown;
+  /** `v2` only: the note sent with the decision. */
+  note?: string | null | undefined;
 }): string {
+  const v1 = [input.deviceId, input.itemId, input.decision, input.fingerprint, input.at];
+  if ((input.version ?? "v1") === "v1") return ["mezonas-sign:v1", ...v1].join("\n");
   return [
-    "mezonas-sign:v1",
-    input.deviceId,
-    input.itemId,
-    input.decision,
-    input.fingerprint,
-    input.at,
+    "mezonas-sign:v2",
+    ...v1,
+    canonicalJson(input.answer ?? null),
+    canonicalJson(input.note ?? null),
   ].join("\n");
 }
 
