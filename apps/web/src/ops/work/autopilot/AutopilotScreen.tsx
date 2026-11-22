@@ -125,20 +125,39 @@ function PlayRow({ play, reload }: { play: PlayView; reload: () => void }) {
       setBusy(false);
     }
   };
+  // Staging QA (2026-11-22): a three-column grid squeezed the play's name and line into what the
+  // control and its track line left (one word a line beside the sidebar), and the control spilled
+  // over the name. DECISION: the name, its line and the track line take the row's room; the
+  // control sits beside them while they keep at least 16rem, and wraps under them when not.
   return (
     <li
-      className="grid gap-3 py-3 md:grid-cols-[minmax(0,1fr)_auto_minmax(0,220px)]"
+      className="flex flex-wrap items-start gap-x-6 gap-y-2 py-3"
       data-testid={`play-${play.stage}-${play.key}`}
     >
-      <div className="min-w-0">
+      <div className="min-w-0 flex-[1_1_16rem]" data-testid="play-text">
         <div className="font-medium text-ink">{play.name}</div>
         <div className="text-sm text-ink-muted">
           {play.when}
           {play.does ? ` · ${play.does}` : ""}
         </div>
+        {play.trackLine ? (
+          <div className="mt-1 text-xs text-ink-muted">{play.trackLine}</div>
+        ) : null}
+        {play.ready && level === "draft" ? (
+          <div className="mt-1 flex flex-wrap items-center gap-2 text-xs">
+            <span className="ds-pill ds-pill--warning ds-pill--sm">{AUTOPILOT_WORDS.ready}</span>
+            <button type="button" className="ds-btn ds-btn--link" onClick={() => void set("send")}>
+              {AUTOPILOT_WORDS.letSend}
+            </button>
+          </div>
+        ) : null}
       </div>
-      <div>
-        <fieldset className="ds-seg" aria-label={`How far: ${play.name}`} disabled={busy}>
+      <div className="max-w-full shrink-0" data-testid="play-control">
+        <fieldset
+          className="ds-seg max-w-full"
+          aria-label={`How far: ${play.name}`}
+          disabled={busy}
+        >
           {LEVELS.map((l) => {
             const locked = l === "send" && !play.maySend;
             return (
@@ -162,18 +181,11 @@ function PlayRow({ play, reload }: { play: PlayView; reload: () => void }) {
           </div>
         ) : null}
       </div>
-      <div className="text-xs text-ink-muted">
-        {play.trackLine}
-        {play.ready && level === "draft" ? (
-          <div className="mt-1 flex flex-wrap items-center gap-2">
-            <span className="ds-pill ds-pill--warning ds-pill--sm">{AUTOPILOT_WORDS.ready}</span>
-            <button type="button" className="ds-btn ds-btn--link" onClick={() => void set("send")}>
-              {AUTOPILOT_WORDS.letSend}
-            </button>
-          </div>
-        ) : null}
-        {error ? <ErrorNotice error={error} /> : null}
-      </div>
+      {error ? (
+        <div className="basis-full">
+          <ErrorNotice error={error} />
+        </div>
+      ) : null}
     </li>
   );
 }

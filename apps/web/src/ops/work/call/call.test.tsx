@@ -220,6 +220,41 @@ describe("Your call", () => {
     expect(screen.getByTestId("ops-nav-autopilot")).toHaveAttribute("href", "/ops/autopilot");
   });
 
+  // Staging QA (2026-11-22): switching lists emptied the page to a spinner (the counts read 0 and
+  // the scroll went back to the top). The page stays: the KPIs, the lists' counts and the last
+  // rows, dimmed, until the other list answers.
+  it("keeps the page while another list loads", async () => {
+    const { api } = setup();
+    await screen.findByTestId(`call-${T1}`);
+    let answer: () => void = () => {};
+    api.on("GET /api/ops/todos", ({ url }) => {
+      const owner = url.searchParams.get("owner") ?? "operator";
+      if (owner !== "reggie") return list(owner);
+      return new Promise<TodoList>((done) => {
+        answer = () => done(list("reggie"));
+      });
+    });
+    await userEvent.click(screen.getByTestId("call-tab-reggie"));
+    expect(screen.getByTestId("call-tab-reggie")).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByTestId("work-kpis")).toHaveTextContent("Need you2");
+    expect(screen.getByTestId("call-tab-you")).toHaveTextContent("Yours (2)");
+    expect(screen.getByTestId("call-tab-reggie")).toHaveTextContent("(1)");
+    const results = screen.getByTestId("call-results");
+    expect(results).toHaveAttribute("aria-busy", "true");
+    expect(within(results).getByText("Approve the fix for Hartley's Ferguson bills")).toBeVisible();
+    await act(async () => answer());
+    expect(await screen.findByText("Chase Alder's requirements")).toBeInTheDocument();
+    expect(screen.getByTestId("call-results")).not.toHaveAttribute("aria-busy");
+    expect(screen.queryByText("Approve the fix for Hartley's Ferguson bills")).toBeNull();
+  });
+
+  it("lets the kind chips wrap in the bar instead of cutting them off", async () => {
+    setup();
+    await screen.findByTestId(`call-${T1}`);
+    const chips = within(screen.getByTestId("call-bar")).getByTestId("work-filters");
+    expect(chips).toHaveClass("ds-filters", "ui-filters--wrap");
+  });
+
   it("filters by kind and search, and clears them", async () => {
     setup();
     await screen.findByTestId(`call-${T1}`);

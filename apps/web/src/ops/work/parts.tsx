@@ -2,8 +2,10 @@
 // patterns only (README "App patterns"): KPI boxes, page tabs, filter chips, due dates, urgency,
 // where an item stands, the safety hold banner and board cards. No colours of their own.
 import type { HoldView, Standing, WorkKpi, WorkUrgency } from "@countersign/core";
-import type { ReactNode } from "react";
+import { type ReactNode, useRef } from "react";
 import { Link } from "react-router-dom";
+import { cx } from "../../ui/cx";
+import { useEvenColumns, useScrollEdges } from "../../ui/tileRows";
 
 const MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
@@ -19,8 +21,16 @@ const dayDiff = (iso: string, today: string) =>
   Math.round((Date.parse(iso.slice(0, 10)) - Date.parse(today)) / 86_400_000);
 
 export function Kpis({ items, compact }: { items: WorkKpi[]; compact?: boolean }) {
+  const ref = useRef<HTMLDivElement>(null);
+  // Even rows (3 + 2, never 4 + 1) at any width (ui/tileRows.ts).
+  const even = useEvenColumns(ref, items.length);
   return (
-    <div className={compact ? "ds-kpis ds-kpis--compact" : "ds-kpis"} data-testid="work-kpis">
+    <div
+      ref={ref}
+      className={compact ? "ds-kpis ds-kpis--compact" : "ds-kpis"}
+      style={even}
+      data-testid="work-kpis"
+    >
       {items.map((k) => {
         const cls = `ds-kpi${k.tone ? ` ds-kpi--${k.tone}` : ""}`;
         const body = (
@@ -63,17 +73,31 @@ export function PageTabs({
   );
 }
 
+/**
+ * Filter chips. Where the row has room to grow (`wrap`, Your call's bar) they wrap onto a second
+ * line; in a table's bar, whose height is fixed, they scroll sideways, with a fade at the edge that
+ * has more past it and a thin scrollbar, so none is cut off unseen.
+ */
 export function FilterChips<K extends string>({
   chips,
   value,
   onChange,
+  wrap = false,
 }: {
   chips: { key: K; label: string; count: number }[];
   value: K;
   onChange: (k: K) => void;
+  wrap?: boolean;
 }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const edges = useScrollEdges(ref);
   return (
-    <div className="ds-filters">
+    <div
+      ref={ref}
+      className={cx("ds-filters ui-filters", wrap && "ui-filters--wrap")}
+      data-more={wrap ? undefined : edges}
+      data-testid="work-filters"
+    >
       {chips.map((c) => (
         <button
           key={c.key}
