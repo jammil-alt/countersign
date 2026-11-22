@@ -1123,12 +1123,15 @@ describe.skipIf(!h)("reach out through the API", () => {
         ),
         "lee@shop.example",
       );
-      await handleEmail(
-        mail("lee@shop.example", colleague),
-        H.env,
-        (p) => pending.push(p),
-        appDeps,
-      );
+      // Delivered twice (Email Routing retries): kept once.
+      for (let i = 0; i < 2; i++) {
+        await handleEmail(
+          mail("lee@shop.example", colleague),
+          H.env,
+          (p) => pending.push(p),
+          appDeps,
+        );
+      }
       expect(H.instances.events.find((e) => e.event.type === type)).toBeUndefined();
       // Someone at an unrelated domain, with the right tag: dropped as before, nothing kept.
       const outsider = email(
