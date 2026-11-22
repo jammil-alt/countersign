@@ -69,7 +69,7 @@ const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
 
 const pct = (n: number, of: number) => (of === 0 ? 0 : Math.round((n / of) * 100));
 
-function SecurityPage({
+export function SecurityPage({
   testId,
   title,
   subtitle,
@@ -463,7 +463,9 @@ export function SecurityPoliciesScreen() {
                   {p.version ? (
                     <>
                       <td className="figures">{p.version}</td>
-                      <td>{p.adopted ? day(p.adopted) : null}</td>
+                      <td>
+                        {p.adopted ? day(p.adopted) : <Badge tone="warning">Draft to adopt</Badge>}
+                      </td>
                       <td>{p.nextReview ? day(p.nextReview) : null}</td>
                     </>
                   ) : (

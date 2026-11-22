@@ -37,6 +37,7 @@ import {
   endLink,
   findConnection,
 } from "../mcp/approval";
+import { meter } from "../metering";
 import { PHONE_ENDED_MESSAGE, phoneEndedForPerson } from "../mobile/phone-session";
 import { mailerFromEnv } from "../notify/mailer";
 import { pusherFromEnv } from "../notify/push";
@@ -274,6 +275,7 @@ export function secondFactorRoutes(app: Hono<AppEnv>): void {
       await sendOnce(c, session, body.kind);
       await saveFactor(c, userId, { kind: body.kind, phone: body.phone, twilioFactorSid: null });
       await config.verifier.sendCode(body.phone, body.kind);
+      await meterSignIn(c, userId, "verifications");
     } catch (error) {
       if (error instanceof HttpError) throw error;
       throw providerFailed();
@@ -299,6 +301,7 @@ export function secondFactorRoutes(app: Hono<AppEnv>): void {
     } catch {
       throw providerFailed();
     }
+    await meterSignIn(c, userId, "verifications");
     return { ok: true as const, phoneHint: phoneHint(factor.phone) ?? "" };
   });
 
@@ -413,6 +416,7 @@ export function secondFactorRoutes(app: Hono<AppEnv>): void {
     } catch {
       throw new HttpError(502, "email_failed", "we couldn't send the email; try again");
     }
+    await meterSignIn(c, session.user.id, "emails");
     return { ok: true as const, emailHint: emailHint(session.user.email) };
   });
 
@@ -548,6 +552,7 @@ export function setupLinkRoutes(app: Hono<AppEnv>): void {
       await sendOnce(c, who, body.kind);
       await saveFactor(c, userId, { kind: body.kind, phone: body.phone, twilioFactorSid: null });
       await config.verifier.sendCode(body.phone, body.kind);
+      await meterSignIn(c, userId, "verifications");
     } catch (error) {
       if (error instanceof HttpError) throw error;
       throw providerFailed();
@@ -699,6 +704,29 @@ async function sendOnce(c: AppContext, session: Who, kind: string): Promise<void
     auditInTx(tx, c, entry(session, "session.second_factor_send", "ok", 200, { kind })),
   );
   if (!claimed) throw tooMany();
+}
+
+/**
+ * §1.210: a sign-in code (Twilio Verify) or a setup link's email is ours, on no client: it goes to
+ * a person before any client is in scope, and an operator has none. Never fails the request.
+ */
+// DECISION: the platform's own cost, not the client's: a person may belong to several clients,
+// and the second step protects our sign-in, whoever signs in.
+async function meterSignIn(
+  c: AppContext,
+  userId: string,
+  measure: "verifications" | "emails",
+): Promise<void> {
+  const { db } = c.get("req").services();
+  await withUser(db, userId, (tx) =>
+    meter(tx, {
+      tenantId: null,
+      measure,
+      source: "sign_in_code",
+      key: `sign-in:${crypto.randomUUID()}`,
+      ours: true,
+    }),
+  ).catch(() => undefined);
 }
 
 async function tryOnce(c: AppContext, session: Who, method: string): Promise<void> {

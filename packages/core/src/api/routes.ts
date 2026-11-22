@@ -80,6 +80,7 @@ import { ledgerRoutes } from "./ledger";
 // R8: the Library's banks
 import { libraryRoutes } from "./library";
 import { GoLive, lifecycleRoutes } from "./lifecycle";
+import { matchRuleRoutes } from "./match-rules";
 import { messagingRoutes } from "./messaging";
 // §1.116: the phone app
 import { mobileRoutes } from "./mobile";
@@ -2507,6 +2508,8 @@ export const routes = {
   ...usageRoutes,
   ...recordRoutes,
   ...approverRuleRoutes,
+  // §1.215: a client's saved match rules
+  ...matchRuleRoutes,
   ...messagingRoutes,
   // docs/plan.md §1.98: signing up for texts
   ...textSignupRoutes,

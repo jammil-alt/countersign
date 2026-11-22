@@ -13,10 +13,11 @@ import {
   parseMessage,
   readServerSentEvents,
 } from "./anthropic";
-import { createLlmClient } from "./client";
+import { createLlmClient, type LlmCallRecord } from "./client";
 import { messageSchema } from "./messages";
 import { PROVIDER_FIXTURE_DIR, scriptedFetch } from "./test-fetch";
 import type { LlmRequest } from "./transport";
+import { partialUsageOf } from "./usage";
 
 const MODEL = "claude-sonnet-5-5";
 
@@ -379,6 +380,49 @@ describe("anthropicTransport: the answer", () => {
     expect((error as Error).message).toBe(
       "stream ended without producing a Message with role=assistant",
     );
+  });
+
+  it("records what a stream that broke mid-answer used, not nothing (§1.210)", async () => {
+    const { fn } = scriptedFetch(
+      sse([
+        start(),
+        ev("content_block_start", { index: 0, content_block: { type: "text", text: "" } }),
+        ev("message_delta", {
+          delta: { stop_reason: null, stop_sequence: null, stop_details: null },
+          usage: { output_tokens: 500 },
+        }),
+        { event: "error", data: errorBody("overloaded_error", "Overloaded") },
+      ]),
+    );
+    const error = await transport(fn)
+      .t.create(req())
+      .catch((e: unknown) => e);
+    expect(partialUsageOf(error)).toEqual({
+      model: MODEL,
+      usage: {
+        inputTokens: 120,
+        outputTokens: 500,
+        cacheWriteTokens: 30,
+        cacheWrite1hTokens: 20,
+        cacheReadTokens: 40,
+      },
+    });
+    // The client records it at its price, as a failed call.
+    const { fn: again } = scriptedFetch(
+      sse([start(), { event: "error", data: errorBody("overloaded_error", "Overloaded") }]),
+    );
+    const records: LlmCallRecord[] = [];
+    const llm = createLlmClient({
+      transport: transport(again).t,
+      onCall: (r) => void records.push(r),
+    });
+    await expect(llm.message({ messages: [{ role: "user", content: "Hi" }] })).rejects.toThrow();
+    expect(records).toHaveLength(1);
+    expect(records[0]).toMatchObject({
+      ok: false,
+      usage: { inputTokens: 120, cacheReadTokens: 40 },
+    });
+    expect(Number(records[0]?.costUsd)).toBeGreaterThan(0);
   });
 
   it("throws an error the stream carried, worded as the SDK did", async () => {
