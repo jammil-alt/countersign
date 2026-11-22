@@ -5,6 +5,7 @@
 
 import { adjustRoutes } from "./adjust";
 import { assistRoutes } from "./assist";
+import { assuranceRoutes } from "./assurance";
 import { clientFileRoutes, startRoutes } from "./client-files";
 import { codeRequestRoutes } from "./code-requests";
 import { connectorAccessRoutes } from "./connector-access";
@@ -35,6 +36,7 @@ export const allRoutes = {
   ...manualRoutes,
   // docs/sop-plan.md: the agent's SOP; its tab loads lazily, and its view's schema with it.
   ...sopRoutes,
+  ...assuranceRoutes,
   // docs/builder-plan.md §6 (B4): the setup checklist (Getting started, the agent's page).
   ...setupRoutes,
   // docs/builder-plan.md §7 (B5): client adjustments on the agent's Settings, and feedback on a

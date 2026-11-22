@@ -126,7 +126,16 @@ describe("AgentScreen", () => {
       within(within(bar).getByRole("navigation"))
         .getAllByRole("link")
         .map((l) => l.textContent),
-    ).toEqual(["Overview", "Workflow", "Steps", "Manual", "Runs", "Versions2", "Settings"]);
+    ).toEqual([
+      "Overview",
+      "Workflow",
+      "Steps",
+      "Manual",
+      "Runs",
+      "Security",
+      "Versions2",
+      "Settings",
+    ]);
     expect(within(bar).getByTestId("agent-test-run")).toHaveAttribute(
       "href",
       `${BASE}/versions#tests`,
@@ -418,7 +427,17 @@ describe("AgentScreen", () => {
       within(within(bar).getByRole("navigation"))
         .getAllByRole("link")
         .map((l) => l.textContent?.replace(/\d+$/, "")),
-    ).toEqual(["Build", "Overview", "Workflow", "Steps", "Manual", "Runs", "Versions", "Settings"]);
+    ).toEqual([
+      "Build",
+      "Overview",
+      "Workflow",
+      "Steps",
+      "Manual",
+      "Runs",
+      "Security",
+      "Versions",
+      "Settings",
+    ]);
     const view = await screen.findByTestId("build-view");
     // On the agent page the build has no header of its own: the agent's bar is it.
     expect(within(view).queryByTestId("build-header")).toBeNull();

@@ -231,12 +231,18 @@ Each ends green (`pnpm check`). The migration goes in its own PR.
 
 | Stream | What | Migration |
 |---|---|---|
-| **A0: the gaps** | §4c: the retention lines, providers' retention and region, the embeddings provider in the SOP | None |
-| **A1: the architecture** | Core `agentArchitecture`, the SVG diagram, the data map, what goes to AI and access to each tool (§4b), the coverage list (§4a), section 14 of the SOP | None |
-| **A2a: results' table** | `control_check` | Own PR |
-| **A2: setup and run checks** | The checks of §4 that read setup and runs; nightly pass; the back office's Security tab; results on the SOP's controls; the four results (§4); checks in review as issues | After A2a |
+| **A0: the gaps** (built) | §4c: the retention policy's two missing rows (run histories; our copies of AI requests and answers, already deleted with the client's files); `assurance/terms.ts` records each AI provider's training terms (Anthropic, OpenAI) and leaves retention and region "Not recorded yet" until the owner records them from each provider's terms; the embeddings provider shows from the agent's own runs | None |
+| **A1: the architecture** (built) | Core `agentArchitecture`, the SVG diagram (laid out by code), the data map, what goes to AI and access to each tool (§4b), the coverage list (§4a, a test places every register control), section 14 of the SOP | None |
+| **A2a: results' table** (built, PR #514) | `control_check`, and `assurance` as an issue's source | Own PR |
+| **A2: setup and run checks** (built) | 17 checks of §4 that read setup and runs (`assurance/checks.ts`); nightly at 08:23 UTC, and "Run the checks now"; the back office's Security tab; the four results (§4); a check in review opens one issue, which says only that a check is in review (the client admin sees issues as requests) | After A2a |
 | **A3: attacks** | Planted cases in the test bench, their pass rules, before-trial and monthly runs; recorded fixtures with a key | None (test cases have a home) |
 | **A4: evidence export** | Per period, per agent and client, CSV and a printable page; `/ops/security` rollup | None |
+
+**What A2 left (owner's call or next).** Two checks of §4b aren't built: no secret in a stored model
+request (it needs the stored bodies read with the client's key) and OAuth scopes (granted scopes
+aren't stored on the connection yet). "During its trial" reads the agent's stage now, since stage
+history isn't kept per run. The second factor check reads the sign-in policy, since a sign-in's
+factor isn't stored. The attack checks show "Not yet checked" until A3.
 
 **Invariants held.** 1: checks read in the client's scope; results are per client. 3: results are
 never updated or deleted. 8 and 13: write checks read the gate's recorded reasons, never restate

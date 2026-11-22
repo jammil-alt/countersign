@@ -119,12 +119,15 @@ export function SopDocument({
   view,
   askHref,
   wrong,
+  security,
 }: {
   view: SopView;
   /** "Ask about this": where Sloan opens with the line quoted; absent: none. */
   askHref?: ((line: string) => string) | undefined;
   /** "This is wrong" on a step or a decision: the form it opens; absent: none. */
   wrong?: ((line: SopLine, close: () => void) => ReactNode) | undefined;
+  /** Section 14, architecture and security (docs/agent-assurance-plan.md §5), loaded on its own. */
+  security?: { title: string; node: ReactNode } | undefined;
 }) {
   const { t, fmt } = useI18n();
   const [findText, setFind] = useState("");
@@ -401,6 +404,12 @@ export function SopDocument({
               {t(`sop.sec.${s}`)}
             </a>
           ))}
+          {security ? (
+            <a href="#sop-sec-security">
+              <span className="sop-toc__n">{sections.length}</span>
+              {security.title}
+            </a>
+          ) : null}
         </nav>
 
         <article className="sop-doc">
@@ -1056,6 +1065,17 @@ export function SopDocument({
                   </table>
                 </div>
               </Card>
+            </Section>
+          ) : null}
+
+          {security && !q ? (
+            <Section
+              id="sop-sec-security"
+              n={sections.length}
+              title={security.title}
+              testId="sop-security"
+            >
+              {security.node}
             </Section>
           ) : null}
 

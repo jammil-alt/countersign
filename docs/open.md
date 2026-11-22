@@ -428,14 +428,22 @@ printing. Merge #510 and #511 before #508. Left:
 
 ### Agent assurance (owner, 2026-11-21; `docs/agent-assurance-plan.md`, mock-up screens 4 and 5 of `docs/design/sop.html`)
 
-Planned and designed, not built: each agent's architecture drawn from its setup, and its security
-controls proved by checks of its setup, its runs and planted attacks, kept as history and tied to
-the register (`AGT-1`, `ISO-1`, …) with their SOC 2 and HIPAA references. Left: the owner's answers
-(`docs/agent-assurance-plan.md` §7: whether an attack check in review holds the trial), then streams
-A0 (the gaps of §4c), A1 (architecture), A2a (`control_check`, own PR), A2 (setup and run checks),
-A3 (attacks), A4 (evidence export). Answered 2026-11-21: results are Verified, In review, Not yet
-checked or Not applicable, never "failed"; the client's admins and the team members who work with
-an agent see its section 14; SOC 2 references as the criteria a control answers, never "meets".
+Built (`docs/plan.md` §1.181; PRs #514 for migration 0075 and the assurance PR): each agent's
+architecture drawn from its setup, 17 security checks of its setup and runs kept as history
+(`control_check`), nightly and on asking, every register control in its state, the data map, what
+goes to AI and access to each tool, as section 14 of the portal's SOP and a Security tab in the back
+office. Results are Verified, In review, Not yet checked or Not applicable, never "failed".
+
+Left:
+- **A3, attacks:** planted cases in the test bench with their pass rules; fixtures recorded with a
+  key. Owner: should an attack check in review hold the trial's start (recommended)?
+- **A4, evidence export:** per period, CSV and a printable page; the `/ops/security` rollup.
+- **Provider terms:** record each AI provider's retention and region from its terms in
+  `packages/core/src/assurance/terms.ts` (shown as "Not recorded yet" until then), and xAI's and
+  Google's training terms.
+- **Two checks:** no secret in a stored model request; OAuth scopes as granted.
+- **Retention policy:** the two rows added for run histories and our copies of AI requests
+  describe what already happens; the owner adopts them as policy.
 
 ### Sign-in codes and the Claude connector (owner, 2026-11-10)
 
