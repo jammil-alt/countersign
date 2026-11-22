@@ -81,6 +81,8 @@ export * from "./api/hours";
 export * from "./api/intake";
 // §1.164: the builder's sample-file check for a Read table step.
 export * from "./api/intake-reports";
+// docs/plan.md §1.217: the process interview
+export * from "./api/interviews";
 export * from "./api/invite";
 export * from "./api/knowledge";
 export * from "./api/language";
@@ -269,6 +271,8 @@ export * from "./i18n/threads";
 export * from "./i18n/timeline";
 export * from "./i18n/weekly";
 export * from "./ids";
+// docs/plan.md §1.217: the process interview
+export * from "./interview";
 export * from "./json";
 // v0.12 W2-G: agent KPIs
 export * from "./kpi/format";

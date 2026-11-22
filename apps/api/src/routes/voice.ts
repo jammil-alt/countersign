@@ -32,7 +32,7 @@ import {
   type Services,
 } from "../http";
 import { claimMetered } from "../metered";
-import { logTranscriptionCost, recordTranscriptionUsage } from "../voice-usage";
+import { recordOperatorTranscription, recordTranscriptionUsage } from "../voice-usage";
 
 /** The recording, refused unless a type a browser records and a size voice typing takes. */
 async function readRecording(c: AppContext): Promise<{ audio: Uint8Array; type: string }> {
@@ -110,18 +110,21 @@ export function voiceRoutes(app: Hono<AppEnv>): void {
     const t = transcriberOf(ctx.services, clientId);
     const recording = await readRecording(ctx.c);
     const transcription = await writeOut(t, recording);
-    // H5 (§1.196). DECISION: the back office's dictation is the operator's cost, logged with the
-    // person, the client named and the model, never written as a client's usage: the client didn't
-    // ask, as for the back office's questions (../voice-usage.ts, ../runs-ask/usage.ts).
-    logTranscriptionCost(
-      {
-        surface: "ops",
-        tenantId: clientId,
-        userId: ctx.session.user.id,
-        transcription,
-        recording: { type: recording.type, bytes: recording.audio.length },
-      },
-      "back office dictation",
+    // H5 (§1.196). DECISION: the back office's dictation is the operator's cost, never written
+    // as a client's usage: the client didn't ask, as for the back office's questions
+    // (../voice-usage.ts, ../runs-ask/usage.ts). §1.210: recorded as ours, on the client named.
+    await ctx.inTx((scoped) =>
+      recordOperatorTranscription(
+        scoped.tx,
+        {
+          surface: "ops",
+          tenantId: clientId,
+          userId: ctx.session.user.id,
+          transcription,
+          recording: { type: recording.type, bytes: recording.audio.length },
+        },
+        "back office dictation",
+      ),
     );
     return { text: transcription.text };
   });

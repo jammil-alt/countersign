@@ -37,7 +37,7 @@ describe.skipIf(!online)("0098 on a database the previous Worker used", () => {
     const created = await createTestDatabase({ migrate: false });
     if (!created) throw new Error("database vanished");
     t = created;
-    await migrateAsOwner(t.url, { upTo: "0095_metered_usage" });
+    await migrateAsOwner(t.url, { upTo: "0097_purge_lost_prospects" });
     A = await insertClient(t.db, "A");
     await migrateAsOwner(t.url);
     B = await insertClient(t.db, "B");

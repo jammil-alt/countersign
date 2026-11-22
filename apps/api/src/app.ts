@@ -103,6 +103,7 @@ import { gsheetsRoutes } from "./routes/gsheets";
 import { hookRoutes } from "./routes/hooks";
 import { hoursRoutes } from "./routes/hours";
 import { intakeRoutes } from "./routes/intake";
+import { interviewRoutesFor } from "./routes/interviews";
 import { inviteRoutes } from "./routes/invite";
 import { knowledgeRouteHandlers } from "./routes/knowledge";
 // v0.12 W2-C: the test bench, skill tests and the agent lab
@@ -340,6 +341,8 @@ export function createApp(deps: AppDeps = defaultDeps): Hono<AppEnv> {
   sloanReachRoutes(app);
   // §1.121: forms, "Request info": the public page's routes
   formRoutes(app);
+  // docs/plan.md §1.217: the process interview (its public page and the back office).
+  interviewRoutesFor(app);
   // docs/plan.md §1.101: Reggie, and the lead's requests on a client admin's Desk
   leadRequestRoutes(app);
   reggieRoutes(app);
