@@ -18,8 +18,9 @@ import type { DecidedNote, SettleItem, StepStatus } from "./types";
 // DECISION (owner, 2026-11-21: "allow it to be collapsed into a single line… the buttons take 4
 // lines", then "let's go to a collapse, half and full… find icons to make this not the tabs, make
 // it smaller"): the Builder's head is one line. Its name folds and opens it; two small icons choose
-// half or the whole panel; the previous and next step are beside them. The box-only size is gone:
-// it had no room for an answer. Folded, the setup has the whole panel and what was typed is kept.
+// half or the whole panel. The box-only size is gone: it had no room for an answer. Folded, the
+// setup has the whole panel and what was typed is kept. The previous and next step are the
+// panel's last line (owner, later that day: "move the previous and next steps to the bottom").
 export type BuilderSize = "line" | "beside" | "max";
 /** A size the Builder is drawn at: every one but folded. */
 export type BuilderOpenSize = Exclude<BuilderSize, "line">;
@@ -61,8 +62,12 @@ export interface StepPanelProps {
   /** The line it came from in the operator's list ("From your list: …"). */
   from?: string | null | undefined;
   status?: StepStatus | undefined;
-  /** How an open item is settled here (its answers, Fix, Draft it): the host's buttons. */
+  /** How an open item is settled here (its answers, Fix, Draft it): the host's one button. */
   itemActions?: ((item: SettleItem) => ReactNode) | undefined;
+  /** What settling it would do, in a line under the item ("The Builder drafts a fix…"). */
+  itemHint?: ((item: SettleItem) => string | null) | undefined;
+  /** "Show me where": the field the item is about, opened in the setup below. */
+  onShowItem?: ((item: SettleItem) => void) | undefined;
   /** Change on a settled item: opens it again. */
   onChangeItem?: ((item: SettleItem) => void) | undefined;
   /** Change on a default the Builder chose. */
@@ -80,7 +85,7 @@ export interface StepPanelProps {
   builderSize?: BuilderSize | undefined;
   defaultBuilderSize?: BuilderSize | undefined;
   onBuilderSize?: ((size: BuilderSize) => void) | undefined;
-  /** The step before and after this one, from the Builder's head; absent at the first or last. */
+  /** The step before and after this one, at the foot of the panel; absent at the first or last. */
   onPreviousStep?: (() => void) | undefined;
   onNextStep?: (() => void) | undefined;
   /** "Remove this step" (or "Remove this decision" with `removeLabel`). Absent: not offered. */
@@ -125,8 +130,10 @@ export function StepPanel(props: StepPanelProps) {
             hasBuilder && size === "beside" ? "flex-1 basis-1/2" : "flex-1",
           )}
         >
-          {status?.tried ? <Tried status={status} /> : null}
+          {/* Owner, 2026-11-21: "it should say on top what the issue(s) are and provide suggested
+              fixes": what is left to settle comes first, before the last try and the setup. */}
           <Settle {...props} />
+          {status?.tried ? <Tried status={status} /> : null}
           <Decided {...props} />
           {props.connections ? (
             <section className="flex flex-col gap-3" data-testid="flow-panel-connections">
@@ -178,33 +185,6 @@ export function StepPanel(props: StepPanelProps) {
             </button>
             {folded ? null : (
               <span className="flex shrink-0 items-center gap-0.5">
-                {props.onPreviousStep || props.onNextStep ? (
-                  <>
-                    <button
-                      type="button"
-                      className={HEAD_BUTTON}
-                      aria-label="Previous step"
-                      title="Previous step"
-                      data-testid="flow-panel-builder-previous"
-                      disabled={!props.onPreviousStep}
-                      onClick={() => props.onPreviousStep?.()}
-                    >
-                      <Icon name="chevron-right" size={14} className="rotate-180" />
-                    </button>
-                    <button
-                      type="button"
-                      className={HEAD_BUTTON}
-                      aria-label="Next step"
-                      title="Next step"
-                      data-testid="flow-panel-builder-next"
-                      disabled={!props.onNextStep}
-                      onClick={() => props.onNextStep?.()}
-                    >
-                      <Icon name="chevron-right" size={14} />
-                    </button>
-                    <span aria-hidden className="mx-1 h-4 w-px bg-line" />
-                  </>
-                ) : null}
                 {SIZES.map((s) => (
                   <button
                     key={s.size}
@@ -227,6 +207,36 @@ export function StepPanel(props: StepPanelProps) {
             {builder}
           </div>
         </section>
+      ) : null}
+      {props.onPreviousStep || props.onNextStep ? (
+        // Owner, 2026-11-21 ("move the previous and next steps to the bottom"): the way to the
+        // step before and after is the panel's last line, whatever the Builder's size.
+        <nav
+          aria-label="Other steps"
+          data-testid="flow-panel-steps"
+          className="flex shrink-0 items-center justify-between gap-2 border-t border-line px-3 py-1.5"
+        >
+          <button
+            type="button"
+            className="ds-btn ds-btn--ghost ds-btn--sm text-ink-muted hover:text-ink disabled:opacity-40"
+            data-testid="flow-panel-builder-previous"
+            disabled={!props.onPreviousStep}
+            onClick={() => props.onPreviousStep?.()}
+          >
+            <Icon name="chevron-right" size={14} className="rotate-180" />
+            Previous step
+          </button>
+          <button
+            type="button"
+            className="ds-btn ds-btn--ghost ds-btn--sm text-ink-muted hover:text-ink disabled:opacity-40"
+            data-testid="flow-panel-builder-next"
+            disabled={!props.onNextStep}
+            onClick={() => props.onNextStep?.()}
+          >
+            Next step
+            <Icon name="chevron-right" size={14} />
+          </button>
+        </nav>
       ) : null}
     </aside>
   );
@@ -307,6 +317,21 @@ function Tried({ status }: { status: StepStatus }) {
   );
 }
 
+/** "1 issue on this step", "2 issues and 1 question on this step". */
+function settleTitle(open: readonly SettleItem[]): string {
+  const issues = open.filter((i) => i.level === "issue").length;
+  const questions = open.length - issues;
+  const said = [
+    issues ? `${issues} ${issues === 1 ? "issue" : "issues"}` : null,
+    questions ? `${questions} ${questions === 1 ? "question" : "questions"}` : null,
+  ].filter(Boolean);
+  return `${said.join(" and ")} on this step`;
+}
+
+function hintOf(props: StepPanelProps, item: SettleItem): string | null {
+  return props.itemHint?.(item) ?? null;
+}
+
 function Settle(props: StepPanelProps) {
   const items = (props.status?.items ?? []) as SettleEntry[];
   if (items.length === 0) return null;
@@ -327,8 +352,8 @@ function Settle(props: StepPanelProps) {
             : "border-line bg-surface-subtle",
       )}
     >
-      <span className="eyebrow text-ink-muted">
-        {open.length ? "To settle on this step" : "Settled on this step"}
+      <span className="eyebrow text-ink-muted" data-testid="flow-panel-settle-title">
+        {open.length ? settleTitle(open) : "Settled on this step"}
       </span>
       {shown.map((item) =>
         isOpen(item) ? (
@@ -346,8 +371,28 @@ function Settle(props: StepPanelProps) {
               {item.title}
             </span>
             {item.detail ? <span className="text-sm text-ink-muted">{item.detail}</span> : null}
-            {props.itemActions ? (
-              <div className="flex flex-wrap gap-2">{props.itemActions(item)}</div>
+            {hintOf(props, item) ? (
+              <span
+                className="text-sm text-ink-muted"
+                data-testid={`flow-panel-item-${item.key}-hint`}
+              >
+                {hintOf(props, item)}
+              </span>
+            ) : null}
+            {props.itemActions || (props.onShowItem && item.source === "problem") ? (
+              <div className="flex flex-wrap items-center gap-3">
+                {props.itemActions?.(item)}
+                {props.onShowItem && item.source === "problem" ? (
+                  <button
+                    type="button"
+                    className="ds-btn ds-btn--link"
+                    data-testid={`flow-panel-item-${item.key}-show`}
+                    onClick={() => props.onShowItem?.(item)}
+                  >
+                    Show me where
+                  </button>
+                ) : null}
+              </div>
             ) : null}
           </div>
         ) : (

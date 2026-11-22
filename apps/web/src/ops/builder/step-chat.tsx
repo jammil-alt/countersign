@@ -4,6 +4,9 @@
 // change it, and see the change in the step's settings at once.
 // DECISION (v0.18): one conversation shared with the whole-flow Builder, not one per step, so what
 // was said about one step is there for the next; each operator turn says which step it was about.
+// Owner, 2026-11-21 ("hard to tell what the builder is talking about… threads per step?"): it is
+// shown as threads. This step's is open; what was said about other steps, or the whole workflow,
+// is a line each that opens on a click (./chat `Turns`, docs/plan.md §1.177).
 // F6 (docs/builder-plan.md §12.3, docs/plan.md §1.170): it sits under the step's setup in the side
 // panel, always there: half the panel ("beside"), all of it ("max"), or folded to one line
 // ("line"), as the panel's head chooses and this file remembers.
@@ -78,6 +81,7 @@ export function StepChat({
       <div className="relative flex min-h-0 min-w-0 flex-1 flex-col gap-3 overflow-y-auto overflow-x-hidden">
         <Turns
           turns={turns}
+          thread={{ stepId: step.id }}
           busy={session.busy}
           pending={session.pending}
           {...(session.inSync ? { onUndo: session.undo } : {})}

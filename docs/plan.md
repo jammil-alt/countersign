@@ -6382,6 +6382,53 @@ action, not just mark it... if it is an issue, just because I say it is closed d
 | Not built | The client as an owner: no step yet sends an item to the client and closes it by their answer (the requirements request asks the intake form's fields, not an item). Until there is one, "Client" is only set by the fit-gap's preconditions. |
 | Checked | `apps/api/src/build-settled-by-step.test.ts` (done by hand refused, a drop, a note done, the Builder's close left out; a put-off gap given to engineering then the Builder, closed by its change and opened by its undo; a test closed by a full passing run and not by a failing or partial one), `apps/web/src/ops/builds/closeout.test.tsx` and `builds.test.tsx` (no selects; Put off, Drop it, Reopen; Take it up on a put-off gap). The skill build's go-live closing has no test of its own. |
 
+### 1.178 A step's box: a badge, who does it, and a coloured top edge (owner, 2026-11-21; no migration)
+
+The owner, shown four step cards (A to D) and then four places for colour on D: "let's go with D2",
+and of the boxes filled with the copper tint, "what do the red cards mean?" He also asked for "the
+model that does it and the tools in small icons, like this step has Sonnet, Email, WhatsApp and
+Voice".
+
+| Topic | Decision |
+|---|---|
+| The box | 248 by 76 (it was 236 by 54). The kind is a badge on the top-left corner: its icon and a word or two (`badgeWord`: a write says "Change" or "Save", a skill "AI skill" or "Rules skill"; the full words are the badge's title, the box's name for a screen reader and the hover details). The name has two lines. The badge never passes the middle of the box, where the arrow from the step before arrives. // DECISION |
+| Who does it | At the right, behind a hairline: a chip with the model in a word ("Sonnet", its full name in the title), "code" for a step no model does, "person" for a person's (`boxDoer`). A model step whose model we can't name has no chip, never "code". With the chip there, the line under the name no longer says "runs on …". |
+| What it works through | Under the chip, small marks (`boxTools`): the connector's logo for a read or a write, the channel for a conversation or a person's step (the inbox, email, a text, WhatsApp's logo, a call). A conversation has one channel in the format, so one mark. A loop's and an automation's own buttons keep that place. |
+| The colour | The top edge, 3px, says whose work the step is (`boxFamily`), in the brand's colours only: ink for the agent's own work (a skill a model does), slate for a client's tool (the lighter `--data-seq-4` for a read, full slate for a write, which keeps its heavier border), copper for people (a person's step, a conversation, a notice), the strong line for rules, waits, loops, automations and hand-offs. Gold, red and green stay for waiting on you, issues and done. // DECISION |
+| The red cards | A person's step and a conversation were filled with the copper tint, which read as red beside a real issue. The fill is gone; copper is their edge and their badge. |
+| States | Unchanged: the border (selected, an issue) and the flags (top right, bottom right). The edge keeps its colour under them. "Customized" and "Added" moved from the top-left corner, which is the badge's, to the foot of the box. |
+| Icons | Today's, in the badge (`KIND_ICON`). The owner is choosing his own; they swap in there. |
+| Not done | The model of a conversation's turns (the agent's own, or the step's) isn't on its box yet: `stepModel` names a skill step's only. |
+| Checked | `apps/web/src/ops/flow/BoxMark.test.tsx` (the families, the doer, the tools, the badge's words), `Chart.test.tsx` (the badge, the side and the edge's class on the boxes; none on a decision), `layout.test.ts` (sizes by their constants). Looked at in a browser on the seeded Bill clerk, light and dark. |
+
+### 1.177 Times, reminders and schedules picked in words; the step panel says what is open (owner, 2026-11-21; no migration)
+
+The owner on the step panel and the trigger: "when there is an issue or decision for the step it
+should say on top what the issue(s) are and provide suggested fixes or options for the
+decisions… one button. Move the previous and next steps to the bottom… the reminders should be a
+time picker not an open field… 15, 30, 60 min, 2, 4, 6, 12 hours, 1, 2, 7 days and custom… the
+custom should have weeks, days, hours, minutes… add a how many times to remind them… What is the
+point of the /skills /automations etc in the Builder chat? It is hard to tell what the Builder is
+talking about, maybe we can keep threads per step? Maybe collapsible?… Schedule times should use
+human readable time and days and should include things like the first Monday of the month, or
+every other Monday or the third Thursday."
+
+| Topic | Decision |
+|---|---|
+| A wait is picked | Every wait in the builder (a person's deadline, an approver's, a second opinion's, a conversation's, an urgent notice's Seen, a wait step) is a list of the common times (15 and 30 minutes, 1, 2, 4, 6 and 12 hours, 1, 2 and 7 days) and Custom, with weeks, days, hours and minutes (`apps/web/src/ops/builder/duration.tsx`, `duration-parts.ts`). The format is unchanged: one number and one unit, so several units are stored in the smallest one filled ("1 day 12 hours" is "36 hours"). // DECISION |
+| Business hours | There a day is the same time on the next open day, not 24 working hours (§1.86), so a stored time is shown in its own unit and not spread over the others, and Custom says to fill one unit. |
+| Reminders | "Remind them": not at all, once, or 2 to 5 times, with how far apart ("After" for once, "Every" for more), and a line that says it back ("5 times, every 30 minutes: the last 2 hours 30 minutes after asking"). Stored as the format's `remind`, each reminder's time after the asking, so "3 times every hour" is 1, 2 and 3 hours. Five is the format's limit and stays. Times that aren't evenly apart ("1 hour, 4 hours") are kept and written under "At times I write". A reminder that would come after the wait ended is said. // DECISION |
+| A schedule is picked | `SchedulePicker` (`apps/web/src/ops/triggers`), in the builder's trigger panel, its new-workflow form and a client agent's Add a trigger: every day, every weekday, days of the week (every week, other week, 3 or 4 weeks), every month (a day, the last day, or the first to fourth or last weekday), every hour or few hours, each with a time of day and a zone by name ("Central Time"; another is typed), and the line "Runs: The third Thursday of every month at 2:30 PM, Central Time". Custom keeps the cron box for anything else. |
+| What is stored | Still a cron, read and written by core's `planOfSchedule` and `scheduleOfPlan` (`packages/core/src/triggers/schedule.ts`): "1#1" is the first Monday, "5L" the last Friday, "L" the last day, all of which the scheduler's cron-parser already ran. `cronText` and `scheduleText` say them in words everywhere a schedule is shown. |
+| Every other week | Cron cannot say it. The schedule trigger has an optional `every: { weeks: 2 to 8, from: a date }`: of the cron's ticks, only those in every `weeks`th week run, in whole weeks of seven days counted from `from` in the trigger's zone (the picker writes the Sunday that starts the week chosen). `dueSchedules` and `nextSchedules` (`packages/workflows/src/router.ts`) both apply it, before holidays. Optional, so stored versions parse and hash as before; no migration. // DECISION |
+| The Builder | Its rules name the three cron forms and `every`, so "every other Monday" in a request can be drafted. Not tried against a live model. |
+| What is open, first | On a step's panel the open items come before the last try and the setup, under a count ("1 issue and 1 question on this step"). Each has what it is, a suggested fix in a line (`FIX_HINT` in `flow/status.ts` for the common problems, else "let the Builder draft the fix"), one button (Fix it, or Say when for a path with no rule yet) and a quiet "Show me where" that opens the field. It was two buttons each. // DECISION |
+| Previous and next | The last line of the panel, in words ("Previous step", "Next step"), whatever the Builder's size; they were icons in the Builder's head and went away when it was folded. |
+| Threads | Still one conversation with the Builder (§1.105: what was said about one step is there for the next), shown as threads (`threadsOf` in `builder/chat.tsx`): each of the operator's turns and its answers are about the step it was sent from, or the whole workflow; an Undo joins the thread of the change it takes back. On a step, that step's thread is open and every other is one line ("On “Read the bill” · 4 messages") that opens on a click. On the whole-workflow panel the workflow's own turns and the newest thread are open. // DECISION |
+| The /commands | The chips `/skill`, `/automation` and `/trigger` start a draft of a new skill, automation or trigger by name. They are gone from the step's small box, where they were cut off and rarely fit the work; a command typed there still runs, and the whole-workflow panel keeps them. |
+| Not built here | A trigger that starts at its own step (the owner's bookkeeper: a nightly fetch, and a receipt that starts at the match). Today that is two workflows of one agent sharing an automation; a start of its own inside one chart needs the run to know which trigger began it. Asked of the owner. A preview of an AI step's prompt, also asked. |
+| Checked | Core `triggers/schedule.test.ts` (words, plans both ways, the week count), `packages/workflows/src/router.test.ts` (every other Monday runs, skips and runs; what comes next agrees; the first Monday), web `duration-parts.test.ts`, `chat.test.tsx` (threads, the chips), `WorkflowBuilder.test.tsx` (a custom wait and reminders saved), `TriggersScreen.test.tsx` (the third Thursday, then every other Monday, saved), `StepPanel.test.tsx`, `step-chat.builder.test.tsx`. Looked at in a browser on the seeded Bill clerk. |
+
 ### 1.176 The Builder in the step panel: the conversation has the room (owner, 2026-11-21; no migration)
 
 The owner on the step panel (staging feedback): "there is too much lost space here… in the whole

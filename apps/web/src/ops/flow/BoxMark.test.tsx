@@ -2,7 +2,16 @@
 // the gear on a skill, a person's icon in copper, and the key that says what each one means.
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
-import { BoxMark, boxMark, chartKey } from "./BoxMark";
+import {
+  BoxMark,
+  badgeWord,
+  boxDoer,
+  boxFamily,
+  boxMark,
+  boxTools,
+  chartKey,
+  modelShort,
+} from "./BoxMark";
 import type { Step } from "./types";
 
 const step = (kind: string, over: Record<string, unknown> = {}) =>
@@ -102,5 +111,65 @@ describe("chartKey", () => {
       ["settings", "Runs by rules, no model"],
       ["lead", "A person does this"],
     ]);
+  });
+});
+
+// D2 (owner, 2026-11-21, "let's go with D2"; docs/plan.md §1.178): the colour of whose work a
+// step is, who does it, and what it works through.
+describe("a box's family, doer and tools", () => {
+  it("sorts every kind into whose work it is", () => {
+    expect(boxFamily(step("skill"), { skillKind: "AI" })).toBe("agent");
+    expect(boxFamily(step("skill"), { skillKind: "Deterministic" })).toBe("rules");
+    expect(boxFamily(step("read"))).toBe("read");
+    // A write is a write, whoever does it: the edge says a client's tool changes.
+    expect(boxFamily(step("write"), { skillKind: "AI" })).toBe("write");
+    for (const kind of ["person", "conversation", "notify"]) {
+      expect(boxFamily(step(kind))).toBe("people");
+    }
+    for (const kind of ["wait", "for_each", "repeat", "process", "handoff", "missing"]) {
+      expect(boxFamily(step(kind))).toBe("flow");
+    }
+  });
+
+  it("names the model in a word, else code or a person, and nothing for plumbing", () => {
+    expect(modelShort("claude-sonnet-5-5")).toBe("Sonnet");
+    expect(modelShort("claude-haiku-5-5")).toBe("Haiku");
+    expect(modelShort("openai:gpt-5")).toBe("GPT");
+    expect(modelShort("some-model")).toBe("some-model");
+    expect(boxDoer(step("skill"), { model: "claude-sonnet-5-5", skillKind: "AI" })).toEqual({
+      word: "Sonnet",
+      title: "Runs on claude-sonnet-5-5",
+      model: true,
+    });
+    expect(boxDoer(step("skill"), { skillKind: "Deterministic" })?.word).toBe("code");
+    expect(boxDoer(step("read"))?.word).toBe("code");
+    expect(boxDoer(step("person"))?.word).toBe("person");
+    // A model does it but we don't know which: no chip, never "code".
+    expect(boxDoer(step("skill"), { skillKind: "AI" })).toBeNull();
+    expect(boxDoer(step("wait"))).toBeNull();
+    expect(boxDoer(step("notify"))).toBeNull();
+  });
+
+  it("lists what a step works through: its connector, or its channel", () => {
+    expect(boxTools(step("write"), { connector: QBO })).toEqual([
+      { key: "qbo", name: "QuickBooks Online", connector: "qbo" },
+    ]);
+    expect(boxTools(step("read"))).toEqual([]);
+    expect(boxTools(step("conversation", { channel: "whatsapp" }))).toEqual([
+      { key: "whatsapp", name: "WhatsApp", connector: "whatsapp_meta" },
+    ]);
+    expect(boxTools(step("conversation", { channel: "call" }))[0]?.icon).toBe("phone");
+    expect(boxTools(step("person", { channel: "inbox" }))[0]?.icon).toBe("desk");
+    expect(boxTools(step("wait"))).toEqual([]);
+  });
+
+  it("keeps the badge to a word or two", () => {
+    expect(badgeWord(step("write"), { kind: "Change in QuickBooks Online" })).toBe("Change");
+    expect(badgeWord(step("write"), { kind: "Save to records" })).toBe("Save");
+    expect(badgeWord(step("skill"), { kind: "Skill · AI", skillKind: "AI" })).toBe("AI skill");
+    expect(
+      badgeWord(step("skill"), { kind: "Skill · Deterministic", skillKind: "Deterministic" }),
+    ).toBe("Rules skill");
+    expect(badgeWord(step("person"), { kind: "Person" })).toBe("Person");
   });
 });

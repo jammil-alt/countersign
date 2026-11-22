@@ -24,10 +24,11 @@ export const FLOW_START_ID = "flow:start";
 /** The end box's id: what the flow gives back. */
 export const FLOW_GIVES_BACK_ID = "flow:gives-back";
 
-// 24px wider than its first 212, for the mark at the box's left (./BoxMark), so a title keeps
-// about the room it had.
-export const BOX_W = 236;
-export const BOX_H = 54;
+// DECISION (owner, 2026-11-21, "let's go with D2"; docs/plan.md §1.178): a box is 248 by 76. Its
+// kind is a badge on its top-left corner, and the model and tools sit at its right, so the name
+// has two lines in the room that is left. It was 236 by 54 with the name on one line.
+export const BOX_W = 248;
+export const BOX_H = 76;
 export const DIAMOND_W = 168;
 export const DIAMOND_H = 84;
 export const STOP_W = 108;

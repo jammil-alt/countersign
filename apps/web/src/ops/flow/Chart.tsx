@@ -33,7 +33,17 @@ import { Icon } from "../../ui/icons";
 import { cx, pillClass, type Tone } from "../../ui/primitives";
 import { containersWithin, type Step } from "../builder/model";
 import { PROCESS_KIND_LABEL, processStepDetail } from "../workflow/describe";
-import { BoxMark, type BoxMarkSpec, boxMark, chartKey } from "./BoxMark";
+import {
+  BoxMark,
+  type BoxMarkSpec,
+  badgeWord,
+  boxDoer,
+  boxFamily,
+  boxMark,
+  boxTools,
+  chartKey,
+  kindIcon,
+} from "./BoxMark";
 import {
   boxDragId,
   dotDragId,
@@ -596,6 +606,18 @@ function StepBox(p: {
   const canDot = !readOnly && !box.unreachable && kind !== "if" && kind !== "stop";
   // What it is at a glance: its connector's logo, "AI", or its kind's icon (./BoxMark).
   const glyph = box.shape === "box" ? boxMark(step, words) : null;
+  // D2 (docs/plan.md §1.178): whose work it is (the top edge's colour), who does it and what it
+  // works through (the chip and the small marks at the right). A loop's or an automation's own
+  // buttons sit there instead.
+  const family = glyph ? boxFamily(step, words) : null;
+  const grouped = box.fold !== undefined || kind === "process";
+  const doer = glyph && !grouped ? boxDoer(step, words) : null;
+  const tools = glyph && !grouped ? boxTools(step, words) : [];
+  const badgeIcon = glyph?.type === "connector" ? kindIcon(step) : null;
+  // The chip says the model, so the line under the name doesn't say it again.
+  const under = doer?.model
+    ? (words.detail ?? "").replace(/(^| · )runs on [^·]+$/, "").trim()
+    : (words.detail ?? "");
 
   const t = drag.transform;
   const style = {
@@ -633,6 +655,7 @@ function StepBox(p: {
         box.shape === "pill" && "flow-box--pill",
         box.shape === "diamond" && "flow-box--diamond",
         glyph && "flow-box--marked",
+        family && `flow-box--by-${family}`,
         box.fold && "has-fold",
         issues > 0 || status?.level === "issue" ? "has-issue" : null,
         selected && "is-sel",
@@ -652,17 +675,79 @@ function StepBox(p: {
         <span className="flow-box__t">{words.title}</span>
       ) : (
         <>
-          {glyph ? <BoxMark mark={glyph} testId={`flow-mark-${step.id}`} /> : null}
+          {glyph ? (
+            <span
+              className="flow-box__badge"
+              title={words.kind}
+              data-testid={`flow-badge-${step.id}`}
+            >
+              {glyph.type === "connector" ? (
+                // The connector's logo is at the right, with the tools; the badge says the kind.
+                <span className="flow-box__mark flow-box__mark--badge" aria-hidden>
+                  {glyph.ai ? "AI" : badgeIcon ? <Icon name={badgeIcon} size={14} /> : null}
+                </span>
+              ) : (
+                <BoxMark mark={glyph} size="badge" testId={`flow-mark-${step.id}`} />
+              )}
+              <span className="flow-box__kind">{badgeWord(step, words)}</span>
+            </span>
+          ) : null}
           <span className="flow-box__text">
             <span className="flow-box__t">
               {box.number ? <span className="flow-box__n">{box.number}</span> : null}
               {words.title}
             </span>
-            <span className="flow-box__s">
-              <b>{words.kind}</b>
-              {words.detail ?? ""}
-            </span>
+            {glyph ? (
+              under ? (
+                <span className="flow-box__s">{under}</span>
+              ) : null
+            ) : (
+              <span className="flow-box__s">
+                <b>{words.kind}</b>
+                {words.detail ?? ""}
+              </span>
+            )}
           </span>
+          {doer || tools.length > 0 ? (
+            <span className="flow-box__side" data-testid={`flow-side-${step.id}`}>
+              {doer ? (
+                <span
+                  className={cx("flow-box__doer", !doer.model && "flow-box__doer--none")}
+                  title={doer.title}
+                  data-testid={`flow-doer-${step.id}`}
+                >
+                  {doer.word}
+                </span>
+              ) : null}
+              {tools.length > 0 ? (
+                <span className="flow-box__tools">
+                  {tools.map((tool) =>
+                    glyph?.type === "connector" && tool.connector === glyph.id ? (
+                      <BoxMark
+                        key={tool.key}
+                        mark={glyph}
+                        size="tool"
+                        testId={`flow-mark-${step.id}`}
+                      />
+                    ) : (
+                      <span
+                        key={tool.key}
+                        className="flow-box__mark flow-box__mark--tool"
+                        title={tool.name}
+                        data-tool={tool.key}
+                      >
+                        {tool.connector ? (
+                          <ConnectorMark name={tool.name} connector={tool.connector} size="xs" />
+                        ) : tool.icon ? (
+                          <Icon name={tool.icon} size={14} />
+                        ) : null}
+                      </span>
+                    ),
+                  )}
+                </span>
+              ) : null}
+            </span>
+          ) : null}
         </>
       )}
       {box.fold ? (

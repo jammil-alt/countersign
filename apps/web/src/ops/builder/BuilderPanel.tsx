@@ -202,6 +202,7 @@ export function BuilderPanel({ session }: { session: BuilderSession }) {
       <div className="relative flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto pb-4">
         <Turns
           turns={turns}
+          thread={{ stepId: null }}
           busy={session.busy}
           pending={session.pending}
           {...(session.inSync ? { onUndo: session.undo } : {})}

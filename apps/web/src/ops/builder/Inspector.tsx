@@ -27,6 +27,7 @@ import {
 import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { Icon } from "../../ui/icons";
 import { Button, cx } from "../../ui/primitives";
+import { SchedulePicker } from "../triggers/SchedulePicker";
 import { actionKindLabel, PROCESS_KIND_LABEL } from "../workflow/describe";
 import { toolLabel, whenEvent } from "../workflow/labels";
 // P-4
@@ -43,6 +44,7 @@ import { ChecksPanel, NotifyEditor } from "./checks";
 import { ConnectionsSection, type MoveRequest } from "./connections-step";
 import { CustomizeSection } from "./customize";
 import { DeadlineEditor } from "./deadline";
+import { DurationPicker } from "./duration";
 import {
   EventOptions,
   type FieldErrors,
@@ -1070,14 +1072,14 @@ function KindFields(
       );
     case "wait":
       return (
-        <Row label="Wait for" field="for" errors={fieldErrors} hint='e.g. "2 hours" or "3 days"'>
-          <SmallInput
-            data-field="for"
-            data-testid="builder-wait-for"
-            value={step.for}
-            onChange={(e) => set("for", (s) => ({ ...s, for: e.target.value }) as Step)}
-          />
-        </Row>
+        <DurationPicker
+          label="Wait for"
+          field="for"
+          testId="builder-wait-for"
+          errors={fieldErrors}
+          value={step.for}
+          onChange={(value) => set("for", (s) => ({ ...s, for: value }) as Step)}
+        />
       );
     // A read-only card for the process, and its input as a form from its schema (docs/plan.md
     // §1.45). The process's own steps are not in the bundle.
@@ -1794,27 +1796,19 @@ function TriggerInspector(props: InspectorProps & { trigger: Trigger }) {
         </>
       ) : null}
       {on.type === "schedule" ? (
-        <div className="grid grid-cols-2 gap-3">
-          <Row label="Cron" field="on.cron" errors={fieldErrors} hint="e.g. 0 7 * * 1-5">
-            <SmallInput
-              data-field="on.cron"
-              data-testid="builder-trigger-cron"
-              value={on.cron}
-              className="font-mono"
-              onChange={(e) => set({ ...on, cron: e.target.value }, "trigger:cron")}
-            />
-          </Row>
-          <Row label="Time zone" field="on.tz" errors={fieldErrors} hint="Empty: the client's">
-            <SmallInput
-              data-field="on.tz"
-              value={on.tz ?? ""}
-              onChange={(e) => {
-                const { tz: _tz, ...rest } = on;
-                set(e.target.value ? { ...rest, tz: e.target.value } : rest, "trigger:tz");
-              }}
-            />
-          </Row>
-        </div>
+        // Owner, 2026-11-21 (docs/plan.md §1.177): how often, which days and what time, picked;
+        // the cron it stores is under Custom.
+        <SchedulePicker
+          small
+          testId="builder-trigger-schedule"
+          cronTestId="builder-trigger-cron"
+          value={on}
+          cronError={fieldErrors.at("on.cron")[0]}
+          onChange={(next) => {
+            const { cron: _c, tz: _tz, every: _e, ...rest } = on;
+            set({ ...rest, ...next } as TriggerOn, "trigger:schedule");
+          }}
+        />
       ) : null}
       {on.type === "manual" ? (
         <Row label="Input (JSON Schema)" field="on.input" errors={fieldErrors}>
