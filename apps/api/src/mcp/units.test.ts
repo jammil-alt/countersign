@@ -5,7 +5,12 @@ import { describe, expect, it } from "vitest";
 import type { Bindings } from "../env";
 import { authKitServer } from "./authorization-server";
 import { mcpStateOf } from "./config";
-import { memoryRateLimiter, rateLimiterFor } from "./limits";
+import {
+  INBOUND_TARGET_PER_MINUTE,
+  memoryRateLimiter,
+  rateLimiterFor,
+  targetRateLimiterFor,
+} from "./limits";
 import { clip, dataResult, REDACTED, safeJson, scrubSecrets, UNTRUSTED_CLOSE } from "./output";
 
 describe("output", () => {
@@ -121,6 +126,48 @@ describe("rate limiter binding failures", () => {
     await limiter.allow("k");
     expect(reports.map(([n]) => n)).toEqual([1, 5]);
     expect(String(reports[1]?.[1])).toContain("binding down");
+  });
+});
+
+describe("the inbound limit per target", () => {
+  it("uses its own binding, never the MCP one", async () => {
+    const keys: string[] = [];
+    const env = {
+      MCP_RATE_LIMIT: {
+        limit: async () => {
+          throw new Error("not this one");
+        },
+      },
+      INBOUND_TARGET_RATE_LIMIT: {
+        limit: async ({ key }: { key: string }) => {
+          keys.push(key);
+          return { success: keys.length <= 1 };
+        },
+      },
+    } as unknown as Bindings;
+    const reports: number[] = [];
+    const limiter = targetRateLimiterFor(env, { report: (n) => reports.push(n) });
+    expect(await limiter.allow("in:target:a")).toBe(true);
+    expect(await limiter.allow("in:target:a")).toBe(false);
+    expect(keys).toEqual(["in:target:a", "in:target:a"]);
+    expect(reports).toEqual([]);
+  });
+
+  it("falls back to the isolate's window, at its own limit, when the binding fails", async () => {
+    const env = {
+      INBOUND_TARGET_RATE_LIMIT: {
+        limit: async () => {
+          throw new Error("binding down");
+        },
+      },
+    } as unknown as Bindings;
+    const reports: number[] = [];
+    const limiter = targetRateLimiterFor(env, { report: (n) => reports.push(n), now: () => 0 });
+    const key = `in:target:${crypto.randomUUID()}`;
+    let passed = 0;
+    for (let i = 0; i < INBOUND_TARGET_PER_MINUTE + 5; i++) if (await limiter.allow(key)) passed++;
+    expect(passed).toBe(INBOUND_TARGET_PER_MINUTE);
+    expect(reports).toEqual([1]);
   });
 });
 
