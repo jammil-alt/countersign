@@ -1,8 +1,7 @@
-# Reporting: runs, agents and accounts, searched by their data (proposed, 2026-11-22)
+# Reporting: runs, agents and accounts, searched by their data (agreed, 2026-11-22)
 
-A proposal, not built. It extends the runs lists (ARCHITECTURE §10.10) and search and plain-words
-questions (§11.6). Owner questions are in §5; R1 waits on the first one. When it is built it takes
-the next `docs/plan.md` §1 number and the next free migration number.
+Agreed by the owner on 2026-11-22 (§5). It extends the runs lists (ARCHITECTURE §10.10) and search
+and plain-words questions (§11.6). R1 is `docs/plan.md` §1.188, migration 0077.
 
 ## 1. What we have
 
@@ -125,12 +124,11 @@ CSV on both surfaces.
   sortable. "Needs us" comes first: something waiting past a day, a failed run nobody has looked at,
   a broken connection or an allowance nearly used. Each figure opens what is behind it.
 
-### R6. Saved views for clients, and reports by email
+### R6. Saved views for clients
 
 - The portal gets saved views (`portal_runs` already exists in the schema). A view belongs to its
   person; a client admin can share one with the client's team.
-- A saved view or a report can be emailed weekly or monthly to people the client picks. It goes
-  through the weekly Table's sender and uses the same quiet hours.
+- Reports by email: not now (§5, answer 5). Built per agent as they come up.
 
 ### Later, not in R1 to R6
 
@@ -148,20 +146,19 @@ is the safe way to do it. It is not a free-form JSON path.
 | R3 | The Runs panel on record pages, both surfaces. | M |
 | R4 | The agent report: routes, screens, CSV. | L |
 | R5 | The account report and `/ops/accounts`. | L |
-| R6 | Portal saved views; reports by email. Migration if a view gets shared. | M |
+| R6 | Portal saved views. Migration if a view gets shared. | M |
 
 Contract tests for every portal route here: no cost, no bundle, no instructions, nothing from a
 step the client's timeline doesn't show, and only one client (invariants 1 and 11).
 
-## 5. Questions for the owner
+## 5. The owner's answers (2026-11-22)
 
-1. **May clients search their runs by vendor, customer and document number?** We recommend yes,
-   limited to what their timeline already shows. R1 waits on this answer, because it decides
-   whether `client_visible` is needed.
-2. **Is the per-agent report the same on both surfaces, apart from cost and errors?** We recommend
-   yes. One report is less to keep right.
-3. **On `/ops/accounts`, what counts as "needs us"?** We suggest: something waiting more than a
-   day, a failed run nobody looked at, a broken connection, or an allowance over 80%.
-4. **Should money totals show on the client's agent report?** For example, "$48,210 of bills
-   entered". We recommend yes, per currency, since it leads with the result.
-5. **Should reports go out by email now (R6), or later?**
+1. **Clients search their runs by vendor, customer and document number: yes**, limited to what
+   their timeline already shows (`client_visible`).
+2. **The agent report is the same on both surfaces**, apart from cost and errors: yes.
+3. **"Needs us" on `/ops/accounts`** (owner: we decide): something waiting more than a day, a
+   failed run nobody has looked at, a connection that needs attention (`error` or
+   `refresh_failing`), or an allowance over 80% used. // DECISION
+4. **Money totals on the client's agent report: yes**, per currency.
+5. **Reports by email: not yet.** We build them per agent as they come up. R6 is the portal's saved
+   views only.

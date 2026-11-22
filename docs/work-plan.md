@@ -54,7 +54,7 @@ Bookkeeping stays off for clients until C1.1 and C1.2 merge and K1–K5 are walk
 
 ### C3. Reporting and search by data (new: `docs/reporting-plan.md`)
 
-R1 to R6 in that page's order. R1's migration is its own PR. Owner questions in its §5 first.
+R1 to R6 in that page's order. R1's migration is its own PR. The owner answered its §5 on 2026-11-22.
 
 ### C4. Pre-launch hardening and compliance (`open.md` §4; each **parallel**)
 
@@ -128,8 +128,7 @@ Steps that take days or weeks to come back are marked **start now**.
 
 **Decisions, best answered in one sitting:** the buyer's four (§1.3), K6 (Plaid's price, the auto
 threshold, learned rules), SOP-Q, the builder's §11.5 if not settled by #498, G13, M7 and M10, the
-billing prices and allowances, the name pool, Sloan's words on the site, and the five questions in
-`docs/reporting-plan.md` §5.
+billing prices and allowances, the name pool, Sloan's words on the site.
 
 ## The next two days
 
