@@ -46,7 +46,7 @@ Bookkeeping stays off for clients until C1.1 and C1.2 merge and K1–K5 are walk
 
 | # | What | Size | Done when |
 |---|---|---|---|
-| C2.1 | **Migration: `vendor_item`** (`plan.md` §1.88): each vendor's items for the client, with pack size, unit conversion, last price and preferred vendor. Tenant RLS. Its own PR. | S | Applies on a copy of staging; the previous Worker still works. |
+| C2.1 | **Migration: `vendor_item`** (`plan.md` §1.88): each vendor's items for the client, with pack size, unit conversion, last price and preferred vendor. Tenant RLS. Its own PR. | S | Already built: migration 0047 (found 2026-11-22; `open.md` was stale). |
 | C2.2 | **The vendor catalog's code**: filled from the bill-price import and from quotes; matching reads its pack size and conversion (fewer lines held since §1.144); the vendor pick prefers the preferred vendor; a screen in the Materials pack. | L | The purchasing email test passes with a line that matched only through `vendor_item`. |
 | C2.3 | **Replies from a colleague's address.** Today they are dropped. Keep them on the thread as unverified for a person to enter, as late replies already are (§1.129). Never answer the reach-out from them. | S | Test: a reply from another address at the vendor waits on the thread. |
 | C2.4 | **QuickBooks item ids on PO lines**: a catalog item tied to its QuickBooks item, so PO lines can be item lines. After C2.2. | M | A PO with one item line and one account line. |
@@ -141,12 +141,13 @@ Several sessions at once, one item each:
 
 ## Progress
 
-Tick each one as it merges.
+Tick each one as it merges. Round 1 (2026-11-22): C1.1–C1.3 #525, C2.2 #529, C4.1 #526, C4.2 #527,
+C4.8 #531, R1's migration #524.
 
 - [x] C0.1 [x] C0.2 [ ] C0.3 [x] C0.4
-- [ ] C1.1 [ ] C1.2 [ ] C1.3
-- [ ] C2.1 [ ] C2.2 [ ] C2.3 [ ] C2.4 [ ] C2.5
+- [x] C1.1 [x] C1.2 [x] C1.3
+- [x] C2.1 [x] C2.2 [ ] C2.3 [ ] C2.4 [ ] C2.5
 - [ ] R1 [ ] R2 [ ] R3 [ ] R4 [ ] R5 [ ] R6
-- [ ] C4.1 [ ] C4.2 [ ] C4.3 [ ] C4.4 [ ] C4.5 [ ] C4.6 [ ] C4.7 [ ] C4.8 [ ] C4.9 [ ] C4.10 [ ] C4.11
+- [x] C4.1 [x] C4.2 [ ] C4.3 [ ] C4.4 [ ] C4.5 [ ] C4.6 [ ] C4.7 [x] C4.8 [ ] C4.9 [ ] C4.10 [ ] C4.11
 - [ ] C5.1 [ ] C5.2 [ ] C5.3
 - [ ] C6 [ ] C7 [ ] C8

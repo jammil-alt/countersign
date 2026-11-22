@@ -7,13 +7,13 @@ source for the details; this page says what is left and in what order. Priority 
 the rest.**
 
 **The order we work it in** (2026-11-22): `docs/work-plan.md`, one item and one PR at a time,
-code and the owner's steps side by side. Reporting and searching runs by their data is proposed
+code and the owner's steps side by side. Reporting and searching runs by their data is agreed
 in `docs/reporting-plan.md`.
 
 ## Where things stand
 
-- **Built:** everything through M69 (`docs/plan.md` §4) and the work recorded through §1.184,
-  migrations through 0075, merged to `main` and deployed to staging. That includes purchasing end
+- **Built:** everything through M69 (`docs/plan.md` §4) and the work recorded through §1.192,
+  migrations through 0077, merged to `main` and deployed to staging. That includes purchasing end
   to end by email (M42), the Marketing wave (M43–M50), the Bookkeeping area (M51–M57), the back
   office's Sales, onboarding and Build (M64–M69), the SOP and agent assurance.
 - **Every provider is built against a fake.** Nothing has yet run against live QuickBooks, Gmail,
@@ -94,8 +94,9 @@ emailed and the QuickBooks purchase order is created; every write is approved on
 - RFQs are English only; the vendor's language is open.
 - QuickBooks PO lines are account lines only (catalog items carry no QuickBooks item id).
 - The portal channel for conversations (§1.66).
-- **The vendor catalog** (`vendor_item`, plan §1.88): each vendor's items for the client with pack size,
-  unit conversion, last price and preferred vendor. Planned; one migration.
+- **The vendor catalog** is built (`vendor_item`, migration 0047, §1.88) and purchasing reads and
+  fills it (§1.189, #529). Open: a request line doesn't keep which vendor item it matched, so a
+  request in boxes isn't sized by that vendor's box when quotes are compared.
 
 ## 1b. The Bookkeeper (bank transactions into QuickBooks)
 
@@ -105,8 +106,9 @@ QuickBooks with notes on what each account is for, the Bookkeeping pack, the Qui
 and reconciliation (§1.80, M57: each linked account against QuickBooks monthly, a deposit against
 its payout statement, signed off on a card).
 
-**Bookkeeping stays off for clients** (PR #401, `docs/plan.md` §1.145). Two paths can still write
-the same money twice. Neither is new: before #401 every re-send wrote both copies.
+**Bookkeeping stays off for clients** until the steps below are walked. The two double-write paths
+§1.145 left open are closed by Bookkeeper template v6 (§1.187, #525), reaching client agents only
+through the reviewed update. What was open:
 
 1. **Two signatures.** The earlier copy's write was already laid out for a signature when the bank
    sent the transaction again, and a person then also approves the new copy. Closing it needs a
@@ -114,7 +116,9 @@ the same money twice. Neither is new: before #401 every re-send wrote both copie
 2. **Unrecorded deposits and transfers.** A deposit or transfer written but never recorded (the run
    stopped after the write). These don't sync back from QuickBooks, so the guard can't see them.
 
-Code, before any client's Bookkeeping is switched on. Then, to go live:
+Both are fixed in code. Before a client's Bookkeeping is switched on, run `qbo/NOTES.md`'s
+"Booking bank transactions" check 6 (the same-day query by the transaction's mark) with K4. Then,
+to go live:
 
 | # | Step | Notes |
 |---|---|---|
@@ -319,8 +323,8 @@ PRs #384–#414 closed the launch audit's findings for the first clients. What t
 | H5 | **Transcription records no usage**: voice typing's model calls have no cost or usage row. | Code | §1.139. They are limited per person (a call per segment of live dictation: 30 a minute, 1,500 a day). |
 | H6 | **"Who is asking" on the Claude approval page**: the Claude client's name and where the request came from. | Migration on `mcp_session_approval`, then code | §1.130. Today the page shows when Claude asked and takes Claude's code. |
 | H7 | **The portal's resume screen** doesn't show the events that arrived while an agent was paused (`missedEvents`); the back office's go-live panel does. | Code, copy in six languages | §1.137. |
-| H8 | **`refresh_failing` connections** show as connected with an open finding; the ops MCP's `needsAttention` and the daily troubled list count only `status = 'error'`, so they don't list them. LinkedIn's and HubSpot's dead-grant codes come from their docs, not a live call. | Code; check live | §1.134. |
-| H9 | **The web app's first load**: load each language's wording on demand, to bring it back under the old 470 kB. | Code | §1.146. 490 kB now; each screen loading only its own routes (audit 4.6) helps too. |
+| H8 | **`refresh_failing` connections**: counted in the ops MCP's `needsAttention` and the daily troubled list since #527. Open: LinkedIn's and HubSpot's dead-grant codes come from their docs, not a live call. | Check live | §1.134. |
+| H9 | ~~The web app's first load~~ Done (#531, §1.192): 344 kB, budget 351 kB. Next toward 300 kB: each portal screen on its own, the route contract split per screen, English on demand. | Code | audit 4.6 |
 | H10 | **Texting edge cases**: a brand-new number submitted twice at once can hit the contact phone index and get a 500 (as before #411); after an invitation is used up by a skipped submit, the link still shows the form, and submitting it gives 409 `used`. | Code, small | §1.142. |
 
 ### The phone app (owner, 2026-11-13; `docs/plan.md` §1.116, `apps/mobile/README.md`)
@@ -509,8 +513,8 @@ Left:
 
 ### HIPAA, SOC 2 and PCI (`docs/hipaa-plan.md`)
 
-- Technical: **T1** (the MCP server doesn't check HIPAA mode) is a small code change worth doing
-  before a HIPAA client. **T2** is done: every model call outside a run,
+- Technical: **T1** is done: the MCP server refuses a client in HIPAA mode until claude.ai is
+  covered (§1.190, #526). **T2** is done: every model call outside a run,
   the Builder's included, goes through one entry point held to the clients' HIPAA mode
   (`docs/plan.md` §1.143). T3 (clients' own audit log page) next; T4–T10 are notes or later.
 - **Before any BAA is recorded** (PR #414): check that `BAA_PROCESSORS` is empty on production and
