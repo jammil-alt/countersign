@@ -6691,6 +6691,20 @@ G5 (`docs/builder-plan.md` B3, §1.153, §1.155): the manual's known risks are n
 | Not built | Revisions and conversation turns still list gaps without steps. Only Draft it now records gaps as items on steps. |
 | Checked | agents `builder/builder.test.ts` (`gapStepsNamed`); apps/api `build-draft-now.test.ts` (a gap on the step the drafter named with no shared words, and the word match for a step it named wrongly and for one it didn't name). |
 
+#### 1.231.10 An issue and its skill build, linked both ways; code requests to the Dev queue (S-E; no migration)
+
+§1.125 and §1.169 settle an issue three ways from the issue. "Build a skill" starts a skill build of its own, and "Needs code" files or links a Dev queue request. The build's page linked to neither.
+
+| Topic | Decision |
+|---|---|
+| The link | The issue's item's `ref.buildId`, which `draftSkill` already writes (on the issue's own item, or on a gap item it adds when no issue is named). It is read both ways. No column and no `origin` kind: `build_origin_kind_check` would need a migration. // DECISION |
+| Back from the skill build | `startedFrom` is the first item, by creation, that names the build, together with that item's build. It is read only for a skill build. // DECISION |
+| Scope | Linked only between builds of the same client, or between two builds for everyone, as `draftSkill` starts them. // DECISION |
+| Words | "Its skill build: Match answers to tasks (Draft)", "Needs code: DQ-012 in the Dev queue", "Started from the issue “…” in <build>". A closed skill build reads Live or Stopped. |
+| The Dev queue link | `/ops/utilities/feedback?tab=dev-queue&request=DQ-012`, the path the chart already uses (§1.170). It appears on an item that waits on a request, and on a draft problem whose step waits on one. |
+| Web size | No new screen: the links are on the build page, which already loads. `devQueuePath` has its own module so the page doesn't pull in the chart's. |
+| Not built | The new chart's step panel already links a code request (F6), but doesn't show the skill build yet. |
+
 #### 1.231.11 SOP-W: the workflow chart in the reader's language (#578)
 
 **SOP-W: the workflow chart in the reader's language.** The client's Workflow tab (`docs/sop-plan.md` §6a) draws the builder's chart. Its boxes already carried the SOP's words. The chart's own words (zoom, "Otherwise", a path's and a loop's words, the chips and marks, the tip) were still English. They now come from `flow.*` keys in `apps/web/src/i18n/messages/*`.

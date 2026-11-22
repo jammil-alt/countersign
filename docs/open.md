@@ -478,7 +478,7 @@ Left:
   project (Google's no-training holds only for paid services).
 - ~~Two checks~~ Built (Wave Y, #592, §1.231.2): no secret in a stored model request; OAuth scopes as
   granted. K21 stays Not yet checked for QuickBooks-bound agents: Intuit doesn't return the
-  granted scope.
+  granted scope. **Owner:** accept that Intuit grants exactly what we ask, or leave K21 open.
 - **Retention policy:** the two rows added for run histories and our copies of AI requests
   describe what already happens; the owner adopts them as policy.
 
@@ -570,6 +570,8 @@ Close pack (§1.232, migration 0099, #575 and #583); the AP pack (§1.233, migra
 - **The statement (§1.234).** The PDF goes in our own email over Resend to the billing address with
   the Stripe invoice (Stripe's API can't attach a file); a client in HIPAA mode gets it in the
   portal only. Its words in the other five languages want a fluent speaker's review.
+- **Words to review.** The new words in #578 (the chart), #601 (setup and adjustments) and #602
+  (Procedures) are marked `// fluent review` in the five languages other than English.
 - **Staging after deploy.** Every agent that uses AI reads `no_training` In review until the
   providers' pages are read (Agent assurance above), so the next nightly run opens one issue each.
 
