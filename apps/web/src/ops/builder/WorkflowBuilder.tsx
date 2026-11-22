@@ -128,6 +128,7 @@ import {
   paletteSections,
   TESTKIT,
   toolConnector,
+  toolFeed,
   typingContext,
   validateProcessesLikeServer,
   writeLabelOf,
@@ -715,7 +716,9 @@ function BuilderBody(
           step.kind === "write" && step.action !== undefined
             ? (step.via ?? null)
             : step.tool !== undefined
-              ? toolConnector(step.tool, data)
+              ? // Its own connector, else the feed it reads what it saves from (Plaid's mark on
+                // the bank-feed import, §1.221).
+                (toolConnector(step.tool, data) ?? toolFeed(step.tool, data))
               : null;
         return id ? { id, name: connectorName(data, id) } : undefined;
       },

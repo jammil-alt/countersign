@@ -37,6 +37,8 @@ export const importTool = defineTool({
   sideEffect: "internal",
   entity: "transaction",
   area: "shared",
+  // The bank feed (Plaid) is where these come from: the step carries its mark (§1.221).
+  feed: "bankfeed",
   summary: "Read {{added}} new bank transactions",
   input: z.object({ connectionId: Id.optional() }),
   output: z.object({
