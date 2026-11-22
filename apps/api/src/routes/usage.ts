@@ -112,7 +112,7 @@ export function monthsBetween(from: string, to: string): string[] {
 }
 
 /** A request's range: both ends inclusive, `from` not after `to`, at most USAGE_MAX_DAYS days. */
-function checkRange(from: string, to: string): void {
+export function checkRange(from: string, to: string): void {
   if (from > to) throw new HttpError(422, "invalid_range", "from is after to");
   if ((dayMs(to) - dayMs(from)) / DAY_MS + 1 > USAGE_MAX_DAYS) {
     throw new HttpError(422, "invalid_range", `a range is at most ${USAGE_MAX_DAYS} days`);
@@ -629,7 +629,7 @@ const serviceName = (a: { serviceName: string | null; name: string }) => a.servi
  * after), never drafts, agents in testing or a template's test copy.
  */
 // DECISION: a retired service keeps its page, so links from old runs and reports still open.
-const isService = (tenantId: string) =>
+export const isService = (tenantId: string) =>
   and(
     eq(agent.tenantId, tenantId),
     eq(agent.kind, "client"),
