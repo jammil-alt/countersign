@@ -19,6 +19,8 @@ export interface FakeResendEmail {
   idempotencyKey: string | null;
   // P-3
   attachments?: { filename: string; content: string; content_type?: string }[];
+  /** §1.220: what comes back on the webhook's events. */
+  tags?: { name: string; value: string }[];
 }
 
 interface FakeDomain {
@@ -123,6 +125,9 @@ export function fakeResend(): FakeResend {
           ...(typeof body.reply_to === "string" ? { reply_to: body.reply_to } : {}),
           ...(body.headers ? { headers: body.headers as Record<string, string> } : {}),
           idempotencyKey: idem,
+          ...(Array.isArray(body.tags)
+            ? { tags: body.tags as NonNullable<FakeResendEmail["tags"]> }
+            : {}),
           ...(Array.isArray(body.attachments)
             ? { attachments: body.attachments as NonNullable<FakeResendEmail["attachments"]> }
             : {}),
