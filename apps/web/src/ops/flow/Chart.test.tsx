@@ -6,6 +6,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { Process, Step } from "../builder/model";
 import { Chart, TIP_SCALE_MAX, TIP_SCALE_MIN, tipScale } from "./Chart";
 import { FlowDndContext } from "./dnd";
+import { kindDoes } from "./does";
 import type { ChartProps, FlowEnds, StatusMap, StepStatus } from "./types";
 
 const read = (id: string, name: string): Step =>
@@ -218,8 +219,43 @@ describe("Chart", () => {
     expect(tip).toHaveTextContent("Match each line");
     expect(tip).toHaveTextContent("Who signs?");
     expect(tip).toHaveTextContent("It reads the last 90 days");
+    // Owner, 2026-11-22 (docs/plan.md §1.182): it says what the step does, and no longer how to
+    // click and drag, which every box repeated.
+    expect(screen.getByTestId("flow-tip-does")).toBeInTheDocument();
+    expect(tip).not.toHaveTextContent("Click to set it up");
+    expect(tip).not.toHaveTextContent("Drag the");
     fireEvent.mouseLeave(screen.getByTestId("flow-box-b"));
     expect(screen.queryByTestId("flow-tip")).toBeNull();
+  });
+
+  it("says what a step does in its own words, and why it is there when its author said", async () => {
+    setup({
+      label: (step) => ({
+        title: step.name,
+        kind: "Read",
+        detail: "QuickBooks Online · Query customer",
+        ...(step.id === "a"
+          ? {
+              does: "Finds customers and jobs in QuickBooks by name.",
+              purpose: "So each cost has a job.",
+            }
+          : {}),
+      }),
+    });
+    fireEvent.mouseEnter(screen.getByTestId("flow-box-a"));
+    expect(await screen.findByTestId("flow-tip-does")).toHaveTextContent(
+      /^Finds customers and jobs in QuickBooks by name\.$/,
+    );
+    expect(screen.getByTestId("flow-tip-purpose")).toHaveTextContent(
+      "Why it is here: So each cost has a job.",
+    );
+    fireEvent.mouseLeave(screen.getByTestId("flow-box-a"));
+    // A decision and a Stop say what their kind does.
+    fireEvent.mouseEnter(screen.getByTestId("flow-box-d"));
+    expect(await screen.findByTestId("flow-tip-does")).toHaveTextContent(
+      "Sends the run down the first path whose rule holds",
+    );
+    expect(screen.queryByTestId("flow-tip-purpose")).toBeNull();
   });
 
   it("keeps the details readable however far the chart is zoomed out", async () => {
@@ -268,6 +304,10 @@ describe("Chart", () => {
     expect(screen.getByTestId("flow-tip-runs")).toHaveTextContent("AIruns on claude-sonnet-5-5");
     expect(tip.querySelector(".ds-eyebrow")).toHaveTextContent(/^Skill$/);
     expect(tip.querySelector(".flow-tip__d")).toHaveTextContent(/^Read a request to buy$/);
+    // With no words of its own from the host, a step says what its kind does.
+    expect(screen.getByTestId("flow-tip-does")).toHaveTextContent(
+      kindDoes(PROCESS.steps[0] as Step),
+    );
     fireEvent.mouseLeave(screen.getByTestId("flow-box-a"));
 
     // A skill that runs no model says so, with no model beside it.
@@ -316,6 +356,10 @@ describe("Chart", () => {
     expect(screen.queryByTestId("flow-key")).toBeNull();
     fireEvent.click(screen.getByTestId("flow-key-toggle"));
     const key = screen.getByTestId("flow-key");
+    // How to work the chart is said once, here.
+    expect(screen.getByTestId("flow-key-how")).toHaveTextContent(
+      "Click a step to set it up. Drag a box to move it.",
+    );
     expect(key).toHaveTextContent("Reads from or changes a connected tool");
     expect(key).toHaveTextContent("Reads");
     expect(key).toHaveTextContent("An automation: saved steps");

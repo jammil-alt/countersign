@@ -6382,6 +6382,34 @@ action, not just mark it... if it is an issue, just because I say it is closed d
 | Not built | The client as an owner: no step yet sends an item to the client and closes it by their answer (the requirements request asks the intake form's fields, not an item). Until there is one, "Client" is only set by the fit-gap's preconditions. |
 | Checked | `apps/api/src/build-settled-by-step.test.ts` (done by hand refused, a drop, a note done, the Builder's close left out; a put-off gap given to engineering then the Builder, closed by its change and opened by its undo; a test closed by a full passing run and not by a failing or partial one), `apps/web/src/ops/builds/closeout.test.tsx` and `builds.test.tsx` (no selects; Put off, Drop it, Reopen; Take it up on a put-off gap). The skill build's go-live closing has no test of its own. |
 
+### 1.183 The Builder asks once more when its model answers outside the form (staging, 2026-11-22; no migration)
+
+The owner asked the workflow builder's Builder "how can we add a second trigger?" and got "The
+Builder's answer came back in a form we couldn't use, so nothing changed." Sentry (MEZONAS-API-G,
+failure `no_tool_call`): the model answered the question in plain words, without calling
+`submit_turn`, and the answer was thrown away.
+
+| Topic | Decision |
+|---|---|
+| Why it can happen | The models always think, so the call can't be forced (`ANSWER_TOOL_CHOICE`, packages/llm); a question invites an answer in words. The build page's Builder has asked again since MEZONAS-API-6 (`packages/agents/src/build/turn.ts`); the workflow builder's conversation (`ask` in `builder/builder.ts`) did not. |
+| What it does now | On `no_tool_call`, once: the model's own words go back to it with "that answer did not call the tool… answer again by calling it exactly once… a question is answered in its words, with no change to the draft". Its own single retry, not one of the schema's repairs. A second answer without the tool fails as before, with the same words on screen. // DECISION |
+| Cost | One more model call on the turns where it happens; both calls are recorded. |
+| Checked | `packages/agents/src/builder/conversation.test.ts` (asked again with its words, both calls counted, nothing changed; a second miss fails). Not tried against a live model. |
+
+### 1.182 A box's details say what the step does (owner, 2026-11-22; no migration)
+
+The owner, on a step's details on hover: "change the tool tip to include what the step does rather
+than the instructions on click and drag in the bottom; if all steps say that, there is no value in
+stating it over and over again."
+
+| Topic | Decision |
+|---|---|
+| What it says | Under the step's name, one line on what the step does: its skill's, tool's or automation's own description (the builder's label carries it as `does`, from `labels.description`), else its kind's line (`apps/web/src/ops/flow/does.ts`: a person's step by whether it asks for an approval or an answer, a decision, a loop, a wait and the rest). Then "Why it is here: …" when the step has a `purpose` (§1.179). // DECISION |
+| What left | "Click to set it up. Drag the box to move it. Drag the dot under it…" on every step's details, and "Click to set it up." on the start and end boxes. |
+| Said once | The same words are the last line of the chart's Key, where the chart can be changed; a read-only chart has no such line. // DECISION |
+| Other charts | A host that passes no `does` (the client's view-only chart, the merge screen) gets the kind's line. |
+| Checked | `apps/web/src/ops/flow/Chart.test.tsx` (the step's own words and its purpose; a kind's line where there are none; no click-and-drag words in the details; the Key's line). Looked at in a browser on the seeded Bill clerk. |
+
 ### 1.181 Agent assurance: each agent's architecture and its security checks (owner, 2026-11-21 and 2026-11-22; migration 0075)
 
 The owner: "a tech architecture where we can validate security controls at an agent level", then

@@ -203,6 +203,7 @@ export function chartLabel(labels: StepLabels, env: ApprovalEnv): NonNullable<Ch
       step.kind === "handoff" && step.to.agent
         ? { name: labels.handoff?.(step.to)?.name ?? step.to.agent }
         : undefined;
+    const does = labels.description?.(step)?.trim();
     return {
       title: step.name.trim() || kind,
       kind: skillKind ? `${kind} · ${skillKind}` : kind,
@@ -211,6 +212,9 @@ export function chartLabel(labels: StepLabels, env: ApprovalEnv): NonNullable<Ch
       ...(model ? { model } : {}),
       ...(connector ? { connector } : {}),
       ...(agent ? { agent } : {}),
+      // What it does, for the details on hover (docs/plan.md §1.182).
+      ...(does ? { does } : {}),
+      ...(step.purpose ? { purpose: step.purpose } : {}),
     };
   };
 }

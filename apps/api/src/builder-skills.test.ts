@@ -370,10 +370,15 @@ describe.skipIf(!h)("the Builder", () => {
     model.push({ error: new Error("ANTHROPIC_API_KEY is not set") });
     const down = await H.call(OPERATOR, "POST", "/api/ops/agents/draft", { description: "x" });
     expect(down.status).toBe(503);
-    model.push({ text: "I would rather chat." });
+    // An answer in words, without the tool, is asked for once more through the tool (docs/plan.md
+    // §1.183); a second one in words is refused.
+    model.push({ text: "I would rather chat." }, { text: "Still chatting." });
+    const before = model.requests.length;
     const chat = await H.call(OPERATOR, "POST", "/api/ops/agents/draft", { description: "x" });
     expect(chat.status).toBe(422);
     expect(chat.json).toMatchObject({ error: { code: "builder_failed" } });
+    expect(model.requests.length - before).toBe(2);
+    expect(JSON.stringify(model.requests.at(-1)?.messages)).toContain("did not call the");
   });
 
   it("revises a client agent: 'skip approval for invoices under $200' keeps approval on", async () => {
