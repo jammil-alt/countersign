@@ -61,6 +61,7 @@ import { agentReportRouteHandlers } from "./routes/agent-report";
 import { approverRuleRoutes } from "./routes/approver-rules";
 import { assistDraftRoutes } from "./routes/assist";
 import { assuranceEnv, assuranceRouteHandlers } from "./routes/assurance";
+import { assuranceEvidenceRouteHandlers } from "./routes/assurance-evidence";
 import { auditExportRoutes } from "./routes/audit-export";
 // §1.124 back office work: Reggie and Autopilot
 import { autopilotRoutes } from "./routes/autopilot";
@@ -417,6 +418,8 @@ export function createApp(deps: AppDeps = defaultDeps): Hono<AppEnv> {
   manualRouteHandlers(app);
   sopRouteHandlers(app);
   assuranceRouteHandlers(app);
+  // §1.231.3: the evidence export and the rollup.
+  assuranceEvidenceRouteHandlers(app);
   auditExportRoutes(app);
   // v0.12 W2-C: the test bench, skill tests and the agent lab
   testbenchRoutes(app);

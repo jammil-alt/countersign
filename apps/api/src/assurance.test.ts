@@ -4,8 +4,8 @@
 // team member who doesn't work with the agent can't read it; the nightly tick runs every live agent.
 
 import { CHECKS } from "@countersign/core";
-import { agent, controlCheck, issue, modelCall, run, stepRun } from "@countersign/db";
-import { and, eq } from "drizzle-orm";
+import { agent, auditEvent, controlCheck, issue, modelCall, run, stepRun } from "@countersign/db";
+import { and, eq, like } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   type ApiHarness,
@@ -245,5 +245,75 @@ describe.skipIf(!h)("agent assurance (docs/agent-assurance-plan.md)", () => {
     expect(after.length).toBe(before + CHECKS.filter((c) => c.built).length);
     expect(after.every((r) => r.trigger === "nightly")).toBe(true);
     expect(after.find((r) => r.checkId === "second_factor")?.result).toBe("verified");
+  });
+
+  it("exports the evidence per period, agent and client, as a page and CSV, audited (§1.231.3)", async () => {
+    const today = new Date().toISOString().slice(0, 10);
+    const res = await H.call(
+      OPERATOR,
+      "GET",
+      `/api/ops/assurance/evidence?client=${H.A.tenantId}&agent=${ids.mine}&to=${today}`,
+    );
+    expect(res.status, JSON.stringify(res.json)).toBe(200);
+    const out = j(res.json);
+    expect(out.truncated).toBe(false);
+    expect(out.rows.length).toBe((await rows(ids.mine)).length);
+    expect(out.rows.every((r: { agent: { id: string } }) => r.agent.id === ids.mine)).toBe(true);
+    const delOff = out.rows.find((r: { checkId: string }) => r.checkId === "delete_off");
+    expect(delOff).toMatchObject({
+      number: "K3",
+      result: "verified",
+      client: { id: H.A.tenantId },
+    });
+    expect(delOff.soc2).toContain("CC8.1");
+    expect(delOff.evidence).toBeTruthy();
+    expect(forbiddenKeys(out)).toEqual([]);
+
+    const csv = await H.call(
+      OPERATOR,
+      "GET",
+      `/api/ops/assurance/evidence.csv?client=${H.A.tenantId}&agent=${ids.mine}`,
+    );
+    expect(csv.status).toBe(200);
+    expect(csv.headers.get("content-type")).toBe("text/csv; charset=utf-8");
+    expect(csv.headers.get("content-disposition")).toMatch(/mezonas-security-evidence-.*\.csv/);
+    const lines = String(csv.json).trim().split("\r\n");
+    expect(lines[0]).toContain("checked at,client,agent,version,check");
+    expect(lines).toHaveLength(out.rows.length + 1);
+
+    const audited = await H.t.db
+      .select({ action: auditEvent.action })
+      .from(auditEvent)
+      .where(like(auditEvent.action, "GET /api/ops/assurance/evidence%"));
+    expect(audited.length).toBeGreaterThanOrEqual(2);
+
+    // A bad period, a client not served, and anyone but an operator: refused.
+    expect(
+      (await H.call(OPERATOR, "GET", "/api/ops/assurance/evidence?from=2026-11-20&to=2026-11-01"))
+        .status,
+    ).toBe(400);
+    expect(
+      (
+        await H.call(
+          OPERATOR,
+          "GET",
+          `/api/ops/assurance/evidence?client=0199a000-0000-7000-8000-00000000dead`,
+        )
+      ).status,
+    ).not.toBe(200);
+    expect((await H.call(admin("a"), "GET", "/api/ops/assurance/evidence")).status).toBe(403);
+    expect((await H.call(admin("a"), "GET", "/api/ops/assurance/rollup")).status).toBe(403);
+  });
+
+  it("rolls up per control across the clients served (§1.231.3)", async () => {
+    const res = await H.call(OPERATOR, "GET", "/api/ops/assurance/rollup");
+    expect(res.status, JSON.stringify(res.json)).toBe(200);
+    const out = j(res.json);
+    expect(out.clients).toBe(2);
+    expect(out.agents).toBe(2);
+    const acc2 = out.controls.find((c: { id: string }) => c.id === "ACC-2");
+    // Ours was in review (no second factor in the harness); the other's verified at night.
+    expect(acc2).toMatchObject({ agents: 2, inReview: 1, verified: 1 });
+    expect(out.controls.find((c: { id: string }) => c.id === "GOV-1")).toBeUndefined();
   });
 });
