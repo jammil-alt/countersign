@@ -265,6 +265,16 @@ export function toolConnector(id: string, data: BuilderData): string | null {
 }
 
 /**
+ * The connector whose feed a tool reads from our own records (a pack's import of bank
+ * transactions: the bank feed), for its mark on a step. It is not a connection the tool acts
+ * through, so it adds nothing to what a bundle reaches or needs (docs/plan.md §1.221).
+ */
+export function toolFeed(id: string, data: BuilderData): string | null {
+  const c = data.catalog.tools.find((t) => t.id === id)?.feed;
+  return c !== undefined && data.catalog.connectors.some((x) => x.id === c) ? c : null;
+}
+
+/**
  * The connectors a bundle already reaches: its skills', its extra tools' and its tool steps'
  * (v3 actions, v4 reads and writes).
  */

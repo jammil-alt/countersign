@@ -135,7 +135,6 @@ describe("app", () => {
     ).toEqual([
       "Overview",
       "Workflow",
-      "Steps",
       "Manual",
       "Runs",
       "Report",

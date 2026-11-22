@@ -58,6 +58,8 @@ export function defineTool<I extends z.ZodType, O extends z.ZodType>(def: {
   area?: string;
   // docs/plan.md §1.188: the records its output names, kept as the run's subjects.
   about?: ToolAbout;
+  // docs/plan.md §1.221: the connector whose feed fills what it reads, for its mark on a step.
+  feed?: string;
   input: I;
   output: O;
   run(input: z.output<I>, ctx: PackToolContext): Promise<z.input<O>>;
@@ -76,6 +78,7 @@ export function defineTool<I extends z.ZodType, O extends z.ZodType>(def: {
       area: def.area ?? "bookkeeping",
       ...(def.entity ? { entity: def.entity } : {}),
       ...(def.about ? { about: def.about } : {}),
+      ...(def.feed ? { feed: def.feed } : {}),
     }),
     input: def.input,
     output: def.output,
