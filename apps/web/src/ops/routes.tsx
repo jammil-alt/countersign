@@ -115,6 +115,13 @@ import { SalesScreen } from "./work/sales/SalesSection";
 
 // F7: the builder's parts load with the first automation opened in it, as an agent's builder does.
 const AutomationEditor = lazy(() => import("./flow/automation/AutomationEditor"));
+// R5 (docs/plan.md §1.235): the account report and /ops/accounts, each its own chunk.
+const AccountsScreen = lazy(() =>
+  import("./screens/Accounts").then((m) => ({ default: m.AccountsScreen })),
+);
+const ClientReportScreen = lazy(() =>
+  import("./client/ClientReport").then((m) => ({ default: m.ClientReportScreen })),
+);
 // §1.218: SOC 2 readiness, with its schemas (`soc2Routes`), loads only when opened.
 const Soc2ReadinessScreen = lazy(() => import("./security/Soc2Readiness"));
 // §1.216: books health loads when opened.
@@ -186,11 +193,27 @@ export const opsRoutes = (
     {/* docs/plan.md §1.170: a new agent build's Check the steps, in the Agent lab after Describe it (owner, 2026-11-21: new agents stay in the lab). */}
     <Route path="lab/check/:id" element={<CheckStepsScreen />} />
     <Route path="clients" element={<ClientsScreen />} />
+    <Route
+      path="accounts"
+      element={
+        <Suspense fallback={<Loading />}>
+          <AccountsScreen />
+        </Suspense>
+      }
+    />
     <Route path="clients/new" element={<NewClientScreen />} />
     {/* 1.4 (docs/audit-plan.md): the client page's tabs under one frame (client/ClientFrame.tsx),
         a layout route without a path of its own, so the header stays still as the tabs change. */}
     <Route element={<ClientLayout />}>
       <Route path="clients/:clientId" element={<ClientOverviewScreen />} />
+      <Route
+        path="clients/:clientId/report"
+        element={
+          <Suspense fallback={<Loading />}>
+            <ClientReportScreen />
+          </Suspense>
+        }
+      />
       <Route path="clients/:clientId/agents" element={<ClientAgentsScreen />} />
       {/* §1.162: Areas, the client's business areas with the connections each needs (was
           Packs); its reports below. The connections themselves are Setup's Connectors. */}

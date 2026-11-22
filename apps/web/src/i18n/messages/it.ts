@@ -1165,6 +1165,7 @@ export const it: Messages = {
   "reports.subtitle": "Cosa hanno fatto i tuoi agenti.",
   "reports.subtitlePeriod": "Cosa hanno fatto i tuoi agenti, {period}.",
   "reports.activity": "Attività",
+  "reports.account": "Account",
   "reports.period": "Periodo",
   "reports.period.month": "Questo mese",
   "reports.period.last": "Mese scorso",

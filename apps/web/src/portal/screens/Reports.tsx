@@ -3,6 +3,7 @@
 // prompts (invariant 11). Pack reports (Materials: Price watch, Catalog) mount under
 // `/reports/<pack>/<report>` from the pack registry, for packs the client has enabled.
 import type { ActivityReport } from "@countersign/core";
+import { lazy, Suspense } from "react";
 import { Link, Route, Routes, useParams, useSearchParams } from "react-router-dom";
 import { apiRoutes } from "../../api/routes";
 import { useApi } from "../../api/useApi";
@@ -49,17 +50,17 @@ export function reportPeriod(
   return {};
 }
 
-/** The reports the client can open: activity, then its packs' reports. */
-function ReportLinks({ packs, current }: { packs: PackReport[]; current: string }) {
+/** The reports the client can open: activity, the account (R5), then its packs' reports. */
+export function ReportLinks({ packs, current }: { packs: PackReport[]; current: string }) {
   const { t } = useI18n();
-  if (packs.length === 0) return null;
-  // UI-3a: the reports as tabs, as on the agent page.
+  // UI-3a: the reports as tabs, as on the agent page. R5: always shown, for the account report.
   return (
     <div className="overflow-x-auto" data-testid="portal-report-links">
       <Tabs
         items={[
           // Pack reports carry their own titles (a pack's screens), as message keys.
           { to: "/reports", title: t("reports.activity") },
+          { to: "/reports/account", title: t("reports.account") },
           ...packs.map((r) => ({ to: packReportPath(r), title: t(r.titleKey) })),
         ].map((r) => ({ to: r.to, label: r.title, active: current === r.to }))}
       />
@@ -281,10 +282,23 @@ function PackReportScreen() {
   );
 }
 
+// R5 (docs/plan.md §1.235): the account report, its own chunk with its route's schema and words.
+const AccountReportScreen = lazy(() =>
+  import("./AccountReport").then((m) => ({ default: m.AccountReportScreen })),
+);
+
 export function PortalReportsScreen() {
   return (
     <Routes>
       <Route index element={<ActivityReportScreen />} />
+      <Route
+        path="account"
+        element={
+          <Suspense fallback={<Loading />}>
+            <AccountReportScreen />
+          </Suspense>
+        }
+      />
       <Route path=":pack/:report" element={<PackReportScreen />} />
       {/* P-9: one row of a pack report (a purchase request's page) */}
       <Route path=":pack/:report/:id" element={<PackReportScreen />} />
