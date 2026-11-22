@@ -5,6 +5,8 @@
 // shape the back office reads.
 import {
   type ClientMember,
+  FINDING_SUBJECT,
+  FINGERPRINT_KEY,
   type OpenItem,
   type ReachContext,
   type RunWait,
@@ -21,6 +23,12 @@ import { mailerFromEnv } from "../notify/mailer";
  * table's columns unqualified there).
  */
 export const waitsOnPerson: SQL = sql`exists (select 1 from inbox_item wi where wi.run_id = "run"."id" and wi.tenant_id = "run"."tenant_id" and wi.status = 'open')`;
+
+/**
+ * An inbox item that is not the supervisor's reminder about other items waiting (core's
+ * `isWaitingReminder`, as SQL): the back office's counts and lists of open items use it.
+ */
+export const notWaitingReminder: SQL = sql`not (coalesce(${inboxItem.subjectType}, '') = ${FINDING_SUBJECT} and coalesce(${inboxItem.payload}->>${FINGERPRINT_KEY}, '') = 'waiting_long')`;
 
 /**
  * The back office's run status filter: `waiting` is any run waiting on a person (whatever its

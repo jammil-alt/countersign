@@ -419,7 +419,10 @@ export async function dailyCheck(ctx: SupervisorScope) {
         reporterAgentId: ctx.agentId,
         client: { params: { count: late.length } },
         operator: {
-          title: `${late.length} client items have waited over ${settings.waitingHours} hours`,
+          title:
+            late.length === 1
+              ? `1 client item has waited over ${settings.waitingHours} hours`
+              : `${late.length} client items have waited over ${settings.waitingHours} hours`,
           details: {
             items: late.map((i) => ({
               id: i.id,

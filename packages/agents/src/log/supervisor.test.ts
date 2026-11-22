@@ -433,6 +433,24 @@ describe.skipIf(!harness)("supervisor", () => {
     expect(reopened.operator.status).toBe("open");
   });
 
+  it("writes an open issue's title again each time it is seen, so its count is today's (QA)", async () => {
+    const port = deps().ports.findings;
+    if (!port) throw new Error("no findings port");
+    const fp = "run_failed:test-title";
+    const waiting = (n: number): FindingInput => ({
+      ...finding(h.A, fp),
+      client: { params: { count: n } },
+      operator: { ...finding(h.A, fp).operator, title: `${n} client items have waited` },
+    });
+    const first = await port.report(h.A.tenantId, waiting(1), new Date());
+    await port.report(h.A.tenantId, waiting(5), new Date());
+    const items = await itemsFor(h.A, fp);
+    expect(items).toHaveLength(2);
+    expect(items.find((i) => i.id === first.operator.itemId)?.title).toBe(
+      "5 client items have waited",
+    );
+  });
+
   it("reads the reminder time from the client's settings", async () => {
     await h.t.db
       .update(tenant)
