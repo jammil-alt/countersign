@@ -15,7 +15,7 @@ import { billingTick } from "./billing/jobs";
 import { raiseCodeAlerts } from "./codes/alerts";
 import { codesFor } from "./codes/client";
 import { clientModels } from "./compliance/models";
-import { purgeRetiredFiles } from "./compliance/retention";
+import { purgeLostProspectFiles, purgeRetiredFiles } from "./compliance/retention";
 import { CAPTURE_CRON_MINUTE, captureCronTick } from "./conversations/cron";
 import { captureDepsFor, captureJobsFor } from "./conversations/start";
 import { shipDue, shipPass } from "./dev-queue/ship";
@@ -618,6 +618,10 @@ export async function runCron(env: Bindings, scheduledTime: Date, deps: AppDeps 
       // Retired clients' files, 30 days after retirement (docs/plan.md §1.35).
       await purgeRetiredFiles(db, deps.objects(env), scheduledTime).catch((error: unknown) =>
         reportHandled("retention sweep failed", error, { job: "retention" }),
+      );
+      // §1.220 (q14): lost prospects' client files, 12 months after their last deal closed.
+      await purgeLostProspectFiles(db).catch((error: unknown) =>
+        reportHandled("lost prospects' files purge failed", error, { job: "retention_files" }),
       );
     }
     // M43: each pack's nightly pass (the Marketing pack's build of yesterday's visits and its
