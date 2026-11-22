@@ -137,6 +137,7 @@ export async function importBillPrices(
     needsReview: 0,
     skipped: 0,
     accountLines: 0,
+    qboItemsTied: 0,
   };
   let after: string | undefined;
   let pages = 0;

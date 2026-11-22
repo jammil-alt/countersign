@@ -40,8 +40,10 @@ const builtins = platform.catalog.list();
 // (zoho_crm.field.list), a connector read, so a wrapper.
 // §1.187: QuickBooks' qbo.banking.find (a booking already written), a connector read, so a
 // wrapper.
-const BUILTINS = 150;
-const WRAPPERS = 104;
+// §1.205 (C2.4): Materials' materials.qbo-item (a catalog item tied to its QuickBooks item), a
+// tool skill over one handler, so a wrapper.
+const BUILTINS = 151;
+const WRAPPERS = 105;
 
 describe("built-in skills under the R2 skill schema", () => {
   it("registers the platform's, the packs' and each connector's read skills, once each", () => {
