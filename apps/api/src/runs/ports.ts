@@ -433,7 +433,13 @@ export function agentPort(
           return { kind: "done", output: o.output };
         case "would_have_done": {
           // A test run: recorded as proposed, never executed (ARCHITECTURE §10.4).
-          const proposed = { wouldHaveDone: true, actionId: o.actionId, before: o.before ?? null };
+          const proposed = {
+            wouldHaveDone: true,
+            actionId: o.actionId,
+            before: o.before ?? null,
+            // §1.212: the verifier's outcome on it, for the eval harness.
+            ...(o.verification ? { verification: o.verification } : {}),
+          };
           // §1.94: the tool's stand-in output, its fields where later steps read the real ones.
           if (!isPlainObject(o.standIn))
             return { kind: "done", output: proposed, notWritten: true };

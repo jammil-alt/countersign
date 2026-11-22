@@ -17,7 +17,7 @@ import { Clamp } from "../../ui/Clamp";
 import { ErrorNotice } from "../../ui/ErrorState";
 import { TextInput } from "../../ui/forms";
 import { Loaded, Page } from "../../ui/page";
-import { Button, Card, cx, EmptyState, PageHeader, Tag } from "../../ui/primitives";
+import { Button, buttonClass, Card, cx, EmptyState, PageHeader, Tag } from "../../ui/primitives";
 import { type ChipState, StatusChip } from "../../ui/status";
 import { plural, Select } from "../agents/ui";
 import { BuildsBoard, buildKindLine } from "../builds/BuildsBoard";
@@ -270,13 +270,19 @@ export function LabScreen() {
         title="Agent lab"
         subtitle="Build an agent for one client, then turn it into a template the next client starts from."
         actions={
-          <Button
-            variant="primary"
-            data-testid="lab-new"
-            onClick={() => set(starting ? { new: "" } : { tab: "drafts", new: "template" })}
-          >
-            New
-          </Button>
+          <>
+            {/* §1.212 */}
+            <Link to="/ops/scorecard" className={buttonClass("ghost")} data-testid="lab-scorecard">
+              Scorecard
+            </Link>
+            <Button
+              variant="primary"
+              data-testid="lab-new"
+              onClick={() => set(starting ? { new: "" } : { tab: "drafts", new: "template" })}
+            >
+              New
+            </Button>
+          </>
         }
       />
       {starting ? (

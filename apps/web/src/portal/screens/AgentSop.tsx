@@ -6,13 +6,14 @@
 // so the SOP shows at once and the checks follow.
 
 import { assuranceRoutes, sopRoutes } from "@countersign/core";
+import { Link } from "react-router-dom";
 import { useApi } from "../../api/useApi";
 import { AssuranceBody } from "../../assurance/AssuranceView";
 import { useI18n } from "../../i18n/i18n";
 import { SopDocument } from "../../sop/SopDocument";
 import { Loaded } from "../../ui/page";
 import { SkeletonRows } from "../../ui/skeleton";
-import { askSloan } from "../paths";
+import { askSloan, PORTAL_PATHS } from "../paths";
 import { WrongForm } from "./LineFeedback";
 
 function SecuritySection({ id }: { id: string }) {
@@ -29,6 +30,16 @@ export function AgentSop({ id }: { id: string }) {
   const sop = useApi(sopRoutes.portalAgentSop, { params: { id } });
   return (
     <div data-testid="portal-agent-sop">
+      {/* S2: every agent's SOP in a row, with filters across them. */}
+      <p className="mb-3 text-sm" data-print="hide">
+        <Link
+          to={PORTAL_PATHS.procedures}
+          className="ds-btn ds-btn--link"
+          data-testid="sop-all-procedures"
+        >
+          {t("procedures.link")}
+        </Link>
+      </p>
       <Loaded state={sop} skeleton={<SkeletonRows rows={8} columns={1} />}>
         {(view) => (
           <SopDocument

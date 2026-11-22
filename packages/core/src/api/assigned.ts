@@ -46,6 +46,8 @@ export const ASSIGNED_USER_ROUTES: readonly string[] = [
   "GET /api/services/:id/manual",
   // Its SOP (docs/sop-plan.md S1), which takes the Manual tab's place: read only, as the manual.
   "GET /api/services/:id/sop",
+  // Every SOP in a row (docs/sop-plan.md S2, Procedures): only their agents' rows.
+  "GET /api/sops",
   // Its architecture and security, the SOP's section 14 (docs/agent-assurance-plan.md §5).
   "GET /api/services/:id/assurance",
   "POST /api/services/:id/workflows/:slug/run",
@@ -58,6 +60,13 @@ export const ASSIGNED_USER_ROUTES: readonly string[] = [
   "GET /api/runs/:id/status",
   "GET /api/runs/:id/audit",
   "POST /api/runs/:id/conversations/:stepRunId",
+  // R6 (docs/plan.md §1.236): their saved views of the runs list. DECISION: a view only names a
+  // filter, so they keep their own; they save one only on agents they see, and a shared view
+  // naming an agent off their list isn't shown to them (apps/api `portal-views.ts`).
+  "GET /api/views",
+  "POST /api/views",
+  "PATCH /api/views/:id",
+  "DELETE /api/views/:id",
   // Their inbox (items assigned to them, or to client users, for their agents).
   "GET /api/inbox",
   "POST /api/inbox/:id/resolve",

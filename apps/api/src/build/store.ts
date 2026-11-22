@@ -808,7 +808,7 @@ async function suitePoc(
       : null,
     failures,
     tries: await tryViews(tx, { kind: targetKind, id: targetId }, buildId, versionId),
-    trySandbox: targetKind === "template" ? await trySandbox(tx) : null,
+    trySandbox: await trySandbox(tx),
     testRuns: null,
     passed,
     detail,

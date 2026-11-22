@@ -22,7 +22,7 @@ import {
   TEST_DATA_NOTES_MAX,
   type TypingContext,
 } from "@countersign/core";
-import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useId, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { isApiError } from "../../api/client";
 import { apiRoutes } from "../../api/routes";
@@ -32,12 +32,24 @@ import { ErrorNotice } from "../../ui/ErrorState";
 import { Select, TextArea, TextInput } from "../../ui/forms";
 import { Button, buttonClass } from "../../ui/primitives";
 import { JSON_INPUT_PROPS, parsePayload } from "../agents/TestPayload";
+import type { PickedRecord } from "../builds/RecordPick";
 import { tryUpload } from "../builds/TryCard";
 import { type TryRun, tryEnded, tryMarks, tryOutcome } from "./tryMarks";
 import type { Process, TryMark } from "./types";
 
-/** What a try runs on: a file, or the trigger's payload as JSON (`made`: made up here). */
-export type TryInput = { file: File } | { payload: unknown; made?: boolean };
+/**
+ * What a try runs on: a file, the trigger's payload as JSON (`made`: made up here), or one of the
+ * Sandbox's records (a build's try only, docs/open.md G3).
+ */
+export type TryInput =
+  | { file: File }
+  | { payload: unknown; made?: boolean }
+  | { record: PickedRecord };
+
+// The Sandbox's records load only when the picker opens (docs/open.md G3).
+const RecordPick = lazy(() =>
+  import("../builds/RecordPick").then((m) => ({ default: m.RecordPick })),
+);
 
 export interface TryPanelProps {
   /** The process on the chart: the marks are for its steps. */
@@ -80,7 +92,15 @@ type Phase = "choose" | "starting" | "running" | "ended" | "error";
 const FOLLOW_MS = 15 * 60_000;
 
 const label = (input: TryInput | null) =>
-  !input ? "" : "file" in input ? input.file.name : input.made ? "made-up data" : "your input";
+  !input
+    ? ""
+    : "file" in input
+      ? input.file.name
+      : "record" in input
+        ? input.record.label
+        : input.made
+          ? "made-up data"
+          : "your input";
 
 export function TryPanel({
   process,
@@ -126,9 +146,16 @@ export function TryPanel({
   const [error, setError] = useState<unknown>(null);
   const [runId, setRunId] = useState<string | null>(null);
   const [outcome, setOutcome] = useState<string | null>(null);
+  // The Sandbox's records are open to pick one (a build's try, docs/open.md G3).
+  const [picking, setPicking] = useState(false);
   // ── Some of the steps (§1.185) ──
   const top = process.steps;
-  const canPick = !suite && ctx !== undefined && top.length > 1;
+  // DECISION (owner, 2026-11-22: "I tried using it and was not able to"): a template with an open
+  // build is in suite mode, where §1.185 offered no choice of steps, so the choice was missing
+  // where the owner builds. It is offered there too. A try of every step stays the build's own
+  // (kept as a case); a try of some of them is a test run of the draft at the build's Sandbox,
+  // since part of a run can't be a case to keep.
+  const canPick = ctx !== undefined && top.length > 1;
   const startsAt = startAt && top.some((s) => s.id === startAt) ? startAt : null;
   const [some, setSome] = useState(canPick && startsAt !== null);
   const [from, setFrom] = useState<string>(startsAt ?? top[0]?.id ?? "");
@@ -289,11 +316,12 @@ export function TryPanel({
     if (!again) caseRef.current = null;
     try {
       let id: string | null;
-      if (suite) {
+      if (suite && !sentRange.current) {
         const before = new Set((suite.poc?.tries ?? []).map((t) => t.caseId));
         let body:
           | { caseId: string }
           | { documentId: string; workflow: string }
+          | { record: { kind: PickedRecord["kind"]; id: string }; workflow: string }
           | {
               input: unknown;
               workflow: string;
@@ -303,6 +331,8 @@ export function TryPanel({
           const documentId = await uploaded(next.file);
           if (!documentId) return;
           body = { documentId, workflow };
+        } else if ("record" in next) {
+          body = { record: { kind: next.record.kind, id: next.record.id }, workflow };
         } else body = { input: next.payload, workflow };
         const d = await api.call(apiRoutes.opsBuildTry, { params: { id: suite.build.id }, body });
         if (gen.current !== mine) return;
@@ -313,6 +343,7 @@ export function TryPanel({
         if (gen.current !== mine) return;
         if (!vid) throw new Error("Save the draft first, then try it.");
         let payload: unknown;
+        if ("record" in next) throw new Error("A record is tried from a build's draft only.");
         if ("file" in next) {
           const doc = await uploadedDoc(next.file);
           if (!doc) return;
@@ -329,7 +360,10 @@ export function TryPanel({
           body: {
             workflow,
             payload,
-            ...(agent.kind === "template" && clientId ? { clientId } : {}),
+            // A build's draft is tried where the build tries it: its Sandbox.
+            ...(agent.kind === "template" && (clientId || (suite ? sandboxId : null))
+              ? { clientId: (clientId || sandboxId) as string }
+              : {}),
             ...(sentRange.current ? { range: sentRange.current } : {}),
           },
         });
@@ -450,11 +484,33 @@ export function TryPanel({
             </div>
             <div className="flex flex-wrap items-center gap-2">
               {midway ? null : filePicker("Choose a file", true)}
+              {suite && fileClient ? (
+                <Button
+                  size="sm"
+                  aria-expanded={picking}
+                  onClick={() => setPicking((x) => !x)}
+                  data-testid="flow-try-pick-record"
+                >
+                  {picking ? "Close the records" : "Pick a record"}
+                </Button>
+              ) : null}
               <Button size="sm" variant="ghost" onClick={done} data-testid="flow-try-done">
                 Done
               </Button>
             </div>
           </div>
+          {suite && fileClient && picking ? (
+            <Suspense fallback={<p className="text-ink-muted">Loading the records…</p>}>
+              <RecordPick
+                clientId={fileClient}
+                busy={false}
+                onPick={(record) => {
+                  setPicking(false);
+                  void begin({ record }, false);
+                }}
+              />
+            </Suspense>
+          ) : null}
           {canPick ? (
             <div className="flex flex-col gap-2" data-testid="flow-try-range">
               <div className="flex flex-wrap items-center gap-x-4 gap-y-2">

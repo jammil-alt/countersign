@@ -38,6 +38,7 @@ import {
   type StepRunner,
 } from "@countersign/workflows";
 import { and, eq, gte, inArray, isNotNull, sql } from "drizzle-orm";
+import { meterBankItems } from "../metering";
 import { reportDrop, reportHandled, reportProblem } from "../observability/report";
 import { matchRepliesIn, wakeAll } from "../reach/replies";
 // v0.12 W2-E
@@ -504,9 +505,11 @@ export async function cronTick(deps: DispatchDeps, scheduledTime: Date): Promise
       for (const request of due) await startRun(deps, request);
       await redeliverResolutions(deps, client.id, scheduledTime);
       if (to.getUTCMinutes() === USAGE_SWEEP_MINUTE) {
-        await withTenant(deps.db, client.id, (tx) =>
-          rollupUsageDays(tx, { tenantId: client.id, days: usageSweepDays(to) }),
-        );
+        await withTenant(deps.db, client.id, async (tx) => {
+          // §1.210: this month's connected banks, before the rollup counts them.
+          await meterBankItems(tx, client.id, to);
+          await rollupUsageDays(tx, { tenantId: client.id, days: usageSweepDays(to) });
+        });
       }
       if (deps.reachTick) await deps.reachTick(client.id, scheduledTime);
       if (deps.codesTick) await deps.codesTick(client.id, scheduledTime);

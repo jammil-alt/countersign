@@ -5,7 +5,16 @@
 // A failing case says why, on the build and to the Builder.
 
 import type { BuildDetail } from "@countersign/core";
-import { build, document, externalAction, tenant, testCase } from "@countersign/db";
+import {
+  build,
+  docExtraction,
+  document,
+  externalAction,
+  tenant,
+  testCase,
+  transaction,
+  vendor,
+} from "@countersign/db";
 import { FakeModel, type FakeTurn } from "@countersign/llm";
 import { and, eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
@@ -272,7 +281,8 @@ describe.skipIf(!h)("trying a build's draft on real examples (builder-plan.md B1
     let b = await ok("POST", `/api/ops/builds/${id}/tries`, {
       input: { a: "Oak board 2x4", b: "Oak bd 2x4" },
     });
-    expect(b.poc?.trySandbox).toBeNull();
+    // A skill's try document goes to the Sandbox too (docs/open.md G3).
+    expect(b.poc?.trySandbox).toEqual({ id: H.B.tenantId, name: "Client B" });
     await runLatest(new FakeModel([says("same")]));
     b = await ok("GET", `/api/ops/builds/${id}`);
     const tried = b.poc?.tries[0];
@@ -342,5 +352,166 @@ describe.skipIf(!h)("trying a build's draft on real examples (builder-plan.md B1
       .from(testCase)
       .where(and(eq(testCase.targetId, skillId), eq(testCase.required, true)));
     expect(required).toHaveLength(1);
+  });
+
+  // docs/open.md G3: a template tried on one of the Sandbox's records, as its event would carry it.
+  it("tries a template on a Sandbox record, and only on the Sandbox's", async () => {
+    const [v] = await H.t.db
+      .insert(vendor)
+      .values({
+        tenantId: H.B.tenantId,
+        name: "Northline Panel",
+        normalizedName: "northline panel",
+      })
+      .returning();
+    const [t] = await H.t.db
+      .insert(transaction)
+      .values({
+        tenantId: H.B.tenantId,
+        kind: "bill",
+        connector: "qbo",
+        externalId: "try-bill-1",
+        vendorId: v?.id,
+        txnDate: "2026-11-02",
+        total: "1250.0000",
+        currency: "USD",
+      })
+      .returning();
+    const [elsewhere] = await H.t.db
+      .insert(transaction)
+      .values({
+        tenantId: H.A.tenantId,
+        kind: "bill",
+        connector: "qbo",
+        externalId: "try-bill-a",
+        total: "10.0000",
+      })
+      .returning();
+    const notHere = await H.call(OPERATOR, "POST", `/api/ops/builds/${templateBuild}/tries`, {
+      record: { kind: "transaction", id: elsewhere?.id },
+    });
+    expect(notHere.status).toBe(404);
+    const noSuch = await H.call(OPERATOR, "POST", `/api/ops/builds/${templateBuild}/tries`, {
+      record: { kind: "receivable", id: elsewhere?.id },
+    });
+    expect(noSuch.status).toBe(404);
+
+    const b = await ok("POST", `/api/ops/builds/${templateBuild}/tries`, {
+      record: { kind: "transaction", id: t?.id },
+    });
+    expect(b.poc?.tries[0]).toMatchObject({
+      name: "Try: bill from Northline Panel, 1250.0000 USD",
+      status: "running",
+    });
+    const params = jobs.started.at(-1) as SuiteParams;
+    expect(params).toMatchObject({ partial: true, runTenantId: H.B.tenantId });
+    const [made] = await H.t.db
+      .select()
+      .from(testCase)
+      .where(eq(testCase.id, params.caseIds[0] as string));
+    expect(made).toMatchObject({
+      tenantId: null,
+      required: false,
+      input: {
+        // No workflow starts on a new bill here: the one started by hand gets it.
+        workflow: "fix-record",
+        payload: {
+          transactionId: t?.id,
+          source: "qbo",
+          vendorId: v?.id,
+          total: { amount: "1250.0000", currency: "USD" },
+          txnDate: "2026-11-02",
+        },
+      },
+    });
+    await ok("POST", `/api/ops/builds/${templateBuild}/tries/${made?.id}`, { decide: "discard" });
+  });
+
+  // docs/open.md G3: a skill tried on a Sandbox document, on the bench: the document as it is now
+  // answers the skill's read, and nothing is written.
+  it("tries a skill on a Sandbox document through a fixture made from it", async () => {
+    const def = {
+      ...skillDef,
+      id: "custom:invoice-vendor-try",
+      name: "Invoice vendor",
+      description: "Says who sent an invoice",
+      instructions: "Read the document and say who sent it.",
+      tools: ["docs.get"],
+      input: {
+        type: "object",
+        properties: { documentId: { type: "string" } },
+        required: ["documentId"],
+      },
+    };
+    const created = await H.call(OPERATOR, "POST", "/api/ops/skills", { definition: def });
+    expect(created.status, JSON.stringify(created.json)).toBe(200);
+    const skillId = j(created.json).skill.id as string;
+    const [row] = await H.t.db
+      .insert(build)
+      .values({ kind: "skill", title: "Invoice vendor", phase: "poc", skillId })
+      .returning();
+    const id = row?.id as string;
+
+    // Not read yet: refused rather than tried without its reading.
+    const unread = await H.call(OPERATOR, "POST", `/api/ops/builds/${id}/tries`, {
+      documentId: docId,
+    });
+    expect(unread.status).toBe(409);
+    expect(j(unread.json).error.code).toBe("not_read");
+
+    const [x] = await H.t.db
+      .insert(docExtraction)
+      .values({
+        tenantId: H.B.tenantId,
+        documentId: docId,
+        model: "replay",
+        header: { vendorName: "Northline Panel Supply", invoiceNumber: "1042" },
+        currency: "USD",
+        subtotal: "12.0000",
+        total: "12.0000",
+        linesSum: "12.0000",
+        totalsMatch: true,
+      })
+      .returning();
+    // A record is given to a skill in its input, as JSON.
+    const record = await H.call(OPERATOR, "POST", `/api/ops/builds/${id}/tries`, {
+      record: { kind: "transaction", id: docId },
+    });
+    expect(record.status).toBe(422);
+
+    let b = await ok("POST", `/api/ops/builds/${id}/tries`, { documentId: docId });
+    expect(b.poc?.tries[0]).toMatchObject({ name: "Try: invoice-1042.pdf", status: "running" });
+    const params = jobs.started.at(-1) as SuiteParams;
+    const [made] = await H.t.db
+      .select()
+      .from(testCase)
+      .where(eq(testCase.id, params.caseIds[0] as string));
+    expect(made?.input).toEqual({ documentId: docId });
+    expect(made?.fixtures).toEqual([
+      {
+        tool: "docs.get",
+        input: { documentId: docId },
+        output: expect.objectContaining({
+          id: docId,
+          filename: "invoice-1042.pdf",
+          url: null,
+          extraction: expect.objectContaining({
+            id: x?.id,
+            header: { vendorName: "Northline Panel Supply", invoiceNumber: "1042" },
+          }),
+          sources: [docId, x?.id],
+        }),
+      },
+    ]);
+
+    // The bench runs it on that fixture, as a test: what it would answer, nothing written.
+    await runLatest(new FakeModel([says("Northline Panel Supply")]));
+    b = await ok("GET", `/api/ops/builds/${id}`);
+    expect(b.poc?.tries[0]).toMatchObject({
+      status: "done",
+      output: { verdict: "Northline Panel Supply" },
+    });
+    b = await ok("POST", `/api/ops/builds/${id}/tries/${made?.id}`, { decide: "keep" });
+    expect(b.poc).toMatchObject({ cases: 1, required: 1 });
   });
 });

@@ -243,7 +243,7 @@ export const BuildPocView = z.object({
   ),
   /** builder-plan.md B1: examples tried and not kept yet, newest first (suite mode only). */
   tries: z.array(BuildTryView).default([]),
-  /** A template's try document is uploaded to this Sandbox client (where its tests run). */
+  /** A try document is uploaded to this Sandbox client, and its records are picked from it. */
   trySandbox: z.object({ id: z.string(), name: z.string() }).nullable().default(null),
   testRuns: z
     .object({
@@ -401,13 +401,22 @@ export const UpdateBuildItem = z.strictObject({
   drop: z.literal(true).optional(),
 });
 
+/** The kinds of Sandbox record a template can be tried on: the ones that start a workflow. */
+export const TRY_RECORD_KINDS = ["transaction", "receivable"] as const;
+export const TryRecordKind = z.enum(TRY_RECORD_KINDS);
+export type TryRecordKind = z.infer<typeof TryRecordKind>;
+
 /**
- * A try (builder-plan.md B1): exactly one of a document uploaded to the Sandbox (a template), an
- * input (a skill's input, or a template's trigger payload), or a try to run again.
+ * A try (builder-plan.md B1): exactly one of a document uploaded to the Sandbox (a template, or a
+ * skill whose input takes a document), a Sandbox record (a template: a purchase or bill, or an
+ * invoice to a customer), an input (a skill's input, or a template's trigger payload), or a try to
+ * run again.
  */
 export const TryBody = z
   .strictObject({
     documentId: Id.optional(),
+    /** docs/open.md G3: one of the Sandbox's records, as its `*.created` event would carry it. */
+    record: z.strictObject({ kind: TryRecordKind, id: Id }).optional(),
     input: z
       .unknown()
       .refine((v) => JSON.stringify(v ?? null).length <= 100_000, "the input is too large")
@@ -418,8 +427,8 @@ export const TryBody = z
     caseId: Id.optional(),
   })
   .refine(
-    (b) => [b.documentId, b.input, b.caseId].filter((v) => v !== undefined).length === 1,
-    "give a document, an input or a try to run again",
+    (b) => [b.documentId, b.record, b.input, b.caseId].filter((v) => v !== undefined).length === 1,
+    "give a document, a record, an input or a try to run again",
   );
 export type TryBody = z.infer<typeof TryBody>;
 
@@ -571,7 +580,7 @@ export const buildRoutes = {
     auth: "session",
     roles: OPS,
     summary:
-      "Try the draft on a real example in the POC test: a Sandbox document or an input, run once as a test (never writes); with caseId, try one again on the latest version",
+      "Try the draft on a real example in the POC test: a Sandbox document or record, or an input, run once as a test (never writes); with caseId, try one again on the latest version",
     params: IdParams,
     body: TryBody,
     response: BuildDetail,

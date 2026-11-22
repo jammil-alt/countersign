@@ -29,6 +29,7 @@ import {
   BANKING_TOOLS,
   createQboConnector,
   intuitTidOf,
+  JOURNAL_TOOLS,
   LEDGER_WRITE_TOOLS,
   parseQboWebhook,
   parseQboWebhookChanges,
@@ -131,7 +132,7 @@ describe("qbo connector: manifest and sign-in", () => {
     const creates = connector.manifest.tools.filter(
       (t) => t.verb === "create" && t.id !== QBO_TOOLS.attachableUpload,
     );
-    expect(creates.length).toBe(9);
+    expect(creates.length).toBe(10);
     for (const t of creates) {
       const handler = connector.tools[t.id];
       expect(handler?.kind === "write" && handler.testOutput, t.id).toBeTruthy();
@@ -168,7 +169,7 @@ describe("qbo connector: manifest and sign-in", () => {
     expect(qbo.requests).toHaveLength(0);
   });
 
-  it("declares fourteen reads and nineteen approval-gated writes, no delete", () => {
+  it("declares fourteen reads and twenty approval-gated writes, no delete", () => {
     const { connector } = setup();
     new ConnectorRegistry([connector]);
     expect(connector.manifest.auth).toBe("oauth2");
@@ -212,6 +213,8 @@ describe("qbo connector: manifest and sign-in", () => {
       [LEDGER_WRITE_TOOLS.locationUpdate, "external", "update"],
       // R-1: an account's register, for reconciliation.
       [QBO_REGISTER_TOOL, "none", "read"],
+      // §1.232: the Close pack's journal entries.
+      [JOURNAL_TOOLS.create, "external", "create"],
     ]);
     for (const id of Object.values(LEDGER_WRITE_TOOLS)) {
       expect(connector.manifest.tools.find((t) => t.id === id)?.approval, id).toBe("always");
@@ -244,10 +247,11 @@ describe("qbo connector: manifest and sign-in", () => {
         );
       }
       const shown = display.fields.flatMap((f) => [f.now, f.after]).filter(Boolean);
-      // A new bill's expected total is its total, not a guard on a record that exists.
+      // A new bill's (or journal entry's) expected total is its total, not a guard on a record that exists.
       const guards =
         t.id === QBO_TOOLS.billCreate ||
         t.id === QBO_TOOLS.purchaseOrderCreate ||
+        t.id === JOURNAL_TOOLS.create ||
         (Object.values(BANKING_TOOLS) as string[]).includes(t.id)
           ? /syncToken|\.id\b|Ids?\b/
           : /syncToken|expectedTotal|\.id\b|Ids?\b/;

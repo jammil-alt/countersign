@@ -94,3 +94,20 @@ schema, then delete the files whose hashes no longer appear:
 ```sh
 WRITE_SALES_FIXTURES=1 pnpm --filter @countersign/pack-sales exec vitest run src/match/model.test.ts
 ```
+
+## The golden datasets' model answers (hand-written)
+
+The model's answers in the golden datasets (`fixtures/evals/`, docs/plan.md §1.212: Match the
+unmatched in the invoice review, Propose accounts in the Bookkeeper) are **written by hand**, each
+from its case's `answers`, marked `"handWritten": true`. The cases fix every id the requests carry,
+so they replay. Rebuild them after changing a dataset's answers or a skill's prompt, schema or
+model, then delete the files whose hashes no longer appear:
+
+```sh
+node fixtures/evals/generate.mjs
+WRITE_EVAL_FIXTURES=1 COUNTERSIGN_REQUIRE_DB=1 \
+  pnpm --filter @countersign/api exec vitest run src/evals/golden.test.ts
+```
+
+With a key, record real answers instead and compare: a real answer that misses a case's writes is
+what the dataset is for.

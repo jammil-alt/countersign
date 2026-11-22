@@ -1165,6 +1165,7 @@ export const it: Messages = {
   "reports.subtitle": "Cosa hanno fatto i tuoi agenti.",
   "reports.subtitlePeriod": "Cosa hanno fatto i tuoi agenti, {period}.",
   "reports.activity": "Attività",
+  "reports.account": "Account",
   "reports.period": "Periodo",
   "reports.period.month": "Questo mese",
   "reports.period.last": "Mese scorso",
@@ -1613,6 +1614,9 @@ export const it: Messages = {
   "billing.soFarNote": "{period}. L'importo finale arriva all'inizio del mese prossimo.",
   "billing.byService": "Per agente",
   "billing.statements": "Fatture",
+  // §1.234: the link to the work statement.
+  "billing.workStatement": "Cosa hanno fatto i vostri agenti ogni mese",
+  "billing.workDone": "Lavoro svolto",
   "billing.noStatements": "Ancora nessuna fattura. La prima arriva all'inizio del mese prossimo.",
   "billing.column.item": "Voce",
   "billing.pricePerMonth": "{price} al mese",
@@ -2056,6 +2060,16 @@ export const it: Messages = {
   "runsPage.ask.send": "Chiedi",
   "runsPage.ask.asking": "Ricerca…",
   "runsPage.ask.clear": "Cancella",
+  "runsPage.views.label": "Viste salvate",
+  "runsPage.views.save": "Salva questa vista",
+  "runsPage.views.name": "Nome della vista",
+  "runsPage.views.namePlaceholder": "Dai un nome a questa vista",
+  "runsPage.views.share": "Condividi con il tuo team",
+  "runsPage.views.shareShort": "Condividi",
+  "runsPage.views.stopSharing": "Non condividere più",
+  "runsPage.views.shared": "Condivisa",
+  "runsPage.views.by": "Condivisa da {name}",
+  "runsPage.views.delete": "Elimina la vista {name}",
   "runsPage.ask.unclear":
     "Non siamo riusciti a farne un filtro. Prova a indicare un agente, uno stato o una data.",
   "runsPage.ask.leftOut": "Fuori da questo filtro: {parts}",
@@ -2541,6 +2555,105 @@ export const it: Messages = {
   "workflow.card.ifFails": "Se non riesce", // fluent review
   "workflow.card.inSop": "Passaggio {step} nella SOP", // fluent review
   "workflow.close": "Chiudi", // fluent review
+  // ── Procedures: every agent's SOP in a row (docs/sop-plan.md S2) ──
+  "procedures.title": "Procedure", // fluent review
+  "procedures.subtitle":
+    "La procedura operativa standard di ciascuno dei tuoi agenti, fatta da come è configurato oggi.", // fluent review
+  "procedures.link": "Le SOP di tutti i tuoi agenti", // fluent review
+  "procedures.none": "Nessuno dei tuoi agenti ha ancora una SOP.", // fluent review
+  "procedures.find": "Trova un agente, un sistema, una persona o una modifica", // fluent review
+  "procedures.system": "Sistema", // fluent review
+  "procedures.anySystem": "Qualsiasi sistema", // fluent review
+  "procedures.does": "Cosa fa lì", // fluent review
+  "procedures.does.any": "Legge o modifica", // fluent review
+  "procedures.does.changes": "Modifica", // fluent review
+  "procedures.does.reads": "Legge", // fluent review
+  "procedures.party": "Chi partecipa", // fluent review
+  "procedures.anyone": "Chiunque", // fluent review
+  "procedures.count": "{shown} di {total} mostrati", // fluent review
+  "procedures.noMatch": "Nessun agente corrisponde.", // fluent review
+  "procedures.col.agent": "Agente", // fluent review
+  "procedures.col.changed": "Ultima modifica", // fluent review
+  "procedures.andMore": "e altri {count}", // fluent review
+  "procedures.changedBy": "{who}, in {where}", // fluent review
+  // ── The workflow chart (shared with the builder) ──
+  "flow.zoomOut": "Riduci", // fluent review
+  "flow.zoomReset": "Torna al 100%", // fluent review
+  "flow.zoomIn": "Ingrandisci", // fluent review
+  "flow.fit": "Adatta", // fluent review
+  "flow.key": "Legenda", // fluent review
+  "flow.keyLabel": "Cosa vogliono dire i simboli", // fluent review
+  "flow.dragHint": "Trascina lo sfondo per spostarti", // fluent review
+  "flow.otherwise": "Altrimenti", // fluent review
+  "flow.path": "Percorso {letter}", // fluent review
+  "flow.forEach": "Una volta per ogni elemento", // fluent review
+  "flow.repeat": "Di nuovo fino alla fine", // fluent review
+  "flow.repeatUpTo": {
+    one: "Di nuovo fino alla fine · fino a {count} volta",
+    other: "Di nuovo fino alla fine · fino a {count} volte",
+  }, // fluent review
+  "flow.stop": "Fine", // fluent review
+  "flow.neverRuns": "Non viene mai eseguito", // fluent review
+  "flow.neverRuns.why": "Tutti i percorsi sopra finiscono prima.", // fluent review
+  "flow.fold": "Comprimi in un solo riquadro", // fluent review
+  "flow.unfold": {
+    one: "Mostra il passaggio all’interno",
+    other: "Mostra i {count} passaggi all’interno",
+  }, // fluent review
+  "flow.more": "e altri {count}", // fluent review
+  "flow.whyHere": "Perché è qui: {purpose}", // fluent review
+  "flow.runsOn": "funziona con {model}", // fluent review
+  "flow.runsOnTitle": "Funziona con {model}", // fluent review
+  "flow.ai": "IA", // fluent review
+  "flow.doer.person": "persona", // fluent review
+  "flow.doer.personTitle": "Lo fa una persona", // fluent review
+  "flow.doer.code": "codice", // fluent review
+  "flow.doer.codeTitle": "Funziona come codice, senza modello", // fluent review
+  "flow.badge.aiSkill": "Abilità IA", // fluent review
+  "flow.badge.rulesSkill": "Abilità a regole", // fluent review
+  "flow.mark.read": "Legge", // fluent review
+  "flow.mark.write": "Salva nei nostri archivi", // fluent review
+  "flow.mark.person": "Lo fa una persona", // fluent review
+  "flow.mark.conversation": "Una conversazione con una persona", // fluent review
+  "flow.mark.notify": "Avvisa qualcuno", // fluent review
+  "flow.mark.wait": "Attende", // fluent review
+  "flow.mark.forEach": "Si ripete per ogni elemento", // fluent review
+  "flow.mark.repeat": "Si ripete fino alla fine", // fluent review
+  "flow.mark.process": "Un’automazione: passaggi salvati", // fluent review
+  "flow.mark.handoff": "Passa il lavoro a un altro agente", // fluent review
+  "flow.mark.missing": "Non ancora creato", // fluent review
+  "flow.mark.readsFrom": "Legge da {name}", // fluent review
+  "flow.mark.readsFromAi": "Legge da {name}, con un modello", // fluent review
+  "flow.mark.changes": "Modifica {name}", // fluent review
+  "flow.mark.changesAi": "Modifica {name}, con un modello", // fluent review
+  "flow.mark.handoffTo": "Passa il lavoro a {name}", // fluent review
+  "flow.mark.aiSkill": "Un’abilità svolta da un modello", // fluent review
+  "flow.mark.rulesSkill": "Un’abilità che funziona con regole", // fluent review
+  "flow.mark.ai": "Lo fa un modello", // fluent review
+  "flow.key.connector": "Legge o modifica uno strumento collegato", // fluent review
+  "flow.key.ai": "Lo fa un modello", // fluent review
+  "flow.key.rules": "Funziona con regole, senza modello", // fluent review
+  "flow.channel.inbox": "La posta in arrivo", // fluent review
+  "flow.channel.email": "Email", // fluent review
+  "flow.channel.sms": "SMS", // fluent review
+  "flow.channel.call": "Telefonata", // fluent review
+  "flow.does.read": "Legge i record. Non modifica nulla.", // fluent review
+  "flow.does.write": "Modifica o salva un record.", // fluent review
+  "flow.does.skill": "Applica un’abilità a ciò che hanno prodotto i passaggi precedenti.", // fluent review
+  "flow.does.person": "Chiede a una persona e attende la sua risposta.", // fluent review
+  "flow.does.approve": "Chiede a una persona di approvare e attende la sua risposta.", // fluent review
+  "flow.does.ask": "Fa una domanda a una persona e attende la sua risposta.", // fluent review
+  "flow.does.conversation": "Parla con qualcuno finché non raggiunge il suo obiettivo.", // fluent review
+  "flow.does.notify": "Avvisa qualcuno e prosegue.", // fluent review
+  "flow.does.if":
+    "Manda l’esecuzione sul primo percorso la cui regola vale, altrimenti sul percorso Altrimenti.", // fluent review
+  "flow.does.forEach": "Esegue i suoi passaggi una volta per ogni elemento di un elenco.", // fluent review
+  "flow.does.repeat": "Ripete i suoi passaggi finché non sono finiti o raggiunge il limite.", // fluent review
+  "flow.does.wait": "Mette in pausa l’esecuzione per un tempo stabilito.", // fluent review
+  "flow.does.stop": "Termina l’esecuzione qui.", // fluent review
+  "flow.does.process": "Esegue un’automazione: un insieme di passaggi salvato.", // fluent review
+  "flow.does.handoff": "Passa il lavoro a un altro agente, che funziona da solo.", // fluent review
+  "flow.does.missing": "Tiene il posto di un passaggio che nessuno ha ancora creato.", // fluent review
   "manual.whatItDoes": "Cosa fa", // fluent review
   "manual.howItWorks": "Come funziona", // fluent review
   "manual.decisions": "Decisioni", // fluent review
@@ -4067,4 +4180,122 @@ export const it: Messages = {
     "Lei decide cosa può andare senza chiedere. Le approvazioni restano attive a meno che non le cambi.",
   "setup.live.fromCall": "Dalla nostra chiamata: controlli, per favore",
   // (end setup: live)
+  // §1.216: books health
+  "books.title": "Salute della contabilità",
+  "books.subtitle": "Cosa abbiamo trovato nel tuo QuickBooks, prima gli importi maggiori.",
+  "books.none": "Collega QuickBooks e controlliamo qui la tua contabilità.",
+  "books.syncing":
+    "Controlliamo la tua contabilità quando la prima sincronizzazione di QuickBooks è finita.",
+  "books.asOf": "Al {day}",
+  "books.since": "su registrazioni dal {day} in poi",
+  "books.allClean": "Nessun controllo ha trovato problemi.",
+  "books.clean": "Niente trovato in: {checks}.",
+  "books.fixedBy": "Lo risolve {area}",
+  "books.on": "Attivo",
+  "books.off": "Non attivo",
+  "books.examples": "Esempi",
+  "books.check.unreconciled_accounts": "Conti non riconciliati",
+  "books.check.uncategorized": "Transazioni senza categoria",
+  "books.check.duplicate_vendors": "Fornitori duplicati",
+  "books.check.duplicate_bills": "Fatture fornitori duplicate",
+  "books.check.receivables_aging": "Fatture clienti scadute",
+  "books.check.payables_aging": "Fatture fornitori scadute",
+  "books.check.negative_balances": "Saldi sotto zero",
+  "books.check.undeposited_funds": "Fondi non depositati",
+  "books.check.price_drift": "Prezzi dei fornitori in aumento",
+  // (end books health)
+  // §1.232: the Close pack
+  "close.title": "Chiusura del mese",
+  "close.description": "La lista di ogni mese, le sue scritture e l'approvazione finale.",
+  "close.empty": "Nessun mese è stato ancora controllato.",
+  "close.notChecked": "Questo mese non è stato ancora controllato.",
+  "close.loading": "Caricamento della chiusura…",
+  "close.month": "Mese",
+  "close.periodOf": "Dal {start} al {end}",
+  "close.status.signed_off": "Chiuso",
+  "close.ready": "Pronto per la chiusura",
+  "close.linesOpen": "Righe aperte: {count}",
+  "close.signedOffBy": "Chiuso da {name} il {day}",
+  "close.checklist": "Lista di chiusura",
+  "close.entries": "Scritture contabili",
+  "close.noEntries": "Nessuna scrittura questo mese.",
+  "close.item.open": "Aperta",
+  "close.item.done": "Fatta",
+  "close.item.waived": "Esonerata",
+  "close.waivedBecause": "Esonerata: {note}",
+  "close.waive": "Esonera",
+  "close.waiveReason": "Perché può restare aperta",
+  "close.unwaive": "Ritira l'esonero",
+  "close.reject": "Rifiuta",
+  "close.date": "Data",
+  "close.entry": "Scrittura",
+  "close.amount": "Importo",
+  "close.statusCol": "Stato",
+  "close.kind.accrual": "Rateo",
+  "close.kind.reversal": "Storno",
+  "close.kind.recurring": "Ricorrente",
+  "close.debit": "Dare",
+  "close.credit": "Avere",
+  "close.entry.proposed": "In attesa",
+  "close.entry.rejected": "Rifiutata",
+  "close.entry.posted": "Registrata",
+  "close.entry.failed": "Non riuscita",
+  "close.entry.superseded": "Sostituita",
+  "close.entry.waitingSignature": "In attesa di una firma",
+  "close.signOff": "Chiudi il mese",
+  "close.signOffNote": "Una nota per l'archivio (facoltativa)",
+  // (end close)
+  // Plan entry §1.233: the AP pack's Bills to pay and its approve-to-pay card.
+  "ap.bills.title": "Fatture da pagare",
+  "ap.bills.description":
+    "Le fatture dei fornitori di ogni settimana da approvare, confrontate con i loro ordini. Qui non si paga nulla.",
+  "ap.list.loading": "Caricamento delle fatture…",
+  "ap.list.empty": "Nessuna fattura nella lista di questa settimana.",
+  "ap.list.heading": {
+    one: "{count} fattura per il {day}:",
+    other: "{count} fatture per il {day}:",
+  },
+  "ap.list.needsYou": {
+    one: "{count} richiede la sua attenzione",
+    other: "{count} richiedono la sua attenzione",
+  },
+  "ap.list.needsYouTitle": "Richiedono la sua attenzione",
+  "ap.list.ready": "Pronte da approvare: {amount}",
+  "ap.list.approved": "Approvate: {amount}",
+  "ap.list.approveReady": "Approva le fatture pronte",
+  "ap.list.decided": "Decise",
+  "ap.list.done": "Fatto per questa settimana",
+  "ap.list.week": "Settimana",
+  "ap.list.weekOf": "Settimana del {day}",
+  "ap.status.open": "Da decidere",
+  "ap.status.approved": "Approvata",
+  "ap.status.held": "In sospeso",
+  "ap.status.rejected": "Rifiutata",
+  "ap.bill.due": "Scade il {day}",
+  "ap.bill.order": "Ordine {reference}",
+  "ap.bill.noOrder": "Nessun ordine",
+  "ap.bill.account": "Conto",
+  "ap.bill.chooseAccount": "Scelga un conto",
+  "ap.bill.take": "Usa {account}",
+  "ap.bill.confirmOrder": "È questo ordine",
+  "ap.bill.notThisOrder": "Non è questo ordine",
+  "ap.bill.received": "Segna l'ordine come ricevuto",
+  "ap.bill.note": "Perché (per sospendere, rifiutare o approvare una fattura segnalata)",
+  "ap.bill.approve": "Approva",
+  "ap.bill.hold": "Sospendi",
+  "ap.bill.reject": "Rifiuta",
+  "ap.flag.duplicate": "Duplicata",
+  "ap.flag.possible_duplicate": "Possibile duplicato",
+  "ap.flag.price_over_order": "Prezzo sopra l'ordine",
+  "ap.flag.price_under_order": "Prezzo sotto l'ordine",
+  "ap.flag.unit_not_compared": "Altra unità, non confrontata",
+  "ap.flag.qty_over_order": "Fatturato più dell'ordinato",
+  "ap.flag.qty_over_received": "Fatturato più del ricevuto",
+  "ap.flag.not_received": "Non segnato come ricevuto",
+  "ap.flag.amount_differs": "Il totale differisce dall'ordine",
+  "ap.flag.no_order": "Nessun ordine d'acquisto",
+  "ap.flag.order_to_confirm": "Ordine da confermare",
+  "ap.flag.uncoded": "Righe senza conto",
+  "ap.flag.read_again": "Riletta",
+  "ap.flag.other": "Segnalazione",
 };

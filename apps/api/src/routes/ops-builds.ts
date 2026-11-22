@@ -54,6 +54,7 @@ import {
   ProposalState,
   parseDqNumber,
   phaseIndex,
+  processes,
   proposalUndo,
   readBrief,
   readFitGap,
@@ -81,7 +82,7 @@ import {
   skillVersion,
   type Tx,
 } from "@countersign/db";
-import { createLlmClient, DEFAULT_MODELS, type LlmTransport } from "@countersign/llm";
+import { DEFAULT_MODELS, type LlmTransport } from "@countersign/llm";
 import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 import type { Hono } from "hono";
 import { freeSlug, moveToClientTest } from "../build/client-test";
@@ -124,6 +125,7 @@ import {
   type Services,
   toHttpError,
 } from "../http";
+import { meterDepsOf, meteredLlm, tokensMeta } from "../metering";
 import { reportHandled, reportProblem } from "../observability/report";
 import { bindTestCopy } from "./ops-agents";
 import { builderContext, builderHttpError } from "./ops-builder";
@@ -317,7 +319,8 @@ function changeLines(
   return out;
 }
 
-interface LongCtx {
+/** A slow build route's context; the process interview's draft (§1.217) passes its own. */
+export interface LongCtx {
   c: AppContext;
   app: Hono<AppEnv>;
   session: Parameters<typeof invokeRoute>[2];
@@ -498,6 +501,13 @@ async function turn(
   });
   const { row } = prep;
   let result: Awaited<ReturnType<typeof buildTurn>>;
+  // §1.210: an answer's cost is saved on its message; a turn that fails, or whose answer isn't
+  // saved, keeps none, so its calls are recorded as ours once the request ends.
+  const metered = meteredLlm(meterDepsOf(ctx), {
+    transport: transport(ctx.services, row),
+    tenantId: row.clientId,
+    source: "build",
+  });
   try {
     result = await buildTurn(
       {
@@ -517,7 +527,7 @@ async function turn(
         ctx: prep.bctx,
         otherWork: prep.otherWork,
       },
-      { llm: createLlmClient({ transport: transport(ctx.services, row) }) },
+      { llm: metered.llm },
     );
   } catch (error) {
     await failTurn(ctx, id, row.phase, failedTurnText(row.phase, error), error);
@@ -620,6 +630,7 @@ async function turn(
           ],
           costUsd: result.costUsd,
           model: result.calls[0]?.model ?? null,
+          ...tokensMeta(result.calls),
           ...(about ? { about } : {}),
           ...(proposal ? { proposal: { ...proposal, state: "proposed" } } : {}),
           // docs/plan.md §1.165: the Builder's word that the operator asked for this change. Only
@@ -628,6 +639,7 @@ async function turn(
         },
       });
     });
+    metered.settled();
   } catch (error) {
     if (error instanceof HttpError) throw error;
     // BUILDER_QA INPUT-3: an answer the database wouldn't take is a failed turn with Retry, as a
@@ -833,7 +845,14 @@ async function reviewHolds(ctx: LongCtx, row: BuildRow): Promise<boolean> {
           issues: prep.issues,
           ctx: prep.bctx,
         },
-        { llm: createLlmClient({ transport: transport(ctx.services, row) }) },
+        // §1.210: the review's calls are ours; nothing else keeps their cost.
+        {
+          llm: meteredLlm(meterDepsOf(ctx), {
+            transport: transport(ctx.services, row),
+            tenantId: row.clientId,
+            source: "build",
+          }).llm,
+        },
       )
     ).concerns;
   } catch (error) {
@@ -1546,6 +1565,7 @@ async function makeDraft(
   kept: boolean;
   summary?: string;
   gaps?: string[];
+  gapSteps?: (string | null)[];
 }> {
   const description =
     atOnce?.description ?? draftDescription(row, readBrief(row.brief), readFitGap(row.fitgap));
@@ -1565,6 +1585,7 @@ async function makeDraft(
       kept: false,
       summary: out.summary,
       gaps: out.gaps,
+      ...(out.gapSteps ? { gapSteps: out.gapSteps } : {}),
     };
   }
   if (row.sessionId) return { set: {}, decisions: [], kept: true };
@@ -1583,11 +1604,17 @@ async function makeDraft(
   return { set: { sessionId: started.session.id }, decisions: [], kept: false };
 }
 
-/** The draft's step standing for each gap (a person step that asks, or a missing step), or null. */
+/**
+ * The draft's step standing for each gap, or null: the one the drafter named (F-C), when the saved
+ * draft has it, else the step core's word match finds (a person step that asks, or a missing step).
+ */
+// DECISION (F-C): the drafter's own answer first, the word match only for a gap it named no step
+// for, so a draft whose model leaves `gapSteps` out reads as before.
 async function draftGapSteps(
   tx: Tx,
   agentId: string | null | undefined,
   gaps: readonly string[],
+  named: readonly (string | null)[] = [],
 ): Promise<(string | null)[]> {
   const latest = agentId ? await latestVersion(tx, agentId) : null;
   const parsed = latest ? AnyAgentBundle.safeParse(latest.bundle) : null;
@@ -1595,7 +1622,12 @@ async function draftGapSteps(
   const drafted = parsed.data.workflows.flatMap((w) =>
     w.workflow.schemaVersion === 4 ? [w.workflow] : [],
   );
-  return gapSteps(gaps, drafted);
+  const ids = new Set(drafted.flatMap((p) => processes.allSteps(p).map(({ step }) => step.id)));
+  const matched = gapSteps(gaps, drafted);
+  return gaps.map((_, i) => {
+    const said = named[i];
+    return said && ids.has(said) ? said : (matched[i] ?? null);
+  });
 }
 
 /** A short, stable fingerprint of a fit-gap's first version. */
@@ -1798,7 +1830,8 @@ export function draftedNowText(o: {
 // challenge... apply defaults to the settings and make decisions and tweak after it is built".
 // The phases stay (a build can still go back to its intake or fit-gap with a reason); this is the
 // way past them. Agent builds only: a skill is drafted in its own Builder conversation.
-async function draftNow(ctx: LongCtx, id: string, given: string | null): Promise<void> {
+/** Draft it now (§1.165); the process interview drafts its build through it too (§1.217). */
+export async function draftNow(ctx: LongCtx, id: string, given: string | null): Promise<void> {
   const userId = ctx.session.user.id;
   // 1. The build is an open agent build with no draft yet, and there is something to draft from.
   //    The move is claimed by the phase, as a move into the draft is (STATE-1).
@@ -1887,7 +1920,10 @@ async function draftNow(ctx: LongCtx, id: string, given: string | null): Promise
       userId,
     });
     // docs/builder-plan.md §12.4: each gap names the step that stands for it, when one clearly does.
-    const onSteps = gaps.length > 0 ? await draftGapSteps(scoped.tx, made.set.agentId, gaps) : [];
+    const onSteps =
+      gaps.length > 0
+        ? await draftGapSteps(scoped.tx, made.set.agentId, gaps, made.gapSteps ?? [])
+        : [];
     await addItems(
       scoped.tx,
       r,
@@ -2698,9 +2734,16 @@ export function opsBuildRoutes(app: Hono<AppEnv>): void {
     if (!plan.datasets.some((d) => d.source === "generate")) {
       throw new HttpError(409, "nothing_to_generate", "the test plan has no dataset to generate");
     }
+    // §1.210: the cases' cost is saved on the message that says so; calls that end in an error
+    // are recorded as ours once the request ends.
+    const generating = meteredLlm(meterDepsOf(ctx), {
+      transport: transport(ctx.services, prep.row),
+      tenantId: prep.row.clientId,
+      source: "build",
+    });
     const made = await makeTestCases(
       { kind: prep.target.kind, testPlan: plan, target: prep.target.text },
-      { llm: createLlmClient({ transport: transport(ctx.services, prep.row) }) },
+      { llm: generating.llm },
     ).catch(builderHttpError);
     let created = 0;
     for (const c of made.cases) {
@@ -2741,9 +2784,10 @@ export function opsBuildRoutes(app: Hono<AppEnv>): void {
           created === made.cases.length
             ? `I made ${created} test ${created === 1 ? "case" : "cases"} from the plan. Run them when you're ready.`
             : `I made ${created} test ${created === 1 ? "case" : "cases"} from the plan; ${made.cases.length - created} didn't fit the draft or the test bench and were left out.`,
-        meta: { costUsd: made.costUsd },
+        meta: { costUsd: made.costUsd, ...tokensMeta(made.calls) },
       });
     });
+    generating.settled();
     return { ...(await detailOf(ctx, ctx.params.id)), created };
   });
 

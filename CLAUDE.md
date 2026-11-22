@@ -88,6 +88,12 @@ pnpm format           # Biome (pinned to Plenary Labs' version; it leaves Markdo
 - Migrations, CI/deploy workflows and sign-in changes get their own PR so they can be reverted alone.
 - Never edit a migration that has reached `staging` or `main`; add a new one. Migrations must keep the
   previous Worker working, because they apply before the new Worker deploys.
+- **When several sessions build in parallel**, workers don't edit `docs/plan.md`, `docs/open.md` or
+  `docs/work-plan.md`. Each puts its plan entry in its PR description, and the coordinator lands one
+  docs PR per wave.
+- **A migration merges only if** its number is higher than every migration on `main` and its journal
+  `when` is newer than `main`'s latest. Otherwise renumber it and regenerate its snapshot and journal
+  entry from `main`'s latest. Numbers are confirmed at merge time, not reserved ahead.
 
 ## Invariants: do not break these
 

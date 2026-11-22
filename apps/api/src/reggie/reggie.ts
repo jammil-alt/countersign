@@ -18,6 +18,7 @@ import { reggieAction, reggieConversation, reggieMessage, type Tx, tenant } from
 import {
   createLlmClient,
   DEFAULT_MODELS,
+  type LlmCallRecord,
   type LlmRequest,
   type LlmTransport,
   toolInputSchema,
@@ -26,6 +27,7 @@ import { and, asc, desc, eq, exists, isNull, sql } from "drizzle-orm";
 import type { Hono } from "hono";
 import type { AppContext, AppEnv } from "../http";
 import { HttpError, iso, notFound, toHttpError } from "../http";
+import { tokensMeta } from "../metering";
 import {
   type ChangeTool,
   REGGIE_TOOLS,
@@ -303,6 +305,8 @@ export async function runTurn(s: TurnScope, conversationId: string, words: strin
   const tools = modelTools();
   const used: string[] = [];
   let cost = new Decimal(0);
+  // §1.210: each call's tokens too, so the back office's tokens add up with its cost.
+  const records: LlmCallRecord[] = [];
   let answer = "";
   let stopped = false;
 
@@ -323,6 +327,7 @@ export async function runTurn(s: TurnScope, conversationId: string, words: strin
       { label: "reggie" },
     );
     if (record.costUsd) cost = cost.plus(record.costUsd);
+    records.push(record);
     const calls = message.content.filter(
       (b): b is Extract<(typeof message.content)[number], { type: "tool_use" }> =>
         b.type === "tool_use",
@@ -382,7 +387,13 @@ export async function runTurn(s: TurnScope, conversationId: string, words: strin
       role: "reggie",
       text: answer || "I have nothing to add.",
       blocks: turn.slice(1),
-      meta: { model, costUsd: cost.toFixed(6), tools: [...new Set(used)], stopped },
+      meta: {
+        model,
+        costUsd: cost.toFixed(6),
+        tools: [...new Set(used)],
+        stopped,
+        ...tokensMeta(records),
+      },
     });
     await tx
       .update(reggieConversation)

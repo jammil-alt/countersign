@@ -3,7 +3,7 @@
 // revision is recorded when it is first read; a change to what it says, made through a session
 // route, records the next revision in the same transaction with who made it and where.
 
-import { agent, sopRevision } from "@countersign/db";
+import { agent, appUser, membership, sopRevision } from "@countersign/db";
 import { and, eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
@@ -24,7 +24,7 @@ afterAll(() => h?.close());
 
 describe.skipIf(!h)("the agent's SOP (docs/sop-plan.md)", () => {
   const H = h as ApiHarness;
-  const ids = { mine: "", other: "" };
+  const ids = { mine: "", other: "", second: "" };
 
   async function clientAgent(tenantId: string, slug: string, serviceName: string) {
     const tpl = await H.call(OPERATOR, "POST", "/api/ops/templates", {
@@ -56,6 +56,7 @@ describe.skipIf(!h)("the agent's SOP (docs/sop-plan.md)", () => {
   beforeAll(async () => {
     ids.mine = await clientAgent(H.A.tenantId, "sop-mine", "Bills in");
     ids.other = await clientAgent(H.B.tenantId, "sop-other", "Elsewhere");
+    ids.second = await clientAgent(H.A.tenantId, "sop-second", "Bills out");
   });
 
   it("reads as a view made by code, with its first revision, and nothing the portal may not carry", async () => {
@@ -123,6 +124,54 @@ describe.skipIf(!h)("the agent's SOP (docs/sop-plan.md)", () => {
     expect(view.start.hours).toContain("Monday to Tuesday, 07:00 to 15:00");
     // The read found nothing new to record.
     expect(await revisions(ids.mine)).toHaveLength(2);
+  });
+
+  // S2 (docs/sop-plan.md §6 "Across agents"): the portal's Procedures page.
+  it("lists every agent's SOP of this client in a row, from the SOP itself, and nothing else", async () => {
+    const res = await H.call(admin("a"), "GET", "/api/sops");
+    expect(res.status, JSON.stringify(res.json)).toBe(200);
+    const list = j(res.json);
+    expect(forbiddenKeys(list)).toEqual([]);
+    const ids_ = list.sops.map((r: { agent: { id: string } }) => r.agent.id);
+    expect(ids_).toEqual(expect.arrayContaining([ids.mine, ids.second]));
+    expect(ids_).not.toContain(ids.other);
+    const mine = list.sops.find((r: { agent: { id: string } }) => r.agent.id === ids.mine);
+    const sop = j((await H.call(admin("a"), "GET", `/api/services/${ids.mine}/sop`)).json);
+    expect(mine).toMatchObject({
+      agent: { id: ids.mine, name: "Bills in" },
+      code: sop.code,
+      stage: sop.stage,
+      revision: { number: sop.revision.number, at: sop.revision.at },
+    });
+    expect(mine.revision.changes).toEqual(sop.revision.changes);
+    expect(mine.parties).toEqual(sop.matrix.parties);
+    // Clients only.
+    expect((await H.call(OPERATOR, "GET", "/api/sops")).status).toBe(403);
+  });
+
+  it("lists only a limited client user's own agents", async () => {
+    const [u] = await H.t.db
+      .select()
+      .from(appUser)
+      .where(eq(appUser.email, user("a")));
+    const userId = u?.id as string;
+    const limit = (agentIds: string[] | null) =>
+      H.t.db
+        .update(membership)
+        .set({ agentIds })
+        .where(and(eq(membership.tenantId, H.A.tenantId), eq(membership.userId, userId)));
+    try {
+      await limit([ids.second]);
+      const res = await H.call(user("a"), "GET", "/api/sops");
+      expect(res.status, JSON.stringify(res.json)).toBe(200);
+      expect(j(res.json).sops.map((r: { agent: { id: string } }) => r.agent.id)).toEqual([
+        ids.second,
+      ]);
+      await limit([]);
+      expect(j((await H.call(user("a"), "GET", "/api/sops")).json).sops).toEqual([]);
+    } finally {
+      await limit(null);
+    }
   });
 
   it("reads the same SOP in the back office, for clients the operator serves", async () => {

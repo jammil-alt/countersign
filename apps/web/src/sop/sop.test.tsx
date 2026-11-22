@@ -325,9 +325,12 @@ const DETAIL = {
   packs: [],
 };
 
-function portal(path = `/agents/${SVC}/sop`, view: SopView = VIEW) {
+function portal(path = `/agents/${SVC}/sop`, view: SopView = VIEW, language = "en") {
   const api = fakeApi({
-    "GET /api/session": () => CLIENT_SESSION,
+    "GET /api/session": () => ({
+      ...CLIENT_SESSION,
+      language: { effective: language, user: language === "en" ? null : language, client: null },
+    }),
     "GET /api/overview": () => new Reply(404, {}),
     "GET /api/feedback/status": () => ({ enabled: false }),
     [`GET /api/services/${SVC}`]: () => DETAIL,
@@ -503,5 +506,97 @@ describe("the portal's Workflow tab (docs/sop-plan.md §6a)", () => {
     expect(screen.queryByTestId("workflow-card")).toBeNull();
     await user.click(screen.getByTestId("flow-box-review"));
     expect(await screen.findByTestId("workflow-card")).toHaveTextContent("Cara Lin");
+  });
+
+  it("says the chart's own words in the reader's language (SOP-W)", async () => {
+    portal(`/agents/${SVC}/flow`, VIEW, "de");
+    await screen.findByTestId("workflow-chart");
+    // The zoom bar, Otherwise and the chips are German; what people wrote stays as written.
+    expect(screen.getByTestId("flow-zoom-out")).toHaveAttribute("aria-label", "Verkleinern");
+    expect(screen.getByTestId("flow-zoom-in")).toHaveAttribute("aria-label", "Vergrößern");
+    expect(screen.getByTestId("flow-zoom-fit")).toHaveTextContent("Einpassen");
+    expect(screen.getByTestId("flow-key-toggle")).toHaveTextContent("Legende");
+    expect(screen.getByTestId("flow-path-po")).toHaveTextContent("BSonst");
+    expect(screen.getByTestId("flow-path-pa")).toHaveTextContent("Flagged");
+    expect(screen.getByTestId("flow-doer-review")).toHaveTextContent("Person");
+    expect(screen.getByTestId("flow-doer-create")).toHaveTextContent("Regeln");
+    expect(screen.getByTestId("flow-badge-read")).toHaveTextContent("KI-Fähigkeit");
+    expect(screen.getByTestId("workflow-chart")).not.toHaveTextContent("Otherwise");
+  });
+});
+
+// docs/sop-plan.md S2: every agent's SOP in a row, with the same filters across all of them.
+describe("the portal's Procedures page", () => {
+  const OTHER = "00000000-0000-4000-8000-00000000b502";
+  const qbo = (create: "auto" | "ask" | "off" | null) => ({
+    key: "qbo",
+    name: "QuickBooks Online",
+    read: "auto" as const,
+    create,
+    update: null,
+    delete: null,
+  });
+  const row = (id: string, name: string, create: "auto" | "ask" | "off" | null) => ({
+    agent: { id, name },
+    code: id === SVC ? "SOP-PUR-01" : "SOP-PUR-02",
+    area: { id: "purchasing", words: "Purchasing" },
+    stage: { id: "live", words: "Live" },
+    purpose: `${name} does its work.`,
+    revision: {
+      number: "7.1",
+      at: "2026-11-18T10:00:00.000Z",
+      by: "Ada Ruiz",
+      where: "Approval rules",
+      changes: [
+        { section: "controls" as const, ref: "C1", words: "Ada approves over $5,000", was: null },
+      ],
+    },
+    systems: [qbo(create)],
+    parties: [{ key: "user:ada", kind: "person" as const, name: "Ada Ruiz" }],
+    steps: { all: 4, ai: 1, person: 1 },
+  });
+
+  it("lists each agent's SOP, and filters to the agents that change QuickBooks", async () => {
+    const user = userEvent.setup();
+    const api = fakeApi({
+      "GET /api/session": () => CLIENT_SESSION,
+      "GET /api/overview": () => new Reply(404, {}),
+      "GET /api/feedback/status": () => ({ enabled: false }),
+      "GET /api/sops": () => ({
+        sops: [row(SVC, "Bills in", "ask"), row(OTHER, "Vendor check", null)],
+      }),
+    });
+    render(
+      <MemoryRouter initialEntries={["/procedures"]}>
+        <AppProviders client={api.client}>
+          <AppRoutes />
+        </AppProviders>
+      </MemoryRouter>,
+    );
+    const table = await screen.findByTestId("procedures-table");
+    expect(within(table).getByTestId(`procedures-open-${SVC}`)).toHaveAttribute(
+      "href",
+      `/agents/${SVC}/sop`,
+    );
+    const mine = screen.getByTestId(`procedures-row-${SVC}`);
+    expect(mine).toHaveTextContent("7.1");
+    expect(mine).toHaveTextContent("Ada approves over $5,000");
+    expect(screen.getByTestId(`procedures-system-${SVC}-qbo`)).toHaveTextContent("Changes");
+    expect(screen.getByTestId(`procedures-system-${OTHER}-qbo`)).toHaveTextContent("Reads");
+    await user.selectOptions(screen.getByTestId("procedures-system"), "qbo");
+    await user.selectOptions(screen.getByTestId("procedures-does"), "changes");
+    expect(screen.getByTestId(`procedures-row-${SVC}`)).toBeInTheDocument();
+    expect(screen.queryByTestId(`procedures-row-${OTHER}`)).toBeNull();
+    expect(screen.getByTestId("procedures-count")).toHaveTextContent("Showing 1 of 2");
+    await user.click(screen.getByTestId("procedures-clear"));
+    expect(screen.getByTestId(`procedures-row-${OTHER}`)).toBeInTheDocument();
+    await user.type(screen.getByTestId("procedures-find"), "vendor");
+    expect(screen.queryByTestId(`procedures-row-${SVC}`)).toBeNull();
+  });
+
+  it("is a link from an agent's SOP tab", async () => {
+    portal();
+    const link = await screen.findByTestId("sop-all-procedures");
+    expect(link).toHaveAttribute("href", "/procedures");
   });
 });

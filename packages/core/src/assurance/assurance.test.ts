@@ -12,6 +12,13 @@ import {
   runAssuranceChecks,
 } from "./checks";
 import { agentCoverage, checkedControls, INHERITED_CONTROLS, notApplicable } from "./coverage";
+import {
+  PROVIDER_TERMS,
+  providerKeeps,
+  providerTerms,
+  termsConfirmed,
+  trainingWords,
+} from "./terms";
 import { AssuranceView } from "./view";
 
 // Agent assurance (docs/agent-assurance-plan.md): the checks on "Bills in" at Harbor Millwork, the
@@ -87,6 +94,23 @@ function input(over: Partial<AssuranceInput> = {}): AssuranceInput {
 const result = (outs: ReturnType<typeof runAssuranceChecks>, id: string) =>
   outs.find((o) => o.checkId === id);
 
+/** Runs `fn` as if every provider page had been read on the page itself (the well-kept world). */
+function withTermsConfirmed<T>(fn: () => T): T {
+  const saved = { ...PROVIDER_TERMS };
+  try {
+    for (const [p, t] of Object.entries(PROVIDER_TERMS)) {
+      if (t)
+        PROVIDER_TERMS[p as keyof typeof PROVIDER_TERMS] = {
+          ...t,
+          sources: t.sources.map((x) => ({ ...x, read: "page" as const })),
+        };
+    }
+    return fn();
+  } finally {
+    Object.assign(PROVIDER_TERMS, saved);
+  }
+}
+
 describe("the checks (docs/agent-assurance-plan.md §4)", () => {
   it("has one function per built check, and every check proves register controls", () => {
     expect(checkFunctionIds().sort()).toEqual(
@@ -100,7 +124,7 @@ describe("the checks (docs/agent-assurance-plan.md §4)", () => {
   });
 
   it("verifies a well set-up agent, and never says failed", () => {
-    const outs = runAssuranceChecks(input());
+    const outs = withTermsConfirmed(() => runAssuranceChecks(input()));
     for (const o of outs)
       expect(["verified", "not_applicable"], `${o.checkId}: ${o.found}`).toContain(o.result);
     expect(result(outs, "approval_before_change")?.found).toBe(
@@ -114,22 +138,24 @@ describe("the checks (docs/agent-assurance-plan.md §4)", () => {
 
   it("puts in review what doesn't hold, with the record ids and nothing else", () => {
     const unsigned = action({ approvedBy: null });
-    const outs = runAssuranceChecks(
-      input({
-        actions: [unsigned, action({ audited: false }), action({ approverIsMember: false })],
-        connections: [
-          {
-            ...(input().connections[0] as AssuranceInput["connections"][number]),
-            credential: { version: 1, kid: null },
-            agentLevels: { read: "auto", create: "ask", update: "auto", delete: "ask" },
-            usedBySteps: false,
-          },
-        ],
-        secondFactorRequired: false,
-        version: { ...input().version, hashNow: "other" },
-        hipaa: true,
-        covered: ["anthropic"],
-      }),
+    const outs = withTermsConfirmed(() =>
+      runAssuranceChecks(
+        input({
+          actions: [unsigned, action({ audited: false }), action({ approverIsMember: false })],
+          connections: [
+            {
+              ...(input().connections[0] as AssuranceInput["connections"][number]),
+              credential: { version: 1, kid: null },
+              agentLevels: { read: "auto", create: "ask", update: "auto", delete: "ask" },
+              usedBySteps: false,
+            },
+          ],
+          secondFactorRequired: false,
+          version: { ...input().version, hashNow: "other" },
+          hipaa: true,
+          covered: ["anthropic"],
+        }),
+      ),
     );
     const review = outs.filter((o) => o.result === "in_review").map((o) => o.checkId);
     expect(review.sort()).toEqual(
@@ -153,11 +179,157 @@ describe("the checks (docs/agent-assurance-plan.md §4)", () => {
   it("is in review for a provider whose training terms aren't recorded", () => {
     const outs = runAssuranceChecks(
       input({
-        calls: [{ provider: "xai", model: "xai:grok-4.7", action: "agent_turn", count: 3 }],
+        calls: [
+          { provider: "xai", model: "xai:grok-4.7", action: "agent_turn", count: 3 },
+          { provider: "anthropic_web", model: "web", action: "agent_turn", count: 1 },
+        ],
       }),
     );
     expect(result(outs, "no_training")?.result).toBe("in_review");
-    expect(result(outs, "no_training")?.found).toBe("Not recorded yet for xAI");
+    expect(result(outs, "no_training")?.found).toBe(
+      "Not recorded yet for Anthropic web search and fetch",
+    );
+  });
+
+  it("records each model provider's terms from its own pages (§1.231.1)", () => {
+    for (const p of ["anthropic", "openai", "xai", "google"] as const) {
+      expect(providerTerms(p).training, p).toBe("no");
+      expect(providerTerms(p).retention, p).toBeTruthy();
+    }
+    // OpenAI's page doesn't say where a project without data residency is processed.
+    expect(providerTerms("openai").region).toBeNull();
+    expect(providerKeeps("openai")).toMatch(
+      /up to 30 days.*Where: not recorded yet\. Not yet confirmed on the provider's own page\.$/,
+    );
+    // Each entry cites its pages, with the day checked and how each was read.
+    for (const p of ["anthropic", "openai", "xai", "google"] as const) {
+      expect(providerTerms(p).sources.length, p).toBeGreaterThan(0);
+      for (const s of providerTerms(p).sources) {
+        expect(s.url, p).toMatch(/^https:\/\//);
+        expect(s.checked, p).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+      }
+      // Read from search results until someone reads the pages themselves.
+      expect(termsConfirmed(p), p).toBe(false);
+    }
+    expect(providerTerms("twilio").sources).toEqual([]);
+    expect(providerKeeps("xai")).toMatch(/^Requests and responses kept 30 days/);
+    expect(providerKeeps("twilio")).toBe("Not recorded yet");
+    const outs = runAssuranceChecks(
+      input({
+        calls: [
+          { provider: "xai", model: "xai:grok-4.7", action: "agent_turn", count: 3 },
+          { provider: "google", model: "google:gemini-3.1-pro", action: "agent_turn", count: 1 },
+        ],
+      }),
+    );
+    // Read only from search results: never verified, always "to be confirmed".
+    expect(result(outs, "no_training")?.result).toBe("in_review");
+    expect(result(outs, "no_training")?.found).toMatch(
+      /^To be confirmed on the provider's own page for .*xAI and Google/,
+    );
+    expect(trainingWords("xai")).toBe("no training, to be confirmed on the provider's own page");
+    expect(trainingWords("twilio")).toBe("training terms not recorded yet");
+  });
+
+  it("verifies training terms only once every page is read on the page itself", () => {
+    const saved = PROVIDER_TERMS.xai;
+    if (!saved) throw new Error("xai terms missing");
+    try {
+      PROVIDER_TERMS.xai = {
+        ...saved,
+        sources: saved.sources.map((s) => ({ ...s, read: "page" as const })),
+      };
+      expect(termsConfirmed("xai")).toBe(true);
+      expect(trainingWords("xai")).toBe("no training");
+      expect(providerKeeps("xai")).not.toMatch(/Not yet confirmed/);
+      const one = () =>
+        runAssuranceChecks(
+          input({
+            calls: [{ provider: "xai", model: "xai:grok-4.7", action: "agent_turn", count: 1 }],
+          }),
+        );
+      // Only xAI is confirmed here; the agent's other providers keep the check in review.
+      expect(result(one(), "no_training")?.result).toBe("in_review");
+      expect(result(one(), "no_training")?.found).not.toMatch(/xAI/);
+      expect(result(withTermsConfirmed(one), "no_training")?.result).toBe("verified");
+    } finally {
+      PROVIDER_TERMS.xai = saved;
+    }
+  });
+});
+
+describe("no secret in its AI requests, and OAuth scopes (§1.231.2)", () => {
+  const scan = {
+    calls: 12,
+    read: 12,
+    missing: 0,
+    secrets: 3,
+    unreadable: 0,
+    withSecret: [] as string[],
+    secretShaped: [] as { id: string; kinds: string[] }[],
+  };
+  const grant = {
+    id: "0199a000-0000-7000-8000-0000000000c1",
+    name: "Gmail",
+    granted: ["openid", "email", "https://www.googleapis.com/auth/gmail.send"],
+    beyond: [] as string[],
+  };
+
+  it("is not checked when the stored requests and grants weren't read (a view)", () => {
+    const outs = runAssuranceChecks(input());
+    expect(result(outs, "no_secret_to_model")).toBeUndefined();
+    expect(result(outs, "oauth_scopes")).toBeUndefined();
+  });
+
+  it("verifies requests that hold no secret, and grants within what we ask", () => {
+    const outs = runAssuranceChecks(input({ requestScan: scan, oauthGrants: [grant] }));
+    expect(result(outs, "no_secret_to_model")).toMatchObject({
+      result: "verified",
+      found:
+        "12 stored AI requests, none holding a stored secret or a key or token; 3 secrets looked for",
+    });
+    expect(result(outs, "oauth_scopes")).toMatchObject({
+      result: "verified",
+      found: "Gmail: granted only the scopes we ask for",
+    });
+  });
+
+  it("puts in review a request with a secret, by call id only, and a grant beyond our ask", () => {
+    const outs = runAssuranceChecks(
+      input({
+        requestScan: {
+          ...scan,
+          withSecret: ["m1"],
+          secretShaped: [{ id: "m2", kinds: ["model_api_key"] }],
+        },
+        oauthGrants: [{ ...grant, beyond: ["gmail.readonly"] }],
+      }),
+    );
+    const s = result(outs, "no_secret_to_model");
+    expect(s?.result).toBe("in_review");
+    expect(s?.evidence).toMatchObject({ withSecret: ["m1"], secretShaped: [{ id: "m2" }] });
+    expect(result(outs, "oauth_scopes")).toMatchObject({
+      result: "in_review",
+      found: "Granted more than we ask for: Gmail (gmail.readonly)",
+    });
+  });
+
+  it("is not applicable with no calls or no OAuth, and not yet checked when it can't read", () => {
+    let outs = runAssuranceChecks(
+      input({ requestScan: { ...scan, calls: 0, read: 0 }, oauthGrants: [] }),
+    );
+    expect(result(outs, "no_secret_to_model")?.result).toBe("not_applicable");
+    expect(result(outs, "oauth_scopes")?.result).toBe("not_applicable");
+    outs = runAssuranceChecks(
+      input({
+        requestScan: { ...scan, read: 0, missing: 12 },
+        oauthGrants: [grant, { ...grant, id: "q", name: "QuickBooks Online", granted: null }],
+      }),
+    );
+    expect(result(outs, "no_secret_to_model")).toBeUndefined();
+    expect(result(outs, "oauth_scopes")).toBeUndefined();
+    outs = runAssuranceChecks(input({ requestScan: { ...scan, unreadable: 1 } }));
+    expect(result(outs, "no_secret_to_model")?.result).toBe("in_review");
   });
 });
 
@@ -251,6 +423,16 @@ describe("the view (§5)", () => {
       "Step 3, Match each line · Anthropic",
       "Search by meaning · OpenAI",
     ]);
+    expect(v.ai[0]?.providerKeeps).toMatch(/within 30 days.*Where: Any available geography/);
+    // What the client sees never presents a term read only from a search result as confirmed.
+    for (const r of v.ai) {
+      expect(r.providerKeeps).toMatch(/Not yet confirmed on the provider's own page\.$/);
+      expect(r.protection).toMatch(/no training, to be confirmed on the provider's own page$/);
+    }
+    for (const b of v.architecture.boxes.filter((b) => b.zone === "ai")) {
+      expect(b.lines).toContain("TLS · no training, to be confirmed on the provider's own page");
+    }
+    expect(v.checks.find((c) => c.id === "no_training")?.result).not.toBe("verified");
     expect(v.access[0]).toMatchObject({
       tool: "QuickBooks Online",
       signsIn: "OAuth: you signed in to it for us",

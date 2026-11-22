@@ -3,7 +3,7 @@
 // change whose step rests on a decision nobody has discussed says so on its card.
 
 import type { ManualView } from "@countersign/core";
-import { render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { describe, expect, it } from "vitest";
 import { ApiProvider } from "../api/useApi";
@@ -112,6 +112,39 @@ describe("the back office's Manual tab", () => {
     expect(within(manual).queryByTestId("manual-ask")).toBeNull();
     // Nor "This is wrong": that is the client's way to tell us (B5).
     expect(within(manual).queryByTestId("manual-wrong")).toBeNull();
+    // A risk not counted (a template's) shows no count.
+    expect(within(manual).queryByTestId("manual-risk-hits-multi")).toBeNull();
+  });
+
+  it("shows how often runs hit a known risk, and deletes a learned note (G5)", async () => {
+    const ID = "00000000-0000-4000-8000-00000000c002";
+    const NOTE = "00000000-0000-4000-8000-00000000d001";
+    let learned = [
+      { id: NOTE, note: "Acme sends two PDFs per bill", at: "2026-11-18T10:00:00.000Z" },
+    ];
+    const api = fakeApi({
+      [`GET /api/ops/agents/${ID}/manual`]: () => ({
+        ...VIEW,
+        knownRisks: VIEW.knownRisks.map((r) => ({ ...r, hits: 3 })),
+        learned,
+      }),
+      [`DELETE /api/ops/agents/${ID}/memory/${NOTE}`]: () => {
+        learned = [];
+        return { ok: true };
+      },
+    });
+    render(
+      <MemoryRouter>
+        <ApiProvider client={api.client}>
+          <OpsManualTab agentId={ID} version={null} />
+        </ApiProvider>
+      </MemoryRouter>,
+    );
+    const manual = await screen.findByTestId("manual");
+    expect(within(manual).getByTestId("manual-risk-hits-multi")).toHaveTextContent("Hit in 3 runs");
+    fireEvent.click(within(manual).getByTestId(`manual-forget-${NOTE}`));
+    await waitFor(() => expect(screen.queryByTestId(`manual-forget-${NOTE}`)).toBeNull());
+    expect(api.calls).toContain(`DELETE /api/ops/agents/${ID}/memory/${NOTE}`);
   });
 });
 
