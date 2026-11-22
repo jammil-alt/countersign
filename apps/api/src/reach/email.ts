@@ -10,6 +10,7 @@ import {
   type EmailSendAttempt,
   type EmailServices,
   forwardingOf,
+  RESEND_CONNECTOR_ID,
   UPLOAD_CONNECTOR_ID,
 } from "@countersign/connectors";
 import { consentBlockFor } from "@countersign/core";
@@ -20,6 +21,7 @@ import {
   externalAction,
   message,
   rawRecord,
+  run,
   withTenant,
 } from "@countersign/db";
 import { and, eq, inArray, sql } from "drizzle-orm";
@@ -29,6 +31,7 @@ import {
   reachContactOf,
   type ThreadMessageBody,
 } from "../messaging/contacts";
+import { meter } from "../metering";
 
 export const EMAIL_MESSAGE_ENTITY = "EmailMessage";
 /** A send started and not yet known to be done (Gmail takes no idempotency key). */
@@ -202,8 +205,16 @@ export function dbEmailServices(db: Db, connection: ConnectionRef): EmailService
           .returning({ id: rawRecord.id });
         if (!stored) return;
         const [action] = await tx
-          .select({ agentVersionId: externalAction.agentVersionId })
+          .select({
+            agentVersionId: externalAction.agentVersionId,
+            runId: externalAction.runId,
+            agentId: run.agentId,
+          })
           .from(externalAction)
+          .leftJoin(
+            run,
+            and(eq(run.id, externalAction.runId), eq(run.tenantId, externalAction.tenantId)),
+          )
           .where(
             and(
               eq(externalAction.tenantId, tenantId),
@@ -211,6 +222,18 @@ export function dbEmailServices(db: Db, connection: ConnectionRef): EmailService
             ),
           )
           .limit(1);
+        // §1.210: an email through Resend is ours to pay for (Gmail and Outlook send from the
+        // client's own account), against the run that sent it.
+        if (connection.connector === RESEND_CONNECTOR_ID) {
+          await meter(tx, {
+            tenantId,
+            measure: "emails",
+            source: "run",
+            key: `resend:${m.output.id}`,
+            agentId: action?.agentId ?? null,
+            runId: action?.runId ?? null,
+          });
+        }
         const c = await getContact(tx, tenantId, m.contactId);
         const threadId = await contactThread(tx, c);
         const body: ThreadMessageBody = {

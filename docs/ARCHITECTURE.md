@@ -3452,6 +3452,30 @@ tightens; test runs are checked and still never write. 9: the sources are data i
 10: the verifier cites record ids. 11: no portal route returns a prompt, a model, a cost or an
 agent version.
 
+### 10.19 The process interview (owner, 2026-11-22; Wave X X3)
+
+The owner's build plan 8: before a client's agent is built, ask the person who does the work how
+it is done today. Outside v1's §1 scope with the owner's yes; what was built is `docs/plan.md`
+§1.217. The interview reuses what is there: the signed public link of a form request (§1.121),
+the intake's questions for the process's business area (§1.149.2), the documents capability's
+store for sample files, and the Builder's Draft it now (§1.165) with the reuse check's find pass
+(§1.125).
+
+| Part | Where it lives | Made by |
+|---|---|---|
+| The interview | `process_interview` (one client, one contact, one process): the questions and answers, the waiting question, the sample files, the outputs, the reuse check, the build | The operator starts it; the contact answers it on `/i/<token>` |
+| The next question | `nextQuestion` (`packages/agents/src/interview/`): one model call per answer, the interview so far as data | The model, held by code to one question and never a secret (core `oneQuestion`) |
+| The map and the open questions | `summarizeInterview`, then core `groundOutputs` | The model, held by code to the answers: a step names the answers it came from, or it comes off the map and is asked instead; an estimate is the person's mark |
+| The draft | A new agent build for the client, drafted at once from the map's numbered steps | The Builder (§1.165): approval on for every write, a person where the catalog has no part |
+| The reuse check | Per step of the map, the catalog's three best matches (§1.125's find pass, no judge) | Code |
+
+**Invariants.** 1: the link names one interview in one client; every read and write is in that
+client. 8: the draft starts with approval on, as every Builder draft does. 9: answers and file
+names are data in the prompt's tags, never instructions; the map is held to them by code. 11: the
+public page shows the client's name and the process, never an agent, a prompt or a cost; the
+contract test covers its routes. 14: the model calls are held to the client's HIPAA mode, which is
+checked before a link is made.
+
 ---
 
 ## 11. Inbox and threads
@@ -3738,6 +3762,33 @@ operator views in the back office. Installing a pack adds its templates (agents 
 as template v1 rows the operator edits like any other. Enabling it for a client inserts `tenant_pack`
 (its tables start holding that client's data) and allows forking its templates into that client.
 
+### 12.1.1 One manifest, one install path (Wave Y, owner's yes; docs/plan.md §1.230)
+
+Outside v0.15's v1 scope, with the owner's yes. Every pack's manifest (`PackManifest` in
+`packages/core/src/schemas/pack.ts`, documented in its comments) also names:
+
+- `area`: the business area (§12.0) whose shared data it holds; one pack per area.
+- `config`: the fields the operator sets when switching the pack on for a client, each a word, a
+  number, a yes or no, or one of a few choices, with its default (`PackConfigField`). Never a
+  secret: credentials go to the client's vault through a connection. A client's values are kept in
+  `tenant.settings.packs.<id>` (no table) and read with core's `packConfigOf`, defaults filling any
+  field not set.
+- `processors`: the vendors of ours the pack itself sends a client's data to (the compliance
+  register's names), beyond its steps' models and its connectors, which are gated where they are
+  called. The Areas tab shows them, marking those a client's HIPAA mode holds back.
+- `reports`: the names of the reports it registers; `apps/api` holds them equal to its handlers.
+- `extends` (optional): the pack whose area this one builds on (the Close pack extends
+  `bookkeeping`, the AP pack `materials`). One pack per area, except packs that extend one; an
+  extending pack sits in its base's area, and its base must be registered.
+
+The back office installs any pack the same way, from the client page's Areas tab (the Packs tab),
+with configuration only: `POST /api/ops/clients/:id/packs/:pack/install` checks the configuration
+against the manifest (a bad one switches nothing on), keeps it with a `tenant_change` row, switches
+the pack on, and installs its templates (approval on) and Library skills once for the deployment.
+Calling it again changes only the configuration. Nothing in `packages/*` or `apps/api` names a
+pack to install it: a new pack (the Close and AP packs) is one manifest in this shape, registered
+in `apps/api/src/packs.ts` with its handlers.
+
 ### 12.2 Materials pack
 
 Tables:
@@ -3899,6 +3950,33 @@ and 7 only: an alias (with no vendor, every vendor's description alias when they
 one candidate equal on every key attribute. Anything else keeps its candidates for a person; no model
 adjudicates it. Only the bill backfill creates new items (step 6's rule).
 
+### 12.3a The matching engine (Wave X item X1, owner 2026-11-22; plan §1.215)
+
+One reconciliation service for any two lists of items, generalised from the three matchers that
+came first (§12.3's item matching, Sales' match to CRM, Bookkeeping's reconciliation). It lives in
+the platform (`packages/core/src/matching`, pure: no database, no model client); packs call it
+with a **configuration**, and the platform never names a pack.
+
+- **Tiers**, in invariant 7's order: (1) the client's **saved rules**; (2) the configuration's
+  **deterministic** rules in its order (`reference`, `reference_group`, `counterparty_amount`,
+  `amount_date`, `group`, `partial`: exact and tolerance on amount, a date window, reference,
+  counterparty); (3) **fuzzy** (names, dates, amounts; one sure candidate each way); (4) the
+  **model**, only for what is left, given by the caller as a function and held to the same hard
+  rules; then a person.
+- **Hard rules** veto a pair whatever else agrees: an amount beyond the tolerance (unless the
+  configuration allows a partial match), dates outside the window, two references both stated that
+  differ (where the configuration says), two currencies.
+- **Match types**: 1:1, 1:many, many:1 and partial. **Every result states its tier and the rule**
+  that made it (a rule's name, `similar`, `model`, or `client_rule:<id>`).
+- **Saved rules** (`match_rule`, migration 0085): an operator's correction kept for one client and
+  one configuration (on side A, a reference or counterparty that is side B's value). Tenant RLS,
+  retired never deleted, back office only (`/api/ops/clients/:id/match-rules`). A rule makes two
+  keys equal; it never loosens an amount, a window or a currency.
+- **Configurations**: `bank_to_ledger` (Bookkeeping's reconciliation, §1.80, deterministic only)
+  and `invoice_two_systems` (one invoice in the client's books and another party's system: the
+  ROMCO case). Materials' item keys run as a pack scorer in the fuzzy tier; Sales' rule decision is
+  the engine's `decideRanked`. The goldens (`fixtures/matching`, ≥ 95% precision on "same") hold.
+
 ### 12.4 Pricing and alerts
 
 - `materials.prices.record`: `unit_price_std = unit_price / conversion(uom_raw → standard_uom)`; freight
@@ -3944,6 +4022,33 @@ adjudicates it. Only the bill backfill creates new items (step 6's rule).
   (raw record and line id), idempotent, per the item's standard unit (bill lines carry no unit).
 
 ---
+
+
+### 12.5 Books health (Wave X, owner 2026-11-22; `docs/plan.md` §1.216)
+
+Outside v1's scope, with the owner's yes (the owner's build plan 9; its prospect connection waits on
+Intuit). **A fixed set of deterministic checks over the QuickBooks records we sync, and a one-page
+report for the client's owner, ranked by dollars.**
+
+- **The checks** (core `books-health/`, a pure library with one entry point, `checkBooks(snapshot,
+  { asOf, checks? })`, and the list `BOOKS_CHECKS`): accounts not reconciled and their age,
+  uncategorized transactions, duplicate vendors, duplicate bills, overdue invoices, overdue bills,
+  balances below zero, undeposited funds and vendor price drift. Each finding has a dollar figure, a
+  count, a few example transactions, its parts (accounts, aging buckets, vendor groups) and its
+  `sources`, the raw records it rests on (invariant 10). No model reads the books (invariant 7);
+  amounts are decimal (invariant 6).
+- **The snapshot** (connectors `loadQboBooks`): each record's latest synced version that isn't
+  deleted, inside `withTenant()`. What QuickBooks' API doesn't say comes from the caller: which
+  accounts were reconciled, and through when (today, the Bookkeeping pack's signed-off
+  reconciliations, read in `apps/api`). A pack (the Close pack, next) reuses the library and the
+  loader as they are.
+- **Who fixes it** is data on each check: the business area and its pack (`bookkeeping`,
+  `materials`, or none for receivables), never an import (invariant 2). The report says whether
+  that pack is switched on for the client.
+- **Where it shows:** `GET /api/books-health` (the client admin, in the portal at `/books-health`,
+  linked from Reports) and `GET /api/ops/clients/:id/books-health` (the back office's Data tab).
+  Read only; computed on request from what was synced, so nothing is stored and there is no
+  migration. Both screens load on their own.
 
 ## 13. Usage, cost and observability
 
@@ -4252,6 +4357,19 @@ data:
   a client's records stay in that client (§9.10). Model-call bodies are stored under the client's
   prefix with card numbers redacted, for operators only (§10.10). Search and plain-words questions run
   inside the request's scope and never become SQL (§11.6).
+- **SOC 2 readiness (owner's build plan 12, Wave X, 2026-11-22; `docs/plan.md` §1.218).** Outside
+  v1's scope, with the owner's yes. `/ops/security/soc2` lists each Trust Services Criterion in our
+  scope (Security, Availability, Confidentiality) as in place, partial or missing, with its owner
+  and evidence. It is computed from the security register (`packages/core/src/compliance`): the
+  controls that map to a criterion, plus live checks for what only the data knows (this quarter's
+  access review recorded; a deletion drill passed within a year; each policy adopted or a draft).
+  The **quarterly access review** is recorded in `access_review` (operator-only) and
+  `access_review_item` (each client's own, RLS on `tenant_id`, purged with the client): everyone
+  in the clients served as they were that day, and who should lose access. Records are never
+  updated or deleted; access itself is removed where it always is. The **deletion drill**
+  (`db:deletion-drill`, as `cs_owner`, on staging) fills a throwaway Sandbox client, retires and
+  purges it with the purge workflow's own code, checks nothing of it is left and nothing of
+  another client was touched, and writes `client.deletion_drill` to the audit log.
 
 ---
 

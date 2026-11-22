@@ -16,7 +16,7 @@ import { billingTick } from "./billing/jobs";
 import { raiseCodeAlerts } from "./codes/alerts";
 import { codesFor } from "./codes/client";
 import { clientModels } from "./compliance/models";
-import { purgeRetiredFiles } from "./compliance/retention";
+import { purgeLostProspectFiles, purgeRetiredFiles } from "./compliance/retention";
 import { CAPTURE_CRON_MINUTE, captureCronTick } from "./conversations/cron";
 import { captureDepsFor, captureJobsFor } from "./conversations/start";
 import { shipDue, shipPass } from "./dev-queue/ship";
@@ -67,6 +67,7 @@ import { autopilotRoutes } from "./routes/autopilot";
 // v0.12 bankfeed
 import { bankfeedRoutes } from "./routes/bankfeed";
 import { billingRouteHandlers } from "./routes/billing";
+import { booksHealthRoutes } from "./routes/books-health";
 import { browserRoutes } from "./routes/browser";
 import { browserScriptRoutes } from "./routes/browser-scripts";
 import { buildTryRoutes } from "./routes/build-tries";
@@ -103,6 +104,7 @@ import { gsheetsRoutes } from "./routes/gsheets";
 import { hookRoutes } from "./routes/hooks";
 import { hoursRoutes } from "./routes/hours";
 import { intakeRoutes } from "./routes/intake";
+import { interviewRoutesFor } from "./routes/interviews";
 import { inviteRoutes } from "./routes/invite";
 import { knowledgeRouteHandlers } from "./routes/knowledge";
 // v0.12 W2-C: the test bench, skill tests and the agent lab
@@ -115,6 +117,7 @@ import { libraryRoutes } from "./routes/library";
 import { lifecycleRoutes } from "./routes/lifecycle";
 // docs/builder-plan.md §5 (B3): the agent manual
 import { manualRouteHandlers } from "./routes/manual";
+import { matchRuleRoutes } from "./routes/match-rules";
 import { messagingSetupRoutes } from "./routes/messaging-setup";
 // §1.116: the phone app
 import { mobileRoutes, mobileSession } from "./routes/mobile";
@@ -151,6 +154,7 @@ import { packPreviewRoutes } from "./routes/pack-preview";
 import { packRouteHandlers } from "./routes/packs";
 import { portalRouteHandlers } from "./routes/portal";
 import { portalIssueRouteHandlers } from "./routes/portal-issues";
+import { portalViewRouteHandlers } from "./routes/portal-views";
 import { qboCronTick, qboRoutes, qboSyncFor } from "./routes/qbo";
 import { reachRoutes } from "./routes/reach";
 import { recordRouteHandlers } from "./routes/records";
@@ -171,6 +175,7 @@ import { signInApprovalRoutes } from "./routes/sign-in-approvals";
 import { slackRoutes } from "./routes/slack";
 // §1.150: Sloan by email and text
 import { sloanReachRoutes } from "./routes/sloan-reach";
+import { soc2RouteHandlers } from "./routes/soc2";
 import { sopRouteHandlers } from "./routes/sop";
 // v0.14 W4-A
 // P-6
@@ -327,8 +332,11 @@ export function createApp(deps: AppDeps = defaultDeps): Hono<AppEnv> {
   agentReportRouteHandlers(app);
   // R5 (docs/plan.md §1.235): the report per account and every account side by side.
   accountReportRouteHandlers(app);
+  portalViewRouteHandlers(app);
   recordRouteHandlers(app);
   approverRuleRoutes(app);
+  // §1.215: a client's saved match rules.
+  matchRuleRoutes(app);
   // Round 4 D (docs/plan.md §1.211)
   evidenceRouteHandlers(app);
   contactRoutes(app);
@@ -337,6 +345,8 @@ export function createApp(deps: AppDeps = defaultDeps): Hono<AppEnv> {
   sloanReachRoutes(app);
   // §1.121: forms, "Request info": the public page's routes
   formRoutes(app);
+  // docs/plan.md §1.217: the process interview (its public page and the back office).
+  interviewRoutesFor(app);
   // docs/plan.md §1.101: Reggie, and the lead's requests on a client admin's Desk
   leadRequestRoutes(app);
   reggieRoutes(app);
@@ -363,6 +373,8 @@ export function createApp(deps: AppDeps = defaultDeps): Hono<AppEnv> {
   directoryRoutes(app);
   // The back office's chart of accounts (docs/plan.md §1.79).
   ledgerRoutes(app);
+  // docs/plan.md §1.216: books health
+  booksHealthRoutes(app);
   reachRoutes(app);
   messagingSetupRoutes(app);
   twilioHookRoutes(app);
@@ -377,6 +389,8 @@ export function createApp(deps: AppDeps = defaultDeps): Hono<AppEnv> {
   // Wave 4 (docs/plan.md §1.86 "Scripts (wave 4)")
   browserScriptRoutes(app);
   complianceRouteHandlers(app);
+  // docs/plan.md §1.218: SOC 2 readiness and the access review's record.
+  soc2RouteHandlers(app);
   // v0.12 W1-E
   runControlRoutes(app);
   // v0.12 W1-A: go-live stages and client controls
@@ -636,6 +650,10 @@ export async function runCron(env: Bindings, scheduledTime: Date, deps: AppDeps 
       // Retired clients' files, 30 days after retirement (docs/plan.md §1.35).
       await purgeRetiredFiles(db, deps.objects(env), scheduledTime).catch((error: unknown) =>
         reportHandled("retention sweep failed", error, { job: "retention" }),
+      );
+      // §1.220 (q14): lost prospects' client files, 12 months after their last deal closed.
+      await purgeLostProspectFiles(db).catch((error: unknown) =>
+        reportHandled("lost prospects' files purge failed", error, { job: "retention_files" }),
       );
     }
     // M43: each pack's nightly pass (the Marketing pack's build of yesterday's visits and its

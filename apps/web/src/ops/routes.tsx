@@ -122,6 +122,14 @@ const AccountsScreen = lazy(() =>
 const ClientReportScreen = lazy(() =>
   import("./client/ClientReport").then((m) => ({ default: m.ClientReportScreen })),
 );
+// §1.218: SOC 2 readiness, with its schemas (`soc2Routes`), loads only when opened.
+const Soc2ReadinessScreen = lazy(() => import("./security/Soc2Readiness"));
+// §1.216: books health loads when opened.
+const OpsClientBooksHealthScreen = lazy(() =>
+  import("./client/ClientBooksHealth").then((m) => ({ default: m.OpsClientBooksHealthScreen })),
+);
+// docs/plan.md §1.217: a client's process interviews load with their route.
+const InterviewsScreen = lazy(() => import("./interviews/InterviewsScreen"));
 
 export const opsRoutes = (
   <>
@@ -212,11 +220,36 @@ export const opsRoutes = (
       <Route path="clients/:clientId/areas" element={<OpsClientAreasScreen />} />
       {/* §1.149: the client file. */}
       <Route path="clients/:clientId/file" element={<ClientFileScreen />} />
+      <Route
+        path="clients/:clientId/interviews"
+        element={
+          <Suspense fallback={<Loading />}>
+            <InterviewsScreen />
+          </Suspense>
+        }
+      />
+      <Route
+        path="clients/:clientId/interviews/:id"
+        element={
+          <Suspense fallback={<Loading />}>
+            <InterviewsScreen />
+          </Suspense>
+        }
+      />
       {/* Data: Documents and Records */}
       <Route path="clients/:clientId/documents" element={<OpsDocumentsScreen />} />
       <Route path="clients/:clientId/records" element={<OpsRecordsScreen />} />
       {/* The client's chart of accounts, classes and locations, changed only with a signature */}
       <Route path="clients/:clientId/ledger" element={<OpsClientLedgerScreen />} />
+      {/* §1.216: what the books health checks find in the client's QuickBooks */}
+      <Route
+        path="clients/:clientId/books-health"
+        element={
+          <Suspense fallback={<Loading />}>
+            <OpsClientBooksHealthScreen />
+          </Suspense>
+        }
+      />
       {/* Setup: Progress (§1.206), Connections, Messaging, Directory and Knowledge */}
       <Route path="clients/:clientId/progress" element={<OpsSetupProgressScreen />} />
       <Route path="clients/:clientId/connections" element={<OpsConnectionsScreen />} />
@@ -301,6 +334,14 @@ export const opsRoutes = (
     <Route path="users" element={<OpsUsersScreen />} />
     <Route path="security" element={<SecurityOverviewScreen />} />
     <Route path="security/controls" element={<SecurityControlsScreen />} />
+    <Route
+      path="security/soc2"
+      element={
+        <Suspense fallback={<Loading />}>
+          <Soc2ReadinessScreen />
+        </Suspense>
+      }
+    />
     <Route path="security/vendors" element={<SecurityVendorsScreen />} />
     <Route path="security/policies" element={<SecurityPoliciesScreen />} />
     <Route path="security/clients" element={<SecurityClientsScreen />} />

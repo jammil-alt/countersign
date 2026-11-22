@@ -11,6 +11,7 @@ import type { PlainKey } from "../../i18n/catalog";
 import { type I18n, useI18n } from "../../i18n/i18n";
 import { StatusFilter } from "../../inbox/StatusFilter";
 import { type PackReport, packReportPath, packReportsFor } from "../../packs/registry";
+import { useSession } from "../../session/session";
 import { StatTile } from "../../ui/figures";
 import { Columns, Page, Section } from "../../ui/page";
 import {
@@ -104,6 +105,11 @@ export function ActivityReportScreen() {
     query: { ...reportPeriod(period), ...(service ? { service } : {}) },
   });
   const packs = packReportsFor(data?.packs ?? []);
+  // §1.216: books health is the client admin's.
+  const session = useSession();
+  const admin =
+    (session.tenants.find((c) => c.id === session.activeTenantId) ?? session.tenants[0])?.role ===
+    "client_admin";
   const serviceName = service ? data?.services.find((s) => s.id === service)?.name : undefined;
 
   return (
@@ -114,6 +120,13 @@ export function ActivityReportScreen() {
           data
             ? t("reports.subtitlePeriod", { period: periodLabel(data.from, data.to, i18n.intl) })
             : t("reports.subtitle")
+        }
+        actions={
+          admin ? (
+            <Link to="/books-health" className="text-sm" data-testid="portal-books-health-link">
+              {t("books.title")}
+            </Link>
+          ) : null
         }
       />
       <ReportLinks packs={packs} current="/reports" />

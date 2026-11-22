@@ -33,6 +33,8 @@ import { autopilotRoutes } from "./autopilot";
 // v0.12 bankfeed
 import { bankfeedRoutes, LinkStartView } from "./bankfeed";
 import { billingRoutes } from "./billing";
+// §1.216: books health
+import { booksHealthRoutes } from "./books-health";
 import { browserRoutes } from "./browser";
 import { browserScriptRoutes } from "./browser-scripts";
 // docs/plan.md §1.108: builds
@@ -78,6 +80,7 @@ import { ledgerRoutes } from "./ledger";
 // R8: the Library's banks
 import { libraryRoutes } from "./library";
 import { GoLive, lifecycleRoutes } from "./lifecycle";
+import { matchRuleRoutes } from "./match-rules";
 import { messagingRoutes } from "./messaging";
 // §1.116: the phone app
 import { mobileRoutes } from "./mobile";
@@ -2505,6 +2508,8 @@ export const routes = {
   ...usageRoutes,
   ...recordRoutes,
   ...approverRuleRoutes,
+  // §1.215: a client's saved match rules
+  ...matchRuleRoutes,
   ...messagingRoutes,
   // docs/plan.md §1.98: signing up for texts
   ...textSignupRoutes,
@@ -2593,6 +2598,8 @@ export const routes = {
   ...packRoutes,
   // The back office's chart of accounts (docs/plan.md §1.79).
   ...ledgerRoutes,
+  // Books health (docs/plan.md §1.216).
+  ...booksHealthRoutes,
   // P-6: the client runs it, we step in (docs/plan.md §1.68).
   ...stepInRoutes,
   // P-7: message translation (docs/plan.md §1.69).
