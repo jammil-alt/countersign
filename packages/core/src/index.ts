@@ -14,6 +14,8 @@ export * from "./account/words";
 export * from "./api/a2p";
 export * from "./api/access";
 export * from "./api/account";
+// R5: the report per account and every account side by side (docs/plan.md §1.235).
+export * from "./api/account-report";
 // docs/builder-plan.md §7 (B5): client adjustments and feedback on the manual
 export * from "./api/adjust";
 // R4: the report per agent (docs/plan.md §1.214).

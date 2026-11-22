@@ -1121,6 +1121,7 @@ export const en = {
   "reports.subtitle": "What your agents did.",
   "reports.subtitlePeriod": "What your agents did, {period}.",
   "reports.activity": "Activity",
+  "reports.account": "Account",
   "reports.period": "Period",
   "reports.period.month": "This month",
   "reports.period.last": "Last month",
