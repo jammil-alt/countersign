@@ -33,7 +33,7 @@ describe("the phone app's contract", () => {
     expect(deviceSignedText({ ...base, decision: "reject" })).not.toBe(approve);
   });
 
-  it("signs v2 with the answer and the note as one line each (§1.193)", () => {
+  it("signs v2 with the answer and the note as one line each (§1.203)", () => {
     const base = {
       deviceId: "0190a1b2-0000-7000-8000-000000000001",
       itemId: "0190a1b2-0000-7000-8000-000000000002",

@@ -139,7 +139,7 @@ describe("a decision as the app sends it", () => {
     expect(await verify(jwk, sig.signature, signed)).toBe(true);
   });
 
-  it("signs v2: the answer's text and the note are covered (§1.193)", async () => {
+  it("signs v2: the answer's text and the note are covered (§1.203)", async () => {
     const out = await signedDecision({
       deviceId,
       item,

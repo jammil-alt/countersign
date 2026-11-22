@@ -250,7 +250,7 @@ describe.skipIf(!h)("signing a Desk item on a phone", () => {
   });
 });
 
-describe.skipIf(!h)("the signed text v2: an answer's text and a note (§1.193)", () => {
+describe.skipIf(!h)("the signed text v2: an answer's text and a note (§1.203)", () => {
   async function setupV2(title: string) {
     const key = await phoneKey();
     const r = await H.call(admin("a"), "POST", "/api/me/devices", {

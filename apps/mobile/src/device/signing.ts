@@ -2,7 +2,7 @@
 // private half lives only in the phone's secure store behind Face ID or a fingerprint
 // (src/state/store.ts), its public half is registered with POST /api/me/devices as a JWK. A
 // signature covers `deviceSignedText` (core): the device, the item, the decision, the item's
-// fingerprint and the time, and, in its `v2` text (§1.193), the answer and the note sent with it. The API checks it with Web Crypto (ECDSA, SHA-256, r‖s).
+// fingerprint and the time, and, in its `v2` text (§1.203), the answer and the note sent with it. The API checks it with Web Crypto (ECDSA, SHA-256, r‖s).
 import {
   type DevicePublicKey,
   type DeviceSignature,
@@ -50,10 +50,10 @@ export function itemFingerprint(item: {
 }
 
 /**
- * Signs a decision on an item, with the answer and the note sent with it (`v2`, §1.193). `at` is
+ * Signs a decision on an item, with the answer and the note sent with it (`v2`, §1.203). `at` is
  * when the person signed; the API refuses a time more than five minutes from its own.
  */
-// DECISION (§1.193): the app signs `v2` only; the API still takes `v1` from phones in the field.
+// DECISION (§1.203): the app signs `v2` only; the API still takes `v1` from phones in the field.
 export function signDecision(input: {
   privateKey: Uint8Array;
   deviceId: string;
@@ -90,7 +90,7 @@ export function signDecision(input: {
 export interface SignedDecisionBody {
   decision: "approve" | "reject";
   answer?: string;
-  /** A note with the decision; the signature covers it (§1.193). */
+  /** A note with the decision; the signature covers it (§1.203). */
   note?: string;
   /** Audit 3.4: the item as the person saw it. */
   fingerprint: string;

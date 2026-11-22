@@ -82,7 +82,7 @@ export const DEVICE_SIGNATURE_SKEW_SEC = 5 * 60;
 /** An item's fingerprint (`itemFingerprint`): SHA-256, hex. */
 export const ItemFingerprint = z.string().regex(/^[0-9a-f]{64}$/);
 
-/** The signed texts the API accepts: `v1` (phones already in the field) and `v2` (§1.193). */
+/** The signed texts the API accepts: `v1` (phones already in the field) and `v2` (§1.203). */
 export const DeviceSignedVersion = z.enum(["v1", "v2"]);
 export type DeviceSignedVersion = z.infer<typeof DeviceSignedVersion>;
 
@@ -96,7 +96,7 @@ export const DeviceSignature = z.strictObject({
   signature: z.string().regex(/^[A-Za-z0-9\-_]{86}$/),
   /**
    * Which signed text (`deviceSignedText`): absent or `v1`, the decision on the item as shown;
-   * `v2` also the answer's text and the note sent with it (docs/plan.md §1.193).
+   * `v2` also the answer's text and the note sent with it (docs/plan.md §1.203).
    */
   version: DeviceSignedVersion.optional(),
 });
@@ -108,7 +108,7 @@ export type DeviceSignature = z.infer<typeof DeviceSignature>;
  * the answer and the note sent with the decision, each as canonical JSON (`null` when there is
  * none), so an answer's text or a note changed on the way is a signature that doesn't match.
  */
-// DECISION (§1.193): v2 is v1's lines with the answer and the note appended, each one line of
+// DECISION (§1.203): v2 is v1's lines with the answer and the note appended, each one line of
 // canonical JSON (JSON escapes a line break, so neither can add a line of its own), rather than
 // a hash of them: the text stays readable in a test, and the answer is any JSON the resolve takes,
 // not only a string. Absent and `null` are the same line: both are "no answer" to the resolve.
@@ -123,7 +123,7 @@ export function deviceSignedText(input: {
   /** `v2` only: the answer sent with the decision. */
   answer?: unknown;
   /** `v2` only: the note sent with the decision. */
-  note?: string | null;
+  note?: string | null | undefined;
 }): string {
   const v1 = [input.deviceId, input.itemId, input.decision, input.fingerprint, input.at];
   if ((input.version ?? "v1") === "v1") return ["mezonas-sign:v1", ...v1].join("\n");
