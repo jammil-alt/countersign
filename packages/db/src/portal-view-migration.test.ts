@@ -1,4 +1,4 @@
-// Migration 0088 (docs/reporting-plan.md R6; docs/plan.md §1.236): `portal_view`, a client person's
+// Migration 0098 (docs/reporting-plan.md R6; docs/plan.md §1.236): `portal_view`, a client person's
 // saved views of the portal's runs list, which a client admin may share with the client's team. A
 // new table only: it applies on a database the previous Worker used, and that Worker's rows stay as
 // they were. A view is its client's: forced row-level security keeps a shared view inside it.
@@ -28,7 +28,7 @@ async function errorCode(promise: Promise<unknown>): Promise<string | undefined>
   return undefined;
 }
 
-describe.skipIf(!online)("0088 on a database the previous Worker used", () => {
+describe.skipIf(!online)("0098 on a database the previous Worker used", () => {
   let t: TestDatabase;
   let A: ClientFixture;
   let B: ClientFixture;
@@ -37,7 +37,7 @@ describe.skipIf(!online)("0088 on a database the previous Worker used", () => {
     const created = await createTestDatabase({ migrate: false });
     if (!created) throw new Error("database vanished");
     t = created;
-    await migrateAsOwner(t.url, { upTo: "0087_process_interview" });
+    await migrateAsOwner(t.url, { upTo: "0095_metered_usage" });
     A = await insertClient(t.db, "A");
     await migrateAsOwner(t.url);
     B = await insertClient(t.db, "B");

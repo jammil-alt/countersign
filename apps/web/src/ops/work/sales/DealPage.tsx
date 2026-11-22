@@ -8,6 +8,7 @@ import {
   type DealActivityView,
   type DealDetail,
   type DealStage,
+  opsIntakeRoutes,
   SALES_PIPELINES,
   SALES_WORDS,
   salesPipeOf,
@@ -761,7 +762,45 @@ function IntakeLine({ line }: { line: OnboardingLine }) {
         <span>{when(line.createdAt)}</span>
       </div>
       <p className="m-0 whitespace-pre-wrap text-ink-muted">{line.body}</p>
+      {line.sendAgain ? <SendAgain {...line.sendAgain} /> : null}
     </li>
+  );
+}
+
+/** §1.220: an invite that didn't go out, sent again (the lead's to-do is done with it). */
+function SendAgain({ intakeId, personId }: { intakeId: string; personId: string }) {
+  const api = useApiClient();
+  const [state, setState] = useState<"idle" | "busy" | "sent" | "error">("idle");
+  const [error, setError] = useState<unknown>(null);
+  async function send() {
+    setState("busy");
+    try {
+      await api.call(opsIntakeRoutes.opsIntakeSendAgain, { params: { id: intakeId, personId } });
+      setState("sent");
+    } catch (e) {
+      setError(e);
+      setState("error");
+    }
+  }
+  if (state === "sent") {
+    return (
+      <p className="m-0 mt-1 text-ink" data-testid={`intake-send-again-done-${personId}`}>
+        Sent again.
+      </p>
+    );
+  }
+  return (
+    <div className="mt-2 flex flex-wrap items-center gap-2">
+      <Button
+        size="sm"
+        working={state === "busy"}
+        onClick={() => void send()}
+        data-testid={`intake-send-again-${personId}`}
+      >
+        Send it again
+      </Button>
+      {state === "error" ? <ErrorNotice error={error} /> : null}
+    </div>
   );
 }
 

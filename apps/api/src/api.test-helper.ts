@@ -50,6 +50,7 @@ import type { ExportJobs } from "./exports/instances";
 import type { AppEnv } from "./http";
 import type { InboxRow } from "./inbox";
 import type { McpDeps } from "./mcp/routes";
+import type { RegisteredPack } from "./packs";
 import { createPlatform, type Platform } from "./platform";
 import type { QboSyncInstances } from "./qbo/instances";
 import { opsShownFingerprint } from "./routes/mappers";
@@ -178,6 +179,8 @@ export interface HarnessOptions {
    * The harness's `db`, for the test's own reads and runs, stays at 4 either way.
    */
   appDbMax?: number;
+  /** §1.230: the deployment's packs (default every pack `packs.ts` registers). */
+  packs?: readonly RegisteredPack[];
 }
 
 /** null when no database is reachable (the tests then skip). */
@@ -213,6 +216,7 @@ export async function createApiHarness(options: HarnessOptions = {}): Promise<Ap
   const platform = createPlatform({
     connectors: [createUploadConnector(), createTestkitConnector(backend), ...marketing, ...extra],
     ...(options.skills ? { skills: options.skills } : {}),
+    ...(options.packs ? { packs: options.packs } : {}),
   });
   const instances = new MemoryInstances();
   const objects = new MemoryObjectStore();
