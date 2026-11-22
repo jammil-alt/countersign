@@ -7,7 +7,7 @@ is use it.
 
 This page says what was built in plain words, what is still underway, what the review found, and the
 QA plan to run once the open work has merged. It was written from the pull requests, `main` at
-`d2ac8cd3`, the deploy runs and Sentry. Staging itself was not read: the Claude connector for staging
+`d2ac8cd3`, the deploy runs, Sentry and the coordinating sessions' own reports. Staging itself was not read: the Claude connector for staging
 was waiting for the operator's approval.
 
 ## 1. What we built, in groups
@@ -31,26 +31,33 @@ Fourteen migrations landed: 0074, 0075, 0077 to 0080, 0085, 0087 and 0095 to 010
 
 ## 2. Still underway (8 open)
 
-| PR | What it adds | State at 20:07 UTC |
-|---|---|---|
-| #590 | The work-delivered statement: each month, what the agents did, as a page and a PDF with the invoice. | Ready. Merges clean. CI running. |
-| #583 | The Close pack: a month-end checklist, journal entries written only after approval, a signed-off month that can't change. | Ready, but **conflicts with `main`** (about 10 files after #585). No CI on its newest push. Its tables (0099) are already on `main`. |
-| #554 | The eval harness: 74 golden cases that fail CI when a change makes an agent's writes worse, and a scorecard. | Ready, but **conflicts with `main`** (`apps/web/src/ops/routes.tsx`). No CI on its newest push. |
-| #587 | The manual counts how often runs hit each known risk; a learned note can be deleted. | Draft. Merges clean. CI not run. |
-| #588 | The drafter names the step each gap belongs to. | Draft. Merges clean. CI not run. |
-| #589 | Try a template on a Sandbox record, and a skill on a document. | Draft. Merges clean. CI not run. Needs the Sandbox's QuickBooks connected. |
-| #592 | Two more security checks: no secret in what goes to the AI; sign-ins granted no more than asked. | Draft. Merges clean. CI not run. |
-| #595 | A client's request becomes one suggestion that states the exact change. | Draft. Merges clean. CI not run. |
+**These are not ours to land.** The coordinator session ("Project priorities and inventory") and its
+Wave Y coordinator own every open PR, with a worker session on each. Their merge order is #590, then
+#554, then #583, then the five drafts one at a time, with other merges to `main` held meanwhile so
+nothing conflicts again. The QA plan below starts when they finish; nothing in it touches these
+branches.
 
-Not open anywhere, and owed: the docs for round 4 and Wave Y (finding F3).
+| PR | What it adds | State at 20:15 UTC | Who has it |
+|---|---|---|---|
+| #590 | The work-delivered statement: each month, what the agents did, as a page and a PDF with the invoice. | Ready, clean, CI running. First to merge. | Wave Y · Y5 |
+| #554 | The eval harness: 74 golden cases that fail CI when a change makes an agent's writes worse, and a scorecard. | `main` merged in again at 20:11; waiting for CI. Second. | Round 4 · plan 2 |
+| #583 | The Close pack: a month-end checklist, journal entries written only after approval, a signed-off month that can't change. | Conflicts with `main` after #585; its session is settling them. Third. Its tables (0099) are already on `main`. | Wave Y · Y3 |
+| #587 | The manual counts how often runs hit each known risk; a learned note can be deleted. | Draft, held until #583 lands. | Wave Y · Y2 |
+| #588 | The drafter names the step each gap belongs to. | Draft, held. | Wave Y · Y2 |
+| #589 | Try a template on a Sandbox record, and a skill on a document. | Draft, held. Needs the Sandbox's QuickBooks connected. | Wave Y · Y2 |
+| #592 | Two more security checks: no secret in what goes to the AI; sign-ins granted no more than asked. | Draft, held. | Wave Y · Y2 |
+| #595 | A client's request becomes one suggestion that states the exact change. | Draft, held. | Wave Y · Y2 |
+
+Still to come from the coordinators: round 4's docs PR (after #554 merges) and Wave Y's docs PR
+(branch `claude/wave-y-docs`, after Y2, Y3 and Y5 merge).
 
 ## 3. What the review found
 
 | # | Finding | Why it matters |
 |---|---|---|
 | F1 | **Staging's QuickBooks is down.** A deploy replaced staging's encryption key on 21 November. Every connection saved before that can't be opened. Sentry shows more than 400 errors, still arriving every 15 minutes (MEZONAS-API-C, D, H), and a failed reconnect at 19:25 UTC (MEZONAS-WEB-8). The repair tool merged in #593. It has not been run. | Books health, the Bookkeeper, the Close pack, bills to pay and #589 can't be tested until it is. |
-| F2 | Two ready PRs conflict with `main` (#583, #554), and five drafts have never run CI. | They can't merge as they are. |
-| F3 | **The docs are behind the code.** `docs/plan.md` has no entry for §1.208 to §1.214 (round 4) or §1.230 to §1.236 (Wave Y), though the code cites them. `docs/work-plan.md` shows R4, R5 and R6 unticked. `docs/open.md` says "migrations through 0080". CLAUDE.md's status line is dated 8 November and says v0.15 and 0040; ARCHITECTURE is v0.22 and the migrations reach 0100. Several PRs moved their plan entry to the PR description "so round 4's docs land together"; that docs PR was never opened. | The decisions taken for you live only in PR descriptions. |
+| F2 | Two ready PRs conflicted with `main` (#583, #554), and a PR in conflict gets no CI, only the quick "open" check. Five drafts have never run CI. | The coordinator found the same at 20:10 UTC and set a merge order. Nothing for QA to do but confirm each ran full CI on its last commit before it merged. |
+| F3 | **The docs are behind the code.** `docs/plan.md` has no entry for §1.208 to §1.214 (round 4) or §1.230 to §1.236 (Wave Y), though the code cites them. `docs/work-plan.md` shows R4, R5 and R6 unticked. `docs/open.md` says "migrations through 0080". CLAUDE.md's status line is dated 8 November and says v0.15 and 0040; ARCHITECTURE is v0.22 and the migrations reach 0100. Several PRs moved their plan entry to the PR description "so round 4's docs land together". Both docs PRs are planned by the coordinators and not open yet. | Until they land, the decisions taken for you live only in PR descriptions. |
 | F4 | Almost nothing was seen. #523 says "None of this was checked against staging data". #522 had no look in a browser. The interview, the verifier, the matching engine's AI tier and the eval cases all run on model answers written by hand. Every provider is still a fake. | Passing tests don't show a screen reads well or a live model behaves. |
 | F5 | Some things now happen by themselves: lost prospects' files are deleted for good every hour once they are 12 months old (#573); the nightly security run will open one issue per AI agent until the providers' pages are confirmed (#576); the verifier is on for new agents only, and existing agents stay off until a reviewed update (#569). | Each should be watched once before it surprises us. |
 | F6 | Many merges, few deploys of their own. With merges minutes apart, queued deploys were replaced by the next one (8 of the last 25 were cancelled this way). The journal is in order (checked), and the numbering has gaps from renumbering (no 0076, 0081 to 0084, 0086, 0088 to 0094). | Confirm staging runs `main`'s newest commit and applied all 14 migrations. |
@@ -86,18 +93,16 @@ the staging connector, groups the reports into streams and fixes each stream in 
 | P0.3 | Approve the Claude connector for staging (the connect-claude link a session shows you). | A session can read staging's health, runs and feedback. |
 | P0.4 | C: watch Sentry for an hour. | MEZONAS-API-C, D and H stop; resolve them and MEZONAS-WEB-8. |
 
-### Pass 1. Land what is open, then stop merging
+### Pass 1. The coordinator lands what is open; then merging stops
 
-One at a time, each green before the next. Migrations are already in, so the order is by risk.
+Owned by the coordinator session, not by QA (section 2). QA only checks the result.
 
-| # | Do | Who |
+| # | Check | Who |
 |---|---|---|
-| P1.1 | #590: merge when its CI is green. | O |
-| P1.2 | #583: merge `main` in, settle the conflicts (six language files, `routes.tsx`, `packs/registry.ts`, `skill-hashes.test.ts`), run the size check again, CI green, merge. | C, then O |
-| P1.3 | #554: merge `main` in, settle `routes.tsx`, CI green, merge. Confirm the commit that broke a skill on purpose is gone. | C, then O |
-| P1.4 | #587, #588, #592, #595: bring each up to `main`, run `pnpm check`, mark ready, merge. #589 after P0.2. | C, then O |
-| P1.5 | The docs PR: plan entries §1.208 to §1.214 and §1.230 to §1.236 from the PR descriptions, the work plan's ticks, `open.md`'s "Where things stand", CLAUDE.md's status line. | C |
-| P1.6 | No feature merges until Pass 3 is done. Only fixes from this plan. | O |
+| P1.1 | All 8 PRs merged in the coordinator's order, each with full CI green on its last commit (not only the "open" check). | C |
+| P1.2 | Both docs PRs merged: `docs/plan.md` has §1.208 to §1.214 and §1.230 to §1.236; the work plan's ticks, `open.md`'s "Where things stand" and CLAUDE.md's status line are current. | C |
+| P1.3 | The coordinator's status page and this page agree on what merged. | C |
+| P1.4 | No feature merges until Pass 3 is done. Only fixes from this plan. | O |
 
 ### Pass 2. Machine checks on the merged `main` (a Claude session, no keys)
 
@@ -247,7 +252,7 @@ Not blocking the clean-up. Each is the first real test of something built agains
 
 | # | Do |
 |---|---|
-| U1 | Merge the docs PR (P1.5). Fold this page's results into `docs/open.md` and delete what is done. |
+| U1 | Fold this page's results into `docs/open.md` and delete what is done. |
 | U2 | Fix the automatic draft PR so it stops opening a second PR for a branch that has one. |
 | U3 | Delete the merged and dead branches, after the owner confirms `adoring-hopper-cqa4k8` holds nothing wanted. |
 | U4 | Fix the tests that fail under load (F7). Never skip them. |
