@@ -3963,6 +3963,43 @@ export const de: Messages = {
   // (end setup: people)
 
   // ── setup: tools ── Getting started: Your tools (SU3)
+  "setup.tools.intro":
+    "Die Agenten arbeiten in Ihren eigenen Konten. Sie melden sich auf der Seite des jeweiligen Tools an; wir sehen nie ein Passwort.",
+  "setup.tools.none": "Ihre Agenten brauchen noch keine Tools.",
+  "setup.tools.adminOnly": "Ihr Admin verbindet und prüft sie.",
+  "setup.tools.usedBy": "Genutzt von {agents}",
+  "setup.tools.connected": "Verbunden",
+  "setup.tools.waitingYou": "Wartet auf Sie",
+  "setup.tools.waitingOn": "Wartet auf {name}",
+  "setup.tools.account":
+    "Sie haben sich bei {account} angemeldet. Ist das die Firma, die die Agenten nutzen sollen?",
+  "setup.tools.accountChecked":
+    "Sie haben sich bei {account} angemeldet. Die Agenten nutzen diese Firma.",
+  "setup.tools.yes": "Ja",
+  "setup.tools.different": "Eine andere Firma",
+  "setup.tools.checked": "Geprüft",
+  "setup.tools.reads": "Wir lesen",
+  "setup.tools.changes": "Wir dürfen ändern",
+  "setup.tools.never": "Niemals",
+  "setup.tools.nothing": "Nichts",
+  "setup.tools.asksFirst": "Wir fragen Sie jedes Mal vorher.",
+  "setup.tools.access": "Sehen und festlegen, was die Agenten in {tool} dürfen",
+  "setup.tools.whoSignsIn": "Wer meldet sich bei {tool} an?",
+  "setup.tools.connect": "Ich: {tool} verbinden",
+  "setup.tools.someoneElse": "Jemand anderes",
+  "setup.tools.sendTo": "Nur diese Karte senden an",
+  "setup.tools.choose": "Jemanden auswählen",
+  "setup.tools.send": "Senden",
+  "setup.tools.asked": "Wir haben {name} gefragt. Es liegt in deren Posteingang.",
+  "setup.tools.askedYou": "Sie wurden gebeten, dieses zu verbinden.",
+  "setup.tools.adminConnects": "Ihr Admin verbindet das.",
+  "setup.tools.cannotConnect":
+    "Nur ein Admin kann {tool} verbinden. Machen Sie die Person unter Team zum Admin, oder verbinden Sie es selbst.",
+  "setup.tools.noOne":
+    "In Ihrem Team ist noch niemand sonst. Laden Sie die Person zuerst unter Team ein.",
+  "setup.tools.lookTitle": "Was wir in {tool} sehen",
+  "setup.tools.lookHint":
+    "Aus Ihren Daten gezählt, nicht geschätzt. Prüfen Sie jede Zeile, und die Agenten starten damit.",
   // (end setup: tools)
 
   // ── setup: see ── Getting started: See it work (SU4, SU5)

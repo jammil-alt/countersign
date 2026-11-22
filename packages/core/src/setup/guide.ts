@@ -55,7 +55,8 @@ export function readAgentGuide(stageState: unknown): AgentGuideState {
 
 /** One tool's checks: its account, its first-look lines, who was asked to connect it. */
 export const StoredToolGuide = z.object({
-  account: z.object(By).optional(),
+  /** SU3: `name` is the account said yes to, so signing in to another company asks again. */
+  account: z.object({ ...By, name: z.string().max(200).optional() }).optional(),
   lines: z.record(z.string(), z.object(By)).optional(),
   askedOf: z.object({ userId: z.string(), ...By }).optional(),
 });

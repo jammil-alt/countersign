@@ -3775,6 +3775,40 @@ export const en = {
   // (end setup: people)
 
   // ── setup: tools ── Getting started: Your tools (SU3)
+  "setup.tools.intro":
+    "The agents work in your own accounts. You sign in on each tool's own page; we never see a password.",
+  "setup.tools.none": "Your agents don't need any tools yet.",
+  "setup.tools.adminOnly": "Your admin connects these and checks them.",
+  "setup.tools.usedBy": "Used by {agents}",
+  "setup.tools.connected": "Connected",
+  "setup.tools.waitingYou": "Waiting on you",
+  "setup.tools.waitingOn": "Waiting on {name}",
+  "setup.tools.account": "You signed in to {account}. Is that the company the agents should use?",
+  "setup.tools.accountChecked": "You signed in to {account}. The agents use that company.",
+  "setup.tools.yes": "Yes",
+  "setup.tools.different": "A different company",
+  "setup.tools.checked": "Checked",
+  "setup.tools.reads": "We'll read",
+  "setup.tools.changes": "We may change",
+  "setup.tools.never": "We never",
+  "setup.tools.nothing": "Nothing",
+  "setup.tools.asksFirst": "We ask you first, every time.",
+  "setup.tools.access": "See and set what the agents may do in {tool}",
+  "setup.tools.whoSignsIn": "Who signs in to {tool}?",
+  "setup.tools.connect": "I do: connect {tool}",
+  "setup.tools.someoneElse": "Someone else",
+  "setup.tools.sendTo": "Send just this card to",
+  "setup.tools.choose": "Choose someone",
+  "setup.tools.send": "Send",
+  "setup.tools.asked": "We asked {name}. It's in their inbox.",
+  "setup.tools.askedYou": "You were asked to connect this one.",
+  "setup.tools.adminConnects": "Your admin connects this.",
+  "setup.tools.cannotConnect":
+    "Only an admin can connect {tool}. Make them an admin on Team, or connect it yourself.",
+  "setup.tools.noOne": "There's nobody else on your team yet. Invite them on Team first.",
+  "setup.tools.lookTitle": "What we see in {tool}",
+  "setup.tools.lookHint":
+    "Counted from your records, not guessed. Check each one and the agents start from them.",
   // (end setup: tools)
 
   // ── setup: see ── Getting started: See it work (SU4, SU5)

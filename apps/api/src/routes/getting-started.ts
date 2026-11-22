@@ -105,6 +105,7 @@ export function gettingStartedRoutes(app: Hono<AppEnv>): void {
     userId: ctx.session.user.id,
     agents: ctx.agents,
     canEdit: ctx.role === "client_admin",
+    registry: ctx.services.platform.ctx,
   });
 
   mount(app, routes.portalSetupTools, async (ctx) => toolsChapter(ctx.tx, toolsInput(ctx)));

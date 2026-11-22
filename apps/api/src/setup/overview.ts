@@ -123,7 +123,12 @@ export async function gettingStarted(tx: Tx, input: OverviewInput): Promise<Gett
   const tools = new Map<string, boolean>();
   let ownDone = 0;
   let ownTotal = 0;
-  const fromTools = await toolsLeft(tx, { tenantId: input.tenantId, agentIds: ids });
+  const fromTools = await toolsLeft(tx, {
+    tenantId: input.tenantId,
+    agentIds: ids,
+    userId: input.userId,
+    ...(input.ctx ? { registry: input.ctx } : {}),
+  });
   for (const row of rows) {
     const setup = await agentSetupView(tx, row, input.ctx);
     const lines = left.get(row.id) as SetupLeft[];

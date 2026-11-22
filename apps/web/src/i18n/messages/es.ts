@@ -3881,6 +3881,40 @@ export const es: Messages = {
   // (end setup: people)
 
   // ── setup: tools ── Getting started: Your tools (SU3)
+  "setup.tools.intro":
+    "Los agentes trabajan en sus propias cuentas. Usted inicia sesión en la página de cada herramienta; nunca vemos una contraseña.",
+  "setup.tools.none": "Sus agentes todavía no necesitan ninguna herramienta.",
+  "setup.tools.adminOnly": "Su administrador las conecta y las revisa.",
+  "setup.tools.usedBy": "La usa {agents}",
+  "setup.tools.connected": "Conectada",
+  "setup.tools.waitingYou": "Esperando por usted",
+  "setup.tools.waitingOn": "Esperando a {name}",
+  "setup.tools.account": "Inició sesión en {account}. ¿Es la empresa que deben usar los agentes?",
+  "setup.tools.accountChecked": "Inició sesión en {account}. Los agentes usan esa empresa.",
+  "setup.tools.yes": "Sí",
+  "setup.tools.different": "Otra empresa",
+  "setup.tools.checked": "Revisado",
+  "setup.tools.reads": "Leeremos",
+  "setup.tools.changes": "Podemos cambiar",
+  "setup.tools.never": "Nunca",
+  "setup.tools.nothing": "Nada",
+  "setup.tools.asksFirst": "Le preguntamos antes, cada vez.",
+  "setup.tools.access": "Ver y ajustar lo que pueden hacer los agentes en {tool}",
+  "setup.tools.whoSignsIn": "¿Quién inicia sesión en {tool}?",
+  "setup.tools.connect": "Yo: conectar {tool}",
+  "setup.tools.someoneElse": "Otra persona",
+  "setup.tools.sendTo": "Enviar solo esta tarjeta a",
+  "setup.tools.choose": "Elija a alguien",
+  "setup.tools.send": "Enviar",
+  "setup.tools.asked": "Se lo pedimos a {name}. Está en su bandeja.",
+  "setup.tools.askedYou": "Le pidieron que conecte esta.",
+  "setup.tools.adminConnects": "Su administrador la conecta.",
+  "setup.tools.cannotConnect":
+    "Solo un administrador puede conectar {tool}. Hágalo administrador en Equipo o conéctela usted.",
+  "setup.tools.noOne": "Todavía no hay nadie más en su equipo. Invítelo primero en Equipo.",
+  "setup.tools.lookTitle": "Lo que vemos en {tool}",
+  "setup.tools.lookHint":
+    "Contado a partir de sus registros, no supuesto. Revise cada uno y los agentes parten de ahí.",
   // (end setup: tools)
 
   // ── setup: see ── Getting started: See it work (SU4, SU5)
