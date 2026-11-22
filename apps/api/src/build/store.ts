@@ -1025,6 +1025,11 @@ function qaChecks(
  * skills, as publish resolves them (`skillContext`). A skill found nowhere counts as writing
  * (core's `writingStepIds`), so a decision on its step is high risk.
  */
+// DECISION (docs/open.md G4): a custom skill's step is decided by the skill's own version and its
+// tools, read twice: the version a run would use (the live one, or the one pinned) and the newest
+// one saved (a skill drafted beside the build, not published yet, has only that). A step writes
+// when either writes or reaches people; only a skill with no version anywhere counts as writing
+// unread.
 export async function draftWritingSteps(
   ctx: Pick<StoreCtx, "services" | "tx">,
   draft: Pick<DraftFacts, "bundle" | "agentRow">,
@@ -1032,12 +1037,21 @@ export async function draftWritingSteps(
   const { bundle } = draft;
   if (!bundle) return new Set();
   const { platform } = ctx.services;
-  const { skills } = await skillContext(ctx.tx, {
-    tenantId: draft.agentRow?.tenantId ?? null,
+  const tenantId = draft.agentRow?.tenantId ?? null;
+  const live = await skillContext(ctx.tx, { tenantId, bundle, catalog: platform.catalog });
+  const newest = await skillContext(ctx.tx, {
+    tenantId,
     bundle,
     catalog: platform.catalog,
+    newest: true,
   });
-  return writingStepIds(bundle, { tools: platform.tools.specs(), skills });
+  const tools = platform.tools.specs();
+  // A ref with no live version is read from its newest one in both.
+  const runs = { ...newest.skills, ...live.skills };
+  return new Set([
+    ...writingStepIds(bundle, { tools, skills: runs }),
+    ...writingStepIds(bundle, { tools, skills: newest.skills }),
+  ]);
 }
 
 /** The build as the screen shows it. */
@@ -1130,6 +1144,58 @@ export async function buildDetail(ctx: StoreCtx, row: BuildRow): Promise<BuildDe
       }),
     ),
     codeRequests: await stepRequests(ctx.tx, [row.id]),
+    ...(await buildLinks(tx, row, items)),
+  };
+}
+
+/**
+ * S-E: a skill build started from an issue is its own build. The issue's item names it
+ * (`ref.buildId`); the skill build finds its way back by the item that names it.
+ */
+// DECISION: no column and no migration: the item's `ref.buildId`, which `draftSkill` already
+// writes (on the issue's own item, or a gap item it adds), is the one link, read both ways. Only
+// builds of the same client (or both for everyone) are linked, as `draftSkill` starts them.
+async function buildLinks(
+  tx: Tx,
+  row: BuildRow,
+  items: readonly (typeof buildItem.$inferSelect)[],
+): Promise<Pick<BuildDetail, "skillBuilds" | "startedFrom">> {
+  const sameClient = sql`${build.clientId} is not distinct from ${row.clientId}`;
+  const linkOf = { id: build.id, title: build.title, phase: build.phase, status: build.status };
+  const ids = [
+    ...new Set(
+      items.flatMap((i) => {
+        const id = (i.ref as { buildId?: unknown } | null)?.buildId;
+        return typeof id === "string" && id !== row.id ? [id] : [];
+      }),
+    ),
+  ];
+  const skillBuilds =
+    ids.length > 0
+      ? await tx
+          .select(linkOf)
+          .from(build)
+          .where(and(inArray(build.id, ids), sameClient))
+      : [];
+  const [from] =
+    row.kind === "skill"
+      ? await tx
+          .select({ ...linkOf, itemId: buildItem.id, itemTitle: buildItem.title })
+          .from(buildItem)
+          .innerJoin(build, eq(build.id, buildItem.buildId))
+          .where(and(sql`${buildItem.ref}->>'buildId' = ${row.id}`, sameClient))
+          .orderBy(asc(buildItem.createdAt), asc(buildItem.id))
+          .limit(1)
+      : [];
+  return {
+    skillBuilds,
+    startedFrom: from
+      ? {
+          build: { id: from.id, title: from.title, phase: from.phase, status: from.status },
+          itemId: from.itemId,
+          itemTitle: from.itemTitle,
+        }
+      : null,
   };
 }
 

@@ -11,6 +11,9 @@ import {
   BuildPhase,
   BuildProposal,
   BuildStatus,
+  DECISION_VALUE_MAX,
+  DECISION_WHAT_MAX,
+  DECISION_WHY_MAX,
   DecisionOperatorStatus,
   FitGap,
   FitReason,
@@ -117,6 +120,15 @@ export const BuildMessageView = z.object({
   createdAt: z.string(),
 });
 export type BuildMessageView = z.infer<typeof BuildMessageView>;
+
+/** Another build a build's page links to: a skill build an issue started, or the build it came from. */
+export const BuildLink = z.object({
+  id: z.string(),
+  title: z.string(),
+  phase: BuildPhase,
+  status: BuildStatus,
+});
+export type BuildLink = z.infer<typeof BuildLink>;
 
 export const BuildItemRef = z.object({
   testCaseId: z.string().optional(),
@@ -317,6 +329,19 @@ export const BuildDetail = z.object({
   events: z.array(BuildEventView),
   /** docs/plan.md §1.125: the steps that require code, with their Dev queue request's status. */
   codeRequests: z.array(StepCodeRequest).optional(),
+  /**
+   * S-E: the skill builds its issues started (an item's `ref.buildId`), so an issue links to its
+   * skill build by name.
+   */
+  skillBuilds: z.array(BuildLink).optional(),
+  /**
+   * S-E: for a skill build started from another build's issue, that build and the issue (its
+   * item), so the skill build links back to it. Null for any other build.
+   */
+  startedFrom: z
+    .object({ build: BuildLink, itemId: z.string(), itemTitle: z.string() })
+    .nullable()
+    .optional(),
 });
 export type BuildDetail = z.infer<typeof BuildDetail>;
 
@@ -662,6 +687,23 @@ export const buildRoutes = {
       "Mark one of the Builder's decisions discussed or confirmed, or back to never discussed",
     params: z.object({ id: Id, decisionId: z.string().min(1).max(40) }),
     body: z.strictObject({ status: DecisionOperatorStatus }),
+    response: BuildDetail,
+  }),
+  // docs/open.md G4: the operator changes a decision's words on the Decisions card.
+  opsBuildDecisionWords: defineRoute({
+    method: "PUT",
+    path: "/api/ops/builds/:id/decisions/:decisionId/words",
+    auth: "session",
+    roles: OPS,
+    summary:
+      "Change one of the build's decisions in your own words (what it says, its value, why): it is marked changed, by you",
+    params: z.object({ id: Id, decisionId: z.string().min(1).max(40) }),
+    body: z.strictObject({
+      what: storable(z.string().trim().min(1).max(DECISION_WHAT_MAX)),
+      why: storable(z.string().trim().max(DECISION_WHY_MAX)).optional(),
+      /** The starting value; null or empty takes it away. */
+      value: storable(z.string().trim().max(DECISION_VALUE_MAX)).nullable().optional(),
+    }),
     response: BuildDetail,
   }),
   opsStopBuild: defineRoute({

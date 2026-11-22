@@ -4,6 +4,8 @@
 // Owner (2026-11-21): "We can't close these." Each row is closed out where it is: Confirm it, say
 // what it should be (the Builder rewrites it), ask about it, or, by its kind, ask each client or
 // give it to a person on each run. Undo takes a look back to "Never discussed".
+// docs/open.md G4: Edit changes its words here, without the conversation: it is marked changed,
+// by the operator, as the Builder's rewrite marks it.
 
 import {
   type BuildDetail,
@@ -14,9 +16,10 @@ import {
   type DecisionStatus,
   decisionUnreviewed,
 } from "@countersign/core";
-import { useState } from "react";
+import { useId, useState } from "react";
 import type { CallOptions } from "../../api/client";
 import { apiRoutes } from "../../api/routes";
+import { TextArea, TextInput } from "../../ui/forms";
 import { Badge, Button, Card, cx, Tag, type Tone } from "../../ui/primitives";
 import type { Voice } from "../../ui/voice";
 import { ReplyBox } from "./closeout";
@@ -31,10 +34,18 @@ const STATUS_TONE: Record<DecisionStatus, Tone> = {
   changed: "person",
 };
 
-type StatusAct = (
-  route: typeof apiRoutes.opsBuildDecisionStatus,
-  opts: CallOptions<typeof apiRoutes.opsBuildDecisionStatus>,
-) => Promise<boolean>;
+type DecisionRoute =
+  | typeof apiRoutes.opsBuildDecisionStatus
+  | typeof apiRoutes.opsBuildDecisionWords;
+type StatusAct = <R extends DecisionRoute>(route: R, opts: CallOptions<R>) => Promise<boolean>;
+
+/** The words being edited on one row. */
+interface Editing {
+  id: string;
+  what: string;
+  value: string;
+  why: string;
+}
 
 export function DecisionsCard({
   detail,
@@ -67,11 +78,14 @@ export function DecisionsCard({
   const toCheck = decisions.filter(decisionUnreviewed).length;
   // The one "Change it" box open (its decision's id) and its words.
   const [changing, setChanging] = useState<{ id: string; text: string } | null>(null);
+  // The one row whose words are being edited here (docs/open.md G4).
+  const [editing, setEditing] = useState<Editing | null>(null);
+  const formId = useId();
   // The ones to check first, then the first few; the one the conversation is on always shows.
   const rows = useFirstRows(
     [...decisions.filter(decisionUnreviewed), ...decisions.filter((d) => !decisionUnreviewed(d))],
     {
-      keep: (d) => `decision:${d.id}` === focus || d.id === changing?.id,
+      keep: (d) => `decision:${d.id}` === focus || d.id === changing?.id || d.id === editing?.id,
       noun: "decisions",
       testId: "build-decisions-more",
     },
@@ -95,6 +109,14 @@ export function DecisionsCard({
     fold?.hold();
     if (d.status === "never_discussed" && !(await setStatus(d, "discussed"))) return false;
     return onSay(text, `decision:${d.id}`);
+  };
+  const saveWords = async (e: Editing) => {
+    fold?.hold();
+    const done = await act(apiRoutes.opsBuildDecisionWords, {
+      params: { id, decisionId: e.id },
+      body: { what: e.what.trim(), why: e.why.trim(), value: e.value.trim() || null },
+    });
+    if (done) setEditing(null);
   };
   const change = async (d: Decision, typed: string) => {
     setChanging(null);
@@ -190,6 +212,24 @@ export function DecisionsCard({
                             Confirm
                           </Button>
                         )}
+                        {editing?.id !== d.id ? (
+                          <Button
+                            size="sm"
+                            disabled={busy}
+                            onClick={() => {
+                              setChanging(null);
+                              setEditing({
+                                id: d.id,
+                                what: d.what,
+                                value: d.value ?? "",
+                                why: d.why,
+                              });
+                            }}
+                            data-testid={`build-decision-${d.id}-edit`}
+                          >
+                            Edit
+                          </Button>
+                        ) : null}
                         {say && changing?.id !== d.id ? (
                           <Button
                             size="sm"
@@ -233,6 +273,81 @@ export function DecisionsCard({
                         </button>
                       ) : null}
                     </div>
+                  ) : null}
+                  {editing?.id === d.id ? (
+                    <form
+                      className="flex flex-col gap-2 rounded-md border border-line bg-surface-subtle px-3 py-2.5"
+                      data-testid={`build-decision-${d.id}-edit-form`}
+                      onSubmit={(e) => {
+                        e.preventDefault();
+                        void saveWords(editing);
+                      }}
+                    >
+                      <label
+                        className="flex flex-col gap-1 text-sm"
+                        htmlFor={`${formId}-${d.id}-what`}
+                      >
+                        <span className="text-ink-muted">The decision</span>
+                        <TextArea
+                          rows={2}
+                          maxLength={300}
+                          value={editing.what}
+                          onChange={(e) => setEditing({ ...editing, what: e.target.value })}
+                          id={`${formId}-${d.id}-what`}
+                          data-testid={`build-decision-${d.id}-edit-what`}
+                        />
+                      </label>
+                      <label
+                        className="flex flex-col gap-1 text-sm"
+                        htmlFor={`${formId}-${d.id}-value`}
+                      >
+                        <span className="text-ink-muted">Starts at (optional)</span>
+                        <TextInput
+                          maxLength={300}
+                          value={editing.value}
+                          onChange={(e) => setEditing({ ...editing, value: e.target.value })}
+                          id={`${formId}-${d.id}-value`}
+                          data-testid={`build-decision-${d.id}-edit-value`}
+                        />
+                      </label>
+                      <label
+                        className="flex flex-col gap-1 text-sm"
+                        htmlFor={`${formId}-${d.id}-why`}
+                      >
+                        <span className="text-ink-muted">Why</span>
+                        <TextArea
+                          rows={2}
+                          maxLength={500}
+                          value={editing.why}
+                          onChange={(e) => setEditing({ ...editing, why: e.target.value })}
+                          id={`${formId}-${d.id}-why`}
+                          data-testid={`build-decision-${d.id}-edit-why`}
+                        />
+                      </label>
+                      <p className="text-xs text-ink-muted">
+                        Saved as changed by you. The Builder follows the new words from its next
+                        turn.
+                      </p>
+                      <span className="flex flex-wrap gap-2">
+                        <Button
+                          size="sm"
+                          variant="primary"
+                          type="submit"
+                          disabled={busy || editing.what.trim() === ""}
+                          data-testid={`build-decision-${d.id}-edit-save`}
+                        >
+                          Save
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => setEditing(null)}
+                          data-testid={`build-decision-${d.id}-edit-cancel`}
+                        >
+                          Cancel
+                        </Button>
+                      </span>
+                    </form>
                   ) : null}
                   {changing?.id === d.id ? (
                     <ReplyBox

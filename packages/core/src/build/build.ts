@@ -586,6 +586,56 @@ export function setDecisionStatus(
   );
 }
 
+/** The words of a decision as the operator writes them on the Decisions card (docs/open.md G4). */
+export interface DecisionWords {
+  what: string;
+  why?: string | undefined;
+  /** The starting value; null takes it away. Left out: unchanged. */
+  value?: string | null | undefined;
+}
+
+/**
+ * The operator changes a decision's words on the Decisions card, as the Builder's rewrite does in
+ * the conversation: a change to what it says or its value is a look and then a change, so it is
+ * `changed`, by the operator, now. A change of only the why keeps its status, as a rewrite of only
+ * the why does (`mergeDecisions`). Null when there is no such decision; the same list when nothing
+ * changed.
+ */
+// DECISION (docs/open.md G4): writing the words yourself is looking at the decision, so even one
+// nobody had discussed becomes "changed" (the conversation's path marks it discussed first, then
+// the Builder's rewrite makes it changed: the same end). Risk, kind and step stay as they are:
+// code keeps working out the risk from the draft, and the words never lower it.
+export function changeDecisionWords(
+  decisions: readonly Decision[],
+  id: string,
+  words: DecisionWords,
+  by: string | null,
+  at: string,
+): Decision[] | null {
+  const i = decisions.findIndex((d) => d.id === id);
+  const d = decisions[i];
+  if (!d) return null;
+  const what = clampText(words.what.trim(), DECISION_WHAT_MAX);
+  const why = words.why === undefined ? d.why : clampText(words.why.trim(), DECISION_WHY_MAX);
+  const value =
+    words.value === undefined
+      ? d.value
+      : words.value === null || words.value.trim() === ""
+        ? undefined
+        : clampText(words.value.trim(), DECISION_VALUE_MAX);
+  const changed = what !== d.what || (value ?? "") !== (d.value ?? "");
+  if (!changed && why === d.why) return [...decisions];
+  const { value: _was, ...rest } = d;
+  const next: Decision = {
+    ...rest,
+    what,
+    why,
+    ...(value !== undefined ? { value } : {}),
+    ...(changed ? { status: "changed" as const, by, at } : {}),
+  };
+  return decisions.map((x, k) => (k === i ? next : x));
+}
+
 /** "2 high-risk decisions haven't been looked at yet." */
 export function unreviewedWords(n: number): string {
   return n === 1
