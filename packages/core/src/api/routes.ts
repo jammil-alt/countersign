@@ -1505,6 +1505,19 @@ export const opsRoutes = {
           releaseNote: z.string().nullable(),
         })
         .nullable(),
+      // QA (2026-11-22): the Overview named a connection "Qbo" and its skills "Loading…" while
+      // the builder's catalog and the skills list (both much larger) were on their way or had
+      // failed; the agent now brings the names it shows. Optional so older answers still parse.
+      /**
+       * Names for what the agent's live and latest versions name: each connector by its
+       * manifest's name ("QuickBooks Online"), each skill reference by its skill's name.
+       */
+      names: z
+        .object({
+          connectors: z.record(z.string(), z.string()),
+          skills: z.record(z.string(), z.string()),
+        })
+        .optional(),
     }),
   }),
   opsAgentVersion: defineRoute({

@@ -26,27 +26,25 @@ export function OverviewTab({
   bundle,
   base,
   skills,
+  known,
 }: {
   agent: AgentSummary;
   bundle: AnyAgentBundle;
   /** The agent page's URL. */
   base: string;
-  /** The agent's skills, loading beside the agent: its chips wait for them, nothing else does. */
+  /** The agent's skills, loading beside the agent: only a skill its names miss waits for them. */
   skills: ApiState<{ skills: SkillOption[] }>;
+  /** The names the agent brought with it (`names` on its detail): shown without waiting. */
+  known?: { connectors: Record<string, string>; skills: Record<string, string> } | undefined;
 }) {
   const stats = workflowStats(bundle);
-  const names = useConnectorNames(agent.id);
+  const names = useConnectorNames(agent.id, known?.connectors);
   // A tool by what it does and where: "Update lines bill · QuickBooks Online".
   const tools = toolsItWorksIn(bundle).map(
     (id) => `${toolTitle({ id })} · ${names(id.split(".")[0] ?? id)}`,
   );
   const worksIn = agent.kind === "client" ? Object.keys(agent.bindings).map(names) : [];
-  const options = skills.data?.skills;
-  const skillNames = options
-    ? bundle.definition.skills.map(
-        (s) => optionFor(s.skill, options)?.name ?? "A skill this agent can't use",
-      )
-    : null;
+  const skillNames = skillNamesOf(bundle, known?.skills, skills.data?.skills);
   const workflowNames = new Map(bundle.workflows.map((w) => [w.slug, w.name] as const));
   const mission = bundle.definition.identity.mission.trim();
   return (
@@ -121,6 +119,27 @@ export function OverviewTab({
       </Card>
     </div>
   );
+}
+
+/**
+ * The names of the skills the agent uses: by the names it brought (its live and latest versions'
+ * skills), else from the skills it may use once they are here; null while a name is still to come.
+ * QA (2026-11-22): it waited on the whole skills list, and read "Loading…" until that came.
+ */
+export function skillNamesOf(
+  bundle: AnyAgentBundle,
+  known: Readonly<Record<string, string>> | undefined,
+  options: readonly SkillOption[] | undefined,
+): string[] | null {
+  const out: string[] = [];
+  for (const { skill } of bundle.definition.skills) {
+    const name =
+      known?.[skill] ??
+      (options ? (optionFor(skill, options)?.name ?? "A skill this agent can't use") : undefined);
+    if (name === undefined) return null;
+    out.push(name);
+  }
+  return out;
 }
 
 /**

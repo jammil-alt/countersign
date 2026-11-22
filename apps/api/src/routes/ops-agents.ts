@@ -314,7 +314,30 @@ export function opsAgentRoutes(app: Hono<AppEnv>): void {
         releaseNote: info.releaseNote,
       };
     }
+    // QA (2026-11-22): the names the agent's page shows come with it, so its Overview never
+    // waits on the builder's catalog or the skills list to say "QuickBooks Online".
+    // DECISION: every registered connector's manifest name (a few dozen short strings, no
+    // bundle walk) and the live and latest versions' skills; this route now builds the platform
+    // (lazy, tens of ms in a fresh isolate), as the client page's route already does.
+    const { platform } = ctx.services;
+    const skillNames: Record<string, string> = {};
+    for (const v of [live, latest]) {
+      if (!v) continue;
+      const { skills } = await skillContext(ctx.tx, {
+        tenantId: row.tenantId,
+        bundle: v.bundle,
+        catalog: platform.catalog,
+      });
+      for (const [ref, def] of Object.entries(skills)) skillNames[ref] = def.name;
+    }
+    const names = {
+      connectors: Object.fromEntries(
+        platform.connectors.list().map((c) => [c.manifest.id, c.manifest.name] as const),
+      ),
+      skills: skillNames,
+    };
     return {
+      names,
       agent: agentSummary(row),
       versions: versions.map(versionSummary),
       live: live ? versionDetail(live) : null,

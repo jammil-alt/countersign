@@ -360,6 +360,26 @@ describe("AgentScreen", () => {
     );
   });
 
+  it("names its connection and skills from the agent, without waiting on the catalogs", async () => {
+    // QA (2026-11-22): "Qbo" and "Skills it uses: Loading…" while the builder's catalog and the
+    // skills list were still on their way. Here neither ever answers.
+    setup(BASE, {
+      [`GET /api/ops/agents/${ID}`]: () => ({
+        ...AGENT_DETAIL,
+        names: {
+          connectors: { qbo: "QuickBooks Online" },
+          skills: { "docs.extract": "Read a document", "docs.find-support": "Find support" },
+        },
+      }),
+      [`GET /api/ops/agents/${ID}/skills`]: () => new Promise(() => {}),
+      [`GET /api/ops/agents/${ID}/builder-catalog`]: () => new Promise(() => {}),
+    });
+    expect(await screen.findByTestId("agent-works-in")).toHaveTextContent("QuickBooks Online");
+    expect(screen.getByTestId("agent-works-in")).not.toHaveTextContent("Qbo");
+    expect(screen.getByTestId("agent-skills")).toHaveTextContent("Read a document");
+    expect(screen.getByTestId("agent-skills")).toHaveTextContent("Find support");
+  });
+
   it("offers no publish when the live version is the newest", async () => {
     setup(BASE, {
       [`GET /api/ops/agents/${ID}`]: () => ({

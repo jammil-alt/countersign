@@ -501,7 +501,13 @@ export function AgentScreen({
             element={
               blocked ??
               (bundle ? (
-                <OverviewTab agent={view} bundle={bundle} base={base} skills={skills} />
+                <OverviewTab
+                  agent={view}
+                  bundle={bundle}
+                  base={base}
+                  skills={skills}
+                  known={data.names}
+                />
               ) : null)
             }
           />
