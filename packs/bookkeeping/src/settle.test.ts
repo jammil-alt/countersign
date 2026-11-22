@@ -1877,4 +1877,63 @@ describe.skipIf(!online)("settling (database, as cs_worker)", () => {
       clear: true,
     });
   });
+
+  it("refuses a booking's write while this transaction's write for an earlier booking waits or was made", async () => {
+    const b = await books(
+      [{ account: CHECKING, ledger: "Checking" }],
+      [{ id: "s", amount: "39.99", date: "2026-11-03", merchantName: "Figma" }],
+    );
+    await b.inA((tx) => settle(tx, b.who));
+    const first = await b.inA(async (tx) =>
+      bookByPerson(tx, b.person, {
+        bankTxnId: (await b.txn("s")).id,
+        lines: [{ ledgerAccountId: b.A.accounts.Software ?? "" }],
+      }),
+    );
+    const laid = await b.inA((tx) => qboInput(tx, b.A.tenantId, first));
+    const [proposal] = await t.db
+      .insert(externalAction)
+      .values({
+        tenantId: b.A.tenantId,
+        connectionId: b.A.qboConnectionId,
+        tool: BANKING_TOOLS.purchaseCreate,
+        input: laid.purchase ?? {},
+        idempotencyKey: `run-s:write-purchase:${first}`,
+      })
+      .returning();
+    if (!proposal) throw new Error("no proposal");
+    // While the purchase waits for its signature, a person books it again: a transfer now.
+    const second = await b.inA(async (tx) =>
+      bookByPerson(tx, b.person, {
+        bankTxnId: (await b.txn("s")).id,
+        lines: [{ ledgerAccountId: b.A.accounts.Savings ?? "" }],
+      }),
+    );
+    expect(second).not.toBe(first);
+    expect((await b.inA((tx) => qboInput(tx, b.A.tenantId, second))).entity).toBe("transfer");
+    const check = () => b.inA((tx) => writeCheck(tx, b.A.tenantId, second));
+    await expect(check()).rejects.toThrow(
+      "This transaction's write from an earlier run is waiting for a signature",
+    );
+    for (const [status, words] of [
+      ["approved", "is being written to QuickBooks"],
+      ["executing", "is being written to QuickBooks"],
+      ["done", "was written to QuickBooks (632): this booking isn't written again"],
+    ] as const) {
+      await t.db
+        .update(externalAction)
+        .set({ status, result: status === "done" ? { id: "632" } : null })
+        .where(eq(externalAction.id, proposal.id));
+      await expect(check(), status).rejects.toThrow(words);
+    }
+    // Turned down, or failed: the transfer may be written (a retry of a failed write is the next
+    // run's read of QuickBooks and the connector's to catch).
+    for (const status of ["rejected", "failed"] as const) {
+      await t.db
+        .update(externalAction)
+        .set({ status, result: null })
+        .where(eq(externalAction.id, proposal.id));
+      expect(await check(), status).toMatchObject({ clear: true });
+    }
+  });
 });

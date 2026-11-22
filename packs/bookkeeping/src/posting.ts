@@ -315,20 +315,29 @@ export const qboInputTool = defineTool({
   },
 });
 
+/** A write that is made or will be: laid out for a signature, signed, being made or made. */
+const MADE_OR_WAITING = sql`${externalAction.status} in ('proposed', 'approved', 'executing', 'done')`;
 /** A write that is done, or may be: laid out for a signature, signed, being made, made or unsure. */
-const LIVE_WRITE = sql`(${externalAction.status} in ('proposed', 'approved', 'executing', 'done') or (${externalAction.status} = 'failed' and coalesce((${externalAction.error} ->> 'notWritten')::boolean, false) = false))`;
+const LIVE_WRITE = sql`(${MADE_OR_WAITING} or (${externalAction.status} = 'failed' and coalesce((${externalAction.error} ->> 'notWritten')::boolean, false) = false))`;
 
 /**
  * docs/plan.md §1.187: right before a booking's write, the other copies of its bank transaction
  * (the chain the bank re-sent it along) are read again. One posted, or one whose write is laid
  * out for a signature, signed, being made, made or perhaps made, is this money already: this
- * copy's write is refused, with why for the person, and nothing is written.
+ * copy's write is refused, with why for the person, and nothing is written. So is a write of this
+ * same transaction for an earlier booking of it (a person booked it again while that write
+ * waited): every booking of one transaction carries its mark.
  */
 // DECISION: a copy's write waiting for a signature refuses this one too. A check at the moment of
 // signing would come too late for the copy signed second, and the earlier copy's write, once made,
 // is recorded for this copy as well (`resentWritten`); turned down, this copy goes ahead on the
 // next run. A write the platform knows was not sent (`notWritten`) or that was turned down is
 // no write. By the write's mark (`[Mezonas bt-<id>]` in its input), so no column is added.
+// DECISION (review, §1.187): this transaction's own mark counts too, for a write laid out for a
+// signature, signed, being made or made: a person who books the transaction again (a transfer now,
+// not a deposit) while the first booking's write waits would otherwise sign two records of two
+// kinds, which the connector's same-kind check can't see. A failed write of its own mark doesn't
+// refuse: the next run's read of QuickBooks (`find`) and the connector's check cover a retry of it.
 export async function writeCheck(tx: Tx, tenantId: string, bookingId: string) {
   const [row] = await tx
     .select({ b: booking, t: bankTxn })
@@ -345,29 +354,37 @@ export async function writeCheck(tx: Tx, tenantId: string, bookingId: string) {
   }
   const sources = [b.id, t.rawRecordId];
   const others = (await resentChain(tx, tenantId, t.id)).filter((id) => id !== t.id);
-  if (others.length === 0) return { clear: true as const, sources };
-  const [posted] = await tx
-    .select({ qboEntity: booking.qboEntity, qboId: booking.qboId })
-    .from(booking)
-    .where(
-      and(
-        eq(booking.tenantId, tenantId),
-        inArray(booking.bankTxnId, others),
-        eq(booking.status, "posted"),
-      ),
-    )
-    .limit(1);
-  if (posted) {
-    const what = posted.qboEntity && posted.qboId ? ` (${posted.qboEntity} ${posted.qboId})` : "";
-    throw new PackRefusal(
-      `An earlier copy of this transaction is already in QuickBooks${what}: this copy isn't written again`,
-    );
+  if (others.length > 0) {
+    const [posted] = await tx
+      .select({ qboEntity: booking.qboEntity, qboId: booking.qboId })
+      .from(booking)
+      .where(
+        and(
+          eq(booking.tenantId, tenantId),
+          inArray(booking.bankTxnId, others),
+          eq(booking.status, "posted"),
+        ),
+      )
+      .limit(1);
+    if (posted) {
+      const what = posted.qboEntity && posted.qboId ? ` (${posted.qboEntity} ${posted.qboId})` : "";
+      throw new PackRefusal(
+        `An earlier copy of this transaction is already in QuickBooks${what}: this copy isn't written again`,
+      );
+    }
   }
+  const own = txnReference(t.id);
   const marks = others.map((id) => txnReference(id));
+  const markIn = (refs: string[]) =>
+    or(
+      inArray(sql<string>`${externalAction.input} ->> 'reference'`, refs),
+      inArray(sql<string>`${externalAction.editedInput} ->> 'reference'`, refs),
+    );
   const [write] = await tx
     .select({
       status: externalAction.status,
       qboId: sql<string | null>`${externalAction.result} ->> 'id'`,
+      own: sql<boolean>`(coalesce(${externalAction.input} ->> 'reference', '') = ${own} or coalesce(${externalAction.editedInput} ->> 'reference', '') = ${own})`,
     })
     .from(externalAction)
     .where(
@@ -375,30 +392,32 @@ export async function writeCheck(tx: Tx, tenantId: string, bookingId: string) {
         eq(externalAction.tenantId, tenantId),
         inArray(externalAction.tool, Object.values(BANKING_TOOLS)),
         or(
-          inArray(sql<string>`${externalAction.input} ->> 'reference'`, marks),
-          inArray(sql<string>`${externalAction.editedInput} ->> 'reference'`, marks),
+          and(markIn([own]), MADE_OR_WAITING),
+          ...(marks.length > 0 ? [and(markIn(marks), LIVE_WRITE)] : []),
         ),
-        LIVE_WRITE,
       ),
     )
     .orderBy(asc(externalAction.createdAt))
     .limit(1);
   if (!write) return { clear: true as const, sources };
+  const [who, me] = write.own
+    ? ["This transaction's write from an earlier run", "this booking"]
+    : ["An earlier copy of this transaction", "this copy"];
   const why =
     write.status === "proposed"
-      ? "is waiting for a signature: sign or turn down that one first, and this copy waits until then"
+      ? `is waiting for a signature: sign or turn down that one first, and ${me} waits until then`
       : write.status === "done"
-        ? `was written to QuickBooks${write.qboId ? ` (${write.qboId})` : ""}: this copy isn't written again`
+        ? `was written to QuickBooks${write.qboId ? ` (${write.qboId})` : ""}: ${me} isn't written again`
         : write.status === "failed"
-          ? "may have reached QuickBooks: check there before this copy is written"
-          : "is being written to QuickBooks: this copy isn't written too";
-  throw new PackRefusal(`An earlier copy of this transaction ${why}`);
+          ? `may have reached QuickBooks: check there before ${me} is written`
+          : `is being written to QuickBooks: ${me} isn't written too`;
+  throw new PackRefusal(`${who} ${why}`);
 }
 
 export const writeCheckTool = defineTool({
   id: "bookkeeping.booking.write-check",
   description:
-    "Right before a booking's QuickBooks write: refuses it when another copy of the same bank transaction (sent again by the bank) is already posted, or its own write is waiting for a signature, signed or made.",
+    "Right before a booking's QuickBooks write: refuses it when another copy of the same bank transaction (sent again by the bank) is already posted, or a write of that copy or of this transaction for an earlier booking is waiting for a signature, signed or made.",
   sideEffect: "none",
   entity: "booking",
   input: z.object({ bookingId: Id }),
