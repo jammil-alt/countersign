@@ -218,7 +218,7 @@ export async function checkDeviceSignature(
     decision: "approve" | "reject" | undefined;
     /** What the resolve sends with the decision: a `v2` signature covers both (§1.203). */
     answer?: unknown;
-    note?: string;
+    note?: string | undefined;
     signature: DeviceSignature;
     now: Date;
   },
