@@ -4109,7 +4109,7 @@ export const personDevice = pgTable(
   ],
 );
 
-// ── The desktop app's computers and jobs (migration 0080, docs/plan.md §1.151, §1.193) ────────
+// ── The desktop app's computers and jobs (migration 0080, docs/plan.md §1.151, §1.199) ────────
 
 export const DESKTOP_DEVICE_PLATFORMS = ["mac", "windows"] as const;
 /** core's DesktopJobRequest kinds (checked equal in the migration's test). */
