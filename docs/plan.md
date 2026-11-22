@@ -2053,7 +2053,7 @@ headed `// P-9: …`.
 | News | `materials.request.created` {requestId, channel, lines, unmatched, withoutQuantity}, emitted with the request (a test run's emits nothing). // DECISION |
 | The Builder | Told the deployment's packs (it was told none). // DECISION |
 | QuickBooks vendor | `materials.vendor.qbo` ties a vendor to its QuickBooks vendor id in `vendor.external_refs.qbo`: the one kept (sync already stores it for vendors and bills with a VendorRef), else the one active QuickBooks vendor of the same name (case, spacing and punctuation aside) among `qbo.vendor.query`'s `vendors`, else the id `qbo.vendor.create` returned (after approval, invariant 8). Two of the same name, or none, is no match: it answers `create`, the input for `qbo.vendor.create`. A different id for a vendor already tied is refused. A test run keeps nothing. // DECISION |
-| QuickBooks PO lines | `materials.po.qbo-lines` turns the chosen quote (or a split's `requestLineIds`) into `qbo.purchaseorder.create`'s input as `order`: the vendor's QuickBooks id, one account line per quoted line on the client agent's expense account (skill setting `qbo_account_id`, client-specific, or the step's `accountId`; none: refused), each amount the unit price times the quantity rounded half up to cents in decimal.js, the total their sum, the PO reference as its number, needed-by as its due date when it is not before the order's date. // DECISION: account lines only, because catalog items carry no QuickBooks item id. |
+| QuickBooks PO lines | `materials.po.qbo-lines` turns the chosen quote (or a split's `requestLineIds`) into `qbo.purchaseorder.create`'s input as `order`: the vendor's QuickBooks id, one account line per quoted line on the client agent's expense account (skill setting `qbo_account_id`, client-specific, or the step's `accountId`; none: refused), each amount the unit price times the quantity rounded half up to cents in decimal.js, the total their sum, the PO reference as its number, needed-by as its due date when it is not before the order's date. // DECISION: account lines only, because catalog items carry no QuickBooks item id. Since C2.4 (§1.205), an item tied to its QuickBooks item is an item line. |
 | Split orders | `materials.request.update`'s `order` may name its `quoteRequestId`: a split records one order per vendor in `ext.orders` (the request's columns keep the first), each quote ordered once; without a quote it is ordered once, as before. A split's PO reference adds four characters of its quote's id. // DECISION |
 | Import bill prices | A back-office action on the client (`import-bill-prices {from, to}`) runs the bill backfill page after page (`next`), at most 40 pages of 500 bills, as the person (items and prices attributed to them, no agent version). Safe to run again: a bill line is priced once. // DECISION |
 | Cards | Two pack review cards beside `materials.match`: the request line review (`review: materials.request-lines`, `requestId`): the request's lines, unsure or without a quantity first, with their candidates and the client's catalog (300 items); a person picks the item (recorded `chosen`) and sets how many, line by line, then Done. The vendor choice (`review: materials.vendor-choice`, `requestId`): the quotes compared as a table (`quote.compare`, in code), the suggestion and its reasons; a person picks one vendor or the suggested split (received quotes of this request only, each line to one vendor), kept on the request as `ext.choice` with who and when; Done answers the choice, and `materials.quote.chosen` gives it to the PO steps. The platform's review decision takes `{action, input}` for any card besides the match review's shape, and the pack's handler checks it. // DECISION |
@@ -6382,6 +6382,22 @@ action, not just mark it... if it is an issue, just because I say it is closed d
 | Not built | The client as an owner: no step yet sends an item to the client and closes it by their answer (the requirements request asks the intake form's fields, not an item). Until there is one, "Client" is only set by the fit-gap's preconditions. |
 | Checked | `apps/api/src/build-settled-by-step.test.ts` (done by hand refused, a drop, a note done, the Builder's close left out; a put-off gap given to engineering then the Builder, closed by its change and opened by its undo; a test closed by a full passing run and not by a failing or partial one), `apps/web/src/ops/builds/closeout.test.tsx` and `builds.test.tsx` (no selects; Put off, Drop it, Reopen; Take it up on a put-off gap). The skill build's go-live closing has no test of its own. |
 
+### 1.205 QuickBooks item lines on purchase orders (work plan C2.4, 2026-11-22; no migration)
+
+`materials.po.qbo-lines` made every QuickBooks PO line an account line, because a catalog item
+carried no QuickBooks item id (§1.71). Now a catalog item can be tied to its QuickBooks item and is
+ordered as that item. Done when: a PO with one item line and one account line
+(`apps/api/src/purchasing-email.test.ts`: the plywood as item 21, the oak on the expense account,
+both in the body QuickBooks gets).
+
+| Topic | Decision |
+|---|---|
+| Where the tie lives | `catalog_item.ext.qbo`, the QuickBooks item id, as a vendor's is in `vendor.external_refs.qbo`. No migration. One QuickBooks item per catalog item; many catalog items may share one (a client that books every sheet good as "Plywood" orders them that way too). Kept once, never overwritten by a later find, in one statement that sets it only when none is kept. // DECISION |
+| How it is tied | Three ways. The **bill-price import** ties a matched bill line's catalog item to the item the line names (`ItemRef`), the first bill read winning; lines priced before this change tie on the next import. The step **`materials.item.qbo`** (skill "Find the item in QuickBooks") answers the kept id, else the one active QuickBooks item, not a category, whose name is the catalog item's (case, spacing and punctuation aside) among `qbo.item.query`'s items, else the id a person gives; two of the same name, or none, is no tie. A different id for a tied item is refused. A test run keeps nothing. Nothing is created in QuickBooks: a new item there is the client's bookkeeping choice. // DECISION |
+| The PO's lines | A line whose catalog item is tied is an item line: the QuickBooks item, the quantity and unit price as quoted (in the vendor's unit, which the description names; QuickBooks items carry no unit) and the amount rounded half up to cents, which is `qty × unitPrice` as the connector requires. The rest are account lines on `qbo_account_id` as before, which is needed only when some line is one; without it the step says which line. `untied` lists the order's catalog items with no QuickBooks item, for `materials.item.qbo`. // DECISION |
+| The connector | `qbo.purchaseorder.create` reads the order's items (`Id in (…)`, active or not) when it is proposed and again before writing, and refuses an item that isn't the company's, is inactive, or is a category, naming it. Whether an item needs an expense account ("I purchase this") to be on a PO is unchecked: we don't refuse it. Sandbox check 9 in `qbo/NOTES.md`. // DECISION |
+| Not built | A screen to see or change an item's QuickBooks item (a wrong tie is changed by hand today); bills (`qbo.bill.create`) don't get the item check yet. |
+
 ### 1.207 The staging walk-through: counts that agree, links that open the item (owner, 2026-11-22; no migration)
 
 The owner read every back-office section on staging and listed what disagreed or dead-ended
@@ -6486,6 +6502,18 @@ questions ("go with your defaults", 2026-11-22):
 
 **Still open:** Sloan across the chapters (O4); the scope as O5's signed `intake_scope` and its knowledge-base facts; first-look lines as `seen` facts; the server-side words in six languages; tries stopped at a person step; Turn on checking the scope; a look in a browser in both themes.
 
+### 1.204 The desktop app's API: computers and jobs (open.md D2–D3, items C5.1–C5.2, 2026-11-22; migration 0080)
+
+§1.151 merged the app, core's protocol and the `desktop` connector before the API took computers.
+Two PRs by the rule for migrations: 0080 alone, then the API's routes and `services.desktop`.
+
+| Topic | Decision |
+|---|---|
+| Tables | `desktop_device` (client, its `desktop` connection, name, platform, app version, the public key as a JWK, who paired it, last seen, `revoked_at`) and `desktop_job` (client, computer, kind, the request, issued, expires, sent, answered, the result). Tenant RLS forced on both; no DELETE grant, and a guard trigger lets only the name, app version, key, last seen and `revoked_at` change on a computer, and only `sent_at`, `answered_at` and `result` on a job. A removed computer keeps its row with no key (`desktop_device_key_check`). // DECISION |
+| One computer per connection | Pairing makes the computer its own `desktop` connection (its folders live in the connection's `config`, as §1.151 said); one live computer per connection (a partial unique index), so a later pairing may reuse a connection once its computer is removed. // DECISION |
+| Finding the client | A signed request names only the computer. `desktop_device_tenant(id)` (SECURITY DEFINER, `row_security = off`, as 0071's helper) answers the client of a computer that is still paired, nothing else; the key is then read and the signature checked inside that one client. Not each client in turn (as Meta's webhook finds a number): a computer asks every 25 seconds. // DECISION |
+| Checked | `packages/db/src/desktop-migration.test.ts` (RLS forced, one client's rows, never deleted, the guarded columns, the key cleared on removal, the job kinds equal core's, the lookup); `migrations.test.ts` (grants). |
+
 ### 1.202 Urgent notices through the outbox (work plan C4.10, 2026-11-22; migration 0079)
 
 An urgent notice's person was told by email and text from the notify step itself (§1.86, wave 2c),
@@ -6501,7 +6529,6 @@ from the outbox.
 | Never held | `holdsInQuietHours("urgent", …)` is false on every channel, and `overridesSwitches("urgent")` lets it past the person's own email and text switches; their consent for texts still holds. // DECISION |
 | At once | The notify step queues the rows in its own transaction, then sends just those (`sendQueued(…, only)`) once it commits. A send that fails stays queued (`send_failed:<n>`) and the outbox's next pass tries it again, up to `NOTIFY_MAX_TRIES`; an error in the send itself is reported and leaves the rows for that pass. A test run tells nobody, as before. // DECISION |
 | Checked | `apps/api/src/process-runtime.test.ts` (one email and one text in the person's quiet hours with texts switched off, as `urgent` rows, sent, linking to the inbox; an email that fails waits in the outbox and its next pass sends it), `packages/core/src/notify/notify.test.ts` (never held, overrides the switches, its link, rendered in every language and channel), `packages/db/src/migrations.test.ts` (the check). |
-
 
 ### 1.203 The phone's signed text v2: an answer's text and a note (M9, item C4.11, 2026-11-22; no migration)
 
