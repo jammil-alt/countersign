@@ -457,30 +457,50 @@ function methodOf(step: AnyStep, input: SopInput): SopMethod | null {
   }
 }
 
-function modelOf(step: AnyStep, method: SopMethod | null, input: SopInput): string | null {
+/**
+ * The model id an AI step runs on, as the runtime picks it (`runModel`); "tool" for a tool that
+ * calls a model inside and picks its own; null for a step no model does.
+ */
+function modelIdOf(step: AnyStep, method: SopMethod | null, input: SopInput): string | null {
   if (method !== "ai" && method !== "rules_then_ai") return null;
   const definition = input.bundle.definition as AgentDefinition;
-  let id: string | null = null;
   if (step.kind === "skill") {
     const def = lookupSkill(String(step.skill), input.skills);
     if (!def) return null;
     const agentSkill = definition.skills.find((s) => s.skill === step.skill)?.model;
-    id = runModel({
+    return runModel({
       agentModel: definition.model,
       skill: def,
       step: step.model as { id: string } | undefined,
       agentSkill,
     }).id;
-  } else if (step.kind === "if" || step.kind === "repeat") {
-    // §10.15: an agent's choice runs on the owner's model when the process names none.
-    id = definition.oversight?.model?.id ?? input.owner?.model ?? definition.model.id;
-  } else if (step.kind === "conversation") {
-    id = definition.model.id;
-  } else {
-    // A tool that calls a model inside picks its own; it has no name to show.
-    return "An AI model";
   }
+  if (step.kind === "if" || step.kind === "repeat") {
+    // §10.15: an agent's choice runs on the owner's model when the process names none.
+    return definition.oversight?.model?.id ?? input.owner?.model ?? definition.model.id;
+  }
+  if (step.kind === "conversation") return definition.model.id;
+  return "tool";
+}
+
+function modelOf(step: AnyStep, method: SopMethod | null, input: SopInput): string | null {
+  const id = modelIdOf(step, method, input);
+  // A tool that calls a model inside picks its own; it has no name to show.
+  if (id === "tool") return "An AI model";
   return id ? (input.modelName(id) ?? "An AI model") : null;
+}
+
+/**
+ * Each AI step's model id, as the runtime picks it: the agent assurance view's AI providers
+ * (docs/agent-assurance-plan.md §4b) read the same answer the SOP shows.
+ */
+export function sopStepModels(input: SopInput): { stepId: string; model: string }[] {
+  const out: { stepId: string; model: string }[] = [];
+  for (const v of walk(input.bundle).visited) {
+    const id = modelIdOf(v.step, methodOf(v.step, input), input);
+    if (id && id !== "tool") out.push({ stepId: String(v.step.id), model: id });
+  }
+  return out;
 }
 
 /** "Reads vendors from QuickBooks Online." when the step has no purpose of its own. */

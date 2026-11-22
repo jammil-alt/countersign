@@ -669,3 +669,160 @@ button.sop-party:hover {
     print-color-adjust: exact;
   }
 }
+
+/* Agent assurance (docs/agent-assurance-plan.md §5): the architecture diagram, the check results
+ * and the tables of the SOP's section 14 and the back office's Security tab. Tokens only; people in
+ * copper, AI flows dashed, "In review" in signal with its word, never red: it isn't a failure. */
+.arch {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+.arch text {
+  font-family: var(--font-sans);
+  fill: var(--ink);
+}
+.arch .arch-zone {
+  fill: var(--surface-subtle);
+  stroke: var(--line-strong);
+  stroke-dasharray: 5 4;
+}
+.arch .arch-zone-title {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  fill: var(--ink-muted);
+}
+.arch .arch-box {
+  fill: var(--surface);
+  stroke: var(--line-strong);
+}
+.arch .arch-box--person {
+  fill: var(--copper-tint);
+  stroke: var(--copper-tint);
+}
+.arch .arch-t1 {
+  font-size: 13px;
+  font-weight: 600;
+}
+.arch .arch-t2 {
+  font-size: 11px;
+  fill: var(--ink-muted);
+}
+.arch .arch-tp {
+  fill: var(--copper-ink);
+}
+.arch .arch-flow {
+  fill: none;
+  stroke: var(--slate);
+  stroke-width: 1.5;
+}
+.arch .arch-flow--ai {
+  stroke-dasharray: 4 3;
+}
+.arch .arch-arrowhead {
+  fill: var(--slate);
+}
+.arch .arch-label {
+  font-size: 10.5px;
+}
+.arch .arch-ctl {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  fill: var(--slate);
+}
+.assure-result {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-pill);
+  font: 500 11px / 1.2 var(--font-sans);
+  white-space: nowrap;
+}
+.assure-result--verified {
+  color: var(--positive);
+  background: var(--positive-tint);
+  border-color: var(--positive);
+}
+.assure-result--review {
+  color: var(--signal-ink);
+  background: var(--signal-tint);
+  border-color: var(--signal);
+}
+.assure-result--unchecked {
+  color: var(--ink-muted);
+  background: var(--surface);
+  border-style: dashed;
+}
+.assure-result--na {
+  color: var(--ink-muted);
+  background: var(--surface);
+}
+.assure-states {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--space-3);
+  margin: var(--space-5) 0 var(--space-3);
+}
+.assure-stats {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
+}
+@media (max-width: 700px) {
+  .assure-states,
+  .assure-stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+.assure-stat {
+  margin-top: 2px;
+  font-size: 24px;
+  font-weight: 600;
+  color: var(--ink);
+}
+.assure-stat--small {
+  font-size: 16px;
+}
+.assure-maps {
+  display: block;
+  margin-top: 2px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--slate);
+}
+.assure-kind {
+  padding: 2px 6px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  font-size: 11px;
+  color: var(--ink-muted);
+  white-space: nowrap;
+}
+.assure-h3 {
+  margin: var(--space-8) 0 var(--space-1);
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--ink);
+}
+.assure-coverage {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-3);
+}
+@media (max-width: 900px) {
+  .assure-coverage {
+    grid-template-columns: 1fr;
+  }
+}
+.assure-status {
+  color: var(--signal-ink);
+}
+@media print {
+  .assure .assure-states {
+    break-inside: avoid;
+  }
+}

@@ -21,6 +21,7 @@ export * from "./api/approver-rules";
 export * from "./api/assigned";
 // docs/plan.md §1.168: Draft for long text fields
 export * from "./api/assist";
+export * from "./api/assurance";
 // v0.12 W2-B: automations
 export * from "./api/automations";
 // docs/plan.md §1.124.4: Reggie and Autopilot.
@@ -157,6 +158,8 @@ export * from "./api/zoho";
 export * from "./approvals/rules";
 export * from "./assist/fields";
 export * from "./assist/prompt";
+// docs/agent-assurance-plan.md: each agent's architecture and its security controls, checked
+export * from "./assurance/index";
 // P-3: attachments both ways
 export * from "./attachments";
 export * from "./billing";

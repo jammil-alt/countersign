@@ -69,6 +69,7 @@ const WorkflowBuilder = lazy(() => import("../builder/WorkflowBuilder"));
 const ReadOnlyFlow = lazy(() => import("../flow/ReadOnlyFlow"));
 // B3: the Manual tab is its own chunk (with its route's schema), fetched when it opens.
 const OpsManualTab = lazy(() => import("./ManualTab").then((m) => ({ default: m.OpsManualTab })));
+const SecurityTab = lazy(() => import("./SecurityTab").then((m) => ({ default: m.SecurityTab })));
 
 // An agent's own status (switched on, paused…), not a run's: "Active", never "Running", so it
 // can't be read as a run's status (the owner's decision 1).
@@ -140,6 +141,8 @@ function AgentTabs({
           // docs/builder-plan.md §5 (B3): the agent's manual.
           { to: `${base}/manual${keep}`, label: "Manual" },
           { to: `${base}/runs${keep}`, label: "Runs" },
+          // docs/agent-assurance-plan.md §5: a client agent's architecture and security checks.
+          ...(isClient ? [{ to: `${base}/security${keep}`, label: "Security" }] : []),
           {
             to: `${base}/versions${keep}`,
             label: "Versions",
@@ -546,6 +549,15 @@ export function AgentScreen({
             element={
               <Suspense fallback={<Loading />}>
                 <OpsManualTab agentId={view.id} version={shown?.version ?? null} />
+              </Suspense>
+            }
+          />
+          {/* docs/agent-assurance-plan.md §5: the architecture and every check, with its evidence. */}
+          <Route
+            path="security"
+            element={
+              <Suspense fallback={<Loading />}>
+                <SecurityTab agentId={view.id} />
               </Suspense>
             }
           />
