@@ -18,6 +18,7 @@ import { reportHandled } from "../observability/report";
 import type { Platform } from "../platform";
 import { createIssue } from "../work/issues";
 import { type AssuranceEnv, assuranceInputFor } from "./inputs";
+import { assuranceScans } from "./scan";
 
 type AgentRow = typeof agent.$inferSelect;
 export type CheckTrigger = "nightly" | "setup_change" | "person";
@@ -87,8 +88,15 @@ export async function runAgentChecks(
   now = new Date(),
 ): Promise<CheckOutcome[] | null> {
   const tenantId = a.tenantId as string;
-  const input = await assuranceInputFor(tx, platform, env, a, now);
-  if (!input) return null;
+  const read = await assuranceInputFor(tx, platform, env, a, now);
+  if (!read) return null;
+  // §1.231.2: the stored requests and secrets are read only here, when the checks run.
+  const input = env.scan
+    ? {
+        ...read,
+        ...(await assuranceScans(tx, env.scan, tenantId, a.id, read.period, read.connections)),
+      }
+    : read;
   const outcomes = runAssuranceChecks(input);
   for (const o of outcomes) {
     let issueId: string | null = null;

@@ -30,6 +30,8 @@ export const TOOL_TITLES: Record<string, string> = {
   "knowledge.search": "Search the client's knowledge",
   // B3: another agent's manual for the same client
   "manual.read": "Read another agent's manual",
+  // S2 (docs/sop-plan.md §6): Sloan reads an agent's SOP
+  "sop.read": "Read an agent's SOP",
   "knowledge.voice_samples": "Get writing samples",
   "directory.search": "Find people and organizations",
   "directory.get": "Read a directory entry",

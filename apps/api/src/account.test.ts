@@ -575,6 +575,36 @@ describe.skipIf(!h)("Sloan, the account agent", () => {
     expect(deskRuns()).toHaveLength(1);
   });
 
+  // S2 (docs/sop-plan.md §6 "Ask"): Sloan answers from the SOP the portal shows.
+  it("reads a service's SOP as the portal shows it, and never another client's", async () => {
+    const [theirs] = await H.t.db
+      .select({ id: agent.id })
+      .from(agent)
+      .where(and(eq(agent.tenantId, H.B.tenantId), eq(agent.kind, "client")))
+      .limit(1);
+    const { calls } = await ask(admin("a"), adminThread, "Who approves record changes?", (m) => [
+      use("sop__read", { serviceId: workerId }),
+      use("sop__read", { serviceId: theirs?.id }),
+      ...reply(adminThread, "Your admin approves each change (section 5, step 1).", [workerId, m]),
+    ]);
+    expect(calls.map((c) => [c.tool, c.status])).toEqual([
+      ["sop.read", "succeeded"],
+      ["sop.read", "failed"],
+      ["threads.post", "succeeded"],
+    ]);
+    const out = j(calls[0]?.output);
+    expect(forbiddenKeys(out)).toEqual([]);
+    expect(out.sources).toEqual([workerId]);
+    // The same SOP the admin opens on the agent's SOP tab.
+    const tab = j((await H.call(admin("a"), "GET", `/api/services/${workerId}/sop`)).json);
+    expect(out.sop.agent).toEqual(tab.agent);
+    expect(out.sop.code).toBe(tab.code);
+    expect(out.sop.procedure).toEqual(tab.procedure);
+    expect(out.sop.revision.number).toBe(tab.revision.number);
+    expect(JSON.stringify(out)).not.toContain(H.B.tenantId);
+    expect(j(calls[1]?.output).error).toMatch(/not found/);
+  });
+
   it("returns nothing a portal response may not carry, in any tool result", async () => {
     const calls = await H.t.db
       .select({ tool: toolCall.tool, output: toolCall.output })
@@ -589,6 +619,7 @@ describe.skipIf(!h)("Sloan, the account agent", () => {
         "account.pass_to_lead",
         "account.pass_to_agent",
         "account.services",
+        "sop.read",
         "threads.post",
       ]),
     );

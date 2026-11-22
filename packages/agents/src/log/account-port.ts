@@ -33,6 +33,7 @@ import {
   mayAskFor,
   OWNER_AREAS,
   passToAgentEvent,
+  type SopView,
   ThreadMessagePostedPayload,
 } from "@countersign/core";
 import {
@@ -127,6 +128,8 @@ export interface AccountViews {
     input: { change: AccountChange; sources: string[] },
   ): Promise<AccountDraftOutcome>;
   passToLead(s: AccountScope, input: AccountPassInput): Promise<AccountPassOutcome>;
+  /** S2: one of the client's agents' SOP, the portal's own view for the asker. */
+  sop?(s: AccountScope, serviceId: string): Promise<SopView>;
 }
 
 /** Refused for the person asking: the model reads the reason and says it plainly. */
@@ -567,6 +570,13 @@ export function dbAccountPort(
       }
       return outcome;
     },
+    // S2: a limited client user has no Sloan at all (askerOf), so no SOP of an agent off their
+    // list is ever read for them.
+    sop: (tenantId, call, input) =>
+      scoped(tenantId, call, "read", (s) => {
+        if (!views.sop) throw new AccountRefusal("SOPs can't be read here");
+        return views.sop(s, input.serviceId);
+      }),
     owner: (tenantId, call, input) =>
       scoped(tenantId, call, "read", async (s) =>
         views.owner ? views.owner(s, input.name) : null,

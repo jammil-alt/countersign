@@ -545,8 +545,8 @@ export async function runCron(env: Bindings, scheduledTime: Date, deps: AppDeps 
       reportHandled("run subject backfill failed", error, { job: "run_subject" }),
     );
     // docs/agent-assurance-plan.md §6: nightly, every live client agent's security checks.
-    await assuranceTick(db, platform, assuranceEnv(env), scheduledTime).catch((error: unknown) =>
-      reportHandled("assurance tick failed", error, { job: "assurance" }),
+    await assuranceTick(db, platform, assuranceEnv(env, deps.objects(env)), scheduledTime).catch(
+      (error: unknown) => reportHandled("assurance tick failed", error, { job: "assurance" }),
     );
     // Sloan on by default (docs/plan.md §1.47): hourly, clients without it get it turned on.
     await sloanTick(db, platform, scheduledTime).catch((error: unknown) =>
