@@ -1,8 +1,9 @@
 // Voice typing (docs/plan.md §1.109): a person's recording, written out by OpenAI and handed back
 // as text for their message box. Back office and portal alike: the client's compliance mode is
 // checked first (a client in HIPAA mode is refused until OpenAI's BAA is recorded), the recording
-// is read with its type and size checked, and nothing is stored or logged. A slow route: the call
-// to OpenAI runs outside any transaction.
+// is read with its type and size checked, and neither it nor its words are stored or logged; only
+// each call's usage and cost are (H5, §1.196). A slow route: the call to OpenAI runs outside any
+// transaction.
 
 import {
   clientLanguage,
@@ -31,6 +32,7 @@ import {
   type Services,
 } from "../http";
 import { claimMetered } from "../metered";
+import { logTranscriptionCost, recordTranscriptionUsage } from "../voice-usage";
 
 /** The recording, refused unless a type a browser records and a size voice typing takes. */
 async function readRecording(c: AppContext): Promise<{ audio: Uint8Array; type: string }> {
@@ -89,7 +91,7 @@ async function writeOut(
   language?: string,
 ) {
   try {
-    return { text: await t.transcribe({ ...recording, language }) };
+    return await t.transcribe({ ...recording, language });
   } catch (error) {
     if (error instanceof TranscribeError) {
       throw new HttpError(502, "voice_failed", "we couldn't write that out: try again");
@@ -106,7 +108,22 @@ export function voiceRoutes(app: Hono<AppEnv>): void {
       await ctx.inTx((scoped) => refuseUncovered(scoped.tx, ctx.services, clientId));
     }
     const t = transcriberOf(ctx.services, clientId);
-    return writeOut(t, await readRecording(ctx.c));
+    const recording = await readRecording(ctx.c);
+    const transcription = await writeOut(t, recording);
+    // H5 (§1.196). DECISION: the back office's dictation is the operator's cost, logged with the
+    // person, the client named and the model, never written as a client's usage: the client didn't
+    // ask, as for the back office's questions (../voice-usage.ts, ../runs-ask/usage.ts).
+    logTranscriptionCost(
+      {
+        surface: "ops",
+        tenantId: clientId,
+        userId: ctx.session.user.id,
+        transcription,
+        recording: { type: recording.type, bytes: recording.audio.length },
+      },
+      "back office dictation",
+    );
+    return { text: transcription.text };
   });
 
   mountLong(app, routes.portalTranscribe, async (ctx) => {
@@ -134,6 +151,21 @@ export function voiceRoutes(app: Hono<AppEnv>): void {
         role: ctx.role,
       }),
     );
-    return writeOut(t, recording, locale.slice(0, 2));
+    const language = locale.slice(0, 2);
+    const transcription = await writeOut(t, recording, language);
+    // H5 (§1.196): each call is the client's usage under its account agent, with its model and
+    // cost, attributed to the person (../voice-usage.ts). Written after the call, in its own short
+    // transaction, as a question's cost is.
+    await ctx.inTx((scoped) =>
+      recordTranscriptionUsage(scoped.tx, {
+        surface: "portal",
+        tenantId: clientId,
+        userId: ctx.session.user.id,
+        transcription,
+        recording: { type: recording.type, bytes: recording.audio.length },
+        language,
+      }),
+    );
+    return { text: transcription.text };
   });
 }

@@ -102,6 +102,19 @@ export const ServiceControl = z.object({
 });
 export type ServiceControl = z.infer<typeof ServiceControl>;
 
+/**
+ * What came in during an agent's last pause that it would have started on, and hasn't (audit
+ * 4.2): only how many and the pause's start and end, never the events themselves.
+ */
+export const MissedWhilePaused = z.object({
+  count: z.number().int(),
+  from: z.string(),
+  to: z.string(),
+  /** More events came in than were read: the count may be low. */
+  more: z.boolean(),
+});
+export type MissedWhilePaused = z.infer<typeof MissedWhilePaused>;
+
 /** A workflow the client may start by hand, with the form its trigger asks for. */
 export const RunForm = z.object({
   workflow: Slug,
@@ -264,17 +277,7 @@ export const lifecycleRoutes = {
     summary:
       "The events of a client agent's last pause (within 30 days) that its live version would have started on and hasn't: how many, and the pause's start and end",
     params: IdParams,
-    response: z.object({
-      missed: z
-        .object({
-          count: z.number().int(),
-          from: z.string(),
-          to: z.string(),
-          /** More events came in than were read: the count may be low. */
-          more: z.boolean(),
-        })
-        .nullable(),
-    }),
+    response: z.object({ missed: MissedWhilePaused.nullable() }),
   }),
   opsRunMissedEvents: defineRoute({
     method: "POST",
@@ -313,9 +316,14 @@ export const lifecycleRoutes = {
     auth: "session",
     roles: CLIENT_ADMIN,
     summary:
-      "Resume a service you paused (a pause we made is ours to lift); `missedEvents` counts what came in while it was paused that it would have started on (none start by themselves)",
+      "Resume a service you paused (a pause we made is ours to lift); `missedEvents` counts what came in while it was paused that it would have started on (none start by themselves), and `missed` adds the pause's start and end",
     params: IdParams,
-    response: z.object({ service: ServiceControl, missedEvents: z.number().int() }),
+    response: z.object({
+      service: ServiceControl,
+      missedEvents: z.number().int(),
+      /** As the back office's go-live panel shows it (H7); null when it had no pause to count. */
+      missed: MissedWhilePaused.nullable(),
+    }),
   }),
   portalPauseAll: defineRoute({
     method: "POST",

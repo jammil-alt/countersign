@@ -1,9 +1,11 @@
 // Calls per operator (docs/plan.md §1.34). Cloudflare's Rate Limiting binding (`MCP_RATE_LIMIT`,
 // wrangler.jsonc: 120 calls a minute per key) where it is bound; otherwise a fixed window in this
 // isolate's memory, which is all a test or a local Worker needs. The public inbound route keys its
-// own limits on the same binding (routes/pack-inbound.ts), with keys of its own.
+// address limit on the same binding, with keys of its own, and its limit per target (for the
+// Marketing pack, a measured site) on a binding of its own (`INBOUND_TARGET_RATE_LIMIT`,
+// `targetRateLimiterFor`; routes/pack-inbound.ts).
 
-import type { Bindings } from "../env";
+import type { Bindings, RateLimiterBinding } from "../env";
 import { reportHandled } from "../observability/report";
 import { sampled } from "../observability/sampled";
 
@@ -13,6 +15,12 @@ export interface RateLimiter {
 }
 
 export const MCP_CALLS_PER_MINUTE = 120;
+
+/**
+ * Inbound requests a minute per target, a measured site for the Marketing pack: 25 times the
+ * address limit (`INBOUND_TARGET_RATE_LIMIT` in wrangler.jsonc, per Cloudflare location).
+ */
+export const INBOUND_TARGET_PER_MINUTE = 3000;
 
 /** A fixed window per key, in this isolate only. */
 export function memoryRateLimiter(
@@ -60,17 +68,36 @@ export function rateLimiterFor(
   /** Tests: where failures are reported, and the clock. */
   deps?: { report: (count: number, error: unknown) => void; now?: () => number },
 ): RateLimiter {
-  const binding = env.MCP_RATE_LIMIT;
-  if (!binding) return fallback;
+  return bound(env.MCP_RATE_LIMIT, fallback, kind, deps);
+}
+
+const targetFallback = memoryRateLimiter(INBOUND_TARGET_PER_MINUTE);
+
+/** The public inbound route's limit per target (a measured site), on a binding of its own. */
+export function targetRateLimiterFor(
+  env: Bindings,
+  /** Tests: where failures are reported, and the clock. */
+  deps?: { report: (count: number, error: unknown) => void; now?: () => number },
+): RateLimiter {
+  return bound(env.INBOUND_TARGET_RATE_LIMIT, targetFallback, "inbound target", deps);
+}
+
+function bound(
+  binding: RateLimiterBinding | undefined,
+  inIsolate: RateLimiter,
+  kind: string,
+  deps?: { report: (count: number, error: unknown) => void; now?: () => number },
+): RateLimiter {
+  if (!binding) return inIsolate;
   const failed = deps ? sampled<unknown>(deps.report, 60_000, deps.now) : failureReporter(kind);
   return {
     async allow(key) {
       try {
         return (await binding.limit({ key })).success;
       } catch (error) {
-        // The limiter failing is not a reason to refuse an operator; the isolate's window still holds.
+        // The limiter failing is not a reason to refuse a caller; the isolate's window still holds.
         failed(error);
-        return fallback.allow(key);
+        return inIsolate.allow(key);
       }
     },
   };
