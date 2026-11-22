@@ -159,6 +159,7 @@ export * from "./api/zoho";
 export * from "./approvals/rules";
 export * from "./assist/fields";
 export * from "./assist/prompt";
+export * from "./assist/test-data";
 // docs/agent-assurance-plan.md: each agent's architecture and its security controls, checked
 export * from "./assurance/index";
 // P-3: attachments both ways
