@@ -45,7 +45,10 @@ export type AreaConnection = z.infer<typeof AreaConnection>;
  *
  * Fields, in the order a new pack fills them:
  *  - `id`, `name`, `version`, `description`: who it is; `id` prefixes its tools, events, reports.
- *  - `area`: the business area (`OwnerArea`) whose shared data it holds (§12.0). One pack per area.
+ *  - `area`: the business area (`OwnerArea`) whose shared data it holds (§12.0). One pack per area,
+ *    except that a pack may `extends` another (its base) to build on that area: it then sits in
+ *    the base's area, and its templates declare `area` themselves (the base's pack id is what
+ *    core's `processArea` reads from `requiresPacks`).
  *  - `connections`: what the area works through (any one connector of each need), shown with the
  *    client's status on the Areas tab. Nothing here gates switching it on.
  *  - `config`: the fields the operator sets when switching it on, each with its default
@@ -68,6 +71,15 @@ export const PackManifest = z
     description: z.string(),
     // §1.230: the business area the pack is (ARCHITECTURE §12.0).
     area: OwnerArea,
+    // §1.230: the pack whose business area this one builds on (the Close pack extends
+    // `bookkeeping`, the AP pack `materials`). It sits in its base's area; apps/api checks the base
+    // is registered and the areas agree.
+    // DECISION (Wave Y coordinator, 2026-11-22): one pack per area, except packs that extend one,
+    // so an area's shared data keeps one owner pack and later packs add to it without a new area.
+    extends: z
+      .string()
+      .regex(/^[a-z][a-z0-9-]*$/)
+      .optional(),
     // §1.230: what the operator sets when switching the pack on for a client (pack-config.ts).
     config: z.array(PackConfigField).default([]),
     // §1.230: the vendors of ours the pack itself sends client data to (compliance/processors.ts).
@@ -109,6 +121,9 @@ export const PackManifest = z
     intakeSection: GuideSectionSource.optional(),
   })
   .superRefine((p, ctx) => {
+    if (p.extends === p.id) {
+      ctx.addIssue({ code: "custom", message: "a pack can't extend itself", path: ["extends"] });
+    }
     for (const message of packConfigProblems(p.config)) {
       ctx.addIssue({ code: "custom", message, path: ["config"] });
     }

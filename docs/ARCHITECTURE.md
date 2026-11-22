@@ -3713,6 +3713,9 @@ Outside v0.15's v1 scope, with the owner's yes. Every pack's manifest (`PackMani
   register's names), beyond its steps' models and its connectors, which are gated where they are
   called. The Areas tab shows them, marking those a client's HIPAA mode holds back.
 - `reports`: the names of the reports it registers; `apps/api` holds them equal to its handlers.
+- `extends` (optional): the pack whose area this one builds on (the Close pack extends
+  `bookkeeping`, the AP pack `materials`). One pack per area, except packs that extend one; an
+  extending pack sits in its base's area, and its base must be registered.
 
 The back office installs any pack the same way, from the client page's Areas tab (the Packs tab),
 with configuration only: `POST /api/ops/clients/:id/packs/:pack/install` checks the configuration

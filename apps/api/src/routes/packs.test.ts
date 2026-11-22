@@ -79,12 +79,25 @@ describe("the connections each business area works through", () => {
 // §1.230: every pack's manifest is the one shape, and what apps/api registers beside it agrees.
 describe("every pack's manifest", () => {
   it("names its area, the one its templates' processes belong to by its pack", () => {
-    for (const pack of DEPLOYMENT_PACKS) {
+    for (const pack of DEPLOYMENT_PACKS.filter((p) => !p.manifest.extends)) {
       const { id, area } = pack.manifest;
       expect(processArea({ requiresPacks: [id] }), id).toBe(area);
     }
-    const areas = DEPLOYMENT_PACKS.map((p) => p.manifest.area);
+  });
+
+  // DECISION (Wave Y coordinator, 2026-11-22): one pack per area among packs that extend none; a
+  // pack that `extends` another (Close → bookkeeping, AP → materials) sits in its base's area,
+  // and its base is registered.
+  it("is one pack per area, but for packs that extend another in its area", () => {
+    const base = DEPLOYMENT_PACKS.filter((p) => !p.manifest.extends).map((p) => p.manifest);
+    const areas = base.map((m) => m.area);
     expect(new Set(areas).size, "one pack per area").toBe(areas.length);
+    for (const pack of DEPLOYMENT_PACKS.filter((p) => p.manifest.extends)) {
+      const { id, area, extends: of } = pack.manifest;
+      const parent = base.find((m) => m.id === of);
+      expect(parent, `${id} extends ${of}, which isn't a registered base pack`).toBeDefined();
+      expect(area, `${id} sits in ${of}'s area`).toBe(parent?.area);
+    }
   });
 
   it("lists the reports apps/api registers for it, no more and no fewer", () => {

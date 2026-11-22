@@ -128,5 +128,8 @@ describe("a pack's configuration", () => {
     expect(PackManifest.safeParse({ ...manifest, processors: ["openai"] }).success).toBe(true);
     expect(PackManifest.safeParse({ ...manifest, processors: ["acme"] }).success).toBe(false);
     expect(PackManifest.safeParse({ ...manifest, reports: ["a", "a"] }).success).toBe(false);
+    expect(PackManifest.safeParse({ ...manifest, extends: "bookkeeping" }).success).toBe(true);
+    expect(PackManifest.safeParse({ ...manifest, extends: "demo" }).success).toBe(false);
+    expect(PackManifest.safeParse({ ...manifest, extends: "Not A Pack" }).success).toBe(false);
   });
 });
