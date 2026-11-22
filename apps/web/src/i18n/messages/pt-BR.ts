@@ -2526,6 +2526,84 @@ export const ptBR: Messages = {
   "workflow.card.ifFails": "Se falhar", // fluent review
   "workflow.card.inSop": "Etapa {step} no POP", // fluent review
   "workflow.close": "Fechar", // fluent review
+  // ── The workflow chart (shared with the builder) ──
+  "flow.zoomOut": "Diminuir zoom", // fluent review
+  "flow.zoomReset": "Voltar a 100%", // fluent review
+  "flow.zoomIn": "Aumentar zoom", // fluent review
+  "flow.fit": "Ajustar", // fluent review
+  "flow.key": "Legenda", // fluent review
+  "flow.keyLabel": "O que as marcas significam", // fluent review
+  "flow.dragHint": "Arraste o fundo para mover", // fluent review
+  "flow.otherwise": "Caso contrário", // fluent review
+  "flow.path": "Caminho {letter}", // fluent review
+  "flow.forEach": "Uma vez para cada item", // fluent review
+  "flow.repeat": "De novo até terminar", // fluent review
+  "flow.repeatUpTo": {
+    one: "De novo até terminar · até {count} vez",
+    other: "De novo até terminar · até {count} vezes",
+  }, // fluent review
+  "flow.stop": "Fim", // fluent review
+  "flow.neverRuns": "Nunca é executada", // fluent review
+  "flow.neverRuns.why": "Todos os caminhos acima terminam antes.", // fluent review
+  "flow.fold": "Recolher em uma só caixa", // fluent review
+  "flow.unfold": {
+    one: "Mostrar a {count} etapa de dentro",
+    other: "Mostrar as {count} etapas de dentro",
+  }, // fluent review
+  "flow.more": "e mais {count}", // fluent review
+  "flow.whyHere": "Por que está aqui: {purpose}", // fluent review
+  "flow.runsOn": "funciona com {model}", // fluent review
+  "flow.runsOnTitle": "Funciona com {model}", // fluent review
+  "flow.ai": "IA", // fluent review
+  "flow.doer.person": "pessoa", // fluent review
+  "flow.doer.personTitle": "Uma pessoa faz isto", // fluent review
+  "flow.doer.code": "código", // fluent review
+  "flow.doer.codeTitle": "Funciona como código, sem modelo", // fluent review
+  "flow.badge.aiSkill": "Habilidade de IA", // fluent review
+  "flow.badge.rulesSkill": "Habilidade com regras", // fluent review
+  "flow.mark.read": "Lê", // fluent review
+  "flow.mark.write": "Salva em nossos registros", // fluent review
+  "flow.mark.person": "Uma pessoa faz isto", // fluent review
+  "flow.mark.conversation": "Uma conversa com uma pessoa", // fluent review
+  "flow.mark.notify": "Avisa alguém", // fluent review
+  "flow.mark.wait": "Espera", // fluent review
+  "flow.mark.forEach": "Repete para cada item", // fluent review
+  "flow.mark.repeat": "Repete até terminar", // fluent review
+  "flow.mark.process": "Uma automação: etapas salvas", // fluent review
+  "flow.mark.handoff": "Passa para outro agente", // fluent review
+  "flow.mark.missing": "Ainda não construída", // fluent review
+  "flow.mark.readsFrom": "Lê de {name}", // fluent review
+  "flow.mark.readsFromAi": "Lê de {name}, com um modelo", // fluent review
+  "flow.mark.changes": "Altera {name}", // fluent review
+  "flow.mark.changesAi": "Altera {name}, com um modelo", // fluent review
+  "flow.mark.handoffTo": "Passa para {name}", // fluent review
+  "flow.mark.aiSkill": "Uma habilidade que um modelo faz", // fluent review
+  "flow.mark.rulesSkill": "Uma habilidade que funciona por regras", // fluent review
+  "flow.mark.ai": "Um modelo faz isto", // fluent review
+  "flow.key.connector": "Lê ou altera uma ferramenta conectada", // fluent review
+  "flow.key.ai": "Um modelo faz", // fluent review
+  "flow.key.rules": "Funciona por regras, sem modelo", // fluent review
+  "flow.channel.inbox": "A caixa de entrada", // fluent review
+  "flow.channel.email": "E-mail", // fluent review
+  "flow.channel.sms": "Mensagem de texto", // fluent review
+  "flow.channel.call": "Ligação", // fluent review
+  "flow.does.read": "Lê registros. Não altera nada.", // fluent review
+  "flow.does.write": "Altera ou salva um registro.", // fluent review
+  "flow.does.skill": "Aplica uma habilidade ao que as etapas anteriores produziram.", // fluent review
+  "flow.does.person": "Pergunta a uma pessoa e espera a resposta.", // fluent review
+  "flow.does.approve": "Pede a uma pessoa que aprove e espera a resposta.", // fluent review
+  "flow.does.ask": "Faz uma pergunta a uma pessoa e espera a resposta.", // fluent review
+  "flow.does.conversation": "Conversa com alguém até atingir seu objetivo.", // fluent review
+  "flow.does.notify": "Avisa alguém e segue.", // fluent review
+  "flow.does.if":
+    "Envia a execução pelo primeiro caminho cuja regra vale; senão, pelo caminho Caso contrário.", // fluent review
+  "flow.does.forEach": "Faz suas etapas uma vez para cada item de uma lista.", // fluent review
+  "flow.does.repeat": "Repete suas etapas até terminar ou chegar ao limite.", // fluent review
+  "flow.does.wait": "Pausa a execução por um tempo definido.", // fluent review
+  "flow.does.stop": "Termina a execução aqui.", // fluent review
+  "flow.does.process": "Executa uma automação: um conjunto de etapas salvo.", // fluent review
+  "flow.does.handoff": "Passa o trabalho para outro agente, que funciona sozinho.", // fluent review
+  "flow.does.missing": "Ocupa o lugar de uma etapa que ninguém construiu ainda.", // fluent review
   "manual.whatItDoes": "O que faz", // fluent review
   "manual.howItWorks": "Como funciona", // fluent review
   "manual.decisions": "Decisões", // fluent review

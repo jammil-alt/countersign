@@ -42,7 +42,7 @@ export function WorkflowView({ id, view }: { id: string; view: SopView }) {
   const { t } = useI18n();
   const workflows = useMemo(() => outlineWorkflows(view), [view]);
   const [workflow, setWorkflow] = useState<string | null>(workflows[0] ?? null);
-  const process = useMemo(() => outlineProcess(view, workflow), [view, workflow]);
+  const process = useMemo(() => outlineProcess(view, workflow, t), [view, workflow, t]);
   const label = useMemo(() => boxWords(view, t), [view, t]);
   const lines = useMemo(() => stepLines(view), [view]);
   const ends: FlowEnds = useMemo(
