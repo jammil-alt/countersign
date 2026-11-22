@@ -310,6 +310,8 @@ export async function manualFeedback(
       lineId: input.body.lineId ?? null,
       decisionId,
       line: quoted.slice(0, 1000),
+      // G12: the person's why, so the area owner's suggestion carries it.
+      because: input.body.because.slice(0, 2000),
     },
     ...(input.now ? { now: input.now } : {}),
   });

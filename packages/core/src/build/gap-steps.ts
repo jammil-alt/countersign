@@ -1,8 +1,8 @@
 // The step a "Draft it now" gap stands on (docs/builder-plan.md §12.4). A works-first draft has a
 // person do each part the catalog lacks (a person step, mode "ask") and names the part in its gaps,
 // one sentence each; a guard may still leave a missing step. The gap item names that step so the
-// chart can show it on its box. The drafter's answer doesn't link the two, so they are matched by
-// their words.
+// chart can show it on its box. The drafter names the step for each gap (F-C, agents' `gapSteps`);
+// this word match is the fallback for a gap it named no step for.
 
 import type { Process, Step } from "../process/schema";
 import { allSteps } from "../process/walk";

@@ -477,6 +477,7 @@ export function opsBuilderRoutes(app: Hono<AppEnv>): void {
         ? { id: template.id, slug: template.slug, name: template.name }
         : null,
       decisions: result.decisions,
+      gapSteps: result.gapSteps,
     };
   });
 
