@@ -9,5 +9,12 @@ import { I18nProvider } from "./i18n";
 
 export function SessionLanguage({ children }: { children: ReactNode }) {
   const { state } = useSessionState();
-  return <I18nProvider locale={stateLocale(state)}>{children}</I18nProvider>;
+  // DECISION (§1.208): nothing is fetched while the session loads. English is no longer in the
+  // first load, and the still frame needs only its one word (i18n/catalog.ts, BEFORE_ANY); the
+  // session then loads its own language, so a Spanish client never fetches English.
+  return (
+    <I18nProvider locale={stateLocale(state)} load={state.status !== "loading"}>
+      {children}
+    </I18nProvider>
+  );
 }

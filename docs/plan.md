@@ -6398,6 +6398,25 @@ both in the body QuickBooks gets).
 | The connector | `qbo.purchaseorder.create` reads the order's items (`Id in (…)`, active or not) when it is proposed and again before writing, and refuses an item that isn't the company's, is inactive, or is a category, naming it. Whether an item needs an expense account ("I purchase this") to be on a PO is unchecked: we don't refuse it. Sandbox check 9 in `qbo/NOTES.md`. // DECISION |
 | Not built | A screen to see or change an item's QuickBooks item (a wrong tie is changed by hand today); bills (`qbo.bill.create`) don't get the item check yet. |
 
+### 1.208 English on demand: the web app's first load with room again (H9, round 4 item A, 2026-11-22; no migration)
+
+The first load (`scripts/web-size.mjs`) was 351.4 kB gzipped on main against a 352 kB budget, so
+any new feature failed the check. English's wording (`apps/web/src/i18n/messages/en.ts`, 49.8 kB
+gzipped) was the only language still in it; the other five already loaded on demand (§1.18,
+docs/audit-plan.md 4.1). Now English does too, and the first load is 301.9 kB.
+
+| Topic | Decision |
+|---|---|
+| No language in the first load | `catalog.ts` loads English as it loads the others, as its own chunk (`LOADERS.en`), and imports `en.ts` for its types only. The session already waited for its own language before showing anything signed in or signed out (`session/session.tsx`), so a portal in Spanish fetches Spanish alone and never English; an English portal fetches English. // DECISION |
+| The back office | It always reads in English (`OpsApp`, `EN`), whatever the operator's language, so its chunk's loader loads English beside it (`App.tsx`, `loadOpsApp`): early at an `/ops` address, as the chunk already was, and the back office shows once both are here. // DECISION |
+| Translators look up per call | `createTranslator` reads the catalog on each call, not when it is made, so `EN` (made when its module loads, before English has) reads English once it has arrived. A key missing from a language reads in English if English is loaded, else the key; the typecheck keeps every language complete, so only a stale build could show one. // DECISION |
+| While the session loads | Nothing is fetched (`I18nProvider`'s `load`, false from `SessionLanguage` while the session is loading): the still frame's one word for screen readers, `common.loading`, is kept in the catalog module ("Loading…", `BEFORE_ANY`), as it was English before. // DECISION |
+| No wait added for a returning person | English used to be in the bundle; now a person's language is fetched after the session answers. The session remembers the language a signed-in session read in (`mezonas.language` in local storage) and `main.tsx` starts loading it beside the session call (`startLanguageEarly`), so a returning person's first screen waits no longer than before. A wrong guess costs one language's chunk; a first visit guesses nothing and waits for one chunk after the session. // DECISION |
+| A language that fails to load | As before: another language reads in English that time (now by loading English). English that fails reads in keys that time; a deploy that replaced the chunk reloads the page first (`shell/stale-build.ts`), so this is an offline tab. // DECISION |
+| The budget | 335 kB: 33 kB above the 301.9 kB measured (built with a DSN, as CI does), so features have room again. Round 4 asked for 30 kB or more. Phase 4's 300 kB is still the target. // DECISION |
+| Not built | The route contract split per screen and each portal screen loading on its own (audit item 4.6): not needed for the room asked, and still what brings it toward 300 kB. |
+| Checked | `apps/web/src/i18n/lazy.test.tsx` (no language at the start; a Spanish client's portal reads in Spanish with English never fetched; the back office loads English with its chunk for an operator whose language is German), `session/session.test.tsx` (no English while a Spanish session loads), every `apps/web` test, the size check (`node scripts/web-size.mjs`), `pnpm check`. |
+
 ### 1.207 The staging walk-through: counts that agree, links that open the item (owner, 2026-11-22; no migration)
 
 The owner read every back-office section on staging and listed what disagreed or dead-ended
