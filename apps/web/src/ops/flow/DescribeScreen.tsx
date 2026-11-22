@@ -11,14 +11,18 @@
 // (Draft's `build.name` field, docs/plan.md §1.168), in the Name field, where it can be changed.
 // A name someone typed is never replaced.
 import { assistRoutes } from "@countersign/core";
-import { type ReactNode, useRef, useState } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { apiRoutes } from "../../api/routes";
 import { useApiClient } from "../../api/useApi";
+import { voiceFor } from "../../api/voice";
+import { joinWords } from "../../ui/dictation";
 import { ErrorNotice } from "../../ui/ErrorState";
 import { Field, TextArea, TextInput } from "../../ui/forms";
 import { Icon } from "../../ui/icons";
+import { Thinking } from "../../ui/motion";
 import { Button, cx } from "../../ui/primitives";
+import { VoiceButton, type VoiceLive } from "../../ui/voice";
 import { OPS_PATHS } from "../paths";
 
 /** What a new agent's describe screen is building: a template, or one client's agent. */
@@ -102,6 +106,47 @@ export function FlowStepper({ at }: { at: 1 | 2 | 3 }) {
   );
 }
 
+/**
+ * The wait while the steps are drafted (owner, 2026-11-21, staging feedback: "add animations to
+ * show progress when you click the draft steps button").
+ */
+// DECISION: the draft is one call, so there are no stages to count. It shows the design system's
+// Drafting loop, how long it has been, and what the call does in a sentence, never a bar or a
+// list of stages that would only be guessed from the clock.
+function Drafting() {
+  const [seconds, setSeconds] = useState(0);
+  useEffect(() => {
+    const t = setInterval(() => setSeconds((n) => n + 1), 1000);
+    return () => clearInterval(t);
+  }, []);
+  const clock = `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
+  return (
+    <div
+      className="flex w-full items-start gap-3 rounded-md border border-line bg-surface-subtle px-3.5 py-3"
+      role="status"
+      data-testid="flow-describe-drafting"
+    >
+      <Thinking state="drafting" className="mt-0.5 shrink-0" />
+      <div className="flex min-w-0 flex-1 flex-col gap-0.5 text-sm">
+        <span className="flex items-baseline justify-between gap-3">
+          <span className="font-medium text-ink">Reading it and drafting the steps</span>
+          <span
+            className="text-ink-muted tabular-nums"
+            aria-hidden
+            data-testid="flow-describe-clock"
+          >
+            {clock}
+          </span>
+        </span>
+        <span className="text-ink-muted">
+          It lists the steps in your order, picks a skill or a tool for each, and checks they fit
+          together. This usually takes a minute or two; you can leave the page open.
+        </span>
+      </div>
+    </div>
+  );
+}
+
 export interface DescribeScreenProps {
   kind: DescribeKind;
   /** A client agent's client (required to start one: `blocked` says so until it's picked). */
@@ -143,6 +188,8 @@ export function DescribeScreen({
   // Whose the name is: someone typed it (never replaced), or we made it from these words.
   const [typed, setTyped] = useState(!!initialName.trim());
   const [naming, setNaming] = useState(false);
+  // While dictating: what the recorder is doing, shown under the words.
+  const [live, setLive] = useState<VoiceLive | null>(null);
   const [nameFailed, setNameFailed] = useState(false);
   const namedFrom = useRef<string | null>(null);
   const namingNow = useRef<Promise<string> | null>(null);
@@ -303,17 +350,16 @@ export function DescribeScreen({
             data-testid="flow-describe-words"
           />
         </Field>
+        {live ? (
+          <p className="text-sm text-ink-muted" role="status" data-testid="flow-describe-live">
+            {live.status}
+            {live.held ? ` ${live.held}` : ""}
+          </p>
+        ) : null}
         {error ? <ErrorNotice error={error} /> : null}
         <div className="flex min-h-9 flex-wrap items-center gap-2">
           {busy === "draft" ? (
-            <span
-              className="flex items-center gap-2 text-sm text-ink-muted"
-              role="status"
-              data-testid="flow-describe-drafting"
-            >
-              <span aria-hidden className="size-1.5 rounded-full bg-line-strong" />
-              Reading it and drafting the steps
-            </span>
+            <Drafting />
           ) : (
             <>
               <Button
@@ -333,6 +379,15 @@ export function DescribeScreen({
               >
                 List the steps myself
               </Button>
+              {/* Owner, 2026-11-21 (staging feedback: "add dictation to this"): say it instead of
+                  typing it. The words are added to what is there, up to the draft's limit. */}
+              <VoiceButton
+                voice={voiceFor("ops", kind === "client" ? (clientId ?? null) : null)}
+                disabled={busy !== null}
+                testId="flow-describe-voice"
+                onText={(spoken) => setWords((w) => joinWords(w, spoken).slice(0, WORDS_MAX))}
+                onLive={setLive}
+              />
               {onCancel ? (
                 <Button variant="ghost" onClick={onCancel} data-testid="flow-describe-cancel">
                   Cancel

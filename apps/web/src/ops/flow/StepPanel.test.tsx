@@ -108,6 +108,7 @@ describe("StepPanel", () => {
         stepId="s1"
         kind="Write"
         title="Create the bill"
+        does="Creates a bill in QuickBooks from the invoice's lines."
         status={status([], {
           decided: [
             {
@@ -141,6 +142,19 @@ describe("StepPanel", () => {
     expect(screen.getByTestId("flow-panel-tried")).toHaveTextContent("Would");
     expect(screen.getByTestId("flow-panel-connections")).toHaveTextContent("Comes after “Match”");
     expect(screen.getByTestId("flow-panel-setup")).toHaveTextContent("The setup");
+    // Owner, 2026-11-22: what the step does is the first thing read; where it sits is the last
+    // of its setup, after the fields.
+    expect(screen.getByTestId("flow-panel-does")).toHaveTextContent(
+      "Creates a bill in QuickBooks from the invoice's lines.",
+    );
+    const body = screen.getByTestId("flow-panel-body");
+    expect(body).not.toContainElement(screen.getByTestId("flow-panel-does"));
+    expect(
+      screen
+        .getByTestId("flow-panel-setup")
+        .compareDocumentPosition(screen.getByTestId("flow-panel-connections")) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
     fireEvent.click(screen.getByTestId("flow-panel-remove"));
     expect(onRemove).toHaveBeenCalled();
     expect(screen.getByTestId("flow-panel-remove")).toHaveTextContent("Remove this step");

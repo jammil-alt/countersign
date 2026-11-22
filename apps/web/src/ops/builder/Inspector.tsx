@@ -694,7 +694,10 @@ function ToolFields(
           ) : null}
         </p>
       </Row>
-      {tool?.description ? <p className="text-sm text-ink-muted">{tool.description}</p> : null}
+      {/* In the panel the step's head already says what it does (owner, 2026-11-22). */}
+      {tool?.description && props.layout !== "panel" ? (
+        <p className="text-sm text-ink-muted">{tool.description}</p>
+      ) : null}
       {undo ? (
         <p className="text-sm text-ink-muted" data-testid="builder-write-undo">
           {undo.text}
@@ -893,7 +896,7 @@ function KindFields(
               ) : null}
             </p>
           </Row>
-          {skill?.description ? (
+          {skill?.description && props.layout !== "panel" ? (
             <p className="text-sm text-ink-muted">{skill.description}</p>
           ) : null}
           {isReshape(step) ? (
@@ -1136,7 +1139,9 @@ function KindFields(
               </span>
             </p>
           </Row>
-          {used?.description ? <p className="text-sm text-ink-muted">{used.description}</p> : null}
+          {used?.description && props.layout !== "panel" ? (
+            <p className="text-sm text-ink-muted">{used.description}</p>
+          ) : null}
           {used ? (
             <p className="text-sm text-ink-muted">
               {used.definition.steps.length} {used.definition.steps.length === 1 ? "step" : "steps"}

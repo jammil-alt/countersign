@@ -5,8 +5,8 @@
 // Icons 16.37.0, its `path` on a 24px grid), drawn in the provider's colour on a solid white tile
 // with a hairline border, in both themes, as the providers' own app icons are (the logos have
 // cut-outs, which must show white, never the tile behind); a provider whose logo is not in that set (removed at the brand's request) gets its
-// initials on the brand's colour instead of a copied logo. Connectors we build ourselves (bank
-// feeds, uploads, email sending) take a Mezonas icon, since they carry no third-party brand. These
+// initials on the brand's colour instead of a copied logo. Connectors we build ourselves (uploads,
+// email sending) take a Mezonas icon, since they carry no third-party brand. These
 // colours belong to the providers' marks, not to our palette: nothing else uses them.
 import type { IconName } from "../ui/icons";
 import billLogo from "./logos/bill.png?no-inline";
@@ -20,6 +20,7 @@ import hubspotLogo from "./logos/hubspot.svg?no-inline";
 import linkedinLogo from "./logos/linkedin.svg?no-inline";
 import odooLogo from "./logos/odoo.png?no-inline";
 import outlookLogo from "./logos/outlook.svg?no-inline";
+import plaidLogo from "./logos/plaid.png?no-inline";
 import podioLogo from "./logos/podio.svg?no-inline";
 import quickbooksLogo from "./logos/quickbooks.svg?no-inline";
 import rampLogo from "./logos/ramp.svg?no-inline";
@@ -45,6 +46,10 @@ export type ConnectorBrand =
 // first-load script (scripts/web-size.mjs). google-ads.svg is kept for a Google Ads connector, which doesn't exist yet.
 const IMAGES: Record<string, string> = {
   qbo: quickbooksLogo,
+  // DECISION (owner, 2026-11-21, staging feedback: "this is Plaid integration, have we not added
+  // the icon for Plaid?"): the bank feed is Plaid's, so it takes Plaid's mark (the site's file,
+  // apps/site/src/logos/plaid.png, shrunk for a tile) and no longer our bank icon.
+  bankfeed: plaidLogo,
   gmail: gmailLogo,
   gdrive: googleDriveLogo,
   gsheets: googleSheetsLogo,
@@ -85,7 +90,6 @@ const MONOGRAMS: Record<string, { fill: string | null; letters: string }> = {
 };
 
 const ICONS: Record<string, IconName> = {
-  bankfeed: "bank",
   upload: "upload",
   resend: "email",
   twilio: "message",
