@@ -1,11 +1,10 @@
-// The SPA: sign-in, the back office (`/ops/*`, code-split) and the client portal (everything
-// else), one app with two layouts (plan §1.2 "Back office and portal in one app").
+// The SPA: sign-in, the back office (`/ops/*`) and the client portal (everything else), each of
+// the two its own chunk, one app with two layouts (plan §1.2 "Back office and portal in one app").
 import { lazy, type ReactNode, Suspense } from "react";
 import { BrowserRouter, Navigate, Route, Routes, useLocation } from "react-router-dom";
 import type { ApiClient } from "./api/client";
 import { ApiProvider } from "./api/useApi";
 import { SessionLanguage } from "./i18n/SessionLanguage";
-import { PortalApp } from "./portal/PortalApp";
 import { SignInScreen } from "./session/SignIn";
 import { StillFrame } from "./session/StillFrame";
 import { SECOND_STEP_PATH, SessionProvider, useSessionState } from "./session/session";
@@ -25,6 +24,24 @@ const opsAppEarly =
 // A client's session never renders the back office; a chunk that failed is reported where it is used.
 opsAppEarly?.catch(() => {});
 const OpsApp = lazy(() => opsAppEarly ?? loadOpsApp());
+/**
+ * The client portal's own chunk, the same way (H9, docs/plan.md §1.192): its layout and screens
+ * are not in the first load, so sign-in and the pages opened from a link don't carry them. Opened
+ * at a portal address, it starts loading with the bundle, beside the session call, so a client's
+ * first screen waits no longer than it did when the portal was in the bundle.
+ */
+// DECISION: early for every address that is not the back office's or a page outside the portal
+// (sign-in and its steps, a texting sign-up, a form, an invite's welcome page): those are the
+// routes above `/*` in AppRoutes, and a client's user lands on the portal from anywhere else.
+const NOT_PORTAL = /^\/(ops|sign-in|texts|f|start)(\/|$)/;
+const loadPortalApp = () => import("./portal/PortalApp").then((m) => ({ default: m.PortalApp }));
+const portalAppEarly =
+  typeof window !== "undefined" && !NOT_PORTAL.test(window.location.pathname)
+    ? loadPortalApp()
+    : null;
+// An operator's session never renders the portal; a chunk that failed is reported where it is used.
+portalAppEarly?.catch(() => {});
+const PortalApp = lazy(() => portalAppEarly ?? loadPortalApp());
 // §1.100: the sign-in's second step, only on the way in: its own chunk.
 const SecondStepScreen = lazy(() =>
   import("./session/SecondStep").then((m) => ({ default: m.SecondStepScreen })),
@@ -108,7 +125,9 @@ export function AppRoutes() {
         path="/*"
         element={
           <RequireSession surface="portal">
-            <PortalApp />
+            <Suspense fallback={<StillFrame />}>
+              <PortalApp />
+            </Suspense>
           </RequireSession>
         }
       />

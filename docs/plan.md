@@ -6382,6 +6382,24 @@ action, not just mark it... if it is an issue, just because I say it is closed d
 | Not built | The client as an owner: no step yet sends an item to the client and closes it by their answer (the requirements request asks the intake form's fields, not an item). Until there is one, "Client" is only set by the fit-gap's preconditions. |
 | Checked | `apps/api/src/build-settled-by-step.test.ts` (done by hand refused, a drop, a note done, the Builder's close left out; a put-off gap given to engineering then the Builder, closed by its change and opened by its undo; a test closed by a full passing run and not by a failing or partial one), `apps/web/src/ops/builds/closeout.test.tsx` and `builds.test.tsx` (no selects; Put off, Drop it, Reopen; Take it up on a put-off gap). The skill build's go-live closing has no test of its own. |
 
+### 1.192 The web app's first load back under budget (H9, 2026-11-22; no migration)
+
+The first load (`scripts/web-size.mjs`) was 494.8 kB gzipped on main against a 495 kB budget.
+Built with source maps and each chunk's bytes attributed to its source modules: the entry chunk
+(211.5 kB) held React DOM and every portal screen with what they import (the Desk, the Inbox, the
+packs' reports, the directory, contacts, people, hours); a shared chunk (176.8 kB) held the route
+contract (`packages/core/src/api`, 66.6 kB of it) and the English catalog (46.7 kB); a third
+(95.6 kB) held zod, React Router, decimal.js and Sentry. Core's wording in six languages
+(`packages/core/src/i18n`, the Desk's and the rest) came in only through the portal's screens.
+
+| Topic | Decision |
+|---|---|
+| The portal is its own chunk | `App.tsx` loads `PortalApp` (the portal's frame and its routes) with `lazy`, as it already did the back office. Sign-in and its second step, a texting sign-up, a form and an invite's welcome page no longer carry the portal. Core's per-language wording now ships only with the portal and the back office, which need it. // DECISION |
+| No wait added | Opened at any address that is not `/ops`, `/sign-in`, `/texts`, `/f` or `/start`, the portal's chunk starts loading with the bundle, beside the session call, as the back office's does at `/ops` (docs/audit-plan.md 4.3). A client's first screen shows once both have answered, so it waits no longer than when the portal was in the bundle; the still frame shows meanwhile. A signed-out visit to a portal address fetches it too, and has it once signed in. // DECISION |
+| The budget | First load 344.1 kB (entry 69.5, shared 176.8, zod and the rest 95.6), so `BUDGET_KB` is 351 kB: that plus 2%. // DECISION |
+| Not built | A portal visit still fetches about the same in all (the portal's chunk and what it shares, 497 kB with the first load), now in two requests side by side. Each portal screen loading on its own, with the current one started early (audit item 4.6), the route contract split per screen, and English loaded on demand like the other five languages come next. |
+| Checked | `apps/web` tests (all pass, unchanged), the size check (`node scripts/web-size.mjs`, built with the manifest and a placeholder DSN as CI does), typecheck, lint, `lint:deps`. |
+
 ### 1.188 What each run was about, kept as it happens (owner, 2026-11-22; migration 0077)
 
 The design: `docs/reporting-plan.md` §3 R1. This is R1a, the table only; R1b writes it.
