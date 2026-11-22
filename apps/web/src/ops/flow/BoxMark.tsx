@@ -126,7 +126,11 @@ export function modelShort(name: string): string {
  */
 export function boxDoer(
   step: Step,
-  known: { model?: string | undefined; skillKind?: string | undefined } = {},
+  known: {
+    model?: string | undefined;
+    skillKind?: string | undefined;
+    noModel?: { word: string; title: string } | undefined;
+  } = {},
 ): { word: string; title: string; model: boolean } | null {
   if (known.model) {
     return { word: modelShort(known.model), title: `Runs on ${known.model}`, model: true };
@@ -135,7 +139,7 @@ export function boxDoer(
   if (step.kind === "skill" || step.kind === "read" || step.kind === "write") {
     return known.skillKind === "AI"
       ? null
-      : { word: "code", title: "Runs as code, no model", model: false };
+      : { word: "code", title: "Runs as code, no model", ...known.noModel, model: false };
   }
   return null;
 }

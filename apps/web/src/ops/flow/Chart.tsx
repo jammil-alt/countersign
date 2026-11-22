@@ -638,7 +638,9 @@ function StepBox(p: {
     // biome-ignore lint/a11y/useSemanticElements: the box holds its own buttons (fold, open, the dot), which a <button> can't.
     <div
       ref={setRef}
-      {...drag.attributes}
+      // Read only, the box is not draggable: without dnd-kit's attributes it isn't announced as a
+      // disabled "draggable" (aria-disabled), since it still opens (docs/sop-plan.md §6a).
+      {...(readOnly ? {} : drag.attributes)}
       {...drag.listeners}
       onKeyDown={onKeyDown}
       role="button"

@@ -120,6 +120,11 @@ export interface ChartProps extends ChartEvents {
     connector?: { id: string; name: string };
     /** The agent a hand-off goes to, for its mark: the agent's own avatar. */
     agent?: { name: string };
+    /**
+     * The doer chip of a step no model does, in the host's words: "code" in the builder by default,
+     * "rules" in the client's view-only chart (docs/sop-plan.md §6a), with its hover title.
+     */
+    noModel?: { word: string; title: string };
   };
   /** Read only: no +, no dragging (an older version, the merge screen). */
   readOnly?: boolean;

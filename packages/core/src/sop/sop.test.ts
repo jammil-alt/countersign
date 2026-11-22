@@ -249,6 +249,35 @@ describe("the agent's SOP, made by code (docs/sop-plan.md)", () => {
     expect(step(view, "deep").told.map((p) => p.name)).toEqual(["Cara Lin"]);
   });
 
+  it("outlines the process for the chart: every step once, with its line, place and paths", async () => {
+    const view = sopView(input());
+    const lines = view.procedure.filter((l): l is SopStepLine => l.line === "step");
+    // Every outline step has its step line (the chart's card), with the same number, in run order.
+    expect(view.outline.map((o) => `${o.number} ${o.id}`)).toEqual(
+      lines.map((l) => `${l.number} ${l.id}`),
+    );
+    const look = view.outline.find((o) => o.id === "look");
+    expect(look?.kind).toBe("if");
+    expect(look?.paths?.map((p) => `${p.letter}${p.otherwise ? " otherwise" : ""}`)).toEqual([
+      "A",
+      "B otherwise",
+    ]);
+    // A path's step sits in that path, as the builder names its containers.
+    const first = look?.paths?.[0];
+    const inPath = view.outline.find((o) => o.number === "4 A1");
+    expect(inPath?.container).toBe(`path:${first?.id}`);
+    expect(inPath?.depth).toBe(1);
+    expect(view.outline.find((o) => o.number === "1")?.container).toBe("root");
+    // Only these fields: no tool, skill, prompt or anything else of the bundle's.
+    for (const o of view.outline) {
+      expect(Object.keys(o).sort()).toEqual(
+        ["container", "depth", "id", "kind", "number", "paths", "workflow"].sort(),
+      );
+    }
+    // The outline repeats the procedure's shape: it never makes a revision on its own.
+    expect(await sopFingerprint({ ...view, outline: [] })).toBe(await sopFingerprint(view));
+  });
+
   it("says a new way of writing SOPs once, without listing changes nobody made", () => {
     const now = sopView(input());
     const older = { ...now, format: now.format - 1, purpose: "Old words" };

@@ -24,10 +24,12 @@ import { runModel } from "../skills/model";
 import { scheduleText } from "../triggers/schedule";
 import type {
   SopApprover,
+  SopChartKind,
   SopControl,
   SopData,
   SopLevel,
   SopMethod,
+  SopOutlineStep,
   SopParty,
   SopPathLine,
   SopProcedureLine,
@@ -343,6 +345,10 @@ interface Visited {
   depth: number;
   workflow: string | null;
   v4: boolean;
+  /** Where it sits, as the builder names it: `root`, `path:<id>`, `otherwise:<id>`, `loop:<id>`. */
+  container: string;
+  /** A decision's paths, then Otherwise, for the chart. */
+  paths: SopOutlineStep["paths"];
 }
 
 /** The steps in run order with their numbers, and a line before each path of an `if`. */
@@ -360,32 +366,38 @@ function walk(bundle: AnyAgentBundle): {
     // One step, then what it holds, at any depth: an `if`'s paths, lettered A, B… then Otherwise,
     // each numbered from 1 ("5 A1"), a `for_each`'s or a `repeat`'s steps ("6.2"). The chart's
     // numbers (`process/numbers.ts`), so a step has one number on every screen.
-    const visit = (step: AnyStep, number: string, depth: number) => {
-      const v: Visited = { step, number, depth, workflow, v4 };
+    const visit = (step: AnyStep, number: string, depth: number, container: string) => {
+      const v: Visited = { step, number, depth, workflow, v4, container, paths: null };
       visited.push(v);
       lines.push(v);
       if (step.kind === "if" || step.kind === "fork") {
         const paths =
-          (step.paths as { name: string; describe?: string; when: Rules; steps: AnyStep[] }[]) ??
-          [];
-        const otherwise = (step.otherwise as { steps: AnyStep[] } | undefined)?.steps ?? [];
-        const inner = (children: AnyStep[], letter: string) => {
+          (step.paths as {
+            id?: string;
+            name: string;
+            describe?: string;
+            when: Rules;
+            steps: AnyStep[];
+          }[]) ?? [];
+        const other = step.otherwise as { id?: string; steps: AnyStep[] } | undefined;
+        const otherwise = other?.steps ?? [];
+        const otherwiseId = other?.id ?? `${step.id}:otherwise`;
+        v.paths = [];
+        const inner = (children: AnyStep[], letter: string, into: string) => {
           children.forEach((c, i) => {
-            visit(c, pathStepNumber(number, letter, i), depth + 1);
+            visit(c, pathStepNumber(number, letter, i), depth + 1, into);
           });
         };
         paths.forEach((p, i) => {
           const letter = pathLetter(i);
-          lines.push({
-            depth: depth + 1,
-            label: "if",
-            letter,
-            words: pathWords(p),
-            empty: p.steps.length === 0,
-          });
-          inner(p.steps, letter);
+          const words = pathWords(p);
+          const id = p.id ?? `${step.id}:path${i}`;
+          v.paths?.push({ id, letter, name: p.name.trim(), words, otherwise: false });
+          lines.push({ depth: depth + 1, label: "if", letter, words, empty: p.steps.length === 0 });
+          inner(p.steps, letter, `path:${id}`);
         });
         const letter = pathLetter(paths.length);
+        v.paths.push({ id: otherwiseId, letter, name: "", words: "", otherwise: true });
         lines.push({
           depth: depth + 1,
           label: "otherwise",
@@ -393,18 +405,55 @@ function walk(bundle: AnyAgentBundle): {
           words: otherwise.length === 0 ? "straight on" : "",
           empty: otherwise.length === 0,
         });
-        inner(otherwise, letter);
+        inner(otherwise, letter, `otherwise:${otherwiseId}`);
       } else if (step.kind === "for_each" || step.kind === "repeat") {
         ((step.steps as AnyStep[]) ?? []).forEach((c, i) => {
-          visit(c, loopStepNumber(number, i), depth + 1);
+          visit(c, loopStepNumber(number, i), depth + 1, `loop:${step.id}`);
         });
       }
     };
     ((w.workflow as { steps: unknown[] }).steps ?? []).forEach((step, i) => {
-      visit(step as AnyStep, String(i + 1), 0);
+      visit(step as AnyStep, String(i + 1), 0, "root");
     });
   }
   return { visited, lines };
+}
+
+const CHART_KINDS = new Set<string>([
+  "read",
+  "skill",
+  "write",
+  "person",
+  "conversation",
+  "notify",
+  "wait",
+  "stop",
+  "process",
+  "handoff",
+  "missing",
+  "if",
+  "for_each",
+  "repeat",
+]);
+
+/**
+ * A step's kind as the chart draws it: a v4 step's own; a v3 step's as the builder reads it when it
+ * converts (an action that writes to a client's tool is a write, else a read; a fork is a
+ * decision; an automation is a sub-process).
+ */
+function chartKind(v: Visited, input: SopInput): SopChartKind {
+  const kind = v.step.kind;
+  if (v.v4) return (CHART_KINDS.has(kind) ? kind : "missing") as SopChartKind;
+  switch (kind) {
+    case "action":
+      return toolsOf(v.step, input).some((t) => t.sideEffect === "external") ? "write" : "read";
+    case "fork":
+      return "if";
+    case "use_automation":
+      return "process";
+    default:
+      return (CHART_KINDS.has(kind) ? kind : "missing") as SopChartKind;
+  }
 }
 
 function lookupSkill(ref: string, skills: SopInput["skills"]): SkillDefinition | undefined {
@@ -1075,6 +1124,17 @@ export function sopView(input: SopInput): SopView {
   const steps = procedure.filter((l): l is SopStepLine => l.line === "step");
   const count = (m: SopMethod) => steps.filter((s) => s.method === m).length;
 
+  // The shape for the client's view-only chart (§6a): each step's place and kind, nothing else.
+  const outline: SopOutlineStep[] = visited.map((v) => ({
+    id: v.step.id,
+    number: v.number,
+    workflow: v.workflow,
+    kind: chartKind(v, input),
+    container: v.container,
+    depth: v.depth,
+    paths: v.paths,
+  }));
+
   // Who else takes part, by step: never the agent itself.
   const parties: SopParty[] = [];
   const addParty = (p: SopParty) => {
@@ -1297,6 +1357,7 @@ export function sopView(input: SopInput): SopView {
       writesByRules: anyWrite && writesByRules,
     },
     procedure,
+    outline,
     controls: sopControls,
     systems,
     data,

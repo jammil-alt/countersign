@@ -422,7 +422,7 @@ printing. Merge #510 and #511 before #508. Left:
 | SOP-B | The Builder writes each step's purpose when it drafts (today the operator writes it in the step panel, else the SOP writes a plain line). Changes the Builder's requests, so its fixtures are re-recorded with a key (`LLM_MODE=record`). | Code, with a key. |
 | SOP-R | References: the client's own tagged policies by title, the agents it takes over from, its knowledge base; a step's entity-level settings and a person's own "show me first" on its line. | Code. |
 | SOP-T | Try it on staging after the merge: open an agent's SOP, change a connection's permission or the approval rules, and see revision n.1 with what changed and who. | Owner, after deploy. |
-| SOP-W | W: the Workflow tab, view only (`docs/sop-plan.md` §6a): the builder's chart drawn from the SOP's outline, each step's card on hover, focus or tap; no settings to click. | Code. |
+| SOP-W | W: the Workflow tab, view only (`docs/sop-plan.md` §6a): built (branch `claude/sop-w-workflow`, after #508). Left: the chart's own few words in the six languages (zoom, "Otherwise", "Click to see it."), shared with the builder. | Code. |
 | SOP-2 | S2: Sloan's `sop.read`, the Procedures page. | Code. |
 | SOP-3 | S3: share links, the accountable person, packs' own controls; only what the owner agrees. | Migrations, own PRs; a security review for share links. |
 
