@@ -18,6 +18,7 @@ import { inviteRoutes } from "./invite";
 import { manualRoutes } from "./manual";
 import { routes } from "./routes";
 import { setupRoutes } from "./setup";
+import { soc2Routes } from "./soc2";
 import { sopRoutes } from "./sop";
 
 /**
@@ -56,6 +57,8 @@ export const allRoutes = {
   ...assistRoutes,
   // docs/plan.md §1.204: the desktop app's pairing, folders and the computer's signed routes.
   ...desktopRoutes,
+  // docs/plan.md §1.218: SOC 2 readiness and the access review's record; the screen loads lazily.
+  ...soc2Routes,
   // R4 (docs/plan.md §1.214): the report per agent; its tabs load lazily, and its schema with them.
   ...agentReportRoutes,
   // docs/plan.md §1.217: the process interview; its page and its back-office screen load lazily.

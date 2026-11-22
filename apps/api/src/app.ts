@@ -16,7 +16,7 @@ import { billingTick } from "./billing/jobs";
 import { raiseCodeAlerts } from "./codes/alerts";
 import { codesFor } from "./codes/client";
 import { clientModels } from "./compliance/models";
-import { purgeRetiredFiles } from "./compliance/retention";
+import { purgeLostProspectFiles, purgeRetiredFiles } from "./compliance/retention";
 import { CAPTURE_CRON_MINUTE, captureCronTick } from "./conversations/cron";
 import { captureDepsFor, captureJobsFor } from "./conversations/start";
 import { shipDue, shipPass } from "./dev-queue/ship";
@@ -173,6 +173,7 @@ import { signInApprovalRoutes } from "./routes/sign-in-approvals";
 import { slackRoutes } from "./routes/slack";
 // §1.150: Sloan by email and text
 import { sloanReachRoutes } from "./routes/sloan-reach";
+import { soc2RouteHandlers } from "./routes/soc2";
 import { sopRouteHandlers } from "./routes/sop";
 // v0.14 W4-A
 // P-6
@@ -383,6 +384,8 @@ export function createApp(deps: AppDeps = defaultDeps): Hono<AppEnv> {
   // Wave 4 (docs/plan.md §1.86 "Scripts (wave 4)")
   browserScriptRoutes(app);
   complianceRouteHandlers(app);
+  // docs/plan.md §1.218: SOC 2 readiness and the access review's record.
+  soc2RouteHandlers(app);
   // v0.12 W1-E
   runControlRoutes(app);
   // v0.12 W1-A: go-live stages and client controls
@@ -642,6 +645,10 @@ export async function runCron(env: Bindings, scheduledTime: Date, deps: AppDeps 
       // Retired clients' files, 30 days after retirement (docs/plan.md §1.35).
       await purgeRetiredFiles(db, deps.objects(env), scheduledTime).catch((error: unknown) =>
         reportHandled("retention sweep failed", error, { job: "retention" }),
+      );
+      // §1.220 (q14): lost prospects' client files, 12 months after their last deal closed.
+      await purgeLostProspectFiles(db).catch((error: unknown) =>
+        reportHandled("lost prospects' files purge failed", error, { job: "retention_files" }),
       );
     }
     // M43: each pack's nightly pass (the Marketing pack's build of yesterday's visits and its
