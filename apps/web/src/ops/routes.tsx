@@ -119,6 +119,8 @@ const AutomationEditor = lazy(() => import("./flow/automation/AutomationEditor")
 const OpsClientCloseScreen = lazy(() =>
   import("../packs/close/OpsClose").then((m) => ({ default: m.OpsClientCloseScreen })),
 );
+// §1.212: the eval scorecard loads only when opened.
+const ScorecardScreen = lazy(() => import("./lab/ScorecardScreen"));
 // R5 (docs/plan.md §1.235): the account report and /ops/accounts, each its own chunk.
 const AccountsScreen = lazy(() =>
   import("./screens/Accounts").then((m) => ({ default: m.AccountsScreen })),
@@ -150,6 +152,15 @@ export const opsRoutes = (
     <Route path="runs/:id" element={<OpsRunScreen />} />
     {/* O2 Agent lab, update merge (UI-2b) */}
     <Route path="lab" element={<LabScreen />} />
+    {/* §1.212: the eval scorecard, per template workflow and version (its own chunk) */}
+    <Route
+      path="scorecard"
+      element={
+        <Suspense fallback={<Loading />}>
+          <ScorecardScreen />
+        </Suspense>
+      }
+    />
     <Route path="templates/:slug/*" element={<TemplatePage />} />
     <Route path="agents/:id" element={<OpsAgentRedirect />} />
     <Route path="agents/:id/workflow" element={<OpsAgentRedirect tab="workflow" />} />

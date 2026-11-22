@@ -90,6 +90,7 @@ import { deskRoutes } from "./routes/desk";
 import { desktopApiRoutes } from "./routes/desktop";
 import { directoryRoutes } from "./routes/directory";
 import { documentRoutes } from "./routes/documents";
+import { evalsRoutes } from "./routes/evals";
 import { evidenceRouteHandlers } from "./routes/evidence";
 import { excelRoutes } from "./routes/excel";
 import { exportRoutes } from "./routes/exports";
@@ -419,6 +420,8 @@ export function createApp(deps: AppDeps = defaultDeps): Hono<AppEnv> {
   auditExportRoutes(app);
   // v0.12 W2-C: the test bench, skill tests and the agent lab
   testbenchRoutes(app);
+  // docs/plan.md §1.212
+  evalsRoutes(app);
   labRoutes(app);
   // v0.12 W2-F: the command center, search and plain-words questions
   commandCenterRoutes(app);

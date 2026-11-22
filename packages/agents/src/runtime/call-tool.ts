@@ -41,6 +41,7 @@ import {
   thresholdReached,
   undiscussedFor,
   verifiesWrites,
+  type WriteVerification,
 } from "@countersign/core";
 import type { RegisteredTool } from "../registry/tools";
 import { executeAction } from "./actions";
@@ -84,7 +85,14 @@ export type ToolOutcome =
    * Test runs: the write was recorded as proposed and will never run. `standIn`: what the tool
    * says it would have returned (docs/plan.md §1.94), for later steps; absent when it says nothing.
    */
-  | { status: "would_have_done"; actionId: string; before: unknown; standIn?: unknown }
+  | {
+      status: "would_have_done";
+      actionId: string;
+      before: unknown;
+      standIn?: unknown;
+      /** §1.212: the verifier's outcome on the write, kept on a test run's step (the evals). */
+      verification?: WriteVerification;
+    }
   /**
    * The connection needs a person to release it (docs/plan.md §1.26): a code went to them and their
    * inbox item is open. The step waits; once released, it runs again from the start.
@@ -663,7 +671,11 @@ async function dispatch(
         }
       : null,
   });
-  return settle(deps, step, tool, action);
+  const settled = await settle(deps, step, tool, action);
+  // §1.212: a test run routes no person, so its verification would go nowhere: it stays on the
+  // step's output, which the eval harness scores (the verifier's agreement).
+  if (settled.status === "would_have_done" && verification) return { ...settled, verification };
+  return settled;
 }
 
 /**
