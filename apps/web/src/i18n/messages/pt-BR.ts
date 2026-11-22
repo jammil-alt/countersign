@@ -2306,6 +2306,69 @@ export const ptBR: Messages = {
   "sop.sec.measures": "Indicadores", // fluent review
   "sop.sec.references": "Referências", // fluent review
   "sop.sec.history": "Histórico de revisões", // fluent review
+  "assurance.sec": "Arquitetura e segurança", // fluent review
+  "assurance.lede":
+    "De onde vem o trabalho de {agent}, o que o executa, qual provedor de IA vê o quê, quais dos seus sistemas ele alcança e como, e onde seus dados ficam guardados. As verificações de segurança rodam toda noite.", // fluent review
+  "assurance.diagramLabel":
+    "{agent}: de onde vem o trabalho, o que o executa, qual provedor de IA vê o quê e onde os dados ficam guardados", // fluent review
+  "assurance.diagramKey":
+    "Os quadros tracejados são limites de confiança. C1, C3… são os controles da seção 6; DAT-3 e similares são os controles de segurança da Mezonas (mezonas.com/security).", // fluent review
+  "assurance.result.verified": "Verificado", // fluent review
+  "assurance.result.in_review": "Em análise", // fluent review
+  "assurance.result.not_checked": "Ainda não verificado", // fluent review
+  "assurance.result.not_applicable": "Não se aplica", // fluent review
+  "assurance.resultWhat.verified": "A verificação rodou e encontrou o que devia.", // fluent review
+  "assurance.resultWhat.in_review":
+    "A verificação encontrou algo que estamos analisando. Mostra desde quando; você não precisa fazer nada, a menos que pedirmos.", // fluent review
+  "assurance.resultWhat.not_checked": "Um agente ou versão nova, antes da primeira noite.", // fluent review
+  "assurance.resultWhat.not_applicable": "Não se aplica a este agente, e diz por quê.", // fluent review
+  "assurance.stat.checks": "Verificações", // fluent review
+  "assurance.stat.lastChecked": "Última verificação", // fluent review
+  "assurance.stat.never": "Ainda não", // fluent review
+  "assurance.col.check": "Verificação", // fluent review
+  "assurance.col.how": "Como", // fluent review
+  "assurance.col.result": "Resultado", // fluent review
+  "assurance.col.found": "O que encontrou", // fluent review
+  "assurance.col.evidence": "Evidência", // fluent review
+  "assurance.col.checked": "Verificado em", // fluent review
+  "assurance.kind.setup": "Configuração", // fluent review
+  "assurance.kind.runs": "Execuções", // fluent review
+  "assurance.kind.attack": "Ataque", // fluent review
+  "assurance.inReviewSince":
+    "Em análise desde {date}. Estamos analisando; você não precisa fazer nada, a menos que pedirmos.", // fluent review
+  "assurance.openIssue": "Abrir o chamado", // fluent review
+  "assurance.soc2Note":
+    "As referências SOC 2 indicam os Trust Services Criteria que cada controle atende, pelo nosso próprio mapeamento. Não significam que somos certificados: um auditor confirma o mapeamento, e ainda não temos um relatório SOC 2.", // fluent review
+  "assurance.coverage.title": "Todos os controles, considerados", // fluent review
+  "assurance.coverage.lede":
+    "Cada controle de segurança da Mezonas que afeta o trabalho deste agente, em um de três estados.", // fluent review
+  "assurance.state.checked": "Verificado para este agente", // fluent review
+  "assurance.state.inherited": "Herdado da plataforma", // fluent review
+  "assurance.state.not_applicable": "Não se aplica", // fluent review
+  "assurance.status.in_place": "Implantado", // fluent review
+  "assurance.status.partial": "Implantado em parte", // fluent review
+  "assurance.status.planned": "Planejado", // fluent review
+  "assurance.data.title": "Dados: o que busca, o que guarda e onde", // fluent review
+  "assurance.data.lede":
+    "Em repouso tudo é criptografado (AES-256); em trânsito, TLS 1.2 ou superior.", // fluent review
+  "assurance.col.data": "Dados", // fluent review
+  "assurance.col.from": "Buscado em", // fluent review
+  "assurance.col.keptWhere": "Guardado onde", // fluent review
+  "assurance.col.keptFor": "Guardado por", // fluent review
+  "assurance.col.whoSees": "Quem pode ver", // fluent review
+  "assurance.ai.title": "O que vai para a IA e como é protegido", // fluent review
+  "assurance.ai.none": "Não usa IA.", // fluent review
+  "assurance.col.use": "Usado para", // fluent review
+  "assurance.col.provider": "Provedor e modelo", // fluent review
+  "assurance.col.sent": "O que é enviado", // fluent review
+  "assurance.col.protection": "Proteção", // fluent review
+  "assurance.col.providerKeeps": "Guardado pelo provedor", // fluent review
+  "assurance.access.title": "Acesso a cada uma das suas ferramentas", // fluent review
+  "assurance.col.tool": "Ferramenta", // fluent review
+  "assurance.col.signsIn": "Entra por", // fluent review
+  "assurance.col.credential": "A credencial", // fluent review
+  "assurance.col.agentMay": "O agente pode", // fluent review
+  "assurance.col.whoChanges": "Quem pode mudar", // fluent review
   "sop.noPurpose": "Ainda não escrito.", // fluent review
   "sop.covers": "Começa quando", // fluent review
   "sop.notCovered": "Não coberto", // fluent review

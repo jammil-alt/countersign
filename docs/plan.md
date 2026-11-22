@@ -6382,6 +6382,27 @@ action, not just mark it... if it is an issue, just because I say it is closed d
 | Not built | The client as an owner: no step yet sends an item to the client and closes it by their answer (the requirements request asks the intake form's fields, not an item). Until there is one, "Client" is only set by the fit-gap's preconditions. |
 | Checked | `apps/api/src/build-settled-by-step.test.ts` (done by hand refused, a drop, a note done, the Builder's close left out; a put-off gap given to engineering then the Builder, closed by its change and opened by its undo; a test closed by a full passing run and not by a failing or partial one), `apps/web/src/ops/builds/closeout.test.tsx` and `builds.test.tsx` (no selects; Put off, Drop it, Reopen; Take it up on a put-off gap). The skill build's go-live closing has no test of its own. |
 
+### 1.181 Agent assurance: each agent's architecture and its security checks (owner, 2026-11-21 and 2026-11-22; migration 0075)
+
+The owner: "a tech architecture where we can validate security controls at an agent level", then
+"are all controls highlighted? … what data we pull and what gets stored and where … what data gets
+moved to AI and encryption there? Access controls to different tools?", "don't call a check failed",
+and "lets add these and the security stuff". The plan and design: `docs/agent-assurance-plan.md`,
+mock-up screens 4 and 5 of `docs/design/sop.html`.
+
+| Topic | Decision |
+|---|---|
+| Core | `packages/core/src/assurance/`: `CHECKS` (19, numbered K1…, each naming the register controls it proves), one pure function per built check over an `AssuranceInput` the API gathers, `agentCoverage` (every register control checked, inherited or not applicable; a test places each), `assuranceView` for both audiences, `agentArchitecture`, `PROVIDER_TERMS`. `sopStepModels` in the SOP gives each AI step's model as the runtime picks it. No model reads or writes a result. // DECISION |
+| Results | Verified, In review, Not applicable; no row is "Not yet checked". Never "failed" (owner). In the client's view a check in review reads "In review since <date>" without what it found; the back office sees the evidence and the issue. // DECISION |
+| Kept | `control_check` (0075): one row per result, never updated or deleted, RLS forced. Evidence is counts and record ids. // DECISION |
+| When | Nightly at 08:23 UTC for every live client agent (`assuranceTick`), and "Run the checks now" on the Security tab. // DECISION |
+| In review | Opens one issue (source `assurance`), kept while the check stays in review. Its title and description say only that a security check is in review, because the client admin sees every issue as a request. // DECISION |
+| Standards | Each check shows the SOC 2 criteria its controls answer, from the register's `maps`, with one line saying it's our own mapping and there's no SOC 2 report yet; HIPAA sections only in HIPAA mode. // DECISION |
+| Who sees it | Section 14 of the portal's SOP tab, from `GET /api/services/:id/assurance` on `ASSIGNED_USER_ROUTES` (admins every agent; team members their own). The back office: a Security tab on a client agent (`GET` and `POST …/assurance/run`). // DECISION |
+| Diagram | Drawn by code from the view: zones as columns, boxes stacked, flows with their control ids (at most five; the SOP lists every one). Tokens only; people copper, AI flows dashed. // DECISION |
+| Not built | Attack checks (A3), the evidence export (A4), the secret-in-a-model-request and OAuth scope checks, stage history per run. |
+| Checked | core `assurance/assurance.test.ts` (each check verified and in review, coverage of every control, the client view without evidence, the architecture), apps/api `assurance.test.ts` (rows kept, one issue kept, the client's view, other client not found, the nightly hour), apps/web `assurance/assurance.test.tsx`, `ops/agents/AgentScreen.test.tsx`. Run locally on the Harbor Millwork demo data. |
+
 ### 1.180 What the model gets: a step's prompt, before any run (owner, 2026-11-22; no migration)
 
 The owner: "For AI steps… we should have an instructions, knowledge base and memory that gets kept

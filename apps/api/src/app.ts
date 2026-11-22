@@ -7,6 +7,7 @@ import type { Db } from "@countersign/db";
 import { Hono } from "hono";
 import { sloanTick } from "./account/sloan";
 import { SUMMARY_CALL_TIMEOUT_MS, summaryPass } from "./account/summaries";
+import { assuranceTick } from "./assurance/run";
 // §1.124 back office work: Reggie's pass, email, chases, questions and spotting
 import { backOfficeTick } from "./backoffice/tick";
 import { bankfeedCron } from "./bankfeed/sync";
@@ -56,6 +57,7 @@ import { accessRoutes } from "./routes/access";
 import { accountRoutes } from "./routes/account";
 import { approverRuleRoutes } from "./routes/approver-rules";
 import { assistDraftRoutes } from "./routes/assist";
+import { assuranceEnv, assuranceRouteHandlers } from "./routes/assurance";
 import { auditExportRoutes } from "./routes/audit-export";
 // §1.124 back office work: Reggie and Autopilot
 import { autopilotRoutes } from "./routes/autopilot";
@@ -373,6 +375,7 @@ export function createApp(deps: AppDeps = defaultDeps): Hono<AppEnv> {
   // docs/builder-plan.md §5 (B3): the agent manual
   manualRouteHandlers(app);
   sopRouteHandlers(app);
+  assuranceRouteHandlers(app);
   auditExportRoutes(app);
   // v0.12 W2-C: the test bench, skill tests and the agent lab
   testbenchRoutes(app);
@@ -490,6 +493,10 @@ export async function runCron(env: Bindings, scheduledTime: Date, deps: AppDeps 
     // docs/sop-plan.md §6: hourly, an agent whose SOP changed without a revision gets one.
     await sopCheckTick(db, platform, scheduledTime).catch((error: unknown) =>
       reportHandled("sop check tick failed", error, { job: "sop_check" }),
+    );
+    // docs/agent-assurance-plan.md §6: nightly, every live client agent's security checks.
+    await assuranceTick(db, platform, assuranceEnv(env), scheduledTime).catch((error: unknown) =>
+      reportHandled("assurance tick failed", error, { job: "assurance" }),
     );
     // Sloan on by default (docs/plan.md §1.47): hourly, clients without it get it turned on.
     await sloanTick(db, platform, scheduledTime).catch((error: unknown) =>

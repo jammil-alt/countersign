@@ -46,6 +46,8 @@ export const ASSIGNED_USER_ROUTES: readonly string[] = [
   "GET /api/services/:id/manual",
   // Its SOP (docs/sop-plan.md S1), which takes the Manual tab's place: read only, as the manual.
   "GET /api/services/:id/sop",
+  // Its architecture and security, the SOP's section 14 (docs/agent-assurance-plan.md §5).
+  "GET /api/services/:id/assurance",
   "POST /api/services/:id/workflows/:slug/run",
   // Their agents' runs.
   "GET /api/runs",
