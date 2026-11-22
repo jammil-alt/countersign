@@ -4222,6 +4222,74 @@ export const desktopJob = pgTable(
   ],
 );
 
+/** §1.218 (0088): what a reviewer decided for one person's access to one client. */
+export const ACCESS_REVIEW_DECISIONS = ["keep", "remove"] as const;
+
+/**
+ * §1.218 (migration 0088): one quarterly access review (SOC 2 CC6.2, CC6.3), recorded by an
+ * operator: the quarter it covers, who reviewed and how many people and removals it found. Global
+ * and operator-only; its people are `access_review_item`, one per client. Never updated or deleted.
+ * DECISION (§1.218): the reviewer is an id and an email copied at the time, with no key to
+ * `app_user`, so the record outlives a reviewer who leaves and never blocks removing one.
+ */
+export const accessReview = pgTable(
+  "access_review",
+  {
+    id: id(),
+    /** `2026-Q4`: the calendar quarter the review is for. */
+    period: text("period").notNull(),
+    reviewedBy: uuid("reviewed_by").notNull(),
+    reviewerEmail: text("reviewer_email").notNull(),
+    clients: integer("clients").notNull(),
+    people: integer("people").notNull(),
+    removals: integer("removals").notNull(),
+    note: text("note").notNull().default(""),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    index("access_review_created_idx").on(t.createdAt),
+    check("access_review_period_check", sql`${t.period} ~ '^[0-9]{4}-Q[1-4]$'`),
+    check(
+      "access_review_counts_check",
+      sql`${t.clients} >= 0 and ${t.people} >= 0 and ${t.removals} between 0 and ${t.people}`,
+    ),
+    check("access_review_note_check", sql`char_length(${t.note}) <= 2000`),
+  ],
+);
+
+/**
+ * §1.218 (migration 0088): one person's access to one client as an access review found it, and
+ * the reviewer's decision. The client's own row (row-level security on `tenant_id`), so a purge
+ * takes it with the client and an operator reads only the clients they serve. Never updated or
+ * deleted. DECISION (§1.218): the person is copied (id, email, name, role, last sign-in), with no
+ * key to `app_user`, so the review shows what was true that day even after the person is gone.
+ */
+export const accessReviewItem = pgTable(
+  "access_review_item",
+  {
+    id: id(),
+    reviewId: uuid("review_id")
+      .notNull()
+      .references(() => accessReview.id),
+    tenantId: tenantId(),
+    userId: uuid("user_id").notNull(),
+    email: text("email").notNull(),
+    name: text("name"),
+    role: text("role").notNull(),
+    lastSignInAt: ts("last_sign_in_at"),
+    lastSeenAt: ts("last_seen_at"),
+    decision: text("decision").$type<(typeof ACCESS_REVIEW_DECISIONS)[number]>().notNull(),
+    note: text("note").notNull().default(""),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    unique("access_review_item_person_key").on(t.reviewId, t.tenantId, t.userId),
+    index("access_review_item_tenant_idx").on(t.tenantId),
+    check("access_review_item_decision_check", oneOf(t.decision, ACCESS_REVIEW_DECISIONS)),
+    check("access_review_item_note_check", sql`char_length(${t.note}) <= 500`),
+  ],
+);
+
 /**
  * One email or text telling a person something is waiting: a count and a link, never record
  * content (plan §1.35). Sent once per `dedupe_key` and channel. Only `status`, `reason`,
@@ -6474,6 +6542,8 @@ export const TENANT_TABLES = [
   // §1.151 (0080): the desktop app's computers and their jobs.
   "desktop_device",
   "desktop_job",
+  // §1.218 (0088): each client's people as a quarterly access review found them.
+  "access_review_item",
   // 0057: area owners and their versions (ARCHITECTURE v0.19 §10.15).
   "area_owner",
   "area_owner_version",
@@ -6526,4 +6596,6 @@ export const OPERATOR_ONLY_TABLES = [
   "connector_setting",
   // 0066: saved starts for Sign up now and Invite (docs/plan.md §1.149).
   "sales_start",
+  // 0088: the quarterly access reviews (§1.218); their people are access_review_item.
+  "access_review",
 ] as const;
