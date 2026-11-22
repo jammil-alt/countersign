@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { BuildDetail } from "../api/build";
 import type { ProcessAgentBundle } from "../schemas/agent";
 import {
+  changeDecisionWords,
   clampDecisions,
   DECISIONS_MAX,
   type Decision,
@@ -338,5 +339,40 @@ describe("decisions: the gate and the issues", () => {
     expect(issueByKey(d, "decision:zzz")).toBeNull();
     // Outside the POC it is open but holds nothing.
     expect(buildIssues(detail([dec("a", { risk: "high" })], "draft"))[0]?.blocking).toBe(false);
+  });
+
+  // docs/open.md G4: the words changed on the card.
+  it("changes a decision's words as a look and a change, and only the why keeps its status", () => {
+    const list = [dec("a", { value: "0%" }), dec("b")];
+    const out = changeDecisionWords(list, "a", { what: "Changed", value: "2%" }, "Ada", "t1");
+    expect(out?.[0]).toMatchObject({
+      what: "Changed",
+      value: "2%",
+      status: "changed",
+      by: "Ada",
+      at: "t1",
+    });
+    expect(out?.[1]).toBe(list[1]);
+    const why = changeDecisionWords(
+      list,
+      "b",
+      { what: list[1]?.what ?? "", why: "Because." },
+      "Ada",
+      "t1",
+    );
+    expect(why?.[1]).toMatchObject({ why: "Because.", status: "never_discussed", by: null });
+    const gone = changeDecisionWords(
+      list,
+      "a",
+      { what: list[0]?.what ?? "", value: null },
+      "Ada",
+      "t1",
+    );
+    expect(gone?.[0]?.value).toBeUndefined();
+    expect(gone?.[0]?.status).toBe("changed");
+    expect(changeDecisionWords(list, "zz", { what: "x" }, "Ada", "t1")).toBeNull();
+    expect(changeDecisionWords(list, "b", { what: list[1]?.what ?? "" }, "Ada", "t1")).toEqual(
+      list,
+    );
   });
 });

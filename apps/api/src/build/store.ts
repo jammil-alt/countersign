@@ -1025,6 +1025,11 @@ function qaChecks(
  * skills, as publish resolves them (`skillContext`). A skill found nowhere counts as writing
  * (core's `writingStepIds`), so a decision on its step is high risk.
  */
+// DECISION (docs/open.md G4): a custom skill's step is decided by the skill's own version and its
+// tools, read twice: the version a run would use (the live one, or the one pinned) and the newest
+// one saved (a skill drafted beside the build, not published yet, has only that). A step writes
+// when either writes or reaches people; only a skill with no version anywhere counts as writing
+// unread.
 export async function draftWritingSteps(
   ctx: Pick<StoreCtx, "services" | "tx">,
   draft: Pick<DraftFacts, "bundle" | "agentRow">,
@@ -1032,12 +1037,21 @@ export async function draftWritingSteps(
   const { bundle } = draft;
   if (!bundle) return new Set();
   const { platform } = ctx.services;
-  const { skills } = await skillContext(ctx.tx, {
-    tenantId: draft.agentRow?.tenantId ?? null,
+  const tenantId = draft.agentRow?.tenantId ?? null;
+  const live = await skillContext(ctx.tx, { tenantId, bundle, catalog: platform.catalog });
+  const newest = await skillContext(ctx.tx, {
+    tenantId,
     bundle,
     catalog: platform.catalog,
+    newest: true,
   });
-  return writingStepIds(bundle, { tools: platform.tools.specs(), skills });
+  const tools = platform.tools.specs();
+  // A ref with no live version is read from its newest one in both.
+  const runs = { ...newest.skills, ...live.skills };
+  return new Set([
+    ...writingStepIds(bundle, { tools, skills: runs }),
+    ...writingStepIds(bundle, { tools, skills: newest.skills }),
+  ]);
 }
 
 /** The build as the screen shows it. */

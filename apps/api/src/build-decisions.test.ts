@@ -5,9 +5,12 @@
 // operators reach the status route.
 import { TESTKIT_UPDATE_TOOL } from "@countersign/connectors";
 import { type BuildDetail, buildIssues } from "@countersign/core";
+import { buildEvent, build as buildTable } from "@countersign/db";
 import { FakeModel } from "@countersign/llm";
+import { desc, eq } from "drizzle-orm";
 import { afterAll, describe, expect, it, vi } from "vitest";
 import { admin, createApiHarness, OPERATOR } from "./api.test-helper";
+import { draftWritingSteps } from "./build/store";
 
 for (const level of process.env.SHOW_LOGS ? [] : (["warn", "error"] as const)) {
   vi.spyOn(console, level).mockImplementation(() => {});
@@ -258,5 +261,147 @@ describe.skipIf(!h)("decisions on a build", () => {
       by: expect.any(String),
     });
     expect(b.gate.reasons.join(" ")).not.toContain("high-risk");
+  });
+
+  // docs/open.md G4: a decision's words changed on the card, marked changed as the conversation
+  // marks it, with what it said before and after in the build's history.
+  it("change their words on the card, marked changed by the operator", async () => {
+    const decision = (id: string, over: Record<string, unknown> = {}) => ({
+      id,
+      what: `Decision ${id}`,
+      why: "A start.",
+      kind: "assumption",
+      risk: "normal",
+      status: "never_discussed",
+      by: null,
+      at: null,
+      ...over,
+    });
+    const [row] = await H.t.db
+      .insert(buildTable)
+      .values({
+        kind: "agent",
+        title: "Words",
+        phase: "poc",
+        fitgap: {
+          rows: [],
+          needsTrue: [],
+          setup: [],
+          decisions: [
+            decision("tol", { what: "Amounts may differ by 0%", value: "0%", risk: "high" }),
+            decision("why-only"),
+          ],
+        },
+      })
+      .returning();
+    const id = row?.id as string;
+    const path = (d: string) => `/api/ops/builds/${id}/decisions/${d}/words`;
+
+    let b = await ok("PUT", path("tol"), { what: "Amounts may differ by 2%", value: "2%" });
+    let tol = b.build.fitgap.decisions.find((d) => d.id === "tol");
+    expect(tol).toMatchObject({
+      what: "Amounts may differ by 2%",
+      value: "2%",
+      why: "A start.",
+      status: "changed",
+      risk: "high",
+      by: expect.any(String),
+      at: expect.any(String),
+    });
+    // The high-risk check counts it as looked at: it holds nothing now.
+    expect(b.gate.reasons.join(" ")).not.toContain("high-risk decision");
+    // The history keeps the words before and after.
+    const [event] = await H.t.db
+      .select()
+      .from(buildEvent)
+      .where(eq(buildEvent.buildId, id))
+      .orderBy(desc(buildEvent.createdAt));
+    expect(b.events[0]).toMatchObject({ kind: "record" });
+    expect(event).toMatchObject({
+      kind: "record",
+      payload: {
+        decision: {
+          id: "tol",
+          status: "changed",
+          words: {
+            before: { what: "Amounts may differ by 0%", value: "0%" },
+            after: { what: "Amounts may differ by 2%", value: "2%" },
+          },
+        },
+      },
+    });
+
+    // Only the why: its status stays, as a rewrite of only the why keeps it.
+    b = await ok("PUT", path("why-only"), { what: "Decision why-only", why: "Said better." });
+    expect(b.build.fitgap.decisions.find((d) => d.id === "why-only")).toMatchObject({
+      why: "Said better.",
+      status: "never_discussed",
+    });
+    // The same words again change nothing and add no history.
+    const events = b.events.length;
+    b = await ok("PUT", path("why-only"), { what: "Decision why-only", why: "Said better." });
+    expect(b.events).toHaveLength(events);
+    // The value taken away.
+    b = await ok("PUT", path("tol"), { what: "Amounts may differ by 2%", value: null });
+    tol = b.build.fitgap.decisions.find((d) => d.id === "tol");
+    expect(tol?.value).toBeUndefined();
+
+    expect((await call("PUT", path("nope"), { what: "x" })).status).toBe(404);
+    expect((await call("PUT", path("tol"), { what: "  " })).status).toBe(400);
+    expect((await call("PUT", path("tol"), { what: "x" }, admin("a"))).status).toBe(403);
+  });
+
+  // docs/open.md G4: a custom skill's step is decided by the skill's own version, a draft-only
+  // skill included: one that contacts people is raised, one that only reads isn't, and one that
+  // exists nowhere stays the safe side. (A custom skill never holds a write tool: the registry
+  // refuses one, so contacting people is how a custom skill's step counts as writing.)
+  it("count a custom skill's step as writing by its version's tools", async () => {
+    const skillDef = (id: string, reachesPeople: boolean) => ({
+      schemaVersion: 1,
+      id,
+      name: id,
+      description: "A custom skill",
+      category: "records",
+      mode: "task",
+      model: { id: "claude-haiku-5-5" },
+      instructions: "Do it.",
+      tools: [],
+      reachesPeople,
+      input: { type: "object", properties: {} },
+      output: { type: "object", properties: {} },
+    });
+    for (const [id, reaches] of [
+      ["custom:g4-reads", false],
+      ["custom:g4-writes", true],
+    ] as const) {
+      const made = await H.call(OPERATOR, "POST", "/api/ops/skills", {
+        definition: skillDef(id, reaches),
+      });
+      expect(made.status, JSON.stringify(made.json)).toBe(200);
+    }
+    const step = (id: string, skill: string) => ({ id, kind: "skill", name: id, skill });
+    const bundle = {
+      schemaVersion: 1,
+      definition: { skills: [] },
+      workflows: [
+        {
+          slug: "main",
+          workflow: {
+            schemaVersion: 4,
+            triggers: [],
+            steps: [
+              step("reads", "custom:g4-reads"),
+              step("writes", "custom:g4-writes"),
+              step("nowhere", "custom:g4-nowhere"),
+            ],
+          },
+        },
+      ],
+    };
+    const ids = await draftWritingSteps(
+      { tx: H.t.db, services: { platform: H.platform } } as never,
+      { bundle: bundle as never, agentRow: null },
+    );
+    expect([...ids].sort()).toEqual(["nowhere", "writes"]);
   });
 });
