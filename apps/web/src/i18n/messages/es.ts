@@ -2525,6 +2525,27 @@ export const es: Messages = {
   "workflow.card.ifFails": "Si falla", // fluent review
   "workflow.card.inSop": "Paso {step} en el SOP", // fluent review
   "workflow.close": "Cerrar", // fluent review
+  // ── Procedures: every agent's SOP in a row (docs/sop-plan.md S2) ──
+  "procedures.title": "Procedimientos", // fluent review
+  "procedures.subtitle":
+    "El procedimiento operativo estándar de cada uno de sus agentes, hecho a partir de cómo está configurado hoy.", // fluent review
+  "procedures.link": "Los SOP de todos sus agentes", // fluent review
+  "procedures.none": "Ninguno de sus agentes tiene SOP todavía.", // fluent review
+  "procedures.find": "Busque un agente, un sistema, una persona o un cambio", // fluent review
+  "procedures.system": "Sistema", // fluent review
+  "procedures.anySystem": "Cualquier sistema", // fluent review
+  "procedures.does": "Qué hace allí", // fluent review
+  "procedures.does.any": "Lee o cambia", // fluent review
+  "procedures.does.changes": "Cambia", // fluent review
+  "procedures.does.reads": "Lee", // fluent review
+  "procedures.party": "Quién participa", // fluent review
+  "procedures.anyone": "Cualquiera", // fluent review
+  "procedures.count": "Mostrando {shown} de {total}", // fluent review
+  "procedures.noMatch": "Ningún agente coincide.", // fluent review
+  "procedures.col.agent": "Agente", // fluent review
+  "procedures.col.changed": "Qué cambió por última vez", // fluent review
+  "procedures.andMore": "y {count} más", // fluent review
+  "procedures.changedBy": "{who}, en {where}", // fluent review
   "manual.whatItDoes": "Qué hace", // fluent review
   "manual.howItWorks": "Cómo funciona", // fluent review
   "manual.decisions": "Decisiones", // fluent review

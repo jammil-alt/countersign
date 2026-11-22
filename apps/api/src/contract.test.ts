@@ -75,6 +75,10 @@ describe("route contract (static)", () => {
     expect(routeFamily(sopRoutes.portalAgentSop)).toBe("portal");
     expect(sopRoutes.portalAgentSop.roles).toEqual(["client_admin", "client_user"]);
     expect(forbiddenPortalFields(sopRoutes.portalAgentSop.response)).toEqual([]);
+    // S2: the Procedures page's list, every row made from an SOP.
+    expect(routeFamily(sopRoutes.portalSops)).toBe("portal");
+    expect(sopRoutes.portalSops.roles).toEqual(["client_admin", "client_user"]);
+    expect(forbiddenPortalFields(sopRoutes.portalSops.response)).toEqual([]);
     expect(sopRoutes.opsAgentSop.roles).toEqual(["operator"]);
   });
 

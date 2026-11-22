@@ -2527,6 +2527,27 @@ export const ptBR: Messages = {
   "workflow.card.ifFails": "Se falhar", // fluent review
   "workflow.card.inSop": "Etapa {step} no POP", // fluent review
   "workflow.close": "Fechar", // fluent review
+  // ── Procedures: every agent's SOP in a row (docs/sop-plan.md S2) ──
+  "procedures.title": "Procedimentos", // fluent review
+  "procedures.subtitle":
+    "O procedimento operacional padrão de cada um dos seus agentes, feito a partir de como está configurado hoje.", // fluent review
+  "procedures.link": "Os POPs de todos os seus agentes", // fluent review
+  "procedures.none": "Nenhum dos seus agentes tem POP ainda.", // fluent review
+  "procedures.find": "Encontre um agente, um sistema, uma pessoa ou uma alteração", // fluent review
+  "procedures.system": "Sistema", // fluent review
+  "procedures.anySystem": "Qualquer sistema", // fluent review
+  "procedures.does": "O que faz lá", // fluent review
+  "procedures.does.any": "Lê ou altera", // fluent review
+  "procedures.does.changes": "Altera", // fluent review
+  "procedures.does.reads": "Lê", // fluent review
+  "procedures.party": "Quem participa", // fluent review
+  "procedures.anyone": "Qualquer pessoa", // fluent review
+  "procedures.count": "Mostrando {shown} de {total}", // fluent review
+  "procedures.noMatch": "Nenhum agente corresponde.", // fluent review
+  "procedures.col.agent": "Agente", // fluent review
+  "procedures.col.changed": "O que mudou por último", // fluent review
+  "procedures.andMore": "e mais {count}", // fluent review
+  "procedures.changedBy": "{who}, em {where}", // fluent review
   "manual.whatItDoes": "O que faz", // fluent review
   "manual.howItWorks": "Como funciona", // fluent review
   "manual.decisions": "Decisões", // fluent review
