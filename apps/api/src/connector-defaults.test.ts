@@ -3,19 +3,16 @@
 // first only for the writes the snapshot below names. A change to a connector's `askFirst` shows up
 // here, so it is reviewed with the plan's table.
 
-import {
-  connectionDefaults,
-  connectionLevel,
-  createDesktopConnector,
-  describeAccess,
-} from "@countersign/connectors";
+import { connectionDefaults, connectionLevel, describeAccess } from "@countersign/connectors";
 import { describe, expect, it } from "vitest";
 import { deploymentConnectors } from "./platform";
 
-const connectors = [...deploymentConnectors({}, false), createDesktopConnector()];
+// §1.199: the desktop app is registered with the rest now.
+const connectors = deploymentConnectors({}, false);
 
 describe("what a new connection starts with", () => {
-  it("covers every connector a deployment registers, and the desktop app", () => {
+  it("covers every connector a deployment registers, the desktop app included", () => {
+    expect(connectors.some((c) => c.manifest.id === "desktop")).toBe(true);
     expect(connectors.length).toBeGreaterThanOrEqual(25);
   });
 
