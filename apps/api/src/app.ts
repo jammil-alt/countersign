@@ -155,6 +155,7 @@ import { recordRouteHandlers } from "./routes/records";
 import { reggieRoutes } from "./routes/reggie";
 import { releaseRoutes } from "./routes/release";
 import { requestRouteHandlers } from "./routes/requests";
+import { resendHookRoutes } from "./routes/resend-hooks";
 import { runAuditRouteHandlers } from "./routes/run-audit";
 import { runControlRoutes } from "./routes/run-controls";
 import {
@@ -347,6 +348,8 @@ export function createApp(deps: AppDeps = defaultDeps): Hono<AppEnv> {
   inviteRoutes(app);
   intakeRoutes(app);
   welcomeRoutes(app);
+  // §1.220: onboarding emails delivered or bounced, from Resend's webhook
+  resendHookRoutes(app);
   // docs/plan.md §1.109: voice typing
   voiceRoutes(app);
   // docs/plan.md §1.168: Draft for long text fields
