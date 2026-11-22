@@ -80,6 +80,7 @@ import {
 } from "./outcomes";
 import { type People, PersonPicker } from "./people";
 import { fieldLabel, stepNamer } from "./problems";
+import { PromptPreview } from "./prompt-preview";
 import { ReachOutFields } from "./ReachOutFields";
 import { ReadTableSample } from "./read-table-step";
 // Reshape data (2026-11-11)
@@ -494,6 +495,17 @@ function StepInspector(props: InspectorProps & { step: Step }) {
         set={set}
       />
     ) : null;
+  // Owner, 2026-11-21 (docs/plan.md §1.180): what the model is sent, from the draft as drawn.
+  const prompt =
+    step.kind === "skill" && skill && props.agentId && !isReshape(step) ? (
+      <PromptPreview
+        key={step.id}
+        agentId={props.agentId}
+        workflow={workflow}
+        definition={props.bundle.definition}
+        step={step}
+      />
+    ) : null;
   const checks = LOGIC.has(step.kind) ? null : (
     <ChecksPanel
       step={step}
@@ -572,6 +584,7 @@ function StepInspector(props: InspectorProps & { step: Step }) {
       <div className="flex flex-col gap-4">
         {kindFields}
         {parameters}
+        {prompt}
         {checksMain ? checks : null}
         {reshapeBefore}
         {actionOffers}
@@ -610,6 +623,7 @@ function StepInspector(props: InspectorProps & { step: Step }) {
       {parameters}
       {version}
       {customize}
+      {prompt}
       {checks}
       {onError}
       {routes}

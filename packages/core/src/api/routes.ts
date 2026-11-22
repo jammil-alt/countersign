@@ -89,6 +89,7 @@ import { packRoutes } from "./packs";
 // v0.12 W1-G: people (autonomy).
 import { peopleRoutes, voiceSampleRoutes } from "./people";
 import { phoneApprovalRoutes } from "./phone-approval";
+import { promptPreviewRoutes } from "./prompt-preview";
 import { qboRoutes } from "./qbo";
 import { reachRoutes } from "./reach";
 // §1.164: the builder's sample-file check for a Read table step.
@@ -2565,6 +2566,8 @@ export const routes = {
   ...runAuditRoutes,
   // The skill model (owner, 2026-11-10): moving a step to another version of its skill.
   ...skillModelRoutes,
+  // What a skill step's model is sent, before any run (owner, 2026-11-21; docs/plan.md §1.180).
+  ...promptPreviewRoutes,
   // Reshape data (owner, 2026-11-11): propose a Reshape step's mapping, and its sample values.
   ...reshapeRoutes,
   // Data in and out of files (owner, 2026-11-20): a Read table step's sample-file check.

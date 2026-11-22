@@ -6382,6 +6382,26 @@ action, not just mark it... if it is an issue, just because I say it is closed d
 | Not built | The client as an owner: no step yet sends an item to the client and closes it by their answer (the requirements request asks the intake form's fields, not an item). Until there is one, "Client" is only set by the fit-gap's preconditions. |
 | Checked | `apps/api/src/build-settled-by-step.test.ts` (done by hand refused, a drop, a note done, the Builder's close left out; a put-off gap given to engineering then the Builder, closed by its change and opened by its undo; a test closed by a full passing run and not by a failing or partial one), `apps/web/src/ops/builds/closeout.test.tsx` and `builds.test.tsx` (no selects; Put off, Drop it, Reopen; Take it up on a put-off gap). The skill build's go-live closing has no test of its own. |
 
+### 1.180 What the model gets: a step's prompt, before any run (owner, 2026-11-22; no migration)
+
+The owner: "For AI steps… we should have an instructions, knowledge base and memory that gets kept
+updated by the agent as part of their steps… so literally, a way to look at what the prompt will
+look like when it comes in." There was no way to: the run view shows "Prompt and answer" after a
+run only, and the step's setup showed the skill's instructions folded away and nothing else.
+(§1.179 is the SOP's, in its own pull request.)
+
+| Topic | Decision |
+|---|---|
+| One builder | The system prompt's parts, the tools offered and the first turn's words moved from the loop into `packages/agents/src/runtime/prompt.ts` (`systemParts`, `stepToolIds`, `taskTurnText`), pure. `runAgent` sends `systemText(systemParts(…))`, byte for byte what it sent; the recorded model exchanges replay unchanged. // DECISION |
+| The preview | `previewStepPrompt` (`runtime/prompt-preview.ts`): the same builders, `resolveModel`, `customizedSkill`, `stepProfile` and core's `composeGovernance`, over what its caller has read. No model is called and nothing is written. A test runs a step with a fake model and holds the preview's system prompt and tool list equal to the request sent, for an agent-mode skill and a task skill. |
+| The route | `POST /api/ops/agents/:id/prompt-preview` (operators only; invariant 11 keeps prompts off the portal), with the builder's draft: the process as drawn, the step, and the agent's definition as drafted. So what a step adds, its model and its settings show before they are saved. It reads the skill as the agent resolves it, the client's confirmed charter and tagged policies, and the agent's notes (the 50 newest, as a run reads them), all inside the agent's client through `mount()`, which audits it. // DECISION |
+| A template | Has no client: our guardrails and policies, no charter and no notes. A client's agent reads that client's, as a run of it would. // DECISION |
+| What it says | `runs`: a model, rule rows or code (the last two have no prompt, and say so). The model as the runtime resolves it. The system prompt's parts in order, by key (ground rules, how it finishes, who the agent is, how the agent works, this step's instructions, settings, parameters, language). What the ground rules hold (guardrails, charter, policies). The tools. The first turn, and what arrives as data beside the input: the agent's notes when the agent keeps them and the skill works as the agent. What stops it running as drawn (a parameter with no value). |
+| On the step | "What the model gets", under a skill step's parameters in its panel (`apps/web/src/ops/builder/prompt-preview.tsx`): Show the prompt asks; each part folds, with a line saying where it comes from; This step's instructions is open; Copy the system prompt. It says in words why a task skill gets no identity, instructions or notes, and that other knowledge is reached only by a search tool. Nothing is asked until the operator presses. |
+| The input | Not shown: it is what the steps before produced, known only in a run or a try. The panel says so. |
+| Not built | Editing the skill's own instructions from the step (still the Library's editor; a step adds to them under Customize). A conversation step's turns, which are built by the conversation service, not this loop. A knowledge base per skill: there is none; knowledge is the client's and reached by search. |
+| Checked | `packages/agents/src/runtime/governance.unit.test.ts` (the preview equals what a run sends; a task skill's is lean; the step's additions and model; notes only for an agent-mode skill of an agent that keeps them; no prompt for code), `apps/api/src/skill-model.test.ts` (the route, from a draft, and a step that isn't a skill), `apps/web/src/ops/builder/prompt-preview.test.tsx`. All of `packages/agents` passes against Postgres. Looked at in a browser on the seeded Bill clerk's "Choose items and accounts". |
+
 ### 1.178 A step's box: a badge, who does it, and a coloured top edge (owner, 2026-11-21; no migration)
 
 The owner, shown four step cards (A to D) and then four places for colour on D: "let's go with D2",

@@ -93,6 +93,8 @@ export * from "./api/owners";
 export * from "./api/packs";
 export * from "./api/people";
 export * from "./api/phone-approval";
+// The skill model (owner, 2026-11-10)
+export * from "./api/prompt-preview";
 export * from "./api/qbo";
 export * from "./api/reach";
 // §1.164: the builder's sample-file check for a Read table step.
@@ -119,7 +121,6 @@ export * from "./api/search";
 export * from "./api/second-factor";
 // docs/builder-plan.md §6 (B4): the setup checklist
 export * from "./api/setup";
-// The skill model (owner, 2026-11-10)
 export * from "./api/skill-model";
 // v0.14 W4-C: the Slack channel picker
 export * from "./api/slack";

@@ -15,6 +15,7 @@ import {
   getVersion,
   latestVersion,
   lineageReadOptions,
+  previewStepPrompt,
   requiredConnectors,
   resolveCustomSkill,
   retire,
@@ -22,6 +23,8 @@ import {
   skillContext,
 } from "@countersign/agents";
 import {
+  type AgentBundle,
+  AgentDefinition,
   type AnyAgentBundle,
   type BuilderCatalog,
   type BundleChange,
@@ -44,13 +47,24 @@ import {
   type ToolInputVariants,
   toolLookup,
 } from "@countersign/core";
-import { agent, connection, run, skill, skillVersion, type Tx, tenant } from "@countersign/db";
+import {
+  agent,
+  connection,
+  memoryNote,
+  run,
+  skill,
+  skillVersion,
+  type Tx,
+  tenant,
+} from "@countersign/db";
+import { clientGovernance } from "@countersign/documents";
 import { and, desc, eq, inArray, isNotNull, isNull, or } from "drizzle-orm";
 import type { Hono } from "hono";
 import { returnAgentLine } from "../channels/agent-line";
 import { type AppEnv, type HandlerCtx, HttpError, mount, notFound } from "../http";
 import type { Platform } from "../platform";
 import { zohoToolInputsFor } from "../zoho/fields";
+import { tenantLocale } from "./language";
 import { agentSummary, versionSummary } from "./mappers";
 // v0.12 W2-B
 import { builderAutomations } from "./ops-automations";
@@ -591,6 +605,74 @@ export function opsLineageRoutes(app: Hono<AppEnv>): void {
     if (!impact) throw new HttpError(422, "not_a_skill_step", "that step is not a skill step");
     const { instructions: _instructions, ...definition } = to;
     return { ...impact, definition, facts: skillModelFacts(to, lookup) };
+  });
+
+  // What a skill step's model is sent, from the builder's draft, before any run (owner,
+  // 2026-11-21; docs/plan.md §1.180). The runtime's own builders over what is read here: the
+  // skill as this agent resolves it, the client's governance and the agent's notes, all within
+  // the agent's client. Nothing runs and no model is called.
+  // DECISION: a template has no client, so its preview has our guardrails and policies and no
+  // charter or notes; a client's agent reads that client's, as a run of it would.
+  mount(app, routes.opsStepPromptPreview, async (ctx) => {
+    const { tx, services, body } = ctx;
+    const { platform } = services;
+    const row = await agentInScope(ctx, ctx.params.id);
+    const parsed = processes.Process.safeParse(body.process);
+    if (!parsed.success) {
+      throw new HttpError(422, "invalid_process", "the workflow doesn't read in the new format");
+    }
+    const step = processes.findStep(parsed.data, body.stepId)?.step;
+    if (step?.kind !== "skill") {
+      throw new HttpError(
+        422,
+        "not_a_skill_step",
+        `no skill step "${body.stepId}" in the workflow`,
+      );
+    }
+    const latest = await latestVersion(tx, row.id);
+    const drafted =
+      body.definition === undefined ? null : AgentDefinition.safeParse(body.definition);
+    if (drafted && !drafted.success) {
+      throw new HttpError(422, "invalid_definition", "the agent's setup doesn't read");
+    }
+    const definition = drafted?.data ?? latest?.bundle.definition;
+    if (!latest || !definition) throw notFound("version");
+    const builtin = platform.catalog.get(parseSkillRef(step.skill).id);
+    const skillDef =
+      builtin ??
+      (await resolveCustomSkill(tx, { tenantId: row.tenantId, ref: step.skill }))?.definition;
+    if (!skillDef) throw notFound(`skill ${step.skill}`);
+    const tenantId = row.tenantId;
+    const notes = tenantId
+      ? await tx
+          .select({ note: memoryNote.note })
+          .from(memoryNote)
+          .where(
+            and(
+              eq(memoryNote.tenantId, tenantId),
+              eq(memoryNote.agentId, row.id),
+              eq(memoryNote.scope, "agent"),
+            ),
+          )
+          .orderBy(desc(memoryNote.createdAt), desc(memoryNote.id))
+          .limit(50)
+      : [];
+    return previewStepPrompt({
+      tools: platform.tools,
+      agent: { bundle: { ...latest.bundle, definition } as AgentBundle, area: row.area },
+      skillRef: step.skill,
+      skill: skillDef,
+      step: {
+        id: step.id,
+        ...(step.settings ? { settings: step.settings } : {}),
+        ...(step.model ? { model: step.model } : {}),
+        ...(step.customize ? { customize: step.customize } : {}),
+      },
+      client: tenantId ? await clientGovernance(tx, tenantId) : null,
+      // Newest first, the 50 the runtime would hand over.
+      memory: notes.map((n) => n.note),
+      ...(tenantId ? { language: await tenantLocale(tx, tenantId) } : {}),
+    });
   });
 
   mount(app, routes.opsVersionDiff, async (ctx) => {
