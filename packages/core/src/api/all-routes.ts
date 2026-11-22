@@ -22,6 +22,7 @@ import { routes } from "./routes";
 import { setupRoutes } from "./setup";
 import { soc2Routes } from "./soc2";
 import { sopRoutes } from "./sop";
+import { workStatementRoutes } from "./work-statement";
 
 /**
  * docs/plan.md §1.125: the Dev queue's routes, and §1.149: onboarding v1's (the client file,
@@ -63,6 +64,8 @@ export const allRoutes = {
   ...soc2Routes,
   // R4 (docs/plan.md §1.214): the report per agent; its tabs load lazily, and its schema with them.
   ...agentReportRoutes,
+  // Y5 (docs/plan.md §1.234): the work statement; its screens load lazily, and its schema with them.
+  ...workStatementRoutes,
   // R5 (docs/plan.md §1.235): the report per account and /ops/accounts; their screens load lazily.
   ...accountReportRoutes,
   // R6 (docs/plan.md §1.236): the portal's saved views; the strip on the runs list loads lazily,

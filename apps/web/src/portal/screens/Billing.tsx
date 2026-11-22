@@ -5,6 +5,7 @@
 // (docs/plan.md §1.18).
 import type { PortalStatement } from "@countersign/core";
 import { useState } from "react";
+import { Link } from "react-router-dom";
 import { apiRoutes } from "../../api/routes";
 import { useApi } from "../../api/useApi";
 import {
@@ -29,6 +30,9 @@ import {
 } from "../../ui/primitives";
 import { count, dayLabel, periodLabel } from "../../usage/format";
 import { Stat, StatRow } from "../../usage/Stat";
+
+/** §1.234: the month's work statement, beside the bill. */
+const WORK_STATEMENT_PATH = "/billing/work";
 
 /** `embedded`: inside Settings (its Billing section), without a header of its own. */
 export function PortalBillingScreen({ embedded = false }: { embedded?: boolean } = {}) {
@@ -107,7 +111,19 @@ export function PortalBillingScreen({ embedded = false }: { embedded?: boolean }
             </Card>
           </section>
           <section>
-            <SectionLabel>{t("billing.statements")}</SectionLabel>
+            <SectionLabel
+              action={
+                <Link
+                  to={WORK_STATEMENT_PATH}
+                  className="text-sm text-link hover:underline"
+                  data-testid="portal-billing-work-link"
+                >
+                  {t("billing.workStatement")}
+                </Link>
+              }
+            >
+              {t("billing.statements")}
+            </SectionLabel>
             {data.statements.length === 0 ? (
               <EmptyState>{t("billing.noStatements")}</EmptyState>
             ) : (
@@ -176,6 +192,13 @@ function StatementCard({ statement: s }: { statement: PortalStatement }) {
               {t("billing.pdf")}
             </a>
           ) : null}
+          <Link
+            className="ds-btn ds-btn--link text-sm"
+            to={`${WORK_STATEMENT_PATH}?month=${s.period.start.slice(0, 7)}`}
+            data-testid={`${testId}-work`}
+          >
+            {t("billing.workDone")}
+          </Link>
           <Button
             size="sm"
             variant="ghost"
