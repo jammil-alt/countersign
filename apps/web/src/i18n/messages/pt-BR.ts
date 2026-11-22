@@ -286,6 +286,16 @@ export const ptBR: Messages = {
   "agent.pausedByUs": "Pausado por nós: {reason}",
   "agent.pausedUntil": "Até {time}",
   "agent.resumeOurs": "Nós pausamos. Peça ao seu responsável para retomar.",
+  "agent.missed": {
+    one: "Durante a pausa, entre {from} e {to}, chegou {count} evento que o teria iniciado. Ele não começou sozinho.",
+    other:
+      "Durante a pausa, entre {from} e {to}, chegaram {count} eventos que o teriam iniciado. Nenhum começou sozinho.",
+  },
+  "agent.missedOrMore":
+    "Durante a pausa, entre {from} e {to}, chegaram {count} ou mais eventos que o teriam iniciado. Nenhum começou sozinho.",
+  "agent.missedUncounted":
+    "Durante a pausa, entre {from} e {to}, chegaram mais eventos do que conseguimos verificar de uma vez. Alguns talvez o tivessem iniciado. Nenhum começou sozinho.",
+  "agent.missedAsk": "Peça ao seu responsável para executá-los, se precisar.",
   "agent.rightNow": "Agora mesmo",
   "agent.nothingRunning":
     "Nada em andamento agora. A próxima execução aparece aqui, etapa por etapa.",

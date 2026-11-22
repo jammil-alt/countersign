@@ -6444,6 +6444,19 @@ was recorded (§1.139 "Known costs"). Now each is, the way a portal question is 
 | Known costs | One run per segment: a minute of dictation is up to 12 of Sloan's test runs, counted in `usage_daily.runs` (and billed if runs carry a unit cost) and listed with its other runs in the back office, as questions are. |
 | Checked | `packages/llm/src/transcribe.test.ts` (the usage read, the cost in decimal, by the minute, an unknown model, no usage), `apps/api/src/voice.test.ts` (a portal dictation writes the run, step, `model_call` and `usage_daily` rows for Sloan with the person and model, no words; the back office's writes no run), `usage-tokens.test.ts` (the questions' path unchanged). |
 
+### 1.195 The portal's resume says what came in while paused (H7, 2026-11-22; no migration)
+
+Resuming an agent counted the events of its pause that would have started it (§1.137) and the
+back office's go-live panel showed them, but the portal's resume screen dropped the count.
+
+| Topic | Decision |
+|---|---|
+| What the client sees | On resume, the agent page says what the go-live panel says: how many came in while it was paused that it would have started on, between the pause's start and end, "or more" when one look could not read them all, and that none started by itself; when more came in than one look reads and none of those read would start it, it says so. Then "Ask your lead if you want any of them run": running them stays the operator's (the past-event path, §1.137). Nothing shows when none came in. In all six languages. // DECISION |
+| The answer | `POST /api/services/:id/resume` adds `missed` (count, from, to, more; null with no pause to count), the shape of the operator's `GET /api/ops/agents/:id/missed-events`, now one schema (`MissedWhilePaused`, `packages/core/src/api/lifecycle.ts`) built by one function (`missedView`, `apps/api/src/routes/lifecycle.ts`). `missedEvents` stays. Never the events, their ids or what they say (invariants 9 and 11). // DECISION |
+| How long it shows | From the resume's answer until the page is left, another agent opens or it is paused again; not stored. // DECISION |
+| Not built | Resume all (`POST /api/services/resume-all`) still answers a total only, and no portal screen calls it. |
+| Checked | `apps/api/src/lifecycle.test.ts` (the resume answers the go-live panel's view, without the event's id or text), `apps/web/src/portal/screens/Agent.test.tsx` (the count, one in the singular, "or more", more than one look reads, nothing when none came in, gone once paused again, no button to run them). |
+
 ### 1.192 The web app's first load back under budget (H9, 2026-11-22; no migration)
 
 The first load (`scripts/web-size.mjs`) was 494.8 kB gzipped on main against a 495 kB budget.
