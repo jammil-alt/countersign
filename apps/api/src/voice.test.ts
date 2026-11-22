@@ -2,14 +2,32 @@
 // and the portal get their words back; a recording of the wrong type or none is refused; a client
 // in HIPAA mode is refused until OpenAI's BAA is recorded, for its own people and for an operator
 // dictating about it; an operator can't name a client it doesn't serve; OpenAI failing is said
-// plainly; nothing is stored.
+// plainly; nothing of the recording is stored, and each call's usage and cost is (H5, §1.196).
 import { DEV_USER_HEADER } from "@countersign/auth";
-import { auditEvent, tenant } from "@countersign/db";
-import { TranscribeError, type Transcriber } from "@countersign/llm";
-import { eq, sql } from "drizzle-orm";
+import { ACCOUNT_AGENT_SLUG } from "@countersign/core";
+import {
+  agent,
+  agentVersion,
+  auditEvent,
+  modelCall,
+  run,
+  stepRun,
+  tenant,
+  usageDaily,
+} from "@countersign/db";
+import { TranscribeError, type Transcriber, transcribeModelId } from "@countersign/llm";
+import { and, eq, sql } from "drizzle-orm";
 import { afterAll, describe, expect, it } from "vitest";
-import { admin, createApiHarness, OPERATOR, OTHER_OPERATOR, user } from "./api.test-helper";
+import {
+  admin,
+  createApiHarness,
+  OPERATOR,
+  OTHER_OPERATOR,
+  testBundle,
+  user,
+} from "./api.test-helper";
 import { METERED_LIMITS } from "./metered";
+import { VOICE_RUN_WORKFLOW } from "./voice-usage";
 
 // Live dictation (2026-11-21) sends a segment every five seconds or more: 12 a minute at most.
 const LIMIT = METERED_LIMITS.transcribe;
@@ -23,7 +41,13 @@ const transcriber: Transcriber = {
       throw new TranscribeError("OpenAI answered 500", 500);
     }
     heard.push({ bytes: request.audio.length, type: request.type, language: request.language });
-    return "Add a step that emails AP.";
+    return {
+      text: "Add a step that emails AP.",
+      model: transcribeModelId(),
+      usage: { inputTokens: 120, audioTokens: 100, outputTokens: 10, seconds: null },
+      costUsd: "0.000375",
+      durationMs: 40,
+    };
   },
 };
 
@@ -69,6 +93,79 @@ describe.skipIf(!h)("voice typing", () => {
     expect(res.json.text).toBe("Add a step that emails AP.");
     // The language the person reads in, as the model takes it.
     expect(heard.at(-1)?.language).toBe("pt");
+  });
+
+  it("records each portal dictation as the client's usage, under its account agent", async () => {
+    // H5 (§1.196). Client B's account agent (Sloan).
+    const [sloan] = await H.t.db
+      .insert(agent)
+      .values({ tenantId: H.B.tenantId, kind: "client", slug: ACCOUNT_AGENT_SLUG, name: "Sloan" })
+      .returning();
+    if (!sloan) throw new Error("no agent");
+    const [version] = await H.t.db
+      .insert(agentVersion)
+      .values({
+        tenantId: H.B.tenantId,
+        agentId: sloan.id,
+        version: 1,
+        bundle: testBundle("Sloan"),
+        bundleHash: "hash-voice-sloan",
+        status: "live",
+        authorType: "operator",
+      })
+      .returning();
+    if (!version) throw new Error("no version");
+    await H.t.db.update(agent).set({ liveVersionId: version.id }).where(eq(agent.id, sloan.id));
+    const [person] = await H.t.db.execute<{ id: string }>(
+      sql`select id from app_user where email = ${admin("b")}`,
+    );
+
+    const res = await post(admin("b"), "/api/transcribe", AUDIO, "audio/webm");
+    expect(res.status).toBe(200);
+
+    const runs = await H.t.db
+      .select()
+      .from(run)
+      .where(and(eq(run.tenantId, H.B.tenantId), eq(run.workflowSlug, VOICE_RUN_WORKFLOW)));
+    expect(runs).toHaveLength(1);
+    const r = runs[0] as (typeof runs)[number];
+    expect(r).toMatchObject({
+      agentId: sloan.id,
+      agentVersionId: version.id,
+      mode: "test",
+      status: "succeeded",
+      costUsd: "0.0004",
+      trigger: { type: "dictation", surface: "portal", dictatedBy: person?.id },
+    });
+    const [step] = await H.t.db.select().from(stepRun).where(eq(stepRun.runId, r.id));
+    expect(step).toMatchObject({ nodeType: "transcription", tokensIn: 120, tokensOut: 10 });
+    // The recording's type and size, never its words.
+    expect(step?.input).toEqual({ type: "audio/webm", bytes: AUDIO.length, language: "en" });
+    expect(JSON.stringify(step?.output)).not.toContain("emails AP");
+    const [call] = await H.t.db.select().from(modelCall).where(eq(modelCall.runId, r.id));
+    expect(call).toMatchObject({
+      tenantId: H.B.tenantId,
+      provider: "openai",
+      model: "openai:gpt-4o-mini-transcribe",
+      action: "tool_call",
+      tokensIn: 120,
+      tokensOut: 10,
+      // numeric(14,4), rounded up: a call never shows as free.
+      costUsd: "0.0004",
+      durationMs: 40,
+    });
+    // Rolled up into the day's usage, as decimals.
+    const [day] = await H.t.db
+      .select()
+      .from(usageDaily)
+      .where(and(eq(usageDaily.tenantId, H.B.tenantId), eq(usageDaily.agentId, sloan.id)));
+    expect(day).toMatchObject({ runs: 1, tokensIn: 120, tokensOut: 10, costUsd: "0.0004" });
+
+    // The back office's dictation is the operator's cost: logged, no run.
+    const before = (await H.t.db.select({ id: run.id }).from(run)).length;
+    const ops = await post(OPERATOR, `/api/ops/transcribe?client=${H.B.tenantId}`, AUDIO);
+    expect(ops.status).toBe(200);
+    expect((await H.t.db.select({ id: run.id }).from(run)).length).toBe(before);
   });
 
   it("refuses anything but a recording, and an empty one", async () => {
