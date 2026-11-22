@@ -143,7 +143,7 @@ Several sessions at once, one item each:
 
 Tick each one as it merges. Round 1 (2026-11-22): C1.1–C1.3 #525, C2.2 #529, C4.1 #526, C4.2 #527,
 C4.6 #528, C4.8 #531, R1 #524 and #530.
-Round 3: C4.11 #542, C5.1 #546, C5.2 #549.
+Round 3: C4.11 #542, C5.1 #546, C5.2 #548.
 
 - [x] C0.1 [x] C0.2 [ ] C0.3 [x] C0.4
 - [x] C1.1 [x] C1.2 [x] C1.3
