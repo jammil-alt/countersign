@@ -259,6 +259,53 @@ describe.skipIf(!h)("the builder and the skill model", () => {
     expect(j(same.json)).toMatchObject({ compatible: true, breaks: [], references: [] });
   });
 
+  // Owner, 2026-11-21 (docs/plan.md §1.180): "a way to look at what the prompt will look like
+  // when it comes in".
+  it("previews what a skill step's model is sent, from the draft, with nothing run", async () => {
+    const preview = (body: Record<string, unknown>) =>
+      H.call(OPERATOR, "POST", `/api/ops/agents/${agentId}/prompt-preview`, body);
+    const res = await preview({ process, stepId: "match" });
+    expect(res.status, JSON.stringify(res.json)).toBe(200);
+    const body = j(res.json);
+    // A task skill on its own recommended model: our guardrails and its instructions only.
+    expect(body).toMatchObject({
+      runs: "model",
+      skill: { ref: "custom:match-line@1", name: "Match a line", mode: "task" },
+      model: { id: "claude-haiku-5-5" },
+      problems: [],
+    });
+    const keys = body.system.map((p: { key: string }) => p.key);
+    expect(keys).toEqual(["governance", "finish", "task", "parameters"]);
+    const part = (key: string) =>
+      body.system.find((p: { key: string }) => p.key === key).text as string;
+    expect(part("task")).toBe("## This task: Match a line\nMatch the line to an item.");
+    expect(part("parameters")).toContain('"floor": 0.8');
+    expect(body.governance.map((g: { tier: string }) => g.tier)).toEqual(["guardrails"]);
+    expect(body.tools.map((t: { id: string }) => t.id)).toEqual(["finish", "read_task_input"]);
+    expect(body.data.memory.given).toBe(false);
+
+    // The draft's own changes show before they are saved: what the step adds, and its model.
+    const drafted = {
+      ...process,
+      steps: [
+        {
+          ...process.steps[0],
+          model: { id: "claude-sonnet-5-5" },
+          customize: { addInstructions: "Prefer the vendor's own part number." },
+        },
+        process.steps[1],
+      ],
+    };
+    const changed = j((await preview({ process: drafted, stepId: "match" })).json);
+    expect(changed.model.id).toBe("claude-sonnet-5-5");
+    const task = changed.system.find((p: { key: string }) => p.key === "task").text as string;
+    expect(task).toContain("Match the line to an item.");
+    expect(task).toContain("Prefer the vendor's own part number.");
+
+    // Only a skill step has one. (Operators only: the contract test holds every /api/ops route.)
+    expect((await preview({ process, stepId: "tell" })).status).toBe(422);
+  });
+
   it("lists each skill the agent may use with its kind, parameters and recommended model", async () => {
     const res = await H.call(OPERATOR, "GET", `/api/ops/agents/${agentId}/skills`);
     expect(res.status, JSON.stringify(res.json)).toBe(200);

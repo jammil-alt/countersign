@@ -74,6 +74,8 @@ export * from "./runtime/model";
 export * from "./runtime/oversee";
 export * from "./runtime/planned";
 export * from "./runtime/ports";
+export * from "./runtime/prompt";
+export * from "./runtime/prompt-preview";
 export * from "./runtime/run-agent";
 // P-7
 export * from "./runtime/translate";
