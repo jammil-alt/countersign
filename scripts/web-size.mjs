@@ -36,7 +36,11 @@ import { gzipSync } from "node:zlib";
 // so the first load no longer carries its screens or core's wording in six languages. main was at
 // 494.8 kB; this measured 344.1 kB, plus 2%. Each portal screen loading on its own and the route
 // contract split per screen (audit item 4.6) are the follow-ups toward phase 4's 300 kB.
-export const BUDGET_KB = 351;
+// DECISION (2026-11-22): raised to 352 kB for R2 (docs/plan.md §1.193): its English wording and
+// core's `about` filter add 0.5 kB to the first load. main was at 350.8 kB after the staging
+// walk-through (#523), so the 2% headroom H9 left is used up; the follow-ups above are what bring
+// it back down, and the next first-load feature should come with one of them.
+export const BUDGET_KB = 352;
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const dist = process.argv[2] ?? join(root, "apps/web/dist");

@@ -150,6 +150,10 @@ export const fr: Messages = {
   "search.group.records": "Enregistrements",
   "search.group.people": "Personnes",
   "search.group.documents": "Documents",
+  "search.runsAbout": {
+    one: "{count} exécution sur {name}",
+    other: "{count} exécutions sur {name}",
+  },
   "nav.table": "La Table",
   "nav.desk": "Votre bureau",
   "nav.yourAgents": "Vos agents",
@@ -2066,6 +2070,9 @@ export const fr: Messages = {
   "runsPage.chip.attemptsOver": "essais au-delà de",
   "runsPage.chip.amount": "montant",
   "runsPage.chip.text": "mots",
+  "runsPage.chip.about": "sur",
+  "runsPage.about.remove": "Retirer {name} du filtre",
+  "runsPage.about.record": "un enregistrement",
   "runsPage.ask.label": "Posez une question sur vos exécutions, avec vos mots",
   "runsPage.ask.placeholder": "Avec vos mots : « factures de plus de 5 000 $ ce mois-ci »",
   "runsPage.ask.send": "Demander",
@@ -3528,6 +3535,9 @@ export const fr: Messages = {
     "Ce lien fonctionne jusqu'à {time}. Une fois approuvée, elle dure jusqu'à la fin de cette connexion à Claude, 12 heures au plus.",
   "connectClaude.requested":
     "Claude vous a donné ce lien à {time}. Si vous ne venez pas de le demander à Claude, ne l'approuvez pas.",
+  "connectClaude.client": "Qui le demande : {client}.",
+  "connectClaude.place":
+    "La demande vient de {place}. Claude sur le web demande depuis les serveurs d'Anthropic : c'est leur emplacement, pas le vôtre.",
   "connectClaude.confirm": "Le code que Claude vous a montré",
   "connectClaude.confirmHint":
     "Claude affiche un code à 6 chiffres avec ce lien. Saisissez celui que votre propre Claude vous montre, jamais un code envoyé par quelqu'un d'autre.",

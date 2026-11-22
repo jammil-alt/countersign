@@ -476,8 +476,14 @@ export function fakeQbo(opts: FakeQboOptions = {}) {
   function checkLineRefs(lines: Record<string, unknown>[]) {
     for (const l of lines) {
       const d = (l.AccountBasedExpenseLineDetail ?? l.ItemBasedExpenseLineDetail) as
-        | { ClassRef?: { value?: string }; CustomerRef?: { value?: string } }
+        | {
+            ClassRef?: { value?: string };
+            CustomerRef?: { value?: string };
+            ItemRef?: { value?: string };
+          }
         | undefined;
+      // C2.4: an item line names one of the company's items.
+      if (d?.ItemRef && !table("Item").has(String(d.ItemRef.value))) throw invalidRef();
       if (d?.ClassRef && !table("Class").has(String(d.ClassRef.value))) throw invalidRef();
       if (d?.CustomerRef && !table("Customer").has(String(d.CustomerRef.value))) {
         throw invalidRef();

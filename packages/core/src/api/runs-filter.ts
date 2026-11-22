@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { isUuid } from "../ids";
 import { CurrencyCode } from "../money";
+import { RunSubjectKind } from "../schemas/tool-about";
 
 // v0.12 W1-E: the one typed filter both runs lists take (ARCHITECTURE §10.10; docs/plan.md §1.40).
 // The back office's `GET /api/ops/runs` and the portal's `GET /api/runs` read it from their query
@@ -53,6 +54,84 @@ export const RunAmountFilter = z
   .refine((a) => a.over !== undefined || a.under !== undefined, "give over, under or both");
 export type RunAmountFilter = z.infer<typeof RunAmountFilter>;
 
+// R2 (docs/reporting-plan.md §3, docs/plan.md §1.193): what a run was about, read from
+// `run_subject` (R1). An entry is one of our records by its kind and id, or words matched against
+// the kept labels and numbers ("Acme", "PO-1032").
+
+/** The most entries `about` takes. */
+export const RUN_ABOUT_MAX = 20;
+
+/** Words as an `about` entry holds them: one line, spaces folded, commas made spaces, cut to 100. */
+// DECISION: words can't hold a comma, so a filter reads back from its query parameter as it was
+// written (`about=vendor:<id>,Acme`); a question's words lose theirs here.
+export function aboutWords(text: string): string {
+  return text.replaceAll(",", " ").split(/\s+/).filter(Boolean).join(" ").slice(0, 100).trim();
+}
+
+const AboutText = z
+  .string()
+  .trim()
+  .min(2)
+  .max(100)
+  .refine((v) => aboutWords(v) === v, "words on one line, without a comma");
+
+/** One of our records a run was about. Matched by its id; the kind names it for people. */
+export const RunAboutRecord = z.strictObject({ kind: RunSubjectKind, id: Id });
+export type RunAboutRecord = z.infer<typeof RunAboutRecord>;
+/** Words matched against what runs were about: labels ("Acme Supply") and numbers ("4471"). */
+export const RunAboutWords = z.strictObject({ text: AboutText });
+export const RunAbout = z.union([RunAboutRecord, RunAboutWords]);
+export type RunAbout = z.infer<typeof RunAbout>;
+
+/** An entry as its query parameter: `vendor:<id>`, or the words. */
+export function aboutParam(entry: RunAbout): string {
+  return "kind" in entry ? `${entry.kind}:${entry.id}` : entry.text;
+}
+
+/** Other names a record's kind goes by: a receivable is a transaction to runs (§1.188), and lists. */
+// DECISION: `receivable:<id>` and the records list's plural kinds (`vendors:<id>`) read as the
+// kind runs keep, so an id copied from ⌘K or the records list finds its runs.
+const ABOUT_KIND_ALIASES: Record<string, string> = {
+  receivable: "transaction",
+  receivables: "transaction",
+  transactions: "transaction",
+  vendors: "vendor",
+  items: "item",
+  documents: "document",
+};
+
+/** A query parameter as an entry: `kind:<uuid>` is a record, anything else words. */
+export function readAboutParam(value: string): { kind: string; id: string } | { text: string } {
+  const at = value.indexOf(":");
+  if (at > 0) {
+    const named = value.slice(0, at).toLowerCase();
+    const kind = ABOUT_KIND_ALIASES[named] ?? named;
+    const id = value.slice(at + 1);
+    if (RunSubjectKind.safeParse(kind).success && isUuid(id)) return { kind, id: id.toLowerCase() };
+  }
+  return { text: value };
+}
+
+/** Entries without repeats, in order: a record once by its id, words once whatever their case. */
+export function uniqueAbout(entries: readonly RunAbout[]): RunAbout[] {
+  const seen = new Set<string>();
+  return entries.filter((e) => {
+    const key = "kind" in e ? `r:${e.id.toLowerCase()}` : `w:${e.text.toLowerCase()}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+/** A record an `about` filter names, as the list names it back (from what its runs kept). */
+export const RunAboutName = z.object({
+  kind: RunSubjectKind,
+  id: z.string(),
+  label: z.string().nullable(),
+  number: z.string().nullable(),
+});
+export type RunAboutName = z.infer<typeof RunAboutName>;
+
 export const RunFilter = z.strictObject({
   clients: z.array(Id).max(100).optional(),
   agents: z.array(Id).max(100).optional(),
@@ -83,8 +162,13 @@ export const RunFilter = z.strictObject({
   costOver: Usd.optional(),
   /** `error.key` (or `error.code` for older runs). */
   errorKey: z.string().min(1).max(200).optional(),
-  /** A short id (`R-1a2b3c`), a workflow, an agent's or service's name, or words of the error. */
+  /**
+   * A short id (`R-1a2b3c`), a workflow, an agent's or service's name, words of the error, or a
+   * label or number of what the run was about (R2).
+   */
   text: z.string().trim().min(1).max(200).optional(),
+  // R2: runs about any of these (the portal matches only what its timeline shows).
+  about: z.array(RunAbout).min(1).max(RUN_ABOUT_MAX).optional(),
 });
 export type RunFilter = z.infer<typeof RunFilter>;
 
@@ -119,6 +203,19 @@ function listParam<T extends z.ZodType<unknown, string>>(item: T) {
     .pipe(z.array(item).max(100));
 }
 
+/** `about` as a parameter: entries split on commas, each `kind:<id>` or words (R2). */
+const AboutParam = z
+  .union([z.string(), z.array(z.string())])
+  .transform((v) =>
+    (Array.isArray(v) ? v : [v])
+      .flatMap((s) => s.split(","))
+      .map((s) => s.trim())
+      .filter(Boolean)
+      .map(readAboutParam),
+  )
+  .pipe(z.array(RunAbout).max(RUN_ABOUT_MAX))
+  .transform((list) => (list.length ? uniqueAbout(list) : undefined));
+
 const Limit = z.coerce.number().int().min(1).max(200).default(50);
 const Flag = z
   .union([z.boolean(), z.enum(["1", "0", "true", "false"])])
@@ -139,6 +236,8 @@ const sharedParams = {
   amountUnder: AmountBound.optional(),
   amountCurrency: CurrencyCode.optional(),
   text: RunFilter.shape.text,
+  // R2
+  about: AboutParam.optional(),
   limit: Limit,
   /** Adds the number of runs per day (UTC) that match. */
   perDay: Flag.optional(),
@@ -243,6 +342,7 @@ export const OpsRunsQuery = z
       costOver: q.costOver,
       errorKey: q.errorKey,
       text: q.text,
+      about: q.about,
     }),
     limit: q.limit,
     perDay: q.perDay === true,
@@ -274,6 +374,7 @@ export const PortalRunsQuery = z
         attemptsOver: q.attemptsOver,
         amount: amountFrom(q),
         text: q.text,
+        about: q.about as RunAbout[] | undefined,
       }),
       limit: q.limit,
       perDay: q.perDay === true,
@@ -284,7 +385,7 @@ export const PortalRunsQuery = z
 export function runFilterQuery(filter: RunFilter): Record<string, string> {
   const out: Record<string, string> = {};
   for (const [key, value] of Object.entries(filter)) {
-    if (value === undefined || key === "amount") continue;
+    if (value === undefined || key === "amount" || key === "about") continue;
     out[key] = Array.isArray(value) ? value.join(",") : String(value);
   }
   // v0.14 W4-B: the amount as its three parameters.
@@ -293,6 +394,8 @@ export function runFilterQuery(filter: RunFilter): Record<string, string> {
     if (filter.amount.under !== undefined) out.amountUnder = filter.amount.under;
     out.amountCurrency = filter.amount.currency;
   }
+  // R2: `about` as `vendor:<id>,Acme`.
+  if (filter.about?.length) out.about = filter.about.map(aboutParam).join(",");
   return out;
 }
 

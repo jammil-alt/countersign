@@ -219,12 +219,19 @@ export const accountServices = defineInternalTool({
 export const accountRuns = defineInternalTool({
   id: "account.runs",
   description:
-    "The client's recent runs, newest first, as the portal lists them; optionally one service's or one status's.",
+    "The client's recent runs, newest first, as the portal lists them; optionally one service's or one status's, or the runs about a vendor, a customer, a document or its number.",
   sideEffect: "none",
   summary: "Looked at {{count}} runs",
   input: z.object({
     serviceId: Id.optional(),
     status: AccountRunsQuery.shape.status,
+    // R2 (docs/plan.md §1.193): the portal's own filter; Sloan reads only what the portal shows.
+    text: AccountRunsQuery.shape.text.describe(
+      "Words in a run's short id, its service's name or what it was about",
+    ),
+    about: AccountRunsQuery.shape.about.describe(
+      "Runs about any of these: a record by its kind and id (from a run's sources), or words such as a vendor's name or an invoice number",
+    ),
     limit: z.number().int().min(1).max(50).default(20),
   }),
   output: z.object({ count: z.number().int(), runs: z.array(AccountRunSummary), sources: Sources }),

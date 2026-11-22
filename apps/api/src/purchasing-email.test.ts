@@ -11,7 +11,9 @@
 // Every write is approved once; outputs carry sources; another client sees nothing; the portal's
 // answers carry no prompt, model or cost. The plywood is asked for by Keystone's SKU, which only
 // Keystone's vendor catalog knows (docs/plan.md §1.189): no alias and no rule names it, so the line
-// matches through `vendor_item` alone; Keystone is the client's preferred vendor for it.
+// matches through `vendor_item` alone; Keystone is the client's preferred vendor for it. C2.4
+// (docs/plan.md §1.205): the plywood is tied to its QuickBooks item, as the bill-price import ties
+// it, and the oak is not, so the QuickBooks order has one item line and one account line.
 
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
@@ -879,6 +881,11 @@ describe.skipIf(!h)("a buyer that works by email, end to end", () => {
       };
       ids.bb = await item(BB);
       ids.oak = await item(OAK);
+      // C2.4: the plywood is the fake company's item 21 ("Baltic birch 3/4in 5x5").
+      await tx
+        .update(catalogItem)
+        .set({ ext: { qbo: "21" } })
+        .where(eq(catalogItem.id, ids.bb));
       const price = (catalogItemId: string, vendorId: string, unitPriceStd: string, uom: string) =>
         tx.insert(priceObservation).values({
           tenantId: A(),
@@ -1126,11 +1133,35 @@ describe.skipIf(!h)("a buyer that works by email, end to end", () => {
     const created = qbo.apiCalls("POST", "vendor");
     expect(created).toHaveLength(1);
     expect(out("qlines").order).toMatchObject({ expectedTotal: "1386.00", currency: "USD" });
-    expect(out("qlines").order.lines.map((l: J) => [l.accountId, l.amount])).toEqual([
-      ["81", "696.00"],
-      ["81", "690.00"],
+    // C2.4: the plywood as its QuickBooks item (quantity and price as quoted), the oak on the
+    // expense account.
+    expect(
+      out("qlines").order.lines.map((l: J) => [
+        l.itemId ?? l.accountId,
+        l.qty,
+        l.unitPrice,
+        l.amount,
+      ]),
+    ).toEqual([
+      ["21", "12", "58", "696.00"],
+      ["81", undefined, undefined, "690.00"],
     ]);
-    expect(qbo.apiCalls("POST", "purchaseorder")).toHaveLength(1);
+    expect(out("qlines").untied).toEqual([{ catalogItemId: ids.oak, name: expect.any(String) }]);
+    const poPosts = qbo.apiCalls("POST", "purchaseorder");
+    expect(poPosts).toHaveLength(1);
+    const poBody = JSON.parse(poPosts[0]?.body ?? "{}");
+    expect(poBody.Line.map((l: J) => l.DetailType)).toEqual([
+      "ItemBasedExpenseLineDetail",
+      "AccountBasedExpenseLineDetail",
+    ]);
+    expect(poBody.Line[0].ItemBasedExpenseLineDetail).toMatchObject({
+      ItemRef: { value: "21" },
+      Qty: 12,
+      UnitPrice: 58,
+    });
+    expect(poBody.Line[1].AccountBasedExpenseLineDetail).toMatchObject({
+      AccountRef: { value: "81" },
+    });
     // The PO PDF emailed to Keystone.
     const poMail = await readSentEmail(google.sent.at(-1)?.message as string);
     expect(poMail.to).toEqual(["kim@keystone.example"]);

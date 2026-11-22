@@ -32,7 +32,8 @@ import { authDirectory } from "../auth";
 import type { Bindings } from "../env";
 import { type AppContext, type AppDeps, type AppEnv, HttpError, requestState } from "../http";
 import { reportHandled, reportProblem } from "../observability/report";
-import { claudeConnectionGate } from "./approval";
+import { placeOf } from "../second-factor/phone";
+import { claudeClientInWords, claudeConnectionGate } from "./approval";
 import {
   auditEventSink,
   auditRefusedSignIn,
@@ -352,6 +353,10 @@ export function mcpRoutes(app: Hono<AppEnv>, deps: AppDeps): void {
         sessionId: auth.sessionId,
         approvePage: (code) =>
           `${appOrigin}${audience === "ops" ? "/ops" : ""}/connect-claude/${code}`,
+        asking: {
+          client: claudeClientInWords(c.req.header("user-agent")),
+          place: placeOf(c.req.raw),
+        },
         now: mcp.now(),
       });
       return gate;

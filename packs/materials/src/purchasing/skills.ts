@@ -13,6 +13,7 @@ import {
   backfillFromBillsTool,
   catalogMatchText,
   frequentItemsTool,
+  itemQboTool,
   poDocument,
   poQboLinesTool,
   quoteChosen,
@@ -269,7 +270,7 @@ export const PURCHASING_SKILLS: readonly SkillDefinition[] = lazyObjects([
     id: "materials.qbo-order-lines",
     name: "Lay out the QuickBooks purchase order",
     description:
-      "Turns the chosen quote into a QuickBooks purchase order's lines on the client's expense account for purchases, amounts in cents, ready for Create a purchase order (which waits for approval).",
+      "Turns the chosen quote into a QuickBooks purchase order's lines, amounts in cents, ready for Create a purchase order (which waits for approval): an item line for each item tied to its QuickBooks item, an account line on the client's expense account for purchases for the rest.",
     summary: "Laid out {{order.lines.length}} lines for {{vendorName}}'s QuickBooks order",
     settings: [
       {
@@ -280,6 +281,14 @@ export const PURCHASING_SKILLS: readonly SkillDefinition[] = lazyObjects([
         clientSpecific: true,
       },
     ],
+  }),
+  // C2.4: a catalog item tied to its QuickBooks item, so purchase orders use item lines.
+  toolSkill(itemQboTool, {
+    id: "materials.qbo-item",
+    name: "Find the item in QuickBooks",
+    description:
+      "Ties a catalog item to its QuickBooks item: the one we keep (from the client's bills), else the one QuickBooks item of the same name, else the one a person names. Purchase orders then order it as that item.",
+    summary: "{{name}} in QuickBooks: {{qboItemId}}",
   }),
   // P-9: what the person picked on the vendor choice card.
   toolSkill(quoteChosen, {

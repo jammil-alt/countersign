@@ -26,7 +26,14 @@ export const ASK_MAX_TOKENS = 1024;
 
 export type AskOutcome =
   // v0.14 W4-B: `leftOut`, the parts of the question the filter can't express.
-  | { ok: true; filter: RunFilter; leftOut: string[]; record: LlmCallRecord }
+  // R2: `aboutText`, what the runs were about in the question's words (looked up by ./about.ts).
+  | {
+      ok: true;
+      filter: RunFilter;
+      aboutText: string | null;
+      leftOut: string[];
+      record: LlmCallRecord;
+    }
   | { ok: false; reason: string; record: LlmCallRecord | null };
 
 /**
@@ -60,7 +67,13 @@ export async function compileQuestion(input: {
     if (problems.length > 0) {
       return { ok: false, reason: problems.join("; "), record: result.record };
     }
-    return { ok: true, filter, leftOut: answer.leftOut, record: result.record };
+    return {
+      ok: true,
+      filter,
+      aboutText: answer.aboutText,
+      leftOut: answer.leftOut,
+      record: result.record,
+    };
   } catch (error) {
     if (error instanceof LlmToolError) {
       return { ok: false, reason: `${error.code}: ${error.message}`, record: error.result.record };

@@ -157,6 +157,10 @@ export const de: Messages = {
   "search.group.records": "Einträge",
   "search.group.people": "Personen",
   "search.group.documents": "Dokumente",
+  "search.runsAbout": {
+    one: "{count} Ablauf zu {name}",
+    other: "{count} Abläufe zu {name}",
+  },
   "nav.table": "Der Tisch",
   "nav.desk": "Ihr Schreibtisch",
   "nav.yourAgents": "Ihre Agenten",
@@ -2084,6 +2088,9 @@ export const de: Messages = {
   "runsPage.chip.attemptsOver": "Versuche über",
   "runsPage.chip.amount": "Betrag",
   "runsPage.chip.text": "Wörter",
+  "runsPage.chip.about": "zu",
+  "runsPage.about.remove": "{name} aus dem Filter nehmen",
+  "runsPage.about.record": "ein Eintrag",
   "runsPage.ask.label": "Fragen Sie in eigenen Worten nach Ihren Abläufen",
   "runsPage.ask.placeholder": 'In eigenen Worten: "Rechnungen über $5,000 in diesem Monat"',
   "runsPage.ask.send": "Fragen",
@@ -3552,6 +3559,9 @@ export const de: Messages = {
     "Dieser Link gilt bis {time}. Nach der Freigabe gilt sie, bis diese Claude-Anmeldung endet, höchstens 12 Stunden.",
   "connectClaude.requested":
     "Claude hat Ihnen diesen Link um {time} gegeben. Wenn Sie Claude nicht gerade selbst gefragt haben, geben Sie ihn nicht frei.",
+  "connectClaude.client": "Es fragt: {client}.",
+  "connectClaude.place":
+    "Die Anfrage kam aus {place}. Claude im Web fragt von den Servern von Anthropic aus, also steht hier deren Standort, nicht Ihrer.",
   "connectClaude.confirm": "Der Code, den Claude Ihnen gezeigt hat",
   "connectClaude.confirmHint":
     "Claude zeigt mit diesem Link einen 6-stelligen Code. Geben Sie den ein, den Ihr eigenes Claude zeigt, nie einen, den Ihnen jemand anderes schickt.",

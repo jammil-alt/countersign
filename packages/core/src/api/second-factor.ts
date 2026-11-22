@@ -193,6 +193,13 @@ export const ClaudeConnection = z.object({
   requestedAt: z.string().nullable(),
   /** Waiting: when the link stops working. Approved: when the approval ends, at the latest. */
   expiresAt: z.string(),
+  /**
+   * Who is asking (H6): the Claude client as the newest asking request names itself, in words
+   * ("Claude", "Claude Code"); null when it named nothing we read or the link predates it.
+   */
+  client: z.string().nullable(),
+  /** Where the newest asking request came from, as Cloudflare places it: "Ashburn, US". */
+  place: z.string().nullable(),
 });
 export type ClaudeConnection = z.infer<typeof ClaudeConnection>;
 

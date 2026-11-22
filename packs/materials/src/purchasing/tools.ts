@@ -24,7 +24,7 @@ import { vendorContacts } from "./contacts";
 import { frequentItems, vendorsForItems } from "./history";
 import { matchText } from "./match-text";
 import { purchaseOrderDocument, rfqDocument } from "./po";
-import { poQboLines, vendorQbo } from "./qbo";
+import { itemQbo, poQboLines, vendorQbo } from "./qbo";
 import {
   createQuotes,
   expireQuotes,
@@ -967,6 +967,8 @@ export const backfillFromBillsTool = defineTool({
     newItems: z.number(),
     /** §1.189: vendor items added to the vendor catalog. */
     newVendorItems: z.number(),
+    /** C2.4: catalog items tied to the QuickBooks item their bill line named. */
+    qboItemsTied: z.number(),
     needsReview: z.number(),
     skipped: z.number(),
     review: z.array(
@@ -1158,10 +1160,48 @@ export const vendorQboTool = defineTool({
   },
 });
 
+// C2.4 (docs/plan.md §1.205): a catalog item tied to its QuickBooks item, for item lines on POs.
+const QboItemSeenIn = z.object({
+  id: z.string().min(1).max(64),
+  name: z.string(),
+  type: z.string().nullish(),
+  active: z.boolean().optional(),
+});
+
+export const itemQboTool = defineTool({
+  id: "materials.item.qbo",
+  description:
+    "Ties one of the client's catalog items to its QuickBooks item, so purchase orders order it as an item line: the id kept (from a bill or before); else the one active item of the same name among `qboItems` (qbo.item.query's `items`, looked up by `searchName`); else `qboItemId` as a person gave it. Without one, its lines stay account lines. Writes nothing to QuickBooks.",
+  sideEffect: "internal",
+  entity: "catalog_item",
+  verb: "update",
+  summary: "{{name}} in QuickBooks: {{qboItemId}}",
+  input: z.object({
+    catalogItemId: z.uuid(),
+    qboItems: z.array(QboItemSeenIn).max(1000).optional(),
+    qboItemId: z
+      .string()
+      .regex(/^[0-9]{1,20}$/)
+      .optional(),
+  }),
+  output: z.object({
+    catalogItemId: z.string(),
+    name: z.string(),
+    qboItemId: z.string().nullable(),
+    how: z.enum(["stored", "found", "given"]).nullable(),
+    searchName: z.string(),
+    sources: z.array(z.string()),
+  }),
+  async run(input, ctx) {
+    const r = await itemQbo(ctx.db, purchasing(ctx), input);
+    return { ...r, sources: [r.catalogItemId] };
+  },
+});
+
 export const poQboLinesTool = defineTool({
   id: "materials.po.qbo-lines",
   description:
-    "Turns a purchase request and its chosen quote (or a split's share of the lines) into qbo.purchaseorder.create's input as `order`: the vendor's QuickBooks id (materials.vendor.qbo first), one line per quoted line on the client's expense account for purchase orders, each amount rounded to cents, the total, the reference as its number and needed-by as its date. Writes nothing.",
+    "Turns a purchase request and its chosen quote (or a split's share of the lines) into qbo.purchaseorder.create's input as `order`: the vendor's QuickBooks id (materials.vendor.qbo first), one line per quoted line, an item line when its catalog item is tied to a QuickBooks item (materials.item.qbo) and otherwise an account line on the client's expense account for purchase orders, each amount rounded to cents, the total, the reference as its number and needed-by as its date. `untied` lists the order's items with no QuickBooks item. Writes nothing.",
   sideEffect: "none",
   entity: "purchase_request",
   summary: "Laid out {{order.lines.length}} lines for {{vendorName}}'s QuickBooks order",
@@ -1186,12 +1226,23 @@ export const poQboLinesTool = defineTool({
       currency: z.string(),
       expectedTotal: z.string(),
       memo: z.string(),
+      // C2.4: an item line (its QuickBooks item, quantity and unit price) or an account line.
       lines: z.array(
-        z.object({ accountId: z.string(), description: z.string(), amount: z.string() }),
+        z.union([
+          z.object({
+            itemId: z.string(),
+            description: z.string(),
+            qty: z.string(),
+            unitPrice: z.string(),
+            amount: z.string(),
+          }),
+          z.object({ accountId: z.string(), description: z.string(), amount: z.string() }),
+        ]),
       ),
     }),
     vendorName: z.string(),
     reference: z.string(),
+    untied: z.array(z.object({ catalogItemId: z.string(), name: z.string() })),
     sources: z.array(z.string()),
   }),
   run: (input, ctx) => {
@@ -1269,6 +1320,8 @@ export const PURCHASING_TOOLS: readonly PackTool[] = [
   vendorQboTool,
   poQboLinesTool,
   quoteChosen,
+  // C2.4
+  itemQboTool,
 ];
 
 /** The task skills' structured outputs, shared with the manifest. */
