@@ -1,4 +1,4 @@
-// Lost prospects' files (migration 0094; docs/plan.md §1.149 q14, §1.220): the Worker still can't
+// Lost prospects' files (migration 0097; docs/plan.md §1.149 q14, §1.220): the Worker still can't
 // delete a client file itself; `app_purge_lost_prospect_files()` deletes only files of prospects
 // whose every deal closed without a sale more than 12 months ago, their facts with them, leaves
 // the deals (unlinked), and writes one audit row naming the files' ids. Anything younger, a file
@@ -25,7 +25,7 @@ async function errorCode(promise: Promise<unknown>): Promise<string | undefined>
 
 const monthsAgo = (n: number) => new Date(Date.now() - n * 31 * 86_400_000);
 
-describe.skipIf(!online)("purging lost prospects' files (0094)", () => {
+describe.skipIf(!online)("purging lost prospects' files (0097)", () => {
   let t: TestDatabase;
   const files: Record<string, string> = {};
   const deals: Record<string, string> = {};

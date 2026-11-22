@@ -116,7 +116,7 @@ describe("reconcile", () => {
       { ref: "l4", date: "2026-11-03", effect: "-29.30" },
     ]);
     const r = reconcile(deposit, payout);
-    expect(r.matches).toEqual([{ method: "group", a: [0], b: [0, 1, 2, 3] }]);
+    expect(r.matches).toEqual([{ method: "group", rule: "group", a: [0], b: [0, 1, 2, 3] }]);
     expect(r.outcome).toBe("balanced");
   });
 
@@ -196,7 +196,7 @@ describe("reconcile", () => {
       "1250.00",
     );
     const r = reconcile(bank, books, DEFAULT_RECON_SETTINGS, "2026-11-30");
-    expect(r.matches).toEqual([{ method: "amount_date", a: [0], b: [0] }]);
+    expect(r.matches).toEqual([{ method: "amount_date", rule: "amount_date", a: [0], b: [0] }]);
     expect(r).toMatchObject({ startGap: "0.0000", residual: "0.0000", outcome: "balanced" });
     // Carried items don't count in a side's own roll-forward.
     expect(r.rollForward.b.gap).toBe("0.0000");

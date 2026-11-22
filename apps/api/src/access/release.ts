@@ -89,6 +89,7 @@ import { and, desc, eq, gt, inArray, isNull, or, sql } from "drizzle-orm";
 import type { Bindings } from "../env";
 import { HttpError, notFound } from "../http";
 import { messagingSettings, reachContactOf } from "../messaging/contacts";
+import { meter } from "../metering";
 import { reportHandled } from "../observability/report";
 import type { Platform } from "../platform";
 import { forwardingAddress } from "../reach/replies";
@@ -534,8 +535,18 @@ async function deliver(
   deps: ReleaseDeps,
   tenantId: string,
   route: Route,
-  input: { releaseId: string; text: string; locale: Locale },
+  input: { releaseId: string; text: string; locale: Locale; agentId: string; runId: string },
 ) {
+  // §1.210: a release code is the run's own usage, a text or an email, counted once per release.
+  const counted = (measure: "messages" | "emails") =>
+    meter(tx, {
+      tenantId,
+      measure,
+      source: "release_code",
+      key: `release:${input.releaseId}`,
+      agentId: input.agentId,
+      runId: input.runId,
+    });
   if (route.channel === "sms") {
     const creds = twilioCredentialsOf(
       await (await connectionCredentials(tx, deps.secrets, route.twilio)).get(),
@@ -549,6 +560,7 @@ async function deliver(
       body: input.text,
       messagingServiceSid: config ? a2pServiceFor(config, route.from) : null,
     });
+    await counted("messages");
     return;
   }
   if (!deps.resend) throw new Error("codes can't be emailed here: no sending domain is set up");
@@ -570,6 +582,7 @@ async function deliver(
     },
     { "Idempotency-Key": `release-${input.releaseId}` },
   );
+  await counted("emails");
 }
 
 const titleFor = (locale: Locale, channel: ReleaseChannel, agentName: string, tool: string) =>
@@ -639,6 +652,8 @@ async function newRequest(
   if (!release) throw new Error("access_release insert returned nothing");
   await deliver(tx, deps, tenantId, route, {
     releaseId: id,
+    agentId: ctx.agentRow.id,
+    runId,
     text: releaseMessage({
       code,
       agent: serviceName(ctx.agentRow),

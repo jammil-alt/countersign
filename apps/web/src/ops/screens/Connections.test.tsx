@@ -183,6 +183,8 @@ describe("what fits a client", () => {
       { connectors: ["qbo"], use: "Bills and vendors" },
       { connectors: ["gmail", "outlook"], use: "Asking vendors" },
     ],
+    config: { fields: [], values: {} },
+    processors: [],
     ...over,
   });
   const agent = (name: string, connector: string) => ({

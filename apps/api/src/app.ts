@@ -4,6 +4,7 @@
 import { credentialKeysFromEnv, globalFetch } from "@countersign/connectors";
 import { parseCoveredProcessors, routes } from "@countersign/core";
 import type { Db } from "@countersign/db";
+import { checkMissingReports } from "@countersign/documents";
 import { Hono } from "hono";
 import { sloanTick } from "./account/sloan";
 import { SUMMARY_CALL_TIMEOUT_MS, summaryPass } from "./account/summaries";
@@ -55,6 +56,7 @@ import { a2pRoutes } from "./routes/a2p";
 import { accessRoutes } from "./routes/access";
 // v0.12 W2-D: Sloan, the account agent
 import { accountRoutes } from "./routes/account";
+import { agentReportRouteHandlers } from "./routes/agent-report";
 import { approverRuleRoutes } from "./routes/approver-rules";
 import { assistDraftRoutes } from "./routes/assist";
 import { assuranceEnv, assuranceRouteHandlers } from "./routes/assurance";
@@ -64,6 +66,7 @@ import { autopilotRoutes } from "./routes/autopilot";
 // v0.12 bankfeed
 import { bankfeedRoutes } from "./routes/bankfeed";
 import { billingRouteHandlers } from "./routes/billing";
+import { booksHealthRoutes } from "./routes/books-health";
 import { browserRoutes } from "./routes/browser";
 import { browserScriptRoutes } from "./routes/browser-scripts";
 import { buildTryRoutes } from "./routes/build-tries";
@@ -86,6 +89,7 @@ import { deskRoutes } from "./routes/desk";
 import { desktopApiRoutes } from "./routes/desktop";
 import { directoryRoutes } from "./routes/directory";
 import { documentRoutes } from "./routes/documents";
+import { evidenceRouteHandlers } from "./routes/evidence";
 import { excelRoutes } from "./routes/excel";
 import { exportRoutes } from "./routes/exports";
 import { feedbackRouteHandlers } from "./routes/feedback";
@@ -99,6 +103,7 @@ import { gsheetsRoutes } from "./routes/gsheets";
 import { hookRoutes } from "./routes/hooks";
 import { hoursRoutes } from "./routes/hours";
 import { intakeRoutes } from "./routes/intake";
+import { interviewRoutesFor } from "./routes/interviews";
 import { inviteRoutes } from "./routes/invite";
 import { knowledgeRouteHandlers } from "./routes/knowledge";
 // v0.12 W2-C: the test bench, skill tests and the agent lab
@@ -111,6 +116,7 @@ import { libraryRoutes } from "./routes/library";
 import { lifecycleRoutes } from "./routes/lifecycle";
 // docs/builder-plan.md §5 (B3): the agent manual
 import { manualRouteHandlers } from "./routes/manual";
+import { matchRuleRoutes } from "./routes/match-rules";
 import { messagingSetupRoutes } from "./routes/messaging-setup";
 // §1.116: the phone app
 import { mobileRoutes, mobileSession } from "./routes/mobile";
@@ -127,14 +133,15 @@ import { opsCodeRequestRoutes } from "./routes/ops-code-requests";
 // v0.12 W2-A: the connectors catalog
 import { opsConnectorRoutes } from "./routes/ops-connectors";
 import { opsEventRoutes } from "./routes/ops-events";
+// Reshape data (2026-11-11)
+// §1.164: Read table's sample-file check
+import { opsIntakeReportRoutes } from "./routes/ops-intake-reports";
 import { opsLabClearRoutes } from "./routes/ops-lab-clear";
 import { opsLineageRoutes } from "./routes/ops-lineage";
 import { opsMergeRoutes } from "./routes/ops-merge";
 import { opsModelRoutes } from "./routes/ops-models";
 // v0.13 W2-I
 import { opsOversightRoutes } from "./routes/ops-oversight";
-// Reshape data (2026-11-11)
-// §1.164: Read table's sample-file check
 import { opsReadTableRoutes } from "./routes/ops-read-table";
 import { opsReshapeRoutes } from "./routes/ops-reshape";
 import { opsSkillRoutes } from "./routes/ops-skills";
@@ -152,6 +159,7 @@ import { recordRouteHandlers } from "./routes/records";
 import { reggieRoutes } from "./routes/reggie";
 import { releaseRoutes } from "./routes/release";
 import { requestRouteHandlers } from "./routes/requests";
+import { resendHookRoutes } from "./routes/resend-hooks";
 import { runAuditRouteHandlers } from "./routes/run-audit";
 import { runControlRoutes } from "./routes/run-controls";
 import {
@@ -281,6 +289,7 @@ export function createApp(deps: AppDeps = defaultDeps): Hono<AppEnv> {
   // Reshape data (2026-11-11): propose a Reshape step's mapping, and its sample values.
   opsReshapeRoutes(app);
   opsReadTableRoutes(app);
+  opsIntakeReportRoutes(app);
   opsMergeRoutes(app);
   opsEventRoutes(app);
   // v0.13 W2-H: models for task skills and skill steps.
@@ -316,14 +325,22 @@ export function createApp(deps: AppDeps = defaultDeps): Hono<AppEnv> {
   requestRouteHandlers(app);
   languageRouteHandlers(app);
   usageRouteHandlers(app);
+  // R4 (docs/plan.md §1.214): the report per agent, both surfaces.
+  agentReportRouteHandlers(app);
   recordRouteHandlers(app);
   approverRuleRoutes(app);
+  // §1.215: a client's saved match rules.
+  matchRuleRoutes(app);
+  // Round 4 D (docs/plan.md §1.211)
+  evidenceRouteHandlers(app);
   contactRoutes(app);
   // docs/plan.md §1.98
   textSignupRoutes(app);
   sloanReachRoutes(app);
   // §1.121: forms, "Request info": the public page's routes
   formRoutes(app);
+  // docs/plan.md §1.217: the process interview (its public page and the back office).
+  interviewRoutesFor(app);
   // docs/plan.md §1.101: Reggie, and the lead's requests on a client admin's Desk
   leadRequestRoutes(app);
   reggieRoutes(app);
@@ -341,6 +358,8 @@ export function createApp(deps: AppDeps = defaultDeps): Hono<AppEnv> {
   inviteRoutes(app);
   intakeRoutes(app);
   welcomeRoutes(app);
+  // §1.220: onboarding emails delivered or bounced, from Resend's webhook
+  resendHookRoutes(app);
   // docs/plan.md §1.109: voice typing
   voiceRoutes(app);
   // docs/plan.md §1.168: Draft for long text fields
@@ -348,6 +367,8 @@ export function createApp(deps: AppDeps = defaultDeps): Hono<AppEnv> {
   directoryRoutes(app);
   // The back office's chart of accounts (docs/plan.md §1.79).
   ledgerRoutes(app);
+  // docs/plan.md §1.216: books health
+  booksHealthRoutes(app);
   reachRoutes(app);
   messagingSetupRoutes(app);
   twilioHookRoutes(app);
@@ -470,6 +491,9 @@ export async function runCron(env: Bindings, scheduledTime: Date, deps: AppDeps 
           const run = forClient(runDepsFromEnv(env, { db, platform, instances }), tenantId);
           await platformHealthTick({ db, runtime: runtimeFor(run) }, tenantId, at, timeZone);
         },
+        // docs/plan.md §1.213: a scheduled report that didn't arrive raises its alert.
+        intakeTick: (tenantId, at, timeZone) =>
+          checkMissingReports(db, tenantId, { now: at, timezone: timeZone ?? "UTC" }),
       },
       scheduledTime,
     );

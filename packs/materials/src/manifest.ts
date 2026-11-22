@@ -12,6 +12,7 @@ import {
   PackManifest,
   type SkillDefinition,
 } from "@countersign/core";
+import { MATERIALS_REPORTS } from "./api";
 import { MATCH_CONFIDENCE_AUTO } from "./catalog/settings";
 import { CONTRACT_SKILLS } from "./contracts/skills";
 import { VENDOR_CONTRACTS_TEMPLATE } from "./contracts/template";
@@ -258,6 +259,12 @@ export const materialsManifest: PackManifest = lazyParse(PackManifest, () => ({
   version: "0.4.0",
   description:
     "Material cost management and purchasing: the client's catalog of materials, matching invoice lines across vendors, prices and alerts, purchase requests, quotes and purchase orders.",
+  area: "purchasing",
+  config: [],
+  // §1.230: the vendor catalog's search by meaning sends item names to the embedding model's
+  // provider (core's EMBEDDING_FEATURE); packs.test.ts in apps/api holds the two equal.
+  processors: ["openai"],
+  reports: Object.keys(MATERIALS_REPORTS),
   requiresConnectors: [],
   // §1.162: the connections the Purchasing area works through, for the client page's Areas tab.
   connections: [

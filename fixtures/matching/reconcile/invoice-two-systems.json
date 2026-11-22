@@ -1,0 +1,261 @@
+{
+  "description": "The ROMCO case: one client's invoices to ROMCO as its books hold them (A) and as ROMCO's payables system exports them (B). Numbers written differently, names spelled differently, dates days apart, a cent of tax rounding, an invoice split, one paid in part, two consolidated, and one only the model can settle.",
+  "config": "invoice_two_systems",
+  "a": [
+    {
+      "id": "A1",
+      "reference": "INV-001042",
+      "counterparty": "ROMCO, Inc.",
+      "date": "2026-10-03",
+      "amount": "1250.00",
+      "currency": "USD"
+    },
+    {
+      "id": "A2",
+      "reference": "INV-001043",
+      "counterparty": "ROMCO, Inc.",
+      "date": "2026-10-05",
+      "amount": "980.40",
+      "currency": "USD"
+    },
+    {
+      "id": "A3",
+      "reference": "INV-001044",
+      "counterparty": "ROMCO, Inc.",
+      "date": "2026-10-08",
+      "amount": "3000.00",
+      "currency": "USD"
+    },
+    {
+      "id": "A4",
+      "reference": "INV-001045",
+      "counterparty": "ROMCO, Inc.",
+      "date": "2026-10-10",
+      "amount": "2400.00",
+      "currency": "USD"
+    },
+    {
+      "id": "A5",
+      "reference": "INV-001046",
+      "counterparty": "ROMCO, Inc.",
+      "date": "2026-10-12",
+      "amount": "600.00",
+      "currency": "USD"
+    },
+    {
+      "id": "A6",
+      "reference": "INV-001047",
+      "counterparty": "ROMCO, Inc.",
+      "date": "2026-10-12",
+      "amount": "400.00",
+      "currency": "USD"
+    },
+    {
+      "id": "A7",
+      "reference": "INV-001048",
+      "counterparty": "ROMCO Industries, Inc.",
+      "date": "2026-10-20",
+      "amount": "750.00",
+      "currency": "USD"
+    },
+    {
+      "id": "A8",
+      "reference": "INV-001049",
+      "counterparty": "ROMCO",
+      "date": "2026-10-25",
+      "amount": "515.00",
+      "currency": "USD"
+    },
+    {
+      "id": "A9",
+      "reference": "INV-001050",
+      "counterparty": "Rocky Mountain Coal Co.",
+      "date": "2026-10-28",
+      "amount": "2210.00",
+      "currency": "USD"
+    },
+    {
+      "id": "A10",
+      "reference": "INV-001051",
+      "counterparty": "ROMCO",
+      "date": "2026-10-30",
+      "amount": "640.00",
+      "currency": "USD"
+    },
+    {
+      "id": "A11",
+      "reference": "INV-001052",
+      "counterparty": "ROMCO",
+      "date": "2026-10-31",
+      "amount": "99.00",
+      "currency": "USD"
+    }
+  ],
+  "b": [
+    {
+      "id": "B1",
+      "reference": "1042",
+      "counterparty": "Romco",
+      "date": "2026-10-06",
+      "amount": "1250.00",
+      "currency": "USD"
+    },
+    {
+      "id": "B2",
+      "reference": "1043",
+      "counterparty": "Romco",
+      "date": "2026-10-07",
+      "amount": "980.39",
+      "currency": "USD"
+    },
+    {
+      "id": "B3",
+      "reference": "1044",
+      "counterparty": "Romco",
+      "date": "2026-10-09",
+      "amount": "1800.00",
+      "currency": "USD",
+      "description": "Line 1 of 2"
+    },
+    {
+      "id": "B4",
+      "reference": "1044",
+      "counterparty": "Romco",
+      "date": "2026-10-09",
+      "amount": "1200.00",
+      "currency": "USD",
+      "description": "Line 2 of 2"
+    },
+    {
+      "id": "B5",
+      "reference": "1045",
+      "counterparty": "Romco",
+      "date": "2026-10-14",
+      "amount": "1000.00",
+      "currency": "USD",
+      "description": "Approved in part"
+    },
+    {
+      "id": "B6",
+      "reference": null,
+      "counterparty": "Romco",
+      "date": "2026-10-15",
+      "amount": "1000.00",
+      "currency": "USD",
+      "description": "Statement Oct 1046/1047"
+    },
+    {
+      "id": "B7",
+      "reference": null,
+      "counterparty": "Romco",
+      "date": "2026-10-22",
+      "amount": "750.00",
+      "currency": "USD"
+    },
+    {
+      "id": "B8",
+      "reference": null,
+      "counterparty": "ROMCO",
+      "date": "2026-10-27",
+      "amount": "515.00",
+      "currency": "USD"
+    },
+    {
+      "id": "B9",
+      "reference": null,
+      "counterparty": "ROMCO",
+      "date": "2026-10-29",
+      "amount": "2210.00",
+      "currency": "USD"
+    },
+    {
+      "id": "B10",
+      "reference": null,
+      "counterparty": "Romco",
+      "date": "2026-11-01",
+      "amount": "640.00",
+      "currency": "USD",
+      "description": "Our PO 88731"
+    },
+    {
+      "id": "B11",
+      "reference": null,
+      "counterparty": "Romco",
+      "date": "2026-11-03",
+      "amount": "640.00",
+      "currency": "USD",
+      "description": "Our PO 88790"
+    }
+  ],
+  "rules": [
+    {
+      "id": "rule-rmc",
+      "field": "counterparty",
+      "aValue": "rocky mountain coal",
+      "bValue": "romco"
+    }
+  ],
+  "model": [
+    {
+      "a": "A10",
+      "b": ["B10"],
+      "confidence": 0.93,
+      "reason": "The nearer of two equal amounts; the other is two days later and ROMCO's next order."
+    }
+  ],
+  "expect": [
+    {
+      "a": ["A1"],
+      "b": ["B1"],
+      "type": "one_to_one",
+      "tier": "deterministic",
+      "rule": "reference"
+    },
+    {
+      "a": ["A2"],
+      "b": ["B2"],
+      "type": "one_to_one",
+      "tier": "deterministic",
+      "rule": "reference"
+    },
+    {
+      "a": ["A3"],
+      "b": ["B3", "B4"],
+      "type": "one_to_many",
+      "tier": "deterministic",
+      "rule": "reference_group"
+    },
+    {
+      "a": ["A4"],
+      "b": ["B5"],
+      "type": "partial",
+      "tier": "deterministic",
+      "rule": "partial",
+      "difference": "1400.0000"
+    },
+    {
+      "a": ["A5", "A6"],
+      "b": ["B6"],
+      "type": "many_to_one",
+      "tier": "deterministic",
+      "rule": "group"
+    },
+    { "a": ["A7"], "b": ["B7"], "type": "one_to_one", "tier": "fuzzy", "rule": "similar" },
+    {
+      "a": ["A8"],
+      "b": ["B8"],
+      "type": "one_to_one",
+      "tier": "deterministic",
+      "rule": "counterparty_amount"
+    },
+    {
+      "a": ["A9"],
+      "b": ["B9"],
+      "type": "one_to_one",
+      "tier": "client_rule",
+      "rule": "client_rule:rule-rmc"
+    },
+    { "a": ["A10"], "b": ["B10"], "type": "one_to_one", "tier": "model", "rule": "model" }
+  ],
+  "unmatched": { "a": ["A11"], "b": ["B11"] }
+}

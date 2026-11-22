@@ -38,6 +38,7 @@ import {
   type StepRunner,
 } from "@countersign/workflows";
 import { and, eq, gte, inArray, isNotNull, sql } from "drizzle-orm";
+import { meterBankItems } from "../metering";
 import { reportDrop, reportHandled, reportProblem } from "../observability/report";
 import { matchRepliesIn, wakeAll } from "../reach/replies";
 // v0.12 W2-E
@@ -61,7 +62,15 @@ export interface DispatchDeps {
    * (findings for failed runs and connections, the 08:00 daily check in its time zone).
    */
   healthTick?: (tenantId: string, at: Date, timeZone: string | null) => Promise<unknown>;
+  /**
+   * docs/plan.md §1.213: scheduled reports that didn't arrive raise their alerts (every
+   * INTAKE_CHECK_MINUTES).
+   */
+  intakeTick?: (tenantId: string, at: Date, timeZone: string | null) => Promise<unknown>;
 }
+
+// DECISION: missing reports are looked for every 5 minutes: a report's grace is in hours.
+export const INTAKE_CHECK_MINUTES = 5;
 
 /** A client's agents with their live bundles: what the router chooses from. */
 export async function routableAgents(tx: Tx, tenantId: string): Promise<RoutableAgent[]> {
@@ -496,13 +505,18 @@ export async function cronTick(deps: DispatchDeps, scheduledTime: Date): Promise
       for (const request of due) await startRun(deps, request);
       await redeliverResolutions(deps, client.id, scheduledTime);
       if (to.getUTCMinutes() === USAGE_SWEEP_MINUTE) {
-        await withTenant(deps.db, client.id, (tx) =>
-          rollupUsageDays(tx, { tenantId: client.id, days: usageSweepDays(to) }),
-        );
+        await withTenant(deps.db, client.id, async (tx) => {
+          // §1.210: this month's connected banks, before the rollup counts them.
+          await meterBankItems(tx, client.id, to);
+          await rollupUsageDays(tx, { tenantId: client.id, days: usageSweepDays(to) });
+        });
       }
       if (deps.reachTick) await deps.reachTick(client.id, scheduledTime);
       if (deps.codesTick) await deps.codesTick(client.id, scheduledTime);
       if (deps.healthTick) await deps.healthTick(client.id, to, client.timezone ?? null);
+      if (deps.intakeTick && to.getUTCMinutes() % INTAKE_CHECK_MINUTES === 0) {
+        await deps.intakeTick(client.id, to, client.timezone ?? null);
+      }
       // v0.12 W1-H: what this pass emitted (reach-outs, code alerts, usage) goes now, not a tick
       // later.
       // DECISION: the cron's tenant pass opens its transactions in many places, so at its end it

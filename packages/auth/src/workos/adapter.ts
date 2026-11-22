@@ -2,7 +2,7 @@
 // start sign-in, finish it on the callback, and sign out. Provisioning (find or create the
 // app_user, refuse the uninvited) is the directory's job, done by the API with packages/db.
 
-import { SESSION_ACTIVITY_HEADER, type SecondFactorState } from "@countersign/core";
+import { type MobileApp, SESSION_ACTIVITY_HEADER, type SecondFactorState } from "@countersign/core";
 import { compactAccount, cookieFits, expandAccount } from "../account";
 import { requestCookie } from "../cookies";
 import { randomToken, timingSafeEqual } from "../seal";
@@ -21,7 +21,7 @@ import {
   type WorkOSProvider,
 } from "./client";
 import type { WorkOSConfig } from "./config";
-import { isMobileSignIn } from "./mobile";
+import { isMobileSignIn, mobileSignInApp } from "./mobile";
 import {
   clearSessionCookie,
   clearStateCookie,
@@ -59,6 +59,8 @@ export interface Redirect {
     readonly remembered: boolean;
     /** §1.116: a sign-in for the phone app (never `remembered`). */
     readonly phone: boolean;
+    /** §1.219: which app, when `phone` (the phone or the desktop app). */
+    readonly app?: MobileApp;
   };
 }
 
@@ -391,6 +393,7 @@ export function createWorkOSAdapter(options: {
       let remembered = false;
       // §1.116: a sign-in for the phone app; its session leaves this browser at the handoff.
       const phone = isMobileSignIn(request);
+      const app = phone ? ((await mobileSignInApp(request, password, nowDate)) ?? "phone") : null;
       if (step && !(method && SECOND_FACTOR_EXEMPT_METHODS.includes(method))) {
         // DECISION (§1.116): a remembered browser never lets a sign-in for the phone skip the
         // step: the browser was remembered, not the phone the session goes to.
@@ -422,7 +425,14 @@ export function createWorkOSAdapter(options: {
         ok: true,
         redirectTo,
         setCookies: [...clear, sessionCookie(await sealSession(session, password), session, now)],
-        signedIn: { userId: outcome.userId, method, secondFactor, remembered, phone },
+        signedIn: {
+          userId: outcome.userId,
+          method,
+          secondFactor,
+          remembered,
+          phone,
+          ...(app ? { app } : {}),
+        },
       };
     },
 

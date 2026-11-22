@@ -1,5 +1,7 @@
 // The SPA: sign-in, the back office (`/ops/*`) and the client portal (everything else), each of
 // the two its own chunk, one app with two layouts (plan §1.2 "Back office and portal in one app").
+
+import { MOBILE_CONFIRM_PATH } from "@countersign/core";
 import { lazy, type ReactNode, Suspense } from "react";
 import { BrowserRouter, Navigate, Route, Routes, useLocation } from "react-router-dom";
 import type { ApiClient } from "./api/client";
@@ -59,6 +61,10 @@ export function startChunksEarly(pathname: string): void {
 const SecondStepScreen = lazy(() =>
   import("./session/SecondStep").then((m) => ({ default: m.SecondStepScreen })),
 );
+// §1.219: the page that asks before a sign-in goes to the phone or desktop app: its own chunk.
+const AppHandoffScreen = lazy(() =>
+  import("./session/AppHandoff").then((m) => ({ default: m.AppHandoffScreen })),
+);
 // §1.98: the texting sign-up page is opened from a link, never in the app: its own chunk.
 const TextSignupScreen = lazy(() =>
   import("./signup/TextSignup").then((m) => ({ default: m.TextSignupScreen })),
@@ -66,6 +72,10 @@ const TextSignupScreen = lazy(() =>
 // §1.121: a "Request info" form, opened from a link a contact was sent: its own chunk.
 const FormPageScreen = lazy(() =>
   import("./forms/FormPage").then((m) => ({ default: m.FormPageScreen })),
+);
+// §1.217: a process interview, opened from a link a contact was sent: its own chunk.
+const InterviewPageScreen = lazy(() =>
+  import("./interview/InterviewPage").then((m) => ({ default: m.InterviewPageScreen })),
 );
 // §1.149: the welcome page an invite's link opens, before sign-in: its own chunk.
 const SetupLinkScreen = lazy(() =>
@@ -88,6 +98,15 @@ export function AppRoutes() {
           </Suspense>
         }
       />
+      {/* docs/plan.md §1.219: confirm before the session goes to one of our apps. */}
+      <Route
+        path={MOBILE_CONFIRM_PATH}
+        element={
+          <Suspense fallback={<StillFrame />}>
+            <AppHandoffScreen />
+          </Suspense>
+        }
+      />
       {/* docs/plan.md §1.98: choosing to get texts from a business; no sign-in. */}
       <Route
         path="/texts/:token"
@@ -103,6 +122,15 @@ export function AppRoutes() {
         element={
           <Suspense fallback={<StillFrame />}>
             <FormPageScreen />
+          </Suspense>
+        }
+      />
+      {/* docs/plan.md §1.217: a process interview we sent; no sign-in. */}
+      <Route
+        path="/i/:token"
+        element={
+          <Suspense fallback={<StillFrame />}>
+            <InterviewPageScreen />
           </Suspense>
         }
       />
