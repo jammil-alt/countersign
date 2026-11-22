@@ -16,6 +16,7 @@
 // than fitted to each step's words: titles that run long are cut with an ellipsis and read in full
 // on hover and in the side panel.
 
+import { loopStepNumber, pathLetter, pathStepNumber } from "@countersign/core";
 import { type ContainerId, ROOT, type Step } from "../builder/model";
 import type { FlowEnds, InsertPoint, Process } from "./types";
 
@@ -168,13 +169,8 @@ export interface LayoutOptions {
   folded?: ReadonlySet<string>;
 }
 
-/** A path's letter: A, B, … Z, then AA, AB. */
-export function pathLetter(index: number): string {
-  const letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
-  return index < letters.length
-    ? (letters[index] as string)
-    : `${pathLetter(Math.floor(index / letters.length) - 1)}${letters[index % letters.length]}`;
-}
+// A step's number is the same on every screen (core `process/numbers.ts`): the chart's, the SOP's.
+export { pathLetter };
 
 export function insertKey(at: InsertPoint): string {
   return `${at.container}#${at.index}`;
@@ -400,7 +396,7 @@ export function layoutFlow(process: Pick<Process, "steps">, options: LayoutOptio
             pcx,
             pathTop,
             live ? { x: pcx, y: pathTop, from: st.id, pending: into ? [into] : [] } : null,
-            (xi) => `${number} ${col.letter}${xi + 1}`,
+            (xi) => pathStepNumber(number, col.letter, xi),
             true,
           );
           if (live && col.steps.length === 0) {
@@ -485,7 +481,7 @@ export function layoutFlow(process: Pick<Process, "steps">, options: LayoutOptio
           cx,
           innerTop,
           live ? { x: cx, y: hy + BOX_H, from: st.id, pending: [] } : null,
-          (xi) => `${number}.${xi + 1}`,
+          (xi) => loopStepNumber(number, xi),
           false,
         );
         if (live) {

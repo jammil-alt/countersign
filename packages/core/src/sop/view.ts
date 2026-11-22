@@ -86,6 +86,8 @@ export const SopPathLine = z.object({
   line: z.literal("path"),
   depth: z.number().int().min(0),
   label: z.enum(["if", "otherwise"]),
+  /** The path's letter on the chart: A, B, … with Otherwise last. Empty in a revision made before it. */
+  letter: z.string().default(""),
   words: z.string(),
   /** The path has no steps: straight on. */
   empty: z.boolean(),

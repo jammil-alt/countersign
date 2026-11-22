@@ -96,7 +96,7 @@ const VIEW: SopView = {
         notes: [null, null, null, null],
       },
       {
-        step: "2.1",
+        step: "2 A1",
         name: "Review the price alert",
         cells: ["", "", "", "does"],
         notes: [null, null, null, null],
@@ -130,10 +130,17 @@ const VIEW: SopView = {
       name: "Does a person need to look first?",
       purpose: "Sends a flagged bill to a person first.",
     }),
-    { line: "path", depth: 1, label: "if", words: "a price alert or a new vendor", empty: false },
+    {
+      line: "path",
+      depth: 1,
+      label: "if",
+      letter: "A",
+      words: "a price alert or a new vendor",
+      empty: false,
+    },
     step({
       id: "review",
-      number: "2.1",
+      number: "2 A1",
       depth: 1,
       name: "Review the price alert",
       method: "person",
@@ -141,7 +148,7 @@ const VIEW: SopView = {
       purpose: "Cara decides whether it goes ahead.",
       byWhen: "1 business day; if nobody answers, Sam Patel is asked",
     }),
-    { line: "path", depth: 1, label: "otherwise", words: "", empty: true },
+    { line: "path", depth: 1, label: "otherwise", letter: "B", words: "", empty: true },
     step({
       id: "create",
       number: "3",

@@ -342,7 +342,7 @@ describe("the agent's SOP, made by code (docs/sop-plan.md)", () => {
       "3",
       "4",
       "if",
-      "4.1",
+      "4 A1",
       "otherwise",
       "5",
       "6",
@@ -555,8 +555,12 @@ describe("the agent's SOP, made by code (docs/sop-plan.md)", () => {
     const numbers = view.procedure
       .filter((l): l is SopStepLine => l.line === "step")
       .map((l) => `${l.number} ${l.name}`);
-    expect(numbers).toContain("4.2 Which price?");
-    expect(numbers).toContain("4.2.1 Tell Cara");
+    expect(numbers).toContain("4 A2 Which price?");
+    expect(numbers).toContain("4 A2 A1 Tell Cara");
+    // The paths' letters, as on the chart: A, then Otherwise as B.
+    expect(
+      view.procedure.flatMap((l) => (l.line === "path" ? [`${l.depth}${l.letter}`] : [])),
+    ).toEqual(["1A", "2A", "2B", "1B"]);
     expect(step(view, "deep").told.map((p) => p.name)).toEqual(["Cara Lin"]);
   });
 

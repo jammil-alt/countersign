@@ -196,11 +196,22 @@ chart, which the client can read but not change. Mock-up screen 6 of `docs/desig
 
 - **Who sees it:** the client's admins, for every agent; other team members, for the agents assigned
   to them. The same rule as the SOP (`ASSIGNED_USER_ROUTES`).
-- **What it shows:** the trigger, each step as a box with its number and name, who does it (person or
-  agent icon), how it decides (rules, AI with the model, or rules then AI), the tool and its write
-  level, the approver, and the paths of each "if" with their words. The settings show as text, such as
-  "Tolerance 3%" or "Create: Ask me first". Nothing on the chart is a control: no handles, no +, no
-  dragging, no step panel.
+- **What it shows:** the builder's own boxes (D2, `docs/plan.md` §1.178): the kind's badge on the
+  corner, the number and name, a line under it, who does it at the right (the model in a word, or
+  "rules" or "person") with the tool's logo or the channel, and the top edge in the colour of whose
+  work it is. Decisions are diamonds; their paths are labelled with their letters and words. The
+  line under a step's name is in the client's words, from the SOP ("QuickBooks Online · on its
+  own", "Cara Lin · 1 business day"), never the builder's ("Query", "client admin"). The settings
+  show as text, such as "Tolerance 3%" or "Create: Ask me first". Nothing on the chart is a control:
+  no handles, no +, no dragging, no step panel, and the builder's hover text ("Click to set it up")
+  is the step's card instead.
+- **One number per step** (owner, 2026-11-22, on D2): the chart's numbers everywhere: "5 A1" for
+  the first step of path A of decision 5, with Otherwise lettered after the paths; "6.2" inside a
+  loop. The SOP used "5.1" and now follows the chart (`process/numbers.ts` in core, used by both),
+  and its path lines carry their letter. Built on PR #508. // DECISION
+- **"Rules" or "code".** The box says "code" for a step no model does, the step palette says
+  "Deterministic", and the SOP says "Rules". The client's chart says "rules", as their SOP does;
+  whether the builder should say it too is the owner's call (§7).
 - **Tooltips:** pointing at a box, tabbing to it or tapping it shows its card: the step's purpose,
   who does it and how, who signs and by when, the tool and its level, what happens if it's rejected
   or fails, its controls, and links to that step in the SOP and to "Ask about this". Keyboard and
@@ -232,6 +243,9 @@ the Manual tab's place. Still open:
    anyone without a sign-in can open.
 3. **The back office.** Show the client's SOP on the agent's page (recommended), and a template's
    sample SOP for sales, with "the person you name" in place of people (later).
+4. **One word for a step no model does.** The builder's box says "code", its step palette
+   "Deterministic", the SOP "Rules". Recommended: "rules" everywhere, one word in `boxDoer` and the
+   palette; or keep "code" for operators and "rules" for clients.
 
 ## 8. The build, in streams
 

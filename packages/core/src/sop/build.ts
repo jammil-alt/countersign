@@ -14,6 +14,7 @@ import type { OwnerArea } from "../owners/areas";
 import { decideToolCall } from "../permissions/decide";
 import { effectiveMatrix, type GrantLimits } from "../permissions/grants";
 import { ACTION_SPECS } from "../process/actions";
+import { loopStepNumber, pathLetter, pathStepNumber } from "../process/numbers";
 import type { AgentDefinition, AnyAgentBundle } from "../schemas/agent";
 import type { PermissionLevel, PermissionMatrix, Verb } from "../schemas/permissions";
 import type { Rules } from "../schemas/rules";
@@ -356,8 +357,9 @@ function walk(bundle: AnyAgentBundle): {
   for (const w of enabled) {
     const v4 = (w.workflow as { schemaVersion: number }).schemaVersion === 4;
     const workflow = many ? w.name : null;
-    // One step, then what it holds, at any depth: an `if`'s paths (their steps numbered on from
-    // the `if`'s own number, across its paths), a `for_each`'s or a `repeat`'s steps.
+    // One step, then what it holds, at any depth: an `if`'s paths, lettered A, B… then Otherwise,
+    // each numbered from 1 ("5 A1"), a `for_each`'s or a `repeat`'s steps ("6.2"). The chart's
+    // numbers (`process/numbers.ts`), so a step has one number on every screen.
     const visit = (step: AnyStep, number: string, depth: number) => {
       const v: Visited = { step, number, depth, workflow, v4 };
       visited.push(v);
@@ -367,32 +369,34 @@ function walk(bundle: AnyAgentBundle): {
           (step.paths as { name: string; describe?: string; when: Rules; steps: AnyStep[] }[]) ??
           [];
         const otherwise = (step.otherwise as { steps: AnyStep[] } | undefined)?.steps ?? [];
-        let k = 0;
-        const inner = (children: AnyStep[]) => {
-          for (const c of children) {
-            k += 1;
-            visit(c, `${number}.${k}`, depth + 1);
-          }
+        const inner = (children: AnyStep[], letter: string) => {
+          children.forEach((c, i) => {
+            visit(c, pathStepNumber(number, letter, i), depth + 1);
+          });
         };
-        for (const p of paths) {
+        paths.forEach((p, i) => {
+          const letter = pathLetter(i);
           lines.push({
             depth: depth + 1,
             label: "if",
+            letter,
             words: pathWords(p),
             empty: p.steps.length === 0,
           });
-          inner(p.steps);
-        }
+          inner(p.steps, letter);
+        });
+        const letter = pathLetter(paths.length);
         lines.push({
           depth: depth + 1,
           label: "otherwise",
+          letter,
           words: otherwise.length === 0 ? "straight on" : "",
           empty: otherwise.length === 0,
         });
-        inner(otherwise);
+        inner(otherwise, letter);
       } else if (step.kind === "for_each" || step.kind === "repeat") {
         ((step.steps as AnyStep[]) ?? []).forEach((c, i) => {
-          visit(c, `${number}.${i + 1}`, depth + 1);
+          visit(c, loopStepNumber(number, i), depth + 1);
         });
       }
     };

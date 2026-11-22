@@ -321,6 +321,7 @@ export function SopDocument({
 
   const pathLine = (l: SopPathLine, i: number) => (
     <li key={`path-${i}`} className="sop-path" style={{ paddingLeft: `${1 + l.depth * 2}rem` }}>
+      {l.letter ? <span className="sop-path__letter">{l.letter}</span> : null}
       <b>{l.label === "if" ? t("sop.path.if") : t("sop.path.otherwise")}</b>{" "}
       {l.label === "otherwise" && l.empty ? t("sop.path.straightOn") : <Hl text={l.words} q={q} />}
     </li>

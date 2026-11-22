@@ -609,6 +609,12 @@ button.sop-party:hover {
 .sop-path b {
   color: var(--ink);
 }
+/* The path's letter, as on the chart's label ("A", "B"): the step numbers under it read "5 A1". */
+.sop-path__letter {
+  margin-right: 6px;
+  font: 600 11px / 1 var(--font-mono);
+  color: var(--ink);
+}
 .sop-cell {
   display: inline-block;
   padding: 2px 6px;

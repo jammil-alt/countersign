@@ -292,6 +292,7 @@ export * from "./permissions/release";
 // R1: processes, workflow schemaVersion 4 (docs/plan.md §1.86, §9), as the `processes` namespace.
 export * as processes from "./process";
 export * from "./process/change-class";
+export * from "./process/numbers";
 // Agent motion (docs/plan.md §1.106): the thinking state a running step shows.
 export { THINKING_STATES, type ThinkingState, thinkingOf } from "./process/thinking";
 // Invariant 9: what a prompt puts between its tags can't close them.
