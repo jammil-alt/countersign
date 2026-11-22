@@ -259,11 +259,18 @@ Requirements request reading its card. All against fakes. What it still needs:
 - Code, next wave (`docs/cases-plan.md` §7): talk it through with Sloan (O4); the scope, signing,
   facts into the knowledge base and builds into fit-gap (O5); Reggie filing facts and suggesting
   what to cover; reminders and the remaining emails; voice (O6).
-- Code, smaller: delivered and bounced from Resend's webhooks; "Just the account" still sends
-  WorkOS's own invitation rather than a branded welcome-only email; a client file's documents (no
-  storage yet); pack and template questions shown in English; the retention job for lost
-  prospects; a "send it again" for an invite that didn't go (today it leaves the lead a to-do).
-  The full list: `docs/plan.md` §1.149.5 and §1.149.6.
+- Code, smaller: a client file's documents (no storage yet); pack and template questions shown in
+  English. People added to an existing client with nothing
+  ticked still get WorkOS's invitation, not ours. The full list: `docs/plan.md` §1.149.5 and
+  §1.149.6. Built in Wave X (§1.220): delivered and bounced from Resend's webhooks (#564; needs
+  the owner's step: the webhook endpoint `https://<app host>/api/hooks/resend` for
+  `email.delivered` and `email.bounced` in Resend, and its signing secret as
+  `RESEND_WEBHOOK_SECRET` in each GitHub environment), "Send it again" (#567), "Just the
+  account"'s own welcome email (#570), and the hourly job that deletes a lost prospect's file 12
+  months on (migration 0097 #572, job #573). The owner's to confirm: "lost" is every deal naming
+  the file closed `lost` or `no`, the last over 12 months ago (`not_now` keeps it); every bounce,
+  soft or hard, leaves the lead a to-do; Send it again is for invites only, to the same address.
+  Unchecked against Resend: its webhook header names and the shape of its tags (`resend/NOTES.md`).
 - The owner's call: whether the deal page's old "Set up the account" card stays now that Invite
   does the set-up.
 - **Built (2026-11-22), PR #522:** setting a client up from the intake to the first trial
@@ -358,7 +365,7 @@ sign-in stays off until `MOBILE_SIGNIN=on` and phone notifications until `MOBILE
 | M5 | **Try it on staging**: set `MOBILE_SIGNIN=on` and `MOBILE_PUSH=on` on staging's Worker with `wrangler secret put` (a dashboard variable is erased by the next deploy; `deploy.yml` copies neither yet), sign in from the app (WorkOS in the system browser, then the second step's code if it is on there), set up the phone (notifications, Face ID), make a Desk item on the Sandbox (any approval), and check: the notification arrives within 5 minutes with a count only, tapping opens the Desk, signing asks for Face ID, the audit log has `inbox.device_signed`, Undo works within 60 seconds, removing the phone in Settings stops its notifications. | Nothing in WorkOS changes: the sign-in returns to `/api/mobile/handoff` on our own origin. |
 | M6 | Expo's **enhanced push security** on, and `MOBILE_PUSH` and `EXPO_ACCESS_TOKEN` copied by `deploy.yml` (a small PR of its own), before production's `MOBILE_PUSH=on`. | Until then anyone holding a phone's token could send it a notification through Expo. |
 | M7 | Owner decisions: a longer session for an unlocked registered phone (today 30 idle minutes, as the browser, and the second step's code at each sign-in); whether a remembered browser may let a phone sign-in skip the code (today never); whether operators get the app (today refused at the handoff); (the phone app as a second-step method: built 2026-11-18, A8); the store listing (name, screenshots, privacy answers); TestFlight testers. | `docs/plan.md` §1.116 "Not in this pass". |
-| M8 | Before production's `MOBILE_SIGNIN=on`: a page in the browser that asks the person to confirm before the handoff sends the session to the app, and the app's return on a universal link (iOS) and an app link (Android) instead of the `mezonas://` scheme, so only our app can receive the code. | Audit, 2026-11-17. The code is already useless without the app's PKCE verifier. |
+| M8 | Before production's `MOBILE_SIGNIN=on`: the app's return on a universal link (iOS) and an app link (Android) instead of the `mezonas://` scheme, so only our app can receive the code. The confirm page before the handoff is built (#562, `docs/plan.md` §1.219). | Audit, 2026-11-17. The code is already useless without the app's PKCE verifier. |
 | M9 | ~~Signing follow-ups: a v2 signed text covering an answer's text and a note~~ Done (§1.203): the app signs `mezonas-sign:v2`; `v1` is still accepted. Owner decision left: when to refuse a `v1` signature that comes with an answer or a note (once every phone in use signs `v2`). The ±5 minute window is kept as is. | Owner decision. |
 | M10 | Decide: whether a release-code card may be resolved from a phone without a signature; whether a phone session may turn human release off (a setting, not a card). Possible, not checked: an admin's phone undoes another person's rejection, then a step set to `ifNoAnswer: proceed` goes on at its deadline. | Owner decisions; the last one needs a test first. |
 
@@ -376,7 +383,7 @@ finish it:
 | D4 | **A Mac and a PC**: `node apps/desktop/node_modules/electron/install.js`, then `MEZONAS_API_URL=https://staging.mezonas.com pnpm --filter @countersign/desktop start`, with `MOBILE_SIGNIN=on` on staging. Check each item in `packages/connectors/src/desktop/NOTES.md` (Excel's owner file on both, a written workbook opens without repair, OneDrive-synced folders, Mac privacy prompts). | |
 | D5 | **Signing certificates**: the Apple Developer ID (the same account as the phone, M3) for signing and notarising; for Windows, Azure Trusted Signing (or an OV certificate). | Without them Mac Gatekeeper and Windows SmartScreen warn on install. |
 | D6 | **The update feed**: an R2 bucket of ours behind `downloads.mezonas.com/desktop/`, and a release workflow that builds on macOS and Windows runners and uploads there (its own PR). | |
-| D7 | Before production: the handoff's audit row naming the desktop (`app: desktop`), and the same confirm page as M8 (another app could register `mezonas://` on a computer; the code is useless without the app's verifier). | |
+| D7 | **Built (#562, `docs/plan.md` §1.219):** the handoff's audit rows name the app (`app=desktop`), and the confirm page before the handoff (M8's). Left: removing a phone also ends that person's desktop sessions (both are `ph` sessions). | |
 | D8 | Next: signing Desk items in the app (Touch ID, Windows Hello), the Office add-in for open workbooks, Word, QuickBooks Desktop (Web Connector), sending files already in a folder, network shares, managed installs. | Owner's order. |
 
 ### Builds that work first (B0–B6, owner 2026-11-19; `docs/plan.md` §1.155, `docs/builder-plan.md`)
@@ -515,6 +522,27 @@ Fixed in one PR. What is still open from it:
   agent address form; client test cases never gating shared skills; who sets "on its own".
 - **Smaller defaults** (§7 item 10): the 60 s undo window, US federal holidays only, notification
   texts only from the client's own number, replay as a test run in the same client.
+- **Wave X (2026-11-22), defaults to confirm.** The matching engine (§1.215): `invoice_two_systems`
+  uses a 30-day window and a cent of tolerance, and two stated invoice numbers that differ never
+  match; an equal amount alone never auto-matches (fuzzy weights amount 0.6, name 0.3, date and
+  reference 0.1 each); a partial match is one item against items carrying its reference, all of one
+  sign; a Bookkeeping match made by a saved rule is stored as `exact`, the rule in its reason (a
+  method of its own needs a migration). Books health (§1.216): only reconciliations signed off in
+  Mezonas count, so most accounts read "Never reconciled with us" until the Bookkeeper signs one
+  off; the thresholds (45 days to reconcile, 30 days past due, 3 days for unnumbered duplicate
+  bills, 7 days in undeposited funds, 10% price drift over a year); whether to backfill more than
+  90 days of bills and purchases, here and for the prospect connection. Onboarding (§1.220): the
+  items under "Back office work" above. The handoff (§1.219): the six languages want a fluent
+  speaker's review.
+- **Wave X, not built yet.** Matching: a back-office screen for saved rules and "save as rule" on
+  the reconciliation card; a pack tool running the ROMCO configuration (the other system's
+  invoices aren't synced). Books health: two facts to check on the QuickBooks sandbox company
+  (`qbo/NOTES.md`): the sign of a liability's `CurrentBalance` and Undeposited Funds'
+  `AccountSubType`. The process interview (§1.217): its replay fixtures are hand-written and want
+  re-recording with a live key; sending the link from Mezonas (the operator copies it), filing
+  answers into an onboarding intake, the page in six languages, and the reuse check's judge on
+  interviews. The desktop (§1.219): universal and app links (M8); removing a phone also ends that
+  person's desktop sessions (D7).
 
 ### Automations, repeat and the agent's choice (code; ARCHITECTURE v0.17, `docs/plan.md` §1.99)
 
@@ -556,6 +584,16 @@ Fixed in one PR. What is still open from it:
   branch of production (§1.143).
 - Administrative: a security officer, the risk analysis, policies, training, sanctions, the client
   BAA and DPA, vendor BAAs, whether to use a compliance tool and when to start SOC 2's Type II period.
+- **SOC 2 readiness (built, Wave X, #560 and #571, `docs/plan.md` §1.218):** the readiness checklist
+  at `/ops/security/soc2`, the quarterly access review and its record, and the client-deletion drill
+  (`db:deletion-drill`). The owner's: adopt or edit the three draft policies in `docs/policies/`
+  (change management, incident response, vendor management), then set them to 1.0 in the files
+  and in `POLICIES` (`packages/core/src/compliance/controls.ts`); have counsel confirm the incident
+  response draft's notice periods (72 hours; HIPAA's 60 days); reword the information security
+  policy's §3 ("saved as a dated CSV") at its next review; run the first deletion drill on staging
+  after deploy (`docs/operations.md` §1.2); record 2026-Q4's access review before 31 December.
+  Not built: a Purge client workflow input so the drill runs from Actions (its own CI PR), the S-3
+  evidence pack, and vendor reviews and training recorded in the product.
 
 ### Docs housekeeping
 

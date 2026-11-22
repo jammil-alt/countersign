@@ -325,9 +325,12 @@ const DETAIL = {
   packs: [],
 };
 
-function portal(path = `/agents/${SVC}/sop`, view: SopView = VIEW) {
+function portal(path = `/agents/${SVC}/sop`, view: SopView = VIEW, language = "en") {
   const api = fakeApi({
-    "GET /api/session": () => CLIENT_SESSION,
+    "GET /api/session": () => ({
+      ...CLIENT_SESSION,
+      language: { effective: language, user: language === "en" ? null : language, client: null },
+    }),
     "GET /api/overview": () => new Reply(404, {}),
     "GET /api/feedback/status": () => ({ enabled: false }),
     [`GET /api/services/${SVC}`]: () => DETAIL,
@@ -503,6 +506,22 @@ describe("the portal's Workflow tab (docs/sop-plan.md §6a)", () => {
     expect(screen.queryByTestId("workflow-card")).toBeNull();
     await user.click(screen.getByTestId("flow-box-review"));
     expect(await screen.findByTestId("workflow-card")).toHaveTextContent("Cara Lin");
+  });
+
+  it("says the chart's own words in the reader's language (SOP-W)", async () => {
+    portal(`/agents/${SVC}/flow`, VIEW, "de");
+    await screen.findByTestId("workflow-chart");
+    // The zoom bar, Otherwise and the chips are German; what people wrote stays as written.
+    expect(screen.getByTestId("flow-zoom-out")).toHaveAttribute("aria-label", "Verkleinern");
+    expect(screen.getByTestId("flow-zoom-in")).toHaveAttribute("aria-label", "Vergrößern");
+    expect(screen.getByTestId("flow-zoom-fit")).toHaveTextContent("Einpassen");
+    expect(screen.getByTestId("flow-key-toggle")).toHaveTextContent("Legende");
+    expect(screen.getByTestId("flow-path-po")).toHaveTextContent("BSonst");
+    expect(screen.getByTestId("flow-path-pa")).toHaveTextContent("Flagged");
+    expect(screen.getByTestId("flow-doer-review")).toHaveTextContent("Person");
+    expect(screen.getByTestId("flow-doer-create")).toHaveTextContent("Regeln");
+    expect(screen.getByTestId("flow-badge-read")).toHaveTextContent("KI-Fähigkeit");
+    expect(screen.getByTestId("workflow-chart")).not.toHaveTextContent("Otherwise");
   });
 });
 

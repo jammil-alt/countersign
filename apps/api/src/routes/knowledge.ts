@@ -40,12 +40,12 @@ import {
   nextMeta,
   searchKnowledge,
 } from "@countersign/documents";
-import { createLlmClient } from "@countersign/llm";
 import { and, count, desc, eq, inArray, isNotNull } from "drizzle-orm";
 import type { Hono } from "hono";
 import { clientModels } from "../compliance/models";
 import { type AppEnv, ensureClient, HttpError, iso, mount, mountLong, notFound } from "../http";
 import { charterFacts, draftCharter, saveCharterDraft } from "../knowledge/charter";
+import { meterDepsOf, meteredLlm } from "../metering";
 
 /** Where the names come from: the operator's view shows everyone; the portal says "us" for ours. */
 type Audience = "ops" | "portal";
@@ -305,18 +305,14 @@ export function knowledgeRouteHandlers(app: Hono<AppEnv>): void {
     const { params, services, session } = ctx;
     ensureClient(ctx, params.id);
     const facts = await ctx.inTx(({ tx }) => charterFacts(tx, params.id));
-    const llm = createLlmClient({
+    // §1.210: our own cost, as the back office's other model calls are: recorded as ours once
+    // the request ends, never the client's usage.
+    const { llm } = meteredLlm(meterDepsOf(ctx), {
       transport: clientModels(services, { clients: [params.id], read: services.db }),
+      tenantId: params.id,
+      source: "assist",
     });
     const draft = await draftCharter(llm, facts);
-    // Our own cost, as the back office's other model calls are: logged, never the client's usage.
-    console.info(
-      JSON.stringify({
-        event: "knowledge.charter_draft",
-        model: draft.record.model,
-        costUsd: draft.record.costUsd ?? null,
-      }),
-    );
     return ctx.inTx(async ({ tx }) => {
       const row = await saveCharterDraft(tx, params.id, draft.body, {
         id: session.user.id,

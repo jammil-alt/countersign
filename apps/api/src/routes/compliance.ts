@@ -3,6 +3,7 @@
 
 import { retire as retireAgent } from "@countersign/agents";
 import {
+  type AccessReviewUser,
   type ClientCompliance,
   complianceOf,
   hipaaReadiness,
@@ -154,72 +155,10 @@ export function complianceRouteHandlers(app: Hono<AppEnv>): void {
 
   // ── The access review ──────────────────────────────────────────────────────────────────────────
 
-  mount(app, routes.opsAccessReview, async ({ tx, tenantIds }) => {
-    if (tenantIds.length === 0) return { users: [], generatedAt: new Date().toISOString() };
-    const rows = await tx
-      .select({
-        userId: appUser.id,
-        email: appUser.email,
-        name: appUser.name,
-        tenantId: tenant.id,
-        tenantName: tenant.name,
-        retiredAt: tenant.retiredAt,
-        role: membership.role,
-      })
-      .from(membership)
-      .innerJoin(appUser, eq(appUser.id, membership.userId))
-      .innerJoin(tenant, eq(tenant.id, membership.tenantId))
-      .where(inArray(membership.tenantId, [...tenantIds]))
-      .orderBy(appUser.email, tenant.name);
-    const userIds = [...new Set(rows.map((r) => r.userId))];
-    const lastSignIn = new Map<string, Date>();
-    const lastSeen = new Map<string, Date>();
-    if (userIds.length > 0) {
-      for (const r of await tx
-        .select({ id: auditEvent.actorUserId, at: max(auditEvent.createdAt) })
-        .from(auditEvent)
-        .where(
-          and(
-            inArray(auditEvent.actorUserId, userIds),
-            eq(auditEvent.action, "session.sign_in"),
-            eq(auditEvent.outcome, "ok"),
-          ),
-        )
-        .groupBy(auditEvent.actorUserId)) {
-        if (r.id && r.at) lastSignIn.set(r.id, r.at);
-      }
-      for (const r of await tx
-        .select({ id: auditEvent.actorUserId, at: max(auditEvent.createdAt) })
-        .from(auditEvent)
-        .where(inArray(auditEvent.actorUserId, userIds))
-        .groupBy(auditEvent.actorUserId)) {
-        if (r.id && r.at) lastSeen.set(r.id, r.at);
-      }
-    }
-    const users = new Map<string, ReturnType<typeof userOut>>();
-    function userOut(r: (typeof rows)[number]) {
-      return {
-        id: r.userId,
-        email: r.email,
-        name: r.name,
-        memberships: [] as {
-          client: { id: string; name: string; retired: boolean };
-          role: string;
-        }[],
-        lastSignInAt: iso(lastSignIn.get(r.userId)),
-        lastSeenAt: iso(lastSeen.get(r.userId)),
-      };
-    }
-    for (const r of rows) {
-      const u = users.get(r.userId) ?? userOut(r);
-      u.memberships.push({
-        client: { id: r.tenantId, name: r.tenantName, retired: r.retiredAt !== null },
-        role: r.role,
-      });
-      users.set(r.userId, u);
-    }
-    return { users: [...users.values()], generatedAt: new Date().toISOString() };
-  });
+  mount(app, routes.opsAccessReview, async ({ tx, tenantIds }) => ({
+    users: await accessReviewUsers(tx, tenantIds),
+    generatedAt: new Date().toISOString(),
+  }));
 
   // ── The Security section (§1.102) ──────────────────────────────────────────────────────────────
 
@@ -401,4 +340,78 @@ export async function retireClient(
 
 function escapeLike(text: string): string {
   return text.replace(/[\\%_]/g, (ch) => `\\${ch}`);
+}
+
+/**
+ * Every person in these clients, with their role in each, their last sign-in and last request:
+ * the access review (§1.35), and what a recorded review keeps (§1.218).
+ */
+export async function accessReviewUsers(
+  tx: Tx,
+  tenantIds: readonly string[],
+): Promise<AccessReviewUser[]> {
+  if (tenantIds.length === 0) return [];
+  const rows = await tx
+    .select({
+      userId: appUser.id,
+      email: appUser.email,
+      name: appUser.name,
+      tenantId: tenant.id,
+      tenantName: tenant.name,
+      retiredAt: tenant.retiredAt,
+      role: membership.role,
+    })
+    .from(membership)
+    .innerJoin(appUser, eq(appUser.id, membership.userId))
+    .innerJoin(tenant, eq(tenant.id, membership.tenantId))
+    .where(inArray(membership.tenantId, [...tenantIds]))
+    .orderBy(appUser.email, tenant.name);
+  const userIds = [...new Set(rows.map((r) => r.userId))];
+  const lastSignIn = new Map<string, Date>();
+  const lastSeen = new Map<string, Date>();
+  if (userIds.length > 0) {
+    for (const r of await tx
+      .select({ id: auditEvent.actorUserId, at: max(auditEvent.createdAt) })
+      .from(auditEvent)
+      .where(
+        and(
+          inArray(auditEvent.actorUserId, userIds),
+          eq(auditEvent.action, "session.sign_in"),
+          eq(auditEvent.outcome, "ok"),
+        ),
+      )
+      .groupBy(auditEvent.actorUserId)) {
+      if (r.id && r.at) lastSignIn.set(r.id, r.at);
+    }
+    for (const r of await tx
+      .select({ id: auditEvent.actorUserId, at: max(auditEvent.createdAt) })
+      .from(auditEvent)
+      .where(inArray(auditEvent.actorUserId, userIds))
+      .groupBy(auditEvent.actorUserId)) {
+      if (r.id && r.at) lastSeen.set(r.id, r.at);
+    }
+  }
+  const users = new Map<string, ReturnType<typeof userOut>>();
+  function userOut(r: (typeof rows)[number]) {
+    return {
+      id: r.userId,
+      email: r.email,
+      name: r.name,
+      memberships: [] as {
+        client: { id: string; name: string; retired: boolean };
+        role: string;
+      }[],
+      lastSignInAt: iso(lastSignIn.get(r.userId)),
+      lastSeenAt: iso(lastSeen.get(r.userId)),
+    };
+  }
+  for (const r of rows) {
+    const u = users.get(r.userId) ?? userOut(r);
+    u.memberships.push({
+      client: { id: r.tenantId, name: r.tenantName, retired: r.retiredAt !== null },
+      role: r.role,
+    });
+    users.set(r.userId, u);
+  }
+  return [...users.values()];
 }

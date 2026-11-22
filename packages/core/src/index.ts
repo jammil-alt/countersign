@@ -31,6 +31,8 @@ export * from "./api/autopilot";
 // v0.12 bankfeed
 export * from "./api/bankfeed";
 export * from "./api/billing";
+// docs/plan.md §1.216: books health
+export * from "./api/books-health";
 export * from "./api/browser";
 export * from "./api/browser-scripts";
 // docs/plan.md §1.108: builds, from intake to go-live
@@ -79,6 +81,8 @@ export * from "./api/hours";
 export * from "./api/intake";
 // §1.164: the builder's sample-file check for a Read table step.
 export * from "./api/intake-reports";
+// docs/plan.md §1.217: the process interview
+export * from "./api/interviews";
 export * from "./api/invite";
 export * from "./api/knowledge";
 export * from "./api/language";
@@ -88,6 +92,7 @@ export * from "./api/library";
 // v0.12 W1-A: go-live stages and client controls
 export * from "./api/lifecycle";
 export * from "./api/manual";
+export * from "./api/match-rules";
 export * from "./api/messaging";
 // §1.116: the phone app
 export * from "./api/mobile";
@@ -103,6 +108,7 @@ export * from "./api/owners";
 export * from "./api/packs";
 export * from "./api/people";
 export * from "./api/phone-approval";
+export * from "./api/portal-views";
 // The skill model (owner, 2026-11-10)
 export * from "./api/prompt-preview";
 export * from "./api/qbo";
@@ -135,6 +141,8 @@ export * from "./api/skill-model";
 export * from "./api/slack";
 // §1.150
 export * from "./api/sloan-reach";
+// docs/plan.md §1.218: SOC 2 readiness and the access review's record (served beside the registry).
+export * from "./api/soc2";
 export * from "./api/sop";
 export * from "./api/step-code-request";
 export * from "./api/step-data";
@@ -173,6 +181,8 @@ export * from "./assurance/index";
 // P-3: attachments both ways
 export * from "./attachments";
 export * from "./billing";
+// docs/plan.md §1.216: books health, the checks over a client's synced QuickBooks.
+export * from "./books-health";
 export * from "./browser/script";
 export * from "./browser/site";
 export * from "./build/build";
@@ -205,6 +215,7 @@ export * from "./codes/service";
 export * from "./compliance/card-numbers";
 export * from "./compliance/controls";
 export * from "./compliance/processors";
+export * from "./compliance/soc2";
 // P-4: conversations with people
 export * from "./converse";
 export * from "./desk/item";
@@ -263,6 +274,8 @@ export * from "./i18n/threads";
 export * from "./i18n/timeline";
 export * from "./i18n/weekly";
 export * from "./ids";
+// docs/plan.md §1.217: the process interview
+export * from "./interview";
 export * from "./json";
 // v0.12 W2-G: agent KPIs
 export * from "./kpi/format";
@@ -279,6 +292,8 @@ export * from "./lifecycle/stage";
 export * from "./manual/manual";
 export * from "./mappers/qbo";
 export * from "./mappers/upload";
+// §1.215: the matching engine (one reconciliation service for packs).
+export * from "./matching";
 // P-8: US texting registration
 export * from "./messaging/a2p";
 export * from "./messaging/calling";
@@ -331,6 +346,7 @@ export * from "./schemas/conversation";
 export * from "./schemas/event";
 export * from "./schemas/json-schemas";
 export * from "./schemas/pack";
+export * from "./schemas/pack-config";
 export * from "./schemas/permissions";
 // §1.213: file and email intake's report profiles.
 export * from "./schemas/report-profile";

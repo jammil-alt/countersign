@@ -12,6 +12,7 @@ import {
   checkRouteContract,
   forbiddenPortalFields,
   manualRoutes,
+  portalViewRoutes,
   type RouteSpec,
   routeFamily,
   routes,
@@ -103,6 +104,19 @@ describe("route contract (static)", () => {
     }
     expect(agentReportRoutes.opsAgentReport.roles).toEqual(["operator"]);
     expect(agentReportRoutes.opsAgentReportCsv.roles).toEqual(["operator"]);
+  });
+
+  // R6 (docs/plan.md §1.236): the portal's saved views carry the portal's filter only.
+  it("keeps the portal's saved views to clients, with no back-office filter keys", () => {
+    for (const r of Object.values(portalViewRoutes)) {
+      expect(routeFamily(r)).toBe("portal");
+      expect(r.roles).toEqual(["client_admin", "client_user"]);
+      expect(forbiddenPortalFields(r.response)).toEqual([]);
+      const json = JSON.stringify(z.toJSONSchema(r.response, { unrepresentable: "any" }));
+      for (const key of ['"errorKey"', '"costOver"', '"mode"', '"clients"', '"tenantId"']) {
+        expect(json).not.toContain(key);
+      }
+    }
   });
 
   it("keeps the back office's client view of an agent to operators, as the portal's answer", () => {

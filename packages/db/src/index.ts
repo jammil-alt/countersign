@@ -26,6 +26,8 @@ export * from "./directory";
 // A connection that went away under a query (Neon restarting, Hyperdrive moving it).
 export { isDatabaseDrop } from "./drops";
 export * from "./ledger";
+// §1.215: a client's saved match rules (the matching engine's first tier).
+export * from "./match-rules";
 export {
   accountIn,
   membershipsOfUser,

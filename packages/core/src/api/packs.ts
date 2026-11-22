@@ -1,6 +1,9 @@
 import { z } from "zod";
+import { PROCESSORS } from "../compliance/processors";
 import { isUuid } from "../ids";
+import { OwnerArea } from "../owners/areas";
 import { AreaConnection } from "../schemas/pack";
+import { PackConfigField, PackConfigValues } from "../schemas/pack-config";
 import { defineRoute } from "./contract";
 import { ExportFile } from "./exports";
 
@@ -68,8 +71,32 @@ export const ClientPack = z.object({
 });
 export type ClientPack = z.infer<typeof ClientPack>;
 
+/**
+ * §1.230: a client's pack as the back office sees it on the Areas tab: the portal's view, plus the
+ * pack's area, its configuration fields with this client's values (defaults until set), and the
+ * vendors of ours it sends data to, each marked when this client's HIPAA mode holds it back.
+ * Back office only: the portal's `ClientPack` carries none of it.
+ */
+// DECISION: `config` and `processors` default to none, so a view written before §1.230 (a
+// screen's test data) still reads; the server always sends both.
+export const OpsClientPack = ClientPack.extend({
+  areaId: OwnerArea.optional(),
+  config: z
+    .object({ fields: z.array(PackConfigField), values: PackConfigValues })
+    .default({ fields: [], values: {} }),
+  processors: z
+    .array(z.object({ id: z.enum(PROCESSORS), name: z.string(), heldForHipaa: z.boolean() }))
+    .default([]),
+});
+export type OpsClientPack = z.infer<typeof OpsClientPack>;
+
+/** §1.230: switching a pack on for a client, or changing its configuration: only configuration. */
+export const InstallPackBody = z.strictObject({
+  config: z.record(z.string(), z.unknown()).default({}),
+});
+
 export const EnablePackResponse = z.object({
-  pack: ClientPack,
+  pack: OpsClientPack,
   /**
    * Templates installed by this call (empty when they were there already). Wave 3b: an installed
    * template's later versions come only with `opsUpdatePackTemplates`.
@@ -162,7 +189,7 @@ export const packRoutes = {
     summary:
       "The packs (business areas) a client can have, which are on, and the connections each works through",
     params: ClientParams,
-    response: z.object({ packs: z.array(ClientPack) }),
+    response: z.object({ packs: z.array(OpsClientPack) }),
   }),
   opsEnableClientPack: defineRoute({
     method: "POST",
@@ -171,6 +198,20 @@ export const packRoutes = {
     roles: OPS,
     summary: "Switch a pack on for a client; installs its templates the first time (once)",
     params: z.object({ id: Id, pack: Slug }),
+    response: EnablePackResponse,
+  }),
+  // §1.230: the one install path from the Areas tab, for every pack: switches it on (as
+  // `opsEnableClientPack`) with the operator's configuration, or, when it is on, changes only the
+  // configuration. Settings the operator leaves out keep their value (their default at first).
+  opsInstallClientPack: defineRoute({
+    method: "POST",
+    path: "/api/ops/clients/:id/packs/:pack/install",
+    auth: "session",
+    roles: OPS,
+    summary:
+      "Switch a pack on for a client with its configuration, or change the configuration of one that is on",
+    params: z.object({ id: Id, pack: Slug }),
+    body: InstallPackBody,
     response: EnablePackResponse,
   }),
   // Wave 3b: how an installed pack template's later versions (the v4 processes) reach clients

@@ -72,6 +72,10 @@ const ConnectorPageScreen = lazy(() =>
 const ProceduresScreen = lazy(() =>
   import("./screens/Procedures").then((m) => ({ default: m.ProceduresScreen })),
 );
+// §1.216: books health, the owner's one page on its QuickBooks, loads when opened.
+const BooksHealthScreen = lazy(() =>
+  import("../books-health/BooksHealth").then((m) => ({ default: m.PortalBooksHealthScreen })),
+);
 /** `/access`, `/accounts/access`: the vault's old pages, now Connectors' website logins. */
 function VaultRedirect() {
   const { search } = useLocation();
@@ -107,6 +111,15 @@ export const portalRoutes = (
       }
     />
     <Route path="contacts" element={<ContactsScreen />} />
+    {/* §1.216: books health, for the client admin; reached from Reports */}
+    <Route
+      path="books-health"
+      element={
+        <OnDemand>
+          <BooksHealthScreen />
+        </OnDemand>
+      }
+    />
 
     {/* An agent: Overview, Runs, Access */}
     <Route path="agents/:id" element={<AgentScreen tab="overview" />} />

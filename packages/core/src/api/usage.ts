@@ -44,6 +44,13 @@ export const UsageFigures = z.object({
   tokensIn: z.number().int(),
   tokensOut: z.number().int(),
   costUsd: UsdAmount,
+  /**
+   * §1.210: what the vendors other than the models cost us for it (texts, calls, emails through
+   * Resend, Browser Run's time, Twilio Verify, Plaid's items), priced at our unit costs, so an
+   * estimate (`UNIT_COSTS_CHECKED_ON`). Never in `costUsd`, which stays model cost. Absent from
+   * reports of a Worker before it.
+   */
+  servicesUsd: UsdAmount.optional(),
 });
 export type UsageFigures = z.infer<typeof UsageFigures>;
 
@@ -76,13 +83,36 @@ export const UsageTemplateRow = z.object({
 });
 
 /** Where back-office model spend comes from (`UsageReport.backOffice`). */
-export const BACK_OFFICE_SPEND = ["reggie", "builder", "build"] as const;
+// §1.210: Reggie's read of each request, the Builder's reshape suggestions and the dev queue's
+// reuse check (`metered_usage` rows), and the vendors' services that are ours (sign-in codes,
+// the back office's emails, recordings' browser time) as `services`.
+export const BACK_OFFICE_SPEND = [
+  "reggie",
+  "reggie_read",
+  "builder",
+  "reshape",
+  "build",
+  "dev_queue",
+  "assist",
+  "questions",
+  "summaries",
+  "dictation",
+  "services",
+] as const;
 export type BackOfficeSpend = (typeof BACK_OFFICE_SPEND)[number];
 
 export const BACK_OFFICE_SPEND_LABELS: Record<BackOfficeSpend, string> = {
   reggie: "Reggie",
+  reggie_read: "Reggie's reads",
   builder: "The Builder",
+  reshape: "Reshape suggestions",
   build: "Builds",
+  dev_queue: "Dev queue reuse checks",
+  assist: "Assist",
+  questions: "Questions",
+  summaries: "Sloan's summaries",
+  dictation: "Dictation",
+  services: "Texts, emails and sign-in codes",
 };
 
 /**
@@ -139,6 +169,11 @@ export const UsageVendorRow = z.object({
    * registration): how many. Money we paid, not model cost: never in the report's total.
    */
   fees: z.number().int().optional(),
+  /** §1.210: emails through Resend, Browser Run seconds, sign-in codes, Plaid item-months. */
+  emails: z.number().int().optional(),
+  browserSeconds: z.number().int().optional(),
+  verifications: z.number().int().optional(),
+  bankItemMonths: z.number().int().optional(),
 });
 export type UsageVendorRow = z.infer<typeof UsageVendorRow>;
 
