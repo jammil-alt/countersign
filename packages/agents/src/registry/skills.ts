@@ -409,7 +409,18 @@ async function versionOf(
   tx: Tx,
   row: SkillRow,
   version: number | null,
+  /** Unpinned: the newest version, saved or live, instead of the live one. */
+  newest = false,
 ): Promise<SkillVersionRow | undefined> {
+  if (version === null && newest) {
+    const [v] = await tx
+      .select()
+      .from(skillVersion)
+      .where(eq(skillVersion.skillId, row.id))
+      .orderBy(desc(skillVersion.version))
+      .limit(1);
+    return v;
+  }
   if (version === null) {
     if (!row.liveVersionId) return undefined;
     const [v] = await tx.select().from(skillVersion).where(eq(skillVersion.id, row.liveVersionId));
@@ -438,7 +449,12 @@ async function skillBySlug(tx: Tx, tenantId: string | null, slug: string) {
  */
 export async function resolveCustomSkill(
   tx: Tx,
-  input: { tenantId: string | null; ref: string },
+  input: {
+    tenantId: string | null;
+    ref: string;
+    /** An unpinned ref takes the newest version, saved or live (a draft's checks, never a run). */
+    newest?: boolean;
+  },
 ): Promise<ResolvedSkill | null> {
   const { id, version } = parseSkillRef(input.ref);
   if (!isCustomSkill(id)) return null;
@@ -454,7 +470,7 @@ export async function resolveCustomSkill(
   for (const [tenantId, s, source] of candidates) {
     const row = await skillBySlug(tx, tenantId, s);
     if (row?.status !== "active") continue;
-    const v = await versionOf(tx, row, version);
+    const v = await versionOf(tx, row, version, input.newest === true);
     if (!v) continue;
     return {
       ref: input.ref,
@@ -491,7 +507,13 @@ export function bundleSkillRefs(bundle: AnyAgentBundle): string[] {
  */
 export async function skillContext(
   tx: Tx,
-  input: { tenantId: string | null; bundle: AnyAgentBundle; catalog: SkillCatalog },
+  input: {
+    tenantId: string | null;
+    bundle: AnyAgentBundle;
+    catalog: SkillCatalog;
+    /** Unpinned custom refs take their newest version, saved or live (`resolveCustomSkill`). */
+    newest?: boolean;
+  },
 ): Promise<{ skills: Record<string, SkillDefinition>; missing: string[] }> {
   const skills: Record<string, SkillDefinition> = {};
   const missing: string[] = [];
@@ -502,7 +524,11 @@ export async function skillContext(
       skills[ref] = builtin;
       continue;
     }
-    const resolved = await resolveCustomSkill(tx, { tenantId: input.tenantId, ref });
+    const resolved = await resolveCustomSkill(tx, {
+      tenantId: input.tenantId,
+      ref,
+      ...(input.newest ? { newest: true } : {}),
+    });
     if (resolved) skills[ref] = resolved.definition;
     else missing.push(ref);
   }

@@ -11,6 +11,9 @@ import {
   BuildPhase,
   BuildProposal,
   BuildStatus,
+  DECISION_VALUE_MAX,
+  DECISION_WHAT_MAX,
+  DECISION_WHY_MAX,
   DecisionOperatorStatus,
   FitGap,
   FitReason,
@@ -662,6 +665,23 @@ export const buildRoutes = {
       "Mark one of the Builder's decisions discussed or confirmed, or back to never discussed",
     params: z.object({ id: Id, decisionId: z.string().min(1).max(40) }),
     body: z.strictObject({ status: DecisionOperatorStatus }),
+    response: BuildDetail,
+  }),
+  // docs/open.md G4: the operator changes a decision's words on the Decisions card.
+  opsBuildDecisionWords: defineRoute({
+    method: "PUT",
+    path: "/api/ops/builds/:id/decisions/:decisionId/words",
+    auth: "session",
+    roles: OPS,
+    summary:
+      "Change one of the build's decisions in your own words (what it says, its value, why): it is marked changed, by you",
+    params: z.object({ id: Id, decisionId: z.string().min(1).max(40) }),
+    body: z.strictObject({
+      what: storable(z.string().trim().min(1).max(DECISION_WHAT_MAX)),
+      why: storable(z.string().trim().max(DECISION_WHY_MAX)).optional(),
+      /** The starting value; null or empty takes it away. */
+      value: storable(z.string().trim().max(DECISION_VALUE_MAX)).nullable().optional(),
+    }),
     response: BuildDetail,
   }),
   opsStopBuild: defineRoute({
