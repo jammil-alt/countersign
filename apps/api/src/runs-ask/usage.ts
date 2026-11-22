@@ -6,7 +6,13 @@
 // count by model and action with every other agent's.
 
 import { modelCallBodyKey, rollupUsageForRun } from "@countersign/agents";
-import { ACCOUNT_AGENT_SLUG, Decimal, type RunFilter, uuidv7 } from "@countersign/core";
+import {
+  ACCOUNT_AGENT_SLUG,
+  Decimal,
+  type ModelCallAction,
+  type RunFilter,
+  uuidv7,
+} from "@countersign/core";
 import { agent, agentVersion, modelCall, run, stepRun, type Tx } from "@countersign/db";
 import { type LlmCallRecord, providerOf } from "@countersign/llm";
 import { and, desc, eq } from "drizzle-orm";
@@ -79,22 +85,77 @@ export async function recordAskUsage(tx: Tx, u: AskUsage): Promise<string | null
     logOperatorCost(u, "back office question");
     return null;
   }
-  const sloan = await accountAgent(tx, u.tenantId);
-  if (!sloan) {
-    logOperatorCost(u, "no account agent");
-    return null;
-  }
+  const runId = await recordAccountAgentCall(tx, {
+    tenantId: u.tenantId,
+    workflowSlug: ASK_RUN_WORKFLOW,
+    trigger: { type: "question", surface: u.surface, askedBy: u.userId },
+    node: "question",
+    input: { question: u.question },
+    output: u.filter ? { filter: u.filter } : { refused: u.refused ?? "not understood" },
+    call: {
+      model: u.record.model,
+      action: "question",
+      stepTokensIn: u.record.usage.inputTokens,
+      tokensIn:
+        u.record.usage.inputTokens +
+        u.record.usage.cacheWriteTokens +
+        u.record.usage.cacheReadTokens,
+      tokensOut: u.record.usage.outputTokens,
+      costUsd: u.record.costUsd,
+      durationMs: u.record.durationMs,
+      stopReason: u.record.stopReason ?? "error",
+    },
+  });
+  if (!runId) logOperatorCost(u, "no account agent");
+  return runId;
+}
+
+/** One model call made for a client outside any run, recorded under its account agent. */
+export interface AccountAgentCall {
+  tenantId: string;
+  /** `run.workflow_slug`: what the call was, since it runs no workflow. */
+  workflowSlug: string;
+  /** `run.trigger`: who made the call, and where. */
+  trigger: Record<string, unknown>;
+  /** The step's node id and type. */
+  node: string;
+  input: Record<string, unknown>;
+  output: Record<string, unknown>;
+  call: {
+    /** The platform's model id (an `openai:` id is OpenAI's). */
+    model: string;
+    action: ModelCallAction;
+    /** The step's input tokens, when they differ from the call's (a question's leave out cache). */
+    stepTokensIn?: number;
+    tokensIn: number;
+    tokensOut: number;
+    /** USD, 6 places; null when unpriced (recorded as 0). */
+    costUsd: string | null;
+    durationMs: number;
+    stopReason: string;
+  };
+}
+
+/**
+ * The rows every model call the client's people make outside a run writes (a portal question,
+ * voice typing): a test run of the account agent with one step carrying the call's tokens and cost,
+ * its `model_call` row, and the day's usage rolled up. Null, and nothing written, when the client
+ * has no account agent.
+ */
+export async function recordAccountAgentCall(tx: Tx, c: AccountAgentCall): Promise<string | null> {
+  const sloan = await accountAgent(tx, c.tenantId);
+  if (!sloan) return null;
   const now = new Date();
-  const cost = u.record.costUsd ?? "0";
+  const cost = c.call.costUsd ?? "0";
   const [r] = await tx
     .insert(run)
     .values({
-      tenantId: u.tenantId,
+      tenantId: c.tenantId,
       agentId: sloan.agentId,
       agentVersionId: sloan.versionId,
-      workflowSlug: ASK_RUN_WORKFLOW,
+      workflowSlug: c.workflowSlug,
       mode: "test",
-      trigger: { type: "question", surface: u.surface, askedBy: u.userId },
+      trigger: c.trigger,
       status: "succeeded",
       startedAt: now,
       finishedAt: now,
@@ -105,45 +166,45 @@ export async function recordAskUsage(tx: Tx, u: AskUsage): Promise<string | null
   const [step] = await tx
     .insert(stepRun)
     .values({
-      tenantId: u.tenantId,
+      tenantId: c.tenantId,
       runId: r.id,
-      nodeId: "question",
-      nodeType: "question",
+      nodeId: c.node,
+      nodeType: c.node,
       agentVersionId: sloan.versionId,
-      input: { question: u.question },
-      output: u.filter ? { filter: u.filter } : { refused: u.refused ?? "not understood" },
+      input: c.input,
+      output: c.output,
       status: "succeeded",
       attempts: 1,
       costUsd: cost,
-      tokensIn: u.record.usage.inputTokens,
-      tokensOut: u.record.usage.outputTokens,
+      tokensIn: c.call.stepTokensIn ?? c.call.tokensIn,
+      tokensOut: c.call.tokensOut,
       startedAt: now,
       finishedAt: now,
     })
     .returning({ id: stepRun.id });
   if (!step) throw new Error("step run insert returned nothing");
-  // DECISION: the question's model call is recorded without its body: the step keeps the question
-  // and the filter it became, and the request is the fixed prompt around it. The run page says
-  // the body wasn't kept, as it does for one that failed to store.
+  // DECISION: the call is recorded without its body. A question's step keeps the question and the
+  // filter it became, and the request is the fixed prompt around it; a dictation's recording and
+  // words are never kept (§1.109). The run page says the body wasn't kept, as it does for one that
+  // failed to store.
   const callId = uuidv7(now.getTime());
   await tx.insert(modelCall).values({
     id: callId,
-    tenantId: u.tenantId,
+    tenantId: c.tenantId,
     runId: r.id,
     stepRunId: step.id,
     agentVersionId: sloan.versionId,
-    provider: providerOf(u.record.model),
-    model: u.record.model,
-    action: "question",
-    tokensIn:
-      u.record.usage.inputTokens + u.record.usage.cacheWriteTokens + u.record.usage.cacheReadTokens,
-    tokensOut: u.record.usage.outputTokens,
+    provider: providerOf(c.call.model),
+    model: c.call.model,
+    action: c.call.action,
+    tokensIn: c.call.tokensIn,
+    tokensOut: c.call.tokensOut,
     // numeric(14,4): rounded up, as every model call's, so a call never shows as free.
     costUsd: new Decimal(cost).toDecimalPlaces(4, Decimal.ROUND_UP).toFixed(4),
-    durationMs: Math.max(0, Math.round(u.record.durationMs)),
-    stopReason: u.record.stopReason ?? "error",
-    bodyKey: modelCallBodyKey(u.tenantId, callId),
+    durationMs: Math.max(0, Math.round(c.call.durationMs)),
+    stopReason: c.call.stopReason,
+    bodyKey: modelCallBodyKey(c.tenantId, callId),
   });
-  await rollupUsageForRun(tx, { tenantId: u.tenantId, runId: r.id, now });
+  await rollupUsageForRun(tx, { tenantId: c.tenantId, runId: r.id, now });
   return r.id;
 }
