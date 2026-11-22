@@ -5,9 +5,11 @@
 
 import { describe, expect, it } from "vitest";
 import bankToLedger from "../../../../fixtures/matching/reconcile/bank-to-ledger.json";
+import billToPo from "../../../../fixtures/matching/reconcile/bill-to-po.json";
 import invoiceTwoSystems from "../../../../fixtures/matching/reconcile/invoice-two-systems.json";
 import {
   BANK_TO_LEDGER,
+  BILL_TO_PO,
   INVOICE_TWO_SYSTEMS,
   MATCH_CONFIGS,
   MatchConfig,
@@ -42,6 +44,8 @@ interface Fixture {
 const fixtures = [
   { file: "bank-to-ledger.json", fx: bankToLedger as Fixture },
   { file: "invoice-two-systems.json", fx: invoiceTwoSystems as Fixture },
+  // Plan entry §1.233: the AP pack's bills against purchase orders.
+  { file: "bill-to-po.json", fx: billToPo as Fixture },
 ];
 
 /** Replays the fixture's model answers, by item id. */
@@ -82,10 +86,10 @@ async function run(fx: Fixture, rules = fx.rules) {
   };
 }
 
-it("has both configurations, valid, and a fixture for each", () => {
+it("has each configuration, valid, and a fixture for each", () => {
   for (const c of Object.values(MATCH_CONFIGS)) expect(MatchConfig.parse(c)).toEqual(c);
   expect(fixtures.map((f) => f.fx.config).sort()).toEqual(
-    [BANK_TO_LEDGER.id, INVOICE_TWO_SYSTEMS.id].sort(),
+    [BANK_TO_LEDGER.id, INVOICE_TWO_SYSTEMS.id, BILL_TO_PO.id].sort(),
   );
 });
 
