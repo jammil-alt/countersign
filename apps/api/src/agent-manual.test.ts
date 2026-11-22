@@ -6,7 +6,7 @@
 // nothing of another client's.
 import { TESTKIT_UPDATE_TOOL } from "@countersign/connectors";
 import { type BuildDetail, type ManualView, manualRoutes } from "@countersign/core";
-import { memoryNote } from "@countersign/db";
+import { inboxItem, memoryNote, run } from "@countersign/db";
 import { FakeModel } from "@countersign/llm";
 import { afterAll, describe, expect, it, vi } from "vitest";
 import { admin, createApiHarness, forbiddenKeys, OPERATOR, user } from "./api.test-helper";
@@ -280,6 +280,81 @@ describe.skipIf(!h)("the agent manual", () => {
     // The back office reads the copy's notes too.
     const ops = await ok<ManualView>("GET", `/api/ops/agents/${copy}/manual`);
     expect(ops.learned.map((n) => n.note)).toEqual(["Acme sends two PDFs per bill"]);
+    copyId = copy;
+  });
+
+  let copyId = "";
+
+  it("counts how often the copy's live runs hit each known risk (G5)", async () => {
+    const versionId = (await latestBundle(copyId)).id;
+    const runs = await H.t.db
+      .insert(run)
+      .values(
+        (["live", "live", "test"] as const).map((mode) => ({
+          tenantId: H.A.tenantId,
+          agentId: copyId,
+          agentVersionId: versionId,
+          workflowSlug: "main",
+          mode,
+        })),
+      )
+      .returning({ id: run.id });
+    const [r1, r2, r3] = runs.map((r) => r.id) as [string, string, string];
+    await H.t.db.insert(inboxItem).values([
+      // A rejection naming the risk, and a person step asked about it: two live runs.
+      {
+        tenantId: H.A.tenantId,
+        kind: "approval",
+        runId: r1,
+        title: "Update the record",
+        status: "resolved",
+        resolution: { decision: "reject", note: "This request had several records in it" },
+      },
+      {
+        tenantId: H.A.tenantId,
+        kind: "request",
+        runId: r2,
+        title: "Split the records in this request",
+        status: "resolved",
+        resolution: { answer: { text: "Done by hand" } },
+      },
+      // A test run's never counts.
+      {
+        tenantId: H.A.tenantId,
+        kind: "request",
+        runId: r3,
+        title: "Several records in one request",
+        status: "resolved",
+        resolution: {},
+      },
+    ]);
+    const ops = await ok<ManualView>("GET", `/api/ops/agents/${copyId}/manual`);
+    expect(ops.knownRisks.map((r) => r.hits)).toEqual([2]);
+    const portal = await ok<ManualView>("GET", buildPathOf(copyId), undefined, admin("a"));
+    expect(portal.knownRisks.map((r) => r.hits)).toEqual([2]);
+    // A template has no runs of its own: no count.
+    const tpl = await ok<ManualView>("GET", `/api/ops/agents/${templateId}/manual`);
+    expect(tpl.knownRisks.map((r) => r.hits)).toEqual([null]);
+  });
+
+  it("deletes a learned note in the back office, with no new version (G5)", async () => {
+    const before = await versionsOf(copyId);
+    const view = await ok<ManualView>("GET", `/api/ops/agents/${copyId}/manual`);
+    const note = view.learned[0]?.id as string;
+    const path = manualRoutes.opsAgentForgetNote.path
+      .replace(":id", copyId)
+      .replace(":noteId", note);
+    // Not the client's to delete: the portal's manual stays read only.
+    expect((await H.call(admin("a"), "DELETE", path)).status).toBe(403);
+    await ok("DELETE", path);
+    expect((await ok<ManualView>("GET", `/api/ops/agents/${copyId}/manual`)).learned).toEqual([]);
+    expect(await versionsOf(copyId)).toHaveLength(before.length);
+    // Gone is gone; a template's path is not found.
+    expect((await H.call(OPERATOR, "DELETE", path)).status).toBe(404);
+    const onTemplate = manualRoutes.opsAgentForgetNote.path
+      .replace(":id", templateId)
+      .replace(":noteId", note);
+    expect((await H.call(OPERATOR, "DELETE", onTemplate)).status).toBe(404);
   });
 });
 

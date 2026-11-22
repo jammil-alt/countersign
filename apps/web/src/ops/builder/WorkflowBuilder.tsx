@@ -86,6 +86,7 @@ import {
 import { automationStepsPath } from "../flow/automation/paths";
 import { Chart } from "../flow/Chart";
 import { dispatchFlowDrop, flowCollision, resolveFlowDrop } from "../flow/dnd";
+import { kindDoes } from "../flow/does";
 import { FlowBar, type FlowView } from "../flow/FlowBar";
 import "../flow/flow.css";
 import { EN } from "../../i18n/i18n";
@@ -127,6 +128,7 @@ import {
   paletteSections,
   TESTKIT,
   toolConnector,
+  toolFeed,
   typingContext,
   validateProcessesLikeServer,
   writeLabelOf,
@@ -714,7 +716,9 @@ function BuilderBody(
           step.kind === "write" && step.action !== undefined
             ? (step.via ?? null)
             : step.tool !== undefined
-              ? toolConnector(step.tool, data)
+              ? // Its own connector, else the feed it reads what it saves from (Plaid's mark on
+                // the bank-feed import, §1.221).
+                (toolConnector(step.tool, data) ?? toolFeed(step.tool, data))
               : null;
         return id ? { id, name: connectorName(data, id) } : undefined;
       },
@@ -1789,6 +1793,8 @@ function BuilderBody(
         kind={words.kind}
         place={{ n: loc.index + 1, of: siblings.length }}
         title={step.name}
+        // What it does, in its skill's, tool's or automation's words, else its kind's line.
+        does={words.does ?? kindDoes(step)}
         // One undo per run of typing, as the inspector's own name field made it.
         onRename={(name) =>
           edit((w) => updateStep(w, step.id, (s) => ({ ...s, name })), `${step.id}:name`)
