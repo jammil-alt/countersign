@@ -15,6 +15,8 @@ export const NOTIFICATION_KINDS = [
   "signoff",
   // §1.124: the lead replied on a client's request (an issue or an ask), migration 0060.
   "issue_update",
+  // Work plan C4.10 (migration 0079): an urgent notice's Seen card, told at once (§1.86).
+  "urgent",
 ] as const;
 export const NotificationKind = z.enum(NOTIFICATION_KINDS);
 export type NotificationKind = z.infer<typeof NotificationKind>;
@@ -102,6 +104,8 @@ export const dedupeKeys = {
   credits: (period: string, block: number, userId: string) =>
     `credits:${period}:${block}:${userId}`,
   signoff: (itemId: string, userId: string) => `signoff:${itemId}:${userId}`,
+  /** C4.10: one per urgent notice's Seen card and person (each channel once, by the unique key). */
+  urgent: (itemId: string, userId: string) => `urgent:${itemId}:${userId}`,
   /** §1.124: one per reply on a request and person. */
   issue: (messageId: string, userId: string) => `issue:${messageId}:${userId}`,
   /**
@@ -154,6 +158,7 @@ export function notificationPath(
       return input.requestId ? `/requests/${input.requestId}` : "/requests";
     case "items_waiting":
     case "signoff":
+    case "urgent":
       return "/inbox";
     case "weekly_table":
       return input.weekStart ? `/weekly?week=${input.weekStart}` : "/weekly";
@@ -285,8 +290,18 @@ export function withPersonPush(
 
 /** Kinds that wait for the person's quiet hours on email too (texts always do). */
 // §1.116: a phone notification waits like a text does.
+// C4.10: an urgent notice never waits, on any channel: urgent means at once (§1.86).
 export function holdsInQuietHours(kind: NotificationKind, channel: NotificationChannel): boolean {
+  if (kind === "urgent") return false;
   return channel === "sms" || channel === "push" || kind === "items_waiting";
+}
+
+/**
+ * C4.10: kinds sent whatever the person's own email and text switches say (their consent for
+ * texts and a STOP still hold): an urgent notice reaches its person however they set the rest.
+ */
+export function overridesSwitches(kind: NotificationKind): boolean {
+  return kind === "urgent";
 }
 
 /** `reason` while a failed send waits for its next try. */

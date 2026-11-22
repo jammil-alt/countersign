@@ -71,7 +71,11 @@ function sentences(input: RenderInput): { headline: string; line: string | null;
   const w = NOTIFY_WORDS[input.locale];
   const x = numbers(input.counts, input.locale, input.weekStart);
   switch (input.kind) {
+    // DECISION (C4.10): an urgent notice says what any open card does, "1 item is waiting for
+    // you", as its direct sends did: the kind's fixed sentence and a count, never the notice's
+    // own words (§11.3), and no new sentence to translate.
     case "items_waiting":
+    case "urgent":
       return {
         headline: w.itemsWaiting.subject(input.counts.items ?? 0, x),
         line: null,

@@ -72,8 +72,9 @@ import { type ConversePort, converseState } from "../converse/service";
 // §1.121: forms, "Request info"
 import { type FormsPort, formsState } from "../forms/service";
 import { toRunResolution } from "../inbox";
-import type { NotifyDeps } from "../notify/outbox";
-import { tellUrgentNow } from "../notify/urgent";
+import { type NotifyDeps, sendQueued } from "../notify/outbox";
+import { queueUrgent } from "../notify/urgent";
+import { reportHandled } from "../observability/report";
 import { type ReachPort, reachOutState } from "../reach/service";
 import { leaseWaitDone, leaseWaitOf, leaseWaitOutcome, MAX_LEASE_WAITS } from "./lease-wait";
 import { keepStepSubjects } from "./subject-log";
@@ -888,13 +889,29 @@ export function threadNotifyPort(
     });
     if (seen && notifyDeps && run.mode !== "test") {
       const deliver = notifyDeps;
-      await withTenant(db, run.tenantId, async (tx) => {
+      const now = new Date();
+      // C4.10: queued in the outbox as `urgent`, then sent at once, outside that transaction;
+      // what doesn't go now (a failed send, a pass cut off) the outbox's next pass sends.
+      const queued = await withTenant(db, run.tenantId, async (tx) => {
         const [row] = await tx
           .select()
           .from(inboxItem)
           .where(and(eq(inboxItem.id, seen), eq(inboxItem.tenantId, run.tenantId)));
-        if (row?.status === "open") await tellUrgentNow(tx, deliver, row, new Date());
+        return row?.status === "open" ? queueUrgent(tx, deliver.origin, row, now) : [];
       });
+      if (queued.length > 0) {
+        await sendQueued(db, deliver, run.tenantId, now, queued.length, queued).catch(
+          (error: unknown) =>
+            reportHandled(
+              "sending an urgent notice failed; the outbox's next pass sends it",
+              error,
+              {
+                job: "notify",
+                client: run.tenantId,
+              },
+            ),
+        );
+      }
     }
     return { ackItemId: seen };
   };

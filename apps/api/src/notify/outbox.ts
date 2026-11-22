@@ -16,6 +16,7 @@ import {
   type NotificationCounts,
   type NotificationKind,
   notificationLink,
+  overridesSwitches,
   type Processor,
   renderNotification,
   renderPush,
@@ -216,8 +217,11 @@ export async function sendQueued(
   tenantId: string,
   now: Date,
   limit = 200,
+  /** C4.10: only these rows (an urgent notice's, sent as soon as they are queued). */
+  only?: readonly string[],
 ): Promise<SendSummary | null> {
   const out: SendSummary = { sent: 0, skipped: 0, failed: 0, held: 0 };
+  if (only && only.length === 0) return out;
   const pusher = deps.pusher ?? unconfiguredPusher;
   // §1.149: onboarding emails that didn't go, each left as a to-do for the lead after its settle.
   const unsent: Parameters<typeof leaveUnsentTodo>[1][] = [];
@@ -232,6 +236,7 @@ export async function sendQueued(
         and(
           eq(notification.tenantId, t.id),
           eq(notification.status, "queued"),
+          ...(only ? [inArray(notification.id, [...only])] : []),
           sql`case when ${notification.reason} like 'sending:%' then split_part(${notification.reason}, ':', 2)::bigint < ${leaseEnded} else true end`,
         ),
       )
@@ -330,11 +335,14 @@ export async function sendQueued(
         await skip("not_a_member");
         continue;
       }
-      if (row.channel === "email" && !person.prefs.email) {
+      // C4.10: an urgent notice goes whatever the person's switches say; a text still needs a
+      // number that may be texted (their consent, no STOP).
+      const switches = !overridesSwitches(row.kind);
+      if (row.channel === "email" && switches && !person.prefs.email) {
         await skip(NOTIFICATION_REASONS.turnedOff);
         continue;
       }
-      if (row.channel === "sms" && !wantsText(person)) {
+      if (row.channel === "sms" && (switches ? !wantsText(person) : person.phone === null)) {
         await skip(NOTIFICATION_REASONS.turnedOff);
         continue;
       }

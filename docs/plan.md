@@ -6523,6 +6523,22 @@ Two PRs by the rule for migrations: 0080 alone (#546), then the API's routes and
 | Checked | `packages/db/src/desktop-migration.test.ts` (RLS forced, one client's rows, never deleted, the guarded columns, the key cleared on removal, the job kinds equal core's, the lookup); `migrations.test.ts` (grants). `apps/api/src/desktop.test.ts`: pairing for a client admin only; folders checked and given to the computer; a wrong key, a changed text, an unknown computer, no signature and a removed computer refused (401) and audited, a bad clock 400; a tool's job handed out, answered once, by its own computer only; a computer that doesn't take a job, or doesn't answer; files stored once, from sending folders only; and the contract: no response schema names a public key, and no parameterless GET route answers the key's halves to the client's admin, user or the operator. |
 | Not in this pass | C5.3 (the handoff's audit row naming the desktop, and the confirm page, D7). A portal or back-office screen listing a client's computers (the connection shows as the Desktop app). Signing a Desk item in the app. |
 
+### 1.202 Urgent notices through the outbox (work plan C4.10, 2026-11-22; migration 0079)
+
+An urgent notice's person was told by email and text from the notify step itself (§1.86, wave 2c),
+with no `notification` row: no retries after a failed send, no line in the notification counts.
+Migration 0079 (its own PR) widened `notification_kind_check` to allow `urgent`; this sends them
+from the outbox.
+
+| Topic | Decision |
+|---|---|
+| The kind | Core's `NOTIFICATION_KINDS` gains `urgent`; `packages/db`'s column type is the check's list (`NOTIFICATION_KIND_CHECK`). Its key is `urgent:<item>:<person>`, one row per channel by the outbox's unique key, so a retried step queues nothing twice (the card's `payload.toldAt` is no longer written). Its link is the inbox. // DECISION |
+| Its words | The items-waiting sentence with a count of one ("1 item is waiting for you"), as the direct sends had: the kind's fixed sentence and a count, never the notice's own words (§11.3), and no new sentence to translate. // DECISION |
+| Who and how | As before: the card's person, or everyone who may sign for its role; an operator's card with nobody named tells nobody. Email to each, and a text to each with a number that may be texted (consent, no STOP). No phone notification: what changed is the path, not who is told or how. An email is queued even with no Resend key, and skipped `not_configured`, so it shows in the counts. // DECISION |
+| Never held | `holdsInQuietHours("urgent", …)` is false on every channel, and `overridesSwitches("urgent")` lets it past the person's own email and text switches; their consent for texts still holds. // DECISION |
+| At once | The notify step queues the rows in its own transaction, then sends just those (`sendQueued(…, only)`) once it commits. A send that fails stays queued (`send_failed:<n>`) and the outbox's next pass tries it again, up to `NOTIFY_MAX_TRIES`; an error in the send itself is reported and leaves the rows for that pass. A test run tells nobody, as before. // DECISION |
+| Checked | `apps/api/src/process-runtime.test.ts` (one email and one text in the person's quiet hours with texts switched off, as `urgent` rows, sent, linking to the inbox; an email that fails waits in the outbox and its next pass sends it), `packages/core/src/notify/notify.test.ts` (never held, overrides the switches, its link, rendered in every language and channel), `packages/db/src/migrations.test.ts` (the check). |
+
 ### 1.203 The phone's signed text v2: an answer's text and a note (M9, item C4.11, 2026-11-22; no migration)
 
 A phone's signature (§1.116, §1.140) covered the device, the item, the decision, the item's
