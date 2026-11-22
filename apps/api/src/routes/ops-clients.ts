@@ -70,7 +70,7 @@ import { dispatchEvents } from "../runs/dispatch";
 import { daysOf, runsByDay } from "../runs/figures";
 // Hand off (2026-11-11): where a handed-off run came from.
 import { handedOffFrom } from "../runs/handoff";
-import { opsStatusWhere, reachContext, runWaits } from "../runs/run-wait";
+import { opsStatusWhere, reachContext, runWaitedMs, runWaits, waitedMsOf } from "../runs/run-wait";
 import { runSubjects, sourceNames } from "../runs/subject";
 import { stepModelFacts } from "../skill-facts";
 import { checkZohoSetup } from "../zoho/fields";
@@ -593,7 +593,12 @@ async function runWorkflows(
 }
 
 /** One run as the back office lists it, from its wait and its workflow. */
-function runListView(r: RunListRow, wait: RunWait | null, wf: RunWorkflow | undefined) {
+function runListView(
+  r: RunListRow,
+  wait: RunWait | null,
+  wf: RunWorkflow | undefined,
+  waitedMs = 0,
+) {
   const node = failedNode(r);
   const step = wf?.workflow && node ? findNodeStep(wf.workflow, node) : undefined;
   return {
@@ -601,7 +606,28 @@ function runListView(r: RunListRow, wait: RunWait | null, wf: RunWorkflow | unde
     waiting: wait,
     workflowName: wf?.name ?? null,
     errorStep: step ? step.name : null,
+    waitedMs,
   };
+}
+
+/**
+ * The runs list's page condition: runs older than `before` by (created, id), the list's order.
+ * Null when that run isn't one of these clients'. Its time is read as text, so the comparison
+ * keeps Postgres' microseconds (a JS Date would cut them and repeat or skip runs at a page edge).
+ */
+// DECISION (QA, runs and dates): the runs list pages by keyset (`before` = the last run shown),
+// as the audit log does, not by offset: new runs arriving while someone reads don't shift pages.
+async function runPageAfter(
+  tx: Tx,
+  tenantIds: readonly string[],
+  before: string,
+): Promise<SQL | null> {
+  const [edge] = await tx
+    .select({ at: sql<string>`${run.createdAt}::text`, id: run.id })
+    .from(run)
+    .where(and(eq(run.id, before), inArray(run.tenantId, [...tenantIds])));
+  if (!edge) return null;
+  return sql`(${run.createdAt}, ${run.id}) < (${edge.at}::timestamptz, ${edge.id}::uuid)`;
 }
 
 /**
@@ -614,15 +640,17 @@ export async function opsRunViews(
   rows: RunListRow[],
   services: Pick<Services, "auth" | "env">,
 ) {
-  const [waits, workflows] = await Promise.all([
+  const [waits, workflows, waited] = await Promise.all([
     runWaits(tx, rows, reachContext(services)),
     runWorkflows(tx, rows),
+    runWaitedMs(tx, rows),
   ]);
   return rows.map((r) =>
     runListView(
       r,
       waits.get(r.id) ?? null,
       workflows.get(workflowKey(r.agentVersionId, r.workflowSlug)),
+      waited.get(r.id) ?? 0,
     ),
   );
 }
@@ -1055,18 +1083,26 @@ export function opsClientRoutes(app: Hono<AppEnv>): void {
       inArray(run.tenantId, [...ctx.tenantIds]),
       ...runFilterWhere(query.filter, ctx.services.platform.ctx.tools.specs()),
     ];
+    // Paging (QA, runs and dates): newest first by (created, id); `before` is the last run of the
+    // page before, `next` the last of this one while more match. Groups and days count them all.
+    const page = query.before ? await runPageAfter(tx, ctx.tenantIds, query.before) : null;
+    if (query.before && !page) {
+      return { runs: [], agents: [], next: null };
+    }
     // DECISION (speed run 6.3): the list's reads are asked together in the request's transaction
     // (docs/plan.md §1.82): the rows with the groups and the days, then what the rows name.
-    const [rows, groups, perDay] = await Promise.all([
+    const [found, groups, perDay] = await Promise.all([
       tx
         .select(runListColumns)
         .from(run)
-        .where(and(...where))
-        .orderBy(desc(run.createdAt))
-        .limit(query.limit),
+        .where(and(...where, ...(page ? [page] : [])))
+        .orderBy(desc(run.createdAt), desc(run.id))
+        .limit(query.limit + 1),
       query.groupBy === "error" ? runErrorGroups(tx, where) : undefined,
       query.perDay ? runsPerDay(tx, where) : undefined,
     ]);
+    const rows = found.slice(0, query.limit);
+    const next = found.length > query.limit ? (rows[rows.length - 1]?.id ?? null) : null;
     const [subjects, views, agents] = await Promise.all([
       runSubjects(tx, ctx.tenantIds, rows, ctx.services.platform),
       opsRunViews(tx, rows, ctx.services),
@@ -1080,6 +1116,7 @@ export function opsClientRoutes(app: Hono<AppEnv>): void {
       agents,
       ...(perDay ? { perDay } : {}),
       ...(groups ? { groups } : {}),
+      next,
     };
   });
 
@@ -1274,6 +1311,7 @@ export async function opsRunDetail(
     r,
     waits.get(r.id) ?? null,
     wf ? { name: wf.name, workflow: wf.workflow } : undefined,
+    waitedMsOf(r, items),
   );
   const cited = steps.flatMap((s) => sourcesOf(s.output));
   const [names, stepFacts, from] = await Promise.all([

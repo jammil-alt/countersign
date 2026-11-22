@@ -411,6 +411,11 @@ export const OpsRun = z.object({
   errorStep: z.string().nullable().optional(),
   /** What the run is about, for its title: see RunSubject. */
   subject: RunSubject.optional(),
+  /**
+   * How long the run has waited on people in all, in ms: its inbox items' spans joined (an open
+   * one counts to now). "Took" is start to finish less this. Absent where a route doesn't read it.
+   */
+  waitedMs: z.number().int().nonnegative().optional(),
 });
 
 export const OpsStep = z.object({
@@ -1890,6 +1895,8 @@ export const opsRoutes = {
       agents: z.array(OpsAgentRef),
       perDay: RunsPerDay.optional(),
       groups: z.array(RunErrorGroup).optional(),
+      /** Paging: pass as `before` for the next page; null on the last one. */
+      next: z.string().nullable().optional(),
     }),
   }),
   opsRun: defineRoute({
