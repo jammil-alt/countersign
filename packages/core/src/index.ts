@@ -130,6 +130,8 @@ export * from "./api/skill-model";
 export * from "./api/slack";
 // §1.150
 export * from "./api/sloan-reach";
+// docs/plan.md §1.218: SOC 2 readiness and the access review's record (served beside the registry).
+export * from "./api/soc2";
 export * from "./api/sop";
 export * from "./api/step-code-request";
 export * from "./api/step-data";
@@ -200,6 +202,7 @@ export * from "./codes/service";
 export * from "./compliance/card-numbers";
 export * from "./compliance/controls";
 export * from "./compliance/processors";
+export * from "./compliance/soc2";
 // P-4: conversations with people
 export * from "./converse";
 export * from "./desk/item";

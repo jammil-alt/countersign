@@ -4212,6 +4212,19 @@ data:
   a client's records stay in that client (§9.10). Model-call bodies are stored under the client's
   prefix with card numbers redacted, for operators only (§10.10). Search and plain-words questions run
   inside the request's scope and never become SQL (§11.6).
+- **SOC 2 readiness (owner's build plan 12, Wave X, 2026-11-22; `docs/plan.md` §1.218).** Outside
+  v1's scope, with the owner's yes. `/ops/security/soc2` lists each Trust Services Criterion in our
+  scope (Security, Availability, Confidentiality) as in place, partial or missing, with its owner
+  and evidence. It is computed from the security register (`packages/core/src/compliance`): the
+  controls that map to a criterion, plus live checks for what only the data knows (this quarter's
+  access review recorded; a deletion drill passed within a year; each policy adopted or a draft).
+  The **quarterly access review** is recorded in `access_review` (operator-only) and
+  `access_review_item` (each client's own, RLS on `tenant_id`, purged with the client): everyone
+  in the clients served as they were that day, and who should lose access. Records are never
+  updated or deleted; access itself is removed where it always is. The **deletion drill**
+  (`db:deletion-drill`, as `cs_owner`, on staging) fills a throwaway Sandbox client, retires and
+  purges it with the purge workflow's own code, checks nothing of it is left and nothing of
+  another client was touched, and writes `client.deletion_drill` to the audit log.
 
 ---
 

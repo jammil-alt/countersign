@@ -165,6 +165,7 @@ import { signInApprovalRoutes } from "./routes/sign-in-approvals";
 import { slackRoutes } from "./routes/slack";
 // §1.150: Sloan by email and text
 import { sloanReachRoutes } from "./routes/sloan-reach";
+import { soc2RouteHandlers } from "./routes/soc2";
 import { sopRouteHandlers } from "./routes/sop";
 // v0.14 W4-A
 // P-6
@@ -362,6 +363,8 @@ export function createApp(deps: AppDeps = defaultDeps): Hono<AppEnv> {
   // Wave 4 (docs/plan.md §1.86 "Scripts (wave 4)")
   browserScriptRoutes(app);
   complianceRouteHandlers(app);
+  // docs/plan.md §1.218: SOC 2 readiness and the access review's record.
+  soc2RouteHandlers(app);
   // v0.12 W1-E
   runControlRoutes(app);
   // v0.12 W1-A: go-live stages and client controls
