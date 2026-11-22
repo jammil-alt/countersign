@@ -616,6 +616,14 @@ export async function insertClient(db: Db, name: string): Promise<ClientFixture>
       values (${tenantId}, ${ct.id}, 'Invoice reconciliation', now() + interval '14 days',
         'How does it start?')`;
   }
+  // 0088: a saved view of the portal's runs list, shared with the team (docs/plan.md §1.236).
+  const [views] = await db.$client<{ ok: boolean }[]>`
+    select to_regclass('public.portal_view') is not null as ok`;
+  if (views?.ok) {
+    await db.$client`
+      insert into portal_view (tenant_id, user_id, name, filters, shared)
+      values (${tenantId}, ${u.id}, 'Waiting on us', '{"statuses":["waiting"]}', true)`;
+  }
   const [st] = await db
     .insert(billingStatement)
     .values({

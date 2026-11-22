@@ -469,6 +469,9 @@ describe.skipIf(!online)("migrations on an empty database", () => {
     expect(await can("browser_site", "UPDATE")).toBe(true);
     expect(await can("browser_site_version", "UPDATE")).toBe(false);
     expect(await can("saved_view", "UPDATE")).toBe(true);
+    // R6 (0088): a client's saved views aren't history either: renamed, shared, deleted (§1.236).
+    expect(await can("portal_view", "UPDATE")).toBe(true);
+    expect(await can("portal_view", "DELETE")).toBe(true);
     // The connectors catalog (0026): settings change in place, never deleted.
     expect(await can("connector_setting", "UPDATE")).toBe(true);
     expect(await can("connector_setting", "DELETE")).toBe(false);
