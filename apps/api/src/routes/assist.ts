@@ -41,13 +41,14 @@ import {
   testDataUserMessage,
 } from "@countersign/core";
 import { buildItem, clientFact, dealPerson, type Tx, tenant } from "@countersign/db";
-import { createLlmClient, DEFAULT_MODELS } from "@countersign/llm";
+import { DEFAULT_MODELS } from "@countersign/llm";
 import { and, asc, desc, eq, inArray } from "drizzle-orm";
 import type { Hono } from "hono";
 import { type BuildRow, readBuild } from "../build/store";
 import { clientModels } from "../compliance/models";
 import { type AppEnv, ensureClient, HttpError, mountLong, notFound, type Services } from "../http";
 import { claimMetered } from "../metered";
+import { meterDepsOf, meteredLlm } from "../metering";
 import { reportHandled } from "../observability/report";
 import { readFile } from "../onboarding/files";
 import { readDeal } from "../work/deals";
@@ -297,11 +298,14 @@ export function assistDraftRoutes(app: Hono<AppEnv>): void {
         role: ctx.role,
       }),
     );
-    const llm = createLlmClient({
+    // §1.210: our own cost, recorded as the back office's (never the client's) when it ends.
+    const { llm } = meteredLlm(meterDepsOf(ctx), {
       transport: clientModels(services, {
         clients: row.tenantId ? [row.tenantId] : [],
         read: services.db,
       }),
+      tenantId: row.tenantId,
+      source: "assist",
     });
     try {
       const out = await llm.callTool({
@@ -322,17 +326,6 @@ export function assistDraftRoutes(app: Hono<AppEnv>): void {
         maxTokens: 6000,
         label: "assist.test_data",
       });
-      console.info(
-        JSON.stringify({
-          event: "assist.test_data.cost",
-          who: "operator",
-          tenantId: row.tenantId,
-          model: out.record.model,
-          tokensIn: out.record.usage.inputTokens,
-          tokensOut: out.record.usage.outputTokens,
-          costUsd: out.record.costUsd,
-        }),
-      );
       return readTestData(ask.pieces, out.value);
     } catch (error) {
       if (error instanceof ComplianceRefusal) throw error;
@@ -356,9 +349,12 @@ export function assistDraftRoutes(app: Hono<AppEnv>): void {
         role: ctx.role,
       }),
     );
-    const llm = createLlmClient({
+    // §1.210: our own cost, recorded as the back office's (never the client's) when it ends.
+    const { llm } = meteredLlm(meterDepsOf(ctx), {
       // Held to every named client's HIPAA mode here too, beside the check above.
       transport: clientModels(ctx.services, { clients: g.clients, read: ctx.services.db }),
+      tenantId: g.primary,
+      source: "assist",
     });
     let text = "";
     try {
@@ -384,19 +380,7 @@ export function assistDraftRoutes(app: Hono<AppEnv>): void {
       });
       text = fitToLength(out.value.text, field.maxLength);
       // DECISION: a draft is the operator's own cost, never a client's (the client didn't ask, as
-      // the back office's questions): logged, not recorded as a client's usage.
-      console.info(
-        JSON.stringify({
-          event: "assist.draft.cost",
-          who: "operator",
-          field: id,
-          tenantId: g.primary,
-          model: out.record.model,
-          tokensIn: out.record.usage.inputTokens,
-          tokensOut: out.record.usage.outputTokens,
-          costUsd: out.record.costUsd,
-        }),
-      );
+      // the back office's questions): recorded as the back office's (§1.210), never the client's.
     } catch (error) {
       if (error instanceof ComplianceRefusal) throw error;
       reportHandled("draft failed", error, { kind: "assist.draft", field: id });

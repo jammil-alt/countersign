@@ -7,6 +7,8 @@ import { eq, sql } from "drizzle-orm";
 import type { Db } from "./client";
 import {
   accessRelease,
+  accessReview,
+  accessReviewItem,
   agent,
   agentChange,
   agentGrant,
@@ -973,6 +975,31 @@ export async function insertClient(db: Db, name: string): Promise<ClientFixture>
       sentAt: new Date(),
       answeredAt: new Date(),
       result: { ok: true, output: { entries: [], truncated: false } },
+    });
+  }
+  // §1.218: one access review that found this client's user, once migration 0096 is there.
+  const [reviews] = await db.$client<{ present: boolean }[]>`
+    select to_regclass('public.access_review') is not null as present`;
+  if (reviews?.present) {
+    const [review] = await db
+      .insert(accessReview)
+      .values({
+        period: "2026-Q4",
+        reviewedBy: u.id,
+        reviewerEmail: "reviewer@example.com",
+        clients: 1,
+        people: 1,
+        removals: 0,
+      })
+      .returning();
+    if (!review) throw new Error("access_review insert failed");
+    await db.insert(accessReviewItem).values({
+      reviewId: review.id,
+      tenantId,
+      userId: u.id,
+      email: `${name.toLowerCase()}@example.com`,
+      role: "client_admin",
+      decision: "keep",
     });
   }
   // §1.215: a saved match rule, once migration 0085 is there.

@@ -28,6 +28,7 @@ import {
 import { type Db, notification, personDevice, type Tx, withTenant } from "@countersign/db";
 import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import type { Bindings } from "../env";
+import { meter } from "../metering";
 import { reportHandled, reportProblem } from "../observability/report";
 import {
   leaveUnsentTodo,
@@ -442,9 +443,20 @@ export async function sendQueued(
       } else {
         // DECISION (audit 4.3): the texter reads the client's Twilio credentials under the
         // client's scope, so a text's send has a transaction of its own, held for that one call.
-        providerId = await withTenant(db, tenantId, (tx) =>
-          deps.texter.send(tx, t.id, { to: person.phone as string, body: rendered.text }),
-        );
+        providerId = await withTenant(db, tenantId, async (tx) => {
+          const sid = await deps.texter.send(tx, t.id, {
+            to: person.phone as string,
+            body: rendered.text,
+          });
+          // §1.210: a text no run sent is the client's own usage.
+          await meter(tx, {
+            tenantId: t.id,
+            measure: "messages",
+            source: "notification",
+            key: `twilio:${sid}`,
+          });
+          return sid;
+        });
       }
     } catch (error) {
       failure = error;
@@ -479,6 +491,15 @@ export async function sendQueued(
             : Promise.resolve();
         if (failure === null) {
           await settle(tx, row, { status: "sent", reason: null, providerId, sentAt: now }, claim);
+          // §1.210: an email through Resend (onboarding's too), once per notification.
+          if (onboarding || row.channel === "email") {
+            await meter(tx, {
+              tenantId: t.id,
+              measure: "emails",
+              source: "notification",
+              key: `notify:${row.id}`,
+            });
+          }
           await logged("sent");
           return;
         }
