@@ -195,6 +195,7 @@ import { rebase } from "./rebase";
 import { addReshapeBefore, addReshapeThenAction, newReshapeStep } from "./reshape";
 import { useClientScriptTools } from "./scripts";
 import { applySkillMove } from "./skill-move";
+import { splitStarts } from "./starts";
 // v0.18: the Builder on the step that is open (F6: under its setup in the side panel).
 import { readStepChatSize, StepChat, writeStepChatSize } from "./step-chat";
 import { WhatsLeft } from "./whats-left";
@@ -1651,6 +1652,21 @@ function BuilderBody(
       onRemoveTrigger={(id) => {
         edit((w) => removeTrigger(w, id));
         closeSide();
+      }}
+      // Owner, 2026-11-22 (docs/plan.md §1.184): a decision first, with a path for each start;
+      // it opens selected, so its paths can be named and filled.
+      onSplitStarts={() => {
+        // The same ids however often the edit is applied.
+        const made = Array.from({ length: 12 }, () => uuidv7());
+        let stepId: string | null = null;
+        edit((w) => {
+          let n = 0;
+          const r = splitStarts(w, ctx, () => made[n++] ?? uuidv7());
+          if (!r.ok) return w;
+          stepId = r.stepId;
+          return r.process;
+        });
+        if (stepId) setSelection({ type: "step", id: stepId });
       }}
       onDelete={remove}
       // Skill model (2026-11-10): "Move to vN", references remapped, one undo.
