@@ -28,6 +28,7 @@ import {
   membership,
   type Tx,
   tenant,
+  todo,
 } from "@countersign/db";
 import { and, desc, eq, inArray } from "drizzle-orm";
 import type { Hono } from "hono";
@@ -37,11 +38,14 @@ import {
   brandedEmailCanGo,
   onboardingEmailRefusal,
   sendOnboardingEmail,
+  unsentInvite,
+  unsentTodoKey,
 } from "../onboarding/emails";
 import {
   claimPerson,
   currentIntake,
   ensureOpen,
+  isOpen,
   loadIntake,
   markOpen,
   opsSummary,
@@ -158,6 +162,71 @@ export function intakeRoutes(app: Hono<AppEnv>): void {
   mount(app, opsIntakeRoutes.opsIntake, async ({ tx, tenantIds, params }) =>
     opsView(tx, await readIntake(tx, tenantIds, params.id)),
   );
+
+  // §1.220 (C7): Send it again, for an invite that didn't go out (skipped, failed or bounced). The
+  // same invite is queued under a key of its own (once per invite it replaces), sent at once, and
+  // the lead's "didn't go out" to-do is done.
+  mount(app, opsIntakeRoutes.opsIntakeSendAgain, async (ctx) => {
+    const { tx, tenantIds, params, services, session } = ctx;
+    const row = await readIntake(tx, tenantIds, params.id, true);
+    if (!isOpen(row)) {
+      throw new HttpError(409, "closed", "This intake is done or cancelled.");
+    }
+    const [person] = await tx
+      .select()
+      .from(intakePerson)
+      .where(
+        and(
+          eq(intakePerson.id, params.personId),
+          eq(intakePerson.tenantId, row.tenantId),
+          eq(intakePerson.intakeId, row.id),
+        ),
+      );
+    if (!person) throw notFound("person");
+    const previous = await unsentInvite(tx, row.tenantId, person.id);
+    if (!previous) {
+      throw new HttpError(409, "not_unsent", "Their invite went out, or is still waiting to.");
+    }
+    const [t] = await tx.select().from(tenant).where(eq(tenant.id, row.tenantId));
+    const settings = (t?.settings ?? {}) as Record<string, unknown>;
+    const refusal = onboardingEmailRefusal(
+      settings,
+      parseCoveredProcessors(services.env.BAA_PROCESSORS),
+    );
+    if (refusal) throw new HttpError(409, "hipaa", refusal);
+    // DECISION: it is refused while it would only be skipped again (no Resend, no link key here),
+    // so the lead's to-do stays until it can go.
+    if (!brandedEmailCanGo(services.env, settings)) {
+      throw new HttpError(409, "cannot_send", "Email can't be sent from here yet.");
+    }
+    const sent = await sendOnboardingEmail(
+      { tx, env: services.env },
+      {
+        kind: "invite",
+        tenantId: row.tenantId,
+        intakeId: row.id,
+        personId: person.id,
+        again: previous,
+      },
+    );
+    await tx
+      .update(todo)
+      .set({ state: "done", doneAt: new Date(), doneBy: session.user.id })
+      .where(
+        and(eq(todo.dedupeKey, unsentTodoKey(previous)), inArray(todo.state, ["open", "snoozed"])),
+      );
+    if (sent.status === "queued") {
+      ctx.afterCommit(() =>
+        sendNow(
+          services.db,
+          notifyDepsFromEnv(services.env, services.deps.fetch?.(services.env)),
+          row.tenantId,
+          new Date(),
+        ),
+      );
+    }
+    return { status: sent.status, notificationId: sent.notificationId };
+  });
 
   // ── The portal: Getting started ────────────────────────────────────────────────────────────────
   mount(app, portalIntakeRoutes.portalCurrentIntake, async (ctx) => {

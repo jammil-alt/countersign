@@ -4,6 +4,7 @@
 // what this leaves open. Pure: no I/O. The golden test (./golden.test.ts) holds it to ≥ 95%
 // precision on "same" at the default threshold.
 
+import { decideRanked } from "@countersign/core";
 import type { CrmKeys } from "../schema";
 import { companySimilarity, dealSimilarity, personSimilarity } from "./similar";
 
@@ -191,12 +192,9 @@ export function decideByRules<T>(
   weighed: readonly Weighed<T>[],
   threshold: number,
 ): RulesVerdict<T> {
-  const eligible = weighed
-    .filter((w) => w.pair.vetoed === null && w.pair.score > 0)
-    .sort((a, b) => b.pair.score - a.pair.score);
-  const best = eligible[0];
-  if (!best) return { kind: "nothing" };
-  const sure = eligible.filter((w) => w.pair.score >= threshold);
-  if (sure.length === 1) return { kind: "matched", best };
-  return { kind: "open", ranked: eligible };
+  // The platform's matching engine decides (docs/plan.md §1.215): one sure candidate, or open.
+  return decideRanked(weighed, threshold, (w) => ({
+    score: w.pair.score,
+    vetoed: w.pair.vetoed !== null,
+  }));
 }

@@ -47,7 +47,15 @@ export const CLIENT_TABS: {
   label: string;
   pages: readonly (readonly [string, string])[];
 }[] = [
-  { id: "overview", label: "Overview", pages: [["", "Overview"]] },
+  // R5 (docs/plan.md §1.235): the client's report, the Overview's second page.
+  {
+    id: "overview",
+    label: "Overview",
+    pages: [
+      ["", "Overview"],
+      ["report", "Report"],
+    ],
+  },
   { id: "agents", label: "Agents", pages: [["agents", "Agents"]] },
   // §1.162 (owner, 2026-11-20): the business areas switched on for the client (packs in the code),
   // the connections each needs with the client's status; their reports open under it. It was
@@ -55,7 +63,15 @@ export const CLIENT_TABS: {
   // Setup's Connectors (§1.161).
   { id: "areas", label: "Areas", pages: [["areas", "Areas"]] },
   // §1.149: what we know about the client, from the first call on (operator only).
-  { id: "file", label: "File", pages: [["file", "Client file"]] },
+  // §1.217: process interviews with the client's people, beside the file.
+  {
+    id: "file",
+    label: "File",
+    pages: [
+      ["file", "Client file"],
+      ["interviews", "Interviews"],
+    ],
+  },
   {
     id: "data",
     label: "Data",
@@ -64,6 +80,8 @@ export const CLIENT_TABS: {
       ["records", "Records"],
       // The ledger per accounting connection (docs/plan.md §1.79).
       ["ledger", "Chart of accounts"],
+      // §1.216: what the checks find in the client's QuickBooks.
+      ["books-health", "Books health"],
     ],
   },
   {

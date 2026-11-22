@@ -42,23 +42,50 @@ export interface OnboardingLine {
   createdAt: string;
   /** A delivery that failed: shown in risk. */
   failed: boolean;
+  /**
+   * §1.220: the newest line of an invite that didn't go out, while it still hasn't: Send it again
+   * is offered on it.
+   */
+  sendAgain?: { intakeId: string; personId: string };
 }
+
+/** An email the pass skipped or gave up on (not one held back because the intake closed). */
+const notSent = (meta: Record<string, unknown>) =>
+  meta.status === "failed" || (meta.status === "skipped" && meta.reason !== "closed");
 
 /** An intake's log as timeline lines. */
 export function onboardingLines(view: OpsIntakeView): OnboardingLine[] {
   const people = new Map(view.people.map((p) => [p.id, p.name]));
   const sections = new Map(view.guide.sections.map((s) => [s.key, s.title]));
+  const unsent = new Set(view.unsentInvites ?? []);
+  const offered = new Set<string>();
+  // Newest first, so the first failure of each person's invite is where Send it again goes.
   return view.events.map((e) => {
     const who = e.personId ? (people.get(e.personId) ?? null) : null;
     const key = typeof e.meta.sectionKey === "string" ? e.meta.sectionKey : null;
-    return {
+    const didntGo = e.kind === "sent" && notSent(e.meta);
+    const line: OnboardingLine = {
       id: `intake:${e.id}`,
       kind: e.kind,
-      body: intakeEventWords(e.kind, who, key ? (sections.get(key) ?? null) : null),
+      body: didntGo
+        ? `The invite${who ? ` to ${who}` : ""} didn't go out.`
+        : intakeEventWords(e.kind, who, key ? (sections.get(key) ?? null) : null),
       who,
       createdAt: e.at,
-      failed: e.kind === "bounced" || e.kind === "wrong_account",
+      failed: e.kind === "bounced" || e.kind === "wrong_account" || didntGo,
     };
+    const invite = e.meta.email === "invite";
+    if (
+      invite &&
+      (didntGo || e.kind === "bounced") &&
+      e.personId &&
+      unsent.has(e.personId) &&
+      !offered.has(e.personId)
+    ) {
+      offered.add(e.personId);
+      line.sendAgain = { intakeId: view.intake.id, personId: e.personId };
+    }
+    return line;
   });
 }
 

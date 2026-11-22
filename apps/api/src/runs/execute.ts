@@ -379,7 +379,12 @@ async function automationsOf(
 /** The agents runtime over the database, as a run (or the cron, for reach-outs) uses it. */
 export function runtimeFor(
   deps: RunDeps,
-  options: { collect?: EventRow[]; testRun?: boolean } = {},
+  options: {
+    collect?: EventRow[];
+    testRun?: boolean;
+    /** §1.210: the run whose Browser Run seconds these are. */
+    run?: { id: string; agentId: string };
+  } = {},
 ): RuntimeDeps {
   const { db } = deps;
   const ports = createDbPorts(db, {
@@ -448,6 +453,7 @@ export function runtimeFor(
           ),
           db,
           deps.browser,
+          options.run,
         ),
         db,
       ),
@@ -490,9 +496,11 @@ function withBrowser(
   base: NonNullable<RuntimeDeps["services"]>,
   db: Db,
   browser: BrowserDeps | undefined,
+  run?: { id: string; agentId: string },
 ): NonNullable<RuntimeDeps["services"]> {
   if (!browser) return base;
-  return (conn) => ({ ...base(conn), browser: dbBrowserServices(db, conn, browser) });
+  const deps = run ? { ...browser, run } : browser;
+  return (conn) => ({ ...base(conn), browser: dbBrowserServices(db, conn, deps) });
 }
 
 /** RunDeps for one client: its model calls held to its HIPAA mode (docs/plan.md §1.35). */
@@ -679,6 +687,7 @@ export async function executeRun(
   const runtime = runtimeFor(forClient(deps, info.tenantId), {
     collect: emitted,
     testRun: info.mode === "test",
+    run: { id: info.id, agentId: info.agentId },
   });
   // R6: the history the owner's watch compares a total with, read once (v4 processes only, so a
   // v3 run has exactly the durable steps it had).

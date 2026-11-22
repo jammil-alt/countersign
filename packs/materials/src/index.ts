@@ -4,6 +4,8 @@
 // units, recording, the six alert rules, history and the digest (§12.4). apps/api registers it.
 // May import core, db, llm, senses, documents, connectors; never agents or workflows.
 
+// Plan entry §1.233: the AP pack, beside this one (its own manifest, `extends: "materials"`).
+export * from "./ap";
 export {
   MATERIALS_ACTIONS,
   MATERIALS_REPORTS,

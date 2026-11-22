@@ -3,6 +3,7 @@
 // load (scripts/web-size.mjs). The API mounts them from their own group, and the contract and
 // access tests walk this whole list, so none of them skips a check.
 
+import { accountReportRoutes } from "./account-report";
 import { adjustRoutes } from "./adjust";
 import { agentReportRoutes } from "./agent-report";
 import { assistRoutes } from "./assist";
@@ -11,13 +12,18 @@ import { clientFileRoutes, startRoutes } from "./client-files";
 import { codeRequestRoutes } from "./code-requests";
 import { connectorAccessRoutes } from "./connector-access";
 import { desktopRoutes } from "./desktop";
+import { evalsRoutes } from "./evals";
 import { evidenceRoutes } from "./evidence";
 import { opsIntakeRoutes, portalIntakeRoutes, welcomeRoutes } from "./intake";
+import { interviewRoutes } from "./interviews";
 import { inviteRoutes } from "./invite";
 import { manualRoutes } from "./manual";
+import { portalViewRoutes } from "./portal-views";
 import { routes } from "./routes";
 import { setupRoutes } from "./setup";
+import { soc2Routes } from "./soc2";
 import { sopRoutes } from "./sop";
+import { workStatementRoutes } from "./work-statement";
 
 /**
  * docs/plan.md §1.125: the Dev queue's routes, and §1.149: onboarding v1's (the client file,
@@ -43,6 +49,8 @@ export const allRoutes = {
   // Round 4 D (docs/plan.md §1.211): a proposed write's evidence and the client's thresholds; the
   // evidence panel and the thresholds form load lazily, and their schemas with them.
   ...evidenceRoutes,
+  // docs/plan.md §1.212: Save as a test case and the scorecard load with their screens.
+  ...evalsRoutes,
   // docs/builder-plan.md §6 (B4): the setup checklist (Getting started, the agent's page).
   ...setupRoutes,
   // docs/builder-plan.md §7 (B5): client adjustments on the agent's Settings, and feedback on a
@@ -55,6 +63,17 @@ export const allRoutes = {
   ...assistRoutes,
   // docs/plan.md §1.204: the desktop app's pairing, folders and the computer's signed routes.
   ...desktopRoutes,
+  // docs/plan.md §1.218: SOC 2 readiness and the access review's record; the screen loads lazily.
+  ...soc2Routes,
   // R4 (docs/plan.md §1.214): the report per agent; its tabs load lazily, and its schema with them.
   ...agentReportRoutes,
+  // Y5 (docs/plan.md §1.234): the work statement; its screens load lazily, and its schema with them.
+  ...workStatementRoutes,
+  // R5 (docs/plan.md §1.235): the report per account and /ops/accounts; their screens load lazily.
+  ...accountReportRoutes,
+  // R6 (docs/plan.md §1.236): the portal's saved views; the strip on the runs list loads lazily,
+  // and its schemas with it.
+  ...portalViewRoutes,
+  // docs/plan.md §1.217: the process interview; its page and its back-office screen load lazily.
+  ...interviewRoutes,
 } as const;

@@ -2,6 +2,8 @@
 export const SECURITY_PATHS = {
   overview: "/ops/security",
   controls: "/ops/security/controls",
+  // §1.218: lazy-loaded (routes.tsx).
+  soc2: "/ops/security/soc2",
   vendors: "/ops/security/vendors",
   policies: "/ops/security/policies",
   clients: "/ops/security/clients",

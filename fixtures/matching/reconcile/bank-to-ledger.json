@@ -1,0 +1,145 @@
+{
+  "description": "A month of a client's bank lines (A) against its books (B): a cheque by number, payments by amount and date, a card processor's payout of three sales less a fee, a transfer the bank and the books write with different numbers (a saved rule), and what is left on each side.",
+  "config": "bank_to_ledger",
+  "a": [
+    {
+      "id": "A1",
+      "reference": "CHK #1042",
+      "date": "2026-10-03",
+      "amount": "-1250.00",
+      "description": "CHECK 1042"
+    },
+    {
+      "id": "A2",
+      "reference": null,
+      "date": "2026-10-05",
+      "amount": "-89.99",
+      "description": "ADOBE *CREATIVE"
+    },
+    {
+      "id": "A3",
+      "reference": null,
+      "date": "2026-10-09",
+      "amount": "1452.10",
+      "description": "STRIPE PAYOUT"
+    },
+    {
+      "id": "A4",
+      "reference": "ACH 55102",
+      "date": "2026-10-15",
+      "amount": "-4000.00",
+      "description": "ACH TRANSFER 55102"
+    },
+    {
+      "id": "A5",
+      "reference": null,
+      "date": "2026-10-20",
+      "amount": "-35.00",
+      "description": "SERVICE FEE"
+    },
+    {
+      "id": "A6",
+      "reference": null,
+      "date": "2026-10-22",
+      "amount": "-500.00",
+      "description": "ONLINE PMT"
+    },
+    {
+      "id": "A7",
+      "reference": null,
+      "date": "2026-10-23",
+      "amount": "-500.00",
+      "description": "ONLINE PMT"
+    }
+  ],
+  "b": [
+    {
+      "id": "B1",
+      "reference": "1042",
+      "date": "2026-10-01",
+      "amount": "-1250.00",
+      "description": "Check 1042 to Northside Lumber"
+    },
+    {
+      "id": "B2",
+      "reference": null,
+      "date": "2026-10-04",
+      "amount": "-89.99",
+      "description": "Adobe subscription"
+    },
+    {
+      "id": "B3",
+      "reference": null,
+      "date": "2026-10-07",
+      "amount": "900.00",
+      "description": "Sale 301"
+    },
+    {
+      "id": "B4",
+      "reference": null,
+      "date": "2026-10-07",
+      "amount": "600.00",
+      "description": "Sale 302"
+    },
+    {
+      "id": "B5",
+      "reference": null,
+      "date": "2026-10-08",
+      "amount": "-47.90",
+      "description": "Stripe fee"
+    },
+    {
+      "id": "B6",
+      "reference": "TRF-55102",
+      "date": "2026-10-15",
+      "amount": "-4000.00",
+      "description": "Transfer to savings"
+    },
+    {
+      "id": "B7",
+      "reference": null,
+      "date": "2026-10-22",
+      "amount": "-500.00",
+      "description": "Rent"
+    },
+    {
+      "id": "B8",
+      "reference": null,
+      "date": "2026-10-28",
+      "amount": "-212.40",
+      "description": "Fuel"
+    }
+  ],
+  "rules": [{ "id": "rule-ach", "field": "reference", "aValue": "ach55102", "bValue": "trf55102" }],
+  "expect": [
+    {
+      "a": ["A4"],
+      "b": ["B6"],
+      "type": "one_to_one",
+      "tier": "client_rule",
+      "rule": "client_rule:rule-ach"
+    },
+    {
+      "a": ["A1"],
+      "b": ["B1"],
+      "type": "one_to_one",
+      "tier": "deterministic",
+      "rule": "amount_date"
+    },
+    {
+      "a": ["A2"],
+      "b": ["B2"],
+      "type": "one_to_one",
+      "tier": "deterministic",
+      "rule": "amount_date"
+    },
+    {
+      "a": ["A3"],
+      "b": ["B3", "B4", "B5"],
+      "type": "one_to_many",
+      "tier": "deterministic",
+      "rule": "group"
+    }
+  ],
+  "unmatched": { "a": ["A5", "A6", "A7"], "b": ["B7", "B8"] }
+}

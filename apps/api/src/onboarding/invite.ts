@@ -95,7 +95,7 @@ import {
   theirFactsOf,
 } from "./files";
 import { guideSources } from "./guide-sources";
-import { coversOf as storedCovers } from "./intake";
+import { emptyGuide, coversOf as storedCovers } from "./intake";
 import { AREA_WORDS, readStart, sellableTemplates } from "./starts";
 
 /** Which route ran it: Invite's side panel, or Sign up now (a start's defaults, resolved to a draft). */
@@ -172,6 +172,12 @@ interface Plan {
   told: ToldPlan[];
   /** Whether the branded email goes from here (else the sign-in provider's invitation does). */
   branded: boolean;
+  /**
+   * §1.220: Just the account for a new account, with our email able to go: an intake that covers
+   * nothing is opened so each person gets our invite, which then reads as a welcome ("What's in
+   * it: your account"), instead of the sign-in provider's invitation.
+   */
+  welcomeOnly: boolean;
   /** A new account's file or deal found in Sales by the company's name (shown to confirm). */
   foundByName: boolean;
   file: FileRow | null;
@@ -387,7 +393,12 @@ async function planInvite(
   const covered = parseCoveredProcessors(services.env.BAA_PROCESSORS);
   const refusal = hasIntake ? onboardingEmailRefusal(settings, covered) : null;
   if (refusal) problems.push({ email: null, code: "hipaa", message: refusal });
-  const branded = hasIntake && brandedEmailCanGo(services.env, settings);
+  // DECISION (§1.220): Just the account sends our own welcome only for a new account; on an
+  // existing client, people added without an intake still get the sign-in provider's invitation
+  // (its open intake, if any, is not touched).
+  const welcomeOnly =
+    !hasIntake && !clientId && draft.people.length > 0 && brandedEmailCanGo(services.env, settings);
+  const branded = hasIntake ? brandedEmailCanGo(services.env, settings) : welcomeOnly;
 
   // The client's open intake: this Invite's cards are added to it (cases-plan §3.2).
   const [openRow] =
@@ -549,6 +560,7 @@ async function planInvite(
     openIntake,
     told,
     branded,
+    welcomeOnly,
     foundByName,
     file,
     deal: dealPlan,
@@ -648,6 +660,11 @@ function confirmLines(plan: Plan): string[] {
         `Emails ${listWords(plan.told.map((p) => firstName(p.name)))} a few more questions.`,
       );
     }
+  } else if (plan.welcomeOnly && invited.length > 0) {
+    const when = plan.draft.sendAt ? ` on ${shortDay(plan.draft.sendAt)}` : "";
+    out.push(
+      `Emails ${listWords(invited.map((p) => firstName(p.name)))} our welcome, with a link to sign in${when}.`,
+    );
   } else if (invited.length > 0) {
     out.push(`Emails ${listWords(invited.map((p) => firstName(p.name)))} the sign-in invitation.`);
   }
@@ -674,6 +691,8 @@ function originOf(run: InviteRun): string {
 }
 
 function summaryOf(plan: Plan) {
+  // §1.220: the welcome covers nothing; it reads "What's in it: your account".
+  if (plan.welcomeOnly) return { general: false, areas: [], agents: 0, minutes: 0 };
   if (!plan.hasIntake || !plan.guide) return null;
   return {
     general: plan.covers.general,
@@ -1024,7 +1043,9 @@ export async function runInvite(run: InviteRun, draft: InviteDraft): Promise<Inv
           if (queued.status === "queued") anyQueued = true;
         }
       }
-    } else if (plan.hasIntake && plan.guide) {
+    } else if ((plan.hasIntake && plan.guide) || plan.welcomeOnly) {
+      // §1.220: Just the account's welcome opens an intake that covers nothing, so its link and
+      // the welcome page work as an invite's; a later Invite adds its cards to it.
       const [made] = await tx
         .insert(intake)
         .values({
@@ -1032,7 +1053,7 @@ export async function runInvite(run: InviteRun, draft: InviteDraft): Promise<Inv
           dealId: row?.id ?? null,
           fileId: file.id,
           covers: plan.covers,
-          guide: plan.guide,
+          guide: plan.guide ?? emptyGuide(),
           startMode: draft.startMode,
           leadUserId: userId,
           leadNote: draft.note,

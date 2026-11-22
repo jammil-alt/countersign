@@ -44,8 +44,12 @@ const builtins = platform.catalog.list();
 // tool skill over one handler, so a wrapper.
 // §1.204: the desktop app's three reads (desktop.files.list, desktop.file.read,
 // desktop.xlsx.read), each a wrapper.
-const BUILTINS = 154;
-const WRAPPERS = 108;
+// §1.233: the AP pack's five tool skills (prepare a bill, look one up, record goods received, make
+// and read the week's list), each a wrapper of its tool, and Suggest accounts (an agent skill).
+// §1.232: the Close pack's four tool skills (close.check-month, close.entries-to-record,
+// close.record-written, close.propose-entry), each a wrapper over one handler.
+const BUILTINS = 164;
+const WRAPPERS = 117;
 
 describe("built-in skills under the R2 skill schema", () => {
   it("registers the platform's, the packs' and each connector's read skills, once each", () => {
