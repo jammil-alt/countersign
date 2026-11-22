@@ -34,6 +34,7 @@ describe("which routes are exempt", () => {
         "PUT /api/forms/:token/draft",
         "POST /api/hooks/:tenantId/:hookId",
         "POST /api/hooks/gchat",
+        "POST /api/hooks/resend",
         "POST /api/hooks/teams",
         "POST /api/hooks/whatsapp_meta",
         "POST /api/hooks/zoho_crm/:tenantId/:connectionId",

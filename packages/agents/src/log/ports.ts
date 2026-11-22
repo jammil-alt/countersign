@@ -27,6 +27,7 @@ import { dbRunLog } from "./run-log";
 import { dbThreadsPort } from "./threads-port";
 // P-7
 import { dbTranslationPort, type TranslationPortOptions } from "./translation-port";
+import { dbVerifyPort } from "./verify-port";
 
 export interface DbPortsOptions {
   /**
@@ -80,6 +81,8 @@ export function createDbPorts(db: Db, options: DbPortsOptions = {}): RuntimePort
     ...(options.release ? { release: options.release } : {}),
     // v0.12 W1-E: a retry's carried approvals; model calls when apps/api keeps them.
     carried: dbCarriedActions(db),
+    // Round 4 D (docs/plan.md §1.211): the run's sources, for the verifier before a write.
+    verify: dbVerifyPort(db),
     ...(options.modelCalls ? { modelCalls: options.modelCalls } : {}),
     // v0.12 W2-D: Sloan's account, as the portal shows it; passing to an agent emits.
     ...(options.account

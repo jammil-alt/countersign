@@ -292,6 +292,8 @@ describe.skipIf(!online)("migrations on an empty database", () => {
       "vendor_contract",
       // §1.121 (0058): a form request is answered, expired or cancelled, never deleted.
       "form_request",
+      // §1.217 (0087): an interview is finished or closed, never deleted.
+      "process_interview",
       // §1.124 (0060–0063): issues are closed, asks told, to-dos dropped, deals lost; never deleted.
       "issue",
       "issue_event",
@@ -447,6 +449,9 @@ describe.skipIf(!online)("migrations on an empty database", () => {
       expect(await can(table, "UPDATE"), `${table} UPDATE`).toBe(true);
       expect(await can(table, "DELETE"), `${table} DELETE`).toBe(false);
     }
+    // 0085: saved match rules are retired in place, never deleted (§1.215).
+    expect(await can("match_rule", "UPDATE")).toBe(true);
+    expect(await can("match_rule", "DELETE")).toBe(false);
     expect(await can("agent_change", "UPDATE")).toBe(false);
     expect(await can("doc_extraction", "UPDATE")).toBe(false);
     expect(await can("doc_line", "UPDATE")).toBe(false);

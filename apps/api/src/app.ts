@@ -4,6 +4,7 @@
 import { credentialKeysFromEnv, globalFetch } from "@countersign/connectors";
 import { parseCoveredProcessors, routes } from "@countersign/core";
 import type { Db } from "@countersign/db";
+import { checkMissingReports } from "@countersign/documents";
 import { Hono } from "hono";
 import { sloanTick } from "./account/sloan";
 import { SUMMARY_CALL_TIMEOUT_MS, summaryPass } from "./account/summaries";
@@ -87,6 +88,7 @@ import { deskRoutes } from "./routes/desk";
 import { desktopApiRoutes } from "./routes/desktop";
 import { directoryRoutes } from "./routes/directory";
 import { documentRoutes } from "./routes/documents";
+import { evidenceRouteHandlers } from "./routes/evidence";
 import { excelRoutes } from "./routes/excel";
 import { exportRoutes } from "./routes/exports";
 import { feedbackRouteHandlers } from "./routes/feedback";
@@ -128,14 +130,15 @@ import { opsCodeRequestRoutes } from "./routes/ops-code-requests";
 // v0.12 W2-A: the connectors catalog
 import { opsConnectorRoutes } from "./routes/ops-connectors";
 import { opsEventRoutes } from "./routes/ops-events";
+// Reshape data (2026-11-11)
+// §1.164: Read table's sample-file check
+import { opsIntakeReportRoutes } from "./routes/ops-intake-reports";
 import { opsLabClearRoutes } from "./routes/ops-lab-clear";
 import { opsLineageRoutes } from "./routes/ops-lineage";
 import { opsMergeRoutes } from "./routes/ops-merge";
 import { opsModelRoutes } from "./routes/ops-models";
 // v0.13 W2-I
 import { opsOversightRoutes } from "./routes/ops-oversight";
-// Reshape data (2026-11-11)
-// §1.164: Read table's sample-file check
 import { opsReadTableRoutes } from "./routes/ops-read-table";
 import { opsReshapeRoutes } from "./routes/ops-reshape";
 import { opsSkillRoutes } from "./routes/ops-skills";
@@ -153,6 +156,7 @@ import { recordRouteHandlers } from "./routes/records";
 import { reggieRoutes } from "./routes/reggie";
 import { releaseRoutes } from "./routes/release";
 import { requestRouteHandlers } from "./routes/requests";
+import { resendHookRoutes } from "./routes/resend-hooks";
 import { runAuditRouteHandlers } from "./routes/run-audit";
 import { runControlRoutes } from "./routes/run-controls";
 import {
@@ -282,6 +286,7 @@ export function createApp(deps: AppDeps = defaultDeps): Hono<AppEnv> {
   // Reshape data (2026-11-11): propose a Reshape step's mapping, and its sample values.
   opsReshapeRoutes(app);
   opsReadTableRoutes(app);
+  opsIntakeReportRoutes(app);
   opsMergeRoutes(app);
   opsEventRoutes(app);
   // v0.13 W2-H: models for task skills and skill steps.
@@ -321,6 +326,8 @@ export function createApp(deps: AppDeps = defaultDeps): Hono<AppEnv> {
   agentReportRouteHandlers(app);
   recordRouteHandlers(app);
   approverRuleRoutes(app);
+  // Round 4 D (docs/plan.md §1.211)
+  evidenceRouteHandlers(app);
   contactRoutes(app);
   // docs/plan.md §1.98
   textSignupRoutes(app);
@@ -344,6 +351,8 @@ export function createApp(deps: AppDeps = defaultDeps): Hono<AppEnv> {
   inviteRoutes(app);
   intakeRoutes(app);
   welcomeRoutes(app);
+  // §1.220: onboarding emails delivered or bounced, from Resend's webhook
+  resendHookRoutes(app);
   // docs/plan.md §1.109: voice typing
   voiceRoutes(app);
   // docs/plan.md §1.168: Draft for long text fields
@@ -473,6 +482,9 @@ export async function runCron(env: Bindings, scheduledTime: Date, deps: AppDeps 
           const run = forClient(runDepsFromEnv(env, { db, platform, instances }), tenantId);
           await platformHealthTick({ db, runtime: runtimeFor(run) }, tenantId, at, timeZone);
         },
+        // docs/plan.md §1.213: a scheduled report that didn't arrive raises its alert.
+        intakeTick: (tenantId, at, timeZone) =>
+          checkMissingReports(db, tenantId, { now: at, timezone: timeZone ?? "UTC" }),
       },
       scheduledTime,
     );
