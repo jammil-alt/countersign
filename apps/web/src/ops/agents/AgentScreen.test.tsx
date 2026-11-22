@@ -104,10 +104,13 @@ describe("AgentScreen", () => {
     });
     const bar = await screen.findByTestId("agent-bar");
     expect(within(bar).getByRole("heading", { name: "Material costs" })).toBeInTheDocument();
-    expect(within(bar).getByTestId("agent-version-badges")).toHaveTextContent("Live · v1");
+    // A newer draft beside it; the version it runs is in its status (agents/status), never
+    // "Live · v1" for a published version that may still be in trial (QA 2026-11-22).
     expect(within(bar).getByTestId("agent-version-badges")).toHaveTextContent("Draft · v2");
-    // An agent's own status, never a run's word.
-    expect(within(bar).getByTestId("agent-bar-status")).toHaveTextContent("Active");
+    expect(within(bar).getByTestId("agent-version-badges")).not.toHaveTextContent("Live");
+    // An agent's own status, never a run's word: its stage, then its version. The fixture
+    // agent has no stage, so it reads as not started.
+    expect(within(bar).getByTestId("agent-bar-status")).toHaveTextContent("Not started · v1");
     // Its client starts the bar's breadcrumb, a link to the client's page.
     expect(within(within(bar).getByTestId("agent-bar-crumbs")).getByRole("link")).toHaveTextContent(
       "Harbor Millwork",
@@ -361,12 +364,15 @@ describe("AgentScreen", () => {
     setup(BASE, {
       [`GET /api/ops/agents/${ID}`]: () => ({
         ...AGENT_DETAIL,
+        agent: { ...AGENT_DETAIL.agent, stage: "trial" },
         versions: [AGENT_DETAIL.versions[1]],
         latest: AGENT_DETAIL.live,
       }),
     });
     const bar = await screen.findByTestId("agent-bar");
-    expect(within(bar).getByTestId("agent-version-badges")).toHaveTextContent("Live · v1");
+    // The AP bill clerk as QA found it: switched on, in trial, running v1 (QA 2026-11-22).
+    expect(within(bar).getByTestId("agent-bar-status")).toHaveTextContent("In trial · v1");
+    expect(within(bar).getByTestId("agent-version-badges")).not.toHaveTextContent("Live");
     expect(within(bar).queryByTestId("agent-publish")).toBeNull();
   });
 

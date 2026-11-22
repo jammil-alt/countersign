@@ -3,9 +3,15 @@
 // on someone, and what the client sees of it; then the client's work, what waits on us (only when
 // something does), the client's health (its supervisor and what it found), and on the rail its
 // Mezonas lead (set here) and its threads with what is unread for you. Billing is in Settings.
-import type { AgentStage, GoLive, OpsAgentActivity } from "@countersign/core";
+import {
+  type AgentStage,
+  type GoLive,
+  isCountedAgent,
+  type OpsAgentActivity,
+} from "@countersign/core";
 import { useState } from "react";
 import { Link, useParams } from "react-router-dom";
+import { agentStage } from "../../agents/status";
 import type { ResponseOf } from "../../api/client";
 import { type AgentSummary, apiRoutes } from "../../api/routes";
 import { type ApiState, useApi, useApiClient } from "../../api/useApi";
@@ -17,7 +23,7 @@ import { Select } from "../../ui/forms";
 import { PageGrid, Section } from "../../ui/page";
 import { Button, Card, EmptyState, ErrorNotice } from "../../ui/primitives";
 import { Skeleton, SkeletonCard, SkeletonLine, SkeletonRows } from "../../ui/skeleton";
-import { type ChipState, StatusChip } from "../../ui/status";
+import { StatusChip } from "../../ui/status";
 import { STAGE_LABEL } from "../agents/GoLivePanel";
 import { prefetchAgent, useIntent } from "../agents/prefetch";
 import { OPS_PATHS } from "../paths";
@@ -53,7 +59,9 @@ function Overview({ clientId }: { clientId: string }) {
   const data = client.data;
   if (!data) return client.error ? null : <OverviewSkeleton />;
 
-  const agents = data.agents.filter((a) => !a.testCopy);
+  // The client's agents as every count counts them (core `isCountedAgent`): the header's line
+  // says "N of M agents live" of these same rows.
+  const agents = data.agents.filter(isCountedAgent);
   const waiting = inbox.data?.items ?? [];
 
   return (
@@ -150,31 +158,6 @@ function AgentStages({
   );
 }
 
-/**
- * An agent's status in words (§1.163): Paused (by the client or us, or switched off), Retired,
- * Not started (a draft, or on the bench), In trial, Waiting on the client's sign-off, Running.
- */
-// DECISION (§1.163): one chip says where the agent is, in the owner's words; the bench reads as
-// "Not started" (it makes test runs only), and the stage's bar and note beside it say more.
-export function agentStatus(
-  g: GoLive,
-  runStatus: string | null,
-): { state: ChipState; words: string } {
-  if (g.pause || runStatus === "paused") return { state: "paused", words: "Paused" };
-  if (runStatus === "retired") return { state: "idle", words: "Retired" };
-  if (runStatus === "draft" || runStatus === null) return { state: "setup", words: "Not started" };
-  switch (g.stage) {
-    case "live":
-      return { state: "running", words: "Running" };
-    case "signoff":
-      return { state: "waiting", words: "Waiting on the client's sign-off" };
-    case "trial":
-      return { state: "running", words: "In trial" };
-    default:
-      return { state: "setup", words: "Not started" };
-  }
-}
-
 /** "Next run Nov 21, 9:00 AM", or null when no schedule starts it in the next 8 days. */
 export function nextRunLine(a: OpsAgentActivity): string | null {
   return a.nextRunAt ? `Next run ${shortTime(a.nextRunAt)}` : null;
@@ -243,7 +226,13 @@ function StageRow({
   const g = state.data?.goLive;
   const stage = g?.stage ?? "bench";
   const step = STAGES.indexOf(stage) + 1;
-  const chip = g ? agentStatus(g, agent.runStatus) : null;
+  // agents/status: the same words as Home, the Agents tab and the agent's page. The stage is the
+  // agent's own row's, so the chip shows with the client, before its go-live view.
+  const chip = agentStage({
+    runStatus: agent.runStatus,
+    stage: g?.stage ?? agent.stage,
+    paused: g ? g.pause !== null : undefined,
+  });
   const next = activity ? nextRunLine(activity) : null;
   const note = g ? stageNote(g) : null;
   const tone = stageTone(g, activity);
@@ -305,11 +294,9 @@ function StageRow({
         ) : null}
       </span>
       <span className="ui-activity__end flex-col items-end gap-2">
-        {chip ? (
-          <StatusChip state={chip.state} testId={`ops-client-status-${agent.slug}`}>
-            {chip.words}
-          </StatusChip>
-        ) : null}
+        <StatusChip state={chip.state} testId={`ops-client-status-${agent.slug}`}>
+          {chip.words}
+        </StatusChip>
         {hasRuns(days) ? (
           <Sparkline
             days={days}

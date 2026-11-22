@@ -7,7 +7,7 @@ import { MemoryRouter } from "react-router-dom";
 import { describe, expect, it } from "vitest";
 import { AppProviders, AppRoutes } from "../../App";
 import { fakeApi, OPERATOR_SESSION } from "../../test/fixtures";
-import { agentChip } from "./CommandCenter";
+import { agentChip, agentNowState } from "./CommandCenter";
 
 const DEMO = "00000000-0000-4000-8000-00000000a002";
 const OTHER = "00000000-0000-4000-8000-00000000a003";
@@ -311,7 +311,8 @@ describe("command center", () => {
     const agents = screen.getByTestId("ops-command-agents");
     expect(within(agents).getByTestId("ops-agents-group-Demo client")).toHaveTextContent("1 agent");
     const pia = within(agents).getByTestId(`ops-agent-${AGENT}`);
-    expect(pia).toHaveTextContent("Running");
+    // Its stage in the Status chip, then what its runs are doing (agents/status's one order).
+    expect(pia).toHaveTextContent("Live");
     expect(pia).toHaveTextContent("1 run running");
     expect(pia).toHaveTextContent("1 version behind");
     expect(pia).toHaveTextContent("$8.40");
@@ -342,7 +343,7 @@ describe("command center", () => {
     // By status groups them by what their chips say.
     await userEvent.click(within(agents).getByTestId("ops-agents-by-status"));
     expect(within(agents).getByTestId("ops-agents-group-Paused")).toBeInTheDocument();
-    expect(within(agents).getByTestId("ops-agents-group-Running")).toBeInTheDocument();
+    expect(within(agents).getByTestId("ops-agents-group-Live")).toBeInTheDocument();
     await userEvent.click(within(agents).getByTestId("ops-agents-by-template"));
     expect(
       within(agents).getByTestId("ops-agents-group-Built for this client"),
@@ -519,26 +520,36 @@ describe("command center", () => {
     expect(otherCard).toHaveTextContent("No agent is on yet");
   });
 
-  it("names an agent's state in words", () => {
-    expect(agentChip({ status: "active", openRuns: 0, recentRuns: [] }).words).toBe("Idle");
+  it("names an agent's stage in its chip, as the client page and the agent page do", () => {
+    // QA (2026-11-22): the AP bill clerk in trial read "Idle · In trial" here.
+    expect(agentChip({ status: "active", stage: "trial" }).words).toBe("In trial");
+    expect(agentChip({ status: "active", stage: "live" }).words).toBe("Live");
+    expect(agentChip({ status: "active", stage: "signoff" }).words).toBe(
+      "Waiting on the client's sign-off",
+    );
+    expect(agentChip({ status: "active", stage: "bench" }).words).toBe("Not started");
+    expect(agentChip({ status: "draft", stage: "bench" }).words).toBe("Not started");
+    expect(agentChip({ status: "paused", stage: "live" }).words).toBe("Paused");
+  });
+
+  it("names what its runs are doing after the chip", () => {
+    expect(agentNowState({ openRuns: 0, recentRuns: [] }).words).toBe("Idle");
     expect(
-      agentChip({
-        status: "active",
+      agentNowState({
         openRuns: 1,
         recentRuns: [{ id: "a", status: "waiting", mode: "live", createdAt: "" }],
       }),
     ).toEqual({ state: "waiting", words: "Waiting for approval" });
     // A run stored as running that waits on a person counts as waiting.
-    expect(agentChip({ status: "active", openRuns: 1, waitingRuns: 1, recentRuns: [] }).words).toBe(
+    expect(agentNowState({ openRuns: 1, waitingRuns: 1, recentRuns: [] }).words).toBe(
       "Waiting for approval",
     );
+    expect(agentNowState({ openRuns: 1, recentRuns: [] }).words).toBe("Running");
     expect(
-      agentChip({
-        status: "active",
+      agentNowState({
         openRuns: 0,
         recentRuns: [{ id: "a", status: "failed", mode: "live", createdAt: "" }],
       }).state,
     ).toBe("failed");
-    expect(agentChip({ status: "draft", openRuns: 0, recentRuns: [] }).words).toBe("Setting up");
   });
 });
