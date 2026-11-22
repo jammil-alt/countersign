@@ -39,6 +39,7 @@ import {
 } from "@countersign/db";
 import { and, asc, desc, eq, inArray, isNull, lte, or } from "drizzle-orm";
 import { HttpError, iso, notFound } from "../http";
+import { unsentInvite } from "./emails";
 
 export type IntakeRow = typeof intake.$inferSelect;
 export type PersonRow = typeof intakePerson.$inferSelect;
@@ -319,7 +320,19 @@ export async function opsView(tx: Tx, row: IntakeRow) {
     answers,
     progress,
     events: [...d.events].reverse().map(eventView),
+    unsentInvites: await unsentPeople(tx, row.tenantId, d.people),
   };
+}
+
+/** §1.220: the people whose latest invite didn't go out, for Send it again. */
+async function unsentPeople(
+  tx: Tx,
+  tenantId: string,
+  people: readonly Pick<PersonRow, "id">[],
+): Promise<string[]> {
+  const out: string[] = [];
+  for (const p of people) if (await unsentInvite(tx, tenantId, p.id)) out.push(p.id);
+  return out;
 }
 
 // ── The portal ──────────────────────────────────────────────────────────────────────────────────

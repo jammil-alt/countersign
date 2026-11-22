@@ -63,3 +63,16 @@ export async function purgeRetiredFiles(
   }
   return done;
 }
+
+/**
+ * §1.220 (q14): lost prospects' client files, 12 months after the last of their deals closed
+ * without a sale. Migration 0097's `app_purge_lost_prospect_files()` decides which, deletes them
+ * (their facts with them) and writes its own audit row; the Worker has no DELETE of its own. At
+ * most 500 a call, so a backlog goes over the next hours.
+ */
+export async function purgeLostProspectFiles(db: Db): Promise<string[]> {
+  const rows = (await db.execute(
+    sql`select app_purge_lost_prospect_files() as ids`,
+  )) as unknown as { ids: string[] | null }[];
+  return rows[0]?.ids ?? [];
+}

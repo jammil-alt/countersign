@@ -67,6 +67,11 @@ export const OpsIntakeView = z.object({
   progress: z.array(SectionProgress),
   /** Newest first. */
   events: z.array(IntakeEventView),
+  /**
+   * §1.220: the people whose latest invite didn't go out (skipped, failed or bounced), so Send it
+   * again can be offered.
+   */
+  unsentInvites: z.array(z.string()).optional(),
 });
 export type OpsIntakeView = z.infer<typeof OpsIntakeView>;
 
@@ -92,6 +97,20 @@ export const opsIntakeRoutes = {
     summary: "An intake: its guide, people, answers with their sources, progress per card, its log",
     params: IdParams,
     response: OpsIntakeView,
+  }),
+  // §1.220 (C7)
+  opsIntakeSendAgain: defineRoute({
+    method: "POST",
+    path: "/api/ops/intakes/:id/people/:personId/send-again",
+    auth: "session",
+    roles: OPS,
+    summary:
+      "Sends a person's invite again when it didn't go out (skipped, failed or bounced); their to-do is done",
+    params: z.object({ id: Id, personId: Id }),
+    response: z.object({
+      status: z.enum(["queued", "scheduled", "skipped"]),
+      notificationId: z.string().nullable(),
+    }),
   }),
 } as const;
 

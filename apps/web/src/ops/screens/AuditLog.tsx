@@ -481,7 +481,7 @@ export function accessReviewCsv(users: AccessReviewUser[]): string {
   return `${lines.map((l) => l.map(csvCell).join(",")).join("\r\n")}\r\n`;
 }
 
-function download(name: string, text: string) {
+export function download(name: string, text: string) {
   const url = URL.createObjectURL(new Blob([text], { type: "text/csv;charset=utf-8" }));
   const a = document.createElement("a");
   a.href = url;
