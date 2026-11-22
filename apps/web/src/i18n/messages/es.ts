@@ -3918,6 +3918,61 @@ export const es: Messages = {
   // (end setup: tools)
 
   // ── setup: see ── Getting started: See it work (SU4, SU5)
+  "setup.see.none": "Ahora no se está preparando ningún agente.",
+  "setup.see.pick": "Elija un agente para ver cómo trabaja.",
+  "setup.see.agents": "Agentes en preparación",
+  "setup.see.intro":
+    "Cómo hará {name} el trabajo, con su gente y sus herramientas. Díganos en cualquier paso que no sea como lo hacen ustedes.",
+  "setup.see.readOnly":
+    "Puede leer cómo trabaja. Alguien de su equipo que pueda firmar dice qué está bien y lo prueba.",
+  "setup.see.steps": "Cómo trabaja",
+  "setup.see.noSteps": "Todavía no hay pasos que leer.",
+  "setup.see.person": "Persona",
+  "setup.see.who": "Quién: {name}",
+  "setup.see.asksFirst": "Pregunta antes a {names}",
+  "setup.see.told": "Avisa a {names}",
+  "setup.see.otherwise": "En otro caso",
+  "setup.see.looksRight": "Está bien",
+  "setup.see.lookedRight": "Está bien",
+  "setup.see.lookedRightBy": "Está bien · {name}",
+  "setup.see.different": "Lo hacemos de otra forma",
+  "setup.see.differentLabel": "¿Cómo lo hacen ustedes?",
+  "setup.see.differentHint": "Con sus propias palabras. Nada cambia hasta que vea el cambio.",
+  "setup.see.sendTo": "Enviar a {lead}",
+  "setup.see.youSaid": "Usted dijo: «{text}»",
+  "setup.see.withLead": "{lead} se encarga. Le mostraremos el cambio antes de usarlo.",
+  "setup.see.withUs": "Nos encargamos. Le mostraremos el cambio antes de usarlo.",
+  "setup.see.request": "Solicitud n.º {number}",
+  "setup.see.asked": "Enviado",
+  "setup.see.try.title": "Pruébelo con uno real",
+  "setup.see.try.hint":
+    "Una prueba: no se escribe nada en sus herramientas y no se pregunta a nadie",
+  "setup.see.try.left": {
+    one: "Le queda 1 de {max} pruebas.",
+    other: "Le quedan {count} de {max} pruebas.",
+  },
+  "setup.see.try.usedUp": "Pídanos otra si la necesita.",
+  "setup.see.try.usedUpLead": "Pida otra a {lead} si la necesita.",
+  "setup.see.try.wait": "Hay una prueba en curso. La siguiente puede empezar cuando termine.",
+  "setup.see.try.none":
+    "Todavía no hay nada con qué probarlo. Cuando llegue un documento con el que trabaje, aparecerá aquí.",
+  "setup.see.try.from": "De {from}, {when}",
+  "setup.see.try.this": "Probar con este",
+  "setup.see.try.badge": "Prueba · nada escrito ni enviado",
+  "setup.see.try.status.running": "En curso",
+  "setup.see.try.status.done": "Terminada",
+  "setup.see.try.status.failed": "Se detuvo",
+  "setup.see.try.starting": "Empezando. Los pasos aparecen aquí a medida que avanza.",
+  "setup.see.try.state.done": "Hecho",
+  "setup.see.try.state.running": "Trabajando",
+  "setup.see.try.state.waiting": "Esperaría aquí",
+  "setup.see.try.state.skipped": "Omitido",
+  "setup.see.try.state.failed": "No funcionó",
+  "setup.see.try.right": "Correcto",
+  "setup.see.try.notRight": "No es correcto porque…",
+  "setup.see.try.because": "¿Qué debería haber hecho?",
+  "setup.see.try.saidRight": "Usted dijo: correcto",
+  "setup.see.try.saidNotRight": "Usted dijo: no es correcto.",
   // (end setup: see)
 
   // ── setup: live ── Getting started: Go live (SU6)

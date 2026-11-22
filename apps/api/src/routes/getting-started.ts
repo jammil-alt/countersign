@@ -7,6 +7,7 @@ import { and, eq } from "drizzle-orm";
 import type { Hono } from "hono";
 import { ensureSeesAgent } from "../assigned";
 import { type AppEnv, type HandlerCtx, HttpError, mount } from "../http";
+import { startAfterCommit } from "../runs/reconcile";
 import { callAnswers, nudge, setupBoard } from "../setup/board";
 import { gettingStarted } from "../setup/overview";
 import {
@@ -141,6 +142,7 @@ export function gettingStartedRoutes(app: Hono<AppEnv>): void {
       userId: ctx.session.user.id,
       name: nameOf(ctx),
       canSign: await canSignHere(ctx, tenantId),
+      sees: ctx.agents,
     };
   };
 
@@ -159,7 +161,13 @@ export function gettingStartedRoutes(app: Hono<AppEnv>): void {
     if (!input.canSign) {
       throw new HttpError(403, "cannot_sign", "Only someone who can sign may try an agent.");
     }
-    const started = await startTry(ctx.tx, { ...input, documentId: ctx.body.documentId });
+    const started = await startTry(ctx.tx, {
+      ...input,
+      documentId: ctx.body.documentId,
+      ctx: ctx.services.platform.ctx,
+    });
+    // The run's instance starts once its row has committed, as the back office's Test run does.
+    ctx.afterCommit(() => startAfterCommit(ctx.services, started.request));
     return { try: started.view };
   });
 
