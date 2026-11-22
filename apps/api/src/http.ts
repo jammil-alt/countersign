@@ -66,6 +66,8 @@ import { isJsonContentType, originExempt } from "./request-origin";
 import { workerTransport } from "./runs/execute";
 import { type RunInstances, workflowInstances } from "./runs/instances";
 import { secondFactorPolicy, secondFactorSetupOf } from "./second-factor";
+import { SOP_CHANGE_ROUTES } from "./sop/change-routes";
+import { recordSopRevisionQuietly } from "./sop/revisions";
 // v0.12 W2-C
 import type { TestSuiteJobs } from "./testbench/instances";
 
@@ -712,6 +714,37 @@ function withAgentScope<R extends RouteSpec>(
   return async (ctx) => run({ ...ctx, agents: await agentScope(spec, ctx.tx, ctx) });
 }
 
+/**
+ * docs/sop-plan.md §6: after a route that changes what agents' SOPs say, their revisions are
+ * recorded in the same transaction, with the signed-in person as who made the change. A revision
+ * that can't be made never fails the change (it is reported; the next read makes it).
+ */
+function withSopRevisions<R extends RouteSpec>(
+  spec: R,
+  handler: (ctx: HandlerCtx<R> & LongHandlerCtx<R>) => Promise<unknown>,
+  mode: "tx" | "long",
+): (ctx: HandlerCtx<R> & LongHandlerCtx<R>) => Promise<unknown> {
+  const change = SOP_CHANGE_ROUTES[`${spec.method} ${spec.path}`];
+  if (!change || mode !== "tx") return handler;
+  return async (ctx) => {
+    const out = await handler(ctx);
+    const scope = await change.scope({
+      tx: ctx.tx,
+      params: ctx.params as Record<string, string>,
+      tenantIds: ctx.tenantIds,
+    });
+    if (scope && scope.agentIds.length > 0) {
+      await recordSopRevisionQuietly(ctx.tx, ctx.services.platform, {
+        tenantId: scope.tenantId,
+        agentIds: scope.agentIds,
+        by: { userId: ctx.session.user.id, side: ctx.role === "operator" ? "operator" : "client" },
+        source: change.source,
+      });
+    }
+    return out;
+  };
+}
+
 function mountWith<R extends RouteSpec>(
   app: Hono<AppEnv>,
   spec: R,
@@ -725,6 +758,7 @@ function mountWith<R extends RouteSpec>(
   const family = routeFamily(spec);
   // §1.122: every route, the MCP server's calls included, reads the request's agent scope first.
   handler = withAgentScope(spec, handler, mode) as typeof handler;
+  handler = withSopRevisions(spec, handler as never, mode) as typeof handler;
   let handlers = mounted.get(app);
   if (!handlers) {
     handlers = new Map();

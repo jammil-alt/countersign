@@ -408,6 +408,35 @@ client). Left:
 | F-D | An automation has no Builder chat or Try it of its own, old-format automations don't open in the editor, and renaming an input doesn't rewrite the steps that read it. | Code, if wanted. |
 | F-E | "Ask an agent" and "Report to an agent" from the mock-up need new step kinds. | Not planned. |
 
+### The agent's SOP (owner, 2026-11-21; `docs/sop-plan.md`, `docs/plan.md` §1.179, ARCHITECTURE v0.21 §10.17)
+
+Built: S0 (PR #510), the `sop_revision` table (S1a, migration 0074, PR #511) and S1 (PR #508): each
+client agent's SOP in the portal's SOP tab (the Manual tab's place), made by code from its setup,
+with each step's method, model and purpose, its revision, date and history, Find, filters and
+printing. Merge #510 and #511 before #508. Left:
+
+| # | What | Notes |
+|---|---|---|
+| SOP-Q | **The owner's answers** to `docs/sop-plan.md` §7: an accountable person per agent (today: the agent's approver, else the client's admins), share links outside the client's team, the back office's view of the SOP (its route is built; no screen yet). | Owner. |
+| SOP-I | Icons for an agent, AI and rules (`mz-agent`, `mz-ai`, `mz-rules`) in the design system's next delivery; the portal draws provisional ones (`apps/web/src/sop/icons.tsx`). | Owner, with the designer. |
+| SOP-B | The Builder writes each step's purpose when it drafts (today the operator writes it in the step panel, else the SOP writes a plain line). Changes the Builder's requests, so its fixtures are re-recorded with a key (`LLM_MODE=record`). | Code, with a key. |
+| SOP-R | References: the client's own tagged policies by title, the agents it takes over from, its knowledge base; a step's entity-level settings and a person's own "show me first" on its line. | Code. |
+| SOP-T | Try it on staging after the merge: open an agent's SOP, change a connection's permission or the approval rules, and see revision n.1 with what changed and who. | Owner, after deploy. |
+| SOP-W | W: the Workflow tab, view only (`docs/sop-plan.md` §6a): the builder's chart drawn from the SOP's outline, each step's card on hover, focus or tap; no settings to click. | Code. |
+| SOP-2 | S2: Sloan's `sop.read`, the Procedures page. | Code. |
+| SOP-3 | S3: share links, the accountable person, packs' own controls; only what the owner agrees. | Migrations, own PRs; a security review for share links. |
+
+### Agent assurance (owner, 2026-11-21; `docs/agent-assurance-plan.md`, mock-up screens 4 and 5 of `docs/design/sop.html`)
+
+Planned and designed, not built: each agent's architecture drawn from its setup, and its security
+controls proved by checks of its setup, its runs and planted attacks, kept as history and tied to
+the register (`AGT-1`, `ISO-1`, …) with their SOC 2 and HIPAA references. Left: the owner's answers
+(`docs/agent-assurance-plan.md` §7: whether an attack check in review holds the trial), then streams
+A0 (the gaps of §4c), A1 (architecture), A2a (`control_check`, own PR), A2 (setup and run checks),
+A3 (attacks), A4 (evidence export). Answered 2026-11-21: results are Verified, In review, Not yet
+checked or Not applicable, never "failed"; the client's admins and the team members who work with
+an agent see its section 14; SOC 2 references as the criteria a control answers, never "meets".
+
 ### Sign-in codes and the Claude connector (owner, 2026-11-10)
 
 | # | Step | Notes |

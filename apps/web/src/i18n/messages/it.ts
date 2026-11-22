@@ -2274,6 +2274,145 @@ export const it: Messages = {
   "agent.tab.settings": "Impostazioni dell’agente",
   // B3: the agent manual (docs/builder-plan.md §5)
   "agent.tab.manual": "Manuale", // fluent review
+  // docs/sop-plan.md S1: the agent's SOP tab.
+  "agent.tab.sop": "SOP", // fluent review
+  "sop.title": "{agent}: procedura operativa standard", // fluent review
+  "sop.subtitle":
+    "Creata da come {agent} è configurato oggi. Cambia quando cambia la configurazione.", // fluent review
+  "sop.asOf": "Al {date}", // fluent review
+  "sop.contents": "Indice", // fluent review
+  "sop.revision": "Revisione", // fluent review
+  "sop.revisionDate": "Data di revisione", // fluent review
+  "sop.previous": "Revisione precedente", // fluent review
+  "sop.notRecorded": "Non ancora registrata", // fluent review
+  "sop.stage": "Fase", // fluent review
+  "sop.area": "Area", // fluent review
+  "sop.accountable": "Responsabile", // fluent review
+  "sop.areaOwner": "Responsabile dell'area", // fluent review
+  "sop.lead": "Il vostro referente Mezonas", // fluent review
+  "sop.whatChanged": "Cosa è cambiato nella revisione {number}", // fluent review
+  "sop.was": "prima {value}", // fluent review
+  "sop.allRevisions": "Tutte le revisioni", // fluent review
+  "sop.find": "Cerca in questa procedura: un passo, una persona, un sistema, un record", // fluent review
+  "sop.find.count": "{count} punti corrispondono a “{text}”.", // fluent review
+  "sop.find.none": "Nessuna corrispondenza per “{text}”.", // fluent review
+  "sop.filter.party": "Sono mostrati i passi a cui partecipa {name}.", // fluent review
+  "sop.filter.system": "Sono mostrati i passi che usano {name}.", // fluent review
+  "sop.showAll": "Mostra tutto", // fluent review
+  "sop.ask": "Chiedi di questa procedura", // fluent review
+  "sop.askLine": "Procedura di {agent}", // fluent review
+  "sop.askText": "Sulla procedura di {agent}: “{line}” ", // fluent review
+  "sop.print": "Stampa o salva come PDF", // fluent review
+  "sop.printFooter": "{code} · {agent} · Revisione {number} del {date}", // fluent review
+  "sop.sec.control": "Controllo del documento", // fluent review
+  "sop.sec.purpose": "Scopo", // fluent review
+  "sop.sec.scope": "Ambito", // fluent review
+  "sop.sec.roles": "Ruoli", // fluent review
+  "sop.sec.start": "Come inizia", // fluent review
+  "sop.sec.procedure": "Procedura", // fluent review
+  "sop.sec.controls": "Controlli", // fluent review
+  "sop.sec.systems": "Sistemi", // fluent review
+  "sop.sec.data": "Dati", // fluent review
+  "sop.sec.exceptions": "Eccezioni", // fluent review
+  "sop.sec.decisions": "Decisioni e impostazioni", // fluent review
+  "sop.sec.measures": "Indicatori", // fluent review
+  "sop.sec.references": "Riferimenti", // fluent review
+  "sop.sec.history": "Cronologia delle revisioni", // fluent review
+  "sop.noPurpose": "Non ancora scritto.", // fluent review
+  "sop.covers": "Inizia quando", // fluent review
+  "sop.notCovered": "Non coperto", // fluent review
+  "sop.never": "Mai", // fluent review
+  "sop.nothingLeftOut": "Niente che sappiamo.", // fluent review
+  "sop.roles.lede": "Chi fa ogni parte. Fate clic su un nome per vedere solo i suoi passi.", // fluent review
+  "sop.whoElse": "Chi altro partecipa, per passo", // fluent review
+  "sop.whoElse.hint": "{agent} fa tutto il resto", // fluent review
+  "sop.cell.does": "Fa", // fluent review
+  "sop.cell.approves": "Approva", // fluent review
+  "sop.cell.checks": "Controlla", // fluent review
+  "sop.cell.told": "Informato", // fluent review
+  "sop.col.step": "Passo", // fluent review
+  "sop.hours": "Lavora nel vostro orario lavorativo: {hours}", // fluent review
+  "sop.legend.person": "Una persona", // fluent review
+  "sop.legend.agent": "Un agente", // fluent review
+  "sop.legend.rules": "Regole: lo stesso input dà sempre lo stesso risultato", // fluent review
+  "sop.legend.ai": "IA: un modello lo elabora; il modello è indicato", // fluent review
+  "sop.summary.lead":
+    "{agent} esegue ogni passo, salvo che sia indicata una persona o un altro agente.", // fluent review
+  "sop.summary.counts":
+    "{steps} passi: {rules} con regole, {ai} con IA, {mixed} con regole e poi IA, {person} da una persona.", // fluent review
+  "sop.summary.writes": "Ogni modifica ai vostri strumenti avviene con regole.", // fluent review
+  "sop.summary.owner": "{owner} rivede i passi falliti e quelli che portano a una modifica", // fluent review
+  "sop.method.rules": "Regole", // fluent review
+  "sop.method.rulesThen": "Regole, poi", // fluent review
+  "sop.method.ai": "IA", // fluent review
+  "sop.level.auto": "Da solo", // fluent review
+  "sop.level.ask": "Chiedimi prima", // fluent review
+  "sop.level.off": "Disattivato", // fluent review
+  "sop.level.on": "Attivo", // fluent review
+  "sop.approves": "Approva", // fluent review
+  "sop.within": "entro {when}", // fluent review
+  "sop.ifNoAnswer": "se nessuno risponde: {what}", // fluent review
+  "sop.ifRejected": "Se rifiutato: {what}", // fluent review
+  "sop.onError": "Se non riesce: {what}", // fluent review
+  "sop.told": "Informati", // fluent review
+  "sop.controls": "Controlli", // fluent review
+  "sop.path.if": "Se", // fluent review
+  "sop.path.otherwise": "Altrimenti", // fluent review
+  "sop.path.straightOn": "si prosegue", // fluent review
+  "sop.controls.lede":
+    "Cosa mantiene corretto questo processo, dove si applica e dove trovare la prova.", // fluent review
+  "sop.col.control": "Controllo", // fluent review
+  "sop.col.kind": "Tipo", // fluent review
+  "sop.col.how": "Come", // fluent review
+  "sop.col.steps": "Passi", // fluent review
+  "sop.col.owner": "Responsabile", // fluent review
+  "sop.col.evidence": "Prova", // fluent review
+  "sop.kind.prevents": "Previene", // fluent review
+  "sop.kind.catches": "Rileva", // fluent review
+  "sop.how.person": "Da una persona", // fluent review
+  "sop.how.automatic": "Automatico", // fluent review
+  "sop.how.rules": "Con regole", // fluent review
+  "sop.how.ai": "Con IA", // fluent review
+  "sop.allSteps": "Tutti", // fluent review
+  "sop.systems.lede":
+    "Gli strumenti che questo agente usa e cosa può fare in ciascuno: il più restrittivo tra l'impostazione della vostra connessione e l'accesso che gli abbiamo dato.", // fluent review
+  "sop.noSystems": "Non usa nessuno dei vostri strumenti.", // fluent review
+  "sop.col.system": "Sistema", // fluent review
+  "sop.col.read": "Lettura", // fluent review
+  "sop.col.create": "Creazione", // fluent review
+  "sop.col.update": "Modifica", // fluent review
+  "sop.col.delete": "Eliminazione", // fluent review
+  "sop.connectedBy": "Collegato da {name}", // fluent review
+  "sop.notConnected": "Non collegato", // fluent review
+  "sop.data.lede":
+    "Cosa l'agente legge, salva e modifica, dove si trova e per quanto tempo è conservato.", // fluent review
+  "sop.col.record": "Record", // fluent review
+  "sop.col.livesIn": "Si trova in", // fluent review
+  "sop.col.agentDoes": "L'agente", // fluent review
+  "sop.col.readByAi": "Letto dall'IA", // fluent review
+  "sop.col.kept": "Conservato", // fluent review
+  "sop.no": "No", // fluent review
+  "sop.data.ai":
+    "I modelli di IA leggono i dati solo nei passi segnati IA e non vi si addestrano mai. I nostri fornitori sono su mezonas.com/subprocessors.", // fluent review
+  "sop.learned": "Cosa ha imparato per voi", // fluent review
+  "sop.col.decision": "Decisione", // fluent review
+  "sop.col.setBy": "Stabilito da", // fluent review
+  "sop.onStep": "Passo {step}", // fluent review
+  "sop.us": "Noi", // fluent review
+  "sop.confirmedWithYou": "Confermato con voi", // fluent review
+  "sop.noDecisions": "Nessuna decisione registrata.", // fluent review
+  "sop.settings": "Cosa potete regolare", // fluent review
+  "sop.setup": "Cosa abbiamo configurato con voi", // fluent review
+  "sop.follows": "Cosa segue", // fluent review
+  "sop.handsOverTo": "Passa a", // fluent review
+  "sop.takesOverFrom": "Riceve da", // fluent review
+  "sop.knowledge": "Conoscenze", // fluent review
+  "sop.history.lede":
+    "Ogni modifica a come lavora {agent}, dalla più recente. Si crea una nuova revisione quando cambiano i passi, le persone, le approvazioni, cosa può fare nei vostri strumenti o le impostazioni.", // fluent review
+  "sop.col.revision": "Revisione", // fluent review
+  "sop.col.date": "Data", // fluent review
+  "sop.col.changes": "Cosa è cambiato", // fluent review
+  "sop.col.by": "Modificato da", // fluent review
   "manual.whatItDoes": "Cosa fa", // fluent review
   "manual.howItWorks": "Come funziona", // fluent review
   "manual.decisions": "Decisioni", // fluent review

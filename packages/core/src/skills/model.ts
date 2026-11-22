@@ -64,3 +64,27 @@ export function recommendedModel(
 ): ModelChoice | null {
   return skill.mode === "task" ? (skill.model ?? null) : null;
 }
+
+/**
+ * The model a skill step's run calls, as the runtime picks it (packages/agents `resolveModel`
+ * calls this): `effectiveModel`, where a code skill (`tool` mode) runs no model of its own and so
+ * falls to the agent's. One rule for the runtime and the agent's SOP, so the SOP names the model
+ * that runs (docs/sop-plan.md §3).
+ */
+export function runModel(input: {
+  agentModel: Pick<AgentDefinition["model"], "id"> & { maxTokens?: number | undefined };
+  skill: Pick<SkillDefinition, "mode" | "model">;
+  step?: ModelChoice | undefined;
+  agentSkill?: ModelChoice | undefined;
+}): { id: string; maxTokens: number | undefined } {
+  const resolved = effectiveModel({
+    skill: input.skill.mode === "tool" ? { mode: "agent" } : input.skill,
+    agentModel: input.agentModel,
+    agentSkill: input.agentSkill,
+    step: input.step,
+  });
+  return {
+    id: resolved?.model.id ?? input.agentModel.id,
+    maxTokens: resolved?.model.maxTokens ?? input.agentModel.maxTokens,
+  };
+}

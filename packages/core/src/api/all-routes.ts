@@ -13,6 +13,7 @@ import { inviteRoutes } from "./invite";
 import { manualRoutes } from "./manual";
 import { routes } from "./routes";
 import { setupRoutes } from "./setup";
+import { sopRoutes } from "./sop";
 
 /**
  * docs/plan.md §1.125: the Dev queue's routes, and §1.149: onboarding v1's (the client file,
@@ -32,6 +33,8 @@ export const allRoutes = {
   // docs/builder-plan.md §5 (B3): the agent manual; its tabs load lazily, and its view's schema
   // with them.
   ...manualRoutes,
+  // docs/sop-plan.md: the agent's SOP; its tab loads lazily, and its view's schema with it.
+  ...sopRoutes,
   // docs/builder-plan.md §6 (B4): the setup checklist (Getting started, the agent's page).
   ...setupRoutes,
   // docs/builder-plan.md §7 (B5): client adjustments on the agent's Settings, and feedback on a

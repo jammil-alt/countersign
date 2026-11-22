@@ -7,8 +7,8 @@
 
 import {
   type AgentDefinition,
-  effectiveModel,
   type ModelChoice,
+  runModel,
   type SkillDefinition,
 } from "@countersign/core";
 
@@ -23,15 +23,8 @@ export function resolveModel(
   step?: ModelChoice,
   agentSkill?: ModelChoice,
 ): ResolvedModel {
-  // A code skill has no model of its own: the agent's, as before (the loop never runs one).
-  const resolved = effectiveModel({
-    skill: skill.mode === "tool" ? { mode: "agent" } : skill,
-    agentModel,
-    agentSkill,
-    step,
-  });
-  return {
-    id: resolved?.model.id ?? agentModel.id,
-    maxTokens: resolved?.model.maxTokens ?? agentModel.maxTokens,
-  };
+  // A code skill has no model of its own: the agent's, as before (the loop never runs one). Core's
+  // `runModel` is the one rule, shared with the agent's SOP (docs/sop-plan.md §3).
+  const resolved = runModel({ agentModel, skill, step, agentSkill });
+  return { id: resolved.id, maxTokens: resolved.maxTokens ?? agentModel.maxTokens };
 }
