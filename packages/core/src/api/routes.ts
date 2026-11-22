@@ -111,6 +111,7 @@ import { RunSubject } from "./run-subject";
 import {
   OpsRunsQuery,
   PortalRunsQuery,
+  RunAboutName,
   RunErrorGroup,
   RunStatusSchema,
   RunsPerDay,
@@ -1922,6 +1923,8 @@ export const opsRoutes = {
       agents: z.array(OpsAgentRef),
       perDay: RunsPerDay.optional(),
       groups: z.array(RunErrorGroup).optional(),
+      /** R2: the records `about` names, by what their runs kept ("Acme Supply"). */
+      about: z.array(RunAboutName).optional(),
       /** Paging: pass as `before` for the next page; null on the last one. */
       next: z.string().nullable().optional(),
     }),
@@ -2214,7 +2217,12 @@ export const portalRoutes = {
     summary: "Runs of your services (never test runs)",
     // v0.12 W1-E: RunFilter without the back office's keys (docs/plan.md §1.40).
     query: PortalRunsQuery,
-    response: z.object({ runs: z.array(PortalRunSummary), perDay: RunsPerDay.optional() }),
+    response: z.object({
+      runs: z.array(PortalRunSummary),
+      perDay: RunsPerDay.optional(),
+      /** R2: the records `about` names, from the rows the client's timeline shows. */
+      about: z.array(RunAboutName).optional(),
+    }),
   }),
   portalRun: defineRoute({
     method: "GET",

@@ -47,6 +47,11 @@ const ANSWERS: { question: string; input: unknown }[] = [
     question: "Iris runs about the Hollis job",
     input: { agents: [IRIS], leftOut: ["about the Hollis job"] },
   },
+  // R2 (docs/plan.md §1.193): what the runs were about, in the question's words.
+  {
+    question: "failed runs about Acme Supply",
+    input: { statuses: ["failed"], aboutText: "Acme Supply" },
+  },
   // A field outside the filter.
   { question: "Iris bills above 5000 dollars", input: { agents: [IRIS], amountOver: "5000" } },
   // A back-office key in the portal.
@@ -172,6 +177,22 @@ describe.skipIf(process.env.WRITE_ASK_FIXTURES === "1")(
         leftOut: ["about the Hollis job"],
       });
       if (outcome.ok) expect(Object.keys(outcome.filter)).toEqual(["agents"]);
+    });
+
+    // R2
+    it("returns what the runs were about as words, for code to look up", async () => {
+      const outcome = await compileQuestion({
+        llm: replay(),
+        question: "failed runs about Acme Supply",
+        context,
+      });
+      expect(outcome).toMatchObject({
+        ok: true,
+        filter: { statuses: ["failed"] },
+        aboutText: "Acme Supply",
+        leftOut: [],
+      });
+      if (outcome.ok) expect(outcome.filter).not.toHaveProperty("about");
     });
 
     it("refuses an id the model was never given", async () => {

@@ -66,6 +66,7 @@ import { logAccountInSales } from "../onboarding/account-deal";
 // v0.13 W2-I
 import { runOversight } from "../oversight/views";
 import { runAuditState, runOwnerChecks } from "../run-audit/store";
+import { aboutNames } from "../runs/about";
 import { dispatchEvents } from "../runs/dispatch";
 import { daysOf, runsByDay } from "../runs/figures";
 // Hand off (2026-11-11): where a handed-off run came from.
@@ -1078,7 +1079,7 @@ export function opsClientRoutes(app: Hono<AppEnv>): void {
     ensureFilterClients(ctx, query.filter);
     const where: SQL[] = [
       inArray(run.tenantId, [...ctx.tenantIds]),
-      ...runFilterWhere(query.filter, ctx.services.platform.ctx.tools.specs()),
+      ...runFilterWhere(query.filter, ctx.services.platform.ctx.tools.specs(), "ops"),
     ];
     // Paging (QA, runs and dates): newest first by (created, id); `before` is the last run of the
     // page before, `next` the last of this one while more match. Groups and days count them all.
@@ -1088,7 +1089,7 @@ export function opsClientRoutes(app: Hono<AppEnv>): void {
     }
     // DECISION (speed run 6.3): the list's reads are asked together in the request's transaction
     // (docs/plan.md §1.82): the rows with the groups and the days, then what the rows name.
-    const [found, groups, perDay] = await Promise.all([
+    const [found, groups, perDay, about] = await Promise.all([
       tx
         .select(runListColumns)
         .from(run)
@@ -1097,6 +1098,8 @@ export function opsClientRoutes(app: Hono<AppEnv>): void {
         .limit(query.limit + 1),
       query.groupBy === "error" ? runErrorGroups(tx, where) : undefined,
       query.perDay ? runsPerDay(tx, where) : undefined,
+      // R2: the records `about` names, for its chips.
+      aboutNames(tx, query.filter.clients ?? ctx.tenantIds, query.filter.about, "ops"),
     ]);
     const rows = found.slice(0, query.limit);
     const next = found.length > query.limit ? (rows[rows.length - 1]?.id ?? null) : null;
@@ -1113,6 +1116,7 @@ export function opsClientRoutes(app: Hono<AppEnv>): void {
       agents,
       ...(perDay ? { perDay } : {}),
       ...(groups ? { groups } : {}),
+      ...(about ? { about } : {}),
       next,
     };
   });

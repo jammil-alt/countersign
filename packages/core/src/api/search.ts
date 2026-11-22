@@ -128,8 +128,20 @@ export const SearchRecordHit = z.object({
   date: z.string().nullable(),
   amount: z.string().nullable(),
   currency: z.string().nullable(),
+  /** R2: how many runs were about it (the portal: as its timeline shows them). */
+  runs: z.number().int().optional(),
 });
 export type SearchRecordHit = z.infer<typeof SearchRecordHit>;
+
+/**
+ * The kind a run keeps a record hit as (`run_subject`, docs/plan.md §1.188): a receivable is a
+ * transaction there.
+ */
+export function recordHitSubjectKind(
+  kind: (typeof RECORD_HIT_KINDS)[number],
+): "transaction" | "vendor" {
+  return kind === "vendor" ? "vendor" : "transaction";
+}
 
 export const SearchPersonHit = z.object({
   id: z.string(),
@@ -154,6 +166,8 @@ export const SearchDocumentHit = z.object({
   vendor: z.string().nullable(),
   number: z.string().nullable(),
   receivedAt: z.string(),
+  /** R2: how many runs were about it (the portal: as its timeline shows them). */
+  runs: z.number().int().optional(),
 });
 
 /** The portal's hits: its own client's, never templates, bundles, costs or notes. */

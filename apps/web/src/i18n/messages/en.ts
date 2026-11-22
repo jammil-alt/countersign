@@ -142,6 +142,11 @@ export const en = {
   "search.group.records": "Records",
   "search.group.people": "People",
   "search.group.documents": "Documents",
+  // R2 (docs/plan.md §1.193): opens the runs list on the runs about a record.
+  "search.runsAbout": {
+    one: "{count} run about {name}",
+    other: "{count} runs about {name}",
+  },
   "nav.table": "The Table",
   "nav.desk": "Your Desk",
   "nav.yourAgents": "Your agents",
@@ -1968,6 +1973,9 @@ export const en = {
   "runsPage.chip.attemptsOver": "tries over",
   "runsPage.chip.amount": "amount",
   "runsPage.chip.text": "words",
+  "runsPage.chip.about": "about",
+  "runsPage.about.remove": "Take {name} out of the filter",
+  "runsPage.about.record": "a record",
   "runsPage.ask.label": "Ask about your runs in plain words",
   "runsPage.ask.placeholder": 'Ask in plain words: "bills entered over $5,000 this month"',
   "runsPage.ask.send": "Ask",

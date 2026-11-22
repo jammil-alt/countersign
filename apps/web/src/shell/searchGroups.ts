@@ -1,14 +1,34 @@
 // The API's search hits as groups of links, one function per surface (packages/core/src/api/search.ts).
 // Pure, so the links each hit opens are tested on their own.
-import type { OpsSearchResult, PortalSearchResult } from "@countersign/core";
+import {
+  type OpsSearchResult,
+  type PortalSearchResult,
+  recordHitSubjectKind,
+} from "@countersign/core";
 import type { Translate } from "../i18n/catalog";
 import { EN, type I18n } from "../i18n/i18n";
-import { runChip } from "../ops/run/words";
+import { plural, runChip } from "../ops/run/words";
 import { money } from "../runs/format";
 import { opsRunTitle, subjectTitle } from "../runs/subject";
-import type { SearchGroup } from "./Search";
+import type { SearchGroup, SearchHit } from "./Search";
 
 const dot = (...parts: (string | null | undefined)[]) => parts.filter(Boolean).join(" · ");
+
+/**
+ * R2 (docs/plan.md §1.193): after a record or document some runs were about, a hit that says how
+ * many and opens the runs list filtered to them (`about=vendor:<id>`).
+ */
+function runsAboutHit(
+  hit: { id: string; runs?: number | undefined },
+  kind: string,
+  runsPath: string,
+  title: (count: number) => string,
+): SearchHit[] {
+  const count = hit.runs ?? 0;
+  if (count === 0) return [];
+  const about = encodeURIComponent(`${kind}:${hit.id}`);
+  return [{ key: `ra:${hit.id}`, href: `${runsPath}?about=${about}`, title: title(count) }];
+}
 
 const RUN_STATUS = {
   queued: "run.status.queued",
@@ -64,12 +84,17 @@ export function portalSearchGroups(
     },
     {
       label: t("search.group.records"),
-      hits: r.records.map((x) => ({
-        key: `rec:${x.id}`,
-        href: x.kind === "receivable" ? "/records?kind=receivables" : `/records/${x.id}`,
-        title: x.label,
-        meta: dot(x.number, x.date, amount(x)),
-      })),
+      hits: r.records.flatMap((x) => [
+        {
+          key: `rec:${x.id}`,
+          href: x.kind === "receivable" ? "/records?kind=receivables" : `/records/${x.id}`,
+          title: x.label,
+          meta: dot(x.number, x.date, amount(x)),
+        },
+        ...runsAboutHit(x, recordHitSubjectKind(x.kind), "/runs", (count) =>
+          t("search.runsAbout", { count, name: x.label }),
+        ),
+      ]),
     },
     {
       label: t("search.group.people"),
@@ -90,12 +115,17 @@ export function portalSearchGroups(
     },
     {
       label: t("search.group.documents"),
-      hits: r.documents.map((d) => ({
-        key: `d:${d.id}`,
-        href: `/documents/${d.id}`,
-        title: d.filename,
-        meta: dot(d.vendor, d.number),
-      })),
+      hits: r.documents.flatMap((d) => [
+        {
+          key: `d:${d.id}`,
+          href: `/documents/${d.id}`,
+          title: d.filename,
+          meta: dot(d.vendor, d.number),
+        },
+        ...runsAboutHit(d, "document", "/runs", (count) =>
+          t("search.runsAbout", { count, name: d.filename }),
+        ),
+      ]),
     },
   ];
 }
@@ -149,20 +179,28 @@ export function opsSearchGroups(
     },
     {
       label: "Records",
-      hits: r.records.map((x) => ({
-        key: `rec:${x.id}`,
-        href:
-          x.kind === "receivable"
-            ? `${base(x.client)}/records?kind=receivables`
-            : `${base(x.client)}/records/${x.id}`,
-        title: x.label,
-        meta: dot(
-          x.client.name,
-          x.number,
-          x.date,
-          x.amount && money(x.amount, x.currency ?? "USD"),
+      hits: r.records.flatMap((x) => [
+        {
+          key: `rec:${x.id}`,
+          href:
+            x.kind === "receivable"
+              ? `${base(x.client)}/records?kind=receivables`
+              : `${base(x.client)}/records/${x.id}`,
+          title: x.label,
+          meta: dot(
+            x.client.name,
+            x.number,
+            x.date,
+            x.amount && money(x.amount, x.currency ?? "USD"),
+          ),
+        },
+        ...runsAboutHit(
+          x,
+          recordHitSubjectKind(x.kind),
+          `${base(x.client)}/runs`,
+          (count) => `${plural(count, "run", "runs")} about ${x.label}`,
         ),
-      })),
+      ]),
     },
     {
       label: "People",
@@ -183,12 +221,20 @@ export function opsSearchGroups(
     },
     {
       label: "Documents",
-      hits: r.documents.map((d) => ({
-        key: `d:${d.id}`,
-        href: `${base(d.client)}/documents/${d.id}`,
-        title: d.filename,
-        meta: dot(d.client.name, d.vendor, d.number),
-      })),
+      hits: r.documents.flatMap((d) => [
+        {
+          key: `d:${d.id}`,
+          href: `${base(d.client)}/documents/${d.id}`,
+          title: d.filename,
+          meta: dot(d.client.name, d.vendor, d.number),
+        },
+        ...runsAboutHit(
+          d,
+          "document",
+          `${base(d.client)}/runs`,
+          (count) => `${plural(count, "run", "runs")} about ${d.filename}`,
+        ),
+      ]),
     },
   ];
 }
