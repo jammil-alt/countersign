@@ -495,7 +495,7 @@ describe("back-office run view", () => {
   });
 
   it("says Sending on the pressed decision until the server answers, and never earlier done (1.8)", async () => {
-    let answer: (v: unknown) => void = () => {};
+    let answer: ((v: unknown) => void) | undefined;
     const api = fakeApi({
       "GET /api/session": () => OPERATOR_SESSION,
       [`GET /api/ops/runs/${RUN_ID}`]: () => detail("open"),
@@ -515,7 +515,10 @@ describe("back-office run view", () => {
     expect(within(block).getByTestId("ops-run-waiting-reject")).toBeDisabled();
     // Still waiting: nothing reads as approved before the server says so.
     expect(screen.getByTestId("ops-run-status")).toHaveTextContent("Waiting for approval");
-    answer({ item: { ...detail("resolved").inbox[0] } });
+    // The decision is sent once the card's fingerprint is worked out (audit 3.4), which is async:
+    // answer the request only once it has been made.
+    await waitFor(() => expect(answer).toBeDefined());
+    answer?.({ item: { ...detail("resolved").inbox[0] } });
     // Answered: the block stays shut until the run reloads without this wait, so a second press
     // can't send the decision again.
     await waitFor(() =>
