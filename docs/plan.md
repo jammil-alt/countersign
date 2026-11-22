@@ -4910,7 +4910,7 @@ What's left is in `docs/open.md`, "The phone app".
 | The session | The app holds the very session a browser holds (the sealed WorkOS session) and sends it in `x-mezonas-session`; `apps/api`'s `mobileSession` middleware reads it as the session cookie and answers a refreshed session in the same header (empty: signed out), and the app keeps no cookies. So every rule holds unchanged on the phone: 12 hours at most, 30 minutes idle, WorkOS refresh and revocation, the account it carries (§1.93). An empty or malformed header is no session, never a fallback to a cookie. // DECISION |
 | App lock | After 5 minutes in the background the app asks for Face ID or the fingerprint before showing anything. |
 | Phones | `person_device` (migration 0056): client, person, name, platform, an Expo push token and the public half of the phone's signing key (an EC P-256 JWK). Tenant RLS like every client table; never deleted: removing a phone sets `revoked_at` and clears the token and key (a check enforces it), since signatures in the audit log name it. A reinstall (the same token) replaces the old entry; 10 phones at most. Routes: `/api/me/devices` (list, register, rename or new token, remove); responses never carry the token or key. Removing a phone ends the person's phone sessions, and adding a signing key needs a fresh sign-in while the second step is on (§1.140). |
-| Signing on a phone | The app keeps a P-256 private key in the phone's secure store behind Face ID or the fingerprint (`requireAuthentication`); reading it is the biometric check. It signs core's `deviceSignedText` (device, item, decision, the item's fingerprint, the time) and sends it on the portal's own `POST /api/inbox/:id/resolve` as `deviceSignature`. The API checks, before the item is touched: the person's own unrevoked phone with a key, the time within 5 minutes, the fingerprint equal to the item as the portal returns it now, through its response schema (`itemFingerprintText`: id, title, the change's display less its looked-up `names` (§1.138) and the payload, which holds the input, the edit, the record before and the amounts), and the ECDSA signature over that text; then writes `inbox.device_signed` to the audit log (item, phone, decision, fingerprint, time). Then the usual resolve, gate and undo window (invariant 8). Refusals: `signature_required` 403 (an unknown or removed phone, or a signature that doesn't verify; `device_unknown` 403 and `signature_invalid` 401 before §1.140), `signature_stale` 401, `item_changed` 409. // DECISION |
+| Signing on a phone | The app keeps a P-256 private key in the phone's secure store behind Face ID or the fingerprint (`requireAuthentication`); reading it is the biometric check. It signs core's `deviceSignedText` (device, item, decision, the item's fingerprint, the time) and sends it on the portal's own `POST /api/inbox/:id/resolve` as `deviceSignature`. Since §1.203 the app signs `v2`, which adds the answer and the note; `v1` is still accepted. The API checks, before the item is touched: the person's own unrevoked phone with a key, the time within 5 minutes, the fingerprint equal to the item as the portal returns it now, through its response schema (`itemFingerprintText`: id, title, the change's display less its looked-up `names` (§1.138) and the payload, which holds the input, the edit, the record before and the amounts), and the ECDSA signature over that text; then writes `inbox.device_signed` to the audit log (item, phone, decision, fingerprint, time). Then the usual resolve, gate and undo window (invariant 8). Refusals: `signature_required` 403 (an unknown or removed phone, or a signature that doesn't verify; `device_unknown` 403 and `signature_invalid` 401 before §1.140), `signature_stale` 401, `item_changed` 409. // DECISION |
 | Passkeys | Not in this pass. The phone's own key does the job for signing; passkeys as a sign-in factor are not in §1.100 either ("Not in this pass"). The owner's "2FA in an app linked to a person" (the phone app as a second factor) is not built: §1.100's step runs by Twilio Verify; the app could be a method later. |
 | Push | A third notification channel, `push` (migration 0056 widens the check), in the same outbox: the same kinds, counts and dedupe keys, quiet hours as for texts. The words are core's `renderPush`: "Mezonas" (or the business's name if the person chose it) and the kind's sentence with its count; no amounts, vendors, customers or links. The app opens the page from `data.path`. Items waiting go to phones on the person's own pace: each 5-minute pass with something new ("right away", the default) or hourly; email and texts keep their hour. A phone Expo reports gone loses its token. |
 | Push service | **Expo's push service** (`exp.host`), which hands on to Apple's and Google's: one request shape for both, and Apple's service speaks only HTTP/2, which a Worker's fetch is not known to offer. Off unless `MOBILE_PUSH=on` (a Worker variable; until then push rows are `skipped`, `not_configured`); `EXPO_ACCESS_TOKEN` once the Expo project turns on enhanced push security (it should). Neither is copied by `deploy.yml` yet. Expo is a processor (`expo_push`), on the site's subprocessors page; a client in HIPAA mode gets no phone notifications (`skipped`, `not_covered`) until `expo_push` is in `BAA_PROCESSORS`. // DECISION |
@@ -5440,7 +5440,7 @@ These had to land before any client gets a Twilio number. New `contact_change` k
 
 | Topic | Decision |
 |---|---|
-| Invitations | An invitation link takes US and Canadian numbers only, as the public link does, and signs up once: the contact row is locked and a later submit gets 409 `used`. An invitation is one person's, so it is refused in words they can act on (`apps/api/src/messaging/signup.ts`). // DECISION |
+| Invitations | An invitation link takes US and Canadian numbers only, as the public link does, and signs up once: the contact row is locked and a later submit gets 409 `used`. An invitation is one person's, so it is refused in words they can act on (`apps/api/src/messaging/signup.ts`). // DECISION Since: the page says a used invitation was used, and submits at once with one new number get no 500 (§1.197). |
 | Opt-outs | Only a START from the number lifts an opt-out; the sign-up page never does. On the public link, an opted-out number and a number already signed up get the same 200 as a sign-up and nothing is sent, the confirmation goes after the response, and the same answer on every path, so neither the words nor the timing say who opted out. On an invitation, 409 `opted_out` only when the invited person's own contact opted out; another contact's opted-out number is answered as a sign-up, sends nothing and uses the invitation up. A WhatsApp opt-out counts for texts. The page tells everyone how to text START. // DECISION |
 | The link's cap | At most 20 submits an hour per client link (`TEXT_SIGNUP_LINK_HOURLY_MAX`), skipped ones included, taken under an advisory lock so a burst can't pass it. // DECISION |
 | Automatic replies | One reply a day per contact and channel to a sender no trigger takes, five confirmations a day to one it does (Twilio and WhatsApp), counted from the contact's own log under an advisory lock, so two bots can't text each other for ever. None to a sender that looks automated, judged from the number alone (no paid carrier lookup): short codes, alphanumeric senders, invalid or toll-free +1 numbers, the client's own number (`apps/api/src/triggers/inbound-text.ts`). // DECISION |
@@ -6382,7 +6382,7 @@ action, not just mark it... if it is an issue, just because I say it is closed d
 | Not built | The client as an owner: no step yet sends an item to the client and closes it by their answer (the requirements request asks the intake form's fields, not an item). Until there is one, "Client" is only set by the fit-gap's preconditions. |
 | Checked | `apps/api/src/build-settled-by-step.test.ts` (done by hand refused, a drop, a note done, the Builder's close left out; a put-off gap given to engineering then the Builder, closed by its change and opened by its undo; a test closed by a full passing run and not by a failing or partial one), `apps/web/src/ops/builds/closeout.test.tsx` and `builds.test.tsx` (no selects; Put off, Drop it, Reopen; Take it up on a put-off gap). The skill build's go-live closing has no test of its own. |
 
-### 1.199 The desktop app's API: computers and jobs (open.md D2–D3, items C5.1–C5.2, 2026-11-22; migration 0080)
+### 1.204 The desktop app's API: computers and jobs (open.md D2–D3, items C5.1–C5.2, 2026-11-22; migration 0080)
 
 §1.151 merged the app, core's protocol and the `desktop` connector before the API took computers.
 Two PRs by the rule for migrations: 0080 alone, then the API's routes and `services.desktop`.
@@ -6393,6 +6393,37 @@ Two PRs by the rule for migrations: 0080 alone, then the API's routes and `servi
 | One computer per connection | Pairing makes the computer its own `desktop` connection (its folders live in the connection's `config`, as §1.151 said); one live computer per connection (a partial unique index), so a later pairing may reuse a connection once its computer is removed. // DECISION |
 | Finding the client | A signed request names only the computer. `desktop_device_tenant(id)` (SECURITY DEFINER, `row_security = off`, as 0071's helper) answers the client of a computer that is still paired, nothing else; the key is then read and the signature checked inside that one client. Not each client in turn (as Meta's webhook finds a number): a computer asks every 25 seconds. // DECISION |
 | Checked | `packages/db/src/desktop-migration.test.ts` (RLS forced, one client's rows, never deleted, the guarded columns, the key cleared on removal, the job kinds equal core's, the lookup); `migrations.test.ts` (grants). |
+
+### 1.203 The phone's signed text v2: an answer's text and a note (M9, item C4.11, 2026-11-22; no migration)
+
+A phone's signature (§1.116, §1.140) covered the device, the item, the decision, the item's
+fingerprint and the time, but not the answer to a question or a note sent with the decision: those
+could change between the phone and the API and the signature still matched (audit, 2026-11-17).
+
+| Topic | Decision |
+|---|---|
+| The v2 text | `mezonas-sign:v2`, then v1's five lines (device, item, decision, fingerprint, time), then the answer and the note, each one line of canonical JSON, `null` when there is none (`deviceSignedText`, `packages/core/src/mobile/mobile.ts`). JSON escapes a line break, so neither adds a line; canonical JSON so an answer that is an object signs the same whatever its key order. Absent and `null` are the same line, since both are no answer to the resolve. The text itself rather than a hash of the answer and note, so a test can read it. // DECISION |
+| Which version | `DeviceSignature.version`: `v1` or `v2`, absent meaning `v1`. The API builds the text the phone names, with the answer and note as the resolve received them, and verifies as before; a v2 with another answer or note, or with its version taken off, is 403 `signature_required` before anything changes. The audit row `inbox.device_signed` now records `version`. // DECISION |
+| v1 kept | `v1` is still accepted as it was, answer and note uncovered, so phones already in the field keep working. Refusing `v1` when an answer or note is sent waits until every phone signs `v2`; the owner says when (`docs/open.md` M9). // DECISION |
+| The app | Signs `v2` only, with the answer and, when it sends one, the note (`apps/mobile/src/device/signing.ts`). // DECISION |
+| The time window | Unchanged: ±5 minutes either way (`DEVICE_SIGNATURE_SKEW_SEC`), so a phone whose clock runs a little fast is not refused; a signature can't be made ahead by anyone without the phone's key. // DECISION |
+| Checked | `packages/core/src/mobile/mobile.test.ts` (the v2 lines, null and absent, key order, v1 ignoring both), `apps/mobile/src/device/signing.test.ts` (the app's v2 verifies only with its own answer and note, and isn't a v1), `apps/api/src/mobile.test.ts` (a v2 accepted with `version` in the audit row, a v1 with an answer still accepted, a v2 with another answer, another note, no note, or its version changed or taken off refused and the item left open). |
+
+### 1.199 A run's cost counts every call, however small (build plans 11's first fix, 2026-11-22; no migration)
+
+The build plans (2026-11-22, plan 11) found every production run showing $0.00. Two causes in the
+code. **Unpriced model ids:** the API answers a model with its dated id
+(`claude-sonnet-4-5-20250929`), which had no price, so the call was recorded at $0.00; staging
+had 30 such calls. #523 prices dated ids and earlier Claude models and shows "No price" for the
+rest. **Rounding:** a call's cost has 6 places, but `step_run.cost_usd` and `run.cost_usd` are
+`numeric(14,4)`, and `addUsage` added each call as is, so every addition rounded to the nearest
+ten-thousandth and a call under $0.00005 (a short Haiku call, as item matching makes) added
+nothing.
+
+| Topic | Decision |
+|---|---|
+| Rounding | Each call's cost is rounded **up** to a ten-thousandth before it is added to its step and run, as its `model_call` row already is (`dbModelCalls.record`), so a run's cost is the sum of its calls' rows and a call is never free. // DECISION: round per call rather than widen the columns: no migration, and the two sources agree. |
+| Not here | Runs already recorded at $0.00 keep it (`model_call` keeps their tokens and model, so they can be repriced later if wanted). Texts, calls and third-party fees are still not on a run's cost; that is plan 11's metering. |
 
 ### 1.198 The beacon's limit per site (H4, 2026-11-22; no migration)
 
@@ -6408,6 +6439,23 @@ a site's allowance.
 | Order | The address limit first, then the site's, both before any database work (`inboundLimitHit`, `apps/api/src/routes/pack-inbound.ts`). A request the address limit refuses never counts toward its site, so one address over its limit takes nothing from the site's other readers. Over either, the usual 204 and nothing stored; drops are reported at most once a minute per isolate, per limit, with the count and no address or ids. // DECISION |
 | Checked | `apps/api/src/routes/pack-inbound.test.ts` (a site over its limit refused while another site, and the same site id under another client, pass; one address over its limit doesn't use up the site's; the address limit and IPv6 /64 as before), `apps/api/src/marketing.test.ts` (through the route with a fake binding: a busy site's beacons stop being stored at its limit while another site's are stored; the address tests as before), `apps/api/src/mcp/units.test.ts` (the target limiter uses its own binding, and its fallback holds its own limit), `apps/api/src/mcp.runtime.test.ts` (the binding answers in workerd). |
 
+### 1.197 Texting sign-ups: a number typed twice at once, and a used invitation (H10, 2026-11-22; no migration)
+
+Two edge cases §1.142 left. Submits at once with one new number both found it free, and the later
+write broke `contact_phone_key`. In tests on main that reached the generic mapping of a unique
+violation, 409 `conflict` ("that already exists"), not a 500, but nothing on the page could act on
+it, and it rested on the driver's error code coming through. The client's link alone was safe: its
+submits take turns under the link's advisory lock. And an invitation used up by a skipped submit
+(another contact's opted-out number) still showed the form, which could only answer 409 `used`.
+
+| Topic | Decision |
+|---|---|
+| Lost the race, run again | A submit whose write breaks `contact_phone_key` runs once more, as a whole new transaction (`submitTextSignup`, `isPhoneTaken`). Postgres raises the violation only after the other submit committed, so the second go sees its row and answers as a submit just after it would: on the link the number is found (signed up: answered the same, nothing sent twice; not yet: signed up once); on an invitation the number is another contact's. Nothing from the lost go is kept, so the hourly limit and "used" count it once. Rather than `insert … on conflict`, which `createContact` and `updateContact` would need for every caller. A second violation is 409 `try_again` ("Try again"); it needs a third submit with the same number at that moment. // DECISION |
+| Another contact's number | On an invitation, a number another contact of the client has is refused 409 `number_taken`, in words the person can act on: "That number belongs to someone else in {client}'s contacts. Enter your own mobile number, or ask {client}." It was `contact_exists`, with the directory's words. It says no more than before: the number is in the client's contacts. // DECISION |
+| The page checks first | The page's view of an invitation says `used` (core `TextSignupView.state`) when a submit through it was logged since it was sent, the same check the submit makes (`invitationUsed`). Signed up comes first, so an invitation used by its own sign-up still says "You're already signed up"; used comes before declined. The page then shows "This invitation was already used. It works once. To get texts on another number, ask {client}." and the START line, with no form, in the page's six languages (`apps/web/src/signup/words.ts`). A newer invitation to the same person is open again. // DECISION |
+| Not changed | The link's answer to any number, opted out or signed up, stays the same 200 (§1.142). A forwarded invitation still learns that a number is in the client's contacts, as before. |
+| Checked | `apps/api/src/text-signup.test.ts`: two submits at once on the link (both 200, one sign-up, one skipped), on two invitations (one 200, one 409 `number_taken`), an invitation and the link at once (never a 500), and a submit held on an uncommitted contact with its number until it waits, then released (the invitation 409 `number_taken` and its invitation still open; the link signs the held contact up once). Without the second go those answer 409 `conflict`. The page's `used` after a skipped submit and after a sign-up is withdrawn; a newer invitation open. `apps/web/src/signup/TextSignup.test.tsx`: a used invitation shows its words and the START line, and no form. |
+
 ### 1.196 Voice typing's usage and cost (H5, 2026-11-22; no migration)
 
 Each recording written out (a segment of live dictation, §1.109) is one call to OpenAI, and none
@@ -6422,6 +6470,19 @@ was recorded (§1.139 "Known costs"). Now each is, the way a portal question is 
 | No usage in the answer | Recorded with no tokens and a cost of 0, as an unpriced question is, and warned of in the log (`voice.transcribe.unpriced`). A failed call writes nothing. |
 | Known costs | One run per segment: a minute of dictation is up to 12 of Sloan's test runs, counted in `usage_daily.runs` (and billed if runs carry a unit cost) and listed with its other runs in the back office, as questions are. |
 | Checked | `packages/llm/src/transcribe.test.ts` (the usage read, the cost in decimal, by the minute, an unknown model, no usage), `apps/api/src/voice.test.ts` (a portal dictation writes the run, step, `model_call` and `usage_daily` rows for Sloan with the person and model, no words; the back office's writes no run), `usage-tokens.test.ts` (the questions' path unchanged). |
+
+### 1.195 The portal's resume says what came in while paused (H7, 2026-11-22; no migration)
+
+Resuming an agent counted the events of its pause that would have started it (§1.137) and the
+back office's go-live panel showed them, but the portal's resume screen dropped the count.
+
+| Topic | Decision |
+|---|---|
+| What the client sees | On resume, the agent page says what the go-live panel says: how many came in while it was paused that it would have started on, between the pause's start and end, "or more" when one look could not read them all, and that none started by itself; when more came in than one look reads and none of those read would start it, it says so. Then "Ask your lead if you want any of them run": running them stays the operator's (the past-event path, §1.137). Nothing shows when none came in. In all six languages. // DECISION |
+| The answer | `POST /api/services/:id/resume` adds `missed` (count, from, to, more; null with no pause to count), the shape of the operator's `GET /api/ops/agents/:id/missed-events`, now one schema (`MissedWhilePaused`, `packages/core/src/api/lifecycle.ts`) built by one function (`missedView`, `apps/api/src/routes/lifecycle.ts`). `missedEvents` stays. Never the events, their ids or what they say (invariants 9 and 11). // DECISION |
+| How long it shows | From the resume's answer until the page is left, another agent opens or it is paused again; not stored. // DECISION |
+| Not built | Resume all (`POST /api/services/resume-all`) still answers a total only, and no portal screen calls it. |
+| Checked | `apps/api/src/lifecycle.test.ts` (the resume answers the go-live panel's view, without the event's id or text), `apps/web/src/portal/screens/Agent.test.tsx` (the count, one in the singular, "or more", more than one look reads, nothing when none came in, gone once paused again, no button to run them). |
 
 ### 1.192 The web app's first load back under budget (H9, 2026-11-22; no migration)
 
