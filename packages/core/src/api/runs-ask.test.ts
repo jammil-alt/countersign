@@ -101,6 +101,38 @@ describe("plain-words questions", () => {
     ).toEqual(["amount: under is not above over"]);
   });
 
+  // R2 (docs/plan.md §1.193).
+  it("takes what the runs were about as words, never as record ids, and shows each entry as a chip", () => {
+    for (const surface of ["portal", "ops"] as const) {
+      const schema = askToolSchema(surface);
+      const answer = schema.parse({ statuses: ["failed"], aboutText: "Acme Supply" });
+      expect(splitAskAnswer(answer)).toEqual({
+        filter: { statuses: ["failed"] },
+        aboutText: "Acme Supply",
+        leftOut: [],
+      });
+      // The model can't name a record: it never sees one.
+      expect(schema.safeParse({ about: [{ kind: "vendor", id: IRIS }] }).success, surface).toBe(
+        false,
+      );
+      expect(schema.safeParse({ aboutText: "x" }).success).toBe(false);
+    }
+    expect(askSystemPrompt(portal)).toContain("`aboutText`");
+    const chips = askChips(
+      { agents: [IRIS], about: [{ kind: "vendor", id: COLE }, { text: "4471" }] },
+      {
+        agents: new Map([[IRIS, "Invoice intake"]]),
+        connectors: new Map(),
+        about: new Map([[COLE, "Acme Supply"]]),
+      },
+    );
+    expect(chips).toEqual([
+      { key: "agents", value: "Invoice intake" },
+      { key: "about", value: "Acme Supply", about: `vendor:${COLE}` },
+      { key: "about", value: "4471", about: "4471" },
+    ]);
+  });
+
   it("shows the filter as chips, by name", () => {
     const filter = tidyFilter({
       agents: [IRIS],

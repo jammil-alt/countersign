@@ -4,8 +4,11 @@
 // saved views; failures grouped by error; retry or cancel the selected runs; the list as CSV. Polls
 // while any run is still going.
 import {
+  type AskChip,
+  aboutParam,
   askChips,
   OpsRunsQuery,
+  type RunAboutName,
   type RunFilter,
   runFilterQuery,
   shortRunId,
@@ -100,11 +103,26 @@ const CHIP_WORDS: Record<string, string> = {
   costOver: "cost over $",
   errorKey: "error",
   text: "text",
+  about: "about",
 };
 
 /** A filter without one key. */
 function without(filter: RunFilter, key: string): RunFilter {
   return Object.fromEntries(Object.entries(filter).filter(([k]) => k !== key)) as RunFilter;
+}
+
+/** R2: a filter without one chip: one `about` entry, else the chip's whole key. */
+export function withoutChip(filter: RunFilter, chip: AskChip): RunFilter {
+  if (chip.key !== "about" || chip.about === undefined) return without(filter, chip.key);
+  const rest = (filter.about ?? []).filter((e) => aboutParam(e) !== chip.about);
+  return rest.length ? { ...filter, about: rest } : without(filter, "about");
+}
+
+/** R2: the records an `about` filter names, by id, as the list names them back. */
+export function aboutChipNames(names: readonly RunAboutName[] | undefined): Map<string, string> {
+  return new Map(
+    (names ?? []).map((n) => [n.id, [n.label, n.number].filter(Boolean).join(" · ") || n.kind]),
+  );
 }
 
 /** A time filter's value as people read it, and statuses in words. */
@@ -188,6 +206,7 @@ export function OpsRunsScreen() {
     agents: new Map([...agents].map(([id, a]) => [id, a.name])),
     clients,
     connectors: new Map(),
+    about: aboutChipNames(data?.about),
   });
 
   const apply = (next: RunFilter) => {
@@ -279,12 +298,20 @@ export function OpsRunsScreen() {
         >
           <Icon name="search" size={16} className="text-ink-muted" />
           {chips.map((c) => (
-            <span key={c.key} className="ops-chip" data-testid={`ops-runs-chip-${c.key}`}>
+            <span
+              key={`${c.key}:${c.about ?? ""}`}
+              className="ops-chip"
+              data-testid={`ops-runs-chip-${c.key}`}
+            >
               <b>{CHIP_WORDS[c.key] ?? c.key}</b> {chipValue(c.key, c.value)}
               <button
                 type="button"
-                aria-label={`Remove the ${CHIP_WORDS[c.key] ?? c.key} filter`}
-                onClick={() => apply(without(filter, c.key))}
+                aria-label={
+                  c.about === undefined
+                    ? `Remove the ${CHIP_WORDS[c.key] ?? c.key} filter`
+                    : `Remove ${c.value}`
+                }
+                onClick={() => apply(withoutChip(filter, c))}
               >
                 <Icon name="close" size={14} />
               </button>

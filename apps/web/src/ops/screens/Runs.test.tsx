@@ -7,6 +7,7 @@ import { MemoryRouter } from "react-router-dom";
 import { describe, expect, it } from "vitest";
 import { AppProviders, AppRoutes } from "../../App";
 import { fakeApi, OPERATOR_SESSION } from "../../test/fixtures";
+import { aboutChipNames, filterFromParams, withoutChip } from "./Runs";
 
 const DEMO = "00000000-0000-4000-8000-00000000a002";
 const AGENT = "00000000-0000-4000-8000-00000000b001";
@@ -270,5 +271,28 @@ describe("ops runs", () => {
     await screen.findByTestId(`ops-run-row-${FAILED}`);
     expect(queries.at(-1)?.get("clients")).toBe(DEMO);
     expect(screen.queryByTestId("ops-runs-chip-clients")).toBeNull();
+  });
+});
+
+// R2 (docs/plan.md §1.193): one chip per `about` entry, each taken out on its own.
+describe("ops runs about a record", () => {
+  const ACME = "00000000-0000-4000-8000-00000000e001";
+  it("reads `about` from the address, names a record as its runs kept it, and takes one entry out", () => {
+    const about = [{ kind: "vendor" as const, id: ACME }, { text: "PO-1032" }];
+    const filter = { statuses: ["failed" as const], about };
+    expect(filterFromParams(new URLSearchParams(`about=vendor:${ACME},PO-1032`))).toEqual({
+      about,
+    });
+    const names = aboutChipNames([
+      { kind: "vendor", id: ACME, label: "Acme Supply", number: null },
+    ]);
+    expect(names.get(ACME)).toBe("Acme Supply");
+    const words = { key: "about", value: "PO-1032", about: "PO-1032" };
+    expect(withoutChip(filter, words)).toEqual({
+      statuses: ["failed"],
+      about: [{ kind: "vendor", id: ACME }],
+    });
+    expect(withoutChip({ about: [{ text: "PO-1032" }] }, words)).toEqual({});
+    expect(withoutChip(filter, { key: "statuses", value: "failed" })).toEqual({ about });
   });
 });
