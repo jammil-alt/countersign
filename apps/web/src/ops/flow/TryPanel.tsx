@@ -12,22 +12,32 @@
 // bar asks which (all, or a first and a last), and for a start further down, for the output of
 // each earlier step the picked ones read (from the last try here, else an example of its shape).
 // Under the bar, every step that ran, with its output.
-import { type BuildDetail, processes, type TypingContext } from "@countersign/core";
+// Owner, 2026-11-22 (docs/plan.md §1.186: "how do we create data?… have the AI make up data to
+// feed through it and watch the run"): "Make up data" fills the boxes (what started the run, each
+// earlier step's output) with data made up from the draft's shapes, to read over and run.
+import {
+  assistRoutes,
+  type BuildDetail,
+  processes,
+  TEST_DATA_NOTES_MAX,
+  type TypingContext,
+} from "@countersign/core";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
+import { isApiError } from "../../api/client";
 import { apiRoutes } from "../../api/routes";
 import type { UploadResponse } from "../../api/upload";
 import { useApi, useApiClient } from "../../api/useApi";
 import { ErrorNotice } from "../../ui/ErrorState";
-import { Select, TextArea } from "../../ui/forms";
+import { Select, TextArea, TextInput } from "../../ui/forms";
 import { Button, buttonClass } from "../../ui/primitives";
 import { JSON_INPUT_PROPS, parsePayload } from "../agents/TestPayload";
 import { tryUpload } from "../builds/TryCard";
 import { type TryRun, tryEnded, tryMarks, tryOutcome } from "./tryMarks";
 import type { Process, TryMark } from "./types";
 
-/** What a try runs on: a file, or the trigger's payload as JSON. */
-export type TryInput = { file: File } | { payload: unknown };
+/** What a try runs on: a file, or the trigger's payload as JSON (`made`: made up here). */
+export type TryInput = { file: File } | { payload: unknown; made?: boolean };
 
 export interface TryPanelProps {
   /** The process on the chart: the marks are for its steps. */
@@ -70,7 +80,7 @@ type Phase = "choose" | "starting" | "running" | "ended" | "error";
 const FOLLOW_MS = 15 * 60_000;
 
 const label = (input: TryInput | null) =>
-  !input ? "" : "file" in input ? input.file.name : "your input";
+  !input ? "" : "file" in input ? input.file.name : input.made ? "made-up data" : "your input";
 
 export function TryPanel({
   process,
@@ -151,6 +161,45 @@ export function TryPanel({
       : last?.steps.some((r) => r.nodeId === id && r.status === "succeeded")
         ? "From the last try here."
         : "An example of its shape. Change it to what you want to test.";
+  // ── Made-up data (§1.186) ──
+  const canMake = ctx !== undefined;
+  const [notes, setNotes] = useState("");
+  const [making, setMaking] = useState(false);
+  const [makeError, setMakeError] = useState<unknown>(null);
+  // What the last making left out (an example of its shape is in the box instead); null: none made.
+  const [made, setMade] = useState<string[] | null>(null);
+  const makeGen = useRef(0);
+  async function makeUp() {
+    makeGen.current += 1;
+    const mine = makeGen.current;
+    setMaking(true);
+    setMakeError(null);
+    setBad(null);
+    try {
+      const out = await api.call(assistRoutes.opsAssistTestData, {
+        params: { id: agent.id },
+        body: {
+          process,
+          workflow,
+          ...(range ? { range } : {}),
+          ...(notes.trim() ? { notes: notes.trim() } : {}),
+        },
+      });
+      if (makeGen.current !== mine) return;
+      if (out.trigger !== undefined) setText(JSON.stringify(out.trigger, null, 2));
+      setTyped((was) => ({
+        ...was,
+        ...Object.fromEntries(
+          Object.entries(out.given).map(([id, data]) => [id, JSON.stringify(data, null, 2)]),
+        ),
+      }));
+      setMade(out.missing);
+    } catch (e) {
+      if (makeGen.current === mine) setMakeError(e);
+    } finally {
+      if (makeGen.current === mine) setMaking(false);
+    }
+  }
   const caseRef = useRef<string | null>(null);
   // Each try has its number: an older try's answers are dropped once another starts.
   const gen = useRef(0);
@@ -361,7 +410,7 @@ export function TryPanel({
       return;
     }
     if (!setRange()) return;
-    void begin({ payload: parsed.value }, false);
+    void begin({ payload: parsed.value, ...(made ? { made: true } : {}) }, false);
   };
   const going = phase === "starting" || phase === "running";
   const filePicker = (words: string, primary = false) =>
@@ -417,7 +466,10 @@ export function TryPanel({
                     name={`${fileId}-steps`}
                     checked={!some}
                     data-testid="flow-try-all"
-                    onChange={() => setSome(false)}
+                    onChange={() => {
+                      setSome(false);
+                      setMade(null);
+                    }}
                   />
                   All of them
                 </label>
@@ -428,7 +480,10 @@ export function TryPanel({
                     name={`${fileId}-steps`}
                     checked={some}
                     data-testid="flow-try-some"
-                    onChange={() => setSome(true)}
+                    onChange={() => {
+                      setSome(true);
+                      setMade(null);
+                    }}
                   />
                   Some of them
                 </label>
@@ -442,6 +497,7 @@ export function TryPanel({
                       onChange={(e) => {
                         const next = e.target.value;
                         setFrom(next);
+                        setMade(null);
                         // The last step never comes before the first.
                         const i = top.findIndex((x) => x.id === next);
                         if (top.findIndex((x) => x.id === to) < i) setTo(next);
@@ -458,7 +514,10 @@ export function TryPanel({
                       className="h-8 w-auto text-sm"
                       data-testid="flow-try-to"
                       value={to}
-                      onChange={(e) => setTo(e.target.value)}
+                      onChange={(e) => {
+                        setTo(e.target.value);
+                        setMade(null);
+                      }}
                     >
                       {top.map((x, i) =>
                         i < top.findIndex((y) => y.id === from) ? null : (
@@ -518,6 +577,51 @@ export function TryPanel({
               className="font-mono text-xs"
               onChange={(e) => setText(e.target.value)}
             />
+          ) : null}
+          {canMake && (asksTrigger || (needs?.earlier.length ?? 0) > 0) ? (
+            <div className="flex flex-col gap-1.5" data-testid="flow-try-make">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="font-medium text-ink">No data yet?</span>
+                <TextInput
+                  aria-label="What the made-up data should look like (optional)"
+                  placeholder="Optional: a $640 lumber bill, a late payment"
+                  className="h-8 min-w-[220px] flex-1 text-sm"
+                  data-testid="flow-try-make-notes"
+                  maxLength={TEST_DATA_NOTES_MAX}
+                  value={notes}
+                  onChange={(e) => setNotes(e.target.value)}
+                />
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  disabled={making || (needs?.problems.length ?? 0) > 0}
+                  onClick={() => void makeUp()}
+                  data-testid="flow-try-make-go"
+                >
+                  {making ? "Making it up" : made ? "Make up other data" : "Make up data"}
+                </Button>
+              </div>
+              {made ? (
+                <span className="text-ink-muted" data-testid="flow-try-made">
+                  Made up from the shapes these steps read; none of it is a client's. Read it over
+                  and change what you like, then run it. A made-up id matches no stored record, so a
+                  step that looks one up won't find it: for a document, choose a file.
+                  {made.length > 0
+                    ? ` We couldn't make up ${made.join(", ").toLowerCase()}: an example of its shape is there instead.`
+                    : ""}
+                </span>
+              ) : null}
+              {makeError ? (
+                // The model's failure in our words; a refusal (HIPAA, the allowance) in its own.
+                isApiError(makeError) && makeError.code === "draft_failed" ? (
+                  <p className="text-risk" role="alert" data-testid="flow-try-make-failed">
+                    We couldn't make up the data. Try again.
+                  </p>
+                ) : (
+                  <ErrorNotice error={makeError} />
+                )
+              ) : null}
+            </div>
           ) : null}
           <div className="flex flex-wrap items-center justify-between gap-2">
             <span className="text-ink-muted">
