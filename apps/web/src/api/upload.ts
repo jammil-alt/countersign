@@ -1,7 +1,7 @@
 // `POST /api/uploads` sends multipart form data, which the JSON client does not: this sends the
 // files and parses the answer with the same contract schema, failing the same way (ApiError). The
 // back office's Sandbox upload (`POST /api/ops/clients/:id/uploads`) answers the same.
-import { buildPath, routes, SESSION_ACTIVITY_HEADER } from "@countersign/core";
+import { buildPath, routes, SESSION_ACTIVITY_HEADER, setupRoutes } from "@countersign/core";
 import { ApiError, type ResponseOf } from "./client";
 import { noteWrite } from "./store";
 
@@ -17,6 +17,28 @@ export async function uploadFiles(
   doFetch: typeof fetch = (input, init) => globalThis.fetch(input, init),
   path: string = routes.portalUploads.path,
 ): Promise<UploadResponse> {
+  return postFiles(files, doFetch, path, routes.portalUploads.response);
+}
+
+export type SetupFilesResponse = ResponseOf<typeof setupRoutes.opsSetupItemFiles>;
+
+/** G10: the back office sends a file item of a client agent's setup checklist for the client. */
+export function sendSetupFiles(
+  agentId: string,
+  itemId: string,
+  files: readonly File[],
+  doFetch: typeof fetch = (input, init) => globalThis.fetch(input, init),
+): Promise<SetupFilesResponse> {
+  const path = buildPath(setupRoutes.opsSetupItemFiles.path, { id: agentId, itemId });
+  return postFiles(files, doFetch, path, setupRoutes.opsSetupItemFiles.response);
+}
+
+async function postFiles<T>(
+  files: readonly File[],
+  doFetch: typeof fetch,
+  path: string,
+  schema: { safeParse(v: unknown): { success: true; data: T } | { success: false } },
+): Promise<T> {
   const route = `POST ${path}`;
   const form = new FormData();
   for (const f of files) form.append("files", f, f.name);
@@ -57,7 +79,7 @@ export async function uploadFiles(
   // The server took the files (2xx), whatever the answer looks like: stored answers (documents,
   // inbox) are stale from now.
   noteWrite();
-  const parsed = routes.portalUploads.response.safeParse(json);
+  const parsed = schema.safeParse(json);
   if (!parsed.success) {
     throw new ApiError({
       status: res.status,

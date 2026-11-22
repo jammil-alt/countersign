@@ -5,6 +5,7 @@
 // client with who did it, connect items are done by their connection, and the go-live stages wait
 // on the items that guard them. No portal answer carries the agent's version (invariant 11), and
 // one client never reaches another's (invariant 1).
+import { DEV_USER_HEADER } from "@countersign/auth";
 import { TESTKIT_UPDATE_TOOL } from "@countersign/connectors";
 import {
   type AgentBundle,
@@ -335,6 +336,18 @@ describe.skipIf(!h)("the setup checklist", () => {
     expect(all[0]?.status).toBe("draft");
     expect(floorOf(all[0]?.bundle)).toBe(0.9);
     expect(all[0]?.changeNote).toContain("Setup answer from");
+    // G11: the answer is written into the manual as a change, as an adjustment is.
+    const manualRow = (
+      bundleOf(all[0]).definition.manual as { decisions: Json[] } | undefined
+    )?.decisions.find((d: Json) => d.id === "set-decision-floor");
+    expect(manualRow).toMatchObject({
+      what: "How sure must a check be?: 0.9",
+      value: "0.9",
+      status: "changed",
+      side: "client",
+      kind: "client_setup",
+    });
+    expect(manualRow.why).toContain("on the setup checklist");
     expect((await row(id)).stageState.setup?.["decision-floor"]).toMatchObject({
       done: true,
       value: "0.9",
@@ -375,6 +388,41 @@ describe.skipIf(!h)("the setup checklist", () => {
       done: true,
       files: 1,
     });
+
+    // G10: the back office sends a file item's files for the client: kept in the client's
+    // documents, recorded as ours. Only a file item, and only for operators.
+    const sendFiles = async (who: string, itemId: string, files: File[]) => {
+      const form = new FormData();
+      for (const f of files) form.append("files", f);
+      const res = await H.app.request(
+        setupRoutes.opsSetupItemFiles.path.replace(":id", id).replace(":itemId", itemId),
+        { method: "POST", headers: { [DEV_USER_HEADER]: who }, body: form },
+        H.env,
+        {
+          waitUntil: () => {},
+          passThroughOnException: () => {},
+          props: {},
+        } as unknown as ExecutionContext,
+      );
+      return { status: res.status, json: (await res.json()) as Json };
+    };
+    const listFile = () => new File(["name,amount\nA,1\n"], "records.csv", { type: "text/csv" });
+    expect((await sendFiles(admin("a"), "form-list", [listFile()])).status).toBe(403);
+    expect((await sendFiles(OPERATOR, "write-start-testkit", [listFile()])).status).toBe(422);
+    const sent = await sendFiles(OPERATOR, "form-list", [listFile()]);
+    expect(sent.status, JSON.stringify(sent.json)).toBe(200);
+    expect(sent.json.refused).toEqual([]);
+    expect(sent.json.goLive.setup.items.find((i: Json) => i.id === "form-list")).toMatchObject({
+      done: true,
+      side: "operator",
+      files: 1,
+    });
+    const files = (await row(id)).stageState.setup?.["form-list"]?.files ?? [];
+    const [kept] = await H.t.db
+      .select()
+      .from(document)
+      .where(eq(document.id, files[0] as string));
+    expect(kept?.tenantId).toBe(A().tenantId);
 
     // Connected and bound: the connect item is done by its connection.
     await ok(OPERATOR, "PATCH", `/api/ops/agents/${id}/operation`, {
@@ -480,6 +528,18 @@ describe.skipIf(!h)("the setup checklist", () => {
     });
     expect((await row(id)).stage).toBe("signoff");
 
+    // G10: the setup items are in the back office's change list, in words.
+    const activity = await ok(
+      OPERATOR,
+      "GET",
+      `/api/ops/clients/${A().tenantId}/activity?filter=decisions`,
+    );
+    const texts = activity.items.map((i: Json) => i.text);
+    expect(texts).toContain('Record checks: Setup checklist: "Your record list" sent (by us).');
+    expect(texts).toContain(
+      'Record checks: Setup checklist: "How sure must a check be?" answered (by the client).',
+    );
+
     // Each item is logged on the agent's changes.
     const logged = await H.t.db.select().from(agentChange).where(eq(agentChange.agentId, id));
     expect(
@@ -489,6 +549,7 @@ describe.skipIf(!h)("the setup checklist", () => {
         .map((c) => c.item),
     ).toEqual([
       "decision-floor",
+      "form-list",
       "form-list",
       "write-start-testkit",
       "decision-floor",

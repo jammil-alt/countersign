@@ -59,6 +59,30 @@ describe("adjustable marks in the definition editor", () => {
     expect(settingsFrom([ok])[0]?.bounds).toEqual({ options: ["0 7 * * 1-5", "0 9 * * 1,4"] });
   });
 
+  it("keeps a date's limits as dates (G11), and a step's own parameter apart", () => {
+    const start = { ...tolerance, parameter: "start", type: "date" as const, stepId: "s1" };
+    let drafts = toggleDraft([], start, true, { label: "Start date" });
+    expect(drafts.map((d) => d.id)).toEqual(["param-s1-start"]);
+    const base = drafts[0] as AdjustDraft;
+    expect(draftProblem(base)).toBeNull();
+    expect(draftProblem({ ...base, min: "soon" })).toBe("Limits are dates, like 2026-12-24.");
+    expect(draftProblem({ ...base, min: "2026-12-31", max: "2026-12-01" })).toBe(
+      "The earliest date is after the latest.",
+    );
+    drafts = updateDraft(drafts, start, {
+      min: "2026-12-01",
+      max: "2026-12-31",
+      tighter: "higher",
+    });
+    const settings = settingsFrom(drafts);
+    expect(settings[0]).toMatchObject({
+      target: start,
+      bounds: { earliest: "2026-12-01", latest: "2026-12-31" },
+      tighter: "higher",
+    });
+    expect(draftsFrom({ adjustable: settings })).toEqual(drafts);
+  });
+
   it("leaves the field out when nothing is marked, and keeps the rest of the definition", () => {
     const def = { identity: { name: "A" }, adjustable: [{ id: "x" }] };
     expect(withAdjustable(def, [])).toEqual({ identity: { name: "A" } });

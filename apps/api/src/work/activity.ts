@@ -44,6 +44,31 @@ const textOf = (body: unknown): string => {
 
 const clip = (s: string, n = 600) => (s.length > n ? `${s.slice(0, n - 1)}…` : s);
 
+/**
+ * G10: a setup checklist item or a client adjustment in words, for the back office's change list:
+ * "Setup checklist: "Your vendor list" sent (by the client)." Null for any other change, and for
+ * rows logged before they carried a label (they read as the change's kind, as before).
+ */
+export function setupChangeWords(change: unknown): string | null {
+  const c = (change ?? {}) as Record<string, unknown>;
+  const label = typeof c.label === "string" ? c.label : null;
+  if (!label) return null;
+  const side = c.side === "client" ? " (by the client)" : c.side === "operator" ? " (by us)" : "";
+  if (c.kind === "setup") {
+    if (c.done === false) return `Setup checklist: "${label}" taken back${side}.`;
+    const verb =
+      c.itemKind === "file" ? "sent" : c.itemKind === "confirm" ? "confirmed" : "answered";
+    return `Setup checklist: "${label}" ${verb}${side}.`;
+  }
+  if (c.kind === "adjust") {
+    const value = typeof c.value === "string" ? ` ${c.value}` : "";
+    return c.outcome === "requested"
+      ? `Asked to change "${label}" to${value}, past its limits: a request to us.`
+      : `"${label}" changed to${value}${side}.`;
+  }
+  return null;
+}
+
 const RUN_WORDS: Record<string, string> = {
   queued: "queued",
   running: "started",
@@ -391,6 +416,7 @@ async function decisions(tx: Tx, tenantId: string, before: Date): Promise<Part[]
         : typeof kind.type === "string"
           ? kind.type
           : "a change";
+    const words = setupChangeWords(a.change);
     out.push({
       id: `a:${a.id}`,
       kind: "sys",
@@ -399,7 +425,7 @@ async function decisions(tx: Tx, tenantId: string, before: Date): Promise<Part[]
       who: a.actorId ? (names.get(a.actorId) ?? null) : null,
       agent: false,
       channel: null,
-      text: `${a.agentName}: ${what.replace(/_/g, " ")}.`,
+      text: clip(`${a.agentName}: ${words ?? `${what.replace(/_/g, " ")}.`}`),
       answer: null,
       link: null,
     });

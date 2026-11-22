@@ -39,7 +39,7 @@ export function ParameterAdjust({
   onChange(next: AdjustDraft[]): void;
 }) {
   const draft = draftFor(drafts, target);
-  const testId = `adjust-${target.skill}-${target.parameter}`;
+  const testId = `adjust-${target.stepId ? `${target.stepId}-` : ""}${target.skill}-${target.parameter}`;
   const numeric = target.type === "number" || target.type === "money";
   return (
     <div className="flex flex-col gap-2" data-testid={testId}>
@@ -105,6 +105,46 @@ export function ParameterAdjust({
                   <option value="">Neither</option>
                   <option value="lower">Lower</option>
                   <option value="higher">Higher</option>
+                </Select>
+              </Field>
+            </>
+          ) : target.type === "date" ? (
+            <>
+              {/* G11: a date's limits. */}
+              <Field label="Earliest date">
+                <TextInput
+                  type="date"
+                  data-testid={`${testId}-min`}
+                  value={draft.min}
+                  onChange={(e) => onChange(updateDraft(drafts, target, { min: e.target.value }))}
+                />
+              </Field>
+              <Field label="Latest date">
+                <TextInput
+                  type="date"
+                  data-testid={`${testId}-max`}
+                  value={draft.max}
+                  onChange={(e) => onChange(updateDraft(drafts, target, { max: e.target.value }))}
+                />
+              </Field>
+              <Field
+                label="Stricter is"
+                hint="A stricter date applies even past the limits; a looser one past them comes to us."
+              >
+                <Select
+                  data-testid={`${testId}-tighter`}
+                  value={draft.tighter}
+                  onChange={(e) =>
+                    onChange(
+                      updateDraft(drafts, target, {
+                        tighter: e.target.value as AdjustDraft["tighter"],
+                      }),
+                    )
+                  }
+                >
+                  <option value="">Neither</option>
+                  <option value="lower">Earlier</option>
+                  <option value="higher">Later</option>
                 </Select>
               </Field>
             </>
