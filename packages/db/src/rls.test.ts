@@ -23,6 +23,7 @@ import { asWorker, createTestDatabase, databaseAvailable, type TestDatabase } fr
 const online = await databaseAvailable();
 
 const INSUFFICIENT_PRIVILEGE = "42501";
+const FOREIGN_KEY_VIOLATION = "23503";
 
 async function tenantIdsIn(tx: Tx, table: TenantTable): Promise<(string | null)[]> {
   const rows = await tx.execute<{ t: string | null }>(
@@ -154,6 +155,32 @@ describe.skipIf(!online)("row-level security, as cs_worker", () => {
       return rows.length;
     });
     expect(updated).toBe(0);
+  });
+
+  it("run_subject names only its own client's run and step (0077)", async () => {
+    const insert = (tenantId: string, runId: string, stepRunId: string | null) =>
+      errorCode(
+        withTenant(t.db, A.tenantId, async (tx) => {
+          await asWorker(tx);
+          await tx.execute(sql`
+            insert into run_subject (tenant_id, run_id, step_run_id, kind, role, label)
+            values (${tenantId}, ${runId}, ${stepRunId}, 'vendor', 'read', 'Acme Supply')`);
+        }),
+      );
+    // The composite keys hold even though B's run and step exist.
+    expect(await insert(A.tenantId, B.runId, null)).toBe(FOREIGN_KEY_VIOLATION);
+    expect(await insert(A.tenantId, A.runId, B.stepRunId)).toBe(FOREIGN_KEY_VIOLATION);
+    // A row for B, from A's session, is refused by the policy.
+    expect(await insert(B.tenantId, B.runId, B.stepRunId)).toBe(INSUFFICIENT_PRIVILEGE);
+    // What started the run has no step.
+    expect(await insert(A.tenantId, A.runId, null)).toBeUndefined();
+    await withTenant(t.db, B.tenantId, async (tx) => {
+      await asWorker(tx);
+      const rows = await tx.execute<{ n: number }>(
+        sql`select count(*)::int as n from run_subject where run_id = ${A.runId}`,
+      );
+      expect([...rows][0]?.n).toBe(0);
+    });
   });
 
   it("deletes transaction lines in the client's own scope only", async () => {
