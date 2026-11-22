@@ -222,4 +222,47 @@ describe.skipIf(!h)("onboarding v1, end to end", () => {
       { title: "Retire Bayview Plumbing's account", owner: "operator", state: "open" },
     ]);
   });
+  it("sends our own welcome for Just the account: an intake that covers nothing, one email", async () => {
+    const { starts } = await ok<{ starts: SalesStartView[] }>(OPERATOR, "GET", "/api/ops/starts");
+    const account = starts.find((s) => s.name === "Just the account");
+    expect(account).toBeDefined();
+    const sam = "sam@northside.example.com";
+    const draft = {
+      company: "Northside Bakery",
+      person: { name: "Sam Lee", email: sam },
+      startId: account?.id,
+    };
+    const preview = await ok<{ confirm: string[]; emails: { subject: string; text: string }[] }>(
+      OPERATOR,
+      "POST",
+      "/api/ops/onboarding/sign-up/preview",
+      draft,
+    );
+    expect(preview.confirm).toContain("Emails Sam our welcome, with a link to sign in.");
+    expect(preview.emails).toHaveLength(1);
+    expect(preview.emails[0]?.text).toContain("What's in it: Your account.");
+
+    const sent = await ok<InviteSent>(OPERATOR, "POST", "/api/ops/onboarding/sign-up", draft);
+    expect(sent.intakeId).toEqual(expect.any(String));
+    expect(sent.emails).toEqual([{ to: sam, status: "queued" }]);
+    await H.settle();
+    const mails = resend.filter((m) => JSON.stringify(m.to).includes(sam));
+    expect(mails).toHaveLength(1);
+    expect(String(mails[0]?.from)).toContain("at Mezonas");
+    expect(String(mails[0]?.from)).toContain("<hello@mezonas.test>");
+    expect(String(mails[0]?.text)).toContain("Your Mezonas account for Northside Bakery is ready.");
+    const page = await ok<{ state: string; summary: unknown }>(
+      null,
+      "GET",
+      `/api/start/${linkTo(sam)}`,
+    );
+    expect(page).toMatchObject({
+      state: "open",
+      summary: { general: false, areas: [], agents: 0, minutes: 0 },
+    });
+    // It is still Just the account: nothing to answer, and the to-do for what we start with.
+    const view = await ok<OpsIntakeView>(OPERATOR, "GET", `/api/ops/intakes/${sent.intakeId}`);
+    expect(view.intake.covers).toEqual({ general: false, areas: [], templateIds: [] });
+    expect(view.guide.sections).toEqual([]);
+  });
 });
