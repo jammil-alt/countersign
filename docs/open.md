@@ -365,14 +365,14 @@ sign-in stays off until `MOBILE_SIGNIN=on` and phone notifications until `MOBILE
 ### The desktop app (owner, 2026-11-17; `docs/plan.md` §1.151, `apps/desktop/README.md`)
 
 The app, core's protocol and the `desktop` connector are merged in one PR, built and tested against
-fakes; nothing has run on a Mac or a PC yet, and the API doesn't take computers until D2 and D3. To
+fakes; nothing has run on a Mac or a PC yet. The API takes computers since D2 and D3 (2026-11-22). To
 finish it:
 
 | # | Step | Notes |
 |---|---|---|
 | D1 | Owner review of §1.151's decisions (Electron; closed workbooks only; only files added after a folder is given; drive paths only; a long poll). | Each is a `// DECISION` in the code. |
-| D2 | **Code, its own PR: the migration.** `desktop_device` (client, connection, name, platform, the public key as a JWK, app version, last seen, `revoked_at`; tenant RLS, never deleted, as `person_device`) and `desktop_job` (client, device, the request, issued and expiry times, the result; RLS). | The previous Worker keeps working: new tables only. |
-| D3 | **Code, its own PR: the API.** `POST/DELETE /api/desktop/devices` and `PUT …/folders` (client admin, session, `mount()`), the device's signed routes (`GET /api/desktop/jobs`, `POST …/jobs/:id/result`, `POST /api/desktop/files`; signature, time and key checked, `auditAlone`), `services.desktop` (queue a job, wait for its result), the connector registered in `platform.ts`, files into the documents capability. | Contract tests: no portal route returns the computer's key; a revoked computer's requests are refused. |
+| D2 | ~~The migration~~ Done: 0080, `desktop_device` and `desktop_job` (#546). | `docs/plan.md` §1.204. |
+| D3 | ~~The API~~ Done: pairing and folders (client admin), the computer's signed routes, `services.desktop`, the connector registered, files into documents, with the contract tests (C5.2, #548). | `docs/plan.md` §1.204. A screen listing a client's computers is not built: they show as Desktop app connections. |
 | D4 | **A Mac and a PC**: `node apps/desktop/node_modules/electron/install.js`, then `MEZONAS_API_URL=https://staging.mezonas.com pnpm --filter @countersign/desktop start`, with `MOBILE_SIGNIN=on` on staging. Check each item in `packages/connectors/src/desktop/NOTES.md` (Excel's owner file on both, a written workbook opens without repair, OneDrive-synced folders, Mac privacy prompts). | |
 | D5 | **Signing certificates**: the Apple Developer ID (the same account as the phone, M3) for signing and notarising; for Windows, Azure Trusted Signing (or an OV certificate). | Without them Mac Gatekeeper and Windows SmartScreen warn on install. |
 | D6 | **The update feed**: an R2 bucket of ours behind `downloads.mezonas.com/desktop/`, and a release workflow that builds on macOS and Windows runners and uploads there (its own PR). | |
@@ -497,6 +497,14 @@ Fixed in one PR. What is still open from it:
   (a table, so a migration PR of its own); schedule wording is still 12-hour; deal and contact time
   zones are still free text; a dependent write the model makes inside one skill still reads its
   before state in a test run.
+- **Costs not yet counted** (an audit of 2026-11-22, for build plans 11 and `docs/plan.md` §1.199):
+  - The dev queue's reuse check: its model calls' cost is dropped.
+  - Reggie and its read pass: cost in each message's metadata, never added up.
+  - Builder, build and reshape turns: cost on their rows, but no screen adds them up.
+  - Email through Resend, Browser Run's minutes, Plaid's and BILL's fees, and texts no agent's
+    run sent (notifications, sign-in codes, invitations, inbound): not counted at all.
+  - Texts and call minutes: counted at placeholder unit costs (0009). Model, embedding and
+    transcription prices are still unverified.
 
 ### Owner decisions still open (`docs/plan.md` §7 and the sections named)
 
@@ -507,15 +515,6 @@ Fixed in one PR. What is still open from it:
   agent address form; client test cases never gating shared skills; who sets "on its own".
 - **Smaller defaults** (§7 item 10): the 60 s undo window, US federal holidays only, notification
   texts only from the client's own number, replay as a test run in the same client.
-
-### The process model's urgent notices (code; `docs/plan.md` §1.86, runtime wave 2c)
-
-- An urgent notice's person is told at once by email and text from the notify step itself
-  (`apps/api/src/notify/urgent.ts`), not through the `notification` outbox, so those sends have no
-  `notification` row (no retries after a failed send, no line in the notification counts; a failed
-  send is reported and the card waits for the items-waiting pass). Making it an outbox kind of its
-  own (`urgent`, never held for quiet hours) needs a migration of `notification_kind_check`; do it
-  in its own PR, then send from the outbox.
 
 ### Automations, repeat and the agent's choice (code; ARCHITECTURE v0.17, `docs/plan.md` §1.99)
 

@@ -42,8 +42,10 @@ const builtins = platform.catalog.list();
 // wrapper.
 // §1.205 (C2.4): Materials' materials.qbo-item (a catalog item tied to its QuickBooks item), a
 // tool skill over one handler, so a wrapper.
-const BUILTINS = 151;
-const WRAPPERS = 105;
+// §1.204: the desktop app's three reads (desktop.files.list, desktop.file.read,
+// desktop.xlsx.read), each a wrapper.
+const BUILTINS = 154;
+const WRAPPERS = 108;
 
 describe("built-in skills under the R2 skill schema", () => {
   it("registers the platform's, the packs' and each connector's read skills, once each", () => {

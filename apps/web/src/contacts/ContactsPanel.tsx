@@ -61,6 +61,8 @@ const STATUS_KEY: Record<string, PlainKey> = {
   read: "contacts.status.read",
   received: "contacts.status.received",
   unverified: "contacts.status.unverified",
+  // §1.194: from another address at the contact's company (a colleague), kept for a person.
+  other_sender: "contacts.status.other_sender",
   replied: "contacts.status.replied",
   not_sent: "contacts.status.not_sent",
   no_reply: "contacts.status.no_reply",

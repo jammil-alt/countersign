@@ -1530,6 +1530,8 @@ export const it: Messages = {
   "contacts.status.read": "letto",
   "contacts.status.received": "ricevuto",
   "contacts.status.unverified": "ricevuto, mittente non confermato",
+  "contacts.status.other_sender":
+    "ricevuto da un altro indirizzo della sua azienda, non è la sua risposta",
   "contacts.status.replied": "ha risposto",
   "contacts.status.not_sent": "non inviato",
   "contacts.status.no_reply": "nessuna risposta",

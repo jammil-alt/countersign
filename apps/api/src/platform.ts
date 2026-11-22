@@ -38,6 +38,7 @@ import {
   // M45 (docs/plan.md §1.75)
   createBingWebmasterConnector,
   createBrowserConnector,
+  createDesktopConnector,
   createExcelConnector,
   createGcalConnector,
   // v0.14 W4-E
@@ -515,6 +516,9 @@ export function deploymentConnectors(
     // own Odoo, registered everywhere; the client admin enters the address, database, login and
     // API key of an Odoo user made for us. Nothing to configure for the deployment.
     createOdooConnector(),
+    // §1.151, §1.204: folders on a client's computer through the Mezonas desktop app; registered
+    // everywhere. A client admin pairs a computer from the app, never from the portal's Connect.
+    createDesktopConnector(),
     ...(production
       ? []
       : [createTestkitConnector(new TestkitBackend({ samples: TESTKIT_SAMPLE_RECORDS }))]),

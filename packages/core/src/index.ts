@@ -55,6 +55,7 @@ export * from "./api/conversations";
 export * from "./api/deals";
 // v0.12 W1-D: the Desk
 export * from "./api/desk";
+export * from "./api/desktop";
 export * from "./api/directory";
 export * from "./api/documents";
 export * from "./api/excel";
@@ -221,6 +222,8 @@ export * from "./documents/tables";
 export * from "./duration";
 // Inbound email: whose verdicts count, and which mail is automatic.
 export * from "./email/authentication";
+// docs/plan.md §1.194: a colleague's address at a contact's company.
+export * from "./email/colleague";
 // docs/plan.md §1.149: the branded layout and the onboarding emails.
 export * from "./email/layout";
 export * from "./email/onboarding";

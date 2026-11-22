@@ -9,6 +9,7 @@ import { assuranceRoutes } from "./assurance";
 import { clientFileRoutes, startRoutes } from "./client-files";
 import { codeRequestRoutes } from "./code-requests";
 import { connectorAccessRoutes } from "./connector-access";
+import { desktopRoutes } from "./desktop";
 import { opsIntakeRoutes, portalIntakeRoutes, welcomeRoutes } from "./intake";
 import { inviteRoutes } from "./invite";
 import { manualRoutes } from "./manual";
@@ -47,4 +48,6 @@ export const allRoutes = {
   ...connectorAccessRoutes,
   // docs/plan.md §1.168: Draft for long text fields; its sheet loads lazily with the field.
   ...assistRoutes,
+  // docs/plan.md §1.204: the desktop app's pairing, folders and the computer's signed routes.
+  ...desktopRoutes,
 } as const;
