@@ -6382,6 +6382,22 @@ action, not just mark it... if it is an issue, just because I say it is closed d
 | Not built | The client as an owner: no step yet sends an item to the client and closes it by their answer (the requirements request asks the intake form's fields, not an item). Until there is one, "Client" is only set by the fit-gap's preconditions. |
 | Checked | `apps/api/src/build-settled-by-step.test.ts` (done by hand refused, a drop, a note done, the Builder's close left out; a put-off gap given to engineering then the Builder, closed by its change and opened by its undo; a test closed by a full passing run and not by a failing or partial one), `apps/web/src/ops/builds/closeout.test.tsx` and `builds.test.tsx` (no selects; Put off, Drop it, Reopen; Take it up on a put-off gap). The skill build's go-live closing has no test of its own. |
 
+### 1.184 Each way a workflow starts, with its own first steps (owner, 2026-11-22; no migration)
+
+The owner, on a bookkeeper that pulls bank transactions on a schedule and should also start when a
+receipt comes in: "the other way to start would have different steps upfront… it would get a
+receipt and then it would store it and then try to match it; the matching step is the first step
+where they collide."
+
+| Topic | Decision |
+|---|---|
+| No new format | A decision as the first step, with a path per start; the paths come back together at the step after it, as any decision's do. Each path's rule is `exists` on a field of the trigger's data that only that start carries (`{{trigger.scheduledAt}}` for a schedule, the event's own required field for an event): `{{trigger.…}}` is already one schema over every trigger, a field some lack being optional. The executor and the validator are unchanged. // DECISION |
+| The button | On a trigger's panel, once the workflow has two ways to start: "Give each start its own first steps" (`splitStarts`, `apps/web/src/ops/builder/starts.ts`). It adds “How did it start?” first, each path named as the start reads ("On a schedule", "When a document has been read"), and opens it. A start with no data of its own (started by hand with no fields) takes the Otherwise path. // DECISION |
+| The steps | The paths start empty: which of today's steps belong to one start is the operator's to say, by dragging them onto its path. What is left under the decision is shared. |
+| When it can't | One way to start; it is already there; or two starts carry the same data, so no rule can tell them apart. The panel says which. |
+| What the shared part needs | The same input from every path. A step after the decision that reads a step on one path only is the validator's to flag, as for any decision. |
+| Checked | `apps/web/src/ops/builder/starts.test.ts` (the decision and its rules, the Otherwise start, each reason it can't). Not looked at in a browser; no test of the button in the whole builder. |
+
 ### 1.183 The Builder asks once more when its model answers outside the form (staging, 2026-11-22; no migration)
 
 The owner asked the workflow builder's Builder "how can we add a second trigger?" and got "The
