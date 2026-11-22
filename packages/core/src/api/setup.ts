@@ -71,4 +71,18 @@ export const setupRoutes = {
     body: SetupItemBody,
     response: z.object({ goLive: GoLive }),
   }),
+  opsSetupItemFiles: defineRoute({
+    method: "POST",
+    path: "/api/ops/agents/:id/setup/:itemId/files",
+    auth: "session",
+    roles: OPS,
+    summary:
+      "G10: send a file item of a client agent's setup checklist for the client (multipart, field `files`): stored quietly in the client's documents, then recorded on the item as ours",
+    params: ItemParams,
+    response: z.object({
+      goLive: GoLive,
+      /** Files that weren't kept, with why. */
+      refused: z.array(z.object({ filename: z.string(), error: z.string() })),
+    }),
+  }),
 } as const;

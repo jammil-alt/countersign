@@ -38,10 +38,21 @@ export const SetupSetting = z.object({
 });
 export type SetupSetting = z.infer<typeof SetupSetting>;
 
-/** What an answer may be: a number between `min` and `max`, or one of `options`. */
+/** A date as a limit: `2026-12-24`. */
+export const SetupDate = z
+  .string()
+  .regex(/^\d{4}-\d{2}-\d{2}$/)
+  .refine((v) => !Number.isNaN(Date.parse(`${v}T00:00:00Z`)), "not a date");
+
+/**
+ * What an answer may be: a number between `min` and `max`, a date between `earliest` and `latest`
+ * (G11), or one of `options`.
+ */
 export const SetupBounds = z.object({
   min: DecimalString.optional(),
   max: DecimalString.optional(),
+  earliest: SetupDate.optional(),
+  latest: SetupDate.optional(),
   options: z.array(z.string().trim().min(1).max(200)).min(1).max(50).optional(),
 });
 export type SetupBounds = z.infer<typeof SetupBounds>;

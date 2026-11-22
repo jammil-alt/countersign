@@ -352,6 +352,35 @@ describe("the builder under the skill model", () => {
     });
   });
 
+  it("marks the step's own parameter as one the client may adjust (G11)", async () => {
+    const { sent, user } = setup();
+    await screen.findByTestId("flow-chart");
+    await user.click(screen.getByTestId("flow-box-match"));
+    const toggle = await screen.findByTestId("adjust-match-custom:match-line-floor-toggle");
+    await user.click(toggle);
+    const max = screen.getByTestId("adjust-match-custom:match-line-floor-max");
+    await user.type(max, "1");
+    await user.click(screen.getByTestId("flow-bar-save"));
+    await waitFor(() => expect(sent.some((s) => s.path === "save")).toBe(true));
+    const body = sent.filter((s) => s.path === "save").at(-1)?.body;
+    const saved = AnyAgentBundle.parse(body?.bundle);
+    expect((saved.definition as { adjustable?: unknown }).adjustable).toEqual([
+      {
+        id: "param-match-floor",
+        label: "Lowest confidence",
+        hint: "",
+        target: {
+          kind: "parameter",
+          skill: "custom:match-line",
+          parameter: "floor",
+          type: "number",
+          stepId: "match",
+        },
+        bounds: { max: "1" },
+      },
+    ]);
+  });
+
   it("moves a step to a breaking version only once each reference is remapped", async () => {
     const { sent, user } = setup();
     await screen.findByTestId("flow-chart");

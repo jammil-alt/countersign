@@ -19,10 +19,12 @@ import {
   type AgentStage,
   type AnyAgentBundle,
   applySetupSetting,
+  deepEqual,
   type GrantLimits,
   type PortalSetupAgent,
   readSetupAnswer,
   readStageState,
+  recordAdjustment,
   SetupChecklist,
   type SetupFacts,
   type SetupItem,
@@ -277,6 +279,9 @@ export async function recordSetupItem(
     change: {
       kind: "setup",
       item: item.id,
+      // G10: what the back office's change list reads.
+      label: item.label,
+      itemKind: item.kind,
       done: progress.done,
       side: input.actor.side,
       ...(progress.versionId ? { versionId: progress.versionId } : {}),
@@ -316,11 +321,35 @@ async function writeSetting(
   const bundle = input.from.bundle as AnyAgentBundle;
   const out = applySetupSetting(bundle, setting, input.value);
   if (!out.ok) throw new HttpError(409, "setting_gone", out.reason);
+  // The same value again makes no version (nor a line in the manual).
+  if (deepEqual(out.bundle, bundle)) return null;
   const who = input.actor.name ?? (input.actor.side === "client" ? "the client" : "us");
+  // G11: the answer is written into the manual as a change, as an adjustment is: the decision the
+  // item came from gets the value, status changed, by whom and when; any other item a row of its
+  // own (`set-<item id>`), updated by later answers.
+  // DECISION (G11): only an answer that sets a value is written there (it is the one that makes a
+  // version); a confirm, a file or an answer kept as words stays on the checklist, which the
+  // manual's "What we set up with you" reads.
+  const decisionId =
+    input.item.source === "decision" ? input.item.id.replace(/^decision-/, "") : undefined;
+  const bundleOut = {
+    ...out.bundle,
+    definition: {
+      ...out.bundle.definition,
+      manual: recordAdjustment(
+        bundle.definition.manual,
+        { id: input.item.id, label: input.item.label, ...(decisionId ? { decisionId } : {}) },
+        input.text,
+        { name: input.actor.name, side: input.actor.side },
+        new Date().toISOString(),
+        "the setup checklist",
+      ),
+    },
+  } as AnyAgentBundle;
   const v = await writeClientVersion(tx, {
     row: input.row,
     from: input.from,
-    bundle: out.bundle,
+    bundle: bundleOut,
     actor: input.actor,
     changeNote: `Setup answer from ${who}: ${input.item.label} ${input.text}`,
     ctx: input.ctx,

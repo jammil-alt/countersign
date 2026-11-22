@@ -421,7 +421,7 @@ export async function recentDocuments(tx: Tx, tenantId: string, limit: number) {
  * the portal's for its client, the back office's for the Sandbox. A file already stored (the same
  * sha256) comes back as it is, `created` false: not read again, no event.
  */
-async function receiveUploads(
+export async function receiveUploads(
   ctx: Pick<HandlerCtx<typeof routes.portalUploads>, "c" | "tx" | "session" | "services" | "defer">,
   tenantId: string,
   // DECISION (§1.110): a file attached to a conversation is stored quietly: no

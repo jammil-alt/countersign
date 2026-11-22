@@ -2745,6 +2745,8 @@ export const de: Messages = {
   "adjust.between": "Zwischen {min} und {max}", // fluent review
   "adjust.atLeast": "Mindestens {min}", // fluent review
   "adjust.atMost": "Höchstens {max}", // fluent review
+  "adjust.onOrAfter": "Am oder nach dem {min}", // fluent review
+  "adjust.onOrBefore": "Am oder vor dem {max}", // fluent review
   "adjust.tighterLower": "Niedriger ist strenger.", // fluent review
   "adjust.tighterHigher": "Höher ist strenger.", // fluent review
   "adjust.notSet": "Nicht festgelegt", // fluent review

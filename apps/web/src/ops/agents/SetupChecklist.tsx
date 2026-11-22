@@ -1,9 +1,11 @@
 // The setup checklist on a client copy's page (docs/builder-plan.md §6, B4), inside the go-live
 // panel: each item, whether it is done, who did it and when, and what holds the trial and go-live.
 // The client admin answers in the portal's Getting started; we record an item here when the client
-// asks us to (who did it is kept). A connect item is done by its connection on the client's side.
+// asks us to (who did it is kept), and send a file item's files for them (G10). A connect item is
+// done by its connection on the client's side.
 import { type SetupGuard, type SetupRowView, type SetupView, setupRoutes } from "@countersign/core";
 import { useState } from "react";
+import { sendSetupFiles } from "../../api/upload";
 import { EN } from "../../i18n/i18n";
 import { Badge, Button, SectionLabel, Tag } from "../../ui/primitives";
 import { errorText, Notice, TextInput, useAction } from "./ui";
@@ -92,8 +94,26 @@ function SetupRow({
   const [open, setOpen] = useState(false);
   const [value, setValue] = useState(row.suggested ?? "");
   const who = setupWho(row);
-  // A connect item is the client's to connect; a file is theirs to send.
+  // A connect item is the client's to connect. A file we send for them (G10).
   const canRecord = !row.byConnection && row.kind !== "file";
+  const [sending, setSending] = useState(false);
+  const [sendError, setSendError] = useState<unknown>(undefined);
+  const [refused, setRefused] = useState<string[]>([]);
+
+  async function send(files: File[]) {
+    if (files.length === 0) return;
+    setSending(true);
+    setSendError(undefined);
+    try {
+      const out = await sendSetupFiles(agentId, row.id, files);
+      setRefused(out.refused.map((r) => `${r.filename}: ${r.error}`));
+      onChanged();
+    } catch (e) {
+      setSendError(e);
+    } finally {
+      setSending(false);
+    }
+  }
 
   async function record() {
     const res = await action.call(setupRoutes.opsSetupItem, {
@@ -145,6 +165,33 @@ function SetupRow({
         >
           {row.done ? "Change for the client" : "Record for the client"}
         </Button>
+      ) : null}
+      {row.kind === "file" ? (
+        <label className="ds-btn ds-btn--ghost ds-btn--sm mt-1 self-start">
+          {sending
+            ? "Sending…"
+            : row.done
+              ? "Send more files for the client"
+              : "Send a file for the client"}
+          <input
+            type="file"
+            className="sr-only"
+            multiple
+            disabled={sending}
+            data-testid={`setup-file-${row.id}`}
+            onChange={(e) => void send([...(e.target.files ?? [])])}
+          />
+        </label>
+      ) : null}
+      {refused.length > 0 ? (
+        <p className="text-sm text-ink-muted" data-testid={`setup-refused-${row.id}`}>
+          Not kept: {refused.join("; ")}
+        </p>
+      ) : null}
+      {sendError ? (
+        <div className="mt-2">
+          <Notice tone="warning">{errorText(sendError)}</Notice>
+        </div>
       ) : null}
       {open ? (
         <div className="mt-2 flex flex-wrap items-end gap-2">
