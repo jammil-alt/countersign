@@ -6382,7 +6382,7 @@ action, not just mark it... if it is an issue, just because I say it is closed d
 | Not built | The client as an owner: no step yet sends an item to the client and closes it by their answer (the requirements request asks the intake form's fields, not an item). Until there is one, "Client" is only set by the fit-gap's preconditions. |
 | Checked | `apps/api/src/build-settled-by-step.test.ts` (done by hand refused, a drop, a note done, the Builder's close left out; a put-off gap given to engineering then the Builder, closed by its change and opened by its undo; a test closed by a full passing run and not by a failing or partial one), `apps/web/src/ops/builds/closeout.test.tsx` and `builds.test.tsx` (no selects; Put off, Drop it, Reopen; Take it up on a put-off gap). The skill build's go-live closing has no test of its own. |
 
-### 1.193 Who is asking on the Claude approval page (H6, item C4.9, 2026-11-22; migration 0078)
+### 1.201 Who is asking on the Claude approval page (H6, item C4.9, 2026-11-22; migration 0078)
 
 The approval page (§1.120, §1.130) said when Claude asked and took Claude's code, but not who was
 asking or from where. Migration 0078 (its own PR) added two nullable columns to

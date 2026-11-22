@@ -141,7 +141,7 @@ const CLIENT_MAX = 40;
  * Anthropic's clients, otherwise the agent's first product name ("python-httpx"), so a token used
  * from something else says so. Never the user agent itself; null without one.
  */
-// DECISION (docs/plan.md §1.193): the name is what the request says it is, not proof: it is shown
+// DECISION (docs/plan.md §1.201): the name is what the request says it is, not proof: it is shown
 // beside the place and the confirm code, which stays the check. Letters, digits and `._-` only,
 // at most CLIENT_MAX characters, so nothing a request sends reaches the page as it was sent.
 export function claudeClientInWords(userAgent: string | null | undefined): string | null {
