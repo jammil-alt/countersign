@@ -296,7 +296,7 @@ export async function insertClient(db: Db, name: string): Promise<ClientFixture>
   await db.$client`
     insert into memory_note (tenant_id, agent_id, note, source_message_id)
     values (${tenantId}, ${a.id}, 'remember', ${m.id})`;
-  // 0081 added measure columns to both rollups: their columns named, not drizzle's whole list, so
+  // 0095 added measure columns to both rollups: their columns named, not drizzle's whole list, so
   // a client seeded on a database migrated only to an earlier migration gets these rows too.
   await db.$client`
     insert into usage_daily (tenant_id, day, agent_id, runs)
@@ -304,7 +304,7 @@ export async function insertClient(db: Db, name: string): Promise<ClientFixture>
   await db.$client`
     insert into usage_platform_daily (tenant_id, day, documents, tokens_in, tokens_out, cost_usd)
     values (${tenantId}, '2026-11-03', 1, 1200, 300, 0.0123)`;
-  // §1.210 (0081): an email the agent's run sent through Resend, where the table exists.
+  // §1.210 (0095): an email the agent's run sent through Resend, where the table exists.
   const [metered] = await db.$client<{ ok: boolean }[]>`
     select to_regclass('public.metered_usage') is not null as ok`;
   if (metered?.ok) {
@@ -1179,7 +1179,7 @@ export async function insertOperatorRows(db: Db): Promise<{
     .values({ sessionId: bs.id, seq: 1, role: "operator", text: "Draft a card receipts agent." })
     .returning();
   if (!bt) throw new Error("no builder turn");
-  // §1.210 (0081): the platform's own vendor cost, an operator's sign-in code, where it exists.
+  // §1.210 (0095): the platform's own vendor cost, an operator's sign-in code, where it exists.
   const [metered] = await db.$client<{ ok: boolean }[]>`
     select to_regclass('public.metered_usage') is not null as ok`;
   if (metered?.ok) {

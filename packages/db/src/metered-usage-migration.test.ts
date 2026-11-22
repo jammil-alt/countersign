@@ -1,4 +1,4 @@
-// Migration 0081 (docs/plan.md §1.210): `metered_usage`, what we pay vendors for outside a run's
+// Migration 0095 (docs/plan.md §1.210): `metered_usage`, what we pay vendors for outside a run's
 // model calls. A client's session sees and writes only its own rows and never the back office's;
 // an operator sees the back office's and the platform's; any session may write a row with no
 // client, which must be ours; rows are counted once and never changed; the rollups have the new
@@ -22,7 +22,7 @@ async function errorCode(promise: Promise<unknown>): Promise<string | undefined>
   return undefined;
 }
 
-describe.skipIf(!online)("0081: metered_usage", () => {
+describe.skipIf(!online)("0095: metered_usage", () => {
   let t: TestDatabase;
   let A: ClientFixture;
   let B: ClientFixture;

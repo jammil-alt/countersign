@@ -360,7 +360,7 @@ describe.skipIf(!h)("usage and reports", () => {
         costUsd: "0.0125",
         // P-7 (0034): the client's own translations; none here.
         translations: 0,
-        // §1.210 (0081): the client's own metered usage; none here.
+        // §1.210 (0095): the client's own metered usage; none here.
         messages: 0,
         emails: 0,
         browserSeconds: 0,

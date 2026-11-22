@@ -419,7 +419,7 @@ describe.skipIf(!online)("migrations on an empty database", () => {
       expect(await can(table, "DELETE"), `${table} DELETE`).toBe(false);
     }
     expect(await can("model_call", "UPDATE")).toBe(false);
-    // 0081: what we pay vendors for is only inserted (§1.210).
+    // 0095: what we pay vendors for is only inserted (§1.210).
     expect(await can("metered_usage", "INSERT")).toBe(true);
     expect(await can("metered_usage", "UPDATE")).toBe(false);
     expect(await can("metered_usage", "DELETE")).toBe(false);
@@ -506,7 +506,7 @@ describe.skipIf(!online)("migrations on an empty database", () => {
     const costs = await t.db.$client<{ measure: string; unit_cost: string; per_units: number }[]>`
       select measure, unit_cost, per_units from billing_unit_cost order by measure`;
     expect(costs.map((c) => [c.measure, c.unit_cost, c.per_units])).toEqual([
-      // 0081's placeholders (§1.210).
+      // 0095's placeholders (§1.210).
       ["bank_item_months", "0.3000", 1],
       ["browser_seconds", "0.0900", 3600],
       ["call_seconds", "0.1000", 60],

@@ -2120,7 +2120,7 @@ export const usageDaily = pgTable(
     tokensIn: bigint("tokens_in", { mode: "number" }).notNull().default(0),
     tokensOut: bigint("tokens_out", { mode: "number" }).notNull().default(0),
     costUsd: usd("cost_usd"),
-    // §1.210 (migration 0081): emails sent through Resend and seconds of Browser Run, summed by
+    // §1.210 (migration 0095): emails sent through Resend and seconds of Browser Run, summed by
     // the rollup from the agent's `metered_usage` rows.
     emails: integer("emails").notNull().default(0),
     browserSeconds: integer("browser_seconds").notNull().default(0),
@@ -2155,7 +2155,7 @@ export const usagePlatformDaily = pgTable(
     // P-7 (migration 0034): model translations no agent made (the background job, a person's own
     // text); their tokens and cost are in the columns above with the readings'.
     translations: integer("translations").notNull().default(0),
-    // §1.210 (migration 0081): the client's own `metered_usage` no agent made: texts no run sent
+    // §1.210 (migration 0095): the client's own `metered_usage` no agent made: texts no run sent
     // (notifications, release codes, auto-replies, inbound), emails, Browser Run seconds and the
     // months of each connected bank (Plaid bills per item per month).
     messages: integer("messages").notNull().default(0),
@@ -2178,7 +2178,7 @@ export const METERED_MEASURES = [
 
 /**
  * One thing we paid a vendor for outside a run's model calls (docs/plan.md §1.210, migration
- * 0081): an email, a text no run sent, a sign-in code, Browser Run's seconds, a bank's month, or a
+ * 0095): an email, a text no run sent, a sign-in code, Browser Run's seconds, a bank's month, or a
  * back-office model call. Against its client, and its agent and run where there are ones; `ours`
  * marks the back office's and the platform's own cost (never a client's usage or bill), and a row
  * with no client is always ours. Counted once (`key`), priced on read at `billing_unit_cost`
@@ -6669,7 +6669,7 @@ export const TENANT_TABLES = [
   // §1.151 (0080): the desktop app's computers and their jobs.
   "desktop_device",
   "desktop_job",
-  // §1.210 (0081): what we pay vendors for outside a run's model calls.
+  // §1.210 (0095): what we pay vendors for outside a run's model calls.
   "metered_usage",
   // §1.215 (0085): a client's saved match rules.
   "match_rule",
@@ -6717,7 +6717,7 @@ export const OPERATOR_TABLES = [
   "test_case_result",
   "builder_session",
   "builder_turn",
-  // §1.210 (0081): the platform's own vendor costs have no client.
+  // §1.210 (0095): the platform's own vendor costs have no client.
   "metered_usage",
 ] as const satisfies readonly TenantTable[];
 
