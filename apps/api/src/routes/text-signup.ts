@@ -13,6 +13,7 @@ import {
   textSignupLink,
   viewTextSignup,
 } from "../messaging/signup";
+import { meter } from "../metering";
 import { mailerFromEnv, texterFromEnv } from "../notify/mailer";
 import { originOf } from "../notify/outbox";
 import { reportHandled } from "../observability/report";
@@ -61,12 +62,19 @@ export function textSignupRoutes(app: Hono<AppEnv>): void {
       // From the client's own number, after the consent is committed.
       c.get("req").deferred.push(async () => {
         try {
-          await withTenant(services.db, done.tenantId, (tx) =>
-            texter.send(tx, done.tenantId, {
+          await withTenant(services.db, done.tenantId, async (tx) => {
+            const sid = await texter.send(tx, done.tenantId, {
               to: done.phone,
               body: textSignupConfirmation(done.client),
-            }),
-          );
+            });
+            // §1.210: the sign-up's confirmation text is the client's own usage.
+            await meter(tx, {
+              tenantId: done.tenantId,
+              measure: "messages",
+              source: "invitation",
+              key: `twilio:${sid}`,
+            });
+          });
         } catch (error) {
           reportHandled("text sign-up confirmation failed", error, { job: "text_signup" });
         }

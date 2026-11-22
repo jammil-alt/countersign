@@ -34,6 +34,7 @@ import type { z } from "zod";
 import { addMessage } from "../build/store";
 import { clientModels } from "../compliance/models";
 import { HttpError, type Scoped, type Services } from "../http";
+import { meterModelCalls } from "../metering";
 import { notifyDepsFromEnv } from "../notify/tick";
 import { reportHandled } from "../observability/report";
 import { reuseIndex } from "./catalog";
@@ -109,8 +110,20 @@ async function checkReuse(
     ...(selfId ? { selfId } : {}),
   };
   try {
-    return (await runReuseCheck(base, { llm: llmFor(ctx.services, clients), now: ctx.now() }))
-      .check;
+    const ran = await runReuseCheck(base, { llm: llmFor(ctx.services, clients), now: ctx.now() });
+    // §1.210: the judge's calls are ours (the dev queue is the platform's work), on the request's
+    // one client when it has exactly one.
+    if (ran.calls.length > 0) {
+      await ctx.inTx(({ tx }) =>
+        meterModelCalls(tx, {
+          tenantId: clients.length === 1 ? (clients[0] ?? null) : null,
+          source: "dev_queue",
+          key: `dev_queue:${crypto.randomUUID()}`,
+          calls: ran.calls,
+        }),
+      );
+    }
+    return ran.check;
   } catch (error) {
     if (!(error instanceof BuilderError)) throw error;
     reportHandled("the reuse check's judge failed", error, { kind: "dev_queue" });

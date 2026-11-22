@@ -31,12 +31,18 @@ import {
   tenant,
   withOperator,
 } from "@countersign/db";
-import { createLlmClient, DEFAULT_MODELS, type LlmTransport } from "@countersign/llm";
+import {
+  createLlmClient,
+  DEFAULT_MODELS,
+  type LlmCallRecord,
+  type LlmTransport,
+} from "@countersign/llm";
 import { leadOf } from "@countersign/threads";
 import { and, desc, eq, inArray, isNotNull, isNull, lte, ne, sql } from "drizzle-orm";
 import { auditInTx } from "../audit";
 import { clientBusinessHours } from "../hours/hours";
 import { untrusted } from "../mcp/output";
+import { meterModelCalls } from "../metering";
 import { reportHandled } from "../observability/report";
 import { placeHold } from "../work/holds";
 import { addIssueEvent, type IssueRow, postOnThread, threadMessages } from "../work/issues";
@@ -608,6 +614,7 @@ export async function readOne(
   }
   let read: ReggieRead | null = null;
   let meta: Record<string, unknown> = {};
+  let call: LlmCallRecord | null = null;
   try {
     if (!deps.transport) throw new Error("no model transport");
     const llm = createLlmClient({ transport: deps.transport });
@@ -624,12 +631,23 @@ export async function readOne(
       maxTokens: 3000,
       label: "reggie_read",
     });
+    call = out.record;
     read = checkedRead(out.value, g, now);
     meta = { model: out.record.model, costUsd: out.record.costUsd ?? null };
   } catch (error) {
     reportHandled("Reggie's read failed", error, { job: "reggie_read", tenant: tenantId });
   }
   return withOperator(deps.db, [tenantId], async (tx) => {
+    // §1.210: the read's model call is the back office's cost, opened on this client, whether
+    // or not its answer was kept.
+    if (call) {
+      await meterModelCalls(tx, {
+        tenantId,
+        source: "reggie_read",
+        key: `reggie_read:${issueId}:${now.toISOString()}`,
+        calls: [call],
+      });
+    }
     const [row] = await tx
       .select()
       .from(issue)

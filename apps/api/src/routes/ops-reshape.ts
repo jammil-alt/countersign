@@ -24,6 +24,7 @@ import { and, desc, eq, inArray } from "drizzle-orm";
 import type { Hono } from "hono";
 import { clientModels } from "../compliance/models";
 import { type AppEnv, type HandlerCtx, HttpError, mount } from "../http";
+import { meterModelCalls } from "../metering";
 import { agentInScope, builderToolInputs } from "./ops-lineage";
 
 type Ctx = HandlerCtx<never>;
@@ -117,6 +118,14 @@ export function opsReshapeRoutes(app: Hono<AppEnv>): void {
           "builder_unavailable",
           `the Builder could not reach its model: ${error instanceof Error ? error.message : String(error)}`,
         );
+      });
+      // §1.210: the Builder's call is the back office's cost, on the agent's client (none for a
+      // template).
+      await meterModelCalls(ctx.tx, {
+        tenantId: row.tenantId,
+        source: "reshape",
+        key: `reshape:${crypto.randomUUID()}`,
+        calls: s.calls,
       });
       fields = fields.map((f) => {
         const from = s.fields[f.name];

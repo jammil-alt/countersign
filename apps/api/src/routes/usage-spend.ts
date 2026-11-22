@@ -33,12 +33,14 @@ import {
   buildMessage,
   docExtraction,
   messageTranslation,
+  meteredUsage,
   modelCall,
   rawRecord,
   reggieConversation,
   reggieMessage,
   run,
   type Tx,
+  usageDaily,
 } from "@countersign/db";
 import {
   and,
@@ -61,7 +63,14 @@ export type SpendSource =
   | "background_translation"
   | BackOfficeSpend;
 
-export const BACK_OFFICE_SOURCES: readonly SpendSource[] = ["reggie", "builder", "build"];
+export const BACK_OFFICE_SOURCES: readonly SpendSource[] = [
+  "reggie",
+  "reggie_read",
+  "builder",
+  "reshape",
+  "build",
+  "dev_queue",
+];
 
 /** One grouped line of model spend. */
 export interface SpendLine {
@@ -447,7 +456,200 @@ async function backOfficeLines(tx: Tx, scope: string[], query: SpendQuery): Prom
         .groupBy(build.clientId, model, day),
     );
   }
+  // §1.210: the back office's model calls recorded as metered usage (Reggie's read of each
+  // request, reshape suggestions, the dev queue's reuse check), with their tokens.
+  {
+    const day = utcDay(meteredUsage.createdAt);
+    const rows = await tx
+      .select({
+        tenantId: meteredUsage.tenantId,
+        source: meteredUsage.source,
+        model: meteredUsage.model,
+        day,
+        n: sql<string>`count(*)::text`,
+        unpriced: sql<string>`(count(*) filter (where ${meteredUsage.costUsd} = 0 and ${meteredUsage.tokensIn} + ${meteredUsage.tokensOut} > 0))::text`,
+        tokensIn: sql<string>`sum(${meteredUsage.tokensIn})::text`,
+        tokensOut: sql<string>`sum(${meteredUsage.tokensOut})::text`,
+        cost: sql<string>`sum(${meteredUsage.costUsd})::text`,
+      })
+      .from(meteredUsage)
+      .where(
+        and(
+          eq(meteredUsage.measure, "model"),
+          eq(meteredUsage.ours, true),
+          inArray(meteredUsage.source, ["reggie_read", "reshape", "dev_queue"]),
+          gte(meteredUsage.createdAt, lo),
+          lt(meteredUsage.createdAt, hi),
+          clientOf(meteredUsage.tenantId),
+        ),
+      )
+      .groupBy(meteredUsage.tenantId, meteredUsage.source, meteredUsage.model, day);
+    for (const r of rows) {
+      out.push({
+        source: r.source as BackOfficeSpend,
+        tenantId: r.tenantId,
+        agentId: null,
+        model: r.model ?? "",
+        action: null,
+        day: r.day,
+        calls: n(r.n),
+        unpricedCalls: n(r.unpriced),
+        tokensIn: n(r.tokensIn),
+        tokensOut: n(r.tokensOut),
+        cost: d(r.cost),
+      });
+    }
+  }
   return out;
+}
+
+// ── §1.210: the vendors other than the models ─────────────────────────────────────────────────────
+
+/** A vendor measure the report prices at our unit costs (`billing_unit_cost`). */
+export type ServiceMeasure =
+  | "messages"
+  | "call_seconds"
+  | "emails"
+  | "browser_seconds"
+  | "verifications"
+  | "bank_item_months";
+
+/** One grouped line of what a vendor's service was used for, by client, agent and UTC day. */
+export interface ServiceLine {
+  measure: ServiceMeasure;
+  /** Null for the platform's own (no client). */
+  tenantId: string | null;
+  agentId: string | null;
+  /** The back office's or the platform's own: never a client's or an agent's figure. */
+  ours: boolean;
+  day: string;
+  quantity: number;
+}
+
+/**
+ * What the vendors other than the models were used for in the range: texts and call seconds an
+ * agent's runs made (`usage_daily`, counted as they are sent), and every `metered_usage` row that
+ * is not a model call (emails, texts no run sent, Browser Run's seconds, sign-in codes, banks'
+ * months). Narrowed to an agent or a template, only that agent's.
+ */
+// DECISION: counted from the rows, priced on read at the unit costs (§1.210): the rows keep the
+// quantity, as usage_daily does, so a corrected unit cost reprices the report and the bill alike.
+export async function serviceLines(
+  tx: Tx,
+  tenantIds: readonly string[],
+  query: SpendQuery,
+): Promise<ServiceLine[]> {
+  if (tenantIds.length === 0) return [];
+  const scope = [...tenantIds];
+  const { lo, hi } = bounds(query);
+  const narrowed = Boolean(query.agent || query.template);
+  const out: ServiceLine[] = [];
+
+  {
+    const day = sql<string>`to_char(${usageDaily.day}, 'YYYY-MM-DD')`;
+    const where: SQL[] = [
+      inArray(usageDaily.tenantId, scope),
+      gte(usageDaily.day, query.from),
+      sql`${usageDaily.day} <= ${query.to}`,
+      sql`(${usageDaily.messages} > 0 or ${usageDaily.callSeconds} > 0)`,
+    ];
+    if (query.client) where.push(eq(usageDaily.tenantId, query.client));
+    if (query.agent) where.push(eq(usageDaily.agentId, query.agent));
+    if (query.template) where.push(eq(agent.templateId, query.template));
+    const rows = await tx
+      .select({
+        tenantId: usageDaily.tenantId,
+        agentId: usageDaily.agentId,
+        day,
+        messages: sql<string>`sum(${usageDaily.messages})::text`,
+        callSeconds: sql<string>`sum(${usageDaily.callSeconds})::text`,
+      })
+      .from(usageDaily)
+      .innerJoin(
+        agent,
+        and(eq(agent.id, usageDaily.agentId), eq(agent.tenantId, usageDaily.tenantId)),
+      )
+      .where(and(...where))
+      .groupBy(usageDaily.tenantId, usageDaily.agentId, day);
+    for (const r of rows) {
+      for (const [measure, q] of [
+        ["messages", n(r.messages)],
+        ["call_seconds", n(r.callSeconds)],
+      ] as const) {
+        if (q > 0) {
+          out.push({
+            measure,
+            tenantId: r.tenantId,
+            agentId: r.agentId,
+            ours: false,
+            day: r.day,
+            quantity: q,
+          });
+        }
+      }
+    }
+  }
+
+  {
+    const day = utcDay(meteredUsage.createdAt);
+    const where: SQL[] = [
+      sql`${meteredUsage.measure} <> 'model'`,
+      gte(meteredUsage.createdAt, lo),
+      lt(meteredUsage.createdAt, hi),
+      query.client
+        ? eq(meteredUsage.tenantId, query.client)
+        : (or(isNull(meteredUsage.tenantId), inArray(meteredUsage.tenantId, scope)) as SQL),
+    ];
+    if (narrowed) {
+      where.push(isNotNull(meteredUsage.agentId));
+      if (query.agent) where.push(eq(meteredUsage.agentId, query.agent));
+      if (query.template) {
+        where.push(
+          sql`${meteredUsage.agentId} in (select ${agent.id} from ${agent} where ${agent.templateId} = ${query.template})`,
+        );
+      }
+    }
+    const rows = await tx
+      .select({
+        measure: meteredUsage.measure,
+        tenantId: meteredUsage.tenantId,
+        agentId: meteredUsage.agentId,
+        ours: meteredUsage.ours,
+        day,
+        quantity: sql<string>`sum(${meteredUsage.quantity})::text`,
+      })
+      .from(meteredUsage)
+      .where(and(...where))
+      .groupBy(
+        meteredUsage.measure,
+        meteredUsage.tenantId,
+        meteredUsage.agentId,
+        meteredUsage.ours,
+        day,
+      );
+    for (const r of rows) {
+      out.push({
+        measure: r.measure as ServiceMeasure,
+        tenantId: r.tenantId,
+        agentId: r.agentId,
+        ours: r.ours,
+        day: r.day,
+        quantity: n(r.quantity),
+      });
+    }
+  }
+  return out;
+}
+
+/** What `quantity` of a measure costs at the unit costs; null when the measure has none. */
+export function servicePrice(
+  units: readonly { measure: string; unitCost: string; perUnits: number }[],
+): (measure: string, quantity: number) => Decimal | null {
+  const by = new Map(units.map((u) => [u.measure, u]));
+  return (measure, quantity) => {
+    const u = by.get(measure);
+    return u ? new Decimal(u.unitCost).times(quantity).div(u.perUnits) : null;
+  };
 }
 
 /** Providers' fees passed on to a client (P-8 `ProviderFee` raw records), by client and day. */

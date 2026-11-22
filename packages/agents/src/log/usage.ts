@@ -110,24 +110,41 @@ export async function rollupUsageDaily(
       from (select * from read union select * from cited) u
       group by agent_id
     ),
+    -- §1.210: what the agent's runs had us pay vendors for (emails, Browser Run's seconds).
+    -- Texts by a run are counted into \`messages\` as they are sent (messaging/services.ts).
+    m as (
+      select mu.agent_id,
+             coalesce(sum(mu.quantity) filter (where mu.measure = 'emails'), 0)::int as emails,
+             coalesce(sum(mu.quantity) filter (where mu.measure = 'browser_seconds'), 0)::int
+               as browser_seconds
+      from metered_usage mu, d
+      where mu.tenant_id = ${t} and mu.agent_id is not null and not mu.ours
+        and mu.created_at >= d.lo and mu.created_at < d.hi
+      group by mu.agent_id
+    ),
     ids as (
       select agent_id from r union select agent_id from s
       union select agent_id from a union select agent_id from x
+      union select agent_id from m
     )
     insert into usage_daily
-      (tenant_id, day, agent_id, runs, steps, documents, external_actions, tokens_in, tokens_out, cost_usd)
+      (tenant_id, day, agent_id, runs, steps, documents, external_actions, tokens_in, tokens_out,
+       cost_usd, emails, browser_seconds)
     select ${t}::uuid, d.day, ids.agent_id, coalesce(r.runs, 0), coalesce(s.steps, 0),
            coalesce(x.documents, 0), coalesce(a.external_actions, 0), coalesce(s.tokens_in, 0),
-           coalesce(s.tokens_out, 0), coalesce(s.cost_usd, 0)
+           coalesce(s.tokens_out, 0), coalesce(s.cost_usd, 0), coalesce(m.emails, 0),
+           coalesce(m.browser_seconds, 0)
     from ids cross join d
     left join r on r.agent_id = ids.agent_id
     left join s on s.agent_id = ids.agent_id
     left join a on a.agent_id = ids.agent_id
     left join x on x.agent_id = ids.agent_id
+    left join m on m.agent_id = ids.agent_id
     on conflict (tenant_id, day, agent_id) do update set
       runs = excluded.runs, steps = excluded.steps, documents = excluded.documents,
       external_actions = excluded.external_actions, tokens_in = excluded.tokens_in,
-      tokens_out = excluded.tokens_out, cost_usd = excluded.cost_usd
+      tokens_out = excluded.tokens_out, cost_usd = excluded.cost_usd,
+      emails = excluded.emails, browser_seconds = excluded.browser_seconds
   `);
   await rollupPlatformDaily(tx, input);
   return tx
@@ -143,6 +160,7 @@ export async function rollupUsageDaily(
  * P-7: and the translations no agent made (the background job, a person's own text), with their
  * tokens and cost; a day with neither writes no row.
  * P-8: and the providers' fees passed on to the client (`ProviderFee` raw records), in its cost.
+ * §1.210: and its own `metered_usage` (texts, emails, Browser Run's seconds, banks' months).
  */
 // DECISION: a background reading that fails writes no doc_extraction row, so its model call (if it
 // got that far) is not counted: rows are immutable and only a reading has one. Failures are rare,
@@ -187,18 +205,37 @@ export async function rollupPlatformDaily(
       from raw_record rr, d
       where rr.tenant_id = ${t} and rr.entity_type = ${PROVIDER_FEE_ENTITY}
         and rr.synced_at >= d.lo and rr.synced_at < d.hi
+    ),
+    -- §1.210: what the client's own work had us pay vendors for, no agent's run: texts no run
+    -- sent (notifications, release codes, auto-replies, inbound), emails, Browser Run's seconds
+    -- and its connected banks' months. The back office's and the platform's (\`ours\`) never.
+    m as (
+      select coalesce(sum(mu.quantity) filter (where mu.measure = 'messages'), 0)::int as messages,
+             coalesce(sum(mu.quantity) filter (where mu.measure = 'emails'), 0)::int as emails,
+             coalesce(sum(mu.quantity) filter (where mu.measure = 'browser_seconds'), 0)::int
+               as browser_seconds,
+             coalesce(sum(mu.quantity) filter (where mu.measure = 'bank_item_months'), 0)::int
+               as bank_item_months,
+             count(*)::int as n
+      from metered_usage mu, d
+      where mu.tenant_id = ${t} and mu.agent_id is null and not mu.ours
+        and mu.measure <> 'model'
+        and mu.created_at >= d.lo and mu.created_at < d.hi
     )
     insert into usage_platform_daily
-      (tenant_id, day, documents, translations, tokens_in, tokens_out, cost_usd)
+      (tenant_id, day, documents, translations, tokens_in, tokens_out, cost_usd, messages, emails,
+       browser_seconds, bank_item_months)
     select ${t}::uuid, d.day, reads.documents, tr.translations,
            reads.tokens_in + tr.tokens_in, reads.tokens_out + tr.tokens_out,
-           reads.cost_usd + tr.cost_usd + fees.cost_usd
-    from d, reads, tr, fees
-    where reads.n > 0 or tr.translations > 0 or fees.n > 0
+           reads.cost_usd + tr.cost_usd + fees.cost_usd, m.messages, m.emails, m.browser_seconds,
+           m.bank_item_months
+    from d, reads, tr, fees, m
+    where reads.n > 0 or tr.translations > 0 or fees.n > 0 or m.n > 0
     on conflict (tenant_id, day) do update set
       documents = excluded.documents, translations = excluded.translations,
       tokens_in = excluded.tokens_in, tokens_out = excluded.tokens_out,
-      cost_usd = excluded.cost_usd
+      cost_usd = excluded.cost_usd, messages = excluded.messages, emails = excluded.emails,
+      browser_seconds = excluded.browser_seconds, bank_item_months = excluded.bank_item_months
   `);
   return tx
     .select()
