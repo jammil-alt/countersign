@@ -1,4 +1,4 @@
-# What's still open (2026-11-08)
+# What's still open (2026-11-22)
 
 One list of everything that is still open, gathered from `docs/plan.md`, `docs/marketing-plan.md`,
 `docs/operations.md`, `docs/hipaa-plan.md` and each connector's `NOTES.md`. Those stay the
@@ -12,16 +12,18 @@ in `docs/reporting-plan.md`.
 
 ## Where things stand
 
-- **Built:** everything through M50 (`docs/plan.md` §4), migrations through 0038, merged to `main`
-  and deployed to staging (`https://staging.mezonas.com/api/health` answers 200). That includes
-  purchasing end to end by email (M42), message translation (M40), US texting registration (M41)
-  and the whole Marketing wave (M43–M50).
+- **Built:** everything through M69 (`docs/plan.md` §4) and the work recorded through §1.184,
+  migrations through 0075, merged to `main` and deployed to staging. That includes purchasing end
+  to end by email (M42), the Marketing wave (M43–M50), the Bookkeeping area (M51–M57), the back
+  office's Sales, onboarding and Build (M64–M69), the SOP and agent assurance.
 - **Every provider is built against a fake.** Nothing has yet run against live QuickBooks, Gmail,
   Resend, Twilio, Meta, ElevenLabs, Stripe, Plaid, Search Console or the others.
 - **Templates to production** (owner, 2026-11-16): planned in `docs/plan.md` §1.118, not built. Only
   a template's tested set-up moves from staging to production, never client agents or their data.
-- **Unmerged work:** on 2026-11-15, 11 branches of finished work had never reached `main`, most
-  with no PR. What they hold and the order to merge them: `docs/merge-backlog.md`.
+- **Unmerged work:** the 2026-11-15 backlog (`docs/merge-backlog.md`) has all landed: token
+  counts, the phone app, area owners, removing a person, §1.118 and the approval link (§1.120).
+  Open PRs now: jammil-alt/countersign#520 (testing some of the steps) and #501 (the issue
+  close-out, a stale draft).
 - Production is live from a hand-run deploy of `747d7ff`
   (2026-11-09, migrations through 0041) but has had no `v*` tag; its next release is an upgrade.
 - Almost everything below is **a setup step, a key or a decision for the owner**, not code. Where
@@ -152,11 +154,9 @@ client's name"), before the first client's calls.
 
 ## 1e. Spreadsheets in and out, and a spreadsheet matched to Zoho (`docs/plan.md` §1.164)
 
-Built (owner, 2026-11-20), in PRs to merge in this order: #478 (migration 0072, the Sales area's
-tables), #482 (the Sales area: keys, embeddings, `sales.match_records`), #479 (Reshape's `object`,
-a webhook's sample payload), #480 (Read table and Write table: CSV, XLSX, JSON), #481 (Zoho's
-fields), #484 (record ids aren't card numbers), #483 (Confirm matches, its look-up, the template
-"Spreadsheet to Zoho" and the happy path). Open for the owner: Zoho's field list, its scope and the
+Built and merged (owner, 2026-11-20; #478 to #484: migration 0072, the Sales area's tables and
+`sales.match_records`, Reshape's `object`, Read table and Write table, Zoho's fields, Confirm
+matches and the template "Spreadsheet to Zoho"). Open for the owner: Zoho's field list, its scope and the
 50-field limit checked on the Mezonas Dev org before a client connects (existing Zoho connections
 sign in again for field lists); which client first, the fields matched on, and whether rows with no
 match make new leads; the portal's "attach PDFs or images" message, which doesn't name spreadsheets
@@ -210,7 +210,7 @@ then one pass of its "To verify" list against the real service.
 | Texts and calls | ElevenLabs (`elevenlabs`) | Account, `ELEVENLABS_API_KEY`, webhook secret. |
 | Texts and calls | All three | **Legal review** of consent, calling hours, recording consent and AI disclosure per country, before any live client call or text. In it, counsel checks the **relationship basis** (`docs/plan.md` §1.97), now for calls (an automated assistant, an artificial voice under the TCPA) and email only, and the **texting sign-up** that replaced it for texts (§1.98): the words beside the box, the invitation email, the confirmation text and the 10DLC opt-in, against the TCPA and the CTIA's messaging principles. |
 | Access | Code service (`apps/mfa`) | Confirm the domains; Email Routing for `agents.staging.mezonas.com`; the codes Twilio subaccount; then turn email codes on (`apps/mfa/NOTES.md`). |
-| Access | Browser logins (`browser`) | Turn on Browser Run; then merge the `BROWSER` binding PR (`claude/browser-binding`, jammil-alt/countersign#55); the first real low-tier site; legal review of agent accounts. |
+| Access | Browser logins (`browser`) | Turn on Browser Run (the `BROWSER` binding is in `apps/api/wrangler.jsonc` for staging and production); the first real low-tier site; legal review of agent accounts. |
 | Finance | Plaid (`bankfeed`) | §1b above (K1–K3): keys, sandbox checks, production review and OAuth banks; price per bank; BAA (until then not offered to HIPAA clients). Several banks per client is built. |
 | Finance | Ramp (`ramp`) | Developer app, `RAMP_*`. |
 | Finance | BILL (`billcom`, plan §1.87) | A BILL developer key, sandbox first (`BILL_DEV_KEY`; `docs/operations.md`), a dedicated BILL user's login entered by the client admin, then `NOTES.md`'s "To verify"; production after BILL's review. Decide: which BILL role our user gets; whether BILL goes on the site's subprocessors page (it is a processor, as Plaid is); BILL's BAA (until then not offered to HIPAA clients). **Code still needed for payments:** `billcom.payment.create` is defined, off and refused until BILL's MFA-trusted session can be reached through the code service (`apps/mfa`). |
@@ -332,7 +332,7 @@ sign-in stays off until `MOBILE_SIGNIN=on` and phone notifications until `MOBILE
 
 | # | Step | Notes |
 |---|---|---|
-| M1 | **Merge migration 0056 first** (its own PR, re-chained after 0055), let it reach staging, then the sign-in PR, then the app's PR. | 0056 adds `person_device` and widens the notification channel check; the previous Worker keeps working. |
+| M1 | ~~Merge migration 0056, the sign-in PR, then the app's PR.~~ Done: all three are on `main`. | |
 | M2 | **An Expo account**, then in `apps/mobile`: `npx eas-cli login`, `npx eas-cli init` (makes the project; put its id in `EAS_PROJECT_ID` for builds, or in `app.config.ts`'s env). | Push tokens need the project id; without it the app skips notifications and still signs. |
 | M3 | **iPhone**: the Apple Developer Program (organisation account, $99 a year, D-U-N-S for Twelve Thirty-Four), then `npx eas-cli build --profile development --platform ios` and let EAS make the certificates and the push key (APNs). Register your phone with `npx eas-cli device:create` first. | Bundle id `com.mezonas.app`. Approving the developer account can take a day or more: start it first. |
 | M4 | **Android**: `npx eas-cli build --profile development --platform android` installs from a link. For push, a Firebase project: its `google-services.json` as the EAS file variable `GOOGLE_SERVICES_JSON`, and its FCM v1 service-account key uploaded with `npx eas-cli credentials`. Account steps: `apps/mobile/README.md`, "Accounts". The Play Console ($25 once) only for the store. | Package `com.mezonas.app`. |
@@ -369,7 +369,7 @@ agent manual, the setup checklist, client adjustments and feedback, and governan
 | # | What | Notes |
 |---|---|---|
 | G1 | **Run the builds again on staging** (the Nexonia expense agent, invoice intake) and count the operator's actions from New to a running trial. Target: under 15. | `docs/builder-plan.md` §9. Owner, once this is deployed. |
-| G2 | **Merge #433** (Agree on "run the tests"; test cases cut off). | Part of B0 in the plan; not in this sprint's branches. |
+| G2 | ~~Merge #433~~ Merged. | |
 | G3 | A POC try on **a Sandbox record** (today an uploaded document or a JSON input; a record's id can be given as JSON). A **skill** tried on a document (skill cases run on fixtures only, so the API answers 422). | Code. |
 | G4 | Changing a decision's words directly from the Decisions card (today through the conversation, which marks it changed). A custom skill's step counted as writing in the high-risk check (only built-in skills are looked up). | Code. |
 | G5 | **Known risks counted from runs** (`ManualKnownRisk.hits` stays empty), and **deleting** a learned note from the manual (shown, read only). | Code. §1.153 already lists the count. |
@@ -414,10 +414,10 @@ client). Left:
 
 ### The agent's SOP (owner, 2026-11-21; `docs/sop-plan.md`, `docs/plan.md` §1.179, ARCHITECTURE v0.21 §10.17)
 
-Built: S0 (PR #510), the `sop_revision` table (S1a, migration 0074, PR #511) and S1 (PR #508): each
-client agent's SOP in the portal's SOP tab (the Manual tab's place), made by code from its setup,
-with each step's method, model and purpose, its revision, date and history, Find, filters and
-printing. Merge #510 and #511 before #508. Left:
+Built and merged: S0 (PR #510), the `sop_revision` table (S1a, migration 0074, PR #511), S1 (PR
+#508) and W, the Workflow tab (PR #515): each client agent's SOP in the portal's SOP tab, made by
+code from its setup, with each step's method, model and purpose, its revision, date and history,
+Find, filters and printing. Left:
 
 | # | What | Notes |
 |---|---|---|
@@ -426,7 +426,7 @@ printing. Merge #510 and #511 before #508. Left:
 | SOP-B | The Builder writes each step's purpose when it drafts (today the operator writes it in the step panel, else the SOP writes a plain line). Changes the Builder's requests, so its fixtures are re-recorded with a key (`LLM_MODE=record`). | Code, with a key. |
 | SOP-R | References: the client's own tagged policies by title, the agents it takes over from, its knowledge base; a step's entity-level settings and a person's own "show me first" on its line. | Code. |
 | SOP-T | Try it on staging after the merge: open an agent's SOP, change a connection's permission or the approval rules, and see revision n.1 with what changed and who. | Owner, after deploy. |
-| SOP-W | W: the Workflow tab, view only (`docs/sop-plan.md` §6a): built (branch `claude/sop-w-workflow`, after #508). Left: the chart's own few words in the six languages (zoom, "Otherwise", "Click to see it."), shared with the builder. | Code. |
+| SOP-W | W, the Workflow tab, view only (`docs/sop-plan.md` §6a): merged (#515). Left: the chart's own few words in the six languages (zoom, "Otherwise", "Click to see it."), shared with the builder. | Code. |
 | SOP-2 | S2: Sloan's `sop.read`, the Procedures page. | Code. |
 | SOP-3 | S3: share links, the accountable person, packs' own controls; only what the owner agrees. | Migrations, own PRs; a security review for share links. |
 
@@ -525,9 +525,9 @@ Left:
 
 ### Docs housekeeping
 
-- `docs/ARCHITECTURE.md` is still v0.15: the Marketing area's v0.16 changes are listed in
-  `docs/marketing-plan.md` §9, and the Bookkeeping area's in `docs/plan.md` §1.79; neither is
-  written into it yet.
+- `docs/ARCHITECTURE.md` is v0.21. The Marketing area (`docs/marketing-plan.md` §9) and the
+  Bookkeeping area (`docs/plan.md` §1.79) are still to be folded into it. CLAUDE.md's status
+  line still says v0.15.
 - `docs/hipaa-plan.md` §1 ("Merge the code") lists PRs that were merged long ago.
 
 ## Suggested order
