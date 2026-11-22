@@ -10,6 +10,7 @@ import {
   type TokenFigures,
   type TokenReport,
   type TokenRow,
+  UNRECORDED_MODEL,
 } from "@countersign/core";
 import type { ReactNode } from "react";
 import { Link } from "react-router-dom";
@@ -92,8 +93,8 @@ function linesFor(view: TokenView, data: TokenReport, label: (model: string) => 
         name: <AgentName agent={r.agent} clientId={r.client.id} />,
         sub: (
           <span className="text-sm text-ink-muted">
-            {r.client.name} · {TOKEN_ACTION_LABELS[r.action]} · {label(r.model)} (
-            {providerName(r.provider)})
+            {r.client.name} · {TOKEN_ACTION_LABELS[r.action]} · {label(r.model)}
+            {r.provider ? ` (${providerName(r.provider)})` : ""}
           </span>
         ),
         figures: r,
@@ -129,8 +130,11 @@ export function UsageTokens({
     query: { from, to, ...(client ? { client } : {}), ...(template ? { template } : {}) },
   });
   const models = useApi(apiRoutes.opsModels, {});
+  // QA (usage costs): a step's usage no call record holds names no model.
   const label = (id: string) =>
-    models.data?.models.find((m) => m.id === id)?.label ?? providerModelName(id);
+    id === UNRECORDED_MODEL
+      ? "Not itemised by model"
+      : (models.data?.models.find((m) => m.id === id)?.label ?? providerModelName(id));
   return (
     <Section title="Tokens" testId="ops-usage-token-report">
       <div className="max-w-full overflow-x-auto">

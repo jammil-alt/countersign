@@ -577,6 +577,36 @@ const inboxList: Tool<OpsToolCtx> = {
   },
 };
 
+// QA (2026-11-22): what needs us, as Home's Needs us and Escalations count it, so an answer to
+// "what needs me?" is the same number the back office shows (inbox_list's assigned items are only
+// one part of it).
+const needsUsList: Tool<OpsToolCtx> = {
+  name: "needs_us",
+  title: "What needs us",
+  description:
+    "What needs us (the operator) now, across the clients you serve or for one client: the same list and count as Needs us on the back office's Home and Escalations. Items assigned to us, failed live runs not retried, broken connections an agent uses, low-confidence readings of the last day, and clients' approvals nobody at the client can act on (one per client and reason, with the items it covers). Items only the client can answer are not here: inbox_list with assigned 'all' lists them.",
+  input: z.strictObject({ client: ClientId.optional() }),
+  annotations: READ,
+  async run(ctx, args) {
+    const a = args as Record<string, string | undefined>;
+    const out = await route(ctx, routes.opsNeedsUs, { query: query(a) });
+    return dataResult("needs_us", `${plural(out.count, "thing needs", "things need")} us.`, {
+      count: out.count,
+      escalations: out.escalations.map((e) => ({
+        kind: e.kind,
+        id: e.id,
+        client: e.client,
+        agent: e.agent,
+        runId: e.runId,
+        title: e.title,
+        blockedSince: e.blockedSince,
+        ...(e.wait ? { wait: e.wait } : {}),
+        ...(e.itemIds ? { itemIds: e.itemIds } : {}),
+      })),
+    });
+  },
+};
+
 async function connectionsIn(tx: Tx, tenantIds: readonly string[], client: string | undefined) {
   const ids = client ? tenantIds.filter((t) => t === client) : [...tenantIds];
   if (ids.length === 0) return [];
@@ -817,6 +847,7 @@ export const OPS_TOOLS: readonly Tool<OpsToolCtx>[] = [
   runsList,
   runGet,
   inboxList,
+  needsUsList,
   connectionsList,
   recordsSearch,
   opsHealth,

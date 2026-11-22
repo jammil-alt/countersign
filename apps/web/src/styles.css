@@ -220,6 +220,31 @@
   .page-tabs a {
     flex: none;
   }
+  /* Staging QA (2026-11-22): filter chips are never cut off unseen. Where the row can grow (Your
+   * call's bar) they wrap; in a table's bar, whose height is fixed, they scroll sideways with a
+   * thin scrollbar and a fade at the edge that has more past it (ops/work/parts.tsx). */
+  .ui-filters {
+    scrollbar-width: thin;
+  }
+  .ui-filters--wrap {
+    flex-wrap: wrap;
+    overflow: visible;
+  }
+  .ui-filters[data-more="end"] {
+    mask-image: linear-gradient(to right, #000 calc(100% - 32px), transparent);
+  }
+  .ui-filters[data-more="start"] {
+    mask-image: linear-gradient(to left, #000 calc(100% - 32px), transparent);
+  }
+  .ui-filters[data-more="start end"] {
+    mask-image: linear-gradient(
+      to right,
+      transparent,
+      #000 32px,
+      #000 calc(100% - 32px),
+      transparent
+    );
+  }
   .ds-navitem[aria-current="page"],
   .ds-listrow__title,
   .ds-label,

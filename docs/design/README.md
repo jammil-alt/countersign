@@ -25,6 +25,13 @@
 > captures of each are in
 > [`screens/sop/`](screens/sop/). Design only; the plan is [`docs/sop-plan.md`](../sop-plan.md).
 
+> **Setting up a client** (2026-11-22, for the owner): [`setup.html`](setup.html) is a clickable mock-up of
+> Getting started grown into five chapters (your business, tools, people, see it work, go live), with
+> Sloan beside them proposing into the same cards, and the back office's Setup tab (who it waits on,
+> change asks, Do it on a call, the runbook). The People chapter shows **seats**: a template names
+> "approves bills over $5,000" and each client puts its own people in it. Design only; the plan is
+> [`docs/setup-plan.md`](../setup-plan.md).
+
 ## v1 screens (2026-11-03, superseded by the prototype)
 
 > **The design system is now Mezonas** (`packages/design-system`, owner, 2026-11-03): its tokens,

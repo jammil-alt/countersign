@@ -329,6 +329,13 @@ describe("portal directory", () => {
     await userEvent.click(screen.getByTestId("people-filter-organizations"));
     expect(await screen.findByTestId(`directory-org-${BIRCH}`)).toBeInTheDocument();
     expect(screen.queryByTestId(`directory-org-${BIRCH}-edit`)).toBeNull();
+    // R3: its runs, asked for only once opened.
+    expect(api.calls).not.toContain(`GET /api/records/${BIRCH}/runs`);
+    api.on(`GET /api/records/${BIRCH}/runs`, () => ({ runs: [] }));
+    await userEvent.click(screen.getByTestId(`directory-org-${BIRCH}-runs-toggle`));
+    expect(await screen.findByTestId(`directory-org-${BIRCH}-runs-empty`)).toHaveTextContent(
+      "No run has been about this yet.",
+    );
     // Who agents reach is the client admin's: not even asked for.
     expect(api.calls).not.toContain("GET /api/people");
   });

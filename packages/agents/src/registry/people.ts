@@ -13,8 +13,17 @@ import {
   type PersonRole,
   PLANNED_CHANNEL_CONNECTORS,
   type ReachChannel,
+  seatKindOf,
 } from "@countersign/core";
-import { agent, agentChange, agentVersion, connection, contact, type Tx } from "@countersign/db";
+import {
+  agent,
+  agentChange,
+  agentVersion,
+  connection,
+  contact,
+  membership,
+  type Tx,
+} from "@countersign/db";
 import { and, desc, eq, inArray } from "drizzle-orm";
 import { AgentsError, notFound } from "../errors";
 import type { AgentRow } from "./agents";
@@ -49,11 +58,79 @@ export async function agentRoles(tx: Tx, row: AgentRow): Promise<PersonRole[]> {
   return latest?.bundle.people ?? [];
 }
 
+/** How many people fill a role's binding: its contacts and (a seat) its users and backups. */
+function filled(b: Partial<PeopleBindings[string]> | undefined): number {
+  return (b?.contactIds?.length ?? 0) + (b?.userIds?.length ?? 0) + (b?.backupUserIds?.length ?? 0);
+}
+
 /** Required roles of `roles` with nobody bound in `people`. */
-export function missingRoles(roles: readonly PersonRole[], people: PeopleBindings): string[] {
-  return roles
-    .filter((r) => r.required && !(people[r.role]?.contactIds.length ?? 0))
-    .map((r) => r.role);
+export function missingRoles(
+  roles: readonly PersonRole[],
+  people: Readonly<Record<string, Partial<PeopleBindings[string]>>>,
+): string[] {
+  return roles.filter((r) => r.required && filled(people[r.role]) === 0).map((r) => r.role);
+}
+
+/**
+ * Checks the client users a binding names (setup-plan §4.1): each a member of the agent's client
+ * who can see the agent; in a `signs` seat, one who can sign (a viewer never approves, §1.14). A
+ * `reached` role holds contacts only, a `signs` or `answers` seat users only (a contact can't sign
+ * in to answer). Throws `invalid_state` with a plain reason.
+ */
+async function checkSeatPeople(
+  tx: Tx,
+  row: AgentRow,
+  roles: readonly PersonRole[],
+  people: PeopleBindings,
+): Promise<void> {
+  const byRole = new Map(roles.map((r) => [r.role, r]));
+  const userIds = new Set<string>();
+  for (const [role, b] of Object.entries(people)) {
+    const kind = seatKindOf(byRole.get(role) ?? { kind: undefined });
+    const users = [...(b.userIds ?? []), ...(b.backupUserIds ?? [])];
+    if (kind === "reached" && users.length) {
+      throw new AgentsError("invalid_state", `"${role}" is for contacts, not people who sign in`);
+    }
+    if ((kind === "signs" || kind === "answers") && b.contactIds.length) {
+      throw new AgentsError("invalid_state", `"${role}" needs people who sign in, not contacts`);
+    }
+    if (b.backupUserIds?.length && kind !== "signs") {
+      throw new AgentsError("invalid_state", `only a seat that signs has backups`);
+    }
+    for (const id of users) userIds.add(id);
+  }
+  if (userIds.size === 0) return;
+  const members = await tx
+    .select({
+      userId: membership.userId,
+      canSign: membership.canSign,
+      agentIds: membership.agentIds,
+    })
+    .from(membership)
+    .where(
+      and(
+        eq(membership.tenantId, row.tenantId as string),
+        inArray(membership.userId, [...userIds]),
+        inArray(membership.role, ["client_admin", "client_user"]),
+      ),
+    );
+  const byUser = new Map(members.map((m) => [m.userId, m]));
+  for (const [role, b] of Object.entries(people)) {
+    const kind = seatKindOf(byRole.get(role) ?? { kind: undefined });
+    for (const id of [...(b.userIds ?? []), ...(b.backupUserIds ?? [])]) {
+      const m = byUser.get(id);
+      if (!m) throw new AgentsError("invalid_state", `${id} is not one of this client's people`);
+      if (m.agentIds && !m.agentIds.includes(row.id)) {
+        throw new AgentsError(
+          "invalid_state",
+          `${id} can't see this agent, so can't sit in "${role}"`,
+        );
+      }
+      if (kind === "signs" && !m.canSign) {
+        throw new AgentsError("invalid_state", `${id} can't sign, so can't sit in "${role}"`);
+      }
+    }
+  }
 }
 
 /**
@@ -94,8 +171,21 @@ export async function setPeople(
   }
   const people: PeopleBindings = {};
   for (const [role, b] of Object.entries(input.people)) {
-    people[role] = { contactIds: [...new Set(b.contactIds)], conditions: b.conditions };
+    // Setup-plan §4.1: a binding that leaves out its users keeps the ones it has, so the People
+    // section (contacts and conditions) never empties a seat filled elsewhere.
+    const before = row.people[role];
+    const userIds = b.userIds ?? before?.userIds;
+    const backupUserIds = b.backupUserIds ?? before?.backupUserIds;
+    people[role] = {
+      contactIds: [...new Set(b.contactIds)],
+      conditions: b.conditions,
+      ...(userIds?.length ? { userIds: [...new Set(userIds)] } : {}),
+      ...(backupUserIds?.length
+        ? { backupUserIds: [...new Set(backupUserIds)].filter((id) => !userIds?.includes(id)) }
+        : {}),
+    };
   }
+  await checkSeatPeople(tx, row, await agentRoles(tx, row), people);
   const [updated] = await tx.update(agent).set({ people }).where(eq(agent.id, row.id)).returning();
   await tx.insert(agentChange).values({
     tenantId: row.tenantId,

@@ -7,12 +7,18 @@ import { MemoryRouter } from "react-router-dom";
 import { describe, expect, it } from "vitest";
 import { AppProviders, AppRoutes } from "../../App";
 import { fakeApi, OPERATOR_SESSION } from "../../test/fixtures";
-import { agentChip } from "./CommandCenter";
+import { agentChip, agentNowState } from "./CommandCenter";
 
 const DEMO = "00000000-0000-4000-8000-00000000a002";
 const OTHER = "00000000-0000-4000-8000-00000000a003";
 const RUN = "00000000-0000-4000-8000-00000000f001";
 const WAITING_RUN = "00000000-0000-4000-8000-00000000f002";
+const WAITING_ITEM = "00000000-0000-4000-8000-00000000e001";
+const OTHER_ITEMS = Array.from(
+  { length: 24 },
+  (_, i) => `00000000-0000-4000-8000-00000000e1${String(i).padStart(2, "0")}`,
+);
+const centerQueries: URLSearchParams[] = [];
 const AGENT = "00000000-0000-4000-8000-00000000b001";
 const AGENT2 = "00000000-0000-4000-8000-00000000b002";
 const RUN2 = "00000000-0000-4000-8000-00000000f002";
@@ -66,7 +72,12 @@ const center = (over: Record<string, unknown> = {}) => ({
   waitingForApproval: { runs: 1, oldestSince: hoursAgo(39), overdue: 1, nobodyToAct: 1 },
   failedToday: { runs: 2 },
   needUs: { count: 3, blockedLong: 2 },
-  waitingOnClients: { count: 3, oldestSince: hoursAgo(26), oldestAgeSeconds: 26 * 3600 },
+  waitingOnClients: {
+    count: 3,
+    oldestSince: hoursAgo(26),
+    oldestAgeSeconds: 26 * 3600,
+    overdue: 2,
+  },
   runsToday: { runs: 312, clean: 306, cleanShare: 0.9808 },
   spendToday: {
     costUsd: "41.8000",
@@ -77,7 +88,9 @@ const center = (over: Record<string, unknown> = {}) => ({
   escalations: [
     {
       kind: "approval",
-      id: WAITING_RUN,
+      // QA (2026-11-22): named by its oldest item, with the items it covers.
+      id: WAITING_ITEM,
+      itemIds: [WAITING_ITEM],
       client: demo,
       agent: { id: AGENT, name: "Bill clerk", serviceName: null },
       runId: WAITING_RUN,
@@ -90,6 +103,25 @@ const center = (over: Record<string, unknown> = {}) => ({
         items: 1,
         nobodyToAct: "not_signed_in",
         emailOff: true,
+      },
+    },
+    {
+      // 24 of a client's items nobody there can act on, for one reason: one thing for us.
+      kind: "approval",
+      id: OTHER_ITEMS[0],
+      itemIds: OTHER_ITEMS,
+      client: other,
+      agent: { id: AGENT2, name: "Iris", serviceName: null },
+      runId: null,
+      title: "Add Dana Reyes to the directory",
+      blockedSince: hoursAgo(239),
+      wait: {
+        on: "client_admin",
+        person: null,
+        since: hoursAgo(239),
+        items: 24,
+        nobodyToAct: "not_signed_in",
+        emailOff: false,
       },
     },
     {
@@ -180,7 +212,10 @@ function routes(over: Record<string, () => unknown> = {}) {
   return fakeApi({
     "GET /api/session": () => OPERATOR_SESSION,
     "GET /api/ops/clients": () => ({ clients: [] }),
-    "GET /api/ops/command-center": () => center(),
+    "GET /api/ops/command-center": ({ url }: { url: URL }) => {
+      centerQueries.push(url.searchParams);
+      return center();
+    },
     "GET /api/ops/runs": ({ url }: { url: URL }) => {
       runQueries.push(url.search);
       const status = url.searchParams.get("status");
@@ -251,8 +286,12 @@ describe("command center", () => {
         name: "Live runs each day, last 14 days: 330 in all, 2 failed",
       }),
     ).toBeInTheDocument();
-    expect(new URL(runs.getAttribute("href") ?? "", "http://x").searchParams.get("statuses")).toBe(
-      "queued,running",
+    // QA (2026-11-22): it opens today's live runs, the runs it counts, from the browser's day.
+    const runsQuery = new URL(runs.getAttribute("href") ?? "", "http://x").searchParams;
+    expect(Object.fromEntries(runsQuery)).toEqual({ mode: "live", since: now.toISOString() });
+    const local = new Date();
+    expect(centerQueries.at(-1)?.get("today")).toBe(
+      new Date(local.getFullYear(), local.getMonth(), local.getDate()).toISOString(),
     );
     // Each figure in its state colour: Needs us risk, waiting gold, failed risk.
     expect(need).toHaveAttribute("data-tone", "risk");
@@ -271,15 +310,33 @@ describe("command center", () => {
     // "Live" is switched on and at the live stage: the paused one isn't counted.
     expect(screen.getByText("$41.80 model spend today · 1 agent live")).toBeInTheDocument();
 
-    // An approval stuck at a client: what waits, on whom, how long, why, and its run.
-    const stuck = screen.getByTestId(`ops-needs-${WAITING_RUN}`);
+    // An approval stuck at a client: what waits, on whom, how long, why, and its item.
+    const stuck = screen.getByTestId(`ops-needs-${WAITING_ITEM}`);
     expect(stuck).toHaveTextContent("Waiting 39 h");
     expect(stuck).toHaveTextContent(
       "Waiting for approval · client admin: Itemize bill 20418. Everyone who may approve it is still invited and hasn't signed in.",
     );
-    expect(within(stuck).getByRole("link", { name: "Open run" })).toHaveAttribute(
+    expect(within(stuck).getByRole("link", { name: "Open item" })).toHaveAttribute(
       "href",
-      `/ops/runs/${WAITING_RUN}`,
+      `/ops/inbox?view=clients&client=${DEMO}&item=${WAITING_ITEM}`,
+    );
+    // 24 items for one reason: one row, in days, whose link marks them all.
+    const many = screen.getByTestId(`ops-needs-${OTHER_ITEMS[0]}`);
+    expect(many).toHaveTextContent("Waiting 9 days");
+    expect(many).toHaveTextContent(
+      "Waiting for approval · client admin: 24 items, the oldest Add Dana Reyes to the directory. Everyone who may approve them is still invited and hasn't signed in.",
+    );
+    expect(within(many).getByRole("link", { name: "Open 24 items" })).toHaveAttribute(
+      "href",
+      `/ops/inbox?view=clients&client=${OTHER}&stuck=${OTHER_ITEMS[0]}`,
+    );
+    // What only the clients can answer is said under Needs us, not counted in it.
+    expect(screen.getByTestId("ops-needs-waiting-clients")).toHaveTextContent(
+      "3 items wait on clients, 2 over 24 h. Only they can answer them. See what waits on clients",
+    );
+    expect(screen.getByTestId("ops-needs-waiting-clients-link")).toHaveAttribute(
+      "href",
+      "/ops/inbox?view=clients",
     );
 
     const run = screen.getByTestId(`ops-needs-${RUN}`);
@@ -311,7 +368,8 @@ describe("command center", () => {
     const agents = screen.getByTestId("ops-command-agents");
     expect(within(agents).getByTestId("ops-agents-group-Demo client")).toHaveTextContent("1 agent");
     const pia = within(agents).getByTestId(`ops-agent-${AGENT}`);
-    expect(pia).toHaveTextContent("Running");
+    // Its stage in the Status chip, then what its runs are doing (agents/status's one order).
+    expect(pia).toHaveTextContent("Live");
     expect(pia).toHaveTextContent("1 run running");
     expect(pia).toHaveTextContent("1 version behind");
     expect(pia).toHaveTextContent("$8.40");
@@ -342,7 +400,7 @@ describe("command center", () => {
     // By status groups them by what their chips say.
     await userEvent.click(within(agents).getByTestId("ops-agents-by-status"));
     expect(within(agents).getByTestId("ops-agents-group-Paused")).toBeInTheDocument();
-    expect(within(agents).getByTestId("ops-agents-group-Running")).toBeInTheDocument();
+    expect(within(agents).getByTestId("ops-agents-group-Live")).toBeInTheDocument();
     await userEvent.click(within(agents).getByTestId("ops-agents-by-template"));
     expect(
       within(agents).getByTestId("ops-agents-group-Built for this client"),
@@ -376,7 +434,7 @@ describe("command center", () => {
     const health = screen.getByTestId(`ops-health-${DEMO}`);
     expect(within(health).getByTestId(`ops-health-${DEMO}-status`)).toHaveTextContent("At risk");
     expect(within(health).getByTestId(`ops-health-${DEMO}-facts`)).toHaveTextContent(
-      "61% of 40 runs clean · answers in 80 h · 3 escalations",
+      "61% of 40 runs clean · answers in 3 days · 3 escalations",
     );
     expect(within(health).queryByRole("progressbar")).toBeNull();
     const findings = within(health).getByTestId(`ops-health-${DEMO}-findings`);
@@ -519,26 +577,36 @@ describe("command center", () => {
     expect(otherCard).toHaveTextContent("No agent is on yet");
   });
 
-  it("names an agent's state in words", () => {
-    expect(agentChip({ status: "active", openRuns: 0, recentRuns: [] }).words).toBe("Idle");
+  it("names an agent's stage in its chip, as the client page and the agent page do", () => {
+    // QA (2026-11-22): the AP bill clerk in trial read "Idle · In trial" here.
+    expect(agentChip({ status: "active", stage: "trial" }).words).toBe("In trial");
+    expect(agentChip({ status: "active", stage: "live" }).words).toBe("Live");
+    expect(agentChip({ status: "active", stage: "signoff" }).words).toBe(
+      "Waiting on the client's sign-off",
+    );
+    expect(agentChip({ status: "active", stage: "bench" }).words).toBe("Not started");
+    expect(agentChip({ status: "draft", stage: "bench" }).words).toBe("Not started");
+    expect(agentChip({ status: "paused", stage: "live" }).words).toBe("Paused");
+  });
+
+  it("names what its runs are doing after the chip", () => {
+    expect(agentNowState({ openRuns: 0, recentRuns: [] }).words).toBe("Idle");
     expect(
-      agentChip({
-        status: "active",
+      agentNowState({
         openRuns: 1,
         recentRuns: [{ id: "a", status: "waiting", mode: "live", createdAt: "" }],
       }),
     ).toEqual({ state: "waiting", words: "Waiting for approval" });
     // A run stored as running that waits on a person counts as waiting.
-    expect(agentChip({ status: "active", openRuns: 1, waitingRuns: 1, recentRuns: [] }).words).toBe(
+    expect(agentNowState({ openRuns: 1, waitingRuns: 1, recentRuns: [] }).words).toBe(
       "Waiting for approval",
     );
+    expect(agentNowState({ openRuns: 1, recentRuns: [] }).words).toBe("Running");
     expect(
-      agentChip({
-        status: "active",
+      agentNowState({
         openRuns: 0,
         recentRuns: [{ id: "a", status: "failed", mode: "live", createdAt: "" }],
       }).state,
     ).toBe("failed");
-    expect(agentChip({ status: "draft", openRuns: 0, recentRuns: [] }).words).toBe("Setting up");
   });
 });

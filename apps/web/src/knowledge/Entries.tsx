@@ -15,7 +15,7 @@ import {
 import { type FormEvent, type ReactNode, useState } from "react";
 import { isApiError } from "../api/client";
 import type { PlainKey } from "../i18n/catalog";
-import { type I18n, useI18n } from "../i18n/i18n";
+import { EN, type I18n, useI18n } from "../i18n/i18n";
 import { Field, Select, TextArea, TextInput } from "../ui/forms";
 import { Badge, Button, Card, EmptyState } from "../ui/primitives";
 import { TagList, TagPicker } from "./Charter";
@@ -64,11 +64,7 @@ const KIND_KEY: Record<KnowledgeEntryKind, PlainKey> = {
 };
 
 export function when(iso: string): string {
-  return new Date(iso).toLocaleDateString(undefined, {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-  });
+  return EN.fmt.date(iso);
 }
 
 function saveError(error: unknown, t: I18n["t"]): string {

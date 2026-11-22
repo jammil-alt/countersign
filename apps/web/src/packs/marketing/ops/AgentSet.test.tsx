@@ -200,7 +200,7 @@ describe("the weekly reports", () => {
       [`GET /api/ops/clients/${CLIENT}/reports/marketing/reports`]: () => ({ report: LIST }),
     });
     const row = await screen.findByTestId("marketing-reports-row");
-    expect(row).toHaveTextContent("Week of Nov 1 to Nov 7, 2026");
+    expect(row).toHaveTextContent("Week of 1 Nov to 7 Nov 2026");
     expect(row).toHaveTextContent("Visits rose to 105 from 70 (+50.0%).");
     expect(row).toHaveTextContent("Not read yet");
     expect(row).toHaveTextContent("Actions: 2 open, 1 done");

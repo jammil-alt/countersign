@@ -115,6 +115,51 @@ export function goLiveCounts(
   return out;
 }
 
+// QA (agent status, 2026-11-22): a client's agents were 3, 4 and "1 of 3 live" depending on the
+// page, because each count filtered its own set (test copies in or out, retired in or out).
+// DECISION: a client's agents, wherever they are counted (the command center, the clients list,
+// the client page's line), are its client agents that are not discarded, not a template's test
+// copy and not retired. Drafts count (they are agents not started yet); its account agent (Sloan)
+// counts like any other client agent. Templates are never a client's agents, and area owners are
+// not agents (`area_owner`). `apps/api` filters the same set in SQL (`countedAgentWhere`).
+/** Whether a client agent is one of the agents its client's counts count. */
+export function isCountedAgent(a: {
+  runStatus: string | null | undefined;
+  testCopy?: boolean | null | undefined;
+  /** `agent.status`: `disabled` is a discarded draft. */
+  status?: string | null | undefined;
+  kind?: string | null | undefined;
+}): boolean {
+  return (
+    (a.kind ?? "client") === "client" &&
+    (a.status ?? "active") === "active" &&
+    a.testCopy !== true &&
+    a.runStatus !== "retired"
+  );
+}
+
+export interface ClientAgentCounts extends Record<AgentStage, number> {
+  /** Every counted agent (`isCountedAgent`), on or not. */
+  total: number;
+}
+
+/** A client's counted agents, and the switched-on ones by go-live stage (`goLiveCounts`). */
+export function clientAgentCounts(
+  agents: readonly {
+    runStatus: string | null | undefined;
+    stage?: string | null | undefined;
+    testCopy?: boolean | null | undefined;
+    status?: string | null | undefined;
+    kind?: string | null | undefined;
+  }[],
+): ClientAgentCounts {
+  const counted = agents.filter(isCountedAgent);
+  return {
+    total: counted.length,
+    ...goLiveCounts(counted.map((a) => ({ runStatus: a.runStatus, stage: a.stage }))),
+  };
+}
+
 export function stageIndex(stage: AgentStage): number {
   return AGENT_STAGES.indexOf(stage);
 }

@@ -9,6 +9,7 @@ import { useApi, useApiClient } from "../../api/useApi";
 import { shortTime } from "../../runs/format";
 import { Section } from "../../ui/page";
 import { Badge, Button, Card, ErrorNotice, Tag } from "../../ui/primitives";
+import { hoursWords, plural } from "../run/words";
 
 const AUDIENCE: Record<OpsFinding["audience"], string> = {
   client_admin: "Client admin",
@@ -134,7 +135,7 @@ export function ClientHealthSection({
         {problem ? <ErrorNotice error={problem} /> : null}
         {s ? (
           <p className="text-sm text-ink-muted" data-testid="ops-client-health-summary">
-            {`Checked ${shortTime(s.checkedAt)}: ${s.runs.total} live runs in a day, ${s.runs.failed} failed · ${s.connections.needsAttention} of ${s.connections.total} connections need a person · ${s.waiting.count} items waiting, oldest ${s.waiting.oldestHours} h · ${s.openFindings} open for the client`}
+            {`Checked ${shortTime(s.checkedAt)}: ${plural(s.runs.total, "live run", "live runs")} in a day, ${s.runs.failed} failed · ${s.connections.needsAttention} of ${plural(s.connections.total, "connection", "connections")} ${s.connections.needsAttention === 1 ? "needs" : "need"} a person · ${plural(s.waiting.count, "item", "items")} waiting${s.waiting.count > 0 ? `, oldest ${hoursWords(s.waiting.oldestHours)}` : ""} · ${s.openFindings} open for the client`}
           </p>
         ) : data.supervisor ? (
           <p className="text-sm text-ink-muted">No daily check yet. It runs at 08:00 their time.</p>
