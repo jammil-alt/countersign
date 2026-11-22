@@ -69,6 +69,11 @@ export const EvalCase = z.strictObject({
   world: z.unknown(),
   /** Every write the run makes, in order per step. A write not listed fails the case. */
   writes: ExpectedWrites,
+  /**
+   * A guard case: the run stops at this step (a for_each child's own id) with an error that holds
+   * `error`; the writes before it are scored as usual. Absent, any stop but a person's is an error.
+   */
+  stops: z.strictObject({ step: StepId, error: z.string().min(1).max(500) }).optional(),
   /** Paths `<step>.<index>.<input|output>.…`, `*` for any index. */
   tolerances: z.record(FieldPath, Tolerance).default({}),
   /**
@@ -103,15 +108,25 @@ export type EvalDataset = z.infer<typeof EvalDataset>;
 export type EvalDatasetInput = z.input<typeof EvalDataset>;
 
 /**
- * Replaces each string `@name` (whole string) with the world's id for `name`; an unknown name is
+ * Replaces each string `@name` (whole string; a name may hold spaces, `@account:Bank Fees`), and
+ * each `{@name}` inside a string (`bt-{@txn:shell}`), with the world's id for `name`; an unknown
+ * name is
  * an error, so a typo never compares as a literal.
  */
 export function resolveRefs<T>(value: T, ids: Readonly<Record<string, string>>): T {
+  const idOf = (name: string): string => {
+    const id = ids[name];
+    if (id === undefined) throw new Error(`no world id named @${name}`);
+    return id;
+  };
   const walk = (v: unknown): unknown => {
-    if (typeof v === "string" && /^@[A-Za-z0-9_.:-]+$/.test(v)) {
-      const id = ids[v.slice(1)];
-      if (id === undefined) throw new Error(`no world id named ${v}`);
-      return id;
+    if (typeof v === "string" && /^@[A-Za-z0-9_.:-][A-Za-z0-9_.: -]*$/.test(v)) {
+      return idOf(v.slice(1));
+    }
+    if (typeof v === "string" && v.includes("{@")) {
+      return v.replace(/\{@([A-Za-z0-9_.:-][A-Za-z0-9_.: -]*)\}/g, (_m, name: string) =>
+        idOf(name),
+      );
     }
     if (Array.isArray(v)) return v.map(walk);
     if (isPlainObject(v))

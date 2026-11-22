@@ -40,6 +40,7 @@ import {
   resolveRefs,
   runWrites,
   scoreWrites,
+  stepIdOf,
 } from "@countersign/core";
 import { agent, agentVersion, appUser, membership, tenant } from "@countersign/db";
 import {
@@ -53,14 +54,26 @@ import { DEFAULT_FIXTURE_DIR, fileFixtureStore } from "@countersign/llm/node";
 import { and, eq, isNull } from "drizzle-orm";
 import { type ApiHarness, createApiHarness, OPERATOR } from "../api.test-helper";
 import { quietNever } from "../quiet-hours.test-helper";
+import { credentialsFor } from "../runs/execute";
 import { runTemplateTest } from "../testbench/suite";
-import { booksAfterEnable, seedBooks } from "./world-books.test-helper";
+import { booksAfterEnable, GOLDEN_CHART, seedBooks } from "./world-books.test-helper";
 import { seedInvoice } from "./world-invoice.test-helper";
 
 export const EVALS_DIR = resolve(DEFAULT_FIXTURE_DIR, "../evals");
 /** The day every golden run happens on, so nothing in it depends on when CI ran. */
 export const EVAL_NOW = new Date("2026-11-20T15:00:00Z");
 const WRITE = process.env.WRITE_EVAL_FIXTURES === "1";
+
+const ENCRYPTION_KEY = generateEncryptionKey();
+
+/** The QuickBooks sign-in codes the fake takes, one per client (it takes each once). */
+const QBO_CODES = Array.from({ length: 1000 }, (_, i) => `golden-code-${i}`);
+let qboCodes = 0;
+export const nextQboCode = (): string => {
+  const code = QBO_CODES[qboCodes++];
+  if (!code) throw new Error("out of QuickBooks sign-in codes");
+  return code;
+};
 
 /** A fixed id for a name in a case's world: a v7-shaped uuid from the case and the name. */
 export function worldId(caseId: string, name: string): string {
@@ -111,20 +124,35 @@ export function loadDatasets(): { file: string; dataset: EvalDataset }[] {
 /** The harness the golden runs need: QuickBooks, the bank feed and Mezonas' email, over fakes. */
 export function createEvalHarness(): Promise<ApiHarness | null> {
   const resend = fakeResend();
+  // One QuickBooks company (the fake serves one), with the golden chart of accounts.
+  const qbo = fakeQbo({ codes: QBO_CODES });
+  for (const [Id, Name, AccountType] of GOLDEN_CHART) {
+    qbo.put("Account", {
+      Id,
+      SyncToken: "0",
+      Name,
+      FullyQualifiedName: Name,
+      AccountType,
+      Active: true,
+    });
+  }
   return createApiHarness({
     connectors: () => [
       createQboConnector({
         ...FAKE_QBO_CLIENT,
         environment: "sandbox",
         webhookVerifier: "qbo-verifier",
-        fetch: fakeQbo().fetch,
+        fetch: qbo.fetch,
         sleep: async () => {},
       }),
       createBankfeedConnector({ ...FAKE_PLAID, fetch: fakePlaid().fetch }),
       createResendConnector({ fetch: resend.fetch }),
     ],
     env: {
-      ENCRYPTION_KEY: generateEncryptionKey(),
+      ENCRYPTION_KEY,
+      OAUTH_STATE_SECRET: "golden-state-secret-".repeat(3),
+      APP_ORIGIN: "https://app.mezonas.test",
+      QBO_WEBHOOK_VERIFIER: "qbo-verifier",
       RESEND_API_KEY: FAKE_RESEND_MAIN.apiKey,
       RESEND_FALLBACK_DOMAIN: "mail.mezonas.test",
       EMAIL_FORWARDING_DOMAIN: "in.mezonas.test",
@@ -256,8 +284,8 @@ function transportFor(answers: readonly unknown[]): LlmTransport {
 
 export interface GoldenResult extends EvalCaseResult {
   writes: RunWrite[];
-  /** Each step's id and status, for reading a failure. */
-  steps: { id: string; status: string }[];
+  /** Each step's id and status (a failed one's output), for reading a failure. */
+  steps: { id: string; status: string; why?: string }[];
 }
 
 export interface GoldenOptions {
@@ -303,7 +331,7 @@ export async function runGoldenCase(
     costUsd: "0",
     ms: 0,
     writes: [] as RunWrite[],
-    steps: [] as { id: string; status: string }[],
+    steps: [] as GoldenResult["steps"],
   };
   try {
     // Connections and the chart first: switching a pack on validates its template against them.
@@ -323,6 +351,7 @@ export async function runGoldenCase(
         transport: transportFor(resolveRefs(c.answers, ids)),
         instances: H.instances,
         documents: { content: new ContentStore(H.objects) },
+        credentials: credentialsFor(H.db, { current: ENCRYPTION_KEY }),
         now: () => EVAL_NOW,
       },
       {
@@ -341,11 +370,31 @@ export async function runGoldenCase(
     const bundle = row?.bundle as AnyAgentBundle;
     const tools = writeTools(bundle);
     const writes = runWrites(ran.steps, (step) => tools.get(step) ?? null);
-    const steps = ran.steps.map((s) => ({ id: s.nodeId, status: s.status }));
+    // A failed step's output says why, for reading a failure.
+    const steps = ran.steps.map((s) => ({
+      id: s.nodeId,
+      status: s.status,
+      ...(s.status === "failed" ? { why: JSON.stringify(s.output ?? null).slice(0, 500) } : {}),
+    }));
     // As the bench: a wait for a person times out at once (`benchRunner`), and the run is scored
     // as it stands; any other failure is an error.
     const benchTimeout = /^[a-z_]+:timeout$/.test(ran.result.errorKey ?? "");
-    if (ran.result.status === "failed" && !benchTimeout) {
+    const failed = ran.result.status === "failed" && !benchTimeout;
+    const stoppedAt = failed ? stepIdOf(ran.result.nodeId ?? "") : null;
+    const stoppedRight =
+      !!c.stops && stoppedAt === c.stops.step && (ran.result.reason ?? "").includes(c.stops.error);
+    if (c.stops && !stoppedRight) {
+      return {
+        ...base,
+        status: "fail",
+        costUsd: ran.costUsd,
+        ms: ran.ms,
+        writes,
+        steps,
+        error: `expected the run to stop at ${c.stops.step} (${c.stops.error}); it ${failed ? `stopped at ${ran.result.nodeId}: ${ran.result.reason}` : `ended ${ran.result.status}`}`,
+      };
+    }
+    if (failed && !stoppedRight) {
       return {
         ...base,
         status: "error",

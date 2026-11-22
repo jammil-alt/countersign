@@ -60,10 +60,12 @@ describe("scoreWrites", () => {
 
 describe("the rest", () => {
   it("resolves world ids and refuses an unknown name", () => {
-    expect(resolveRefs({ a: "@doc", b: ["@doc", "x@doc"] }, { doc: "1" })).toEqual({
-      a: "1",
-      b: ["1", "x@doc"],
-    });
+    expect(
+      resolveRefs(
+        { a: "@doc", b: ["@doc", "x@doc", "bt-{@doc}"], c: "@a b" },
+        { doc: "1", "a b": "2" },
+      ),
+    ).toEqual({ a: "1", b: ["1", "x@doc", "bt-1"], c: "2" });
     expect(() => resolveRefs("@nope", {})).toThrow(/no world id/);
   });
 

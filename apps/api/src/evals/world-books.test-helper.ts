@@ -4,6 +4,8 @@
 // a person booked before the run (approved, waiting to be written). Every id is fixed by the case
 // (`ctx.id`), so the model's requests replay. Synthetic only (invariant 14).
 
+import { FAKE_QBO_REALM } from "@countersign/connectors/testing";
+import { DEFAULT_PERMISSIONS } from "@countersign/core";
 import {
   connection,
   type LedgerKind,
@@ -17,7 +19,7 @@ import { bankAccountLink, bankTxn, bookByPerson } from "@countersign/pack-bookke
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 import { OPERATOR } from "../api.test-helper";
-import type { WorldContext } from "./golden.test-helper";
+import { nextQboCode, type WorldContext } from "./golden.test-helper";
 
 const Money = z.string().regex(/^\d+(\.\d+)?$/);
 const Day = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
@@ -67,7 +69,10 @@ export const BooksWorld = z.strictObject({
         bookFrom: Day.nullable().default(null),
       }),
     )
-    .default([{ account: "checking" }, { account: "amex" }] as never),
+    .default([
+      { account: "checking", mode: "book", bookFrom: null },
+      { account: "amex", mode: "book", bookFrom: null },
+    ]),
   /** The week on the feed: `@txn:<ref>` in a case is the bank transaction's id. */
   feed: z
     .array(
@@ -130,21 +135,42 @@ export async function seedBooks(ctx: WorldContext, raw: unknown): Promise<void> 
   const w = BooksWorld.parse(raw);
   const db = ctx.H.t.db;
   const tenantId = ctx.tenantId;
-  await db.insert(connection).values([
-    {
-      id: ctx.id("qbo"),
-      tenantId,
-      connector: "qbo",
-      status: "connected",
-      externalAccountId: "golden-realm",
-    },
-    { id: ctx.id("feed"), tenantId, connector: "bankfeed", status: "connected" },
-  ] as never);
+  // QuickBooks signed in through its own flow (over the fake), so the write steps' reads reach it.
+  // The fake serves one company, and a company belongs to one client at a time: the previous
+  // case's client lets it go first.
+  await db
+    .update(connection)
+    .set({ status: "disconnected", externalAccountId: null })
+    .where(and(eq(connection.connector, "qbo"), eq(connection.externalAccountId, FAKE_QBO_REALM)));
+  const offered = await ctx.H.call(OPERATOR, "PUT", `/api/ops/clients/${tenantId}/connectors`, {
+    offered: ["qbo"],
+  });
+  if (offered.status !== 200) throw new Error(`offer qbo: ${JSON.stringify(offered.json)}`);
+  const auth = await ctx.H.call(ctx.admin, "POST", "/api/connections/qbo/authorize");
+  const state =
+    new URL((auth.json as { redirectUrl: string }).redirectUrl).searchParams.get("state") ?? "";
+  const done = await ctx.H.call(ctx.admin, "POST", "/api/connections/qbo/callback", {
+    params: { code: nextQboCode(), state, realmId: FAKE_QBO_REALM },
+  });
+  if (done.status !== 200) throw new Error(`qbo callback: ${JSON.stringify(done.json)}`);
+  const qboId = (done.json as { connection: { connection: { id: string } } }).connection.connection
+    .id;
+  ctx.ids.qbo = qboId;
+  await ctx.H.settle();
+  // The client asks to be asked first on every write (Connectors C4: a new connection starts with
+  // writes off; the client turns them to "Ask me first", never on its own).
+  await db
+    .update(connection)
+    .set({ permissions: DEFAULT_PERMISSIONS })
+    .where(eq(connection.id, qboId));
+  await db
+    .insert(connection)
+    .values({ id: ctx.id("feed"), tenantId, connector: "bankfeed", status: "connected" } as never);
   for (const [externalId, name, accountType, classification, kind] of GOLDEN_CHART) {
     await db.insert(ledgerAccount).values({
       id: ctx.id(`account:${name}`),
       tenantId,
-      connectionId: ctx.id("qbo"),
+      connectionId: qboId,
       connector: "qbo",
       externalId,
       name,
