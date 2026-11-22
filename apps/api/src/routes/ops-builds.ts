@@ -317,7 +317,8 @@ function changeLines(
   return out;
 }
 
-interface LongCtx {
+/** A slow build route's context; the process interview's draft (§1.217) passes its own. */
+export interface LongCtx {
   c: AppContext;
   app: Hono<AppEnv>;
   session: Parameters<typeof invokeRoute>[2];
@@ -1814,7 +1815,8 @@ export function draftedNowText(o: {
 // challenge... apply defaults to the settings and make decisions and tweak after it is built".
 // The phases stay (a build can still go back to its intake or fit-gap with a reason); this is the
 // way past them. Agent builds only: a skill is drafted in its own Builder conversation.
-async function draftNow(ctx: LongCtx, id: string, given: string | null): Promise<void> {
+/** Draft it now (§1.165); the process interview drafts its build through it too (§1.217). */
+export async function draftNow(ctx: LongCtx, id: string, given: string | null): Promise<void> {
   const userId = ctx.session.user.id;
   // 1. The build is an open agent build with no draft yet, and there is something to draft from.
   //    The move is claimed by the phase, as a move into the draft is (STATE-1).

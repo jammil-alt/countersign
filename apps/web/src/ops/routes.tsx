@@ -119,6 +119,8 @@ const AutomationEditor = lazy(() => import("./flow/automation/AutomationEditor")
 const OpsClientBooksHealthScreen = lazy(() =>
   import("./client/ClientBooksHealth").then((m) => ({ default: m.OpsClientBooksHealthScreen })),
 );
+// docs/plan.md §1.217: a client's process interviews load with their route.
+const InterviewsScreen = lazy(() => import("./interviews/InterviewsScreen"));
 
 export const opsRoutes = (
   <>
@@ -193,6 +195,22 @@ export const opsRoutes = (
       <Route path="clients/:clientId/areas" element={<OpsClientAreasScreen />} />
       {/* §1.149: the client file. */}
       <Route path="clients/:clientId/file" element={<ClientFileScreen />} />
+      <Route
+        path="clients/:clientId/interviews"
+        element={
+          <Suspense fallback={<Loading />}>
+            <InterviewsScreen />
+          </Suspense>
+        }
+      />
+      <Route
+        path="clients/:clientId/interviews/:id"
+        element={
+          <Suspense fallback={<Loading />}>
+            <InterviewsScreen />
+          </Suspense>
+        }
+      />
       {/* Data: Documents and Records */}
       <Route path="clients/:clientId/documents" element={<OpsDocumentsScreen />} />
       <Route path="clients/:clientId/records" element={<OpsRecordsScreen />} />
