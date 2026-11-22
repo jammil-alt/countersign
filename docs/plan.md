@@ -6607,6 +6607,31 @@ API assurance tests pass.
 
 **Checked.** apps/api `build-tries.test.ts`: a template tried on a Sandbox bill, its payload and workflow; another client's record and an unknown receivable are 404. A skill on a document: 409 while unread, 422 for a record, then a `docs.get` fixture made from the document and its reading, a run on the bench, and kept. apps/web `ops/builds/poc.test.tsx`: Pick a record sends `{record}`; a skill's upload asks again on `not_read`. `ops/flow/TryPanel.test.tsx`: a build's try on a picked receivable.
 
+#### 1.231.5 Builds that work first: a decision's words on the card, and a custom skill's step in the high-risk check (G4; no migration)
+
+§1.155 changed a decision's words only through the conversation, where the Builder's rewrite marks a decision someone looked at as `changed`. Its high-risk check read a custom skill only by its live version. This entry adds a direct edit with the same marking and keeps a history of it. The check now also reads each custom skill's newest saved version.
+
+| Topic | Decision |
+|---|---|
+| What the card edits | The words (`what`), the starting value (`value`; empty or null takes it away) and the why. Kind, risk, category and step are not edited: code works out the risk from the draft, and the words never lower it (core `changeDecisionWords`). // DECISION |
+| The marking | A change to the words or the value counts as a look and then a change: `changed`, `by` the operator's name (else their email), `at` now. This holds even for a decision nobody had discussed, which ends where the conversation's path ends (discussed first, then changed by the rewrite). A change to only the why keeps the status. The same words again: nothing is saved and no history is added. // DECISION |
+| The history | A `build_event` (kind `record`, the operator's user id) with `decision: {id, status, words: {before, after}}`, each with what, why and value. // DECISION |
+| The draft | Not changed by the edit. The Builder reads the new words in its next turn and in the drafter's description, as it reads every decision. The card says "The Builder follows the new words from its next turn." // DECISION |
+| Which version of a custom skill | Two reads: the version a run uses (live or pinned) and the newest saved. A ref with no live version uses its newest in both. A step writes or contacts people when either version does. A ref found nowhere counts as writing, as before. `newest` is used only by this check, never by a run. // DECISION |
+| What counts as writing for a custom skill | Its tools' side effects and `reachesPeople`, through the process validator's `stepWrites` and `stepReaches`. A custom skill can't hold a write tool today (the registry refuses one), so in practice this means contacting people, or an older version saved before that rule. |
+
+**Not built.** Editing a decision's kind or its step from the card (still through the conversation). A history of decision edits on the screen: it is kept only in `build_event`, as the status changes are.
+
+**Checked.**
+- core `build/decisions.test.ts`: `changeDecisionWords`.
+- apps/api `build-decisions.test.ts`:
+  - changed by the operator, with the history before and after
+  - only the why keeps the status; the same words add nothing; the value can be taken away
+  - 404, 400 and 403
+  - a draft-only custom skill that reads isn't raised; one that contacts people is; one found nowhere is
+- apps/web `ops/builds/decisions.test.tsx`: Edit, Cancel and Save, and the row shows Changed.
+- After merging main: lint, lint:deps and typecheck pass. CI runs the full suite.
+
 #### 1.231.6 G5: known risks counted from runs, and deleting a learned note (#587)
 
 G5 (`docs/builder-plan.md` B3, §1.153, §1.155): the manual's known risks are now counted from runs, and a learned note can be deleted. Both work at read and delete time. Nothing new is stored.
