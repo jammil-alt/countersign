@@ -16,7 +16,11 @@ import { type ChipState, runChipState } from "../../ui/status";
 /** "under an hour", "14 h", "3 days": how long since `iso`, at `now`. */
 export function age(iso: string | null, now: Date = new Date()): string {
   if (!iso) return "";
-  const hours = (now.getTime() - new Date(iso).getTime()) / 3_600_000;
+  return hoursWords((now.getTime() - new Date(iso).getTime()) / 3_600_000);
+}
+
+/** A number of hours as "under an hour", "14 h" (under 2 days) or "10 days". */
+export function hoursWords(hours: number): string {
   if (!Number.isFinite(hours) || hours < 1) return "under an hour";
   if (hours < 48) return `${Math.floor(hours)} h`;
   return `${Math.floor(hours / 24)} days`;
@@ -85,6 +89,13 @@ export function waitOnWords(w: Pick<RunWait, "on" | "person">): string {
 export const NOBODY_TO_ACT_WORDS: Record<NobodyToAct, string> = {
   no_approver: "Nobody at the client may approve it.",
   not_signed_in: "Everyone who may approve it is still invited and hasn't signed in.",
+  no_email: "We aren't sending emails, so nobody was told.",
+};
+
+/** The same, for several items at once. */
+export const NOBODY_TO_ACT_MANY_WORDS: Record<NobodyToAct, string> = {
+  no_approver: "Nobody at the client may approve them.",
+  not_signed_in: "Everyone who may approve them is still invited and hasn't signed in.",
   no_email: "We aren't sending emails, so nobody was told.",
 };
 

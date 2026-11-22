@@ -229,3 +229,8 @@ a.ops-pick:hover .ui-stat {
   align-items: flex-end;
   gap: 2px;
 }
+/* A row a link opened ("Open item" on Home and Needs us): marked in the selection's slate. */
+.ops-row[aria-current="true"],
+.ops-row[aria-current="true"]:hover {
+  background: var(--slate-tint);
+}
