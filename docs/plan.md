@@ -6382,6 +6382,18 @@ action, not just mark it... if it is an issue, just because I say it is closed d
 | Not built | The client as an owner: no step yet sends an item to the client and closes it by their answer (the requirements request asks the intake form's fields, not an item). Until there is one, "Client" is only set by the fit-gap's preconditions. |
 | Checked | `apps/api/src/build-settled-by-step.test.ts` (done by hand refused, a drop, a note done, the Builder's close left out; a put-off gap given to engineering then the Builder, closed by its change and opened by its undo; a test closed by a full passing run and not by a failing or partial one), `apps/web/src/ops/builds/closeout.test.tsx` and `builds.test.tsx` (no selects; Put off, Drop it, Reopen; Take it up on a put-off gap). The skill build's go-live closing has no test of its own. |
 
+### 1.193 The desktop app's API: computers and jobs (open.md D2–D3, items C5.1–C5.2, 2026-11-22; migration 0080)
+
+§1.151 merged the app, core's protocol and the `desktop` connector before the API took computers.
+Two PRs by the rule for migrations: 0080 alone, then the API's routes and `services.desktop`.
+
+| Topic | Decision |
+|---|---|
+| Tables | `desktop_device` (client, its `desktop` connection, name, platform, app version, the public key as a JWK, who paired it, last seen, `revoked_at`) and `desktop_job` (client, computer, kind, the request, issued, expires, sent, answered, the result). Tenant RLS forced on both; no DELETE grant, and a guard trigger lets only the name, app version, key, last seen and `revoked_at` change on a computer, and only `sent_at`, `answered_at` and `result` on a job. A removed computer keeps its row with no key (`desktop_device_key_check`). // DECISION |
+| One computer per connection | Pairing makes the computer its own `desktop` connection (its folders live in the connection's `config`, as §1.151 said); one live computer per connection (a partial unique index), so a later pairing may reuse a connection once its computer is removed. // DECISION |
+| Finding the client | A signed request names only the computer. `desktop_device_tenant(id)` (SECURITY DEFINER, `row_security = off`, as 0071's helper) answers the client of a computer that is still paired, nothing else; the key is then read and the signature checked inside that one client. Not each client in turn (as Meta's webhook finds a number): a computer asks every 25 seconds. // DECISION |
+| Checked | `packages/db/src/desktop-migration.test.ts` (RLS forced, one client's rows, never deleted, the guarded columns, the key cleared on removal, the job kinds equal core's, the lookup); `migrations.test.ts` (grants). |
+
 ### 1.192 The web app's first load back under budget (H9, 2026-11-22; no migration)
 
 The first load (`scripts/web-size.mjs`) was 494.8 kB gzipped on main against a 495 kB budget.
