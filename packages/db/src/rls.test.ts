@@ -183,6 +183,33 @@ describe.skipIf(!online)("row-level security, as cs_worker", () => {
     });
   });
 
+  it("run_subject keeps a row whole: kind, role, money with its currency, a tool's id with its tool (0077)", async () => {
+    const insert = (columns: string, values: string) =>
+      errorCode(
+        withTenant(t.db, A.tenantId, async (tx) => {
+          await asWorker(tx);
+          await tx.execute(
+            sql.raw(`insert into run_subject (tenant_id, run_id, ${columns})
+              values ('${A.tenantId}', '${A.runId}', ${values})`),
+          );
+        }),
+      );
+    const CHECK_VIOLATION = "23514";
+    expect(await insert("kind, role", "'invoice', 'read'")).toBe(CHECK_VIOLATION);
+    expect(await insert("kind, role", "'document', 'wrote'")).toBe(CHECK_VIOLATION);
+    expect(await insert("kind, role, amount", "'document', 'read', 12.5")).toBe(CHECK_VIOLATION);
+    expect(await insert("kind, role, currency", "'document', 'read', 'USD'")).toBe(CHECK_VIOLATION);
+    expect(await insert("kind, role, external_id", "'document', 'read', 'bill-2'")).toBe(
+      CHECK_VIOLATION,
+    );
+    expect(
+      await insert(
+        "kind, role, connector, external_id, amount, currency",
+        "'document', 'changed', 'qbo', 'bill-2', 12.5, 'USD'",
+      ),
+    ).toBeUndefined();
+  });
+
   it("deletes transaction lines in the client's own scope only", async () => {
     // Synced lines mirror the tool's current lines (0015); deleting B's from A matches nothing.
     const deleted = await withTenant(t.db, A.tenantId, async (tx) => {

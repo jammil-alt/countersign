@@ -6382,6 +6382,19 @@ action, not just mark it... if it is an issue, just because I say it is closed d
 | Not built | The client as an owner: no step yet sends an item to the client and closes it by their answer (the requirements request asks the intake form's fields, not an item). Until there is one, "Client" is only set by the fit-gap's preconditions. |
 | Checked | `apps/api/src/build-settled-by-step.test.ts` (done by hand refused, a drop, a note done, the Builder's close left out; a put-off gap given to engineering then the Builder, closed by its change and opened by its undo; a test closed by a full passing run and not by a failing or partial one), `apps/web/src/ops/builds/closeout.test.tsx` and `builds.test.tsx` (no selects; Put off, Drop it, Reopen; Take it up on a put-off gap). The skill build's go-live closing has no test of its own. |
 
+### 1.188 What each run was about, kept as it happens (owner, 2026-11-22; migration 0077)
+
+The design: `docs/reporting-plan.md` §3 R1. This is R1a, the table only; R1b writes it.
+
+| Topic | Decision |
+|---|---|
+| Kept | `run_subject` (0077): one row per thing a run read, decided on or changed, with the design's columns. Composite foreign keys to `run` and `step_run` on `(id, tenant_id)`, as every table that names a step does. RLS forced; `cs_runtime` has SELECT and INSERT only, and a trigger refuses update and delete, as on `control_check`. |
+| What started the run | `step_run_id` is null for it: the trigger's document or message belongs to the run (kept on `run.trigger`), not to any step. // DECISION |
+| A row is whole | Two checks: an amount always has its currency, and an `external_id` always has its `connector`. // DECISION |
+| Indexes | `(tenant_id, kind, record_id)` for a record's runs (R3), `(tenant_id, run_id)` for a run's subjects, and GIN trigram on `label` and on `number` for words (R2). |
+| Not built | Anything that writes or reads it: the step log's writer, `ToolSpec.about` and the backfill come in R1b. |
+| Checked | `packages/db`: `rls.test.ts` (another client's run or step refused by the keys, another client's row by the policy, a row with no step accepted and unseen by the other client), `immutability.test.ts` (update and delete refused for the owner and the Worker), `migrations.test.ts` (no UPDATE or DELETE for `cs_runtime`), and every check that loops over `TENANT_TABLES`, through a row seeded per client. |
+
 ### 1.186 Made-up data for a test (owner, 2026-11-22; no migration)
 
 The owner: "how do we create data? For an item that would receive data let's have the AI make up

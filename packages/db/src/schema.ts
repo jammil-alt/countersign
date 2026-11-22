@@ -1680,7 +1680,7 @@ export const runSubject = pgTable(
     tenantId: tenantId(),
     runId: uuid("run_id").notNull(),
     // DECISION: null for what started the run (the trigger's document or message): it is the
-    // run's, kept on `run.trigger`, not any step's.
+    // run's, kept on `run.trigger`, not any step's (docs/plan.md §1.188).
     stepRunId: uuid("step_run_id"),
     kind: text("kind").$type<(typeof RUN_SUBJECT_KINDS)[number]>().notNull(),
     role: text("role").$type<(typeof RUN_SUBJECT_ROLES)[number]>().notNull(),
@@ -1717,9 +1717,9 @@ export const runSubject = pgTable(
     index("run_subject_number_trgm_idx").using("gin", t.number.op("gin_trgm_ops")),
     check("run_subject_kind_check", oneOf(t.kind, RUN_SUBJECT_KINDS)),
     check("run_subject_role_check", oneOf(t.role, RUN_SUBJECT_ROLES)),
-    // Money carries its currency (invariant 6).
+    // DECISION: a row is whole (docs/plan.md §1.188): money carries its currency (invariant 6),
+    // and a tool's id means nothing without the tool.
     check("run_subject_amount_check", sql`(${t.amount} is null) = (${t.currency} is null)`),
-    // A tool's id means nothing without the tool.
     check("run_subject_external_check", sql`${t.externalId} is null or ${t.connector} is not null`),
   ],
 );
