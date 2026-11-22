@@ -288,7 +288,7 @@ async function insertLines(
   lines: readonly NewLine[],
 ): Promise<void> {
   for (const [i, line] of lines.entries()) {
-    const m = await matchText(tx, tenantId, { description: line.description });
+    const m = await matchText(tx, tenantId, { description: line.description, unit: line.unit });
     const matched = m.decision === "matched" && m.item;
     await tx.insert(purchaseRequestLine).values({
       tenantId,
@@ -685,7 +685,10 @@ export async function matchRequestLines(
         continue;
       }
       if (row.catalogItemId) continue;
-      const m = await matchText(tx, ctx.tenantId, { description: row.description });
+      const m = await matchText(tx, ctx.tenantId, {
+        description: row.description,
+        unit: row.unit,
+      });
       if (m.decision === "matched" && m.item) {
         await tx
           .update(purchaseRequestLine)
@@ -761,7 +764,10 @@ export async function updateLines(
         set.description = change.description;
         fields.push("description");
         if (line.row.matchMethod !== "chosen") {
-          const m = await matchText(tx, ctx.tenantId, { description: change.description });
+          const m = await matchText(tx, ctx.tenantId, {
+            description: change.description,
+            unit: change.unit !== undefined ? change.unit : line.row.unit,
+          });
           const matched = m.decision === "matched" && m.item;
           set.catalogItemId = matched ? (m.item?.id ?? null) : null;
           set.matchMethod = matched ? m.method : null;

@@ -151,6 +151,57 @@ export async function vendorAlias(
 }
 
 /**
+ * The vendor items a free description names (docs/plan.md §1.189): those whose SKU is one of
+ * `skus`, or whose name is the description as the vendor wrote it (case and outer spaces aside).
+ * One vendor's when `vendorId` is given, else every vendor's. At most 20, active first.
+ */
+// DECISION (§1.189): the name is compared exactly as written, never fuzzily: a price list's row
+// or an item a person entered is matched by its very words; anything looser is the rules' or a
+// person's to decide.
+export async function vendorItemsNamed(
+  tx: Tx,
+  tenantId: string,
+  key: { vendorId?: string | null | undefined; skus: readonly string[]; description: string },
+): Promise<VendorItemRow[]> {
+  const name = key.description.trim().toUpperCase();
+  const named = [
+    ...(key.skus.length > 0 ? [inArray(vendorItem.sku, [...key.skus])] : []),
+    ...(name.length > 0 ? [sql`upper(btrim(${vendorItem.name})) = ${name}`] : []),
+  ];
+  if (named.length === 0) return [];
+  return tx
+    .select()
+    .from(vendorItem)
+    .where(
+      and(
+        eq(vendorItem.tenantId, tenantId),
+        ...(key.vendorId ? [eq(vendorItem.vendorId, key.vendorId)] : []),
+        named.length === 1 ? named[0] : sql`(${named[0]} or ${named[1]})`,
+      ),
+    )
+    .orderBy(sql`${vendorItem.status} = 'active' desc`, asc(vendorItem.createdAt))
+    .limit(20);
+}
+
+/**
+ * Whether a line in `unitRaw` with these words can be vendor item `v` by its pack (§1.144): a
+ * box, case or pail line of another size than the item's, or in another word than the one the
+ * item was recorded in, is not it. A line in any other unit, or the item in another unit, is not
+ * told apart by its pack here.
+ */
+export function packFits(
+  v: VendorItemRow,
+  unitRaw: string | null | undefined,
+  text: string | null | undefined,
+): boolean {
+  const unit = unitRaw?.trim() ? readUom(unitRaw) : null;
+  if (unit === null || !PACKAGING_UOMS.has(unit) || v.vendorUom !== unit) return true;
+  const line = lineOf(unitRaw, text);
+  const recorded = recordedWord(v);
+  return !contradictsSize(v, line) && (recorded === null || recorded === line.word);
+}
+
+/**
  * The vendor item whose conversion converts a line in `unitRaw` that names no SKU (a quote's line,
  * an invoice line without one): the vendor's one active item for the master item in that unit;
  * for a box, case or pail, the one recorded in that very word (`ext.unitWord`). Null when there
@@ -363,6 +414,8 @@ export interface VendorItemFields {
   // §1.104 (0052): the client's tolerance on the agreed price (an amount, a percent).
   priceToleranceAmount?: string | null | undefined;
   priceTolerancePct?: string | null | undefined;
+  /** §1.189: what made it, when not a document line or a person (`ext.from`); on create only. */
+  origin?: "qbo_bill" | "quote" | undefined;
 }
 
 export type VendorItemCreator = { agentVersionId: string } | { userId: string };
@@ -399,7 +452,14 @@ export async function createVendorItem(
       priceToleranceAmount: f.priceToleranceAmount ?? null,
       priceTolerancePct: f.priceTolerancePct ?? null,
       currency: f.currency ?? "USD",
-      ...(f.unitWord ? { ext: { unitWord: f.unitWord } } : {}),
+      ...(f.unitWord || f.origin
+        ? {
+            ext: {
+              ...(f.unitWord ? { unitWord: f.unitWord } : {}),
+              ...(f.origin ? { from: f.origin } : {}),
+            },
+          }
+        : {}),
       ...("agentVersionId" in by
         ? { createdByAgentVersionId: by.agentVersionId || null }
         : { createdByUserId: by.userId }),
