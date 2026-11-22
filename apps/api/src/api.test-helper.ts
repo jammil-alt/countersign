@@ -52,6 +52,7 @@ import type { InboxRow } from "./inbox";
 import type { McpDeps } from "./mcp/routes";
 import { createPlatform, type Platform } from "./platform";
 import type { QboSyncInstances } from "./qbo/instances";
+import { opsShownFingerprint } from "./routes/mappers";
 import { shownFingerprint } from "./routes/portal";
 import { MemoryInstances } from "./runs/instances";
 import type { CloudflareStepConfig, WorkflowStepLike } from "./runs/step-runner";
@@ -255,9 +256,26 @@ export async function createApiHarness(options: HarnessOptions = {}): Promise<Ap
       platform,
     );
   };
+  /**
+   * The fingerprint of an item as the back office shows it now (`opsShownFingerprint`); which
+   * operator asks is not part of it.
+   */
+  const opsSeenNow = async (id: string): Promise<string | null> => {
+    const [row] = await t.db.select().from(inboxItem).where(eq(inboxItem.id, id));
+    if (!row) return null;
+    return opsShownFingerprint(row as InboxRow, { userId: operator, role: "operator" }, platform);
+  };
   const withFingerprints = async (path: string, body: unknown): Promise<unknown> => {
     if (!body || typeof body !== "object" || Array.isArray(body)) return body;
     const b = body as Record<string, unknown>;
+    // The back office's resolve and step-in (audit 3.4, docs/plan.md §1.191).
+    const ops =
+      /^\/api\/ops\/inbox\/([0-9a-f-]{36})\/resolve$/.exec(path) ??
+      /^\/api\/ops\/clients\/[0-9a-f-]{36}\/inbox\/([0-9a-f-]{36})\/step-in$/.exec(path);
+    if (ops?.[1] && b.fingerprint === undefined) {
+      const fp = await opsSeenNow(ops[1]);
+      return fp ? { ...b, fingerprint: fp } : body;
+    }
     const one = /^\/api\/inbox\/([0-9a-f-]{36})\/resolve$/.exec(path);
     if (one?.[1] && b.fingerprint === undefined && b.deviceSignature === undefined) {
       const fp = await seenNow(one[1]);

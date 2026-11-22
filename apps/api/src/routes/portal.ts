@@ -64,7 +64,13 @@ import { mayControlConversation } from "../converse/control";
 // P-4
 import { portalConversation, runConversations } from "../converse/views";
 import { type AppEnv, HttpError, iso, mount, notFound } from "../http";
-import { type InboxRow, resolveInboxItem, scrubForPortal, sendResolution } from "../inbox";
+import {
+  fingerprintRequired,
+  type InboxRow,
+  resolveInboxItem,
+  scrubForPortal,
+  sendResolution,
+} from "../inbox";
 import { checkDeviceSignature, signatureRequired } from "../mobile/devices";
 // v0.13 W2-I
 import { timelineOversight } from "../oversight/views";
@@ -940,13 +946,7 @@ export function portalRouteHandlers(app: Hono<AppEnv>): void {
     // signature (which carries one).
     // DECISION (audit 3.4): required, with no grace for older clients: the phone app has no store
     // build yet, and a browser tab from before is told to reload.
-    if (!body.fingerprint && !body.deviceSignature) {
-      throw new HttpError(
-        400,
-        "fingerprint_required",
-        "This page is out of date; reload it and look again",
-      );
-    }
+    if (!body.fingerprint && !body.deviceSignature) throw fingerprintRequired();
     // Locked, so what is compared with what the person saw is what is then answered.
     const [visible] = await tx
       .select()
