@@ -442,6 +442,11 @@ describe.skipIf(!online)("migrations on an empty database", () => {
     // 0077: what a run was about is history, like the run's own (docs/reporting-plan.md §3 R1).
     expect(await can("run_subject", "UPDATE")).toBe(false);
     expect(await can("run_subject", "DELETE")).toBe(false);
+    // 0080: the desktop app's computers and jobs change in place and are never deleted (§1.151).
+    for (const table of ["desktop_device", "desktop_job"]) {
+      expect(await can(table, "UPDATE"), `${table} UPDATE`).toBe(true);
+      expect(await can(table, "DELETE"), `${table} DELETE`).toBe(false);
+    }
     expect(await can("agent_change", "UPDATE")).toBe(false);
     expect(await can("doc_extraction", "UPDATE")).toBe(false);
     expect(await can("doc_line", "UPDATE")).toBe(false);

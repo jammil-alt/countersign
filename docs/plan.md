@@ -6486,6 +6486,18 @@ questions ("go with your defaults", 2026-11-22):
 
 **Still open:** Sloan across the chapters (O4); the scope as O5's signed `intake_scope` and its knowledge-base facts; first-look lines as `seen` facts; the server-side words in six languages; tries stopped at a person step; Turn on checking the scope; a look in a browser in both themes.
 
+### 1.204 The desktop app's API: computers and jobs (open.md D2–D3, items C5.1–C5.2, 2026-11-22; migration 0080)
+
+§1.151 merged the app, core's protocol and the `desktop` connector before the API took computers.
+Two PRs by the rule for migrations: 0080 alone, then the API's routes and `services.desktop`.
+
+| Topic | Decision |
+|---|---|
+| Tables | `desktop_device` (client, its `desktop` connection, name, platform, app version, the public key as a JWK, who paired it, last seen, `revoked_at`) and `desktop_job` (client, computer, kind, the request, issued, expires, sent, answered, the result). Tenant RLS forced on both; no DELETE grant, and a guard trigger lets only the name, app version, key, last seen and `revoked_at` change on a computer, and only `sent_at`, `answered_at` and `result` on a job. A removed computer keeps its row with no key (`desktop_device_key_check`). // DECISION |
+| One computer per connection | Pairing makes the computer its own `desktop` connection (its folders live in the connection's `config`, as §1.151 said); one live computer per connection (a partial unique index), so a later pairing may reuse a connection once its computer is removed. // DECISION |
+| Finding the client | A signed request names only the computer. `desktop_device_tenant(id)` (SECURITY DEFINER, `row_security = off`, as 0071's helper) answers the client of a computer that is still paired, nothing else; the key is then read and the signature checked inside that one client. Not each client in turn (as Meta's webhook finds a number): a computer asks every 25 seconds. // DECISION |
+| Checked | `packages/db/src/desktop-migration.test.ts` (RLS forced, one client's rows, never deleted, the guarded columns, the key cleared on removal, the job kinds equal core's, the lookup); `migrations.test.ts` (grants). |
+
 ### 1.203 The phone's signed text v2: an answer's text and a note (M9, item C4.11, 2026-11-22; no migration)
 
 A phone's signature (§1.116, §1.140) covered the device, the item, the decision, the item's

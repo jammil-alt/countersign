@@ -33,6 +33,8 @@ import {
   contactChange,
   conversation,
   conversationChange,
+  desktopDevice,
+  desktopJob,
   docExtraction,
   docLine,
   document,
@@ -922,6 +924,34 @@ export async function insertClient(db: Db, name: string): Promise<ClientFixture>
       pushToken: "ExponentPushToken[fixture]",
       publicKey: { kty: "EC", crv: "P-256", x: "A".repeat(43), y: "B".repeat(43) },
     });
+  // §1.151: a paired computer and one answered job, once migration 0080 is there.
+  const [computers] = await db.$client<{ present: boolean }[]>`
+    select to_regclass('public.desktop_device') is not null as present`;
+  if (computers?.present) {
+    const [computer] = await db
+      .insert(desktopDevice)
+      .values({
+        tenantId,
+        connectionId: c.id,
+        name: "Front office PC",
+        platform: "windows",
+        appVersion: "0.1.0",
+        publicKey: { kty: "EC", crv: "P-256", x: "C".repeat(43), y: "D".repeat(43) },
+        pairedBy: u.id,
+      })
+      .returning();
+    if (!computer) throw new Error("desktop_device insert failed");
+    await db.insert(desktopJob).values({
+      tenantId,
+      deviceId: computer.id,
+      kind: "files.list",
+      request: { kind: "files.list", folderId: crypto.randomUUID(), depth: 1, limit: 200 },
+      expiresAt: new Date(Date.now() + 120_000),
+      sentAt: new Date(),
+      answeredAt: new Date(),
+      result: { ok: true, output: { entries: [], truncated: false } },
+    });
+  }
   await db.insert(ledgerAccountNote).values({
     tenantId,
     ledgerAccountId: la.id,
