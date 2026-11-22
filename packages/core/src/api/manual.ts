@@ -34,4 +34,14 @@ export const manualRoutes = {
     query: z.object({ version: z.coerce.number().int().positive().optional() }),
     response: ManualView,
   }),
+  opsAgentForgetNote: defineRoute({
+    method: "DELETE",
+    path: "/api/ops/agents/:id/memory/:noteId",
+    auth: "session",
+    roles: OPS,
+    summary:
+      "Delete one of a client agent's notes for its client (the manual's What it learned); not a new version",
+    params: z.object({ id: Id, noteId: Id }),
+    response: z.object({ ok: z.literal(true) }),
+  }),
 };
