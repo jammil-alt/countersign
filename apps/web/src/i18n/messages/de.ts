@@ -2346,6 +2346,7 @@ export const de: Messages = {
   "home.weekly.ready": "Ihre Ansprechperson hat den Wochenüberblick geschickt.",
   "agent.tab.overview": "Überblick",
   "agent.tab.runs": "Abläufe",
+  "agent.tab.report": "Bericht",
   "agent.tab.settings": "Agent-Einstellungen",
   // B3: the agent manual (docs/builder-plan.md §5)
   "agent.tab.manual": "Handbuch", // fluent review

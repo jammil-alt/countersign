@@ -78,12 +78,14 @@ const AgentSop = lazy(() => import("./AgentSop").then((m) => ({ default: m.Agent
 const AgentWorkflow = lazy(() =>
   import("./AgentWorkflow").then((m) => ({ default: m.AgentWorkflow })),
 );
+// R4 (docs/plan.md §1.214): the Report tab, its words and its route's schema, its own chunk.
+const AgentReport = lazy(() => import("./AgentReport").then((m) => ({ default: m.AgentReport })));
 // B5: what the client may adjust, with its route's schema, fetched with the Settings tab.
 const AdjustSettings = lazy(() =>
   import("./AdjustSettings").then((m) => ({ default: m.AdjustSettings })),
 );
 
-export type AgentTab = "overview" | "runs" | "workflow" | "sop" | "settings";
+export type AgentTab = "overview" | "runs" | "report" | "workflow" | "sop" | "settings";
 
 /**
  * The page: its header and tabs draw at once from what the frame's overview already says of the
@@ -199,6 +201,8 @@ export function AgentScreen({ tab: asked = "overview" }: { tab?: AgentTab }) {
         items={[
           { to: PORTAL_PATHS.agent(id), label: t("agent.tab.overview"), end: true },
           { to: PORTAL_PATHS.agentRuns(id), label: t("agent.tab.runs") },
+          // R4: its report, for everyone who sees the agent.
+          { to: PORTAL_PATHS.agentReport(id), label: t("agent.tab.report") },
           // docs/sop-plan.md §6a: the process drawn, read only, for everyone who sees the SOP.
           { to: PORTAL_PATHS.agentFlow(id), label: t("agent.tab.workflow") },
           // docs/sop-plan.md S1: the agent's SOP, read only, for everyone who sees it; it holds
@@ -214,6 +218,10 @@ export function AgentScreen({ tab: asked = "overview" }: { tab?: AgentTab }) {
         <Loaded state={detail}>{() => null}</Loaded>
       ) : tab === "runs" ? (
         <AgentRuns id={id} />
+      ) : tab === "report" ? (
+        <Suspense fallback={<SkeletonRows rows={6} columns={4} />}>
+          <AgentReport id={id} />
+        </Suspense>
       ) : tab === "workflow" ? (
         <Suspense fallback={<SkeletonRows rows={6} columns={1} />}>
           <AgentWorkflow id={id} />
