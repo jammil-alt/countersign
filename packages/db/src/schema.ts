@@ -3014,6 +3014,73 @@ export const reachOut = pgTable(
   ],
 );
 
+// ── Process interviews (docs/plan.md §1.217; migration 0087) ──────────────────────────────────
+
+// Kept in step with core's `INTERVIEW_STATUSES` (this file imports only drizzle at runtime).
+export const INTERVIEW_STATUSES = ["open", "finished", "closed"] as const;
+
+/**
+ * One process interview: a link an operator sends one of the client's contacts about one of the
+ * client's processes. The interviewer asks one question at a time; `turns` keeps the questions and
+ * what the person answered (untrusted data, never instructions: invariant 9), `documents` the
+ * sample files they added (the client's documents). Once finished, `outputs` holds the
+ * current-state map and the open questions; `reuse` the reuse check, and `build_id` the build
+ * drafted from it. The link carries only this row's id, signed.
+ */
+export const processInterview = pgTable(
+  "process_interview",
+  {
+    id: id(),
+    tenantId: tenantId(),
+    contactId: uuid("contact_id").notNull(),
+    /** The process, in the operator's words ("Invoice reconciliation"). */
+    process: text("process").notNull(),
+    /** The business area it is in (core `IntakeArea`), whose intake questions it covers. */
+    area: text("area"),
+    status: text("status").$type<(typeof INTERVIEW_STATUSES)[number]>().notNull().default("open"),
+    /** The language the page reads in. */
+    language: text("language").notNull().default("en"),
+    expiresAt: ts("expires_at").notNull(),
+    /** Questions and answers in order (core `InterviewTurn`). */
+    turns: json<Record<string, unknown>[]>("turns").notNull().default([]),
+    /** The question waiting for an answer; null when the interviewer has what it needs. */
+    question: text("question"),
+    /** Sample files added through the page: `{ documentId, filename, at }`. */
+    documents: json<Record<string, unknown>[]>("documents").notNull().default([]),
+    /** The map, the open questions and the description for the Builder (core `InterviewOutputs`). */
+    outputs: json("outputs"),
+    /** The reuse check over the map's steps (core `InterviewReuse`). */
+    reuse: json("reuse"),
+    buildId: uuid("build_id").references(() => build.id),
+    /** What the interview's model calls cost us. Never shown to the client. */
+    costUsd: usd("cost_usd"),
+    /** What happened on the page (opened, answered, file, finished), with time and browser. */
+    log: json<Record<string, unknown>[]>("log").notNull().default([]),
+    createdBy: uuid("created_by").references(() => appUser.id),
+    createdAt: createdAt(),
+    updatedAt: ts("updated_at")
+      .notNull()
+      .defaultNow()
+      .$onUpdate(() => new Date()),
+    finishedAt: ts("finished_at"),
+  },
+  (t) => [
+    unique("process_interview_id_tenant_key").on(t.id, t.tenantId),
+    index("process_interview_tenant_idx").on(t.tenantId, t.createdAt),
+    foreignKey({
+      name: "process_interview_contact_fk",
+      columns: [t.contactId, t.tenantId],
+      foreignColumns: [contact.id, contact.tenantId],
+    }),
+    check("process_interview_status_check", oneOf(t.status, INTERVIEW_STATUSES)),
+    check("process_interview_process_check", sql`char_length(${t.process}) between 1 and 200`),
+    check(
+      "process_interview_finished_check",
+      sql`${t.status} <> 'finished' or (${t.outputs} is not null and ${t.finishedAt} is not null)`,
+    ),
+  ],
+);
+
 // ── Forms: "Request info" (docs/plan.md §1.121; migration 0058) ─────────────────────────────────
 
 // Kept in step with core's `FORM_REQUEST_STATUSES` (this file imports only drizzle at runtime).
@@ -6546,6 +6613,8 @@ export const TENANT_TABLES = [
   "control_check",
   // 0077: what each run was about, one row per thing it read or changed (docs/reporting-plan.md R1).
   "run_subject",
+  // 0087: process interviews (docs/plan.md §1.217).
+  "process_interview",
 ] as const;
 export type TenantTable = (typeof TENANT_TABLES)[number];
 
