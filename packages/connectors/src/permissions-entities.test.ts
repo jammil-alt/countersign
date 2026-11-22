@@ -102,7 +102,11 @@ describe("manifests", () => {
       // B-4
       "deposit",
       "transfer",
+      // §1.232: the Close pack's journal entries
+      "journal_entry",
     ]);
+    // §1.232: journal entries are read (the look before a write) and created; never updated.
+    expect(declared?.find((e) => e.id === "journal_entry")?.verbs).toEqual(["read", "create"]);
     for (const id of ["account", "class", "location"]) {
       expect(declared?.find((e) => e.id === id)?.verbs, id).toEqual(["read", "create", "update"]);
     }

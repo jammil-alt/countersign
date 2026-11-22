@@ -37,6 +37,7 @@ import { and, eq, gte, inArray, lt, sql } from "drizzle-orm";
 import type { Platform } from "../platform";
 import { sopInputFor, sopVersion } from "../sop/inputs";
 import { sopSettings } from "../sop/revisions";
+import type { AssuranceScanEnv } from "./scan";
 
 type AgentRow = typeof import("@countersign/db").agent.$inferSelect;
 
@@ -48,6 +49,8 @@ export interface AssuranceEnv {
   covered: string | undefined;
   /** The second step at sign-in is on (Twilio Verify and WorkOS configured). */
   secondFactorOn: boolean;
+  /** §1.231.2: the vault and the bodies' bucket, for the checks that read stored secrets. */
+  scan?: AssuranceScanEnv | undefined;
 }
 
 const MATRIX_LEVEL: Record<string, SopLevel> = { auto: "auto", approval: "ask", off: "off" };

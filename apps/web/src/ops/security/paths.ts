@@ -8,6 +8,8 @@ export const SECURITY_PATHS = {
   policies: "/ops/security/policies",
   clients: "/ops/security/clients",
   client: (id: string) => `/ops/security/clients/${id}`,
+  // §1.231.3: the agents' checks over a period, for an auditor; lazy-loaded (routes.tsx).
+  evidence: "/ops/security/evidence",
   // Moved from Utilities: /ops/audit and /ops/utilities/audit redirect here.
   audit: "/ops/security/audit",
 } as const;

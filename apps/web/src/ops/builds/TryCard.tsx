@@ -1,19 +1,28 @@
 // builder-plan.md B1: try the draft on real examples, in the POC test. The operator uploads a
-// document to the Sandbox (a template) or gives an input, and it runs once as a test that writes
+// document to the Sandbox (a template, or a skill that reads documents), picks one of the Sandbox's
+// records (a template, docs/open.md G3) or gives an input, and it runs once as a test that writes
 // nothing. The result shows in plain view: Right keeps it as a test case (its result the expected
 // answer), Wrong starts "About “…”: " in the conversation so the operator says why and the
 // Builder proposes the fix. Kept examples are the default way; model-made cases stay beside them.
 
 import type { BuildDetail, BuildTryView, RouteSpec } from "@countersign/core";
-import { useId, useState } from "react";
-import type { CallOptions } from "../../api/client";
+import { lazy, Suspense, useId, useState } from "react";
+import { type CallOptions, isApiError } from "../../api/client";
 import { apiRoutes } from "../../api/routes";
 import { sandboxUploadPath, uploadFiles } from "../../api/upload";
+import { useApiClient } from "../../api/useApi";
 import { ErrorNotice } from "../../ui/ErrorState";
 import { TextArea } from "../../ui/forms";
 import { Badge, Button, Card } from "../../ui/primitives";
 
 type Act = <R extends RouteSpec>(route: R, opts: CallOptions<R>) => Promise<boolean>;
+
+// The record picker loads its list only when opened.
+const RecordPick = lazy(() => import("./RecordPick").then((m) => ({ default: m.RecordPick })));
+
+/** How long a skill's try waits for its document's first reading, and how often it asks. */
+const READ_WAIT_MS = 60_000;
+const READ_EVERY_MS = 2_000;
 
 /** Most lines of one result shown. */
 const LINES_MAX = 40;
@@ -180,6 +189,7 @@ export function TryCard({
   act,
   onWrong,
   upload = tryUpload,
+  readEveryMs = READ_EVERY_MS,
 }: {
   detail: BuildDetail;
   /** The POC test is the build's current phase: examples can be tried. */
@@ -189,7 +199,10 @@ export function TryCard({
   onWrong?: ((name: string) => void) | undefined;
   /** The Sandbox upload (tests pass their own). */
   upload?: (file: File, clientId: string) => ReturnType<typeof uploadFiles>;
+  /** How often a skill's try asks again while its document is first read (tests pass less). */
+  readEveryMs?: number;
 }) {
+  const api = useApiClient();
   const poc = detail.poc;
   const id = detail.build.id;
   const inputId = useId();
@@ -197,10 +210,41 @@ export function TryCard({
   const [bad, setBad] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<unknown>(null);
+  // The record picker is open (a template, docs/open.md G3).
+  const [picking, setPicking] = useState(false);
+  // A skill's document is being read before its try starts.
+  const [reading, setReading] = useState(false);
   if (poc?.mode !== "suite") return null;
   const template = detail.build.kind === "agent";
   const sandbox = poc.trySandbox;
-  const off = busy || uploading;
+  const off = busy || uploading || reading;
+
+  /**
+   * A skill's try on a document: the document's first reading is made in the background after
+   * its upload, so the try is asked again until it is read (409 `not_read`), then the page reads
+   * the build.
+   */
+  // DECISION (docs/open.md G3): the page waits for the reading (up to a minute), not the API: the
+  // API answers at once, and a document still being read is a 409 it can ask again.
+  async function trySkillDocument(documentId: string) {
+    setReading(true);
+    try {
+      const until = Date.now() + READ_WAIT_MS;
+      for (;;) {
+        try {
+          await api.call(apiRoutes.opsBuildTry, { params: { id }, body: { documentId } });
+          break;
+        } catch (e) {
+          const later = isApiError(e) && e.status === 409 && e.code === "not_read";
+          if (!later || Date.now() > until) throw e;
+          await new Promise((r) => setTimeout(r, readEveryMs));
+        }
+      }
+    } finally {
+      setReading(false);
+    }
+    await act(apiRoutes.opsBuild, { params: { id } });
+  }
 
   async function tryDocument(file: File) {
     if (!sandbox) return;
@@ -214,7 +258,11 @@ export function TryCard({
         return;
       }
       setBad(null);
-      await act(apiRoutes.opsBuildTry, { params: { id }, body: { documentId: r.document.id } });
+      if (template) {
+        await act(apiRoutes.opsBuildTry, { params: { id }, body: { documentId: r.document.id } });
+      } else {
+        await trySkillDocument(r.document.id);
+      }
     } catch (e) {
       setError(e);
     } finally {
@@ -239,7 +287,7 @@ export function TryCard({
   return (
     <Card
       testId="build-try"
-      title={template ? "Try it on a document" : "Try it on an input"}
+      title={template ? "Try it on a document or a record" : "Try it on an input"}
       meta={
         <span className="text-sm text-ink-muted">
           It runs once as a test. Nothing is written anywhere.
@@ -249,40 +297,67 @@ export function TryCard({
       <div className="flex flex-col gap-3 px-6 py-5 text-sm">
         <p className="text-ink">
           {template
-            ? "Upload a real document and see what the agent would do with it. If it's right, keep it as a test case; if it's wrong, tell the Builder why."
-            : "Give the skill a real input and see what it answers. If it's right, keep it as a test case; if it's wrong, tell the Builder why."}
+            ? "Upload a real document, or pick one of the Sandbox's records, and see what the agent would do with it. If it's right, keep it as a test case; if it's wrong, tell the Builder why."
+            : "Give the skill a real input, or a document if it reads one, and see what it answers. If it's right, keep it as a test case; if it's wrong, tell the Builder why."}
         </p>
         {live ? (
           <div className="flex flex-col gap-3">
-            {template ? (
-              sandbox ? (
-                <div className="flex flex-wrap items-center gap-2">
-                  <label
-                    className={`ds-btn ds-btn--primary ds-btn--sm ${off ? "pointer-events-none opacity-60" : "cursor-pointer"}`}
+            {sandbox ? (
+              <div className="flex flex-wrap items-center gap-2">
+                <label
+                  className={`ds-btn ${template ? "ds-btn--primary" : "ds-btn--secondary"} ds-btn--sm ${off ? "pointer-events-none opacity-60" : "cursor-pointer"}`}
+                >
+                  {reading ? "Reading it…" : uploading ? "Uploading…" : "Upload a document"}
+                  <input
+                    type="file"
+                    accept="application/pdf,image/png,image/jpeg,image/gif,image/webp"
+                    className="sr-only"
+                    disabled={off}
+                    data-testid="build-try-file"
+                    onChange={(e) => {
+                      const f = e.target.files?.[0];
+                      if (f) void tryDocument(f);
+                      e.target.value = "";
+                    }}
+                  />
+                </label>
+                {template ? (
+                  <Button
+                    size="sm"
+                    disabled={off}
+                    aria-expanded={picking}
+                    onClick={() => setPicking((p) => !p)}
+                    data-testid="build-try-pick-record"
                   >
-                    {uploading ? "Uploading…" : "Upload a document"}
-                    <input
-                      type="file"
-                      accept="application/pdf,image/png,image/jpeg,image/gif,image/webp"
-                      className="sr-only"
-                      disabled={off}
-                      data-testid="build-try-file"
-                      onChange={(e) => {
-                        const f = e.target.files?.[0];
-                        if (f) void tryDocument(f);
-                        e.target.value = "";
-                      }}
-                    />
-                  </label>
-                  <span className="text-ink-muted">
-                    It goes to {sandbox.name}, where the tests run.
-                  </span>
-                </div>
-              ) : (
-                <p className="text-ink-muted" data-testid="build-try-no-sandbox">
-                  A document is tried in a Sandbox client you serve. There isn't one yet.
-                </p>
-              )
+                    {picking ? "Close the records" : "Pick a record"}
+                  </Button>
+                ) : null}
+                <span className="text-ink-muted">
+                  {template
+                    ? `It goes to ${sandbox.name}, where the tests run.`
+                    : `It goes to ${sandbox.name}. The skill reads it as it is now.`}
+                </span>
+              </div>
+            ) : template ? (
+              <p className="text-ink-muted" data-testid="build-try-no-sandbox">
+                A document or a record is tried in a Sandbox client you serve. There isn't one yet.
+              </p>
+            ) : null}
+            {template && sandbox && picking ? (
+              <Suspense fallback={<p className="text-ink-muted">Loading the records…</p>}>
+                <RecordPick
+                  clientId={sandbox.id}
+                  busy={off}
+                  onPick={(r) =>
+                    void act(apiRoutes.opsBuildTry, {
+                      params: { id },
+                      body: { record: { kind: r.kind, id: r.id } },
+                    }).then((done) => {
+                      if (done) setPicking(false);
+                    })
+                  }
+                />
+              </Suspense>
             ) : null}
             <div className="flex flex-col gap-1.5">
               <label htmlFor={inputId} className="text-ink-muted">

@@ -20,6 +20,8 @@ import {
   manualView,
   readSetupLines,
   readUndiscussed,
+  riskHits,
+  riskWords,
   undiscussedFor,
   whatItDoesFrom,
   whoWords,
@@ -428,5 +430,46 @@ describe("the view", () => {
     expect(readSetupLines({ items: [{ title: "Connect QuickBooks", value: true }] })).toEqual([
       { label: "Connect QuickBooks", answer: "true" },
     ]);
+  });
+});
+
+describe("known risks counted from runs (G5)", () => {
+  const risks = [
+    { id: "multi", what: "Several receipts in one photo" },
+    { id: "fx", what: "Another currency" },
+    { id: "none", what: "A to B" },
+  ];
+
+  it("reads a risk's own words, without fillers or short ones", () => {
+    expect(riskWords("Several receipts in one photo")).toEqual(["sever", "recei", "photo"]);
+    expect(riskWords("Another currency")).toEqual(["curre"]);
+    expect(riskWords("A to B")).toEqual([]);
+  });
+
+  it("counts each run once when people's words name two of the risk's words", () => {
+    const hits = riskHits(risks, [
+      { runId: "r1", text: "Two receipts on this photo" },
+      { runId: "r1", text: "Receipts in one photo again" },
+      { runId: "r2", text: "Wrong receipt" },
+      { runId: "r3", text: "Check the receipt" },
+      { runId: "r3", text: "photos are blurry" },
+      { runId: "r4", text: "Paid in a foreign currency" },
+    ]);
+    expect(Object.fromEntries(hits)).toEqual({ multi: 2, fx: 1, none: 0 });
+  });
+
+  it("is shown on the view when counted, and null when not", () => {
+    const b = { workflows: [], definition: { manual: { knownRisks: risks.slice(0, 1) } } };
+    const view = (hits?: Map<string, number>) =>
+      manualView({
+        agent: { id: "a", name: "A" },
+        bundle: b,
+        learned: [],
+        audience: "operator",
+        hits,
+      });
+    expect(view(new Map([["multi", 3]])).knownRisks[0]?.hits).toBe(3);
+    expect(view(new Map()).knownRisks[0]?.hits).toBe(0);
+    expect(view().knownRisks[0]?.hits).toBeNull();
   });
 });

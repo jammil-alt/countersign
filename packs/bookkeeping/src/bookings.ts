@@ -1686,6 +1686,36 @@ export interface ProposeInput {
  * The model's booking for a transaction nobody has decided: `proposed` at or above the threshold,
  * else the transaction waits for a person (`needs_review`) with this as the suggestion.
  */
+/**
+ * A test run's proposal (docs/plan.md §1.212): the checks `propose` makes, reading only, and the
+ * status it would give, so a test run refuses what a live run refuses.
+ */
+// DECISION: found by the golden datasets: a test run answered `proposed` for a split whose lines
+// didn't add up, which a live run refuses. The checks are the live ones; nothing is written.
+export async function checkProposal(
+  tx: Tx,
+  tenantId: string,
+  input: ProposeInput,
+  threshold: number = BOOK_CONFIDENCE_AUTO,
+): Promise<"proposed" | "needs_review"> {
+  const t = await txnOf(tx, tenantId, input.bankTxnId);
+  if (!["new", "needs_review"].includes(t.status)) {
+    throw new PackRefusal(
+      `transaction ${t.id} is ${t.status}: only an undecided one is proposed for`,
+    );
+  }
+  if (!Number.isFinite(input.confidence) || input.confidence < 0 || input.confidence > 1) {
+    throw new PackRefusal("confidence is between 0 and 1");
+  }
+  const { lines, types } = await checkLines(tx, tenantId, t, input.lines);
+  if (lines.length > 1 && types.some((ty) => MONEY_KINDS.includes(ty))) {
+    throw new PackRefusal("a transfer has one line");
+  }
+  const hold =
+    openItemOf(t)?.confirmed === true || heldPairOf(t) !== null || resentOfId(t) !== null;
+  return input.confidence >= threshold && !hold ? "proposed" : "needs_review";
+}
+
 export async function propose(
   tx: Tx,
   who: Decider,

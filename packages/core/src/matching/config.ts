@@ -106,9 +106,35 @@ export const INVOICE_TWO_SYSTEMS: MatchConfig = {
   vetoes: { reference: true, currency: true },
 };
 
+/**
+ * A vendor's bill against the client's purchase orders (the AP pack, Plan entry §1.233): side A the
+ * bills, side B the orders placed with that vendor. The bill names the order by the reference it
+ * prints (the PO number), and a bill often differs from its order by freight, tax or a part
+ * delivery, so a same-reference pair whose amounts differ is a `partial` the pack explains line by
+ * line (quantities against receipts, prices against the order).
+ */
+// DECISION: 120 days (an order billed after a long lead time) and a cent. Two PO numbers both
+// stated that differ are never the same (a hard rule); no model tier: an order the rules don't
+// settle waits for a person on the week's list, and the fuzzy tier's pairs are only proposals
+// there (the pack reads a fuzzy match as `proposed`).
+export const BILL_TO_PO: MatchConfig = {
+  id: "bill_to_po",
+  sides: { a: "Bills", b: "Purchase orders" },
+  windowDays: 120,
+  tolerance: "0.01",
+  reference: "alnum",
+  rules: ["reference", "partial", "counterparty_amount"],
+  maxGroup: 4,
+  groupPoolMax: 16,
+  fuzzy: { threshold: 0.9, counterpartyFloor: 0.5 },
+  model: null,
+  vetoes: { reference: true, currency: true },
+};
+
 export const MATCH_CONFIGS: Readonly<Record<string, MatchConfig>> = {
   [BANK_TO_LEDGER.id]: BANK_TO_LEDGER,
   [INVOICE_TWO_SYSTEMS.id]: INVOICE_TWO_SYSTEMS,
+  [BILL_TO_PO.id]: BILL_TO_PO,
 };
 
 /** A saved rule as the engine reads it (packages/db's `match_rule`; values already normalised). */

@@ -114,6 +114,8 @@ describe("tool registry", () => {
       // B3 (docs/builder-plan.md §8, tier 3): another agent's manual
       "manual.read",
       "memory.write",
+      // S2 (docs/sop-plan.md §6): Sloan reads an agent's SOP
+      "sop.read",
       "supervisor.check",
       "supervisor.report",
       "testkit.record.query",

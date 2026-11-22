@@ -36,7 +36,7 @@ import {
   type SecurityOverview,
   VENDOR_ORDER,
 } from "@countersign/core";
-import type { ReactNode } from "react";
+import { lazy, type ReactNode, Suspense } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import { apiRoutes } from "../../api/routes";
 import { useApi } from "../../api/useApi";
@@ -48,6 +48,10 @@ import { Badge, Button, Card, EmptyState, PageHeader, Tag, type Tone } from "../
 import { TableCard } from "../screens/business";
 import { SECURITY_PATHS } from "./paths";
 import { SecurityTabs } from "./SecurityTabs";
+
+const AssuranceRollupCard = lazy(() =>
+  import("./Evidence").then((m) => ({ default: m.AssuranceRollupCard })),
+);
 
 const STATUS_TONE: Record<ControlStatus, Tone> = {
   in_place: "positive",
@@ -115,6 +119,11 @@ export function SecurityOverviewScreen() {
         </Columns>
 
         <Loaded state={state}>{(data) => <OverviewFigures data={data} />}</Loaded>
+
+        {/* §1.231.3: the agents' checks per control, loaded with its own screen's code. */}
+        <Suspense fallback={null}>
+          <AssuranceRollupCard />
+        </Suspense>
 
         <TableCard title="Still open" meta={`${open.length} controls`} testId="ops-security-open">
           <table>

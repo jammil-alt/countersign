@@ -1,0 +1,105 @@
+name: Retire lost client keys
+
+# By hand, from Actions → Retire lost client keys. Each client's data key (`tenant_key`) is stored
+# wrapped by the deployment's master key (`ENCRYPTION_KEY`, docs/operations.md "Worker secrets").
+# If that master key is lost (staging's was replaced by a deploy on 2026-11-21, #492), every client
+# key wrapped by it can never be opened again: the Worker logs `no key with id <kid>; was it retired
+# early?`, syncs stop, and a reconnect fails because the new tokens can't be stored.
+#
+# This retires every *active* client key wrapped by the lost master key, one transaction. The next
+# time the client stores a credential the Worker makes it a fresh key under the current master key,
+# so reconnecting works again. Nothing readable is lost: what the old keys locked was already
+# unreadable. Each affected client's connections must be connected again.
+#
+# Never run it for a master key that still exists: a key retired here stays retired, and the
+# credentials it locked can't be read until that client reconnects. Production waits for the
+# production environment's approval.
+
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: Environment
+        type: choice
+        options: [staging, production]
+        default: staging
+      lost_kid:
+        description: "The lost master key's id, as the error names it: 'no key with id <this>'"
+        type: string
+        required: true
+      confirm:
+        description: Type RETIRE to confirm
+        type: string
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: retire-lost-keys-${{ inputs.target }}
+  cancel-in-progress: false
+
+jobs:
+  retire:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: ${{ inputs.target }}
+    env:
+      TARGET: ${{ inputs.target }}
+      LOST_KID: ${{ inputs.lost_kid }}
+      CONFIRM: ${{ inputs.confirm }}
+      NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
+      NEON_PROJECT_ID: ${{ vars.NEON_PROJECT_ID }}
+    steps:
+      - name: Ready?
+        run: |
+          [ -n "$NEON_API_KEY" ] || { echo "::error::NEON_API_KEY secret is missing"; exit 1; }
+          [ -n "$NEON_PROJECT_ID" ] || { echo "::error::NEON_PROJECT_ID variable is missing"; exit 1; }
+          [ "$CONFIRM" = RETIRE ] || { echo "::error::Type RETIRE to confirm."; exit 1; }
+          # A master key's id is 16 hex characters (packages/connectors/src/credentials.ts keyId).
+          [[ "$LOST_KID" =~ ^[0-9a-f]{16}$ ]] || { echo "::error::lost_kid must be 16 hex characters."; exit 1; }
+      # Checkout first: setup-node reads the Node version from .nvmrc.
+      - uses: actions/checkout@v7
+        with:
+          sparse-checkout: .nvmrc
+          sparse-checkout-cone-mode: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+      - name: Retire the keys
+        run: |
+          set -euo pipefail
+          branch=$([ "$TARGET" = production ] && echo main || echo staging)
+          url=$(npx --yes neonctl@4.22.0 connection-string "$branch" \
+            --project-id "$NEON_PROJECT_ID" --role-name cs_owner --database-name countersign)
+          echo "::add-mask::$url"
+          # One transaction: retire the active keys wrapped by the lost master key and write one
+          # audit row per client (ids only, invariant 14). The partial unique index lets the Worker
+          # make each client a new active key on its next use.
+          psql "$url" -v ON_ERROR_STOP=1 -v kid="$LOST_KID" -X -q -t -A <<'SQL' > retired.txt
+          begin;
+          with retired as (
+            update tenant_key
+               set status = 'retired', retired_at = now()
+             where status = 'active' and wrapped_key->>'kid' = :'kid'
+            returning id, tenant_id
+          ), audited as (
+            insert into audit_event (tenant_id, actor_kind, action, outcome, target)
+            select tenant_id, 'system', 'tenant_key.retire_lost_master', 'ok',
+                   jsonb_build_object('tenantKey', id, 'lostMasterKid', :'kid')
+              from retired
+            returning tenant_id
+          )
+          select tenant_id from audited;
+          commit;
+          SQL
+          n=$(grep -c . retired.txt || true)
+          {
+            echo "Retired $n active client key(s) on $TARGET wrapped by lost master key $LOST_KID."
+            if [ "$n" -gt 0 ]; then
+              echo
+              echo "Clients (ids), each needs its connections connected again:"
+              sed 's/^/- /' retired.txt
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+          cat "$GITHUB_STEP_SUMMARY"

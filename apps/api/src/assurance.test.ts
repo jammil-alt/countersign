@@ -4,8 +4,8 @@
 // team member who doesn't work with the agent can't read it; the nightly tick runs every live agent.
 
 import { CHECKS } from "@countersign/core";
-import { agent, controlCheck, issue } from "@countersign/db";
-import { and, eq } from "drizzle-orm";
+import { agent, auditEvent, controlCheck, issue, modelCall, run, stepRun } from "@countersign/db";
+import { and, eq, like } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   type ApiHarness,
@@ -141,6 +141,79 @@ describe.skipIf(!h)("agent assurance (docs/agent-assurance-plan.md)", () => {
     expect(view.checks.find((c: { id: string }) => c.id === "delete_off").soc2).toContain("CC8.1");
   });
 
+  it("reads the period's stored AI requests for secrets, and keeps only the call's id (§1.231.2)", async () => {
+    const [a] = await H.t.db.select().from(agent).where(eq(agent.id, ids.mine));
+    const [r] = await H.t.db
+      .insert(run)
+      .values({
+        tenantId: H.A.tenantId,
+        agentId: ids.mine,
+        agentVersionId: a?.liveVersionId as string,
+        workflowSlug: "main",
+        status: "succeeded",
+        mode: "live",
+      })
+      .returning({ id: run.id });
+    const [s] = await H.t.db
+      .insert(stepRun)
+      .values({
+        tenantId: H.A.tenantId,
+        runId: r?.id as string,
+        nodeId: "read",
+        nodeType: "skill",
+      })
+      .returning({ id: stepRun.id });
+    const call = async (content: string) => {
+      const bodyKey = `tenants/${H.A.tenantId}/model-calls/${crypto.randomUUID()}.json`;
+      await H.objects.put(
+        bodyKey,
+        new TextEncoder().encode(
+          JSON.stringify({ request: { messages: [{ role: "user", content }] }, answer: null }),
+        ),
+      );
+      const [m] = await H.t.db
+        .insert(modelCall)
+        .values({
+          tenantId: H.A.tenantId,
+          runId: r?.id as string,
+          stepRunId: s?.id as string,
+          agentVersionId: a?.liveVersionId as string,
+          provider: "anthropic",
+          model: "claude-sonnet-5-5",
+          tokensIn: 10,
+          tokensOut: 2,
+          costUsd: "0.0010",
+          durationMs: 100,
+          stopReason: "end_turn",
+          bodyKey,
+        })
+        .returning({ id: modelCall.id });
+      return m?.id as string;
+    };
+    await call("Invoice INV-2026-0042 from Harbor Millwork");
+    const leaked = await call(`Use the key sk-proj-${"a".repeat(32)} to sign in`);
+
+    const res = await H.call(OPERATOR, "POST", `/api/ops/agents/${ids.mine}/assurance/run`, {});
+    expect(res.status, JSON.stringify(res.json)).toBe(200);
+    const check = j(res.json).checks.find((c: { id: string }) => c.id === "no_secret_to_model");
+    expect(check.result).toBe("in_review");
+    expect(check.evidence).toMatchObject({
+      calls: 2,
+      read: 2,
+      withSecret: [],
+      secretShaped: [{ id: leaked, kinds: ["model_api_key"] }],
+    });
+    expect(JSON.stringify(check)).not.toContain("sk-proj-");
+    // The testkit connection signs in with no OAuth.
+    const scopes = j(res.json).checks.find((c: { id: string }) => c.id === "oauth_scopes");
+    expect(scopes.result).toBe("not_applicable");
+    // The client sees only that it's in review.
+    const portal = await H.call(admin("a"), "GET", `/api/services/${ids.mine}/assurance`);
+    const mine = j(portal.json).checks.find((c: { id: string }) => c.id === "no_secret_to_model");
+    expect(mine).toMatchObject({ result: "in_review", found: "" });
+    expect(forbiddenKeys(j(portal.json))).toEqual([]);
+  });
+
   it("is another client's agent: not found; and a team member reads the agents they work with", async () => {
     expect((await H.call(admin("a"), "GET", `/api/services/${ids.other}/assurance`)).status).toBe(
       404,
@@ -165,12 +238,82 @@ describe.skipIf(!h)("agent assurance (docs/agent-assurance-plan.md)", () => {
     await assuranceTick(
       H.db,
       H.platform,
-      { covered: "", secondFactorOn: true },
+      { covered: "", secondFactorOn: true, scan: { vault: null, bodies: H.objects } },
       new Date("2026-11-22T08:23:00Z"),
     );
     const after = await rows(ids.other);
     expect(after.length).toBe(before + CHECKS.filter((c) => c.built).length);
     expect(after.every((r) => r.trigger === "nightly")).toBe(true);
     expect(after.find((r) => r.checkId === "second_factor")?.result).toBe("verified");
+  });
+
+  it("exports the evidence per period, agent and client, as a page and CSV, audited (§1.231.3)", async () => {
+    const today = new Date().toISOString().slice(0, 10);
+    const res = await H.call(
+      OPERATOR,
+      "GET",
+      `/api/ops/assurance/evidence?client=${H.A.tenantId}&agent=${ids.mine}&to=${today}`,
+    );
+    expect(res.status, JSON.stringify(res.json)).toBe(200);
+    const out = j(res.json);
+    expect(out.truncated).toBe(false);
+    expect(out.rows.length).toBe((await rows(ids.mine)).length);
+    expect(out.rows.every((r: { agent: { id: string } }) => r.agent.id === ids.mine)).toBe(true);
+    const delOff = out.rows.find((r: { checkId: string }) => r.checkId === "delete_off");
+    expect(delOff).toMatchObject({
+      number: "K3",
+      result: "verified",
+      client: { id: H.A.tenantId },
+    });
+    expect(delOff.soc2).toContain("CC8.1");
+    expect(delOff.evidence).toBeTruthy();
+    expect(forbiddenKeys(out)).toEqual([]);
+
+    const csv = await H.call(
+      OPERATOR,
+      "GET",
+      `/api/ops/assurance/evidence.csv?client=${H.A.tenantId}&agent=${ids.mine}`,
+    );
+    expect(csv.status).toBe(200);
+    expect(csv.headers.get("content-type")).toBe("text/csv; charset=utf-8");
+    expect(csv.headers.get("content-disposition")).toMatch(/mezonas-security-evidence-.*\.csv/);
+    const lines = String(csv.json).trim().split("\r\n");
+    expect(lines[0]).toContain("checked at,client,agent,version,check");
+    expect(lines).toHaveLength(out.rows.length + 1);
+
+    const audited = await H.t.db
+      .select({ action: auditEvent.action })
+      .from(auditEvent)
+      .where(like(auditEvent.action, "GET /api/ops/assurance/evidence%"));
+    expect(audited.length).toBeGreaterThanOrEqual(2);
+
+    // A bad period, a client not served, and anyone but an operator: refused.
+    expect(
+      (await H.call(OPERATOR, "GET", "/api/ops/assurance/evidence?from=2026-11-20&to=2026-11-01"))
+        .status,
+    ).toBe(400);
+    expect(
+      (
+        await H.call(
+          OPERATOR,
+          "GET",
+          `/api/ops/assurance/evidence?client=0199a000-0000-7000-8000-00000000dead`,
+        )
+      ).status,
+    ).not.toBe(200);
+    expect((await H.call(admin("a"), "GET", "/api/ops/assurance/evidence")).status).toBe(403);
+    expect((await H.call(admin("a"), "GET", "/api/ops/assurance/rollup")).status).toBe(403);
+  });
+
+  it("rolls up per control across the clients served (§1.231.3)", async () => {
+    const res = await H.call(OPERATOR, "GET", "/api/ops/assurance/rollup");
+    expect(res.status, JSON.stringify(res.json)).toBe(200);
+    const out = j(res.json);
+    expect(out.clients).toBe(2);
+    expect(out.agents).toBe(2);
+    const acc2 = out.controls.find((c: { id: string }) => c.id === "ACC-2");
+    // Ours was in review (no second factor in the harness); the other's verified at night.
+    expect(acc2).toMatchObject({ agents: 2, inReview: 1, verified: 1 });
+    expect(out.controls.find((c: { id: string }) => c.id === "GOV-1")).toBeUndefined();
   });
 });

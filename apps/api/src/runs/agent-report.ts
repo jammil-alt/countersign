@@ -49,7 +49,7 @@ type Surface = "portal" | "ops";
 type AgentRow = typeof agent.$inferSelect;
 
 /** The portal's five states, as the runs lists' `statuses` say them. */
-const OUTCOMES = {
+export const OUTCOMES = {
   done: ["succeeded"],
   waiting: ["waiting"],
   failed: ["failed"],
@@ -114,7 +114,7 @@ function daysOf(from: string, to: string): string[] {
 }
 
 /** What the queries of one period share: its filter, and that filter as conditions on `run`. */
-interface Scope {
+export interface Scope {
   surface: Surface;
   tenantId: string;
   base: RunFilter;
@@ -122,25 +122,29 @@ interface Scope {
   specs: Readonly<Record<string, ToolSpec>>;
 }
 
-function scopeOf(
+/**
+ * One period's scope: the agent's live runs created in it, or (R5) the whole client's when
+ * `agent` is null. A null period is every run whenever it started (R5's "now" figures).
+ */
+export function scopeOf(
   platform: Pick<Platform, "ctx">,
-  input: Pick<ReportInput, "surface" | "agent" | "tenantId" | "timezone">,
-  from: string,
-  to: string,
+  input: Pick<ReportInput, "surface" | "tenantId" | "timezone"> & { agent: AgentRow | null },
+  from: string | null,
+  to: string | null,
 ): Scope {
-  const { since, until } = periodBounds(from, to, input.timezone);
+  const span =
+    from && to
+      ? (({ since, until }) => ({ since: since.toISOString(), until: until.toISOString() }))(
+          periodBounds(from, to, input.timezone),
+        )
+      : {};
+  const agents = input.agent ? { agents: [input.agent.id] } : {};
   // DECISION: both surfaces count live runs only, as the KPIs do: the back office's filter says
   // so (`mode`), the portal's lists never show a test run.
   const base: RunFilter =
     input.surface === "ops"
-      ? {
-          clients: [input.tenantId],
-          agents: [input.agent.id],
-          mode: "live",
-          since: since.toISOString(),
-          until: until.toISOString(),
-        }
-      : { agents: [input.agent.id], since: since.toISOString(), until: until.toISOString() };
+      ? { clients: [input.tenantId], ...agents, mode: "live", ...span }
+      : { ...agents, ...span };
   const specs = platform.ctx.tools.specs();
   return {
     surface: input.surface,
@@ -156,7 +160,7 @@ function scopeOf(
 }
 
 /** A status filter as SQL, the way the surface's runs list reads it. */
-function statusSql(surface: Surface, statuses: readonly RunStatus[]): SQL {
+export function statusSql(surface: Surface, statuses: readonly RunStatus[]): SQL {
   const [where] = (surface === "portal" ? clientStatusWhere : opsStatusWhere)([...statuses]);
   return where ?? sql`true`;
 }
@@ -172,7 +176,7 @@ const finishMs = sql`extract(epoch from (${run.finishedAt} - coalesce(${run.star
 const waitMs = sql`extract(epoch from (${inboxItem.resolvedAt} - ${inboxItem.createdAt})) * 1000`;
 
 /** The client's items of the scope's runs (joined to `run`). */
-async function clientItems<T extends Record<string, unknown>>(
+function clientItems<T extends Record<string, unknown>>(
   tx: Tx,
   scope: Scope,
   columns: T,
@@ -187,13 +191,47 @@ async function clientItems<T extends Record<string, unknown>>(
 
 const APPROVAL_KINDS = ["approval", "external_action"] as const;
 
+type Headline = PortalAgentReport["headline"];
+
+/** A period's headline with nothing in it. */
+export const emptyHeadline = (from: string, to: string): Headline => ({
+  from,
+  to,
+  runs: 0,
+  done: 0,
+  failed: 0,
+  finishMedianMs: null,
+  waitMedianMs: null,
+  approvals: 0,
+  changes: 0,
+});
+
 /** The figures each period is compared by. */
-async function headline(tx: Tx, scope: Scope, from: string, to: string) {
+async function headline(tx: Tx, scope: Scope, from: string, to: string): Promise<Headline> {
+  const all = await headlines(tx, scope, from, to, false);
+  return all.get(scope.tenantId) ?? emptyHeadline(from, to);
+}
+
+/**
+ * The headline of the scope's runs, by agent (R5's lines, keyed by agent id) or for them all (keyed
+ * by the client's id). An agent without runs in the period has no entry.
+ */
+export async function headlines(
+  tx: Tx,
+  scope: Scope,
+  from: string,
+  to: string,
+  byAgent: boolean,
+): Promise<Map<string, Headline>> {
+  // One client per scope: grouping by it is grouping them all.
+  const by = byAgent ? run.agentId : run.tenantId;
+  const key = sql<string>`${by}::text`;
   const done = statusSql(scope.surface, OUTCOMES.done);
   const failed = statusSql(scope.surface, OUTCOMES.failed);
-  const [[runs], [items], [changes]] = await Promise.all([
+  const [runs, items, changes] = await Promise.all([
     tx
       .select({
+        key,
         runs: sql<number>`count(*)::int`,
         done: sql<number>`(count(*) filter (where ${done}))::int`,
         failed: sql<number>`(count(*) filter (where ${failed}))::int`,
@@ -202,26 +240,38 @@ async function headline(tx: Tx, scope: Scope, from: string, to: string) {
         >`percentile_cont(0.5) within group (order by ${finishMs}) filter (where ${run.status} = 'succeeded' and ${run.finishedAt} is not null)`,
       })
       .from(run)
-      .where(and(...scope.where)),
+      .where(and(...scope.where))
+      .groupBy(by),
     clientItems(tx, scope, {
+      key,
       wait: sql<
         string | null
       >`percentile_cont(0.5) within group (order by ${waitMs}) filter (where ${inboxItem.resolvedAt} is not null)`,
       approvals: sql<number>`(count(*) filter (where ${inboxItem.status} = 'resolved' and ${inboxItem.kind} in ('approval', 'external_action')))::int`,
-    }) as Promise<{ wait: string | null; approvals: number }[]>,
-    changeRows(tx, scope, { n: sql<number>`count(*)::int` }) as Promise<{ n: number }[]>,
+    }).groupBy(by) as Promise<{ key: string; wait: string | null; approvals: number }[]>,
+    changeRows(tx, scope, { key, n: sql<number>`count(*)::int` }).groupBy(by) as Promise<
+      { key: string; n: number }[]
+    >,
   ]);
-  return {
-    from,
-    to,
-    runs: Number(runs?.runs ?? 0),
-    done: Number(runs?.done ?? 0),
-    failed: Number(runs?.failed ?? 0),
-    finishMedianMs: ms(runs?.finish),
-    waitMedianMs: ms(items?.wait),
-    approvals: Number(items?.approvals ?? 0),
-    changes: Number(changes?.n ?? 0),
+  const out = new Map<string, Headline>();
+  const entry = (k: string) => {
+    const h = out.get(k) ?? emptyHeadline(from, to);
+    out.set(k, h);
+    return h;
   };
+  for (const r of runs) {
+    Object.assign(entry(r.key), {
+      runs: Number(r.runs),
+      done: Number(r.done),
+      failed: Number(r.failed),
+      finishMedianMs: ms(r.finish),
+    });
+  }
+  for (const r of items) {
+    Object.assign(entry(r.key), { waitMedianMs: ms(r.wait), approvals: Number(r.approvals) });
+  }
+  for (const r of changes) entry(r.key).changes = Number(r.n);
+  return out;
 }
 
 /** The scope's changes made in the client's tools (done), with their connection's tool. */

@@ -1156,6 +1156,7 @@ export const ptBR: Messages = {
   "reports.subtitle": "O que os seus agentes fizeram.",
   "reports.subtitlePeriod": "O que os seus agentes fizeram, {period}.",
   "reports.activity": "Atividade",
+  "reports.account": "Conta",
   "reports.period": "Período",
   "reports.period.month": "Este mês",
   "reports.period.last": "Mês passado",
@@ -1602,6 +1603,9 @@ export const ptBR: Messages = {
   "billing.soFarNote": "{period}. O valor final chega no início do próximo mês.",
   "billing.byService": "Por agente",
   "billing.statements": "Faturas",
+  // §1.234: the link to the work statement.
+  "billing.workStatement": "O que seus agentes fizeram a cada mês",
+  "billing.workDone": "Trabalho feito",
   "billing.noStatements": "Nenhuma fatura ainda. A primeira chega no início do próximo mês.",
   "billing.column.item": "Item",
   "billing.pricePerMonth": "{price} por mês",
@@ -2040,6 +2044,16 @@ export const ptBR: Messages = {
   "runsPage.ask.send": "Perguntar",
   "runsPage.ask.asking": "Perguntando…",
   "runsPage.ask.clear": "Limpar",
+  "runsPage.views.label": "Visualizações salvas",
+  "runsPage.views.save": "Salvar esta visualização",
+  "runsPage.views.name": "Nome da visualização",
+  "runsPage.views.namePlaceholder": "Dê um nome a esta visualização",
+  "runsPage.views.share": "Compartilhar com sua equipe",
+  "runsPage.views.shareShort": "Compartilhar",
+  "runsPage.views.stopSharing": "Parar de compartilhar",
+  "runsPage.views.shared": "Compartilhada",
+  "runsPage.views.by": "Compartilhada por {name}",
+  "runsPage.views.delete": "Excluir a visualização {name}",
   "runsPage.ask.unclear":
     "Não conseguimos transformar isso em um filtro. Tente citar um agente, um status ou uma data.",
   "runsPage.ask.leftOut": "Fora deste filtro: {parts}",
@@ -2527,6 +2541,27 @@ export const ptBR: Messages = {
   "workflow.card.ifFails": "Se falhar", // fluent review
   "workflow.card.inSop": "Etapa {step} no POP", // fluent review
   "workflow.close": "Fechar", // fluent review
+  // ── Procedures: every agent's SOP in a row (docs/sop-plan.md S2) ──
+  "procedures.title": "Procedimentos", // fluent review
+  "procedures.subtitle":
+    "O procedimento operacional padrão de cada um dos seus agentes, feito a partir de como está configurado hoje.", // fluent review
+  "procedures.link": "Os POPs de todos os seus agentes", // fluent review
+  "procedures.none": "Nenhum dos seus agentes tem POP ainda.", // fluent review
+  "procedures.find": "Encontre um agente, um sistema, uma pessoa ou uma alteração", // fluent review
+  "procedures.system": "Sistema", // fluent review
+  "procedures.anySystem": "Qualquer sistema", // fluent review
+  "procedures.does": "O que faz lá", // fluent review
+  "procedures.does.any": "Lê ou altera", // fluent review
+  "procedures.does.changes": "Altera", // fluent review
+  "procedures.does.reads": "Lê", // fluent review
+  "procedures.party": "Quem participa", // fluent review
+  "procedures.anyone": "Qualquer pessoa", // fluent review
+  "procedures.count": "Mostrando {shown} de {total}", // fluent review
+  "procedures.noMatch": "Nenhum agente corresponde.", // fluent review
+  "procedures.col.agent": "Agente", // fluent review
+  "procedures.col.changed": "O que mudou por último", // fluent review
+  "procedures.andMore": "e mais {count}", // fluent review
+  "procedures.changedBy": "{who}, em {where}", // fluent review
   // ── The workflow chart (shared with the builder) ──
   "flow.zoomOut": "Diminuir zoom", // fluent review
   "flow.zoomReset": "Voltar a 100%", // fluent review
@@ -4146,4 +4181,98 @@ export const ptBR: Messages = {
   "books.check.undeposited_funds": "Valores não depositados",
   "books.check.price_drift": "Preços de fornecedores em alta",
   // (end books health)
+  // §1.232: the Close pack
+  "close.title": "Fechamento do mês",
+  "close.description": "A lista de cada mês, seus lançamentos e a aprovação final.",
+  "close.empty": "Nenhum mês foi verificado ainda.",
+  "close.notChecked": "Este mês ainda não foi verificado.",
+  "close.loading": "Carregando o fechamento…",
+  "close.month": "Mês",
+  "close.periodOf": "De {start} a {end}",
+  "close.status.signed_off": "Fechado",
+  "close.ready": "Pronto para fechar",
+  "close.linesOpen": "Linhas abertas: {count}",
+  "close.signedOffBy": "Fechado por {name} em {day}",
+  "close.checklist": "Lista de fechamento",
+  "close.entries": "Lançamentos de diário",
+  "close.noEntries": "Nenhum lançamento neste mês.",
+  "close.item.open": "Aberta",
+  "close.item.done": "Feita",
+  "close.item.waived": "Dispensada",
+  "close.waivedBecause": "Dispensada: {note}",
+  "close.waive": "Dispensar",
+  "close.waiveReason": "Por que pode ficar aberta",
+  "close.unwaive": "Retirar a dispensa",
+  "close.reject": "Recusar",
+  "close.date": "Data",
+  "close.entry": "Lançamento",
+  "close.amount": "Valor",
+  "close.statusCol": "Situação",
+  "close.kind.accrual": "Provisão",
+  "close.kind.reversal": "Estorno",
+  "close.kind.recurring": "Recorrente",
+  "close.debit": "Débito",
+  "close.credit": "Crédito",
+  "close.entry.proposed": "Aguardando",
+  "close.entry.rejected": "Recusado",
+  "close.entry.posted": "Registrado",
+  "close.entry.failed": "Falhou",
+  "close.entry.superseded": "Substituído",
+  "close.entry.waitingSignature": "Aguardando uma assinatura",
+  "close.signOff": "Fechar o mês",
+  "close.signOffNote": "Uma observação para o registro (opcional)",
+  // (end close)
+  // Plan entry §1.233: the AP pack's Bills to pay and its approve-to-pay card.
+  "ap.bills.title": "Contas a pagar",
+  "ap.bills.description":
+    "As faturas de fornecedores de cada semana para aprovar, conferidas com seus pedidos. Nada é pago aqui.",
+  "ap.list.loading": "Carregando as faturas…",
+  "ap.list.empty": "Nenhuma fatura na lista desta semana.",
+  "ap.list.heading": {
+    one: "{count} fatura para {day}:",
+    other: "{count} faturas para {day}:",
+  },
+  "ap.list.needsYou": {
+    one: "{count} precisa de você",
+    other: "{count} precisam de você",
+  },
+  "ap.list.needsYouTitle": "Precisam de você",
+  "ap.list.ready": "Prontas para aprovar: {amount}",
+  "ap.list.approved": "Aprovadas: {amount}",
+  "ap.list.approveReady": "Aprovar as faturas prontas",
+  "ap.list.decided": "Decididas",
+  "ap.list.done": "Concluído nesta semana",
+  "ap.list.week": "Semana",
+  "ap.list.weekOf": "Semana de {day}",
+  "ap.status.open": "A decidir",
+  "ap.status.approved": "Aprovada",
+  "ap.status.held": "Em espera",
+  "ap.status.rejected": "Rejeitada",
+  "ap.bill.due": "Vence em {day}",
+  "ap.bill.order": "Pedido {reference}",
+  "ap.bill.noOrder": "Sem pedido",
+  "ap.bill.account": "Conta",
+  "ap.bill.chooseAccount": "Escolha uma conta",
+  "ap.bill.take": "Usar {account}",
+  "ap.bill.confirmOrder": "É este pedido",
+  "ap.bill.notThisOrder": "Não é este pedido",
+  "ap.bill.received": "Marcar o pedido como recebido",
+  "ap.bill.note": "Por quê (para colocar em espera, rejeitar ou aprovar uma fatura sinalizada)",
+  "ap.bill.approve": "Aprovar",
+  "ap.bill.hold": "Colocar em espera",
+  "ap.bill.reject": "Rejeitar",
+  "ap.flag.duplicate": "Duplicada",
+  "ap.flag.possible_duplicate": "Possível duplicada",
+  "ap.flag.price_over_order": "Preço acima do pedido",
+  "ap.flag.price_under_order": "Preço abaixo do pedido",
+  "ap.flag.unit_not_compared": "Outra unidade, não comparada",
+  "ap.flag.qty_over_order": "Mais faturado que pedido",
+  "ap.flag.qty_over_received": "Mais faturado que recebido",
+  "ap.flag.not_received": "Não marcado como recebido",
+  "ap.flag.amount_differs": "Total diferente do pedido",
+  "ap.flag.no_order": "Sem pedido de compra",
+  "ap.flag.order_to_confirm": "Pedido a confirmar",
+  "ap.flag.uncoded": "Linhas sem conta",
+  "ap.flag.read_again": "Lida de novo",
+  "ap.flag.other": "Aviso",
 };

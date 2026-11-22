@@ -68,9 +68,17 @@ const ConnectorsScreen = lazy(() =>
 const ConnectorPageScreen = lazy(() =>
   import("./screens/ConnectorPage").then((m) => ({ default: m.ConnectorPageScreen })),
 );
+// docs/sop-plan.md S2: Procedures, every agent's SOP in a row, loads when opened.
+const ProceduresScreen = lazy(() =>
+  import("./screens/Procedures").then((m) => ({ default: m.ProceduresScreen })),
+);
 // §1.216: books health, the owner's one page on its QuickBooks, loads when opened.
 const BooksHealthScreen = lazy(() =>
   import("../books-health/BooksHealth").then((m) => ({ default: m.PortalBooksHealthScreen })),
+);
+// §1.234: the work statement, for the client admin, from Billing and the invoice's email.
+const WorkStatementScreen = lazy(() =>
+  import("./screens/WorkStatement").then((m) => ({ default: m.PortalWorkStatementScreen })),
 );
 /** `/access`, `/accounts/access`: the vault's old pages, now Connectors' website logins. */
 function VaultRedirect() {
@@ -117,6 +125,16 @@ export const portalRoutes = (
       }
     />
 
+    {/* §1.234: the work statement, for the client admin; reached from Billing */}
+    <Route
+      path="billing/work"
+      element={
+        <OnDemand>
+          <WorkStatementScreen />
+        </OnDemand>
+      }
+    />
+
     {/* An agent: Overview, Runs, Access */}
     <Route path="agents/:id" element={<AgentScreen tab="overview" />} />
     <Route path="agents/:id/runs" element={<AgentScreen tab="runs" />} />
@@ -128,6 +146,16 @@ export const portalRoutes = (
     <Route path="agents/:id/manual" element={<Redirect to="/agents/:id/sop" />} />
     <Route path="agents/:id/settings" element={<AgentScreen tab="settings" />} />
     <Route path="agents/:id/access" element={<Redirect to="/agents/:id/settings" />} />
+
+    {/* docs/sop-plan.md S2: every agent's SOP in a row */}
+    <Route
+      path="procedures"
+      element={
+        <OnDemand>
+          <ProceduresScreen />
+        </OnDemand>
+      }
+    />
 
     {/* Settings (the avatar menu and the sidebar's foot), one section at a time */}
     <Route path="settings" element={<PortalSettingsScreen section="general" />} />

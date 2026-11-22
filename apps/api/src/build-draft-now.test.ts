@@ -274,6 +274,59 @@ describe.skipIf(!h)("draft it now", () => {
     ]);
   });
 
+  // F-C: the drafter names the step for a gap; its words needn't match. The word match is the
+  // fallback for a gap it named nothing (or nothing the draft has) for.
+  it("puts a gap on the step the drafter names, and word-matches the ones it doesn't", async () => {
+    const started = await ok("POST", "/api/ops/builds", { kind: "agent", title: "Named gaps" });
+    const id = started.build.id;
+    const ask = (stepId: string, name: string, title: string) => ({
+      id: stepId,
+      kind: "person",
+      name,
+      mode: "ask",
+      assignee: "client_admin",
+      title,
+      deadline: { after: "2 days" },
+    });
+    model.push(
+      draftAnswer(
+        [
+          ask("card", "Enter the card charges", "Type in this month's charges"),
+          ask(
+            "portal",
+            "Read the vendor's portal",
+            "Check the vendor's portal and enter the amount",
+          ),
+          update,
+        ],
+        {
+          gaps: [
+            "Nothing reads the bank's statements yet.",
+            "No connector reads the vendor's portal, so a person checks it for now.",
+            "Nothing sends the monthly summary yet.",
+          ],
+          gapSteps: [
+            // No shared words with its step: only the drafter's name puts it there.
+            { gap: 0, stepId: "card" },
+            // A step the draft doesn't have: the word match decides.
+            { gap: 1, stepId: "nowhere" },
+          ],
+        },
+      ),
+    );
+    const b = await ok("POST", `/api/ops/builds/${id}/draft-now`, { description: DESCRIPTION });
+    const saved = (name: string) => b.draft?.steps.find((s) => s.name === name)?.stepId;
+    expect(saved("Enter the card charges")).not.toBe("card");
+    expect(b.items.map((i) => [i.title, i.stepId])).toEqual([
+      ["Nothing reads the bank's statements yet.", saved("Enter the card charges")],
+      [
+        "No connector reads the vendor's portal, so a person checks it for now.",
+        saved("Read the vendor's portal"),
+      ],
+      ["Nothing sends the monthly summary yet.", null],
+    ]);
+  });
+
   it("leaves the build where it was when the draft fails, and says the words once", async () => {
     const started = await ok("POST", "/api/ops/builds", { kind: "agent", title: "Record fixer 2" });
     const id = started.build.id;
