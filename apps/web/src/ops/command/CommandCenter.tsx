@@ -26,6 +26,7 @@ import {
 } from "../../agents/status";
 import { apiRoutes } from "../../api/routes";
 import { useApi } from "../../api/useApi";
+import { EN } from "../../i18n/i18n";
 import { shortTime, usd } from "../../runs/format";
 import { opsRunTitle } from "../../runs/subject";
 import { usePoll } from "../../runs/usePoll";
@@ -890,9 +891,8 @@ type RunState = (typeof RUN_STATES)[number][0];
 
 /** "10 Nov" over "08:23": the date stacked on the time, so the time column stays narrow. */
 export function dayTime(iso: string): ReactNode {
-  const d = new Date(iso);
-  const day = d.toLocaleDateString("en-GB", { day: "numeric", month: "short" });
-  const time = d.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
+  const day = EN.fmt.day(iso);
+  const time = EN.fmt.clock(iso);
   return (
     <span className="ops-when" title={`${day} ${time}`}>
       <span>{day}</span>

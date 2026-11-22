@@ -11,6 +11,7 @@ import type {
 import { useState } from "react";
 import { apiRoutes } from "../../api/routes";
 import { useApiClient } from "../../api/useApi";
+import { EN } from "../../i18n/i18n";
 import { Field, TextArea, TextInput } from "../../ui/forms";
 import { Badge, Button, Card, SectionLabel, type Tone } from "../../ui/primitives";
 
@@ -237,8 +238,7 @@ export function A2pRegistrationPanel({
       ) : null}
       {r.submissions.length > 0 ? (
         <p className="text-sm text-ink-muted">
-          Last submitted{" "}
-          {new Date(r.submissions[r.submissions.length - 1]?.at ?? "").toLocaleString()} by{" "}
+          Last submitted {EN.fmt.dateTime(r.submissions[r.submissions.length - 1]?.at ?? "")} by{" "}
           {r.submissions[r.submissions.length - 1]?.by}: "
           {r.submissions[r.submissions.length - 1]?.reason}"
         </p>

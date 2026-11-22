@@ -234,3 +234,37 @@ a.ops-pick:hover .ui-stat {
 .ops-row[aria-current="true"]:hover {
   background: var(--slate-tint);
 }
+
+/* The runs list (QA, runs and dates): it fits the page at common widths. Long titles and errors
+ * wrap anywhere and are cut to two lines (their whole words in the tooltip), so no unbroken file
+ * name or field path widens a column; when the page is narrower still, the table scrolls in its
+ * own box and Cost stays pinned at its right edge. */
+.ops-runs-table .ops-runs-col-run {
+  min-width: 10rem;
+  max-width: 18rem;
+  overflow-wrap: anywhere;
+}
+.ops-runs-table .ops-runs-col-error {
+  min-width: 10rem;
+  max-width: 16rem;
+  overflow-wrap: anywhere;
+}
+.ops-runs-table .ops-runs-cost {
+  position: sticky;
+  right: 0;
+  z-index: 1;
+  background: var(--surface);
+  border-left: 1px solid var(--line);
+  white-space: nowrap;
+}
+.ops-runs-table thead .ops-runs-cost {
+  z-index: 4;
+  background: var(--surface-subtle);
+}
+.ops-runs-table tbody tr:hover .ops-runs-cost {
+  background: var(--surface-subtle);
+}
+/* A run shown under its "same error" row, set in from the row it belongs to. */
+.ops-runs-table .ops-runs-in-group {
+  padding-left: var(--space-6);
+}

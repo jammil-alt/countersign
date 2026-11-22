@@ -50,6 +50,14 @@ describe("RunFilter query parameters", () => {
     expect(q.perDay).toBe(false);
   });
 
+  it("pages by the last run shown, which is never part of the filter", () => {
+    const q = OpsRunsQuery.parse({ before: A, mode: "live" });
+    expect(q.before).toBe(A);
+    expect(q.filter).toEqual({ mode: "live" });
+    expect(OpsRunsQuery.parse({}).before).toBeUndefined();
+    expect(OpsRunsQuery.safeParse({ before: "R-0f1001" }).success).toBe(false);
+  });
+
   it("refuses values that are not what they say", () => {
     expect(OpsRunsQuery.safeParse({ statuses: "failed,exploded" }).success).toBe(false);
     expect(OpsRunsQuery.safeParse({ clients: "not-an-id" }).success).toBe(false);

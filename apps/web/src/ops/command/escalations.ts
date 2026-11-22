@@ -1,6 +1,7 @@
 // Needs us rows in words (the command center and Escalations): the chip, what waits on whom and
 // why, and where to go for it. Back office only, English.
 import { APPROVAL_OVERDUE_HOURS, type Escalation } from "@countersign/core";
+import { EN } from "../../i18n/i18n";
 import type { ChipState } from "../../ui/status";
 import { OPS_PATHS } from "../paths";
 import { age, NOBODY_TO_ACT_MANY_WORDS, NOBODY_TO_ACT_WORDS, waitOnWords } from "../run/words";
@@ -122,10 +123,7 @@ export function urgencyOf(e: Pick<Escalation, "blockedSince">, now: Date = new D
 
 /** "8 Nov, 14:05": when the wait started, on a row. */
 export function sinceDate(iso: string): string {
-  const d = new Date(iso);
-  const day = d.toLocaleDateString("en-GB", { day: "numeric", month: "short" });
-  const time = d.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
-  return `${day}, ${time}`;
+  return EN.fmt.dateTime(iso);
 }
 
 /**

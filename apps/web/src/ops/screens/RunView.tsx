@@ -42,7 +42,15 @@ import { InboxCard, type ResolveInput } from "../../inbox/InboxCard";
 import { SourceLinks, sourcesOf } from "../../records/SourceLinks";
 // P-6
 import { ConversationControls } from "../../runs/ConversationControls";
-import { duration, isRunGoing, shortTime, stepStatusLabel, usd } from "../../runs/format";
+import {
+  duration,
+  isRunGoing,
+  msWords,
+  runWorkedMs,
+  shortTime,
+  stepStatusLabel,
+  usd,
+} from "../../runs/format";
 import { roleLabel, qualifiedToolLabel as toolLabel } from "../../runs/labels";
 import { conferTitle, StepChecks } from "../../runs/StepChecks";
 import { useStepParam } from "../../runs/StepPanel";
@@ -1004,7 +1012,13 @@ function AboutRun({
       "Started",
       `${shortTime(run.startedAt ?? run.createdAt)}${startedBy ? ` ${STARTED_BY_WORDS[startedBy] ?? ""}` : ""}`,
     ],
-    ["Duration", run.startedAt ? duration(run.startedAt, run.finishedAt) : "Not started"],
+    // The time it worked; the time it waited on people apart (QA, runs and dates).
+    [
+      "Duration",
+      run.startedAt
+        ? `${msWords(runWorkedMs(run) ?? 0)}${(run.waitedMs ?? 0) >= 60_000 ? ` · waited ${msWords(run.waitedMs ?? 0)} on people` : ""}`
+        : "Not started",
+    ],
     [
       "Cost",
       `${usd(run.costUsd)}${calls === null ? "" : ` · ${plural(calls, "model call", "model calls")}`}`,

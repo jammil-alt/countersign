@@ -9,6 +9,7 @@ import { Link, useNavigate } from "react-router-dom";
 import type { ResponseOf } from "../../api/client";
 import { apiRoutes } from "../../api/routes";
 import { useApi } from "../../api/useApi";
+import { EN } from "../../i18n/i18n";
 import { cx } from "../../ui/cx";
 import type { AccentTone } from "../../ui/figures";
 import { Loaded, Page } from "../../ui/page";
@@ -58,8 +59,7 @@ export function NewClientLink() {
   );
 }
 
-const since = (iso: string) =>
-  new Date(iso).toLocaleDateString(undefined, { month: "short", year: "numeric" });
+const since = (iso: string) => EN.fmt.month(iso);
 
 type Client = Clients[number];
 type View = "cards" | "table";

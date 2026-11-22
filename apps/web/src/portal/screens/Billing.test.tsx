@@ -133,7 +133,7 @@ describe("portal billing", () => {
     );
     const card = screen.getByTestId(`portal-billing-statement-${STATEMENT}`);
     expect(card).toHaveTextContent("October 2026");
-    expect(card).toHaveTextContent("MZ-0001 · Due Dec 1, 2026");
+    expect(card).toHaveTextContent("MZ-0001 · Due 1 Dec 2026");
     expect(card).toHaveTextContent("Payment failed");
     expect(within(card).getByRole("link", { name: "View and pay" })).toHaveAttribute(
       "href",

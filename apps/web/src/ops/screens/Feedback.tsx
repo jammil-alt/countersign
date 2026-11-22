@@ -10,6 +10,7 @@ import { useSearchParams } from "react-router-dom";
 import { apiRoutes } from "../../api/routes";
 import { useApi, useApiClient } from "../../api/useApi";
 import { PinnedPicture } from "../../feedback/Feedback";
+import { EN } from "../../i18n/i18n";
 import { TextInput } from "../../ui/forms";
 import { Loaded, Page } from "../../ui/page";
 import { Badge, Button, Card, Count, EmptyState, PageHeader, Tag } from "../../ui/primitives";
@@ -36,12 +37,7 @@ const FROM: [From, string][] = [
 ];
 
 function when(iso: string): string {
-  return new Date(iso).toLocaleString(undefined, {
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  });
+  return EN.fmt.dateTime(iso);
 }
 
 export function OpsFeedbackScreen() {

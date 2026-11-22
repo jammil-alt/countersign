@@ -12,7 +12,12 @@
 //   it runs, how to reach it, what it may do in each of your tools (read-only; the client admin
 //   tightens on Accounts) and who it contacts (the client admin chooses).
 // Never the agent's bundle, instructions, prompts or cost (invariant 11).
-import { connectorAccessRoutes, type RunForm, type ServiceControl } from "@countersign/core";
+import {
+  connectorAccessRoutes,
+  pauseReasonWords,
+  type RunForm,
+  type ServiceControl,
+} from "@countersign/core";
 import { type FormEvent, lazy, type ReactNode, Suspense, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { type AgentViewKey, defaultReports, viewsFor } from "../../agents/views";
@@ -22,6 +27,7 @@ import { useApi, useApiClient } from "../../api/useApi";
 import { AskForLine, hasOwnNumber } from "../../channels/AskForLine";
 import { CHANNEL_KIND_KEY, ChannelLines } from "../../channels/ChannelLines";
 import type { PlainKey } from "../../i18n/catalog";
+import { dateLocaleFor } from "../../i18n/format";
 import { type I18n, useI18n } from "../../i18n/i18n";
 import { StatusFilter } from "../../inbox/StatusFilter";
 import { packReportPath } from "../../packs/registry";
@@ -573,8 +579,8 @@ function scheduleWords(cron: string | null, { t, locale }: Pick<I18n, "t" | "loc
   if (!/^\d+$/.test(min) || !/^\d+$/.test(hour) || dom !== "*" || mon !== "*") {
     return t("agent.trigger.schedule");
   }
-  const time = new Intl.DateTimeFormat(locale, {
-    hour: "numeric",
+  const time = new Intl.DateTimeFormat(dateLocaleFor(locale), {
+    hour: "2-digit",
     minute: "2-digit",
     timeZone: "UTC",
   }).format(new Date(Date.UTC(2000, 0, 2, Number(hour), Number(min))));
@@ -767,10 +773,15 @@ function PauseNotice({ control }: { control: ServiceControl }) {
   const { t } = i18n;
   const pause = control.pause;
   if (!pause) return null;
+  const reason = pauseReasonWords(pause.reason);
   const who =
     pause.side === "client"
-      ? t("agent.pausedByYou", { reason: pause.reason })
-      : t("agent.pausedByUs", { reason: pause.reason });
+      ? reason
+        ? t("agent.pausedByYou", { reason })
+        : t("agent.pausedByYouAlone")
+      : reason
+        ? t("agent.pausedByUs", { reason })
+        : t("agent.pausedByUsAlone");
   return (
     <div className="ds-card flex flex-col gap-1 p-5" data-testid="agent-paused">
       <span className="flex flex-wrap items-center gap-2">

@@ -88,6 +88,7 @@ import { Chart } from "../flow/Chart";
 import { dispatchFlowDrop, flowCollision, resolveFlowDrop } from "../flow/dnd";
 import { FlowBar, type FlowView } from "../flow/FlowBar";
 import "../flow/flow.css";
+import { EN } from "../../i18n/i18n";
 import {
   agentEnds,
   chartLabel,
@@ -437,7 +438,7 @@ function restoredDraft(
 }
 
 function clock(at: number): string {
-  return new Date(at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  return EN.fmt.clock(new Date(at).toISOString());
 }
 
 // ── Body ─────────────────────────────────────────────────────────────────────────────────────────
