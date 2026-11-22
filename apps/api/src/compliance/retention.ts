@@ -66,7 +66,7 @@ export async function purgeRetiredFiles(
 
 /**
  * §1.220 (q14): lost prospects' client files, 12 months after the last of their deals closed
- * without a sale. Migration 0094's `app_purge_lost_prospect_files()` decides which, deletes them
+ * without a sale. Migration 0097's `app_purge_lost_prospect_files()` decides which, deletes them
  * (their facts with them) and writes its own audit row; the Worker has no DELETE of its own. At
  * most 500 a call, so a backlog goes over the next hours.
  */

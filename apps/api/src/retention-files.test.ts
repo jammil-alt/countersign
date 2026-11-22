@@ -1,6 +1,6 @@
 // Lost prospects' client files (docs/plan.md §1.149 q14, §1.220): the hourly retention job, run as
 // the Worker, deletes a prospect's file once its last deal closed without a sale more than 12
-// months ago, through migration 0094's function, and keeps a younger one.
+// months ago, through migration 0097's function, and keeps a younger one.
 
 import { auditEvent, clientFile, deal } from "@countersign/db";
 import { eq } from "drizzle-orm";
