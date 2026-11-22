@@ -8,12 +8,12 @@ the rest.**
 
 **The order we work it in** (2026-11-22): `docs/work-plan.md`, one item and one PR at a time,
 code and the owner's steps side by side. Reporting and searching runs by their data is agreed
-in `docs/reporting-plan.md`.
+in `docs/reporting-plan.md`; R1 and R3 (a record's Runs panel, §1.200) are built.
 
 ## Where things stand
 
-- **Built:** everything through M69 (`docs/plan.md` §4) and the work recorded through §1.198,
-  migrations through 0078, merged to `main` and deployed to staging. That includes purchasing end
+- **Built:** everything through M69 (`docs/plan.md` §4) and the work recorded through §1.207,
+  migrations through 0080, merged to `main` and deployed to staging. That includes purchasing end
   to end by email (M42), the Marketing wave (M43–M50), the Bookkeeping area (M51–M57), the back
   office's Sales, onboarding and Build (M64–M69), the SOP and agent assurance.
 - **Every provider is built against a fake.** Nothing has yet run against live QuickBooks, Gmail,
@@ -68,11 +68,14 @@ emailed and the QuickBooks purchase order is created; every write is approved on
    `materials.quote.create` and `quote.document`, reach out in a `for_each`, `quote.mark-sent`,
    `read-quote`, the vendor-choice card, the PO PDF, `materials.vendor.qbo`, `materials.po.qbo-lines`,
    `qbo.purchaseorder.create`). `apps/api/src/purchasing-email.test.ts` is the working recipe: copy its
-   workflow. Set the skill setting `qbo_account_id` (the expense account PO lines book to).
+   workflow. Set the skill setting `qbo_account_id` (the expense account PO lines book to when an
+   item has no QuickBooks item; items the bill-price import saw are tied already, and
+   `materials.item.qbo` ties the rest, `docs/plan.md` §1.205).
 6. **Bind its channels and connections** (email channel from P2, QuickBooks), test-run it, then take it
    through trial (every write signed).
 7. **Run the done-when** with real email from a test inbox, and walk the QuickBooks sandbox checks in
-   `packages/connectors/src/qbo/NOTES.md` ("Against the sandbox company", 1 to 8).
+   `packages/connectors/src/qbo/NOTES.md` ("Against the sandbox company", 1 to 9; 9 is the PO
+   with an item line, C2.4).
 
 ### 1.3 Owner decisions for the buyer (`docs/plan.md` §1.71)
 
@@ -94,7 +97,10 @@ emailed and the QuickBooks purchase order is created; every write is approved on
 - **Before the first purchasing client: a staging run with real invoices.** The fakes and the
   goldens don't cover how real vendors word their packs.
 - RFQs are English only; the vendor's language is open.
-- QuickBooks PO lines are account lines only (catalog items carry no QuickBooks item id).
+- QuickBooks PO lines are item lines for catalog items tied to a QuickBooks item, account lines
+  for the rest (C2.4, `docs/plan.md` §1.205). Open: no screen shows or changes an item's
+  QuickBooks item (a step or the import ties it; changing a wrong tie is by hand in the database
+  today).
 - The portal channel for conversations (§1.66).
 - **The vendor catalog** is built (`vendor_item`, migration 0047, §1.88) and purchasing reads and
   fills it (§1.189, #529). Open: a request line doesn't keep which vendor item it matched, so a
@@ -260,6 +266,13 @@ Requirements request reading its card. All against fakes. What it still needs:
   The full list: `docs/plan.md` §1.149.5 and §1.149.6.
 - The owner's call: whether the deal page's old "Set up the account" card stays now that Invite
   does the set-up.
+- **Built (2026-11-22), PR #522:** setting a client up from the intake to the first trial
+  (`docs/setup-plan.md`, SU1–SU6; decisions `docs/plan.md` §1.206): **seats** (a template names
+  "approves bills"; each client fills it), Getting started's chapters (Your tools, Your people, See
+  it work with a test run on a real document, Go live with a signed scope) and the back office's
+  Setup tab (Progress: the board, Nudge, Do it on a call, the runbook, Start trial). Open: Sloan
+  across the chapters (O4), the scope as O5's `intake_scope`, server-side words in six languages,
+  tries stopped at a person step, and a look in a browser.
 
 The plan, its steps (B1–O6) and the owner's open questions: `docs/cases-plan.md`. The screens:
 `docs/design/pipelines.html` and `docs/design/workflows.html` (onboarding not drawn yet).
@@ -323,11 +336,11 @@ PRs #384–#414 closed the launch audit's findings for the first clients. What t
 | H3 | **GitHub and Hyperdrive settings** from PR #384: caching off on the two existing Hyperdrive configs (`wrangler hyperdrive update <id> --caching-disabled`, or run Bootstrap with `rotate_password` unticked); the `production` environment with required reviewers and deployment limited to `main` and `v*` tags. If `staging` allows only `main` to deploy, allow the branches that quick-deploy (`claude/*`). | Owner, by hand | `production` done (checked 2026-11-18: required reviewer, `main` and `v*` tags, no administrator bypass). Hyperdrive caching and `staging`'s branches not checked. `docs/operations.md`. |
 | H4 | ~~A per-site limit on the beacon~~ Done (#537, §1.198): its own binding `INBOUND_TARGET_RATE_LIMIT`, 3,000 a minute per site. Its namespaces are created by the next deploy. | Code and `wrangler.jsonc` | §1.141. |
 | H5 | ~~Transcription records no usage~~ Done (#536, §1.196): the portal's dictation is the client's usage under Sloan (one test run per segment), the back office's is logged as ours. Open: one live call on staging to check OpenAI's `usage` shape and prices; an action of its own on `model_call` needs a migration. | Code | §1.139. |
-| H6 | **"Who is asking" on the Claude approval page**: the Claude client's name and where the request came from. | Migration on `mcp_session_approval`, then code | §1.130. Today the page shows when Claude asked and takes Claude's code. |
+| H6 | ~~"Who is asking" on the Claude approval page~~ Done (§1.201, migration 0078): the page shows the asking Claude client, in words, and where the request came from. | Migration, then code | §1.130. |
 | H7 | ~~The portal's resume screen~~ Done (#535, §1.195): it says how many events came in while the agent was paused. Open: a native speaker's check of the five other languages. | Code, copy in six languages | §1.137. |
 | H8 | **`refresh_failing` connections**: counted in the ops MCP's `needsAttention` and the daily troubled list since #527. Open: LinkedIn's and HubSpot's dead-grant codes come from their docs, not a live call. | Check live | §1.134. |
-| H9 | ~~The web app's first load~~ Done (#531, §1.192): 344 kB, budget 351 kB. Next toward 300 kB: each portal screen on its own, the route contract split per screen, English on demand. | Code | audit 4.6 |
-| H10 | ~~Texting edge cases~~ Done (#538, §1.197). Open, for the owner: a forwarded invitation can still learn that a number is one of the client's contacts (`number_taken`), as before. | Code, small | §1.142. |
+| H9 | ~~The web app's first load~~ Done (#531, §1.192): 344 kB, budget 351 kB; main reached 350.8 kB with #523, and R2 (#534) raised the budget to 352 kB, so the headroom is used up. Next toward 300 kB: each portal screen on its own, the route contract split per screen, English on demand. | Code | audit 4.6 |
+| H10 | ~~Texting edge cases~~ Done (#538, §1.197; the link's own check of a number taken a moment before, fixed in #534). Open, for the owner: a forwarded invitation can still learn that a number is one of the client's contacts (`number_taken`), as before. | Code, small | §1.142. |
 
 ### The phone app (owner, 2026-11-13; `docs/plan.md` §1.116, `apps/mobile/README.md`)
 
@@ -346,7 +359,7 @@ sign-in stays off until `MOBILE_SIGNIN=on` and phone notifications until `MOBILE
 | M6 | Expo's **enhanced push security** on, and `MOBILE_PUSH` and `EXPO_ACCESS_TOKEN` copied by `deploy.yml` (a small PR of its own), before production's `MOBILE_PUSH=on`. | Until then anyone holding a phone's token could send it a notification through Expo. |
 | M7 | Owner decisions: a longer session for an unlocked registered phone (today 30 idle minutes, as the browser, and the second step's code at each sign-in); whether a remembered browser may let a phone sign-in skip the code (today never); whether operators get the app (today refused at the handoff); (the phone app as a second-step method: built 2026-11-18, A8); the store listing (name, screenshots, privacy answers); TestFlight testers. | `docs/plan.md` §1.116 "Not in this pass". |
 | M8 | Before production's `MOBILE_SIGNIN=on`: a page in the browser that asks the person to confirm before the handoff sends the session to the app, and the app's return on a universal link (iOS) and an app link (Android) instead of the `mezonas://` scheme, so only our app can receive the code. | Audit, 2026-11-17. The code is already useless without the app's PKCE verifier. |
-| M9 | Signing follow-ups (audit, 2026-11-17): the signature covers the item, the decision, the fingerprint and the time, not a question's answer text or a note; a v2 signed text (`mezonas-sign:v2`) would add them. The time window is ±5 minutes, so a signature dated up to 5 minutes ahead is accepted. | Code. `deviceSignedText` in `packages/core/src/mobile/mobile.ts`. |
+| M9 | ~~Signing follow-ups: a v2 signed text covering an answer's text and a note~~ Done (§1.203): the app signs `mezonas-sign:v2`; `v1` is still accepted. Owner decision left: when to refuse a `v1` signature that comes with an answer or a note (once every phone in use signs `v2`). The ±5 minute window is kept as is. | Owner decision. |
 | M10 | Decide: whether a release-code card may be resolved from a phone without a signature; whether a phone session may turn human release off (a setting, not a card). Possible, not checked: an admin's phone undoes another person's rejection, then a step set to `ifNoAnswer: proceed` goes on at its deadline. | Owner decisions; the last one needs a test first. |
 
 ### The desktop app (owner, 2026-11-17; `docs/plan.md` §1.151, `apps/desktop/README.md`)
@@ -468,6 +481,22 @@ Left:
 | A7 | **Check Twilio Verify for real**: every item under "To verify" in `packages/connectors/src/twilio/VERIFY_NOTES.md` (codes, TOTP factors, API-key auth, errors, rate limits), as A4 runs. | Built against an in-memory fake. |
 | A8 | **Approving a sign-in on the phone** (`docs/plan.md` §1.154; PRs #429, #431, #432): built and tested against fakes; live only once the app is (M2 to M5 below) and push is on (M6). Then check on staging: a password sign-in offers the phone, the notification arrives, one Face ID, the right number signs in, a wrong number and "It wasn't me" stop it, the browser is remembered if asked. | Nothing tried yet on a real phone, Face ID or a real push. |
 | A9 | Phone approval, not built: an email to the person when a request is turned down; a phone approving a Claude connection (§1.120); the desktop app approving (§1.151). Owner to say which, if any. | §1.154, "Not in this pass". |
+
+### The staging walk-through (owner, 2026-11-22; `STAGING_QA.md`, `docs/plan.md` §1.207)
+
+Fixed in one PR. What is still open from it:
+
+- **Owner decisions:** one way to start a client (New client, Sign up now, New deal and Invite
+  each work differently today), and the words: Areas or Packs (Purchasing or Materials), owners,
+  processes, supervisor, lead, Reggie, Sloan, Kit.
+- **Check on staging after the deploy:** the Your call badge on Library and New client (not seen
+  locally; a test now covers every route), and why `GET …/skills` hangs there (the agent page no
+  longer waits on it). Reading staging from a Claude session needs the operator to approve its
+  connect-claude link first.
+- **Code:** back-office questions and Sloan's thread summaries record their cost only in logs
+  (a table, so a migration PR of its own); schedule wording is still 12-hour; deal and contact time
+  zones are still free text; a dependent write the model makes inside one skill still reads its
+  before state in a test run.
 
 ### Owner decisions still open (`docs/plan.md` §7 and the sections named)
 

@@ -4,6 +4,7 @@
 // client's name comes from the frame's clients list, so the layout loads nothing of its own.
 import type { ReactNode } from "react";
 import { Link, useLocation, useParams, useSearchParams } from "react-router-dom";
+import { dateLocaleFor } from "../../../i18n/format";
 import { useClientSummary } from "../../../ops/OpsLayout";
 import { Select } from "../../../ui/forms";
 import { Page } from "../../../ui/page";
@@ -225,12 +226,12 @@ export function MarketingFilters({ sites }: { sites: readonly MarketingSite[] | 
   );
 }
 
-const DAY_FORMAT = new Intl.DateTimeFormat("en-US", {
+const DAY_FORMAT = new Intl.DateTimeFormat(dateLocaleFor("en"), {
   month: "short",
   day: "numeric",
   timeZone: "UTC",
 });
-const YEAR_FORMAT = new Intl.DateTimeFormat("en-US", {
+const YEAR_FORMAT = new Intl.DateTimeFormat(dateLocaleFor("en"), {
   month: "short",
   day: "numeric",
   year: "numeric",

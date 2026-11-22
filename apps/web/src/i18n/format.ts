@@ -32,10 +32,20 @@ function formatDecimal(nf: Intl.NumberFormat, value: string): string {
 }
 
 export interface Formatters {
-  /** "7:02" today, "Nov 3, 7:02" otherwise; in the viewer's time zone. */
+  /** "07:02" today, "3 Nov, 07:02" otherwise ("3 Nov 2025, 07:02" in another year). */
   time(iso: string | null, now?: Date): string;
-  /** "Nov 3, 2026". */
+  /** "3 Nov, 07:02" always, today too ("3 Nov 2025, 07:02" in another year). */
+  dateTime(iso: string | null, now?: Date): string;
+  /** "3 Nov 2026". A calendar day ("2026-11-03") is that day wherever the viewer is. */
   date(iso: string): string;
+  /** "3 Nov", with the year only when it isn't this year: "3 Nov 2025". */
+  day(iso: string, now?: Date): string;
+  /** "07:02". */
+  clock(iso: string): string;
+  /** "Nov 2026". */
+  month(iso: string): string;
+  /** "5 Nov 2026, 09:14:03": a record's exact time (an audit row), with the year and seconds. */
+  stamp(iso: string): string;
   /** A whole number with the locale's grouping: "1,204", "1.204". */
   number(n: number): string;
   /** An amount from its decimal string: "$9,742.35", "9.742,35 $", never via a float. */
@@ -48,10 +58,57 @@ export interface Formatters {
   bytes(n: number): string;
 }
 
+/** A calendar day with no time ("2026-11-03"): read in UTC, so it is that day everywhere. */
+const CALENDAR_DAY = /^\d{4}-\d{2}-\d{2}$/;
+
+/**
+ * The locale dates and times are written in: the house format for English, the reader's own for
+ * the other languages.
+ */
+// DECISION (QA, runs and dates): one house format for dates in the back office and the portal:
+// day then month, 24-hour clock ("21 Nov, 08:00", "21 Nov 2026"), in the viewer's time zone, as
+// the escalations rows already were. English is written en-GB whatever the browser's region (the
+// app showed "Nov 11, 4:40 PM", "21 Nov 08:00" and "11/5/2026" side by side); the other languages
+// keep their own locale's order and clock. Numbers and money keep the reader's own locale.
+export function dateLocaleFor(intl: string): string {
+  return intl === "en" || intl.startsWith("en-") ? "en-GB" : intl;
+}
+
 export function createFormatters(intl: string): Formatters {
-  const time = new Intl.DateTimeFormat(intl, { hour: "numeric", minute: "2-digit" });
-  const day = new Intl.DateTimeFormat(intl, { month: "short", day: "numeric" });
-  const date = new Intl.DateTimeFormat(intl, { month: "short", day: "numeric", year: "numeric" });
+  const dl = dateLocaleFor(intl);
+  const clock = new Intl.DateTimeFormat(dl, { hour: "2-digit", minute: "2-digit" });
+  const dayMonth = new Intl.DateTimeFormat(dl, { month: "short", day: "numeric" });
+  const date = new Intl.DateTimeFormat(dl, { month: "short", day: "numeric", year: "numeric" });
+  const dateUtc = new Intl.DateTimeFormat(dl, {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    timeZone: "UTC",
+  });
+  const dayMonthUtc = new Intl.DateTimeFormat(dl, {
+    month: "short",
+    day: "numeric",
+    timeZone: "UTC",
+  });
+  const month = new Intl.DateTimeFormat(dl, { month: "short", year: "numeric" });
+  const seconds = new Intl.DateTimeFormat(dl, {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  });
+  const calendar = (iso: string) => CALENDAR_DAY.test(iso);
+  const parse = (iso: string) => new Date(calendar(iso) ? `${iso}T00:00:00Z` : iso);
+  const valid = (d: Date) => !Number.isNaN(d.getTime());
+  /** "3 Nov", or "3 Nov 2025" when not in `now`'s year. */
+  const dayOf = (iso: string, now: Date) => {
+    const d = parse(iso);
+    if (!valid(d)) return iso;
+    const utc = calendar(iso);
+    const year = utc ? d.getUTCFullYear() : d.getFullYear();
+    if (year !== now.getFullYear()) return (utc ? dateUtc : date).format(d);
+    return (utc ? dayMonthUtc : dayMonth).format(d);
+  };
+  const dateTime = (d: Date, now: Date) => `${dayOf(d.toISOString(), now)}, ${clock.format(d)}`;
   const integer = new Intl.NumberFormat(intl);
   const oneDecimal = new Intl.NumberFormat(intl, { maximumFractionDigits: 1 });
   const currencies = new Map<string, Intl.NumberFormat>();
@@ -74,10 +131,32 @@ export function createFormatters(intl: string): Formatters {
     time(iso, now = new Date()) {
       if (!iso) return "";
       const d = new Date(iso);
-      const t = time.format(d);
-      return d.toDateString() === now.toDateString() ? t : `${day.format(d)}, ${t}`;
+      if (!valid(d)) return iso;
+      return d.toDateString() === now.toDateString() ? clock.format(d) : dateTime(d, now);
     },
-    date: (iso) => date.format(new Date(iso)),
+    dateTime(iso, now = new Date()) {
+      if (!iso) return "";
+      const d = new Date(iso);
+      return valid(d) ? dateTime(d, now) : iso;
+    },
+    date(iso) {
+      const d = parse(iso);
+      if (!valid(d)) return iso;
+      return (calendar(iso) ? dateUtc : date).format(d);
+    },
+    day: (iso, now = new Date()) => dayOf(iso, now),
+    clock(iso) {
+      const d = new Date(iso);
+      return valid(d) ? clock.format(d) : iso;
+    },
+    month(iso) {
+      const d = parse(iso);
+      return valid(d) ? month.format(d) : iso;
+    },
+    stamp(iso) {
+      const d = new Date(iso);
+      return valid(d) ? `${date.format(d)}, ${seconds.format(d)}` : iso;
+    },
     number: (n) => integer.format(n),
     money(amount, code = "USD") {
       if (amount === null || amount === undefined || amount === "") return "–";

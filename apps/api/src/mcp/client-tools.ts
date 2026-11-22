@@ -177,7 +177,7 @@ const runsList: Tool<ClientToolCtx> = {
   name: "runs_list",
   title: "List runs",
   description:
-    "Your services' runs, newest first (never test runs). Filter by status (failed, waiting, running, done, …), service (an agent's id from overview), since and until (ISO 8601) and text.",
+    "Your services' runs, newest first (never test runs). Filter by status (failed, waiting, running, done, …), service (an agent's id from overview), since and until (ISO 8601), text, and what the runs were about (a vendor, a customer, a document or its number).",
   input: z.strictObject({
     client: ClientArg,
     status: RunStatusSchema.optional(),
@@ -185,13 +185,26 @@ const runsList: Tool<ClientToolCtx> = {
     since: z.iso.datetime({ offset: true }).optional(),
     until: z.iso.datetime({ offset: true }).optional(),
     text: z.string().trim().min(1).max(200).optional(),
+    // R2 (docs/plan.md §1.193): the portal's `about`, only what your timeline shows.
+    about: z
+      .array(z.string().trim().min(2).max(100))
+      .min(1)
+      .max(20)
+      .optional()
+      .describe(
+        "Runs about any of these: words without commas in a name or number (Acme, PO-1032), or kind:id for a record (vendor:<uuid>)",
+      ),
     limit: z.int().min(1).max(100).default(25),
   }),
   annotations: READ,
   async run(ctx, args) {
-    const { client, ...rest } = args as Record<string, string | number | undefined>;
+    const { client, about, ...rest } = args as Record<string, string | number | undefined> & {
+      about?: string[];
+    };
     const session = asClient(ctx, client as string | undefined);
-    const { runs } = await route(ctx, session, routes.portalRuns, { query: query(rest) });
+    const { runs } = await route(ctx, session, routes.portalRuns, {
+      query: query({ ...rest, about: about?.join(",") }),
+    });
     return dataResult("runs_list", `${plural(runs.length, "run")}. run_get shows one.`, { runs });
   },
 };

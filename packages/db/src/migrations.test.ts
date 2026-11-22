@@ -8,7 +8,13 @@ import { is } from "drizzle-orm";
 import { getTableConfig, PgTable } from "drizzle-orm/pg-core";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import * as schema from "./schema";
-import { BUILD_FLOWS, OPERATOR_ONLY_TABLES, OPERATOR_TABLES, TENANT_TABLES } from "./schema";
+import {
+  BUILD_FLOWS,
+  NOTIFICATION_KIND_CHECK,
+  OPERATOR_ONLY_TABLES,
+  OPERATOR_TABLES,
+  TENANT_TABLES,
+} from "./schema";
 import {
   createTestDatabase,
   databaseAvailable,
@@ -436,6 +442,11 @@ describe.skipIf(!online)("migrations on an empty database", () => {
     // 0077: what a run was about is history, like the run's own (docs/reporting-plan.md §3 R1).
     expect(await can("run_subject", "UPDATE")).toBe(false);
     expect(await can("run_subject", "DELETE")).toBe(false);
+    // 0080: the desktop app's computers and jobs change in place and are never deleted (§1.151).
+    for (const table of ["desktop_device", "desktop_job"]) {
+      expect(await can(table, "UPDATE"), `${table} UPDATE`).toBe(true);
+      expect(await can(table, "DELETE"), `${table} DELETE`).toBe(false);
+    }
     expect(await can("agent_change", "UPDATE")).toBe(false);
     expect(await can("doc_extraction", "UPDATE")).toBe(false);
     expect(await can("doc_line", "UPDATE")).toBe(false);
@@ -554,5 +565,17 @@ describe.skipIf(!online)("migrations on an empty database", () => {
       select pg_get_constraintdef(oid) as def from pg_constraint where conname = 'build_flow_check'`;
     for (const flow of BUILD_FLOWS) expect(check?.def).toContain(`'${flow}'`);
     expect(BUILD_FLOWS).toEqual(["phases", "describe"]);
+  });
+
+  // 0079 (work plan C4.10): the outbox takes urgent notices as a kind of their own; only the
+  // check widens, so every kind the previous Worker writes still passes.
+  it("let the notification outbox take urgent notices and every earlier kind", async () => {
+    const [check] = await t.db.$client<{ def: string }[]>`
+      select pg_get_constraintdef(oid) as def from pg_constraint
+      where conname = 'notification_kind_check'`;
+    for (const kind of NOTIFICATION_KIND_CHECK) expect(check?.def).toContain(`'${kind}'`);
+    expect(check?.def).toContain("'urgent'");
+    expect(check?.def).toContain("'items_waiting'");
+    expect(check?.def).toContain("'intake_next'");
   });
 });

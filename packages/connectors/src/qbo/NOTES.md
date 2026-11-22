@@ -105,6 +105,14 @@ Against the sandbox company (`9341458640918607`, QBO Plus, US):
 6. Update a memo and an item's purchase cost.
 7. Disconnect from the portal: the app disappears from the sandbox company's connected apps.
 8. Throttle by running a full sync and an agent at once; look for 429s in the logs.
+9. C2.4 (docs/plan.md §1.205): a purchase order with an item line. First the read it makes before
+   proposing and again before writing, `select * from Item where Id in ('…') and Active in (true,
+   false) maxresults 1000`: that it answers inactive items too, with `Active` and `Type` (an
+   inactive item and a `Category` are refused by name). Then create a purchase order with one item
+   line (a NonInventory item, `Qty` and `UnitPrice` as quoted) and one account line, and check in
+   QuickBooks: both lines kept, the item line's amount `Qty × UnitPrice`, the item's expense
+   account used. Also try an item without "I purchase this" (no `ExpenseAccountRef`): refused by
+   QuickBooks, or taken? We don't refuse it ourselves.
 
 ## Accounts receivable and create bill (v0.12, W1-F, 2026-11-06)
 
@@ -157,6 +165,7 @@ Built the same way: against the fake, from what we knew of the API, nothing call
 | `APAccountRef` on a purchase order: we send the one active Accounts Payable account in the order's currency, or none | `purchase-order.ts` `payablesAccount` |
 | `PurchaseOrder` is queryable by `Id in (…)`, `DocNumber =`, `VendorRef =`, `POStatus =`, `TxnDate` ranges | `purchase-order.ts` |
 | Creating a purchase order doesn't email it to the vendor (`EmailStatus` stays "NotSet") | the approval card says we don't send it |
+| C2.4: an item line on a purchase order names a QuickBooks item (`ItemRef`); `Item` is queryable by `Id in (…)` with `Active in (true, false)` and carries `Active` and `Type` (`Category` for a product list heading, never on a line) | `purchase-order.ts` `itemRefsProblem`; check 9 under "Against the sandbox company" |
 
 To verify (docs, then the sandbox company):
 

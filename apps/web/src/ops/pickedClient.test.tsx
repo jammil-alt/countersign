@@ -1,5 +1,6 @@
 // The back office's picked client: the page's own client (from its address, or reported by a page
-// such as a run), else the last one picked or opened in this tab's session.
+// such as a run), else none. Navigation only: nothing is remembered from page to page, so a
+// screen that lists every client never shows one client's name beside it.
 import { act, render, screen } from "@testing-library/react";
 import { MemoryRouter, Route, Routes, useNavigate } from "react-router-dom";
 import { afterEach, describe, expect, it } from "vitest";
@@ -13,7 +14,7 @@ let go: (to: string) => void = () => {};
 function Picker() {
   const picked = usePickedClient();
   go = useNavigate();
-  return <output data-testid="picked">{picked.clientId ?? "all"}</output>;
+  return <output data-testid="picked">{picked.clientId ?? "none"}</output>;
 }
 
 /** A run's page: its client isn't in its address, so it says which it is. */
@@ -22,8 +23,8 @@ function RunPage({ clientId }: { clientId: string | undefined }) {
   return null;
 }
 
-function renderAt(path: string, runClient?: string) {
-  return render(
+function tree(path: string, runClient?: string) {
+  return (
     <MemoryRouter initialEntries={[path]}>
       <PickedClientProvider>
         <Picker />
@@ -32,46 +33,34 @@ function renderAt(path: string, runClient?: string) {
           <Route path="*" element={null} />
         </Routes>
       </PickedClientProvider>
-    </MemoryRouter>,
+    </MemoryRouter>
   );
 }
 
 afterEach(() => sessionStorage.clear());
 
 describe("the picked client", () => {
-  it("is the client of a client's page, and stays picked on pages without one", () => {
-    renderAt(`/ops/clients/${DEMO}/documents`);
+  it("is the client of a client's page, and none on a page without one", () => {
+    render(tree(`/ops/clients/${DEMO}/documents`));
     expect(screen.getByTestId("picked")).toHaveTextContent(DEMO);
+    // Runs lists every client: the picker must not keep showing the one opened before.
+    act(() => go("/ops/runs"));
+    expect(screen.getByTestId("picked")).toHaveTextContent("none");
     act(() => go("/ops/lab"));
-    expect(screen.getByTestId("picked")).toHaveTextContent(DEMO);
-    expect(sessionStorage.getItem("mezonas.ops.client")).toBe(DEMO);
+    expect(screen.getByTestId("picked")).toHaveTextContent("none");
+    expect(sessionStorage.length).toBe(0);
   });
 
   it("is a run's client while its page is open, once the run has loaded", () => {
-    const { rerender } = renderAt("/ops/runs/r1", undefined);
-    expect(screen.getByTestId("picked")).toHaveTextContent("all");
-    rerender(
-      <MemoryRouter initialEntries={["/ops/runs/r1"]}>
-        <PickedClientProvider>
-          <Picker />
-          <Routes>
-            <Route path="/ops/runs/:id" element={<RunPage clientId={SANDBOX} />} />
-          </Routes>
-        </PickedClientProvider>
-      </MemoryRouter>,
-    );
+    const { rerender } = render(tree("/ops/runs/r1", undefined));
+    expect(screen.getByTestId("picked")).toHaveTextContent("none");
+    rerender(tree("/ops/runs/r1", SANDBOX));
     expect(screen.getByTestId("picked")).toHaveTextContent(SANDBOX);
   });
 
-  it("keeps the picked client when a run of it opens", () => {
-    sessionStorage.setItem("mezonas.ops.client", DEMO);
-    renderAt("/ops/runs/r1", DEMO);
-    expect(screen.getByTestId("picked")).toHaveTextContent(DEMO);
-  });
-
-  it("starts from the session's last pick", () => {
+  it("ignores a pick an older version remembered in the tab's session", () => {
     sessionStorage.setItem("mezonas.ops.client", SANDBOX);
-    renderAt("/ops");
-    expect(screen.getByTestId("picked")).toHaveTextContent(SANDBOX);
+    render(tree("/ops"));
+    expect(screen.getByTestId("picked")).toHaveTextContent("none");
   });
 });

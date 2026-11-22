@@ -8,6 +8,7 @@
 import { KPI_DAYS, shortRunId } from "@countersign/core";
 import {
   agent,
+  appUser,
   auditEvent,
   connection,
   contact,
@@ -16,6 +17,8 @@ import {
   externalAction,
   inboxItem,
   organization,
+  reggieConversation,
+  reggieMessage,
   run,
   stepRun,
   tenant,
@@ -386,6 +389,7 @@ describe.skipIf(!h)("command center, search and questions", () => {
       costUsd: "0.1200",
       stepsUsd: "0.1050",
       readingUsd: "0.0150",
+      backOfficeUsd: "0.0000",
       perRunUsd: "0.0175",
     });
     expect(cc.waitingOnClients.count).toBe(3);
@@ -393,17 +397,17 @@ describe.skipIf(!h)("command center, search and questions", () => {
     // Escalations: A's operator item, r3, A's broken connection, A's background reading, B's
     // reading under its 0.97 threshold; the test run's item, r5 (retried), B's unused broken
     // connection and everything of C are not. UI cleanup (stream A): with the dev sign-in and no
-    // email sender nobody was told of the clients' three open approvals, so they need us too.
+    // email sender nobody was told of the clients' three open approvals, so they need us too: QA
+    // (2026-11-22) one per client and reason, A's two as one that names both.
     const kinds = cc.escalations.map((e: { kind: string; client: { name: string } }) => [
       e.kind,
       e.client.name,
     ]);
-    expect(kinds).toHaveLength(8);
+    expect(kinds).toHaveLength(7);
     expect(kinds[0]).toEqual(["approval", "Client B"]);
     expect(kinds[1]).toEqual(["item", "Client A"]);
     expect(kinds.slice(2).sort()).toEqual(
       [
-        ["approval", "Client A"],
         ["approval", "Client A"],
         ["connection", "Client A"],
         ["failed_run", "Client A"],
@@ -417,13 +421,24 @@ describe.skipIf(!h)("command center, search and questions", () => {
       emailOff: true,
       items: 1,
     });
+    expect(cc.escalations[0].itemIds).toHaveLength(1);
+    // A's two approvals: one escalation, named by the oldest, covering both, with no single run.
+    const approvalA = cc.escalations.find(
+      (e: { kind: string; client: { name: string } }) =>
+        e.kind === "approval" && e.client.name === "Client A",
+    );
+    expect(approvalA.wait).toMatchObject({ on: "client_admin", nobodyToAct: "no_email", items: 2 });
+    expect(approvalA.itemIds).toHaveLength(2);
+    expect(approvalA.id).toBe(approvalA.itemIds[0]);
+    expect(approvalA.runId).toBeNull();
     const failed = cc.escalations.find((e: { kind: string }) => e.kind === "failed_run");
     expect(failed).toMatchObject({
       id: ids.r3,
       title: "QuickBooks said 401",
       agent: { id: ids.irisA },
     });
-    expect(cc.needUs).toEqual({ count: 8, blockedLong: 2 });
+    expect(cc.needUs).toEqual({ count: 7, blockedLong: 2 });
+    expect(cc.waitingOnClients.overdue).toBe(0);
     expect(JSON.stringify(cc)).not.toContain(H.C.tenantId);
 
     // Low confidence, by client agent and template version (null for background reading).
@@ -453,7 +468,7 @@ describe.skipIf(!h)("command center, search and questions", () => {
       runs: 6,
       cleanShare: 0.3333,
       medianResponseHours: 13,
-      openEscalations: 6,
+      openEscalations: 5,
     });
     expect(health["Client B"]).toMatchObject({
       status: "watch",
@@ -480,6 +495,35 @@ describe.skipIf(!h)("command center, search and questions", () => {
     expect(days).toHaveLength(KPI_DAYS);
     expect(days.reduce((n, d) => n + d.runs, 0)).toBe(7);
     expect(cc.perDay).toHaveLength(KPI_DAYS);
+  });
+
+  // QA (usage costs, 2026-11-22): Home read $0.00 after a talk with Reggie, whose calls were in
+  // none of its figures. Its spend is now the Usage screen's "Today", from the same lines.
+  it("counts Reggie's answers in today's spend, as the Usage screen's today does", async () => {
+    const [op] = await H.t.db.select().from(appUser).where(eq(appUser.email, OPERATOR));
+    const [conv] = await H.t.db
+      .insert(reggieConversation)
+      .values({ userId: op?.id as string, title: "Today" })
+      .returning();
+    await H.t.db.insert(reggieMessage).values({
+      conversationId: conv?.id as string,
+      role: "reggie",
+      text: "Here is today.",
+      meta: { model: "claude-sonnet-5-5", costUsd: "0.025000" },
+      createdAt: recent,
+    });
+    const cc = j((await H.call(OPERATOR, "GET", "/api/ops/command-center")).json);
+    expect(cc.spendToday).toMatchObject({
+      costUsd: "0.1450",
+      stepsUsd: "0.1050",
+      readingUsd: "0.0150",
+      backOfficeUsd: "0.0250",
+    });
+    const day = T0.toISOString().slice(0, 10);
+    const usage = j((await H.call(OPERATOR, "GET", `/api/ops/usage?from=${day}&to=${day}`)).json);
+    expect(usage.total.costUsd).toBe(cc.spendToday.costUsd);
+    expect(usage.backOffice.lines).toEqual([{ id: "reggie", answers: 1, costUsd: "0.0250" }]);
+    await H.t.db.delete(reggieConversation).where(eq(reggieConversation.id, conv?.id as string));
   });
 
   it("carries what the page asked other routes for, with the same answers (§1.84)", async () => {
@@ -528,7 +572,7 @@ describe.skipIf(!h)("command center, search and questions", () => {
       ),
     );
     expect(counts.clients.find((c: { id: string }) => c.id === H.A.tenantId)).toMatchObject({
-      needsUs: 6,
+      needsUs: 5,
     });
     // The picker's list leaves the costly counts out, and keeps the rest.
     type Row = { id: string; name: string; agents: number };
@@ -554,6 +598,86 @@ describe.skipIf(!h)("command center, search and questions", () => {
     for (const who of [admin("a"), user("a")]) {
       expect((await H.call(who, "GET", "/api/ops/command-center")).status).toBe(403);
       expect((await H.call(who, "GET", "/api/ops/feed")).status).toBe(403);
+    }
+  });
+
+  it("counts today from the browser's start of day, and falls back to UTC (QA)", async () => {
+    const cc = async (today?: string) => {
+      const q = today ? `?today=${encodeURIComponent(today)}` : "";
+      const res = await H.call(OPERATOR, "GET", `/api/ops/command-center${q}`);
+      expect(res.status, JSON.stringify(res.json)).toBe(200);
+      return j(res.json);
+    };
+    // A day that starts now holds none of the fixture's runs (all a minute old or more).
+    const startsNow = new Date().toISOString();
+    const now = await cc(startsNow);
+    expect(now.today).toBe(startsNow);
+    expect(now.runsToday).toEqual({ runs: 0, clean: 0, cleanShare: null });
+    expect(now.failedToday).toEqual({ runs: 0 });
+    // Needs us isn't by day: the same with any start of day.
+    const utc = await cc();
+    expect(now.needUs).toEqual(utc.needUs);
+    expect(utc.today).toBe(T0.toISOString());
+    expect(utc.runsToday.runs).toBe(5);
+    // A start of day in the future, or more than a day back, can't be today's: UTC's.
+    for (const odd of [hoursAgo(-2).toISOString(), hoursAgo(30).toISOString()]) {
+      const r = await cc(odd);
+      expect(r.today, odd).toBe(T0.toISOString());
+      expect(r.runsToday.runs).toBe(5);
+    }
+    const bad = await H.call(OPERATOR, "GET", "/api/ops/command-center?today=yesterday");
+    expect(bad.status).toBe(400);
+  });
+
+  it("leaves the supervisor's reminders out, and keeps clients' own waits out of Needs us (QA)", async () => {
+    const A = H.A.tenantId;
+    const B = H.B.tenantId;
+    const reminder = (assigneeRole: "operator" | "client_admin") =>
+      addItem({
+        tenantId: A,
+        kind: "review",
+        subjectType: "supervisor_finding",
+        assigneeRole,
+        title: "1 item is still waiting for you",
+        payload: { fingerprint: "waiting_long", finding: { kind: "waiting_long" } },
+        createdAt: hoursAgo(3),
+      });
+    const added = [
+      await reminder("operator"),
+      await reminder("client_admin"),
+      // B's client item, waiting over a day: overdue, and B's one escalation still covers it.
+      await addItem({ tenantId: B, assigneeRole: "client_user", createdAt: hoursAgo(30) }),
+    ];
+    try {
+      const res = await H.call(OPERATOR, "GET", "/api/ops/command-center");
+      const cc = j(res.json);
+      expect(cc.needUs.count).toBe(7);
+      const ids = (cc.escalations as { id: string; itemIds?: string[] }[]).flatMap((e) => [
+        e.id,
+        ...(e.itemIds ?? []),
+      ]);
+      expect(ids).not.toContain(added[0]);
+      expect(ids).not.toContain(added[1]);
+      const approvalB = cc.escalations.find(
+        (e: { kind: string; client: { id: string } }) => e.kind === "approval" && e.client.id === B,
+      );
+      expect(approvalB.itemIds).toEqual([added[2], expect.any(String)]);
+      expect(approvalB.wait.items).toBe(2);
+      expect(cc.waitingOnClients).toMatchObject({ count: 4, overdue: 1 });
+      // Needs us alone and the badges agree with the page.
+      const needs = j((await H.call(OPERATOR, "GET", "/api/ops/needs-us")).json);
+      expect(needs.count).toBe(7);
+      const counts = j((await H.call(OPERATOR, "GET", "/api/ops/counts")).json);
+      expect(counts.needsUs).toBe(7);
+      // Your call doesn't list the reminders either, ours or the client's.
+      for (const owner of ["operator", "client"]) {
+        const todos = j((await H.call(OPERATOR, "GET", `/api/ops/todos?owner=${owner}`)).json);
+        const listed = (todos.items as { id: string }[]).map((i) => i.id);
+        expect(listed, owner).not.toContain(added[0]);
+        expect(listed, owner).not.toContain(added[1]);
+      }
+    } finally {
+      for (const id of added) await H.t.db.delete(inboxItem).where(eq(inboxItem.id, id));
     }
   });
 

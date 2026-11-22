@@ -75,6 +75,7 @@ import { checkDeviceSignature, signatureRequired } from "../mobile/devices";
 // v0.13 W2-I
 import { timelineOversight } from "../oversight/views";
 import type { Platform } from "../platform";
+import { aboutNames } from "../runs/about";
 import {
   clientRunsPerDay,
   clientStatusWhere,
@@ -973,6 +974,8 @@ export function portalRouteHandlers(app: Hono<AppEnv>): void {
         userId: session.user.id,
         item: shown,
         decision: body.decision,
+        answer: body.answer,
+        note: body.note,
         signature: body.deviceSignature,
         now: new Date(),
       });
@@ -991,6 +994,7 @@ export function portalRouteHandlers(app: Hono<AppEnv>): void {
           decision: body.decision ?? "",
           fingerprint: body.deviceSignature.fingerprint,
           at: body.deviceSignature.at,
+          version: body.deviceSignature.version ?? "v1",
         },
       });
     }
@@ -1035,19 +1039,25 @@ export function portalRouteHandlers(app: Hono<AppEnv>): void {
     const { statuses, ...filter } = portalRunFilter(query.filter);
     const theirs = agentWhere(run.agentId, agents);
     const where = [
-      ...runFilterWhere(filter, services.platform.ctx.tools.specs()),
+      // R2: what runs were about, from the rows the client's timeline shows only.
+      ...runFilterWhere(filter, services.platform.ctx.tools.specs(), "portal"),
       ...clientStatusWhere(statuses),
       // §1.122: a client user limited to some agents sees only their runs.
       ...(theirs ? [theirs] : []),
     ];
     const runs = await runSummaries(tx, tenantId, where, query.limit, services.platform);
-    if (!query.perDay) return { runs };
+    const about = await aboutNames(tx, [tenantId], filter.about, "portal", theirs);
+    if (!query.perDay) return { runs, ...(about ? { about } : {}) };
     const scope = [eq(run.tenantId, tenantId), eq(run.mode, "live"), ...where];
     const [t] = await tx
       .select({ timezone: tenant.timezone })
       .from(tenant)
       .where(eq(tenant.id, tenantId));
-    return { runs, perDay: await clientRunsPerDay(tx, scope, t?.timezone ?? "UTC") };
+    return {
+      runs,
+      perDay: await clientRunsPerDay(tx, scope, t?.timezone ?? "UTC"),
+      ...(about ? { about } : {}),
+    };
   });
 
   mount(

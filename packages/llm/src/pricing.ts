@@ -35,12 +35,14 @@ export interface ModelPrice {
 export const PRICES_CHECKED_ON = "unverified";
 
 export const PRICES: Readonly<Record<ModelId, ModelPrice>> = {
+  // QA (usage costs, 2026-11-22): Sonnet 5.5's cache reads are $0.10, not Sonnet 5's $0.20
+  // (Anthropic's model list as of 2026-11-03).
   [MODELS.sonnet]: {
     inputPerMtok: "2.00",
     outputPerMtok: "10.00",
     cacheWrite5mPerMtok: "2.50",
     cacheWrite1hPerMtok: "4.00",
-    cacheReadPerMtok: "0.20",
+    cacheReadPerMtok: "0.10",
   },
   [MODELS.opus]: {
     inputPerMtok: "4.00",
@@ -150,11 +152,60 @@ export const COST_PLACES = 6;
 
 const MILLION = new Decimal("1000000");
 
+/** Anthropic's usual cache rates for an input price: 5m writes 1.25x, 1h writes 2x, reads 0.1x. */
+function anthropicPrice(input: string, output: string): ModelPrice {
+  const i = new Decimal(input);
+  return {
+    inputPerMtok: input,
+    outputPerMtok: output,
+    cacheWrite5mPerMtok: i.mul("1.25").toFixed(4),
+    cacheWrite1hPerMtok: i.mul(2).toFixed(4),
+    cacheReadPerMtok: i.mul("0.1").toFixed(4),
+  };
+}
+
+/**
+ * QA (usage costs, 2026-11-22): Anthropic models a definition may still name, or the API may
+ * still answer with, that are not among the models a step may pick (`PRICES`, `knownModels`).
+ * Used only to price a call that ran on one, so it is never recorded at $0.00. Staging recorded
+ * 30 calls of `claude-sonnet-4-5-20250929` (the dated id the API answers `claude-sonnet-4-5`
+ * with) at $0.00 because no price matched.
+ */
+// DECISION: list prices from Anthropic's model list (2026-11-03), cache rates by the usual
+// multipliers; kept apart from PRICES so the builder never offers these models.
+export const PREVIOUS_PRICES: Readonly<Record<ModelId, ModelPrice>> = {
+  "claude-opus-5": anthropicPrice("5.00", "25.00"),
+  "claude-opus-4-8": anthropicPrice("5.00", "25.00"),
+  "claude-opus-4-7": anthropicPrice("5.00", "25.00"),
+  "claude-opus-4-6": anthropicPrice("5.00", "25.00"),
+  "claude-opus-4-5": anthropicPrice("5.00", "25.00"),
+  "claude-sonnet-5": anthropicPrice("2.00", "10.00"),
+  "claude-sonnet-4-6": anthropicPrice("3.00", "15.00"),
+  "claude-sonnet-4-5": {
+    ...anthropicPrice("3.00", "15.00"),
+    longContext: { aboveInputTokens: 200_000, price: anthropicPrice("6.00", "22.50") },
+  },
+  "claude-haiku-4-5": anthropicPrice("1.00", "5.00"),
+};
+
+/**
+ * A model id without its snapshot date: `claude-sonnet-4-5-20250929` (the API's answer) and
+ * `claude-sonnet-4-5@20250929` (Vertex's) are `claude-sonnet-4-5`. Other ids are unchanged.
+ */
+export function baseModelId(model: ModelId): ModelId {
+  return model.replace(/[-@]\d{8}$/, "");
+}
+
+/**
+ * A model's price: by its id, then without its snapshot date, then among the previous Anthropic
+ * models (`PREVIOUS_PRICES`). Undefined when none matches: the call has no known cost.
+ */
 export function priceFor(
   model: ModelId,
   prices: Readonly<Record<ModelId, ModelPrice>> = PRICES,
 ): ModelPrice | undefined {
-  return prices[model];
+  const base = baseModelId(model);
+  return prices[model] ?? prices[base] ?? PREVIOUS_PRICES[model] ?? PREVIOUS_PRICES[base];
 }
 
 /**

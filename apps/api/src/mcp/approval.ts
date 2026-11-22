@@ -133,6 +133,26 @@ function sameText(a: string, b: string): boolean {
   return d === 0;
 }
 
+/** The longest client name the page shows. */
+const CLIENT_MAX = 40;
+
+/**
+ * Who is asking (H6), from the asking request's user agent: "Claude Code" or "Claude" for
+ * Anthropic's clients, otherwise the agent's first product name ("python-httpx"), so a token used
+ * from something else says so. Never the user agent itself; null without one.
+ */
+// DECISION (docs/plan.md §1.201): the name is what the request says it is, not proof: it is shown
+// beside the place and the confirm code, which stays the check. Letters, digits and `._-` only,
+// at most CLIENT_MAX characters, so nothing a request sends reaches the page as it was sent.
+export function claudeClientInWords(userAgent: string | null | undefined): string | null {
+  const ua = (userAgent ?? "").trim();
+  if (!ua) return null;
+  if (/claude[-_ ]?code/i.test(ua)) return "Claude Code";
+  if (/claude|anthropic/i.test(ua)) return "Claude";
+  const first = /^[A-Za-z0-9._-]+/.exec(ua)?.[0] ?? "";
+  return first ? first.slice(0, CLIENT_MAX) : null;
+}
+
 /** What the approval page shows for a row. */
 export function connectionView(row: ApprovalRow, now: Date): ClaudeConnection {
   const live = row.expiresAt > now;
@@ -144,6 +164,8 @@ export function connectionView(row: ApprovalRow, now: Date): ClaudeConnection {
       ? null
       : new Date(row.expiresAt.getTime() - CLAUDE_LINK_MIN * 60_000).toISOString(),
     expiresAt: row.expiresAt.toISOString(),
+    client: row.client,
+    place: row.place,
   };
 }
 
@@ -208,9 +230,12 @@ export async function claudeConnectionGate(input: {
   sessionId: string | null;
   /** Where the person approves: the back office for an operator, the portal for a client. */
   approvePage: (code: string) => string;
+  /** Who is asking (H6): the Claude client in words and where the request came from. */
+  asking: { client: string | null; place: string | null };
   now: Date;
 }): Promise<ClaudeConnectionGate> {
   const { db, userId, sessionId, now } = input;
+  const asking = { client: input.asking.client, place: input.asking.place };
   const setup = secondFactorSetupOf(input.env, {
     ...(input.deps.codeVerifier ? { verifier: input.deps.codeVerifier } : {}),
   });
@@ -256,10 +281,24 @@ export async function claudeConnectionGate(input: {
       !row || row.createdAt.getTime() + SESSION_MAX_AGE_SEC * 1000 <= expiresAt.getTime();
     await tx
       .insert(mcpSessionApproval)
-      .values({ userId, workosSessionId: sessionId, codeHash, expiresAt, createdAt: now })
+      .values({
+        userId,
+        workosSessionId: sessionId,
+        codeHash,
+        expiresAt,
+        createdAt: now,
+        ...asking,
+      })
       .onConflictDoUpdate({
         target: [mcpSessionApproval.workosSessionId, mcpSessionApproval.userId],
-        set: { codeHash, expiresAt, approvedAt: null, ...(restart ? { createdAt: now } : {}) },
+        // The page describes the request that got this link, so each link takes its own asker.
+        set: {
+          codeHash,
+          expiresAt,
+          approvedAt: null,
+          ...asking,
+          ...(restart ? { createdAt: now } : {}),
+        },
       });
     const confirm = await connectionConfirmCode(key, code);
     return {

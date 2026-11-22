@@ -1275,6 +1275,9 @@ export interface AgentPause {
 /** One role's binding on a client agent: who fills it, and when and how they may be reached. */
 export interface AgentPeopleBinding {
   contactIds: string[];
+  /** Setup-plan §4.1: a seat's client users, in order, and its backups (core's `PeopleBinding`). */
+  userIds?: string[] | undefined;
+  backupUserIds?: string[] | undefined;
   /** Validated by core's ReachConditions; the defaults apply to anything missing. */
   conditions?: Record<string, unknown>;
 }
@@ -4074,10 +4077,22 @@ export const ONBOARDING_NOTIFICATION_KINDS = [
   "intake_scope_ready",
   "intake_next",
 ] as const;
-/** The kinds the check allows: core's, and the onboarding emails' (0066). */
+/** The kinds a row may have: core's, and the onboarding emails' (0066). */
 export const NOTIFICATION_KINDS_ALLOWED = [
   ...NOTIFICATION_KINDS,
   ...ONBOARDING_NOTIFICATION_KINDS,
+] as const;
+/**
+ * Work plan C4.10 (0079): an urgent notice's Seen card, told at once whatever the person's quiet
+ * hours (process model's Notify, docs/plan.md §1.86). The check allows it before core's
+ * notification kinds name it (and before the column's type does), so the previous Worker keeps
+ * working.
+ */
+export const URGENT_NOTIFICATION_KINDS = ["urgent"] as const;
+/** The kinds the check allows: those above and urgent notices' (0079). */
+export const NOTIFICATION_KIND_CHECK = [
+  ...NOTIFICATION_KINDS_ALLOWED,
+  ...URGENT_NOTIFICATION_KINDS,
 ] as const;
 export const NOTIFICATION_STATUSES = ["queued", "sent", "failed", "skipped"] as const;
 export const WEEKLY_TABLE_STATUSES = ["draft", "sent"] as const;
@@ -4113,6 +4128,98 @@ export const personDevice = pgTable(
       "person_device_revoked_check",
       sql`${t.revokedAt} is null or (${t.pushToken} is null and ${t.publicKey} is null)`,
     ),
+  ],
+);
+
+// ── The desktop app's computers and jobs (migration 0080, docs/plan.md §1.151, §1.204) ────────
+
+export const DESKTOP_DEVICE_PLATFORMS = ["mac", "windows"] as const;
+/** core's DesktopJobRequest kinds (checked equal in the migration's test). */
+export const DESKTOP_JOB_KINDS = [
+  "files.list",
+  "file.read",
+  "xlsx.read",
+  "xlsx.append",
+  "xlsx.update",
+  "file.create",
+] as const;
+
+/**
+ * §1.151 (migration 0080): a client's computer with the Mezonas desktop app, paired by a client
+ * admin into its own `desktop` connection (whose `config` holds the folders it gives). The public
+ * half of the computer's key checks every request it signs. Removing it sets `revoked_at` and clears
+ * the key, so nothing it signs is accepted again; the row stays (audit rows and jobs name it).
+ * Never deleted; only the name, the app's version, the key, `last_seen_at` and `revoked_at` change
+ * (trigger).
+ */
+export const desktopDevice = pgTable(
+  "desktop_device",
+  {
+    id: id(),
+    tenantId: tenantId(),
+    connectionId: uuid("connection_id").notNull(),
+    name: text("name").notNull(),
+    platform: text("platform").$type<(typeof DESKTOP_DEVICE_PLATFORMS)[number]>().notNull(),
+    appVersion: text("app_version").notNull(),
+    /** An EC P-256 JWK (public only); null once the computer is removed. */
+    publicKey: json<{ kty: "EC"; crv: "P-256"; x: string; y: string }>("public_key"),
+    /** The client admin who paired it. */
+    pairedBy: uuid("paired_by")
+      .notNull()
+      .references(() => appUser.id),
+    createdAt: createdAt(),
+    lastSeenAt: ts("last_seen_at"),
+    revokedAt: ts("revoked_at"),
+  },
+  (t) => [
+    unique("desktop_device_id_tenant_key").on(t.id, t.tenantId),
+    foreignKey({
+      name: "desktop_device_connection_fk",
+      columns: [t.connectionId, t.tenantId],
+      foreignColumns: [connection.id, connection.tenantId],
+    }),
+    // One live computer per connection; a removed one keeps its row beside a new pairing.
+    uniqueIndex("desktop_device_connection_live_key")
+      .on(t.connectionId)
+      .where(sql`${t.revokedAt} is null`),
+    index("desktop_device_tenant_idx").on(t.tenantId),
+    check("desktop_device_platform_check", oneOf(t.platform, DESKTOP_DEVICE_PLATFORMS)),
+    check("desktop_device_key_check", sql`(${t.revokedAt} is null) = (${t.publicKey} is not null)`),
+  ],
+);
+
+/**
+ * §1.151 (migration 0080): one job for a paired computer (core's `DesktopJobRequest`), queued by
+ * `services.desktop`, handed to the computer on its next poll (`sent_at`) and answered once
+ * (`answered_at`, `result`, core's `DesktopJobResult`). A job not picked up by `expires_at` is
+ * given up on. Never deleted; only `sent_at`, `answered_at` and `result` change (trigger).
+ */
+export const desktopJob = pgTable(
+  "desktop_job",
+  {
+    id: id(),
+    tenantId: tenantId(),
+    deviceId: uuid("device_id").notNull(),
+    kind: text("kind").$type<(typeof DESKTOP_JOB_KINDS)[number]>().notNull(),
+    request: json("request").notNull(),
+    issuedAt: timestamp("issued_at", { withTimezone: true }).notNull().defaultNow(),
+    expiresAt: ts("expires_at").notNull(),
+    sentAt: ts("sent_at"),
+    answeredAt: ts("answered_at"),
+    result: json("result"),
+  },
+  (t) => [
+    foreignKey({
+      name: "desktop_job_device_fk",
+      columns: [t.deviceId, t.tenantId],
+      foreignColumns: [desktopDevice.id, desktopDevice.tenantId],
+    }),
+    index("desktop_job_waiting_idx")
+      .on(t.tenantId, t.deviceId, t.issuedAt)
+      .where(sql`${t.sentAt} is null`),
+    check("desktop_job_kind_check", oneOf(t.kind, DESKTOP_JOB_KINDS)),
+    check("desktop_job_expiry_check", sql`${t.expiresAt} > ${t.issuedAt}`),
+    check("desktop_job_result_check", sql`(${t.answeredAt} is null) = (${t.result} is null)`),
   ],
 );
 
@@ -4159,7 +4266,7 @@ export const notification = pgTable(
     index("notification_tenant_idx").on(t.tenantId, t.createdAt),
     index("notification_queued_idx").on(t.createdAt).where(sql`${t.status} = 'queued'`),
     check("notification_channel_check", oneOf(t.channel, NOTIFICATION_CHANNELS)),
-    check("notification_kind_check", oneOf(t.kind, NOTIFICATION_KINDS_ALLOWED)),
+    check("notification_kind_check", oneOf(t.kind, NOTIFICATION_KIND_CHECK)),
     check("notification_status_check", oneOf(t.status, NOTIFICATION_STATUSES)),
   ],
 );
@@ -6364,6 +6471,9 @@ export const TENANT_TABLES = [
   "run_audit_mark",
   // §1.116
   "person_device",
+  // §1.151 (0080): the desktop app's computers and their jobs.
+  "desktop_device",
+  "desktop_job",
   // 0057: area owners and their versions (ARCHITECTURE v0.19 §10.15).
   "area_owner",
   "area_owner_version",

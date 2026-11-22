@@ -21,6 +21,8 @@ import { agent, agentVersion, seedVersionBundle, type Tx } from "@countersign/db
 import billClerkV1 from "@countersign/db/seed/agents/bill-clerk.v1.json";
 import billClerkV2 from "@countersign/db/seed/agents/bill-clerk.v2.json";
 import billClerkV3 from "@countersign/db/seed/agents/bill-clerk.v3.json";
+// Setup-plan §4.1: the Bill clerk on seats (who approves, who answers), filled per client.
+import billClerkV4 from "@countersign/db/seed/agents/bill-clerk.v4.json";
 import builderV1 from "@countersign/db/seed/agents/builder.v1.json";
 import builderV2 from "@countersign/db/seed/agents/builder.v2.json";
 import coordinatorV1 from "@countersign/db/seed/agents/coordinator.v1.json";
@@ -41,7 +43,7 @@ import type { Platform } from "../platform";
 const SEEDED: Readonly<Record<string, Readonly<Record<number, unknown>>>> = {
   // Skill model (2026-11-10): the Bill clerk's v3, the Document clerk's v2 and Sloan's v5 are
   // built from AI skills, deterministic skills and write steps (docs/plan.md §1.86).
-  "bill-clerk": { 1: billClerkV1, 2: billClerkV2, 3: billClerkV3 },
+  "bill-clerk": { 1: billClerkV1, 2: billClerkV2, 3: billClerkV3, 4: billClerkV4 },
   builder: { 1: builderV1, 2: builderV2 },
   coordinator: { 1: coordinatorV1, 2: coordinatorV2 },
   "document-clerk": { 1: documentClerkV1, 2: documentClerkV2 },

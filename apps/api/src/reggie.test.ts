@@ -262,8 +262,15 @@ describe.skipIf(!h)("Reggie", () => {
     expect(sent).not.toContain("tool_use");
   });
 
-  it("lists the operator's conversations, newest first", async () => {
+  it("lists the operator's conversations, newest first, and none without a message", async () => {
+    // QA (2026-11-22): opening Reggie used to save an empty "New conversation".
+    const empty = await start(OPERATOR, A());
     const list = j((await H.call(OPERATOR, "GET", "/api/ops/reggie/conversations")).json).items;
+    expect(list.map((c: { id: string }) => c.id)).not.toContain(empty);
+    // Still there by its address.
+    expect((await H.call(OPERATOR, "GET", `/api/ops/reggie/conversations/${empty}`)).status).toBe(
+      200,
+    );
     expect(list.length).toBeGreaterThan(2);
     const times = list.map((c: { updatedAt: string }) => c.updatedAt);
     expect([...times].sort().reverse()).toEqual(times);

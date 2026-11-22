@@ -91,7 +91,7 @@ export function stepStatusLabel(status: string, { t }: Pick<I18n, "t"> = EN): st
   return key ? t(key) : status.replace(/_/g, " ");
 }
 
-/** "7:02" today, "Nov 3, 7:02" otherwise; in the viewer's time zone and locale. */
+/** "07:02" today, "3 Nov, 07:02" otherwise; in the viewer's time zone, in the house format. */
 export function shortTime(
   iso: string | null,
   now: Date = new Date(),
@@ -100,23 +100,51 @@ export function shortTime(
   return fmt.time(iso, now);
 }
 
-/** "4 s", "3 min", "2 h 5 min". */
+/** "4 s", "3 min", "2 h 5 min", "7 d", "2 d 4 h". */
 export function duration(
   from: string | null,
   to: string | null,
   now: Date = new Date(),
-  { t }: Pick<I18n, "t"> = EN,
+  i18n: Pick<I18n, "t"> = EN,
 ): string {
   if (!from) return "";
-  const ms = (to ? new Date(to) : now).getTime() - new Date(from).getTime();
+  return msWords((to ? new Date(to) : now).getTime() - new Date(from).getTime(), i18n);
+}
+
+/**
+ * A length of time in words, from milliseconds: "4 s", "3 min", "2 h 5 min", and from a day on
+ * in days and hours ("7 d", "2 d 4 h"), so a week reads as a week and not as "168 h".
+ */
+// DECISION: from 24 h a length is days and whole hours (minutes dropped): "168 h" read as a typo.
+export function msWords(ms: number, { t }: Pick<I18n, "t"> = EN): string {
   const s = Math.max(0, Math.round(ms / 1000));
   if (s < 60) return t("duration.seconds", { n: s });
   const m = Math.round(s / 60);
   if (m < 60) return t("duration.minutes", { n: m });
   const hrs = Math.floor(m / 60);
-  return m % 60 === 0
-    ? t("duration.hours", { n: hrs })
-    : t("duration.hoursMinutes", { h: hrs, m: m % 60 });
+  if (hrs < 24) {
+    return m % 60 === 0
+      ? t("duration.hours", { n: hrs })
+      : t("duration.hoursMinutes", { h: hrs, m: m % 60 });
+  }
+  const days = Math.floor(hrs / 24);
+  return hrs % 24 === 0
+    ? t("duration.days", { n: days })
+    : t("duration.daysHours", { d: days, h: hrs % 24 });
+}
+
+/**
+ * How long a run worked: start to finish (or to now while it goes) less the time it waited on
+ * people (`waitedMs`, the joined spans of its inbox items). Null before it starts.
+ */
+export function runWorkedMs(
+  r: { startedAt: string | null; finishedAt: string | null; waitedMs?: number | undefined },
+  now: Date = new Date(),
+): number | null {
+  if (!r.startedAt) return null;
+  const end = r.finishedAt ? new Date(r.finishedAt) : now;
+  const all = end.getTime() - new Date(r.startedAt).getTime();
+  return Math.max(0, all - (r.waitedMs ?? 0));
 }
 
 /**

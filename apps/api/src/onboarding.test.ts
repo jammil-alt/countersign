@@ -210,7 +210,14 @@ describe.skipIf(!h)("onboarding", () => {
       const same = await H.call(OPERATOR, "PATCH", path, { approvals: "operator" });
       expect([same.status, code(same.json)]).toEqual([409, "no_op"]);
       const tz = await H.call(OPERATOR, "PATCH", path, { timezone: "Mars/Olympus" });
-      expect([tz.status, code(tz.json)]).toEqual([422, "invalid_timezone"]);
+      // QA (runs and dates): refused at the boundary, by the body's schema.
+      expect([tz.status, code(tz.json)]).toEqual([400, "invalid_request"]);
+      expect(JSON.stringify(tz.json)).toContain("not a time zone we know");
+      const created = await H.call(OPERATOR, "POST", "/api/ops/clients", {
+        name: "Nowhere",
+        timezone: "Mars/Olympus",
+      });
+      expect([created.status, code(created.json)]).toEqual([400, "invalid_request"]);
       const renamed = await H.call(OPERATOR, "PATCH", path, {
         name: "Client B, Inc.",
         timezone: "Europe/London",

@@ -1,6 +1,41 @@
 // A run waiting on a person is polled slowly (docs/audit-plan.md 2.2), and still shown as open.
 import { describe, expect, it } from "vitest";
-import { isRunGoing, runPollMs, runStatusTone, runsPollMs, WAITING_POLL_MS } from "./format";
+import {
+  duration,
+  isRunGoing,
+  msWords,
+  runPollMs,
+  runStatusTone,
+  runsPollMs,
+  runWorkedMs,
+  WAITING_POLL_MS,
+} from "./format";
+
+describe("lengths of time", () => {
+  const H = 3_600_000;
+  it("reads a day or more in days and hours, never as 168 h", () => {
+    expect(msWords(4_000)).toBe("4 s");
+    expect(msWords(3 * 60_000)).toBe("3 min");
+    expect(msWords(2 * H + 5 * 60_000)).toBe("2 h 5 min");
+    expect(msWords(23 * H)).toBe("23 h");
+    expect(msWords(168 * H)).toBe("7 d");
+    expect(msWords(52 * H + 10 * 60_000)).toBe("2 d 4 h");
+    expect(duration("2026-11-01T00:00:00Z", "2026-11-08T00:00:00Z")).toBe("7 d");
+  });
+
+  it("counts a run's working time without its wait on people", () => {
+    const run = {
+      startedAt: "2026-11-01T00:00:00Z",
+      finishedAt: "2026-11-08T00:05:00Z",
+      waitedMs: 168 * H,
+    };
+    expect(runWorkedMs(run)).toBe(5 * 60_000);
+    expect(runWorkedMs({ ...run, waitedMs: undefined })).toBe(168 * H + 5 * 60_000);
+    expect(runWorkedMs({ ...run, startedAt: null })).toBeNull();
+    const going = { startedAt: "2026-11-01T00:00:00Z", finishedAt: null, waitedMs: H };
+    expect(runWorkedMs(going, new Date("2026-11-01T03:00:00Z"))).toBe(2 * H);
+  });
+});
 
 const wait = {
   on: "client_admin" as const,

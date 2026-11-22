@@ -3,9 +3,16 @@
 // agent and how a run started, and a question in plain words (`/api/runs/ask`) that answers as the
 // list's own filter, shown back as chips. Runs per day draw from the same filter. Polls while a
 // run on the list is still going. Its columns sort, and a whole row opens its run.
-import { type AskChip, RUN_STARTED_BY, type RunStartedBy, shortRunId } from "@countersign/core";
+import {
+  type AskChip,
+  RUN_STARTED_BY,
+  type RunAboutName,
+  type RunStartedBy,
+  readAboutParam,
+  shortRunId,
+} from "@countersign/core";
 import { type FormEvent, useMemo, useRef, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import type { ResponseOf } from "../../api/client";
 import { apiRoutes } from "../../api/routes";
 import { type ApiOptions, useApi, useApiClient } from "../../api/useApi";
@@ -67,7 +74,28 @@ const CHIP_WORDS: Record<string, PlainKey> = {
   attemptsOver: "runsPage.chip.attemptsOver",
   amount: "runsPage.chip.amount",
   text: "runsPage.chip.text",
+  about: "runsPage.chip.about",
 };
+
+/** R2: `about`'s entries as parameters (`vendor:<id>`, words), from its comma-separated value. */
+export function aboutTokens(value: string | undefined | null): string[] {
+  return (value ?? "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
+/** R2: one `about` entry in words: a record by the name its runs kept, words as they are. */
+export function aboutTokenName(
+  token: string,
+  names: readonly RunAboutName[] | undefined,
+  t: Translate,
+): string {
+  const entry = readAboutParam(token);
+  if ("text" in entry) return entry.text;
+  const named = names?.find((n) => n.id === entry.id);
+  return [named?.label, named?.number].filter(Boolean).join(" · ") || t("runsPage.about.record");
+}
 
 /** A run status (a filter's, a chip's) in the client's words: "Waiting on you", "Stopped". */
 export function runWords(status: string, t: Translate): string {
@@ -96,6 +124,9 @@ export function PortalRunsScreen() {
   const [asked, setAsked] = useState<Asked | null>(null);
   const overview = useApi(apiRoutes.portalOverview);
   const limited = useAssignedAgents() !== null;
+  // R2: a link (⌘K) opens the list on the runs about a record: `?about=vendor:<id>`.
+  const [params, setParams] = useSearchParams();
+  const linked = params.get("about") ?? "";
 
   // An answered question is the list's filter; the tabs and pickers apply when there is none.
   const statuses = TABS[tab];
@@ -107,7 +138,28 @@ export function PortalRunsScreen() {
         ...(statuses ? { statuses } : {}),
         ...(agent ? { agents: agent } : {}),
         ...(startedBy ? { startedBy } : {}),
+        ...(linked ? { about: linked } : {}),
       };
+
+  /** R2: the link's `about` without one entry. */
+  function dropLinked(token: string) {
+    const left = aboutTokens(linked).filter((x) => x !== token);
+    setParams(left.length ? { about: left.join(",") } : {}, { replace: true });
+  }
+
+  /** R2: the answer's filter without one of the records (or words) it found. */
+  function dropAsked(token: string) {
+    setAsked((a) => {
+      if (!a) return a;
+      const left = aboutTokens(a.query.about).filter((x) => x !== token);
+      const { about: _about, ...query } = a.query;
+      return {
+        ...a,
+        chips: a.chips.filter((c) => c.about !== token),
+        query: left.length ? { ...query, about: left.join(",") } : query,
+      };
+    });
+  }
   async function ask(e: FormEvent) {
     e.preventDefault();
     const text = question.trim();
@@ -175,9 +227,17 @@ export function PortalRunsScreen() {
           <Icon name="search" className="text-ink-muted" />
           {asked
             ? asked.chips.map((c) => (
-                <span key={`${c.key}:${c.value}`} className="ds-tag" data-testid="portal-runs-chip">
+                <span
+                  key={`${c.key}:${c.about ?? c.value}`}
+                  className="ds-tag"
+                  data-testid="portal-runs-chip"
+                >
                   {Object.hasOwn(CHIP_WORDS, c.key) ? t(CHIP_WORDS[c.key] as PlainKey) : c.key}{" "}
                   <span className="figures">{chipValue(c)}</span>
+                  {/* R2: a record (or words) the question was found to be about can be taken out. */}
+                  {c.about !== undefined ? (
+                    <RemoveAbout name={c.value} onClick={() => dropAsked(c.about as string)} />
+                  ) : null}
                 </span>
               ))
             : null}
@@ -269,16 +329,45 @@ export function PortalRunsScreen() {
       <RunsResults
         key={JSON.stringify(query.agents ?? null)}
         query={query}
-        filtered={!!(asked || tab !== "all" || agent || startedBy)}
+        filtered={!!(asked || tab !== "all" || agent || startedBy || linked)}
+        linked={asked ? [] : aboutTokens(linked)}
+        onDropLinked={dropLinked}
       />
     </Page>
+  );
+}
+
+/** R2: the button that takes one `about` entry out of the filter. */
+function RemoveAbout({ name, onClick }: { name: string; onClick: () => void }) {
+  const { t } = useI18n();
+  return (
+    <button
+      type="button"
+      className="ml-1 inline-flex align-middle text-ink-muted hover:text-ink"
+      aria-label={t("runsPage.about.remove", { name })}
+      data-testid="portal-runs-about-remove"
+      onClick={onClick}
+    >
+      <Icon name="close" size={14} />
+    </button>
   );
 }
 
 type RunsQuery = NonNullable<ApiOptions<typeof apiRoutes.portalRuns>["query"]>;
 
 /** The list for one agent filter: its own rows kept, dimmed, while a status or start filter loads. */
-function RunsResults({ query, filtered }: { query: RunsQuery; filtered: boolean }) {
+function RunsResults({
+  query,
+  filtered,
+  linked,
+  onDropLinked,
+}: {
+  query: RunsQuery;
+  filtered: boolean;
+  /** R2: the `about` entries a link opened the list on, shown as chips by their names. */
+  linked: string[];
+  onDropLinked: (token: string) => void;
+}) {
   const { t } = useI18n();
   const runs = useApi(apiRoutes.portalRuns, { query, keep: true });
   usePoll(runs.reload, runs.data?.runs.some((r) => runOpen(r)) ?? false, 5_000, runs.loading);
@@ -304,6 +393,19 @@ function RunsResults({ query, filtered }: { query: RunsQuery; filtered: boolean 
           aria-busy={dimmed || undefined}
           data-testid="portal-runs-results"
         >
+          {linked.length > 0 ? (
+            <div className="flex flex-wrap items-center gap-2" data-testid="portal-runs-about">
+              {linked.map((token) => {
+                const name = aboutTokenName(token, data.about, t);
+                return (
+                  <span key={token} className="ds-tag" data-testid="portal-runs-chip">
+                    {t("runsPage.chip.about")} <span className="figures">{name}</span>
+                    <RemoveAbout name={name} onClick={() => onDropLinked(token)} />
+                  </span>
+                );
+              })}
+            </div>
+          ) : null}
           {data.perDay && data.perDay.length > 0 ? (
             <RunsPerDayChart days={data.perDay} testId="portal-runs-per-day" />
           ) : null}

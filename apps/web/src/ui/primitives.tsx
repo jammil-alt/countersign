@@ -450,6 +450,34 @@ export function Loading({
 // back and "Report an issue" (./ErrorState.tsx).
 export { ErrorNotice } from "./ErrorState";
 
+/**
+ * An address no screen answers (each surface's catch-all route): "Page not found" and the way
+ * Home. "Not built yet" (`Placeholder`) stays for a screen that really is still to come.
+ */
+export function NotFoundPage({ home }: { home: string }) {
+  const { t } = useI18n();
+  return (
+    <div data-testid="page-not-found">
+      <PageHeader title={t("common.notFoundTitle")} />
+      <div className="ds-empty ui-empty">
+        <span className="ui-empty__icon" aria-hidden="true">
+          <Icon name="info" size={20} />
+        </span>
+        <div className="ui-empty__text">
+          <p className="ui-empty__line">{t("common.notFoundBody")}</p>
+        </div>
+        <Link
+          to={home}
+          className={buttonClass("primary", undefined, "sm")}
+          data-testid="not-found-home"
+        >
+          {t("errorPage.back.home")}
+        </Link>
+      </div>
+    </div>
+  );
+}
+
 /** A screen from ARCHITECTURE §15 that later milestones fill in. */
 export function Placeholder({ title, children }: { title: string; children?: ReactNode }) {
   const { t } = useI18n();

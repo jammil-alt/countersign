@@ -19,6 +19,7 @@ import { EntityPermissions, PermissionEntity, PermissionLevel } from "../schemas
 import { SkillBrowse, SkillDefinition, SkillMethod } from "../schemas/skill";
 import { ToolInputVariants, ToolSpec } from "../schemas/tool";
 import { ToolDisplay } from "../schemas/tool-display";
+import { IanaTimeZone } from "../timezone";
 // P-8: US texting registration
 import { a2pRoutes } from "./a2p";
 import { accessRoutes } from "./access";
@@ -63,6 +64,8 @@ import { feedbackRoutes } from "./feedback";
 // docs/plan.md §1.121: forms, "Request info"
 import { formRoutes } from "./forms";
 import { gchatRoutes } from "./gchat";
+// v0.12 W1-A: go-live stages and client controls
+import { gettingStartedRoutes } from "./getting-started";
 // v0.14 W4-D: Google Sheets' picking
 import { gsheetsRoutes } from "./gsheets";
 // R4: business hours, person hours and channels
@@ -72,7 +75,6 @@ import { languageRoutes, SessionLanguage } from "./language";
 import { ledgerRoutes } from "./ledger";
 // R8: the Library's banks
 import { libraryRoutes } from "./library";
-// v0.12 W1-A: go-live stages and client controls
 import { GoLive, lifecycleRoutes } from "./lifecycle";
 import { messagingRoutes } from "./messaging";
 // §1.116: the phone app
@@ -109,6 +111,7 @@ import { RunSubject } from "./run-subject";
 import {
   OpsRunsQuery,
   PortalRunsQuery,
+  RunAboutName,
   RunErrorGroup,
   RunStatusSchema,
   RunsPerDay,
@@ -412,6 +415,11 @@ export const OpsRun = z.object({
   errorStep: z.string().nullable().optional(),
   /** What the run is about, for its title: see RunSubject. */
   subject: RunSubject.optional(),
+  /**
+   * How long the run has waited on people in all, in ms: its inbox items' spans joined (an open
+   * one counts to now). "Took" is start to finish less this. Absent where a route doesn't read it.
+   */
+  waitedMs: z.number().int().nonnegative().optional(),
 });
 
 export const OpsStep = z.object({
@@ -1220,7 +1228,7 @@ export const opsRoutes = {
       "Create a client; the creating operator serves it. Optionally invites its client admin and sets who approves",
     body: z.strictObject({
       name: z.string().trim().min(1).max(200),
-      timezone: z.string().optional(),
+      timezone: IanaTimeZone.optional(),
       connectorsOffered: z.array(z.string().min(1)).optional(),
       /** Who approves its external actions (default: the client admin). */
       approvals: ExternalApprover.optional(),
@@ -1506,6 +1514,19 @@ export const opsRoutes = {
           releaseNote: z.string().nullable(),
         })
         .nullable(),
+      // QA (2026-11-22): the Overview named a connection "Qbo" and its skills "Loading…" while
+      // the builder's catalog and the skills list (both much larger) were on their way or had
+      // failed; the agent now brings the names it shows. Optional so older answers still parse.
+      /**
+       * Names for what the agent's live and latest versions name: each connector by its
+       * manifest's name ("QuickBooks Online"), each skill reference by its skill's name.
+       */
+      names: z
+        .object({
+          connectors: z.record(z.string(), z.string()),
+          skills: z.record(z.string(), z.string()),
+        })
+        .optional(),
     }),
   }),
   opsAgentVersion: defineRoute({
@@ -1902,6 +1923,10 @@ export const opsRoutes = {
       agents: z.array(OpsAgentRef),
       perDay: RunsPerDay.optional(),
       groups: z.array(RunErrorGroup).optional(),
+      /** R2: the records `about` names, by what their runs kept ("Acme Supply"). */
+      about: z.array(RunAboutName).optional(),
+      /** Paging: pass as `before` for the next page; null on the last one. */
+      next: z.string().nullable().optional(),
     }),
   }),
   opsRun: defineRoute({
@@ -2192,7 +2217,12 @@ export const portalRoutes = {
     summary: "Runs of your services (never test runs)",
     // v0.12 W1-E: RunFilter without the back office's keys (docs/plan.md §1.40).
     query: PortalRunsQuery,
-    response: z.object({ runs: z.array(PortalRunSummary), perDay: RunsPerDay.optional() }),
+    response: z.object({
+      runs: z.array(PortalRunSummary),
+      perDay: RunsPerDay.optional(),
+      /** R2: the records `about` names, from the rows the client's timeline shows. */
+      about: z.array(RunAboutName).optional(),
+    }),
   }),
   portalRun: defineRoute({
     method: "GET",
@@ -2510,6 +2540,8 @@ export const routes = {
   ...runControlRoutes,
   // v0.12 W1-A: go-live stages and client controls
   ...lifecycleRoutes,
+  // docs/setup-plan.md (§1.206)
+  ...gettingStartedRoutes,
   // v0.12 W1-B: notifications, the Table and the Weekly Table
   ...notifyRoutes,
   // §1.116: the phone app

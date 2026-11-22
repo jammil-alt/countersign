@@ -74,6 +74,7 @@ describe("signing a Desk item on the phone", () => {
       decision: "approve",
       fingerprint: sig.fingerprint,
       at: sig.at,
+      version: "v2",
     });
     expect(await verify(jwk, sig.signature, signed)).toBe(true);
     // The same signature is not a rejection, nor another item, nor another time.
@@ -93,6 +94,7 @@ describe("signing a Desk item on the phone", () => {
       decision: "reject",
       fingerprint: sig.fingerprint,
       at: sig.at,
+      version: "v2",
     });
     expect(await verify(jwk, sig.signature, signed)).toBe(true);
     expect(await verify(other, sig.signature, signed)).toBe(false);
@@ -131,8 +133,61 @@ describe("a decision as the app sends it", () => {
       decision: "approve",
       fingerprint: sig.fingerprint,
       at: sig.at,
+      version: "v2",
+      answer: "yes",
     });
     expect(await verify(jwk, sig.signature, signed)).toBe(true);
+  });
+
+  it("signs v2: the answer's text and the note are covered (§1.203)", async () => {
+    const out = await signedDecision({
+      deviceId,
+      item,
+      decision: "approve",
+      answer: "Ship on Tuesday",
+      note: "Checked with the warehouse",
+      prompt: "Answer with Face ID",
+      readKey,
+    });
+    if (!out.ok) throw new Error(out.problem);
+    expect(out.body).toMatchObject({
+      answer: "Ship on Tuesday",
+      note: "Checked with the warehouse",
+    });
+    const sig = out.body.deviceSignature;
+    expect(sig.version).toBe("v2");
+    const text = (answer: unknown, note: string | undefined) =>
+      deviceSignedText({
+        deviceId,
+        itemId: item.id,
+        decision: "approve",
+        fingerprint: sig.fingerprint,
+        at: sig.at,
+        version: "v2",
+        answer,
+        note,
+      });
+    expect(
+      await verify(jwk, sig.signature, text("Ship on Tuesday", "Checked with the warehouse")),
+    ).toBe(true);
+    expect(
+      await verify(jwk, sig.signature, text("Ship on Friday", "Checked with the warehouse")),
+    ).toBe(false);
+    expect(await verify(jwk, sig.signature, text("Ship on Tuesday", undefined))).toBe(false);
+    // Nor is it a v1 signature of the same decision.
+    expect(
+      await verify(
+        jwk,
+        sig.signature,
+        deviceSignedText({
+          deviceId,
+          itemId: item.id,
+          decision: "approve",
+          fingerprint: sig.fingerprint,
+          at: sig.at,
+        }),
+      ),
+    ).toBe(false);
   });
 
   it("sends nothing from a phone not set up to sign, or when Face ID didn't finish", async () => {
