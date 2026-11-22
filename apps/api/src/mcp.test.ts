@@ -471,6 +471,7 @@ describe.skipIf(!h)("MCP server", () => {
         "runs_list",
         "run_get",
         "inbox_list",
+        "needs_us",
         "connections_list",
         "records_search",
         "ops_health",
@@ -604,6 +605,7 @@ describe.skipIf(!h)("MCP server", () => {
         ["client_get", { client: H.C.tenantId }],
         ["runs_list", { client: H.C.tenantId }],
         ["inbox_list", { client: H.C.tenantId }],
+        ["needs_us", { client: H.C.tenantId }],
         ["connections_list", { client: H.C.tenantId }],
         ["records_search", { client: H.C.tenantId }],
         ["ops_health", { client: H.C.tenantId }],
@@ -715,6 +717,15 @@ describe.skipIf(!h)("MCP server", () => {
       const records = await tool(opToken, "records_search", { client: H.A.tenantId, q: "oak" });
       expect(records.isError, records.text).toBe(false);
       expect(records.data()).toMatchObject({ counts: expect.any(Object) });
+    });
+
+    it("needs_us answers with Needs us' count and list (GET /api/ops/needs-us)", async () => {
+      const out = await tool(opToken, "needs_us");
+      expect(out.isError, out.text).toBe(false);
+      const data = out.data();
+      expect(data).toEqual({ count: expect.any(Number), escalations: expect.any(Array) });
+      expect(data.escalations).toHaveLength(data.count);
+      expect(out.text).toMatch(/ us\.\n/);
     });
 
     it("feedback_list: the served clients' and the back office's, fenced as untrusted data", async () => {

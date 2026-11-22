@@ -37,6 +37,7 @@ import {
 } from "@countersign/db";
 import { and, desc, eq, gte, inArray, isNull, lte, ne, or, type SQL, sql } from "drizzle-orm";
 import { iso } from "../http";
+import { notWaitingReminder } from "../runs/run-wait";
 import { holdViews } from "./holds";
 import type { TodoRow } from "./todos-store";
 
@@ -326,6 +327,7 @@ async function escalations(tx: Tx, scope: readonly string[]): Promise<TodoView[]
         inArray(inboxItem.tenantId, [...scope]),
         eq(inboxItem.status, "open"),
         eq(inboxItem.assigneeRole, "operator"),
+        notWaitingReminder,
       ),
     )
     .orderBy(inboxItem.createdAt)
@@ -339,7 +341,8 @@ async function escalations(tx: Tx, scope: readonly string[]): Promise<TodoView[]
       tag: "Escalation",
       title: r.title,
       client: { id: r.tenantId, name: r.clientName },
-      about: { kind: "inbox", id: r.id, href: `/ops/inbox?client=${r.tenantId}` },
+      // The exact item, open in its side sheet (QA, 2026-11-22).
+      about: { kind: "inbox", id: r.id, href: `/ops/inbox?client=${r.tenantId}&item=${r.id}` },
       dueAt: iso(r.dueAt),
       createdAt: r.createdAt,
       why: { head: "Waiting on us", detail: "An agent brought this to a person." },
@@ -517,6 +520,7 @@ async function deskItems(tx: Tx, scope: readonly string[]): Promise<TodoView[]> 
         eq(inboxItem.status, "open"),
         or(isNull(inboxItem.assigneeRole), ne(inboxItem.assigneeRole, "operator")),
         or(isNull(inboxItem.snoozedUntil), lte(inboxItem.snoozedUntil, new Date())),
+        notWaitingReminder,
       ),
     )
     .orderBy(sql`${inboxItem.dueAt} asc nulls last`, inboxItem.createdAt)

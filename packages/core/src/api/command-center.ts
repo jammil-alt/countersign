@@ -143,6 +143,11 @@ export const Escalation = z.object({
   blockedSince: z.string(),
   /** An approval's wait: who it waits on, and whether anybody can act on it. */
   wait: RunWait.nullable().optional(),
+  /**
+   * The open items it is about, oldest first (an approval: the client's items nobody there can
+   * act on, for one reason; an item for us: itself), so a link opens the exact item.
+   */
+  itemIds: z.array(z.string()).optional(),
 });
 export type Escalation = z.infer<typeof Escalation>;
 
@@ -174,7 +179,7 @@ export type ClientCounts = z.infer<typeof ClientCounts>;
 export const CommandCenter = z.object({
   /** When the figures were taken (the server's clock). */
   at: z.string(),
-  /** Today's start (UTC), for "today" figures. */
+  /** Today's start, for "today" figures: the `today` asked for (the browser's day), else UTC. */
   today: z.string(),
   agentsLive: z.object({
     count: z.number().int(),
@@ -195,13 +200,19 @@ export const CommandCenter = z.object({
       nobodyToAct: z.number().int(),
     })
     .optional(),
-  /** Live runs that failed today (UTC). */
+  /** Live runs that failed today. */
   failedToday: z.object({ runs: z.number().int() }).optional(),
   needUs: z.object({ count: z.number().int(), blockedLong: z.number().int() }),
+  /**
+   * Open items only the client can answer (not the Sandbox's, which are ours, and not the
+   * supervisor's reminders about other items): how many, the oldest, and how many waited over
+   * APPROVAL_OVERDUE_HOURS. They are not in Needs us.
+   */
   waitingOnClients: z.object({
     count: z.number().int(),
     oldestSince: z.string().nullable(),
     oldestAgeSeconds: z.number().int().nullable(),
+    overdue: z.number().int().optional(),
   }),
   runsToday: z.object({
     runs: z.number().int(),
@@ -320,7 +331,9 @@ const commandCenterOnly = {
     roles: OPS,
     summary:
       "The command center across the clients served (or one): agents live, running now, escalations, today's runs and spend, low confidence, client health and the agents table",
-    query: z.object({ client: Id.optional() }),
+    // QA (2026-11-22): `today` is the start of the operator's day in their browser, as an instant;
+    // without it (or one not within the last 26 hours) the day starts at midnight UTC.
+    query: z.object({ client: Id.optional(), today: Instant.optional() }),
     response: CommandCenter,
   }),
   // UI cleanup (stream A): Needs us alone, for Escalations and the clients' counts.
@@ -330,7 +343,7 @@ const commandCenterOnly = {
     auth: "session",
     roles: OPS,
     summary:
-      "Needs us across the clients served (or one): items for us, failed runs, broken connections, low-confidence readings, and approvals waiting long or that nobody can act on",
+      "Needs us across the clients served (or one): what the operator must act on. Items for us, failed live runs, broken connections an agent uses, low-confidence readings of the last day, and clients' approvals nobody there can act on (one per client and reason). Items only the client can answer are not here.",
     query: z.object({ client: Id.optional() }),
     response: z.object({ count: z.number().int(), escalations: z.array(Escalation) }),
   }),

@@ -8,11 +8,27 @@ import {
   fingerprintOf,
   HealthSummary,
   healthState,
+  isWaitingReminder,
   RunFailedPayload,
   supervisorSettings,
 } from "./health";
 
 const ID = "0192f7a0-0000-7000-8000-000000000001";
+
+describe("isWaitingReminder", () => {
+  it("is the supervisor's reminder that items wait, not another finding or item (QA)", () => {
+    const reminder = {
+      subjectType: "supervisor_finding",
+      payload: { fingerprint: findingFingerprint({ kind: "waiting_long" }) },
+    };
+    expect(isWaitingReminder(reminder)).toBe(true);
+    expect(isWaitingReminder({ ...reminder, payload: { fingerprint: `code_alert:${ID}` } })).toBe(
+      false,
+    );
+    expect(isWaitingReminder({ ...reminder, subjectType: "directory_suggestion" })).toBe(false);
+    expect(isWaitingReminder({ subjectType: null, payload: {} })).toBe(false);
+  });
+});
 
 describe("supervisor events", () => {
   it("validate run.failed and connection.needs_attention", () => {
