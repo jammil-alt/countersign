@@ -62,6 +62,7 @@ export * from "./messaging/services";
 export * from "./messaging/spec";
 // §1.114: the Microsoft connectors' shared sign-in.
 export * from "./microsoft/identity";
+export * from "./oauth/declared";
 export * from "./oauth/flow";
 export * from "./oauth/state";
 export * from "./oauth/tokens";

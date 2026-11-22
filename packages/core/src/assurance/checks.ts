@@ -4,7 +4,8 @@
 //
 // A result is Verified, In review or Not applicable, never "failed" (owner, 2026-11-21). A check
 // with no stored result is "Not yet checked": the attack checks until the attack runs are built
-// (A3), and every check of a new agent before its first night.
+// (A3), every check of a new agent before its first night, and a check whose inputs weren't
+// gathered or can't yet be read (its function returns null and nothing is stored, §1.231.2).
 //
 // Evidence is counts and record ids, never contents, secrets, prompts or message bodies
 // (invariant 13).
@@ -163,6 +164,21 @@ export const CHECKS: readonly CheckSpec[] = (
       controls: ["ACC-6"],
       built: true,
     },
+    // §1.231.2 (§4b): the two A2 left.
+    {
+      id: "no_secret_to_model",
+      name: "No secret in its AI requests",
+      kind: "runs",
+      controls: ["DAT-3"],
+      built: true,
+    },
+    {
+      id: "oauth_scopes",
+      name: "Sign-ins grant no more than we ask for",
+      kind: "setup",
+      controls: ["ACC-4", "DAT-6"],
+      built: true,
+    },
   ] satisfies Omit<CheckSpec, "number">[]
 ).map((c, i) => ({ ...c, number: `K${i + 1}` }));
 
@@ -219,6 +235,38 @@ export type AssuranceAction = {
 
 export type AssuranceCall = { provider: Processor; model: string; action: string; count: number };
 
+/**
+ * §1.231.2: the period's stored model requests of the agent's live runs, read in the client's scope
+ * and scanned for the client's stored secrets and for secret-shaped strings. Counts and call ids
+ * only; never a secret or a request's text.
+ */
+export type AssuranceRequestScan = {
+  /** Model calls of the period. */
+  calls: number;
+  /** Stored requests read (the newest, up to the cap). */
+  read: number;
+  /** Calls whose stored body wasn't found. */
+  missing: number;
+  /** Secret values of the client's connections looked for. */
+  secrets: number;
+  /** Connections whose stored secret couldn't be opened, so wasn't looked for. */
+  unreadable: number;
+  /** Calls whose request held one of the client's secrets. */
+  withSecret: readonly string[];
+  /** Calls whose request held a secret-shaped string, with its kinds. */
+  secretShaped: readonly { id: string; kinds: readonly string[] }[];
+};
+
+/** §1.231.2: one OAuth connection's grant, against the scopes its connector asks for. */
+export type AssuranceOAuthGrant = {
+  id: string;
+  name: string;
+  /** The scopes the provider granted, as stored with the credentials; null when not stored. */
+  granted: readonly string[] | null;
+  /** Granted scopes beyond the connector's declared ones. */
+  beyond: readonly string[];
+};
+
 export type AssuranceInput = {
   clientName: string;
   sop: SopView;
@@ -250,6 +298,10 @@ export type AssuranceInput = {
   /** Bindings, contacts and notes of the agent that aren't this client's (or can't be found). */
   foreignRefs: number;
   actions: readonly AssuranceAction[];
+  /** Only when the checks run (the stored requests are read then, never for a view). */
+  requestScan?: AssuranceRequestScan | null;
+  /** Each bound OAuth connection's grant; only when the checks run. */
+  oauthGrants?: readonly AssuranceOAuthGrant[] | null;
 };
 
 export type CheckOutcome = {
@@ -291,7 +343,8 @@ export function agentProviders(input: AssuranceInput): Processor[] {
   return [...out];
 }
 
-type Run = (input: AssuranceInput) => Omit<CheckOutcome, "checkId" | "kind" | "controls">;
+/** null: not checked this time (its inputs weren't gathered or can't be read yet); nothing kept. */
+type Run = (input: AssuranceInput) => Omit<CheckOutcome, "checkId" | "kind" | "controls"> | null;
 
 const RUNS: Record<string, Run> = {
   approval_before_change(input) {
@@ -603,14 +656,93 @@ const RUNS: Record<string, Run> = {
       evidence: { approvals: approved.length, notMembers: gone.map((a) => a.id) },
     };
   },
+
+  no_secret_to_model(input) {
+    const s = input.requestScan;
+    if (!s) return null;
+    if (s.calls === 0) {
+      return { result: "not_applicable", found: "No AI calls in the period", evidence: {} };
+    }
+    // DECISION (§1.231.2): with no stored request to read, the check can't say; it stays Not yet
+    // checked rather than verifying nothing.
+    if (s.read === 0) return null;
+    const evidence = {
+      calls: s.calls,
+      read: s.read,
+      missing: s.missing,
+      secrets: s.secrets,
+      unreadable: s.unreadable,
+      withSecret: [...s.withSecret],
+      secretShaped: s.secretShaped.map((x) => ({ id: x.id, kinds: [...x.kinds] })),
+    };
+    if (s.withSecret.length > 0 || s.secretShaped.length > 0) {
+      const found = [
+        ...(s.withSecret.length > 0
+          ? [`${n(s.withSecret.length, "AI request")} held one of your stored secrets`]
+          : []),
+        ...(s.secretShaped.length > 0
+          ? [`${n(s.secretShaped.length, "AI request")} held something shaped like a key or token`]
+          : []),
+      ].join("; ");
+      return { result: "in_review", found, evidence };
+    }
+    if (s.unreadable > 0) {
+      return {
+        result: "in_review",
+        found: `${n(s.unreadable, "stored secret")} couldn't be opened to look for`,
+        evidence,
+      };
+    }
+    const of = s.read < s.calls ? ` (the newest ${s.read} of ${s.calls})` : "";
+    return {
+      result: "verified",
+      found: `${n(s.read, "stored AI request")}${of}, none holding a stored secret or a key or token; ${n(s.secrets, "secret")} looked for`,
+      evidence,
+    };
+  },
+
+  oauth_scopes(input) {
+    const grants = input.oauthGrants;
+    if (!grants) return null;
+    if (grants.length === 0) {
+      return {
+        result: "not_applicable",
+        found: "None of its systems signs in with OAuth",
+        evidence: {},
+      };
+    }
+    const wide = grants.filter((g) => g.beyond.length > 0);
+    const unknown = grants.filter((g) => g.granted === null);
+    const evidence = {
+      connections: grants.map((g) => g.id),
+      beyond: wide.map((g) => ({ id: g.id, scopes: [...g.beyond] })),
+      notStored: unknown.map((g) => g.id),
+    };
+    if (wide.length > 0) {
+      return {
+        result: "in_review",
+        found: `Granted more than we ask for: ${list(wide.map((g) => `${g.name} (${g.beyond.join(", ")})`))}`,
+        evidence,
+      };
+    }
+    // DECISION (§1.231.2): a grant whose scopes the provider doesn't report (QuickBooks) can't be
+    // compared; until every one can, the check stays Not yet checked rather than verifying part.
+    if (unknown.length > 0) return null;
+    return {
+      result: "verified",
+      found: `${list(grants.map((g) => g.name))}: granted only the scopes we ask for`,
+      evidence,
+    };
+  },
 };
 
-/** Every built check's outcome for one agent. */
+/** Every built check's outcome for one agent; a check that couldn't be checked this time is left out. */
 export function runAssuranceChecks(input: AssuranceInput): CheckOutcome[] {
-  return CHECKS.filter((c) => c.built).map((c) => {
+  return CHECKS.filter((c) => c.built).flatMap((c) => {
     const run = RUNS[c.id];
     if (!run) throw new Error(`no check function for ${c.id}`);
-    return { checkId: c.id, kind: c.kind, controls: c.controls, ...run(input) };
+    const out = run(input);
+    return out ? [{ checkId: c.id, kind: c.kind, controls: c.controls, ...out }] : [];
   });
 }
 
