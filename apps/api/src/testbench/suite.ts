@@ -11,6 +11,7 @@
 
 import {
   type AgentRow,
+  createVersion,
   requiredConnectors,
   runSkillCase,
   skillContext,
@@ -239,6 +240,8 @@ export async function runTemplateTest(
     actorId: string | null;
     workflow: string;
     payload: Record<string, unknown>;
+    /** §1.212: the bundle as a client agent would set it (a skill's parameters), run as a version of the test copy. */
+    adjust?: (bundle: AnyAgentBundle) => AnyAgentBundle;
   },
 ): Promise<TemplateTestRun> {
   const runTenant = args.runTenantId;
@@ -256,6 +259,18 @@ export async function runTemplateTest(
       bundle: target.version.bundle,
       catalog: deps.platform.catalog,
     });
+    // §1.212: a golden case's parameters, as the client agent would set them: a version of the
+    // test copy of its own (the copy is the case's, in a client of its own).
+    const version = args.adjust
+      ? await createVersion(tx, {
+          agentId: copy.id,
+          bundle: args.adjust(target.version.bundle),
+          authorType: "operator",
+          authorId: args.actorId,
+          changeNote: "Test copy with a case's parameters",
+          basedOnTemplateVersionId: target.version.basedOnTemplateVersionId ?? args.versionId,
+        })
+      : target.version;
     const r = requestRun({
       agent: {
         id: copy.id,
@@ -269,8 +284,8 @@ export async function runTemplateTest(
       workflowSlug: args.workflow,
       payload: args.payload,
       mode: "test",
-      versionId: target.version.id,
-      bundle: target.version.bundle,
+      versionId: version.id,
+      bundle: version.bundle,
     });
     await createRunRow(tx, r);
     return r;

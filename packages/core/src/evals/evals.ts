@@ -63,14 +63,19 @@ export const EvalCase = z.strictObject({
   tags: z.array(Slug).max(10).default([]),
   /** The trigger's payload; `@name` strings are the world's ids (see `resolveRefs`). */
   trigger: z.record(z.string(), z.unknown()).default({}),
-  /** A skill's parameters as a client agent sets them, by skill id. */
-  settings: z.record(z.string(), z.record(z.string(), z.unknown())).default({}),
+  /** A skill's parameters as a client agent sets them (the skill ref's `parameters`), by skill id. */
+  parameters: z.record(z.string(), z.record(z.string(), z.unknown())).default({}),
   /** The client's records as the case starts, in the dataset's own shape (its world seeder). */
   world: z.unknown(),
   /** Every write the run makes, in order per step. A write not listed fails the case. */
   writes: ExpectedWrites,
   /** Paths `<step>.<index>.<input|output>.…`, `*` for any index. */
   tolerances: z.record(FieldPath, Tolerance).default({}),
+  /**
+   * The model's answers (each a `finish` input, in call order) the case was written with. Only
+   * read when its replays are written by hand (no API key); tests replay `fixtures/llm`.
+   */
+  answers: z.array(z.unknown()).max(20).default([]),
   /** Why the case is here: what it proves. */
   note: z.string().max(1000).optional(),
 });
