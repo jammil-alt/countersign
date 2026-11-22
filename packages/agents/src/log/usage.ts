@@ -216,18 +216,25 @@ export async function rollupPlatformDaily(
                as browser_seconds,
              coalesce(sum(mu.quantity) filter (where mu.measure = 'bank_item_months'), 0)::int
                as bank_item_months,
+             -- A failed background read's calls (no doc_extraction row): the client's own model
+             -- cost, with its tokens, as the reads that succeeded are.
+             coalesce(sum(mu.tokens_in + mu.cache_read_tokens + mu.cache_write_tokens)
+               filter (where mu.measure = 'model'), 0)::bigint as tokens_in,
+             coalesce(sum(mu.tokens_out) filter (where mu.measure = 'model'), 0)::bigint
+               as tokens_out,
+             coalesce(sum(mu.cost_usd) filter (where mu.measure = 'model'), 0) as cost_usd,
              count(*)::int as n
       from metered_usage mu, d
       where mu.tenant_id = ${t} and mu.agent_id is null and not mu.ours
-        and mu.measure <> 'model'
         and mu.created_at >= d.lo and mu.created_at < d.hi
     )
     insert into usage_platform_daily
       (tenant_id, day, documents, translations, tokens_in, tokens_out, cost_usd, messages, emails,
        browser_seconds, bank_item_months)
     select ${t}::uuid, d.day, reads.documents, tr.translations,
-           reads.tokens_in + tr.tokens_in, reads.tokens_out + tr.tokens_out,
-           reads.cost_usd + tr.cost_usd + fees.cost_usd, m.messages, m.emails, m.browser_seconds,
+           reads.tokens_in + tr.tokens_in + m.tokens_in, reads.tokens_out + tr.tokens_out + m.tokens_out,
+           reads.cost_usd + tr.cost_usd + fees.cost_usd + m.cost_usd, m.messages, m.emails,
+           m.browser_seconds,
            m.bank_item_months
     from d, reads, tr, fees, m
     where reads.n > 0 or tr.translations > 0 or fees.n > 0 or m.n > 0

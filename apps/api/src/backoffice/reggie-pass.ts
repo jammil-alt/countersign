@@ -614,10 +614,13 @@ export async function readOne(
   }
   let read: ReggieRead | null = null;
   let meta: Record<string, unknown> = {};
-  let call: LlmCallRecord | null = null;
+  const calls: LlmCallRecord[] = [];
   try {
     if (!deps.transport) throw new Error("no model transport");
-    const llm = createLlmClient({ transport: deps.transport });
+    const llm = createLlmClient({
+      transport: deps.transport,
+      onCall: (record) => void calls.push(record),
+    });
     const out = await llm.callTool({
       model: DEFAULT_MODELS.reggie,
       system: SYSTEM,
@@ -631,21 +634,20 @@ export async function readOne(
       maxTokens: 3000,
       label: "reggie_read",
     });
-    call = out.record;
     read = checkedRead(out.value, g, now);
     meta = { model: out.record.model, costUsd: out.record.costUsd ?? null };
   } catch (error) {
     reportHandled("Reggie's read failed", error, { job: "reggie_read", tenant: tenantId });
   }
   return withOperator(deps.db, [tenantId], async (tx) => {
-    // §1.210: the read's model call is the back office's cost, opened on this client, whether
-    // or not its answer was kept.
-    if (call) {
+    // §1.210: the read's model calls are the back office's cost, opened on this client,
+    // whether or not an answer came back or was kept.
+    if (calls.length > 0) {
       await meterModelCalls(tx, {
         tenantId,
         source: "reggie_read",
         key: `reggie_read:${issueId}:${now.toISOString()}`,
-        calls: [call],
+        calls,
       });
     }
     const [row] = await tx

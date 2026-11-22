@@ -507,7 +507,9 @@ export type MeteredMeasure = (typeof METERED_MEASURES)[number];
 /**
  * Where a metered row came from: a run's own work (`run`), the client's own (`notification`,
  * `release_code`, `auto_reply`, `inbound`, `invitation`, `account`, `bank_feed`, `browser`), or
- * ours (`sign_in_code`, `back_office`, `dev_queue`, `reggie_read`, `reshape`).
+ * ours (`sign_in_code`, `back_office`, and the back office's model calls: `dev_queue`,
+ * `reggie_read`, `reshape`, `builder`, `build`, `assist`, `questions`, `summaries`,
+ * `dictation`).
  */
 export const METER_SOURCES = [
   "run",
@@ -524,6 +526,13 @@ export const METER_SOURCES = [
   "dev_queue",
   "reggie_read",
   "reshape",
+  "builder",
+  "build",
+  "assist",
+  "questions",
+  "summaries",
+  "dictation",
+  "background_read",
 ] as const;
 export type MeterSource = (typeof METER_SOURCES)[number];
 

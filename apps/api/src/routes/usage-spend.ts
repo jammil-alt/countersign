@@ -70,7 +70,24 @@ export const BACK_OFFICE_SOURCES: readonly SpendSource[] = [
   "reshape",
   "build",
   "dev_queue",
+  "assist",
+  "questions",
+  "summaries",
+  "dictation",
 ];
+
+/** §1.210: the back office's model calls kept in `metered_usage`, by source. */
+const METERED_MODEL_SOURCES = [
+  "reggie_read",
+  "reshape",
+  "dev_queue",
+  "builder",
+  "build",
+  "assist",
+  "questions",
+  "summaries",
+  "dictation",
+] as const;
 
 /** One grouped line of model spend. */
 export interface SpendLine {
@@ -117,6 +134,22 @@ const metaCost = (meta: Column) =>
   sql`case when jsonb_typeof(${meta} -> 'costUsd') = 'string'
             and ${meta} ->> 'costUsd' ~ '^[0-9]+(\\.[0-9]+)?$'
            then (${meta} ->> 'costUsd')::numeric end`;
+
+/**
+ * §1.210: the tokens a back-office answer keeps in its `meta` (`tokensMeta`), summed: input with
+ * the cache reads and writes, as the token report counts it (§1.115), and output. Answers from
+ * before kept none and count 0.
+ */
+const metaTokens = (meta: Column) => {
+  const int = (k: string) =>
+    sql`case when jsonb_typeof(${meta} -> ${k}) = 'number' then (${meta} ->> ${k})::bigint else 0 end`;
+  return {
+    tokensIn: sql<
+      string | null
+    >`sum(${int("tokensIn")} + ${int("cacheReadTokens")} + ${int("cacheWriteTokens")})::text`,
+    tokensOut: sql<string | null>`sum(${int("tokensOut")})::text`,
+  };
+};
 
 const n = (v: string | number | null | undefined) => Number(v ?? 0);
 const d = (v: string | null | undefined) => new Decimal(v ?? "0");
@@ -339,6 +372,51 @@ export async function spendLines(
     }
   }
 
+  // §1.210: a background read that failed saves no doc_extraction row; its calls are metered as
+  // the client's own reading (not ours), with their tokens.
+  {
+    const day = utcDay(meteredUsage.createdAt);
+    const rows = await tx
+      .select({
+        tenantId: meteredUsage.tenantId,
+        model: meteredUsage.model,
+        day,
+        calls: sql<string>`count(*)::text`,
+        unpriced: sql<string>`(count(*) filter (where ${meteredUsage.costUsd} = 0 and ${meteredUsage.tokensIn} + ${meteredUsage.tokensOut} > 0))::text`,
+        tokensIn: sql<string>`sum(${meteredUsage.tokensIn} + ${meteredUsage.cacheReadTokens} + ${meteredUsage.cacheWriteTokens})::text`,
+        tokensOut: sql<string>`sum(${meteredUsage.tokensOut})::text`,
+        cost: sql<string>`sum(${meteredUsage.costUsd})::text`,
+      })
+      .from(meteredUsage)
+      .where(
+        and(
+          eq(meteredUsage.measure, "model"),
+          eq(meteredUsage.ours, false),
+          isNull(meteredUsage.agentId),
+          inArray(meteredUsage.tenantId, scope),
+          gte(meteredUsage.createdAt, lo),
+          lt(meteredUsage.createdAt, hi),
+          ...(query.client ? [eq(meteredUsage.tenantId, query.client)] : []),
+        ),
+      )
+      .groupBy(meteredUsage.tenantId, meteredUsage.model, day);
+    for (const r of rows) {
+      lines.push({
+        source: "background_read",
+        tenantId: r.tenantId,
+        agentId: null,
+        model: r.model ?? "",
+        action: "background_read",
+        day: r.day,
+        calls: n(r.calls),
+        unpricedCalls: n(r.unpriced),
+        tokensIn: n(r.tokensIn),
+        tokensOut: n(r.tokensOut),
+        cost: d(r.cost),
+      });
+    }
+  }
+
   lines.push(...(await backOfficeLines(tx, scope, query)));
   return lines;
 }
@@ -352,7 +430,15 @@ async function backOfficeLines(tx: Tx, scope: string[], query: SpendQuery): Prom
   const out: SpendLine[] = [];
   const push = (
     source: BackOfficeSpend,
-    rows: { tenantId: string | null; model: string | null; day: string; n: string; cost: string }[],
+    rows: {
+      tenantId: string | null;
+      model: string | null;
+      day: string;
+      n: string;
+      cost: string;
+      tokensIn: string | null;
+      tokensOut: string | null;
+    }[],
   ) => {
     for (const r of rows) {
       out.push({
@@ -364,8 +450,8 @@ async function backOfficeLines(tx: Tx, scope: string[], query: SpendQuery): Prom
         day: r.day,
         calls: n(r.n),
         unpricedCalls: 0,
-        tokensIn: 0,
-        tokensOut: 0,
+        tokensIn: n(r.tokensIn),
+        tokensOut: n(r.tokensOut),
         cost: d(r.cost),
       });
     }
@@ -385,6 +471,7 @@ async function backOfficeLines(tx: Tx, scope: string[], query: SpendQuery): Prom
           day,
           n: sql<string>`count(*)::text`,
           cost: sql<string>`sum(${cost})::text`,
+          ...metaTokens(reggieMessage.meta),
         })
         .from(reggieMessage)
         .innerJoin(reggieConversation, eq(reggieConversation.id, reggieMessage.conversationId))
@@ -414,6 +501,7 @@ async function backOfficeLines(tx: Tx, scope: string[], query: SpendQuery): Prom
           day,
           n: sql<string>`count(*)::text`,
           cost: sql<string>`sum(${builderTurn.costUsd})::text`,
+          ...metaTokens(builderTurn.meta),
         })
         .from(builderTurn)
         .where(
@@ -442,6 +530,7 @@ async function backOfficeLines(tx: Tx, scope: string[], query: SpendQuery): Prom
           day,
           n: sql<string>`count(*)::text`,
           cost: sql<string>`sum(${cost})::text`,
+          ...metaTokens(buildMessage.meta),
         })
         .from(buildMessage)
         .innerJoin(build, eq(build.id, buildMessage.buildId))
@@ -468,7 +557,8 @@ async function backOfficeLines(tx: Tx, scope: string[], query: SpendQuery): Prom
         day,
         n: sql<string>`count(*)::text`,
         unpriced: sql<string>`(count(*) filter (where ${meteredUsage.costUsd} = 0 and ${meteredUsage.tokensIn} + ${meteredUsage.tokensOut} > 0))::text`,
-        tokensIn: sql<string>`sum(${meteredUsage.tokensIn})::text`,
+        // Input counts cache reads and writes, as the token report does (§1.115).
+        tokensIn: sql<string>`sum(${meteredUsage.tokensIn} + ${meteredUsage.cacheReadTokens} + ${meteredUsage.cacheWriteTokens})::text`,
         tokensOut: sql<string>`sum(${meteredUsage.tokensOut})::text`,
         cost: sql<string>`sum(${meteredUsage.costUsd})::text`,
       })
@@ -477,7 +567,7 @@ async function backOfficeLines(tx: Tx, scope: string[], query: SpendQuery): Prom
         and(
           eq(meteredUsage.measure, "model"),
           eq(meteredUsage.ours, true),
-          inArray(meteredUsage.source, ["reggie_read", "reshape", "dev_queue"]),
+          inArray(meteredUsage.source, [...METERED_MODEL_SOURCES]),
           gte(meteredUsage.createdAt, lo),
           lt(meteredUsage.createdAt, hi),
           clientOf(meteredUsage.tenantId),

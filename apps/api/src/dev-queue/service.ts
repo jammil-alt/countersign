@@ -28,7 +28,7 @@ import {
   type UpdateCodeRequest,
 } from "@countersign/core";
 import { build, buildItem, codeRequest, codeRequestLink, type Tx } from "@countersign/db";
-import { createLlmClient } from "@countersign/llm";
+import { createLlmClient, type LlmCallRecord } from "@countersign/llm";
 import { and, desc, eq, inArray, lte, or, sql } from "drizzle-orm";
 import type { z } from "zod";
 import { addMessage } from "../build/store";
@@ -66,8 +66,11 @@ const refused = (reason: string) => new HttpError(409, "refused", reason);
  * (its words may carry that build's work). A refused call sends nothing: the candidates come back
  * unjudged, for the operator to judge.
  */
-function llmFor(services: Services, clients: readonly string[]) {
-  return createLlmClient({ transport: clientModels(services, { clients, read: services.db }) });
+function llmFor(services: Services, clients: readonly string[], calls?: LlmCallRecord[]) {
+  return createLlmClient({
+    transport: clientModels(services, { clients, read: services.db }),
+    ...(calls ? { onCall: (record: LlmCallRecord) => void calls.push(record) } : {}),
+  });
 }
 
 /** The clients of the builds linked to a request, or of one build about to be. */
@@ -109,25 +112,32 @@ async function checkReuse(
     ctx: bctx,
     ...(selfId ? { selfId } : {}),
   };
+  // §1.210: the judge's calls are ours (the dev queue is the platform's work), on the request's
+  // one client when it has exactly one; a judge that failed spent them too.
+  const calls: LlmCallRecord[] = [];
   try {
-    const ran = await runReuseCheck(base, { llm: llmFor(ctx.services, clients), now: ctx.now() });
-    // §1.210: the judge's calls are ours (the dev queue is the platform's work), on the request's
-    // one client when it has exactly one.
-    if (ran.calls.length > 0) {
-      await ctx.inTx(({ tx }) =>
-        meterModelCalls(tx, {
-          tenantId: clients.length === 1 ? (clients[0] ?? null) : null,
-          source: "dev_queue",
-          key: `dev_queue:${crypto.randomUUID()}`,
-          calls: ran.calls,
-        }),
-      );
-    }
-    return ran.check;
+    return (
+      await runReuseCheck(base, { llm: llmFor(ctx.services, clients, calls), now: ctx.now() })
+    ).check;
   } catch (error) {
     if (!(error instanceof BuilderError)) throw error;
     reportHandled("the reuse check's judge failed", error, { kind: "dev_queue" });
     return (await runReuseCheck(base, { llm: null, now: ctx.now() })).check;
+  } finally {
+    if (calls.length > 0) {
+      await ctx
+        .inTx(({ tx }) =>
+          meterModelCalls(tx, {
+            tenantId: clients.length === 1 ? (clients[0] ?? null) : null,
+            source: "dev_queue",
+            key: `dev_queue:${crypto.randomUUID()}`,
+            calls,
+          }),
+        )
+        .catch((error: unknown) =>
+          reportHandled("the reuse check's cost was not recorded", error, { kind: "dev_queue" }),
+        );
+    }
   }
 }
 

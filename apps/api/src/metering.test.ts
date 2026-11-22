@@ -173,7 +173,8 @@ describe.skipIf(!h)("metered usage", () => {
       measure: "model",
       ours: true,
       costUsd: "0.0002",
-      tokensIn: 130,
+      tokensIn: 100,
+      cacheReadTokens: 30,
       tokensOut: 20,
     });
     expect(rows.find((r) => r.key === "b1")?.quantity).toBe(91);

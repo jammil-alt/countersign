@@ -93,6 +93,10 @@ export const BACK_OFFICE_SPEND = [
   "reshape",
   "build",
   "dev_queue",
+  "assist",
+  "questions",
+  "summaries",
+  "dictation",
   "services",
 ] as const;
 export type BackOfficeSpend = (typeof BACK_OFFICE_SPEND)[number];
@@ -104,6 +108,10 @@ export const BACK_OFFICE_SPEND_LABELS: Record<BackOfficeSpend, string> = {
   reshape: "Reshape suggestions",
   build: "Builds",
   dev_queue: "Dev queue reuse checks",
+  assist: "Assist",
+  questions: "Questions",
+  summaries: "Sloan's summaries",
+  dictation: "Dictation",
   services: "Texts, emails and sign-in codes",
 };
 
