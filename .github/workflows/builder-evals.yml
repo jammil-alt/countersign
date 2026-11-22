@@ -5,9 +5,11 @@ name: Builder evals
 # (apps/api/src/evals). By hand only: it calls the model, so it costs money (a few dollars a run),
 # and its answers vary, so it reports scores rather than failing a merge.
 #
-# It runs in the "staging" environment for that environment's ANTHROPIC_API_KEY, the one staging's
-# Builder already uses. The cases are made up: no client data reaches the runner (docs/plan.md
-# §1.35). The report is the job's summary and its log.
+# It runs in the "staging" environment with that environment's ANTHROPIC_EVALS_API_KEY, a key of
+# its own (owner, 2026-11-22), so eval spend is billed apart from staging's and never mixed into
+# the app's own usage figures. The model is the same one staging's Builder uses. The cases are
+# made up: no client data reaches the runner (docs/plan.md §1.35). The report is the job's summary
+# and its log.
 
 on:
   workflow_dispatch:
@@ -48,7 +50,7 @@ jobs:
       - name: Run the Builder's test cases
         working-directory: apps/api
         env:
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_EVALS_API_KEY }}
           BUILDER_EVAL_MODEL: ${{ github.event.inputs.model }}
           BUILDER_EVAL_CASES: ${{ github.event.inputs.cases }}
           BUILDER_EVAL_REPORT: ${{ runner.temp }}/builder-evals.md

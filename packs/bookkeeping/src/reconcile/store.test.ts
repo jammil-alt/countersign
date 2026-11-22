@@ -2,9 +2,10 @@
 // QuickBooks' register explained by a deposit in transit, signed off on the card and carried into
 // the next month where it clears; a side that doesn't add up refused; a residual a person explains
 // before signing off; the model's proposal accepted on the card; a payout deposit against its
-// statement as one group; test runs record nothing; one client never sees another's.
+// statement as one group; a client's saved match rule (§1.215) settling what amounts alone can't;
+// test runs record nothing; one client never sees another's.
 
-import { closeDb, createDb, type Db, withTenant } from "@countersign/db";
+import { closeDb, createDb, type Db, saveMatchRule, withTenant } from "@countersign/db";
 import { createTestDatabase, databaseAvailable, type TestDatabase } from "@countersign/db/testing";
 import { and, eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -12,7 +13,13 @@ import { BOOKKEEPING_ACTIONS, BOOKKEEPING_REPORTS, BOOKKEEPING_REVIEWS } from ".
 import { importFeeds } from "../feed";
 import { BOOKKEEPING_HANDLERS } from "../manifest";
 import type { PackToolContext } from "../pack";
-import { bankAccountLink, bankTxn, reconciliation, reconciliationItem } from "../schema";
+import {
+  bankAccountLink,
+  bankTxn,
+  reconciliation,
+  reconciliationItem,
+  reconciliationMatch,
+} from "../schema";
 import { type BooksFixture, CHECKING, insertBooks } from "../testing.test-helper";
 import { RECONCILIATION_REVIEW } from "./api";
 import { monthPeriod } from "./store";
@@ -525,6 +532,65 @@ describe.skipIf(!online)("reconciliation (database, as cs_worker)", () => {
       "as_of,side_a,balance_a,side_b,balance_b,difference,unexplained,currency,outcome,status",
     );
     expect(csv).toContain(",-250.0000,");
+  });
+
+  it("settles two equal transfers by the client's saved rules, and only that client's (§1.215)", async () => {
+    const run = (books: BooksFixture) =>
+      tool("bookkeeping.reconcile").run(
+        {
+          a: {
+            source: "given",
+            label: "Bank",
+            closing: "-80.00",
+            items: [
+              { id: "1", date: "2026-10-10", effect: "-40.00", reference: "ACH 7001" },
+              { id: "2", date: "2026-10-11", effect: "-40.00", reference: "ACH 7002" },
+            ],
+          },
+          b: {
+            source: "given",
+            label: "Books",
+            closing: "-80.00",
+            items: [
+              { id: "x", date: "2026-10-11", effect: "-40.00", reference: "TRF-7002" },
+              { id: "y", date: "2026-10-10", effect: "-40.00", reference: "TRF-7001" },
+            ],
+          },
+          asOf: "2026-10-31",
+          pairKey: "test:rules",
+        },
+        ctx(books),
+      ) as Promise<Record<string, unknown>>;
+    // Two equal amounts each way: the rules alone leave both for a person.
+    expect(await run(A)).toMatchObject({ matched: 0, outcome: "explained" });
+    const saved = await withTenant(db, A.tenantId, async (tx) => [
+      await saveMatchRule(tx, {
+        tenantId: A.tenantId,
+        userId: A.userId,
+        config: "bank_to_ledger",
+        field: "reference",
+        aValue: "ach7001",
+        bValue: "trf7001",
+      }),
+      await saveMatchRule(tx, {
+        tenantId: A.tenantId,
+        userId: A.userId,
+        config: "bank_to_ledger",
+        field: "reference",
+        aValue: "ach7002",
+        bValue: "trf7002",
+      }),
+    ]);
+    const out = await run(A);
+    expect(out).toMatchObject({ matched: 2, outcome: "balanced" });
+    const rows = await t.db
+      .select({ method: reconciliationMatch.method, reason: reconciliationMatch.reason })
+      .from(reconciliationMatch)
+      .where(eq(reconciliationMatch.reconciliationId, String(out.reconciliationId)));
+    expect(rows.map((r) => r.method)).toEqual(["exact", "exact"]);
+    expect(rows.map((r) => r.reason).sort()).toEqual(saved.map((r) => `Saved rule ${r.id}`).sort());
+    // Another client's run doesn't read A's rules.
+    expect(await run(B)).toMatchObject({ matched: 0 });
   });
 
   it("supersedes an open reconciliation of the same pair and day when run again", async () => {

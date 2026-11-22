@@ -4,6 +4,7 @@
 import { credentialKeysFromEnv, globalFetch } from "@countersign/connectors";
 import { parseCoveredProcessors, routes } from "@countersign/core";
 import type { Db } from "@countersign/db";
+import { checkMissingReports } from "@countersign/documents";
 import { Hono } from "hono";
 import { sloanTick } from "./account/sloan";
 import { SUMMARY_CALL_TIMEOUT_MS, summaryPass } from "./account/summaries";
@@ -15,7 +16,7 @@ import { billingTick } from "./billing/jobs";
 import { raiseCodeAlerts } from "./codes/alerts";
 import { codesFor } from "./codes/client";
 import { clientModels } from "./compliance/models";
-import { purgeRetiredFiles } from "./compliance/retention";
+import { purgeLostProspectFiles, purgeRetiredFiles } from "./compliance/retention";
 import { CAPTURE_CRON_MINUTE, captureCronTick } from "./conversations/cron";
 import { captureDepsFor, captureJobsFor } from "./conversations/start";
 import { shipDue, shipPass } from "./dev-queue/ship";
@@ -55,6 +56,8 @@ import { a2pRoutes } from "./routes/a2p";
 import { accessRoutes } from "./routes/access";
 // v0.12 W2-D: Sloan, the account agent
 import { accountRoutes } from "./routes/account";
+import { accountReportRouteHandlers } from "./routes/account-report";
+import { agentReportRouteHandlers } from "./routes/agent-report";
 import { approverRuleRoutes } from "./routes/approver-rules";
 import { assistDraftRoutes } from "./routes/assist";
 import { assuranceEnv, assuranceRouteHandlers } from "./routes/assurance";
@@ -64,6 +67,7 @@ import { autopilotRoutes } from "./routes/autopilot";
 // v0.12 bankfeed
 import { bankfeedRoutes } from "./routes/bankfeed";
 import { billingRouteHandlers } from "./routes/billing";
+import { booksHealthRoutes } from "./routes/books-health";
 import { browserRoutes } from "./routes/browser";
 import { browserScriptRoutes } from "./routes/browser-scripts";
 import { buildTryRoutes } from "./routes/build-tries";
@@ -86,6 +90,8 @@ import { deskRoutes } from "./routes/desk";
 import { desktopApiRoutes } from "./routes/desktop";
 import { directoryRoutes } from "./routes/directory";
 import { documentRoutes } from "./routes/documents";
+import { evalsRoutes } from "./routes/evals";
+import { evidenceRouteHandlers } from "./routes/evidence";
 import { excelRoutes } from "./routes/excel";
 import { exportRoutes } from "./routes/exports";
 import { feedbackRouteHandlers } from "./routes/feedback";
@@ -99,6 +105,7 @@ import { gsheetsRoutes } from "./routes/gsheets";
 import { hookRoutes } from "./routes/hooks";
 import { hoursRoutes } from "./routes/hours";
 import { intakeRoutes } from "./routes/intake";
+import { interviewRoutesFor } from "./routes/interviews";
 import { inviteRoutes } from "./routes/invite";
 import { knowledgeRouteHandlers } from "./routes/knowledge";
 // v0.12 W2-C: the test bench, skill tests and the agent lab
@@ -111,6 +118,7 @@ import { libraryRoutes } from "./routes/library";
 import { lifecycleRoutes } from "./routes/lifecycle";
 // docs/builder-plan.md §5 (B3): the agent manual
 import { manualRouteHandlers } from "./routes/manual";
+import { matchRuleRoutes } from "./routes/match-rules";
 import { messagingSetupRoutes } from "./routes/messaging-setup";
 // §1.116: the phone app
 import { mobileRoutes, mobileSession } from "./routes/mobile";
@@ -127,14 +135,15 @@ import { opsCodeRequestRoutes } from "./routes/ops-code-requests";
 // v0.12 W2-A: the connectors catalog
 import { opsConnectorRoutes } from "./routes/ops-connectors";
 import { opsEventRoutes } from "./routes/ops-events";
+// Reshape data (2026-11-11)
+// §1.164: Read table's sample-file check
+import { opsIntakeReportRoutes } from "./routes/ops-intake-reports";
 import { opsLabClearRoutes } from "./routes/ops-lab-clear";
 import { opsLineageRoutes } from "./routes/ops-lineage";
 import { opsMergeRoutes } from "./routes/ops-merge";
 import { opsModelRoutes } from "./routes/ops-models";
 // v0.13 W2-I
 import { opsOversightRoutes } from "./routes/ops-oversight";
-// Reshape data (2026-11-11)
-// §1.164: Read table's sample-file check
 import { opsReadTableRoutes } from "./routes/ops-read-table";
 import { opsReshapeRoutes } from "./routes/ops-reshape";
 import { opsSkillRoutes } from "./routes/ops-skills";
@@ -146,12 +155,14 @@ import { packPreviewRoutes } from "./routes/pack-preview";
 import { packRouteHandlers } from "./routes/packs";
 import { portalRouteHandlers } from "./routes/portal";
 import { portalIssueRouteHandlers } from "./routes/portal-issues";
+import { portalViewRouteHandlers } from "./routes/portal-views";
 import { qboCronTick, qboRoutes, qboSyncFor } from "./routes/qbo";
 import { reachRoutes } from "./routes/reach";
 import { recordRouteHandlers } from "./routes/records";
 import { reggieRoutes } from "./routes/reggie";
 import { releaseRoutes } from "./routes/release";
 import { requestRouteHandlers } from "./routes/requests";
+import { resendHookRoutes } from "./routes/resend-hooks";
 import { runAuditRouteHandlers } from "./routes/run-audit";
 import { runControlRoutes } from "./routes/run-controls";
 import {
@@ -165,6 +176,7 @@ import { signInApprovalRoutes } from "./routes/sign-in-approvals";
 import { slackRoutes } from "./routes/slack";
 // §1.150: Sloan by email and text
 import { sloanReachRoutes } from "./routes/sloan-reach";
+import { soc2RouteHandlers } from "./routes/soc2";
 import { sopRouteHandlers } from "./routes/sop";
 // v0.14 W4-A
 // P-6
@@ -194,6 +206,7 @@ import { welcomeRoutes } from "./routes/welcome";
 import { whatsappMetaRoutes } from "./routes/whatsapp-meta";
 // §1.124 back office work
 import { workRouteHandlers } from "./routes/work";
+import { workStatementRouteHandlers } from "./routes/work-statement";
 // v0.14 W4-B
 import { zohoRoutes } from "./routes/zoho";
 import { cronTick, dispatchByIds, senseEmitter, USAGE_SWEEP_MINUTE } from "./runs/dispatch";
@@ -281,6 +294,7 @@ export function createApp(deps: AppDeps = defaultDeps): Hono<AppEnv> {
   // Reshape data (2026-11-11): propose a Reshape step's mapping, and its sample values.
   opsReshapeRoutes(app);
   opsReadTableRoutes(app);
+  opsIntakeReportRoutes(app);
   opsMergeRoutes(app);
   opsEventRoutes(app);
   // v0.13 W2-H: models for task skills and skill steps.
@@ -316,14 +330,27 @@ export function createApp(deps: AppDeps = defaultDeps): Hono<AppEnv> {
   requestRouteHandlers(app);
   languageRouteHandlers(app);
   usageRouteHandlers(app);
+  // R4 (docs/plan.md §1.214): the report per agent, both surfaces.
+  agentReportRouteHandlers(app);
+  // Y5 (docs/plan.md §1.234): the work statement, both surfaces and its PDF.
+  workStatementRouteHandlers(app);
+  // R5 (docs/plan.md §1.235): the report per account and every account side by side.
+  accountReportRouteHandlers(app);
+  portalViewRouteHandlers(app);
   recordRouteHandlers(app);
   approverRuleRoutes(app);
+  // §1.215: a client's saved match rules.
+  matchRuleRoutes(app);
+  // Round 4 D (docs/plan.md §1.211)
+  evidenceRouteHandlers(app);
   contactRoutes(app);
   // docs/plan.md §1.98
   textSignupRoutes(app);
   sloanReachRoutes(app);
   // §1.121: forms, "Request info": the public page's routes
   formRoutes(app);
+  // docs/plan.md §1.217: the process interview (its public page and the back office).
+  interviewRoutesFor(app);
   // docs/plan.md §1.101: Reggie, and the lead's requests on a client admin's Desk
   leadRequestRoutes(app);
   reggieRoutes(app);
@@ -341,6 +368,8 @@ export function createApp(deps: AppDeps = defaultDeps): Hono<AppEnv> {
   inviteRoutes(app);
   intakeRoutes(app);
   welcomeRoutes(app);
+  // §1.220: onboarding emails delivered or bounced, from Resend's webhook
+  resendHookRoutes(app);
   // docs/plan.md §1.109: voice typing
   voiceRoutes(app);
   // docs/plan.md §1.168: Draft for long text fields
@@ -348,6 +377,8 @@ export function createApp(deps: AppDeps = defaultDeps): Hono<AppEnv> {
   directoryRoutes(app);
   // The back office's chart of accounts (docs/plan.md §1.79).
   ledgerRoutes(app);
+  // docs/plan.md §1.216: books health
+  booksHealthRoutes(app);
   reachRoutes(app);
   messagingSetupRoutes(app);
   twilioHookRoutes(app);
@@ -362,6 +393,8 @@ export function createApp(deps: AppDeps = defaultDeps): Hono<AppEnv> {
   // Wave 4 (docs/plan.md §1.86 "Scripts (wave 4)")
   browserScriptRoutes(app);
   complianceRouteHandlers(app);
+  // docs/plan.md §1.218: SOC 2 readiness and the access review's record.
+  soc2RouteHandlers(app);
   // v0.12 W1-E
   runControlRoutes(app);
   // v0.12 W1-A: go-live stages and client controls
@@ -387,6 +420,8 @@ export function createApp(deps: AppDeps = defaultDeps): Hono<AppEnv> {
   auditExportRoutes(app);
   // v0.12 W2-C: the test bench, skill tests and the agent lab
   testbenchRoutes(app);
+  // docs/plan.md §1.212
+  evalsRoutes(app);
   labRoutes(app);
   // v0.12 W2-F: the command center, search and plain-words questions
   commandCenterRoutes(app);
@@ -470,6 +505,9 @@ export async function runCron(env: Bindings, scheduledTime: Date, deps: AppDeps 
           const run = forClient(runDepsFromEnv(env, { db, platform, instances }), tenantId);
           await platformHealthTick({ db, runtime: runtimeFor(run) }, tenantId, at, timeZone);
         },
+        // docs/plan.md §1.213: a scheduled report that didn't arrive raises its alert.
+        intakeTick: (tenantId, at, timeZone) =>
+          checkMissingReports(db, tenantId, { now: at, timezone: timeZone ?? "UTC" }),
       },
       scheduledTime,
     );
@@ -599,7 +637,17 @@ export async function runCron(env: Bindings, scheduledTime: Date, deps: AppDeps 
       // v0.12 W2-G: `origin` for the credits notifications the pass queues.
       // A failure is reported; the vault, retention and pack passes below still run.
       await billingTick(
-        { db, stripe: stripeFor(deps, env), origin: originOf(env) },
+        {
+          db,
+          stripe: stripeFor(deps, env),
+          origin: originOf(env),
+          // §1.234: each invoice sent here takes the month's work statement by email.
+          workStatement: {
+            mailer: mailerFromEnv(env, deps.fetch?.(env)),
+            covered: parseCoveredProcessors(env.BAA_PROCESSORS),
+            catalog: platform.catalog,
+          },
+        },
         scheduledTime,
       ).catch((error: unknown) => reportHandled("billing tick failed", error, { job: "billing" }));
       // Client data keys: re-wrap after a master key rotation, move v1 envelopes to v2. A failure
@@ -618,6 +666,10 @@ export async function runCron(env: Bindings, scheduledTime: Date, deps: AppDeps 
       // Retired clients' files, 30 days after retirement (docs/plan.md §1.35).
       await purgeRetiredFiles(db, deps.objects(env), scheduledTime).catch((error: unknown) =>
         reportHandled("retention sweep failed", error, { job: "retention" }),
+      );
+      // §1.220 (q14): lost prospects' client files, 12 months after their last deal closed.
+      await purgeLostProspectFiles(db).catch((error: unknown) =>
+        reportHandled("lost prospects' files purge failed", error, { job: "retention_files" }),
       );
     }
     // M43: each pack's nightly pass (the Marketing pack's build of yesterday's visits and its

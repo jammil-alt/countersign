@@ -26,6 +26,12 @@ export function fixtureFor(
 
 export interface CaseOutcome {
   status: TestResultStatus;
+  /** §1.212: a template case with `$writes`: whether its writes matched exactly. */
+  exact?: boolean | undefined;
+  /** §1.212: the run's time, milliseconds (template cases). */
+  ms?: number | undefined;
+  /** §1.212: the verifier's verdict on the writes; null or absent: none. */
+  verifier?: boolean | null | undefined;
   /** What the case cost (decimal string, USD). */
   costUsd: string;
   /** From `labelOutcome`; null when the case has no label field or got nothing. */
@@ -57,6 +63,12 @@ export interface SuiteMetrics {
   labels?: LabelPrecision[];
   /** Total cost / cases, USD, 6 places. */
   costPerCase: string;
+  /** §1.212: cases with expected writes, and the share that matched them exactly (0 to 1). */
+  writes?: { cases: number; exactRate: number };
+  /** §1.212: the verifier's agreement over the cases it judged; null when it judged none. */
+  verifierAgreement?: number | null;
+  /** §1.212: the median run time of the cases that ran one, milliseconds. */
+  msMedian?: number;
 }
 
 export interface SuiteTotals {
@@ -97,10 +109,34 @@ export function suiteTotals(outcomes: readonly CaseOutcome[]): SuiteTotals {
   }));
   const tp = labels.reduce((n, l) => n + l.truePositives, 0);
   const fp = labels.reduce((n, l) => n + l.falsePositives, 0);
+  // §1.212: writes, the verifier and run time, where the cases carry them.
+  const withWrites = outcomes.filter((o) => typeof o.exact === "boolean");
+  const judged = outcomes.filter((o) => typeof o.verifier === "boolean");
+  const times = outcomes
+    .map((o) => o.ms)
+    .filter((m): m is number => typeof m === "number")
+    .sort((a, b) => a - b);
   const metrics: SuiteMetrics = {
     passRate: ratio(passed, total),
     costPerCase: total === 0 ? "0.000000" : cost.div(total).toFixed(6),
     ...(labelled ? { precision: tp + fp === 0 ? null : ratio(tp, tp + fp), labels } : {}),
+    ...(withWrites.length > 0
+      ? {
+          writes: {
+            cases: withWrites.length,
+            exactRate: ratio(withWrites.filter((o) => o.exact).length, withWrites.length),
+          },
+        }
+      : {}),
+    ...(withWrites.length > 0 || judged.length > 0
+      ? {
+          verifierAgreement:
+            judged.length === 0
+              ? null
+              : ratio(judged.filter((o) => o.verifier).length, judged.length),
+        }
+      : {}),
+    ...(times.length > 0 ? { msMedian: times[Math.ceil(times.length / 2) - 1] ?? 0 } : {}),
   };
   return { total, passed, failed: total - passed, costUsd: cost.toFixed(6), metrics };
 }

@@ -35,6 +35,7 @@ import { emit } from "@countersign/senses";
 import { and, eq, isNotNull, sql } from "drizzle-orm";
 import { z } from "zod";
 import type { CodesClient } from "../codes/client";
+import { meter } from "../metering";
 import { pinnedSite } from "./sites";
 
 export interface BrowserDeps {
@@ -52,6 +53,10 @@ export interface BrowserDeps {
   content: ContentStore;
   /** Tests pass a fast sleep for claiming codes. */
   sleep?: (ms: number) => Promise<void>;
+  /** §1.210: the run (and its agent) whose Browser Run seconds these are, when one is. */
+  run?: { id: string; agentId: string };
+  /** §1.210: a recording or test of a script: the back office's own Browser Run time. */
+  ours?: boolean;
 }
 
 /** The code service as a sign-in uses it, for one client. Codes are never logged. */
@@ -177,16 +182,44 @@ export function dbBrowserServices(db: Db, conn: ConnectionRef, deps: BrowserDeps
     },
     record: (session) =>
       inTenant(async (tx) => {
-        await tx.insert(connectionChange).values({
-          tenantId,
-          connectionId: conn.id,
-          actorId: null,
-          change: { kind: "browser_session", ...session } as unknown as JsonObject,
-        });
+        const [change] = await tx
+          .insert(connectionChange)
+          .values({
+            tenantId,
+            connectionId: conn.id,
+            actorId: null,
+            change: { kind: "browser_session", ...session } as unknown as JsonObject,
+          })
+          .returning({ id: connectionChange.id });
+        // §1.210: Browser Run bills a browser's time: the session's seconds, against its run.
+        const seconds = browserSeconds(session);
+        if (change && seconds > 0) {
+          await meter(tx, {
+            tenantId,
+            measure: "browser_seconds",
+            source: deps.run ? "run" : deps.ours ? "back_office" : "browser",
+            ours: deps.ours === true,
+            key: `browser:${change.id}`,
+            quantity: seconds,
+            agentId: deps.run?.agentId ?? null,
+            runId: deps.run?.id ?? null,
+          });
+        }
       }),
     ...(deps.sleep ? { sleep: deps.sleep } : {}),
     script: publishedScriptFor(db, conn),
   };
+}
+
+/**
+ * A browser session's whole seconds, rounded up (Browser Run bills by time); 0 when the record has
+ * no usable times. The session's start is taken just before its browser opens.
+ */
+export function browserSeconds(session: { startedAt: string; endedAt?: string }): number {
+  const start = Date.parse(session.startedAt);
+  const end = session.endedAt ? Date.parse(session.endedAt) : Number.NaN;
+  if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) return 0;
+  return Math.ceil((end - start) / 1000);
 }
 
 // ── Recording and testing scripts: a sign-in allowance of their own ───────────────────────────────
@@ -213,7 +246,7 @@ export function recorderBrowserServices(
   conn: ConnectionRef,
   deps: BrowserDeps,
 ): BrowserServices {
-  const base = dbBrowserServices(db, conn, deps);
+  const base = dbBrowserServices(db, conn, { ...deps, ours: true });
   const tenantId = conn.tenantId;
   const mine = and(eq(connection.id, conn.id), eq(connection.tenantId, tenantId));
   return {

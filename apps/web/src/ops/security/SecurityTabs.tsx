@@ -5,6 +5,7 @@ import { SECURITY_PATHS } from "./paths";
 export const SECURITY_TABS = [
   { to: SECURITY_PATHS.overview, label: "Overview", end: true },
   { to: SECURITY_PATHS.controls, label: "Controls" },
+  { to: SECURITY_PATHS.soc2, label: "SOC 2 readiness" },
   { to: SECURITY_PATHS.vendors, label: "Vendors" },
   { to: SECURITY_PATHS.policies, label: "Policies and routines" },
   { to: SECURITY_PATHS.clients, label: "Clients" },

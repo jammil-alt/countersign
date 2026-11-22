@@ -167,7 +167,26 @@ export interface LayoutOptions {
   ends: FlowEnds;
   /** Loops folded to one box. */
   folded?: ReadonlySet<string>;
+  /** The chart's own words, in the reader's language (English by default). */
+  words?: LayoutWords;
 }
+
+/** The few words the layout writes itself: a path with no name, Otherwise, a loop's frame. */
+export interface LayoutWords {
+  path(letter: string): string;
+  otherwise: string;
+  forEach: string;
+  repeat: string;
+  repeatUpTo(times: number): string;
+}
+
+export const LAYOUT_WORDS_EN: LayoutWords = {
+  path: (letter) => `Path ${letter}`,
+  otherwise: "Otherwise",
+  forEach: "Once for each item",
+  repeat: "Again until done",
+  repeatUpTo: (n) => `Again until done · up to ${n} ${n === 1 ? "time" : "times"}`,
+};
 
 // A step's number is the same on every screen (core `process/numbers.ts`): the chart's, the SOP's.
 export { pathLetter };
@@ -186,12 +205,12 @@ interface Column {
 }
 
 /** A decision's columns: its paths in order, then Otherwise, each with its letter. */
-function columns(step: Extract<Step, { kind: "if" }>): Column[] {
+function columns(step: Extract<Step, { kind: "if" }>, words: LayoutWords): Column[] {
   const paths = step.paths.map((p, i) => ({
     id: `path:${p.id}`,
     pathId: p.id,
     letter: pathLetter(i),
-    text: p.name.trim() || `Path ${pathLetter(i)}`,
+    text: p.name.trim() || words.path(pathLetter(i)),
     otherwise: false,
     steps: p.steps,
   }));
@@ -201,7 +220,7 @@ function columns(step: Extract<Step, { kind: "if" }>): Column[] {
       id: `otherwise:${step.otherwise.id}`,
       pathId: step.otherwise.id,
       letter: pathLetter(step.paths.length),
-      text: "Otherwise",
+      text: words.otherwise,
       otherwise: true,
       steps: step.otherwise.steps,
     },
@@ -213,7 +232,7 @@ function listEnds(steps: readonly Step[]): boolean {
   const last = steps[steps.length - 1];
   if (!last) return false;
   if (last.kind === "stop") return true;
-  if (last.kind === "if") return columns(last).every((c) => listEnds(c.steps));
+  if (last.kind === "if") return columns(last, LAYOUT_WORDS_EN).every((c) => listEnds(c.steps));
   return false;
 }
 
@@ -236,6 +255,7 @@ interface Exit {
  */
 export function layoutFlow(process: Pick<Process, "steps">, options: LayoutOptions): FlowLayout {
   const folded = options.folded ?? new Set<string>();
+  const words = options.words ?? LAYOUT_WORDS_EN;
   const boxes: FlowBox[] = [];
   const edges: FlowEdge[] = [];
   const inserts: FlowInsert[] = [];
@@ -253,10 +273,10 @@ export function layoutFlow(process: Pick<Process, "steps">, options: LayoutOptio
     if (known) return known;
     let out: Size & { cols?: Size[]; inner?: number };
     if (step.kind === "if") {
-      const cols = columns(step).map((c) => measure(c.steps));
+      const cols = columns(step, words).map((c) => measure(c.steps));
       const inner = Math.max(EMPTY_H, ...cols.map((c) => c.h));
       const wide = cols.reduce((a, c) => a + c.w, 0) + GAP_X * (cols.length - 1);
-      const ends = columns(step).every((c) => listEnds(c.steps));
+      const ends = columns(step, words).every((c) => listEnds(c.steps));
       out = {
         w: Math.max(BOX_W, wide),
         h: DIAMOND_H + BRANCH_GAP + inner + (ends ? 0 : JOIN_GAP),
@@ -351,7 +371,7 @@ export function layoutFlow(process: Pick<Process, "steps">, options: LayoutOptio
           w: DIAMOND_W,
           h: DIAMOND_H,
         });
-        const cols = columns(st);
+        const cols = columns(st, words);
         const colSizes = m.cols as Size[];
         const inner = m.inner as number;
         const wide = colSizes.reduce((a, c) => a + c.w, 0) + GAP_X * (cols.length - 1);
@@ -461,11 +481,11 @@ export function layoutFlow(process: Pick<Process, "steps">, options: LayoutOptio
           h: m.h,
           text:
             st.kind === "for_each"
-              ? "Once for each item"
+              ? words.forEach
               : st.maxTimes
-                ? `Again until done · up to ${st.maxTimes} ${st.maxTimes === 1 ? "time" : "times"}`
+                ? words.repeatUpTo(st.maxTimes)
                 : // The client's chart (docs/sop-plan.md §6a) is drawn without the loop's limit.
-                  "Again until done",
+                  words.repeat,
           unreachable: !live,
         });
         boxes.push({

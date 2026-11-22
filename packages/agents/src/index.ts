@@ -23,6 +23,8 @@ export * from "./builder/guards";
 export * from "./builder/reshape";
 export * from "./builder/skill-draft";
 export * from "./errors";
+// docs/plan.md §1.217: the process interview
+export * from "./interview/interviewer";
 // v0.12 W2-D
 export * from "./log/account-port";
 export * from "./log/carried-actions";
@@ -48,6 +50,8 @@ export * from "./log/threads-port";
 export * from "./log/translation-port";
 export * from "./log/translations";
 export * from "./log/usage";
+// Round 4 D (docs/plan.md §1.211): the verifier before a write, and its sources.
+export * from "./log/verify-port";
 export * from "./registry/agents";
 // v0.12 W2-B
 export * from "./registry/automations";
@@ -81,6 +85,7 @@ export * from "./runtime/prompt-preview";
 export * from "./runtime/run-agent";
 // P-7
 export * from "./runtime/translate";
+export * from "./runtime/verify";
 // v0.12 W2-C: the test bench
 export * from "./testbench/run-skill";
 // v0.12 W2-D

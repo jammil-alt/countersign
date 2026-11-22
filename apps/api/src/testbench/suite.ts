@@ -11,6 +11,8 @@
 
 import {
   type AgentRow,
+  AgentsError,
+  createVersion,
   requiredConnectors,
   runSkillCase,
   skillContext,
@@ -21,18 +23,28 @@ import {
 import {
   type AnyAgentBundle,
   type CaseOutcome,
+  expectedWritesOf,
   Fixtures,
   labelOutcome,
   type MatchDiff,
   Matcher,
   matchOutput,
+  parseSkillRef,
+  runWrites,
   type SkillDefinition,
+  scoreWrites,
   suiteTotals,
   TemplateCaseInput,
   type TestResultStatus,
   type TestTargetKind,
+  type Tolerance,
+  verificationOfWrites,
+  WRITES_KEY,
+  WRITES_SCOPE_KEY,
+  writeStepTools,
 } from "@countersign/core";
 import {
+  agentVersion,
   buildItem,
   connection,
   type Db,
@@ -46,7 +58,7 @@ import {
   withTenant,
 } from "@countersign/db";
 import { requestRun, type StepRunner, WaitTimeoutError } from "@countersign/workflows";
-import { and, asc, type Column, eq, inArray, isNull, sql } from "drizzle-orm";
+import { and, asc, type Column, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { createRunRow } from "../runs/dispatch";
 import { executeRun, forClient, type RunDeps } from "../runs/execute";
 import { partialMarks } from "./partial";
@@ -115,6 +127,11 @@ interface CaseRow {
 
 interface Scored {
   status: TestResultStatus;
+  /** §1.211: whether the verifier agreed with the run's writes (absent: it checked none). */
+  verifier?: boolean;
+  /** §1.212: a case with expected writes: whether they matched exactly. */
+  exact?: boolean;
+  ms?: number;
   got: unknown;
   diff: unknown;
   costUsd: string;
@@ -122,9 +139,35 @@ interface Scored {
   label: CaseOutcome["label"];
 }
 
+/** §1.212: a case's tolerances on its writes: `$writes.<step>.<index>.…`, the prefix taken off. */
+function writeTolerances(c: CaseRow) {
+  const out: Record<string, Tolerance> = {};
+  for (const [p, t] of Object.entries(Matcher.parse(c.matcher).tolerances)) {
+    if (p.startsWith(`${WRITES_KEY}.`)) out[p.slice(WRITES_KEY.length + 1)] = t;
+  }
+  return out;
+}
+
 function scored(c: CaseRow, got: unknown, extra: Record<string, unknown>, costUsd: string) {
+  return scoredOutputs(c, c.expected, got, extra, costUsd);
+}
+
+function scoredOutputs(
+  c: CaseRow,
+  expected: unknown,
+  got: unknown,
+  extra: Record<string, unknown>,
+  costUsd: string,
+) {
   const matcher = Matcher.parse(c.matcher);
-  const match = matchOutput(matcher, c.expected, got);
+  // §1.212: tolerances on `$writes` paths are the writes' own (scoreWrites), not the outputs'.
+  const outputMatcher = {
+    ...matcher,
+    tolerances: Object.fromEntries(
+      Object.entries(matcher.tolerances).filter(([p]) => !p.startsWith("$")),
+    ),
+  };
+  const match = matchOutput(outputMatcher, expected, got);
   return {
     status: match.pass ? ("pass" as const) : ("fail" as const),
     got,
@@ -216,26 +259,91 @@ function stoppedWhy(result: { reason?: string; nodeId?: string; errorKey?: strin
     : `${at} Fix it, then try it again.`;
 }
 
-async function runTemplate(deps: RunDeps, params: SuiteParams, c: CaseRow): Promise<Scored> {
-  const input = TemplateCaseInput.safeParse(c.input);
-  if (!input.success) return failed("a template case's input is {workflow, payload}");
-  const runTenant = params.runTenantId;
-  if (!runTenant) return failed("the suite has no client to run the template in");
-  // The test copy and its run row: in an operator scope naming only the client it runs in.
-  const req = await withOperator(deps.db, [runTenant], async (tx) => {
+/**
+ * §1.212: skill parameters set on a bundle's skill refs (by skill id), as a client agent sets
+ * them; the golden datasets and cases saved from a client's run use it.
+ */
+export function withParameters(parameters: Record<string, Record<string, unknown>>) {
+  return (bundle: AnyAgentBundle): AnyAgentBundle =>
+    ({
+      ...bundle,
+      definition: {
+        ...bundle.definition,
+        skills: bundle.definition.skills.map((ref) => {
+          const own = parameters[parseSkillRef(ref.skill).id];
+          return own ? { ...ref, parameters: { ...(ref.parameters ?? {}), ...own } } : ref;
+        }),
+      },
+    }) as AnyAgentBundle;
+}
+
+/** A template test run's steps, cost and time, as `runTemplateTest` answers them. */
+export interface TemplateTestRun {
+  runId: string;
+  /** The bundle the run ran (the test copy's version). */
+  bundle: AnyAgentBundle;
+  result: Awaited<ReturnType<typeof executeRun>>;
+  steps: { nodeId: string; nodeType: string; input: unknown; output: unknown; status: string }[];
+  costUsd: string;
+  /** Wall-clock milliseconds of the run itself (docs/plan.md §1.212). */
+  ms: number;
+}
+
+/**
+ * A test run of a template version's workflow in a client, to its end (§1.46 template cases; the
+ * evals of §1.212 run their golden cases through it too). The test copy and its run row are made
+ * in an operator scope naming only that client.
+ */
+export async function runTemplateTest(
+  deps: RunDeps,
+  args: {
+    runTenantId: string;
+    versionId: string;
+    actorId: string | null;
+    workflow: string;
+    payload: Record<string, unknown>;
+    /** §1.212: the bundle as a client agent would set it (a skill's parameters), run as a version of the test copy. */
+    adjust?: (bundle: AnyAgentBundle) => AnyAgentBundle;
+  },
+): Promise<TemplateTestRun> {
+  const runTenant = args.runTenantId;
+  const { req, ranBundle } = await withOperator(deps.db, [runTenant], async (tx) => {
     const target = await templateTestCopy(tx, {
       tenantId: runTenant,
-      templateVersionId: params.versionId,
-      actorId: params.actorId,
+      templateVersionId: args.versionId,
+      actorId: args.actorId,
     });
     const copy = target.agent.testCopy
-      ? await bindCopy(tx, deps, target.agent, target.version.bundle, params.actorId)
+      ? await bindCopy(tx, deps, target.agent, target.version.bundle, args.actorId)
       : target.agent;
     await snapshotSharedSkills(tx, {
       tenantId: runTenant,
       bundle: target.version.bundle,
       catalog: deps.platform.catalog,
     });
+    // §1.212: a golden case's parameters, as the client agent would set them: a version of the
+    // test copy of its own (the copy is the case's, in a client of its own).
+    const version = args.adjust
+      ? await createVersion(tx, {
+          agentId: copy.id,
+          bundle: args.adjust(target.version.bundle),
+          authorType: "operator",
+          authorId: args.actorId,
+          changeNote: "Test copy with a case's parameters",
+          basedOnTemplateVersionId: target.version.basedOnTemplateVersionId ?? args.versionId,
+        }).catch(async (error) => {
+          // The copy's latest version is already this one (an earlier case with the same values).
+          if (!(error instanceof AgentsError) || error.code !== "no_op") throw error;
+          const [latest] = await tx
+            .select()
+            .from(agentVersion)
+            .where(and(eq(agentVersion.agentId, copy.id), eq(agentVersion.tenantId, runTenant)))
+            .orderBy(desc(agentVersion.version))
+            .limit(1);
+          if (!latest) throw error;
+          return latest as typeof target.version;
+        })
+      : target.version;
     const r = requestRun({
       agent: {
         id: copy.id,
@@ -246,21 +354,29 @@ async function runTemplate(deps: RunDeps, params: SuiteParams, c: CaseRow): Prom
         liveVersionId: copy.liveVersionId,
         liveBundle: null,
       },
-      workflowSlug: input.data.workflow,
-      payload: input.data.payload,
+      workflowSlug: args.workflow,
+      payload: args.payload,
       mode: "test",
-      versionId: target.version.id,
-      bundle: target.version.bundle,
+      versionId: version.id,
+      bundle: version.bundle,
     });
     await createRunRow(tx, r);
-    return r;
+    return { req: r, ranBundle: version.bundle as AnyAgentBundle };
   });
   // Run to the end here; a test run emits nothing that starts other runs (§10.4).
   const { instances: _none, ...runDeps } = deps;
+  const started = Date.now();
   const result = await executeRun(runDeps, req, benchRunner());
+  const ms = Date.now() - started;
   const { steps, costUsd } = await withTenant(deps.db, runTenant, async (tx) => {
     const rows = await tx
-      .select({ nodeId: stepRun.nodeId, output: stepRun.output, status: stepRun.status })
+      .select({
+        nodeId: stepRun.nodeId,
+        nodeType: stepRun.nodeType,
+        input: stepRun.input,
+        output: stepRun.output,
+        status: stepRun.status,
+      })
       .from(stepRun)
       .where(and(eq(stepRun.runId, req.runId), eq(stepRun.tenantId, runTenant)))
       .orderBy(asc(stepRun.id));
@@ -268,30 +384,73 @@ async function runTemplate(deps: RunDeps, params: SuiteParams, c: CaseRow): Prom
       .select({ costUsd: run.costUsd })
       .from(run)
       .where(and(eq(run.id, req.runId), eq(run.tenantId, runTenant)));
-    return { steps: rows, costUsd: r?.costUsd ?? "0" };
+    return { steps: rows, costUsd: String(r?.costUsd ?? "0") };
   });
+  return { runId: req.runId, bundle: ranBundle, result, steps, costUsd, ms };
+}
+
+async function runTemplate(deps: RunDeps, params: SuiteParams, c: CaseRow): Promise<Scored> {
+  const input = TemplateCaseInput.safeParse(c.input);
+  if (!input.success) return failed("a template case's input is {workflow, payload}");
+  const runTenant = params.runTenantId;
+  if (!runTenant) return failed("the suite has no client to run the template in");
+  const ran = await runTemplateTest(deps, {
+    runTenantId: runTenant,
+    versionId: params.versionId,
+    actorId: params.actorId,
+    workflow: input.data.workflow,
+    payload: input.data.payload,
+    ...(input.data.parameters ? { adjust: withParameters(input.data.parameters) } : {}),
+  });
+  const { result, steps, costUsd } = ran;
+  // §1.212: the writes it expects (`$writes`), scored apart from the named steps' outputs.
+  const {
+    [WRITES_KEY]: _w,
+    [WRITES_SCOPE_KEY]: _s,
+    ...outputs
+  } = (c.expected ?? {}) as Record<string, unknown>;
+  const writesExpected = expectedWritesOf(c.expected);
   // The named steps' outputs (the last row of each, a retried step's included).
-  const expected = (c.expected ?? {}) as Record<string, unknown>;
+  const expected = outputs;
   // DECISION (builder-plan.md B1): a case that names no step yet (an example tried on a build)
   // records every step's output: what the agent would do, kept as the answer if it is right.
-  const every = Object.keys(expected).length === 0;
+  const every = Object.keys(expected).length === 0 && !writesExpected;
   const got: Record<string, unknown> = {};
   for (const s of steps) {
     if (every || Object.hasOwn(expected, s.nodeId)) got[s.nodeId] = s.output ?? null;
   }
+  const writes = runWrites(steps, (id) => writeStepTools(ran.bundle.workflows).get(id) ?? null);
+  const writeScore = writesExpected
+    ? scoreWrites(writesExpected.writes, writes, writeTolerances(c), writesExpected.scope)
+    : null;
+  if (writesExpected)
+    got[WRITES_KEY] = writes.map(({ step, tool, input }) => ({ step, tool, input }));
+  // §1.211: the verifier's outcome on the run's writes, where the agent verifies them.
+  const verification = verificationOfWrites(writes);
   const extra = {
     run: { status: result.status, reason: result.reason ?? null },
     steps: steps.map((s) => ({ id: s.nodeId, status: s.status })),
+    ms: ran.ms,
+    ...(writeScore ? { writes: writeScore } : {}),
+    ...(verification ? { verification, verifier: verification === "agreed" } : {}),
   };
   // INTEG-1: a run that failed on a step's error (the client's tool refused it: a sign-in that
   // expired, a connection disconnected or missing) is an error, never scored: a try or a kept case
   // expecting nothing would otherwise pass on the tool's error. The bench's own waits time out on
   // purpose (`benchRunner`), and those runs are scored as they are.
   if (result.status === "failed" && !benchTimeout(result.errorKey)) {
-    return { ...failed(stoppedWhy(result), extra, String(costUsd)), runId: req.runId };
+    return { ...failed(stoppedWhy(result), extra, costUsd), runId: ran.runId };
   }
   // A shared case's run lives in the Sandbox: its result names it, without a foreign key.
-  return { ...scored(c, got, extra, String(costUsd)), runId: req.runId };
+  const outcome = scoredOutputs(c, expected, got, extra, costUsd);
+  if (writeScore && !writeScore.exact) outcome.status = "fail";
+  return {
+    ...outcome,
+    runId: ran.runId,
+    ms: ran.ms,
+    ...(writeScore ? { exact: writeScore.exact } : {}),
+    ...(verification ? { verifier: verification === "agreed" } : {}),
+  };
 }
 
 /** One case: run, compare, insert its result. A replayed step finds its result and returns it. */
@@ -320,9 +479,17 @@ export async function runCase(
   });
   if (prior.result) {
     const matcher = prior.case ? Matcher.safeParse(prior.case.matcher) : null;
+    const d = (prior.result.diff ?? {}) as {
+      ms?: unknown;
+      writes?: { exact?: unknown };
+      verifier?: unknown;
+    };
     return {
       status: prior.result.status,
       costUsd: String(prior.result.costUsd),
+      ...(typeof d.ms === "number" ? { ms: d.ms } : {}),
+      ...(typeof d.writes?.exact === "boolean" ? { exact: d.writes.exact } : {}),
+      ...(typeof d.verifier === "boolean" ? { verifier: d.verifier } : {}),
       label:
         prior.result.status !== "error" && prior.case && matcher?.success
           ? labelOutcome(matcher.data, prior.case.expected, prior.result.got)
@@ -357,7 +524,14 @@ export async function runCase(
       })
       .onConflictDoNothing();
   });
-  return { status: outcome.status, costUsd: outcome.costUsd, label: outcome.label };
+  return {
+    status: outcome.status,
+    costUsd: outcome.costUsd,
+    label: outcome.label,
+    ...(outcome.ms !== undefined ? { ms: outcome.ms } : {}),
+    ...(outcome.exact !== undefined ? { exact: outcome.exact } : {}),
+    ...(outcome.verifier !== undefined ? { verifier: outcome.verifier } : {}),
+  };
 }
 
 /** Writes the suite run's totals, metrics and cost, once. */

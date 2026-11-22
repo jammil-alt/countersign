@@ -80,7 +80,8 @@ describe("the sidebar", () => {
     renderAt("/ops/utilities/feedback");
     const shell = await screen.findByTestId("shell-ops", {}, { timeout: 10_000 });
     expect(within(shell).getByTestId("ops-nav-utilities")).toHaveTextContent("Utilities");
-    const tool = within(shell).getByTestId("feedback-button");
+    // The row appears once the feedback tool registers its starter, an effect after the shell.
+    const tool = await within(shell).findByTestId("feedback-button");
     expect(tool).toHaveTextContent("Report a problem");
     expect(tool).not.toHaveTextContent("Feedback");
     expect(await screen.findByRole("heading", { level: 1, name: "Utilities" })).toBeInTheDocument();

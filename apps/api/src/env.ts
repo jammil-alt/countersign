@@ -58,6 +58,11 @@ export interface Secrets {
   RESEND_FALLBACK_DOMAIN?: string;
   /** Resend's id for that domain, so fallback keys can send only from it. */
   RESEND_FALLBACK_DOMAIN_ID?: string;
+  /**
+   * §1.220: the signing secret (`whsec_…`) of Resend's webhook endpoint, /api/hooks/resend: an
+   * onboarding email delivered or bounced. Without it the endpoint answers 503.
+   */
+  RESEND_WEBHOOK_SECRET?: string;
   /** Google Cloud's OAuth client "Mezonas web": Gmail, send only (ARCHITECTURE §6.4). */
   GOOGLE_CLIENT_ID?: string;
   GOOGLE_CLIENT_SECRET?: string;

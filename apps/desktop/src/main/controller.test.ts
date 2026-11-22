@@ -141,6 +141,8 @@ describe("signing in", () => {
   it("opens the browser at the phone's sign-in and redeems the handoff with the verifier", async () => {
     await signIn();
     expect(opened[0]).toMatch(/^https:\/\/staging\.mezonas\.com\/api\/mobile\/sign-in\?challenge=/);
+    // §1.219: the desktop app names itself, for the confirm page and the audit rows.
+    expect(opened[0]).toMatch(/&app=desktop$/);
     const redeem = fake.requests.find((r) => r.path === "/api/mobile/session");
     expect(redeem?.body).toMatchObject({ code: "handoff-code" });
     expect(controller.view().person).toEqual({

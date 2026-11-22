@@ -2,7 +2,7 @@
 // Materials' Price watch at /reports/materials/prices). A pack's screens live under
 // `src/packs/<id>/` and register here; the Reports screen lists each one whose pack the client has
 // enabled (the activity report names them) and mounts it at its path.
-import type { ComponentType } from "react";
+import { type ComponentType, createElement, lazy, Suspense } from "react";
 import type { PlainKey } from "../i18n/catalog";
 import { PortalSearchScreen } from "./marketing/portal/Search";
 import { PortalWebsiteScreen } from "./marketing/portal/Website";
@@ -10,11 +10,19 @@ import { PortalWeeklyReportScreen } from "./marketing/portal/WeeklyReport";
 import {
   PortalBankTransactionsScreen,
   PortalCatalogScreen,
+  PortalCloseScreen,
   PortalPriceWatchScreen,
   PortalReconciliationsScreen,
   PortalRequestsScreen,
   PortalVendorCatalogScreen,
 } from "./screens";
+
+// Plan entry §1.233: the AP pack's Bills to pay loads when opened (scripts/web-size.mjs).
+const BillsToPay = lazy(() =>
+  import("./ap/BillsToPay").then((m) => ({ default: m.PortalBillsToPayScreen })),
+);
+const PortalBillsToPayScreen = () =>
+  createElement(Suspense, { fallback: null }, createElement(BillsToPay));
 
 export interface PackReport {
   /** The pack's id, as `tenant_pack.pack` names it, e.g. "materials". */
@@ -101,6 +109,23 @@ export const PACK_REPORTS: readonly PackReport[] = [
     titleKey: "bookkeeping.recons.title",
     descriptionKey: "bookkeeping.recons.description",
     Component: PortalReconciliationsScreen,
+  },
+  // §1.232: the Close pack's month-end close, read only (a person signs off on the card).
+  {
+    pack: "close",
+    slug: "close",
+    titleKey: "close.title",
+    descriptionKey: "close.description",
+    Component: PortalCloseScreen,
+  },
+  // Plan entry §1.233: the AP pack's week's approve-to-pay list, read only (a person decides on
+  // the card).
+  {
+    pack: "ap",
+    slug: "bills",
+    titleKey: "ap.bills.title",
+    descriptionKey: "ap.bills.description",
+    Component: PortalBillsToPayScreen,
   },
 ];
 

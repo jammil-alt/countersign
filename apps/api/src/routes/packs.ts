@@ -18,10 +18,18 @@ import {
   type AnyAgentBundle,
   bundleHash,
   type ClientPack,
+  complianceOf,
+  type OpsClientPack,
+  PACK_CONFIG_SETTING,
   type PackReviewDecision,
   type PackTemplateUpdate,
+  PROCESSOR_NAMES,
+  packConfigOf,
+  parseCoveredProcessors,
   type Role,
+  resolvePackConfig,
   routes,
+  uncoveredProcessors,
 } from "@countersign/core";
 import {
   agent,
@@ -31,9 +39,10 @@ import {
   skill,
   type Tx,
   tenant,
+  tenantChange,
   tenantPack,
 } from "@countersign/db";
-import { and, eq, inArray, isNull } from "drizzle-orm";
+import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 import type { Hono } from "hono";
 import {
   type AppEnv,
@@ -84,6 +93,101 @@ async function clientPacks(tx: Tx, services: Services, tenantId: string): Promis
       screens: screensOf(p),
       connections: p.manifest.connections ?? [],
     };
+  });
+}
+
+async function tenantSettings(tx: Tx, tenantId: string): Promise<Record<string, unknown>> {
+  const [row] = await tx
+    .select({ settings: tenant.settings })
+    .from(tenant)
+    .where(eq(tenant.id, tenantId));
+  return (row?.settings as Record<string, unknown> | undefined) ?? {};
+}
+
+/**
+ * §1.230: the Areas tab's view of each pack for one client: the portal's, with the pack's area,
+ * its configuration (this client's values, defaults until set) and its vendors of ours, each
+ * marked when this client's HIPAA mode holds it back.
+ */
+async function opsClientPacks(
+  tx: Tx,
+  services: Services,
+  tenantId: string,
+): Promise<OpsClientPack[]> {
+  const settings = await tenantSettings(tx, tenantId);
+  const profile = complianceOf(settings);
+  const covered = parseCoveredProcessors(services.env.BAA_PROCESSORS);
+  const views = await clientPacks(tx, services, tenantId);
+  return views.map((view) => {
+    const { manifest } = packOf(services, view.id);
+    return {
+      ...view,
+      areaId: manifest.area,
+      config: {
+        fields: manifest.config,
+        values: packConfigOf(manifest.config, settings, manifest.id),
+      },
+      processors: manifest.processors.map((id) => ({
+        id,
+        name: PROCESSOR_NAMES[id],
+        heldForHipaa: uncoveredProcessors(profile, covered, [id]).length > 0,
+      })),
+    };
+  });
+}
+
+/**
+ * §1.230: keeps a client's configuration of a pack in `tenant.settings.packs.<id>`, the operator's
+ * input over what it has, every other field at its default; a `tenant_change` row says what
+ * changed. A key the pack doesn't declare, or a value its field doesn't take, is a 400.
+ */
+// DECISION (§1.230): the configuration lives in `tenant.settings` (no migration): it is a client's
+// setting like its hours or channels, read by the pack with core's `packConfigOf`, and a pack
+// switched off and on again keeps it.
+async function saveConfig(
+  tx: Tx,
+  pack: RegisteredPack,
+  tenantId: string,
+  actorId: string,
+  input: Readonly<Record<string, unknown>>,
+): Promise<void> {
+  const { manifest } = pack;
+  if (manifest.config.length === 0 && Object.keys(input).length === 0) return;
+  const [row] = await tx
+    .select({ settings: tenant.settings })
+    .from(tenant)
+    .where(eq(tenant.id, tenantId))
+    .for("update");
+  const settings = (row?.settings as Record<string, unknown> | undefined) ?? {};
+  const before = packConfigOf(manifest.config, settings, manifest.id);
+  const resolved = resolvePackConfig(manifest.config, input, before);
+  if (!resolved.ok) {
+    throw new HttpError(400, "invalid_config", resolved.problems.join("; "));
+  }
+  const all = settings[PACK_CONFIG_SETTING];
+  const kept =
+    all && typeof all === "object" && !Array.isArray(all)
+      ? (all as Record<string, unknown>)[manifest.id]
+      : undefined;
+  // Unchanged and already written: nothing to keep or log.
+  if (kept !== undefined && JSON.stringify(before) === JSON.stringify(resolved.values)) return;
+  await tx
+    .update(tenant)
+    .set({
+      settings: sql`jsonb_set(coalesce(${tenant.settings}, '{}'::jsonb), ${`{${PACK_CONFIG_SETTING}}`}::text[],
+        coalesce(${tenant.settings} -> ${PACK_CONFIG_SETTING}, '{}'::jsonb)
+          || jsonb_build_object(${manifest.id}::text, ${JSON.stringify(resolved.values)}::jsonb))`,
+    })
+    .where(eq(tenant.id, tenantId));
+  await tx.insert(tenantChange).values({
+    tenantId,
+    actorId,
+    change: {
+      setting: `${PACK_CONFIG_SETTING}.${manifest.id}`,
+      from: kept === undefined ? null : before,
+      to: resolved.values,
+    },
+    reason: `The ${manifest.name} pack's settings`,
   });
 }
 
@@ -580,23 +684,47 @@ export function packRouteHandlers(app: Hono<AppEnv>): void {
 
   mount(app, routes.opsClientPacks, async (ctx) => {
     ensureClient(ctx, ctx.params.id);
-    return { packs: await clientPacks(ctx.tx, ctx.services, ctx.params.id) };
+    return { packs: await opsClientPacks(ctx.tx, ctx.services, ctx.params.id) };
   });
+
+  /**
+   * §1.230: the one install path, the same for every pack and taking only configuration: the
+   * configuration is checked and kept first (a bad one switches nothing on), then the pack is
+   * on for the client, its templates and Library skills installed once for the deployment.
+   * Installing again changes only the configuration.
+   */
+  async function install(
+    tx: Tx,
+    services: Services,
+    tenantId: string,
+    packId: string,
+    actorId: string,
+    config: Readonly<Record<string, unknown>>,
+  ) {
+    const pack = packOf(services, packId);
+    await saveConfig(tx, pack, tenantId, actorId, config);
+    await tx
+      .insert(tenantPack)
+      .values({ tenantId, pack: pack.manifest.id, version: pack.manifest.version })
+      .onConflictDoNothing();
+    const installed = await installTemplates(tx, services, pack, actorId);
+    await installLibrarySkills(tx, services, pack, actorId);
+    const packs = await opsClientPacks(tx, services, tenantId);
+    const view = packs.find((p) => p.id === pack.manifest.id);
+    if (!view) throw notFound("pack");
+    return { pack: view, installed };
+  }
 
   mount(app, routes.opsEnableClientPack, async (ctx) => {
     const { tx, params, services, session } = ctx;
     ensureClient(ctx, params.id);
-    const pack = packOf(services, params.pack);
-    await tx
-      .insert(tenantPack)
-      .values({ tenantId: params.id, pack: pack.manifest.id, version: pack.manifest.version })
-      .onConflictDoNothing();
-    const installed = await installTemplates(tx, services, pack, session.user.id);
-    await installLibrarySkills(tx, services, pack, session.user.id);
-    const packs = await clientPacks(tx, services, params.id);
-    const view = packs.find((p) => p.id === pack.manifest.id);
-    if (!view) throw notFound("pack");
-    return { pack: view, installed };
+    return install(tx, services, params.id, params.pack, session.user.id, {});
+  });
+
+  mount(app, routes.opsInstallClientPack, async (ctx) => {
+    const { tx, params, services, session, body } = ctx;
+    ensureClient(ctx, params.id);
+    return install(tx, services, params.id, params.pack, session.user.id, body.config);
   });
 
   mount(app, routes.opsUpdatePackTemplates, async ({ tx, params, services, session }) => {

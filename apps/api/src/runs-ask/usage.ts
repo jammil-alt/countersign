@@ -16,6 +16,7 @@ import {
 import { agent, agentVersion, modelCall, run, stepRun, type Tx } from "@countersign/db";
 import { type LlmCallRecord, providerOf } from "@countersign/llm";
 import { and, desc, eq } from "drizzle-orm";
+import { meterModelCalls } from "../metering";
 
 /** `run.workflow_slug` of a question's run: it runs no workflow. */
 export const ASK_RUN_WORKFLOW = "runs.ask";
@@ -54,19 +55,19 @@ export interface AskUsage {
   refused: string | null;
 }
 
-function logOperatorCost(u: AskUsage, why: string) {
+/**
+ * §1.210: a question that is the operator's own cost (the back office's, or a portal question of
+ * a client with no account agent), recorded as ours: on the client asked about, or none.
+ */
+async function recordOperatorCost(tx: Tx, u: AskUsage, why: string): Promise<void> {
+  await meterModelCalls(tx, {
+    tenantId: u.tenantId,
+    source: "questions",
+    key: `questions:${uuidv7()}`,
+    calls: [u.record],
+  });
   console.info(
-    JSON.stringify({
-      event: "runs.ask.cost",
-      who: "operator",
-      why,
-      surface: u.surface,
-      tenantId: u.tenantId,
-      model: u.record.model,
-      tokensIn: u.record.usage.inputTokens,
-      tokensOut: u.record.usage.outputTokens,
-      costUsd: u.record.costUsd,
-    }),
+    JSON.stringify({ event: "runs.ask.cost", who: "operator", why, surface: u.surface }),
   );
 }
 
@@ -82,7 +83,7 @@ function logOperatorCost(u: AskUsage, why: string) {
 // asked about one client: the client didn't ask.
 export async function recordAskUsage(tx: Tx, u: AskUsage): Promise<string | null> {
   if (u.surface === "ops" || !u.tenantId) {
-    logOperatorCost(u, "back office question");
+    await recordOperatorCost(tx, u, "back office question");
     return null;
   }
   const runId = await recordAccountAgentCall(tx, {
@@ -106,7 +107,7 @@ export async function recordAskUsage(tx: Tx, u: AskUsage): Promise<string | null
       stopReason: u.record.stopReason ?? "error",
     },
   });
-  if (!runId) logOperatorCost(u, "no account agent");
+  if (!runId) await recordOperatorCost(tx, u, "no account agent");
   return runId;
 }
 

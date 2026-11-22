@@ -2,7 +2,14 @@
 // session's `client` never does, and a report without a schema gets none. §1.162: each business
 // area names the connections it works through.
 
-import { routes } from "@countersign/core";
+import {
+  CRM_EMBEDDING_FEATURE,
+  EMBEDDING_FEATURE,
+  packConfigProblems,
+  processArea,
+  processorForEmbedding,
+  routes,
+} from "@countersign/core";
 import { SiteRangeQuery } from "@countersign/pack-marketing";
 import { describe, expect, it } from "vitest";
 import { HttpError } from "../http";
@@ -65,6 +72,74 @@ describe("the connections each business area works through", () => {
         for (const id of need.connectors)
           expect(connectors, `${pack.manifest.id}: ${id}`).toContain(id);
       }
+    }
+  });
+});
+
+// §1.230: every pack's manifest is the one shape, and what apps/api registers beside it agrees.
+describe("every pack's manifest", () => {
+  it("names its area, the one its templates' processes belong to by its pack", () => {
+    for (const pack of DEPLOYMENT_PACKS.filter((p) => !p.manifest.extends)) {
+      const { id, area } = pack.manifest;
+      expect(processArea({ requiresPacks: [id] }), id).toBe(area);
+    }
+  });
+
+  // DECISION (Wave Y coordinator, 2026-11-22): one pack per area among packs that extend none; a
+  // pack that `extends` another (Close → bookkeeping, AP → materials) sits in its base's area,
+  // and its base is registered.
+  it("is one pack per area, but for packs that extend another in its area", () => {
+    const base = DEPLOYMENT_PACKS.filter((p) => !p.manifest.extends).map((p) => p.manifest);
+    const areas = base.map((m) => m.area);
+    expect(new Set(areas).size, "one pack per area").toBe(areas.length);
+    for (const pack of DEPLOYMENT_PACKS.filter((p) => p.manifest.extends)) {
+      const { id, area, extends: of } = pack.manifest;
+      const parent = base.find((m) => m.id === of);
+      expect(parent, `${id} extends ${of}, which isn't a registered base pack`).toBeDefined();
+      expect(area, `${id} sits in ${of}'s area`).toBe(parent?.area);
+    }
+  });
+
+  it("lists the reports apps/api registers for it, no more and no fewer", () => {
+    for (const pack of DEPLOYMENT_PACKS) {
+      expect([...pack.manifest.reports].sort(), pack.manifest.id).toEqual(
+        Object.keys(pack.reports ?? {}).sort(),
+      );
+      for (const name of pack.portalReports ?? []) {
+        expect(pack.manifest.reports, `${pack.manifest.id}: ${name}`).toContain(name);
+      }
+    }
+  });
+
+  it("names the vendors of ours its own features send data to", () => {
+    const byId = Object.fromEntries(DEPLOYMENT_PACKS.map((p) => [p.manifest.id, p.manifest]));
+    expect(byId.materials?.processors).toContain(processorForEmbedding(EMBEDDING_FEATURE.model));
+    expect(byId.sales?.processors).toContain(processorForEmbedding(CRM_EMBEDDING_FEATURE.model));
+  });
+
+  it("installs only templates with approval on: no step is set to run without it", () => {
+    const loosened: string[] = [];
+    const walk = (value: unknown, where: string) => {
+      if (Array.isArray(value)) {
+        for (const [i, v] of value.entries()) walk(v, `${where}[${i}]`);
+      } else if (value && typeof value === "object") {
+        for (const [k, v] of Object.entries(value)) {
+          if (k === "approval" && JSON.stringify(v).includes("not_required")) loosened.push(where);
+          walk(v, `${where}.${k}`);
+        }
+      }
+    };
+    for (const pack of DEPLOYMENT_PACKS) {
+      for (const t of pack.manifest.templates) {
+        walk([t.bundle, ...(t.versions ?? [])], `${pack.manifest.id}/${t.slug}`);
+      }
+    }
+    expect(loosened).toEqual([]);
+  });
+
+  it("starts every configuration field at a default its field takes", () => {
+    for (const pack of DEPLOYMENT_PACKS) {
+      expect(packConfigProblems(pack.manifest.config), pack.manifest.id).toEqual([]);
     }
   });
 });
