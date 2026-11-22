@@ -29,6 +29,7 @@ Mezonas is the product name and the name of every public resource; `countersign`
 | WorkOS | staging environment | production environment |
 | MCP server (Claude connector, operators) | `https://staging.mezonas.com/mcp` | `https://app.mezonas.com/mcp` |
 | Rate limit namespace (`MCP_RATE_LIMIT`) | `1101` | `1102` |
+| Rate limit namespace (`INBOUND_TARGET_RATE_LIMIT`, the beacon per site) | `1111` | `1112` |
 
 `apps/api/wrangler.jsonc`'s top level is local development only (dev sign-in) and is never deployed:
 `deploy.yml` always passes `--env=staging` or `--env=production`. The custom domains are created by

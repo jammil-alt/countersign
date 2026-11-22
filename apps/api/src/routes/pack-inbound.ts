@@ -1,8 +1,8 @@
 // M43 (docs/plan.md §1.72): `POST /api/in/:pack/:tenantId/:target`, what a pack takes from
 // outside with no session: for the Marketing pack, a measured website's beacon. Nothing here
 // names a pack (invariant 2): the platform checks that the pack is registered with an inbound
-// handler, that the request is within the limit per sending address, and that the client
-// has it on, caps the body, and hands the pack the request's facts.
+// handler, that the request is within the limits per sending address and per target, and that
+// the client has it on, caps the body, and hands the pack the request's facts.
 //
 // Always 204 with no body, whatever happened, so a sender learns nothing about which clients,
 // packs or targets exist; a failure is reported (never with the request's address or body) and
@@ -19,13 +19,13 @@ import type { Context, Hono } from "hono";
 import { z } from "zod";
 import { readTextLimited } from "../body";
 import type { AppEnv } from "../http";
-import { type RateLimiter, rateLimiterFor } from "../mcp/limits";
+import { type RateLimiter, rateLimiterFor, targetRateLimiterFor } from "../mcp/limits";
 import { reportHandled, reportProblem } from "../observability/report";
 import { sampled } from "../observability/sampled";
 
 const spec = routes.packInbound;
-// The ids' shape is the first check, then the pack (in memory), then the address limit, all
-// before any database work. DECISION: any UUID, not only v7: the first client `add-operator`
+// The ids' shape is the first check, then the pack (in memory), then the address and target
+// limits, all before any database work. DECISION: any UUID, not only v7: the first client `add-operator`
 // makes has a random (v4) id (packages/db/src/operators.ts).
 const Params = z.object({ pack: z.string(), tenantId: z.uuid(), target: z.uuid() });
 
@@ -85,21 +85,33 @@ async function addressKey(ip: string): Promise<string> {
   ).join("");
 }
 
+/** The limiters the inbound route checks: per sending address, then per target. */
+export interface InboundLimiters {
+  address: RateLimiter;
+  target: RateLimiter;
+}
+
 /**
- * Whether a request is within the inbound limit: per sending address, so a new user agent gets
- * past nothing.
+ * Which inbound limit a request is over, if any: first per sending address, so a new user agent
+ * gets past nothing, then per target (for the Marketing pack, a measured site).
  */
-// DECISION: the limit uses the Rate Limiting binding the Worker already has (`MCP_RATE_LIMIT`,
-// 120 a minute per key, per Cloudflare location), with keys of its own, checked before any
-// database work. There is no per-site limit: on the same binding it would be 120 a minute too, so
-// one address could use up a site's allowance and a busy site would lose real beacons. A per-site
-// limit needs its own binding, set well above the address limit; that is a later change. A request
-// over the limit gets the same 204 and is counted in this isolate, reported at most once a minute.
-export async function withinInboundLimits(
-  limiter: RateLimiter,
-  req: { ip: string },
-): Promise<boolean> {
-  return limiter.allow(`in:ip:${await addressKey(req.ip)}`);
+// DECISION: the address limit uses the Rate Limiting binding the Worker already has
+// (`MCP_RATE_LIMIT`, 120 a minute per key, per Cloudflare location), with keys of its own. The
+// target limit has a binding of its own (`INBOUND_TARGET_RATE_LIMIT`, 3,000 a minute per target,
+// per location; docs/plan.md §1.198), keyed by pack, client and target. A request the address
+// limit refuses never counts toward its target, so one address can't use up a site's allowance;
+// the target limit caps what many addresses together can send for one site. Both are checked
+// before any database work. A request over either gets the same 204 and is counted in this
+// isolate, reported at most once a minute per limit.
+export async function inboundLimitHit(
+  limiters: InboundLimiters,
+  req: { pack: string; tenantId: string; target: string; ip: string },
+): Promise<"address" | "target" | null> {
+  if (!(await limiters.address.allow(`in:ip:${await addressKey(req.ip)}`))) return "address";
+  if (!(await limiters.target.allow(`in:target:${req.pack}:${req.tenantId}:${req.target}`))) {
+    return "target";
+  }
+  return null;
 }
 
 /** Counts requests over the limit and reports the count at most once a minute (no address). */
@@ -111,12 +123,20 @@ export function droppedReporter(
   return () => counted(undefined);
 }
 
-const dropped = droppedReporter((count) =>
-  reportProblem("pack inbound requests over the address limit", {
-    job: "pack_inbound",
-    dropped: String(count),
-  }),
-);
+const droppedBy = {
+  address: droppedReporter((count) =>
+    reportProblem("pack inbound requests over the address limit", {
+      job: "pack_inbound",
+      dropped: String(count),
+    }),
+  ),
+  target: droppedReporter((count) =>
+    reportProblem("pack inbound requests over the target limit", {
+      job: "pack_inbound",
+      dropped: String(count),
+    }),
+  ),
+};
 
 export function packInboundRoutes(app: Hono<AppEnv>): void {
   app.post(spec.path, async (c) => {
@@ -128,9 +148,13 @@ export function packInboundRoutes(app: Hono<AppEnv>): void {
       const pack = services.platform.packs.find((p) => p.manifest.id === packId);
       if (!pack?.inbound) return noContent(c);
       const ip = c.req.header("cf-connecting-ip") ?? "";
-      const allowed = await withinInboundLimits(rateLimiterFor(c.env, "inbound"), { ip });
-      if (!allowed) {
-        dropped();
+      const limiters = {
+        address: rateLimiterFor(c.env, "inbound"),
+        target: targetRateLimiterFor(c.env),
+      };
+      const over = await inboundLimitHit(limiters, { pack: packId, tenantId, target, ip });
+      if (over) {
+        droppedBy[over]();
         return noContent(c);
       }
       const on = await withTenant(services.db, tenantId, (tx) =>
