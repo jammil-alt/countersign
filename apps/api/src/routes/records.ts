@@ -189,7 +189,7 @@ export function recordRouteHandlers(app: Hono<AppEnv>): void {
     return { record };
   });
 
-  // R3 (docs/plan.md §1.194): the runs about a record. The portal: its live runs, the rows its
+  // R3 (docs/plan.md §1.200): the runs about a record. The portal: its live runs, the rows its
   // timeline shows, and a limited person's agents only.
   mount(
     app,

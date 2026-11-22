@@ -8,7 +8,7 @@ the rest.**
 
 **The order we work it in** (2026-11-22): `docs/work-plan.md`, one item and one PR at a time,
 code and the owner's steps side by side. Reporting and searching runs by their data is agreed
-in `docs/reporting-plan.md`; R1 and R3 (a record's Runs panel, §1.194) are built.
+in `docs/reporting-plan.md`; R1 and R3 (a record's Runs panel, §1.200) are built.
 
 ## Where things stand
 

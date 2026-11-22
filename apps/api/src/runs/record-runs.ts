@@ -1,4 +1,4 @@
-// R3: from a record to its runs (docs/reporting-plan.md §3 R3, docs/plan.md §1.194). The runs
+// R3: from a record to its runs (docs/reporting-plan.md §3 R3, docs/plan.md §1.200). The runs
 // about one of a client's records, newest first, read from what each run kept (`run_subject`,
 // §1.188), with what each did with it and the line of the step that did it. The portal reads only
 // the rows its timeline shows (`client_visible`) of its live runs, and of the agents a limited
@@ -53,7 +53,7 @@ function refsOf(kinds: readonly RunSubjectKind[], refs: unknown): ToolRef[] {
  */
 // DECISION: a change is matched to a record by its tool, its id there and a kind the record can
 // be kept as, so a QuickBooks vendor 56 is never a bill 56. A document, a message and a pack's own
-// record are matched by our id alone (docs/plan.md §1.194).
+// record are matched by our id alone (docs/plan.md §1.200).
 async function toolRefs(tx: Tx, tenantId: string, id: string): Promise<ToolRef[]> {
   const [txn] = await tx
     .select({ connector: transaction.connector, externalId: transaction.externalId })
@@ -196,7 +196,7 @@ export async function recordRuns(
   ]);
 
   // DECISION: one line per step and role (a step that read a vendor twice says so once); only a
-  // change names its tool, and what started the run has no step line (docs/plan.md §1.194).
+  // change names its tool, and what started the run has no step line (docs/plan.md §1.200).
   const roles = new Map<string, RecordRunRole[]>();
   const seen = new Set<string>();
   for (const k of kept) {

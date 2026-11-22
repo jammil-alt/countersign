@@ -72,7 +72,7 @@ export const ASSIGNED_USER_ROUTES: readonly string[] = [
   // only when a run, step or inbox item of one of their agents names it, else 404
   // (apps/api `ensureSeesDocument`).
   "GET /api/documents/:id",
-  // R3 (docs/plan.md §1.194): the runs about a record, for the Runs panel of a document they can
+  // R3 (docs/plan.md §1.200): the runs about a record, for the Runs panel of a document they can
   // open. DECISION: only their agents' runs answer (apps/api `recordRuns`), so it shows nothing
   // their runs list doesn't; the records pages themselves stay closed.
   "GET /api/records/:id/runs",

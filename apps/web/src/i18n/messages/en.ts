@@ -1162,7 +1162,7 @@ export const en = {
   "record.col.transaction": "Transaction",
   "record.documents": "Documents",
   "record.noDocuments": "No document is linked to it yet.",
-  // R3: a record's Runs panel (docs/plan.md §1.194).
+  // R3: a record's Runs panel (docs/plan.md §1.200).
   "record.runs": "Runs",
   "record.runs.empty": "No run has been about this yet.",
   "record.runs.role.read": "Read",

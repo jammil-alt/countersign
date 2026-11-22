@@ -805,7 +805,7 @@ function PersonDetail({
           <RecentMessages contactId={p.id} />
         </DetailBlock>
       ) : null}
-      {/* R3 (docs/plan.md §1.194): what our agents did with them, as the timeline shows it. */}
+      {/* R3 (docs/plan.md §1.200): what our agents did with them, as the timeline shows it. */}
       <RecordRuns
         source={{ surface: "portal" }}
         recordId={p.id}

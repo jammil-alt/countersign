@@ -44,7 +44,7 @@ function RecordBody({
   return (
     <>
       <RecordDetail record={data.record} hrefs={hrefs} />
-      {/* R3 (docs/plan.md §1.194): what our agents did with it. */}
+      {/* R3 (docs/plan.md §1.200): what our agents did with it. */}
       <RecordRuns source={source} recordId={recordId} runHref={runHref} />
     </>
   );

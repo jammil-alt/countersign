@@ -706,7 +706,7 @@ export function PersonForm({
 }
 
 /**
- * R3 (docs/plan.md §1.194): a person's or organization's runs, opened from its card. The portal
+ * R3 (docs/plan.md §1.200): a person's or organization's runs, opened from its card. The portal
  * lists only what its timeline shows.
  */
 function DirectoryRuns({ api, id, testId }: { api: DirectoryApi; id: string; testId: string }) {

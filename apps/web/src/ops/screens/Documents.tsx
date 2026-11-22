@@ -180,7 +180,7 @@ export function OpsDocumentScreen() {
           documentHref={(id) => `${base}/documents/${id}`}
         />
       ) : null}
-      {/* R3 (docs/plan.md §1.194): what our agents did with it. */}
+      {/* R3 (docs/plan.md §1.200): what our agents did with it. */}
       {data ? (
         <RecordRuns
           source={{ surface: "ops", clientId }}

@@ -1,4 +1,4 @@
-// R3: a record's Runs panel (docs/plan.md §1.194) in both surfaces: the runs about it, newest
+// R3: a record's Runs panel (docs/plan.md §1.200) in both surfaces: the runs about it, newest
 // first as the API sends them, each with what it did ("Read", "Matched", "Changed in QuickBooks")
 // and the step's line, a link to the run, and an empty state.
 import { render, screen, within } from "@testing-library/react";

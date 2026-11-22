@@ -280,7 +280,7 @@ export const PortalRecordListQuery = z.object({
 });
 
 /**
- * R3: what one run did with a record (docs/plan.md §1.194): its role, the client's tool for a
+ * R3: what one run did with a record (docs/plan.md §1.200): its role, the client's tool for a
  * change ("changed in QuickBooks") and the line of the step that did it. The portal reads only
  * the rows its timeline shows.
  */
@@ -350,7 +350,7 @@ export const recordRoutes = {
     params: z.object({ id: Id, recordId: Id }),
     response: z.object({ record: RecordView }),
   }),
-  // R3 (docs/reporting-plan.md §3, docs/plan.md §1.194): from a record to its runs.
+  // R3 (docs/reporting-plan.md §3, docs/plan.md §1.200): from a record to its runs.
   portalRecordRuns: defineRoute({
     method: "GET",
     path: "/api/records/:id/runs",

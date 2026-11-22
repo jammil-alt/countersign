@@ -1,4 +1,4 @@
-// R3: from a record to its runs (docs/reporting-plan.md §3 R3, docs/plan.md §1.194). The Runs
+// R3: from a record to its runs (docs/reporting-plan.md §3 R3, docs/plan.md §1.200). The Runs
 // panel on a record's page in both surfaces (a transaction, a vendor, a raw record, a document,
 // and a person or organization in the directory): the runs about it, newest first, each with what
 // it did with the record ("Read", "Matched", "Changed in QuickBooks") and the step's line. The
@@ -26,7 +26,7 @@ export function roleWords(r: Pick<RecordRunRole, "role" | "connector">, { t }: P
     case "read":
       return t("record.runs.role.read");
     // DECISION: a decision about a record reads "Matched", the plan's word for it: an agent
-    // decides on a record by matching it (a vendor, a PO, a bill) (docs/plan.md §1.194).
+    // decides on a record by matching it (a vendor, a PO, a bill) (docs/plan.md §1.200).
     case "decided":
       return t("record.runs.role.decided");
     case "changed":

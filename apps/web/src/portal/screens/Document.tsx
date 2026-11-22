@@ -48,7 +48,7 @@ export function PortalDocumentScreen() {
             documentHref={(d) => `/documents/${d}`}
           />
         ) : null}
-        {/* R3 (docs/plan.md §1.194): what our agents did with it. */}
+        {/* R3 (docs/plan.md §1.200): what our agents did with it. */}
         {data ? (
           <RecordRuns
             source={{ surface: "portal" }}
