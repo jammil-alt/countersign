@@ -773,6 +773,13 @@ describe.skipIf(!harness)("supervisor", () => {
       );
     expect(item?.payload).toMatchObject({ details: { reason: "refresh_failing" } });
 
+    // In error since, it counts as an error, not as a failing renewal.
+    const setStatus = (status: "connected" | "error") =>
+      h.t.db.update(connection).set({ status }).where(eq(connection.id, id));
+    await setStatus("error");
+    expect(await view()).toMatchObject({ status: "error", accessFailing: false });
+    await setStatus("connected");
+
     // A call works again: no longer counted; the issue's record stays as history.
     expect(await accessRestored(h.db, h.A.tenantId, id)).toBe(true);
     const closed = await view();

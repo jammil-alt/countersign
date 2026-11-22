@@ -659,7 +659,7 @@ describe.skipIf(!h)("MCP server", () => {
           change: c,
           createdAt: new Date(Date.now() + at),
         });
-      const setStatus = (status: "connected" | "pending") =>
+      const setStatus = (status: "connected" | "error" | "pending") =>
         H.t.db.update(connection).set({ status }).where(eq(connection.id, H.B.connectionId));
       await setStatus("connected");
       await change(1_000, {
@@ -676,6 +676,15 @@ describe.skipIf(!h)("MCP server", () => {
         needsAttention: true,
         attention: "refresh_failing",
       });
+      // In error, it is named an error (the client signs in again), counted once.
+      await setStatus("error");
+      const errored = await tool(opToken, "connections_list", { client: H.B.tenantId });
+      expect(errored.text).toMatch(/1 connection, 1 in error, 0 failing to renew our access\./);
+      expect(errored.data().connections[0]).toMatchObject({
+        needsAttention: true,
+        attention: "error",
+      });
+      await setStatus("connected");
       // A call works again: the issue closes and the connection is fine.
       await change(2_000, { kind: "access_restored" });
       const closed = await tool(opToken, "connections_list", { client: H.B.tenantId });
