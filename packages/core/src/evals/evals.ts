@@ -9,6 +9,7 @@
 import { z } from "zod";
 import { isPlainObject } from "../json";
 import { Decimal } from "../money";
+import { type VerifyOutcome, WriteVerification } from "../oversight/verify";
 import { Slug } from "../schemas/common";
 import { FieldPath, type Matcher, Tolerance } from "../testbench/case";
 import { type MatchDiff, matchOutput } from "../testbench/match";
@@ -88,6 +89,11 @@ export const EvalCase = z.strictObject({
    * read when its replays are written by hand (no API key); tests replay `fixtures/llm`.
    */
   answers: z.array(z.unknown()).max(20).default([]),
+  /**
+   * The verifier's answers (§1.211: each its `finish` input, in the order the case's external
+   * writes are checked), written by hand like `answers`.
+   */
+  checks: z.array(z.unknown()).max(20).default([]),
   /** Why the case is here: what it proves. */
   note: z.string().max(1000).optional(),
 });
@@ -253,24 +259,6 @@ function scoreNamed(
   return { exact: missing.length === 0, missing: [...new Set(missing)].sort(), extra: [], fields };
 }
 
-/** What the verifier made of a case's writes (round 4's verifier; none until it lands). */
-export interface VerifierVerdict {
-  agree: boolean;
-  note?: string;
-}
-
-/**
- * The verifier hook: given a case and the writes its run made, whether the verifier agrees with
- * them. Absent, or answering null, the case counts for no agreement rate.
- */
-// DECISION: a hook, not a call: the round-4 verifier PR plugs its check in here (and in the suite
-// runner's `verify` option), and the scorecard already carries the rate.
-export type EvalVerifier = (input: {
-  caseId: string;
-  workflow: string;
-  writes: readonly RunWrite[];
-}) => Promise<VerifierVerdict | null>;
-
 export const EVAL_CASE_STATUSES = ["pass", "fail", "error"] as const;
 export type EvalCaseStatus = (typeof EVAL_CASE_STATUSES)[number];
 
@@ -279,12 +267,34 @@ export interface EvalCaseResult {
   status: EvalCaseStatus;
   /** Exact match on writes (false for an error). */
   exact: boolean;
-  /** null: no verifier, or it gave no verdict. */
+  /** Whether the verifier agreed with the case's writes; null: it checked none. */
   verifier: boolean | null;
+  /** The verifier's outcome on the case's writes (`verificationOfWrites`); null: none checked. */
+  verification?: VerifyOutcome | null;
   costUsd: string;
   ms: number;
   score?: WriteScore;
   error?: string;
+}
+
+/**
+ * The verifier's outcome on a run's writes (§1.211, kept on a test run's write output): disagreed
+ * when it disagreed with any, else cannot_verify when it couldn't work one out, else agreed; null
+ * when it checked none (no external write, or the agent doesn't verify).
+ */
+// DECISION: one outcome per case, the worst of its writes': a case is as trustworthy as its least
+// checked write. Agreement is agreed over every case the verifier looked at, cannot_verify included.
+export function verificationOfWrites(writes: readonly RunWrite[]): VerifyOutcome | null {
+  const outcomes = writes
+    .map((w) =>
+      isPlainObject(w.output) ? WriteVerification.safeParse(w.output.verification) : null,
+    )
+    .filter((r) => r?.success)
+    .map((r) => (r?.success ? r.data.outcome : null));
+  if (outcomes.length === 0) return null;
+  if (outcomes.includes("disagreed")) return "disagreed";
+  if (outcomes.includes("cannot_verify")) return "cannot_verify";
+  return "agreed";
 }
 
 export interface EvalScorecard {
@@ -296,6 +306,8 @@ export interface EvalScorecard {
   /** Cases the verifier agreed with / cases it judged; null when it judged none. */
   verifierAgreement: number | null;
   verifierChecked: number;
+  /** The verifier's outcomes, by case. */
+  verification: { agreed: number; disagreed: number; cannotVerify: number };
   /** USD, 6 places. */
   costUsd: string;
   costPerCase: string;
@@ -315,7 +327,8 @@ function percentile(values: readonly number[], p: number): number {
 
 /** A dataset's scorecard from its cases' results. */
 export function evalScorecard(
-  results: readonly Pick<EvalCaseResult, "status" | "exact" | "verifier" | "costUsd" | "ms">[],
+  results: readonly (Pick<EvalCaseResult, "status" | "exact" | "verifier" | "costUsd" | "ms"> &
+    Pick<Partial<EvalCaseResult>, "verification">)[],
 ): EvalScorecard {
   const cases = results.length;
   const cost = results.reduce((s, r) => s.plus(r.costUsd || "0"), new Decimal(0));
@@ -329,6 +342,11 @@ export function evalScorecard(
     verifierAgreement:
       judged.length === 0 ? null : ratio(judged.filter((r) => r.verifier).length, judged.length),
     verifierChecked: judged.length,
+    verification: {
+      agreed: results.filter((r) => r.verification === "agreed").length,
+      disagreed: results.filter((r) => r.verification === "disagreed").length,
+      cannotVerify: results.filter((r) => r.verification === "cannot_verify").length,
+    },
     costUsd: cost.toFixed(6),
     costPerCase: cases === 0 ? "0.000000" : cost.div(cases).toFixed(6),
     msMedian: percentile(ms, 50),

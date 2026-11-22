@@ -2,15 +2,27 @@
 // tables: the golden datasets as CI measured them on replay (every pull request that changes a
 // skill or a template must keep them exact), and each version's latest suite run, shared or a
 // client's (cases saved from approved and corrected changes). Loaded on its own, only when opened.
-import type { GoldenScorecardRow, ScorecardRow } from "@countersign/core";
+import { evalsRoutes, type GoldenScorecardRow, type ScorecardRow } from "@countersign/core";
 import { Link } from "react-router-dom";
-import { apiRoutes } from "../../api/routes";
 import { useApi } from "../../api/useApi";
 import { Loaded, Page } from "../../ui/page";
 import { cx, EmptyState, PageHeader } from "../../ui/primitives";
 import { TableCard } from "../screens/business";
 
 const pct = (n: number | null) => (n === null ? "—" : `${Math.round(n * 1000) / 10}%`);
+/** §1.211: "9 of 10 · 1 disagreed", or a dash when the verifier looked at nothing. */
+const verified = (
+  rate: number | null,
+  v: { agreed: number; disagreed: number; cannotVerify: number },
+) => {
+  const looked = v.agreed + v.disagreed + v.cannotVerify;
+  if (rate === null || looked === 0) return "—";
+  const off = [
+    v.disagreed > 0 ? `${v.disagreed} disagreed` : null,
+    v.cannotVerify > 0 ? `${v.cannotVerify} couldn't check` : null,
+  ].filter(Boolean);
+  return [`${pct(rate)} of ${looked}`, ...off].join(" · ");
+};
 const usd = (s: string) => `$${Number(s).toFixed(4)}`;
 const time = (n: number | null) =>
   n === null ? "—" : n < 1000 ? `${n} ms` : `${(n / 1000).toFixed(1)} s`;
@@ -40,7 +52,7 @@ function Golden({ rows }: { rows: GoldenScorecardRow[] }) {
               <td className="reference text-sm">{r.workflow}</td>
               <td className="n">{r.cases}</td>
               <td className={cx("n", r.exactRate < 1 && "text-risk")}>{pct(r.exactRate)}</td>
-              <td className="n">{pct(r.verifierAgreement)}</td>
+              <td className="n">{verified(r.verifierAgreement, r.verification)}</td>
               <td className="n">{usd(r.costPerCase)}</td>
             </tr>
           ))}
@@ -96,7 +108,7 @@ function Versions({ rows }: { rows: ScorecardRow[] }) {
               <td className={cx("n", r.exactRate !== null && r.exactRate < 1 && "text-risk")}>
                 {r.writeCases === 0 ? "—" : `${pct(r.exactRate)} of ${r.writeCases}`}
               </td>
-              <td className="n">{pct(r.verifierAgreement)}</td>
+              <td className="n">{verified(r.verifierAgreement, r.verification)}</td>
               <td className="n">{usd(r.costPerCase)}</td>
               <td className="n">{time(r.msMedian)}</td>
             </tr>
@@ -108,7 +120,7 @@ function Versions({ rows }: { rows: ScorecardRow[] }) {
 }
 
 export default function ScorecardScreen() {
-  const state = useApi(apiRoutes.opsScorecard);
+  const state = useApi(evalsRoutes.opsScorecard);
   return (
     <Page testId="scorecard">
       <PageHeader

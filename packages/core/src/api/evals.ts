@@ -16,6 +16,13 @@ export const SaveCaseFromInboxBody = z.strictObject({
   name: z.string().trim().min(1).max(200).optional(),
 });
 
+/** §1.211: the verifier's outcomes, by case (a case takes its writes' worst). */
+export const VerificationCounts = z.object({
+  agreed: z.number().int(),
+  disagreed: z.number().int(),
+  cannotVerify: z.number().int(),
+});
+
 /** One dataset's golden scorecard, as CI measured it on replay (no run time: replay has none). */
 export const GoldenScorecardRow = z.object({
   template: z.string(),
@@ -24,6 +31,7 @@ export const GoldenScorecardRow = z.object({
   passed: z.number().int(),
   exactRate: z.number(),
   verifierAgreement: z.number().nullable(),
+  verification: z.lazy(() => VerificationCounts),
   costPerCase: z.string(),
 });
 export type GoldenScorecardRow = z.infer<typeof GoldenScorecardRow>;
@@ -45,7 +53,9 @@ export const ScorecardRow = z.object({
   /** Cases with expected writes that matched exactly / cases with expected writes; null: none. */
   exactRate: z.number().nullable(),
   writeCases: z.number().int(),
+  /** Agreed over the cases the verifier looked at; null: it looked at none. */
   verifierAgreement: z.number().nullable(),
+  verification: VerificationCounts,
   costPerCase: z.string(),
   msMedian: z.number().nullable(),
 });

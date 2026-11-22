@@ -161,6 +161,17 @@
           }
         ]
       },
+      "checks": [
+        {
+          "derivable": true,
+          "input": {
+            "to": "ap@golden-millwork.example",
+            "subject": "Invoice NPS-2001 from Northline Panel Supply: no findings"
+          },
+          "note": "Worked out from the invoice, its contract and the client's mailboxes.",
+          "sources": ["@invoice"]
+        }
+      ],
       "writes": [
         {
           "step": "invoice",
@@ -1101,6 +1112,16 @@
           }
         ]
       },
+      "checks": [
+        {
+          "derivable": true,
+          "input": {
+            "to": "ap@golden-millwork.example"
+          },
+          "note": "Worked out from the invoice, its contract and the client's mailboxes.",
+          "sources": ["@invoice"]
+        }
+      ],
       "writes": [
         {
           "step": "invoice",
@@ -2305,6 +2326,16 @@
           }
         ]
       },
+      "checks": [
+        {
+          "derivable": true,
+          "input": {
+            "to": "pricing@golden-millwork.example"
+          },
+          "note": "Worked out from the invoice, its contract and the client's mailboxes.",
+          "sources": ["@invoice"]
+        }
+      ],
       "writes": [
         {
           "step": "invoice",
@@ -2585,6 +2616,17 @@
           }
         ]
       },
+      "checks": [
+        {
+          "derivable": true,
+          "input": {
+            "to": "ap@golden-millwork.example",
+            "subject": "Invoice NPS-2001 from Northline Panel Supply: 1 finding, $20.00 at stake"
+          },
+          "note": "Worked out from the invoice, its contract and the client's mailboxes.",
+          "sources": ["@invoice"]
+        }
+      ],
       "writes": [
         {
           "step": "invoice",
@@ -3926,6 +3968,13 @@
           }
         ]
       },
+      "checks": [
+        {
+          "derivable": false,
+          "note": "The sources don't say which mailbox the review goes to.",
+          "sources": ["@invoice"]
+        }
+      ],
       "writes": [
         {
           "step": "invoice",

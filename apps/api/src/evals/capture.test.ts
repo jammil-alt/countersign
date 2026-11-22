@@ -246,7 +246,10 @@ describe.skipIf(!h)("saving an approved change as a case", () => {
       passed: 1,
       writeCases: 2,
       exactRate: 0.5,
-      verifierAgreement: null,
+      // §1.211: the template verifies its writes; this test records no answer for the check, so
+      // the verifier couldn't work either one out, and the scorecard counts both so.
+      verifierAgreement: 0,
+      verification: { agreed: 0, disagreed: 0, cannotVerify: 2 },
     });
     expect((await H.call(ctx.admin, "GET", "/api/ops/evals/scorecard")).status).toBe(403);
   }, 120_000);

@@ -1,7 +1,7 @@
 // docs/plan.md §1.212: one click turns an approved or corrected change into a test case of the
 // template its agent came from (the client's case: it runs and shows in that client only).
+import { evalsRoutes } from "@countersign/core";
 import { useState } from "react";
-import { apiRoutes } from "../../api/routes";
 import { useApiClient } from "../../api/useApi";
 import { Button, ErrorNotice } from "../../ui/primitives";
 
@@ -14,7 +14,7 @@ export function SaveAsCase({ itemId }: { itemId: string }) {
     setBusy(true);
     setError(null);
     try {
-      const out = await api.call(apiRoutes.opsSaveCaseFromInbox, {
+      const out = await api.call(evalsRoutes.opsSaveCaseFromInbox, {
         params: { id: itemId },
         body: {},
       });

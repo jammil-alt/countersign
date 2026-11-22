@@ -8,6 +8,7 @@ import {
   runWrites,
   scoreWrites,
   stepIdOf,
+  verificationOfWrites,
   WRITES_KEY,
 } from "./evals";
 
@@ -125,6 +126,20 @@ describe("the rest", () => {
       msMedian: 200,
     });
     expect(evalScorecard([]).verifierAgreement).toBeNull();
+  });
+
+  it("takes the verifier's worst outcome over a case's writes", () => {
+    const v = (outcome: string) => ({
+      verification: { outcome, checked: 1, differences: [], reason: null, sources: [] },
+    });
+    expect(verificationOfWrites([w("a", {}, {})])).toBeNull();
+    expect(verificationOfWrites([w("a", {}, v("agreed")), w("b", {}, v("agreed"))])).toBe("agreed");
+    expect(verificationOfWrites([w("a", {}, v("agreed")), w("b", {}, v("cannot_verify"))])).toBe(
+      "cannot_verify",
+    );
+    expect(verificationOfWrites([w("a", {}, v("cannot_verify")), w("b", {}, v("disagreed"))])).toBe(
+      "disagreed",
+    );
   });
 
   it("refuses a dataset with two cases under one id", () => {

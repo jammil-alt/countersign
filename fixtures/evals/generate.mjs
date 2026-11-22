@@ -102,6 +102,14 @@ const send = (to, subject) => ({
   expect: { tool: "send_email", input: { to, ...(subject ? { subject } : {}) } },
 });
 
+/** The verifier's answer (§1.211): the write worked out from the run's sources. */
+const check = (
+  input,
+  sources,
+  note = "Worked out from the invoice, its contract and the client's mailboxes.",
+) =>
+  input === null ? { derivable: false, note, sources } : { derivable: true, input, note, sources };
+
 const invoiceCases = [];
 const ic = (c) => invoiceCases.push({ tags: [], parameters: {}, answers: [], ...c });
 
@@ -149,6 +157,11 @@ ic({
   trigger: doc,
   parameters: apParams(),
   world: base([line("baltic", "2", "100.00")], { contacts: [AP] }),
+  checks: [
+    check({ to: AP.email, subject: "Invoice NPS-2001 from Northline Panel Supply: no findings" }, [
+      "@invoice",
+    ]),
+  ],
   writes: [
     ...readAndRecord,
     settled("baltic"),
@@ -248,6 +261,7 @@ ic({
     history: [hist("baltic", "100.00")],
     contacts: [AP],
   }),
+  checks: [check({ to: AP.email }, ["@invoice"])],
   writes: [
     ...readAndRecord,
     settled("baltic"),
@@ -377,6 +391,7 @@ ic({
     contract: contract([["baltic", "100.00"]]),
     contacts: [AP, PRICING],
   }),
+  checks: [check({ to: PRICING.email }, ["@invoice"])],
   writes: [
     ...readAndRecord,
     settled("baltic"),
@@ -407,6 +422,15 @@ ic({
     contract: contract([["baltic", "100.00"]]),
     contacts: [AP],
   }),
+  checks: [
+    check(
+      {
+        to: AP.email,
+        subject: "Invoice NPS-2001 from Northline Panel Supply: 1 finding, $20.00 at stake",
+      },
+      ["@invoice"],
+    ),
+  ],
   writes: [
     ...readAndRecord,
     settled("baltic"),
@@ -552,6 +576,7 @@ ic({
     contract: contract([["baltic", "100.00"]]),
     contacts: [AP],
   }),
+  checks: [check(null, ["@invoice"], "The sources don't say which mailbox the review goes to.")],
   writes: [
     ...readAndRecord,
     settled("baltic"),
@@ -913,6 +938,7 @@ bc({
   name: "A split whose lines don't add up to the transaction is refused",
   tags: ["model", "guard"],
   world: { feed: [out("costco", "200.00", "2026-11-17", "COSTCO WHSE #0112")] },
+  // The run stops at the refused split, and its area owner reviews it: stop, a person books it.
   answers: [
     finish([
       proposal(
@@ -924,6 +950,11 @@ bc({
         0.9,
       ),
     ]),
+    {
+      action: "stop",
+      note: "The proposed split does not add up to the transaction; a person should book it.",
+      sources: ["@txn:costco"],
+    },
   ],
   stops: {
     step: "categorize-save-proposal",
@@ -1225,6 +1256,18 @@ bc({
     feed: [out("shell", "41.20", "2026-11-16", SHELL)],
     booked: [{ txn: "shell", lines: [{ account: "Fuel" }], why: "Gas for the delivery van" }],
   },
+  checks: [
+    check(
+      {
+        accountId: "35",
+        txnDate: "2026-11-16",
+        expectedTotal: "41.20",
+        lines: [{ accountId: "86", amount: "41.20" }],
+      },
+      ["@txn:shell"],
+      "From the feed line and the person's booking.",
+    ),
+  ],
   writes: [
     importW,
     settleW(),
@@ -1245,6 +1288,13 @@ bc({
     feed: [card("rk", "48.10", "2026-11-16", "Rockler")],
     booked: [{ txn: "rk", lines: [{ account: "Shop Supplies" }] }],
   },
+  checks: [
+    check(
+      { accountId: "41", paymentType: "CreditCard", expectedTotal: "48.10" },
+      ["@txn:rk"],
+      "A card charge on the Amex.",
+    ),
+  ],
   writes: [
     importW,
     settleW(),
@@ -1265,6 +1315,17 @@ bc({
     feed: [deposit("acme", "2400.00", "2026-11-16", "ACME BUILDERS LLC")],
     booked: [{ txn: "acme", lines: [{ account: "Sales" }] }],
   },
+  checks: [
+    check(
+      {
+        accountId: "35",
+        expectedTotal: "2400.00",
+        lines: [{ accountId: "400", amount: "2400.00" }],
+      },
+      ["@txn:acme"],
+      "A customer's deposit to Sales.",
+    ),
+  ],
   writes: [
     importW,
     settleW(),
@@ -1292,6 +1353,13 @@ bc({
       },
     ],
   },
+  checks: [
+    check(
+      { expectedTotal: "200.00", lines: [{ accountId: "84", amount: "200.00" }] },
+      ["@txn:costco"],
+      "A warehouse store run: supplies.",
+    ),
+  ],
   writes: [
     importW,
     settleW(),
@@ -1314,6 +1382,13 @@ bc({
     feed: [out("pay-out", "500.00", "2026-11-16", null, { description: "AMEX EPAYMENT" })],
     booked: [{ txn: "pay-out", lines: [{ account: "Amex" }] }],
   },
+  checks: [
+    check(
+      { fromAccountId: "35", toAccountId: "41", amount: "500.00" },
+      ["@txn:pay-out"],
+      "A payment to the card.",
+    ),
+  ],
   writes: [
     importW,
     settleW(),
@@ -1337,6 +1412,9 @@ bc({
     booked: [{ txn: "shell", lines: [{ account: "Fuel" }] }],
   },
   answers: [finish([proposal("adobe", ["Software"], 0.93)])],
+  checks: [
+    check({ accountId: "35", expectedTotal: "41.20" }, ["@txn:shell"], "From the feed line."),
+  ],
   writes: [
     importW,
     settleW({ checked: 1, openCount: 1 }),
@@ -1362,6 +1440,10 @@ bc({
       { txn: "rk", lines: [{ account: "Shop Supplies" }] },
     ],
   },
+  checks: [
+    check({ accountId: "35", expectedTotal: "41.20" }, ["@txn:shell"], "From the feed line."),
+    check({ accountId: "41", expectedTotal: "48.10" }, ["@txn:rk"], "From the feed line."),
+  ],
   writes: [
     importW,
     settleW(),

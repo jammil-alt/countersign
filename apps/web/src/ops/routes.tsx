@@ -117,6 +117,10 @@ import { SalesScreen } from "./work/sales/SalesSection";
 const AutomationEditor = lazy(() => import("./flow/automation/AutomationEditor"));
 // §1.212: the eval scorecard loads only when opened.
 const ScorecardScreen = lazy(() => import("./lab/ScorecardScreen"));
+// §1.216: books health loads when opened.
+const OpsClientBooksHealthScreen = lazy(() =>
+  import("./client/ClientBooksHealth").then((m) => ({ default: m.OpsClientBooksHealthScreen })),
+);
 
 export const opsRoutes = (
   <>
@@ -205,6 +209,15 @@ export const opsRoutes = (
       <Route path="clients/:clientId/records" element={<OpsRecordsScreen />} />
       {/* The client's chart of accounts, classes and locations, changed only with a signature */}
       <Route path="clients/:clientId/ledger" element={<OpsClientLedgerScreen />} />
+      {/* §1.216: what the books health checks find in the client's QuickBooks */}
+      <Route
+        path="clients/:clientId/books-health"
+        element={
+          <Suspense fallback={<Loading />}>
+            <OpsClientBooksHealthScreen />
+          </Suspense>
+        }
+      />
       {/* Setup: Progress (§1.206), Connections, Messaging, Directory and Knowledge */}
       <Route path="clients/:clientId/progress" element={<OpsSetupProgressScreen />} />
       <Route path="clients/:clientId/connections" element={<OpsConnectionsScreen />} />

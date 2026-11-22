@@ -550,6 +550,12 @@ export {
   type FakeOutlookCalendar,
   fakeOutlookCalendar,
 } from "./outlook_calendar/fake";
+// docs/plan.md §1.216: a QuickBooks company with one of each problem books health looks for.
+export {
+  type BooksCompany,
+  type BooksCompanyExpected,
+  fakeBooksCompany,
+} from "./qbo/books-company";
 export { FAKE_QBO_CLIENT, FAKE_QBO_REALM, type FakeQbo, fakeQbo, QBO_FIXTURES } from "./qbo/fake";
 export {
   FAKE_RAMP,

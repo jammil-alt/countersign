@@ -126,6 +126,10 @@ export function suiteTotals(outcomes: readonly CaseOutcome[]): SuiteTotals {
             cases: withWrites.length,
             exactRate: ratio(withWrites.filter((o) => o.exact).length, withWrites.length),
           },
+        }
+      : {}),
+    ...(withWrites.length > 0 || judged.length > 0
+      ? {
           verifierAgreement:
             judged.length === 0
               ? null

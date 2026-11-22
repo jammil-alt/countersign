@@ -21,6 +21,23 @@ export const MOBILE_SESSION_HEADER = "x-mezonas-session";
 export const MOBILE_APP_SCHEME = "mezonas";
 export const MOBILE_SIGNED_IN_URL = `${MOBILE_APP_SCHEME}://signed-in`;
 
+/**
+ * Which of our apps a sign-in is for (docs/plan.md §1.116, §1.151, §1.219): the phone app or the
+ * desktop app. Both sign in the same way; the audit rows and the confirm page name the one asking.
+ */
+// DECISION (§1.219): one sign-in for both apps, told apart by `app` on the start URL (absent means
+// the phone, as phones already in the field send it). It names the app for the audit log and the
+// confirm page; it grants nothing: the session is the same either way.
+export const MobileApp = z.enum(["phone", "desktop"]);
+export type MobileApp = z.infer<typeof MobileApp>;
+
+/**
+ * The page in the browser that asks the person to confirm before the session goes to the app
+ * (open.md M8, D7): a sign-in started by another app that registered `mezonas://` never completes
+ * on its own, even when the browser is already signed in.
+ */
+export const MOBILE_CONFIRM_PATH = "/sign-in/app";
+
 /** How long the handoff code from sign-in to the app lasts. */
 export const MOBILE_HANDOFF_SEC = 120;
 

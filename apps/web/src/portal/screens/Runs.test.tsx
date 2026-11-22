@@ -336,4 +336,16 @@ describe("the runs list's kept rows", () => {
     expect(screen.getByTestId(`portal-run-row-${RUN_Y}`)).toBeInTheDocument();
     expect(screen.queryByTestId(`portal-run-row-${RUN_X}`)).toBeNull();
   });
+  // R4 (docs/plan.md §1.214): a report's figure opens the list on exactly its runs.
+  it("opens on a report figure's filter from its address, as chips, and clears it", async () => {
+    const since = "2026-11-01T00:00:00.000Z";
+    const { queries } = setup({ at: `/runs?statuses=failed&since=${since}` });
+    await waitFor(() => expect(queries[0]?.get("statuses")).toBe("failed"));
+    expect(queries[0]?.get("since")).toBe(since);
+    const chips = await screen.findAllByTestId("portal-runs-chip");
+    expect(chips).toHaveLength(2);
+    await userEvent.click(screen.getByTestId("portal-runs-ask-clear"));
+    await waitFor(() => expect(queries.at(-1)?.has("statuses")).toBe(false));
+    expect(queries.at(-1)?.has("since")).toBe(false);
+  });
 });

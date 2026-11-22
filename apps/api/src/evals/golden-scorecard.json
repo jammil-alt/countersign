@@ -4,19 +4,29 @@
     "passed": 35,
     "errors": 0,
     "exactRate": 1,
-    "verifierAgreement": null,
-    "verifierChecked": 0,
-    "costUsd": "0.185000",
-    "costPerCase": "0.005286"
+    "verifierAgreement": 0.8571,
+    "verifierChecked": 7,
+    "verification": {
+      "agreed": 6,
+      "disagreed": 1,
+      "cannotVerify": 0
+    },
+    "costUsd": "0.225200",
+    "costPerCase": "0.006434"
   },
   "vendor-contracts/invoice-review": {
     "cases": 39,
     "passed": 39,
     "errors": 0,
     "exactRate": 1,
-    "verifierAgreement": null,
-    "verifierChecked": 0,
-    "costUsd": "0.001600",
-    "costPerCase": "0.000041"
+    "verifierAgreement": 0.8,
+    "verifierChecked": 5,
+    "verification": {
+      "agreed": 4,
+      "disagreed": 0,
+      "cannotVerify": 1
+    },
+    "costUsd": "0.051800",
+    "costPerCase": "0.001328"
   }
 }

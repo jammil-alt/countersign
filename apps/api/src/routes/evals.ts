@@ -12,10 +12,10 @@
 
 import {
   Decimal,
+  evalsRoutes as evalsRouteSpecs,
   type GoldenScorecardRow,
   isPlainObject,
   parseSkillRef,
-  routes,
   type ScorecardRow,
   stepIdOf,
   WRITES_KEY,
@@ -55,6 +55,7 @@ function goldenRows(): GoldenScorecardRow[] {
         passed: card.passed,
         exactRate: card.exactRate,
         verifierAgreement: card.verifierAgreement,
+        verification: card.verification,
         costPerCase: card.costPerCase,
       };
     })
@@ -69,7 +70,7 @@ const median = (xs: number[]) => {
 const ratio = (n: number, d: number) => (d === 0 ? 0 : Math.round((n / d) * 10_000) / 10_000);
 
 export function evalsRoutes(app: Hono<AppEnv>): void {
-  mount(app, routes.opsSaveCaseFromInbox, async (ctx) => {
+  mount(app, evalsRouteSpecs.opsSaveCaseFromInbox, async (ctx) => {
     const { tx, params, body, session, tenantIds } = ctx;
     const [item] = await tx
       .select()
@@ -183,7 +184,7 @@ export function evalsRoutes(app: Hono<AppEnv>): void {
     return { case: caseView(row, await clientNames(tx, [tenantId])), created: true };
   });
 
-  mount(app, routes.opsScorecard, async (ctx) => {
+  mount(app, evalsRouteSpecs.opsScorecard, async (ctx) => {
     const { tx, query, tenantIds } = ctx;
     const scope =
       tenantIds.length > 0
@@ -242,6 +243,8 @@ export function evalsRoutes(app: Hono<AppEnv>): void {
       exact: number;
       judged: number;
       agreed: number;
+      disagreed: number;
+      cannotVerify: number;
       cost: Decimal;
       ms: number[];
     };
@@ -260,6 +263,8 @@ export function evalsRoutes(app: Hono<AppEnv>): void {
           exact: 0,
           judged: 0,
           agreed: 0,
+          disagreed: 0,
+          cannotVerify: 0,
           cost: new Decimal(0),
           ms: [],
         };
@@ -267,6 +272,7 @@ export function evalsRoutes(app: Hono<AppEnv>): void {
           ms?: unknown;
           writes?: { exact?: unknown };
           verifier?: unknown;
+          verification?: unknown;
         };
         acc.cases += 1;
         if (r.status === "pass") acc.passed += 1;
@@ -274,10 +280,12 @@ export function evalsRoutes(app: Hono<AppEnv>): void {
           acc.writeCases += 1;
           if (d.writes.exact) acc.exact += 1;
         }
-        // The verifier's verdict, once the round-4 verifier records one on the result (§1.212).
+        // §1.211: the verifier's outcome on the case's writes, as the suite recorded it.
         if (typeof d.verifier === "boolean") {
           acc.judged += 1;
-          if (d.verifier) acc.agreed += 1;
+          if (d.verification === "agreed") acc.agreed += 1;
+          else if (d.verification === "disagreed") acc.disagreed += 1;
+          else acc.cannotVerify += 1;
         }
         acc.cost = acc.cost.plus(r.costUsd ?? 0);
         if (typeof d.ms === "number") acc.ms.push(d.ms);
@@ -304,6 +312,11 @@ export function evalsRoutes(app: Hono<AppEnv>): void {
           exactRate: acc.writeCases === 0 ? null : ratio(acc.exact, acc.writeCases),
           writeCases: acc.writeCases,
           verifierAgreement: acc.judged === 0 ? null : ratio(acc.agreed, acc.judged),
+          verification: {
+            agreed: acc.agreed,
+            disagreed: acc.disagreed,
+            cannotVerify: acc.cannotVerify,
+          },
           costPerCase: acc.cost.div(Math.max(acc.cases, 1)).toFixed(6),
           msMedian: median(acc.ms),
         });

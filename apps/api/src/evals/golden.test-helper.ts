@@ -11,7 +11,7 @@
 //   WRITE_EVAL_FIXTURES=1 COUNTERSIGN_REQUIRE_DB=1 pnpm --filter @countersign/api exec vitest run src/evals
 
 import { createHash } from "node:crypto";
-import { readdirSync, readFileSync } from "node:fs";
+import { readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import {
   ContentStore,
@@ -33,17 +33,27 @@ import {
   type EvalCase,
   type EvalCaseResult,
   EvalDataset,
-  type EvalVerifier,
   isPlainObject,
+  OWNER_AREAS,
   parseSkillRef,
   type RunWrite,
   resolveRefs,
   runWrites,
   scoreWrites,
   stepIdOf,
+  VERIFY_READ_TOOL,
+  verificationOfWrites,
   writeStepTools,
 } from "@countersign/core";
-import { agent, agentVersion, appUser, membership, tenant } from "@countersign/db";
+import {
+  agent,
+  agentVersion,
+  appUser,
+  areaOwner,
+  membership,
+  tenant,
+  withTenant,
+} from "@countersign/db";
 import {
   fakeMessage,
   type LlmRequest,
@@ -59,6 +69,7 @@ import {
   type HarnessOptions,
   OPERATOR,
 } from "../api.test-helper";
+import { ensureAreaOwner } from "../owners/store";
 import { quietNever } from "../quiet-hours.test-helper";
 import { credentialsFor } from "../runs/execute";
 import { runTemplateTest, withParameters } from "../testbench/suite";
@@ -196,26 +207,71 @@ async function newClient(H: ApiHarness, c: EvalCase): Promise<{ tenantId: string
  * request and the answer (4 characters a token) so a case's cost is what a real call would about
  * cost, the same every run.
  */
-function transportFor(answers: readonly unknown[]): LlmTransport {
+/** A transport for one case, and the replay misses it met (a verifier's miss is swallowed). */
+interface CaseTransport extends LlmTransport {
+  readonly misses: string[];
+}
+
+/** Whether a request is the verifier's (§1.211: it reads `read_sources` and answers `finish`). */
+const isCheck = (request: LlmRequest) =>
+  (request.tools ?? []).some((t) => (t as { name?: string }).name === VERIFY_READ_TOOL);
+
+const UUID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/g;
+/** A moment a run's records were made at (`2026-11-22T18:31:43.311Z`); a day alone is data. */
+const MOMENT = /\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})/g;
+
+/**
+ * The request as its replay is keyed: every id the run made up itself (a booking, an action, a
+ * run's own records), not one of the world's, is a placeholder numbered by first appearance, and
+ * every moment a record was made at is one placeholder (a day, such as an invoice's, stays).
+ * The verifier is shown earlier steps' outputs (§1.211), which carry such ids, new every run.
+ */
+// DECISION: the key, not the request: the model is sent the request as it is; only the lookup of
+// its recorded answer leaves out what can't repeat. A world id stays itself, so an answer that
+// names a record still means that record.
+function keyed(request: LlmRequest, world: ReadonlySet<string>): LlmRequest {
+  const seen = new Map<string, string>();
+  const text = JSON.stringify(request)
+    .replace(MOMENT, "run-moment")
+    .replace(UUID, (id) => {
+      if (world.has(id)) return id;
+      let p = seen.get(id);
+      if (!p) {
+        p = `run-id-${seen.size + 1}`;
+        seen.set(id, p);
+      }
+      return p;
+    });
+  return JSON.parse(text) as LlmRequest;
+}
+
+function transportFor(
+  answers: readonly unknown[],
+  checks: readonly unknown[],
+  worldIds: readonly string[] = [],
+): CaseTransport {
+  const world = new Set(worldIds);
   const store = fileFixtureStore();
   const replay = withRecording(null, { mode: "replay", store });
-  let next = 0;
+  const misses: string[] = [];
+  const next = { answer: 0, check: 0 };
   const writer = withRecording(
     {
       async create(request: LlmRequest) {
-        const answer = answers[next++];
+        const check = isCheck(request);
+        const answer = check ? checks[next.check++] : answers[next.answer++];
         if (answer === undefined) {
           const asked = JSON.stringify(request.messages.at(-1)?.content ?? null).slice(0, 6000);
-          throw new Error(
-            `the case has no more answers for the model; add one to its \`answers\`. Asked: ${asked}`,
-          );
+          const field = check ? "checks" : "answers";
+          misses.push(`no ${field} left`);
+          throw new Error(`the case has no more ${field} for the model. Asked: ${asked}`);
         }
         return fakeMessage(
           request.model,
           [
             {
               type: "tool_use",
-              id: `toolu_golden_${next}`,
+              id: `toolu_golden_${next.answer + next.check}`,
               name: "finish",
               input: answer,
               caller: { type: "direct" },
@@ -239,13 +295,24 @@ function transportFor(answers: readonly unknown[]): LlmTransport {
   );
   // Writing, every call is answered from the case (and written over what was stored), so an
   // answer changed in the dataset never meets the old one.
-  if (WRITE) return writer;
+  if (WRITE) {
+    return { misses, create: (request, options) => writer.create(keyed(request, world), options) };
+  }
   return {
+    misses,
     async create(request, options) {
       try {
-        return await replay.create(request, options);
+        return await replay.create(keyed(request, world), options);
       } catch (error) {
         if (error instanceof ReplayMissError) {
+          // Kept: the verifier turns a failed call into "cannot verify", so a miss would hide.
+          misses.push(error.hash);
+          if (process.env.EVAL_DUMP_MISSES) {
+            writeFileSync(
+              join(process.env.EVAL_DUMP_MISSES, `${error.hash}.json`),
+              JSON.stringify(keyed(request, world), null, 1),
+            );
+          }
           throw new Error(
             `${error.message} A golden case's answers are written by hand: WRITE_EVAL_FIXTURES=1 (fixtures/llm/README.md).`,
           );
@@ -260,10 +327,6 @@ export interface GoldenResult extends EvalCaseResult {
   writes: RunWrite[];
   /** Each step's id and status (a failed one's output), for reading a failure. */
   steps: { id: string; status: string; why?: string }[];
-}
-
-export interface GoldenOptions {
-  verify?: EvalVerifier;
 }
 
 /** The template's live version (installed with its pack on the first client). */
@@ -306,15 +369,31 @@ export async function seedGoldenClient(
   );
   if (on.status !== 200) throw new Error(`enable ${world.pack}: ${JSON.stringify(on.json)}`);
   if (world.afterEnable) await world.afterEnable(ctx, c.world);
+  // The client's area owners, made now with fixed names (a client may rename them): an owner is
+  // otherwise named from the client's id, and its name is in its review's prompt (a failed run).
+  await withTenant(H.db, tenantId, async (tx) => {
+    for (const area of OWNER_AREAS) {
+      const owner = await ensureAreaOwner(tx, tenantId, area);
+      await tx
+        .update(areaOwner)
+        .set({ name: "Golden" })
+        .where(and(eq(areaOwner.id, owner.ownerId), eq(areaOwner.tenantId, tenantId)));
+    }
+  });
   return ctx;
 }
 
 /** What a golden run is run with: replayed answers (the case's, writing), the day fixed. */
-export function goldenRunDeps(H: ApiHarness, answers: readonly unknown[] = []) {
+export function goldenRunDeps(
+  H: ApiHarness,
+  answers: readonly unknown[] = [],
+  checks: readonly unknown[] = [],
+  worldIds: readonly string[] = [],
+) {
   return {
     db: H.db,
     platform: H.platform,
-    transport: transportFor(answers),
+    transport: transportFor(answers, checks, worldIds),
     instances: H.instances,
     documents: { content: new ContentStore(H.objects) },
     credentials: credentialsFor(H.db, { current: ENCRYPTION_KEY }),
@@ -327,7 +406,6 @@ export async function runGoldenCase(
   H: ApiHarness,
   dataset: EvalDataset,
   c: EvalCase,
-  options: GoldenOptions = {},
 ): Promise<GoldenResult> {
   const base = {
     caseId: c.id,
@@ -341,7 +419,13 @@ export async function runGoldenCase(
   try {
     const { tenantId, ids } = await seedGoldenClient(H, dataset, c);
     const versionId = await liveVersion(H, dataset.template);
-    const ran = await runTemplateTest(goldenRunDeps(H, resolveRefs(c.answers, ids)), {
+    const deps = goldenRunDeps(
+      H,
+      resolveRefs(c.answers, ids),
+      resolveRefs(c.checks, ids),
+      Object.values(ids),
+    );
+    const ran = await runTemplateTest(deps, {
       runTenantId: tenantId,
       versionId,
       actorId: null,
@@ -358,6 +442,11 @@ export async function runGoldenCase(
     const bundle = row?.bundle as AnyAgentBundle;
     const tools = writeStepTools(bundle.workflows);
     const writes = runWrites(ran.steps, (step) => tools.get(step) ?? null);
+    if (deps.transport.misses.length > 0) {
+      throw new Error(
+        `the run's model calls weren't all replayed (${deps.transport.misses.join(", ")}): write them again with WRITE_EVAL_FIXTURES=1`,
+      );
+    }
     // A failed step's output says why, for reading a failure.
     const steps = ran.steps.map((s) => ({
       id: s.nodeId,
@@ -394,14 +483,14 @@ export async function runGoldenCase(
       };
     }
     const score = scoreWrites(resolveRefs(c.writes, ids), writes, c.tolerances);
-    const verdict = options.verify
-      ? await options.verify({ caseId: c.id, workflow: dataset.workflow, writes })
-      : null;
+    // §1.211: the verifier's outcome on the case's writes, as the test run kept it.
+    const verification = verificationOfWrites(writes);
     return {
       ...base,
       status: score.exact ? "pass" : "fail",
       exact: score.exact,
-      verifier: verdict ? verdict.agree : null,
+      verifier: verification === null ? null : verification === "agreed",
+      verification,
       costUsd: ran.costUsd,
       ms: ran.ms,
       score,

@@ -38,6 +38,7 @@ import {
   type TestResultStatus,
   type TestTargetKind,
   type Tolerance,
+  verificationOfWrites,
   WRITES_KEY,
   WRITES_SCOPE_KEY,
   writeStepTools,
@@ -126,6 +127,8 @@ interface CaseRow {
 
 interface Scored {
   status: TestResultStatus;
+  /** §1.211: whether the verifier agreed with the run's writes (absent: it checked none). */
+  verifier?: boolean;
   /** §1.212: a case with expected writes: whether they matched exactly. */
   exact?: boolean;
   ms?: number;
@@ -422,11 +425,14 @@ async function runTemplate(deps: RunDeps, params: SuiteParams, c: CaseRow): Prom
     : null;
   if (writesExpected)
     got[WRITES_KEY] = writes.map(({ step, tool, input }) => ({ step, tool, input }));
+  // §1.211: the verifier's outcome on the run's writes, where the agent verifies them.
+  const verification = verificationOfWrites(writes);
   const extra = {
     run: { status: result.status, reason: result.reason ?? null },
     steps: steps.map((s) => ({ id: s.nodeId, status: s.status })),
     ms: ran.ms,
     ...(writeScore ? { writes: writeScore } : {}),
+    ...(verification ? { verification, verifier: verification === "agreed" } : {}),
   };
   // INTEG-1: a run that failed on a step's error (the client's tool refused it: a sign-in that
   // expired, a connection disconnected or missing) is an error, never scored: a try or a kept case
@@ -443,6 +449,7 @@ async function runTemplate(deps: RunDeps, params: SuiteParams, c: CaseRow): Prom
     runId: ran.runId,
     ms: ran.ms,
     ...(writeScore ? { exact: writeScore.exact } : {}),
+    ...(verification ? { verifier: verification === "agreed" } : {}),
   };
 }
 
@@ -472,12 +479,17 @@ export async function runCase(
   });
   if (prior.result) {
     const matcher = prior.case ? Matcher.safeParse(prior.case.matcher) : null;
-    const d = (prior.result.diff ?? {}) as { ms?: unknown; writes?: { exact?: unknown } };
+    const d = (prior.result.diff ?? {}) as {
+      ms?: unknown;
+      writes?: { exact?: unknown };
+      verifier?: unknown;
+    };
     return {
       status: prior.result.status,
       costUsd: String(prior.result.costUsd),
       ...(typeof d.ms === "number" ? { ms: d.ms } : {}),
       ...(typeof d.writes?.exact === "boolean" ? { exact: d.writes.exact } : {}),
+      ...(typeof d.verifier === "boolean" ? { verifier: d.verifier } : {}),
       label:
         prior.result.status !== "error" && prior.case && matcher?.success
           ? labelOutcome(matcher.data, prior.case.expected, prior.result.got)
@@ -518,6 +530,7 @@ export async function runCase(
     label: outcome.label,
     ...(outcome.ms !== undefined ? { ms: outcome.ms } : {}),
     ...(outcome.exact !== undefined ? { exact: outcome.exact } : {}),
+    ...(outcome.verifier !== undefined ? { verifier: outcome.verifier } : {}),
   };
 }
 

@@ -12,6 +12,7 @@ const h = await createApiHarness({
     QBO_WEBHOOK_VERIFIER: "qbo-verifier",
     ELEVENLABS_API_KEY: "el-key",
     ELEVENLABS_WEBHOOK_SECRET: "el-secret",
+    RESEND_WEBHOOK_SECRET: "whsec_cHVibGljIGJvZGllcyB0ZXN0IGtleSAzMiBieXRlcw==",
     MOBILE_SIGNIN: "on",
   },
 });
@@ -56,6 +57,7 @@ const PUBLIC_POSTS: readonly [method: string, path: string][] = [
   ["POST", `/api/connections/bankfeed/webhook/${T}`],
   ["POST", `/api/hooks/${T}/${U}`],
   ["POST", "/api/hooks/gchat"],
+  ["POST", "/api/hooks/resend"],
   ["POST", "/api/hooks/teams"],
   ["POST", "/api/hooks/whatsapp_meta"],
   ["POST", `/api/hooks/zoho_crm/${T}/${U}`],

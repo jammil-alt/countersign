@@ -10,6 +10,7 @@
 | `matching/` | Labeled line pairs (`same` / `different`, a note each) for the matcher golden test (M8, `packs/materials/src/catalog/golden.test.ts`; target ≥ 95% precision on `same` at the auto threshold). Labels are a buyer's truth, not what the parser can prove. |
 | `matching/crm/` | A client's synced Zoho leads, contacts, accounts and deals with spreadsheet rows labelled with the record each is (or none), for the Sales area's golden test (`packs/sales/src/match/golden.test.ts`; ≥ 95% precision on `same` at the default threshold). |
 | `evals/` | The golden datasets (docs/plan.md §1.212): per template workflow, cases of a trigger, a synthetic world and the writes the run makes, written by `evals/generate.mjs`. Replayed in CI by `apps/api/src/evals/golden.test.ts`. |
+| `intake/` | Made-up reports from systems with no open API, as they arrive by email (docs/plan.md §1.213): a CR2-style daily sales export (a title block above the headers, a total row), a copy whose total doesn't agree, and a Great Plains-style open payables list. Names and numbers are invented. |
 | `llm/` | Recorded model responses for replay mode, keyed by request hash (created by `LLM_MODE=record`). |
 
 Fixtures must not contain real client data. Invoices are synthetic or redacted.

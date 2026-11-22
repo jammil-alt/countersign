@@ -607,6 +607,11 @@
           ],
           "notes": [],
           "sources": ["@txn:costco"]
+        },
+        {
+          "action": "stop",
+          "note": "The proposed split does not add up to the transaction; a person should book it.",
+          "sources": ["@txn:costco"]
         }
       ],
       "trigger": {},
@@ -2178,6 +2183,24 @@
           }
         ]
       },
+      "checks": [
+        {
+          "derivable": true,
+          "input": {
+            "accountId": "35",
+            "txnDate": "2026-11-16",
+            "expectedTotal": "41.20",
+            "lines": [
+              {
+                "accountId": "86",
+                "amount": "41.20"
+              }
+            ]
+          },
+          "note": "From the feed line and the person's booking.",
+          "sources": ["@txn:shell"]
+        }
+      ],
       "writes": [
         {
           "step": "import",
@@ -2269,6 +2292,18 @@
           }
         ]
       },
+      "checks": [
+        {
+          "derivable": true,
+          "input": {
+            "accountId": "41",
+            "paymentType": "CreditCard",
+            "expectedTotal": "48.10"
+          },
+          "note": "A card charge on the Amex.",
+          "sources": ["@txn:rk"]
+        }
+      ],
       "writes": [
         {
           "step": "import",
@@ -2360,6 +2395,23 @@
           }
         ]
       },
+      "checks": [
+        {
+          "derivable": true,
+          "input": {
+            "accountId": "35",
+            "expectedTotal": "2400.00",
+            "lines": [
+              {
+                "accountId": "400",
+                "amount": "2400.00"
+              }
+            ]
+          },
+          "note": "A customer's deposit to Sales.",
+          "sources": ["@txn:acme"]
+        }
+      ],
       "writes": [
         {
           "step": "import",
@@ -2453,6 +2505,22 @@
           }
         ]
       },
+      "checks": [
+        {
+          "derivable": true,
+          "input": {
+            "expectedTotal": "200.00",
+            "lines": [
+              {
+                "accountId": "84",
+                "amount": "200.00"
+              }
+            ]
+          },
+          "note": "A warehouse store run: supplies.",
+          "sources": ["@txn:costco"]
+        }
+      ],
       "writes": [
         {
           "step": "import",
@@ -2551,6 +2619,18 @@
           }
         ]
       },
+      "checks": [
+        {
+          "derivable": true,
+          "input": {
+            "fromAccountId": "35",
+            "toAccountId": "41",
+            "amount": "500.00"
+          },
+          "note": "A payment to the card.",
+          "sources": ["@txn:pay-out"]
+        }
+      ],
       "writes": [
         {
           "step": "import",
@@ -2656,6 +2736,17 @@
           }
         ]
       },
+      "checks": [
+        {
+          "derivable": true,
+          "input": {
+            "accountId": "35",
+            "expectedTotal": "41.20"
+          },
+          "note": "From the feed line.",
+          "sources": ["@txn:shell"]
+        }
+      ],
       "writes": [
         {
           "step": "import",
@@ -2777,6 +2868,26 @@
           }
         ]
       },
+      "checks": [
+        {
+          "derivable": true,
+          "input": {
+            "accountId": "35",
+            "expectedTotal": "41.20"
+          },
+          "note": "From the feed line.",
+          "sources": ["@txn:shell"]
+        },
+        {
+          "derivable": true,
+          "input": {
+            "accountId": "41",
+            "expectedTotal": "48.10"
+          },
+          "note": "From the feed line.",
+          "sources": ["@txn:rk"]
+        }
+      ],
       "writes": [
         {
           "step": "import",

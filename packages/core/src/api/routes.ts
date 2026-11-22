@@ -33,6 +33,8 @@ import { autopilotRoutes } from "./autopilot";
 // v0.12 bankfeed
 import { bankfeedRoutes, LinkStartView } from "./bankfeed";
 import { billingRoutes } from "./billing";
+// §1.216: books health
+import { booksHealthRoutes } from "./books-health";
 import { browserRoutes } from "./browser";
 import { browserScriptRoutes } from "./browser-scripts";
 // docs/plan.md §1.108: builds
@@ -56,7 +58,6 @@ import { dealRoutes } from "./deals";
 import { deskRoutes } from "./desk";
 import { directoryRoutes } from "./directory";
 import { DocumentDetail, DocumentSummary } from "./documents";
-import { evalsRoutes } from "./evals";
 // §1.114: Excel's picking.
 import { excelRoutes } from "./excel";
 import { exportRoutes } from "./exports";
@@ -71,6 +72,8 @@ import { gettingStartedRoutes } from "./getting-started";
 import { gsheetsRoutes } from "./gsheets";
 // R4: business hours, person hours and channels
 import { hoursRoutes } from "./hours";
+// §1.213: file and email intake's report profiles.
+import { intakeReportRoutes } from "./intake-reports";
 import { knowledgeRoutes } from "./knowledge";
 import { languageRoutes, SessionLanguage } from "./language";
 import { ledgerRoutes } from "./ledger";
@@ -2560,8 +2563,6 @@ export const routes = {
   ...clientViewRoutes,
   // v0.12 W2-C: the test bench, skill tests and the agent lab
   ...testbenchRoutes,
-  // docs/plan.md §1.212
-  ...evalsRoutes,
   // v0.12 W2-F: the command center, search and plain-words questions
   ...commandCenterRoutes,
   // v0.12 W2-A: the connectors catalog
@@ -2594,6 +2595,8 @@ export const routes = {
   ...packRoutes,
   // The back office's chart of accounts (docs/plan.md §1.79).
   ...ledgerRoutes,
+  // Books health (docs/plan.md §1.216).
+  ...booksHealthRoutes,
   // P-6: the client runs it, we step in (docs/plan.md §1.68).
   ...stepInRoutes,
   // P-7: message translation (docs/plan.md §1.69).
@@ -2619,6 +2622,8 @@ export const routes = {
   ...reshapeRoutes,
   // Data in and out of files (owner, 2026-11-20): a Read table step's sample-file check.
   ...readTableRoutes,
+  // File and email intake (owner, 2026-11-22; docs/plan.md §1.213): report profiles.
+  ...intakeReportRoutes,
   // docs/plan.md §1.124: back office work
   ...workRoutes,
   // docs/plan.md §1.124.3: Your call

@@ -41,7 +41,8 @@ describe("the scorecard", () => {
             cases: 35,
             passed: 35,
             exactRate: 1,
-            verifierAgreement: null,
+            verifierAgreement: 0.75,
+            verification: { agreed: 6, disagreed: 1, cannotVerify: 1 },
             costPerCase: "0.005286",
           },
         ],
@@ -61,6 +62,7 @@ describe("the scorecard", () => {
             exactRate: 0.5,
             writeCases: 2,
             verifierAgreement: null,
+            verification: { agreed: 0, disagreed: 0, cannotVerify: 0 },
             costPerCase: "0.000100",
             msMedian: 412,
           },
@@ -77,6 +79,7 @@ describe("the scorecard", () => {
     const golden = await screen.findByTestId("scorecard-golden-bookkeeper");
     expect(golden.textContent).toContain("35");
     expect(golden.textContent).toContain("100%");
+    expect(golden.textContent).toContain("75% of 8 · 1 disagreed · 1 couldn't check");
     const row = screen.getByTestId("scorecard-row-00000000-0000-4000-8000-0000000c0001");
     expect(row.textContent).toContain("v3");
     expect(row.textContent).toContain("1 of 2");
