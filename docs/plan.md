@@ -4754,7 +4754,7 @@ open ai for voice.. build this". §1.107 left both out; this is voice. Attachmen
 | Routes | `POST /api/ops/transcribe?client=` (operators; the client the conversation is about) and `POST /api/transcribe` (the portal), slow routes: the body is the recording (webm, ogg, mp4, mp3 or wav, at most 4 MB), the answer `{ text }`. Nothing is stored or logged; the audit row is the route's own. The portal tells the model the language the person reads in (theirs, else the client's, else the browser's; `pt-BR` as `pt`); the back office leaves it to the model to detect. |
 | HIPAA mode | `VOICE_FEATURE` in `packages/core/src/compliance/processors.ts`: a client in HIPAA mode is refused (409 `hipaa`) until `openai` is in `BAA_PROCESSORS`, for its own people and for an operator dictating about it. An operator dictating with no client named (a template's Builder) isn't checked. // DECISION |
 | Words | The back office shows the server's reason (HIPAA, voice off); the portal shows its own language's words for a failure, so a client never reads our English. The subprocessors page, the privacy policy and `docs/security.md` say OpenAI writes out dictation and keeps nothing. |
-| Not yet | Attachments in the composer (§1.110 for Sloan); the cost of transcription (OpenAI prices it per minute) in usage. Live words (2026-11-21) send the same minutes as one recording, less any silent segment, in a call per segment; usage would count minutes, not calls. |
+| Not yet | Attachments in the composer (§1.110 for Sloan); the cost of transcription (OpenAI prices it per minute) in usage. Live words (2026-11-21) send the same minutes as one recording, less any silent segment, in a call per segment; usage would count minutes, not calls. Usage and cost since done, per call: §1.196. |
 
 ### 1.110 Files in a conversation, passed on by Sloan (owner, 2026-11-15)
 
@@ -5410,7 +5410,7 @@ Bill 145 would land on company A's row.
 | Adding an operator | Writes `operator.add`: the user, the number of clients, whether the invite is new, the first client if one was made, and `by` (from `BY`, else GitHub's actor and run). `by` is optional, as for `removeOperator` (`packages/db/src/operators.ts`). // DECISION |
 | Paid model routes | Portal `POST /api/runs/ask` and `/api/transcribe`: 10 a minute and 200 in any 24 hours per person, per client, per route (transcription 30 and 1,500 since live dictation sends a call per segment, §1.109, 2026-11-21); past that 429 `rate_limited` or `daily_limit` and no model call (`apps/api/src/metered.ts`). Counted from `audit_event` (its actor index), each call claimed under a per-person advisory lock and committed before the model call, so calls sent at once count one at a time. Transcription claims only after its own checks, so a bad recording uses none. // DECISION |
 | No connection held | Both ask routes call the model between two short transactions (`mountLong`, with `mount`'s checks and audit). // DECISION |
-| Known costs | The limits are per client, so someone in several clients gets each allowance in each. Transcription still records no usage (`docs/open.md`). |
+| Known costs | The limits are per client, so someone in several clients gets each allowance in each. Transcription still records no usage (`docs/open.md`). Since done: §1.196. |
 
 ### 1.140 Phone sessions and signatures (pre-launch hardening, 2026-11-17; PR #408; a sign-in change; no migration)
 
@@ -6398,6 +6398,21 @@ submits take turns under the link's advisory lock. And an invitation used up by 
 | The page checks first | The page's view of an invitation says `used` (core `TextSignupView.state`) when a submit through it was logged since it was sent, the same check the submit makes (`invitationUsed`). Signed up comes first, so an invitation used by its own sign-up still says "You're already signed up"; used comes before declined. The page then shows "This invitation was already used. It works once. To get texts on another number, ask {client}." and the START line, with no form, in the page's six languages (`apps/web/src/signup/words.ts`). A newer invitation to the same person is open again. // DECISION |
 | Not changed | The link's answer to any number, opted out or signed up, stays the same 200 (§1.142). A forwarded invitation still learns that a number is in the client's contacts, as before. |
 | Checked | `apps/api/src/text-signup.test.ts`: two submits at once on the link (both 200, one sign-up, one skipped), on two invitations (one 200, one 409 `number_taken`), an invitation and the link at once (never a 500), and a submit held on an uncommitted contact with its number until it waits, then released (the invitation 409 `number_taken` and its invitation still open; the link signs the held contact up once). Without the second go those answer 409 `conflict`. The page's `used` after a skipped submit and after a sign-up is withdrawn; a newer invitation open. `apps/web/src/signup/TextSignup.test.tsx`: a used invitation shows its words and the START line, and no form. |
+
+### 1.196 Voice typing's usage and cost (H5, 2026-11-22; no migration)
+
+Each recording written out (a segment of live dictation, §1.109) is one call to OpenAI, and none
+was recorded (§1.139 "Known costs"). Now each is, the way a portal question is (§1.49, §1.115).
+
+| Topic | Decision |
+|---|---|
+| What a call reports | `Transcriber.transcribe` answers with the words and what the call used: the platform's model id (`openai:gpt-4o-mini-transcribe`, so its provider is OpenAI), OpenAI's `usage` (audio and text tokens in, tokens out, or seconds for a model billed by the minute), its cost and its time. Cost is decimal.js to 6 places (invariant 6), from `TRANSCRIBE_PRICES` (`packages/llm/src/transcribe.ts`), kept apart from `PRICES` because a skill or a step can't name this model. Prices unverified like every other (`packages/llm/NOTES.md`). // DECISION |
+| The portal | The client's usage under its account agent (Sloan), as a question is: a test run (`workflow_slug` `voice.transcribe`, trigger `{type: "dictation", dictatedBy: <person>}`), one step (`transcription`) with the tokens and cost, its `model_call` row with the model id, and the day rolled up into `usage_daily`. Written after the call in its own short transaction. The step keeps the recording's type, size and language, never its sound or words (`apps/api/src/voice-usage.ts`). The rows are written by `recordAccountAgentCall`, the questions' code made shared (`runs-ask/usage.ts`). // DECISION |
+| The action | `tool_call` ("Tool's own call"): speech-to-text is a capability's own call, like a translation or a web search in a step. An action of its own needs a migration of `model_call_action_check`; the run's slug and step tell dictation apart until then. // DECISION |
+| The back office | The operator's own cost, as the back office's questions are: logged (`voice.transcribe.cost`, with the person, the client named if any, the model, tokens and cost), never written as a client's usage. A portal client with no account agent is logged the same way. // DECISION |
+| No usage in the answer | Recorded with no tokens and a cost of 0, as an unpriced question is, and warned of in the log (`voice.transcribe.unpriced`). A failed call writes nothing. |
+| Known costs | One run per segment: a minute of dictation is up to 12 of Sloan's test runs, counted in `usage_daily.runs` (and billed if runs carry a unit cost) and listed with its other runs in the back office, as questions are. |
+| Checked | `packages/llm/src/transcribe.test.ts` (the usage read, the cost in decimal, by the minute, an unknown model, no usage), `apps/api/src/voice.test.ts` (a portal dictation writes the run, step, `model_call` and `usage_daily` rows for Sloan with the person and model, no words; the back office's writes no run), `usage-tokens.test.ts` (the questions' path unchanged). |
 
 ### 1.192 The web app's first load back under budget (H9, 2026-11-22; no migration)
 
