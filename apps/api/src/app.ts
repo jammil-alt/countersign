@@ -204,6 +204,8 @@ import {
 } from "./runs/execute";
 import { reconcileRuns } from "./runs/reconcile";
 import { staleWritesTick } from "./runs/stale-writes";
+// docs/plan.md §1.188
+import { runSubjectBackfillTick } from "./runs/subject-log";
 // M45: Search Console and Bing, nightly (docs/plan.md §1.75).
 import { searchSyncTick } from "./search-sync";
 import { securityHeaders } from "./security-headers";
@@ -493,6 +495,10 @@ export async function runCron(env: Bindings, scheduledTime: Date, deps: AppDeps 
     // docs/sop-plan.md §6: hourly, an agent whose SOP changed without a revision gets one.
     await sopCheckTick(db, platform, scheduledTime).catch((error: unknown) =>
       reportHandled("sop check tick failed", error, { job: "sop_check" }),
+    );
+    // docs/plan.md §1.188: hourly, what the last 90 days of runs were about, until all are kept.
+    await runSubjectBackfillTick(db, platform, scheduledTime).catch((error: unknown) =>
+      reportHandled("run subject backfill failed", error, { job: "run_subject" }),
     );
     // docs/agent-assurance-plan.md §6: nightly, every live client agent's security checks.
     await assuranceTick(db, platform, assuranceEnv(env), scheduledTime).catch((error: unknown) =>

@@ -106,7 +106,9 @@ export function searchRoutes(app: Hono<AppEnv>): void {
       tenantId,
       hits.runs.map((r) => r.id),
     );
-    const subjects = await runSubjects(tx, [tenantId], hits.runs, services.platform);
+    const subjects = await runSubjects(tx, [tenantId], hits.runs, services.platform, {
+      surface: "portal",
+    });
     // Only what the portal shows: no client ids, templates, notes or costs.
     const result: PortalSearchResult = {
       services: hits.agents.map((a) => ({

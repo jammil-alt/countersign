@@ -327,6 +327,8 @@ export * from "./schemas/skill-model";
 // §1.164: a table file's expected columns (the `columns` skill parameter).
 export * from "./schemas/table";
 export * from "./schemas/tool";
+// docs/plan.md §1.188: what a tool's output is about, kept as the run's subjects.
+export * from "./schemas/tool-about";
 export * from "./schemas/tool-display";
 export * from "./schemas/workflow";
 export * from "./security/session-limits";

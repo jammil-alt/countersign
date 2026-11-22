@@ -5,7 +5,7 @@
 // The pricing tools (record, check, history, compare vendors, digest) are at the end.
 
 import type { ContentStore } from "@countersign/connectors";
-import { lazy, lazyObject, type ToolSpec } from "@countersign/core";
+import { lazy, lazyObject, type ToolAbout, type ToolSpec } from "@countersign/core";
 import { type Db, docExtraction, docLine, type Tx, withTenant } from "@countersign/db";
 import {
   createLlmClient,
@@ -167,6 +167,9 @@ export function defineTool<I extends z.ZodType, O extends z.ZodType>(def: {
   // Purchasing (a shared record: `shared`). Metadata only, for the builder's "reads and saves".
   entity?: string;
   area?: string;
+  // docs/plan.md §1.188: the records its output names (a request, a quote, a PO), kept as the
+  // run's subjects so runs can be found by them.
+  about?: ToolAbout;
   input: I;
   output: O;
   run(input: z.output<I>, ctx: PackToolContext): Promise<z.input<O>>;
@@ -187,6 +190,7 @@ export function defineTool<I extends z.ZodType, O extends z.ZodType>(def: {
       // they say otherwise.
       area: def.area ?? "purchasing",
       ...(def.entity ? { entity: def.entity } : {}),
+      ...(def.about ? { about: def.about } : {}),
     }),
     input: def.input,
     output: def.output,
