@@ -6395,6 +6395,7 @@ asking or from where. Migration 0078 (its own PR) added two nullable columns to
 | The place, read right | Claude on the web calls from Anthropic's servers, so the place is theirs, not the person's; the page says so under it. A local client (Claude Code) shows the person's own. // DECISION |
 | Older links | Rows made before 0078 have neither; the page then shows neither line. |
 | Checked | `apps/api` approval tests (the client in words, never the user agent; no place without Cloudflare's), the page's tests (both lines shown; neither for an older link), typecheck, lint. |
+
 ### 1.199 A run's cost counts every call, however small (build plans 11's first fix, 2026-11-22; no migration)
 
 The build plans (2026-11-22, plan 11) found every production run showing $0.00. Two causes in the
