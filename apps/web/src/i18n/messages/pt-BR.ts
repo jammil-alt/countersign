@@ -3475,6 +3475,9 @@ export const ptBR: Messages = {
     "Este link funciona até {time}. Depois de aprovada, dura até essa sessão do Claude terminar, no máximo 12 horas.",
   "connectClaude.requested":
     "O Claude deu este link às {time}. Se você não pediu ao Claude agora há pouco, não aprove.",
+  "connectClaude.client": "Quem está pedindo: {client}.",
+  "connectClaude.place":
+    "O pedido veio de {place}. O Claude na web pede a partir dos servidores da Anthropic, então este é o local deles, não o seu.",
   "connectClaude.confirm": "O código que o Claude mostrou",
   "connectClaude.confirmHint":
     "O Claude mostra um código de 6 dígitos com este link. Digite o que o seu próprio Claude mostra, nunca um que outra pessoa enviar.",

@@ -3550,6 +3550,9 @@ export const de: Messages = {
     "Dieser Link gilt bis {time}. Nach der Freigabe gilt sie, bis diese Claude-Anmeldung endet, höchstens 12 Stunden.",
   "connectClaude.requested":
     "Claude hat Ihnen diesen Link um {time} gegeben. Wenn Sie Claude nicht gerade selbst gefragt haben, geben Sie ihn nicht frei.",
+  "connectClaude.client": "Es fragt: {client}.",
+  "connectClaude.place":
+    "Die Anfrage kam aus {place}. Claude im Web fragt von den Servern von Anthropic aus, also steht hier deren Standort, nicht Ihrer.",
   "connectClaude.confirm": "Der Code, den Claude Ihnen gezeigt hat",
   "connectClaude.confirmHint":
     "Claude zeigt mit diesem Link einen 6-stelligen Code. Geben Sie den ein, den Ihr eigenes Claude zeigt, nie einen, den Ihnen jemand anderes schickt.",

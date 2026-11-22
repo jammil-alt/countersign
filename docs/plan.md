@@ -6529,6 +6529,20 @@ could change between the phone and the API and the signature still matched (audi
 | The time window | Unchanged: ±5 minutes either way (`DEVICE_SIGNATURE_SKEW_SEC`), so a phone whose clock runs a little fast is not refused; a signature can't be made ahead by anyone without the phone's key. // DECISION |
 | Checked | `packages/core/src/mobile/mobile.test.ts` (the v2 lines, null and absent, key order, v1 ignoring both), `apps/mobile/src/device/signing.test.ts` (the app's v2 verifies only with its own answer and note, and isn't a v1), `apps/api/src/mobile.test.ts` (a v2 accepted with `version` in the audit row, a v1 with an answer still accepted, a v2 with another answer, another note, no note, or its version changed or taken off refused and the item left open). |
 
+### 1.201 Who is asking on the Claude approval page (H6, item C4.9, 2026-11-22; migration 0078)
+
+The approval page (§1.120, §1.130) said when Claude asked and took Claude's code, but not who was
+asking or from where. Migration 0078 (its own PR) added two nullable columns to
+`mcp_session_approval`; this records and shows them.
+
+| Topic | Decision |
+|---|---|
+| What is kept | `client`: the asking client in words, from the refused call's user agent (`claudeClientInWords`, `apps/api/src/mcp/approval.ts`): "Claude Code" or "Claude" for Anthropic's clients, otherwise the agent's first product name ("python-httpx"), letters, digits and `._-` only, 40 characters at most; never the user agent itself. `place`: Cloudflare's city and country for the request's address (`placeOf`, as the phone's sign-in approval, §1.154). Each refused call writes both with its new link, so the page describes the request that gave that link. // DECISION |
+| Not proof | The name is what the request says it is: anyone holding the token can send any user agent. It is shown beside the place and the time, and the code Claude showed (§1.130) stays the check. The token's OAuth client id was not used: AuthKit's access tokens are not known to carry one we could name. // DECISION |
+| The place, read right | Claude on the web calls from Anthropic's servers, so the place is theirs, not the person's; the page says so under it. A local client (Claude Code) shows the person's own. // DECISION |
+| Older links | Rows made before 0078 have neither; the page then shows neither line. |
+| Checked | `apps/api` approval tests (the client in words, never the user agent; no place without Cloudflare's), the page's tests (both lines shown; neither for an older link), typecheck, lint. |
+
 ### 1.200 From a record to its runs (R3, 2026-11-22; no migration)
 
 The design: `docs/reporting-plan.md` §3 R3. It reads what runs kept (`run_subject`, §1.188).
