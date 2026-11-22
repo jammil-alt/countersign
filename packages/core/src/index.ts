@@ -31,6 +31,8 @@ export * from "./api/autopilot";
 // v0.12 bankfeed
 export * from "./api/bankfeed";
 export * from "./api/billing";
+// docs/plan.md §1.216: books health
+export * from "./api/books-health";
 export * from "./api/browser";
 export * from "./api/browser-scripts";
 // docs/plan.md §1.108: builds, from intake to go-live
@@ -173,6 +175,8 @@ export * from "./assurance/index";
 // P-3: attachments both ways
 export * from "./attachments";
 export * from "./billing";
+// docs/plan.md §1.216: books health, the checks over a client's synced QuickBooks.
+export * from "./books-health";
 export * from "./browser/script";
 export * from "./browser/site";
 export * from "./build/build";

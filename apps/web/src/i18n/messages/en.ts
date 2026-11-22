@@ -3942,4 +3942,27 @@ export const en = {
     "You decide what can run without asking. Approvals stay on unless you change them.",
   "setup.live.fromCall": "From our call: please check",
   // (end setup: live)
+  // §1.216: books health
+  "books.title": "Books health",
+  "books.subtitle": "What we found in your QuickBooks, most dollars first.",
+  "books.none": "Connect QuickBooks and we check your books here.",
+  "books.syncing": "We check your books once QuickBooks' first sync is done.",
+  "books.asOf": "As of {day}",
+  "books.since": "from records dated {day} on",
+  "books.allClean": "Every check came back clean.",
+  "books.clean": "Nothing found in: {checks}.",
+  "books.fixedBy": "{area} fixes this",
+  "books.on": "Switched on",
+  "books.off": "Not switched on",
+  "books.examples": "Examples",
+  "books.check.unreconciled_accounts": "Accounts not reconciled",
+  "books.check.uncategorized": "Uncategorized transactions",
+  "books.check.duplicate_vendors": "Duplicate vendors",
+  "books.check.duplicate_bills": "Duplicate bills",
+  "books.check.receivables_aging": "Overdue invoices",
+  "books.check.payables_aging": "Overdue bills",
+  "books.check.negative_balances": "Balances below zero",
+  "books.check.undeposited_funds": "Undeposited funds",
+  "books.check.price_drift": "Vendor prices rising",
+  // (end books health)
 } as const;
