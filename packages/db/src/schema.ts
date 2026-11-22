@@ -4222,6 +4222,53 @@ export const desktopJob = pgTable(
   ],
 );
 
+// ── Saved match rules (migration 0085, docs/plan.md §1.215: the matching engine) ─────────────
+
+/** What a saved rule makes equal: core's `MATCH_RULE_FIELDS` (checked equal in its test). */
+export const MATCH_RULE_FIELDS = ["reference", "counterparty"] as const;
+
+/**
+ * §1.215 (migration 0085): an operator's correction to a match, saved as a rule for one client and
+ * one matching configuration (core's `MATCH_CONFIGS`, e.g. `bank_to_ledger`): on side A a
+ * `field` whose normalised value is `a_value` is side B's `b_value` ("AMZN MKTP" is "Amazon";
+ * "INV-0042" is "42"). The engine's first tier reads the client's live rules; what an agent learns
+ * stays with that client (invariant 1). Retired, never deleted or edited: only `retired_at` and
+ * `retired_by` change (trigger).
+ */
+export const matchRule = pgTable(
+  "match_rule",
+  {
+    id: id(),
+    tenantId: tenantId(),
+    config: text("config").notNull(),
+    field: text("field").$type<(typeof MATCH_RULE_FIELDS)[number]>().notNull(),
+    aValue: text("a_value").notNull(),
+    bValue: text("b_value").notNull(),
+    note: text("note"),
+    createdBy: uuid("created_by")
+      .notNull()
+      .references(() => appUser.id),
+    createdAt: createdAt(),
+    retiredAt: ts("retired_at"),
+    retiredBy: uuid("retired_by").references(() => appUser.id),
+  },
+  (t) => [
+    // One live rule for a value on side A of a configuration.
+    uniqueIndex("match_rule_live_key")
+      .on(t.tenantId, t.config, t.field, t.aValue)
+      .where(sql`${t.retiredAt} is null`),
+    index("match_rule_tenant_idx").on(t.tenantId, t.config),
+    check("match_rule_config_check", sql`${t.config} ~ '^[a-z][a-z0-9_]{0,63}$'`),
+    check("match_rule_field_check", oneOf(t.field, MATCH_RULE_FIELDS)),
+    check(
+      "match_rule_values_check",
+      sql`length(${t.aValue}) between 1 and 200 and length(${t.bValue}) between 1 and 200`,
+    ),
+    check("match_rule_note_check", sql`${t.note} is null or length(${t.note}) <= 500`),
+    check("match_rule_retired_check", sql`(${t.retiredAt} is null) = (${t.retiredBy} is null)`),
+  ],
+);
+
 /**
  * One email or text telling a person something is waiting: a count and a link, never record
  * content (plan §1.35). Sent once per `dedupe_key` and channel. Only `status`, `reason`,
@@ -6474,6 +6521,8 @@ export const TENANT_TABLES = [
   // §1.151 (0080): the desktop app's computers and their jobs.
   "desktop_device",
   "desktop_job",
+  // §1.215 (0085): a client's saved match rules.
+  "match_rule",
   // 0057: area owners and their versions (ARCHITECTURE v0.19 §10.15).
   "area_owner",
   "area_owner_version",
