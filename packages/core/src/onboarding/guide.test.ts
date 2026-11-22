@@ -486,6 +486,7 @@ describe("a pack's area section", () => {
       name: "Demo",
       version: "0.1.0",
       description: "d",
+      area: "purchasing",
       events: [],
       tools: [],
       skills: [],

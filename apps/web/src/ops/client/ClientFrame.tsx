@@ -64,6 +64,8 @@ export const CLIENT_TABS: {
       ["records", "Records"],
       // The ledger per accounting connection (docs/plan.md §1.79).
       ["ledger", "Chart of accounts"],
+      // §1.216: what the checks find in the client's QuickBooks.
+      ["books-health", "Books health"],
     ],
   },
   {

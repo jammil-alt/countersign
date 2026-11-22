@@ -68,6 +68,10 @@ const ConnectorsScreen = lazy(() =>
 const ConnectorPageScreen = lazy(() =>
   import("./screens/ConnectorPage").then((m) => ({ default: m.ConnectorPageScreen })),
 );
+// §1.216: books health, the owner's one page on its QuickBooks, loads when opened.
+const BooksHealthScreen = lazy(() =>
+  import("../books-health/BooksHealth").then((m) => ({ default: m.PortalBooksHealthScreen })),
+);
 /** `/access`, `/accounts/access`: the vault's old pages, now Connectors' website logins. */
 function VaultRedirect() {
   const { search } = useLocation();
@@ -103,6 +107,15 @@ export const portalRoutes = (
       }
     />
     <Route path="contacts" element={<ContactsScreen />} />
+    {/* §1.216: books health, for the client admin; reached from Reports */}
+    <Route
+      path="books-health"
+      element={
+        <OnDemand>
+          <BooksHealthScreen />
+        </OnDemand>
+      }
+    />
 
     {/* An agent: Overview, Runs, Access */}
     <Route path="agents/:id" element={<AgentScreen tab="overview" />} />
@@ -110,6 +123,8 @@ export const portalRoutes = (
     {/* docs/sop-plan.md S1: the agent's SOP, read only, in the manual's place */}
     <Route path="agents/:id/flow" element={<AgentScreen tab="workflow" />} />
     <Route path="agents/:id/sop" element={<AgentScreen tab="sop" />} />
+    {/* R4 (docs/plan.md §1.214): the agent's report */}
+    <Route path="agents/:id/report" element={<AgentScreen tab="report" />} />
     <Route path="agents/:id/manual" element={<Redirect to="/agents/:id/sop" />} />
     <Route path="agents/:id/settings" element={<AgentScreen tab="settings" />} />
     <Route path="agents/:id/access" element={<Redirect to="/agents/:id/settings" />} />
