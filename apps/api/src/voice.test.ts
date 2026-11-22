@@ -232,10 +232,17 @@ describe.skipIf(!h)("voice typing", () => {
     const [person] = await H.t.db.execute<{ id: string }>(
       sql`select id from app_user where email = ${admin("b")}`,
     );
-    // Earlier today: the rest of the day's allowance, two hours ago, beside the one written out
-    // above.
+    // Earlier today: the rest of the day's allowance, two hours ago, beside the ones written out
+    // above, so the next recording is exactly the first past it.
+    const [used] = await H.t.db.execute<{ n: number }>(
+      sql`select count(*)::int as n from audit_event
+          where actor_user_id = ${person?.id ?? null} and tenant_id = ${H.B.tenantId}
+            and action = 'metered transcribe'`,
+    );
+    const already = used?.n ?? 0;
+    expect(already).toBeGreaterThan(0);
     await H.t.db.insert(auditEvent).values(
-      Array.from({ length: LIMIT.perDay - 1 }, () => ({
+      Array.from({ length: LIMIT.perDay - already }, () => ({
         tenantId: H.B.tenantId,
         actorKind: "user" as const,
         actorUserId: person?.id ?? null,
