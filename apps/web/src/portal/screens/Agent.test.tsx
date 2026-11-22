@@ -627,7 +627,7 @@ describe("the agent page", () => {
       [`POST /api/services/${SVC}/resume`]: () => {
         sent.push({ path: "resume", body: null });
         pause = null;
-        return { service: control().services[0], missedEvents: 0 };
+        return { service: control().services[0], missedEvents: 0, missed: null };
       },
     });
     renderAt(`/agents/${SVC}`, api);
@@ -640,10 +640,93 @@ describe("the agent page", () => {
     );
     await userEvent.click(screen.getByTestId("agent-resume"));
     await waitFor(() => expect(screen.queryByTestId("agent-paused")).toBeNull());
+    // Nothing came in while it was paused: nothing more to say.
+    expect(screen.queryByTestId("agent-missed-events")).toBeNull();
     expect(sent).toEqual([
       { path: "pause", body: { reason: "Year-end close" } },
       { path: "resume", body: null },
     ]);
+  });
+
+  // H7: the resume screen says what the go-live panel says: how many came in while it was paused,
+  // and that none started by itself. Running them is ours, so it says to ask.
+  const MISSED = { from: "2026-11-06T10:00:00.000Z", to: "2026-11-08T09:30:00.000Z" };
+  const PAUSED = {
+    side: "client",
+    reason: "Year-end close",
+    at: MISSED.from,
+    until: null,
+    canResume: true,
+  };
+  const resumeWith = (missed: unknown) => {
+    let pause: unknown = PAUSED;
+    return fakeApi({
+      ...base,
+      "GET /api/table": () => TABLE,
+      "GET /api/controls": () => control(pause),
+      [`POST /api/services/${SVC}/resume`]: () => {
+        pause = null;
+        return {
+          service: control().services[0],
+          missedEvents: (missed as { count: number } | null)?.count ?? 0,
+          missed,
+        };
+      },
+      [`POST /api/services/${SVC}/pause`]: () => {
+        pause = PAUSED;
+        return { service: control(pause).services[0] };
+      },
+    });
+  };
+  const between = `between ${EN.fmt.time(MISSED.from)} and ${EN.fmt.time(MISSED.to)}`;
+
+  it("says on resume how many events came in while it was paused, and that none started", async () => {
+    renderAt(`/agents/${SVC}`, resumeWith({ count: 2, more: false, ...MISSED }));
+    await userEvent.click(await screen.findByTestId("agent-resume"));
+    const notice = await screen.findByTestId("agent-missed-events");
+    expect(screen.getByTestId("agent-missed-events-count")).toHaveTextContent(
+      `2 events came in while it was paused, ${between}, that it would have started on. None started by itself.`,
+    );
+    expect(notice).toHaveTextContent("Ask your lead if you want any of them run.");
+    // No way to run them here: that is ours.
+    expect(within(notice).queryByRole("button")).toBeNull();
+    // Paused again: the old count goes.
+    await userEvent.click(await screen.findByTestId("agent-pause"));
+    await userEvent.type(screen.getByTestId("agent-pause-reason"), "Again");
+    await userEvent.click(screen.getByTestId("agent-pause-confirm"));
+    await screen.findByTestId("agent-paused");
+    expect(screen.queryByTestId("agent-missed-events")).toBeNull();
+  });
+
+  it("says one event in the singular", async () => {
+    renderAt(`/agents/${SVC}`, resumeWith({ count: 1, more: false, ...MISSED }));
+    await userEvent.click(await screen.findByTestId("agent-resume"));
+    expect(await screen.findByTestId("agent-missed-events-count")).toHaveTextContent(
+      `1 event came in while it was paused, ${between}, that it would have started on. It didn't start by itself.`,
+    );
+  });
+
+  it("says 'or more' when more came in than one look reads", async () => {
+    renderAt(`/agents/${SVC}`, resumeWith({ count: 3, more: true, ...MISSED }));
+    await userEvent.click(await screen.findByTestId("agent-resume"));
+    expect(await screen.findByTestId("agent-missed-events-count")).toHaveTextContent(
+      `3 or more events came in while it was paused, ${between}`,
+    );
+  });
+
+  it("says when more came in than one look reads and none of those read would start it", async () => {
+    renderAt(`/agents/${SVC}`, resumeWith({ count: 0, more: true, ...MISSED }));
+    await userEvent.click(await screen.findByTestId("agent-resume"));
+    expect(await screen.findByTestId("agent-missed-events-count")).toHaveTextContent(
+      `More events came in while it was paused, ${between}, than we can check at once. Some may be ones it would have started on. None started by itself.`,
+    );
+  });
+
+  it("says nothing on resume when none came in", async () => {
+    renderAt(`/agents/${SVC}`, resumeWith({ count: 0, more: false, ...MISSED }));
+    await userEvent.click(await screen.findByTestId("agent-resume"));
+    await waitFor(() => expect(screen.queryByTestId("agent-paused")).toBeNull());
+    expect(screen.queryByTestId("agent-missed-events")).toBeNull();
   });
 
   it("doesn't offer to resume a pause we made", async () => {
