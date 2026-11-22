@@ -115,6 +115,8 @@ import { SalesScreen } from "./work/sales/SalesSection";
 
 // F7: the builder's parts load with the first automation opened in it, as an agent's builder does.
 const AutomationEditor = lazy(() => import("./flow/automation/AutomationEditor"));
+// §1.218: SOC 2 readiness, with its schemas (`soc2Routes`), loads only when opened.
+const Soc2ReadinessScreen = lazy(() => import("./security/Soc2Readiness"));
 // §1.216: books health loads when opened.
 const OpsClientBooksHealthScreen = lazy(() =>
   import("./client/ClientBooksHealth").then((m) => ({ default: m.OpsClientBooksHealthScreen })),
@@ -309,6 +311,14 @@ export const opsRoutes = (
     <Route path="users" element={<OpsUsersScreen />} />
     <Route path="security" element={<SecurityOverviewScreen />} />
     <Route path="security/controls" element={<SecurityControlsScreen />} />
+    <Route
+      path="security/soc2"
+      element={
+        <Suspense fallback={<Loading />}>
+          <Soc2ReadinessScreen />
+        </Suspense>
+      }
+    />
     <Route path="security/vendors" element={<SecurityVendorsScreen />} />
     <Route path="security/policies" element={<SecurityPoliciesScreen />} />
     <Route path="security/clients" element={<SecurityClientsScreen />} />
