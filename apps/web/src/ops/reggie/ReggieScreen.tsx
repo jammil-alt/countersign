@@ -1,19 +1,40 @@
 // `/ops/reggie` and `/ops/reggie/:id` (docs/plan.md §1.101): Reggie, the operator's account agent.
 // Your conversations on the left; on the right, the conversation: your words, Reggie's answers
 // with the tools it read, and a card for each change it proposed, which happens only when you
-// confirm it. `?client=<id>` starts a conversation about that client (the client page's "Ask
-// Reggie").
+// confirm it. `/ops/reggie` is a new conversation, ready to type into; `?client=<id>` makes it
+// about that client (the top bar's and the client page's "Ask Reggie").
+// DECISION (QA, 2026-11-22): a conversation is saved with its first message, not on opening.
+// Opening Reggie used to need a click on "New conversation" before you could type, and that click
+// saved an empty conversation; now the box is there at once, and sending the first words starts
+// the conversation and its first turn together. The list leaves out conversations with no message.
 import { REGGIE_TEXT_MAX, type ReggieAction, type ReggieMessage } from "@countersign/core";
 import { useEffect, useRef, useState } from "react";
-import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
+import { Link, useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
+import type { ResponseOf } from "../../api/client";
 import { apiRoutes } from "../../api/routes";
 import { useApi, useApiClient } from "../../api/useApi";
 import { voiceFor } from "../../api/voice";
 import { AgentBadge } from "../../ui/badges";
 import { AgentSaid, ChatLog, Composer, Pending, YouSaid } from "../../ui/chat";
 import { Select } from "../../ui/forms";
-import { Badge, Button, Card, cx, ErrorNotice, Loading, PageHeader } from "../../ui/primitives";
+import {
+  Badge,
+  Button,
+  buttonClass,
+  Card,
+  cx,
+  ErrorNotice,
+  Loading,
+  PageHeader,
+} from "../../ui/primitives";
 import { lookedAt } from "./words";
+
+type OneConversation = ResponseOf<typeof apiRoutes.opsReggieTurn>;
+
+/** What a new conversation's first turn hands to its page, so it opens with the answer in. */
+interface FirstTurn {
+  first?: OneConversation;
+}
 
 const STATUS: Record<
   ReggieAction["status"],
@@ -25,43 +46,13 @@ const STATUS: Record<
   failed: { label: "Failed", tone: "risk" },
 };
 
+const PLACEHOLDER = "Ask Reggie about a client, or ask it to get something from one.";
+
 export function ReggieScreen() {
   const { id } = useParams();
-  const [params] = useSearchParams();
-  const navigate = useNavigate();
-  const api = useApiClient();
+  // Conversations with a message only: the API leaves out empty ones.
   const list = useApi(apiRoutes.opsReggieConversations);
-  const clients = useApi(apiRoutes.opsClients, { query: { view: "names" } });
-  const [about, setAbout] = useState("");
-  const [error, setError] = useState<unknown>(null);
-  const [starting, setStarting] = useState(false);
-  const asked = params.get("client");
-  const startedFor = useRef<string | null>(null);
-
-  async function start(clientId: string | null) {
-    setStarting(true);
-    setError(null);
-    try {
-      const out = await api.call(apiRoutes.opsReggieConversationStart, {
-        body: clientId ? { clientId } : {},
-      });
-      list.reload();
-      navigate(`/ops/reggie/${out.conversation.id}`, { replace: !!asked });
-    } catch (e) {
-      setError(e);
-    } finally {
-      setStarting(false);
-    }
-  }
-
-  // "Ask Reggie" on a client's page: one conversation about that client, started on arrival.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: start once per `?client=`.
-  useEffect(() => {
-    if (!id && asked && startedFor.current !== asked) {
-      startedFor.current = asked;
-      void start(asked);
-    }
-  }, [id, asked]);
+  const items = list.data?.items ?? [];
 
   return (
     <div className="flex flex-col gap-6" data-testid="reggie">
@@ -71,35 +62,18 @@ export function ReggieScreen() {
       />
       <div className="grid gap-6 lg:grid-cols-[18rem_1fr]">
         <aside className="flex flex-col gap-3">
-          <Card pad>
-            <div className="flex flex-col gap-2">
-              <Select
-                aria-label="About"
-                value={about}
-                onChange={(e) => setAbout(e.target.value)}
-                data-testid="reggie-about"
-              >
-                <option value="">About everything</option>
-                {(clients.data?.clients ?? []).map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.name}
-                  </option>
-                ))}
-              </Select>
-              <Button
-                variant="primary"
-                size="sm"
-                onClick={() => void start(about || null)}
-                disabled={starting}
-                data-testid="reggie-new"
-              >
-                New conversation
-              </Button>
-            </div>
-          </Card>
+          {id ? (
+            <Link
+              to="/ops/reggie"
+              className={buttonClass("primary", undefined, "sm")}
+              data-testid="reggie-new"
+            >
+              New conversation
+            </Link>
+          ) : null}
           {list.loading && !list.data ? <Loading /> : null}
           <ul className="flex flex-col gap-1" data-testid="reggie-conversations">
-            {(list.data?.items ?? []).map((c) => (
+            {items.map((c) => (
               <li key={c.id}>
                 <Link
                   to={`/ops/reggie/${c.id}`}
@@ -121,16 +95,10 @@ export function ReggieScreen() {
           </ul>
         </aside>
         <section>
-          {error ? <ErrorNotice error={error} /> : null}
           {id ? (
-            <Conversation id={id} onChanged={() => list.reload()} />
+            <Conversation key={id} id={id} onChanged={() => list.reload()} />
           ) : (
-            <Card pad>
-              <p className="text-ink-muted" data-testid="reggie-empty">
-                Start a conversation about a client, or about everything. Ask how a client is doing,
-                what's waiting and on whom, or to ask a client for something.
-              </p>
-            </Card>
+            <NewConversation onStarted={() => list.reload()} />
           )}
         </section>
       </div>
@@ -138,10 +106,124 @@ export function ReggieScreen() {
   );
 }
 
+/**
+ * A conversation not saved yet: what it's about and the box, ready to type into. The first words
+ * sent start it (about the client chosen) and its first turn; then its own page opens.
+ */
+function NewConversation({ onStarted }: { onStarted(): void }) {
+  const api = useApiClient();
+  const navigate = useNavigate();
+  const [params] = useSearchParams();
+  const clients = useApi(apiRoutes.opsClients, { query: { view: "names" } });
+  const [about, setAbout] = useState(params.get("client") ?? "");
+  const [pending, setPending] = useState<{ text: string; since: number } | null>(null);
+  const [error, setError] = useState<unknown>(null);
+  // A conversation started whose first turn failed: a second try goes to it, not to a new one.
+  const started = useRef<{ id: string; about: string } | null>(null);
+  const box = useRef<HTMLTextAreaElement | null>(null);
+  const asked = params.get("client") ?? "";
+
+  // "Ask Reggie" with another client while this page is open: the new conversation is about it.
+  useEffect(() => {
+    setAbout(asked);
+    started.current = null;
+  }, [asked]);
+  useEffect(() => {
+    box.current?.focus();
+  }, []);
+
+  async function send(words: string): Promise<boolean> {
+    if (pending) return false;
+    setPending({ text: words, since: Date.now() });
+    setError(null);
+    try {
+      if (!started.current || started.current.about !== about) {
+        const out = await api.call(apiRoutes.opsReggieConversationStart, {
+          body: about ? { clientId: about } : {},
+        });
+        started.current = { id: out.conversation.id, about };
+      }
+      const id = started.current.id;
+      const first = await api.call(apiRoutes.opsReggieTurn, {
+        params: { id },
+        body: { text: words },
+      });
+      onStarted();
+      navigate(`/ops/reggie/${id}`, { state: { first } satisfies FirstTurn });
+      return true;
+    } catch (e) {
+      setError(e);
+      return false;
+    } finally {
+      setPending(null);
+    }
+  }
+
+  const served = clients.data?.clients ?? [];
+  return (
+    <div className="flex flex-col gap-4" data-testid="reggie-new-conversation">
+      <div className="flex flex-wrap items-center gap-2 text-sm text-ink-muted">
+        <label htmlFor="reggie-about">About</label>
+        <Select
+          id="reggie-about"
+          aria-label="About"
+          className="w-64"
+          value={about}
+          onChange={(e) => setAbout(e.target.value)}
+          disabled={!!pending}
+          data-testid="reggie-about"
+        >
+          <option value="">Everything</option>
+          {/* A client asked about before the names load still shows as chosen. */}
+          {about && !served.some((c) => c.id === about) ? (
+            <option value={about}>This client</option>
+          ) : null}
+          {served.map((c) => (
+            <option key={c.id} value={c.id}>
+              {c.name}
+            </option>
+          ))}
+        </Select>
+      </div>
+      <ChatLog follow={pending?.text ?? ""}>
+        {pending ? (
+          <Pending
+            text={pending.text}
+            since={pending.since}
+            badge={<AgentBadge name="Reggie" size="sm" />}
+            label="Reggie is looking into it…"
+            state="tracing"
+            testId="reggie-thinking"
+          />
+        ) : (
+          <p className="text-ink-muted" data-testid="reggie-empty">
+            Ask how a client is doing, what's waiting and on whom, or to ask a client for something.
+          </p>
+        )}
+      </ChatLog>
+      {error ? <ErrorNotice error={error} /> : null}
+      <Composer
+        label="Message to Reggie"
+        placeholder={PLACEHOLDER}
+        maxLength={REGGIE_TEXT_MAX}
+        busy={!!pending}
+        onSend={send}
+        inputRef={box}
+        inputTestId="reggie-input"
+        sendTestId="reggie-send"
+        voice={voiceFor("ops", about || null)}
+      />
+    </div>
+  );
+}
+
 function Conversation({ id, onChanged }: { id: string; onChanged(): void }) {
   const api = useApiClient();
+  // A conversation just started opens with its first turn's answer, then reads its own.
+  const first = (useLocation().state as FirstTurn | null)?.first;
+  const handed = first?.conversation.id === id ? first : null;
   const loaded = useApi(apiRoutes.opsReggieConversation, { params: { id } });
-  const [data, setData] = useState(loaded.data ?? null);
+  const [data, setData] = useState(loaded.data ?? handed);
   const [pending, setPending] = useState<{ text: string; since: number } | null>(null);
   const [error, setError] = useState<unknown>(null);
 
@@ -217,7 +299,7 @@ function Conversation({ id, onChanged }: { id: string; onChanged(): void }) {
       {error ? <ErrorNotice error={error} /> : null}
       <Composer
         label="Message to Reggie"
-        placeholder="Ask Reggie about a client, or ask it to get something from one."
+        placeholder={PLACEHOLDER}
         maxLength={REGGIE_TEXT_MAX}
         busy={!!pending}
         onSend={send}

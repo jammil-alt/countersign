@@ -163,7 +163,7 @@ describe("Overview", () => {
       "Today is partial",
     );
     expect(screen.getByTestId("marketing-range-pending")).toHaveTextContent(
-      "Days after Nov 6 are counted overnight.",
+      "Days after 6 Nov are counted overnight.",
     );
   });
 
@@ -329,7 +329,7 @@ describe("Visits", () => {
     expect(seen.visits?.[0]).toBe("?period=28&source=referral");
     const table = screen.getByTestId("marketing-visits-table");
     const open = within(table).getByTestId(`marketing-visits-open-${VISIT}`);
-    expect(open).toHaveTextContent("Nov 6");
+    expect(open).toHaveTextContent("6 Nov");
     expect(open).toHaveAttribute("href", `${MARKETING_PATHS.visit(CLIENT, VISIT)}?day=2026-11-06`);
     expect(table).toHaveTextContent("Austin, Texas, United States");
     expect(table.textContent).not.toMatch(/\d{1,2}:\d{2}/);
@@ -364,7 +364,7 @@ describe("A visit", () => {
     );
     expect(screen.getByTestId("marketing-visit-step-4")).toHaveTextContent("Clicked hero-talk");
     expect(screen.getByTestId("marketing-visit-step-4")).toHaveTextContent("Goal");
-    expect(screen.getByRole("heading", { name: "A visit on Nov 6, 2026" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "A visit on 6 Nov 2026" })).toBeInTheDocument();
     expect(screen.getByTestId("marketing-visit").textContent).not.toMatch(/\d{1,2}:\d{2}/);
     expect(seen.visit).toEqual([`?day=2026-11-06&visit=${VISIT}`]);
   });
@@ -401,7 +401,7 @@ describe("Sites", () => {
     );
     const t = `marketing-sites-${SITE}`;
     expect(await screen.findByTestId(`${t}-figures`)).toHaveTextContent(
-      "380 visits in the last 7 days. Counted to Nov 7.",
+      "380 visits in the last 7 days. Counted to 7 Nov.",
     );
     await user.click(screen.getByTestId(`${t}-snippet-toggle`));
     expect(screen.getByTestId(`${t}-snippet-code`)).toHaveTextContent(

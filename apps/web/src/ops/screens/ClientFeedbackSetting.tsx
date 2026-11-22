@@ -4,6 +4,7 @@
 import { useState } from "react";
 import { apiRoutes } from "../../api/routes";
 import { useApi, useApiClient } from "../../api/useApi";
+import { EN } from "../../i18n/i18n";
 import { Badge, Button, Card, ErrorNotice } from "../../ui/primitives";
 
 /** The log's own words, which say no more than the line they'd follow. */
@@ -72,8 +73,7 @@ export function ClientFeedbackSetting({ clientId }: { clientId: string }) {
           {data.changes.map((c) => (
             <li key={c.id}>
               {c.enabled ? "Switched on" : "Switched off"} by{" "}
-              {c.by?.name ?? c.by?.email ?? "someone"} on{" "}
-              {new Date(c.createdAt).toLocaleDateString()}
+              {c.by?.name ?? c.by?.email ?? "someone"} on {EN.fmt.date(c.createdAt)}
               {c.reason && !DEFAULT_REASONS.has(c.reason) ? (
                 <>
                   : <span className="text-ink">{c.reason}</span>

@@ -30,6 +30,11 @@ export interface TimelineWords {
    * steps got the tool's stand-in values for what it would have returned (docs/plan.md §1.94).
    */
   wouldWrite(step: string, standIn?: boolean): string;
+  /**
+   * A test run's read or skill that couldn't be tried on what a write the test never made would
+   * have returned: "Would read the bill (test run, after a change not written)".
+   */
+  wouldAfterUnwritten(step: string): string;
   /** A test run's notify step, which sends nothing: "Would say what changed (test run, not sent)". */
   wouldSend(step: string): string;
   stopped: Record<"succeeded" | "failed" | "cancelled", string>;
@@ -82,6 +87,7 @@ export const TIMELINE_WORDS: Record<Locale, TimelineWords> = {
     sent: "sent",
     wouldWrite: (s, standIn) =>
       `Would ${afterWould(s)} (test run, not written${standIn ? "; stand-in values" : ""})`,
+    wouldAfterUnwritten: (s) => `Would ${afterWould(s)} (test run, after a change not written)`,
     wouldSend: (s) => `Would ${afterWould(s)} (test run, not sent)`,
     stopped: { succeeded: "succeeded", failed: "failed", cancelled: "cancelled" },
     items: (n) => plural("en", n, "item", "items"),
@@ -113,6 +119,7 @@ export const TIMELINE_WORDS: Record<Locale, TimelineWords> = {
     sent: "enviado",
     wouldWrite: (s, standIn) =>
       `Propuesto: ${s} (prueba, sin escribir${standIn ? "; valores de muestra" : ""})`,
+    wouldAfterUnwritten: (s) => `Propuesto: ${s} (prueba, tras un cambio sin escribir)`,
     wouldSend: (s) => `Propuesto: ${s} (prueba, sin enviar)`,
     stopped: { succeeded: "terminado", failed: "falló", cancelled: "cancelado" },
     items: (n) => plural("es", n, "elemento", "elementos"),
@@ -144,6 +151,7 @@ export const TIMELINE_WORDS: Record<Locale, TimelineWords> = {
     sent: "envoyé",
     wouldWrite: (s, standIn) =>
       `Proposé : ${s} (test, rien n'est écrit${standIn ? " ; valeurs fictives" : ""})`,
+    wouldAfterUnwritten: (s) => `Proposé : ${s} (test, après une modification non écrite)`,
     wouldSend: (s) => `Proposé : ${s} (test, rien n'est envoyé)`,
     stopped: { succeeded: "terminé", failed: "échec", cancelled: "annulé" },
     items: (n) => plural("fr", n, "élément", "éléments"),
@@ -175,6 +183,7 @@ export const TIMELINE_WORDS: Record<Locale, TimelineWords> = {
     sent: "enviado",
     wouldWrite: (s, standIn) =>
       `Proposto: ${s} (teste, nada gravado${standIn ? "; valores fictícios" : ""})`,
+    wouldAfterUnwritten: (s) => `Proposto: ${s} (teste, após uma alteração não gravada)`,
     wouldSend: (s) => `Proposto: ${s} (teste, nada enviado)`,
     stopped: { succeeded: "concluído", failed: "falhou", cancelled: "cancelado" },
     items: (n) => plural("pt-BR", n, "item", "itens"),
@@ -206,6 +215,7 @@ export const TIMELINE_WORDS: Record<Locale, TimelineWords> = {
     sent: "inviato",
     wouldWrite: (s, standIn) =>
       `Proposto: ${s} (prova, non scritto${standIn ? "; valori fittizi" : ""})`,
+    wouldAfterUnwritten: (s) => `Proposto: ${s} (prova, dopo una modifica non scritta)`,
     wouldSend: (s) => `Proposto: ${s} (prova, non inviato)`,
     stopped: { succeeded: "completato", failed: "non riuscito", cancelled: "annullato" },
     items: (n) => plural("it", n, "elemento", "elementi"),
@@ -237,6 +247,8 @@ export const TIMELINE_WORDS: Record<Locale, TimelineWords> = {
     sent: "gesendet",
     wouldWrite: (s, standIn) =>
       `Vorgeschlagen: ${s} (Testlauf, nicht geschrieben${standIn ? "; Platzhalterwerte" : ""})`,
+    wouldAfterUnwritten: (s) =>
+      `Vorgeschlagen: ${s} (Testlauf, nach einer nicht geschriebenen Änderung)`,
     wouldSend: (s) => `Vorgeschlagen: ${s} (Testlauf, nicht gesendet)`,
     stopped: { succeeded: "abgeschlossen", failed: "fehlgeschlagen", cancelled: "abgebrochen" },
     items: (n) => plural("de", n, "Eintrag", "Einträge"),

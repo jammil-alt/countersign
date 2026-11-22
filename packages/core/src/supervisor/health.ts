@@ -120,6 +120,17 @@ export function fingerprintOf(payload: unknown): string | null {
   return typeof v === "string" && v.length > 0 ? v : null;
 }
 
+/**
+ * Whether an inbox item is the supervisor's reminder that other items wait ("1 item is still
+ * waiting for you", and its operator twin): a reminder about items, not an item of its own.
+ */
+// DECISION (QA, 2026-11-22): the back office's counts and lists of open items (Needs us, Waiting
+// on clients, Your call) leave these reminders out, so the items they are about count once. The
+// client's Desk still shows its reminder; the supervisor's findings list still names it.
+export function isWaitingReminder(item: { subjectType: string | null; payload: unknown }): boolean {
+  return item.subjectType === FINDING_SUBJECT && fingerprintOf(item.payload) === "waiting_long";
+}
+
 /** What the client admin's item keeps about a finding: the kind, its plain steps, reminders. */
 export const ClientFindingView = z.strictObject({
   kind: FindingKind,

@@ -12,13 +12,14 @@ import {
   type RunFilter,
   runFilterQuery,
   shortRunId,
+  sumAmounts,
 } from "@countersign/core";
 import { type FormEvent, useMemo, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import type { ResponseOf } from "../../api/client";
 import { apiRoutes } from "../../api/routes";
 import { useApi, useApiClient } from "../../api/useApi";
-import { duration, isRunGoing, runsPollMs, shortTime, usd } from "../../runs/format";
+import { isRunGoing, msWords, runsPollMs, runWorkedMs, shortTime, usd } from "../../runs/format";
 import { opsRunShortTitle, opsRunTitle } from "../../runs/subject";
 import { usePoll } from "../../runs/usePoll";
 import { useSession } from "../../session/session";
@@ -40,15 +41,18 @@ import { StatusChip } from "../../ui/status";
 import {
   age,
   errorGroupLabel,
+  foldSameFailures,
   NOBODY_TO_ACT_WORDS,
   plural,
   RUN_STATUS_WORDS,
   runChip,
   runErrorLine,
+  sameFailureWords,
   waitOnWords,
 } from "../run/words";
 
 type Run = ResponseOf<typeof apiRoutes.opsRuns>["runs"][number];
+type Agent = ResponseOf<typeof apiRoutes.opsRuns>["agents"][number];
 type Group = NonNullable<ResponseOf<typeof apiRoutes.opsRuns>["groups"]>[number];
 
 /** "client admin" → "Client admin", for a cell that starts with it. */
@@ -56,8 +60,10 @@ function capitalize(words: string): string {
   return words.charAt(0).toUpperCase() + words.slice(1);
 }
 
-/** The most runs the list loads. */
-export const RUNS_LIMIT = 100;
+/** The runs a page of the list loads; "Show more" loads the next page (`before`, `next`). */
+// DECISION (QA, runs and dates): 50 a page, then "Show 50 more" below the list, rather than numbered
+// pages: the list is newest first and read from the top, and polling keeps the first page fresh.
+export const RUNS_LIMIT = 50;
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -196,12 +202,25 @@ export function OpsRunsScreen() {
     query: { ...query, ...(grouped ? { groupBy: "error" as const } : {}) } as never,
   });
   const { data, loading, reload } = state;
+  // The pages loaded past the first, for this filter only: another filter starts from the top.
+  const pageKey = JSON.stringify(query);
+  const [later, setLater] = useState<{
+    key: string;
+    runs: Run[];
+    agents: Agent[];
+    next: string | null;
+  } | null>(null);
+  const more = later?.key === pageKey ? later : null;
+  const [loadingMore, setLoadingMore] = useState(false);
   // Every 5 s while a run works, every 30 s while runs only wait on a person (2.2).
   const pollMs = data ? runsPollMs(data.runs, 5_000) : null;
   usePoll(reload, pollMs !== null, pollMs ?? 5_000, loading);
   const views = useApi(apiRoutes.opsSavedViews, { query: { surface: "ops_runs" } });
 
-  const agents = useMemo(() => new Map((data?.agents ?? []).map((a) => [a.id, a])), [data?.agents]);
+  const agents = useMemo(
+    () => new Map([...(data?.agents ?? []), ...(more?.agents ?? [])].map((a) => [a.id, a])),
+    [data?.agents, more?.agents],
+  );
   const chips = askChips(filter, {
     agents: new Map([...agents].map(([id, a]) => [id, a.name])),
     clients,
@@ -238,7 +257,35 @@ export function OpsRunsScreen() {
     }
   };
 
-  const runs = data?.runs ?? [];
+  const runs = useMemo(() => {
+    const first = data?.runs ?? [];
+    const seen = new Set(first.map((r) => r.id));
+    return [...first, ...(more?.runs ?? []).filter((r) => !seen.has(r.id))];
+  }, [data?.runs, more?.runs]);
+  const next = more ? more.next : (data?.next ?? null);
+
+  const showMore = async () => {
+    const last = runs[runs.length - 1];
+    if (!next || !last) return;
+    setLoadingMore(true);
+    setProblem(null);
+    try {
+      const page = await api.call(apiRoutes.opsRuns, {
+        query: { ...query, before: last.id } as never,
+      });
+      setLater({
+        key: pageKey,
+        runs: [...(more?.runs ?? []), ...page.runs],
+        agents: [...(more?.agents ?? []), ...page.agents],
+        next: page.next ?? null,
+      });
+    } catch (error) {
+      setProblem(error);
+    } finally {
+      setLoadingMore(false);
+    }
+  };
+
   const chosen = runs.filter((r) => selected.has(r.id));
   const retryable = chosen.filter((r) => r.status === "failed" && r.mode === "live");
   const cancellable = chosen.filter((r) => isRunGoing(r.status));
@@ -326,11 +373,7 @@ export function OpsRunsScreen() {
             disabled={asking}
           />
           <span className="text-sm text-ink-muted figures" data-testid="ops-runs-count">
-            {data
-              ? runs.length >= RUNS_LIMIT
-                ? `The latest ${RUNS_LIMIT}`
-                : plural(runs.length, "run", "runs")
-              : ""}
+            {data ? (next ? `The latest ${runs.length}` : plural(runs.length, "run", "runs")) : ""}
           </span>
         </form>
         {note ? (
@@ -438,14 +481,27 @@ export function OpsRunsScreen() {
                   clients={clients}
                   agents={agents}
                   selected={selected}
-                  onToggle={(id) => {
-                    const next = new Set(selected);
-                    if (next.has(id)) next.delete(id);
-                    else next.add(id);
-                    setSelected(next);
+                  onToggle={(ids, on) => {
+                    const picked = new Set(selected);
+                    for (const id of ids) {
+                      if (on) picked.add(id);
+                      else picked.delete(id);
+                    }
+                    setSelected(picked);
                   }}
                 />
               </Card>
+              {next ? (
+                <div className="flex justify-center">
+                  <Button
+                    onClick={() => void showMore()}
+                    disabled={loadingMore}
+                    data-testid="ops-runs-more"
+                  >
+                    {loadingMore ? "Loading…" : `Show ${RUNS_LIMIT} more`}
+                  </Button>
+                </div>
+              ) : null}
             </div>
           )
         }
@@ -470,13 +526,13 @@ function RunsTable({
   clients: Map<string, string>;
   agents: Map<string, { name: string }>;
   selected: Set<string>;
-  onToggle: (id: string) => void;
+  onToggle: (ids: string[], on: boolean) => void;
 }) {
-  const navigate = useNavigate();
   const [sort, setSort] = useState<{ key: SortKey; dir: "asc" | "desc" }>({
     key: "started",
     dir: "desc",
   });
+  const [open, setOpen] = useState<Set<string>>(new Set());
   const sorted = useMemo(() => {
     const value = (r: Run): string | number => {
       switch (sort.key) {
@@ -489,14 +545,11 @@ function RunsTable({
         case "status":
           return runChip(r).words.toLowerCase();
         case "owner":
-          return r.waiting ? waitOnWords(r.waiting).toLowerCase() : "\uffff";
+          return r.waiting ? waitOnWords(r.waiting).toLowerCase() : "￿";
         case "started":
           return new Date(r.startedAt ?? r.createdAt).getTime();
         case "took":
-          return r.startedAt
-            ? (r.finishedAt ? new Date(r.finishedAt).getTime() : Date.now()) -
-                new Date(r.startedAt).getTime()
-            : -1;
+          return runWorkedMs(r) ?? -1;
         case "cost":
           return Number(r.costUsd);
       }
@@ -508,6 +561,7 @@ function RunsTable({
       return x < y ? -sign : x > y ? sign : 0;
     });
   }, [runs, sort, clients, agents]);
+  const items = useMemo(() => foldSameFailures(sorted), [sorted]);
   const head = (key: SortKey, label: string, className?: string) => (
     <th
       className={className}
@@ -529,138 +583,266 @@ function RunsTable({
       </button>
     </th>
   );
+  const row = (r: Run, inGroup = false) => (
+    <RunRow
+      key={r.id}
+      run={r}
+      clients={clients}
+      agents={agents}
+      selected={selected.has(r.id)}
+      inGroup={inGroup}
+      onToggle={() => onToggle([r.id], !selected.has(r.id))}
+    />
+  );
   return (
-    <div className="dt dt-ana overflow-x-auto rounded-none border-0">
+    // The table scrolls inside its own box when the page is narrow; Cost stays pinned on the right.
+    <div className="dt dt-ana ops-runs-table overflow-x-auto rounded-none border-0">
       <table data-testid="ops-runs">
         <thead>
           <tr className="dt-cols">
             <th>
               <span className="sr-only">Select</span>
             </th>
-            {head("run", "Run")}
+            {head("run", "Run", "ops-runs-col-run")}
             {head("client", "Client")}
             {head("agent", "Agent")}
             {head("status", "Status")}
             {head("owner", "Owner")}
             {head("started", "Started")}
             {head("took", "Took")}
-            <th>Error</th>
-            {head("cost", "Cost", "text-right")}
+            <th className="ops-runs-col-error">Error</th>
+            {head("cost", "Cost", "ops-runs-cost text-right")}
           </tr>
         </thead>
         <tbody>
-          {sorted.map((r) => {
-            const short = shortRunId(r.id);
-            const chip = runChip(r);
-            const wait = r.waiting ?? null;
-            return (
-              <tr
-                key={r.id}
-                className={cx(
-                  "cursor-pointer hover:bg-surface-subtle",
-                  selected.has(r.id) && "is-selected",
-                )}
-                data-testid={`ops-run-row-${r.id}`}
-                // The whole row opens the run; its check box and links keep their own clicks.
-                onClick={(e) => {
-                  if ((e.target as HTMLElement).closest("a, button, input, label")) return;
-                  navigate(`/ops/runs/${r.id}`);
+          {items.flatMap((item) => {
+            if (item.kind === "run") return [row(item.run)];
+            const ids = item.runs.map((r) => r.id);
+            const expanded = open.has(item.key);
+            return [
+              <SameFailureRow
+                key={`same-${item.key}`}
+                runs={item.runs}
+                clients={clients}
+                agents={agents}
+                expanded={expanded}
+                selected={ids.every((id) => selected.has(id))}
+                onToggle={(on) => onToggle(ids, on)}
+                onExpand={() => {
+                  const next = new Set(open);
+                  if (expanded) next.delete(item.key);
+                  else next.add(item.key);
+                  setOpen(next);
                 }}
-              >
-                <td>
-                  <input
-                    type="checkbox"
-                    checked={selected.has(r.id)}
-                    onChange={() => onToggle(r.id)}
-                    aria-label={`Select ${short}`}
-                    data-testid={`ops-run-${r.id}-select`}
-                  />
-                </td>
-                <td>
-                  {/* Titled by what the run is about: its invoice or its first change. The
-                      vendor or customer is left to the tooltip; the table has the client. */}
-                  <Clamp
-                    tip={
-                      opsRunTitle(r.subject, short) === opsRunShortTitle(r.subject, short)
-                        ? null
-                        : opsRunTitle(r.subject, short)
-                    }
-                  >
-                    <Link
-                      to={`/ops/runs/${r.id}`}
-                      data-testid={`ops-run-${r.id}-open`}
-                      className="text-link hover:underline"
-                    >
-                      {opsRunShortTitle(r.subject, short)}
-                    </Link>
-                  </Clamp>
-                  {r.subject ? (
-                    <span className="block reference text-xs text-ink-muted">{short}</span>
-                  ) : null}
-                </td>
-                <td className="text-sm">
-                  <Clamp>{clients.get(r.tenantId) ?? "Client"}</Clamp>
-                </td>
-                <td className="text-sm">
-                  {/* The name only; what the agent was doing (its workflow) is in the tooltip. */}
-                  <Clamp tip={r.workflowName} testId={`ops-run-${r.id}-agent`}>
-                    {agents.get(r.agentId)?.name ?? "Agent"}
-                  </Clamp>
-                </td>
-                <td>
-                  <span className="flex flex-wrap items-center gap-1.5">
-                    {/* The state alone ("Waiting for approval"); who it waits on is the Owner. */}
-                    <StatusChip state={chip.state} testId={`ops-run-${r.id}-status`}>
-                      {chip.words.split(" · ")[0]}
-                    </StatusChip>
-                    {r.mode === "test" ? (
-                      <span className="text-xs text-ink-muted">Test</span>
-                    ) : null}
-                  </span>
-                </td>
-                <td className="text-sm" data-testid={`ops-run-${r.id}-owner`}>
-                  {wait ? (
-                    <Clamp
-                      onlyWhenCut
-                      tip={[
-                        `${capitalize(waitOnWords(wait))}, for ${age(wait.since)}`,
-                        wait.nobodyToAct ? NOBODY_TO_ACT_WORDS[wait.nobodyToAct] : null,
-                      ]
-                        .filter(Boolean)
-                        .join(". ")}
-                    >
-                      <span className="block whitespace-nowrap">
-                        {capitalize(waitOnWords(wait))}
-                      </span>
-                      <span
-                        className="block text-xs text-ink-muted"
-                        data-testid={`ops-run-${r.id}-wait`}
-                      >
-                        For {age(wait.since)}
-                        {wait.nobodyToAct ? (
-                          <span className="ui-tone-risk">
-                            {" "}
-                            · {NOBODY_TO_ACT_WORDS[wait.nobodyToAct]}
-                          </span>
-                        ) : null}
-                      </span>
-                    </Clamp>
-                  ) : null}
-                </td>
-                <td className="text-sm figures">{shortTime(r.startedAt ?? r.createdAt)}</td>
-                <td className="text-sm figures">{duration(r.startedAt, r.finishedAt)}</td>
-                <td className="text-sm" data-testid={`ops-run-${r.id}-error`}>
-                  {r.status === "failed" ? (
-                    <Clamp className="ui-tone-risk">{runErrorLine(r.error, r.errorStep)}</Clamp>
-                  ) : null}
-                </td>
-                <td className="n">{usd(r.costUsd)}</td>
-              </tr>
-            );
+              />,
+              ...(expanded ? item.runs.map((r) => row(r, true)) : []),
+            ];
           })}
         </tbody>
       </table>
     </div>
+  );
+}
+
+/** "4 min", with the time it waited on people beneath ("Waited 7 d on people"). */
+function TookCell({ run: r }: { run: Run }) {
+  const worked = runWorkedMs(r);
+  const waited = r.waitedMs ?? 0;
+  if (worked === null) return null;
+  return (
+    <>
+      <span className="block whitespace-nowrap">{msWords(worked)}</span>
+      {waited >= 60_000 ? (
+        <span className="block text-xs text-ink-muted" data-testid={`ops-run-${r.id}-waited`}>
+          Waited {msWords(waited)}
+        </span>
+      ) : null}
+    </>
+  );
+}
+
+function RunRow({
+  run: r,
+  clients,
+  agents,
+  selected,
+  inGroup,
+  onToggle,
+}: {
+  run: Run;
+  clients: Map<string, string>;
+  agents: Map<string, { name: string }>;
+  selected: boolean;
+  inGroup: boolean;
+  onToggle: () => void;
+}) {
+  const navigate = useNavigate();
+  const short = shortRunId(r.id);
+  const chip = runChip(r);
+  const wait = r.waiting ?? null;
+  return (
+    <tr
+      className={cx("cursor-pointer hover:bg-surface-subtle", selected && "is-selected")}
+      data-testid={`ops-run-row-${r.id}`}
+      // The whole row opens the run; its check box and links keep their own clicks.
+      onClick={(e) => {
+        if ((e.target as HTMLElement).closest("a, button, input, label")) return;
+        navigate(`/ops/runs/${r.id}`);
+      }}
+    >
+      <td>
+        <input
+          type="checkbox"
+          checked={selected}
+          onChange={onToggle}
+          aria-label={`Select ${short}`}
+          data-testid={`ops-run-${r.id}-select`}
+        />
+      </td>
+      <td className={cx("ops-runs-col-run", inGroup && "ops-runs-in-group")}>
+        {/* Titled by what the run is about: its invoice or its first change. The vendor or
+            customer is left to the tooltip; the table has the client. */}
+        <Clamp
+          lines={2}
+          tip={
+            opsRunTitle(r.subject, short) === opsRunShortTitle(r.subject, short)
+              ? null
+              : opsRunTitle(r.subject, short)
+          }
+        >
+          <Link
+            to={`/ops/runs/${r.id}`}
+            data-testid={`ops-run-${r.id}-open`}
+            className="text-link hover:underline"
+          >
+            {opsRunShortTitle(r.subject, short)}
+          </Link>
+        </Clamp>
+        {r.subject ? <span className="block reference text-xs text-ink-muted">{short}</span> : null}
+      </td>
+      <td className="text-sm">
+        <Clamp>{clients.get(r.tenantId) ?? "Client"}</Clamp>
+      </td>
+      <td className="text-sm">
+        {/* The name only; what the agent was doing (its workflow) is in the tooltip. */}
+        <Clamp tip={r.workflowName} testId={`ops-run-${r.id}-agent`}>
+          {agents.get(r.agentId)?.name ?? "Agent"}
+        </Clamp>
+      </td>
+      <td>
+        <span className="flex flex-wrap items-center gap-1.5">
+          {/* The state alone ("Waiting for approval"); who it waits on is the Owner. */}
+          <StatusChip state={chip.state} testId={`ops-run-${r.id}-status`}>
+            {chip.words.split(" · ")[0]}
+          </StatusChip>
+          {r.mode === "test" ? <span className="text-xs text-ink-muted">Test</span> : null}
+        </span>
+      </td>
+      <td className="text-sm" data-testid={`ops-run-${r.id}-owner`}>
+        {wait ? (
+          <Clamp
+            onlyWhenCut
+            tip={[
+              `${capitalize(waitOnWords(wait))}, for ${age(wait.since)}`,
+              wait.nobodyToAct ? NOBODY_TO_ACT_WORDS[wait.nobodyToAct] : null,
+            ]
+              .filter(Boolean)
+              .join(". ")}
+          >
+            <span className="block whitespace-nowrap">{capitalize(waitOnWords(wait))}</span>
+            <span className="block text-xs text-ink-muted" data-testid={`ops-run-${r.id}-wait`}>
+              For {age(wait.since)}
+              {wait.nobodyToAct ? (
+                <span className="ui-tone-risk"> · {NOBODY_TO_ACT_WORDS[wait.nobodyToAct]}</span>
+              ) : null}
+            </span>
+          </Clamp>
+        ) : null}
+      </td>
+      <td className="text-sm figures">{shortTime(r.startedAt ?? r.createdAt)}</td>
+      <td className="text-sm figures" data-testid={`ops-run-${r.id}-took`}>
+        <TookCell run={r} />
+      </td>
+      <td className="ops-runs-col-error text-sm" data-testid={`ops-run-${r.id}-error`}>
+        {r.status === "failed" ? (
+          <Clamp lines={2} className="ui-tone-risk">
+            {runErrorLine(r.error, r.errorStep)}
+          </Clamp>
+        ) : null}
+      </td>
+      <td className="n ops-runs-cost">{usd(r.costUsd)}</td>
+    </tr>
+  );
+}
+
+/** Failed runs alike, as one row: how many, the error once, and a button that shows them. */
+function SameFailureRow({
+  runs,
+  clients,
+  agents,
+  expanded,
+  selected,
+  onToggle,
+  onExpand,
+}: {
+  runs: Run[];
+  clients: Map<string, string>;
+  agents: Map<string, { name: string }>;
+  expanded: boolean;
+  selected: boolean;
+  onToggle: (on: boolean) => void;
+  onExpand: () => void;
+}) {
+  const first = runs[0] as Run;
+  const latest = runs.reduce((a, b) =>
+    new Date(b.startedAt ?? b.createdAt) > new Date(a.startedAt ?? a.createdAt) ? b : a,
+  );
+  const total = sumAmounts(runs.map((r) => r.costUsd || "0"));
+  const words = sameFailureWords(runs);
+  return (
+    <tr className={cx(selected && "is-selected")} data-testid={`ops-runs-same-${first.id}`}>
+      <td>
+        <input
+          type="checkbox"
+          checked={selected}
+          onChange={() => onToggle(!selected)}
+          aria-label={`Select the ${words}`}
+          data-testid={`ops-runs-same-${first.id}-select`}
+        />
+      </td>
+      <td className="ops-runs-col-run">
+        <button
+          type="button"
+          className="text-link hover:underline text-left"
+          aria-expanded={expanded}
+          onClick={onExpand}
+          data-testid={`ops-runs-same-${first.id}-open`}
+        >
+          {words}
+        </button>
+        <span className="block text-xs text-ink-muted">
+          {expanded ? "Showing each below" : "Show each"}
+        </span>
+      </td>
+      <td className="text-sm">
+        <Clamp>{clients.get(first.tenantId) ?? "Client"}</Clamp>
+      </td>
+      <td className="text-sm">
+        <Clamp>{agents.get(first.agentId)?.name ?? "Agent"}</Clamp>
+      </td>
+      <td>
+        <StatusChip state="failed">Failed</StatusChip>
+      </td>
+      <td />
+      <td className="text-sm figures">Last {shortTime(latest.startedAt ?? latest.createdAt)}</td>
+      <td />
+      <td className="ops-runs-col-error text-sm">
+        <Clamp lines={2} className="ui-tone-risk">
+          {runErrorLine(first.error, first.errorStep)}
+        </Clamp>
+      </td>
+      <td className="n ops-runs-cost">{usd(total)}</td>
+    </tr>
   );
 }
 

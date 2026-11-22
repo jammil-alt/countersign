@@ -86,8 +86,7 @@ export function OpsRunAuditScreen() {
   return (
     <Page testId="ops-run-audit">
       <PageHeader
-        eyebrow="Utilities"
-        title="Audit queue"
+        title="Utilities"
         subtitle="Runs picked for a person to check: every run that wrote to a client's tools, and a share of the rest. Open one, read what it did, and mark it."
         actions={
           <StatusFilter

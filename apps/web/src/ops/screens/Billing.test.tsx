@@ -536,7 +536,7 @@ describe("the client page's billing", () => {
     renderAt(`/ops/clients/${SANDBOX}/settings/billing`, api);
     const card = await screen.findByTestId(`ops-statement-${STATEMENT}`);
     expect(card).toHaveTextContent("Paid");
-    expect(card).toHaveTextContent("paid Nov 10, 2026");
+    expect(card).toHaveTextContent("paid 10 Nov 2026");
     expect(within(card).getByRole("link", { name: "Stripe's page" })).toHaveAttribute(
       "href",
       "https://invoice.stripe.com/i/acct/in_1",

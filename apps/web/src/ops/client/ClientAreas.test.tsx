@@ -203,7 +203,7 @@ describe("the client page's Areas tab", () => {
     expect(screen.queryByTestId("ops-connections-offering")).toBeNull();
   });
 
-  it("opens from the old Packs address; Setup keeps Connectors", async () => {
+  it("opens from the old Packs address; Setup opens on its Progress board", async () => {
     const { api } = demoApi();
     renderAt(`/ops/clients/${DEMO}/packs`, api);
     expect(await screen.findByTestId("ops-client-areas")).toBeInTheDocument();
@@ -215,7 +215,7 @@ describe("the client page's Areas tab", () => {
     expect(tabs.queryByRole("link", { name: "Packs" })).toBeNull();
     expect(tabs.getByRole("link", { name: "Setup" })).toHaveAttribute(
       "href",
-      `/ops/clients/${DEMO}/connections`,
+      `/ops/clients/${DEMO}/progress`,
     );
   });
 });
