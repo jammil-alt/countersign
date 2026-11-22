@@ -25,6 +25,7 @@ import {
   PACKAGING_UOMS,
   readUom,
   unitKey,
+  unitWord,
   withoutPackaging,
 } from "../pricing/uom";
 import {
@@ -37,11 +38,14 @@ import {
   type RequestStatus,
 } from "../schema";
 import {
+  createVendorItem,
+  lineOf,
   priceForVendorItem,
   recordLastPrice,
   recordLeadTime,
   resolveVendorItem,
   vendorItemForUnit,
+  vendorItemsFor,
 } from "../vendor/store";
 // P-9
 import { vendorContacts } from "./contacts";
@@ -182,7 +186,10 @@ export interface CreatedQuote extends QuoteView {
   rfqText: string;
 }
 
-/** The vendor's own name for an item: its SKU and description aliases, a person's first. */
+/**
+ * The vendor's own name for an item: its SKU and description aliases, a person's first; else its
+ * item in the vendor catalog (the preferred one, else the newest priced, §1.189).
+ */
 export async function vendorAliases(tx: Tx, tenantId: string, vendorId: string, itemId: string) {
   const rows = await tx
     .select()
@@ -214,10 +221,17 @@ export async function vendorAliases(tx: Tx, tenantId: string, vendorId: string, 
     )
     .orderBy(desc(priceObservation.observedOn), desc(priceObservation.id))
     .limit(1);
+  const listed = (await vendorItemsFor(tx, tenantId, vendorId, itemId)).filter(
+    (v) => v.status === "active",
+  );
+  const listedItem = listed.find((v) => v.preferred) ?? listed[0];
   return {
-    sku: rows.find((r) => r.vendorSku)?.vendorSku ?? null,
+    sku: rows.find((r) => r.vendorSku)?.vendorSku ?? listedItem?.sku ?? null,
     description:
-      own?.description ?? rows.find((r) => r.normalizedDescription)?.normalizedDescription ?? null,
+      own?.description ??
+      rows.find((r) => r.normalizedDescription)?.normalizedDescription ??
+      listedItem?.name ??
+      null,
   };
 }
 
@@ -776,9 +790,59 @@ export function quotedLineProblems(
 }
 
 /**
+ * A quoted line the vendor catalog has no item for, in its unit, adds one (§1.189): the vendor's
+ * item for the master item in the quoted unit, named as the vendor quoted it (else the master
+ * item's name), with the conversion the quote was priced by. Only with a rule: a quote in a unit
+ * that doesn't convert, or with no unit at all, adds none (invariant 7). A test run adds none.
+ */
+// DECISION (§1.189): a quote fills the vendor catalog as an invoice does. Not when the vendor has
+// any active item for the master item in that unit (two SKUs, say: which one is the person's to
+// say), and for a box, case or pail only with the size the quoted line states for its own unit
+// (`statedPack`), recorded in that word; the request's words never size the vendor's pack.
+async function quoteMakesVendorItem(
+  tx: Tx,
+  ctx: PurchasingContext,
+  q: {
+    vendorId: string;
+    item: CatalogItemRow;
+    unit: string | null;
+    lineText: string | null;
+    asked: { description: string };
+  },
+): Promise<boolean> {
+  if (ctx.testRun || !q.unit?.trim()) return false;
+  const uom = readUom(q.unit) ?? q.unit.trim().toLowerCase();
+  const inUnit = (await vendorItemsFor(tx, ctx.tenantId, q.vendorId, q.item.id)).filter(
+    (v) => v.status === "active" && (v.vendorUom ?? "") === uom,
+  );
+  if (inUnit.length > 0) return false;
+  const conv = quotedConversion(q.item, { unit: q.unit, description: q.lineText }, q.asked, null);
+  if (!conv.ok || conv.assumed) return false;
+  const packaged = PACKAGING_UOMS.has(uom);
+  const size = packaged ? lineOf(q.unit, q.lineText).pack.size : null;
+  if (packaged && size === null) return false;
+  const made = await createVendorItem(
+    tx,
+    ctx.tenantId,
+    {
+      vendorId: q.vendorId,
+      catalogItemId: q.item.id,
+      name: q.lineText?.trim() || q.item.canonicalName,
+      ...(size ? { packSize: `${size} per ${uom}` } : {}),
+      vendorUom: uom,
+      unitWord: unitWord(q.unit),
+      stdPerVendorUom: toNumeric(conv.factor),
+      origin: "quote",
+    },
+    ctx.userId ? { userId: ctx.userId } : { agentVersionId: ctx.agentVersionId },
+  );
+  return made.created;
+}
+
+/**
  * A quoted line fills the vendor's item for it (docs/plan.md §1.88: "filled further by quotes"):
- * its last price (`quote`, the newer date winning) and its lead time. It never makes a vendor
- * item: Register item does, when the vendor's invoice comes.
+ * its last price (`quote`, the newer date winning) and its lead time. A vendor item it has none
+ * for is made first (`quoteMakesVendorItem`, §1.189).
  */
 // DECISION: the vendor item is the vendor's for that master item in the quoted unit, else its
 // only one; the price reaches it only in its own unit (`priceForVendorItem`). A quote states the
@@ -919,6 +983,15 @@ export async function recordQuote(
         .returning();
       if (!row) throw new Error("quote_line insert returned nothing");
       recorded.push({ ...quoteLineView(row), conversion: std.conversion });
+      if (asked.item && (l.available ?? true) && unitPrice !== null && !vi) {
+        await quoteMakesVendorItem(tx, ctx, {
+          vendorId: q.vendorId,
+          item: asked.item,
+          unit,
+          lineText: l.description ?? null,
+          asked: asked.row,
+        });
+      }
       if (asked.item && (l.available ?? true)) {
         await quoteToVendorItem(tx, ctx.tenantId, {
           vendorId: q.vendorId,

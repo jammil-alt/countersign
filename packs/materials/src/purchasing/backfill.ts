@@ -1,8 +1,8 @@
 // Prices from QuickBooks bills (docs/plan.md §1.67, `materials.backfill-from-bills`): the bills the
 // QuickBooks sync already stored (a raw record per version, and the transaction mapped from it)
 // become catalog matches and price observations, for a range of dates. Deterministic matching
-// only (the vendor's alias, then the rules; a new item when the rules say so and every key
-// attribute is stated). Lines the rules aren't sure of are counted and listed for review, never
+// only (the vendor's alias, then its catalog, then the rules; a new item when the rules say so and
+// every key attribute is stated). Each priced line fills the vendor catalog (§1.189). Lines the rules aren't sure of are counted and listed for review, never
 // guessed. Idempotent: one observation per bill line, so a re-run adds nothing twice.
 // What it can't use (account lines, lines without a quantity) is in packs/materials/NOTES.md.
 
@@ -10,9 +10,15 @@ import { dec, type QboLine, QboTransactionRaw, qboAmount, toNumeric } from "@cou
 import { type Db, rawRecord, transaction, withTenant } from "@countersign/db";
 import { and, asc, eq, gt, gte, inArray, isNotNull, lte, or } from "drizzle-orm";
 import { learnAlias } from "../catalog/store";
-import { convert } from "../pricing/uom";
+import { convert, PACKAGING_UOMS } from "../pricing/uom";
 import { priceObservation } from "../schema";
-import { priceForVendorItem, recordLastPrice, resolveVendorItem } from "../vendor/store";
+import {
+  createVendorItem,
+  priceForVendorItem,
+  recordLastPrice,
+  resolveVendorItem,
+  type VendorItemRow,
+} from "../vendor/store";
 import { matchText, type TextCandidate } from "./match-text";
 import type { PurchasingContext } from "./requests";
 
@@ -38,6 +44,8 @@ export interface BackfillResult {
   alreadyRecorded: number;
   matched: number;
   newItems: number;
+  /** Vendor items this call added to the vendor catalog (§1.189). */
+  newVendorItems: number;
   needsReview: number;
   /** Item lines without a quantity or unit price, or with no conversion rule. */
   skipped: number;
@@ -96,6 +104,7 @@ export async function backfillFromBills(
     alreadyRecorded: 0,
     matched: 0,
     newItems: 0,
+    newVendorItems: 0,
     needsReview: 0,
     skipped: 0,
     review: [],
@@ -215,6 +224,14 @@ export async function backfillFromBills(
         }
         if (m.decision === "new_item") out.newItems++;
         else out.matched++;
+        // DECISION (§1.189): a line named by the vendor's box, case or pail (its SKU or name in
+        // the vendor catalog) is in that pack, of which QuickBooks gives no unit: no price is
+        // read from it (invariant 7), since its quantity may be packs or what they hold.
+        const named = m.vendorItem;
+        if (named?.vendorUom && PACKAGING_UOMS.has(named.vendorUom)) {
+          out.skipped++;
+          continue;
+        }
         // DECISION: QuickBooks bill lines carry no unit, so the price is taken to be per the
         // item's standard unit (as a document line without a unit is), and marked `uomAssumed`.
         const conv = convert(null, m.item.standardUom, m.item.attributes as Record<string, string>);
@@ -223,26 +240,19 @@ export async function backfillFromBills(
           continue;
         }
         if (ctx.testRun) continue;
-        if (m.method === "rules") {
-          await learnAlias(tx, ctx.tenantId, {
-            vendorId,
-            vendorSku: null,
-            descriptionHash: m.hash,
-            normalizedDescription: m.normalized,
-            catalogItemId: m.item.id,
-            source: "auto",
-          });
-        }
-        // §1.88: the vendor item the price is for, when the vendor catalog has one (a bill line
-        // makes none: Register item does). QuickBooks gives no unit, so the price is per the
-        // standard unit: the vendor item in that unit, else the vendor's only one for the item.
-        const vi = await resolveVendorItem(tx, ctx.tenantId, {
-          vendorId,
-          catalogItemId: m.item.id,
-          sku: null,
-          vendorUom: m.item.standardUom,
-        });
-        const viFits =
+        // §1.88: the vendor item the price is for. QuickBooks gives no unit, so the price is per
+        // the standard unit: the vendor item the line named when it is in that unit, else the
+        // vendor's item in that unit, else the vendor's only one for the item.
+        const vi =
+          named && named.vendorUom === m.item.standardUom
+            ? named
+            : await resolveVendorItem(tx, ctx.tenantId, {
+                vendorId,
+                catalogItemId: m.item.id,
+                sku: null,
+                vendorUom: m.item.standardUom,
+              });
+        let viFits: VendorItemRow | null =
           vi ??
           (await resolveVendorItem(tx, ctx.tenantId, {
             vendorId,
@@ -250,6 +260,39 @@ export async function backfillFromBills(
             sku: null,
             vendorUom: null,
           }));
+        // DECISION (§1.189): the bill-price import fills the vendor catalog: a vendor with no
+        // item for the master item gets one in its standard unit (one standard unit each, as the
+        // price is read), named as the bill line wrote it, without a SKU (QuickBooks' item name
+        // is the client's, not the vendor's). Made as the person or agent importing.
+        if (!viFits) {
+          const made = await createVendorItem(
+            tx,
+            ctx.tenantId,
+            {
+              vendorId,
+              catalogItemId: m.item.id,
+              name: line.description,
+              vendorUom: m.item.standardUom,
+              stdPerVendorUom: "1",
+              currency,
+              origin: "qbo_bill",
+            },
+            ctx.userId ? { userId: ctx.userId } : { agentVersionId: ctx.agentVersionId },
+          );
+          if (made.created) out.newVendorItems++;
+          viFits = made.item;
+        }
+        if (m.method === "rules" || named) {
+          await learnAlias(tx, ctx.tenantId, {
+            vendorId,
+            vendorSku: null,
+            descriptionHash: m.hash,
+            normalizedDescription: m.normalized,
+            catalogItemId: m.item.id,
+            source: "auto",
+            vendorItemId: viFits.id,
+          });
+        }
         const unitPriceStd = toNumeric(dec(line.unitPrice).dividedBy(conv.factor));
         const observedOn = bill.TxnDate ?? (t.txnDate as string);
         const [row] = await tx
