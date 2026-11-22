@@ -129,6 +129,7 @@ describe("the session on first load", () => {
       expect(await screen.findByText("signed_in: Cargando…")).toBeInTheDocument();
       expect(new Set(seen)).toEqual(new Set(["signed_in: Cargando…"]));
       expect(loadedCatalog("de")).toBeUndefined();
+      expect(loadedCatalog("en")).toBeUndefined();
     } finally {
       languages.mockRestore();
     }

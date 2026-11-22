@@ -70,6 +70,8 @@ import { gettingStartedRoutes } from "./getting-started";
 import { gsheetsRoutes } from "./gsheets";
 // R4: business hours, person hours and channels
 import { hoursRoutes } from "./hours";
+// §1.213: file and email intake's report profiles.
+import { intakeReportRoutes } from "./intake-reports";
 import { knowledgeRoutes } from "./knowledge";
 import { languageRoutes, SessionLanguage } from "./language";
 import { ledgerRoutes } from "./ledger";
@@ -2619,6 +2621,8 @@ export const routes = {
   ...reshapeRoutes,
   // Data in and out of files (owner, 2026-11-20): a Read table step's sample-file check.
   ...readTableRoutes,
+  // File and email intake (owner, 2026-11-22; docs/plan.md §1.213): report profiles.
+  ...intakeReportRoutes,
   // docs/plan.md §1.124: back office work
   ...workRoutes,
   // docs/plan.md §1.124.3: Your call
