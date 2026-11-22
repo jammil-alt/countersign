@@ -101,7 +101,7 @@ function caseScope(ctx: Scope, target: Target, clientId: string | undefined): st
   return clientId ?? null;
 }
 
-async function clientNames(tx: Tx, ids: (string | null)[]): Promise<Map<string, string>> {
+export async function clientNames(tx: Tx, ids: (string | null)[]): Promise<Map<string, string>> {
   const want = [...new Set(ids.filter((x): x is string => x !== null))];
   if (want.length === 0) return new Map();
   const rows = await tx
@@ -111,7 +111,7 @@ async function clientNames(tx: Tx, ids: (string | null)[]): Promise<Map<string, 
   return new Map(rows.map((r) => [r.id, r.name]));
 }
 
-function caseView(row: CaseRow, names: Map<string, string>): TestCaseView {
+export function caseView(row: CaseRow, names: Map<string, string>): TestCaseView {
   return {
     id: row.id,
     clientId: row.tenantId,

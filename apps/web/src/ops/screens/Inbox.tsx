@@ -55,6 +55,7 @@ import {
 } from "../command/escalations";
 import { useKept } from "../command/kept";
 import { usePrefetchOnIntent } from "../command/prefetch";
+import { SaveAsCase } from "../lab/SaveAsCase";
 import { useShareCounts } from "../OpsLayout";
 import { age, NOBODY_TO_ACT_WORDS, plural } from "../run/words";
 // P-6
@@ -203,6 +204,7 @@ export function OpsInboxScreen() {
       agent,
       mine,
       byUs,
+      approved,
       context: [
         agent ? (agent.serviceName ?? agent.name) : null,
         clients.get(item.tenantId) ?? null,
@@ -273,7 +275,7 @@ export function OpsInboxScreen() {
   };
 
   const card = (item: Item) => {
-    const { mine, byUs, context, outcome, waitingOn } = describe(item);
+    const { mine, byUs, approved, context, outcome, waitingOn } = describe(item);
     const shown = (
       <InboxCard
         key={item.id}
@@ -325,6 +327,20 @@ export function OpsInboxScreen() {
         <div key={item.id} className="flex flex-col gap-2">
           {shown}
           <ScriptOfferLink item={item} />
+        </div>
+      );
+    }
+    // §1.212: an approved (or corrected) change of a run: one click saves it as a test case.
+    if (
+      item.status === "resolved" &&
+      approved === true &&
+      item.runId &&
+      (item.kind === "approval" || item.kind === "external_action")
+    ) {
+      return (
+        <div key={item.id} className="flex flex-col gap-2">
+          {shown}
+          <SaveAsCase itemId={item.id} />
         </div>
       );
     }

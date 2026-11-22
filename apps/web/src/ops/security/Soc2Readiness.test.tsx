@@ -75,6 +75,8 @@ describe("SOC 2 readiness", () => {
   it("lists every criterion with its status, owner and evidence, and the last drill", async () => {
     renderAt("/ops/security/soc2");
     expect(await screen.findByRole("heading", { name: "SOC 2 readiness" })).toBeInTheDocument();
+    // The heading renders before the facts load; the rows come with them.
+    expect(await screen.findByTestId(`soc2-row-${SOC2_CRITERIA[0]?.id}`)).toBeInTheDocument();
     for (const c of SOC2_CRITERIA) {
       expect(screen.getByTestId(`soc2-row-${c.id}`)).toBeInTheDocument();
     }

@@ -5,6 +5,9 @@ export const OPS_PATHS = {
   runs: "/ops/runs",
   clients: "/ops/clients",
   client: (id: string) => `/ops/clients/${id}`,
+  /** R5 (docs/plan.md §1.235): every client side by side; one client's report. */
+  accounts: "/ops/accounts",
+  clientReport: (id: string) => `/ops/clients/${id}/report`,
   /** docs/plan.md §1.101: Reggie; `askReggie` starts a conversation about one client. */
   reggie: "/ops/reggie",
   askReggie: (clientId: string) => `/ops/reggie?client=${clientId}`,

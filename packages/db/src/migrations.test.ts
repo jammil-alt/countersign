@@ -196,6 +196,10 @@ describe.skipIf(!online)("migrations on an empty database", () => {
         "close_entry_line",
         "close_item",
         "close_period",
+        // §1.233 (0100): the AP pack's bills, their lines and goods received.
+        "ap_bill",
+        "ap_bill_line",
+        "ap_receipt",
       ].sort(),
     );
     expect(

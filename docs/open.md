@@ -8,12 +8,13 @@ the rest.**
 
 **The order we work it in** (2026-11-22): `docs/work-plan.md`, one item and one PR at a time,
 code and the owner's steps side by side. Reporting and searching runs by their data is agreed
-in `docs/reporting-plan.md`; R1 and R3 (a record's Runs panel, §1.200) are built.
+in `docs/reporting-plan.md`; R1 to R4 are built (a record's Runs panel, §1.200; a report per
+agent, §1.214).
 
 ## Where things stand
 
-- **Built:** everything through M69 (`docs/plan.md` §4) and the work recorded through §1.207,
-  migrations through 0080, merged to `main` and deployed to staging. That includes purchasing end
+- **Built:** everything through M69 (`docs/plan.md` §4) and the work recorded through §1.220,
+  migrations through 0100, merged to `main` and deployed to staging. That includes purchasing end
   to end by email (M42), the Marketing wave (M43–M50), the Bookkeeping area (M51–M57), the back
   office's Sales, onboarding and Build (M64–M69), the SOP and agent assurance.
 - **Every provider is built against a fake.** Nothing has yet run against live QuickBooks, Gmail,
@@ -346,7 +347,7 @@ PRs #384–#414 closed the launch audit's findings for the first clients. What t
 | H6 | ~~"Who is asking" on the Claude approval page~~ Done (§1.201, migration 0078): the page shows the asking Claude client, in words, and where the request came from. | Migration, then code | §1.130. |
 | H7 | ~~The portal's resume screen~~ Done (#535, §1.195): it says how many events came in while the agent was paused. Open: a native speaker's check of the five other languages. | Code, copy in six languages | §1.137. |
 | H8 | **`refresh_failing` connections**: counted in the ops MCP's `needsAttention` and the daily troubled list since #527. Open: LinkedIn's and HubSpot's dead-grant codes come from their docs, not a live call. | Check live | §1.134. |
-| H9 | ~~The web app's first load~~ Done (#531, §1.192): 344 kB, budget 351 kB; main reached 350.8 kB with #523, and R2 (#534) raised the budget to 352 kB, so the headroom is used up. Next toward 300 kB: each portal screen on its own, the route contract split per screen, English on demand. | Code | audit 4.6 |
+| H9 | ~~The web app's first load~~ Done (#531, §1.192): 344 kB, budget 351 kB; main reached 350.8 kB with #523, and R2 (#534) raised the budget to 352 kB, so the headroom is used up. English on demand done (§1.208): 301.9 kB, budget 335 kB. Next toward 300 kB: each portal screen on its own, the route contract split per screen. | Code | audit 4.6 |
 | H10 | ~~Texting edge cases~~ Done (#538, §1.197; the link's own check of a number taken a moment before, fixed in #534). Open, for the owner: a forwarded invitation can still learn that a number is one of the client's contacts (`number_taken`), as before. | Code, small | §1.142. |
 
 ### The phone app (owner, 2026-11-13; `docs/plan.md` §1.116, `apps/mobile/README.md`)
@@ -500,18 +501,50 @@ Fixed in one PR. What is still open from it:
   locally; a test now covers every route), and why `GET …/skills` hangs there (the agent page no
   longer waits on it). Reading staging from a Claude session needs the operator to approve its
   connect-claude link first.
-- **Code:** back-office questions and Sloan's thread summaries record their cost only in logs
-  (a table, so a migration PR of its own); schedule wording is still 12-hour; deal and contact time
+- **Code:** schedule wording is still 12-hour; deal and contact time
   zones are still free text; a dependent write the model makes inside one skill still reads its
   before state in a test run.
-- **Costs not yet counted** (an audit of 2026-11-22, for build plans 11 and `docs/plan.md` §1.199):
-  - The dev queue's reuse check: its model calls' cost is dropped.
-  - Reggie and its read pass: cost in each message's metadata, never added up.
-  - Builder, build and reshape turns: cost on their rows, but no screen adds them up.
-  - Email through Resend, Browser Run's minutes, Plaid's and BILL's fees, and texts no agent's
-    run sent (notifications, sign-in codes, invitations, inbound): not counted at all.
-  - Texts and call minutes: counted at placeholder unit costs (0009). Model, embedding and
-    transcription prices are still unverified.
+- **Costs not yet counted** (an audit of 2026-11-22, for build plans 11 and `docs/plan.md` §1.199;
+  most are now metered, §1.210, #559 and #580):
+  - BILL's per-payment fee: payments are refused until a trusted session exists, so it is to be
+    metered when they are turned on.
+  - Deal emails, the dev queue's notices to operators, and texts to the agents' own code numbers
+    (`apps/mfa`): still not counted.
+  - Unit costs are placeholders, marked `UNIT_COSTS_CHECKED_ON = "unverified"`: texts and calls
+    (0009) and email, Browser Run, Verify and Plaid (0095). Model, embedding and transcription
+    prices are still unverified.
+
+### Round 4 (2026-11-22; `docs/plan.md` §1.208–§1.214)
+
+Built: the first-load cut (§1.208), the records test's flake (§1.209), metering (§1.210), the
+verifier and evidence (§1.211), the eval harness (§1.212), file and email intake (§1.213) and a
+report per agent (§1.214). What is left:
+
+- **Evidence and a verifier before writes (§1.211).** Built: the verifier before every write of an
+  agent with `oversight.verify: writes` (new agents, Builder drafts, the Bookkeeper's v7 and Vendor
+  contracts' v4), the evidence panel on every change card in both inboxes, and each client's dollar
+  thresholds (only tighten). Open:
+  - **The owner decides the verifier's model.** It runs on the agent's oversight model, else its
+    own: about 1–2 cents a write on both templates' model (3,000–8,000 tokens in, 300 out at $2 and
+    $10 a million), at most about 12 cents when a run's sources fill every limit. A smaller model
+    would be under 0.2 cents. A cheaper or a different provider's model for the check alone would
+    be a new setting (`oversight.verifyModel`), not built.
+  - **How often it is wrong.** Nothing yet counts disagreements a person overruled; the model
+    calls are there (`model_call` action `check`) to measure it on staging.
+  - **Clients' copies.** A client's Bookkeeper or invoice review takes `verify` only by the usual
+    reviewed update merge to the new template version; existing agents stay off until then.
+  - **The phone app's Desk** shows no evidence panel yet (`apps/mobile`).
+  - **Pack review cards** (the bookings review, the match review) propose no write themselves and
+    show their own data; the write each approved line becomes has its own card, with the panel.
+- **Re-record fixtures with a live key.** The eval harness's answers (§1.212) and the verifier's
+  recorded answer (§1.211) are hand-written (`handWritten`). Record real ones with a key
+  (`LLM_MODE=record`); the harness then compares them with the same goldens.
+- **File and email intake (§1.213), not built:** a back-office screen for report profiles (the
+  routes are there; it loads lazily); a screen that lists platform alerts, so the Desk shows
+  intake's alerts; landing reports from portal uploads; reports in the body of an email.
+- **Metering (§1.210):** a run view that adds a run's metered rows (`run.cost_usd` stays model
+  cost). What is still not counted is under "Costs not yet counted" above.
+- **The first load (§1.208):** 301.9 kB against 335 kB. The way toward 300 kB is in H9 above.
 
 ### Owner decisions still open (`docs/plan.md` §7 and the sections named)
 
@@ -597,9 +630,10 @@ Fixed in one PR. What is still open from it:
 
 ### Docs housekeeping
 
-- `docs/ARCHITECTURE.md` is v0.21. The Marketing area (`docs/marketing-plan.md` §9) and the
-  Bookkeeping area (`docs/plan.md` §1.79) are still to be folded into it. CLAUDE.md's status
-  line still says v0.15.
+- `docs/ARCHITECTURE.md` is v0.22 (the verifier, §10.18). The eval harness (`docs/plan.md`
+  §1.212) and metering (§1.210) have no ARCHITECTURE section yet. The Marketing area
+  (`docs/marketing-plan.md` §9) and the Bookkeeping area (`docs/plan.md` §1.79) are still to be
+  folded into it. CLAUDE.md's status line still says v0.15.
 - `docs/hipaa-plan.md` §1 ("Merge the code") lists PRs that were merged long ago.
 
 ## Suggested order
