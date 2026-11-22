@@ -5,6 +5,7 @@
 
 import { createOAuthState } from "@countersign/connectors";
 import {
+  accountReportRoutes,
   adjustRoutes,
   agentReportRoutes,
   allRoutes,
@@ -99,6 +100,32 @@ describe("route contract (static)", () => {
     }
     expect(agentReportRoutes.opsAgentReport.roles).toEqual(["operator"]);
     expect(agentReportRoutes.opsAgentReportCsv.roles).toEqual(["operator"]);
+  });
+
+  // R5 (docs/plan.md §1.235): the report per account.
+  it("keeps the account report's portal routes to clients, with no cost, errors or Needs us", () => {
+    for (const r of [
+      accountReportRoutes.portalAccountReport,
+      accountReportRoutes.portalAccountReportCsv,
+    ]) {
+      expect(routeFamily(r)).toBe("portal");
+      expect(r.roles).toEqual(["client_admin", "client_user"]);
+      expect(forbiddenPortalFields(r.response)).toEqual([]);
+    }
+    const json = JSON.stringify(
+      z.toJSONSchema(accountReportRoutes.portalAccountReport.response, { unrepresentable: "any" }),
+    );
+    for (const key of ['"needsUs"', '"errorKey"', '"costOver"', '"mode"', '"clients"']) {
+      expect(json).not.toContain(key);
+    }
+    for (const r of [
+      accountReportRoutes.opsClientReport,
+      accountReportRoutes.opsClientReportCsv,
+      accountReportRoutes.opsAccounts,
+    ]) {
+      expect(routeFamily(r)).toBe("ops");
+      expect(r.roles).toEqual(["operator"]);
+    }
   });
 
   it("keeps the back office's client view of an agent to operators, as the portal's answer", () => {
