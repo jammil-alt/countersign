@@ -1,4 +1,4 @@
-# What's still open (2026-11-22)
+# What's still open (2026-11-08)
 
 One list of everything that is still open, gathered from `docs/plan.md`, `docs/marketing-plan.md`,
 `docs/operations.md`, `docs/hipaa-plan.md` and each connector's `NOTES.md`. Those stay the
@@ -6,24 +6,18 @@ source for the details; this page says what is left and in what order. Priority 
 2026-11-08): **1. the purchasing agent working, 2. the marketing site, 3. the connectors and
 the rest.**
 
-**The order we work it in** (2026-11-22): `docs/work-plan.md`, one item and one PR at a time,
-code and the owner's steps side by side. Reporting and searching runs by their data is agreed
-in `docs/reporting-plan.md`; R1 and R3 (a record's Runs panel, §1.200) are built.
-
 ## Where things stand
 
-- **Built:** everything through M69 (`docs/plan.md` §4) and the work recorded through §1.207,
-  migrations through 0080, merged to `main` and deployed to staging. That includes purchasing end
-  to end by email (M42), the Marketing wave (M43–M50), the Bookkeeping area (M51–M57), the back
-  office's Sales, onboarding and Build (M64–M69), the SOP and agent assurance.
+- **Built:** everything through M50 (`docs/plan.md` §4), migrations through 0038, merged to `main`
+  and deployed to staging (`https://staging.mezonas.com/api/health` answers 200). That includes
+  purchasing end to end by email (M42), message translation (M40), US texting registration (M41)
+  and the whole Marketing wave (M43–M50).
 - **Every provider is built against a fake.** Nothing has yet run against live QuickBooks, Gmail,
   Resend, Twilio, Meta, ElevenLabs, Stripe, Plaid, Search Console or the others.
 - **Templates to production** (owner, 2026-11-16): planned in `docs/plan.md` §1.118, not built. Only
   a template's tested set-up moves from staging to production, never client agents or their data.
-- **Unmerged work:** the 2026-11-15 backlog (`docs/merge-backlog.md`) has all landed: token
-  counts, the phone app, area owners, removing a person, §1.118 and the approval link (§1.120).
-  #518 and #520 (a workflow's starts; testing some of the steps) merged on 2026-11-22. Open:
-  #501 (the issue close-out, a stale draft; the owner to say finish or close).
+- **Unmerged work:** on 2026-11-15, 11 branches of finished work had never reached `main`, most
+  with no PR. What they hold and the order to merge them: `docs/merge-backlog.md`.
 - Production is live from a hand-run deploy of `747d7ff`
   (2026-11-09, migrations through 0041) but has had no `v*` tag; its next release is an upgrade.
 - Almost everything below is **a setup step, a key or a decision for the owner**, not code. Where
@@ -68,14 +62,11 @@ emailed and the QuickBooks purchase order is created; every write is approved on
    `materials.quote.create` and `quote.document`, reach out in a `for_each`, `quote.mark-sent`,
    `read-quote`, the vendor-choice card, the PO PDF, `materials.vendor.qbo`, `materials.po.qbo-lines`,
    `qbo.purchaseorder.create`). `apps/api/src/purchasing-email.test.ts` is the working recipe: copy its
-   workflow. Set the skill setting `qbo_account_id` (the expense account PO lines book to when an
-   item has no QuickBooks item; items the bill-price import saw are tied already, and
-   `materials.item.qbo` ties the rest, `docs/plan.md` §1.205).
+   workflow. Set the skill setting `qbo_account_id` (the expense account PO lines book to).
 6. **Bind its channels and connections** (email channel from P2, QuickBooks), test-run it, then take it
    through trial (every write signed).
 7. **Run the done-when** with real email from a test inbox, and walk the QuickBooks sandbox checks in
-   `packages/connectors/src/qbo/NOTES.md` ("Against the sandbox company", 1 to 9; 9 is the PO
-   with an item line, C2.4).
+   `packages/connectors/src/qbo/NOTES.md` ("Against the sandbox company", 1 to 8).
 
 ### 1.3 Owner decisions for the buyer (`docs/plan.md` §1.71)
 
@@ -86,25 +77,19 @@ emailed and the QuickBooks purchase order is created; every write is approved on
 
 ### 1.4 Known gaps (code, only if the test shows they matter)
 
-- A vendor's reply **from a colleague's address** (another address at the contact's own domain)
-  is kept on the thread without answering the reach-out (§1.194, #533), as one that comes
-  **after** the reach-out ended, or from the vendor's address but not proven, already is
-  (§1.129). Either way a person enters it (§1.65, §1.71). Not built: showing the colleague's
-  address on the thread line and adding them as a contact from there.
+- A vendor's reply **from a colleague's address** is dropped. One that comes **after** the reach-out
+  ended, or from the vendor's address but not proven, is kept on the thread without answering
+  the reach-out (§1.129). Either way a person enters it (§1.65, §1.71).
 - **More lines are held for a person** since the pack-size fix (`docs/plan.md` §1.144): a line
   with no clear pack size and no SKU gets no automatic match. Price observations filed wrongly
   before that fix stay as they are; nothing re-files them.
 - **Before the first purchasing client: a staging run with real invoices.** The fakes and the
   goldens don't cover how real vendors word their packs.
 - RFQs are English only; the vendor's language is open.
-- QuickBooks PO lines are item lines for catalog items tied to a QuickBooks item, account lines
-  for the rest (C2.4, `docs/plan.md` §1.205). Open: no screen shows or changes an item's
-  QuickBooks item (a step or the import ties it; changing a wrong tie is by hand in the database
-  today).
+- QuickBooks PO lines are account lines only (catalog items carry no QuickBooks item id).
 - The portal channel for conversations (§1.66).
-- **The vendor catalog** is built (`vendor_item`, migration 0047, §1.88) and purchasing reads and
-  fills it (§1.189, #529). Open: a request line doesn't keep which vendor item it matched, so a
-  request in boxes isn't sized by that vendor's box when quotes are compared.
+- **The vendor catalog** (`vendor_item`, plan §1.88): each vendor's items for the client with pack size,
+  unit conversion, last price and preferred vendor. Planned; one migration.
 
 ## 1b. The Bookkeeper (bank transactions into QuickBooks)
 
@@ -114,9 +99,8 @@ QuickBooks with notes on what each account is for, the Bookkeeping pack, the Qui
 and reconciliation (§1.80, M57: each linked account against QuickBooks monthly, a deposit against
 its payout statement, signed off on a card).
 
-**Bookkeeping stays off for clients** until the steps below are walked. The two double-write paths
-§1.145 left open are closed by Bookkeeper template v6 (§1.187, #525), reaching client agents only
-through the reviewed update. What was open:
+**Bookkeeping stays off for clients** (PR #401, `docs/plan.md` §1.145). Two paths can still write
+the same money twice. Neither is new: before #401 every re-send wrote both copies.
 
 1. **Two signatures.** The earlier copy's write was already laid out for a signature when the bank
    sent the transaction again, and a person then also approves the new copy. Closing it needs a
@@ -124,9 +108,7 @@ through the reviewed update. What was open:
 2. **Unrecorded deposits and transfers.** A deposit or transfer written but never recorded (the run
    stopped after the write). These don't sync back from QuickBooks, so the guard can't see them.
 
-Both are fixed in code. Before a client's Bookkeeping is switched on, run `qbo/NOTES.md`'s
-"Booking bank transactions" check 6 (the same-day query by the transaction's mark) with K4. Then,
-to go live:
+Code, before any client's Bookkeeping is switched on. Then, to go live:
 
 | # | Step | Notes |
 |---|---|---|
@@ -166,9 +148,11 @@ client's name"), before the first client's calls.
 
 ## 1e. Spreadsheets in and out, and a spreadsheet matched to Zoho (`docs/plan.md` §1.164)
 
-Built and merged (owner, 2026-11-20; #478 to #484: migration 0072, the Sales area's tables and
-`sales.match_records`, Reshape's `object`, Read table and Write table, Zoho's fields, Confirm
-matches and the template "Spreadsheet to Zoho"). Open for the owner: Zoho's field list, its scope and the
+Built (owner, 2026-11-20), in PRs to merge in this order: #478 (migration 0072, the Sales area's
+tables), #482 (the Sales area: keys, embeddings, `sales.match_records`), #479 (Reshape's `object`,
+a webhook's sample payload), #480 (Read table and Write table: CSV, XLSX, JSON), #481 (Zoho's
+fields), #484 (record ids aren't card numbers), #483 (Confirm matches, its look-up, the template
+"Spreadsheet to Zoho" and the happy path). Open for the owner: Zoho's field list, its scope and the
 50-field limit checked on the Mezonas Dev org before a client connects (existing Zoho connections
 sign in again for field lists); which client first, the fields matched on, and whether rows with no
 match make new leads; the portal's "attach PDFs or images" message, which doesn't name spreadsheets
@@ -222,7 +206,7 @@ then one pass of its "To verify" list against the real service.
 | Texts and calls | ElevenLabs (`elevenlabs`) | Account, `ELEVENLABS_API_KEY`, webhook secret. |
 | Texts and calls | All three | **Legal review** of consent, calling hours, recording consent and AI disclosure per country, before any live client call or text. In it, counsel checks the **relationship basis** (`docs/plan.md` §1.97), now for calls (an automated assistant, an artificial voice under the TCPA) and email only, and the **texting sign-up** that replaced it for texts (§1.98): the words beside the box, the invitation email, the confirmation text and the 10DLC opt-in, against the TCPA and the CTIA's messaging principles. |
 | Access | Code service (`apps/mfa`) | Confirm the domains; Email Routing for `agents.staging.mezonas.com`; the codes Twilio subaccount; then turn email codes on (`apps/mfa/NOTES.md`). |
-| Access | Browser logins (`browser`) | Turn on Browser Run (the `BROWSER` binding is in `apps/api/wrangler.jsonc` for staging and production); the first real low-tier site; legal review of agent accounts. |
+| Access | Browser logins (`browser`) | Turn on Browser Run; then merge the `BROWSER` binding PR (`claude/browser-binding`, jammil-alt/countersign#55); the first real low-tier site; legal review of agent accounts. |
 | Finance | Plaid (`bankfeed`) | §1b above (K1–K3): keys, sandbox checks, production review and OAuth banks; price per bank; BAA (until then not offered to HIPAA clients). Several banks per client is built. |
 | Finance | Ramp (`ramp`) | Developer app, `RAMP_*`. |
 | Finance | BILL (`billcom`, plan §1.87) | A BILL developer key, sandbox first (`BILL_DEV_KEY`; `docs/operations.md`), a dedicated BILL user's login entered by the client admin, then `NOTES.md`'s "To verify"; production after BILL's review. Decide: which BILL role our user gets; whether BILL goes on the site's subprocessors page (it is a processor, as Plaid is); BILL's BAA (until then not offered to HIPAA clients). **Code still needed for payments:** `billcom.payment.create` is defined, off and refused until BILL's MFA-trusted session can be reached through the code service (`apps/mfa`). |
@@ -238,25 +222,6 @@ then one pass of its "To verify" list against the real service.
 | Other | Webhooks (Zapier) | Works today; the published Zapier app is later (`webhook/NOTES.md`). |
 
 ## 4. Everything else
-
-### Evidence and a verifier before writes (round 4 item D, `docs/plan.md` §1.211)
-
-Built: the verifier before every write of an agent with `oversight.verify: writes` (new agents,
-Builder drafts, the Bookkeeper's v7 and Vendor contracts' v4), the evidence panel on every change
-card in both inboxes, and each client's dollar thresholds (only tighten). Open:
-
-- **The owner decides the verifier's model.** It runs on the agent's oversight model, else its own:
-  Claude Sonnet 5.5 for both templates, about 1–2 cents a write (3,000–8,000 tokens in, 300 out at
-  $2 and $10 a million), at most about 12 cents when a run's sources fill every limit. Claude Haiku
-  5.5 would be under 0.2 cents. A cheaper or a different provider's model for the check alone would
-  be a new setting (`oversight.verifyModel`), not built.
-- **How often it is wrong.** Nothing yet counts disagreements a person overruled; the model calls
-  are there (`model_call` action `check`) to measure it on staging.
-- **Clients' copies.** A client's Bookkeeper or invoice review takes `verify` only by the usual
-  reviewed update merge to the new template version; existing agents stay off until then.
-- **The phone app's Desk** shows no evidence panel yet (`apps/mobile`).
-- **Pack review cards** (the bookings review, the match review) propose no write themselves and show
-  their own data; the write each approved line becomes has its own card, with the panel.
 
 ### Back office work: Sales, onboarding and Build (merged 2026-11-17; onboarding O1–O3 merged)
 
@@ -285,13 +250,6 @@ Requirements request reading its card. All against fakes. What it still needs:
   The full list: `docs/plan.md` §1.149.5 and §1.149.6.
 - The owner's call: whether the deal page's old "Set up the account" card stays now that Invite
   does the set-up.
-- **Built (2026-11-22), PR #522:** setting a client up from the intake to the first trial
-  (`docs/setup-plan.md`, SU1–SU6; decisions `docs/plan.md` §1.206): **seats** (a template names
-  "approves bills"; each client fills it), Getting started's chapters (Your tools, Your people, See
-  it work with a test run on a real document, Go live with a signed scope) and the back office's
-  Setup tab (Progress: the board, Nudge, Do it on a call, the runbook, Start trial). Open: Sloan
-  across the chapters (O4), the scope as O5's `intake_scope`, server-side words in six languages,
-  tries stopped at a person step, and a look in a browser.
 
 The plan, its steps (B1–O6) and the owner's open questions: `docs/cases-plan.md`. The screens:
 `docs/design/pipelines.html` and `docs/design/workflows.html` (onboarding not drawn yet).
@@ -353,13 +311,13 @@ PRs #384–#414 closed the launch audit's findings for the first clients. What t
 | H1 | **Live checks on staging**: one run each of a conversation step, an agent-chosen path, an agent-judged repeat, an oversight review of a failed step and an AI second check, on the default models. | Owner, after merge | §1.149. The fake model now refuses what the API refuses, but nothing has run these on the live models. |
 | H2 | **The real-mail check** (§1 P5). | Owner, gate before production | §1.129. |
 | H3 | **GitHub and Hyperdrive settings** from PR #384: caching off on the two existing Hyperdrive configs (`wrangler hyperdrive update <id> --caching-disabled`, or run Bootstrap with `rotate_password` unticked); the `production` environment with required reviewers and deployment limited to `main` and `v*` tags. If `staging` allows only `main` to deploy, allow the branches that quick-deploy (`claude/*`). | Owner, by hand | `production` done (checked 2026-11-18: required reviewer, `main` and `v*` tags, no administrator bypass). Hyperdrive caching and `staging`'s branches not checked. `docs/operations.md`. |
-| H4 | ~~A per-site limit on the beacon~~ Done (#537, §1.198): its own binding `INBOUND_TARGET_RATE_LIMIT`, 3,000 a minute per site. Its namespaces are created by the next deploy. | Code and `wrangler.jsonc` | §1.141. |
-| H5 | ~~Transcription records no usage~~ Done (#536, §1.196): the portal's dictation is the client's usage under Sloan (one test run per segment), the back office's is logged as ours. Open: one live call on staging to check OpenAI's `usage` shape and prices; an action of its own on `model_call` needs a migration. | Code | §1.139. |
-| H6 | ~~"Who is asking" on the Claude approval page~~ Done (§1.201, migration 0078): the page shows the asking Claude client, in words, and where the request came from. | Migration, then code | §1.130. |
-| H7 | ~~The portal's resume screen~~ Done (#535, §1.195): it says how many events came in while the agent was paused. Open: a native speaker's check of the five other languages. | Code, copy in six languages | §1.137. |
-| H8 | **`refresh_failing` connections**: counted in the ops MCP's `needsAttention` and the daily troubled list since #527. Open: LinkedIn's and HubSpot's dead-grant codes come from their docs, not a live call. | Check live | §1.134. |
-| H9 | ~~The web app's first load~~ Done (#531, §1.192): 344 kB, budget 351 kB; main reached 350.8 kB with #523, and R2 (#534) raised the budget to 352 kB, so the headroom is used up. Next toward 300 kB: each portal screen on its own, the route contract split per screen, English on demand. | Code | audit 4.6 |
-| H10 | ~~Texting edge cases~~ Done (#538, §1.197; the link's own check of a number taken a moment before, fixed in #534). Open, for the owner: a forwarded invitation can still learn that a number is one of the client's contacts (`number_taken`), as before. | Code, small | §1.142. |
+| H4 | **A per-site limit on the beacon** needs a Rate Limiting binding of its own, set well above the per-address limit; on the shared binding one address could empty a site's allowance. | Code and `wrangler.jsonc` | §1.141. Only a per-address limit today. |
+| H5 | **Transcription records no usage**: voice typing's model calls have no cost or usage row. | Code | §1.139. They are limited per person (a call per segment of live dictation: 30 a minute, 1,500 a day). |
+| H6 | **"Who is asking" on the Claude approval page**: the Claude client's name and where the request came from. | Migration on `mcp_session_approval`, then code | §1.130. Today the page shows when Claude asked and takes Claude's code. |
+| H7 | **The portal's resume screen** doesn't show the events that arrived while an agent was paused (`missedEvents`); the back office's go-live panel does. | Code, copy in six languages | §1.137. |
+| H8 | **`refresh_failing` connections** show as connected with an open finding; the ops MCP's `needsAttention` and the daily troubled list count only `status = 'error'`, so they don't list them. LinkedIn's and HubSpot's dead-grant codes come from their docs, not a live call. | Code; check live | §1.134. |
+| H9 | **The web app's first load**: load each language's wording on demand, to bring it back under the old 470 kB. | Code | §1.146. 490 kB now; each screen loading only its own routes (audit 4.6) helps too. |
+| H10 | **Texting edge cases**: a brand-new number submitted twice at once can hit the contact phone index and get a 500 (as before #411); after an invitation is used up by a skipped submit, the link still shows the form, and submitting it gives 409 `used`. | Code, small | §1.142. |
 
 ### The phone app (owner, 2026-11-13; `docs/plan.md` §1.116, `apps/mobile/README.md`)
 
@@ -370,7 +328,7 @@ sign-in stays off until `MOBILE_SIGNIN=on` and phone notifications until `MOBILE
 
 | # | Step | Notes |
 |---|---|---|
-| M1 | ~~Merge migration 0056, the sign-in PR, then the app's PR.~~ Done: all three are on `main`. | |
+| M1 | **Merge migration 0056 first** (its own PR, re-chained after 0055), let it reach staging, then the sign-in PR, then the app's PR. | 0056 adds `person_device` and widens the notification channel check; the previous Worker keeps working. |
 | M2 | **An Expo account**, then in `apps/mobile`: `npx eas-cli login`, `npx eas-cli init` (makes the project; put its id in `EAS_PROJECT_ID` for builds, or in `app.config.ts`'s env). | Push tokens need the project id; without it the app skips notifications and still signs. |
 | M3 | **iPhone**: the Apple Developer Program (organisation account, $99 a year, D-U-N-S for Twelve Thirty-Four), then `npx eas-cli build --profile development --platform ios` and let EAS make the certificates and the push key (APNs). Register your phone with `npx eas-cli device:create` first. | Bundle id `com.mezonas.app`. Approving the developer account can take a day or more: start it first. |
 | M4 | **Android**: `npx eas-cli build --profile development --platform android` installs from a link. For push, a Firebase project: its `google-services.json` as the EAS file variable `GOOGLE_SERVICES_JSON`, and its FCM v1 service-account key uploaded with `npx eas-cli credentials`. Account steps: `apps/mobile/README.md`, "Accounts". The Play Console ($25 once) only for the store. | Package `com.mezonas.app`. |
@@ -378,20 +336,20 @@ sign-in stays off until `MOBILE_SIGNIN=on` and phone notifications until `MOBILE
 | M6 | Expo's **enhanced push security** on, and `MOBILE_PUSH` and `EXPO_ACCESS_TOKEN` copied by `deploy.yml` (a small PR of its own), before production's `MOBILE_PUSH=on`. | Until then anyone holding a phone's token could send it a notification through Expo. |
 | M7 | Owner decisions: a longer session for an unlocked registered phone (today 30 idle minutes, as the browser, and the second step's code at each sign-in); whether a remembered browser may let a phone sign-in skip the code (today never); whether operators get the app (today refused at the handoff); (the phone app as a second-step method: built 2026-11-18, A8); the store listing (name, screenshots, privacy answers); TestFlight testers. | `docs/plan.md` §1.116 "Not in this pass". |
 | M8 | Before production's `MOBILE_SIGNIN=on`: a page in the browser that asks the person to confirm before the handoff sends the session to the app, and the app's return on a universal link (iOS) and an app link (Android) instead of the `mezonas://` scheme, so only our app can receive the code. | Audit, 2026-11-17. The code is already useless without the app's PKCE verifier. |
-| M9 | ~~Signing follow-ups: a v2 signed text covering an answer's text and a note~~ Done (§1.203): the app signs `mezonas-sign:v2`; `v1` is still accepted. Owner decision left: when to refuse a `v1` signature that comes with an answer or a note (once every phone in use signs `v2`). The ±5 minute window is kept as is. | Owner decision. |
+| M9 | Signing follow-ups (audit, 2026-11-17): the signature covers the item, the decision, the fingerprint and the time, not a question's answer text or a note; a v2 signed text (`mezonas-sign:v2`) would add them. The time window is ±5 minutes, so a signature dated up to 5 minutes ahead is accepted. | Code. `deviceSignedText` in `packages/core/src/mobile/mobile.ts`. |
 | M10 | Decide: whether a release-code card may be resolved from a phone without a signature; whether a phone session may turn human release off (a setting, not a card). Possible, not checked: an admin's phone undoes another person's rejection, then a step set to `ifNoAnswer: proceed` goes on at its deadline. | Owner decisions; the last one needs a test first. |
 
 ### The desktop app (owner, 2026-11-17; `docs/plan.md` §1.151, `apps/desktop/README.md`)
 
 The app, core's protocol and the `desktop` connector are merged in one PR, built and tested against
-fakes; nothing has run on a Mac or a PC yet. The API takes computers since D2 and D3 (2026-11-22). To
+fakes; nothing has run on a Mac or a PC yet, and the API doesn't take computers until D2 and D3. To
 finish it:
 
 | # | Step | Notes |
 |---|---|---|
 | D1 | Owner review of §1.151's decisions (Electron; closed workbooks only; only files added after a folder is given; drive paths only; a long poll). | Each is a `// DECISION` in the code. |
-| D2 | ~~The migration~~ Done: 0080, `desktop_device` and `desktop_job` (#546). | `docs/plan.md` §1.204. |
-| D3 | ~~The API~~ Done: pairing and folders (client admin), the computer's signed routes, `services.desktop`, the connector registered, files into documents, with the contract tests (C5.2, #548). | `docs/plan.md` §1.204. A screen listing a client's computers is not built: they show as Desktop app connections. |
+| D2 | **Code, its own PR: the migration.** `desktop_device` (client, connection, name, platform, the public key as a JWK, app version, last seen, `revoked_at`; tenant RLS, never deleted, as `person_device`) and `desktop_job` (client, device, the request, issued and expiry times, the result; RLS). | The previous Worker keeps working: new tables only. |
+| D3 | **Code, its own PR: the API.** `POST/DELETE /api/desktop/devices` and `PUT …/folders` (client admin, session, `mount()`), the device's signed routes (`GET /api/desktop/jobs`, `POST …/jobs/:id/result`, `POST /api/desktop/files`; signature, time and key checked, `auditAlone`), `services.desktop` (queue a job, wait for its result), the connector registered in `platform.ts`, files into the documents capability. | Contract tests: no portal route returns the computer's key; a revoked computer's requests are refused. |
 | D4 | **A Mac and a PC**: `node apps/desktop/node_modules/electron/install.js`, then `MEZONAS_API_URL=https://staging.mezonas.com pnpm --filter @countersign/desktop start`, with `MOBILE_SIGNIN=on` on staging. Check each item in `packages/connectors/src/desktop/NOTES.md` (Excel's owner file on both, a written workbook opens without repair, OneDrive-synced folders, Mac privacy prompts). | |
 | D5 | **Signing certificates**: the Apple Developer ID (the same account as the phone, M3) for signing and notarising; for Windows, Azure Trusted Signing (or an OV certificate). | Without them Mac Gatekeeper and Windows SmartScreen warn on install. |
 | D6 | **The update feed**: an R2 bucket of ours behind `downloads.mezonas.com/desktop/`, and a release workflow that builds on macOS and Windows runners and uploads there (its own PR). | |
@@ -407,7 +365,7 @@ agent manual, the setup checklist, client adjustments and feedback, and governan
 | # | What | Notes |
 |---|---|---|
 | G1 | **Run the builds again on staging** (the Nexonia expense agent, invoice intake) and count the operator's actions from New to a running trial. Target: under 15. | `docs/builder-plan.md` §9. Owner, once this is deployed. |
-| G2 | ~~Merge #433~~ Merged. | |
+| G2 | **Merge #433** (Agree on "run the tests"; test cases cut off). | Part of B0 in the plan; not in this sprint's branches. |
 | G3 | A POC try on **a Sandbox record** (today an uploaded document or a JSON input; a record's id can be given as JSON). A **skill** tried on a document (skill cases run on fixtures only, so the API answers 422). | Code. |
 | G4 | Changing a decision's words directly from the Decisions card (today through the conversation, which marks it changed). A custom skill's step counted as writing in the high-risk check (only built-in skills are looked up). | Code. |
 | G5 | **Known risks counted from runs** (`ManualKnownRisk.hits` stays empty), and **deleting** a learned note from the manual (shown, read only). | Code. §1.153 already lists the count. |
@@ -452,10 +410,10 @@ client). Left:
 
 ### The agent's SOP (owner, 2026-11-21; `docs/sop-plan.md`, `docs/plan.md` §1.179, ARCHITECTURE v0.21 §10.17)
 
-Built and merged: S0 (PR #510), the `sop_revision` table (S1a, migration 0074, PR #511), S1 (PR
-#508) and W, the Workflow tab (PR #515): each client agent's SOP in the portal's SOP tab, made by
-code from its setup, with each step's method, model and purpose, its revision, date and history,
-Find, filters and printing. Left:
+Built: S0 (PR #510), the `sop_revision` table (S1a, migration 0074, PR #511) and S1 (PR #508): each
+client agent's SOP in the portal's SOP tab (the Manual tab's place), made by code from its setup,
+with each step's method, model and purpose, its revision, date and history, Find, filters and
+printing. Merge #510 and #511 before #508. Left:
 
 | # | What | Notes |
 |---|---|---|
@@ -464,7 +422,7 @@ Find, filters and printing. Left:
 | SOP-B | The Builder writes each step's purpose when it drafts (today the operator writes it in the step panel, else the SOP writes a plain line). Changes the Builder's requests, so its fixtures are re-recorded with a key (`LLM_MODE=record`). | Code, with a key. |
 | SOP-R | References: the client's own tagged policies by title, the agents it takes over from, its knowledge base; a step's entity-level settings and a person's own "show me first" on its line. | Code. |
 | SOP-T | Try it on staging after the merge: open an agent's SOP, change a connection's permission or the approval rules, and see revision n.1 with what changed and who. | Owner, after deploy. |
-| SOP-W | W, the Workflow tab, view only (`docs/sop-plan.md` §6a): merged (#515). Left: the chart's own few words in the six languages (zoom, "Otherwise", "Click to see it."), shared with the builder. | Code. |
+| SOP-W | W: the Workflow tab, view only (`docs/sop-plan.md` §6a): built (branch `claude/sop-w-workflow`, after #508). Left: the chart's own few words in the six languages (zoom, "Otherwise", "Click to see it."), shared with the builder. | Code. |
 | SOP-2 | S2: Sloan's `sop.read`, the Procedures page. | Code. |
 | SOP-3 | S3: share links, the accountable person, packs' own controls; only what the owner agrees. | Migrations, own PRs; a security review for share links. |
 
@@ -501,30 +459,6 @@ Left:
 | A8 | **Approving a sign-in on the phone** (`docs/plan.md` §1.154; PRs #429, #431, #432): built and tested against fakes; live only once the app is (M2 to M5 below) and push is on (M6). Then check on staging: a password sign-in offers the phone, the notification arrives, one Face ID, the right number signs in, a wrong number and "It wasn't me" stop it, the browser is remembered if asked. | Nothing tried yet on a real phone, Face ID or a real push. |
 | A9 | Phone approval, not built: an email to the person when a request is turned down; a phone approving a Claude connection (§1.120); the desktop app approving (§1.151). Owner to say which, if any. | §1.154, "Not in this pass". |
 
-### The staging walk-through (owner, 2026-11-22; `STAGING_QA.md`, `docs/plan.md` §1.207)
-
-Fixed in one PR. What is still open from it:
-
-- **Owner decisions:** one way to start a client (New client, Sign up now, New deal and Invite
-  each work differently today), and the words: Areas or Packs (Purchasing or Materials), owners,
-  processes, supervisor, lead, Reggie, Sloan, Kit.
-- **Check on staging after the deploy:** the Your call badge on Library and New client (not seen
-  locally; a test now covers every route), and why `GET …/skills` hangs there (the agent page no
-  longer waits on it). Reading staging from a Claude session needs the operator to approve its
-  connect-claude link first.
-- **Code:** back-office questions and Sloan's thread summaries record their cost only in logs
-  (a table, so a migration PR of its own); schedule wording is still 12-hour; deal and contact time
-  zones are still free text; a dependent write the model makes inside one skill still reads its
-  before state in a test run.
-- **Costs not yet counted** (an audit of 2026-11-22, for build plans 11 and `docs/plan.md` §1.199):
-  - The dev queue's reuse check: its model calls' cost is dropped.
-  - Reggie and its read pass: cost in each message's metadata, never added up.
-  - Builder, build and reshape turns: cost on their rows, but no screen adds them up.
-  - Email through Resend, Browser Run's minutes, Plaid's and BILL's fees, and texts no agent's
-    run sent (notifications, sign-in codes, invitations, inbound): not counted at all.
-  - Texts and call minutes: counted at placeholder unit costs (0009). Model, embedding and
-    transcription prices are still unverified.
-
 ### Owner decisions still open (`docs/plan.md` §7 and the sections named)
 
 - **Billing**: the credit allowance per agent, whether allowances pool across a client's agents
@@ -534,6 +468,15 @@ Fixed in one PR. What is still open from it:
   agent address form; client test cases never gating shared skills; who sets "on its own".
 - **Smaller defaults** (§7 item 10): the 60 s undo window, US federal holidays only, notification
   texts only from the client's own number, replay as a test run in the same client.
+
+### The process model's urgent notices (code; `docs/plan.md` §1.86, runtime wave 2c)
+
+- An urgent notice's person is told at once by email and text from the notify step itself
+  (`apps/api/src/notify/urgent.ts`), not through the `notification` outbox, so those sends have no
+  `notification` row (no retries after a failed send, no line in the notification counts; a failed
+  send is reported and the card waits for the items-waiting pass). Making it an outbox kind of its
+  own (`urgent`, never held for quiet hours) needs a migration of `notification_kind_check`; do it
+  in its own PR, then send from the outbox.
 
 ### Automations, repeat and the agent's choice (code; ARCHITECTURE v0.17, `docs/plan.md` §1.99)
 
@@ -546,9 +489,9 @@ Fixed in one PR. What is still open from it:
 
 ### Approvals bound to what was seen (code; audit 3.4, 2026-11-17)
 
-- The portal, the phone, the back office's own resolve and the operator's step-in send the
-  fingerprint of the card as shown, and the API refuses an answer to a card that changed since
-  (409 `changed`; the back office's since §1.191, #528).
+- The portal and the phone send the fingerprint of the card as shown, and the API refuses an
+  answer to a card that changed since (409 `changed`). Open: the back office's own resolve
+  (`/api/ops/inbox/:id/resolve`) and the operator's step-in don't check one yet.
 
 ### Language and legal
 
@@ -562,8 +505,8 @@ Fixed in one PR. What is still open from it:
 
 ### HIPAA, SOC 2 and PCI (`docs/hipaa-plan.md`)
 
-- Technical: **T1** is done: the MCP server refuses a client in HIPAA mode until claude.ai is
-  covered (§1.190, #526). **T2** is done: every model call outside a run,
+- Technical: **T1** (the MCP server doesn't check HIPAA mode) is a small code change worth doing
+  before a HIPAA client. **T2** is done: every model call outside a run,
   the Builder's included, goes through one entry point held to the clients' HIPAA mode
   (`docs/plan.md` §1.143). T3 (clients' own audit log page) next; T4–T10 are notes or later.
 - **Before any BAA is recorded** (PR #414): check that `BAA_PROCESSORS` is empty on production and
@@ -578,9 +521,9 @@ Fixed in one PR. What is still open from it:
 
 ### Docs housekeeping
 
-- `docs/ARCHITECTURE.md` is v0.21. The Marketing area (`docs/marketing-plan.md` §9) and the
-  Bookkeeping area (`docs/plan.md` §1.79) are still to be folded into it. CLAUDE.md's status
-  line still says v0.15.
+- `docs/ARCHITECTURE.md` is still v0.15: the Marketing area's v0.16 changes are listed in
+  `docs/marketing-plan.md` §9, and the Bookkeeping area's in `docs/plan.md` §1.79; neither is
+  written into it yet.
 - `docs/hipaa-plan.md` §1 ("Merge the code") lists PRs that were merged long ago.
 
 ## Suggested order
