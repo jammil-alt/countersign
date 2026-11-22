@@ -1,4 +1,4 @@
-// Migration 0090 (docs/plan.md §1.232, the Close pack): `close_period`, `close_item`,
+// Migration 0099 (docs/plan.md §1.232, the Close pack): `close_period`, `close_item`,
 // `close_entry` and `close_entry_line`. The Worker's role sees and writes only its own client's
 // rows, never deletes one, changes only the columns each table lets change, and nothing about a
 // signed-off close changes or is added to it.
@@ -23,7 +23,7 @@ async function errorCode(promise: Promise<unknown>): Promise<string | undefined>
   return undefined;
 }
 
-describe.skipIf(!online)("0090: the Close pack", () => {
+describe.skipIf(!online)("0099: the Close pack", () => {
   let t: TestDatabase;
   let A: ClientFixture;
   let B: ClientFixture;

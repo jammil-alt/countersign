@@ -49,6 +49,9 @@ export const ASSIGNED_USER_ROUTES: readonly string[] = [
   // Its architecture and security, the SOP's section 14 (docs/agent-assurance-plan.md §5).
   "GET /api/services/:id/assurance",
   "POST /api/services/:id/workflows/:slug/run",
+  // R4 (docs/plan.md §1.214): its report, read only, for an agent on their list.
+  "GET /api/services/:id/report",
+  "GET /api/services/:id/report.csv",
   // Their agents' runs.
   "GET /api/runs",
   "GET /api/runs/:id",

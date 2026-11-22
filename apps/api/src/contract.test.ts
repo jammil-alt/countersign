@@ -6,6 +6,7 @@
 import { createOAuthState } from "@countersign/connectors";
 import {
   adjustRoutes,
+  agentReportRoutes,
   allRoutes,
   buildPath,
   checkRouteContract,
@@ -17,6 +18,7 @@ import {
   sopRoutes,
 } from "@countersign/core";
 import { afterAll, describe, expect, it } from "vitest";
+import { z } from "zod";
 import { admin, createApiHarness, OPERATOR, user } from "./api.test-helper";
 
 const ROUTES = Object.entries(allRoutes) as [string, RouteSpec][];
@@ -79,6 +81,26 @@ describe("route contract (static)", () => {
   // §1.163: what a client sees for one agent, opened in the back office: operator-only, and the
   // portal page's own answer, so it carries nothing the portal may not. The running route is
   // checked in ops-client-agent-view.test.ts.
+  // R4 (docs/plan.md §1.214): the report per agent.
+  it("keeps the agent report's portal routes to clients, with no cost, tokens or errors", () => {
+    for (const r of [
+      agentReportRoutes.portalServiceReport,
+      agentReportRoutes.portalServiceReportCsv,
+    ]) {
+      expect(routeFamily(r)).toBe("portal");
+      expect(r.roles).toEqual(["client_admin", "client_user"]);
+      expect(forbiddenPortalFields(r.response)).toEqual([]);
+    }
+    const json = JSON.stringify(
+      z.toJSONSchema(agentReportRoutes.portalServiceReport.response, { unrepresentable: "any" }),
+    );
+    for (const key of ['"errors"', '"spend"', '"errorKey"', '"costOver"', '"mode"', '"clients"']) {
+      expect(json).not.toContain(key);
+    }
+    expect(agentReportRoutes.opsAgentReport.roles).toEqual(["operator"]);
+    expect(agentReportRoutes.opsAgentReportCsv.roles).toEqual(["operator"]);
+  });
+
   it("keeps the back office's client view of an agent to operators, as the portal's answer", () => {
     expect(routeFamily(routes.opsClientAgentView)).toBe("ops");
     expect(routes.opsClientAgentView.roles).toEqual(["operator"]);

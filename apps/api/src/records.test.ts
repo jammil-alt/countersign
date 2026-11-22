@@ -19,8 +19,6 @@ import { DEFAULT_FIXTURE_DIR } from "@countersign/llm/node";
 import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { admin, createApiHarness, OPERATOR, OTHER_OPERATOR, user } from "./api.test-helper";
-import { defaultDeps } from "./http";
-import { extractInBackground } from "./routes/documents";
 
 // biome-ignore lint/suspicious/noExplicitAny: response JSON in assertions
 type J = any;
@@ -95,22 +93,11 @@ describe.skipIf(!h)("record pages", () => {
       "/api/uploads",
       { method: "POST", headers: { [DEV_USER_HEADER]: admin("a") }, body: form },
       H.env,
-      { waitUntil: () => {}, passThroughOnException: () => {}, props: {} } as never,
     );
     const docId = ((await res.json()) as J).results[0].document.id as string;
-    await extractInBackground(
-      {
-        db: H.db,
-        env: H.env,
-        deps: {
-          ...defaultDeps,
-          objects: () => H.objects,
-          extractionTransport: () => H.extraction.transport,
-        },
-      },
-      A,
-      [docId],
-    );
+    // The upload reads the document after its response (docs/plan.md §1.209): wait for that one
+    // reading, rather than start a second beside it.
+    await H.settle();
     await H.t.db.update(document).set({ transactionId: t.id }).where(eq(document.id, docId));
     const [x] = await H.t.db
       .select()
