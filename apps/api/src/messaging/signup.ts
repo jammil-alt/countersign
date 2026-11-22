@@ -372,7 +372,7 @@ export async function submitTextSignup(
     try {
       return await submitOnce(db, payload, phone, body, origin, now);
     } catch (error) {
-      if (!isPhoneTaken(error)) throw error;
+      if (!isPhoneTaken(error) && !(error instanceof NumberJustTaken)) throw error;
       if (attempt >= 2) {
         throw new HttpError(
           409,
@@ -392,6 +392,13 @@ function numberTaken(t: TenantRow): HttpError {
     `That number belongs to someone else in ${t.name}'s contacts. Enter your own mobile number, or ask ${t.name}.`,
   );
 }
+
+/**
+ * The link's new contact found its number taken between the submit's lookup and its insert: the
+ * other submit committed in between, so `createContact`'s own check answered `contact_exists`
+ * before the index could. The same race as `contact_phone_key`, so the submit runs again.
+ */
+class NumberJustTaken extends Error {}
 
 /** A write that broke the client's one-contact-per-number index (`contact_phone_key`). */
 function isPhoneTaken(error: unknown): boolean {
@@ -468,11 +475,19 @@ function submitOnce(
         });
         return { tenantId: payload.t, client: t.name, phone, send: false };
       }
+      // DECISION (§1.197): under READ COMMITTED an invitation that commits the number after the
+      // lookup above makes `createContact`'s own check answer `contact_exists` (409) rather than
+      // the index's 23505, so that is the same race and runs the submit again too (PR #534's CI).
       row =
         found ??
         (await createContact(tx, payload.t, { name, phone }, null, now, {
           source: "text_signup",
           log: { via: "link" },
+        }).catch((error: unknown) => {
+          if (error instanceof HttpError && error.code === "contact_exists") {
+            throw new NumberJustTaken();
+          }
+          throw error;
         }));
       row = await recordTextSignup(tx, row, { source: TEXT_SIGNUP_SOURCES.link, evidence }, now);
     } else {
