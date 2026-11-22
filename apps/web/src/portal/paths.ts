@@ -57,6 +57,8 @@ export const PORTAL_PATHS = {
   texting: "/settings/texting",
   // Off the nav: reached from an agent, a run, Home or Sloan.
   reports: "/reports",
+  // docs/sop-plan.md S2: every agent's SOP in a row, with filters across them; from an SOP tab.
+  procedures: "/procedures",
   records: "/records",
   // §1.124: the client's Requests (its issues and asks), each a conversation with the lead.
   requests: "/requests",
