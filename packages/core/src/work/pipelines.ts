@@ -26,6 +26,8 @@ export const WORK_ISSUE_SOURCES = [
   "reggie",
   "legacy_request",
   "trial_rejection",
+  // A security check of an agent that didn't verify (docs/agent-assurance-plan.md §6, migration 0075).
+  "assurance",
 ] as const;
 export const WorkIssueSource = z.enum(WORK_ISSUE_SOURCES);
 export type WorkIssueSource = z.infer<typeof WorkIssueSource>;

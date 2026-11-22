@@ -585,6 +585,15 @@ export async function insertClient(db: Db, name: string): Promise<ClientFixture>
         view, changed_by_side, source)
       values (${tenantId}, ${a.id}, 1, 0, ${av.id}, ${"0".repeat(64)}, '{}'::jsonb, 'system', 'first')`;
   }
+  // 0075: one security check of the agent (docs/agent-assurance-plan.md §6), where it exists.
+  const [checks] = await db.$client<{ ok: boolean }[]>`
+    select to_regclass('public.control_check') is not null as ok`;
+  if (checks?.ok) {
+    await db.$client`
+      insert into control_check (tenant_id, agent_id, agent_version_id, check_id, kind, controls,
+        result, trigger)
+      values (${tenantId}, ${a.id}, ${av.id}, 'delete_off', 'setup', '{AGT-1}', 'verified', 'nightly')`;
+  }
   const [st] = await db
     .insert(billingStatement)
     .values({
