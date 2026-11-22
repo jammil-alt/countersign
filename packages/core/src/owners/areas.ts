@@ -32,6 +32,8 @@ const AREA_OF_PACK: Readonly<Record<string, OwnerArea>> = {
   sales: "sales",
   // §1.232: the Close pack extends the Bookkeeping area.
   close: "bookkeeping",
+  // Plan entry §1.233: the AP pack extends the Purchasing area (its base is `materials`).
+  ap: "purchasing",
 };
 
 /**

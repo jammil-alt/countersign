@@ -3,6 +3,7 @@
 // load (scripts/web-size.mjs). The API mounts them from their own group, and the contract and
 // access tests walk this whole list, so none of them skips a check.
 
+import { accountReportRoutes } from "./account-report";
 import { adjustRoutes } from "./adjust";
 import { agentReportRoutes } from "./agent-report";
 import { assistRoutes } from "./assist";
@@ -62,6 +63,8 @@ export const allRoutes = {
   ...soc2Routes,
   // R4 (docs/plan.md §1.214): the report per agent; its tabs load lazily, and its schema with them.
   ...agentReportRoutes,
+  // R5 (docs/plan.md §1.235): the report per account and /ops/accounts; their screens load lazily.
+  ...accountReportRoutes,
   // R6 (docs/plan.md §1.236): the portal's saved views; the strip on the runs list loads lazily,
   // and its schemas with it.
   ...portalViewRoutes,

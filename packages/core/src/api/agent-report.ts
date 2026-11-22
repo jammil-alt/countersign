@@ -39,13 +39,31 @@ export const AgentReportQuery = z.object({ from: IsoDay.optional(), to: IsoDay.o
 export const ReportAmount = z.object({ currency: z.string(), total: z.string().regex(DECIMAL_RE) });
 export type ReportAmount = z.infer<typeof ReportAmount>;
 
+/**
+ * A number and the filter that opens exactly the runs behind it; null when RunFilter can't say it
+ * exactly (who signed is a key, how they signed is not). R5's account report uses it too.
+ */
+export function reportFigure<F extends z.ZodType>(Filter: F) {
+  return z.object({ count: z.number().int().nonnegative(), filter: Filter.nullable() });
+}
+
+/** The figures each period is compared by: R4's headline, also each line of R5's report. */
+export const ReportHeadline = z.object({
+  from: IsoDay,
+  to: IsoDay,
+  runs: z.number().int(),
+  done: z.number().int(),
+  failed: z.number().int(),
+  finishMedianMs: z.number().int().nullable(),
+  waitMedianMs: z.number().int().nullable(),
+  approvals: z.number().int(),
+  changes: z.number().int(),
+});
+export type ReportHeadline = z.infer<typeof ReportHeadline>;
+
 /** What every report figure's schema is built from: its filter, the surface's RunFilter. */
 function reportSchemas<F extends z.ZodType>(Filter: F) {
-  /**
-   * A number and the filter that opens exactly the runs behind it; null when RunFilter can't say
-   * it exactly (who signed is a key, how they signed is not).
-   */
-  const Figure = z.object({ count: z.number().int().nonnegative(), filter: Filter.nullable() });
+  const Figure = reportFigure(Filter);
 
   /** Runs by how they ended, or stand now: the portal's five states. */
   const Outcomes = z.object({
@@ -62,18 +80,7 @@ function reportSchemas<F extends z.ZodType>(Filter: F) {
     p90Ms: z.number().int().nullable(),
   });
 
-  /** The figures each period is compared by. */
-  const Headline = z.object({
-    from: IsoDay,
-    to: IsoDay,
-    runs: z.number().int(),
-    done: z.number().int(),
-    failed: z.number().int(),
-    finishMedianMs: z.number().int().nullable(),
-    waitMedianMs: z.number().int().nullable(),
-    approvals: z.number().int(),
-    changes: z.number().int(),
-  });
+  const Headline = ReportHeadline;
 
   const Report = z.object({
     service: z.object({ id: z.string(), name: z.string() }),

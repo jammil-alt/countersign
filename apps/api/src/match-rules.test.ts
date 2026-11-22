@@ -46,7 +46,7 @@ describe.skipIf(!h)("saved match rules", () => {
       j(saved.json)
         .configs.map((c: { id: string }) => c.id)
         .sort(),
-    ).toEqual(["bank_to_ledger", "invoice_two_systems"]);
+    ).toEqual(["bank_to_ledger", "bill_to_po", "invoice_two_systems"]);
     const rows = await H.t.db.select().from(matchRule).where(eq(matchRule.tenantId, H.B.tenantId));
     expect(rows).toHaveLength(1);
   });

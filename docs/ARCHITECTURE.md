@@ -3476,8 +3476,6 @@ public page shows the client's name and the process, never an agent, a prompt or
 contract test covers its routes. 14: the model calls are held to the client's HIPAA mode, which is
 checked before a link is made.
 
----
-
 ### 10.23 The Close pack (Wave Y, owner 2026-11-22; `docs/plan.md` §1.232)
 
 Outside v1's scope, with the owner's yes (the owner's build plan 6). **A month's close of a client's
@@ -3520,6 +3518,33 @@ reconciliations and a pack never imports another pack. Migration 0090 adds its t
 - **Where it shows:** Reports → Month-end close in the portal (`/api/reports/close/close`, read
   only, one client, no agent, prompt or cost) and the client's Areas tab in the back office. Both
   load on their own.
+
+### 10.24 Accounts payable: bills to an approved list (Wave Y item Y4, owner 2026-11-22)
+
+**Outside v1's scope (§1); the owner said yes for Wave Y.** The AP pack (`ap`) takes vendor bills
+from email and uploads to a weekly approve-to-pay list a person approves. **It never pays:** nothing
+in it pays a bill, schedules a payment or writes to a client's tool. It is its own pack in the
+Purchasing area (`extends: "materials"`, core's `AREA_OF_PACK`), beside the Materials pack in
+`packs/materials/src/ap` because it reads that pack's purchase orders and a pack never imports
+another. The decisions are `docs/plan.md` §1.233.
+
+| Part | Where it lives | Made by |
+|---|---|---|
+| Intake | An invoice forwarded or uploaded is read and gets its purchase (`docs.record_purchase`, §1.104), as for Vendor contracts; the pack's template runs on `document.extracted` with valid totals | The platform |
+| The bill | `ap_bill`, one per purchase, and `ap_bill_line`, one per invoice line plus freight, each surcharge and tax: `ap.bill.prepare` (a Save to records write) | Code |
+| The order | Core's matching engine, configuration `bill_to_po`: the PO number the bill prints against each order's references, then a part of an order, then vendor and amount; a different PO number or currency is a hard veto (invariant 7). The fuzzy tier's pair is only proposed. Lines meet order lines by catalog item | Code; a person confirms a proposal |
+| Coding | A line takes the vendor's account only when its last year of bills (this pack's and QuickBooks') went to one account. A model may suggest one (`ap.suggest-accounts`); it is kept apart (`proposed_ledger_account_id`) until a person takes it | Code; a model suggests; a person codes |
+| Flags | A duplicate (vendor and invoice number, a copy, or a QuickBooks bill), a possible duplicate (amount and days), a price above the order beyond the client's tolerance (only in the same unit: never across units without a conversion rule), more billed than ordered or received, no order, not received, lines to code, read again. Each carries its records (invariant 10) | Code |
+| Receipts | `ap_receipt`, a log: an agent (`ap.receipt.record`) or a person on the card marks an order, or its lines, received | An agent or a person |
+| The weekly list | `ap.pay_list.build` puts the bills due by the pay day (plus the client's days) on that week's list (`pay_week`, a Monday); the card `ap.pay_list` takes a person's decisions: approve (the ready ones together, a flagged one only with a note), hold or reject with a reason | A person |
+| Configuration | `tenant.settings.packs.ap`: pay day, days after it, price tolerance, the duplicate window, whether a missing order or receipt blocks | The operator |
+| Screens | Bills to pay (`/reports/ap/bills`, portal and back office) and the card, both loaded when opened | Code |
+
+**Invariants.** 1: three tables with forced RLS and composite keys. 6: amounts `numeric(14,4)` and
+decimal.js. 7: rules first, the engine's vetoes, a model only suggests, a person decides each bill.
+8: no write to a client's tool; a step that adds one starts with approval on. 9: invoice and vendor
+text only in tool results. 10: every bill, flag and suggestion names its records and agent version.
+11: the report and card show no agent, prompt or cost.
 
 ---
 
