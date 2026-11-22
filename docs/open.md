@@ -497,9 +497,9 @@ Left:
 
 ### Approvals bound to what was seen (code; audit 3.4, 2026-11-17)
 
-- The portal and the phone send the fingerprint of the card as shown, and the API refuses an
-  answer to a card that changed since (409 `changed`). Open: the back office's own resolve
-  (`/api/ops/inbox/:id/resolve`) and the operator's step-in don't check one yet.
+- The portal, the phone, the back office's own resolve and the operator's step-in send the
+  fingerprint of the card as shown, and the API refuses an answer to a card that changed since
+  (409 `changed`; the back office's since §1.191, #528).
 
 ### Language and legal
 

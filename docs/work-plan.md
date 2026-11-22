@@ -142,12 +142,12 @@ Several sessions at once, one item each:
 ## Progress
 
 Tick each one as it merges. Round 1 (2026-11-22): C1.1–C1.3 #525, C2.2 #529, C4.1 #526, C4.2 #527,
-C4.8 #531, R1's migration #524.
+C4.6 #528, C4.8 #531, R1's migration #524.
 
 - [x] C0.1 [x] C0.2 [ ] C0.3 [x] C0.4
 - [x] C1.1 [x] C1.2 [x] C1.3
 - [x] C2.1 [x] C2.2 [ ] C2.3 [ ] C2.4 [ ] C2.5
 - [ ] R1 [ ] R2 [ ] R3 [ ] R4 [ ] R5 [ ] R6
-- [x] C4.1 [x] C4.2 [ ] C4.3 [ ] C4.4 [ ] C4.5 [ ] C4.6 [ ] C4.7 [x] C4.8 [ ] C4.9 [ ] C4.10 [ ] C4.11
+- [x] C4.1 [x] C4.2 [ ] C4.3 [ ] C4.4 [ ] C4.5 [x] C4.6 [ ] C4.7 [x] C4.8 [ ] C4.9 [ ] C4.10 [ ] C4.11
 - [ ] C5.1 [ ] C5.2 [ ] C5.3
 - [ ] C6 [ ] C7 [ ] C8
