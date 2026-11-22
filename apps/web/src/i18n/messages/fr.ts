@@ -3942,6 +3942,43 @@ export const fr: Messages = {
   // (end setup: people)
 
   // ── setup: tools ── Getting started: Your tools (SU3)
+  "setup.tools.intro":
+    "Les agents travaillent dans vos propres comptes. Vous vous connectez sur la page de chaque outil ; nous ne voyons jamais de mot de passe.",
+  "setup.tools.none": "Vos agents n'ont encore besoin d'aucun outil.",
+  "setup.tools.adminOnly": "Votre administrateur les connecte et les vérifie.",
+  "setup.tools.usedBy": "Utilisé par {agents}",
+  "setup.tools.connected": "Connecté",
+  "setup.tools.waitingYou": "En attente de vous",
+  "setup.tools.waitingOn": "En attente de {name}",
+  "setup.tools.account":
+    "Vous vous êtes connecté à {account}. Est-ce l'entreprise que les agents doivent utiliser ?",
+  "setup.tools.accountChecked":
+    "Vous vous êtes connecté à {account}. Les agents utilisent cette entreprise.",
+  "setup.tools.yes": "Oui",
+  "setup.tools.different": "Une autre entreprise",
+  "setup.tools.checked": "Vérifié",
+  "setup.tools.reads": "Nous lirons",
+  "setup.tools.changes": "Nous pouvons modifier",
+  "setup.tools.never": "Jamais",
+  "setup.tools.nothing": "Rien",
+  "setup.tools.asksFirst": "Nous vous demandons d'abord, à chaque fois.",
+  "setup.tools.access": "Voir et régler ce que les agents peuvent faire dans {tool}",
+  "setup.tools.whoSignsIn": "Qui se connecte à {tool} ?",
+  "setup.tools.connect": "Moi : connecter {tool}",
+  "setup.tools.someoneElse": "Quelqu'un d'autre",
+  "setup.tools.sendTo": "Envoyer seulement cette carte à",
+  "setup.tools.choose": "Choisissez quelqu'un",
+  "setup.tools.send": "Envoyer",
+  "setup.tools.asked": "Nous l'avons demandé à {name}. C'est dans sa boîte de réception.",
+  "setup.tools.askedYou": "On vous a demandé de connecter celui-ci.",
+  "setup.tools.adminConnects": "Votre administrateur le connecte.",
+  "setup.tools.cannotConnect":
+    "Seul un administrateur peut connecter {tool}. Nommez cette personne administrateur dans Équipe, ou connectez-le vous-même.",
+  "setup.tools.noOne":
+    "Il n'y a encore personne d'autre dans votre équipe. Invitez cette personne d'abord dans Équipe.",
+  "setup.tools.lookTitle": "Ce que nous voyons dans {tool}",
+  "setup.tools.lookHint":
+    "Compté à partir de vos données, pas deviné. Vérifiez chaque ligne et les agents partent de là.",
   // (end setup: tools)
 
   // ── setup: see ── Getting started: See it work (SU4, SU5)

@@ -3896,6 +3896,42 @@ export const it: Messages = {
   // (end setup: people)
 
   // ── setup: tools ── Getting started: Your tools (SU3)
+  "setup.tools.intro":
+    "Gli agenti lavorano nei suoi account. Lei accede dalla pagina di ogni strumento; non vediamo mai una password.",
+  "setup.tools.none": "I suoi agenti non hanno ancora bisogno di strumenti.",
+  "setup.tools.adminOnly": "Il suo amministratore li collega e li controlla.",
+  "setup.tools.usedBy": "Usato da {agents}",
+  "setup.tools.connected": "Collegato",
+  "setup.tools.waitingYou": "In attesa di lei",
+  "setup.tools.waitingOn": "In attesa di {name}",
+  "setup.tools.account":
+    "Ha effettuato l'accesso a {account}. È l'azienda che gli agenti devono usare?",
+  "setup.tools.accountChecked":
+    "Ha effettuato l'accesso a {account}. Gli agenti usano quell'azienda.",
+  "setup.tools.yes": "Sì",
+  "setup.tools.different": "Un'altra azienda",
+  "setup.tools.checked": "Controllato",
+  "setup.tools.reads": "Leggeremo",
+  "setup.tools.changes": "Possiamo modificare",
+  "setup.tools.never": "Mai",
+  "setup.tools.nothing": "Niente",
+  "setup.tools.asksFirst": "Glielo chiediamo prima, ogni volta.",
+  "setup.tools.access": "Vedere e impostare cosa possono fare gli agenti in {tool}",
+  "setup.tools.whoSignsIn": "Chi accede a {tool}?",
+  "setup.tools.connect": "Io: collegare {tool}",
+  "setup.tools.someoneElse": "Un'altra persona",
+  "setup.tools.sendTo": "Inviare solo questa scheda a",
+  "setup.tools.choose": "Scelga qualcuno",
+  "setup.tools.send": "Invia",
+  "setup.tools.asked": "Lo abbiamo chiesto a {name}. È nella sua casella.",
+  "setup.tools.askedYou": "Le è stato chiesto di collegare questo.",
+  "setup.tools.adminConnects": "Lo collega il suo amministratore.",
+  "setup.tools.cannotConnect":
+    "Solo un amministratore può collegare {tool}. Lo renda amministratore in Team, o lo colleghi lei.",
+  "setup.tools.noOne": "Nel suo team non c'è ancora nessun altro. Lo inviti prima in Team.",
+  "setup.tools.lookTitle": "Cosa vediamo in {tool}",
+  "setup.tools.lookHint":
+    "Contato dai suoi dati, non indovinato. Controlli ognuno e gli agenti partono da lì.",
   // (end setup: tools)
 
   // ── setup: see ── Getting started: See it work (SU4, SU5)

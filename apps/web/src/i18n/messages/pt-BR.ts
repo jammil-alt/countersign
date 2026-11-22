@@ -3876,6 +3876,41 @@ export const ptBR: Messages = {
   // (end setup: people)
 
   // ── setup: tools ── Getting started: Your tools (SU3)
+  "setup.tools.intro":
+    "Os agentes trabalham nas suas próprias contas. Você entra na página de cada ferramenta; nunca vemos uma senha.",
+  "setup.tools.none": "Seus agentes ainda não precisam de nenhuma ferramenta.",
+  "setup.tools.adminOnly": "Seu administrador as conecta e confere.",
+  "setup.tools.usedBy": "Usada por {agents}",
+  "setup.tools.connected": "Conectada",
+  "setup.tools.waitingYou": "Esperando por você",
+  "setup.tools.waitingOn": "Esperando por {name}",
+  "setup.tools.account": "Você entrou em {account}. É a empresa que os agentes devem usar?",
+  "setup.tools.accountChecked": "Você entrou em {account}. Os agentes usam essa empresa.",
+  "setup.tools.yes": "Sim",
+  "setup.tools.different": "Outra empresa",
+  "setup.tools.checked": "Conferido",
+  "setup.tools.reads": "Vamos ler",
+  "setup.tools.changes": "Podemos alterar",
+  "setup.tools.never": "Nunca",
+  "setup.tools.nothing": "Nada",
+  "setup.tools.asksFirst": "Perguntamos antes, sempre.",
+  "setup.tools.access": "Ver e ajustar o que os agentes podem fazer em {tool}",
+  "setup.tools.whoSignsIn": "Quem entra em {tool}?",
+  "setup.tools.connect": "Eu: conectar {tool}",
+  "setup.tools.someoneElse": "Outra pessoa",
+  "setup.tools.sendTo": "Enviar só este cartão para",
+  "setup.tools.choose": "Escolha alguém",
+  "setup.tools.send": "Enviar",
+  "setup.tools.asked": "Pedimos a {name}. Está na caixa de entrada dessa pessoa.",
+  "setup.tools.askedYou": "Pediram que você conecte esta.",
+  "setup.tools.adminConnects": "Seu administrador a conecta.",
+  "setup.tools.cannotConnect":
+    "Só um administrador pode conectar {tool}. Torne a pessoa administradora em Equipe ou conecte você mesmo.",
+  "setup.tools.noOne":
+    "Ainda não há mais ninguém na sua equipe. Convide a pessoa primeiro em Equipe.",
+  "setup.tools.lookTitle": "O que vemos em {tool}",
+  "setup.tools.lookHint":
+    "Contado a partir dos seus registros, sem palpites. Confira cada um e os agentes partem deles.",
   // (end setup: tools)
 
   // ── setup: see ── Getting started: See it work (SU4, SU5)
