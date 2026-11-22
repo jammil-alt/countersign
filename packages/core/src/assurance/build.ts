@@ -17,7 +17,7 @@ import {
   type Levels,
 } from "./checks";
 import { agentCoverage, controlRefs } from "./coverage";
-import { providerTerms } from "./terms";
+import { providerKeeps, providerTerms } from "./terms";
 import type { ArchBox, ArchFlow, Architecture, AssuranceCheckRow, AssuranceView } from "./view";
 
 /** A check's latest stored result (`control_check`), and since when it has been in review. */
@@ -289,7 +289,7 @@ function aiRows(input: AssuranceInput): AssuranceView["ai"] {
           ? "Only what the rules can't place, as data"
           : "The step's input, as data",
       protection: protection(p),
-      providerKeeps: providerTerms(p).retention ?? "Not recorded yet",
+      providerKeeps: providerKeeps(p),
     });
   }
   const embeds = new Map<string, (typeof input.calls)[number]>();
@@ -302,7 +302,7 @@ function aiRows(input: AssuranceInput): AssuranceView["ai"] {
       model: c.model.replace(/^[a-z]+:/, ""),
       sent: "Item and record names only",
       protection: protection(c.provider),
-      providerKeeps: providerTerms(c.provider).retention ?? "Not recorded yet",
+      providerKeeps: providerKeeps(c.provider),
     });
   }
   return rows;

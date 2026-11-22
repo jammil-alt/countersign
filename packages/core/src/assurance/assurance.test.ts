@@ -12,6 +12,7 @@ import {
   runAssuranceChecks,
 } from "./checks";
 import { agentCoverage, checkedControls, INHERITED_CONTROLS, notApplicable } from "./coverage";
+import { providerKeeps, providerTerms } from "./terms";
 import { AssuranceView } from "./view";
 
 // Agent assurance (docs/agent-assurance-plan.md): the checks on "Bills in" at Harbor Millwork, the
@@ -153,11 +154,37 @@ describe("the checks (docs/agent-assurance-plan.md §4)", () => {
   it("is in review for a provider whose training terms aren't recorded", () => {
     const outs = runAssuranceChecks(
       input({
-        calls: [{ provider: "xai", model: "xai:grok-4.7", action: "agent_turn", count: 3 }],
+        calls: [
+          { provider: "xai", model: "xai:grok-4.7", action: "agent_turn", count: 3 },
+          { provider: "anthropic_web", model: "web", action: "agent_turn", count: 1 },
+        ],
       }),
     );
     expect(result(outs, "no_training")?.result).toBe("in_review");
-    expect(result(outs, "no_training")?.found).toBe("Not recorded yet for xAI");
+    expect(result(outs, "no_training")?.found).toBe(
+      "Not recorded yet for Anthropic web search and fetch",
+    );
+  });
+
+  it("records each model provider's terms from its own pages (§1.231.1)", () => {
+    for (const p of ["anthropic", "openai", "xai", "google"] as const) {
+      expect(providerTerms(p).training, p).toBe("no");
+      expect(providerTerms(p).retention, p).toBeTruthy();
+    }
+    // OpenAI's page doesn't say where a project without data residency is processed.
+    expect(providerTerms("openai").region).toBeNull();
+    expect(providerKeeps("openai")).toMatch(/up to 30 days.*Where: not recorded yet\.$/);
+    expect(providerKeeps("xai")).toMatch(/^Requests and responses kept 30 days/);
+    expect(providerKeeps("twilio")).toBe("Not recorded yet");
+    const outs = runAssuranceChecks(
+      input({
+        calls: [
+          { provider: "xai", model: "xai:grok-4.7", action: "agent_turn", count: 3 },
+          { provider: "google", model: "google:gemini-3.1-pro", action: "agent_turn", count: 1 },
+        ],
+      }),
+    );
+    expect(result(outs, "no_training")?.result).toBe("verified");
   });
 });
 
@@ -251,6 +278,7 @@ describe("the view (§5)", () => {
       "Step 3, Match each line · Anthropic",
       "Search by meaning · OpenAI",
     ]);
+    expect(v.ai[0]?.providerKeeps).toMatch(/within 30 days.*Where: Any available geography/);
     expect(v.access[0]).toMatchObject({
       tool: "QuickBooks Online",
       signsIn: "OAuth: you signed in to it for us",
