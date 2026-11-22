@@ -559,6 +559,16 @@ Fixed in one PR. What is still open from it:
   branch of production (§1.143).
 - Administrative: a security officer, the risk analysis, policies, training, sanctions, the client
   BAA and DPA, vendor BAAs, whether to use a compliance tool and when to start SOC 2's Type II period.
+- **SOC 2 readiness (built, Wave X, #560 and #571, `docs/plan.md` §1.218):** the readiness checklist
+  at `/ops/security/soc2`, the quarterly access review and its record, and the client-deletion drill
+  (`db:deletion-drill`). The owner's: adopt or edit the three draft policies in `docs/policies/`
+  (change management, incident response, vendor management), then set them to 1.0 in the files
+  and in `POLICIES` (`packages/core/src/compliance/controls.ts`); have counsel confirm the incident
+  response draft's notice periods (72 hours; HIPAA's 60 days); reword the information security
+  policy's §3 ("saved as a dated CSV") at its next review; run the first deletion drill on staging
+  after deploy (`docs/operations.md` §1.2); record 2026-Q4's access review before 31 December.
+  Not built: a Purge client workflow input so the drill runs from Actions (its own CI PR), the S-3
+  evidence pack, and vendor reviews and training recorded in the product.
 
 ### Docs housekeeping
 
