@@ -14,6 +14,7 @@ export {
   type RunEndStatus,
   type RunResult,
   // v0.12 W1-E
+  type RunRange,
   type RunResume,
   resumePoint,
   STEP_OUTPUT_MAX_BYTES,

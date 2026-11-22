@@ -1771,6 +1771,17 @@ export const opsRoutes = {
       payload: z.unknown().optional(),
       /** A template only: the served client whose data it runs on (default: the Sandbox). */
       clientId: ApiId.optional(),
+      /**
+       * A test of some of the steps (docs/plan.md §1.185): the first and last top-level step to
+       * run, and what the steps before the first are taken to have produced, by step id.
+       */
+      range: z
+        .strictObject({
+          from: z.string().min(1).max(100).optional(),
+          to: z.string().min(1).max(100).optional(),
+          given: z.record(z.string().min(1).max(100), z.unknown()).optional(),
+        })
+        .optional(),
     }),
     // For a template, the run belongs to its test copy: agentId and versionId name that copy.
     response: z.object({ runId: z.string(), agentId: z.string(), versionId: z.string() }),
