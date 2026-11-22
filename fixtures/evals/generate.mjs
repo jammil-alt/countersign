@@ -6,14 +6,18 @@
 // A case names `@name` for an id in its world (`@invoice`, `@item:baltic`, `@txn:shell`,
 // `@account:Fuel`); the runner fixes each from the case id, so the model's requests replay.
 
+import { spawnSync } from "node:child_process";
 import { writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const here = dirname(fileURLToPath(import.meta.url));
 
+const written = [];
 function write(path, dataset) {
-  writeFileSync(join(here, path), `${JSON.stringify(dataset, null, 2)}\n`);
+  const file = join(here, path);
+  writeFileSync(file, `${JSON.stringify(dataset, null, 2)}\n`);
+  written.push(file);
 }
 
 // ── Invoice review ─────────────────────────────────────────────────────────────────────────────
@@ -1383,3 +1387,6 @@ write("bookkeeper/daily.json", {
     "The Bookkeeper's morning: the bank feed read, what code can settle settled (matches with QuickBooks, transfers, the client's rules), the model's proposals for the rest with code deciding which a person sees, and each booking a person approved written to QuickBooks.",
   cases: booksCases,
 });
+
+// As the repository formats JSON (Biome), so `pnpm lint` passes on what was written.
+spawnSync("pnpm", ["exec", "biome", "format", "--write", ...written], { stdio: "inherit" });

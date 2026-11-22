@@ -87,7 +87,7 @@ async function withBroken(
   fn: () => Promise<void>,
 ) {
   const t = h?.platform.tools.get(toolId);
-  if (!t || t.kind !== "internal") throw new Error(`no internal tool ${toolId}`);
+  if (t?.kind !== "internal") throw new Error(`no internal tool ${toolId}`);
   const tool = t.tool as { run: (input: unknown, ctx: unknown) => Promise<unknown> };
   const run = tool.run;
   tool.run = async (input, ctx) =>

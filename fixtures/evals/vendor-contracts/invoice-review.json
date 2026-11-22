@@ -5,9 +5,7 @@
   "description": "Vendor contracts and invoice review: an invoice read and recorded, its lines matched to the catalog (rules first, the model for the rest, the hard rules vetoing it), its prices checked against history and the vendor's contract, the review notes, and the hand-off to accounts payable.",
   "cases": [
     {
-      "tags": [
-        "rules"
-      ],
+      "tags": ["rules"],
       "parameters": {},
       "answers": [],
       "id": "clean-two-lines",
@@ -104,10 +102,7 @@
       ]
     },
     {
-      "tags": [
-        "rules",
-        "handoff"
-      ],
+      "tags": ["rules", "handoff"],
       "parameters": {
         "materials.invoice-review": {
           "ap_email": "ap@golden-millwork.example"
@@ -227,9 +222,7 @@
       ]
     },
     {
-      "tags": [
-        "handoff"
-      ],
+      "tags": ["handoff"],
       "parameters": {
         "materials.invoice-review": {
           "ap_email": "accounts payable"
@@ -333,9 +326,7 @@
       ]
     },
     {
-      "tags": [
-        "history"
-      ],
+      "tags": ["history"],
       "parameters": {},
       "answers": [],
       "id": "jump-warning",
@@ -457,9 +448,7 @@
       ]
     },
     {
-      "tags": [
-        "history"
-      ],
+      "tags": ["history"],
       "parameters": {},
       "answers": [],
       "id": "jump-critical",
@@ -581,9 +570,7 @@
       ]
     },
     {
-      "tags": [
-        "history"
-      ],
+      "tags": ["history"],
       "parameters": {},
       "answers": [],
       "id": "within-threshold",
@@ -690,9 +677,7 @@
       ]
     },
     {
-      "tags": [
-        "history"
-      ],
+      "tags": ["history"],
       "parameters": {},
       "answers": [],
       "id": "price-down",
@@ -799,9 +784,7 @@
       ]
     },
     {
-      "tags": [
-        "history"
-      ],
+      "tags": ["history"],
       "parameters": {},
       "answers": [],
       "id": "over-average",
@@ -928,9 +911,7 @@
       ]
     },
     {
-      "tags": [
-        "history"
-      ],
+      "tags": ["history"],
       "parameters": {},
       "answers": [],
       "id": "vendor-spread",
@@ -978,9 +959,7 @@
             }
           ]
         },
-        "otherVendors": [
-          "Cascade Hardwoods"
-        ],
+        "otherVendors": ["Cascade Hardwoods"],
         "history": [
           {
             "item": "maple",
@@ -1056,10 +1035,7 @@
       ]
     },
     {
-      "tags": [
-        "history",
-        "handoff"
-      ],
+      "tags": ["history", "handoff"],
       "parameters": {
         "materials.invoice-review": {
           "ap_email": "ap@golden-millwork.example"
@@ -1201,9 +1177,7 @@
       ]
     },
     {
-      "tags": [
-        "contract"
-      ],
+      "tags": ["contract"],
       "parameters": {},
       "answers": [],
       "id": "contract-above",
@@ -1332,9 +1306,7 @@
       ]
     },
     {
-      "tags": [
-        "contract"
-      ],
+      "tags": ["contract"],
       "parameters": {},
       "answers": [],
       "id": "contract-below",
@@ -1463,9 +1435,7 @@
       ]
     },
     {
-      "tags": [
-        "contract"
-      ],
+      "tags": ["contract"],
       "parameters": {},
       "answers": [],
       "id": "contract-exact",
@@ -1579,9 +1549,7 @@
       ]
     },
     {
-      "tags": [
-        "contract"
-      ],
+      "tags": ["contract"],
       "parameters": {},
       "answers": [],
       "id": "contract-cents",
@@ -1710,9 +1678,7 @@
       ]
     },
     {
-      "tags": [
-        "contract"
-      ],
+      "tags": ["contract"],
       "parameters": {},
       "answers": [],
       "id": "not-on-contract",
@@ -1854,9 +1820,7 @@
       ]
     },
     {
-      "tags": [
-        "contract"
-      ],
+      "tags": ["contract"],
       "parameters": {},
       "answers": [],
       "id": "contract-expired",
@@ -1985,9 +1949,7 @@
       ]
     },
     {
-      "tags": [
-        "contract"
-      ],
+      "tags": ["contract"],
       "parameters": {},
       "answers": [],
       "id": "terms-mismatch",
@@ -2117,9 +2079,7 @@
       ]
     },
     {
-      "tags": [
-        "contract"
-      ],
+      "tags": ["contract"],
       "parameters": {},
       "answers": [],
       "id": "contract-two-lines",
@@ -2266,10 +2226,7 @@
       ]
     },
     {
-      "tags": [
-        "contract",
-        "handoff"
-      ],
+      "tags": ["contract", "handoff"],
       "parameters": {
         "materials.invoice-review": {
           "ap_email": "ap@golden-millwork.example",
@@ -2424,10 +2381,7 @@
       ]
     },
     {
-      "tags": [
-        "contract",
-        "handoff"
-      ],
+      "tags": ["contract", "handoff"],
       "parameters": {
         "materials.invoice-review": {
           "ap_email": "ap@golden-millwork.example",
@@ -2557,10 +2511,7 @@
       ]
     },
     {
-      "tags": [
-        "contract",
-        "handoff"
-      ],
+      "tags": ["contract", "handoff"],
       "parameters": {
         "materials.invoice-review": {
           "ap_email": "ap@golden-millwork.example",
@@ -2710,10 +2661,7 @@
       ]
     },
     {
-      "tags": [
-        "rules",
-        "model"
-      ],
+      "tags": ["rules", "model"],
       "parameters": {},
       "answers": [
         {
@@ -2890,9 +2838,7 @@
       ]
     },
     {
-      "tags": [
-        "rules"
-      ],
+      "tags": ["rules"],
       "parameters": {},
       "answers": [],
       "id": "black-not-plain",
@@ -2992,9 +2938,7 @@
       ]
     },
     {
-      "tags": [
-        "new"
-      ],
+      "tags": ["new"],
       "parameters": {},
       "answers": [],
       "id": "not-in-catalog",
@@ -3093,9 +3037,7 @@
       ]
     },
     {
-      "tags": [
-        "rules"
-      ],
+      "tags": ["rules"],
       "parameters": {},
       "answers": [],
       "id": "freight-billed",
@@ -3204,9 +3146,7 @@
       ]
     },
     {
-      "tags": [
-        "contract"
-      ],
+      "tags": ["contract"],
       "parameters": {},
       "answers": [],
       "id": "freight-included-contract",
@@ -3338,9 +3278,7 @@
       ]
     },
     {
-      "tags": [
-        "history"
-      ],
+      "tags": ["history"],
       "parameters": {},
       "answers": [],
       "id": "large-order",
@@ -3447,9 +3385,7 @@
       ]
     },
     {
-      "tags": [
-        "history"
-      ],
+      "tags": ["history"],
       "parameters": {},
       "answers": [],
       "id": "jump-and-spread",
@@ -3497,9 +3433,7 @@
             }
           ]
         },
-        "otherVendors": [
-          "Cascade Hardwoods"
-        ],
+        "otherVendors": ["Cascade Hardwoods"],
         "history": [
           {
             "item": "maple",
@@ -3585,10 +3519,7 @@
       ]
     },
     {
-      "tags": [
-        "contract",
-        "history"
-      ],
+      "tags": ["contract", "history"],
       "parameters": {},
       "answers": [],
       "id": "contract-and-history",
@@ -3709,9 +3640,7 @@
       ]
     },
     {
-      "tags": [
-        "new"
-      ],
+      "tags": ["new"],
       "parameters": {},
       "answers": [],
       "id": "mixed-catalog-and-new",
@@ -3823,9 +3752,7 @@
       ]
     },
     {
-      "tags": [
-        "rules"
-      ],
+      "tags": ["rules"],
       "parameters": {},
       "answers": [],
       "id": "sku-line",
@@ -3926,10 +3853,7 @@
       ]
     },
     {
-      "tags": [
-        "contract",
-        "handoff"
-      ],
+      "tags": ["contract", "handoff"],
       "parameters": {
         "materials.invoice-review": {
           "ap_email": "ap@golden-millwork.example"
@@ -4078,9 +4002,7 @@
       ]
     },
     {
-      "tags": [
-        "model"
-      ],
+      "tags": ["model"],
       "parameters": {},
       "answers": [
         {
@@ -4192,9 +4114,7 @@
       ]
     },
     {
-      "tags": [
-        "model"
-      ],
+      "tags": ["model"],
       "parameters": {},
       "answers": [
         {
@@ -4277,9 +4197,7 @@
       ]
     },
     {
-      "tags": [
-        "model"
-      ],
+      "tags": ["model"],
       "parameters": {},
       "answers": [
         {
@@ -4362,10 +4280,7 @@
       ]
     },
     {
-      "tags": [
-        "model",
-        "veto"
-      ],
+      "tags": ["model", "veto"],
       "parameters": {},
       "answers": [
         {
@@ -4448,9 +4363,7 @@
       ]
     },
     {
-      "tags": [
-        "model"
-      ],
+      "tags": ["model"],
       "parameters": {},
       "answers": [
         {
@@ -4562,10 +4475,7 @@
       ]
     },
     {
-      "tags": [
-        "model",
-        "veto"
-      ],
+      "tags": ["model", "veto"],
       "parameters": {},
       "answers": [
         {
@@ -4648,10 +4558,7 @@
       ]
     },
     {
-      "tags": [
-        "model",
-        "history"
-      ],
+      "tags": ["model", "history"],
       "parameters": {},
       "answers": [
         {

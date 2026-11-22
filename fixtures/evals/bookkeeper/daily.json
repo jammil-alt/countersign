@@ -5,9 +5,7 @@
   "description": "The Bookkeeper's morning: the bank feed read, what code can settle settled (matches with QuickBooks, transfers, the client's rules), the model's proposals for the rest with code deciding which a person sees, and each booking a person approved written to QuickBooks.",
   "cases": [
     {
-      "tags": [
-        "rules"
-      ],
+      "tags": ["rules"],
       "parameters": {},
       "answers": [],
       "trigger": {},
@@ -57,9 +55,7 @@
       ]
     },
     {
-      "tags": [
-        "match"
-      ],
+      "tags": ["match"],
       "parameters": {},
       "answers": [],
       "trigger": {},
@@ -112,9 +108,7 @@
       ]
     },
     {
-      "tags": [
-        "transfer"
-      ],
+      "tags": ["transfer"],
       "parameters": {},
       "answers": [],
       "trigger": {},
@@ -168,9 +162,7 @@
       ]
     },
     {
-      "tags": [
-        "model"
-      ],
+      "tags": ["model"],
       "parameters": {},
       "answers": [
         {
@@ -187,9 +179,7 @@
             }
           ],
           "notes": [],
-          "sources": [
-            "@txn:shell"
-          ]
+          "sources": ["@txn:shell"]
         }
       ],
       "trigger": {},
@@ -251,9 +241,7 @@
       ]
     },
     {
-      "tags": [
-        "model"
-      ],
+      "tags": ["model"],
       "parameters": {},
       "answers": [
         {
@@ -270,9 +258,7 @@
             }
           ],
           "notes": [],
-          "sources": [
-            "@txn:shell"
-          ]
+          "sources": ["@txn:shell"]
         }
       ],
       "trigger": {},
@@ -334,9 +320,7 @@
       ]
     },
     {
-      "tags": [
-        "transfer"
-      ],
+      "tags": ["transfer"],
       "parameters": {},
       "answers": [],
       "trigger": {},
@@ -398,9 +382,7 @@
       ]
     },
     {
-      "tags": [
-        "model"
-      ],
+      "tags": ["model"],
       "parameters": {},
       "answers": [
         {
@@ -427,10 +409,7 @@
             }
           ],
           "notes": [],
-          "sources": [
-            "@txn:shell",
-            "@txn:adobe"
-          ]
+          "sources": ["@txn:shell", "@txn:adobe"]
         }
       ],
       "trigger": {},
@@ -516,9 +495,7 @@
       ]
     },
     {
-      "tags": [
-        "model"
-      ],
+      "tags": ["model"],
       "parameters": {},
       "answers": [
         {
@@ -540,9 +517,7 @@
             }
           ],
           "notes": [],
-          "sources": [
-            "@txn:costco"
-          ]
+          "sources": ["@txn:costco"]
         }
       ],
       "trigger": {},
@@ -609,10 +584,7 @@
       ]
     },
     {
-      "tags": [
-        "model",
-        "guard"
-      ],
+      "tags": ["model", "guard"],
       "parameters": {},
       "answers": [
         {
@@ -634,9 +606,7 @@
             }
           ],
           "notes": [],
-          "sources": [
-            "@txn:costco"
-          ]
+          "sources": ["@txn:costco"]
         }
       ],
       "trigger": {},
@@ -684,9 +654,7 @@
       ]
     },
     {
-      "tags": [
-        "model"
-      ],
+      "tags": ["model"],
       "parameters": {},
       "answers": [
         {
@@ -703,9 +671,7 @@
             }
           ],
           "notes": [],
-          "sources": [
-            "@txn:acme"
-          ]
+          "sources": ["@txn:acme"]
         }
       ],
       "trigger": {},
@@ -768,9 +734,7 @@
       ]
     },
     {
-      "tags": [
-        "model"
-      ],
+      "tags": ["model"],
       "parameters": {},
       "answers": [
         {
@@ -787,9 +751,7 @@
             }
           ],
           "notes": [],
-          "sources": [
-            "@txn:int"
-          ]
+          "sources": ["@txn:int"]
         }
       ],
       "trigger": {},
@@ -853,9 +815,7 @@
       ]
     },
     {
-      "tags": [
-        "model"
-      ],
+      "tags": ["model"],
       "parameters": {},
       "answers": [
         {
@@ -872,9 +832,7 @@
             }
           ],
           "notes": [],
-          "sources": [
-            "@txn:fee"
-          ]
+          "sources": ["@txn:fee"]
         }
       ],
       "trigger": {},
@@ -937,10 +895,7 @@
       ]
     },
     {
-      "tags": [
-        "model",
-        "guard"
-      ],
+      "tags": ["model", "guard"],
       "parameters": {},
       "answers": [
         {
@@ -957,9 +912,7 @@
             }
           ],
           "notes": [],
-          "sources": [
-            "@txn:shell"
-          ]
+          "sources": ["@txn:shell"]
         }
       ],
       "trigger": {},
@@ -1021,10 +974,7 @@
       ]
     },
     {
-      "tags": [
-        "model",
-        "guard"
-      ],
+      "tags": ["model", "guard"],
       "parameters": {},
       "answers": [
         {
@@ -1041,9 +991,7 @@
             }
           ],
           "notes": [],
-          "sources": [
-            "@txn:shell"
-          ]
+          "sources": ["@txn:shell"]
         }
       ],
       "trigger": {},
@@ -1105,10 +1053,7 @@
       ]
     },
     {
-      "tags": [
-        "model",
-        "guard"
-      ],
+      "tags": ["model", "guard"],
       "parameters": {},
       "answers": [
         {
@@ -1125,9 +1070,7 @@
             }
           ],
           "notes": [],
-          "sources": [
-            "@txn:inj"
-          ]
+          "sources": ["@txn:inj"]
         }
       ],
       "trigger": {},
@@ -1189,9 +1132,7 @@
       ]
     },
     {
-      "tags": [
-        "settings"
-      ],
+      "tags": ["settings"],
       "parameters": {},
       "answers": [],
       "trigger": {},
@@ -1245,9 +1186,7 @@
       ]
     },
     {
-      "tags": [
-        "settings"
-      ],
+      "tags": ["settings"],
       "parameters": {},
       "answers": [],
       "trigger": {},
@@ -1303,9 +1242,7 @@
       ]
     },
     {
-      "tags": [
-        "settings"
-      ],
+      "tags": ["settings"],
       "parameters": {},
       "answers": [],
       "trigger": {},
@@ -1356,10 +1293,7 @@
       ]
     },
     {
-      "tags": [
-        "rules",
-        "model"
-      ],
+      "tags": ["rules", "model"],
       "parameters": {},
       "answers": [
         {
@@ -1376,9 +1310,7 @@
             }
           ],
           "notes": [],
-          "sources": [
-            "@txn:hd-refund"
-          ]
+          "sources": ["@txn:hd-refund"]
         }
       ],
       "trigger": {},
@@ -1447,9 +1379,7 @@
       ]
     },
     {
-      "tags": [
-        "rules"
-      ],
+      "tags": ["rules"],
       "parameters": {},
       "answers": [],
       "trigger": {},
@@ -1511,9 +1441,7 @@
       ]
     },
     {
-      "tags": [
-        "rules"
-      ],
+      "tags": ["rules"],
       "parameters": {},
       "answers": [],
       "trigger": {},
@@ -1573,9 +1501,7 @@
       ]
     },
     {
-      "tags": [
-        "match"
-      ],
+      "tags": ["match"],
       "parameters": {},
       "answers": [],
       "trigger": {},
@@ -1627,10 +1553,7 @@
       ]
     },
     {
-      "tags": [
-        "match",
-        "model"
-      ],
+      "tags": ["match", "model"],
       "parameters": {},
       "answers": [
         {
@@ -1647,9 +1570,7 @@
             }
           ],
           "notes": [],
-          "sources": [
-            "@txn:rk"
-          ]
+          "sources": ["@txn:rk"]
         }
       ],
       "trigger": {},
@@ -1720,10 +1641,7 @@
       ]
     },
     {
-      "tags": [
-        "match",
-        "model"
-      ],
+      "tags": ["match", "model"],
       "parameters": {},
       "answers": [
         {
@@ -1740,9 +1658,7 @@
             }
           ],
           "notes": [],
-          "sources": [
-            "@txn:rk"
-          ]
+          "sources": ["@txn:rk"]
         }
       ],
       "trigger": {},
@@ -1813,10 +1729,7 @@
       ]
     },
     {
-      "tags": [
-        "transfer",
-        "model"
-      ],
+      "tags": ["transfer", "model"],
       "parameters": {},
       "answers": [
         {
@@ -1833,9 +1746,7 @@
             }
           ],
           "notes": [],
-          "sources": [
-            "@txn:pay-out"
-          ]
+          "sources": ["@txn:pay-out"]
         }
       ],
       "trigger": {},
@@ -1903,12 +1814,7 @@
       ]
     },
     {
-      "tags": [
-        "rules",
-        "match",
-        "transfer",
-        "model"
-      ],
+      "tags": ["rules", "match", "transfer", "model"],
       "parameters": {},
       "answers": [
         {
@@ -1925,9 +1831,7 @@
             }
           ],
           "notes": [],
-          "sources": [
-            "@txn:shell"
-          ]
+          "sources": ["@txn:shell"]
         }
       ],
       "trigger": {},
@@ -2032,9 +1936,7 @@
       ]
     },
     {
-      "tags": [
-        "model"
-      ],
+      "tags": ["model"],
       "parameters": {},
       "answers": [
         {
@@ -2051,9 +1953,7 @@
             }
           ],
           "notes": [],
-          "sources": [
-            "@txn:chevron"
-          ]
+          "sources": ["@txn:chevron"]
         }
       ],
       "trigger": {},
@@ -2121,9 +2021,7 @@
       ]
     },
     {
-      "tags": [
-        "model"
-      ],
+      "tags": ["model"],
       "parameters": {},
       "answers": [
         {
@@ -2153,16 +2051,10 @@
             {
               "ledgerAccountId": "@account:Fuel",
               "note": "Shell is fuel",
-              "sources": [
-                "@txn:shell1",
-                "@txn:shell2"
-              ]
+              "sources": ["@txn:shell1", "@txn:shell2"]
             }
           ],
-          "sources": [
-            "@txn:shell1",
-            "@txn:shell2"
-          ]
+          "sources": ["@txn:shell1", "@txn:shell2"]
         }
       ],
       "trigger": {},
@@ -2252,19 +2144,14 @@
             "input": {
               "ledgerAccountId": "@account:Fuel",
               "note": "Shell is fuel",
-              "sources": [
-                "@txn:shell1",
-                "@txn:shell2"
-              ]
+              "sources": ["@txn:shell1", "@txn:shell2"]
             }
           }
         }
       ]
     },
     {
-      "tags": [
-        "post"
-      ],
+      "tags": ["post"],
       "parameters": {},
       "answers": [],
       "trigger": {},
@@ -2355,9 +2242,7 @@
       ]
     },
     {
-      "tags": [
-        "post"
-      ],
+      "tags": ["post"],
       "parameters": {},
       "answers": [],
       "trigger": {},
@@ -2448,9 +2333,7 @@
       ]
     },
     {
-      "tags": [
-        "post"
-      ],
+      "tags": ["post"],
       "parameters": {},
       "answers": [],
       "trigger": {},
@@ -2539,9 +2422,7 @@
       ]
     },
     {
-      "tags": [
-        "post"
-      ],
+      "tags": ["post"],
       "parameters": {},
       "answers": [],
       "trigger": {},
@@ -2638,10 +2519,7 @@
       ]
     },
     {
-      "tags": [
-        "post",
-        "transfer"
-      ],
+      "tags": ["post", "transfer"],
       "parameters": {},
       "answers": [],
       "trigger": {},
@@ -2729,10 +2607,7 @@
       ]
     },
     {
-      "tags": [
-        "post",
-        "model"
-      ],
+      "tags": ["post", "model"],
       "parameters": {},
       "answers": [
         {
@@ -2749,9 +2624,7 @@
             }
           ],
           "notes": [],
-          "sources": [
-            "@txn:adobe"
-          ]
+          "sources": ["@txn:adobe"]
         }
       ],
       "trigger": {},
@@ -2863,9 +2736,7 @@
       ]
     },
     {
-      "tags": [
-        "post"
-      ],
+      "tags": ["post"],
       "parameters": {},
       "answers": [],
       "trigger": {},
