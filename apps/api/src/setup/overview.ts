@@ -188,7 +188,11 @@ export async function gettingStarted(tx: Tx, input: OverviewInput): Promise<Gett
   }
 
   const see = await seeProgress(tx, { tenantId: input.tenantId, agentIds: ids });
-  const live = await liveProgress(tx, { tenantId: input.tenantId, agentIds: ids });
+  const live = await liveProgress(tx, {
+    tenantId: input.tenantId,
+    agentIds: ids,
+    userId: input.userId,
+  });
   for (const id of ids) {
     left.get(id)?.push(...(see.left.get(id) ?? []), ...(live.left.get(id) ?? []));
   }

@@ -4042,5 +4042,44 @@ export const fr: Messages = {
   // (end setup: see)
 
   // ── setup: live ── Getting started: Go live (SU6)
+  "setup.live.none": "Aucun agent n'attend sa mise en service.",
+  "setup.live.pick": "Choisissez un agent pour lire son périmètre.",
+  "setup.live.signed": "Signé",
+  "setup.live.toSign": "À signer",
+  "setup.live.eyebrow": "Périmètre · {agent} · version {version}",
+  "setup.live.does": "Ce qu'il fait",
+  "setup.live.reads": "Ce qu'il lit",
+  "setup.live.changes": "Ce qu'il peut modifier",
+  "setup.live.signs": "Qui signe",
+  "setup.live.answers": "Qui répond",
+  "setup.live.choices": "Vos choix",
+  "setup.live.open": "Encore ouvert",
+  "setup.live.nothing": "Rien",
+  "setup.live.waiting": "En attente de vous",
+  "setup.live.waitingAdmin": "En attente de votre administrateur",
+  "setup.live.yourScope": "Votre périmètre",
+  "setup.live.ready": "Votre {agent} est prêt pour son essai.",
+  "setup.live.signBody": "Signez le périmètre ci-dessus et {lead} lance l'essai.",
+  "setup.live.adminSigns": "Votre administrateur signe le périmètre. Puis {lead} lance l'essai.",
+  "setup.live.signedBy": "Signé par {name} le {date}. {lead} lance l'essai.",
+  "setup.live.signedOlder":
+    "La version {version} a été signée. Cette version a changé : il faut la signer à nouveau.",
+  "setup.live.yourLead": "votre interlocuteur",
+  "setup.live.checkedBy": "Vérifié par {lead}, votre interlocuteur",
+  "setup.live.sign": "Signer",
+  "setup.live.next": "La suite",
+  "setup.live.next.today": "Aujourd'hui",
+  "setup.live.next.todayBody": "Vous signez le périmètre.",
+  "setup.live.next.start": "Ensuite",
+  "setup.live.next.startBody": "{lead} lance l'essai. Il ne démarre jamais tout seul.",
+  "setup.live.next.trial": "{days} jours",
+  "setup.live.next.trialBody":
+    "Vous signez chaque changement sur votre bureau avant qu'il soit fait. Si quelque chose ne va pas, dites-le sur l'élément.",
+  "setup.live.next.checkin": "Jour 7",
+  "setup.live.next.checkinBody": "Un point avec {lead}.",
+  "setup.live.next.after": "Après l'essai",
+  "setup.live.next.afterBody":
+    "Vous décidez de ce qui peut se faire sans vous demander. Les approbations restent actives sauf si vous les changez.",
+  "setup.live.fromCall": "De notre appel : merci de vérifier",
   // (end setup: live)
 };

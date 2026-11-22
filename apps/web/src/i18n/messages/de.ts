@@ -4061,5 +4061,45 @@ export const de: Messages = {
   // (end setup: see)
 
   // ── setup: live ── Getting started: Go live (SU6)
+  "setup.live.none": "Kein Agent wartet darauf, live zu gehen.",
+  "setup.live.pick": "Wählen Sie einen Agenten, um seinen Umfang zu lesen.",
+  "setup.live.signed": "Unterschrieben",
+  "setup.live.toSign": "Zu unterschreiben",
+  "setup.live.eyebrow": "Umfang · {agent} · Version {version}",
+  "setup.live.does": "Was er tut",
+  "setup.live.reads": "Was er liest",
+  "setup.live.changes": "Was er ändern darf",
+  "setup.live.signs": "Wer unterschreibt",
+  "setup.live.answers": "Wer antwortet",
+  "setup.live.choices": "Ihre Entscheidungen",
+  "setup.live.open": "Noch offen",
+  "setup.live.nothing": "Nichts",
+  "setup.live.waiting": "Wartet auf Sie",
+  "setup.live.waitingAdmin": "Wartet auf Ihren Administrator",
+  "setup.live.yourScope": "Ihr Umfang",
+  "setup.live.ready": "Ihr {agent} ist bereit für die Testphase.",
+  "setup.live.signBody": "Unterschreiben Sie den Umfang oben, dann startet {lead} die Testphase.",
+  "setup.live.adminSigns":
+    "Ihr Administrator unterschreibt den Umfang. Dann startet {lead} die Testphase.",
+  "setup.live.signedBy": "Unterschrieben von {name} am {date}. {lead} startet die Testphase.",
+  "setup.live.signedOlder":
+    "Version {version} wurde unterschrieben. Diese Version hat sich geändert und muss erneut unterschrieben werden.",
+  "setup.live.yourLead": "Ihr Ansprechpartner",
+  "setup.live.checkedBy": "Geprüft von {lead}, Ihrem Ansprechpartner",
+  "setup.live.sign": "Unterschreiben",
+  "setup.live.next": "Wie es weitergeht",
+  "setup.live.next.today": "Heute",
+  "setup.live.next.todayBody": "Sie unterschreiben den Umfang.",
+  "setup.live.next.start": "Danach",
+  "setup.live.next.startBody": "{lead} startet die Testphase. Sie beginnt nie von selbst.",
+  "setup.live.next.trial": "{days} Tage",
+  "setup.live.next.trialBody":
+    "Sie unterschreiben jede Änderung auf Ihrem Schreibtisch, bevor sie gemacht wird. Stimmt etwas nicht, sagen Sie es direkt beim Eintrag.",
+  "setup.live.next.checkin": "Tag 7",
+  "setup.live.next.checkinBody": "Ein kurzes Gespräch mit {lead}.",
+  "setup.live.next.after": "Nach der Testphase",
+  "setup.live.next.afterBody":
+    "Sie entscheiden, was ohne Rückfrage laufen darf. Freigaben bleiben aktiv, solange Sie sie nicht ändern.",
+  "setup.live.fromCall": "Aus unserem Gespräch: bitte prüfen",
   // (end setup: live)
 };

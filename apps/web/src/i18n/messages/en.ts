@@ -3866,5 +3866,44 @@ export const en = {
   // (end setup: see)
 
   // ── setup: live ── Getting started: Go live (SU6)
+  "setup.live.none": "No agent is waiting to go live.",
+  "setup.live.pick": "Pick an agent to read its scope.",
+  "setup.live.signed": "Signed",
+  "setup.live.toSign": "To sign",
+  "setup.live.eyebrow": "Scope · {agent} · version {version}",
+  "setup.live.does": "What it does",
+  "setup.live.reads": "What it reads",
+  "setup.live.changes": "What it may change",
+  "setup.live.signs": "Who signs",
+  "setup.live.answers": "Who answers",
+  "setup.live.choices": "Your choices",
+  "setup.live.open": "Still open",
+  "setup.live.nothing": "Nothing",
+  "setup.live.waiting": "Waiting on you",
+  "setup.live.waitingAdmin": "Waiting on your admin",
+  "setup.live.yourScope": "Your scope",
+  "setup.live.ready": "Your {agent} is ready for its trial.",
+  "setup.live.signBody": "Sign the scope above and {lead} starts the trial.",
+  "setup.live.adminSigns": "Your admin signs the scope. Then {lead} starts the trial.",
+  "setup.live.signedBy": "Signed by {name} on {date}. {lead} starts the trial.",
+  "setup.live.signedOlder":
+    "Version {version} was signed. This version changed, so it needs a signature again.",
+  "setup.live.yourLead": "your lead",
+  "setup.live.checkedBy": "Checked by {lead}, your lead",
+  "setup.live.sign": "Sign",
+  "setup.live.next": "What happens next",
+  "setup.live.next.today": "Today",
+  "setup.live.next.todayBody": "You sign the scope.",
+  "setup.live.next.start": "Then",
+  "setup.live.next.startBody": "{lead} starts the trial. It never starts by itself.",
+  "setup.live.next.trial": "{days} days",
+  "setup.live.next.trialBody":
+    "You sign every change on your Desk before it is made. If something is wrong, say so on the item.",
+  "setup.live.next.checkin": "Day 7",
+  "setup.live.next.checkinBody": "A check-in with {lead}.",
+  "setup.live.next.after": "After the trial",
+  "setup.live.next.afterBody":
+    "You decide what can run without asking. Approvals stay on unless you change them.",
+  "setup.live.fromCall": "From our call: please check",
   // (end setup: live)
 } as const;

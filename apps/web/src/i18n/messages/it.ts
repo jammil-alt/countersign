@@ -3993,5 +3993,44 @@ export const it: Messages = {
   // (end setup: see)
 
   // ── setup: live ── Getting started: Go live (SU6)
+  "setup.live.none": "Nessun agente è in attesa della messa in funzione.",
+  "setup.live.pick": "Scelga un agente per leggerne l'ambito.",
+  "setup.live.signed": "Firmato",
+  "setup.live.toSign": "Da firmare",
+  "setup.live.eyebrow": "Ambito · {agent} · versione {version}",
+  "setup.live.does": "Cosa fa",
+  "setup.live.reads": "Cosa legge",
+  "setup.live.changes": "Cosa può modificare",
+  "setup.live.signs": "Chi firma",
+  "setup.live.answers": "Chi risponde",
+  "setup.live.choices": "Le sue scelte",
+  "setup.live.open": "Ancora aperto",
+  "setup.live.nothing": "Niente",
+  "setup.live.waiting": "In attesa di lei",
+  "setup.live.waitingAdmin": "In attesa del suo amministratore",
+  "setup.live.yourScope": "Il suo ambito",
+  "setup.live.ready": "Il suo {agent} è pronto per la prova.",
+  "setup.live.signBody": "Firmi l'ambito qui sopra e {lead} avvia la prova.",
+  "setup.live.adminSigns": "Il suo amministratore firma l'ambito. Poi {lead} avvia la prova.",
+  "setup.live.signedBy": "Firmato da {name} il {date}. {lead} avvia la prova.",
+  "setup.live.signedOlder":
+    "È stata firmata la versione {version}. Questa versione è cambiata, quindi va firmata di nuovo.",
+  "setup.live.yourLead": "il suo referente",
+  "setup.live.checkedBy": "Controllato da {lead}, il suo referente",
+  "setup.live.sign": "Firma",
+  "setup.live.next": "Cosa succede dopo",
+  "setup.live.next.today": "Oggi",
+  "setup.live.next.todayBody": "Lei firma l'ambito.",
+  "setup.live.next.start": "Poi",
+  "setup.live.next.startBody": "{lead} avvia la prova. Non parte mai da sola.",
+  "setup.live.next.trial": "{days} giorni",
+  "setup.live.next.trialBody":
+    "Lei firma ogni modifica sulla sua scrivania prima che venga fatta. Se qualcosa non va, lo dica sull'elemento.",
+  "setup.live.next.checkin": "Giorno 7",
+  "setup.live.next.checkinBody": "Un punto della situazione con {lead}.",
+  "setup.live.next.after": "Dopo la prova",
+  "setup.live.next.afterBody":
+    "Lei decide cosa può andare senza chiedere. Le approvazioni restano attive a meno che non le cambi.",
+  "setup.live.fromCall": "Dalla nostra chiamata: controlli, per favore",
   // (end setup: live)
 };

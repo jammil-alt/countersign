@@ -224,6 +224,8 @@ export * from "./email/authentication";
 export * from "./email/layout";
 export * from "./email/onboarding";
 export * from "./email/second-factor";
+// docs/plan.md §1.185 (SU6): the setup nudge, from the lead.
+export * from "./email/setup-nudge";
 // docs/plan.md §1.121: forms, "Request info"
 export * from "./forms";
 // docs/builder-plan.md §8 (B6): governance in tiers

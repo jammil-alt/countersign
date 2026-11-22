@@ -3971,5 +3971,44 @@ export const ptBR: Messages = {
   // (end setup: see)
 
   // ── setup: live ── Getting started: Go live (SU6)
+  "setup.live.none": "Nenhum agente está esperando para entrar em operação.",
+  "setup.live.pick": "Escolha um agente para ler o escopo dele.",
+  "setup.live.signed": "Assinado",
+  "setup.live.toSign": "Para assinar",
+  "setup.live.eyebrow": "Escopo · {agent} · versão {version}",
+  "setup.live.does": "O que faz",
+  "setup.live.reads": "O que lê",
+  "setup.live.changes": "O que pode alterar",
+  "setup.live.signs": "Quem assina",
+  "setup.live.answers": "Quem responde",
+  "setup.live.choices": "Suas escolhas",
+  "setup.live.open": "Ainda em aberto",
+  "setup.live.nothing": "Nada",
+  "setup.live.waiting": "Aguardando você",
+  "setup.live.waitingAdmin": "Aguardando seu administrador",
+  "setup.live.yourScope": "Seu escopo",
+  "setup.live.ready": "Seu {agent} está pronto para o teste.",
+  "setup.live.signBody": "Assine o escopo acima e {lead} inicia o teste.",
+  "setup.live.adminSigns": "Seu administrador assina o escopo. Depois, {lead} inicia o teste.",
+  "setup.live.signedBy": "Assinado por {name} em {date}. {lead} inicia o teste.",
+  "setup.live.signedOlder":
+    "A versão {version} foi assinada. Esta versão mudou, então precisa de nova assinatura.",
+  "setup.live.yourLead": "seu responsável",
+  "setup.live.checkedBy": "Revisado por {lead}, seu responsável",
+  "setup.live.sign": "Assinar",
+  "setup.live.next": "O que acontece depois",
+  "setup.live.next.today": "Hoje",
+  "setup.live.next.todayBody": "Você assina o escopo.",
+  "setup.live.next.start": "Depois",
+  "setup.live.next.startBody": "{lead} inicia o teste. Ele nunca começa sozinho.",
+  "setup.live.next.trial": "{days} dias",
+  "setup.live.next.trialBody":
+    "Você assina cada mudança na sua mesa antes de ela ser feita. Se algo estiver errado, diga no próprio item.",
+  "setup.live.next.checkin": "Dia 7",
+  "setup.live.next.checkinBody": "Uma conversa de acompanhamento com {lead}.",
+  "setup.live.next.after": "Depois do teste",
+  "setup.live.next.afterBody":
+    "Você decide o que pode rodar sem perguntar. As aprovações continuam ativas, a menos que você as altere.",
+  "setup.live.fromCall": "Da nossa ligação: confira, por favor",
   // (end setup: live)
 };
