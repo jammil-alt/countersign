@@ -4754,7 +4754,7 @@ open ai for voice.. build this". §1.107 left both out; this is voice. Attachmen
 | Routes | `POST /api/ops/transcribe?client=` (operators; the client the conversation is about) and `POST /api/transcribe` (the portal), slow routes: the body is the recording (webm, ogg, mp4, mp3 or wav, at most 4 MB), the answer `{ text }`. Nothing is stored or logged; the audit row is the route's own. The portal tells the model the language the person reads in (theirs, else the client's, else the browser's; `pt-BR` as `pt`); the back office leaves it to the model to detect. |
 | HIPAA mode | `VOICE_FEATURE` in `packages/core/src/compliance/processors.ts`: a client in HIPAA mode is refused (409 `hipaa`) until `openai` is in `BAA_PROCESSORS`, for its own people and for an operator dictating about it. An operator dictating with no client named (a template's Builder) isn't checked. // DECISION |
 | Words | The back office shows the server's reason (HIPAA, voice off); the portal shows its own language's words for a failure, so a client never reads our English. The subprocessors page, the privacy policy and `docs/security.md` say OpenAI writes out dictation and keeps nothing. |
-| Not yet | Attachments in the composer (§1.110 for Sloan); the cost of transcription (OpenAI prices it per minute) in usage. Live words (2026-11-21) send the same minutes as one recording, less any silent segment, in a call per segment; usage would count minutes, not calls. |
+| Not yet | Attachments in the composer (§1.110 for Sloan); the cost of transcription (OpenAI prices it per minute) in usage. Live words (2026-11-21) send the same minutes as one recording, less any silent segment, in a call per segment; usage would count minutes, not calls. Usage and cost since done, per call: §1.196. |
 
 ### 1.110 Files in a conversation, passed on by Sloan (owner, 2026-11-15)
 
@@ -5410,7 +5410,7 @@ Bill 145 would land on company A's row.
 | Adding an operator | Writes `operator.add`: the user, the number of clients, whether the invite is new, the first client if one was made, and `by` (from `BY`, else GitHub's actor and run). `by` is optional, as for `removeOperator` (`packages/db/src/operators.ts`). // DECISION |
 | Paid model routes | Portal `POST /api/runs/ask` and `/api/transcribe`: 10 a minute and 200 in any 24 hours per person, per client, per route (transcription 30 and 1,500 since live dictation sends a call per segment, §1.109, 2026-11-21); past that 429 `rate_limited` or `daily_limit` and no model call (`apps/api/src/metered.ts`). Counted from `audit_event` (its actor index), each call claimed under a per-person advisory lock and committed before the model call, so calls sent at once count one at a time. Transcription claims only after its own checks, so a bad recording uses none. // DECISION |
 | No connection held | Both ask routes call the model between two short transactions (`mountLong`, with `mount`'s checks and audit). // DECISION |
-| Known costs | The limits are per client, so someone in several clients gets each allowance in each. Transcription still records no usage (`docs/open.md`). |
+| Known costs | The limits are per client, so someone in several clients gets each allowance in each. Transcription still records no usage (`docs/open.md`). Since done: §1.196. |
 
 ### 1.140 Phone sessions and signatures (pre-launch hardening, 2026-11-17; PR #408; a sign-in change; no migration)
 
@@ -6382,7 +6382,7 @@ action, not just mark it... if it is an issue, just because I say it is closed d
 | Not built | The client as an owner: no step yet sends an item to the client and closes it by their answer (the requirements request asks the intake form's fields, not an item). Until there is one, "Client" is only set by the fit-gap's preconditions. |
 | Checked | `apps/api/src/build-settled-by-step.test.ts` (done by hand refused, a drop, a note done, the Builder's close left out; a put-off gap given to engineering then the Builder, closed by its change and opened by its undo; a test closed by a full passing run and not by a failing or partial one), `apps/web/src/ops/builds/closeout.test.tsx` and `builds.test.tsx` (no selects; Put off, Drop it, Reopen; Take it up on a put-off gap). The skill build's go-live closing has no test of its own. |
 
-### 1.193 The staging walk-through: counts that agree, links that open the item (owner, 2026-11-22; no migration)
+### 1.197 The staging walk-through: counts that agree, links that open the item (owner, 2026-11-22; no migration)
 
 The owner read every back-office section on staging and listed what disagreed or dead-ended
 (`STAGING_QA.md`). Each decision below has a `// DECISION:` comment where it is made.
@@ -6407,6 +6407,21 @@ The owner read every back-office section on staging and listed what disagreed or
 | Dates | One house format: day then month, 24-hour clock ("21 Nov, 08:00"), in the viewer's time zone; English is en-GB style (`i18n/format.ts`). A client's time zone is picked from a list and checked by Zod (`IanaTimeZone`); a bad one is now 400 `invalid_request`. // DECISION |
 | Not fixed | The Your call badge missing on Library and New client did not happen locally; a test now checks it on every back-office route. Why `/skills` hangs on staging is not known; the agent page no longer waits on it. Back-office questions and Sloan's thread summaries record cost only in logs (needs a table and its own migration PR). Schedule wording (`triggers/schedule.ts`) is still 12-hour. Deal and contact time zones are still free text. |
 | Checked | New or changed tests in each stream: `routes/needs-us.test.ts`, `agent-status.test.ts`, `runs-paging.test.ts`, the usage and command-center tests, `actions.test.ts` (bill, attach, memo in a test run), `executor.test.ts`, `pricing.test.ts`, `agents/status.test.ts`, `RunsPaging.test.tsx`, `shell/sidebar.test.tsx`, `ui/tileRows.test.ts`, `routes.test.tsx` (the badge on every route), and the screens' own tests. |
+### 1.196 Voice typing's usage and cost (H5, 2026-11-22; no migration)
+
+Each recording written out (a segment of live dictation, §1.109) is one call to OpenAI, and none
+was recorded (§1.139 "Known costs"). Now each is, the way a portal question is (§1.49, §1.115).
+
+| Topic | Decision |
+|---|---|
+| What a call reports | `Transcriber.transcribe` answers with the words and what the call used: the platform's model id (`openai:gpt-4o-mini-transcribe`, so its provider is OpenAI), OpenAI's `usage` (audio and text tokens in, tokens out, or seconds for a model billed by the minute), its cost and its time. Cost is decimal.js to 6 places (invariant 6), from `TRANSCRIBE_PRICES` (`packages/llm/src/transcribe.ts`), kept apart from `PRICES` because a skill or a step can't name this model. Prices unverified like every other (`packages/llm/NOTES.md`). // DECISION |
+| The portal | The client's usage under its account agent (Sloan), as a question is: a test run (`workflow_slug` `voice.transcribe`, trigger `{type: "dictation", dictatedBy: <person>}`), one step (`transcription`) with the tokens and cost, its `model_call` row with the model id, and the day rolled up into `usage_daily`. Written after the call in its own short transaction. The step keeps the recording's type, size and language, never its sound or words (`apps/api/src/voice-usage.ts`). The rows are written by `recordAccountAgentCall`, the questions' code made shared (`runs-ask/usage.ts`). // DECISION |
+| The action | `tool_call` ("Tool's own call"): speech-to-text is a capability's own call, like a translation or a web search in a step. An action of its own needs a migration of `model_call_action_check`; the run's slug and step tell dictation apart until then. // DECISION |
+| The back office | The operator's own cost, as the back office's questions are: logged (`voice.transcribe.cost`, with the person, the client named if any, the model, tokens and cost), never written as a client's usage. A portal client with no account agent is logged the same way. // DECISION |
+| No usage in the answer | Recorded with no tokens and a cost of 0, as an unpriced question is, and warned of in the log (`voice.transcribe.unpriced`). A failed call writes nothing. |
+| Known costs | One run per segment: a minute of dictation is up to 12 of Sloan's test runs, counted in `usage_daily.runs` (and billed if runs carry a unit cost) and listed with its other runs in the back office, as questions are. |
+| Checked | `packages/llm/src/transcribe.test.ts` (the usage read, the cost in decimal, by the minute, an unknown model, no usage), `apps/api/src/voice.test.ts` (a portal dictation writes the run, step, `model_call` and `usage_daily` rows for Sloan with the person and model, no words; the back office's writes no run), `usage-tokens.test.ts` (the questions' path unchanged). |
+
 ### 1.192 The web app's first load back under budget (H9, 2026-11-22; no migration)
 
 The first load (`scripts/web-size.mjs`) was 494.8 kB gzipped on main against a 495 kB budget.

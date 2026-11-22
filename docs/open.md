@@ -467,7 +467,7 @@ Left:
 | A8 | **Approving a sign-in on the phone** (`docs/plan.md` §1.154; PRs #429, #431, #432): built and tested against fakes; live only once the app is (M2 to M5 below) and push is on (M6). Then check on staging: a password sign-in offers the phone, the notification arrives, one Face ID, the right number signs in, a wrong number and "It wasn't me" stop it, the browser is remembered if asked. | Nothing tried yet on a real phone, Face ID or a real push. |
 | A9 | Phone approval, not built: an email to the person when a request is turned down; a phone approving a Claude connection (§1.120); the desktop app approving (§1.151). Owner to say which, if any. | §1.154, "Not in this pass". |
 
-### The staging walk-through (owner, 2026-11-22; `STAGING_QA.md`, `docs/plan.md` §1.193)
+### The staging walk-through (owner, 2026-11-22; `STAGING_QA.md`, `docs/plan.md` §1.197)
 
 Fixed in one PR. What is still open from it:
 
