@@ -10,7 +10,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import * as schema from "./schema";
 import {
   BUILD_FLOWS,
-  NOTIFICATION_KINDS_ALLOWED,
+  NOTIFICATION_KIND_CHECK,
   OPERATOR_ONLY_TABLES,
   OPERATOR_TABLES,
   TENANT_TABLES,
@@ -568,7 +568,7 @@ describe.skipIf(!online)("migrations on an empty database", () => {
     const [check] = await t.db.$client<{ def: string }[]>`
       select pg_get_constraintdef(oid) as def from pg_constraint
       where conname = 'notification_kind_check'`;
-    for (const kind of NOTIFICATION_KINDS_ALLOWED) expect(check?.def).toContain(`'${kind}'`);
+    for (const kind of NOTIFICATION_KIND_CHECK) expect(check?.def).toContain(`'${kind}'`);
     expect(check?.def).toContain("'urgent'");
     expect(check?.def).toContain("'items_waiting'");
     expect(check?.def).toContain("'intake_next'");
