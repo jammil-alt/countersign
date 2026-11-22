@@ -13,7 +13,12 @@ import {
   fakeResend,
   fakeTwilio,
 } from "@countersign/connectors/testing";
-import { a2pKeywordsOf, TEXT_SIGNUP_LINK_HOURLY_MAX, textSignupTerms } from "@countersign/core";
+import {
+  a2pKeywordsOf,
+  TEXT_INVITE_DAYS,
+  TEXT_SIGNUP_LINK_HOURLY_MAX,
+  textSignupTerms,
+} from "@countersign/core";
 import { contact, contactChange, tenant, withTenant } from "@countersign/db";
 import { and, eq, gt, inArray, sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
@@ -565,6 +570,39 @@ describe.skipIf(!h)("signing up for texts", () => {
         expect(j(again.json).error.code).toBe("used");
       }
       expect(await textsTo("+15125550168")).toHaveLength(0);
+      // And the page says so before anyone types a number (§1.197).
+      const page = await view(token);
+      expect(page.status).toBe(200);
+      expect(j(page.json)).toMatchObject({ kind: "invitation", name: "Kai Moss", state: "used" });
+    });
+
+    it("says a used invitation was used even after its sign-up is withdrawn, and a new one opens", async () => {
+      const JO = await newContact(admin("a"), { name: "Jo Fox", email: "jo@vendor.example" });
+      await invite(admin("a"), [JO]);
+      const link = /Choose to get texts: (\S+)/.exec(
+        lastEmailTo("jo@vendor.example")?.text ?? "",
+      )?.[1];
+      const token = tokenIn(link as string);
+      expect(j((await view(token)).json).state).toBe("open");
+      expect((await submit(token, { phone: "+15125550169" })).status).toBe(200);
+      expect(j((await view(token)).json).state).toBe("signed_up");
+      // Texts withdrawn by the client: the invitation is still used, as a submit would answer.
+      await H.call(admin("a"), "POST", `/api/contacts/${JO}/consent`, {
+        action: "withdraw",
+        channel: "sms",
+      });
+      const [row] = await H.t.db.select().from(contact).where(eq(contact.id, JO));
+      expect(row?.consent ?? {}).not.toHaveProperty("sms");
+      expect(j((await view(token)).json).state).toBe("used");
+      expect(j((await submit(token, { phone: "+15125550169" })).json).error.code).toBe("used");
+      // A later invitation is a new one: open.
+      const fresh = await signTextSignup(H.env, {
+        k: "i",
+        t: A(),
+        c: JO,
+        e: Math.floor(Date.now() / 1000) + TEXT_INVITE_DAYS * 24 * 60 * 60 + 60,
+      });
+      expect(j((await view(fresh)).json).state).toBe("open");
     });
 
     it("sends one reminder after three days, then no more", async () => {
@@ -673,6 +711,128 @@ describe.skipIf(!h)("signing up for texts", () => {
       .update(tenant)
       .set({ settings: t?.settings ?? {} })
       .where(eq(tenant.id, B()));
+  });
+
+  // Client B's link and invitations, so client A's hourly limit (filled above) doesn't count. B's
+  // number can't text, so the answers are `pending` and the log says what was signed up.
+  describe("a new number submitted twice at once (§1.197)", () => {
+    const linkOfB = async () =>
+      tokenIn(j((await H.call(admin("b"), "GET", "/api/texting/signup-link")).json).url);
+    const invitationOfB = async (name: string) => {
+      const id = await newContact(admin("b"), {
+        name,
+        email: `${name.toLowerCase().replace(/\W/g, "")}@vendor.example`,
+      });
+      const e = Math.floor(Date.now() / 1000) + 24 * 60 * 60;
+      return { id, token: await signTextSignup(H.env, { k: "i", t: B(), c: id, e }) };
+    };
+    const withPhone = (phone: string) =>
+      H.t.db
+        .select()
+        .from(contact)
+        .where(and(eq(contact.tenantId, B()), eq(contact.phone, phone)));
+    const kindsOf = async (id: string) =>
+      (await logOf(id)).map((l) => (l.change as { kind: string }).kind);
+
+    it("on the client's link: one sign-up, and the other answered the same", async () => {
+      const token = await linkOfB();
+      for (const phone of ["+15125570000", "+15125570001", "+15125570002"]) {
+        const both = await Promise.all([
+          submit(token, { name: "Twice", phone }),
+          submit(token, { name: "Twice", phone }),
+        ]);
+        expect(both.map((r) => r.status)).toEqual([200, 200]);
+        expect(both.map((r) => j(r.json))).toEqual([
+          { confirmation: "pending" },
+          { confirmation: "pending" },
+        ]);
+        const rows = await withPhone(phone);
+        expect(rows).toHaveLength(1);
+        const kinds = await kindsOf(rows[0]?.id as string);
+        expect(kinds.filter((k) => k === "opt_in")).toHaveLength(1);
+        expect(kinds.filter((k) => k === "text_signup_skipped")).toHaveLength(1);
+      }
+    });
+
+    it("on two invitations: one sign-up, and the other a clean 409", async () => {
+      for (const phone of ["+15125571000", "+15125571001", "+15125571002"]) {
+        const a = await invitationOfB(`First ${phone}`);
+        const b = await invitationOfB(`Second ${phone}`);
+        const both = await Promise.all([submit(a.token, { phone }), submit(b.token, { phone })]);
+        expect(both.map((r) => r.status).sort(), JSON.stringify(both.map((r) => r.json))).toEqual([
+          200, 409,
+        ]);
+        const refused = both.find((r) => r.status === 409);
+        expect(j(refused?.json).error).toEqual({
+          code: "number_taken",
+          message:
+            "That number belongs to someone else in Client B's contacts. Enter your own mobile number, or ask Client B.",
+        });
+        expect(await withPhone(phone)).toHaveLength(1);
+      }
+    });
+
+    it("on an invitation and the link: never a 500", async () => {
+      const link = await linkOfB();
+      for (const phone of ["+15125572000", "+15125572001", "+15125572002"]) {
+        const inv = await invitationOfB(`Invited ${phone}`);
+        const [byInvitation, byLink] = await Promise.all([
+          submit(inv.token, { phone }),
+          submit(link, { name: "Linked", phone }),
+        ]);
+        // The link answers as it does any number; the invitation signs up, or finds it taken.
+        expect(byLink.status, JSON.stringify(byLink.json)).toBe(200);
+        if (byInvitation.status !== 200) {
+          expect(byInvitation.status).toBe(409);
+          expect(j(byInvitation.json).error.code).toBe("number_taken");
+        }
+        expect(await withPhone(phone)).toHaveLength(1);
+      }
+    });
+
+    /** Inserts a contact with this number and holds it uncommitted until `submitting` waits on it. */
+    const whileHeld = async (phone: string, submitting: () => ReturnType<typeof submit>) => {
+      let answer: ReturnType<typeof submit> | undefined;
+      await H.t.db.transaction(async (tx) => {
+        await tx.insert(contact).values({ tenantId: B(), name: "Typed At Once", phone });
+        answer = submitting();
+        for (let i = 0; ; i++) {
+          const [w] = await H.t.db.execute<{ n: number }>(
+            sql`select count(*)::int as n from pg_stat_activity
+                where datname = current_database() and wait_event_type = 'Lock'`,
+          );
+          if ((w?.n ?? 0) > 0) break;
+          if (i > 400) throw new Error("the submit never waited on the held number");
+          await new Promise((r) => setTimeout(r, 25));
+        }
+      });
+      return answer as ReturnType<typeof submit>;
+    };
+
+    it("runs a submit that lost the race again, answering as a submit just after it would", async () => {
+      // An invitation: the number is someone else's now.
+      const PHONE = "+15125573000";
+      const inv = await invitationOfB("Held Invitation");
+      const refused = await whileHeld(PHONE, () => submit(inv.token, { phone: PHONE }));
+      expect(refused.status, JSON.stringify(refused.json)).toBe(409);
+      expect(j(refused.json).error.code).toBe("number_taken");
+      const [invited] = await H.t.db.select().from(contact).where(eq(contact.id, inv.id));
+      expect(invited?.phone).toBeNull();
+      expect(await kindsOf(inv.id)).not.toContain("opt_in");
+      // It wasn't used: the page still shows the form.
+      expect(j((await view(inv.token)).json).state).toBe("open");
+
+      // The client's link: the number is found and signed up, once.
+      const LINKED = "+15125573001";
+      const link = await linkOfB();
+      const res = await whileHeld(LINKED, () => submit(link, { name: "Held Link", phone: LINKED }));
+      expect(res.status, JSON.stringify(res.json)).toBe(200);
+      const rows = await withPhone(LINKED);
+      expect(rows).toHaveLength(1);
+      expect(rows[0]?.name).toBe("Typed At Once");
+      expect(rows[0]?.consent).toMatchObject({ sms: { basis: "express" } });
+      expect((await kindsOf(rows[0]?.id as string)).filter((k) => k === "opt_in")).toHaveLength(1);
+    });
   });
 
   it("calls and email stay on the relationship basis, texts don't (§1.98)", async () => {
