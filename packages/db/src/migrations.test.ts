@@ -8,7 +8,13 @@ import { is } from "drizzle-orm";
 import { getTableConfig, PgTable } from "drizzle-orm/pg-core";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import * as schema from "./schema";
-import { BUILD_FLOWS, OPERATOR_ONLY_TABLES, OPERATOR_TABLES, TENANT_TABLES } from "./schema";
+import {
+  BUILD_FLOWS,
+  NOTIFICATION_KINDS_ALLOWED,
+  OPERATOR_ONLY_TABLES,
+  OPERATOR_TABLES,
+  TENANT_TABLES,
+} from "./schema";
 import {
   createTestDatabase,
   databaseAvailable,
@@ -554,5 +560,17 @@ describe.skipIf(!online)("migrations on an empty database", () => {
       select pg_get_constraintdef(oid) as def from pg_constraint where conname = 'build_flow_check'`;
     for (const flow of BUILD_FLOWS) expect(check?.def).toContain(`'${flow}'`);
     expect(BUILD_FLOWS).toEqual(["phases", "describe"]);
+  });
+
+  // 0079 (work plan C4.10): the outbox takes urgent notices as a kind of their own; only the
+  // check widens, so every kind the previous Worker writes still passes.
+  it("let the notification outbox take urgent notices and every earlier kind", async () => {
+    const [check] = await t.db.$client<{ def: string }[]>`
+      select pg_get_constraintdef(oid) as def from pg_constraint
+      where conname = 'notification_kind_check'`;
+    for (const kind of NOTIFICATION_KINDS_ALLOWED) expect(check?.def).toContain(`'${kind}'`);
+    expect(check?.def).toContain("'urgent'");
+    expect(check?.def).toContain("'items_waiting'");
+    expect(check?.def).toContain("'intake_next'");
   });
 });
