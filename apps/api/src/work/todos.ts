@@ -84,6 +84,19 @@ export function aboutHref(kind: string, id: string): string | null {
   }
 }
 
+/**
+ * Where a to-do is done: the page of the record it is about, else (an ask or a question, which
+ * have no page of their own) its client's page.
+ */
+// DECISION (QA, 2026-11-22): every to-do about a record leads to a page, so its sheet always has
+// a way to the work ("Record X's agreed price" opens the deal, where the terms form is).
+export function todoHref(
+  about: { kind: string; id: string },
+  clientId: string | null,
+): string | null {
+  return aboutHref(about.kind, about.id) ?? (clientId ? aboutHref("client", clientId) : null);
+}
+
 /** "Head. Detail" or "Head: detail" into the why box's two parts. */
 export function splitWhy(why: string | null): { head: string; detail: string } | null {
   if (!why) return null;
@@ -218,7 +231,7 @@ export async function todoViews(tx: Tx, rows: TodoRow[]): Promise<TodoView[]> {
       title: r.title,
       detail: r.detail,
       client: r.clientId ? { id: r.clientId, name: clientName ?? "A client" } : null,
-      about: about ? { ...about, href: aboutHref(about.kind, about.id) } : null,
+      about: about ? { ...about, href: todoHref(about, r.clientId) } : null,
       dueAt: iso(r.dueAt),
       state: r.state,
       snoozedUntil: iso(r.snoozedUntil),

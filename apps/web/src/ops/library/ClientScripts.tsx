@@ -1,44 +1,72 @@
-// Wave 4 (docs/plan.md §1.86 "Scripts (wave 4)"): the picked client's published scripts in the
-// Library's Tools bank, under the browser connector. Each is a call of `browser.script.read` (a
+// Wave 4 (docs/plan.md §1.86 "Scripts (wave 4)"): one client's published scripts in the Library's
+// Tools bank, under the browser connector. The client is chosen here (`?client=` in the address):
+// the top bar's picker is navigation only and the Library belongs to no client. Each is a call of `browser.script.read` (a
 // script that only reads) or `browser.script.submit` (one that sends a form: always approved),
 // naming the script; it exists for that client alone. Recording and publishing are on the Websites
 // screen.
 import type { BrowserScriptTool } from "@countersign/core";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { apiRoutes } from "../../api/routes";
 import { useApi } from "../../api/useApi";
 import { ConnectorMark } from "../../connections/ConnectorMark";
+import { Select } from "../../ui/forms";
 import { Card, EmptyState, Tag } from "../../ui/primitives";
-import { usePickedClient } from "../pickedClient";
+import { useOpsClients } from "../OpsLayout";
 import { counted, LIBRARY_PATHS } from "./paths";
 
 export function ClientScriptTools() {
-  const { clientId } = usePickedClient();
+  const clients = useOpsClients() ?? [];
+  const [params, setParams] = useSearchParams();
+  const asked = params.get("client");
+  const clientId = asked && clients.some((c) => c.id === asked) ? asked : null;
   const state = useApi(
     apiRoutes.opsClientBrowserScriptTools,
     clientId ? { params: { id: clientId } } : null,
   );
-  if (!clientId) return null;
+  if (clients.length === 0) return null;
   const tools = state.data?.tools ?? [];
+  const choose = (id: string) => {
+    const next = new URLSearchParams(params);
+    if (id) next.set("client", id);
+    else next.delete("client");
+    setParams(next, { replace: true });
+  };
   return (
     <Card
       testId="tools-group-browser-scripts"
       title={
         <span className="flex items-center gap-3">
-          <ConnectorMark name="Website logins" connector="browser" size="sm" />
-          This client's scripts
+          <ConnectorMark name="Website logins" connector="browser" size="sm" />A client's scripts
         </span>
       }
       meta={
         <>
-          <span>{counted(tools.length, "script")}</span>
+          <Select
+            aria-label="Client"
+            className="w-56"
+            value={clientId ?? ""}
+            onChange={(e) => choose(e.target.value)}
+            data-testid="tools-scripts-client"
+          >
+            <option value="">Choose a client</option>
+            {clients.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.name}
+              </option>
+            ))}
+          </Select>
+          {clientId ? <span>{counted(tools.length, "script")}</span> : null}
           <Link to={`${LIBRARY_PATHS.browserSites}#scripts`} className="text-ink hover:underline">
             Record or publish
           </Link>
         </>
       }
     >
-      {tools.length === 0 ? (
+      {!clientId ? (
+        <div className="ui-card__body">
+          <EmptyState>Choose a client to see the scripts published for it.</EmptyState>
+        </div>
+      ) : tools.length === 0 ? (
         <div className="ui-card__body">
           <EmptyState>No published script for this client yet.</EmptyState>
         </div>

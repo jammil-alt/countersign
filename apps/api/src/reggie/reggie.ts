@@ -22,7 +22,7 @@ import {
   type LlmTransport,
   toolInputSchema,
 } from "@countersign/llm";
-import { and, asc, desc, eq, isNull } from "drizzle-orm";
+import { and, asc, desc, eq, exists, isNull, sql } from "drizzle-orm";
 import type { Hono } from "hono";
 import type { AppContext, AppEnv } from "../http";
 import { HttpError, iso, notFound, toHttpError } from "../http";
@@ -115,11 +115,28 @@ export async function ownConversation(
   return row;
 }
 
+/**
+ * The operator's conversations, newest first. One with no message yet is left out: the screen
+ * starts a conversation only with its first message, and the ones an older screen started on
+ * opening were saved empty.
+ */
+// DECISION (QA, 2026-11-22): empty conversations stay in the table (nothing is deleted) and are
+// only skipped here; opening one by its address still works.
 export async function listConversations(tx: Tx, userId: string): Promise<ReggieConversation[]> {
   const rows = await tx
     .select()
     .from(reggieConversation)
-    .where(eq(reggieConversation.userId, userId))
+    .where(
+      and(
+        eq(reggieConversation.userId, userId),
+        exists(
+          tx
+            .select({ one: sql`1` })
+            .from(reggieMessage)
+            .where(eq(reggieMessage.conversationId, reggieConversation.id)),
+        ),
+      ),
+    )
     .orderBy(desc(reggieConversation.updatedAt))
     .limit(50);
   const names = await clientNames(
