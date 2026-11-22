@@ -2220,6 +2220,7 @@ export const en = {
   "home.weekly.ready": "Your lead sent this week's summary.",
   "agent.tab.overview": "Overview",
   "agent.tab.runs": "Runs",
+  "agent.tab.report": "Report",
   "agent.tab.settings": "Agent settings",
   // B3: the agent manual (docs/builder-plan.md §5)
   "agent.tab.manual": "Manual",

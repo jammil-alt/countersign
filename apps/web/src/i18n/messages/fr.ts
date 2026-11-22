@@ -2327,6 +2327,7 @@ export const fr: Messages = {
   "home.weekly.ready": "Votre interlocuteur a envoyé le résumé de la semaine.",
   "agent.tab.overview": "Vue d'ensemble",
   "agent.tab.runs": "Exécutions",
+  "agent.tab.report": "Rapport",
   "agent.tab.settings": "Réglages de l’agent",
   // B3: the agent manual (docs/builder-plan.md §5)
   "agent.tab.manual": "Manuel", // fluent review

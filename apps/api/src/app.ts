@@ -56,6 +56,7 @@ import { a2pRoutes } from "./routes/a2p";
 import { accessRoutes } from "./routes/access";
 // v0.12 W2-D: Sloan, the account agent
 import { accountRoutes } from "./routes/account";
+import { agentReportRouteHandlers } from "./routes/agent-report";
 import { approverRuleRoutes } from "./routes/approver-rules";
 import { assistDraftRoutes } from "./routes/assist";
 import { assuranceEnv, assuranceRouteHandlers } from "./routes/assurance";
@@ -321,6 +322,8 @@ export function createApp(deps: AppDeps = defaultDeps): Hono<AppEnv> {
   requestRouteHandlers(app);
   languageRouteHandlers(app);
   usageRouteHandlers(app);
+  // R4 (docs/plan.md §1.214): the report per agent, both surfaces.
+  agentReportRouteHandlers(app);
   recordRouteHandlers(app);
   approverRuleRoutes(app);
   // Round 4 D (docs/plan.md §1.211)

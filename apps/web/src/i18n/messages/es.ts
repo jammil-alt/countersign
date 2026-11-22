@@ -2288,6 +2288,7 @@ export const es: Messages = {
   "home.weekly.ready": "Su responsable envió el resumen de esta semana.",
   "agent.tab.overview": "Resumen",
   "agent.tab.runs": "Ejecuciones",
+  "agent.tab.report": "Informe",
   "agent.tab.settings": "Configuración del agente",
   // B3: the agent manual (docs/builder-plan.md §5)
   "agent.tab.manual": "Manual", // fluent review

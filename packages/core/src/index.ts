@@ -16,6 +16,8 @@ export * from "./api/access";
 export * from "./api/account";
 // docs/builder-plan.md §7 (B5): client adjustments and feedback on the manual
 export * from "./api/adjust";
+// R4: the report per agent (docs/plan.md §1.214).
+export * from "./api/agent-report";
 export * from "./api/all-routes";
 export * from "./api/approver-rules";
 export * from "./api/assigned";
