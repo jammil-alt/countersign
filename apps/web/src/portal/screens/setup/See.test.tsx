@@ -75,6 +75,7 @@ const SOP: SopView = {
   client: "Hartley Millwork",
   area: { id: "purchasing", words: "Purchasing" },
   stage: { id: "bench", words: "Being set up" },
+  paused: false,
   asOf: "2026-11-22T09:00:00.000Z",
   revision: null,
   previous: null,
