@@ -66,6 +66,7 @@ export function ClientReportScreen() {
             csvHref={`/api/ops/clients/${clientId}/report.csv${csv ? `?${csv}` : ""}`}
             links={accountLinks(clientId)}
             above={<NeedsUs report={data} />}
+            surface="ops"
           />
         )}
       </Loaded>

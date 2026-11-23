@@ -16,7 +16,9 @@ import { agentStage } from "../../agents/status";
 import type { ResponseOf } from "../../api/client";
 import { type AgentSummary, apiRoutes } from "../../api/routes";
 import { type ApiState, useApi, useApiClient } from "../../api/useApi";
+import { createFormatters, validZone } from "../../i18n/format";
 import { EN } from "../../i18n/i18n";
+import { zoneName } from "../../i18n/zone";
 import { shortTime } from "../../runs/format";
 import { ActivityRow } from "../../ui/activity";
 import { AgentBadge, PersonBadge } from "../../ui/badges";
@@ -76,7 +78,9 @@ function Overview({ clientId }: { clientId: string }) {
         {waiting.length > 0 ? (
           <Section
             title="Waiting on us"
-            meta={`${waiting.length} open`}
+            // DECISION (QA CL1): each open-items count names whose items it counts: here ours;
+            // the health line the client's people's, as of its check; Home's those on clients.
+            meta={`${plural(waiting.length, "item", "items")} for us`}
             action={
               <Link to={OPS_PATHS.escalations} className="ds-btn ds-btn--link text-sm">
                 Escalations
@@ -159,9 +163,21 @@ function AgentStages({
   );
 }
 
-/** "Next run Nov 21, 9:00 AM", or null when no schedule starts it in the next 8 days. */
-export function nextRunLine(a: OpsAgentActivity): string | null {
-  return a.nextRunAt ? `Next run ${shortTime(a.nextRunAt)}` : null;
+/**
+ * "Next run 24 Nov, 09:00 (Chicago Time)", or null when no schedule starts it in the next 8 days.
+ * In the client's zone, the one its schedules run in, named (S5.5); the viewer's without one.
+ */
+// DECISION (S5.5): a client's schedule reads in the client's own zone with the zone named, since
+// "every day at 9" is 9 where the client is; the operator's own zone would move it.
+export function nextRunLine(
+  a: OpsAgentActivity,
+  timeZone?: string,
+  now: Date = new Date(),
+): string | null {
+  if (!a.nextRunAt) return null;
+  const zone = validZone(timeZone);
+  if (!zone) return `Next run ${shortTime(a.nextRunAt, now)}`;
+  return `Next run ${createFormatters("en-US", zone).time(a.nextRunAt, now)} (${zoneName(zone, "en-US", now)})`;
 }
 
 /** "Day 3 of 14 · 12 of 20 runs", "Asked Nov 4", "Paused by the client: …". */
@@ -235,7 +251,8 @@ function StageRow({
     stage: g?.stage ?? agent.stage,
     paused: g ? g.pause !== null : undefined,
   });
-  const next = activity ? nextRunLine(activity) : null;
+  const timeZone = useClientPage().data?.client.timezone;
+  const next = activity ? nextRunLine(activity, timeZone) : null;
   const note = g ? stageNote(g) : null;
   const tone = stageTone(g, activity);
   const days = activity?.perDay;
