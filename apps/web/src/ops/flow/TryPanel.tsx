@@ -1,5 +1,5 @@
-// Try it on the chart (docs/builder-plan.md §12.4, F3; design: startTry and 06-try.png): the bar at
-// the top of the chart while the draft runs once on a real example. It starts the try with today's
+// Try it on the chart (docs/builder-plan.md §12.4, F3; design: startTry and 06-try.png): the panel
+// beside the chart while the draft runs once on a real example. It starts the try with today's
 // routes, unchanged: a build in suite mode tries its draft as the build page's Try card does
 // (`opsBuildTry`, a document uploaded to the Sandbox or an input); anything else is a test run of
 // the version (`opsTestRun`, as the builder's test-run panel starts one: a template in the Sandbox
@@ -11,10 +11,15 @@
 // of each step… until the last step selected"): a try may run some of the top-level steps. The
 // bar asks which (all, or a first and a last), and for a start further down, for the output of
 // each earlier step the picked ones read (from the last try here, else an example of its shape).
-// Under the bar, every step that ran, with its output.
+// Once it runs, every step that ran, with its output.
 // Owner, 2026-11-22 (docs/plan.md §1.186: "how do we create data?… have the AI make up data to
 // feed through it and watch the run"): "Make up data" fills the boxes (what started the run, each
 // earlier step's output) with data made up from the draft's shapes, to read over and run.
+// DECISION (owner, 2026-11-23: "make it into a side modal"): the try was a bar above the chart,
+// which pushed the chart down the page as the steps, the data and each step's output were added.
+// It is a panel in the builder's side column now, where a step opens: a head, a body that scrolls
+// and a foot with the one action. It is not a modal over a scrim, since the chart beside it is
+// where the try marks each step as it runs.
 import {
   assistRoutes,
   type BuildDetail,
@@ -30,7 +35,9 @@ import type { UploadResponse } from "../../api/upload";
 import { useApi, useApiClient } from "../../api/useApi";
 import { ErrorNotice } from "../../ui/ErrorState";
 import { Select, TextArea, TextInput } from "../../ui/forms";
+import { Icon } from "../../ui/icons";
 import { Button, buttonClass } from "../../ui/primitives";
+import { SheetSection } from "../../ui/sheet";
 import { JSON_INPUT_PROPS, parsePayload } from "../agents/TestPayload";
 import type { PickedRecord } from "../builds/RecordPick";
 import { tryUpload } from "../builds/TryCard";
@@ -68,7 +75,7 @@ export interface TryPanelProps {
   clientId?: string | null;
   /** The trigger's sample payload, to start the input from. */
   sample?: unknown;
-  /** Start at once on this (the host's file picker); else the bar asks for a file or an input. */
+  /** Start at once on this (the host's file picker); else the panel asks for a file or an input. */
   first?: TryInput;
   /** The registries' view, to say what a range of steps reads. Absent: every try runs all steps. */
   ctx?: TypingContext | undefined;
@@ -76,7 +83,7 @@ export interface TryPanelProps {
   startAt?: string | null | undefined;
   /** The marks so far, every time they change; [] when a new try starts. */
   onMarks(marks: TryMark[]): void;
-  /** Done: the host takes the bar and the marks away. */
+  /** Done: the host takes the panel and the marks away. */
   onDone(): void;
   /** The build as a build try answered it, for the host to show. */
   onBuild?(detail: BuildDetail): void;
@@ -88,7 +95,7 @@ export interface TryPanelProps {
 
 type Phase = "choose" | "starting" | "running" | "ended" | "error";
 
-/** How long the bar follows a run before it hands over to the run's page. */
+/** How long the panel follows a run before it hands over to the run's page. */
 const FOLLOW_MS = 15 * 60_000;
 
 const label = (input: TryInput | null) =>
@@ -166,7 +173,7 @@ export function TryPanel({
   const [to, setTo] = useState<string>(startsAt ?? top.at(-1)?.id ?? "");
   // What the tester typed for an earlier step's output, by step id; else the default below.
   const [typed, setTyped] = useState<Record<string, string>>({});
-  // The last run read here: its rows, shown under the bar and used to fill what a later try needs.
+  // The last run read here: its rows, shown in the panel and used to fill what a later try needs.
   const [last, setLast] = useState<TryRun | null>(null);
   const range = canPick && some ? { from, to } : null;
   const needs = useMemo(
@@ -415,8 +422,8 @@ export function TryPanel({
     return (await uploadedDoc(file))?.id ?? null;
   }
 
-  // The host's first file starts the try at once; the try stops when the bar goes away.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: once, when the bar opens.
+  // The host's first file starts the try at once; the try stops when the panel goes away.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: once, when the panel opens.
   useEffect(() => {
     if (first) void begin(first, false);
     return stop;
@@ -457,11 +464,17 @@ export function TryPanel({
     void begin({ payload: parsed.value, ...(made ? { made: true } : {}) }, false);
   };
   const going = phase === "starting" || phase === "running";
-  const filePicker = (words: string, primary = false) =>
+  // The panel opens with its heading focused, as a sheet does, so the keyboard lands in it.
+  const headId = useId();
+  const heading = useRef<HTMLHeadingElement>(null);
+  useEffect(() => {
+    heading.current?.focus({ preventScroll: true });
+  }, []);
+  const filePicker = (words: string) =>
     fileClient ? (
       <label
         htmlFor={fileId}
-        className={buttonClass(primary ? "primary" : "secondary", "cursor-pointer", "sm")}
+        className={buttonClass("secondary", "cursor-pointer", "sm")}
         data-testid="flow-try-file"
       >
         {words}
@@ -479,136 +492,158 @@ export function TryPanel({
         />
       </label>
     ) : null;
+  const choosing = phase === "choose";
+  const blocked = (needs?.problems.length ?? 0) > 0;
 
   return (
-    <div
+    <section
       data-testid="flow-try"
-      className="flex flex-col gap-3 rounded-md border border-slate bg-slate-tint px-3.5 py-3 text-sm"
+      aria-labelledby={headId}
+      className="flex h-full min-h-0 flex-col text-sm"
     >
-      {phase === "choose" ? (
-        <>
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div className="flex min-w-[240px] flex-1 flex-col gap-1">
-              <span className="font-medium text-ink">Try it on a real example</span>
-              <span className="text-ink-muted">Reading real data. Nothing is written.</span>
-            </div>
-            <div className="flex flex-wrap items-center gap-2">
-              {midway ? null : filePicker("Choose a file", true)}
-              {pocTry && fileClient ? (
-                <Button
-                  size="sm"
-                  aria-expanded={picking}
-                  onClick={() => setPicking((x) => !x)}
-                  data-testid="flow-try-pick-record"
+      <div className="ui-sheet__head">
+        <div className="flex min-w-0 flex-col gap-1">
+          <h2
+            id={headId}
+            ref={heading}
+            tabIndex={-1}
+            className="type-subheading flex flex-wrap items-center gap-x-2 gap-y-1 text-ink outline-none"
+          >
+            {choosing ? (
+              "Try it on a real example"
+            ) : (
+              <>
+                {going ? "Trying it on" : "Tried it on"}
+                <span
+                  className="max-w-full truncate rounded-sm border border-line-strong bg-surface px-2 py-0.5 font-mono text-xs font-normal text-ink"
+                  data-testid="flow-try-on"
                 >
-                  {picking ? "Close the records" : "Pick a record"}
-                </Button>
-              ) : null}
-              <Button size="sm" variant="ghost" onClick={done} data-testid="flow-try-done">
-                Done
-              </Button>
-            </div>
-          </div>
-          {pocTry && fileClient && picking ? (
-            <Suspense fallback={<p className="text-ink-muted">Loading the records…</p>}>
-              <RecordPick
-                clientId={fileClient}
-                busy={false}
-                onPick={(record) => {
-                  setPicking(false);
-                  void begin({ record }, false);
-                }}
-              />
-            </Suspense>
-          ) : null}
-          {canPick ? (
-            <div className="flex flex-col gap-2" data-testid="flow-try-range">
-              <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-                <span className="font-medium text-ink">Which steps</span>
-                <label className="flex items-center gap-1.5">
-                  <input
-                    type="radio"
-                    className="accent-slate"
-                    name={`${fileId}-steps`}
-                    checked={!some}
-                    data-testid="flow-try-all"
-                    onChange={() => {
-                      setSome(false);
-                      setMade(null);
-                    }}
-                  />
-                  All of them
-                </label>
-                <label className="flex items-center gap-1.5">
-                  <input
-                    type="radio"
-                    className="accent-slate"
-                    name={`${fileId}-steps`}
-                    checked={some}
-                    data-testid="flow-try-some"
-                    onChange={() => {
-                      setSome(true);
-                      setMade(null);
-                    }}
-                  />
-                  Some of them
-                </label>
-                {some ? (
-                  <span className="flex flex-wrap items-center gap-2">
-                    <Select
-                      aria-label="The first step to run"
-                      className="h-8 w-auto text-sm"
-                      data-testid="flow-try-from"
-                      value={from}
-                      onChange={(e) => {
-                        const next = e.target.value;
-                        setFrom(next);
-                        setMade(null);
-                        // The last step never comes before the first.
-                        const i = top.findIndex((x) => x.id === next);
-                        if (top.findIndex((x) => x.id === to) < i) setTo(next);
-                      }}
-                    >
-                      {top.map((x, i) => (
-                        <option key={x.id} value={x.id}>
-                          From {i + 1} · {x.name}
-                        </option>
-                      ))}
-                    </Select>
-                    <Select
-                      aria-label="The last step to run"
-                      className="h-8 w-auto text-sm"
-                      data-testid="flow-try-to"
-                      value={to}
-                      onChange={(e) => {
-                        setTo(e.target.value);
-                        setMade(null);
-                      }}
-                    >
-                      {top.map((x, i) =>
-                        i < top.findIndex((y) => y.id === from) ? null : (
-                          <option key={x.id} value={x.id}>
-                            to {i + 1} · {x.name}
-                          </option>
-                        ),
-                      )}
-                    </Select>
-                  </span>
-                ) : null}
-              </div>
-              {some ? (
-                <span className="text-ink-muted">
-                  A decision or a loop is tested whole. The run ends after the last step picked.
+                  {label(input)}
                 </span>
-              ) : null}
-              {needs?.problems.map((problem) => (
-                <p key={problem} className="text-risk" data-testid="flow-try-range-problem">
-                  {problem}
-                </p>
-              ))}
-              {needs && needs.earlier.length > 0 ? (
-                <div className="flex flex-col gap-2" data-testid="flow-try-given">
-                  <span className="font-medium text-ink">What these steps start from</span>
+              </>
+            )}
+          </h2>
+          {choosing ? (
+            <p className="text-ink-muted">Reading real data. Nothing is written.</p>
+          ) : (
+            <p className="text-ink-muted" data-testid="flow-try-said">
+              {going
+                ? "Reading real data. Nothing is written."
+                : phase === "ended"
+                  ? (outcome ?? "Nothing was written.")
+                  : "It couldn't run. Nothing was written."}
+            </p>
+          )}
+          {phase === "running" && outcome ? (
+            <p className="text-ink" data-testid="flow-try-waiting">
+              {outcome}
+            </p>
+          ) : null}
+        </div>
+        <Button
+          variant="ghost"
+          className="ds-btn--icon shrink-0"
+          aria-label="Close the try"
+          title="Close the try"
+          onClick={done}
+          data-testid="flow-try-done"
+        >
+          <Icon name="close" size={20} />
+        </Button>
+      </div>
+      {choosing ? (
+        <>
+          <div className="ui-sheet__body">
+            {canPick ? (
+              <SheetSection label="Which steps">
+                <div className="flex flex-col gap-2" data-testid="flow-try-range">
+                  <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+                    <label className="flex items-center gap-1.5">
+                      <input
+                        type="radio"
+                        className="accent-slate"
+                        name={`${fileId}-steps`}
+                        checked={!some}
+                        data-testid="flow-try-all"
+                        onChange={() => {
+                          setSome(false);
+                          setMade(null);
+                        }}
+                      />
+                      All of them
+                    </label>
+                    <label className="flex items-center gap-1.5">
+                      <input
+                        type="radio"
+                        className="accent-slate"
+                        name={`${fileId}-steps`}
+                        checked={some}
+                        data-testid="flow-try-some"
+                        onChange={() => {
+                          setSome(true);
+                          setMade(null);
+                        }}
+                      />
+                      Some of them
+                    </label>
+                  </div>
+                  {some ? (
+                    <>
+                      <Select
+                        aria-label="The first step to run"
+                        className="h-8 text-sm"
+                        data-testid="flow-try-from"
+                        value={from}
+                        onChange={(e) => {
+                          const next = e.target.value;
+                          setFrom(next);
+                          setMade(null);
+                          // The last step never comes before the first.
+                          const i = top.findIndex((x) => x.id === next);
+                          if (top.findIndex((x) => x.id === to) < i) setTo(next);
+                        }}
+                      >
+                        {top.map((x, i) => (
+                          <option key={x.id} value={x.id}>
+                            From {i + 1} · {x.name}
+                          </option>
+                        ))}
+                      </Select>
+                      <Select
+                        aria-label="The last step to run"
+                        className="h-8 text-sm"
+                        data-testid="flow-try-to"
+                        value={to}
+                        onChange={(e) => {
+                          setTo(e.target.value);
+                          setMade(null);
+                        }}
+                      >
+                        {top.map((x, i) =>
+                          i < top.findIndex((y) => y.id === from) ? null : (
+                            <option key={x.id} value={x.id}>
+                              to {i + 1} · {x.name}
+                            </option>
+                          ),
+                        )}
+                      </Select>
+                      <span className="text-ink-muted">
+                        A decision or a loop is tested whole. The run ends after the last step
+                        picked.
+                      </span>
+                    </>
+                  ) : null}
+                  {needs?.problems.map((problem) => (
+                    <p key={problem} className="text-risk" data-testid="flow-try-range-problem">
+                      {problem}
+                    </p>
+                  ))}
+                </div>
+              </SheetSection>
+            ) : null}
+            {needs && needs.earlier.length > 0 ? (
+              <SheetSection label="What these steps start from">
+                <div className="flex flex-col gap-3" data-testid="flow-try-given">
                   {needs.earlier.map((e) => (
                     // biome-ignore lint/a11y/noLabelWithoutControl: the box is the label's child.
                     <label key={e.id} className="flex flex-col gap-1">
@@ -622,7 +657,7 @@ export function TryPanel({
                       <TextArea
                         {...JSON_INPUT_PROPS}
                         data-testid={`flow-try-given-${e.id}`}
-                        rows={4}
+                        rows={5}
                         value={givenText(e.id)}
                         className="font-mono text-xs"
                         onChange={(ev) => setTyped({ ...typed, [e.id]: ev.target.value })}
@@ -630,145 +665,157 @@ export function TryPanel({
                     </label>
                   ))}
                 </div>
+              </SheetSection>
+            ) : null}
+            <SheetSection label="What it runs on">
+              {fileClient && (!midway || pocTry) ? (
+                <div className="flex flex-col gap-1.5">
+                  <div className="flex flex-wrap items-center gap-2">
+                    {midway ? null : filePicker("Choose a file")}
+                    {pocTry ? (
+                      <Button
+                        size="sm"
+                        aria-expanded={picking}
+                        onClick={() => setPicking((x) => !x)}
+                        data-testid="flow-try-pick-record"
+                      >
+                        {picking ? "Close the records" : "Pick a record"}
+                      </Button>
+                    ) : null}
+                  </div>
+                  <span className="text-ink-muted">The try starts as soon as you choose one.</span>
+                </div>
               ) : null}
-            </div>
-          ) : null}
-          {asksTrigger ? (
-            <TextArea
-              {...JSON_INPUT_PROPS}
-              aria-label={midway ? "What started the run (JSON)" : "Or give an input (JSON)"}
-              data-testid="flow-try-input"
-              rows={4}
-              value={text}
-              className="font-mono text-xs"
-              onChange={(e) => setText(e.target.value)}
-            />
-          ) : null}
-          {canMake && (asksTrigger || (needs?.earlier.length ?? 0) > 0) ? (
-            <div className="flex flex-col gap-1.5" data-testid="flow-try-make">
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="font-medium text-ink">No data yet?</span>
-                <TextInput
-                  aria-label="What the made-up data should look like (optional)"
-                  placeholder="Optional: a $640 lumber bill, a late payment"
-                  className="h-8 min-w-[220px] flex-1 text-sm"
-                  data-testid="flow-try-make-notes"
-                  maxLength={TEST_DATA_NOTES_MAX}
-                  value={notes}
-                  onChange={(e) => setNotes(e.target.value)}
-                />
-                <Button
-                  size="sm"
-                  variant="secondary"
-                  disabled={making || (needs?.problems.length ?? 0) > 0}
-                  onClick={() => void makeUp()}
-                  data-testid="flow-try-make-go"
-                >
-                  {making ? "Making it up" : made ? "Make up other data" : "Make up data"}
-                </Button>
-              </div>
-              {made ? (
-                <span className="text-ink-muted" data-testid="flow-try-made">
-                  Made up from the shapes these steps read; none of it is a client's. Read it over
-                  and change what you like, then run it. A made-up id matches no stored record, so a
-                  step that looks one up won't find it: for a document, choose a file.
-                  {made.length > 0
-                    ? ` We couldn't make up ${made.join(", ").toLowerCase()}: an example of its shape is there instead.`
-                    : ""}
+              {pocTry && fileClient && picking ? (
+                <Suspense fallback={<p className="text-ink-muted">Loading the records…</p>}>
+                  <RecordPick
+                    clientId={fileClient}
+                    busy={false}
+                    onPick={(record) => {
+                      setPicking(false);
+                      void begin({ record }, false);
+                    }}
+                  />
+                </Suspense>
+              ) : null}
+              {asksTrigger ? (
+                <div className="flex flex-col gap-1">
+                  <span className="text-ink">
+                    {midway
+                      ? "What started the run, as JSON: a picked step reads it."
+                      : fileClient
+                        ? "Or give an input as JSON."
+                        : "Give an input as JSON."}
+                  </span>
+                  <TextArea
+                    {...JSON_INPUT_PROPS}
+                    aria-label={midway ? "What started the run (JSON)" : "Or give an input (JSON)"}
+                    data-testid="flow-try-input"
+                    rows={8}
+                    value={text}
+                    className="font-mono text-xs"
+                    onChange={(e) => setText(e.target.value)}
+                  />
+                </div>
+              ) : (
+                <span className="text-ink-muted">
+                  These steps read nothing of what started the run.
                 </span>
+              )}
+              {canMake && (asksTrigger || (needs?.earlier.length ?? 0) > 0) ? (
+                <div className="flex flex-col gap-1.5" data-testid="flow-try-make">
+                  <span className="text-ink">No data yet? We can make some up.</span>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <TextInput
+                      aria-label="What the made-up data should look like (optional)"
+                      placeholder="Optional: a $640 lumber bill, a late payment"
+                      className="h-8 min-w-[180px] flex-1 text-sm"
+                      data-testid="flow-try-make-notes"
+                      maxLength={TEST_DATA_NOTES_MAX}
+                      value={notes}
+                      onChange={(e) => setNotes(e.target.value)}
+                    />
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      disabled={making || blocked}
+                      onClick={() => void makeUp()}
+                      data-testid="flow-try-make-go"
+                    >
+                      {making ? "Making it up" : made ? "Make up other data" : "Make up data"}
+                    </Button>
+                  </div>
+                  {made ? (
+                    <span className="text-ink-muted" data-testid="flow-try-made">
+                      Made up from the shapes these steps read; none of it is a client's. Read it
+                      over and change what you like, then run it. A made-up id matches no stored
+                      record, so a step that looks one up won't find it: for a document, choose a
+                      file.
+                      {made.length > 0
+                        ? ` We couldn't make up ${made.join(", ").toLowerCase()}: an example of its shape is there instead.`
+                        : ""}
+                    </span>
+                  ) : null}
+                  {makeError ? (
+                    // The model's failure in our words; a refusal (HIPAA, the allowance) in its own.
+                    isApiError(makeError) && makeError.code === "draft_failed" ? (
+                      <p className="text-risk" role="alert" data-testid="flow-try-make-failed">
+                        We couldn't make up the data. Try again.
+                      </p>
+                    ) : (
+                      <ErrorNotice error={makeError} />
+                    )
+                  ) : null}
+                </div>
               ) : null}
-              {makeError ? (
-                // The model's failure in our words; a refusal (HIPAA, the allowance) in its own.
-                isApiError(makeError) && makeError.code === "draft_failed" ? (
-                  <p className="text-risk" role="alert" data-testid="flow-try-make-failed">
-                    We couldn't make up the data. Try again.
-                  </p>
-                ) : (
-                  <ErrorNotice error={makeError} />
-                )
-              ) : null}
-            </div>
-          ) : null}
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <span className="text-ink-muted">
-              {!asksTrigger
-                ? "These steps read nothing of what started the run."
-                : midway
-                  ? "What started the run, as JSON: a picked step reads it."
-                  : fileClient
-                    ? "Or give an input as JSON."
-                    : "Give an input as JSON."}
-            </span>
+            </SheetSection>
+          </div>
+          <div className="ui-sheet__foot">
+            {bad ? (
+              <p className="w-full text-risk" role="alert" data-testid="flow-try-bad">
+                {bad}
+              </p>
+            ) : null}
             <Button
-              size="sm"
+              variant="primary"
               onClick={fromInput}
-              disabled={(needs?.problems.length ?? 0) > 0}
+              disabled={blocked}
               data-testid="flow-try-input-start"
             >
               {range ? "Test these steps" : "Try it on this input"}
             </Button>
           </div>
-          {bad ? (
-            <p className="text-risk" data-testid="flow-try-bad">
-              {bad}
-            </p>
-          ) : null}
         </>
       ) : (
         <>
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div className="flex min-w-[240px] flex-1 flex-col gap-1">
-              <span className="flex flex-wrap items-center gap-2">
-                <span className="font-medium text-ink">
-                  {going ? "Trying it on" : "Tried it on"}
-                </span>
-                <span
-                  className="rounded-sm border border-line-strong bg-surface px-2 py-0.5 font-mono text-xs text-ink"
-                  data-testid="flow-try-on"
-                >
-                  {label(input)}
-                </span>
-              </span>
-              <span className="text-ink-muted" data-testid="flow-try-said">
-                {going
-                  ? "Reading real data. Nothing is written."
-                  : phase === "ended"
-                    ? (outcome ?? "Nothing was written.")
-                    : "It couldn't run. Nothing was written."}
-              </span>
-              {phase === "running" && outcome ? (
-                <span className="text-ink" data-testid="flow-try-waiting">
-                  {outcome}
-                </span>
-              ) : null}
-            </div>
-            <div className="flex flex-wrap items-center gap-2">
-              {filePicker("Use another file")}
-              <Button
-                size="sm"
-                disabled={!input || phase === "starting"}
-                onClick={() => input && void begin(input, true)}
-                data-testid="flow-try-again"
+          <div className="ui-sheet__body">
+            {phase === "error" ? <ErrorNotice error={error} /> : null}
+            {runId ? (
+              <Link
+                to={`/ops/runs/${runId}`}
+                className="text-sm font-medium text-link underline"
+                data-testid="flow-try-run"
               >
-                Try again
-              </Button>
-              <Button size="sm" variant="ghost" onClick={done} data-testid="flow-try-done">
-                Done
-              </Button>
-            </div>
+                Open the test run
+              </Link>
+            ) : null}
+            {last && last.steps.length > 0 ? (
+              <StepOutputs run={last} process={process} />
+            ) : going ? (
+              <p className="text-ink-muted">Each step shows here as it runs.</p>
+            ) : null}
           </div>
-          {runId ? (
-            <Link
-              to={`/ops/runs/${runId}`}
-              className="text-sm font-medium text-link underline"
-              data-testid="flow-try-run"
+          <div className="ui-sheet__foot">
+            <Button
+              size="sm"
+              disabled={!input || phase === "starting"}
+              onClick={() => input && void begin(input, true)}
+              data-testid="flow-try-again"
             >
-              Open the test run
-            </Link>
-          ) : null}
-          {phase === "error" ? <ErrorNotice error={error} /> : null}
-          {canPick && !going ? (
-            <div>
+              Try again
+            </Button>
+            {filePicker("Use another file")}
+            {canPick && !going ? (
               <button
                 type="button"
                 className="ds-btn ds-btn--link"
@@ -780,12 +827,11 @@ export function TryPanel({
               >
                 Test other steps
               </button>
-            </div>
-          ) : null}
-          {last && last.steps.length > 0 ? <StepOutputs run={last} process={process} /> : null}
+            ) : null}
+          </div>
         </>
       )}
-    </div>
+    </section>
   );
 }
 
@@ -816,8 +862,8 @@ function StepOutputs({ run, process }: { run: TryRun; process: Process }) {
   );
   const rows = run.steps.slice(0, 100);
   return (
-    <div className="flex flex-col gap-1.5" data-testid="flow-try-steps">
-      <span className="font-medium text-ink">What each step did</span>
+    <div className="flex flex-col gap-2" data-testid="flow-try-steps">
+      <h3 className="eyebrow text-ink-muted">What each step did</h3>
       {rows.map((row) => {
         const text =
           row.output === undefined || row.output === null

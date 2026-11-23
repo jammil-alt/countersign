@@ -1,4 +1,4 @@
-// Try it on the chart (docs/builder-plan.md §12.4, F3): the bar starts a try with today's routes
+// Try it on the chart (docs/builder-plan.md §12.4, F3): the panel starts a try with today's routes
 // (a build's own try in suite mode, else a test run of the version), reads the run back until it
 // ends, and hands the host one mark per step.
 import type { BuildDetail, BuildTryView } from "@countersign/core";
@@ -516,7 +516,7 @@ describe("TryPanel", () => {
     );
     const onBuild = vi.fn();
     const { marks } = show(api, { build: build(), upload, onBuild });
-    // No file yet: the bar asks for one.
+    // No file yet: the panel asks for one.
     expect(screen.getByTestId("flow-try")).toHaveTextContent("Try it on a real example");
     await userEvent.upload(
       screen.getByTestId("flow-try-file-input"),

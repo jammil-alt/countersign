@@ -507,7 +507,8 @@ function BuilderBody(
   // Chart or List: the route says which one it opens on (`steps/:workflow` is the List).
   const [view, setView] = useState<FlowView>(props.view === "steps" ? "list" : "chart");
   useEffect(() => setView(props.view === "steps" ? "list" : "chart"), [props.view]);
-  // The right side: the selected step or trigger, the whole-flow Builder, or the test run.
+  // The right side: the selected step or trigger, the whole-flow Builder, or the test run. With
+  // none of them open, a try under way has it (`sideShown`, below).
   const [side, setSide] = useState<Side>(null);
   const sideRef = useRef<HTMLDivElement>(null);
   // The place the next step picked in the rail goes to (a + pressed on the chart, "a new step
@@ -608,9 +609,9 @@ function BuilderBody(
   // ── The side panel ──
   /**
    * Where the panel sits below the chart (narrow screens), it is scrolled into view and focused,
-   * so a click on a step visibly lands somewhere.
+   * so a click on a step, or Try it, visibly lands somewhere. The try's panel focuses itself.
    */
-  const revealStep = () => {
+  const revealSide = (focus?: string) => {
     window.requestAnimationFrame(() => {
       const el = sideRef.current;
       if (!el?.parentElement) return;
@@ -620,12 +621,13 @@ function BuilderBody(
       el.scrollIntoView?.({ block: "start", behavior: "smooth" });
       // Not when focus is already in the panel (a field clicked before this frame): the field
       // keeps it, so what is typed there isn't lost.
-      if (!el.contains(document.activeElement))
-        el.querySelector<HTMLElement>("[data-testid='builder-inspector']")?.focus({
+      if (focus && !el.contains(document.activeElement))
+        el.querySelector<HTMLElement>(`[data-testid='${focus}']`)?.focus({
           preventScroll: true,
         });
     });
   };
+  const revealStep = () => revealSide("builder-inspector");
   const selectStep = (id: string) => {
     setSelection({ type: "step", id });
     setSide("step");
@@ -1448,9 +1450,11 @@ function BuilderBody(
   const [buildNow, setBuildNow] = useState<BuildDetail | null>(null);
   const build = buildNow ?? buildAsked.data ?? null;
   const marks = useMemo(() => (build ? fromBuild(build, { problems: false }) : null), [build]);
-  // F3: Try it on the chart: the bar at its top while a try runs, and what each step did.
+  // F3: Try it on the chart: its panel in the side column while a try is open, and what each step
+  // did. A step, the Builder or the test run opened meanwhile covers it; closed, the try is back.
   const [trying, setTrying] = useState<{ clientId: string | null } | null>(null);
   const [tried, setTried] = useState<TryMark[]>([]);
+  const sideShown: Side | "try" = side ?? (trying && workflow ? "try" : null);
   const statuses = useMemo<StatusMap>(() => {
     if (!workflow) return new Map();
     // A connection the client lacks reads as the validator says it where it finds it; the setup
@@ -1506,9 +1510,13 @@ function BuilderBody(
 
   // ── F3 and F4: Try it and Turn on ──
   const startTry = (clientId: string | null = null) => {
-    setTried([]);
-    setTrying({ clientId });
-    if (side === "test") setSide(null);
+    // A try already open here comes back as it was left; another client's starts afresh.
+    if (!trying || trying.clientId !== clientId) {
+      setTried([]);
+      setTrying({ clientId });
+    }
+    setSide(null);
+    revealSide();
   };
   /** Unsaved changes are saved as a draft first; the version a try or Turn on acts on. */
   const ensureSaved = async () => (dirty ? await save() : saved);
@@ -2203,33 +2211,6 @@ function BuilderBody(
                 </div>
               </div>
 
-              {trying && workflow ? (
-                <div className="flow-host__try" data-testid="builder-try">
-                  <TryPanel
-                    process={workflow}
-                    agent={agent}
-                    workflow={slug}
-                    versionId={saved.id}
-                    prepare={async () => {
-                      const v = await ensureSaved();
-                      if (v) setTestedHere(v.id);
-                      return v?.id ?? null;
-                    }}
-                    build={build}
-                    clientId={trying.clientId}
-                    sample={samplePayload(workflow, data.events)}
-                    // Some of the steps (docs/plan.md §1.185), starting from the one open here.
-                    ctx={ctx}
-                    startAt={selection?.type === "step" ? selection.id : null}
-                    onMarks={setTried}
-                    onDone={() => {
-                      setTrying(null);
-                      setTried([]);
-                    }}
-                    onBuild={setBuildNow}
-                  />
-                </div>
-              ) : null}
               <div className="flow-host__stage" data-view={view}>
                 {shown && view === "list" ? (
                   <div className="flow-host__list">
@@ -2280,10 +2261,43 @@ function BuilderBody(
 
             <div
               ref={sideRef}
-              className={cx("flow-host__side scroll-mt-[var(--header-h)]", !side && "hidden")}
+              className={cx("flow-host__side scroll-mt-[var(--header-h)]", !sideShown && "hidden")}
               data-testid="builder-side"
-              data-side={side ?? undefined}
+              data-side={sideShown ?? undefined}
             >
+              {/* Kept while another side covers it, so the try goes on and its marks stay. */}
+              {trying && workflow ? (
+                <div
+                  className={cx("flow-host__try", sideShown !== "try" && "hidden")}
+                  data-testid="builder-try"
+                >
+                  <TryPanel
+                    // Another client's try is another try.
+                    key={trying.clientId ?? ""}
+                    process={workflow}
+                    agent={agent}
+                    workflow={slug}
+                    versionId={saved.id}
+                    prepare={async () => {
+                      const v = await ensureSaved();
+                      if (v) setTestedHere(v.id);
+                      return v?.id ?? null;
+                    }}
+                    build={build}
+                    clientId={trying.clientId}
+                    sample={samplePayload(workflow, data.events)}
+                    // Some of the steps (docs/plan.md §1.185), starting from the one open here.
+                    ctx={ctx}
+                    startAt={selection?.type === "step" ? selection.id : null}
+                    onMarks={setTried}
+                    onDone={() => {
+                      setTrying(null);
+                      setTried([]);
+                    }}
+                    onBuild={setBuildNow}
+                  />
+                </div>
+              ) : null}
               {/* Kept while another side shows, so what is typed to the Builder stays. */}
               <div
                 className={cx("flow-host__sheet", side !== "builder" && "hidden")}
