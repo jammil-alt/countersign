@@ -240,7 +240,8 @@ export function InviteContactDialog({
   const i18n = useI18n();
   const { t } = i18n;
   const [role, setRole] = useState<InvitableRole>("client_user");
-  const [canSign, setCanSign] = useState(true);
+  // Overnight D3: a new user approves nothing until it is ticked.
+  const [canSign, setCanSign] = useState(false);
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
   const [done, setDone] = useState<string | null>(null);

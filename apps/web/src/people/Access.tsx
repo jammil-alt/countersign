@@ -99,10 +99,15 @@ export function AccessFields({
             value={value.role}
             onChange={(e) => {
               const role = e.target.value as InvitableRole;
+              // DECISION (QA PP3): a switch to user starts from the narrow choice, approvals off
+              // and agents to pick, never an admin's "every agent, approves changes". The server
+              // refuses an admin made a user without both.
               onChange(
                 role === "client_admin"
                   ? { role, canSign: true, agentIds: null }
-                  : { ...value, role },
+                  : value.role === "client_admin"
+                    ? { role, canSign: false, agentIds: [] }
+                    : { ...value, role },
               );
             }}
           >

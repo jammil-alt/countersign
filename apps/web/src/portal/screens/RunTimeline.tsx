@@ -30,16 +30,7 @@ import { ActivityRow } from "../../ui/activity";
 import { AgentBadge } from "../../ui/badges";
 import { ErrorBoundary } from "../../ui/ErrorBoundary";
 import { Loaded, Page, PageGrid } from "../../ui/page";
-import {
-  Badge,
-  Button,
-  buttonClass,
-  Card,
-  cx,
-  EmptyState,
-  PageHeader,
-  type Tone,
-} from "../../ui/primitives";
+import { Button, buttonClass, Card, cx, EmptyState, PageHeader } from "../../ui/primitives";
 import {
   Skeleton,
   SkeletonBlock,
@@ -53,25 +44,8 @@ import { Transcript } from "../../ui/transcript";
 import { useKnownRun, useRememberRuns } from "../known";
 import { PORTAL_PATHS } from "../paths";
 import { runChip, runOpen, runState, workedMs } from "../status";
-import { PortalStepPanel } from "./RunStepPanel";
+import { ActionBadge, PortalStepPanel } from "./RunStepPanel";
 import { msDuration, TookCell } from "./runsParts";
-
-const ACTION_WORDS: Record<string, PlainKey> = {
-  proposed: "action.status.proposed",
-  approved: "action.status.approved",
-  executing: "action.status.executing",
-  done: "action.status.done",
-  rejected: "action.status.rejected",
-  failed: "action.status.failed",
-};
-
-/** Made = done; waiting = on a person (signal); approved = a person signed (copper); failed = risk. */
-const ACTION_TONE: Record<string, Tone> = {
-  proposed: "warning",
-  approved: "person",
-  done: "positive",
-  failed: "risk",
-};
 
 const AUDIT_WORDS: Record<RunAuditEntry["kind"], PlainKey> = {
   opened_run: "runDetail.audit.opened_run",
@@ -479,11 +453,7 @@ function RunBody({
               <ActivityRow
                 key={a.id}
                 time={a.executedAt ? time(a.executedAt) : undefined}
-                end={
-                  <Badge tone={ACTION_TONE[a.status] ?? "neutral"}>
-                    {ACTION_WORDS[a.status] ? t(ACTION_WORDS[a.status] as PlainKey) : a.status}
-                  </Badge>
-                }
+                end={<ActionBadge action={a} />}
               >
                 <span className="font-medium">
                   {a.display?.connectorName ?? connectorName(connectorOf(a.tool))}

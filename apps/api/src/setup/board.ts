@@ -7,6 +7,7 @@
 // connect a tool, sign the scope or fill a seat for the client (§8): none of that is here.
 
 import {
+  ACCOUNT_AGENT_SLUG,
   type BoardAgent,
   type BoardCell,
   type BoardWaiting,
@@ -231,8 +232,10 @@ export async function setupBoard(tx: Tx, input: BoardInput): Promise<OpsSetupBoa
 }
 
 /**
- * The runbook (§8.1) from what has happened: the invite is the client's newest intake (else the
- * client itself), the trial the first agent's, the go-live the first agent's move to live.
+ * The runbook (§8.1) from what has happened: the invite is the client's newest intake once it went
+ * (else nothing was sent; the plan counts from its scheduled send or the client itself), the trial
+ * the first agent's, the go-live the first agent's move to live. Sloan, the account agent every
+ * client gets on day one, and test copies are not the client's agents going live.
  */
 async function runbookOf(
   tx: Tx,
@@ -241,48 +244,70 @@ async function runbookOf(
   now: Date,
 ): Promise<RunbookStep[]> {
   const [newest] = await tx
-    .select({ createdAt: intake.createdAt })
+    .select({ createdAt: intake.createdAt, sendAt: intake.sendAt })
     .from(intake)
     .where(eq(intake.tenantId, t.id))
     .orderBy(desc(intake.createdAt))
     .limit(1);
-  const invitedAt = (newest?.createdAt ?? t.createdAt).toISOString();
+  const sentAt = newest ? (newest.sendAt ?? newest.createdAt) : null;
+  const invitedAt = sentAt && sentAt <= now ? sentAt.toISOString() : null;
+  const plannedFrom = (sentAt ?? t.createdAt).toISOString();
   const all = await tx
-    .select({ id: agent.id, stageState: agent.stageState, testCopy: agent.testCopy })
+    .select({
+      id: agent.id,
+      slug: agent.slug,
+      stageState: agent.stageState,
+      testCopy: agent.testCopy,
+    })
     .from(agent)
     .where(and(eq(agent.tenantId, t.id), eq(agent.kind, "client")));
-  const starts = all
-    .filter((a) => !a.testCopy)
+  // DECISION (S6.1): Sloan goes live the day the client is made (§1.47 "On by default"), so its
+  // move to live is not the client's; only the client's own agents count.
+  const own = all.filter((a) => !a.testCopy && a.slug !== ACCOUNT_AGENT_SLUG);
+  const starts = own
     .flatMap((a) => {
       const at = (a.stageState as { trial?: { startedAt?: unknown } } | null)?.trial?.startedAt;
       return typeof at === "string" ? [at] : [];
     })
     .sort();
-  const [live] = await tx
-    .select({ at: agentChange.createdAt })
-    .from(agentChange)
-    .where(
-      and(
-        eq(agentChange.tenantId, t.id),
-        sql`${agentChange.change} ->> 'kind' = 'stage'`,
-        sql`${agentChange.change} ->> 'to' = 'live'`,
-      ),
-    )
-    .orderBy(asc(agentChange.createdAt))
-    .limit(1);
+  const [live] =
+    own.length === 0
+      ? []
+      : await tx
+          .select({ at: agentChange.createdAt })
+          .from(agentChange)
+          .where(
+            and(
+              eq(agentChange.tenantId, t.id),
+              inArray(
+                agentChange.agentId,
+                own.map((a) => a.id),
+              ),
+              sql`${agentChange.change} ->> 'kind' = 'stage'`,
+              sql`${agentChange.change} ->> 'to' = 'live'`,
+            ),
+          )
+          .orderBy(asc(agentChange.createdAt))
+          .limit(1);
   const trialStartedAt = starts[0] ?? null;
   const kickoffDone =
     trialStartedAt !== null ||
     view.chapters.some((c) => c.key !== "business" && c.state === "done" && c.total > 0);
   const steps = runbook(
-    { invitedAt, trialStartedAt, liveAt: live?.at.toISOString() ?? null, now: now.toISOString() },
+    {
+      invitedAt,
+      plannedFrom,
+      trialStartedAt,
+      liveAt: live?.at.toISOString() ?? null,
+      now: now.toISOString(),
+    },
     kickoffDone,
   );
   const first = steps.findIndex((s) => !s.done);
   return steps.map((s, i) => ({
     key: s.key,
     day: s.day,
-    label: RUNBOOK_LABELS[s.key],
+    label: s.key === "invite" && !s.done ? "Send the invite" : RUNBOOK_LABELS[s.key],
     at: s.at,
     state: s.done ? "done" : i === first ? "now" : "next",
   }));
