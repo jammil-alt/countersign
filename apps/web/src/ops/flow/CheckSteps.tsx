@@ -57,6 +57,7 @@ import {
   lineToDecision,
   listWords,
   moveLine,
+  movePathBelow,
   pathEnds,
   removeLine,
   removePath,
@@ -403,6 +404,7 @@ function CheckBody({
                       onAddStep={(container, index) => add(container, index)}
                       onEnd={(container, end) => edit((p) => setPathEnd(p, container, end, newId))}
                       onAfter={(how) => edit((p) => setAfterPaths(p, s.id, how, newId))}
+                      onMoveBelow={(container) => edit((p) => movePathBelow(p, s.id, container))}
                     />
                   ) : (
                     <LineInput
@@ -636,6 +638,7 @@ function DecisionBlock({
   onAddStep,
   onEnd,
   onAfter,
+  onMoveBelow,
 }: {
   step: IfStep;
   /** Lines below the decision, which never run when every path ends. */
@@ -648,6 +651,8 @@ function DecisionBlock({
   onAddStep(container: string, index: number): void;
   onEnd(container: string, end: "stop" | "on"): void;
   onAfter(how: "together" | "apart"): void;
+  /** The path's steps become the lines right after the decision. */
+  onMoveBelow(container: string): void;
 }) {
   const paths = decisionPaths(step);
   const after = afterPaths(step);
@@ -746,14 +751,28 @@ function DecisionBlock({
               </ol>
             ) : null}
             <div className="flex flex-wrap items-center justify-between gap-2">
-              <Button
-                variant="link"
-                size="sm"
-                onClick={() => onAddStep(p.container, shown.length)}
-                data-testid="flow-check-path-add-step"
-              >
-                + Step on this path
-              </Button>
+              <span className="flex flex-wrap items-center gap-x-4 gap-y-1">
+                <Button
+                  variant="link"
+                  size="sm"
+                  onClick={() => onAddStep(p.container, shown.length)}
+                  data-testid="flow-check-path-add-step"
+                >
+                  + Step on this path
+                </Button>
+                {/* The rest of the process drafted into the otherwise: out of the decision in one move. */}
+                {p.otherwise && !ends && shown.length > 0 ? (
+                  <Button
+                    variant="link"
+                    size="sm"
+                    title="They run after the decision, whichever path was taken."
+                    onClick={() => onMoveBelow(p.container)}
+                    data-testid="flow-check-path-move-below"
+                  >
+                    Move these below the decision
+                  </Button>
+                ) : null}
+              </span>
               <span className="flex items-center gap-2 text-xs text-ink-muted">
                 then it
                 <Select

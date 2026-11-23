@@ -351,6 +351,24 @@ export function setAfterPaths(
   );
 }
 
+/**
+ * "Move these below the decision": a path's steps leave the decision and become the lines right
+ * after it, in their order, so the decision holds only what differs and every path that rejoins
+ * goes on to them. A path that ends here keeps its steps: moving them would move its Stop too.
+ */
+// DECISION (owner, 2026-11-23: "contain the decisions to encompass the decision point and then
+// the path just continues"): one move for the whole path, since a line on a path can't be dragged.
+export function movePathBelow(process: Process, ifId: string, container: ContainerId): Process {
+  const loc = locate(process, ifId);
+  if (loc?.step.kind !== "if") return process;
+  const path = decisionPaths(loc.step).find((p) => p.container === container);
+  if (!path || pathEnds(path.steps)) return process;
+  return path.steps.reduce(
+    (p, s, i) => moveStep(p, s.id, loc.container, loc.index + 1 + i),
+    process,
+  );
+}
+
 // ── Build it ─────────────────────────────────────────────────────────────────────────────────────
 
 function walk(steps: readonly Step[], fn: (s: Step) => void) {

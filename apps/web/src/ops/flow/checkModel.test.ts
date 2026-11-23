@@ -16,6 +16,7 @@ import {
   lineToDecision,
   listWords,
   moveLine,
+  movePathBelow,
   otherwiseContainer,
   pathContainer,
   pathEnds,
@@ -206,6 +207,29 @@ describe("Check the steps' edits", () => {
     expect(afterPaths(d)).toBe("together");
     // Back where it started: the Stops made here are gone, every other id is the same.
     expect(p).toEqual(before);
+  });
+
+  it("moves a path's steps below the decision, in order, before the lines already there", () => {
+    const newId = ids();
+    const before = draft();
+    const d0 = ifAt(before, "dup");
+    // The rest of the process drafted into the otherwise.
+    let p = addLine(before, otherwiseContainer(d0), 0, "Match the vendor", newId).process;
+    p = addLine(p, otherwiseContainer(d0), 1, "Match the lines", newId).process;
+    const inside = ifAt(p, "dup").otherwise.steps.map((s) => s.id);
+    const moved = movePathBelow(p, "dup", otherwiseContainer(d0));
+    expect(ifAt(moved, "dup").otherwise.steps).toEqual([]);
+    expect(moved.steps.map((s) => s.id)).toEqual(["read", "dup", ...inside, "bill"]);
+    // Nothing is made or lost: the same steps, with their ids.
+    expect(allIds(moved).sort()).toEqual(allIds(p).sort());
+    // The path that stays is untouched, and an empty path moves nothing.
+    expect(ifAt(moved, "dup").paths).toEqual(ifAt(p, "dup").paths);
+    expect(movePathBelow(moved, "dup", otherwiseContainer(d0))).toEqual(moved);
+    // A path that ends here keeps its steps: its Stop would end the lines below.
+    const ended = setPathEnd(p, otherwiseContainer(d0), "stop", newId);
+    expect(movePathBelow(ended, "dup", otherwiseContainer(d0))).toEqual(ended);
+    // Not a decision: nothing changes.
+    expect(movePathBelow(p, "read", otherwiseContainer(d0))).toEqual(p);
   });
 
   it("maps How it starts onto the first trigger, keeping its id", () => {

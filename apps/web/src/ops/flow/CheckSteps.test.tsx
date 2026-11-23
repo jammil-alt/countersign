@@ -100,6 +100,36 @@ describe("Check the steps", () => {
     expect(screen.getByTestId("flow-check-blank")).toBeInTheDocument();
   });
 
+  it("moves the otherwise's steps below the decision in one go", async () => {
+    const user = userEvent.setup();
+    renderCheck(fakeApi(drafted()));
+    await screen.findByTestId("flow-check");
+    // An empty otherwise has nothing to move.
+    expect(screen.queryByTestId("flow-check-path-move-below")).not.toBeInTheDocument();
+    // A step on the otherwise: the rest of the process, inside the decision.
+    await user.click(screen.getAllByTestId("flow-check-path-add-step")[1] as HTMLElement);
+    const decision = screen.getByTestId("flow-check-decision");
+    await user.type(
+      within(decision).getAllByTestId("flow-check-line-input").at(-1) as HTMLElement,
+      "Match the lines",
+    );
+    await user.click(screen.getByTestId("flow-check-path-move-below"));
+    // The decision keeps its own path; the step is the line after it, before Create the bill.
+    const after = screen.getByTestId("flow-check-decision");
+    expect(
+      within(after)
+        .getAllByTestId("flow-check-line-input")
+        .map((i) => (i as HTMLInputElement).value),
+    ).toEqual(["Tell Dana"]);
+    const lines = screen.getAllByTestId("flow-check-line");
+    expect(lines).toHaveLength(4);
+    expect(within(lines[2] as HTMLElement).getByTestId("flow-check-line-input")).toHaveValue(
+      "Match the lines",
+    );
+    expect(lines[3]).toHaveAttribute("data-step-id", "s-bill");
+    expect(screen.queryByTestId("flow-check-path-move-below")).not.toBeInTheDocument();
+  });
+
   it("saves the edited bundle on Build it, asks the Builder once to fill the lines typed by hand, then opens the workflow", async () => {
     const saved: unknown[] = [];
     const started: unknown[] = [];
