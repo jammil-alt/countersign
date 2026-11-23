@@ -404,7 +404,9 @@ export function intakeRoutes(app: Hono<AppEnv>): void {
         const invited = await inviteToClient(
           ctx,
           row.tenantId,
-          { email, name: body.name, role: "client_user" },
+          // DECISION: a colleague asked to fill in setup approves as before (overnight D3 is
+          // the invite forms' default).
+          { email, name: body.name, role: "client_user", canSign: true },
           { surface: "portal", ...(branded ? { providerEmail: false } : {}) },
         );
         colleague = { userId: invited.member.userId, email, name: invited.member.name ?? email };
