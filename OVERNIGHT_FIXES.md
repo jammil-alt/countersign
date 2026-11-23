@@ -38,8 +38,8 @@ or hide a failure from a client, so they go first.
 | S1.2 | A new User invite starts with "Approves changes" ticked. Default it to off (decision taken; reversible). `people/Members.tsx:161`, `onboarding.ts:340`. | PP3 | S |
 | S1.3 | The team row says "Works on Bill clerk" and "Can read everything". Make it "Doesn't approve." `en.ts:2159`. | PP4 | S |
 | S1.4 | Security → Clients says "Last sign-in: Never" for every client. Sign-in rows have no client; join them to the person's memberships. `apps/api/src/routes/compliance.ts:192-202`, `routes/session.ts:156-171`. | SC1 | S |
-| S1.5 | **"Remember this browser for 30 days" doesn't remember.** Cause in the sign-in brief below. Own PR. | Owner | — |
-| S1.6 | **Sign-out takes two clicks.** Cause in the sign-in brief below. Same PR as S1.5. | Owner | — |
+| S1.5 | **"Remember this browser for 30 days" doesn't remember.** Our 30-day cookie path checks out end to end (`apps/api/src/routes/second-factor.ts:775-807`, `apps/api/src/second-factor/index.ts:345-376`; the key is stable and sign-out keeps it). The likely cause is WorkOS's own multi-factor still on for staging (`docs/open.md` A1 and A4: "asked twice … WorkOS's code, then ours"), which no cookie of ours can skip: an owner setting (morning step 1). In code, only hardening: stop swallowing the check's error (`packages/auth/src/workos/adapter.ts:404`) and record why a remembered browser wasn't used in the `session.sign_in` audit row, so the next report says which. Own PR. | Owner | S |
+| S1.6 | **Sign-out takes two clicks.** `signOut` marks the session signed out before it navigates to WorkOS's logout, so the app re-renders, goes to `/sign-in`, which goes to `/api/auth/sign-in` and cancels the logout; WorkOS's session is still alive and signs the person straight back in. Navigate first with a "signing out" state (`apps/web/src/session/session.tsx:185-203`), and revoke the WorkOS session on the server too (`packages/auth/src/workos/adapter.ts:470-479`). Same PR as S1.5. | Owner | S |
 
 ### S2. Sloan answers, or says it couldn't
 
@@ -134,6 +134,7 @@ with its name only, and a test run's lookup after a simulated create.
 
 ## Morning steps (a person in the back office)
 
+0. **Turn WorkOS's own multi-factor off for staging** (WorkOS dashboard → Staging → Authentication → Multi-factor auth; `docs/open.md` A4). Our second step stays on. Then sign out, sign in with "Remember this browser" ticked, sign out, sign in again: no code should be asked. If a code is still asked, say whether it came by text (ours) or from an authenticator app (WorkOS).
 1. Merge the Sloan update (S2.4) into Demo client's Sloan, and the Bill clerk template update (S3.4)
    where it applies. Both are reviewed update merges.
 2. Publish a new version of Demo client's own "AP bill clerk" with "Attach the invoice to the bill"
