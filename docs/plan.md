@@ -6382,6 +6382,79 @@ action, not just mark it... if it is an issue, just because I say it is closed d
 | Not built | The client as an owner: no step yet sends an item to the client and closes it by their answer (the requirements request asks the intake form's fields, not an item). Until there is one, "Client" is only set by the fit-gap's preconditions. |
 | Checked | `apps/api/src/build-settled-by-step.test.ts` (done by hand refused, a drop, a note done, the Builder's close left out; a put-off gap given to engineering then the Builder, closed by its change and opened by its undo; a test closed by a full passing run and not by a failing or partial one), `apps/web/src/ops/builds/closeout.test.tsx` and `builds.test.tsx` (no selects; Put off, Drop it, Reopen; Take it up on a put-off gap). The skill build's go-live closing has no test of its own. |
 
+### 1.237 Overnight fixes from the second staging walk (23 Nov 2026; no migration)
+
+The owner's second staging walk (QA2, 22 Nov), with `MERGE_QA.md`'s W1–W14 and two sign-in
+problems the owner reported, found no leak: no client saw another's data, the portal showed no cost
+or prompts, approvals held every write and a QuickBooks bill was written once. It did find wrong
+access, failures a client couldn't see, wrong counts and dates, raw codes on screen, and two
+Sentry errors from the lost master key (21 Nov). Eight streams (S1–S8), one session each, fixed
+them overnight on 23 Nov. The plan, with every item and the owner's decisions D1–D11, is
+`OVERNIGHT_FIXES.md`; each stream used a decision's default until the owner answers. 40 PRs merged
+to `main` and deployed to staging; none has a migration and nothing went to production. Two seed
+versions reach client agents only by the reviewed update merge: Sloan v7 and Bill clerk v5.
+
+| Topic | Decision |
+|---|---|
+| S1.1 Admin back to User | A switch from Admin to User starts from approvals off and no agents picked. The server refuses one that doesn't say both (422 `user_access_needed`). jammil-alt/countersign#608. // DECISION |
+| S1.2 User invites (D3) | A new client user approves nothing unless the invite says so. The intake colleague and the new-client plan send `canSign: true` explicitly. jammil-alt/countersign#608. // DECISION |
+| S1.3 The team row | A viewer reads "Doesn't approve." in place of "Can read everything". jammil-alt/countersign#608. |
+| S1.4 Last sign-in | Security → Clients joins each sign-in to the person's current client-admin or client-user memberships, so it no longer reads "Never". Operators' sign-ins don't count. jammil-alt/countersign#608. |
+| S1.5 Remember this browser | Not reproduced with the fakes. Every sign-in that takes the step records `remembered_miss` (`no_cookie`, `unreadable`, `other_person`, `method_gone`, `check_failed`, …) in its `session.sign_in` audit row; a check that throws is a miss, reported to Sentry. jammil-alt/countersign#615. // DECISION |
+| S1.6 Sign-out in one click | The app goes to WorkOS's sign-out page before it says signed out, and the server revokes the WorkOS session; a failed revoke still signs out of ours. jammil-alt/countersign#615. // DECISION |
+| S2.1 Sloan couldn't answer | A failed or escalated `account.chat` run gets a fixed message from code ("I couldn't answer that. We've told your lead."), posted in the transaction that records the failure; none when Sloan already answered. The portal stops waiting after 3 minutes. jammil-alt/countersign#619. // DECISION |
+| S2.2 A brief waiting list | `account.waiting` returns id, kind, title, status, service, run and dates; the detail stays with `account.explain_wait`. jammil-alt/countersign#619. // DECISION |
+| S2.3 One client only | `account.owner` gives the client's name, zone and time now, and the chat skill answers only for that client. In the tool's result, not the prompt, so no other prompt or fixture changes. jammil-alt/countersign#619. // DECISION |
+| S2.4 Sloan v7 (D1) | `supervisor.v7.json` extends v6 with `claude-sonnet-5-5` on the chat's `answer` step; the $0.30 cap and 2048 tokens are unchanged. Set on the step, so the merge shows one change. jammil-alt/countersign#626. |
+| S2.5 Knowledge notes (D2) | The portal guide has a Knowledge entry (Settings → Charter and policies, client admin), so Sloan gives the steps. Sloan saves no note itself (ARCHITECTURE §9.8). jammil-alt/countersign#631. |
+| S2.6 The client's clock | Sloan and Reggie give times in the client's zone. Reggie with no client reads UTC: an operator has no stored zone. jammil-alt/countersign#619. // DECISION |
+| S3.1 A bill's runs | `toolRefs` matches QuickBooks' `Bill:149` and the bare `149`; kind and tool still have to match. jammil-alt/countersign#612. // DECISION |
+| S3.2 Runs by vendor | Writes declare a `counterparty`, kept as a second subject with role `read`. The record page, the `about=` filter and ⌘K share one matcher, tied to the record's client; the hourly backfill fills in older runs. jammil-alt/countersign#639. // DECISION |
+| S3.3 A run's bill gets its document | When sync first stores a bill a run created, the document that run started on is linked to it, unless it is linked elsewhere. jammil-alt/countersign#627. // DECISION |
+| S3.4 Bill clerk v5 | `bill-clerk.v5.json` extends v4: "Attach the invoice" right after Create bill on the new-bill path (approval required, the bill approver's seat), and Prepare bill gets the trigger's `documentId`. jammil-alt/countersign#621. |
+| S3.5 Prepare bill's sources | A built-in skill may name `sourcesFromInput`; its sources are then set in code from its input, never by the model. Prepare bill cites the document and its reading. jammil-alt/countersign#617. // DECISION |
+| S3.6 Test-run payloads | The test-run route checks each trigger field the steps read against the event's schema and refuses a missing or wrong one (422 `invalid_payload`) before a run is made. Unread and extra fields are left alone. jammil-alt/countersign#617. // DECISION |
+| S3.7 An unopenable sign-in | `decrypt_failed`, `malformed`, `key_destroyed` (and `key_lost`, S8.2) raise needs attention like a refused sign-in; `invalid_key` and `unknown_key` are our keys and fail as before. The portal's connector page polls once a minute while connected. jammil-alt/countersign#612. // DECISION |
+| S4.1 Home's failed runs | A failed run an open item already names is listed once, as the item. Escalations read in words ("Stopped: reached its cost budget"). jammil-alt/countersign#614. |
+| S4.2 Your call's count | The header's count reloads after every write on Your call or a record's to-do panel (`useReloadCallCount`). jammil-alt/countersign#618. |
+| S4.3 Snoozed | A Snoozed tab lists to-dos put off with Later, with "Bring back now" (`GET /api/ops/todos/snoozed`, `POST …/:id/wake`). The tab shows no count. jammil-alt/countersign#618. |
+| S4.4 Resolved escalations | Only an open item says whom it waits on. jammil-alt/countersign#620. |
+| S4.5 Expired approvals | A change nobody answered in time is closed `rejected` with `approval_expired` and reads "Not made: no answer in time". No new status, so no migration. Old rows are not backfilled (D7). jammil-alt/countersign#609. // DECISION |
+| S4.6 Accounts' Needs us (D5) | Accounts and the client report say a client needs us exactly when Home's Needs us does; the reasons are its kinds. The allowance and connections no agent uses show only in their own columns. Replaces §1.235's Needs us row; `ACCOUNT_ALLOWANCE_SHARE` is now unused. jammil-alt/countersign#629. // DECISION |
+| S4.7 Holds and spot checks | "Agents on safety hold" and "Run to check" replace "Critical, held" and "held for review". jammil-alt/countersign#635. |
+| S4.8 Failed model calls | Usage counts them apart from calls ("N failed calls, not counted in Calls"). jammil-alt/countersign#635. |
+| S4.9 Step counts | A step is every step of a workflow, nested ones included, the trigger not. An agent says "18 steps in 3 workflows", a run "0 of 3 steps done", and the Runs list says when it folds repeated failures. jammil-alt/countersign#635. |
+| S5.1 One date format | "23 Nov 2026" everywhere: core's `houseDate` on the server, the shared formatter on screen. Date pickers unchanged. jammil-alt/countersign#622. // DECISION |
+| S5.2 The deal timeline | Its day and time come from one zone, the viewer's. jammil-alt/countersign#610. |
+| S5.3 Portal Home's first draw | The session carries the active client's zone, so Home greets on the client's day from the start. jammil-alt/countersign#610. // DECISION |
+| S5.4 Period chips | They read in the client's zone, and an `until` at midnight reads as the day before. jammil-alt/countersign#610. // DECISION |
+| S5.5 Schedules and Usage | A client's next run reads in its zone, named. Usage stays in UTC days (the rollup counts by UTC day) and says so. jammil-alt/countersign#610. // DECISION |
+| S5.6 No raw codes | Connector, tool, trigger, field, role and model ids read in words; the inbox lists name the records they cite; `kind:id` sources read as words; costs go through the cost formatter. A read tool with no title is named by core's `readToolWords`. jammil-alt/countersign#642. |
+| S5.7 The SOP in the reader's language | The SOP's code-made sentences and a directory suggestion's title carry a key beside their English, and the app writes them in the reader's language. Stored revisions keep their English; schedules stay English for now. jammil-alt/countersign#643. |
+| S6.1 The runbook | Trial and live count only the client's own agents (not Sloan or test copies). The invite is done only once one went; the header says "Next: kickoff, planned day 2". jammil-alt/countersign#607. // DECISION |
+| S6.2 Getting started | Home doesn't count Sloan as live (`accountAgent` on the Table), so a new client lands on Getting started. jammil-alt/countersign#607. // DECISION |
+| S6.3 Trying a draft | Before the POC test, a try of every step is a test run at the build's Sandbox; tries are kept as cases only in the POC test. jammil-alt/countersign#611. // DECISION |
+| S6.4 Evidence pickers | Evidence picks a client, then one of its agents (test copies left out); both go in the URL. jammil-alt/countersign#625. // DECISION |
+| S6.5 A draft's bad schedule | The agent page checks its stored draft as save and publish do (`latestErrors`), and a trigger with a problem reads "Won't start" with what to fix. jammil-alt/countersign#632. // DECISION |
+| S6.6 The Builder's count | After draft-now it says the decisions the build stored, not the ones its answer listed. jammil-alt/countersign#633. // DECISION |
+| S6.7 Published templates only | The new-agent screen and the invite's Agents picker offer only published template versions; one already chosen for an invite stays shown. jammil-alt/countersign#634. // DECISION |
+| S6.8 Deals | The deal form says what "Add the deal" still needs, and ⌘K finds deals in the Sales board's scope. jammil-alt/countersign#638. // DECISION |
+| S6.9 The audit log (D6) | Every request still writes its row (invariant 14). A refresh the app sends is tagged `refresh`; a run's trail counts a person's opens within 30 minutes as one visit; the log reads in words with names. jammil-alt/countersign#623. // DECISION |
+| S7.1 Paused on the SOP | A paused agent's SOP and Procedures read "Paused" beside the stage. `paused` is outside the fingerprint, so a pause makes no revision. jammil-alt/countersign#606. // DECISION |
+| S7.2 Trial words | "In trial" in the portal too, and an SOP's first revision reads "First recorded revision" (stored rows are read with the new words). jammil-alt/countersign#613. // DECISION |
+| S7.3 Portal requests | A request reads "Sent" until one of us picks it up, and the list shows a problem's number. Ideas stay unnumbered (that needs a migration). jammil-alt/countersign#616. // DECISION |
+| S7.4 Change cards | A new vendor's card shows its name, and Evidence links to the document's page, one click from the PDF. jammil-alt/countersign#624. // DECISION |
+| S7.5 Counts that say what they count | Controls counts name their set, SOC 2 readiness says criteria, open items say whose, and Billing's cost says it is the billed work as priced. jammil-alt/countersign#628. // DECISION |
+| S7.6 SOP revisions for connections | Added by the coordinator (Sentry MEZONAS-API-F). Signing in to a tool, again or with a key, records the revision at the time: `mountLong` routes record after the handler, and the connection routes are in `SOP_CHANGE_ROUTES`. jammil-alt/countersign#636. // DECISION |
+| S8.1 Vault upkeep | Re-wraps only keys whose master is held and counts the rest. Retired keys under a lost master are expected and silent; active ones warn once a run (Sentry MEZONAS-API-D, then API-K). jammil-alt/countersign#630, jammil-alt/countersign#646. // DECISION |
+| S8.2 Texting pass | A retired key whose master is gone fails as `key_lost`. One helper (`credentialsUnopenable`) serves the texting pass and the QuickBooks sync. The pass restores a Mezonas-made subaccount's credentials from the main account (`credentials_restored`), else marks the connection once (Sentry MEZONAS-API-C). jammil-alt/countersign#630. // DECISION |
+| S8.5 Your call's empty state | Reggie's and the clients' tabs use the design system's empty state: "Clear the filters" only when filters hide rows. jammil-alt/countersign#641. |
+| DQ-001 (S8.3) | `docs.get#photoMetadata`: for a JPEG, PNG or HEIC document, `docs.get` returns `latitude`, `longitude`, `takenAt` and `locationSource`, read in code from EXIF by our own reader. Other documents are unchanged. jammil-alt/countersign#637. // DECISION |
+| DQ-002 (S8.4) | `data.reshape#nearestWithin`: picks the list item nearest a point within a distance, on the mean Earth radius, or none with a reason (`no_point`, `nothing_within`, `tie` under 1 m). Deterministic; the AI mapping suggester doesn't offer it yet. jammil-alt/countersign#640. // DECISION |
+| A flaky test | `client-status.test.ts` failed in the first hour of a Chicago week or month; it now checks which week and month the run fell in. jammil-alt/countersign#644 (#645, the same fix, was closed). |
+| Open | For the owner: re-approve the Claude connection to staging's MCP, then the coordinator resolves the remaining feedback notes. Install Sloan v7 and Bill clerk v5 and merge them into each client's agents (feedback RN2 waits on Sloan v7). Accept DQ-001 and DQ-002; HEIC isn't accepted by any intake channel yet (`KEPT_TYPES`), and whether texted and WhatsApp photos keep GPS needs a real phone. Confirm D5, #640's tie rule and `no_point`, "Won't start" (#632), published versions only (#634), D2 and D4. Check on staging: remember-this-browser (`remembered_miss`), one-click sign-out landing on `/`, and the texting pass restoring TWELVE THIRTY-FOUR's Twilio credentials (its EIN is lost). Follow-ups: the SOP stage line "In trial: every change is signed"; numbers for ideas (a migration); Sentry's code mappings; leftover branches. Feedback still open: LB4's skill count, SC1's vendor rows, WR7's reject reason (D4), US1's unpriced older Sonnet id, the Plaid icon and the builder-space notes. Left from the plan: accounts picked afresh each run, vendors written by name only, prompt caching, a backfill of expired approvals (D7). |
+| Checked | Each PR's CI was green on its head commit (`checks.yml`), with a test that fails before the fix. PRs that overlapped were also checked combined locally by the coordinator. |
+
 ### 1.236 R6: the portal's saved views (Wave Y, Y7, 2026-11-22; migration 0098, #577)
 
 - A client person saves the runs list's filter under a name and opens it again from a chip above the list. A client admin can:
