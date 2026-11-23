@@ -236,6 +236,25 @@ describe.skipIf(!h)("the Setup tab", () => {
     expect(after.cells.find((c: { chapter: string }) => c.chapter === "live").state).toBe("done");
   });
 
+  it("a new client with Sloan on and no invite sent is at the invite, not live (S6.1)", async () => {
+    // A new client starts with Sloan on: active and live from day one (§1.47).
+    const made = await H.call(OPERATOR, "POST", "/api/ops/clients", { name: "Runbook client" });
+    expect(made.status, JSON.stringify(made.json)).toBe(200);
+    const id = j(made.json).client.id as string;
+    const res = await board(OPERATOR, id);
+    expect(res.status, JSON.stringify(res.json)).toBe(200);
+    const steps = j(res.json).runbook as {
+      key: string;
+      label: string;
+      state: string;
+      at: string | null;
+    }[];
+    // No invite went: the invite is what's next, and nothing is live.
+    expect(steps.map((s) => s.state)).toEqual(["now", "next", "next", "next", "next"]);
+    expect(steps[0]).toMatchObject({ label: "Send the invite", at: expect.any(String) });
+    expect(steps[4]?.state).not.toBe("done");
+  });
+
   it("is only for an operator who serves the client", async () => {
     expect((await board(OTHER_OPERATOR)).status).toBe(404);
     expect((await board(admin("a"))).status).toBe(403);

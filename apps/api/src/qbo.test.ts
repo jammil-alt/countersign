@@ -1238,6 +1238,47 @@ describe.skipIf(!h)("QuickBooks Online through the API", () => {
     expect(opened).toMatchObject({ refreshToken: qbo.refreshToken });
   });
 
+  it("raises a connection whose stored sign-in can't be opened as needing a new sign-in", async () => {
+    await forgetClaims();
+    const before = await H.t.db
+      .select({ id: connectionChange.id })
+      .from(connectionChange)
+      .where(eq(connectionChange.connectionId, connectionId));
+    const [stored] = await H.t.db.select().from(connection).where(eq(connection.id, connectionId));
+    const sealed = stored?.credentialsEncrypted as { ct: string } & Record<string, unknown>;
+    // One byte of the ciphertext changed: the stored sign-in no longer opens (decrypt_failed).
+    const flipped = `${sealed.ct.startsWith("A") ? "B" : "A"}${sealed.ct.slice(1)}`;
+    await H.t.db
+      .update(connection)
+      .set({ credentialsEncrypted: { ...sealed, ct: flipped } })
+      .where(eq(connection.id, connectionId));
+    try {
+      const r = await sync();
+      expect(r.skipped).toBe("the client needs to sign in to QuickBooks again");
+      const [row] = await H.t.db.select().from(connection).where(eq(connection.id, connectionId));
+      expect(row?.status).toBe("error");
+      const changes = await H.t.db
+        .select()
+        .from(connectionChange)
+        .where(
+          and(
+            eq(connectionChange.connectionId, connectionId),
+            sql`${connectionChange.change}->>'kind' = 'needs_attention'`,
+          ),
+        );
+      const added = changes.filter((c) => !before.some((b) => b.id === c.id));
+      expect(added.map((c) => c.change)).toEqual([
+        expect.objectContaining({ reason: "signin_expired", before: "connected", after: "error" }),
+      ]);
+    } finally {
+      await H.t.db
+        .update(connection)
+        .set({ status: "connected", credentialsEncrypted: sealed })
+        .where(eq(connection.id, connectionId));
+      await forgetClaims();
+    }
+  });
+
   it("lets the operator add and change accounts and classes in the chart, each signed, written once", async () => {
     const ledger = j((await call(OPERATOR, "GET", `/api/ops/clients/${H.A.tenantId}/ledger`)).json);
     const mine = ledger.ledgers.find(

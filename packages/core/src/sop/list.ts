@@ -11,6 +11,8 @@ export const SopListItem = z.object({
   code: z.string(),
   area: z.object({ id: z.string(), words: z.string() }),
   stage: z.object({ id: z.string(), words: z.string() }),
+  /** Paused now: read "Paused" in place of the stage (the SOP's own `paused`). */
+  paused: z.boolean(),
   /** The SOP's purpose, as its section 1 says it. */
   purpose: z.string(),
   /** The current revision and what changed in it; null until the first is recorded. */
@@ -52,6 +54,7 @@ export function sopListItem(view: SopView): SopListItem {
     code: view.code,
     area: view.area,
     stage: view.stage,
+    paused: view.paused,
     purpose: view.purpose,
     revision: revision
       ? {
