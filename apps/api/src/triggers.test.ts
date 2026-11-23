@@ -150,6 +150,37 @@ describe.skipIf(!h)("triggers, six kinds", () => {
     expect(runsOf(sam)[0]?.trigger).toMatchObject({ type: "schedule", tz: "America/New_York" });
   });
 
+  // S6.5: a stored draft with a schedule that can't start says so on the agent's page.
+  it("schedule: a draft's invalid schedule and zone come back with the agent", async () => {
+    const sid = await makeAgent(
+      H.A.tenantId,
+      "sid",
+      bundle("Sid", wf({ id: "weekly", on: { type: "schedule", cron: "0 9 * * 1" } })),
+    );
+    const before = j((await H.call(OPERATOR, "GET", `/api/ops/agents/${sid}`)).json);
+    // Nothing is checked for a live version: it passed when it was published.
+    expect(before.latestErrors).toBeUndefined();
+    const draft = bundle(
+      "Sid",
+      wf({ id: "weekly", on: { type: "schedule", cron: "99 99 99 99 99", tz: "Not/AZone" } }),
+    );
+    const saved = await H.call(OPERATOR, "POST", `/api/ops/agents/${sid}/versions`, {
+      bundle: draft,
+      parentVersionId: before.live.id,
+    });
+    expect(saved.status, JSON.stringify(saved.json)).toBe(200);
+    const after = j((await H.call(OPERATOR, "GET", `/api/ops/agents/${sid}`)).json);
+    expect(after.latest.id).toBe(j(saved.json).version.id);
+    expect(
+      after.latestErrors.map((e: { stepId: string; code: string }) => [e.stepId, e.code]),
+    ).toEqual(
+      expect.arrayContaining([
+        ["weekly", "invalid_cron"],
+        ["weekly", "invalid_timezone"],
+      ]),
+    );
+  });
+
   it("event: starts only its own client's agents", async () => {
     const evie = await makeAgent(
       H.A.tenantId,

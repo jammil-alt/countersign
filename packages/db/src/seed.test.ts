@@ -88,6 +88,8 @@ describe("seed files", () => {
       "bill-clerk.v3",
       // Setup-plan §4.1: the Bill clerk's v4 names seats for who approves and who answers.
       "bill-clerk.v4",
+      // Overnight S3.4: v5 attaches the invoice after creating a bill.
+      "bill-clerk.v5",
       "builder.v2",
       "coordinator.v2",
       "document-clerk.v2",
@@ -357,10 +359,10 @@ describe.skipIf(!online)("seed", () => {
   it("inserts the operator, two clients and five live templates; twice is the same as once", async () => {
     const first = await seed(t.db);
     const afterFirst = await counts();
-    // Five templates: five v1s, the supervisor's v2 to v7, the Bill clerk's v2 to v4, and the
+    // Five templates: five v1s, the supervisor's v2 to v7, the Bill clerk's v2 to v5, and the
     // Builder's, Coordinator's and Document clerk's v2; and the Demo client's Sloan, its v1 forked
     // from the supervisor's live version (§1.47 "On by default").
-    expect(afterFirst).toEqual({ tenants: 2, users: 2, memberships: 3, agents: 6, versions: 18 });
+    expect(afterFirst).toEqual({ tenants: 2, users: 2, memberships: 3, agents: 6, versions: 19 });
     expect(first.demoDesk).toBeNull();
 
     const second = await seed(t.db);
@@ -391,7 +393,7 @@ describe.skipIf(!online)("seed", () => {
     // v0.19, answering on Claude Sonnet 5.5), whose parent is v6, v6's v5, v5's v4, v4's v3 and v3's v2; the Bill clerk's v3 (its parent v2); the Builder's,
     // Coordinator's and Document clerk's v2. The others are retired.
     const lastSeeded: Record<string, number> = {
-      "bill-clerk": 4,
+      "bill-clerk": 5,
       builder: 2,
       coordinator: 2,
       "document-clerk": 2,
@@ -414,7 +416,8 @@ describe.skipIf(!online)("seed", () => {
         const at = (n: number) => versions.find((v) => v.agentId === r.id && v.version === n);
         expect(at(2)?.parentVersionId).toBe(first.templates[r.slug]?.versionId);
         expect(at(3)?.parentVersionId).toBe(at(2)?.id);
-        expect(live?.parentVersionId).toBe(at(3)?.id);
+        expect(at(4)?.parentVersionId).toBe(at(3)?.id);
+        expect(live?.parentVersionId).toBe(at(4)?.id);
       } else if (lastSeeded[r.slug] === 2) {
         expect(live?.parentVersionId).toBe(first.templates[r.slug]?.versionId);
       }

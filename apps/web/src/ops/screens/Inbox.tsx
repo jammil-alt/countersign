@@ -213,7 +213,10 @@ export function OpsInboxScreen() {
         .filter(Boolean)
         .join(" · "),
       outcome: item.status === "resolved" ? outcomeText(item.kind, approved, by) : null,
-      waitingOn: mine ? null : waitingOnLine(item, stuckByItem.get(item.id)),
+      // S4.4 (QA2 HM3): only an open item waits on anyone; a resolved or expired one never says
+      // "Waiting on the client admin for 11 days".
+      waitingOn:
+        mine || item.status !== "open" ? null : waitingOnLine(item, stuckByItem.get(item.id)),
     };
   };
 
@@ -283,6 +286,7 @@ export function OpsInboxScreen() {
         context={context}
         runHref={item.runId ? `/ops/runs/${item.runId}` : null}
         recordHref={(id) => `/ops/clients/${item.tenantId}/records/${id}`}
+        documentHref={(id) => `/ops/clients/${item.tenantId}/documents/${id}`}
         outcome={outcome}
         waitingOn={waitingOn}
         onResolve={

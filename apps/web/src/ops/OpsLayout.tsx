@@ -68,6 +68,20 @@ export function useShareCounts(counts: SharedCounts | undefined): void {
   useEffect(() => () => share?.(undefined), [share]);
 }
 
+/** S4.2: asks the frame for Your call's count again, at once (after Done, Later or an act). */
+const ReloadCallContext = createContext<(() => void) | null>(null);
+
+/**
+ * For a page that changes the to-do list (Your call, a record's to-dos): the frame's "Your call"
+ * count is its own answer, so the page asks for it again after a write rather than leaving it a
+ * poll behind. A no-op outside the back office's frame.
+ */
+export function useReloadCallCount(): () => void {
+  return useContext(ReloadCallContext) ?? noop;
+}
+
+function noop(): void {}
+
 /** The place a back-office address is in: its first segment after `/ops` ("" for Home). */
 export function opsPlace(pathname: string): string {
   return pathname.replace(/^\/ops\/?/, "").split("/")[0] ?? "";
@@ -343,7 +357,9 @@ function OpsFrame({ children }: { children: ReactNode }) {
         }
       >
         <OpsClientsContext.Provider value={clientRows}>
-          <ShareCountsContext.Provider value={setShared}>{children}</ShareCountsContext.Provider>
+          <ShareCountsContext.Provider value={setShared}>
+            <ReloadCallContext.Provider value={reloadCall}>{children}</ReloadCallContext.Provider>
+          </ShareCountsContext.Provider>
         </OpsClientsContext.Provider>
       </AppShell>
       {/* The back office always has the Feedback button. */}

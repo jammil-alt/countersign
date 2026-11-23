@@ -130,7 +130,7 @@ describe("the account report", () => {
 
   it("adds Needs us in the back office, and links to Escalations and connections", async () => {
     const api = fakeApi({ "GET /api/session": () => OPERATOR_SESSION });
-    const ops = { ...REPORT, needsUs: ["waiting", "failed", "connection", "allowance"] };
+    const ops = { ...REPORT, needsUs: ["waiting", "failed", "connection", "item"] };
     api.on(`GET /api/ops/clients/${CLIENT}/report`, () => ops);
     renderAt(
       `/ops/clients/${CLIENT}/report`,
@@ -139,7 +139,9 @@ describe("the account report", () => {
       api,
     );
     const needs = await screen.findByTestId("ops-account-needs-us");
-    expect(needs.textContent).toContain("Allowance over 80% used");
+    // S4.6: Home's Needs us kinds, in words.
+    expect(needs.textContent).toContain("Approval stuck with the client");
+    expect(needs.textContent).toContain("Item for us");
     expect(href("account-report-failed-unseen")).toBe(`/ops/inbox?client=${CLIENT}`);
     expect(
       within(screen.getByTestId("account-report-connections")).getByRole("link", {

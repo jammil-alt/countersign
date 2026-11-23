@@ -8,6 +8,7 @@ import { useNavigate } from "react-router-dom";
 import { apiRoutes } from "../../../api/routes";
 import { useApiClient } from "../../../api/useApi";
 import { ErrorNotice } from "../../../ui/ErrorState";
+import { EmptyState } from "../../../ui/primitives";
 import { Due } from "../parts";
 
 type Col = "what" | "client" | "kind" | "due";
@@ -22,9 +23,16 @@ export function TheirList({
   onChanged,
   onToast,
   onClear,
+  total = items.length,
+  query = "",
 }: {
   who: "reggie" | "client";
+  /** The rows the kind chip and the search leave. */
   items: TodoView[];
+  /** How many the list has before the filters. */
+  total?: number;
+  /** The search, trimmed. */
+  query?: string;
   today: string;
   onChanged(): void;
   onToast(text: string): void;
@@ -76,23 +84,46 @@ export function TheirList({
         {who === "reggie" ? YOUR_CALL_WORDS.reggieIntro : YOUR_CALL_WORDS.clientIntro}
       </p>
       {error ? <ErrorNotice error={error} /> : null}
-      <div className="dt" data-testid={`call-${who}`}>
-        <div className="dt-wrap overflow-x-auto">
-          <table className="dt-ana">
-            <thead>
-              <tr>
-                {th("what", "What")}
-                {th("client", "Client")}
-                {th("kind", "Kind")}
-                {th("due", "Due")}
-                <th>
-                  <span className="sr-only">Action</span>
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.length ? (
-                rows.map((t) => {
+      {rows.length === 0 ? (
+        // Owner feedback (overnight S8.5): the design system's empty state, with an icon and a
+        // line, rather than a bare "Clear the filters" link; offered only when filters hide rows.
+        total > 0 ? (
+          <EmptyState
+            icon={query ? "search" : "filter"}
+            title={YOUR_CALL_WORDS.theirNoMatch(who, query)}
+            line={YOUR_CALL_WORDS.theirHidden(total)}
+            action={{
+              label: YOUR_CALL_WORDS.clearFilters,
+              onClick: onClear,
+              testId: `call-${who}-clear`,
+            }}
+            testId={`call-${who}-nomatch`}
+          />
+        ) : (
+          <EmptyState
+            icon={who === "reggie" ? "desk" : "customer"}
+            title={YOUR_CALL_WORDS.theirEmpty[who]}
+            line={YOUR_CALL_WORDS.theirEmptyNote[who]}
+            testId={`call-${who}-empty`}
+          />
+        )
+      ) : (
+        <div className="dt" data-testid={`call-${who}`}>
+          <div className="dt-wrap overflow-x-auto">
+            <table className="dt-ana">
+              <thead>
+                <tr>
+                  {th("what", "What")}
+                  {th("client", "Client")}
+                  {th("kind", "Kind")}
+                  {th("due", "Due")}
+                  <th>
+                    <span className="sr-only">Action</span>
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((t) => {
                   const href = t.about?.href ?? null;
                   return (
                     <tr
@@ -149,27 +180,12 @@ export function TheirList({
                       </td>
                     </tr>
                   );
-                })
-              ) : (
-                <tr>
-                  <td colSpan={5}>
-                    <div className="dt-empty">
-                      {YOUR_CALL_WORDS.noMatch}{" "}
-                      <button
-                        type="button"
-                        className="ds-btn ds-btn--link text-sm"
-                        onClick={onClear}
-                      >
-                        {YOUR_CALL_WORDS.clearFilters}
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
+                })}
+              </tbody>
+            </table>
+          </div>
         </div>
-      </div>
+      )}
     </>
   );
 }

@@ -1,5 +1,6 @@
 // The routes that change what an agent's SOP says (docs/sop-plan.md §6), and which agents each
-// changes. `mount()` records their revisions after the handler, in the request's transaction, with
+// changes. `mount()` records their revisions after the handler, in the request's transaction (a long
+// route, `mountLong`, in a short one of its own once it returns), with
 // the signed-in person as who made the change (http.ts `withSopRevisions`). Changes made away from a
 // session route (a stage moved by the hourly pass, a connection's health) are caught by the read's
 // and the hourly check's safety net instead.
@@ -9,7 +10,7 @@
 // registry, and a test checks each entry names a real route. Including too many agents is harmless:
 // an agent whose SOP didn't change gets no revision (its fingerprint is the same).
 
-import { agent, areaOwner, type Tx } from "@countersign/db";
+import { agent, areaOwner, connection, type Tx } from "@countersign/db";
 import { eq } from "drizzle-orm";
 import { agentsUsingConnection, clientAgentIds, type SopRevisionSource } from "./revisions";
 
@@ -92,7 +93,20 @@ export const SOP_CHANGE_ROUTES: Readonly<Record<string, SopChangeRoute>> = {
     source: "grant",
     scope: portalAgent("agentId"),
   },
-  // What a connection allows, connecting and disconnecting.
+  // What a connection allows, connecting, connecting again and disconnecting. A sign-in names its
+  // connector, not its connection: every agent of the client is checked (only those whose SOP
+  // changed get a revision). The Sandbox's back-office sign-in is left out: it has no client agents.
+  "POST /api/connections/:connector/callback": { source: "connection", scope: portalAll },
+  "PUT /api/connections/:connector/credentials": { source: "connection", scope: portalAll },
+  "POST /api/ops/clients/:id/connections/:connector/connect": {
+    source: "connection",
+    scope: opsClientAll,
+  },
+  "PATCH /api/ops/connections/:id": { source: "connection", scope: opsConnection },
+  "PUT /api/access/browser/:connectionId": {
+    source: "connection",
+    scope: usingConnection(portalClient, "connectionId"),
+  },
   "PATCH /api/connections/:id/permissions": {
     source: "connection",
     scope: usingConnection(portalClient, "id"),
@@ -131,6 +145,21 @@ export const SOP_CHANGE_ROUTES: Readonly<Record<string, SopChangeRoute>> = {
   "POST /api/setup/:id/items/:itemId": { source: "adjust", scope: portalAgent("id") },
   "POST /api/ops/agents/:id/setup/:itemId": { source: "adjust", scope: oneAgent() },
 };
+
+/** The agents bound to the connection `:id`, in its client, when the operator serves it. */
+async function opsConnection(ctx: SopChangeCtx): Promise<Scope> {
+  const id = ctx.params.id;
+  if (!id) return null;
+  const [row] = await ctx.tx
+    .select({ tenantId: connection.tenantId })
+    .from(connection)
+    .where(eq(connection.id, id));
+  if (!row || !ctx.tenantIds.includes(row.tenantId)) return null;
+  return {
+    tenantId: row.tenantId,
+    agentIds: await agentsUsingConnection(ctx.tx, row.tenantId, id),
+  };
+}
 
 /** Every agent of the client whose area owner `:id` is. */
 async function opsOwnerClient(ctx: SopChangeCtx): Promise<Scope> {

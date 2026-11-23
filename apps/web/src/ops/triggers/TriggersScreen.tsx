@@ -77,12 +77,15 @@ export function TriggersPanel({
   agent,
   latest,
   bundle,
+  errors = [],
   onChanged,
 }: {
   agent: AgentSummary;
   /** The agent's latest version, which the list reads and new triggers are added to. */
   latest: VersionDetail | null;
   bundle: AnyAgentBundle | null;
+  /** The latest version's problems when it is a stored draft (S6.5); each row shows its own. */
+  errors?: readonly { stepId: string | null; message: string; workflow?: string | undefined }[];
   /** After a save, with the new draft version's id. */
   onChanged(versionId: string): void;
 }) {
@@ -189,6 +192,13 @@ export function TriggersPanel({
               showWorkflow={manyWorkflows}
               isClient={isClient}
               lastFired={lastFired(r.trigger.id)}
+              problems={errors
+                .filter(
+                  (e) =>
+                    e.stepId === r.trigger.id &&
+                    (e.workflow === undefined || e.workflow === r.workflow),
+                )
+                .map((e) => e.message)}
               busy={action.busy}
               removing={action.busy && removing === r.trigger.id}
               name={agent.name}
@@ -229,6 +239,7 @@ function TriggerItem({
   showWorkflow,
   isClient,
   lastFired,
+  problems = [],
   busy,
   removing,
   name,
@@ -241,6 +252,8 @@ function TriggerItem({
   showWorkflow: boolean;
   isClient: boolean;
   lastFired: Fired["triggers"][number]["lastFired"] | undefined;
+  /** What stops this trigger, from the draft's check: it won't start until they're fixed. */
+  problems?: string[];
   busy: boolean;
   /** This row's Remove is on its way to the server. */
   removing: boolean;
@@ -278,7 +291,15 @@ function TriggerItem({
             )}
           </span>
         ) : null}
-        <StatusChip state={row.enabled ? "done" : "idle"}>{row.enabled ? "On" : "Off"}</StatusChip>
+        {/* DECISION (S6.5): a trigger the check finds a problem with reads "Won't start", not On:
+            the draft can't be published (or test-run) until it is fixed. */}
+        {row.enabled && problems.length > 0 ? (
+          <StatusChip state="blocked">Won't start</StatusChip>
+        ) : (
+          <StatusChip state={row.enabled ? "done" : "idle"}>
+            {row.enabled ? "On" : "Off"}
+          </StatusChip>
+        )}
         {hasMore ? (
           <button
             type="button"
@@ -303,6 +324,13 @@ function TriggerItem({
           </button>
         )}
       </div>
+      {problems.length > 0 ? (
+        <ul className="mt-1 text-sm text-risk-ink" data-testid={`trigger-problems-${trigger.id}`}>
+          {problems.map((m) => (
+            <li key={m}>{`Fix before publishing: ${m}.`}</li>
+          ))}
+        </ul>
+      ) : null}
       {guards.length > 0 ? (
         <p className="mt-1 text-sm text-ink-muted" data-testid={`trigger-guards-${trigger.id}`}>
           Guards (limits on when it starts): {guards.join(" · ")}
