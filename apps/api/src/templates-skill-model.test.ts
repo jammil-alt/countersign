@@ -147,7 +147,10 @@ describe("the skill model's template versions", () => {
     // v6 is v5 with a read of QuickBooks and a check before each write: the same advice.
     "bookkeeping bookkeeper v6": ["split_long"],
     // Round 4 D (§1.211): v7 is v6 with its writes verified: the same advice.
-    "bookkeeping bookkeeper v7": ["split_long"],
+    // Ways in, ways out (2026-11-23): "payout-check" ends with the same four steps as the monthly
+    // reconciliation's loop (the reconciliation and its leftovers, `askAboutLeftoversV2`), so the
+    // builder advises keeping them in one place. Advice only; the template is the pack's to change.
+    "bookkeeping bookkeeper v7": ["split_long", "copied_steps"],
     "marketing forum-watch v3": ["split_deep"],
   };
 

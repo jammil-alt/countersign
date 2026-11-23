@@ -2521,6 +2521,11 @@ function Advice({ warnings }: { warnings: readonly { message: string; code: stri
               {w.message.charAt(0).toUpperCase()}
               {w.message.slice(1)}.
             </li>
+          ) : w.code === "copied_steps" ? (
+            // Ways in, ways out (owner, 2026-11-23): steps kept in two workflows at once.
+            <li key={`${w.code}:${w.message}`} data-testid="builder-advice-copy">
+              {w.message}.
+            </li>
           ) : (
             <li key={`${w.code}:${w.message}`}>
               {w.message}. Two agents joined by a handoff may read better.

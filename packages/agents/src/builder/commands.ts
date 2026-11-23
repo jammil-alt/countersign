@@ -127,7 +127,7 @@ export function readCommand(
         name: "trigger",
         trigger: word,
         args: parsed.args,
-        instruction: `Add or change a trigger of kind "${word}" (one of a process's triggers) as the operator says below. Change only triggers.`,
+        instruction: `Add or change a trigger of kind "${word}" (one of a process's triggers) as the operator says below. A new way in that starts the same work goes on the main workflow (the first), unless the operator names another; never add a workflow for it. Change only triggers.`,
       },
     };
   }

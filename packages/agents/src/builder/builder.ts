@@ -150,6 +150,12 @@ export function modelUnavailable(error: unknown): Error {
 // DECISION (owner, 2026-11-23: "a forced defined output, similar to the trigger… what does it
 // report out and where"): the rule after it has every process end on a step that reports out
 // (core's `processes.deadEnds` is the validator's side of it).
+// DECISION (owner, 2026-11-23: "multiple ways in if needed, multiple ways out if needed. A fork out
+// inside the workflow can be a handoff; one that leaves and comes back is an automation or a
+// loop"): asked for a nightly scan, the Builder added a second workflow that copied every step of
+// the first into its loop. The rule after "how it ends" says the model in those terms: one main
+// workflow, more triggers on it, a way in with its own lead-in that hands off into it with
+// "@self", and never a copy. The guard (`copiedSteps`) sends a copy back to the repair round.
 
 export const RULES = `You are the Builder for Mezonas, a managed-agents service for back-office work. The operator describes an agent; you answer with an agent bundle that the operator will review, test and publish.
 
@@ -159,6 +165,7 @@ Rules:
 - A skill whose mode is "tool" only wraps one tool: use a read or write step on that tool instead.
 - An if step holds only what differs between its paths. Steps that run whichever path is taken go after the if, at its level: never inside a path or "otherwise", and never repeated on each path. When one case needs extra work first (no vendor matched, so a person sets one up), its path holds only that work, "otherwise" stays empty ("steps": []) and the process continues below the if. End a path with a stop step only when that case must not go on.
 - Every process ends by reporting out, as it starts with a trigger. The last step a run reaches, on every path that doesn't end with a stop, is a write (it changes a tool or saves a record), a handoff (another agent takes it from there), a notify, or a person or conversation step. Never end on a read, a wait or a skill that only reads: what it found would go nowhere. Where the description doesn't say where the result goes, end with a notify to the client's team that says what was done; in a draft, record that choice in "decisions".
+- An agent has one main workflow, its first. Another way in that starts the same work is another trigger on it (a workflow holds up to 10). A way in that needs its own steps first (a schedule that finds bills, a loop over them) is its own workflow and ends by handing off into the main one, one hand-off per item: {"kind": "handoff", "to": {"agent": "@self", "workflow": the main workflow's slug, "step": the id of its step to start at}, "input": what that step reads}. Work that leaves and comes back is an automation (a process step) or a loop (for_each, repeat). Never copy steps from one workflow into another.
 - Checks on a step ("checks"): "approval" (a person's yes before the step's write), "confer" (a second opinion), "notify" (tell someone after).
 - Triggers: "manual" (with an input JSON Schema), "event" (an event type from the catalog), "schedule" (a five-field cron; "1#1" in its last field is the first Monday of the month, "4#3" the third Thursday, "5L" the last Friday, "L" as the day is the last day; for every other week add "every": {"weeks": 2, "from": a Sunday's date}), "command".
 - References inside step inputs, titles, messages and rules: {{trigger.<path>}}, {{steps.<step id>.output.<path>}}, {{item}} and {{index}} inside a for_each. Refer only to steps that run before.
@@ -283,7 +290,13 @@ export async function ask<T extends { bundle: ProcessAgentBundle; gaps: string[]
     label: string;
     ctx: BuilderContext;
     first: string;
-    guard: (answer: T) => { bundle: ProcessAgentBundle; gaps: string[]; notes: string[] };
+    guard: (answer: T) => {
+      bundle: ProcessAgentBundle;
+      gaps: string[];
+      notes: string[];
+      /** What the repair round should fix besides validation errors (`GuardResult.fix`). */
+      fix?: string[];
+    };
     // v0.12 W3-A: a conversation's own system prompt, and how a guarded bundle and the errors are
     // shown back to the model in a repair round (aliases, never the ids it could regenerate).
     system?: string;
@@ -382,8 +395,25 @@ export async function ask<T extends { bundle: ProcessAgentBundle; gaps: string[]
     const fixable = errors.filter(
       (e) => !notRepaired.has(e.code) && !(input.known?.has(errorKey(e)) ?? false),
     );
-    if (fixable.length > 0 && repairs > 0) {
+    const asked = guarded.fix ?? [];
+    if ((fixable.length > 0 || asked.length > 0) && repairs > 0) {
       repairs -= 1;
+      const problems = [
+        fixable.length > 0
+          ? `does not validate:\n${
+              input.presentText
+                ? input.presentText(describeErrors(fixable))
+                : describeErrors(fixable)
+            }`
+          : null,
+        asked.length > 0
+          ? `${fixable.length > 0 ? "and it " : ""}breaks the Builder's rules:\n${asked
+              .map((t) => `- ${input.presentText ? input.presentText(t) : t}`)
+              .join("\n")}`
+          : null,
+      ]
+        .filter(Boolean)
+        .join("\n\n");
       messages.push(
         {
           role: "assistant",
@@ -394,14 +424,13 @@ export async function ask<T extends { bundle: ProcessAgentBundle; gaps: string[]
         },
         {
           role: "user",
-          content: `That bundle (after the server's rules were applied, so ids may have changed) does not validate:\n${
-            input.presentText ? input.presentText(describeErrors(fixable)) : describeErrors(fixable)
-          }\n\nAnswer again with the whole corrected answer. Keep the ids it has now.`,
+          content: `That bundle (after the server's rules were applied, so ids may have changed) ${problems}\n\nAnswer again with the whole corrected answer. Keep the ids it has now.`,
         },
       );
       continue;
     }
-    return { answer, ...guarded, errors, calls };
+    const { fix: _fix, ...kept } = guarded;
+    return { answer, ...kept, errors, calls };
   }
 }
 

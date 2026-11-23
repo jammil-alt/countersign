@@ -19,7 +19,8 @@ import type { AgentMode } from "../schemas/permissions";
 import { collectRefs } from "../template/template";
 import { lookupSkill, type TypingContext } from "../template/typer";
 import { fromWorkflowV3 } from "./convert";
-import type { Process, Step } from "./schema";
+import { runEnds } from "./ending";
+import { type Process, SELF_AGENT, type Step } from "./schema";
 import { type ProcessWarning, stepWrites, validateProcess } from "./validate";
 import { walkSteps } from "./walk";
 
@@ -211,7 +212,7 @@ export function processCheckpoints(
   return out;
 }
 
-// ── One agent, one process ───────────────────────────────────────────────────────────────────
+// ── One agent, one process: one main workflow, more ways in ───────────────────────────────────────────────────────────────────
 
 export interface OneProcessError {
   stepId: null;
@@ -229,11 +230,28 @@ export interface SplitAdvisory extends ProcessWarning {
 /** A v3 workflow read only for its shape: every skill stays a skill (counts and nesting hold). */
 const SHAPE_ONLY = { wrappedTool: () => null, sideEffect: () => null };
 
+/** Whether a step is a hand-off into another workflow of this same agent. */
+function selfHandoffTo(step: Step, own: string, slugs: ReadonlySet<string>): boolean {
+  if (step.kind !== "handoff") return false;
+  const to = step.to as { agent: string; workflow?: string };
+  return (
+    to.agent === SELF_AGENT &&
+    to.workflow !== undefined &&
+    to.workflow !== own &&
+    slugs.has(to.workflow)
+  );
+}
+
 /**
- * The one-process rule (ARCHITECTURE §10.14): an agent owns exactly one process, so a version
- * with more than one enabled workflow is an error, one per extra workflow. Disabled entries don't
- * count. With it, each enabled workflow's split advisories (`validateProcess` warnings: more than
- * 20 steps, logic nested more than 3 deep); v3 workflows are read as v4 for this.
+ * The one-process rule (ARCHITECTURE §10.14, restated 2026-11-23: "multiple ways in if needed,
+ * multiple ways out if needed"): an agent has one main workflow, its first enabled one. Another
+ * way in that starts the same work is another trigger on it. A way in that needs its own steps
+ * first (a schedule that finds bills, a loop over them) is its own workflow, and every run of it
+ * ends by handing off into another workflow of the agent (`to.agent: "@self"`), one hand-off per
+ * item. An enabled workflow past the first that can end a run any other way is an error, one per
+ * workflow. Disabled entries don't count. With it, each enabled workflow's split advisories
+ * (`validateProcess` warnings: more than 20 steps, logic nested more than 3 deep); v3 workflows are
+ * read as v4 for this.
  *
  * Stored versions keep parsing and running as stored (invariant 3): the caller applies this to a
  * NEW version only (publish, and the builder's save of a v4 bundle), never on load.
@@ -241,6 +259,11 @@ const SHAPE_ONLY = { wrappedTool: () => null, sideEffect: () => null };
 // DECISION: the rule is reported for the bundle it is given; whether a version is new is the
 // caller's (validateBundle should call this from publish for a version that holds a v4 process,
 // docs/plan.md §9 R6). Disabled workflows are kept in the bundle as they are, uncounted.
+// DECISION (2026-11-23): "every run end" is core's `runEnds` (ending.ts): each step a run can
+// finish on must be a "@self" hand-off into another enabled workflow; a path the operator ends
+// with a Stop is an end by choice ("nothing to do tonight") and asks nothing. A way in that never
+// hands off (no ends at all, or none a hand-off) is refused, since its runs would start nothing.
+// A hand-off into itself or a cycle is the hand-off's own check, not this one.
 export function oneProcessProblems(bundle: Pick<AnyAgentBundle, "workflows">): {
   errors: OneProcessError[];
   advisories: SplitAdvisory[];
@@ -248,20 +271,28 @@ export function oneProcessProblems(bundle: Pick<AnyAgentBundle, "workflows">): {
   const errors: OneProcessError[] = [];
   const advisories: SplitAdvisory[] = [];
   const enabled = bundle.workflows.map((w, i) => ({ w, i })).filter(({ w }) => w.enabled !== false);
-  if (enabled.length > 1) {
-    const first = enabled[0]?.w.slug ?? "";
-    for (const { w, i } of enabled.slice(1)) {
-      errors.push({
-        stepId: null,
-        field: `workflows.${i}`,
-        code: "one_process",
-        message: `an agent owns one workflow: "${w.slug}" runs beside "${first}", so make it its own agent (a handoff trigger can join them), or turn it off`,
-      });
-    }
+  const asProcess = (w: AnyAgentBundle["workflows"][number]): Process =>
+    w.workflow.schemaVersion === 4 ? w.workflow : fromWorkflowV3(w.workflow, SHAPE_ONLY);
+  const main = enabled[0]?.w.slug ?? "";
+  const slugs = new Set(enabled.map(({ w }) => w.slug));
+  for (const { w, i } of enabled.slice(1)) {
+    const process = asProcess(w);
+    let handsOff = false;
+    walkSteps(process, ({ step }) => {
+      handsOff ||= selfHandoffTo(step, w.slug, slugs);
+    });
+    const loose = runEnds(process).filter((s) => !selfHandoffTo(s, w.slug, slugs));
+    if (handsOff && loose.length === 0) continue;
+    const where = loose[0] ? ` (a run can end on "${loose[0].name}")` : "";
+    errors.push({
+      stepId: null,
+      field: `workflows.${i}`,
+      code: "one_process",
+      message: `"${w.slug}" is a second way in beside the main workflow "${main}", but not every run of it hands off into "${main}"${where}: if it starts the same work, make it another trigger on "${main}"; if it needs its own steps first, end each run with a hand-off to "@self" into "${main}", one per item; otherwise turn it off or make it its own agent`,
+    });
   }
   for (const { w } of enabled) {
-    const process =
-      w.workflow.schemaVersion === 4 ? w.workflow : fromWorkflowV3(w.workflow, SHAPE_ONLY);
+    const process = asProcess(w);
     for (const warning of validateProcess(process).warnings) {
       advisories.push({ ...warning, workflow: w.slug });
     }

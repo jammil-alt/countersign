@@ -57,6 +57,11 @@ export interface GuardResult {
   gaps: string[];
   /** Rules the guards enforced on the model's answer, in plain words. */
   notes: string[];
+  /**
+   * What the model should fix in its repair round although validation doesn't block on it (a
+   * workflow that copies another's steps), one plain sentence each. Each is in `notes` too.
+   */
+  fix: string[];
 }
 
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
@@ -123,8 +128,10 @@ export function assignIds(
 ): ProcessAgentBundle {
   const used = new Set<string>();
   const slugs = new Set<string>();
-  const workflows = bundle.workflows.map((bw) => {
+  const maps = new Map<string, Map<string, string>>();
+  const mapped = bundle.workflows.map((bw) => {
     const map = new Map<string, string>();
+    if (!maps.has(bw.slug)) maps.set(bw.slug, map);
     const take = (id: string): string => {
       const next = keep.has(id) && !used.has(id) ? id : newId();
       used.add(next);
@@ -140,6 +147,21 @@ export function assignIds(
     const workflow = rewriteRefs({ ...bw.workflow, triggers, steps }, map) as typeof bw.workflow;
     return { ...bw, slug, workflow };
   });
+  // Ways in, ways out (2026-11-23): a hand-off into another workflow of this agent ("@self") names
+  // a step of that workflow by id, so it follows that workflow's ids.
+  const workflows = mapped.map((bw) => ({
+    ...bw,
+    workflow: {
+      ...bw.workflow,
+      steps: mapSteps(bw.workflow.steps, (s) => {
+        if (s.kind !== "handoff") return s;
+        const to = s.to as { agent: string; step: string; workflow?: string };
+        if (to.agent !== processes.SELF_AGENT || to.workflow === undefined) return s;
+        const step = maps.get(to.workflow)?.get(to.step);
+        return step === undefined ? s : ({ ...s, to: { ...to, step } } as Step);
+      }),
+    },
+  }));
   return { ...bundle, workflows };
 }
 
@@ -532,5 +554,26 @@ export function guardBundle(
     );
   }
 
-  return { bundle: ProcessAgentBundleSchema.parse(bundle) as ProcessAgentBundle, gaps, notes };
+  // ── Ways in, ways out (owner, 2026-11-23): never the same steps in two workflows ───────────────
+  // DECISION: the test is core's `copiedSteps` (3 steps in a row, 2 of them calling something),
+  // the same one the chart's advice uses. Only a copy this answer made goes back to the model; one
+  // the version it revises already had is the operator's (the chart shows it), as with `known`.
+  const fix: string[] = [];
+  const copiesOf = (b: ProcessAgentBundle) =>
+    processes.copiedSteps(b.workflows.filter((w) => w.enabled !== false));
+  const keyOf = (r: processes.CopiedRun) => `${r.from}|${r.in}|${r.stepIds.join(",")}`;
+  const had = new Set((source ? copiesOf(source) : []).map(keyOf));
+  for (const run of copiesOf(bundle)) {
+    if (had.has(keyOf(run))) continue;
+    const text = `${processes.copiedStepsMessage(run)}.`;
+    note(text);
+    if (!fix.includes(text)) fix.push(text);
+  }
+
+  return {
+    bundle: ProcessAgentBundleSchema.parse(bundle) as ProcessAgentBundle,
+    gaps,
+    notes,
+    fix,
+  };
 }
