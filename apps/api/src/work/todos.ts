@@ -582,6 +582,33 @@ async function rowsFor(
     .limit(500);
 }
 
+/**
+ * S4.3: our to-dos put off with Later and not back yet, soonest back first. Only our own list
+ * snoozes (Later is on Yours alone); "mine" as on Yours.
+ */
+export async function snoozedFor(
+  tx: Tx,
+  tenantIds: readonly string[],
+  userId: string,
+  q: { mine: boolean },
+  now = new Date(),
+): Promise<TodoView[]> {
+  const where: SQL[] = [
+    todoScope(tenantIds),
+    eq(todo.owner, "operator"),
+    eq(todo.state, "snoozed"),
+    sql`${todo.snoozedUntil} > ${now}`,
+  ];
+  if (q.mine) where.push(or(isNull(todo.ownerUserId), eq(todo.ownerUserId, userId)) as SQL);
+  const rows = await tx
+    .select()
+    .from(todo)
+    .where(and(...where))
+    .orderBy(todo.snoozedUntil, todo.createdAt)
+    .limit(500);
+  return todoViews(tx, rows);
+}
+
 /** Critical first, then by due date (undated last), then oldest. */
 export function callOrder(a: TodoView, b: TodoView): number {
   if (a.critical !== b.critical) return a.critical ? -1 : 1;
