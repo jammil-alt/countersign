@@ -44,12 +44,17 @@ import { opsAgentHref } from "../screens/AgentRedirect";
 import { processKindLabel, triggerTitle } from "../workflow/describe";
 import {
   addDecision,
+  addEnding,
   addLine,
   addPath,
   afterPaths,
   blankProcess,
   countLines,
   decisionPaths,
+  END_KINDS,
+  ENDS,
+  type EndKind,
+  endingOf,
   fillRequest,
   finishLines,
   handAdded,
@@ -57,6 +62,7 @@ import {
   lineToDecision,
   listWords,
   moveLine,
+  movePathBelow,
   pathEnds,
   removeLine,
   removePath,
@@ -177,12 +183,17 @@ function CheckBody({
   );
   const [startEdited, setStartEdited] = useState(false);
   const [focus, setFocus] = useState<string | null>(null);
+  // The way out picked for a line added under How it ends, until the Builder fills that line.
+  const [endChosen, setEndChosen] = useState<Record<string, EndKind>>({});
   const [busy, setBusy] = useState<"build" | "fill" | null>(null);
   const [error, setError] = useState<unknown>(null);
   const kind: DescribeKind = detail.build.client ? "client" : "template";
   const counts = countLines(loaded.process);
   const lines = finishLines(process);
   const empty = lines.steps.length === 0;
+  const ending = endingOf(lines, endChosen);
+  // A run that can end with nothing reported is a dead end: it isn't built until it has a way out.
+  const deadEnd = ending.dead.length > 0;
 
   useEffect(() => {
     if (!focus) return;
@@ -403,6 +414,7 @@ function CheckBody({
                       onAddStep={(container, index) => add(container, index)}
                       onEnd={(container, end) => edit((p) => setPathEnd(p, container, end, newId))}
                       onAfter={(how) => edit((p) => setAfterPaths(p, s.id, how, newId))}
+                      onMoveBelow={(container) => edit((p) => movePathBelow(p, s.id, container))}
                     />
                   ) : (
                     <LineInput
@@ -443,6 +455,56 @@ function CheckBody({
         </div>
       </section>
 
+      <section
+        className="flex flex-col gap-3 rounded-md border border-line bg-surface p-5"
+        data-testid="flow-check-ending"
+      >
+        <h2 className="text-lg font-medium text-ink">How it ends</h2>
+        <p className="ds-help text-sm">
+          Where the result goes. Every run ends by changing a tool, handing off to another agent or
+          reaching a person, so nothing it finds is left with nowhere to go.
+        </p>
+        <fieldset className="grid grid-cols-2 gap-2 sm:grid-cols-4" aria-label="How it ends">
+          {END_KINDS.map((k) => {
+            const on = ending.kinds.includes(k);
+            return (
+              <button
+                key={k}
+                type="button"
+                aria-pressed={on}
+                data-testid={`flow-check-end-${k}`}
+                onClick={() => {
+                  if (on) return;
+                  const out = addEnding(process, k, newId);
+                  setProcess(out.process);
+                  setEndChosen((was) => ({ ...was, [out.stepId]: k }));
+                  setFocus(out.stepId);
+                }}
+                className={cx(
+                  "flex flex-col gap-1 rounded-md border px-3 py-2 text-left text-sm",
+                  on
+                    ? "border-slate bg-slate-tint text-ink"
+                    : "border-line text-ink hover:border-line-strong",
+                )}
+              >
+                <span className="font-medium">{ENDS[k].title}</span>
+                <span className="text-xs text-ink-muted">{ENDS[k].hint}</span>
+              </button>
+            );
+          })}
+        </fieldset>
+        {deadEnd ? (
+          <p className="text-sm text-signal-ink" data-testid="flow-check-dead-end">
+            Waiting on you: a run can end on {quoted(ending.dead.map((s) => s.name))} with nothing
+            reported out. Choose where the result goes; it adds the last step.
+          </p>
+        ) : ending.on.length > 0 ? (
+          <p className="text-sm text-ink-muted" data-testid="flow-check-ends-on">
+            It ends on {quoted(ending.on.map((s) => s.name))}.
+          </p>
+        ) : null}
+      </section>
+
       {error ? <ErrorNotice error={error} /> : null}
       <div className="flex flex-wrap items-center gap-2">
         {busy ? (
@@ -453,7 +515,7 @@ function CheckBody({
           <>
             <Button
               variant="primary"
-              disabled={mine && empty}
+              disabled={(mine && empty) || deadEnd}
               onClick={() => void buildIt()}
               data-testid="flow-check-build"
             >
@@ -508,6 +570,13 @@ function hadStep(process: Process, id: string): boolean {
   };
   visit(process.steps);
   return found;
+}
+
+/** “A”, “A” and “B”, or “A”, “B” and 2 more: step names in a sentence. */
+function quoted(names: readonly string[]): string {
+  const q = names.slice(0, 2).map((n) => `“${n.trim() || "a step with no name"}”`);
+  if (names.length > 2) return `${q.join(", ")} and ${names.length - 2} more`;
+  return q.join(" and ");
 }
 
 function plural(n: number, word: string): string {
@@ -636,6 +705,7 @@ function DecisionBlock({
   onAddStep,
   onEnd,
   onAfter,
+  onMoveBelow,
 }: {
   step: IfStep;
   /** Lines below the decision, which never run when every path ends. */
@@ -648,6 +718,8 @@ function DecisionBlock({
   onAddStep(container: string, index: number): void;
   onEnd(container: string, end: "stop" | "on"): void;
   onAfter(how: "together" | "apart"): void;
+  /** The path's steps become the lines right after the decision. */
+  onMoveBelow(container: string): void;
 }) {
   const paths = decisionPaths(step);
   const after = afterPaths(step);
@@ -746,14 +818,28 @@ function DecisionBlock({
               </ol>
             ) : null}
             <div className="flex flex-wrap items-center justify-between gap-2">
-              <Button
-                variant="link"
-                size="sm"
-                onClick={() => onAddStep(p.container, shown.length)}
-                data-testid="flow-check-path-add-step"
-              >
-                + Step on this path
-              </Button>
+              <span className="flex flex-wrap items-center gap-x-4 gap-y-1">
+                <Button
+                  variant="link"
+                  size="sm"
+                  onClick={() => onAddStep(p.container, shown.length)}
+                  data-testid="flow-check-path-add-step"
+                >
+                  + Step on this path
+                </Button>
+                {/* The rest of the process drafted into the otherwise: out of the decision in one move. */}
+                {p.otherwise && !ends && shown.length > 0 ? (
+                  <Button
+                    variant="link"
+                    size="sm"
+                    title="They run after the decision, whichever path was taken."
+                    onClick={() => onMoveBelow(p.container)}
+                    data-testid="flow-check-path-move-below"
+                  >
+                    Move these below the decision
+                  </Button>
+                ) : null}
+              </span>
               <span className="flex items-center gap-2 text-xs text-ink-muted">
                 then it
                 <Select

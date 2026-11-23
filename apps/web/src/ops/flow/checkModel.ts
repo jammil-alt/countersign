@@ -4,7 +4,7 @@
 // step and path ids are made once and never regenerated (CLAUDE.md invariant 3). A line typed by
 // hand is a `missing` step whose need is its words: the kind that exists today for a part not
 // built yet; the Builder fills it on Build it. No step kind is added here.
-import { type TriggerOn, uuidv7 } from "@countersign/core";
+import { processes, type TriggerOn, uuidv7 } from "@countersign/core";
 import {
   type ContainerId,
   createStep,
@@ -349,6 +349,103 @@ export function setAfterPaths(
     (p, path) => setPathEnd(p, path.container, how === "apart" ? "stop" : "on", newId),
     process,
   );
+}
+
+/**
+ * "Move these below the decision": a path's steps leave the decision and become the lines right
+ * after it, in their order, so the decision holds only what differs and every path that rejoins
+ * goes on to them. A path that ends here keeps its steps: moving them would move its Stop too.
+ */
+// DECISION (owner, 2026-11-23: "contain the decisions to encompass the decision point and then
+// the path just continues"): one move for the whole path, since a line on a path can't be dragged.
+export function movePathBelow(process: Process, ifId: string, container: ContainerId): Process {
+  const loc = locate(process, ifId);
+  if (loc?.step.kind !== "if") return process;
+  const path = decisionPaths(loc.step).find((p) => p.container === container);
+  if (!path || pathEnds(path.steps)) return process;
+  return path.steps.reduce(
+    (p, s, i) => moveStep(p, s.id, loc.container, loc.index + 1 + i),
+    process,
+  );
+}
+
+// ── How it ends ──────────────────────────────────────────────────────────────────────────────────
+
+/** The four ways a run's result leaves the process, as "How it starts" offers the five ways in. */
+export const END_KINDS = ["write", "handoff", "notify", "person"] as const;
+export type EndKind = (typeof END_KINDS)[number];
+
+/** Each way out: its card, and the words of the line it adds for the Builder to fill. */
+export const ENDS: Record<EndKind, { title: string; hint: string; words: string }> = {
+  write: {
+    title: "It changes a tool",
+    hint: "A bill in QuickBooks, a record saved",
+    words: "Save the result",
+  },
+  handoff: {
+    title: "Another agent takes it",
+    hint: "It hands off what it found",
+    words: "Hand off to another agent",
+  },
+  notify: {
+    title: "It tells someone",
+    hint: "A note to the client's team or ours",
+    words: "Tell the client's team what was done",
+  },
+  person: {
+    title: "A person finishes it",
+    hint: "They get what it found and decide",
+    words: "Ask a person to finish it",
+  },
+};
+
+/** Which of the four a step is; null for one that reports nothing out, or isn't known yet. */
+export function endKindOf(step: Step): EndKind | null {
+  switch (step.kind) {
+    case "write":
+    case "handoff":
+    case "notify":
+    case "person":
+      return step.kind;
+    case "conversation":
+      return "person";
+    default:
+      return null;
+  }
+}
+
+/**
+ * How the process ends as it stands (core's `runEnds` and `deadEnds`): the steps a run can finish
+ * on, the ways out among them, and the ones that report nothing. `chosen` names the way out the
+ * operator picked for a line typed here, which is a missing step until the Builder fills it.
+ */
+export function endingOf(
+  process: Process,
+  chosen: Readonly<Record<string, EndKind>> = {},
+): { on: Step[]; kinds: EndKind[]; dead: Step[] } {
+  const on = processes.runEnds(process);
+  const kinds = new Set<EndKind>();
+  for (const s of on) {
+    const k = endKindOf(s) ?? (s.kind === "missing" ? chosen[s.id] : undefined);
+    if (k) kinds.add(k);
+  }
+  return { on, kinds: END_KINDS.filter((k) => kinds.has(k)), dead: processes.deadEnds(process) };
+}
+
+/**
+ * Picks a way out: a line at the bottom with that way's words, for the operator to reword and the
+ * Builder to fill. It goes before a Stop that closes the list, so it still runs.
+ */
+// DECISION (owner, 2026-11-23): a line like any typed here, not a new field: where the result
+// goes is a step, so the chart, the validator and the run all read it as they read the rest.
+export function addEnding(
+  process: Process,
+  kind: EndKind,
+  newId: NewId = uuidv7,
+): { process: Process; stepId: string } {
+  const closes = process.steps.at(-1)?.kind === "stop";
+  const index = closes ? process.steps.length - 1 : process.steps.length;
+  return addLine(process, ROOT, index, ENDS[kind].words, newId);
 }
 
 // ── Build it ─────────────────────────────────────────────────────────────────────────────────────

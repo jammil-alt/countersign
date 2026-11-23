@@ -5,17 +5,21 @@ import { describe, expect, it } from "vitest";
 import { locate, type Process, ROOT, type Step } from "../builder/model";
 import {
   addDecision,
+  addEnding,
   addLine,
   addPath,
   afterPaths,
   blankProcess,
   countLines,
+  ENDS,
+  endingOf,
   fillRequest,
   finishLines,
   handAdded,
   lineToDecision,
   listWords,
   moveLine,
+  movePathBelow,
   otherwiseContainer,
   pathContainer,
   pathEnds,
@@ -206,6 +210,76 @@ describe("Check the steps' edits", () => {
     expect(afterPaths(d)).toBe("together");
     // Back where it started: the Stops made here are gone, every other id is the same.
     expect(p).toEqual(before);
+  });
+
+  it("moves a path's steps below the decision, in order, before the lines already there", () => {
+    const newId = ids();
+    const before = draft();
+    const d0 = ifAt(before, "dup");
+    // The rest of the process drafted into the otherwise.
+    let p = addLine(before, otherwiseContainer(d0), 0, "Match the vendor", newId).process;
+    p = addLine(p, otherwiseContainer(d0), 1, "Match the lines", newId).process;
+    const inside = ifAt(p, "dup").otherwise.steps.map((s) => s.id);
+    const moved = movePathBelow(p, "dup", otherwiseContainer(d0));
+    expect(ifAt(moved, "dup").otherwise.steps).toEqual([]);
+    expect(moved.steps.map((s) => s.id)).toEqual(["read", "dup", ...inside, "bill"]);
+    // Nothing is made or lost: the same steps, with their ids.
+    expect(allIds(moved).sort()).toEqual(allIds(p).sort());
+    // The path that stays is untouched, and an empty path moves nothing.
+    expect(ifAt(moved, "dup").paths).toEqual(ifAt(p, "dup").paths);
+    expect(movePathBelow(moved, "dup", otherwiseContainer(d0))).toEqual(moved);
+    // A path that ends here keeps its steps: its Stop would end the lines below.
+    const ended = setPathEnd(p, otherwiseContainer(d0), "stop", newId);
+    expect(movePathBelow(ended, "dup", otherwiseContainer(d0))).toEqual(ended);
+    // Not a decision: nothing changes.
+    expect(movePathBelow(p, "read", otherwiseContainer(d0))).toEqual(p);
+  });
+
+  it("says how it ends: the ways out, the dead ends, and a line for the way picked", () => {
+    const newId = ids();
+    // The draft ends on a write: it changes a tool.
+    const before = draft();
+    expect(endingOf(before)).toMatchObject({ kinds: ["write"], dead: [] });
+    expect(endingOf(before).on.map((s) => s.id)).toEqual(["bill"]);
+    // Without the bill it ends on the decision: the path tells Dana, and the empty otherwise is
+    // "nothing to do", not an end of its own.
+    const noBill = { ...before, steps: before.steps.slice(0, 2) };
+    expect(endingOf(noBill)).toMatchObject({ kinds: ["notify"], dead: [] });
+    expect(endingOf(noBill).on.map((s) => s.id)).toEqual(["tell"]);
+    // A read at the end reports nothing out.
+    const lookup: Process = {
+      ...before,
+      steps: [
+        ...before.steps,
+        {
+          id: "look",
+          kind: "read",
+          name: "Look up the vendor",
+          tool: "qbo.vendor.find",
+          input: {},
+        },
+      ],
+    };
+    expect(endingOf(lookup).dead.map((s) => s.id)).toEqual(["look"]);
+    expect(endingOf(lookup).kinds).toEqual([]);
+    // Picking a way out adds its line at the bottom; until it is filled the pick names its kind.
+    const picked = addEnding(lookup, "handoff", newId);
+    expect(picked.process.steps.at(-1)).toMatchObject({
+      id: picked.stepId,
+      kind: "missing",
+      name: ENDS.handoff.words,
+    });
+    expect(endingOf(picked.process).dead).toEqual([]);
+    expect(endingOf(picked.process).kinds).toEqual([]);
+    expect(endingOf(picked.process, { [picked.stepId]: "handoff" }).kinds).toEqual(["handoff"]);
+    // Before a Stop that closes the list, so the line still runs.
+    const closed = setAfterPaths(before, "dup", "together", newId);
+    const stopped: Process = {
+      ...closed,
+      steps: [...closed.steps, { id: "end", kind: "stop", name: "Stop", status: "succeeded" }],
+    };
+    const beforeStop = addEnding(stopped, "notify", newId).process;
+    expect(beforeStop.steps.map((s) => s.kind).slice(-2)).toEqual(["missing", "stop"]);
   });
 
   it("maps How it starts onto the first trigger, keeping its id", () => {

@@ -14,6 +14,7 @@ import {
   buildDetail,
   DRAFT_AGENT_ID,
   DRAFT_VERSION,
+  draftBundle,
   draftProcess,
   SAVED_VERSION,
   SESSION_ID,
@@ -98,6 +99,94 @@ describe("Check the steps", () => {
       "true",
     );
     expect(screen.getByTestId("flow-check-blank")).toBeInTheDocument();
+  });
+
+  it("moves the otherwise's steps below the decision in one go", async () => {
+    const user = userEvent.setup();
+    renderCheck(fakeApi(drafted()));
+    await screen.findByTestId("flow-check");
+    // An empty otherwise has nothing to move.
+    expect(screen.queryByTestId("flow-check-path-move-below")).not.toBeInTheDocument();
+    // A step on the otherwise: the rest of the process, inside the decision.
+    await user.click(screen.getAllByTestId("flow-check-path-add-step")[1] as HTMLElement);
+    const decision = screen.getByTestId("flow-check-decision");
+    await user.type(
+      within(decision).getAllByTestId("flow-check-line-input").at(-1) as HTMLElement,
+      "Match the lines",
+    );
+    await user.click(screen.getByTestId("flow-check-path-move-below"));
+    // The decision keeps its own path; the step is the line after it, before Create the bill.
+    const after = screen.getByTestId("flow-check-decision");
+    expect(
+      within(after)
+        .getAllByTestId("flow-check-line-input")
+        .map((i) => (i as HTMLInputElement).value),
+    ).toEqual(["Tell Dana"]);
+    const lines = screen.getAllByTestId("flow-check-line");
+    expect(lines).toHaveLength(4);
+    expect(within(lines[2] as HTMLElement).getByTestId("flow-check-line-input")).toHaveValue(
+      "Match the lines",
+    );
+    expect(lines[3]).toHaveAttribute("data-step-id", "s-bill");
+    expect(screen.queryByTestId("flow-check-path-move-below")).not.toBeInTheDocument();
+  });
+
+  it("says how it ends, and asks for a way out before it builds a dead end", async () => {
+    const user = userEvent.setup();
+    renderCheck(fakeApi(drafted()));
+    await screen.findByTestId("flow-check");
+    // The draft ends on Create the bill: it changes a tool.
+    expect(screen.getByTestId("flow-check-end-write")).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByTestId("flow-check-end-handoff")).toHaveAttribute("aria-pressed", "false");
+    expect(screen.getByTestId("flow-check-ends-on")).toHaveTextContent("Create the bill");
+    expect(screen.getByTestId("flow-check-build")).toBeEnabled();
+    // Picking another way out adds its line at the bottom, ready to reword.
+    await user.click(screen.getByTestId("flow-check-end-handoff"));
+    const inputs = screen.getAllByTestId("flow-check-line-input");
+    expect(inputs.at(-1)).toHaveValue("Hand off to another agent");
+    expect(inputs.at(-1)).toHaveFocus();
+    expect(screen.getByTestId("flow-check-end-handoff")).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByTestId("flow-check-end-write")).toHaveAttribute("aria-pressed", "false");
+    expect(screen.getByTestId("flow-check-ends-on")).toHaveTextContent("Hand off to another agent");
+    expect(screen.queryByTestId("flow-check-dead-end")).not.toBeInTheDocument();
+  });
+
+  it("doesn't build a draft that ends on a read until it has a way out", async () => {
+    const user = userEvent.setup();
+    // The draft with a lookup after the bill: the run would end on what it read.
+    const process = draftProcess();
+    const ends = {
+      ...process,
+      steps: [
+        ...process.steps,
+        {
+          id: "s-look",
+          kind: "read" as const,
+          name: "Look up the vendor",
+          tool: "qbo.vendor.find",
+          input: {},
+        },
+      ],
+    };
+    renderCheck(
+      fakeApi({
+        ...drafted(),
+        [`GET /api/ops/agents/${DRAFT_AGENT_ID}`]: () => agentDetail(draftBundle(ends as never)),
+      }),
+    );
+    await screen.findByTestId("flow-check");
+    expect(screen.getByTestId("flow-check-dead-end")).toHaveTextContent(
+      "a run can end on “Look up the vendor” with nothing reported out",
+    );
+    expect(screen.getByTestId("flow-check-build")).toBeDisabled();
+    for (const k of ["write", "handoff", "notify", "person"]) {
+      expect(screen.getByTestId(`flow-check-end-${k}`)).toHaveAttribute("aria-pressed", "false");
+    }
+    // Telling someone is a way out: its line is added and it can be built.
+    await user.click(screen.getByTestId("flow-check-end-notify"));
+    expect(screen.queryByTestId("flow-check-dead-end")).not.toBeInTheDocument();
+    expect(screen.getByTestId("flow-check-end-notify")).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByTestId("flow-check-build")).toBeEnabled();
   });
 
   it("saves the edited bundle on Build it, asks the Builder once to fill the lines typed by hand, then opens the workflow", async () => {
