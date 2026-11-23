@@ -9,6 +9,7 @@ import {
   aboutOf,
   amountOf,
   changeSubject,
+  counterpartyOf,
   Decimal,
   isPlainObject,
   isUuid,
@@ -628,7 +629,18 @@ export async function writeStepSubjectsTx(
       ),
     )
     .orderBy(externalAction.createdAt, externalAction.id);
-  for (const a of actions) subjects.push(changeSubjectFacts(input.tools(a.tool), a));
+  for (const a of actions) {
+    const spec = input.tools(a.tool);
+    subjects.push(changeSubjectFacts(spec, a));
+    // Overnight S3.2: who the change is with (the bill's vendor), so its page finds the run.
+    const with_ = spec
+      ? counterpartyOf(spec, a.connector, {
+          before: a.before,
+          input: a.editedInput ?? a.input,
+        })
+      : null;
+    if (with_) subjects.push(with_);
+  }
 
   return insertNew(
     tx,

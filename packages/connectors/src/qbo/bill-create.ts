@@ -135,6 +135,8 @@ export function billCreateTool(clientFor: ClientFor): ToolDefinition {
     summary: "Created bill {{docNumber}} for {{total}}",
     amount: { path: "expectedTotal", currencyPath: "currency", currency: "USD" },
     display: billCreateDisplay,
+    // Overnight S3.2: the vendor the change is for, a second subject of the run.
+    counterparty: { kind: "vendor", path: "before.vendor" },
     input: BillCreateInput,
     output: z.object({
       id: z.string(),

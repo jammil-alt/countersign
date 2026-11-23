@@ -18,6 +18,7 @@ import {
 import { and, eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createApiHarness, testBundle } from "./api.test-helper";
+import type { Platform } from "./platform";
 import { dbStepLog } from "./runs/ports";
 import { runSubjects } from "./runs/subject";
 import {
@@ -292,5 +293,53 @@ describe.skipIf(!h)("what a run was about, through the API", () => {
     at.setUTCMinutes(RUN_SUBJECT_BACKFILL_MINUTE);
     await runSubjectBackfillTick(H.db, H.platform, at);
     expect(await kept(r.id)).toHaveLength(rows.length);
+  });
+
+  // Overnight S3.2: runs kept before writes named who they were with get that row, once.
+  it("backfills the counterparty of a change kept before writes named one, once", async () => {
+    // The testkit write, as if it named the vendor of the record it changes.
+    const named = (t: ReturnType<Platform["tools"]["get"]>) =>
+      t && t.spec.id === TESTKIT_UPDATE_TOOL
+        ? {
+            ...t,
+            spec: { ...t.spec, counterparty: { kind: "vendor" as const, path: "before.vendor" } },
+          }
+        : t;
+    const platform = {
+      tools: {
+        get: (id: string) => named(H.platform.tools.get(id)),
+        list: () => H.platform.tools.list().map((t) => named(t) ?? t),
+      },
+    } as unknown as Pick<Platform, "tools">;
+    const r = await addRun();
+    const step = await addStep(r.id, "update", {});
+    await owner.insert(externalAction).values({
+      tenantId: A(),
+      connectionId: H.A.connectionId,
+      tool: TESTKIT_UPDATE_TOOL,
+      runId: r.id,
+      stepRunId: step,
+      idempotencyKey: `${r.id}:update:0`,
+      input: { id: "r2", amount: "14.00" },
+      before: { id: "r2", vendor: { id: "56", name: "Acme Supply" } },
+      status: "done",
+      result: { id: "r2" },
+    });
+    // Kept before the tool named its counterparty: the change only.
+    await backfillClientRunSubjects(H.db, H.platform, A(), { now: new Date() });
+    expect((await kept(r.id)).map((x) => x.role)).toEqual(["changed"]);
+    expect(await backfillClientRunSubjects(H.db, H.platform, A(), { now: new Date() })).toBe(0);
+
+    // Now it does: the run is picked again for the row it lacks, and only once.
+    expect(await backfillClientRunSubjects(H.db, platform, A(), { now: new Date() })).toBe(1);
+    expect((await kept(r.id)).map((x) => [x.kind, x.role, x.connector, x.externalId])).toEqual(
+      // In either order: one insert, one timestamp.
+      expect.arrayContaining([
+        [expect.any(String), "changed", "testkit", "r2"],
+        ["vendor", "read", "testkit", "56"],
+      ]),
+    );
+    expect(await kept(r.id)).toHaveLength(2);
+    expect(await backfillClientRunSubjects(H.db, platform, A(), { now: new Date() })).toBe(0);
   });
 });

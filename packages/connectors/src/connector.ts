@@ -4,6 +4,7 @@ import {
   type JsonObject,
   type PermissionMatrix,
   type ToolAmount,
+  type ToolCounterparty,
   type ToolDisplay,
   type ToolRecipient,
   type ToolSpec,
@@ -355,6 +356,8 @@ export function defineWriteTool<
   amount?: ToolAmount;
   /** How the change reads on its approval card (ToolSpec `display`). */
   display?: ToolDisplay;
+  /** Overnight S3.2: who the change is with, e.g. a bill's vendor (ToolSpec `counterparty`). */
+  counterparty?: ToolCounterparty;
   // v0.12 W1-G: the input field naming the person a send messages (ToolSpec `recipient`).
   recipient?: ToolRecipient;
   /** The record type it touches (ToolSpec `entity`, v0.12). */
@@ -410,6 +413,7 @@ export function defineWriteTool<
       ...(def.fixedInputs?.length ? { fixedInputs: def.fixedInputs } : {}),
       ...(def.amount === undefined ? {} : { amount: def.amount }),
       ...(def.display === undefined ? {} : { display: def.display }),
+      ...(def.counterparty === undefined ? {} : { counterparty: def.counterparty }),
       ...(def.recipient === undefined ? {} : { recipient: def.recipient }),
       ...(def.entity === undefined ? {} : { entity: def.entity }),
       ...(def.entityInput === undefined ? {} : { entityInput: def.entityInput }),

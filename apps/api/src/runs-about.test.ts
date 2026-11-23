@@ -296,6 +296,55 @@ describe.skipIf(!h)("runs found by what they were about", () => {
     expect(counts).toEqual({ [ids.acmeA]: 3, [ids.acmeB]: 1 });
   });
 
+  // Overnight S3.2 (W2, CL2): a run that wrote a bill for a vendor kept the vendor by QuickBooks'
+  // id for it; the vendor's runs, the runs list's filter and ⌘K find it as the vendor's page does.
+  it("finds runs about a record by its tool's id too, in its own client only", async () => {
+    const [birch] = await owner
+      .insert(vendor)
+      .values({
+        tenantId: H.A.tenantId,
+        name: "Birch Lumber",
+        normalizedName: "birch lumber",
+        externalRefs: { qbo: "77" },
+      })
+      .returning();
+    if (!birch) throw new Error("no vendor");
+    const agentA = { id: ids.agentA, version: ids.versionA };
+    const wrote = await addRun(H.A.tenantId, agentA);
+    await owner.insert(runSubject).values({
+      tenantId: H.A.tenantId,
+      runId: wrote,
+      kind: "vendor",
+      role: "read",
+      connector: "qbo",
+      externalId: "77",
+      label: "Birch Lumber",
+      clientVisible: true,
+    });
+    // Client B's QuickBooks has a vendor 77 too: never client A's Birch Lumber.
+    const other = await addRun(H.B.tenantId, { id: ids.agentB, version: ids.versionB });
+    await owner.insert(runSubject).values({
+      tenantId: H.B.tenantId,
+      runId: other,
+      kind: "vendor",
+      role: "read",
+      connector: "qbo",
+      externalId: "77",
+      label: "Birch Lumber",
+      clientVisible: true,
+    });
+    expect(runIds(await get(OPERATOR, `/api/ops/runs?about=vendor:${birch.id}`))).toEqual([wrote]);
+    expect(runIds(await get(admin("a"), `/api/runs?about=vendor:${birch.id}`))).toEqual([wrote]);
+    const page = j(await get(admin("a"), `/api/records/${birch.id}/runs`));
+    expect((page.runs as { id: string }[]).map((r) => r.id)).toEqual([wrote]);
+    const portal = j(await get(admin("a"), "/api/search?q=birch"));
+    expect(portal.records).toEqual([
+      expect.objectContaining({ kind: "vendor", id: birch.id, runs: 1 }),
+    ]);
+    const ops = j(await get(OPERATOR, "/api/ops/search?q=birch"));
+    expect(ops.records).toEqual([expect.objectContaining({ id: birch.id, runs: 1 })]);
+  });
+
   it("looks a question's words up in the client's own records, and shows them as chips", async () => {
     model.push((request) => {
       // The model is never handed the client's vendors.

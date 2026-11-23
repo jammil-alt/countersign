@@ -220,6 +220,8 @@ export function purchaseOrderCreateTool(clientFor: ClientFor): ToolDefinition {
     summary: "Created purchase order {{docNumber}} for {{total}}",
     amount: { path: "expectedTotal", currencyPath: "currency", currency: "USD" },
     display: purchaseOrderCreateDisplay,
+    // Overnight S3.2: the vendor the change is for, a second subject of the run.
+    counterparty: { kind: "vendor", path: "before.vendor" },
     input: PurchaseOrderCreateInput,
     output: z.object({
       id: z.string(),
