@@ -29,6 +29,7 @@ import {
 } from "@countersign/core";
 import {
   agent,
+  agentVersion,
   connection,
   connectionChange,
   document,
@@ -39,6 +40,7 @@ import {
   ledgerDimension,
   qboWebhookEvent,
   rawRecord,
+  run,
   transaction,
   transactionLine,
   vendor,
@@ -559,6 +561,111 @@ describe.skipIf(!h)("QuickBooks Online through the API", () => {
       source: "qbo",
       total: { amount: "704.0000", currency: "USD" },
     });
+  });
+
+  // Overnight S3.3 (CL3, WR5): the invoice a run made a bill from is linked to the bill when sync
+  // brings it in; it arrived, and was linked, before the bill existed.
+  it("links a bill a run created to the document that run started on, when sync brings it", async () => {
+    const pdf = new TextEncoder().encode("%PDF-1.4\n% Northwest Plywood INV-21044\n%%EOF\n");
+    const doc = await withTenant(H.db, H.A.tenantId, (tx) =>
+      storeDocument(tx, new ContentStore(H.objects), {
+        tenantId: H.A.tenantId,
+        source: "upload",
+        connectionId: null,
+        bytes: pdf,
+        filename: "nwp-INV-21044.pdf",
+        mimeType: "application/pdf",
+      }),
+    );
+    const other = await withTenant(H.db, H.A.tenantId, (tx) =>
+      storeDocument(tx, new ContentStore(H.objects), {
+        tenantId: H.A.tenantId,
+        source: "upload",
+        connectionId: null,
+        bytes: new TextEncoder().encode("%PDF-1.4\n% another invoice\n%%EOF\n"),
+        filename: "other.pdf",
+        mimeType: "application/pdf",
+      }),
+    );
+    const agentId = await makeAgent(bundle([], []));
+    const [version] = await H.t.db
+      .select()
+      .from(agentVersion)
+      .where(eq(agentVersion.agentId, agentId));
+    if (!version) throw new Error("no version");
+    /** A run started on `documentId` whose bill create was `status`, answered with `billId`. */
+    const created = async (documentId: string, billId: string, status: "done" | "failed") => {
+      const [r] = await H.t.db
+        .insert(run)
+        .values({
+          tenantId: H.A.tenantId,
+          agentId,
+          agentVersionId: version.id,
+          workflowSlug: "main",
+          mode: "live",
+          status: "succeeded",
+          trigger: { type: "event", payload: { documentId } },
+        })
+        .returning();
+      if (!r) throw new Error("no run");
+      await H.t.db.insert(externalAction).values({
+        tenantId: H.A.tenantId,
+        connectionId,
+        tool: "qbo.bill.create",
+        runId: r.id,
+        idempotencyKey: `${r.id}:create:0`,
+        status,
+        input: {},
+        result: status === "done" ? { id: billId, syncToken: "0" } : null,
+      });
+    };
+    await created(doc.document.id, "149", "done");
+    // A create that failed names no bill, though its answer would match one.
+    await created(other.document.id, "150", "failed");
+    const newBill = (id: string, number: string) =>
+      qbo.put("Bill", {
+        Id: id,
+        SyncToken: "0",
+        DocNumber: number,
+        TxnDate: "2026-11-06",
+        CurrencyRef: { value: "USD" },
+        VendorRef: { value: "56", name: "Northwest Plywood Supply" },
+        Line: [
+          {
+            Id: "1",
+            Amount: 310,
+            DetailType: "AccountBasedExpenseLineDetail",
+            AccountBasedExpenseLineDetail: { AccountRef: { value: "80", name: "Job Materials" } },
+          },
+        ],
+        TotalAmt: 310,
+      });
+    newBill("149", "INV-21044");
+    newBill("150", "INV-21045");
+    await forgetClaims();
+    await sync();
+    const billOf = async (externalId: string) =>
+      (
+        await H.t.db
+          .select()
+          .from(transaction)
+          .where(
+            and(eq(transaction.tenantId, H.A.tenantId), eq(transaction.externalId, externalId)),
+          )
+      )[0];
+    const bill149 = await billOf("Bill:149");
+    const bill150 = await billOf("Bill:150");
+    expect(bill149).toBeDefined();
+    expect(bill150).toBeDefined();
+    const docs = await H.t.db
+      .select({ id: document.id, transactionId: document.transactionId })
+      .from(document)
+      .where(inArray(document.id, [doc.document.id, other.document.id]));
+    expect(Object.fromEntries(docs.map((d) => [d.id, d.transactionId]))).toEqual({
+      [doc.document.id]: bill149?.id,
+      [other.document.id]: null,
+    });
+    expect(bill149?.status).toBe("doc_found");
   });
 
   it("B-2: CDC brings an account's change in place, and a deleted account stays, inactive", async () => {
