@@ -3,8 +3,8 @@
 // on, offering connectors, the run-time tool policy and model guard) and retiring a client.
 
 import { createTwilioConnector, MemoryObjectStore } from "@countersign/connectors";
-import { parseCoveredProcessors } from "@countersign/core";
-import { auditEvent, tenant } from "@countersign/db";
+import { AUDIT_REFRESH_HEADER, parseCoveredProcessors } from "@countersign/core";
+import { appUser, auditEvent, tenant } from "@countersign/db";
 import type { LlmTransport } from "@countersign/llm";
 import { and, eq, sql } from "drizzle-orm";
 import { afterAll, describe, expect, it, vi } from "vitest";
@@ -94,6 +94,30 @@ describe.skipIf(!h)("compliance", () => {
       expect(older && older.id < body.nextBefore).toBe(true);
     });
 
+    // S6.9: the log says what happened in words and names what each id is; a page's poll is
+    // kept, tagged as a refresh.
+    it("reads in words with names, and tags a page's refresh", async () => {
+      await call(OPERATOR, "GET", `/api/ops/clients/${A.tenantId}/compliance`);
+      await call(OPERATOR, "GET", `/api/ops/clients/${A.tenantId}/compliance`, undefined, {
+        [AUDIT_REFRESH_HEADER]: "1",
+      });
+      const res = await call(
+        OPERATOR,
+        "GET",
+        `/api/ops/audit?limit=2&action=${encodeURIComponent("GET /api/ops/clients/:id/compliance")}`,
+      );
+      expect(res.status).toBe(200);
+      const [polled, opened] = (res.json as { events: Record<string, unknown>[] }).events;
+      expect(opened).toMatchObject({
+        words: expect.not.stringMatching(/\/api|:id/),
+        names: { id: "Client A" },
+        refresh: false,
+        actor: { name: expect.any(String) },
+      });
+      expect(polled).toMatchObject({ refresh: true, target: { id: A.tenantId, refresh: "1" } });
+      expect(String(opened?.words)).toMatch(/^Viewed /);
+    });
+
     it("reviews access: each user, their roles, and when they were last seen", async () => {
       const res = await call(OPERATOR, "GET", "/api/ops/access-review");
       expect(res.status).toBe(200);
@@ -127,6 +151,39 @@ describe.skipIf(!h)("compliance", () => {
       expect(a?.admins).toBeGreaterThanOrEqual(1);
       expect(body.audit30d.events).toBeGreaterThan(0);
       expect(body.audit30d.refused).toBeLessThanOrEqual(body.audit30d.events);
+    });
+
+    it("gives each client its people's last sign-in (sign-ins name no client)", async () => {
+      const userId = async (email: string) =>
+        (
+          await harness.t.db
+            .select({ id: appUser.id })
+            .from(appUser)
+            .where(eq(appUser.email, email))
+        )[0]?.id as string;
+      const at = new Date(Date.now() - 60_000);
+      const signIn = async (email: string, when: Date, outcome: "ok" | "refused" = "ok") =>
+        harness.t.db.insert(auditEvent).values({
+          tenantId: null,
+          actorKind: "user",
+          actorUserId: await userId(email),
+          actorEmail: email,
+          action: "session.sign_in",
+          outcome,
+          createdAt: when,
+        });
+      // As session.ts writes them: no client and no role on the row.
+      await signIn(admin("a"), at);
+      await signIn(admin("a"), new Date(), "refused");
+      // An operator's sign-in is not the client's, though they serve it.
+      await signIn(OPERATOR, new Date(at.getTime() + 30_000));
+      // Client C's person signs in later still; A's line doesn't move.
+      await signIn(admin("c"), new Date(at.getTime() + 40_000));
+      const res = await call(OPERATOR, "GET", "/api/ops/security");
+      expect(res.status).toBe(200);
+      const clients = (res.json as { clients: { id: string; lastSignInAt: string | null }[] })
+        .clients;
+      expect(clients.find((c) => c.id === A.tenantId)?.lastSignInAt).toBe(at.toISOString());
     });
 
     it("is for operators only", async () => {

@@ -1,7 +1,8 @@
 // What changed between two revisions of an agent's SOP, in words, by code (docs/sop-plan.md §6),
 // and the fingerprint that says whether there is a new revision at all. Only what the SOP says
 // counts: when it was read, its revision and history, this month's measures and what the agent
-// learned are left out, so they never make a revision on their own. The outline is the procedure's
+// learned are left out, so they never make a revision on their own; so is a pause, a state of the
+// moment (a pause and a resume would otherwise each make one, from the hourly check too). The outline is the procedure's
 // shape again, for the chart (§6a): left out too, so adding it made no revision.
 
 import { canonicalJson, sha256Hex } from "../canonical";
@@ -27,6 +28,7 @@ export function sopContent(view: SopView): unknown {
     measures: _m,
     learned: _l,
     outline: _o,
+    paused: _pa,
     ...rest
   } = view;
   return rest;

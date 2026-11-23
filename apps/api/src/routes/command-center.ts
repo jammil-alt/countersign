@@ -16,6 +16,7 @@ import {
   Decimal,
   ESCALATION_LIST_MAX,
   type Escalation,
+  escalationWords,
   FAILED_RUN_ESCALATION_DAYS,
   FEED_DEFAULT_HOURS,
   FEED_LIMIT,
@@ -120,6 +121,9 @@ function errorLine(error: unknown): string {
     typeof e.reason === "string" ? e.reason : typeof e.message === "string" ? e.message : "";
   const line = raw.split("\n")[0]?.trim() ?? "";
   if (!line) return "Failed";
+  // S4.1: "escalated: max_cost" in words.
+  const escalated = escalationWords(line);
+  if (escalated) return escalated;
   return line.length > 200 ? `${line.slice(0, 199)}…` : line;
 }
 
@@ -420,7 +424,11 @@ async function needsUsParts(
       blockedSince: i.createdAt.toISOString(),
     });
   }
+  // S4.1: a failed run an open item of ours already names (a budget hit's review item, its
+  // `run.failed` notice) is that item's: listed once, as the item.
+  const named = new Set(items.map((i) => i.runId).filter((id): id is string => id !== null));
   for (const r of failed) {
+    if (named.has(r.id)) continue;
     escalations.push({
       kind: "failed_run",
       id: r.id,

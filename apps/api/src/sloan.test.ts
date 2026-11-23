@@ -8,7 +8,7 @@ import { agent, agentChange, run, tenant, withOperator } from "@countersign/db";
 import { and, eq, isNotNull, sql } from "drizzle-orm";
 import { afterAll, describe, expect, it } from "vitest";
 import { SLOAN_SETTING, SLOAN_SWEEP_MINUTE, sloanTick } from "./account/sloan";
-import { type ApiHarness, createApiHarness, OPERATOR } from "./api.test-helper";
+import { type ApiHarness, admin, createApiHarness, OPERATOR } from "./api.test-helper";
 import { addSupervisor } from "./routes/supervisor";
 
 // biome-ignore lint/suspicious/noExplicitAny: response bodies are read loosely in tests.
@@ -66,6 +66,16 @@ describe.skipIf(!h)("Sloan, on by default", () => {
         ),
       );
     expect(change?.actorId).toBeNull();
+  });
+
+  // S6.2: the portal's Table marks Sloan so Home doesn't take it for the client's agent going live.
+  it("the Table marks Sloan as the account agent", async () => {
+    const [sloan] = await sloans(H.A.tenantId);
+    expect(sloan).toBeDefined();
+    const res = await H.call(admin("a"), "GET", "/api/table");
+    expect(res.status, JSON.stringify(res.json)).toBe(200);
+    const row = j(res.json).services.find((s: { id: string }) => s.id === sloan?.id);
+    expect(row).toMatchObject({ stage: "live", accountAgent: true });
   });
 
   it("a new client starts with Sloan on: active and live, without a test run", async () => {

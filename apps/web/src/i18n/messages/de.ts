@@ -669,6 +669,7 @@ export const de: Messages = {
   "action.status.done": "Ausgeführt",
   "action.status.rejected": "Abgelehnt",
   "action.status.failed": "Fehlgeschlagen",
+  "action.status.expired": "Nicht ausgeführt: keine Antwort rechtzeitig",
 
   // ── Connections ──
   "connections.title": "Konten",
@@ -2226,6 +2227,9 @@ export const de: Messages = {
   "sloan.empty":
     "Fragen Sie, warum etwas wartet, pausieren Sie einen Agenten, fügen Sie eine freigebende Person hinzu oder geben Sie eine Idee an Ihre Ansprechperson weiter.",
   "sloan.answering": "Sloan antwortet…",
+  "sloan.noAnswer":
+    "Sloan hat noch nicht geantwortet. Die Antwort erscheint hier; bei Dringendem fragen Sie Ihren Ansprechpartner.",
+  "sloan.checkAgain": "Erneut prüfen",
   "sloan.compose": "Fragen Sie Sloan, oder sagen Sie, was sich ändern soll",
   "sloan.commandHint":
     "Beginnen Sie mit / und dem Namen eines Agenten, um diesen Agenten zu fragen, etwa /pia.",
@@ -2275,7 +2279,7 @@ export const de: Messages = {
   "teamPage.subtitleMember": "Wer Ihr Portal nutzt und was jede Person freigibt.",
   "teamPage.people": "Personen",
   "teamPage.invite": "Jemanden einladen",
-  "teamPage.viewer": "Gibt nichts frei. Kann alles lesen.",
+  "teamPage.viewer": "Gibt nichts frei.",
   "exports.title": "Exporte",
   "exports.subtitle":
     "Dateien für Ihre Buchhaltung und Ihre eigenen Unterlagen. Jeder Export umfasst ganze Tage, höchstens ein Jahr.",
@@ -3696,6 +3700,7 @@ export const de: Messages = {
     "Etwas funktioniert nicht, oder eine Idee für uns: Sagen Sie es hier Ihrem Ansprechpartner bei Mezonas.",
   "requests.new": "Neue Anfrage",
   "requests.empty": "Noch keine Anfragen.",
+  "requests.state.sent": "Gesendet", // fluent review
   "requests.state.on_it": "Wir kümmern uns darum",
   "requests.state.waiting_on_you": "Wartet auf Sie",
   "requests.state.fixed": "Behoben",

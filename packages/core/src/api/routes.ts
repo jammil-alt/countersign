@@ -198,6 +198,11 @@ export const SessionResponse = SessionBase.extend({
    * them and their runs and items); null or absent for every agent.
    */
   assignedAgents: z.array(z.string()).nullable().optional(),
+  /**
+   * S5.3: the active client's time zone (`tenant.timezone`), so the portal greets and dates on the
+   * client's day from its first draw; null or absent with no active client.
+   */
+  timezone: z.string().nullable().optional(),
 });
 export type SessionResponse = z.infer<typeof SessionResponse>;
 
@@ -2265,6 +2270,8 @@ export const portalRoutes = {
           description: z.string(),
           display: ChangeDisplayView.nullable().optional(),
           status: z.string(),
+          // S4.5: not made because nobody answered its approval in time (`rejected`, by no one).
+          expired: z.boolean().optional(),
           executedAt: NullableTimestamp,
           // Step panel (§1.95): the step that made it, and the record before and the change (the
           // signer's edit when there was one), as the Inbox shows them.
