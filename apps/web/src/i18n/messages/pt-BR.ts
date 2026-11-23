@@ -2169,6 +2169,9 @@ export const ptBR: Messages = {
   "sloan.empty":
     "Pergunte por que algo está esperando, pause um agente, adicione um aprovador ou passe uma ideia ao seu responsável.",
   "sloan.answering": "Sloan está respondendo…",
+  "sloan.noAnswer":
+    "O Sloan ainda não respondeu. A resposta aparecerá aqui; para algo urgente, fale com o seu responsável.",
+  "sloan.checkAgain": "Verificar de novo",
   "sloan.compose": "Pergunte ao Sloan ou diga o que mudar",
   "sloan.commandHint": "Comece com / e o nome de um agente para perguntar a ele, como /pia.",
   "sloan.you": "Você",

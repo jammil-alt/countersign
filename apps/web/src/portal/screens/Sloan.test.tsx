@@ -41,6 +41,10 @@ function Where() {
 function setup(
   threads = [thread(OLD, "2026-11-01T09:00:00.000Z"), thread(LATEST, "2026-11-05T09:00:00.000Z")],
   path = "/sloan",
+  latest = [
+    message("m1", true, "Why was Cole waiting on me?"),
+    message("m2", false, "Emails to customers always need your sign."),
+  ],
 ) {
   const posts: { id: string; body: unknown }[] = [];
   const resolves: unknown[] = [];
@@ -55,13 +59,7 @@ function setup(
     }),
     "GET /api/threads": () => ({ lead: { name: "Ana Ruiz" }, threads }),
     "POST /api/threads": () => ({ thread: thread(OLD, "2026-11-06T09:00:00.000Z") }),
-    [`GET /api/threads/${LATEST}/messages`]: () => ({
-      thread: threads[1],
-      messages: [
-        message("m1", true, "Why was Cole waiting on me?"),
-        message("m2", false, "Emails to customers always need your sign."),
-      ],
-    }),
+    [`GET /api/threads/${LATEST}/messages`]: () => ({ thread: threads[1], messages: latest }),
     [`GET /api/threads/${OLD}/messages`]: () => ({ thread: threads[0], messages: [] }),
     [`POST /api/threads/${LATEST}/messages`]: ({ init }) => {
       posts.push({ id: LATEST, body: JSON.parse(String(init.body)) });
@@ -153,6 +151,25 @@ describe("Sloan", () => {
     await userEvent.click(within(panel).getByTestId("portal-sloan-panel-page"));
     expect(screen.getByTestId("where")).toHaveTextContent(`/sloan/${LATEST}`);
     expect(screen.queryByTestId("portal-sloan-panel")).toBeNull();
+  });
+
+  // S2.1 (overnight fixes): an answer that never comes no longer reads "Sloan is answering…"
+  // for good.
+  it("waits for an answer that is coming, and stops waiting for one that isn't", async () => {
+    const asked = { ...message("m1", true, "Why was Cole waiting on me?") };
+    setup(undefined, "/sloan", [{ ...asked, createdAt: new Date().toISOString() }]);
+    expect(await screen.findByTestId("portal-sloan-thinking")).toBeInTheDocument();
+    expect(screen.queryByTestId("portal-sloan-no-answer")).toBeNull();
+  });
+
+  it("says no answer came for a question left long ago, and checks again", async () => {
+    setup(undefined, "/sloan", [message("m1", true, "Why was Cole waiting on me?")]);
+    const none = await screen.findByTestId("portal-sloan-no-answer");
+    expect(none).toHaveTextContent("No answer from Sloan yet.");
+    expect(screen.queryByTestId("portal-sloan-thinking")).toBeNull();
+    await userEvent.click(screen.getByTestId("portal-sloan-check-again"));
+    // Asked again, the old question still isn't waited on.
+    expect(await screen.findByTestId("portal-sloan-no-answer")).toBeInTheDocument();
   });
 
   it("starts a conversation with the first message", async () => {

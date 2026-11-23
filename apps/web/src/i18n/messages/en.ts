@@ -2109,6 +2109,9 @@ export const en = {
   "sloan.empty":
     "Ask why something waits, pause an agent, add an approver, or pass an idea to your lead.",
   "sloan.answering": "Sloan is answering…",
+  "sloan.noAnswer":
+    "No answer from Sloan yet. It will show here when it comes; for anything urgent, ask your lead.",
+  "sloan.checkAgain": "Check again",
   "sloan.compose": "Ask Sloan, or tell it what to change",
   "sloan.commandHint": "Start with / and an agent's name to ask that agent, like /pia.",
   "sloan.you": "You",
