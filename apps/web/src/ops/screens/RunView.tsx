@@ -11,6 +11,7 @@
 // (`?step=<step run id>`): input, output, model calls, tool calls, changes and data.
 
 import {
+  approvalExpired,
   approvalOf,
   carriedOn,
   checkKindOf,
@@ -1180,6 +1181,9 @@ function ActionPanel({
   else if (waiting) text = `Nothing changes in ${heading.connector} until you approve.`;
   else if (action.status === "failed")
     text = `The change failed: ${String(failure?.message ?? "unknown error")}`;
+  // S4.5: nothing waits on it any more.
+  else if (approvalExpired(action))
+    text = `Nobody answered in time, so nothing changed in ${heading.connector}.`;
   else if (action.approvedAt)
     text = `Approved ${shortTime(action.approvedAt)}${action.approvedBy ? "" : " automatically"}.`;
   else text = "";
