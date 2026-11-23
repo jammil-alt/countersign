@@ -13,7 +13,7 @@
 
 import { skillTools } from "../schemas/skill";
 import { lookupSkill, type TypingContext } from "../template/typer";
-import type { Process, Step } from "./schema";
+import { type Process, SELF_AGENT, type Step } from "./schema";
 
 /** Where a run's result goes: a tool or a record, another agent, or a person. */
 export const ENDING_KINDS = ["tool", "agent", "people"] as const;
@@ -114,9 +114,6 @@ export function deadEndMessage(step: Pick<Step, "name">): string {
 // automation or a loop." A way out is where a run's work leaves this process: every hand-off,
 // wherever it is, and every step a run can finish on.
 
-/** A hand-off to this same agent: `to.agent` is `"@self"` and `to.workflow` names its workflow. */
-export const SELF_AGENT = "@self";
-
 /** Where a way out goes: a way out of `ReportsOut`, or `workflow` for another workflow of this agent. */
 export type WayOutKind = ReportsOut | "workflow";
 
@@ -171,13 +168,7 @@ export function waysOut(process: Pick<Process, "steps">, ctx: TypingContext = {}
   return out;
 }
 
-// The hand-off's `to.workflow` is read loosely: a hand-off into this agent's own workflow names it
-// there, and an older hand-off has none.
 function handoffTarget(s: Extract<Step, { kind: "handoff" }>): NonNullable<WayOut["to"]> {
-  const to = s.to as { agent: string; step: string; workflow?: unknown };
-  return {
-    agent: to.agent,
-    step: to.step,
-    ...(typeof to.workflow === "string" && to.workflow ? { workflow: to.workflow } : {}),
-  };
+  const { agent, step, workflow } = s.to;
+  return { agent, step, ...(workflow ? { workflow } : {}) };
 }

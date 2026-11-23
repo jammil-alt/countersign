@@ -224,6 +224,52 @@ describe("Check the steps", () => {
     expect(screen.getByTestId("flow-check-build")).toBeEnabled();
   });
 
+  it("says a hand-off into the agent's own workflow forks out into that workflow, by name", async () => {
+    const process = draftProcess();
+    const forks = {
+      ...process,
+      steps: [
+        process.steps[0],
+        {
+          id: "s-self",
+          kind: "handoff" as const,
+          name: "Hand off each line",
+          to: { agent: "@self", workflow: "check-an-invoice", step: "" },
+          input: {},
+        },
+        ...process.steps.slice(1),
+      ],
+    };
+    const bundle = draftBundle(forks as never);
+    const second = {
+      slug: "check-an-invoice",
+      name: "Check an invoice",
+      workflow: {
+        ...draftProcess(),
+        triggers: [{ id: "t-2", on: { type: "manual", input: { type: "object" } } }],
+      },
+    };
+    renderCheck(
+      fakeApi({
+        ...drafted(),
+        [`GET /api/ops/agents/${DRAFT_AGENT_ID}`]: () =>
+          agentDetail({
+            ...bundle,
+            workflows: [...(bundle.workflows ?? []), second] as typeof bundle.workflows,
+          }),
+      }),
+    );
+    await screen.findByTestId("flow-check");
+    // The saved draft is read (not a list typed by hand): its lines are there.
+    expect(screen.getByTestId("flow-check-blank")).toBeInTheDocument();
+    const ways = screen.getAllByTestId("flow-check-way-out");
+    expect(ways.map((w) => [w.getAttribute("data-how"), w.textContent])).toEqual([
+      ["fork", "·Forks out into Check an invoice: Hand off each line"],
+      ["end", "·Ends: Create the bill"],
+    ]);
+    expect(screen.getByTestId("flow-check-end-handoff")).toHaveAttribute("aria-pressed", "true");
+  });
+
   it("saves the edited bundle on Build it, asks the Builder once to fill the lines typed by hand, then opens the workflow", async () => {
     const saved: unknown[] = [];
     const started: unknown[] = [];
