@@ -413,6 +413,16 @@ export function opsAgentRoutes(app: Hono<AppEnv>): void {
           ? versionDetail(live)
           : null,
       update,
+      // DECISION (S6.5): the stored draft is checked as its save and its publish check it, so a
+      // trigger that can't start (a schedule of "99 99 99 99 99", a zone "Not/AZone") says so on
+      // the agent's page, not only in the save's notice. Only a draft: the live version passed.
+      ...(latest
+        ? {
+            latestErrors: await validateForPublish(ctx.tx, row, latest.bundle, platform.ctx, {
+              previous: await existingBundle(ctx.tx, latest),
+            }),
+          }
+        : {}),
     };
   });
 
