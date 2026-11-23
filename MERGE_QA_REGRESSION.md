@@ -152,11 +152,15 @@ Use "QA walk 23 Nov" for anything you change and Demo client for reading.
   offered and waiting for the client to sign in. Don't sign in.
 - **CL7** Settings on the QA client: open every section. Change the time zone to another city, save,
   reload, confirm, then set it back.
-- **CL8** Setup (`/setup`) and Progress (`/progress`) on the QA client, now that it has an agent:
-  write what each shows. Is there a Nudge button now? A Start trial control, and is it held? (Known
-  bug from the last walk: the runbook's day count and the day-17 line.)
-- **CL9** Pack reports. Open each for Demo client and describe it in two lines; an honest empty
-  state is a PASS: `/ops/clients/<client>/reports/ap/bills`, `/reports/close/close`,
+- **CL8** Progress (`/ops/clients/<client>/progress`) on the QA client, now that it has an agent on
+  the bench: there should be a Start trial card for that agent, held, with the reason. Then use the
+  page's Invite button to invite `qa-admin2@example.com` as the client's admin. A "Waiting on" line
+  for that person should appear with a Nudge button. Press Nudge once: expect a clear result, not a
+  raw error. (Known bug: the runbook's "day 2 of about 17" and its day-17 line.)
+- **CL9** Pack reports. They are buttons under "Reports" on each area's card on the Areas tab
+  (`/ops/clients/<client>/areas`), only for areas that are switched on. Write which areas Demo
+  client has on and which report buttons show. Then open each address below for Demo client and
+  describe it in two lines; an honest empty state or a clear "this area is off" is a PASS: `/ops/clients/<client>/reports/ap/bills`, `/reports/close/close`,
   `/reports/bookkeeping/transactions`, `/reports/bookkeeping/reconciliations`,
   `/reports/materials/catalog`, `/reports/materials/prices`. Then say whether any tab or link on the
   client's pages leads to them.
@@ -310,7 +314,9 @@ changes a client's books.
 - **WR3** Open the card. It should show exactly what will be written, the document it came from,
   an Evidence panel, and the amount. Compare the amount and the vendor with the PDF.
 - **WR4** Approve it. The run should finish. The bill should appear in Sandbox → Records within a
-  few minutes, once. Search the vendor and the amount: FAIL if there are two.
+  few minutes, once. Search the vendor and the amount: FAIL if Sandbox shows two. (Demo client is
+  connected to the same QuickBooks company, so the same bill will also show there. That is
+  expected.)
 - **WR5** Open the run. The change should show before and after, who approved, and when. The bill's
   record page should list this run in its Runs panel.
 - **WR6** Reload the approved card's page and try to approve again, or go back in the browser and

@@ -308,6 +308,54 @@ staging or production was changed.
 Read from staging the same day: no failed live run in 48 hours, nothing in Needs us, 7 connections,
 10 open feedback reports (R13). And R12: the Demo client's QuickBooks reads Connected while failing.
 
+### 23 November, Pass 3: the first walk on staging (a browser agent, new work only)
+
+Run from `MERGE_QA_WALK.md` by a browser agent signed in as the operator, then as Demo client's
+admin. 52 checks: 33 pass, 6 fail, 1 partial, 10 blocked, 2 notes. Its seven `QA` notes are in
+staging's feedback. Each failure was then traced in the code.
+
+**Nothing stopped the walk.** No client saw another's data, the portal showed no cost or prompt, and
+nothing was written without approval. Not tested, because QuickBooks was down or nothing was
+waiting: any approval that writes (E1, E2), Books health, the Sandbox record try.
+
+| # | What the walk saw | Cause, from the code | Fix | Size |
+|---|---|---|---|---|
+| W1 | **A bill's page says "No run has been about this yet", though a run created that bill** (G2). | The run keeps the bill under QuickBooks' bare id (`147`); the transaction's page looks for `Bill:147`. `apps/api/src/runs/record-runs.ts`. The test seeds a bare id, so it passes. | Follow the transaction to its raw record. | S |
+| W2 | **A vendor's page and search show no runs for a vendor five runs were about** (G1, G2). | A write keeps its vendor only as a label, never as a subject, and search matches our own id only. `packages/agents/src/log/run-subjects.ts`, `apps/api/src/runs/about.ts`. The backfill skips runs that already have a row. | Write tools name their counterparty; search uses the same match; backfill again. | M |
+| W3 | **A client made minutes ago reads "day 2 of about 17" and "Day 17 · done"** (C3). | "Day 2" is the next step's planned day, not days gone. "Live" is any agent going live, and Sloan goes live when the client is made. `apps/api/src/setup/board.ts`. | Leave Sloan out; say "Next: kickoff, planned day 2". | S |
+| W4 | **Home says nothing needs us, Your call says 7, Accounts says 2 clients need us** (D1). | Three different sets under one name. Accounts counts what the walk-through fix (§1.207) took out of Needs us: approvals the client can answer, and connections no agent uses. | Accounts reuses Needs us, or is renamed "to look at". Home points to Your call. | M |
+| W5 | **Trying a draft fails with "examples are tried in the POC test"** (A4). | On a build still in Draft, a try with no step range goes to a route that only works in the POC phase. `apps/web/src/ops/flow/TryPanel.tsx`. A ranged try works. | Send it to the test-run route. | S |
+| W6 | **Evidence has no client or agent picker** (B7). | The filters exist only in the address. `apps/web/src/ops/security/Evidence.tsx`. | Two selects. | S |
+| W7 | **A model with 123 calls and 0 tokens; another with 30 calls at $0.00** (D3). | Failed calls are stored with no tokens and counted as calls: this keeps happening. The $0.00 row is old calls priced before the model had a price: history. | Count failed calls apart. | S |
+| W8 | "Critical, held 0" above four runs "held for review" that read Done. | The tile counts agents on a safety hold; the rows are finished runs waiting for a spot check. | Rename both. | S |
+| W9 | Procedures says "Live" for a paused agent. "In trial" in the back office, "On trial" in the portal. The SOP calls revision 4.0 its "First revision". | Procedures reads the go-live stage and never the paused state, against `docs/sop-plan.md`. Two strings. "First" means first recorded. | Add Paused; one wording; "First recorded revision". | M |
+| W10 | **Four date formats; a deal's event on "Nov 23 19:50" that the client page lists on "22 Nov, 19:50"; a 1–30 Nov period whose links start "31 Oct".** | Three hand-made "Nov 23" helpers and raw `2026-11-22` slices skip the shared formatter. The deal timeline pairs the UTC day with the browser's clock. The period's start is midnight in the client's zone, shown in the browser's. | One formatter; the chip in the client's zone. | M |
+| W11 | "from Qbo", "QboBill:147", "changed in qbo", "Query purchaseorder", "Ap approver"; cost as $0.2106. | Fallbacks that capitalise an id where the names table wasn't passed; raw 4-decimal strings printed. "Ap approver" is a role on staging with no label. | Pass the names; use the cost formatter. | S |
+| W12 | In Spanish the chart still says "We start it by hand", "the run stops", "Adds bills to QuickBooks Online". | All three are built on the server in English (`packages/core/src/sop/build.ts`), not missing keys. | Return keys, translate in the app. | M |
+| W13 | "The latest 50" over 21 rows. "31 of 43 controls" beside 38 criteria. | The table folds repeated failures; the two counts are different sets with no label. | Wording. | S |
+| W14 | A new client never sees Getting started on Home. | Home sends a client there only when no service is live, and Sloan counts as live. `apps/web/src/portal/screens/Home.tsx`. Found while tracing C1p. | Leave Sloan out. | S |
+
+Also still open from Pass 2: R12 (a connection that can't be read says Connected) and M6's four
+layout nits.
+
+**Not bugs, or not proven.**
+- C2, K3, K5, K7, C1p were blocked by the script, not the product: Start trial shows only for an
+  agent on the bench, Nudge only once a client admin has an open intake, pack reports are buttons
+  on the Areas tab for areas that are on, and Getting started is `/start`. All are hard to find,
+  which is worth a decision. The second walk retries them.
+- I3: no message on resume when nothing came in is by design.
+- Sloan's first reply (seen only after a second send): no defect found. The panel stops polling
+  while its tab is hidden, which a browser agent's tab often is. The second walk retests it (SN7).
+- C1's "We emailed … an invitation": not checked whether the sign-in provider sent one.
+- The bill in W1 also reads "Needs a document" though its PDF exists: not traced yet.
+- Sandbox and Demo client are connected to the same QuickBooks company, so the same records show
+  under both. That is the test set-up, and it matters for the write checks.
+
+**Left on staging by the walk:** the client "QA walk 23 Nov" (with Purchasing on and three to-dos),
+a contact, an interview, the template "QA walk draft, safe to delete", a saved view, portal request
+#4, seven feedback notes, and one setting switched on by accident ("Drafts opens this build in the
+builder"). The second walk reuses the client and the draft.
+
 ### Still to run
 
-Pass 0 (the owner's), then Pass 3 on staging and the rest. Pass 2 is done but for M7's second look.
+Pass 0 (the owner's: QuickBooks). The second walk, `MERGE_QA_REGRESSION.md`: everything built before 21 November, the boundaries between clients, and, once QuickBooks is back, the writes. Then Passes 4 to 6. Pass 2 is done but for M7's second look.
