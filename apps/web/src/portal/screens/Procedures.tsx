@@ -36,6 +36,7 @@ export function ProceduresScreen() {
 export function matches(
   row: SopListItem,
   f: { text: string; system: string; does: Does; party: string },
+  pausedWord = "Paused",
 ): boolean {
   if (f.system) {
     const s = row.systems.find((x) => x.key === f.system);
@@ -53,6 +54,7 @@ export function matches(
     row.code,
     row.area.words,
     row.stage.words,
+    ...(row.paused ? [pausedWord] : []),
     row.purpose,
     ...row.systems.map((s) => s.name),
     ...row.parties.map((p) => p.name),
@@ -77,7 +79,9 @@ function ProcedureList({ data }: { data: SopList }) {
     for (const r of data.sops) for (const p of r.parties) out.set(p.key, p.name);
     return [...out].sort((a, b) => a[1].localeCompare(b[1]));
   }, [data]);
-  const rows = data.sops.filter((r) => matches(r, { text, system, does, party }));
+  const rows = data.sops.filter((r) =>
+    matches(r, { text, system, does, party }, t("state.agent.paused")),
+  );
   const filtered = !!(text.trim() || system || does || party);
 
   if (data.sops.length === 0) {
@@ -185,7 +189,16 @@ function ProcedureList({ data }: { data: SopList }) {
                       </Link>
                       <span className="block font-mono text-xs text-ink-muted">{r.code}</span>
                     </td>
-                    <td>{r.stage.words}</td>
+                    <td data-testid={`procedures-stage-${r.agent.id}`}>
+                      {r.paused ? (
+                        <>
+                          {t("state.agent.paused")}
+                          <span className="block text-xs text-ink-muted">{r.stage.words}</span>
+                        </>
+                      ) : (
+                        r.stage.words
+                      )}
+                    </td>
                     <td>
                       {r.revision ? (
                         <>

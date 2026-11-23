@@ -168,7 +168,8 @@ describe.skipIf(!h)("the runs about a record", () => {
       .values({
         tenantId: A,
         connector: "qbo",
-        externalId: "4471",
+        // As sync stores it (qboTransactionExternalId); a write keeps QuickBooks' bare id.
+        externalId: "Bill:4471",
         kind: "bill",
         vendorId: acme.id,
         total: "120.0000",
