@@ -15,7 +15,7 @@ Mezonas is the product name and the name of every public resource; `countersign`
 
 | | Staging | Production |
 |---|---|---|
-| Deployed by | every push to `main` (`deploy.yml`); a branch by hand (Actions → Quick deploy to staging) | a `v*` tag, or Actions → Deploy → production |
+| Deployed by | every push to `main` (`deploy.yml`, the fast route, about 2 minutes); a branch by hand or by a Claude session (Actions → Quick deploy to staging) | a `v*` tag, or Actions → Deploy → production, after every check and only for a commit staging ran |
 | Address | `https://staging.mezonas.com` | `https://app.mezonas.com` |
 | Worker | `mezonas-staging` (`wrangler deploy --env=staging`) | `mezonas` (`--env=production`) |
 | Neon project / branch | `mezonas` / `staging` | `mezonas` / `main` |
@@ -628,11 +628,13 @@ from `apps/api`); the deploy only adds keys, it never deletes one.
 
 ### Worker secrets (set by `deploy.yml`, never by hand)
 
-The deploy workflow loads the Worker's secrets into Cloudflare after each deploy:
+The deploy workflow loads the Worker's secrets into Cloudflare after the deploy, on every production
+deploy, every deploy run by hand, and a push to `main` that changes how they are copied; other
+staging deploys and quick deploys copy none (§2, "Staging: the fast route"):
 - `WORKOS_API_KEY`, `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `XAI_API_KEY` and `GEMINI_API_KEY`:
-  copied from the GitHub **environment** (`staging` or `production`) on every deploy, each only when
-  it is set, so rotating a key is "update the GitHub secret, redeploy". The last three are optional
-  ("Model keys" above).
+  copied from the GitHub **environment** (`staging` or `production`) by those deploys, each only
+  when it is set, so rotating a key is "update the GitHub secret, run Actions → Deploy by hand".
+  The last three are optional ("Model keys" above).
 - `ENCRYPTION_KEY` (32 random bytes, base64) and `WORKOS_COOKIE_PASSWORD`: generated once inside the job
   when the Worker doesn't have them yet, and never shown or stored anywhere else. The job reads the
   Worker's secrets with `scripts/worker-secrets.sh`, which fails unless the list is a JSON array naming
@@ -1536,8 +1538,37 @@ workflow. Then, and only the security officer:
   secrets, then the browser service (`apps/browser`), builds `apps/web` and runs `wrangler deploy`
   for apps/api (whose `CODES` and `BROWSER` bindings need both deployed first). Its `site` job builds `apps/site` and deploys `mezonas-site`, from
   `main` only.
-  - **Production** (a `v*` tag, or Actions → Deploy → production) always runs the full check:
-    `static`, every package's tests (`check`) and the screen sweep (`sweep`).
+  - **Production** (a `v*` tag, or Actions → Deploy → production) always runs the full check
+    first: `static`, every package's tests (`check`) and the screen sweep (`sweep`). It also
+    deploys only a commit staging has run with a passing smoke test (the `staged` job, owner,
+    2026-11-23): it reads GitHub's record of the `staging` environment's deployments of that
+    commit and stops unless one succeeded. It fails closed. A commit staging never ran on its own
+    (a burst of merges deploys only the newest) goes there first: Actions → Deploy → Run workflow
+    from the tag, target staging; then the production run again.
+  - **Staging: the fast route** (owner, 2026-11-23: "the quickest safe route"). Every staging
+    deploy, from `main` or a quick deploy, takes about 2 minutes:
+    - **It doesn't wait for the checks.** `deploy-staging` needs only `tested` (seconds);
+      `checks.yml` runs beside it in the same run, and a failure there marks the run failed after
+      staging has the commit. Nothing the checks catch outlasts the next deploy, and production
+      runs them all again. The two things on staging that can't be taken back stay guarded
+      before it: migrations reach staging only from `main` (a quick deploy refuses a new one), and
+      the secrets step below.
+    - **It copies no secrets** unless run by hand or the push changes how they are copied
+      (`deploy-app.yml`, which lists them, or `scripts/worker-secrets.sh`); `tested`'s `secrets`
+      step decides and says which in the summary, and copies them on any doubt. That step took
+      a minute of each deploy, and it is the one that can generate `ENCRYPTION_KEY` (2026-11-21,
+      MEZONAS-API-C), so routine deploys no longer run it. Rotating or adding a key: update the
+      GitHub secret, then Actions → Deploy → staging by hand.
+    - **A failed smoke test puts the version before back.** A staging deploy that copied no
+      secrets records apps/api's live version before deploying; if the smoke test fails, it puts
+      that version back at 100% through Cloudflare's API, without `force` (not `wrangler
+      rollback`, which in CI forces past changed secrets), checks it answers, and says so in the
+      summary. The run stays failed. The database keeps the deploy's migrations, which the
+      version before works with (CLAUDE.md); the code and browser services stay as deployed. A
+      secret changed by hand since that version makes Cloudflare refuse, and the step says so.
+    - **One staging deploy at a time** still: the deploy jobs hold `deploy-<target>`, never
+      cancelled, and the run's other jobs (the checks, the site) don't, so a long check never
+      holds up the next deploy.
   - **Staging from a push to `main`** skips `check` and `sweep` when the merged pull request's CI
     already passed them (owner, 2026-11-17: they took about 13 of a staging deploy's 16 minutes,
     repeating the pull request's 15). Its `tested` job asks GitHub's API (with `checks: read`)
@@ -1558,13 +1589,15 @@ workflow. Then, and only the security officer:
   is on `main` and stops before migrating if it isn't. Run it by hand against either environment:
   `scripts/smoke.sh https://staging.mezonas.com [commit]`. The run's summary says which branch
   and commit the target now runs.
-- **Quick deploy to staging** (`quick-deploy.yml`, by hand): a branch on staging without
-  merging it, in about 5–6 minutes, to try a fix there. Actions → **Quick deploy to staging** →
-  Run workflow → "Use workflow from": the branch → Run. The branch needs the workflow file, so a
-  branch from before it reached `main` merges `main` first. It checks lint, layering
-  (`lint:deps`) and typecheck only, no tests and no sweep, then runs `deploy-app.yml` to staging
-  (never production), smoke test included, and its summary says which branch and commit staging
-  runs.
+- **Quick deploy to staging** (`quick-deploy.yml`, by hand, or started by a Claude session after
+  it pushes, CLAUDE.md): a branch on staging without merging it, in about 2 minutes, to try a
+  change there. Actions → **Quick deploy to staging** → Run workflow → "Use workflow from": the
+  branch → Run. The branch needs the workflow file, so a branch from before it reached `main`
+  merges `main` first. Before the deploy, only its guard (a branch, no new migration; seconds, no
+  install); lint, layering (`lint:deps`) and typecheck run beside the deploy and mark the run
+  failed if they fail; no tests and no sweep. Then `deploy-app.yml` to staging (never
+  production), the fast route above: no secrets, smoke test, the version before put back if it
+  fails. Its summary says which branch and commit staging runs.
   - **It runs in the branch's own context, never `main`'s** (CodeQL, 2026-11-17). The branch's
     unreviewed code runs in it, and code running in `main`'s context can write `main`'s Actions
     cache, which production deploys restore from. Run from the branch, anything it writes stays
@@ -1588,11 +1621,16 @@ workflow. Then, and only the security officer:
     Actions → Deploy → staging) puts staging back to `main`. Two people or sessions quick-deploying
     different branches overwrite each other until then: check `https://staging.mezonas.com/api/ready`'s
     `sha` (or the run's summary) for what you're looking at.
-- **What staging skips, accepted (owner, 2026-11-17).** Staging deploys from `main` trust the pull
-  request's CI, which tested the pull request's head merged with `main` as it was then, and only
-  the packages it touched and their dependents (`scope: affected`). So two pull requests that each
-  passed CI can reach staging together untested, and a quick deploy reaches it with no tests at
-  all. Production still runs everything on the tagged commit before it deploys.
+- **What staging skips, accepted (owner, 2026-11-17 and 2026-11-23).** Staging deploys from `main`
+  trust the pull request's CI, which tested the pull request's head merged with `main` as it was
+  then, and only the packages it touched and their dependents (`scope: affected`). So two pull
+  requests that each passed CI can reach staging together untested, and a quick deploy reaches it
+  with no tests at all. Since the fast route, a commit reaches staging before its own lint and
+  typecheck finish, so a type error can be on staging until the next deploy; types don't exist at
+  run time, so it usually still works. A change that starts but shows a wrong screen stays until
+  the next deploy (the rollback covers only a smoke test that fails); the buyer works on staging
+  (`docs/open.md` §1). Production still runs everything on the tagged commit before it deploys,
+  and only on a commit staging ran.
 - **The screen sweep** (`checks.yml`'s `sweep` job, `apps/web/e2e/route-sweep.mjs`): beside the
   tests, on the seeded database, the built app runs on `wrangler dev` with the dev sign-in and real
   Chromium opens every screen of the back office (as the operator) and the portal (as the Demo
