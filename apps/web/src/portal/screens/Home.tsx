@@ -103,7 +103,10 @@ export function HomeScreen() {
   // DECISION: asked only once the table shows no live agent, so Home's calls don't go up for
   // anyone with an agent at work (gate 2); the ask loads with OpenIntakeRedirect, out of the
   // first load, and a failed ask leaves Home as it is.
-  const noneLive = data !== undefined && !data.services.some((s) => s.stage === "live");
+  // DECISION (S6.2): Sloan, the account agent, is live from the day the client is made, so it
+  // doesn't count: a new client with only Sloan live is still sent to Getting started.
+  const noneLive =
+    data !== undefined && !data.services.some((s) => s.stage === "live" && !s.accountAgent);
   const findings = overview.data?.health?.findings ?? [];
   const sent = weekly.data?.table ?? null;
 

@@ -97,13 +97,14 @@ describe.skipIf(!h)("invite from the directory", () => {
         name: "Sam Employee",
         role: "client_user",
         signedIn: null,
-        canSign: true,
+        // Overnight D3: a user approves nothing unless the invite says so.
+        canSign: false,
         agentIds: null,
       },
       email: { status: "not_sent", reason: "dev_sign_in" },
     });
     expect(await membershipsOf(H, "sam@a.example.com")).toEqual([
-      { tenantId: H.A.tenantId, role: "client_user", canSign: true },
+      { tenantId: H.A.tenantId, role: "client_user", canSign: false },
     ]);
     // Inviting them again is the same refusal as the email form's.
     const again = await H.call(admin("a"), "POST", `/api/contacts/${ids.employee}/invite`, {
