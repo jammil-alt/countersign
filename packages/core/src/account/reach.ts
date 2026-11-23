@@ -48,6 +48,24 @@ const MORE: Record<Locale, string> = {
   de: "Der Rest steht in Mezonas:",
 };
 
+// S2.1 (overnight fixes, 2026-11-23): what code posts in the conversation when Sloan's run fails
+// or stops on a budget before it answered, so the person is never left with "Sloan is
+// answering…". The lead hears of the failed run from the platform's own watch.
+// TODO(review): es, fr, pt-BR, it and de want a fluent speaker's review.
+const COULD_NOT_ANSWER: Record<Locale, string> = {
+  en: "I couldn't answer that. We've told your lead.",
+  es: "No pude responder a eso. Se lo hemos dicho a su responsable.",
+  fr: "Je n'ai pas pu répondre à cela. Nous avons prévenu votre interlocuteur.",
+  "pt-BR": "Não consegui responder a isso. Já avisamos o seu responsável.",
+  it: "Non sono riuscito a rispondere. Abbiamo avvisato il tuo referente.",
+  de: "Darauf konnte ich nicht antworten. Wir haben Ihrem Ansprechpartner Bescheid gegeben.",
+};
+
+/** The fixed message posted for the person when Sloan's run ended without an answer. */
+export function sloanCouldNotAnswer(locale: Locale): string {
+  return COULD_NOT_ANSWER[locale] ?? COULD_NOT_ANSWER.en;
+}
+
 /**
  * Sloan's answer as a text: whole when it fits, else cut at a word with a link to the conversation.
  * Line breaks are kept; the cut never splits a word.

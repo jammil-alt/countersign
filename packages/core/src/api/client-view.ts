@@ -127,7 +127,11 @@ export const RunAuditEntry = z.object({
   side: z.enum(["client", "mezonas"]),
   kind: z.enum(RUN_AUDIT_KINDS),
   itemId: z.string().nullable(),
-  /** Consecutive same lines (a page polled while open) count once, with how many. */
+  /**
+   * Consecutive same lines count once, with how many; for `opened_run`, how many visits (a
+   * person's opens within AUDIT_VISIT_MINUTES of the one before are one, and a page's own refresh
+   * is never an open: S6.9).
+   */
   times: z.number().int().min(1),
 });
 export type RunAuditEntry = z.infer<typeof RunAuditEntry>;

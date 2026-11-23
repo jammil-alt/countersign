@@ -207,6 +207,17 @@ export async function updateMember(
     if ((admins?.n ?? 0) <= 1) {
       throw new HttpError(409, "last_admin", "a client keeps at least one admin");
     }
+    // An admin approves and works on every agent, so their row says nothing about what they had
+    // as a user: keeping it would hand back every agent with approvals on (QA PP3).
+    // DECISION: an admin made a user again must say both whether they approve and which agents;
+    // the editor starts that change from approvals off and no agents picked.
+    if (body.canSign === undefined || body.agentIds === undefined) {
+      throw new HttpError(
+        422,
+        "user_access_needed",
+        "say which agents they work on and whether they approve changes",
+      );
+    }
   }
   const canSign = role === "client_admin" ? true : (body.canSign ?? m.canSign);
   const agentIds =
@@ -337,7 +348,9 @@ export async function inviteToClient(
   if (input.role === "client_admin" && input.canSign === false) {
     throw new HttpError(422, "admin_signs", "a client admin always signs");
   }
-  const canSign = input.role === "client_admin" ? true : input.canSign !== false;
+  // DECISION (overnight D3): a client user approves nothing unless the invite says so; a client
+  // admin always does. Callers that invite people who must approve pass `canSign: true`.
+  const canSign = input.role === "client_admin" ? true : input.canSign === true;
   // §1.122: a client user may be limited to some agents; an admin sees every agent.
   if (input.role === "client_admin" && input.agentIds) {
     throw new HttpError(422, "admin_sees_all", "a client admin sees every agent");

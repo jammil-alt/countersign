@@ -4,9 +4,11 @@
 import { retire as retireAgent } from "@countersign/agents";
 import {
   type AccessReviewUser,
+  auditActionWords,
   type ClientCompliance,
   complianceOf,
   hipaaReadiness,
+  isAuditRefresh,
   PROCESSOR_NAMES,
   PROCESSORS,
   type Processor,
@@ -42,6 +44,7 @@ import {
   sql,
 } from "drizzle-orm";
 import type { Hono } from "hono";
+import { auditNames } from "../audit-names";
 import { returnAgentLine } from "../channels/agent-line";
 import type { Bindings } from "../env";
 import { type AppEnv, ensureClient, HttpError, iso, mount, notFound, type Services } from "../http";
@@ -131,6 +134,11 @@ export function complianceRouteHandlers(app: Hono<AppEnv>): void {
       .orderBy(desc(auditEvent.id))
       .limit(query.limit + 1);
     const page = rows.slice(0, query.limit);
+    // S6.9: the action in words and the target's ids by name, beside the row as it was written.
+    const named = await auditNames(
+      tx,
+      page.map(({ e }) => e),
+    );
     return {
       events: page.map(({ e, clientName }) => ({
         id: e.id,
@@ -140,8 +148,12 @@ export function complianceRouteHandlers(app: Hono<AppEnv>): void {
           id: e.actorUserId,
           email: e.actorEmail,
           role: e.actorRole,
+          name: e.actorUserId ? (named.actors.get(e.actorUserId) ?? null) : null,
         },
         action: e.action,
+        words: auditActionWords(e.action),
+        names: named.targets.get(e.id) ?? {},
+        refresh: isAuditRefresh(e.target),
         outcome: e.outcome,
         httpStatus: e.httpStatus,
         target: e.target,
@@ -189,18 +201,21 @@ export function complianceRouteHandlers(app: Hono<AppEnv>): void {
       .from(membership)
       .where(and(inArray(membership.tenantId, ids), inArray(membership.role, [...CLIENT_ROLES])))
       .groupBy(membership.tenantId, membership.role);
+    // A sign-in names no client and no role (it happens before a client is chosen): it counts
+    // for each client the person is a client admin or user of now (QA SC1).
     const signIns = await tx
-      .select({ tenantId: auditEvent.tenantId, at: max(auditEvent.createdAt) })
+      .select({ tenantId: membership.tenantId, at: max(auditEvent.createdAt) })
       .from(auditEvent)
+      .innerJoin(membership, eq(membership.userId, auditEvent.actorUserId))
       .where(
         and(
-          inArray(auditEvent.tenantId, ids),
+          inArray(membership.tenantId, ids),
+          inArray(membership.role, [...CLIENT_ROLES]),
           eq(auditEvent.action, "session.sign_in"),
           eq(auditEvent.outcome, "ok"),
-          inArray(auditEvent.actorRole, [...CLIENT_ROLES]),
         ),
       )
-      .groupBy(auditEvent.tenantId);
+      .groupBy(membership.tenantId);
     const since = new Date(generatedAt.getTime() - 30 * DAY_MS);
     const [audit] = await tx
       .select({
