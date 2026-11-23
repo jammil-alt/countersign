@@ -71,7 +71,10 @@ function BillingFigures({ data }: { data: OpsBilling }) {
         testId="ops-billing-our-cost"
         label="Our cost"
         value={cost(ourCost.toFixed(4))}
-        note="This month's work, as priced"
+        // DECISION (QA: $3.81 here, $3.92 on Usage for one client and month): two sets, both
+        // right. This is the billed work (the hourly usage rollup, template test copies left out);
+        // Usage sums every model call as it happens, test copies and Reggie's included.
+        note="Billed work this month, as priced. Usage counts every model call."
       />
       <StatTile
         testId="ops-billing-to-review"
