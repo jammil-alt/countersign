@@ -175,7 +175,9 @@ export function useApi<R extends RouteSpec>(
   const [tick, setTick] = useState(0);
   useEffect(() => {
     const { key: k, route: r, callOptions: opts } = ref.current;
-    if (tick > 0 && k !== null && opts !== null) void store.fetch(k, r, opts);
+    // DECISION (S6.9): a reload refreshes what is on screen (a page's poll, a reload after a
+    // change), so it is sent as a refresh and its audit row doesn't count as an open.
+    if (tick > 0 && k !== null && opts !== null) void store.fetch(k, r, { ...opts, refresh: true });
   }, [store, tick]);
   const reload = useCallback(() => setTick((t) => t + 1), []);
 

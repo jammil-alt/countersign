@@ -305,6 +305,44 @@ describe("Build in the back office", () => {
 });
 
 describe("the portal's Requests", () => {
+  it("says Sent until we pick a request up, and shows a problem's number (QA PH3)", async () => {
+    const item = (over: Record<string, unknown>) => ({
+      kind: "problem",
+      text: "x",
+      service: null,
+      raisedBy: null,
+      createdAt: "2026-11-17T06:12:00.000Z",
+      updatedAt: "2026-11-17T06:12:00.000Z",
+      canConfirm: false,
+      canReopen: false,
+      ...over,
+    });
+    const IDEA = "00000000-0000-4000-8000-0000000000e2";
+    const api = fakeApi({
+      "GET /api/session": () => CLIENT_SESSION,
+      "GET /api/feedback/status": () => ({ enabled: false }),
+      "GET /api/overview": () => ({
+        client: { id: DEMO, name: "Demo client" },
+        services: [],
+        needsYou: { inbox: 0 },
+        recentRuns: [],
+      }),
+      "GET /api/issues": () => ({
+        items: [
+          item({ id: ISSUE, number: 12, title: "Totals are off", state: "sent" }),
+          item({ id: IDEA, kind: "idea", number: null, title: "CSV too", state: "on_it" }),
+        ],
+      }),
+    });
+    renderAt("/requests", api);
+    const sent = await screen.findByTestId(`portal-work-request-${ISSUE}`);
+    expect(within(sent).getByTestId("request-state")).toHaveTextContent(/^Sent$/);
+    expect(within(sent).getByTestId("request-number")).toHaveTextContent("#12");
+    const idea = screen.getByTestId(`portal-work-request-${IDEA}`);
+    expect(within(idea).getByTestId("request-state")).toHaveTextContent("We're on it");
+    expect(within(idea).queryByTestId("request-number")).toBeNull();
+  });
+
   it("lists the client's requests and sends a new one with its kind", {
     timeout: SLOW,
   }, async () => {
@@ -344,6 +382,7 @@ describe("the portal's Requests", () => {
     renderAt("/requests", api);
     const row = await screen.findByTestId(`portal-work-request-${ISSUE}`);
     expect(within(row).getByTestId("request-state")).toHaveTextContent("Waiting on you");
+    expect(within(row).getByTestId("request-number")).toHaveTextContent("#7");
     await userEvent.selectOptions(screen.getByTestId("new-request-kind"), "idea");
     await userEvent.type(screen.getByTestId("new-request-text"), "POs as CSV too");
     await userEvent.click(screen.getByTestId("new-request-send"));

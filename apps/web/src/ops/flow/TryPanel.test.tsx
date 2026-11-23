@@ -24,14 +24,14 @@ const at = "2026-11-21T10:00:00.000Z";
 
 const PHASES = ["intake", "fitgap", "draft", "poc", "client_test", "qa"] as const;
 
-function build(tries: BuildTryView[] = []): BuildDetail {
+function build(tries: BuildTryView[] = [], phase: (typeof PHASES)[number] = "poc"): BuildDetail {
   return {
     build: {
       id: BUILD,
       kind: "agent",
       title: "Invoice intake",
       client: null,
-      phase: "poc",
+      phase,
       status: "open",
       agentId: AGENT,
       skillId: null,
@@ -435,6 +435,34 @@ describe("TryPanel", () => {
       range: { from: "confidence", to: "confidence", given: { find: { confidence: 0.5 } } },
     });
     expect(tries).not.toHaveBeenCalled();
+  });
+
+  // S6.3: in the Draft phase the build keeps no tries ("examples are tried in the POC test").
+  it("tries every step of a build's draft before its POC test as a test run at the Sandbox", async () => {
+    const bodies: unknown[] = [];
+    const tries = vi.fn(() => build([]));
+    const api = fakeApi({
+      ...common,
+      [`POST /api/ops/builds/${BUILD}/tries`]: tries,
+      [`POST /api/ops/agents/${AGENT}/versions/${VERSION}/test-run`]: ({ init }) => {
+        bodies.push(JSON.parse(String(init.body)));
+        return { runId: RUN, agentId: AGENT, versionId: VERSION };
+      },
+      [`GET /api/ops/runs/${RUN}`]: () => ended,
+    });
+    show(api, { build: build([], "draft"), first: { payload: { billId: "b1" } } });
+    await waitFor(() => expect(bodies).toHaveLength(1));
+    expect(bodies[0]).toEqual({
+      workflow: "new-bill",
+      payload: { billId: "b1" },
+      clientId: SANDBOX,
+    });
+    expect(tries).not.toHaveBeenCalled();
+    await waitFor(() =>
+      expect(screen.getByTestId("flow-try-said")).toHaveTextContent("It ran to the end."),
+    );
+    // A record is picked for the POC's kept tries only.
+    expect(screen.queryByTestId("flow-try-pick-record")).toBeNull();
   });
 
   it("tries a build's draft on a file through the build, and again on the same try", async () => {

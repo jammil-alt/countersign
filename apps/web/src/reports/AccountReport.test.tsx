@@ -105,7 +105,10 @@ describe("the account report", () => {
     expect(failed.searchParams.get("since")).toBe(SINCE);
     expect(screen.getByTestId("account-report-runs-all").textContent).toContain("6");
     expect(href("account-report-waiting")).toContain("statuses=waiting");
-    expect(screen.getByTestId("account-report-waiting").textContent).toContain("2 open items");
+    // QA CL1: the portal's count is the client's own items.
+    expect(screen.getByTestId("account-report-waiting").textContent).toContain(
+      "2 open items for your team",
+    );
     // Failed runs nobody has looked at have no runs filter, and nowhere to go on the portal.
     expect(screen.getByTestId("account-report-failed-unseen").tagName).not.toBe("A");
     expect(href("account-report-usage")).toBe("/settings/billing");
@@ -145,6 +148,10 @@ describe("the account report", () => {
     ).toHaveAttribute("href", `/ops/clients/${CLIENT}/connections`);
     expect(href("account-report-runs-all")).toContain("/ops/runs?");
     expect(href("account-report-csv")).toBe(`/api/ops/clients/${CLIENT}/report.csv`);
+    // QA CL1: the back office's count is every open item, ours included, and says so.
+    expect(screen.getByTestId("account-report-waiting").textContent).toContain(
+      "2 open items, ours and the client's",
+    );
   });
 });
 

@@ -140,11 +140,18 @@ export async function reencryptClientCredentials(
   return { reencrypted, failed };
 }
 
-/** Re-wraps the client's keys still wrapped by a previous master key. Returns how many. */
+/**
+ * Re-wraps the client's keys still wrapped by a previous master key. `rewrapped` counts the keys
+ * moved under the current master; `lost` the keys wrapped by a master key this deployment no
+ * longer holds (they can never be opened again, so they are left as they are and only counted).
+ */
+// DECISION: a key whose master is unknown is counted, not tried: before, one lost master key
+// (staging's, 2026-11-21) made every hourly upkeep throw on the first such key and stop
+// (Sentry MEZONAS-API-D). `retire-lost-keys.yml` retires the active ones; retired ones stay.
 export async function rewrapClientKeys(
   tx: Tx,
   input: { tenantId: string; master: CredentialCipher },
-): Promise<number> {
+): Promise<{ rewrapped: number; lost: number }> {
   const rows = await tx
     .select()
     .from(tenantKey)
@@ -156,14 +163,23 @@ export async function rewrapClientKeys(
         sql`${tenantKey.wrappedKey}->>'kid' <> ${input.master.currentKeyId}`,
       ),
     );
+  const known = new Set(input.master.keyIds);
+  let rewrapped = 0;
+  let lost = 0;
   for (const row of rows) {
+    const kid = WrappedKey.safeParse(row.wrappedKey);
+    if (!kid.success || !known.has(kid.data.kid)) {
+      lost += 1;
+      continue;
+    }
     const wrapped = await input.master.rewrap(row.wrappedKey, input.tenantId);
     await tx
       .update(tenantKey)
       .set({ wrappedKey: wrapped })
       .where(and(eq(tenantKey.id, row.id), eq(tenantKey.tenantId, input.tenantId)));
+    rewrapped += 1;
   }
-  return rows.length;
+  return { rewrapped, lost };
 }
 
 /**

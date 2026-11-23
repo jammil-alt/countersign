@@ -14,6 +14,7 @@ import { Loaded, Page, PageGrid } from "../ui/page";
 import { Button, Card, EmptyState, PageHeader } from "../ui/primitives";
 
 const STATE_PILL: Record<PortalRequestState, string> = {
+  sent: "ds-pill--neutral",
   on_it: "ds-pill--neutral",
   waiting_on_you: "ds-pill--warning",
   fixed: "ds-pill--positive",
@@ -60,6 +61,11 @@ function RequestRow({ r }: { r: PortalWorkRequest }) {
     <li className="ds-card p-4" data-testid={`portal-work-request-${r.id}`}>
       <div className="flex flex-wrap items-center justify-between gap-2">
         <Link to={`/requests/${r.id}`} className="font-medium text-ink">
+          {r.number ? (
+            <span className="mr-2 font-mono text-ink-muted" data-testid="request-number">
+              #{r.number}
+            </span>
+          ) : null}
           {r.title}
         </Link>
         <RequestState state={r.state} />

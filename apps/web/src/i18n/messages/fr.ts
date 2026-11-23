@@ -2209,6 +2209,9 @@ export const fr: Messages = {
   "sloan.empty":
     "Demandez pourquoi quelque chose attend, mettez un agent en pause, ajoutez un approbateur ou transmettez une idée à votre interlocuteur.",
   "sloan.answering": "Sloan répond…",
+  "sloan.noAnswer":
+    "Sloan n'a pas encore répondu. La réponse s'affichera ici ; pour une urgence, demandez à votre interlocuteur.",
+  "sloan.checkAgain": "Vérifier à nouveau",
   "sloan.compose": "Demandez à Sloan, ou dites-lui quoi changer",
   "sloan.commandHint":
     "Commencez par / et le nom d'un agent pour lui poser la question, comme /pia.",
@@ -3672,6 +3675,7 @@ export const fr: Messages = {
     "Quelque chose ne marche pas, ou une idée pour nous : dites-le ici à votre responsable Mezonas.",
   "requests.new": "Nouvelle demande",
   "requests.empty": "Aucune demande pour l'instant.",
+  "requests.state.sent": "Envoyée", // fluent review
   "requests.state.on_it": "Nous nous en occupons",
   "requests.state.waiting_on_you": "En attente de votre réponse",
   "requests.state.fixed": "Corrigé",
