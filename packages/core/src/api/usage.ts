@@ -143,6 +143,8 @@ export const UsageModelRow = z.object({
   costUsd: UsdAmount,
   /** Calls that used tokens but were recorded at no cost: their model had no price. */
   unpricedCalls: z.number().int().optional(),
+  /** S4.8: calls that failed (no answer), counted apart from `calls`. */
+  failedCalls: z.number().int().optional(),
 });
 
 /** The model of the steps' usage that no call record holds (steps before call records). */

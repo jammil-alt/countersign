@@ -192,6 +192,11 @@ export const SkillDefinition = z
      * writes (`comms.converse`'s `result`), so later steps read the answer typed.
      */
     resultFromInput: z.string().min(1).optional(),
+    /**
+     * Built-ins only: input fields (dot paths) holding the record ids the output's `sources` are,
+     * set in code when a model finishes the skill, in place of what the model wrote (invariant 10).
+     */
+    sourcesFromInput: z.array(z.string().min(1)).max(10).optional(),
     // R2: the process model (docs/plan.md §1.86)
     /** Absent on stored rows: derived from `mode` (`skillMethod`). */
     method: SkillMethod.optional(),

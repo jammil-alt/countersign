@@ -427,6 +427,8 @@ export function processStepNames(process: Pick<processes.Process, "steps">): Ste
 export function workflowStats(bundle: Pick<AnyAgentBundle, "workflows">): {
   steps: number;
   forks: number;
+  /** S4.9: how many workflows `steps` adds up. */
+  workflows: number;
 } {
   let steps = 0;
   let forks = 0;
@@ -440,5 +442,16 @@ export function workflowStats(bundle: Pick<AnyAgentBundle, "workflows">): {
       if (kind === "fork" || kind === "if") forks += 1;
     }
   }
-  return { steps, forks };
+  return { steps, forks, workflows: bundle.workflows.length };
+}
+
+/**
+ * S4.9 (QA TP1): an agent's step count, labelled by what it adds up: "18 steps in 3 workflows"
+ * beside a workflow's own "14 steps", so the two never read as one number that disagrees. A step
+ * is every step of a workflow, nested ones included, the trigger not (as the workflow builder and
+ * its step table count them).
+ */
+export function stepCountWords(stats: { steps: number; workflows: number }): string {
+  const steps = `${stats.steps} ${stats.steps === 1 ? "step" : "steps"}`;
+  return stats.workflows > 1 ? `${steps} in ${stats.workflows} workflows` : steps;
 }

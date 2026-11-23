@@ -1,7 +1,7 @@
 import type { processes } from "@countersign/core";
 import { describe, expect, it } from "vitest";
 import { failureText } from "../screens/RunView";
-import { fieldText, processStepDetail, rulesText, workflowStats } from "./describe";
+import { fieldText, processStepDetail, rulesText, stepCountWords, workflowStats } from "./describe";
 
 const names = new Map([["0193-step", "Review the record"]]);
 
@@ -83,6 +83,13 @@ describe("a v4 step's detail line", () => {
       ],
     } as processes.Process;
     const workflows = [{ slug: "a", name: "A", enabled: true, workflow: process }];
-    expect(workflowStats({ workflows })).toEqual({ steps: 2, forks: 1 });
+    expect(workflowStats({ workflows })).toEqual({ steps: 2, forks: 1, workflows: 1 });
+  });
+
+  // S4.9 (QA TP1): 14, 18 and 13 steps for one agent: the agent's count adds up every workflow.
+  it("labels an agent's count by the workflows it adds up", () => {
+    expect(stepCountWords({ steps: 18, workflows: 3 })).toBe("18 steps in 3 workflows");
+    expect(stepCountWords({ steps: 14, workflows: 1 })).toBe("14 steps");
+    expect(stepCountWords({ steps: 1, workflows: 1 })).toBe("1 step");
   });
 });

@@ -7,6 +7,7 @@ import {
   foldSameFailures,
   hoursWords,
   runErrorLine,
+  runsCountWords,
   sameFailureWords,
 } from "./words";
 
@@ -97,6 +98,18 @@ describe("errorGroupLabel", () => {
     expect(errorGroupLabel("person:timeout")).toBe("A person step · timeout");
     expect(errorGroupLabel("run:no_workflow")).toBe("Before any step · no workflow");
     expect(errorGroupLabel("unknown")).toBe("No reason given");
+  });
+});
+
+describe("runsCountWords", () => {
+  // S4.9 (QA W13): "The latest 50" sat over 21 rows: the table folds repeated failures.
+  it("says how many runs, and how many rows when repeated failures fold", () => {
+    expect(runsCountWords(50, 21, true)).toBe(
+      "The latest 50 runs · 21 rows, repeated failures folded",
+    );
+    expect(runsCountWords(50, 50, true)).toBe("The latest 50 runs");
+    expect(runsCountWords(12, 12, false)).toBe("12 runs");
+    expect(runsCountWords(1, 1, false)).toBe("1 run");
   });
 });
 

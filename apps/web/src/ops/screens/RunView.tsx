@@ -713,7 +713,10 @@ function Timeline({
   const outcomes = new Map(
     data.steps.flatMap((s) => (s.outcome ? [[s.nodeId, s.outcome] as const] : [])),
   );
-  const done = rows.filter((r) => r.status === "succeeded").length;
+  // S4.9 (QA RN4): one count of a run's steps, the rows after "What started it", as the step
+  // panel's "Step 3 of 9" counts them; the header says how many of them are done.
+  const stepRows = rows.filter((r) => r.key !== "trigger");
+  const done = stepRows.filter((r) => r.status === "succeeded").length;
   // Step panel (§1.95): the open row, by its step run id (or its key before it has run).
   const { stepId, openStep, closeStep } = useStepParam();
   let panel: ReactNode = null;
@@ -892,18 +895,19 @@ function Timeline({
       title="What it did"
       meta={
         <span className="figures">
-          {done} of {rows.length} steps · {usd(run.costUsd)}
+          {done} of {stepRows.length} {stepRows.length === 1 ? "step" : "steps"} done ·{" "}
+          {usd(run.costUsd)}
         </span>
       }
       testId="ops-run-checklist"
       pad
     >
       {/* Agent motion (§1.106): while the run goes, how far through its steps it is. */}
-      {run.status === "running" && rows.length > 0 ? (
+      {run.status === "running" && stepRows.length > 0 ? (
         <div className="mb-5">
           <Progress
             variant="sheets"
-            percent={(done / rows.length) * 100}
+            percent={(done / stepRows.length) * 100}
             label={rows.find((r) => r.status === "running")?.title ?? "Starting"}
             name="Run progress"
             testId="ops-run-progress"
@@ -1139,6 +1143,7 @@ function Changes({
           item={i}
           testId={`ops-run-item-${i.id}`}
           recordHref={(id) => `/ops/clients/${run.tenantId}/records/${id}`}
+          documentHref={(id) => `/ops/clients/${run.tenantId}/documents/${id}`}
           onResolve={i.resolvableByOperator ? (body) => onResolve(i.id, body) : null}
           waitingOn={`${waitingWhat(i.kind)} · ${waitingOn(i)}. Only they can ${
             i.kind === "approval" ? "approve" : "answer"

@@ -20,6 +20,7 @@ import { TextInput } from "../ui/forms";
 import { Icon } from "../ui/icons";
 import { Button, Card, cx } from "../ui/primitives";
 import { SopIcon } from "./icons";
+import { localSop } from "./say";
 
 /** A line someone says is wrong: the manual's feedback route takes it (docs/builder-plan.md §7). */
 export interface SopLine {
@@ -116,7 +117,7 @@ function Section({
 }
 
 export function SopDocument({
-  view,
+  view: said,
   askHref,
   wrong,
   security,
@@ -130,6 +131,8 @@ export function SopDocument({
   security?: { title: string; node: ReactNode } | undefined;
 }) {
   const { t, fmt } = useI18n();
+  // S5.7: what code wrote, in the reader's language.
+  const view = useMemo(() => localSop(said, t), [said, t]);
   const [findText, setFind] = useState("");
   const [filter, setFilter] = useState<Filter>(null);
   const [open, setOpen] = useState<string | null>(null);

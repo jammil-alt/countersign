@@ -129,12 +129,18 @@ function setup(opts: { empty?: boolean } = {}) {
   const taken: string[] = [];
   const flagged: string[] = [];
   const snoozed: string[] = [];
+  const woken: string[] = [];
   const api = fakeApi({
     "GET /api/session": () => OPERATOR_SESSION,
     "GET /api/ops/clients": () => ({ clients: [] }),
     "GET /api/ops/counts": () => ({ needsUs: 4, clients: [] }),
     "GET /api/ops/todos": ({ url }) => {
-      const out = list(url.searchParams.get("owner") ?? "operator");
+      const listed = list(url.searchParams.get("owner") ?? "operator");
+      // A snoozed to-do leaves Yours, and its count.
+      const out = {
+        ...listed,
+        counts: { ...listed.counts, yours: listed.counts.yours - snoozed.length },
+      };
       return opts.empty && out.items === yours ? { ...out, items: [] } : out;
     },
     [`POST /api/ops/todos/${T1}/act`]: ({ init }) => {
@@ -150,6 +156,15 @@ function setup(opts: { empty?: boolean } = {}) {
       return { ...reggies[0], owner: "operator" };
     },
     "GET /api/ops/todos/done-today": () => doneToday,
+    "GET /api/ops/todos/snoozed": () => ({
+      items: yours
+        .filter((t) => snoozed.includes(t.id) && !woken.includes(t.id))
+        .map((t) => ({ ...t, state: "snoozed", snoozedUntil: "2026-11-18T09:00:00.000Z" })),
+    }),
+    [`POST /api/ops/todos/${T1}/wake`]: () => {
+      woken.push(T1);
+      return { ...yours[0], state: "open" };
+    },
     [`POST /api/ops/play-log/${PLAY}/flag`]: () => {
       flagged.push(PLAY);
       return { ok: true };
@@ -162,7 +177,7 @@ function setup(opts: { empty?: boolean } = {}) {
       </AppProviders>
     </MemoryRouter>,
   );
-  return { api, acted, taken, flagged, snoozed };
+  return { api, acted, taken, flagged, snoozed, woken };
 }
 
 afterEach(() => {
@@ -222,6 +237,9 @@ describe("Your call", () => {
     expect(kpis).toHaveTextContent("Need you2");
     expect(kpis).toHaveTextContent("1 due today");
     expect(kpis).toHaveTextContent("Reggie is on1");
+    // S4.7 (QA W8): the tile counts agents on a safety hold, not "Critical, held".
+    expect(kpis).toHaveTextContent("Agents on safety hold0");
+    expect(kpis).not.toHaveTextContent("Critical, held");
     expect(kpis).toHaveTextContent("Questions this week23");
     expect(kpis).toHaveTextContent("Median answer 18 min");
     // The card is compact: tag, title, client, due, the why word, and the one button.
@@ -414,6 +432,38 @@ describe("Your call", () => {
     await waitFor(() => expect(s.snoozed).toEqual([T1]));
   });
 
+  // S4.2 (QA2 HM2): the header's count stayed at the old number after Done or Later until the
+  // 20-second poll.
+  it("asks for the header's count again at once after Later", async () => {
+    const s = setup();
+    await waitFor(() => expect(screen.getByTestId("shell-inbox")).toHaveTextContent("Your call2"));
+    await userEvent.click(within(await screen.findByTestId(`call-${T1}`)).getByTestId("call-open"));
+    await userEvent.click(
+      within(await screen.findByTestId("call-sheet")).getByTestId("call-later"),
+    );
+    await waitFor(() => expect(s.snoozed).toEqual([T1]));
+    await waitFor(() => expect(screen.getByTestId("shell-inbox")).toHaveTextContent("Your call1"));
+  });
+
+  // S4.3 (QA2 HM2): a to-do put off with Later couldn't be found again.
+  it("lists what Later put off under Snoozed, and Bring back puts it back", async () => {
+    const s = setup();
+    await userEvent.click(within(await screen.findByTestId(`call-${T1}`)).getByTestId("call-open"));
+    await userEvent.click(
+      within(await screen.findByTestId("call-sheet")).getByTestId("call-later"),
+    );
+    await waitFor(() => expect(s.snoozed).toEqual([T1]));
+    await userEvent.click(screen.getByTestId("call-tab-snoozed"));
+    const row = await screen.findByTestId(`call-snoozed-${T1}`);
+    expect(row).toHaveTextContent("Approve the fix for Hartley's Ferguson bills");
+    expect(row).toHaveTextContent("Back");
+    await userEvent.click(within(row).getByTestId(`call-wake-${T1}`));
+    await waitFor(() => expect(s.woken).toEqual([T1]));
+    expect(await screen.findByTestId("call-snoozed-empty")).toHaveTextContent(
+      "Nothing is snoozed.",
+    );
+  });
+
   it("lists Reggie's as a table, and Take it makes one yours", async () => {
     const s = setup();
     await screen.findByTestId(`call-${T1}`);
@@ -423,6 +473,37 @@ describe("Your call", () => {
     expect(table).toHaveTextContent("Agent build");
     await userEvent.click(within(table).getByTestId(`call-take-${T3}`));
     await waitFor(() => expect(s.taken).toEqual([T3]));
+  });
+
+  it("says when Reggie's list is emptied by the filters, with an icon, and clears them", async () => {
+    setup();
+    await screen.findByTestId(`call-${T1}`);
+    await userEvent.click(screen.getByTestId("call-tab-reggie"));
+    await screen.findByTestId("call-reggie");
+    await userEvent.type(screen.getByRole("textbox", { name: "Search" }), "nothing like it");
+    const none = await screen.findByTestId("call-reggie-nomatch");
+    expect(none).toHaveClass("ds-empty");
+    expect(none.querySelector(".ui-empty__icon svg")).not.toBeNull();
+    expect(none).toHaveTextContent("Nothing Reggie is on matches “nothing like it”");
+    expect(none).toHaveTextContent("The filters hide the 1 item in this list.");
+    expect(screen.queryByTestId("call-reggie")).toBeNull();
+    await userEvent.click(within(none).getByTestId("call-reggie-clear"));
+    expect(await screen.findByTestId("call-reggie")).toHaveTextContent(
+      "Chase Alder's requirements",
+    );
+    expect(screen.getByRole("textbox", { name: "Search" })).toHaveValue("");
+  });
+
+  it("says nothing waits on clients when that list is empty, with no filters to clear", async () => {
+    setup();
+    await screen.findByTestId(`call-${T1}`);
+    await userEvent.click(screen.getByTestId("call-tab-client"));
+    const empty = await screen.findByTestId("call-client-empty");
+    expect(empty).toHaveClass("ds-empty");
+    expect(empty.querySelector(".ui-empty__icon svg")).not.toBeNull();
+    expect(empty).toHaveTextContent("Nothing waits on clients");
+    expect(within(empty).queryByRole("button")).toBeNull();
+    expect(screen.queryByText("Clear the filters")).toBeNull();
   });
 
   it("shows what Reggie did today, and a flag goes on the play's record", async () => {

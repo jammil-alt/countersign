@@ -429,6 +429,15 @@ describe("ops usage", () => {
             costUsd: "0.0000",
             unpricedCalls: 30,
           },
+          {
+            provider: "anthropic",
+            model: "claude-haiku-5-5",
+            calls: 4,
+            tokensIn: 800,
+            tokensOut: 80,
+            costUsd: "0.0040",
+            failedCalls: 123,
+          },
           { provider: "", model: "", calls: 0, tokensIn: 50, tokensOut: 5, costUsd: "0.0100" },
         ],
         byVendor: [
@@ -455,6 +464,10 @@ describe("ops usage", () => {
     const sonnet = screen.getByTestId("ops-usage-model-claude-sonnet-4-5-20250929");
     expect(sonnet).toHaveTextContent("30 calls had no price, so they count as $0.00");
     expect(sonnet).toHaveTextContent("No price");
+    // S4.8 (QA W7): failed calls are counted apart, not as calls with no tokens.
+    expect(screen.getByTestId("ops-usage-model-claude-haiku-5-5")).toHaveTextContent(
+      "123 failed calls, not counted in Calls",
+    );
     expect(screen.getByTestId("ops-usage-model-unrecorded")).toHaveTextContent(
       "Not itemised by model",
     );

@@ -28,6 +28,7 @@ import { ChangeTables } from "./ChangePanel";
 import { changeHeading, connectorName, connectorOf, fieldLabel, formatValue } from "./change";
 import { LateAnswer } from "./LateAnswer";
 import { LATE_KEYS } from "./late";
+import { itemTitle } from "./titles";
 import { UndiscussedLines } from "./Undiscussed";
 
 export type ResolveInput = z.input<typeof ResolveBody>;
@@ -39,11 +40,12 @@ const EvidencePanel = lazy(() => import("./EvidencePanel"));
 export function ChangeEvidence({
   item,
   surface,
-  recordHref,
+  documentHref,
 }: {
   item: { id: string; kind: string; payload: Record<string, unknown> };
   surface: "portal" | "ops";
-  recordHref?: ((id: string) => string) | null;
+  /** The page of a document the change rests on; the portal's by default. */
+  documentHref?: ((id: string) => string) | null;
 }) {
   if (item.kind !== "external_action" || typeof item.payload.tool !== "string") return null;
   const v = item.payload.verification;
@@ -57,7 +59,9 @@ export function ChangeEvidence({
         itemId={item.id}
         surface={surface}
         verification={outcome}
-        recordHref={recordHref ?? null}
+        documentHref={
+          documentHref ?? (surface === "portal" ? (id: string) => `/documents/${id}` : null)
+        }
       />
     </Suspense>
   );
@@ -281,10 +285,10 @@ export function statusBadge(
  */
 export function inboxItemTitle(
   item: InboxCardItem,
-  i18n: Pick<I18n, "locale">,
+  i18n: Pick<I18n, "locale" | "t">,
   connectorNames?: Record<string, string>,
 ): string {
-  if (item.kind !== "external_action") return item.title;
+  if (item.kind !== "external_action") return itemTitle(item, i18n.t);
   const tool = typeof item.payload.tool === "string" ? item.payload.tool : null;
   if (!tool) return item.title;
   const connector =
@@ -308,6 +312,7 @@ export function InboxCard({
   context,
   runHref,
   recordHref,
+  documentHref,
   connectorNames,
   onResolve,
   waitingOn,
@@ -325,6 +330,8 @@ export function InboxCard({
   runHref?: string | null;
   /** The record page for a source id (payload `sources`, invariant 10), in this surface. */
   recordHref?: ((id: string) => string) | null;
+  /** The document page for a document the change rests on (its Evidence), in this surface. */
+  documentHref?: ((id: string) => string) | null;
   connectorNames?: Record<string, string>;
   /** Null when this person can't resolve it (it is someone else's), or it is not open. */
   onResolve: ((body: ResolveInput) => Promise<void>) | null;
@@ -436,7 +443,7 @@ export function InboxCard({
 
       <div className="flex flex-col gap-1">
         <h3 className="mz-sign__title text-lg leading-6 font-medium">
-          {heading ? heading.title : item.title}
+          {heading ? heading.title : itemTitle(item, t)}
         </h3>
         {isChange ? (
           <p className="text-sm text-ink-muted" data-testid="inbox-item-description">
@@ -458,7 +465,7 @@ export function InboxCard({
           {/* B3: the decisions its step rests on that nobody has discussed yet. */}
           <UndiscussedLines payload={item.payload} />
           {/* Round 4 D: what it rests on, and the second check. */}
-          <ChangeEvidence item={item} surface={surface} recordHref={recordHref ?? null} />
+          <ChangeEvidence item={item} surface={surface} documentHref={documentHref ?? null} />
         </>
       ) : ReviewCard ? (
         <ReviewCard

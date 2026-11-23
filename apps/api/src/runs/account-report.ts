@@ -8,9 +8,10 @@
 // names the one client as well as relying on RLS (invariant 1).
 
 import {
-  ACCOUNT_ALLOWANCE_SHARE,
   ACCOUNT_WAIT_OVERDUE_HOURS,
+  type Escalation,
   FAILED_RUN_ESCALATION_DAYS,
+  NEEDS_US_REASONS,
   type NeedsUsReason,
   type OpsAccountReport,
   type PortalAccountReport,
@@ -181,20 +182,25 @@ export async function accountReport(
   };
 }
 
+/** S4.6: each kind of Needs us escalation as the reason Accounts names. */
+const REASON_OF: Record<Escalation["kind"], NeedsUsReason> = {
+  approval: "waiting",
+  failed_run: "failed",
+  connection: "connection",
+  item: "item",
+  low_confidence: "low_confidence",
+};
+
 /**
- * Why a client needs us (the owner's answer 3): something waiting past a day, a failed run nobody
- * has looked at, a connection that needs attention, or an allowance over 80% used.
+ * Why a client needs us: Home's Needs us for that client (S4.6, decision D5), one reason per kind
+ * of escalation, in NEEDS_US_REASONS' order. So Accounts never says a client needs us while Home
+ * says nothing does.
  */
-export function needsUsOf(
-  report: Pick<PortalAccountReport, "waiting" | "failedUnseen" | "connections" | "usage">,
-): NeedsUsReason[] {
-  const out: NeedsUsReason[] = [];
-  if (report.waiting.overdue > 0) out.push("waiting");
-  if (report.failedUnseen.count > 0) out.push("failed");
-  if (report.connections.length > 0) out.push("connection");
-  const share = report.usage?.share;
-  if (share !== null && share !== undefined && share > ACCOUNT_ALLOWANCE_SHARE) {
-    out.push("allowance");
-  }
-  return out;
+// DECISION (S4.6, D5): Accounts reads Needs us itself, not a wider set of its own: an allowance
+// over 80% and a connection no agent uses show in their own columns, not as needing us.
+export function needsUsOf(escalations: readonly Escalation[], clientId: string): NeedsUsReason[] {
+  const kinds = new Set(
+    escalations.filter((e) => e.client.id === clientId).map((e) => REASON_OF[e.kind]),
+  );
+  return NEEDS_US_REASONS.filter((r) => kinds.has(r));
 }

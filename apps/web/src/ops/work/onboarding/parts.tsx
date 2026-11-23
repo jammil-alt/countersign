@@ -123,7 +123,11 @@ export function CoversPicker({
   testId?: string;
 }) {
   const templates = useApi(apiRoutes.opsTemplates);
-  const list = (templates.data?.templates ?? []).filter((t) => t.kind === "template");
+  // DECISION (S6.7): a template with no published version isn't offered for a client's new
+  // agents (a fork of a draft is refused); one already chosen stays shown so it can be taken off.
+  const list = (templates.data?.templates ?? []).filter(
+    (t) => t.kind === "template" && (t.liveVersionId !== null || value.templateIds.includes(t.id)),
+  );
   return (
     <div className="flex flex-col gap-4" data-testid={testId}>
       <section className="flex flex-col gap-2">
