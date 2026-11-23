@@ -2065,7 +2065,7 @@ function BuilderBody(
               ) : null}
               <div className="min-h-0 flex-1">
                 <Rail
-                  sections={paletteSections(bundle, data, connectors)}
+                  sections={paletteSections(bundle, stepData, connectors)}
                   onPick={(item) => addItem(item)}
                   onSay={(words) => {
                     // The words go to the Builder, with the place chosen when there is one.

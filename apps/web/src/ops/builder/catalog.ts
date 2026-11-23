@@ -550,34 +550,41 @@ export function paletteSections(
       items: LOGIC.map((l) => ({ type: "logic", key: `logic:${l.logic}`, ...l })),
     },
     // Hand off (owner, 2026-11-11): at the bottom, for a client agent. Ways in, ways out
-    // (2026-11-23): a template hands off to its own workflows, so it gets the step too.
-    data.handoff
-      ? {
-          key: "handoff",
-          label: "Other agents",
-          items: [
+    // (2026-11-23): a template hands off to its own workflows, so it gets the step too; an
+    // automation (no `own`) never hands off.
+    ...(data.handoff
+      ? [
+          {
+            key: "handoff",
+            label: "Other agents",
+            items: [
+              {
+                type: "handoff" as const,
+                key: "handoff",
+                title: "Hand off to another agent",
+                detail:
+                  "Start another of this client's agents, or another of this agent's workflows, at one of its steps, with this run's results",
+              },
+            ],
+          },
+        ]
+      : data.own
+        ? [
             {
-              type: "handoff" as const,
               key: "handoff",
-              title: "Hand off to another agent",
-              detail:
-                "Start another of this client's agents, or another of this agent's workflows, at one of its steps, with this run's results",
+              label: "Other workflows",
+              items: [
+                {
+                  type: "handoff" as const,
+                  key: "handoff",
+                  title: "Hand off to another workflow",
+                  detail:
+                    "Start another of this agent's workflows at one of its steps, with this run's results",
+                },
+              ],
             },
-          ],
-        }
-      : {
-          key: "handoff",
-          label: "Other workflows",
-          items: [
-            {
-              type: "handoff" as const,
-              key: "handoff",
-              title: "Hand off to another workflow",
-              detail:
-                "Start another of this agent's workflows at one of its steps, with this run's results",
-            },
-          ],
-        },
+          ]
+        : []),
   ];
 }
 
