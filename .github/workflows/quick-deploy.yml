@@ -1,12 +1,16 @@
 name: Quick deploy to staging
 
-# By hand: puts a branch on staging without merging it, to try a fix there in about five minutes.
+# By hand, or started by a Claude session after it pushes (CLAUDE.md): puts a branch on staging
+# without merging it, to try a change there in about two minutes.
 # Actions → Quick deploy to staging → Run workflow → "Use workflow from": the branch → Run.
 # The branch needs this file, so a branch from before it reached main merges main first.
 #
-# Before the deploy: lint, layering (lint:deps) and typecheck only. No tests and no screen sweep:
+# Before the deploy, only the guard below (seconds, no install). Lint, layering (lint:deps) and
+# typecheck run beside the deploy, in the same run, and mark it failed if they fail; they don't
+# hold it up, since nothing they catch outlasts the next deploy. No tests and no screen sweep:
 # those run on the pull request (ci.yml) and before production (deploy.yml). Then the same deploy
-# job as deploy.yml (deploy-app.yml), to staging only, smoke test included.
+# job as deploy.yml (deploy-app.yml), to staging only: no secrets copied, smoke test included, and
+# the version before put back if the smoke test fails.
 #
 # It runs in the branch's own context, never main's (CodeQL, 2026-11-17): the branch's unreviewed
 # code runs here, and code run in main's context can write main's Actions cache, which production
@@ -32,10 +36,10 @@ permissions:
   contents: read
 
 jobs:
-  check:
-    name: Migrations, lint, layering, typecheck
+  guard:
+    name: A branch, no new migration
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 5
     steps:
       - name: A branch, not a tag
         if: ${{ !startsWith(github.ref, 'refs/heads/') }}
@@ -74,6 +78,15 @@ jobs:
           printf '### Not deployed\n\n%s\n' "$message" >> "$GITHUB_STEP_SUMMARY"
           exit 1
 
+  # Beside the deploy, not before it: a failure here marks the run failed after staging has the
+  # branch, and the pull request's CI runs the same checks before it can merge.
+  static:
+    name: Lint, layering, typecheck (beside the deploy)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+
       - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1 (third-party: pinned to a commit)
 
       - uses: actions/setup-node@v7
@@ -90,10 +103,10 @@ jobs:
       - run: pnpm typecheck
 
   # deploy.yml's staging group: one staging deploy at a time, never cancelled, since a cancelled
-  # deploy could stop between the migration and the Worker. Only this job waits for it; the
-  # checks above run beside a deploy in progress. It deploys this run's commit, the one checked.
+  # deploy could stop between the migration and the Worker. Only this job waits for it. It deploys
+  # this run's commit, the one guarded.
   deploy:
-    needs: check
+    needs: guard
     concurrency:
       group: deploy-staging
       cancel-in-progress: false

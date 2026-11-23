@@ -1,12 +1,16 @@
 name: Deploy
 
 # main → staging on every push (docs-only pushes ride along with the next deploy). Production by a
-# `v*` tag or a manual run. Each deploy runs checks.yml, then deploy-app.yml: migrates the target's
+# `v*` tag or a manual run. Each deploy runs checks.yml and deploy-app.yml, which migrates the target's
 # Neon branch as cs_owner, deploys the code service (apps/mfa, Worker mezonas-codes) and its
 # secrets, then the browser service (apps/browser, Worker mezonas-browser), then `wrangler deploy`
 # from apps/api, whose `CODES` and `BROWSER` service bindings need both to exist.
-# Production always runs the full check. A push to main whose merged pull request's CI already
-# passed the tests and the screen sweep runs only `static` before staging (the `tested` job).
+# Staging takes the fast route (docs/operations.md, "Staging: the fast route"): its deploy doesn't
+# wait for checks.yml, which runs beside it in the same run (`static` alone when the merged pull
+# request's CI already passed the tests and the screen sweep: the `tested` job), and it copies the
+# secrets only when run by hand or when the push changes how they are copied.
+# Production takes the full route: every check on the tagged commit first, and only a commit that
+# staging has run with a passing smoke test (the `staged` job).
 # Any branch can go to staging by hand, without merging: quick-deploy.yml.
 # The public site (apps/site, Worker mezonas-site, mezonas.com) deploys in its own job, from main only.
 # Inert until the secrets in docs/operations.md §1 exist, and until apps/api has a wrangler.jsonc (M0).
@@ -31,12 +35,11 @@ permissions:
 
 # Deploys to one target queue, never cancel: a second push that cancelled a running deploy could stop
 # it between the migration and the Worker, leaving the new schema under the old Worker for good.
-# GitHub keeps one waiting run per group, so a burst of pushes still deploys only the newest.
-# quick-deploy.yml's deploy job holds the same `deploy-staging` group, for the same reason; a
-# waiting quick deploy and a waiting deploy from main replace each other, the newest kept.
-concurrency:
-  group: deploy-${{ github.event.inputs.target || (startsWith(github.ref, 'refs/tags/v') && 'production' || 'staging') }}
-  cancel-in-progress: false
+# The group is held by the deploy jobs (`deploy-<target>`), not the whole run, so the checks running
+# beside a staging deploy never hold up the next one. GitHub keeps one waiting job per group, so a
+# burst of pushes still deploys only the newest. quick-deploy.yml's deploy job holds the same
+# `deploy-staging` group, for the same reason; a waiting quick deploy and a waiting deploy from main
+# replace each other, the newest kept.
 
 jobs:
   # Whether a staging deploy can skip the tests and the screen sweep because the pull request's CI
@@ -57,6 +60,7 @@ jobs:
       checks: read
     outputs:
       skip: ${{ steps.look.outputs.skip }}
+      secrets: ${{ steps.secrets.outputs.copy }}
     steps:
       - id: look
         continue-on-error: true
@@ -99,7 +103,42 @@ jobs:
               decide false "$full: CI's \`$name\` on the pull request's head $second is ${conclusion:-missing}, not success."
             fi
           done
-          decide true "Tests and screen sweep skipped: the merged pull request's CI passed \`checks / check\` and \`checks / sweep\` on its head $second. Lint, layering, typecheck and the web build run here."
+          decide true "Tests and screen sweep skipped: the merged pull request's CI passed \`checks / check\` and \`checks / sweep\` on its head $second. Lint, layering, typecheck and the web build run beside the deploy."
+
+      # Whether the deploy copies the Workers' secrets. A staging deploy from a push copies none,
+      # unless the push changes how they are copied (deploy-app.yml, which lists them, or
+      # scripts/worker-secrets.sh): rotating a key, or adding one, is "update the GitHub secret, run
+      # Actions → Deploy by hand". Production and runs by hand always copy them. Never fails: on any
+      # error, or a comparison too long to trust, it says "copy".
+      - id: secrets
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          EVENT: ${{ github.event_name }}
+          REF: ${{ github.ref }}
+          SHA: ${{ github.sha }}
+          BEFORE: ${{ github.event.before }}
+        run: |
+          set -euo pipefail
+          copy() {
+            echo "copy=$1" >> "$GITHUB_OUTPUT"
+            echo "$2"
+            printf '### Secrets\n\n%s\n' "$2" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          }
+          if [ "$EVENT" != push ] || [ "$REF" != refs/heads/main ]; then
+            copy true "Copied: not a push to main ($EVENT, $REF)."
+          fi
+          files=$(timeout 60 gh api "repos/$REPO/compare/$BEFORE...$SHA" --jq '[.files[].filename] | join("\n")') ||
+            copy true "Copied: the push's changes could not be read."
+          if [ "$(grep -c . <<<"$files")" -ge 300 ]; then
+            copy true "Copied: the push changes 300 files or more, more than the comparison lists."
+          fi
+          if grep -qxE '\.github/workflows/deploy-app\.yml|scripts/worker-secrets\.sh' <<<"$files"; then
+            copy true "Copied: the push changes how the secrets are copied."
+          fi
+          copy false "Not copied: a push to main that doesn't change how they are copied. Actions → Deploy → staging, run by hand, copies them."
 
   checks:
     needs: tested
@@ -109,12 +148,69 @@ jobs:
       # Anything but a clear "skip" (an error, no answer) runs the tests.
       tests: ${{ needs.tested.outputs.skip != 'true' }}
 
-  deploy:
-    needs: checks
+  # Staging: deployed as soon as `tested` has answered, beside the checks, not after them. Nothing
+  # the checks catch outlasts the next deploy; the migrations it applies are main's, which passed
+  # the pull request's CI. A failed check marks the run failed, and production runs every check
+  # again on the tagged commit.
+  deploy-staging:
+    needs: tested
+    if: (github.event.inputs.target || (startsWith(github.ref, 'refs/tags/v') && 'production' || 'staging')) == 'staging'
+    concurrency:
+      group: deploy-staging
+      cancel-in-progress: false
     uses: ./.github/workflows/deploy-app.yml
     secrets: inherit
     with:
-      target: ${{ github.event.inputs.target || (startsWith(github.ref, 'refs/tags/v') && 'production' || 'staging') }}
+      target: staging
+      # Anything but a clear "don't copy" (an error, no answer) copies them.
+      secrets: ${{ needs.tested.outputs.secrets != 'false' }}
+
+  # Production deploys only a commit staging has run with a passing smoke test: GitHub's record of
+  # the `staging` environment's deployments of this commit (one per deploy job, success only when
+  # the whole job passed, smoke test included). Fails closed: no record, or an API that doesn't
+  # answer, stops the deploy. To go on, deploy that commit to staging first (Actions → Deploy → Run
+  # workflow from the tag, target staging), then run this again.
+  staged:
+    if: (github.event.inputs.target || (startsWith(github.ref, 'refs/tags/v') && 'production' || 'staging')) == 'production'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      deployments: read
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Staging ran this commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          # The commit itself, also for an annotated tag.
+          sha=$(git rev-parse 'HEAD^{commit}')
+          ids=$(gh api -X GET "repos/$REPO/deployments" -f sha="$sha" -f environment=staging -f per_page=100 --jq '.[].id')
+          for id in $ids; do
+            if [ "$(gh api "repos/$REPO/deployments/$id/statuses?per_page=100" --jq 'any(.[]; .state == "success")')" = true ]; then
+              echo "Staging ran $sha and passed its smoke test (deployment $id)."
+              exit 0
+            fi
+          done
+          message="Staging has not run $sha with a passing smoke test, so production won't. Deploy it to staging first (Actions → Deploy → Run workflow from this tag, target staging), then run this again."
+          echo "::error title=Not deployed: not on staging yet::$message"
+          printf '### Not deployed\n\n%s\n' "$message" >> "$GITHUB_STEP_SUMMARY"
+          exit 1
+
+  # Production: after every check (the full checks always run for production) and `staged`.
+  deploy-production:
+    needs: [checks, staged]
+    if: (github.event.inputs.target || (startsWith(github.ref, 'refs/tags/v') && 'production' || 'staging')) == 'production'
+    concurrency:
+      group: deploy-production
+      cancel-in-progress: false
+    uses: ./.github/workflows/deploy-app.yml
+    secrets: inherit
+    with:
+      target: production
 
   # The public site, mezonas.com (apps/site, docs/plan.md §1.29): static files on the Worker
   # mezonas-site. One site for every environment, so it deploys from main only (a push, or a
@@ -123,6 +219,10 @@ jobs:
   site:
     needs: checks
     if: github.ref == 'refs/heads/main'
+    # One site deploy at a time (the run-wide group that did this is now on the deploy jobs).
+    concurrency:
+      group: deploy-site
+      cancel-in-progress: false
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:

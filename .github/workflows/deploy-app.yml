@@ -7,6 +7,12 @@ name: Deploy the app
 # deploy` from apps/api, whose `CODES` and `BROWSER` service bindings need both to exist; then the
 # smoke test, which checks the commit just deployed is the one live.
 #
+# The Workers' secrets are copied only when `secrets` is true (production, a run by hand, a push that
+# changes this file) and never on a quick deploy (docs/operations.md, "Staging: the fast route"): a
+# deploy that copies none only changes code. Such a staging deploy, if its smoke test fails, puts
+# apps/api's version from before it back, through Cloudflare's API without `force`, so a rollback
+# never brings back an older secret.
+#
 # No concurrency group here: the callers hold `deploy-<target>` (a group held by a caller and
 # again by its own called job would wait on itself). Never call this without it.
 
@@ -18,9 +24,13 @@ on:
         type: string
         required: true
       quick:
-        description: A quick deploy (quick-deploy.yml) of a branch's commit, unmerged and untested; staging only.
+        description: A quick deploy (quick-deploy.yml) of a branch's commit, unmerged and untested; staging only. Copies no secrets.
         type: boolean
         default: false
+      secrets:
+        description: Copy the Workers' secrets from the GitHub environment and generate any missing one. Ignored (never) on a quick deploy.
+        type: boolean
+        default: true
 
 permissions:
   contents: read
@@ -36,6 +46,11 @@ jobs:
     env:
       TARGET: ${{ inputs.target }}
       QUICK: ${{ inputs.quick }}
+      # Whether this run copies the secrets; a quick deploy never does.
+      COPY_SECRETS: ${{ inputs.secrets && !inputs.quick }}
+      # A staging deploy that copies no secrets puts the version before it back if its smoke test
+      # fails. One that copies secrets doesn't: the version before it has the older secrets.
+      ROLLBACK: ${{ inputs.target == 'staging' && !(inputs.secrets && !inputs.quick) }}
       WORKOS_API_KEY: ${{ secrets.WORKOS_API_KEY }}
       ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
@@ -179,7 +194,7 @@ jobs:
           pnpm --filter @countersign/mfa exec wrangler deploy "$env_flag"
 
       - name: Code service secrets
-        if: steps.ready.outputs.ready == 'true'
+        if: steps.ready.outputs.ready == 'true' && env.COPY_SECRETS == 'true'
         working-directory: apps/mfa
         run: |
           set -euo pipefail
@@ -248,6 +263,20 @@ jobs:
           fi
           find apps/web/dist -name '*.map' -delete
 
+      # The version staging runs now, so a failed smoke test can put it back. Only one version at
+      # 100%; anything else (a gradual deploy someone started by hand) leaves nothing to put back.
+      - name: The version live before this deploy
+        id: before
+        if: steps.ready.outputs.ready == 'true' && env.ROLLBACK == 'true'
+        continue-on-error: true
+        working-directory: apps/api
+        run: |
+          set -euo pipefail
+          version=$(pnpm exec wrangler deployments status --env staging --json |
+            jq -r 'if (.versions | length) == 1 and .versions[0].percentage == 100 then .versions[0].version_id else empty end')
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "Live before this deploy: ${version:-no single version at 100%; nothing to put back}"
+
       # Always an explicit environment: the top level of wrangler.jsonc is local development (dev
       # sign-in) and must never be deployed.
       #
@@ -290,7 +319,7 @@ jobs:
           fi
 
       - name: Worker secrets
-        if: steps.ready.outputs.ready == 'true'
+        if: steps.ready.outputs.ready == 'true' && env.COPY_SECRETS == 'true'
         working-directory: apps/api
         run: |
           set -euo pipefail
@@ -350,17 +379,47 @@ jobs:
       # API refuses without a session. Retries for 2 minutes while the new version spreads; a
       # failure here marks the deploy failed (the release is in Sentry).
       - name: Smoke test
+        id: smoke
         if: steps.ready.outputs.ready == 'true'
         run: |
           set -euo pipefail
           host=$([ "$TARGET" = production ] && echo app.mezonas.com || echo staging.mezonas.com)
           scripts/smoke.sh "https://$host" "$SHA"
 
+      # A staging deploy that copied no secrets and failed its smoke test: apps/api's version from
+      # before it goes back to 100%. Cloudflare's API without `force`, not `wrangler rollback`, which
+      # in CI answers yes to "secrets have changed since that version" and would bring back an
+      # older secret; here a changed secret (one set by hand since) refuses the rollback instead.
+      # The database keeps this deploy's migrations: the version before works with them (CLAUDE.md,
+      # "Migrations must keep the previous Worker working"). The code and browser services stay.
+      - name: Put back the version before
+        id: rollback
+        if: failure() && steps.smoke.outcome == 'failure' && env.ROLLBACK == 'true' && steps.before.outputs.version != ''
+        env:
+          VERSION: ${{ steps.before.outputs.version }}
+          # apps/api/wrangler.jsonc's env.staging.name.
+          WORKER: mezonas-staging
+        run: |
+          set -euo pipefail
+          body=$(jq -n --arg v "$VERSION" --arg m "Smoke test of $SHA failed (run $GITHUB_RUN_ID); put back" \
+            '{strategy: "percentage", versions: [{version_id: $v, percentage: 100}], annotations: {"workers/message": $m}}')
+          # Cloudflare's answer names why it refused (a secret changed since, for one); it holds no secret.
+          if ! answer=$(curl -sS --fail-with-body -X POST \
+            "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/scripts/$WORKER/deployments" \
+            -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" -H 'Content-Type: application/json' \
+            --data "$body"); then
+            echo "::error title=Not put back::Cloudflare refused to put back version $VERSION: ${answer:0:500}"
+            exit 1
+          fi
+          echo "Put back version $VERSION."
+          SMOKE_WAIT=60 scripts/smoke.sh https://staging.mezonas.com
+
       # What's live, in the run's summary: which branch and commit the target now runs.
       - name: What's live
         if: always() && steps.ready.outputs.ready == 'true'
         env:
           JOB_STATUS: ${{ job.status }}
+          ROLLED_BACK: ${{ steps.rollback.outcome }}
         run: |
           set -euo pipefail
           host=$([ "$TARGET" = production ] && echo app.mezonas.com || echo staging.mezonas.com)
@@ -370,16 +429,26 @@ jobs:
               echo "### $TARGET runs \`$from\` at \`$SHA\`"
               echo
               echo "https://$host/api/ready names this commit; the smoke test passed."
+            elif [ "$ROLLED_BACK" = success ]; then
+              echo "### The deploy of \`$from\` at \`$SHA\` to $TARGET failed its smoke test and was put back"
+              echo
+              echo "$TARGET runs the version from before this deploy again; its smoke test passed."
+              echo "This deploy's migrations stay. https://$host/api/ready names the commit it runs."
             else
               echo "### The deploy of \`$from\` at \`$SHA\` to $TARGET failed"
               echo
               echo "$TARGET may still run the commit before it, or this one if it stopped after the Worker."
               echo "https://$host/api/ready names the commit it runs."
             fi
+            if [ "$COPY_SECRETS" != true ]; then
+              echo
+              echo "No secrets copied: code only. Actions → Deploy → staging, run by hand, copies them."
+            fi
             if [ "$QUICK" = true ]; then
               echo
-              echo "A quick deploy: lint, layering and typecheck only, no tests and no screen sweep."
-              echo "Staging keeps this branch until the next deploy from main (a merge to main, or"
-              echo "Actions → Deploy → staging) puts staging back to main, or another quick deploy replaces it."
+              echo "A quick deploy: no tests and no screen sweep before it; lint, layering and typecheck"
+              echo "run beside it, in the same run. Staging keeps this branch until the next deploy from main"
+              echo "(a merge to main, or Actions → Deploy → staging) puts staging back to main, or another"
+              echo "quick deploy replaces it."
             fi
           } >> "$GITHUB_STEP_SUMMARY"

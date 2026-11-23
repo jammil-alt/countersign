@@ -62,7 +62,7 @@ Other docs: `docs/open.md` (everything still open, in priority order), `docs/loc
 | `fixtures/` | Invoices + expected JSON, QBO payloads, matching pairs, recorded LLM responses. |
 | `scripts/check-deps.mjs` | Enforces package layering (`docs/plan.md` §2). |
 | `scripts/setup-postgres.sh` | Gives a plain Postgres Neon's roles (CI and local). |
-| `.github/workflows/` | `ci.yml` (non-draft PRs) → `checks.yml`; `draft-pr.yml` (a draft PR for any pushed branch without one); `deploy.yml` (main → staging, `v*` tag → production) → `deploy-app.yml`; `quick-deploy.yml` (by hand, run from a branch: that branch → staging, no tests, no new migrations); `bootstrap.yml` (by hand: Neon project, roles, Hyperdrive, R2); `add-operator.yml`, `remove-operator.yml` and `purge-client.yml` (by hand). |
+| `.github/workflows/` | `ci.yml` (non-draft PRs) → `checks.yml`; `draft-pr.yml` (a draft PR for any pushed branch without one); `deploy.yml` (main → staging, `v*` tag → production) → `deploy-app.yml`; `quick-deploy.yml` (run from a branch, by hand or by a session: that branch → staging in about 2 minutes, no tests, no new migrations); `bootstrap.yml` (by hand: Neon project, roles, Hyperdrive, R2); `add-operator.yml`, `remove-operator.yml` and `purge-client.yml` (by hand). |
 
 ## Commands
 
@@ -85,6 +85,11 @@ pnpm format           # Biome (pinned to Plenary Labs' version; it leaves Markdo
   staging (owner, 2026-11-15; `docs/merge-backlog.md`). `draft-pr.yml` opens one if a push finds
   none, but don't rely on it. More work on a branch after its PR merged goes in a new PR. Before a
   session ends, say which PR holds its work.
+- **To show a change on staging, quick-deploy the branch yourself** after pushing it: start
+  `quick-deploy.yml` on the branch (GitHub's workflow dispatch), without asking the person to, and
+  give them the run's link and the commit; about 2 minutes later staging runs it. Staging shows
+  whatever was deployed last, and the next merge to `main` puts it back. A branch with a new
+  migration is refused: the migration merges first (`docs/operations.md`, "Quick deploy to staging").
 - Migrations, CI/deploy workflows and sign-in changes get their own PR so they can be reverted alone.
 - Never edit a migration that has reached `staging` or `main`; add a new one. Migrations must keep the
   previous Worker working, because they apply before the new Worker deploys.
