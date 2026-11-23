@@ -13,6 +13,8 @@ export * from "./golden";
 export * from "./intake";
 export * from "./knowledge";
 export * from "./link";
+// DQ-001: a photo's location and time taken, from its own metadata.
+export * from "./photo";
 export * from "./purchase";
 export * from "./qbo-bills";
 export * from "./store";

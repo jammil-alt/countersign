@@ -389,7 +389,7 @@ export function DeskDetail({
             <UndiscussedLines payload={lead.payload} testId="desk-undiscussed" />
           ) : null}
           {/* Round 4 D (§1.211): what the change rests on, and the second check. */}
-          <ChangeEvidence item={lead} surface="portal" recordHref={(id) => `/records/${id}`} />
+          <ChangeEvidence item={lead} surface="portal" documentHref={(id) => `/documents/${id}`} />
 
           {/* R5: an answer after we went ahead, and the undo a late no is offered (§1.86). */}
           <LateAnswer
@@ -767,7 +767,7 @@ function BatchList({
                     <ChangeEvidence
                       item={item}
                       surface="portal"
-                      recordHref={(id) => `/records/${id}`}
+                      documentHref={(id) => `/documents/${id}`}
                     />
                   </div>
                 </details>
