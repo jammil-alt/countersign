@@ -22,12 +22,13 @@ import { apiRoutes } from "../../api/routes";
 import { type ApiOptions, useApi, useApiClient } from "../../api/useApi";
 import type { PlainKey, Translate } from "../../i18n/catalog";
 import { useI18n } from "../../i18n/i18n";
+import { periodEnd } from "../../i18n/zone";
 import { StatusFilter } from "../../inbox/StatusFilter";
 import { shortTime } from "../../runs/format";
 import { connectorChipNames } from "../../runs/labels";
 import { subjectTitle } from "../../runs/subject";
 import { usePoll } from "../../runs/usePoll";
-import { useAssignedAgents } from "../../session/session";
+import { useAssignedAgents, useOptionalSession } from "../../session/session";
 import { AgentBadge } from "../../ui/badges";
 import { Select } from "../../ui/forms";
 import { Icon } from "../../ui/icons";
@@ -147,6 +148,7 @@ interface Asked {
 
 export function PortalRunsScreen() {
   const i18n = useI18n();
+  const session = useOptionalSession();
   const { t } = i18n;
   const api = useApiClient();
   const [tab, setTab] = useState<Tab>("all");
@@ -284,7 +286,8 @@ export function PortalRunsScreen() {
 
   const chipValue = (c: AskChip) => {
     if ((c.key === "since" || c.key === "until") && !Number.isNaN(Date.parse(c.value))) {
-      return i18n.fmt.date(c.value);
+      // S5.4: the period's days where the client is ("1 Nov" to "30 Nov", not "31 Oct").
+      return periodEnd(c.key, c.value, i18n.intl, session?.timezone ?? undefined);
     }
     if (c.key === "statuses") {
       return c.value

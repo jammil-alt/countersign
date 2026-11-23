@@ -369,6 +369,8 @@ export * from "./schemas/tool";
 export * from "./schemas/tool-about";
 export * from "./schemas/tool-display";
 export * from "./schemas/workflow";
+// Overnight S6.9: the audit log in words, refreshes tagged, reads counted as visits.
+export * from "./security/audit-words";
 export * from "./security/session-limits";
 export * from "./setup/adjust";
 export * from "./setup/adjustable";

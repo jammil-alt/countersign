@@ -681,6 +681,53 @@ describe.skipIf(!h)("command center, search and questions", () => {
     }
   });
 
+  // S4.1 (QA2 HM1): a failed Sloan run was listed twice, once as its run and once as the review
+  // item its budget hit raised, and its run's row read "escalated: max_cost".
+  it("lists a failed run its own item names once, and says an escalation in words", async () => {
+    const A = H.A.tenantId;
+    const withItem = await addRun({
+      tenantId: A,
+      agentId: ids.sloanA,
+      agentVersionId: ids.sloanAv,
+      status: "failed",
+      finishedAt: recent,
+      error: { reason: "escalated: max_cost" },
+    });
+    const alone = await addRun({
+      tenantId: A,
+      status: "failed",
+      finishedAt: recent,
+      error: { reason: "escalated: max_steps" },
+    });
+    const item = await addItem({
+      tenantId: A,
+      kind: "review",
+      assigneeRole: "operator",
+      agentId: ids.sloanA,
+      runId: withItem,
+      title: "Sloan stopped: cost budget reached on Answer",
+    });
+    try {
+      const cc = j((await H.call(OPERATOR, "GET", "/api/ops/command-center")).json);
+      const rows = cc.escalations as {
+        kind: string;
+        id: string;
+        runId: string | null;
+        title: string;
+      }[];
+      expect(rows.filter((e) => e.runId === withItem).map((e) => [e.kind, e.id])).toEqual([
+        ["item", item],
+      ]);
+      const failed = rows.find((e) => e.kind === "failed_run" && e.id === alone);
+      expect(failed?.title).toBe("Stopped: reached its step budget");
+      expect(rows.some((e) => /escalated:/.test(e.title))).toBe(false);
+    } finally {
+      await H.t.db.delete(inboxItem).where(eq(inboxItem.id, item));
+      await H.t.db.delete(run).where(eq(run.id, withItem));
+      await H.t.db.delete(run).where(eq(run.id, alone));
+    }
+  });
+
   it("feeds steps, writes, signatures, failures and drafts, newest first", async () => {
     const since = hoursAgo(4).toISOString();
     const res = await H.call(OPERATOR, "GET", `/api/ops/feed?since=${encodeURIComponent(since)}`);

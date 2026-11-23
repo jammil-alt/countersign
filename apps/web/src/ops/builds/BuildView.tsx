@@ -234,7 +234,7 @@ export function BuildView({ id, embedded = false }: { id: string; embedded?: boo
     if (!testsRunning) return;
     const timer = setInterval(() => {
       void api
-        .call(apiRoutes.opsBuild, { params: { id } })
+        .call(apiRoutes.opsBuild, { params: { id }, refresh: true })
         .then((out) => {
           if (!busyNow.current) setDetail((prev) => sameRecords(prev, out as BuildDetail));
         })

@@ -81,8 +81,12 @@ describe("SOC 2 readiness", () => {
       expect(screen.getByTestId(`soc2-row-${c.id}`)).toBeInTheDocument();
     }
     expect(
-      within(screen.getByTestId("soc2-CC6")).getByText(/Owner: Security officer/),
+      within(screen.getByTestId("soc2-CC6")).getByText(
+        /criteria in place · Owner: Security officer/,
+      ),
     ).toBeInTheDocument();
+    // QA SC1: criteria, never read as controls.
+    expect(screen.getByTestId("soc2-counts")).toHaveTextContent(/Criteria in our scope/);
     // Physical access: nothing answers it yet, and the row says what would.
     const physical = screen.getByTestId("soc2-row-CC6.4");
     expect(within(physical).getByText("Missing")).toBeInTheDocument();
