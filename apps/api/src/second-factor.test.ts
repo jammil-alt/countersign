@@ -280,6 +280,21 @@ describe.skipIf(!h)("the second step of signing in (§1.100)", () => {
       code: recovery[0],
     });
     expect(reused.status).toBe(422);
+
+    // A recovery code with "remember" remembers the person's verified method, so the next
+    // sign-in in this browser skips the step (overnight S1.5).
+    const d = new Browser();
+    await signIn(d, H.A.admin);
+    const remembered = await request(d, "POST", "/api/auth/second-factor/recovery", {
+      code: recovery[1],
+      remember: true,
+    });
+    expect(remembered.status, JSON.stringify(remembered.json)).toBe(200);
+    expect(d.jar.has("__Host-cs_device")).toBe(true);
+    expect(await signIn(d, H.A.admin)).toBe("/inbox");
+    expect(await lastAudit("session.sign_in", H.A.admin)).toMatchObject({
+      target: { second_factor: "remembered" },
+    });
   });
 
   it("keeps the person signed in when passing the step also refreshes the session", async () => {
@@ -465,6 +480,17 @@ describe.skipIf(!h)("the second step of signing in (§1.100)", () => {
       });
       expect((await request(b, "GET", "/api/session")).status).toBe(200);
     }
+    // Someone else in the same browser is asked, and the row says whose browser it was.
+    await request(b, "POST", "/api/auth/sign-out");
+    expect(await signIn(b, H.A.user)).toMatch(/^\/sign-in\/second-step/);
+    expect(await lastAudit("session.sign_in", H.A.user)).toMatchObject({
+      target: {
+        second_factor: "pending",
+        remembered_miss: "other_person",
+        remembered_for: H.C.user,
+        remembered_same_workos_user: "no",
+      },
+    });
   });
 
   const operator = new Browser();

@@ -31,6 +31,7 @@ import {
   type SecondFactorKind,
 } from "@countersign/core";
 import {
+  appUser,
   auditEvent,
   type Db,
   type Tx,
@@ -350,6 +351,7 @@ export async function rememberedBrowser(
   request: Request,
   userId: string,
   now: Date,
+  workosUserId?: string,
 ): Promise<RememberedCheck> {
   const raw = requestCookie(request, DEVICE_COOKIE);
   if (!raw) return { remembered: false, reason: "no_cookie" };
@@ -359,7 +361,22 @@ export async function rememberedBrowser(
     Math.floor(now.getTime() / 1000),
   );
   if (!device) return { remembered: false, reason: "unreadable" };
-  if (device.uid !== userId) return { remembered: false, reason: "other_person" };
+  if (device.uid !== userId) {
+    // Who it was remembered for, read only: whether that person's WorkOS user is this one.
+    const [them] = await db
+      .select({ workosUserId: appUser.workosUserId })
+      .from(appUser)
+      .where(eq(appUser.id, device.uid));
+    const theirs = them?.workosUserId ?? null;
+    return {
+      remembered: false,
+      reason: "other_person",
+      other: {
+        userId: device.uid,
+        sameWorkosUser: theirs && workosUserId ? theirs === workosUserId : null,
+      },
+    };
+  }
   const gone = { remembered: false, reason: "method_gone" } as const;
   const [factor] = await withUser(db, userId, (tx) =>
     tx
@@ -394,8 +411,8 @@ export function secondFactorPolicy(setup: SecondFactorSetup, db: Db): SecondFact
     on: true,
     // DECISION (overnight S1.5): a check that throws is still a miss (the code is asked), but it
     // is reported, not swallowed, and the audit row says `check_failed`.
-    remembered: ({ request, userId, now }) =>
-      rememberedBrowser(db, config, request, userId, now).catch((error: unknown) => {
+    remembered: ({ request, userId, now, workosUserId }) =>
+      rememberedBrowser(db, config, request, userId, now, workosUserId).catch((error: unknown) => {
         reportHandled("remembered browser check failed", error, { kind: "second_factor" });
         return { remembered: false, reason: "check_failed" } as const;
       }),

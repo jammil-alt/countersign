@@ -59,6 +59,8 @@ export interface Redirect {
     readonly remembered: boolean;
     /** §1.100: why a sign-in that takes the step wasn't passed by a remembered browser. */
     readonly rememberedMiss?: RememberedMiss;
+    /** With `other_person`: who the browser was remembered for (see `RememberedOther`). */
+    readonly rememberedOther?: RememberedOther;
     /** §1.116: a sign-in for the phone app (never `remembered`). */
     readonly phone: boolean;
     /** §1.219: which app, when `phone` (the phone or the desktop app). */
@@ -73,7 +75,23 @@ export interface Redirect {
  */
 export interface SecondFactorPolicy {
   readonly on: boolean;
-  remembered?(input: { request: Request; userId: string; now: Date }): Promise<RememberedCheck>;
+  remembered?(input: {
+    request: Request;
+    userId: string;
+    /** The WorkOS user this callback signed in, to compare with an `other_person` browser's. */
+    workosUserId: string;
+    now: Date;
+  }): Promise<RememberedCheck>;
+}
+
+/**
+ * With `other_person`: the app user the browser was remembered for, and whether that user's
+ * WorkOS user is the one this callback signed in (null when they have none on record). The same
+ * WorkOS user under two app users points at provisioning; a different one at two accounts.
+ */
+export interface RememberedOther {
+  readonly userId: string;
+  readonly sameWorkosUser: boolean | null;
 }
 
 /**
@@ -99,7 +117,11 @@ export type RememberedMiss = (typeof REMEMBERED_MISSES)[number];
 /** The remembered-browser check: passed, or why not (a bare `false` is an unexplained miss). */
 export type RememberedCheck =
   | boolean
-  | { readonly remembered: false; readonly reason: RememberedMiss };
+  | {
+      readonly remembered: false;
+      readonly reason: RememberedMiss;
+      readonly other?: RememberedOther;
+    };
 
 /** §1.149: how the welcome page starts a sign-in: Google, Microsoft or AuthKit's email. */
 export const SIGN_IN_METHODS = ["google", "microsoft", "email"] as const;
@@ -419,6 +441,7 @@ export function createWorkOSAdapter(options: {
       let secondFactor: SecondFactorState = "exempt";
       let remembered = false;
       let rememberedMiss: RememberedMiss | undefined;
+      let rememberedOther: RememberedOther | undefined;
       // §1.116: a sign-in for the phone app; its session leaves this browser at the handoff.
       const phone = isMobileSignIn(request);
       const app = phone ? ((await mobileSignInApp(request, password, nowDate)) ?? "phone") : null;
@@ -430,11 +453,19 @@ export function createWorkOSAdapter(options: {
           : step.remembered
             ? // The API's check reports its own errors; one that still throws is a miss, named.
               await step
-                .remembered({ request, userId: outcome.userId, now: nowDate })
+                .remembered({
+                  request,
+                  userId: outcome.userId,
+                  workosUserId: auth.user.id,
+                  now: nowDate,
+                })
                 .catch((): RememberedCheck => ({ remembered: false, reason: "check_failed" }))
             : { remembered: false, reason: "not_checked" };
         remembered = check === true;
-        if (typeof check === "object") rememberedMiss = check.reason;
+        if (typeof check === "object") {
+          rememberedMiss = check.reason;
+          rememberedOther = check.other;
+        }
         secondFactor = remembered ? "done" : "pending";
       }
       const session = newSession(
@@ -464,6 +495,7 @@ export function createWorkOSAdapter(options: {
           secondFactor,
           remembered,
           ...(rememberedMiss ? { rememberedMiss } : {}),
+          ...(rememberedOther ? { rememberedOther } : {}),
           phone,
           ...(app ? { app } : {}),
         },
