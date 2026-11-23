@@ -424,7 +424,9 @@ describe.skipIf(!harness)("what a run was about", () => {
         stepRunId,
       }),
     ]);
-    expect(rows.filter((r) => r.role === "changed").map((r) => r.externalId)).toEqual(["88", "89"]);
+    // Both changes, in either order (one insert, one timestamp).
+    const changed = rows.filter((r) => r.role === "changed").map((r) => r.externalId);
+    expect(changed.sort()).toEqual(["88", "89"]);
   });
 
   it("keeps a hidden step's and a test run's rows from the client", async () => {

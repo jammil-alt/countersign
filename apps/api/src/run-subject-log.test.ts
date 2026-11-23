@@ -332,10 +332,14 @@ describe.skipIf(!h)("what a run was about, through the API", () => {
 
     // Now it does: the run is picked again for the row it lacks, and only once.
     expect(await backfillClientRunSubjects(H.db, platform, A(), { now: new Date() })).toBe(1);
-    expect((await kept(r.id)).map((x) => [x.kind, x.role, x.connector, x.externalId])).toEqual([
-      [expect.any(String), "changed", "testkit", "r2"],
-      ["vendor", "read", "testkit", "56"],
-    ]);
+    expect((await kept(r.id)).map((x) => [x.kind, x.role, x.connector, x.externalId])).toEqual(
+      // In either order: one insert, one timestamp.
+      expect.arrayContaining([
+        [expect.any(String), "changed", "testkit", "r2"],
+        ["vendor", "read", "testkit", "56"],
+      ]),
+    );
+    expect(await kept(r.id)).toHaveLength(2);
     expect(await backfillClientRunSubjects(H.db, platform, A(), { now: new Date() })).toBe(0);
   });
 });
