@@ -378,7 +378,7 @@ export function OpsInboxScreen() {
             : needsCount === undefined
               ? "What needs us."
               : // QA (2026-11-22): Needs us and Your call count different things; said here.
-                `${needsCount === 0 ? "Nothing needs us." : `${plural(needsCount, "thing needs", "things need")} us: work blocked until we act.`} Your to-dos, builds and held runs are on Your call.`
+                `${needsCount === 0 ? "Nothing needs us." : `${plural(needsCount, "thing needs", "things need")} us: work blocked until we act.`} Your to-dos, builds and runs to check are on Your call.`
         }
       />
       {view === "us" && status === "open" && needs.data === undefined && !needs.error ? (

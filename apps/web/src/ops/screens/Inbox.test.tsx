@@ -215,7 +215,7 @@ describe("escalations", () => {
     expect(await screen.findByRole("heading", { name: "Escalations" })).toBeInTheDocument();
     expect(
       await screen.findByText(
-        "1 thing needs us: work blocked until we act. Your to-dos, builds and held runs are on Your call.",
+        "1 thing needs us: work blocked until we act. Your to-dos, builds and runs to check are on Your call.",
       ),
     ).toBeInTheDocument();
     const card = await openItem(SANDBOX_ITEM);
@@ -227,7 +227,7 @@ describe("escalations", () => {
     // Nothing needs us now: said once, where the urgency figures were.
     expect(
       await screen.findByText(
-        "Nothing needs us. Your to-dos, builds and held runs are on Your call.",
+        "Nothing needs us. Your to-dos, builds and runs to check are on Your call.",
       ),
     ).toBeInTheDocument();
     expect(screen.getByTestId("ops-inbox-clear")).toBeInTheDocument();
@@ -239,7 +239,7 @@ describe("escalations", () => {
     // Undo puts it back in Needs us too (review of #257): the count is asked again.
     expect(
       await screen.findByText(
-        "1 thing needs us: work blocked until we act. Your to-dos, builds and held runs are on Your call.",
+        "1 thing needs us: work blocked until we act. Your to-dos, builds and runs to check are on Your call.",
       ),
     ).toBeInTheDocument();
   });
@@ -297,7 +297,7 @@ describe("escalations", () => {
     expect(await screen.findByTestId(`ops-inbox-needs-${DEMO_ITEM}`)).toBeInTheDocument();
     expect(
       screen.getByText(
-        "1 thing needs us: work blocked until we act. Your to-dos, builds and held runs are on Your call.",
+        "1 thing needs us: work blocked until we act. Your to-dos, builds and runs to check are on Your call.",
       ),
     ).toBeInTheDocument();
     // One "All clients" control on the page: the top bar's.

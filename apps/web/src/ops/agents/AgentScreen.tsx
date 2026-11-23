@@ -47,7 +47,7 @@ import { AssignToClient } from "../lab/TemplateParts";
 import { OPS_PATHS } from "../paths";
 import { TriggersPanel } from "../triggers/TriggersScreen";
 import { liveAndDraft, parseAnyBundle, versionBadges } from "../versions";
-import { workflowStats } from "../workflow/describe";
+import { stepCountWords, workflowStats } from "../workflow/describe";
 import { ReviseTab } from "./BuilderParts";
 import { DefinitionEditor, type SaveResult } from "./DefinitionEditor";
 import { canDiscard, DiscardButton, DiscardedNotice } from "./DiscardDraft";
@@ -716,8 +716,8 @@ function AgentBar({
   const line = [
     ownName ? `Its definition calls it ${ownName}` : null,
     view.role,
-    bundle && bundle.workflows.length > 1 ? plural(bundle.workflows.length, "workflow") : null,
-    stats ? plural(stats.steps, "step") : null,
+    // S4.9: "18 steps in 3 workflows", one labelled count.
+    stats ? stepCountWords(stats) : null,
     stats && stats.forks > 0 ? plural(stats.forks, "fork") : null,
     bundle && bundle.definition.skills.length > 0
       ? plural(bundle.definition.skills.length, "skill")

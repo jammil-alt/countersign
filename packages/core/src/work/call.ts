@@ -102,7 +102,8 @@ export function todoTag(
     case "question":
       return "Question";
     case "run":
-      return "Run held for review";
+      // S4.7 (QA W8): a finished run picked for a spot check, not a run held back.
+      return "Run to check";
     case "client":
       return "Client";
     case "code_request":
@@ -212,7 +213,8 @@ export const YOUR_CALL_WORDS = {
   mine: "Only mine",
   kpi: {
     needYou: "Need you",
-    critical: "Critical, held",
+    // S4.7 (QA W8): the tile counts agents on a safety hold (`holds`), not critical items.
+    critical: "Agents on safety hold",
     reggie: "Reggie is on",
     clients: "Waiting on clients",
     questions: "Questions this week",

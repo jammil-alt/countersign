@@ -304,14 +304,22 @@ async function usageSplits(
 ): Promise<Pick<UsageReport, "byModel" | "byVendor">> {
   const models = new Map<
     string,
-    { provider: string; model: string; calls: number; unpriced: number; s: Sum }
+    { provider: string; model: string; calls: number; unpriced: number; failed: number; s: Sum }
   >();
   for (const l of lines) {
     const provider = l.model === UNRECORDED_MODEL ? "" : modelProvider(l.model);
     const key = `${provider}\u0000${l.model}`;
-    const m = models.get(key) ?? { provider, model: l.model, calls: 0, unpriced: 0, s: zero() };
+    const m = models.get(key) ?? {
+      provider,
+      model: l.model,
+      calls: 0,
+      unpriced: 0,
+      failed: 0,
+      s: zero(),
+    };
     m.calls += l.calls;
     m.unpriced += l.unpricedCalls;
+    m.failed += l.failedCalls ?? 0;
     add(m.s, { ...zero(), tokensIn: l.tokensIn, tokensOut: l.tokensOut, cost: l.cost });
     models.set(key, m);
   }
@@ -325,6 +333,7 @@ async function usageSplits(
       tokensOut: m.s.tokensOut,
       costUsd: toNumeric(m.s.cost),
       ...(m.unpriced > 0 ? { unpricedCalls: m.unpriced } : {}),
+      ...(m.failed > 0 ? { failedCalls: m.failed } : {}),
     }));
 
   const providers = new Map<string, { calls: number; s: Sum }>();

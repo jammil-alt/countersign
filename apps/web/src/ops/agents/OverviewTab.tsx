@@ -15,7 +15,13 @@ import { NeedsPanel } from "../connectors/AgentPanels";
 import { ClientViewCard, WhereItRuns } from "../lab/TemplateParts";
 import { runChip } from "../run/words";
 import type { RunLinkState } from "../screens/RunView";
-import { KIND_LABEL, PROCESS_KIND_LABEL, triggerTitle, workflowStats } from "../workflow/describe";
+import {
+  KIND_LABEL,
+  PROCESS_KIND_LABEL,
+  stepCountWords,
+  triggerTitle,
+  workflowStats,
+} from "../workflow/describe";
 import { optionFor } from "./definition-form";
 import { useConnectorNames } from "./OperationPanel";
 import { prefetchRun, useIntent } from "./prefetch";
@@ -53,7 +59,7 @@ export function OverviewTab({
         <Card
           testId="agent-how-it-works"
           pad
-          title={`How it works · ${plural(stats.steps, "step")}, ${plural(stats.forks, "fork")}`}
+          title={`How it works · ${stepCountWords(stats)}, ${plural(stats.forks, "fork")}`}
           meta={
             bundle.workflows.length > 0 ? (
               <Link to={`${base}/workflow`} className="text-sm text-link">
