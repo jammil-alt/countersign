@@ -16,6 +16,7 @@ import { connection, createDb, type Db, tenant, tenantKey, withTenant } from "@c
 import { createTestDatabase, type TestDatabase } from "@countersign/db/testing";
 import { and, eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { vaultUpkeep } from "./vault/upkeep";
 
 const t = await createTestDatabase();
 
@@ -156,7 +157,7 @@ describe.skipIf(!t)("tenant keys in the database", () => {
       const n = await withTenant(db, c.tenantId, (tx) =>
         rewrapClientKeys(tx, { tenantId: c.tenantId, master: rotating }),
       );
-      expect(n).toBe(1);
+      expect(n).toEqual({ rewrapped: 1, lost: 0 });
     }
     const after = await CredentialCipher.create({ current: newKey });
     const vault = after.forClients(tenantKeysInDb(db));
@@ -176,6 +177,38 @@ describe.skipIf(!t)("tenant keys in the database", () => {
     await expect(vault.encrypt(secret, A)).rejects.toMatchObject({ code: "key_destroyed" });
     const [b] = await T.db.select().from(tenantKey).where(eq(tenantKey.tenantId, B.tenantId));
     expect(b?.status).toBe("active");
+  });
+
+  it("upkeep skips a key whose master key is lost, and still re-wraps the others", async () => {
+    // Staging, 2026-11-21: a deploy replaced the master key; the retired keys it wrapped stay.
+    const lostMaster = await CredentialCipher.create({ current: generateEncryptionKey() });
+    const previous = generateEncryptionKey();
+    const before = await CredentialCipher.create({ current: previous });
+    const C = await client("C");
+    const raw = () => crypto.getRandomValues(new Uint8Array(32));
+    await T.db.insert(tenantKey).values([
+      {
+        tenantId: C.tenantId,
+        status: "retired",
+        wrappedKey: await lostMaster.wrap(raw(), C.tenantId),
+      },
+      { tenantId: C.tenantId, status: "active", wrappedKey: await before.wrap(raw(), C.tenantId) },
+    ]);
+    await store(C, await before.forClients(tenantKeysInDb(db)).encrypt(secret, C));
+
+    const current = generateEncryptionKey();
+    const now = await CredentialCipher.create({ current, previous: [previous] });
+    const result = await vaultUpkeep(db, now);
+    // A's and B's keys are under a master this test doesn't hold either: lost here too.
+    expect(result.lostKeys).toBeGreaterThanOrEqual(1);
+    const keys = await T.db.select().from(tenantKey).where(eq(tenantKey.tenantId, C.tenantId));
+    const active = keys.find((k) => k.status === "active");
+    const retired = keys.find((k) => k.status === "retired");
+    expect(active?.wrappedKey).toMatchObject({ kid: now.currentKeyId });
+    expect(retired?.wrappedKey).toMatchObject({ kid: lostMaster.currentKeyId });
+    // Opens with the current master alone: the previous one can be dropped.
+    const only = await CredentialCipher.create({ current: current });
+    expect(await only.forClients(tenantKeysInDb(db)).decrypt(await stored(C), C)).toEqual(secret);
   });
 
   it("the Worker's role sees only the session's client's keys", async () => {
