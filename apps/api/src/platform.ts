@@ -83,7 +83,7 @@ import {
   TESTKIT_SAMPLE_RECORDS,
   TestkitBackend,
 } from "@countersign/connectors";
-import { SkillDefinition } from "@countersign/core";
+import { readToolWords, SkillDefinition } from "@countersign/core";
 import { EventTypeRegistry } from "@countersign/senses";
 // Skill model (2026-11-10): publish checks a message action against the agent's channels.
 import { actionChannels } from "./channels/resolve";
@@ -119,6 +119,9 @@ export interface PlatformOptions {
 // rather than each connector shipping skill definitions; writes stay action steps behind approval.
 /** `zoho_crm.record.search` → "Search record", like the builder names actions. */
 function readSkillName(toolId: string): string {
+  // S5.6: "Find purchase orders", not "Query purchaseorder".
+  const read = readToolWords(toolId);
+  if (read) return read;
   const [entity = "", verb = ""] = toolId.split(".").slice(-2);
   const words = `${verb} ${entity}`.replace(/[_-]+/g, " ").trim();
   return words.charAt(0).toUpperCase() + words.slice(1);

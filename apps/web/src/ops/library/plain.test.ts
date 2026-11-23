@@ -22,7 +22,7 @@ describe("plain words for tools", () => {
   it("names a tool by its title, else its id in words", () => {
     expect(toolName("qbo.deposit.create")).toBe("Book a deposit");
     expect(toolName("qbo.bill.create")).toBe("Create a bill");
-    expect(toolName("acme.widget.list")).toBe("List widget");
+    expect(toolName("acme.widget.list")).toBe("List widgets");
   });
 
   it("gives a rewritten line, else the description's headline", () => {

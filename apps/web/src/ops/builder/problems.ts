@@ -7,6 +7,7 @@
 // On v4 processes (merge of main, 2026-11-11): the builder edits processes, so a step is found in
 // a process, a trigger is one of its triggers, and a path's owner is its `if`.
 import { type ProcessAgentBundle, problemGroupKey } from "@countersign/core";
+import { connectorLabel, toolLabel } from "../../runs/labels";
 import type { BuilderProblem } from "./catalog";
 import { ifOfBranch, locate, type Process, type Step } from "./model";
 
@@ -216,6 +217,12 @@ const USE_RULES: [RegExp, (uses: string, m: RegExpExecArray) => string][] = [
 const PLAIN_RULES: [RegExp, (m: RegExpExecArray) => string][] = [
   [/^"(.+)" is required$/, (m) => `${fieldLabel(m[1] ?? "") ?? m[1]} is required`],
   [/^"(.+)" is not an input of this step$/, (m) => `This step has no ${words(m[1] ?? "")} input`],
+  // S5.6: `no qbo connection is bound for "qbo.vendor.create"` in words.
+  [
+    /^no (\S+) connection is bound for "(.+)"$/,
+    (m) =>
+      `No ${connectorLabel(m[1] ?? "")} connection is set up for “${toolLabel(m[2] ?? "")}”: the client connects it in their portal`,
+  ],
 ];
 
 function plainText(

@@ -794,7 +794,7 @@ describe("run controls", () => {
     // Model calls, oversight and the raw data are one Details tab.
     await userEvent.click(screen.getByTestId("ops-run-tab-details"));
     const calls = await screen.findByTestId("ops-run-model-calls");
-    await waitFor(() => expect(calls).toHaveTextContent("anthropic · claude-opus-5-5"));
+    await waitFor(() => expect(calls).toHaveTextContent("Anthropic · Claude Opus 5.5"));
     expect(calls).toHaveTextContent("end_turn");
     await userEvent.click(screen.getByTestId("ops-run-retry"));
     await waitFor(() => expect(retried).toEqual([RUN_ID]));
@@ -1012,7 +1012,7 @@ describe("back-office step panel", () => {
     expect(input.textContent).not.toContain("{");
 
     const calls = await within(panel).findByTestId("ops-run-step-panel-model-calls");
-    expect(calls).toHaveTextContent("anthropic · claude-opus-5-5");
+    expect(calls).toHaveTextContent("Anthropic · Claude Opus 5.5");
     await user.click(within(calls).getByTestId(`ops-run-step-panel-call-${CALL}-open`));
     expect(await within(calls).findByTestId(`ops-model-body-${CALL}`)).toHaveTextContent(
       "Read the record",

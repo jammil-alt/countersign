@@ -14,7 +14,7 @@ import { ChangeTables } from "../../inbox/ChangePanel";
 import { changeHeading } from "../../inbox/change";
 import { sourceLabel, sourcesOf } from "../../records/SourceLinks";
 import { duration, shortTime, stepStatusLabel, usd } from "../../runs/format";
-import { qualifiedToolLabel as toolLabel } from "../../runs/labels";
+import { modelCallLabel, qualifiedToolLabel as toolLabel } from "../../runs/labels";
 import { StepChecks } from "../../runs/StepChecks";
 import {
   DataBlock,
@@ -289,9 +289,7 @@ function ModelCallItem({ call }: { call: ModelCall }) {
       data-testid={`ops-run-step-panel-call-${call.id}`}
     >
       <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
-        <span className="reference text-ink">
-          {call.provider} · {call.model}
-        </span>
+        <span className="reference text-ink">{modelCallLabel(call.provider, call.model)}</span>
         <span className="figures text-ink-muted">
           {[
             shortTime(call.createdAt),

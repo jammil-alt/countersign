@@ -88,10 +88,32 @@ export function seatKindOf(role: Pick<PersonRole, "kind">): SeatKind {
   return role.kind ?? "reached";
 }
 
-/** A role's words for the client: its label, else its name with spaces ("bill-approver" → "Bill approver"). */
+/** Short forms people write in capitals ("ap-approver" → "AP approver"). */
+const ROLE_ACRONYMS = new Set([
+  "ap",
+  "ar",
+  "ceo",
+  "cfo",
+  "coo",
+  "cto",
+  "hr",
+  "it",
+  "po",
+  "qa",
+  "vp",
+]);
+
+/**
+ * A role's words for the client: its label, else its name with spaces, its short forms in
+ * capitals ("bill-approver" → "Bill approver", "ap-approver" → "AP approver", not "Ap approver").
+ */
 export function seatLabelOf(role: Pick<PersonRole, "role" | "label">): string {
   if (role.label) return role.label;
-  const words = role.role.replace(/[-_]+/g, " ");
+  const words = role.role
+    .split(/[-_\s]+/)
+    .filter(Boolean)
+    .map((w) => (ROLE_ACRONYMS.has(w.toLowerCase()) ? w.toUpperCase() : w))
+    .join(" ");
   return words.charAt(0).toUpperCase() + words.slice(1);
 }
 

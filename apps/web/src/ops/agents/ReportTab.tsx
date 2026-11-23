@@ -8,6 +8,7 @@ import { KpiStrip, StatTile } from "../../ui/figures";
 import { Loaded, Section } from "../../ui/page";
 import { Card } from "../../ui/primitives";
 import { SkeletonRows } from "../../ui/skeleton";
+import { cost } from "../../usage/format";
 import { runsLink } from "../run/links";
 
 const n = (v: number) => v.toLocaleString("en-US");
@@ -50,13 +51,13 @@ function OpsExtras({ report }: { report: OpsAgentReport }) {
         <KpiStrip>
           <StatTile
             label="Model cost"
-            value={`$${s.costUsd}`}
+            value={cost(s.costUsd)}
             to={runsLink(s.filter)}
             note={`${n(s.runs)} runs`}
           />
           <StatTile
             label="Per run"
-            value={s.costPerRunUsd === null ? "–" : `$${s.costPerRunUsd}`}
+            value={s.costPerRunUsd === null ? "–" : cost(s.costPerRunUsd)}
           />
           <StatTile
             label="Tokens per run"

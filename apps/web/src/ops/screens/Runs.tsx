@@ -20,6 +20,7 @@ import type { ResponseOf } from "../../api/client";
 import { apiRoutes } from "../../api/routes";
 import { useApi, useApiClient } from "../../api/useApi";
 import { isRunGoing, msWords, runsPollMs, runWorkedMs, shortTime, usd } from "../../runs/format";
+import { connectorChipNames } from "../../runs/labels";
 import { opsRunShortTitle, opsRunTitle } from "../../runs/subject";
 import { usePoll } from "../../runs/usePoll";
 import { useSession } from "../../session/session";
@@ -224,7 +225,7 @@ export function OpsRunsScreen() {
   const chips = askChips(filter, {
     agents: new Map([...agents].map(([id, a]) => [id, a.name])),
     clients,
-    connectors: new Map(),
+    connectors: connectorChipNames(filter.changedConnector),
     about: aboutChipNames(data?.about),
   });
 

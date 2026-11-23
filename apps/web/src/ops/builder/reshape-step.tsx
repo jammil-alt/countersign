@@ -12,6 +12,7 @@ import {
 import { useEffect, useMemo, useRef, useState } from "react";
 import { apiRoutes } from "../../api/routes";
 import { Button, cx } from "../../ui/primitives";
+import { cost } from "../../usage/format";
 import { errorText, TextArea, useAction } from "../agents/ui";
 import type { BuilderProblem } from "./catalog";
 import { SmallInput, SmallSelect } from "./fields";
@@ -432,7 +433,7 @@ export function ReshapeFields({
             {proposal.mapping.fields.length} fields mapped
             {proposal.ai.asked
               ? `; the Builder AI filled ${proposal.ai.fields.length}${
-                  proposal.ai.costUsd ? ` ($${Number(proposal.ai.costUsd).toFixed(4)})` : ""
+                  proposal.ai.costUsd ? ` (${cost(proposal.ai.costUsd)})` : ""
                 }`
               : ""}
             . Check each one before you save.

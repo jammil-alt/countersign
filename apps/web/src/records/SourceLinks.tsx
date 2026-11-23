@@ -7,7 +7,35 @@ import { Icon } from "../ui/icons";
 
 /** "Record ·3f9a1c": the id's random tail, enough to tell two apart in a list. */
 export function sourceLabel(id: string, { t }: Pick<I18n, "t"> = EN): string {
-  return isUuid(id) ? t("record.source", { tail: id.slice(-6) }) : id;
+  return isUuid(id) ? t("record.source", { tail: id.slice(-6) }) : refLabel(id);
+}
+
+/** A connector's prefix on a record kind an agent wrote ("QboBill"), and its name. */
+const KIND_PREFIXES: [RegExp, string][] = [[/^qbo(?=[A-Z_])/i, "QuickBooks"]];
+
+/**
+ * A record an agent named by its kind and the tool's id, in words (S5.6): "vendor:59" →
+ * "Vendor 59", "QboBill:146" → "QuickBooks bill 146". Anything else as written.
+ */
+export function refLabel(ref: string): string {
+  const m = /^([A-Za-z][A-Za-z_]*)[:#](\S+)$/.exec(ref);
+  if (!m?.[1] || !m[2]) return ref;
+  let kind = m[1];
+  let tool: string | null = null;
+  for (const [re, name] of KIND_PREFIXES) {
+    if (re.test(kind)) {
+      kind = kind.replace(re, "").replace(/^_/, "");
+      tool = name;
+    }
+  }
+  const words = kind
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .replace(/_+/g, " ")
+    .toLowerCase()
+    .trim();
+  if (!words) return ref;
+  const said = tool ? `${tool} ${words}` : `${words.charAt(0).toUpperCase()}${words.slice(1)}`;
+  return `${said} ${m[2]}`;
 }
 
 export function SourceLinks({
@@ -41,9 +69,9 @@ export function SourceLinks({
             {names?.[id] ?? sourceLabel(id, i18n)}
           </Link>
         ) : (
-          <span key={id} className="mz-receipt cursor-default">
+          <span key={id} className="mz-receipt cursor-default" title={id}>
             <Icon name="receipt" size={14} className="ds-icon" />
-            {id}
+            {names?.[id] ?? refLabel(id)}
           </span>
         ),
       )}
