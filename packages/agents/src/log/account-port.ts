@@ -49,6 +49,7 @@ import {
   message,
   run,
   type Tx,
+  tenant,
   thread,
   withTenant,
 } from "@countersign/db";
@@ -581,5 +582,15 @@ export function dbAccountPort(
       scoped(tenantId, call, "read", async (s) =>
         views.owner ? views.owner(s, input.name) : null,
       ),
+    // S2.3, S2.6: the client Sloan serves and its time zone, for the person asking.
+    client: (tenantId, call) =>
+      scoped(tenantId, call, "read", async (s) => {
+        const [t] = await s.tx
+          .select({ name: tenant.name, timeZone: tenant.timezone })
+          .from(tenant)
+          .where(eq(tenant.id, tenantId));
+        if (!t) throw new AccountRefusal("the client isn't here");
+        return { name: t.name, timeZone: t.timeZone };
+      }),
   };
 }

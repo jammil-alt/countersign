@@ -8,6 +8,7 @@
 
 import type { Session } from "@countersign/auth";
 import {
+  clockLine,
   Decimal,
   REGGIE_NAME,
   type ReggieAction,
@@ -182,7 +183,22 @@ export async function conversationOut(tx: Tx, row: ConversationRow) {
 
 // ── The turn ─────────────────────────────────────────────────────────────────────────────────────
 
-function systemPrompt(session: Session, client: { id: string; name: string } | null): string {
+// S2.6 (overnight fixes, 2026-11-23): Reggie quoted UTC times. It reads the time now in the
+// conversation's client's zone, or in UTC with the rule to give each client's times in its own.
+// DECISION: with no client, UTC and not the operator's zone: an operator has no stored zone, and
+// each client's times belong in that client's zone (client_get gives it).
+function clockText(clock: { now: Date; timeZone: string | null }, client: { name: string } | null) {
+  if (client && clock.timeZone) {
+    return `It is now ${clockLine(clock.now, clock.timeZone)}, ${client.name}'s time. Give times in that zone and say so; tool results give times in UTC.`;
+  }
+  return `It is now ${clockLine(clock.now, "UTC")}. Tool results give times in UTC: give a client's times in its own time zone (client_get has it) and say which zone.`;
+}
+
+function systemPrompt(
+  session: Session,
+  client: { id: string; name: string } | null,
+  clock: { now: Date; timeZone: string | null },
+): string {
   const who = session.user.name ?? session.user.email;
   return [
     `You are ${REGGIE_NAME}, the account agent of Mezonas' operators. You work for ${who}, an operator at Mezonas, in the back office. Mezonas runs agents for client businesses; the operator builds them and looks after each client's account.`,
@@ -204,6 +220,8 @@ function systemPrompt(session: Session, client: { id: string; name: string } | n
     "- Name things (clients, agents, workflows), not ids, unless the operator asks for ids.",
     "- A caveat or next step is a sentence, not a bulleted wrap-up. End with one question or offer only when there is an obvious next step.",
     ...(client ? ["", `This conversation is about ${client.name} (client id ${client.id}).`] : []),
+    "",
+    clockText(clock, client),
   ].join("\n");
 }
 
@@ -272,8 +290,16 @@ export interface TurnScope {
  */
 export async function runTurn(s: TurnScope, conversationId: string, words: string): Promise<void> {
   const userId = s.session.user.id;
-  const { row, earlier, actions } = await s.inTx(async (tx) => {
+  const { row, earlier, actions, timeZone } = await s.inTx(async (tx) => {
     const row = await ownConversation(tx, userId, conversationId);
+    // S2.6: the conversation's client's time zone, for a client the operator serves.
+    const [zone] =
+      row.clientId && s.session.servedTenantIds.includes(row.clientId)
+        ? await tx
+            .select({ timeZone: tenant.timezone })
+            .from(tenant)
+            .where(eq(tenant.id, row.clientId))
+        : [];
     const earlier = await tx
       .select()
       .from(reggieMessage)
@@ -293,7 +319,7 @@ export async function runTurn(s: TurnScope, conversationId: string, words: strin
         ...(row.title ? {} : { title: words.replace(/\s+/g, " ").slice(0, 80) }),
       })
       .where(eq(reggieConversation.id, row.id));
-    return { row, earlier, actions };
+    return { row, earlier, actions, timeZone: zone?.timeZone ?? null };
   });
 
   const client = row.clientId ? servedClient(toolCtx(s), row.clientId) : null;
@@ -320,7 +346,7 @@ export async function runTurn(s: TurnScope, conversationId: string, words: strin
       {
         model,
         max_tokens: 4000,
-        system: systemPrompt(s.session, client),
+        system: systemPrompt(s.session, client, { now: s.now(), timeZone }),
         tools,
         messages: [...history(earlier), ...turn],
       },

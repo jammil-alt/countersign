@@ -1,4 +1,4 @@
-import { routes } from "@countersign/core";
+import { AUDIT_REFRESH_HEADER, routes } from "@countersign/core";
 import { act, render, renderHook, screen, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -311,6 +311,24 @@ describe("a failed refresh keeps the page (1.9)", () => {
     expect(count(api.calls, `GET /api/ops/feedback/${CLIENT_A}/screenshot`)).toBe(3);
   });
 
+  // S6.9: a page's poll (a reload) is a refresh of what is on screen, not the person opening it.
+  it("sends a reload as a refresh, and the first load as an open", async () => {
+    const sent: (string | undefined)[] = [];
+    const { wrapper } = setup({
+      [`GET /api/ops/feedback/${CLIENT_A}/screenshot`]: ({ init }) => {
+        sent.push((init.headers as Record<string, string>)[AUDIT_REFRESH_HEADER]);
+        return client(CLIENT_A, "Acme");
+      },
+    });
+    const { result } = renderHook(() => useApi(ROUTE, { params: { id: CLIENT_A } }), {
+      wrapper,
+    });
+    await waitFor(() => expect(result.current.data).toBeDefined());
+    act(() => result.current.reload());
+    await waitFor(() => expect(sent).toHaveLength(2));
+    expect(sent).toEqual([undefined, "1"]);
+  });
+
   it("never shows another entity's data under new params", async () => {
     const gate = deferred<unknown>();
     const { wrapper } = setup({
@@ -449,6 +467,45 @@ describe("the store and the session", () => {
     await new Promise((r) => setTimeout(r, 50));
     expect(api.calls.slice(asked)).toEqual(["POST /api/auth/sign-out"]);
     expect(store?.size).toBe(0);
+  });
+
+  it("goes to WorkOS's sign-out page before it says signed out (overnight S1.6)", async () => {
+    const logout = "https://workos.test/logout?session_id=sess_1";
+    const api = fakeApi({
+      "GET /api/session": () => OPERATOR_SESSION,
+      "POST /api/auth/sign-out": () => ({ ok: true, redirectTo: logout }),
+    });
+    const seen: string[] = [];
+    const assign = vi.fn((url: string) => seen.push(`assign ${url}`));
+    const original = window.location;
+    Object.defineProperty(window, "location", {
+      configurable: true,
+      value: { ...original, assign },
+    });
+    function Gate() {
+      const { state } = useSessionState();
+      seen.push(state.status);
+      return <p data-testid="status">{state.status}</p>;
+    }
+    try {
+      render(
+        <ApiProvider client={api.client}>
+          <SessionProvider>
+            <Gate />
+            <Controls />
+          </SessionProvider>
+        </ApiProvider>,
+      );
+      await waitFor(() => expect(screen.getByTestId("status")).toHaveTextContent("signed_in"));
+      act(() => screen.getByTestId("sign-out").click());
+      await waitFor(() => expect(assign).toHaveBeenCalledWith(logout));
+      await new Promise((r) => setTimeout(r, 20));
+      // Never "signed_out", which would send the app to /sign-in and cancel the navigation.
+      expect(seen).not.toContain("signed_out");
+      expect(screen.getByTestId("status")).toHaveTextContent("loading");
+    } finally {
+      Object.defineProperty(window, "location", { configurable: true, value: original });
+    }
   });
 
   it("removes the builder's drafts from this browser on sign-out, and nothing else", async () => {

@@ -3,6 +3,7 @@ import {
   CredentialCipher,
   CredentialError,
   credentialKeysFromEnv,
+  credentialsUnopenable,
   generateEncryptionKey,
   memoryTenantKeys,
 } from "./credentials";
@@ -195,6 +196,26 @@ describe("VaultCipher: each client's own data key (envelope v2)", () => {
     // The same key serves the client's next write; another client gets its own.
     expect((await vault.encrypt(secret, binding)).kid).toBe(env.kid);
     expect((await vault.encrypt(secret, otherClient)).kid).not.toBe(env.kid);
+  });
+
+  it("a key retired after its master key was lost is key_lost; an active one stays unknown_key", async () => {
+    const lostKey = generateEncryptionKey();
+    const { store, vault } = await setup(lostKey);
+    const env = await vault.encrypt(secret, binding);
+    // A deploy replaced the master key (staging, 2026-11-21).
+    const now = (await CredentialCipher.create({ current: generateEncryptionKey() })).forClients(
+      store,
+    );
+    await expectCode(now.decrypt(env, binding), "unknown_key");
+    expect(credentialsUnopenable(await now.decrypt(env, binding).catch((e) => e))).toBe(false);
+    // retire-lost-keys.yml retires it: that client's credentials are gone for good.
+    const record = store.records.get(env.kid);
+    if (record) record.status = "retired";
+    await expectCode(now.decrypt(env, binding), "key_lost");
+    expect(credentialsUnopenable(await now.decrypt(env, binding).catch((e) => e))).toBe(true);
+    // A retired key whose master is still held opens as before.
+    const held = (await CredentialCipher.create({ current: lostKey })).forClients(store);
+    expect(await held.decrypt(env, binding)).toEqual(secret);
   });
 
   it("still decrypts v1, and re-encrypts it as v2", async () => {
