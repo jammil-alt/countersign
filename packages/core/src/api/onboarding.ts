@@ -41,8 +41,8 @@ export const InviteBody = z.strictObject({
   email: z.string().trim().toLowerCase().max(INVITE_EMAIL_MAX).email(),
   name: z.string().trim().max(200).optional(),
   role: InvitableRole,
-  // v0.12 W1-D: "can sign" (default yes). A client user who can't is a viewer; a client admin
-  // always signs (ARCHITECTURE §4).
+  // v0.12 W1-D: "can sign" (default no, overnight D3). A client user who can't is a viewer; a
+  // client admin always signs (ARCHITECTURE §4).
   canSign: z.boolean().optional(),
   /** §1.122: the agents a client user may see (omitted or null: every agent). */
   agentIds: MemberAgents.optional(),
@@ -78,7 +78,8 @@ export type Member = z.infer<typeof Member>;
 /**
  * Changing a client person's access in place (§1.122): their role, whether they sign, and which
  * agents they see. Omitted fields stay as they are. A client admin always signs and sees every
- * agent, so making someone an admin clears their list.
+ * agent, so making someone an admin clears their list; making an admin a user again needs both
+ * `canSign` and `agentIds` (422 `user_access_needed`).
  */
 export const MemberAccessBody = z
   .strictObject({

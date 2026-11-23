@@ -48,6 +48,34 @@ function refsOf(kinds: readonly RunSubjectKind[], refs: unknown): ToolRef[] {
 }
 
 /**
+ * A tool's id in each form a run may have kept it: QuickBooks' transactions are ours as
+ * `Bill:149` (the entity and its id, as sync stores them), but a write keeps what QuickBooks
+ * returned, `149`.
+ */
+// DECISION: a transaction id `Entity:id` also matches its bare `id`, and a raw record's bare id
+// its `Entity:id`; the kind (`transaction`) and the tool still have to match, so a vendor 149 is
+// never bill 149 (overnight S3.1).
+function idForms(externalId: string, entityType?: string): string[] {
+  const forms = new Set([externalId]);
+  const bare = /^[A-Za-z]+:(.+)$/.exec(externalId)?.[1];
+  if (bare) forms.add(bare);
+  else if (entityType) forms.add(`${entityType}:${externalId}`);
+  return [...forms];
+}
+
+function toolIdRefs(
+  kinds: readonly RunSubjectKind[],
+  ref: { connector: string; externalId: string },
+  entityType?: string,
+): ToolRef[] {
+  return idForms(ref.externalId, entityType).map((externalId) => ({
+    kinds,
+    connector: ref.connector,
+    externalId,
+  }));
+}
+
+/**
  * How the client's tools know the record with this id, if one of our tables holds it: a run's
  * change to a client's tool keeps the tool's id for the thing it wrote, not ours (§1.188).
  */
@@ -59,12 +87,12 @@ async function toolRefs(tx: Tx, tenantId: string, id: string): Promise<ToolRef[]
     .select({ connector: transaction.connector, externalId: transaction.externalId })
     .from(transaction)
     .where(and(eq(transaction.tenantId, tenantId), eq(transaction.id, id)));
-  if (txn) return [{ kinds: ["transaction"], ...txn }];
+  if (txn) return toolIdRefs(["transaction"], txn);
   const [rec] = await tx
     .select({ connector: receivable.connector, externalId: receivable.externalId })
     .from(receivable)
     .where(and(eq(receivable.tenantId, tenantId), eq(receivable.id, id)));
-  if (rec) return [{ kinds: ["transaction"], ...rec }];
+  if (rec) return toolIdRefs(["transaction"], rec);
   const [raw] = await tx
     .select({
       connector: rawRecord.connector,
@@ -73,15 +101,7 @@ async function toolRefs(tx: Tx, tenantId: string, id: string): Promise<ToolRef[]
     })
     .from(rawRecord)
     .where(and(eq(rawRecord.tenantId, tenantId), eq(rawRecord.id, id)));
-  if (raw) {
-    return [
-      {
-        kinds: [subjectKindOfEntity(raw.entityType)],
-        connector: raw.connector,
-        externalId: raw.externalId,
-      },
-    ];
-  }
+  if (raw) return toolIdRefs([subjectKindOfEntity(raw.entityType)], raw, raw.entityType);
   const [v] = await tx
     .select({ refs: vendor.externalRefs })
     .from(vendor)
