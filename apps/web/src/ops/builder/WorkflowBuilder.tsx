@@ -2474,6 +2474,7 @@ function Problems({
 /**
  * The split signals (ARCHITECTURE §10.14 "When to split"): advice, never errors. The operator
  * decides whether a long or deeply nested process is better as two agents joined by a handoff.
+ * With them, a process that can end with nothing reported out (`no_output`).
  */
 function Advice({ warnings }: { warnings: readonly { message: string; code: string }[] }) {
   if (warnings.length === 0) return null;
@@ -2489,6 +2490,12 @@ function Advice({ warnings }: { warnings: readonly { message: string; code: stri
           w.code === "outcome_unreachable" ? (
             <li key={`${w.code}:${w.message}`} data-testid="builder-advice-outcome">
               {w.message}
+            </li>
+          ) : w.code === "no_output" ? (
+            // How it ends (owner, 2026-11-23): a run that can finish with nothing reported out.
+            <li key={`${w.code}:${w.message}`} data-testid="builder-advice-ending">
+              {w.message.charAt(0).toUpperCase()}
+              {w.message.slice(1)}.
             </li>
           ) : (
             <li key={`${w.code}:${w.message}`}>

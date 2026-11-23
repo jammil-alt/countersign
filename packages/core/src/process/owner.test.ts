@@ -225,6 +225,12 @@ describe("one agent, one process", () => {
     expect(errors).toEqual([]);
     expect(advisories).toEqual([
       expect.objectContaining({ workflow: "intake", code: "split_long", stepId: null }),
+      // The other advice comes with it: a run that ends on a wait reports nothing out.
+      expect.objectContaining({
+        workflow: "intake",
+        code: "no_output",
+        stepId: `wait${SPLIT_MAX_STEPS - 1}`,
+      }),
     ]);
   });
 });

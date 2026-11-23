@@ -83,6 +83,7 @@ import {
   conversationSendTools,
 } from "./conversation";
 // Hand off (owner, 2026-11-11): the client's other agents a hand-off step can start.
+import { deadEndMessage, deadEnds } from "./ending";
 import { HANDOFF_ENTRY_KINDS, type HandoffAgent, handoffTargetOf, skippedReads } from "./handoff";
 // Wave 5: how each step ended, for an `if` to route on (`steps.<id>.outcome` and the rest).
 import { outcomeVocabulary, stepRecordFields, stepRecordSchema } from "./outcomes";
@@ -204,7 +205,9 @@ export type ProcessWarningCode =
   // v0.17: a write inside a repeat (it can change a client's tool on every pass), and a for each
   // inside one (its size is known only when it runs, so the step estimate can't count it).
   | "repeat_write"
-  | "repeat_for_each";
+  | "repeat_for_each"
+  // How it ends (owner, 2026-11-23): a run can finish on a step that reports nothing out.
+  | "no_output";
 
 export interface ProcessWarning {
   stepId: string | null;
@@ -2295,7 +2298,19 @@ export function validateProcess(
   return {
     valid: errors.length === 0,
     errors,
-    warnings: [...splitWarnings(process), ...repeats.warnings, ...warnings],
+    warnings: [
+      ...splitWarnings(process),
+      ...repeats.warnings,
+      ...warnings,
+      ...deadEnds(process, ctx).map(
+        (step): ProcessWarning => ({
+          stepId: step.id,
+          field: "",
+          code: "no_output",
+          message: deadEndMessage(step),
+        }),
+      ),
+    ],
     value: process,
   };
 }
