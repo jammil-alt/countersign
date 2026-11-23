@@ -58,6 +58,17 @@ export interface Formatters {
   bytes(n: number): string;
 }
 
+/** A zone Intl knows, else undefined (the viewer's own): a bad stored zone never breaks a screen. */
+export function validZone(timeZone: string | null | undefined): string | undefined {
+  if (!timeZone) return undefined;
+  try {
+    new Intl.DateTimeFormat("en", { timeZone });
+    return timeZone;
+  } catch {
+    return undefined;
+  }
+}
+
 /** A calendar day with no time ("2026-11-03"): read in UTC, so it is that day everywhere. */
 const CALENDAR_DAY = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -74,11 +85,19 @@ export function dateLocaleFor(intl: string): string {
   return intl === "en" || intl.startsWith("en-") ? "en-GB" : intl;
 }
 
-export function createFormatters(intl: string): Formatters {
+/**
+ * The formatters for `intl`. Dates and times are in the viewer's time zone, or in `timeZone` when
+ * given (a client's zone, where the client's day is what counts: S5). A calendar day
+ * ("2026-11-03") is that day in any zone.
+ */
+export function createFormatters(intl: string, timeZone?: string): Formatters {
   const dl = dateLocaleFor(intl);
-  const clock = new Intl.DateTimeFormat(dl, { hour: "2-digit", minute: "2-digit" });
-  const dayMonth = new Intl.DateTimeFormat(dl, { month: "short", day: "numeric" });
-  const date = new Intl.DateTimeFormat(dl, { month: "short", day: "numeric", year: "numeric" });
+  const zone = validZone(timeZone);
+  const inZone = (o: Intl.DateTimeFormatOptions): Intl.DateTimeFormat =>
+    new Intl.DateTimeFormat(dl, zone ? { ...o, timeZone: zone } : o);
+  const clock = inZone({ hour: "2-digit", minute: "2-digit" });
+  const dayMonth = inZone({ month: "short", day: "numeric" });
+  const date = inZone({ month: "short", day: "numeric", year: "numeric" });
   const dateUtc = new Intl.DateTimeFormat(dl, {
     month: "short",
     day: "numeric",
@@ -90,22 +109,25 @@ export function createFormatters(intl: string): Formatters {
     day: "numeric",
     timeZone: "UTC",
   });
-  const month = new Intl.DateTimeFormat(dl, { month: "short", year: "numeric" });
-  const seconds = new Intl.DateTimeFormat(dl, {
+  const month = inZone({ month: "short", year: "numeric" });
+  const seconds = inZone({
     hour: "2-digit",
     minute: "2-digit",
     second: "2-digit",
   });
+  // The calendar day an instant falls on, in the zone ("2026-11-03"): for "today" and the year.
+  const dayKey = new Intl.DateTimeFormat("en-CA", zone ? { timeZone: zone } : {});
   const calendar = (iso: string) => CALENDAR_DAY.test(iso);
   const parse = (iso: string) => new Date(calendar(iso) ? `${iso}T00:00:00Z` : iso);
   const valid = (d: Date) => !Number.isNaN(d.getTime());
+  const yearOf = (d: Date) => dayKey.format(d).slice(0, 4);
   /** "3 Nov", or "3 Nov 2025" when not in `now`'s year. */
   const dayOf = (iso: string, now: Date) => {
     const d = parse(iso);
     if (!valid(d)) return iso;
     const utc = calendar(iso);
-    const year = utc ? d.getUTCFullYear() : d.getFullYear();
-    if (year !== now.getFullYear()) return (utc ? dateUtc : date).format(d);
+    const year = utc ? String(d.getUTCFullYear()) : yearOf(d);
+    if (year !== yearOf(now)) return (utc ? dateUtc : date).format(d);
     return (utc ? dayMonthUtc : dayMonth).format(d);
   };
   const dateTime = (d: Date, now: Date) => `${dayOf(d.toISOString(), now)}, ${clock.format(d)}`;
@@ -132,7 +154,7 @@ export function createFormatters(intl: string): Formatters {
       if (!iso) return "";
       const d = new Date(iso);
       if (!valid(d)) return iso;
-      return d.toDateString() === now.toDateString() ? clock.format(d) : dateTime(d, now);
+      return dayKey.format(d) === dayKey.format(now) ? clock.format(d) : dateTime(d, now);
     },
     dateTime(iso, now = new Date()) {
       if (!iso) return "";
