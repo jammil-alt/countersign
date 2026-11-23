@@ -188,7 +188,7 @@ describe("the agent's SOP, made by code (docs/sop-plan.md)", () => {
     );
     expect(words).toContain("Step 6, Attach the PDF: Ask me first (was On its own)");
     expect(words).toContain("QuickBooks Online update: Ask me first (was On its own)");
-    expect(sopChanges(null, before)[0]?.words).toBe("First revision of this SOP.");
+    expect(sopChanges(null, before)[0]?.words).toBe("First recorded revision of this SOP.");
   });
 
   it("says a paused agent is paused, without a new revision for the pause or the resume", async () => {

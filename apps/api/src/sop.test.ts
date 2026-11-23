@@ -3,8 +3,8 @@
 // revision is recorded when it is first read; a change to what it says, made through a session
 // route, records the next revision in the same transaction with who made it and where.
 
-import { agent, appUser, membership, sopRevision } from "@countersign/db";
-import { and, eq } from "drizzle-orm";
+import { agent, agentVersion, appUser, membership, sopRevision } from "@countersign/db";
+import { and, desc, eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   type ApiHarness,
@@ -68,7 +68,8 @@ describe.skipIf(!h)("the agent's SOP (docs/sop-plan.md)", () => {
     expect(view.code).toMatch(/^SOP-[A-Z]{3}-\d{2}$/);
     expect(view.agent.name).toBe("Bills in");
     expect(view.revision.number).toMatch(/^\d+\.0$/);
-    expect(view.revision.changes[0].words).toBe("First revision of this SOP.");
+    expect(view.revision.changes[0].words).toBe("First recorded revision of this SOP.");
+    expect(view.revision.where).toBe("First recorded revision");
     expect(view.history).toHaveLength(1);
     const steps = view.procedure.filter((l: { line: string }) => l.line === "step");
     expect(steps.map((s: { name: string }) => s.name)).toEqual([
@@ -83,6 +84,33 @@ describe.skipIf(!h)("the agent's SOP (docs/sop-plan.md)", () => {
     // The client admin reads what it learned; the reading made exactly one revision.
     expect(view.learned).toEqual([]);
     expect(await revisions(ids.mine)).toHaveLength(1);
+  });
+
+  it("reads a first revision stored with the old words as the first recorded one", async () => {
+    const id = await clientAgent(H.A.tenantId, "sop-older", "Bills older");
+    const [v] = await H.t.db
+      .select()
+      .from(agentVersion)
+      .where(eq(agentVersion.agentId, id))
+      .orderBy(desc(agentVersion.version))
+      .limit(1);
+    await H.t.db.insert(sopRevision).values({
+      tenantId: H.A.tenantId,
+      agentId: id,
+      major: v?.version as number,
+      minor: 0,
+      agentVersionId: v?.id as string,
+      fingerprint: "0".repeat(64),
+      view: {},
+      changes: [{ section: "header", ref: null, words: "First revision of this SOP.", was: null }],
+      changedBySide: "system",
+      source: "first",
+    });
+    const view = j((await H.call(admin("a"), "GET", `/api/services/${id}/sop`)).json);
+    const first = view.history.at(-1);
+    expect(first.number).toMatch(/^\d+\.0$/);
+    expect(first.where).toBe("First recorded revision");
+    expect(first.changes[0].words).toBe("First recorded revision of this SOP.");
   });
 
   it("makes no new revision when nothing it says changed", async () => {

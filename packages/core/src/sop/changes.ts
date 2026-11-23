@@ -8,6 +8,16 @@
 import { canonicalJson, sha256Hex } from "../canonical";
 import type { SopChange, SopControl, SopStepLine, SopSystem, SopView } from "./view";
 
+/**
+ * What the first revision says changed. "Recorded" because SOPs began after most agents were live:
+ * a history that starts at 4.0 is the first we recorded, not the first there was.
+ */
+// DECISION (QA W9): "First recorded revision" in place of "First revision"; stored first rows
+// that say the old words read the new ones (`FIRST_REVISION_WORDS_BEFORE`, apps/api sopHistory).
+export const FIRST_RECORDED = "First recorded revision of this SOP.";
+/** The first revision's words before QA W9, as stored in older rows. */
+export const FIRST_REVISION_WORDS_BEFORE = "First revision of this SOP.";
+
 /** The part of the SOP a revision is about. */
 export function sopContent(view: SopView): unknown {
   const {
@@ -58,8 +68,7 @@ function stepsOf(view: SopView): Map<string, SopStepLine> {
 
 /** Each change from `before` to `after`, newest wording first: steps, then controls, systems, the rest. */
 export function sopChanges(before: SopView | null, after: SopView): SopChange[] {
-  if (!before)
-    return [{ section: "header", ref: null, words: "First revision of this SOP.", was: null }];
+  if (!before) return [{ section: "header", ref: null, words: FIRST_RECORDED, was: null }];
   // A new way of writing SOPs, not a change to the agent: said once, without a diff between two
   // ways of writing that would list changes nobody made.
   if ((before.format ?? 0) !== after.format) {
