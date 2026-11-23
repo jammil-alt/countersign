@@ -118,6 +118,20 @@ with its name only, and a test run's lookup after a simulated create.
 | S7.4 | The approval card for a new vendor says "Nothing recorded"; the bill card's Evidence has no link to its PDF. | WR3 | S |
 | S7.5 | Controls 31 of 45, 43 and 42 on three screens; open items 22, 24 and 26. Label each count by what it counts. | SC1, CL1 | S |
 
+### S8. Sentry errors and the Dev queue (added 23 Nov, 04:47 UTC)
+
+| # | Fix | From | Size |
+|---|---|---|---|
+| S8.1 | The vault upkeep job fails every hour on client keys wrapped by the lost master key. Rewrap only keys whose master is known; report the rest once as a warning. `apps/api/src/vault/upkeep.ts:40`, `packages/connectors/src/tenant-keys.ts:160`. | Sentry API-D | S |
+| S8.2 | The US texting registration pass fails every 15 minutes (411 events): TWELVE THIRTY-FOUR's Twilio credentials were sealed under a lost client key. Mark a connection whose credentials can't be opened as needing attention and stop retrying it (one helper shared with S3.7); re-fetch a Mezonas-made Twilio subaccount's credentials if that is simple and safe, else write the by-hand repair. `apps/api/src/messaging/a2p.ts:984`. | Sentry API-C | S–M |
+| S8.3 | Dev queue DQ-001: a photo's location and time taken from Get document (`docs.get#photoMetadata`). | Dev queue | M |
+| S8.4 | Dev queue DQ-002: a nearest-within-distance pick in Reshape data (`data.reshape#nearestWithin`). | Dev queue | S–M |
+| S8.5 | Your call's empty state: the design system's empty state instead of a bare "Clear the filters" button. | Feedback | S |
+
+Also given to S7: the hourly SOP check records revisions that connection changes and pause/resume should record at the time (Sentry API-F), by adding those routes to `apps/api/src/sop/change-routes.ts`.
+
+**Sentry, resolved 23 Nov:** 14 issues that were already fixed (the QuickBooks sign-in and sync failures from the lost key; the Builder's tool retries #494, #517; the stale lazy screen #493; #495) or one-off network and database drops. Each reopens itself if it recurs. Still open: API-C and API-D (S8), API-F (S7), API-J (Sloan's three escalations, S2). The `PLENARY-WEB-*` issues belong to Plenary Labs' project and were not touched.
+
 ## Owner decisions (answer any time; each stream uses the default until then)
 
 | # | Decision | Default tonight |
@@ -130,10 +144,14 @@ with its name only, and a test run's lookup after a simulated create.
 | D6 | Count audit "opens" as visits (a person's opens within 30 minutes count once). | Yes. |
 | D7 | Old runs whose approval expired keep "Waiting for approval" until backfilled. | Not backfilled tonight. |
 | D8 | Start trial, Nudge and the pack reports are hard to find (both walks missed them first). | Not changed tonight. |
+| D10 | Upload documents on the Builder's Describe (owner feedback, 21 Nov). Deferred in #597: documents in a draft raise invariants 9 and 14. | Not built. |
+| D11 | "These steps and workflow should be part of the lab as well" (feedback on a draft template's page, 21 Nov): unclear what is wanted. | Not changed; say more. |
 | D9 | Staging data: Demo client's contacts hold a real-looking gmail address (Susana Arce); an operator with an outside address (Darren Marshal) serves 4 of 5 clients. | Not touched. Confirm both are intended. |
 
 ## Morning steps (a person in the back office)
 
+- **Sentry:** the code mappings of `mezonas-api` and `mezonas-web` point at the repository `jammil-alt/plenary-labs`, so Sentry's suspect commits and code links are Plenary Labs'. Point both at `jammil-alt/countersign` (Sentry → Settings → Integrations → GitHub → Code Mappings).
+- **Dev queue:** accept DQ-001 and DQ-002 (Back office → Build → Dev queue), then claim each and attach S8's PR.
 0. WorkOS's own multi-factor is off (done 23 Nov). After S1's sign-in PR lands: sign in with "Remember this browser" ticked, sign out, sign in again; no code should be asked. If one is, the latest sign-in row in Security → Audit log now says why.
 1. Merge the Sloan update (S2.4) into Demo client's Sloan, and the Bill clerk template update (S3.4)
    where it applies. Both are reviewed update merges.
