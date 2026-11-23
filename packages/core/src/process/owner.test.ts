@@ -188,13 +188,13 @@ describe("the checkpoints of a v4 process", () => {
   });
 });
 
-describe("one agent, one process", () => {
+describe("one agent, one main workflow, more ways in", () => {
   it("has nothing to say about one enabled workflow of a fair size", () => {
     expect(oneProcessProblems(bundle())).toEqual({ errors: [], advisories: [] });
     expect(oneProcessProblems(processBundle())).toEqual({ errors: [], advisories: [] });
   });
 
-  it("reports each enabled workflow past the first; disabled ones don't count", () => {
+  it("reports each enabled workflow past the first that doesn't hand off; disabled ones don't count", () => {
     const b = edit(bundle(), (d) => {
       const w = d.workflows[0];
       if (!w) throw new Error("fixture");
@@ -206,11 +206,131 @@ describe("one agent, one process", () => {
       ["workflows.1", "one_process"],
       ["workflows.3", "one_process"],
     ]);
-    expect(errors[0]?.message).toContain('"second" runs beside "intake"');
+    // The message says what to do: a trigger on the main workflow, or a hand-off into it.
+    expect(errors[0]?.message).toContain(
+      '"second" is a second way in beside the main workflow "intake"',
+    );
+    expect(errors[0]?.message).toContain('another trigger on "intake"');
+    expect(errors[0]?.message).toContain('hand-off to "@self" into "intake", one per item');
     const off = edit(b, (d) => {
       for (const w of d.workflows.slice(1)) w.enabled = false;
     });
     expect(oneProcessProblems(off).errors).toEqual([]);
+  });
+
+  // Ways in, ways out (owner, 2026-11-23): the nightly scan is a second way in with its own
+  // lead-in, ending with a fork out per unread invoice into the main workflow.
+  describe("a second way in", () => {
+    const handoff = (id: string, workflow: string, agent = "@self") => ({
+      id,
+      name: "Check it",
+      kind: "handoff",
+      to: { agent, workflow, step: "s1" },
+      input: { invoice: "{{item}}" },
+    });
+    const scan = (steps: unknown[]) =>
+      processBundle((b) => {
+        const main = b.workflows[0];
+        if (main?.workflow.schemaVersion !== 4) throw new Error("fixture");
+        b.workflows.push({
+          ...main,
+          slug: "nightly-scan",
+          workflow: { ...main.workflow, steps: steps as never },
+        });
+      });
+    const read = {
+      id: "find",
+      name: "Find bills",
+      kind: "read",
+      tool: "qbo.bills.list",
+      input: {},
+    };
+    const loop = (body: unknown[]) => ({
+      id: "each",
+      name: "Each bill",
+      kind: "for_each",
+      over: "{{steps.find.output.bills}}",
+      concurrency: 10,
+      steps: body,
+    });
+
+    it("is fine when every run ends by handing off into the main workflow, one per item", () => {
+      const b = scan([
+        read,
+        loop([
+          {
+            id: "unread",
+            name: "Not read yet?",
+            kind: "if",
+            paths: [
+              {
+                id: "p1",
+                name: "Unread",
+                when: { match: "all", rules: [] },
+                steps: [handoff("h", "intake")],
+              },
+            ],
+            otherwise: { id: "o1", name: "Otherwise", steps: [] },
+          },
+        ]),
+      ]);
+      expect(oneProcessProblems(b).errors).toEqual([]);
+    });
+
+    it("lets a path stop by choice", () => {
+      const b = scan([
+        read,
+        {
+          id: "any",
+          name: "Any bills?",
+          kind: "if",
+          paths: [
+            {
+              id: "none",
+              name: "None",
+              when: { match: "all", rules: [] },
+              steps: [{ id: "x", name: "Nothing to do", kind: "stop", status: "succeeded" }],
+            },
+          ],
+          otherwise: { id: "o2", name: "Otherwise", steps: [] },
+        },
+        loop([handoff("h", "intake")]),
+      ]);
+      expect(oneProcessProblems(b).errors).toEqual([]);
+    });
+
+    it("is refused when a run can end anywhere else, naming the step", () => {
+      const b = scan([
+        read,
+        loop([handoff("h", "intake")]),
+        {
+          id: "tell",
+          name: "Tell the team",
+          kind: "notify",
+          notify: { to: ["client_admin"], channel: "inbox", message: "Done" },
+        },
+      ]);
+      const { errors } = oneProcessProblems(b);
+      expect(errors.map((e) => [e.field, e.code])).toEqual([["workflows.1", "one_process"]]);
+      expect(errors[0]?.message).toContain('(a run can end on "Tell the team")');
+    });
+
+    it('counts only a hand-off to "@self" into another enabled workflow', () => {
+      for (const h of [
+        handoff("h", "nightly-scan"),
+        handoff("h", "intake", "another-agent"),
+        handoff("h", "gone"),
+      ]) {
+        expect(oneProcessProblems(scan([read, loop([h])])).errors).toHaveLength(1);
+      }
+      const into = scan([read, loop([handoff("h", "intake")])]);
+      const off = edit(into, (d) => {
+        const main = d.workflows[0];
+        if (main) main.enabled = false;
+      });
+      // With the main workflow off, the scan is the first enabled one: the main workflow itself.
+      expect(oneProcessProblems(off).errors).toEqual([]);
+    });
   });
 
   it("passes on validateProcess's split advice for each enabled workflow, v3 read as v4", () => {

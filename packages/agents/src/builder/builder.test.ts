@@ -27,7 +27,7 @@ import {
   reviseAgent,
 } from "./builder";
 import { type BuilderContext, catalogBriefForPrompt, catalogForPrompt } from "./context";
-import { guardBundle, replaceTemplates } from "./guards";
+import { assignIds, guardBundle, replaceTemplates } from "./guards";
 
 type Step = processes.Step;
 
@@ -821,5 +821,154 @@ describe("gapStepsNamed", () => {
       null,
     ]);
     expect(gapStepsNamed({ ...answer, gapSteps: undefined }, ["one"], saved)).toEqual([null]);
+  });
+});
+
+// Ways in, ways out (owner, 2026-11-23): asked for a nightly scan, the Builder added a second
+// workflow that copied every step of the first into its loop.
+describe("ways in, ways out", () => {
+  const read = (id: string) => ({
+    id,
+    kind: "read",
+    name: `Read the records ${id}`,
+    tool: "testkit.record.query",
+    input: {},
+  });
+  const summary = (id: string) => ({
+    id,
+    kind: "skill",
+    name: "Summarize records",
+    skill: "custom:summarize-records",
+    input: { about: "records" },
+  });
+  const tell = (id: string) => ({
+    id,
+    kind: "notify",
+    name: "Tell the team",
+    notify: { to: ["client_admin"], channel: "inbox", message: "Done" },
+  });
+  const flow = (slug: string, trigger: string, steps: unknown[]) => ({
+    slug,
+    name: slug,
+    workflow: {
+      schemaVersion: 4,
+      triggers: [{ id: trigger, on: { type: "manual", input: { type: "object" } } }],
+      steps,
+    },
+  });
+  const answer = (workflows: unknown[]) => ({
+    summary: "Checks records, and every night too.",
+    gaps: [],
+    bundle: { schemaVersion: 1, definition: definition(), workflows },
+  });
+  const main = flow("check", "t1", [read("a"), summary("b"), tell("c")]);
+  const copied = answer([
+    main,
+    flow("nightly", "t2", [
+      {
+        id: "each",
+        kind: "for_each",
+        name: "Each record",
+        over: "{{trigger.records}}",
+        steps: [read("a2"), summary("b2"), tell("c2")],
+      },
+    ]),
+  ]);
+
+  it("is told the model in the owner's terms", () => {
+    expect(RULES).toContain("An agent has one main workflow, its first.");
+    expect(RULES).toContain('"agent": "@self"');
+    expect(RULES).toContain("Never copy steps from one workflow into another.");
+  });
+
+  it("sends a draft that copies a workflow's steps back to the repair round", async () => {
+    const ctx = context();
+    // The repair: the second way in is a trigger on the main workflow.
+    const fixed = answer([
+      {
+        ...main,
+        workflow: {
+          ...main.workflow,
+          triggers: [
+            ...main.workflow.triggers,
+            { id: "t2", on: { type: "schedule", cron: "0 2 * * *" } },
+          ],
+        },
+      },
+    ]);
+    const model = new FakeModel([
+      { toolUse: { name: "submit_draft", input: copied } },
+      { toolUse: { name: "submit_draft", input: fixed } },
+    ]);
+    const result = await draftAgent(
+      { description: "x", ctx },
+      { llm: llmWith(model), validate: validateWith(ctx), newId: counter() },
+    );
+    expect(result.calls).toHaveLength(2);
+    const asked = JSON.stringify(model.requests[1]?.messages);
+    expect(asked).toContain("breaks the Builder's rules");
+    expect(asked).toContain('repeats 3 steps of \\"check\\"');
+    expect(asked).not.toContain("does not validate");
+    expect(result.bundle.workflows).toHaveLength(1);
+    expect(result.notes.some((n) => n.includes("repeats"))).toBe(false);
+  });
+
+  it("tells the operator when the repair kept the copy", async () => {
+    const ctx = context();
+    const model = new FakeModel([
+      { toolUse: { name: "submit_draft", input: copied } },
+      { toolUse: { name: "submit_draft", input: copied } },
+    ]);
+    const result = await draftAgent(
+      { description: "x", ctx },
+      { llm: llmWith(model), validate: validateWith(ctx), newId: counter() },
+    );
+    expect(result.calls).toHaveLength(2);
+    expect(result.notes).toContain(
+      '"nightly" repeats 3 steps of "check", from "Read the records a2" on: keep them in "check" alone and end "nightly" by handing off into "check" with "@self", one hand-off per item.',
+    );
+  });
+
+  it("leaves a copy the version it revises already had to the operator", () => {
+    const ctx = context();
+    const source = ProcessAgentBundleSchema.parse(copied.bundle) as ProcessAgentBundle;
+    const g = guardBundle(source, ctx, { mode: "revise", source });
+    expect(g.fix).toEqual([]);
+    expect(g.notes.some((n) => n.includes("repeats"))).toBe(false);
+  });
+
+  it("points a hand-off into this agent's own workflow at that workflow's new step ids", () => {
+    // Read without the schema: the hand-off's "@self" target is the hand-off's own (worker A).
+    const b = {
+      schemaVersion: 1,
+      definition: definition(),
+      workflows: [
+        main,
+        flow("nightly", "t2", [
+          {
+            id: "h",
+            kind: "handoff",
+            name: "Check it",
+            to: { agent: "@self", workflow: "check", step: "b" },
+            input: {},
+          },
+          {
+            id: "h2",
+            kind: "handoff",
+            name: "Another agent",
+            to: { agent: "records-bot", step: "b" },
+            input: {},
+          },
+        ]),
+      ],
+    } as unknown as ProcessAgentBundle;
+    const out = assignIds(b, new Set(), counter());
+    const [first, second] = out.workflows;
+    const b2 = first?.workflow.steps[1]?.id;
+    expect(b2).toBe("n3");
+    const [self, other] = (second?.workflow.steps ?? []) as { to: { step: string } }[];
+    expect(self?.to.step).toBe(b2);
+    // Another agent's step ids are its own.
+    expect(other?.to.step).toBe("b");
   });
 });
