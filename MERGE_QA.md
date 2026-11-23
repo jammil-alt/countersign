@@ -286,5 +286,26 @@ Each was built on the simplest answer, so nothing waits. Best answered in one si
 
 ## 6. Results
 
-Filled in as the passes run: the date, who ran it, each check's id with pass or fail, and the PR
-that fixed each failure.
+### 23 November, Pass 1 and Pass 2 (a Claude session; `main` at `c62dc890`)
+
+Run in a cloud container on a local Postgres 16 with pgvector, model answers replayed. Nothing on
+staging or production was changed.
+
+| Check | Result |
+|---|---|
+| P1.1 | **Pass.** All 17 late merges (#590, #554, #583, #587 to #589, #592, #595, #597 to #605) ran their CI green on their last commit. Six of them merged within 25 minutes on one base without being tested against each other (R11); M1 covers that. |
+| P1.2 | **Pass**, with one item left: CLAUDE.md's status line is still dated 8 November. |
+| P1.3 | Not checked: the coordinator's status page is its own. |
+| M1 | **Pass.** Lint, layering and typecheck clean. Every package's tests, three runs in a row: about 9,600 tests, no failure and no test that passed only sometimes. Not run here: 6 Chromium tests in `apps/browser`, whose pinned Chromium this container doesn't have (CI runs them). |
+| M2 | **Pass.** A database built at production's commit (`747d7ff`, 41 migrations, with its seed) took `main`'s migrations to 0100 and `main`'s seed. Its schema is identical, line for line, to a database migrated from nothing. This is seed data, not production's rows: the first real meeting is the release itself. |
+| M3 | **Pass**, by the deploy record: the last deploy (#603, `40164c20`) succeeded and migrates before it deploys; #605 after it is docs only, which doesn't deploy. The migrations table on staging was not read. |
+| M4 | **Pass.** First load 305.7 kB against the 335 kB budget. |
+| M5 | **Pass** for the tables: all 146 tables with a `tenant_id` have row-level security on and forced, each with a policy; only `tenant` and `app_user` have none, by design. The route-level boundary tests are in M1. |
+| M7 | **Open.** Sentry on staging shows only R1's errors and nothing new from the merges, 2 hours after the last deploy. Look again after 24 hours. |
+
+Read from staging the same day: no failed live run in 48 hours, nothing in Needs us, 7 connections,
+10 open feedback reports (R13). And R12: the Demo client's QuickBooks reads Connected while failing.
+
+### Still to run
+
+M6 and M8, then Pass 0 (the owner's), Pass 3 on staging, and the rest.
