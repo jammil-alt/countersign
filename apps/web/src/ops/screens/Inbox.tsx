@@ -283,6 +283,7 @@ export function OpsInboxScreen() {
         context={context}
         runHref={item.runId ? `/ops/runs/${item.runId}` : null}
         recordHref={(id) => `/ops/clients/${item.tenantId}/records/${id}`}
+        documentHref={(id) => `/ops/clients/${item.tenantId}/documents/${id}`}
         outcome={outcome}
         waitingOn={waitingOn}
         onResolve={

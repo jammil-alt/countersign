@@ -378,6 +378,13 @@ describe("qbo.vendor.create", () => {
     termsId: "3",
   };
 
+  it("puts the vendor's name on its card, so a vendor with a name alone isn't a blank card", () => {
+    const tool = createQboConnector().manifest.tools.find((t) => t.id === QBO_TOOLS.vendorCreate);
+    const fields = tool?.display?.fields ?? [];
+    expect(fields[0]).toMatchObject({ kind: "text", after: "input.displayName" });
+    expect(fields[0]?.label).toMatchObject({ en: "Name" });
+  });
+
   it("names on the card that nothing existed, creates the vendor once, and gives its id", async () => {
     const s = await setup();
     const proposed = await captureBefore(s.connector, QBO_TOOLS.vendorCreate, vendor, s.propose());

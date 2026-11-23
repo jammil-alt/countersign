@@ -217,13 +217,18 @@ export default function EvidencePanel({
   itemId,
   surface,
   verification,
-  recordHref,
+  documentHref,
 }: {
   itemId: string;
   surface: "portal" | "ops";
   /** The card's own `payload.verification` outcome, so the summary says it before loading. */
   verification?: string | null;
-  recordHref?: ((id: string) => string) | null;
+  /**
+   * The document's page, where its file (the PDF) opens, for a source's id, in this surface.
+   */
+  // DECISION (QA WR3): a document the change rests on links to its own page, one click from the
+  // PDF, not to the record page (two clicks, and it doesn't read as the PDF).
+  documentHref?: ((id: string) => string) | null;
 }) {
   const { locale, fmt } = useI18n();
   const w: Words = WORDS[locale] ?? WORDS.en;
@@ -282,8 +287,13 @@ export default function EvidencePanel({
                       .join(" · ");
                     return (
                       <li key={`${s.recordId ?? i}:${s.kind}`} className="figures">
-                        {s.recordId && recordHref && s.kind === "document" ? (
-                          <Link to={recordHref(s.recordId)}>{line || s.kind}</Link>
+                        {s.recordId && documentHref && s.kind === "document" ? (
+                          <Link
+                            to={documentHref(s.recordId)}
+                            data-testid={`inbox-evidence-document-${s.recordId}`}
+                          >
+                            {line || s.kind}
+                          </Link>
                         ) : (
                           line || s.kind
                         )}
