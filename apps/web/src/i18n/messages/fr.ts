@@ -3672,6 +3672,7 @@ export const fr: Messages = {
     "Quelque chose ne marche pas, ou une idée pour nous : dites-le ici à votre responsable Mezonas.",
   "requests.new": "Nouvelle demande",
   "requests.empty": "Aucune demande pour l'instant.",
+  "requests.state.sent": "Envoyée", // fluent review
   "requests.state.on_it": "Nous nous en occupons",
   "requests.state.waiting_on_you": "En attente de votre réponse",
   "requests.state.fixed": "Corrigé",

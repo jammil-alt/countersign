@@ -20,7 +20,7 @@ import {
   requirementsProgress,
   routes,
 } from "@countersign/core";
-import { agent, clientAsk, inboxItem, issue, type Tx } from "@countersign/db";
+import { agent, clientAsk, inboxItem, issue, message, type Tx } from "@countersign/db";
 import { and, desc, eq, inArray } from "drizzle-orm";
 import type { Hono } from "hono";
 import { z } from "zod";
@@ -42,16 +42,44 @@ function mine(role: Role) {
   return role !== "client_admin";
 }
 
+// DECISION (QA PH3): a request reads "Sent" until one of us picks it up, never "We're on it" the
+// moment it is raised. A problem is picked up when we (or Reggie, as the lead) first answer it or
+// move it past Reported; an idea when we answer it on its thread or group it into a piece of work.
 function issueState(r: IssueRow): PortalRequestState {
   if (r.stage === "closed") return r.causeKind && r.causeKind !== "not_a_bug" ? "fixed" : "closed";
   if (r.stage === "verify" || r.waitingOn === "client") return "waiting_on_you";
+  if (r.stage === "reported" && !r.firstReplyAt) return "sent";
   return "on_it";
 }
 
-function askState(a: AskRow): PortalRequestState {
+function askState(a: AskRow, answered: boolean): PortalRequestState {
   if (a.status === "told") return "fixed";
   if (a.status === "closed") return "closed";
+  if (a.status === "open" && !answered) return "sent";
   return "on_it";
+}
+
+/** The open asks' threads one of us has written on (to the client). */
+async function answeredAsks(tx: Tx, tenantId: string, asks: AskRow[]): Promise<Set<string>> {
+  const threads = asks.filter((a) => a.status === "open").map((a) => a.threadId);
+  if (threads.length === 0) return new Set();
+  const rows = await tx
+    .select({ threadId: message.threadId, senderId: message.senderId })
+    .from(message)
+    .where(
+      and(
+        eq(message.tenantId, tenantId),
+        inArray(message.threadId, threads),
+        eq(message.audience, "client"),
+        eq(message.senderType, "user"),
+      ),
+    );
+  const ops = await operatorsOf(
+    tx,
+    tenantId,
+    rows.map((r) => r.senderId),
+  );
+  return new Set(rows.filter((r) => r.senderId && ops.has(r.senderId)).map((r) => r.threadId));
 }
 
 async function services(tx: Tx, tenantId: string, ids: (string | null)[]) {
@@ -80,6 +108,7 @@ async function views(
   ]);
   const service = (id: string | null) =>
     id && svc.has(id) ? { id, name: svc.get(id) as string } : null;
+  const answered = await answeredAsks(tx, tenantId, asks);
   return [
     ...issues.map(
       (i): PortalWorkRequest => ({
@@ -104,7 +133,7 @@ async function views(
         number: null,
         title: a.title,
         text: a.text,
-        state: askState(a),
+        state: askState(a, answered.has(a.threadId)),
         service: service(a.agentId),
         raisedBy: (a.raisedBy && names.get(a.raisedBy)) || null,
         createdAt: a.createdAt.toISOString(),

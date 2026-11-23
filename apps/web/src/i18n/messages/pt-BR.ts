@@ -3619,6 +3619,7 @@ export const ptBR: Messages = {
     "Algo não está funcionando, ou uma ideia para nós: conte aqui ao seu responsável na Mezonas.",
   "requests.new": "Nova solicitação",
   "requests.empty": "Nenhuma solicitação ainda.",
+  "requests.state.sent": "Enviada", // fluent review
   "requests.state.on_it": "Estamos cuidando disso",
   "requests.state.waiting_on_you": "Aguardando você",
   "requests.state.fixed": "Corrigido",

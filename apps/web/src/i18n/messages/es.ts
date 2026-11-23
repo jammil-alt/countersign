@@ -3617,6 +3617,7 @@ export const es: Messages = {
     "Algo no funciona, o una idea para nosotros: cuénteselo aquí a su responsable en Mezonas.",
   "requests.new": "Nueva solicitud",
   "requests.empty": "Aún no hay solicitudes.",
+  "requests.state.sent": "Enviada", // fluent review
   "requests.state.on_it": "Estamos en ello",
   "requests.state.waiting_on_you": "Esperamos su respuesta",
   "requests.state.fixed": "Resuelto",

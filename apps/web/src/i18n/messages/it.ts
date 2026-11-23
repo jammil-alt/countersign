@@ -3635,6 +3635,7 @@ export const it: Messages = {
   "requests.lede": "Qualcosa non funziona, o un'idea per noi: dillo qui al tuo referente Mezonas.",
   "requests.new": "Nuova richiesta",
   "requests.empty": "Ancora nessuna richiesta.",
+  "requests.state.sent": "Inviata", // fluent review
   "requests.state.on_it": "Ce ne stiamo occupando",
   "requests.state.waiting_on_you": "In attesa di te",
   "requests.state.fixed": "Risolto",
