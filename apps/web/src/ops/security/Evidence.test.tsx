@@ -85,7 +85,9 @@ describe("the evidence of agents' checks (§1.231.3)", () => {
     expect(row.textContent).toContain("K3");
     expect(row.textContent).toContain("SOC 2 CC8.1, PI1.3");
     expect(row.textContent).toContain('"connections":["c1"]');
-    expect(screen.getByTestId("evidence-period").textContent).toContain("24 Oct 2026 to 22 Nov 2026");
+    expect(screen.getByTestId("evidence-period").textContent).toContain(
+      "24 Oct 2026 to 22 Nov 2026",
+    );
     expect(screen.getByTestId("evidence-csv").getAttribute("href")).toBe(
       `/api/ops/assurance/evidence.csv?agent=${AGENT}`,
     );
