@@ -301,6 +301,8 @@ staging or production was changed.
 | M3 | **Pass**, by the deploy record: the last deploy (#603, `40164c20`) succeeded and migrates before it deploys; #605 after it is docs only, which doesn't deploy. The migrations table on staging was not read. |
 | M4 | **Pass.** First load 305.7 kB against the 335 kB budget. |
 | M5 | **Pass** for the tables: all 146 tables with a `tenant_id` have row-level security on and forced, each with a policy; only `tenant` and `app_user` have none, by design. The route-level boundary tests are in M1. |
+| M6 | **Pass**, with small things. The every-screen sweep ran in light and dark, at desktop and phone width: 129 routes and 55 walk-through steps in each, 736 checks, no page error, no console error, no 5xx, no sideways scroll on a phone. Not reached, because the seed has nothing that links to them: a build's page, a Reggie conversation, a custom skill's pages, the Lab's check and the process interview. The new screens were also read by eye (Accounts, SOC 2, Evidence, Scorecard, Books health, Work statement, Procedures, the agent's Report and Workflow, Getting started). They are clean in both themes. Four things for Later: on Accounts the client's name wraps over three lines ("Demo / client 2 / agents"); the Work statement shows October with an empty month box, and offers a PDF for a month with no work; the Scorecard shows ids (`bookkeeper`, `daily`) where the rest of the app shows names; the report date boxes are the browser's own (mm/dd/yyyy), not the house format. |
+| M8 | **Pass.** All six languages hold the same 3,765 keys, so no screen can show a raw key. About 390 strings in each of the five other languages (1,960 marks in all) still wait for a fluent reader (L6). |
 | M7 | **Open.** Sentry on staging shows only R1's errors and nothing new from the merges, 2 hours after the last deploy. Look again after 24 hours. |
 
 Read from staging the same day: no failed live run in 48 hours, nothing in Needs us, 7 connections,
@@ -308,4 +310,4 @@ Read from staging the same day: no failed live run in 48 hours, nothing in Needs
 
 ### Still to run
 
-M6 and M8, then Pass 0 (the owner's), Pass 3 on staging, and the rest.
+Pass 0 (the owner's), then Pass 3 on staging and the rest. Pass 2 is done but for M7's second look.
