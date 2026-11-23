@@ -6,6 +6,8 @@
 // to Sentry so the call site is fixed.
 
 import {
+  FIRST_RECORDED,
+  FIRST_REVISION_WORDS_BEFORE,
   type SopChange,
   type SopRevisionEntry,
   SopView,
@@ -44,7 +46,7 @@ export type SopRevisionSource =
   | "format";
 
 const WHERE_WORDS: Record<SopRevisionSource, string> = {
-  first: "First revision",
+  first: "First recorded revision",
   version: "New version of the agent",
   agent: "The agent's settings",
   connection: "Connections",
@@ -230,7 +232,12 @@ export async function sopHistory(
   return rows.map((r) => ({
     number: `${r.major}.${r.minor}`,
     at: r.at.toISOString(),
-    changes: (r.changes ?? []) as SopChange[],
+    // Rows are never updated: a first row stored with the old words reads the new ones.
+    changes: ((r.changes ?? []) as SopChange[]).map((c) =>
+      r.source === "first" && c.words === FIRST_REVISION_WORDS_BEFORE
+        ? { ...c, words: FIRST_RECORDED }
+        : c,
+    ),
     by:
       r.side === "system"
         ? null

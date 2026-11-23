@@ -270,7 +270,7 @@ export const en = {
   "table.week.finished": { one: "{count} finished", other: "{count} finished" },
   "table.weekRuns": "Runs started this week: {counts}.",
   "runsPage.perDay.day": "{day}: {parts}",
-  "agent.stage.trial": "On trial",
+  "agent.stage.trial": "In trial",
   "agent.stage.signoff": "Waiting for your approval to go live",
   "agent.pause": "Pause",
   "agent.resume": "Resume",
