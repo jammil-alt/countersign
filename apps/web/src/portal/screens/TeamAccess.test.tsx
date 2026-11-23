@@ -129,10 +129,48 @@ describe("access per person (§1.122)", () => {
         {
           email: "clerk@demo.example.com",
           role: "client_user",
-          canSign: true,
+          canSign: false,
           agentIds: [COLLECTIONS],
         },
       ]),
+    );
+  });
+
+  it("an admin made a user starts from approvals off and agents to pick (QA PP3)", async () => {
+    const OTHER = "00000000-0000-4000-8000-0000000000b2";
+    const users = [
+      { ...member(CLIENT_SESSION.user.email, "client_admin"), userId: CLIENT_SESSION.user.id },
+      { ...member("boss@demo.example.com", "client_admin"), userId: OTHER },
+    ];
+    const patches: unknown[] = [];
+    const api = fakeApi({
+      "GET /api/session": () => CLIENT_SESSION,
+      "GET /api/overview": () => overview,
+      "GET /api/team": () => ({ members: [], settings: { undoSeconds: 0 } }),
+      "GET /api/users": () => ({ users, agents }),
+      [`PATCH /api/users/${OTHER}`]: ({ init }) => {
+        const body = JSON.parse(String(init.body));
+        patches.push(body);
+        return { member: { ...users[1], ...body } };
+      },
+    });
+    renderAt("/settings/team", api);
+    const id = "portal-team-boss@demo.example.com";
+    const row = await screen.findByTestId(id);
+    await userEvent.click(within(row).getByTestId(`${id}-access-toggle`));
+    const editor = await screen.findByTestId(`${id}-access`);
+    await userEvent.selectOptions(within(editor).getByTestId(`${id}-access-role`), "client_user");
+    expect(within(editor).getByTestId(`${id}-access-can-sign`)).toHaveAttribute(
+      "aria-checked",
+      "false",
+    );
+    expect(within(editor).getByTestId(`${id}-access-some`)).toHaveAttribute("aria-checked", "true");
+    // Nothing picked yet: Save waits for a choice.
+    expect(within(editor).getByTestId(`${id}-access-save`)).toBeDisabled();
+    await userEvent.click(within(editor).getByTestId(`${id}-access-agent-${INVOICES}`));
+    await userEvent.click(within(editor).getByTestId(`${id}-access-save`));
+    await waitFor(() =>
+      expect(patches).toEqual([{ role: "client_user", canSign: false, agentIds: [INVOICES] }]),
     );
   });
 
