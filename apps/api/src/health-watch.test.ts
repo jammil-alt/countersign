@@ -65,8 +65,9 @@ describe.skipIf(!h)("Sloan's old watches as platform code", () => {
       .where(eq(tenant.id, H.A.tenantId));
   });
 
-  it("forks Sloan's v6: the chat and nothing else", async () => {
-    expect(latestSeededVersion(SUPERVISOR_SLUG)).toBe(6);
+  // Overnight S2.4: v7 is v6's chat with its answer step on Claude Sonnet 5.5.
+  it("forks Sloan's newest seed (v7): the chat and nothing else", async () => {
+    expect(latestSeededVersion(SUPERVISOR_SLUG)).toBe(7);
     const [row] = await H.t.db
       .select({ bundle: agentVersion.bundle })
       .from(agent)
