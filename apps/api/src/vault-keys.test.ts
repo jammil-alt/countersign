@@ -157,7 +157,7 @@ describe.skipIf(!t)("tenant keys in the database", () => {
       const n = await withTenant(db, c.tenantId, (tx) =>
         rewrapClientKeys(tx, { tenantId: c.tenantId, master: rotating }),
       );
-      expect(n).toEqual({ rewrapped: 1, lost: 0 });
+      expect(n).toEqual({ rewrapped: 1, lost: 0, retiredLost: 0 });
     }
     const after = await CredentialCipher.create({ current: newKey });
     const vault = after.forClients(tenantKeysInDb(db));
@@ -201,6 +201,8 @@ describe.skipIf(!t)("tenant keys in the database", () => {
     const result = await vaultUpkeep(db, now);
     // A's and B's keys are under a master this test doesn't hold either: lost here too.
     expect(result.lostKeys).toBeGreaterThanOrEqual(1);
+    // C's retired key under the lost master is what the retire workflow leaves: counted apart.
+    expect(result.retiredLostKeys).toBe(1);
     const keys = await T.db.select().from(tenantKey).where(eq(tenantKey.tenantId, C.tenantId));
     const active = keys.find((k) => k.status === "active");
     const retired = keys.find((k) => k.status === "retired");
