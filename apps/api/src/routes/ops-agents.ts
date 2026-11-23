@@ -213,13 +213,17 @@ function request(make: () => RunRequest): RunRequest {
 }
 
 /**
- * A test run's payload is what its trigger would give: refused (422) before any run is made when
- * the workflow runs as an event and the payload isn't that event's (overnight S3.6: 30 Sandbox
- * runs failed on "Invalid UUID at documentId" after they started).
+ * A test run's payload gives what its workflow reads of its trigger: refused (422) before any run
+ * is made when the workflow runs as an event and a field it reads (`{{trigger.documentId}}`) is
+ * missing or isn't what the event gives there (overnight S3.6: 30 Sandbox runs failed on
+ * "Invalid UUID at documentId" after they started).
  */
-// DECISION: only an event trigger's payload is checked, against the event's own schema (the one
-// its emits are checked with); a manual trigger's form and a schedule carry what the operator
-// writes. An unknown workflow is left to requestRun's own refusal.
+// DECISION: only the fields the workflow's steps read are checked (a trigger's own filter isn't
+// applied to a run started by hand), each against the event's own schema
+// (the one its emits are checked with); fields it doesn't read, and extra ones, are left alone, so
+// a file tried in the builder (a `document.received` payload) still runs a workflow started by a
+// read document. A manual trigger's form and a schedule carry what the operator writes; an
+// unknown workflow is left to requestRun's own refusal.
 function checkTestPayload(
   events: Pick<EventTypeRegistry, "parsePayload">,
   bundle: AnyAgentBundle,
@@ -230,22 +234,33 @@ function checkTestPayload(
   if (!wf) return;
   const on = handTrigger(wf.workflow).on;
   if (on.type !== "event") return;
+  const read = new Set(
+    [
+      ...JSON.stringify(wf.workflow.steps).matchAll(/\{\{\s*trigger\.([A-Za-z_][A-Za-z0-9_]*)/g),
+    ].map((m) => m[1] as string),
+  );
+  if (read.size === 0) return;
+  const given = payload !== null && typeof payload === "object" ? payload : {};
+  const picked = Object.fromEntries(
+    Object.entries(given as Record<string, unknown>).filter(([k]) => read.has(k)),
+  );
   try {
-    events.parsePayload(on.event, payload ?? {});
+    events.parsePayload(on.event, picked);
   } catch (error) {
     if (error instanceof EventPayloadError) {
+      const issues = error.issues.filter((i) => read.has(String(i.path[0])));
+      if (issues.length === 0) return;
       throw new HttpError(
         422,
         "invalid_payload",
-        `the test payload isn't what ${on.event} gives: ${error.issues
-          .map((i) => `${i.path.join(".") || "payload"}: ${i.message}`)
+        `the test payload isn't what ${on.event} gives: ${issues
+          .map((i) => `${i.path.join(".")}: ${i.message}`)
           .join("; ")}`,
-        { issues: error.issues.map((i) => ({ path: i.path.map(String), message: i.message })) },
+        { issues: issues.map((i) => ({ path: i.path.map(String), message: i.message })) },
       );
     }
-    if (error instanceof UnknownEventTypeError) {
-      throw new HttpError(422, "invalid_payload", `no event ${on.event} to test the run as`);
-    }
+    // An event no registry knows is the workflow's problem, found when it is validated.
+    if (error instanceof UnknownEventTypeError) return;
     throw error;
   }
 }

@@ -140,6 +140,9 @@ describe.skipIf(!h)("test runs on a chosen client", () => {
       id: "trg-read",
       on: { type: "event", event: "document.extracted" },
     } as typeof wf.workflow.trigger;
+    // It reads the document the event names.
+    const update = wf.workflow.steps[0] as { input: Record<string, unknown> };
+    update.input = { ...update.input, id: "{{trigger.documentId}}" };
     const tpl = await H.call(OPERATOR, "POST", "/api/ops/templates", {
       slug: "invoice-reader",
       bundle,
@@ -162,13 +165,15 @@ describe.skipIf(!h)("test runs on a chosen client", () => {
     expect(H.instances.started.size).toBe(started);
     expect(await H.t.db.select().from(run)).toHaveLength(runs);
 
+    // What it doesn't read, and what the event doesn't carry, are left alone: a file tried in
+    // the builder sends a received document's payload.
     const good = await testRun(id, vid, {
       clientId: H.B.tenantId,
       payload: {
         documentId: "0193f000-0000-7000-8000-0000000000d1",
-        extractionId: "0193f000-0000-7000-8000-0000000000e1",
-        lineCount: 1,
-        totalsValid: true,
+        source: "upload",
+        filename: "invoice.pdf",
+        mimeType: "application/pdf",
       },
     });
     expect(good.status, JSON.stringify(good.json)).toBe(200);
