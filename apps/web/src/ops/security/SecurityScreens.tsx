@@ -109,7 +109,9 @@ export function SecurityOverviewScreen() {
     <SecurityPage
       testId="ops-security"
       title="Overview"
-      subtitle={`${inPlace} of ${CONTROLS.length} controls in place. Framework references are our own mapping; the auditor confirms them.`}
+      // DECISION (QA SC1): each controls count says which controls it counts: all of ours here,
+      // those a framework maps on its card, those a client's tier takes on its summary.
+      subtitle={`${inPlace} of our ${CONTROLS.length} controls in place. Framework references are our own mapping; the auditor confirms them.`}
     >
       <div className="flex flex-col gap-8">
         <Columns count={3}>
@@ -163,8 +165,12 @@ function FrameworkCard({ summary }: { summary: ReturnType<typeof frameworkSummar
     <Card pad testId={`ops-security-framework-${framework}`}>
       <p className="eyebrow text-ink-muted">{FRAMEWORK_NAMES[framework]}</p>
       <p className="type-title mt-1 text-ink figures">{done}%</p>
-      <p className="text-sm text-ink-muted">
-        {counts.in_place} of {controls} controls in place, {references} references
+      <p
+        className="text-sm text-ink-muted"
+        data-testid={`ops-security-framework-${framework}-count`}
+      >
+        {counts.in_place} of the {controls} controls mapped to {FRAMEWORK_NAMES[framework]} in
+        place, {references} references
       </p>
       <div
         className="mt-3 flex h-1.5 overflow-hidden rounded-full bg-line"
@@ -655,7 +661,12 @@ function ClientSummary({ client, data }: { client: SecurityClientRow; data: Secu
       <div className="flex flex-col gap-8">
         <KpiStrip testId="ops-security-client-figures">
           <StatTile label="Tier" value={TIER_NAMES[client.tier]} />
-          <StatTile label="Controls in place" value={`${inPlace.length} of ${controls.length}`} />
+          <StatTile
+            label="Controls in place"
+            value={`${inPlace.length} of ${controls.length}`}
+            note={`The controls for the ${TIER_NAMES[client.tier]} tier`}
+            testId="ops-security-client-controls"
+          />
           <StatTile
             label="People with access"
             value={client.admins + client.users}

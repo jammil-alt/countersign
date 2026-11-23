@@ -301,6 +301,10 @@ describe("ops billing", () => {
     expect(total).toHaveTextContent("$212.48");
     expect(total).toHaveTextContent("across 2 clients");
     expect(screen.getByTestId("ops-billing-our-cost")).toHaveTextContent("$43.12");
+    // QA: it says which cost it is, beside Usage's every model call.
+    expect(screen.getByTestId("ops-billing-our-cost")).toHaveTextContent(
+      "Billed work this month, as priced. Usage counts every model call.",
+    );
     expect(screen.getByTestId("ops-billing-to-review")).toHaveTextContent("Drafts waiting on you");
     expect(screen.getByTestId("ops-billing-failed")).toHaveTextContent("1 of 2 clients set up");
     await userEvent.click(screen.getByRole("link", { name: "Usage" }));
