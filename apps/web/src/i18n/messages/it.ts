@@ -2232,7 +2232,7 @@ export const it: Messages = {
   "teamPage.subtitleMember": "Chi usa il tuo portale e cosa approva ogni persona.",
   "teamPage.people": "Persone",
   "teamPage.invite": "Invita qualcuno",
-  "teamPage.viewer": "Non approva. Può leggere tutto.",
+  "teamPage.viewer": "Non approva.",
   "exports.title": "Esportazioni",
   "exports.subtitle":
     "File per il tuo commercialista e per i tuoi archivi. Ognuno copre giorni interi, fino a un anno.",

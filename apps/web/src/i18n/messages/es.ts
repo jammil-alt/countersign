@@ -2219,7 +2219,7 @@ export const es: Messages = {
   "teamPage.subtitleMember": "Quién usa su portal y qué aprueba cada persona.",
   "teamPage.people": "Personas",
   "teamPage.invite": "Invitar a alguien",
-  "teamPage.viewer": "No aprueba. Puede leer todo.",
+  "teamPage.viewer": "No aprueba.",
   "exports.title": "Exportaciones",
   "exports.subtitle":
     "Archivos para su contador y sus propios registros. Cada uno cubre días completos, hasta un año.",

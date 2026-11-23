@@ -2216,7 +2216,7 @@ export const ptBR: Messages = {
   "teamPage.subtitleMember": "Quem usa seu portal e o que cada pessoa aprova.",
   "teamPage.people": "Pessoas",
   "teamPage.invite": "Convidar alguém",
-  "teamPage.viewer": "Não aprova. Pode ler tudo.",
+  "teamPage.viewer": "Não aprova.",
   "exports.title": "Exportações",
   "exports.subtitle":
     "Arquivos para seu contador e seus próprios registros. Cada um cobre dias inteiros, até um ano.",

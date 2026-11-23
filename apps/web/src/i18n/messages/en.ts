@@ -2156,7 +2156,7 @@ export const en = {
   "teamPage.subtitleMember": "Who uses your portal and what each person approves.",
   "teamPage.people": "People",
   "teamPage.invite": "Invite someone",
-  "teamPage.viewer": "Doesn't approve. Can read everything.",
+  "teamPage.viewer": "Doesn't approve.",
   "exports.title": "Exports",
   "exports.subtitle":
     "Files for your accountant and your own records. Each covers whole days, up to a year.",
