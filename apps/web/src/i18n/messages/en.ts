@@ -625,6 +625,7 @@ export const en = {
   "action.status.done": "Made",
   "action.status.rejected": "Rejected",
   "action.status.failed": "Failed",
+  "action.status.expired": "Not made: no answer in time",
 
   // ── Connections ──
   "connections.title": "Accounts",
@@ -2156,7 +2157,7 @@ export const en = {
   "teamPage.subtitleMember": "Who uses your portal and what each person approves.",
   "teamPage.people": "People",
   "teamPage.invite": "Invite someone",
-  "teamPage.viewer": "Doesn't approve. Can read everything.",
+  "teamPage.viewer": "Doesn't approve.",
   "exports.title": "Exports",
   "exports.subtitle":
     "Files for your accountant and your own records. Each covers whole days, up to a year.",

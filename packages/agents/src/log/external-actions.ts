@@ -4,6 +4,7 @@
 
 import { ToolRefused } from "@countersign/connectors";
 import {
+  APPROVAL_EXPIRED,
   deepEqual,
   isPlainObject,
   type JsonObject,
@@ -932,6 +933,33 @@ export async function approveForRunTx(
     .update(externalAction)
     .set({ status: "approved", approvedBy: by, approvedAt: new Date() })
     .where(and(eq(externalAction.id, action.id), eq(externalAction.status, "proposed")))
+    .returning({ id: externalAction.id });
+  return row !== undefined;
+}
+
+/**
+ * The run's decision on a change nobody answered in time (its approval's `ifNoAnswer` is `stop` or
+ * `skip`): a change still `proposed` is closed as not made, `rejected` with `approval_expired`, so
+ * it never reads "Waiting for approval" once nothing waits on it. A change a person already
+ * answered (or the run approved) is left as it is. Returns whether it closed the change.
+ */
+// DECISION (S4.5): `rejected` with an error code, not a new status: no migration, and every reader
+// that treats `rejected` as "not made" stays right. Old rows are not backfilled (decision D7).
+export async function expireForRunTx(
+  tx: Tx,
+  tenantId: string,
+  input: { actionId: string },
+): Promise<boolean> {
+  const [row] = await tx
+    .update(externalAction)
+    .set({ status: "rejected", error: APPROVAL_EXPIRED })
+    .where(
+      and(
+        eq(externalAction.id, input.actionId),
+        eq(externalAction.tenantId, tenantId),
+        eq(externalAction.status, "proposed"),
+      ),
+    )
     .returning({ id: externalAction.id });
   return row !== undefined;
 }

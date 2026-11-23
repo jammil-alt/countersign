@@ -156,9 +156,10 @@ export function InviteForm({
   const [email, setEmail] = useState("");
   const [name, setName] = useState("");
   const [role, setRole] = useState<InvitableRole>("client_user");
+  // DECISION (overnight D3): a new user approves nothing until it is ticked.
   const [access, setAccess] = useState<AccessChoice>({
     role: "client_user",
-    canSign: true,
+    canSign: false,
     agentIds: null,
   });
   const [busy, setBusy] = useState(false);
