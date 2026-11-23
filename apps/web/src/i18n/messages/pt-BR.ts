@@ -639,6 +639,7 @@ export const ptBR: Messages = {
   "action.status.done": "Feito",
   "action.status.rejected": "Rejeitado",
   "action.status.failed": "Falhou",
+  "action.status.expired": "Não feito: sem resposta a tempo",
 
   // ── Connections ──
   "connections.title": "Contas",
@@ -2168,6 +2169,9 @@ export const ptBR: Messages = {
   "sloan.empty":
     "Pergunte por que algo está esperando, pause um agente, adicione um aprovador ou passe uma ideia ao seu responsável.",
   "sloan.answering": "Sloan está respondendo…",
+  "sloan.noAnswer":
+    "O Sloan ainda não respondeu. A resposta aparecerá aqui; para algo urgente, fale com o seu responsável.",
+  "sloan.checkAgain": "Verificar de novo",
   "sloan.compose": "Pergunte ao Sloan ou diga o que mudar",
   "sloan.commandHint": "Comece com / e o nome de um agente para perguntar a ele, como /pia.",
   "sloan.you": "Você",
@@ -2216,7 +2220,7 @@ export const ptBR: Messages = {
   "teamPage.subtitleMember": "Quem usa seu portal e o que cada pessoa aprova.",
   "teamPage.people": "Pessoas",
   "teamPage.invite": "Convidar alguém",
-  "teamPage.viewer": "Não aprova. Pode ler tudo.",
+  "teamPage.viewer": "Não aprova.",
   "exports.title": "Exportações",
   "exports.subtitle":
     "Arquivos para seu contador e seus próprios registros. Cada um cobre dias inteiros, até um ano.",
@@ -3618,6 +3622,7 @@ export const ptBR: Messages = {
     "Algo não está funcionando, ou uma ideia para nós: conte aqui ao seu responsável na Mezonas.",
   "requests.new": "Nova solicitação",
   "requests.empty": "Nenhuma solicitação ainda.",
+  "requests.state.sent": "Enviada", // fluent review
   "requests.state.on_it": "Estamos cuidando disso",
   "requests.state.waiting_on_you": "Aguardando você",
   "requests.state.fixed": "Corrigido",
