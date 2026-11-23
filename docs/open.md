@@ -1,4 +1,4 @@
-# What's still open (2026-11-22)
+# What's still open (2026-11-23)
 
 One list of everything that is still open, gathered from `docs/plan.md`, `docs/marketing-plan.md`,
 `docs/operations.md`, `docs/hipaa-plan.md` and each connector's `NOTES.md`. Those stay the
@@ -13,7 +13,7 @@ agent, §1.214).
 
 ## Where things stand
 
-- **Built:** everything through M69 (`docs/plan.md` §4) and the work recorded through §1.220,
+- **Built:** everything through M69 (`docs/plan.md` §4) and the work recorded through §1.237,
   migrations through 0100, merged to `main` and deployed to staging. That includes purchasing end
   to end by email (M42), the Marketing wave (M43–M50), the Bookkeeping area (M51–M57), the back
   office's Sales, onboarding and Build (M64–M69), the SOP and agent assurance.
@@ -29,6 +29,52 @@ agent, §1.214).
   (2026-11-09, migrations through 0041) but has had no `v*` tag; its next release is an upgrade.
 - Almost everything below is **a setup step, a key or a decision for the owner**, not code. Where
   code is still needed, it says so.
+
+## After the 23 Nov overnight fixes (`docs/plan.md` §1.237)
+
+Eight streams fixed what the second staging walk (QA2) found, in 40 PRs merged to `main` and on
+staging (#606–#644, #646; the plan is `OVERNIGHT_FIXES.md`). None has a migration; nothing went to
+production. What the owner does next, in order:
+
+1. **Re-approve the Claude connection to staging's MCP.** It reconnected and asks for a
+   connect-claude code. Then the coordinator resolves the remaining feedback notes.
+2. **Sloan v7** (#626, the answer step on Claude Sonnet 5.5, cap still $0.30): install it with
+   `POST /api/ops/platform-templates/supervisor/install {"version":7}`, then each client's Sloan →
+   Update available → review → publish. Feedback RN2 waits on this.
+3. **Bill clerk v5** (#621): install it and merge it into Demo client's Bill clerk the same way. It
+   adds an approved "Attach the invoice" step after Create bill.
+4. **Dev queue:** accept DQ-001 (#637, a photo's location and time taken) and DQ-002 (#640, the
+   nearest item within a distance), then claim each and attach its PR. DQ-001: no intake channel
+   accepts HEIC yet (`KEPT_TYPES`), the owner's call. WhatsApp and MMS likely strip GPS: test
+   with a real phone.
+5. **Check on staging:** "Remember this browser" (sign in with it ticked, sign out, sign in again;
+   if a code is asked, the newest `session.sign_in` audit row's `remembered_miss` says why), and
+   that sign-out takes one click and lands on `/`, not a WorkOS error page (#615). Also that the
+   texting pass restored TWELVE THIRTY-FOUR's Twilio credentials (a `credentials_restored`
+   change, #630); the EIN stored under the lost key is gone.
+6. **Decisions to confirm** (each built on its default):
+   - D5 (#629): an allowance over 80% and connections no agent uses no longer make a client "need
+     us" on Accounts. `ACCOUNT_ALLOWANCE_SHARE` is now unused.
+   - #640: a tie is two items under 1 m apart, and a point that isn't usable is `no_point`.
+   - #632: a draft's broken trigger reads "Won't start".
+   - #634: only published template versions are offered for new agents.
+   - D2 (#631): Sloan saves no Knowledge note itself; it tells the client how.
+   - D4: Reject asks for no reason (feedback WR7 is still open on it).
+7. **Follow-ups:**
+   - The SOP's stage line: "In trial: every change is signed" (a fingerprint change; #613's note).
+   - Numbers for ideas (`client_ask`) need a migration (#616).
+   - Sentry's code mappings for `mezonas-api` and `mezonas-web` point at `jammil-alt/plenary-labs`:
+     point both at `jammil-alt/countersign` (Settings → Integrations → GitHub → Code mappings).
+   - Delete leftover branches: #645's `claude/s8-client-status-week-start` (closed, the same fix
+     as #644) and the merged overnight branches.
+8. **Feedback still open after the wave:** LB4 ("5 skills" against "Skill 1"; only its schedule
+   part was fixed), SC1 (vendor rows on Security → Vendors can't be opened), WR7 (the reject
+   reason, D4), US1 (an older Sonnet id with no price), and the Plaid icon and the builder-space
+   notes (the owner to look).
+
+Left from the plan for later: accounts picked afresh each run with no vendor history, vendors
+written with their name only, prompt caching in the agent loop, and a backfill of expired
+approvals (D7).
 
 ## 0. Enterprise readiness (2026-11-15)
 
@@ -327,9 +373,9 @@ Email Routing for `in.mezonas.com`, the platform templates installed by hand, an
 A second hand-run production deploy (run 210, `5d27cfc`) waited for approval from 2026-11-09 and
 was cancelled on 2026-11-14: approve only a deploy of current `main`. D2 (§2) may bring this forward.
 
-Owner, in Sentry (2026-11-14 review): the `mezonas-web` project's GitHub code mapping points at
-Plenary Labs' repository, so its suspect commits are Plenary Labs'; point it at
-`jammil-alt/countersign` (Settings → Integrations → GitHub → Code mappings). And the staging run
+Owner, in Sentry (2026-11-14 review): the code mappings of `mezonas-web` and `mezonas-api` point
+at Plenary Labs' repository, so their suspect commits are Plenary Labs'; point both at
+`jammil-alt/countersign` (in the 23 Nov list above). And the staging run
 behind MEZONAS-API-1 (an invoice read stuck as running since 2026-11-07) needs cancelling from
 the back office.
 
@@ -489,7 +535,7 @@ Left:
 | A1 | **WorkOS multi-factor is on** (owner, 2026-11-16): required for every sign-in on staging and production (WorkOS dashboard → the environment → Authentication → Multi-factor auth). The rest of this row is the earlier state. | Owner's call, 2026-11-10 (since reversed): a code on every sign-in is too much for now. HIPAA today requires "person or entity authentication", not multi-factor; the proposed rule that would require it is not final (projected July 2027). Until A2 ships, sign-in is the password (or Google) alone, operators included. **No HIPAA client signs in before A2.** `docs/operations.md` and `docs/security.md` still describe multi-factor as required: that is the target, restored by A2. |
 | A2 | **Our own second step (`docs/plan.md` §1.100)**: server, screens (2026-11-14) and the Claude connector's approval link (§1.120, 2026-11-16) built; no code left. To switch on: per environment, a Twilio subaccount for sign-in with a Verify service and a Standard API key (`TWILIO_VERIFY_API_KEY_SID`, `TWILIO_VERIFY_API_KEY_SECRET` in the GitHub environment), then `TWILIO_VERIFY_SERVICE_SID` under its `vars` in `apps/api/wrangler.jsonc` (2026-11-18: subaccounts, services, keys and both service ids done for staging and production; production turns on at its next release), then one sign-in and one Claude connection checked (`docs/operations.md`), then WorkOS multi-factor off for that environment (owner). | Until WorkOS multi-factor is off, a browser sign-in is asked twice once ours is on (WorkOS's code, then ours), and Claude asks for WorkOS's code and then our approval. Owner to confirm: the approval link also applies to clients' Claude connections (§1.120, "Who"). |
 | A3 | **WorkOS production: Dynamic Client Registration and Client ID Metadata Documents on** (Applications → Configuration), as on staging. | Without it, connecting Claude to `https://app.mezonas.com/mcp` stops at "application not found" (`docs/operations.md`, "MCP server"). Check: `curl https://app.mezonas.com/.well-known/oauth-authorization-server` lists `registration_endpoint`. |
-| A4 | **Staging: finish the switch-over** (owner; codes on since 2026-11-18). Sign in, set up a method (start the setup again for a fresh key: the first key was shared in a chat), save the 10 recovery codes, sign out and in once, approve one Claude connection (`/mcp`), then WorkOS → **Staging** → Multi-factor auth **off**. | `docs/operations.md`, sign-in codes, steps 4 to 6. |
+| A4 | **Staging: finish the switch-over** (owner; codes on since 2026-11-18). Sign in, set up a method (start the setup again for a fresh key: the first key was shared in a chat), save the 10 recovery codes, sign out and in once, approve one Claude connection (`/mcp`), then WorkOS → **Staging** → Multi-factor auth **off** (done, owner, 2026-11-23). | `docs/operations.md`, sign-in codes, steps 4 to 6. The remembered-browser check is in the 23 Nov list above. |
 | A5 | **Production: the first `v*` release**, which turns codes on there (and ships everything merged since `747d7ff`, migrations included; "Production's first release" below). Then the same checks as A4 and WorkOS → **Production** → Multi-factor auth **off**. | Everyone is signed out once and sets up again; WorkOS's enrolments don't carry over. |
 | A6 | **WhatsApp codes** (clients only): per environment, a WhatsApp sender of our own (Meta Business verification, a number never on WhatsApp, a Messaging Service) attached to the Verify service, then `"TWILIO_VERIFY_WHATSAPP": "on"` under that environment's `vars` (a one-line PR). Until then WhatsApp isn't offered (PR #436). | `docs/operations.md`, sign-in codes, step 7. Meta's verification is the slow part. |
 | A7 | **Check Twilio Verify for real**: every item under "To verify" in `packages/connectors/src/twilio/VERIFY_NOTES.md` (codes, TOTP factors, API-key auth, errors, rate limits), as A4 runs. | Built against an in-memory fake. |
@@ -605,9 +651,8 @@ Close pack (§1.232, migration 0099, #575 and #583); the AP pack (§1.233, migra
   confirm that an approved bill is final in our records and a mistake is fixed in the accounting
   tool (nothing of ours pays). The statement (§1.234): the counters' definitions (read-only records
   aren't processed; exceptions are alerts and verifier disagreements; dollars identified are
-  alerts' `dollar_impact` only) and the page for client admins only. R5 (§1.235): "Needs us" reuses
-  its existing rules (a live run failed in the last 7 days and not retried, an item waiting over
-  24 hours, a connection in `error` or `refresh_failing`, an allowance over 80%); usage is the
+  alerts' `dollar_impact` only) and the page for client admins only. R5 (§1.235): "Needs us" is now
+  Home's own (§1.237, S4.6, D5; in the 23 Nov list above); usage is the
   projected month in the back office and the Billing page's month so far in the portal, for client
   admins only. G5 (§1.231.6): deleting a learned note removes its row (notes are read live per
   client, not from the bundle); known-risk counts match on words and are approximate.

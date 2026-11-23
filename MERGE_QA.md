@@ -1,0 +1,361 @@
+# After the merge: what 21–22 November built, and how we check it (2026-11-22)
+
+In about 30 hours, 91 pull requests merged to `main` (#507 to #605). Nothing is open but this page's
+own PR. Almost all of it was built and tested by code alone: against fake providers, with model
+answers written by hand, and without anyone looking at the screens on staging. The tests pass. What
+nobody has done yet is use it.
+
+This page says what was built in plain words, what the review found, and the QA plan, with results
+as each pass runs (section 6). It was written from the pull requests, `main` at `c62dc890`, the
+deploy runs, Sentry, the coordinating sessions' own reports and, from 23 November, staging itself
+through the Claude connector.
+
+## 1. What we built, in groups
+
+| Group | In plain words | Pull requests |
+|---|---|---|
+| **A. Building an agent** | The builder's chart is easier to read: each step shows who does it (a tool, the AI, rules or a person). Schedules and reminders are picked in words. You can see exactly what the AI will be given before any run, try just some of the steps with made-up data or on a Sandbox record, and give each way a workflow starts its own first steps. A step's panel opens with what the step does. An issue links to the skill build and the request it started. | #507, #512, #513, #517, #518, #520, #588, #589, #597, #599, #603 |
+| **B. What a client can read about their agent** | Every agent has a written procedure (the SOP) with revisions, a read-only flowchart (the Workflow tab), and an "Architecture and security" section with 17 checks that run every night. The AI providers' data terms are listed. Clients get a Procedures page of every agent's SOP, and Sloan can read one when asked. We get an evidence export for an auditor. | #508, #510, #511, #514, #515, #516, #576, #578, #587, #592, #600, #602 |
+| **C. Starting a client** | The client admin sets up in the portal: who fills each role, which tools are connected, a try on real documents, then a signed scope. We get a Setup tab with progress and a Nudge. Invite emails show delivered or bounced, can be sent again, and a plain new account gets our own welcome. A client contact can answer a process interview from a link with no sign-in. Lost prospects' files are deleted after 12 months. | #522, #564, #565, #567, #570, #572, #573, #574, #601 |
+| **D. The staging walk-through's fixes** | The problems you found on 22 November: counts that disagreed, links that opened the wrong place, costs that didn't add up, test runs that failed, four statuses for one agent, three date formats. | #523 |
+| **E. Safer writes** | The Bookkeeper can no longer write the same bank transaction twice. Before an agent writes to a client's tool, a second AI call checks the write and shows its evidence. An approval is refused if the card changed after you looked. A phone signature now covers the answer and the note. | #525, #528, #542, #569 |
+| **F. Purchasing** | The buyer matches lines through each vendor's own catalog and fills it from bills and quotes. A reply from a vendor's colleague is kept for a person instead of dropped. Purchase orders can carry QuickBooks item lines. | #529, #533, #545 |
+| **G. Reports and finding runs** | Every run records what it was about. Runs can be found by vendor, customer, document or number. A record's page lists the runs that touched it. There is a report per agent, a report per account, a list of all accounts for us, and saved views in the portal. | #524, #530, #534, #544, #556, #577, #581, #582 |
+| **H. Counting what it costs us** | Tiny model calls no longer read $0.00. Voice typing, emails, texts, browser minutes, bank feeds and the back office's own AI use are counted. Evals bill to their own key so Usage can match Anthropic's console. | #536, #540, #559, #580, #591 |
+| **I. Hardening and compliance** | A HIPAA client is kept out of the Claude connector. Failing connections are counted. The app's first load went from 495 kB to 302 kB. The Claude approval page says who is asking. Urgent notices retry. A SOC 2 checklist, a recorded access review and a deletion drill exist. | #526, #527, #531, #535, #537, #538, #541, #543, #539, #547, #553, #560, #571 |
+| **J. The desktop app's server side** | A client admin can pair a computer and choose its folders; the computer fetches jobs and sends files with signed requests. Opening the phone or desktop app from the browser asks first. | #546, #548, #562 |
+| **K. New accounting building blocks** | One matching engine for "these two lists should agree". A Books health report: nine problems in a client's QuickBooks, ranked by dollars. Reports emailed from systems with no API land as rows. Packs install one way, with settings. Bills to pay, with a weekly approve-to-pay list (nothing is paid). A month-end close: a checklist, journal entries written only after approval, a signed-off month that can't change. A monthly statement of the work the agents delivered. | #555, #558, #563, #566, #568, #583, #584, #585, #590 |
+| **L. Housekeeping** | Plans and the open list updated, a flaky test fixed, a by-hand tool to repair staging's lost keys. An eval harness: 74 golden cases that fail CI when a change makes an agent's writes worse. A client's request becomes one suggestion that states the change. | #521, #532, #550, #554, #557, #586, #593, #595, #598, #604, #605 |
+
+Fourteen migrations landed: 0074, 0075, 0077 to 0080, 0085, 0087 and 0095 to 0100.
+
+## 2. Still underway
+
+Nothing. The coordinator landed the last 8 in its order (#590, #554, #583, then the drafts) by
+23:48 UTC on 22 November, with nine more that its sessions opened on the way (#597 to #605),
+including both docs PRs. Only this page's PR (#596) is open.
+
+## 3. What the review found
+
+| # | Finding | Why it matters |
+|---|---|---|
+| R1 | **Staging's QuickBooks is down.** A deploy replaced staging's encryption key on 21 November. Every connection saved before that can't be opened. Sentry shows the errors still arriving every 15 minutes on 23 November (MEZONAS-API-C, D, H). The repair tool (#593) was run once at 21:35 UTC and stopped after 3 seconds, retiring nothing; #604 fixed the tool, and it has not been run since. | Books health, the Bookkeeper, the Close pack, bills to pay and the Sandbox record try can't be tested until it is. **Open.** |
+| R2 | Two ready PRs conflicted with `main` (#583, #554), and a PR in conflict gets no CI, only the quick "open" check. | **Closed.** The coordinator set a merge order; all 17 late merges ran their CI green on their last commit (checked). But see R11. |
+| R3 | The docs were behind the code: no plan entries for round 4 or Wave Y. | **Closed** by #598 and #605, except CLAUDE.md's status line, still dated 8 November (v0.15, migrations through 0040), and the work plan's C8. |
+| R4 | Almost nothing was seen. #523 says "None of this was checked against staging data". #522 had no look in a browser. The interview, the verifier, the matching engine's AI tier and the eval cases all run on model answers written by hand. Every provider is still a fake. | Passing tests don't show a screen reads well or a live model behaves. |
+| R5 | Some things now happen by themselves: lost prospects' files are deleted for good every hour once they are 12 months old (#573); the nightly security run will open one issue per AI agent until the providers' pages are confirmed (#576); the verifier is on for new agents only, and existing agents stay off until a reviewed update (#569). | Each should be watched once before it surprises us. |
+| R6 | Many merges, few deploys of their own. With merges minutes apart, queued deploys were replaced by the next one (8 of the last 25 were cancelled this way). The journal is in order (checked), and the numbering has gaps from renumbering (no 0076, 0081 to 0084, 0086, 0088 to 0094). | Confirm staging runs `main`'s newest commit and applied all 14 migrations. |
+| R7 | Tests that fail under load and pass alone: `RunView`, `text-signup`, and ten web tests in #578. | CI on `main` is green today, but a flaky suite hides real failures. |
+| R8 | The automatic draft-PR workflow opened six duplicates (#509, #519, #549, #551, #579, #594). Old branches remain (`adoring-hopper-cqa4k8`, `relaxed-edison-gqrkyz`, `r4-agent-report`). | Noise. #552 also closed unmerged; its fix is on `main` another way (checked). |
+| R9 | Two dates: the evals key expires 22 December (#591); the Q4 access review is due before 31 December (#571). | Easy to miss. |
+| R10 | Production still runs `747d7ff` with migrations through 0041. It is now 59 migrations behind. | Not part of this clean-up, but the first release gets bigger every day. |
+| R11 | **The whole suite never ran on the combined `main`.** A PR's CI tests only the packages it touches, and a staging deploy of a merge whose PR passed runs lint and typecheck alone. Six PRs merged within 25 minutes on the same base without being tested against each other. | Pass 2's M1 is the first full run of everything together. |
+| R12 | **A connection that can't be read still says Connected.** The Demo client's QuickBooks has not synced since 21 November 02:19 UTC and fails every 15 minutes, yet it reads Connected with nothing needing attention, and Needs us is 0. Only the hourly health check and Sentry say otherwise. In `apps/api/src/qbo/sync.ts` only a sign-in the provider refuses raises attention; a stored sign-in we can't open is thrown again each time. | A client or operator looking at the screens would not know. This week. |
+| R13 | Ten feedback reports are open on staging, eight of them about the builder from 21 and 22 November. #597 and earlier PRs say they answer most of them; none was marked resolved. | The list no longer says what is really open. |
+
+## 4. The QA plan
+
+Seven passes, in order. Each check has an id. **Who** is the owner (O) when it needs a signed-in
+browser, a key or a decision, and a Claude session (C) when it can be done from code, the staging
+connector or Sentry.
+
+**Reporting a problem.** On staging, press Feedback on the screen where it happened and start the
+note with the check's id ("C3: Nudge sent twice"). A Claude session reads the feedback list through
+the staging connector, groups the reports into streams and fixes each stream in one PR, as the
+22 November walk-through was handled. The results are recorded at the end of this page.
+
+**How bad is it?**
+
+- **Stop:** money written wrong or twice; a write without the approval it needed; one client seeing
+  another's data; the portal showing cost, prompts or instructions; data lost. Fix before anything else merges.
+- **This week:** a dead end, a count that disagrees, a button that does nothing, an error shown raw.
+- **Later:** wording, layout, a missing translation.
+
+### Pass 0. Unblock staging (owner, about 15 minutes)
+
+| # | Do | Done when |
+|---|---|---|
+| P0.1 | Actions → "Retire lost client keys" → staging, `lost_kid` `df86749ddd2f91d4`, type `RETIRE`. | The run says how many keys it retired. |
+| P0.2 | Reconnect QuickBooks on the Sandbox, and any other connection on staging saved before 21 November. | The connection reads connected, and a sync finishes. |
+| P0.3 | Approve the Claude connector for staging (the connect-claude link a session shows you). | A session can read staging's health, runs and feedback. |
+| P0.4 | C: watch Sentry for an hour. | MEZONAS-API-C, D and H stop; resolve them and MEZONAS-WEB-8. |
+
+### Pass 1. The coordinator lands what is open; then merging stops
+
+Owned by the coordinator session, not by QA (section 2). QA only checks the result.
+
+| # | Check | Who |
+|---|---|---|
+| P1.1 | All 8 PRs merged in the coordinator's order, each with full CI green on its last commit (not only the "open" check). | C |
+| P1.2 | Both docs PRs merged: `docs/plan.md` has §1.208 to §1.214 and §1.230 to §1.236; the work plan's ticks, `open.md`'s "Where things stand" and CLAUDE.md's status line are current. | C |
+| P1.3 | The coordinator's status page and this page agree on what merged. | C |
+| P1.4 | No feature merges until Pass 3 is done. Only fixes from this plan. | O |
+
+### Pass 2. Machine checks on the merged `main` (a Claude session, no keys)
+
+| # | Check | Passes when |
+|---|---|---|
+| M1 | `pnpm check` three times in a row on the merged `main`. | Three green runs. Any test that fails once is listed and fixed or filed. |
+| M2 | Migrations from production's point: build a database at 0041, apply 0042 to 0100, run the seed. | Clean, and the db tests pass on the result. |
+| M3 | Staging runs the newest `main`, and its migrations table holds all of 0074 to 0100. | The deployed commit matches; the last migration applied is 0100. |
+| M4 | The first-load size, measured on the merged `main`. | Under the 335 kB budget, with the figure recorded here. |
+| M5 | The boundary tests still hold after every merge: no portal route returns cost, prompts or bundles; a limited client user is refused the new reports; every new tenant table has RLS forced. | The contract tests list the new routes and tables (reports, saved views, close, AP, desktop, interview). |
+| M6 | Run the app locally and open every new screen in light and dark, at desktop and phone width, with screenshots. | A page of screenshots; anything broken or unreadable is filed. |
+| M7 | Sentry on staging for 24 hours after the last merge. | No new issue without an owner. |
+| M8 | The language files: every key added in these two days exists in all six languages. | No screen shows a raw key. |
+
+### Pass 3. The walk-through on staging, by group
+
+This time, click the buttons. The 22 November walk only read and navigated. Use the Demo client and
+the Sandbox, never a real client.
+
+**A. Building an agent**
+
+| # | Do | Expect |
+|---|---|---|
+| A1 | Open a build with a Plaid, a Twilio and a person step. | Each box has its mark and the vendor's name; the Builder panel folds to a line, half and full. |
+| A2 | Ask the Builder for "every other Monday at 9". | The schedule reads in words and saves. |
+| A3 | Open "What the model gets" on an AI step of a client's agent with a charter and notes. | The prompt, tools and data show; nothing runs. |
+| A4 | Try steps 3 to 5 of a workflow with "Make up data". | Each step shows its output; nothing is written to any tool. |
+| A5 | Give a workflow two starts, press the button for "How did it start?", and run each path. | Each start runs its own first steps, then they join. |
+| A6 | Send the Builder a request it is likely to answer badly (very long, off topic). | It asks again once; no "form we couldn't use" error. |
+| A7 | Open a step in the builder (#597, never seen in a browser). | The panel opens with what the step does; the Steps tab is gone; Plaid shows its mark; Describe takes dictation and shows progress while it drafts. Both themes. |
+| A8 | On a build's test, pick a Sandbox bill and try the template on it; try a skill on an uploaded document. After P0.2. | Each shows its result; nothing is written. |
+| A9 | On a build's Decisions card, change a decision's words. Send the Builder one more turn. | The decision reads Changed; the Builder follows the new words. |
+| A10 | On a build with an issue that started a skill build and a request. | The issue links to both, and the skill build links back. |
+
+**B. SOP, Workflow and security**
+
+| # | Do | Expect |
+|---|---|---|
+| B1 | As a client admin, open an agent's SOP; print it; search it; open its history. | One procedure with a revision and date; each step says rules, AI or person. |
+| B2 | As a client user limited to one agent, open that agent's SOP, then another's by its address. | The first opens; the second is "not found". |
+| B3 | Open the Workflow tab, click a box, press "This is wrong". | A card with purpose, who and approvers; the report reaches us. Switch the portal to Spanish: the chart's words change. |
+| B4 | Back office, agent → Security → "Run the checks now". | 17 checks, each verified, in review or not applicable. The portal's section 14 agrees. |
+| B6 | As a client admin, a client user and a limited user, open Procedures; ask Sloan for an agent's SOP. | Every agent's SOP listed; the limited user sees only their own agents' rows. |
+| B7 | Back office, Security → Evidence: pick a period, a client and an agent; CSV and Print. | Each check's results for the period; a client we don't serve is "not found". |
+| B8 | Back office, an agent's Manual: read "Hit in N runs" on a known risk; delete a learned note. | The count is plausible against the runs list; the note is gone and the change is in the audit trail. |
+| B5 | Next morning: count the issues the nightly run opened. | Known: one per AI agent for "no provider trains on your data" until the pages are confirmed (decision D6). |
+
+**C. Starting a client**
+
+| # | Do | Expect |
+|---|---|---|
+| C1 | Start a new client; as its admin, go through Getting started's five chapters; sign the scope. | Each chapter saves; a try run finishes; the scope is signed. |
+| C2 | Try to turn an agent on before the scope is signed, from the board and by its address. | Refused both ways. Known gap: the server may not refuse (#522). |
+| C3 | Back office, Setup tab: press Nudge; press Start trial. | One nudge is sent; Start trial is held until setup is complete. |
+| C4 | Send an invite to an address that bounces, then press Send it again. | Needs Resend (Pass 5). Without it: a clear "can't send", no crash. |
+| C5 | Start a process interview, open its link in a private window, answer five questions, add a file. | One question at a time; a map and a draft appear for us. English only. |
+| C7 | Back office, an agent's setup checklist: upload a file for the client; mark a step's parameter as one the client may adjust; give a date setting an earliest and latest date. Then, as the client, set a date outside them. | The file is on the item; the client sees the parameter; the date is refused. |
+| C6 | On staging's data, list the prospects the retention job would delete today. | Only deals closed as lost more than 12 months ago. |
+
+**D. The walk-through's fixes.** Go through `STAGING_QA.md` N1 to N10 and C1 to C11 again, on
+staging, and mark each fixed or not. Two were never explained: the missing Your call badge on Library
+and New client, and `GET …/skills` hanging.
+
+**E. Safer writes**
+
+| # | Do | Expect |
+|---|---|---|
+| E1 | Open a waiting card in two tabs. Change it in one, approve in the other. | The second is refused and asks you to reload. |
+| E2 | Run a new agent to a write; open the change card. | An Evidence panel; the write waits for the approval the step asks for. |
+| E3 | Give the verifier a write it should disagree with (a test document whose total is wrong). | It goes to the client's approver with the reason. |
+| E4 | With the Bookkeeper on the Sandbox: let the bank feed send the same transaction twice, approve both. | One write in QuickBooks; the other is stopped. After P0.2 and Plaid's sandbox key. |
+| E5 | Sign an answer with a note on the phone app. | Signed; changing the note afterwards is refused. Needs a phone build. |
+
+**F. Purchasing**
+
+| # | Do | Expect |
+|---|---|---|
+| F1 | Run the purchasing email test with a line that matches only through a vendor's catalog. | It matches; the catalog fills from the bill. |
+| F2 | Reply to an RFQ from a colleague's address at the vendor. | Kept on the thread as unverified for a person; never taken as the quote. |
+| F3 | Send a PO with one item line and one account line. | Both in QuickBooks' sandbox. Known gap: no screen shows or fixes an item's tie. |
+
+**G. Reports and finding runs**
+
+| # | Do | Expect |
+|---|---|---|
+| G1 | Search a vendor's name with ⌘K, in the back office and in the portal. | "N runs about …"; the portal lists only runs that client may see. |
+| G2 | Open a vendor, a document and a transaction. | Each lists its runs, newest 20. |
+| G3 | Open an agent's Report tab on both sides; click three figures; download the CSV. | Each figure opens exactly its runs; the CSV matches. The portal shows no cost. |
+| G4 | Open `/ops/accounts` and one client's Report; open the portal's Account tab as an admin, then as a limited user. | Clients that need us come first; the limited user is refused. |
+| G5 | Save a filtered runs list as a view; share it; open it as a colleague. | The chip reopens the filter; the colleague sees it; another client never does. |
+
+**H. Costs**
+
+| # | Do | Expect |
+|---|---|---|
+| H1 | Usage for the last 24 hours against Anthropic's console for staging's key. | Within a few percent. The gap was $72.58 against $117.89 before #580 and #591. |
+| H2 | Dictate for a minute in the portal, then in the back office. | The client's usage shows it under Sloan; ours shows as our own cost. |
+| H3 | Usage → Services for one client. | Email, texts, browser minutes and bank feeds appear. The unit prices are placeholders (D8). |
+
+**I. Hardening and compliance**
+
+| # | Do | Expect |
+|---|---|---|
+| I1 | Put a test client in HIPAA mode; ask the Claude connector for it. | Left out of the list; a call that names it is refused. |
+| I2 | Connect Claude to staging again and read the approval page. | It names the Claude client and roughly where it is asking from. |
+| I3 | Pause an agent, send it two events, resume. | The portal says two came in while it was paused. |
+| I4 | Security → SOC 2: record an access review; download its CSV. | The review is kept; the criterion moves to in place. |
+| I5 | Run the deletion drill on staging (`db:deletion-drill`). | It passes; the drill's client is gone; no other client's rows changed. |
+
+**J. The desktop app**
+
+| # | Do | Expect |
+|---|---|---|
+| J1 | As a client admin, pair a computer and set a folder; remove it. | Paired, then refused after removal. The key never shows in the portal. |
+| J2 | Open the desktop app from the browser. | A page asks first; the audit row names the app. Needs a Mac or a PC build, which has never been run. |
+
+**K. Accounting building blocks**
+
+| # | Do | Expect |
+|---|---|---|
+| K1 | Areas tab: install each pack on a test client, then remove one. | One path for all; the vendors each pack sends data to are listed. |
+| K2 | Books health on the Sandbox, after P0.2. | Nine checks ranked by dollars. Check the signs of two balances against QuickBooks by hand. |
+| K3 | Bills to pay: enter a bill that matches its order, a duplicate, and one 5% over. | Matched, flagged, flagged. The weekly list waits for the client admin. Nothing is paid. |
+| K4 | Approve a list holding a flagged bill, with a note. | Known: the flag doesn't stop it, and approved is final (decision D2). |
+| K5 | Month-end close on the Sandbox (after #583): run the checklist, approve one accrual, sign off, then try to change the month. | The entry is written once, after approval; the signed month refuses changes. |
+| K6 | Email a report file for a saved profile twice. | The first lands as rows; the second is refused as a duplicate. Known gap: the alerts have no screen. |
+| K8 | As a client admin, open the work-delivered statement for this month; download the PDF. | Counts per agent and area that agree with the runs list; a limited user is refused. The email with the invoice needs Resend and Stripe (Pass 5). |
+| K7 | Reconciliation on the Sandbox, as before the matching engine. | The same matches as last week, each naming the rule that made it. |
+
+### Pass 4. The things that run by themselves (check the morning after)
+
+| # | Runs | Check |
+|---|---|---|
+| T1 | Every hour at :37, the SOP revision check. | No missed revision reported in Sentry. |
+| T2 | Every hour at :47, the backfill of what runs were about (1,000 runs per client per hour). | Old runs become searchable; it finishes. |
+| T3 | Every hour, the lost prospects' purge. | Deleted only what C6 listed, each with an audit row. |
+| T4 | Nightly at 08:23 UTC, the security checks. | Results for every agent; the issues it opened match B5. |
+| T5 | Daily at 08:00, the suggestions pass (after #595). | One suggestion per request, stating the change asked. |
+| T6 | A fortnightly schedule set in A2. | It fires on its week and skips the next. |
+| T7 | The deploy after #537 created the three rate-limit namespaces. | Present in Cloudflare; the beacon is limited per site. |
+
+### Pass 5. What needs a live key or a real device
+
+Not blocking the clean-up. Each is the first real test of something built against a fake.
+
+| # | Needs | Then check |
+|---|---|---|
+| L1 | Resend's key, the webhook endpoint `/api/hooks/resend` and `RESEND_WEBHOOK_SECRET` on staging. | C4; the welcome email (#570); the work statement's email (#590); urgent notices by email (#547). |
+| L2 | The model key (already on staging). | One real pass each of the interview (#574), the verifier (#569), "Make up data" (#520) and the Builder's retry (#517). Then record the fixtures again so the tests stop using answers written by hand. |
+| L3 | Intuit's sandbox keys. | `qbo/NOTES.md` checks 6 and 9, journal entries for the Close pack, Books health's balance signs. |
+| L4 | Plaid's sandbox keys. | E4, and the Bookkeeper's own checks (`docs/open.md` §1b, K1 to K5). Bookkeeping stays off for clients until then. |
+| L5 | A Mac, a PC and a phone build. | J2, E5. |
+| L6 | A fluent reader for Spanish, French, Portuguese and the other languages. | Every string marked `// fluent review` in these PRs. |
+
+### Pass 6. Clean up
+
+| # | Do |
+|---|---|
+| U1 | Fold this page's results into `docs/open.md` and delete what is done. |
+| U2 | Fix the automatic draft PR so it stops opening a second PR for a branch that has one. |
+| U3 | Delete the merged and dead branches, after the owner confirms `adoring-hopper-cqa4k8` holds nothing wanted. |
+| U4 | Fix the tests that fail under load (R7). Never skip them. |
+| U5 | Put the two dates in a calendar: the evals key (22 December), the Q4 access review (31 December). |
+| U6 | Close the Sentry issues that Pass 0 fixed. |
+
+### Pass 7. Before production
+
+Out of scope for this clean-up, but it is where the work ends up: M2 green, Pass 3 with no Stop
+items open, the owner's decisions below answered, then the first `v*` release as
+`docs/operations.md` describes it.
+
+## 5. Decisions the PRs left for the owner
+
+Each was built on the simplest answer, so nothing waits. Best answered in one sitting.
+
+| # | Decision | Built as | From |
+|---|---|---|---|
+| D1 | Bills to pay and Vendor contracts' invoice review on the same client run each invoice twice. Which one wins? | Both run. | #585 |
+| D2 | May a bill with a blocking flag be approved with a note? Can an approved list be reopened? | Yes with a note; approved is final. | #585 |
+| D3 | Pattern-based accruals on by default? The default account's name? | Per the pack's settings; "Accrued Liabilities". | #583 |
+| D4 | Which model verifies writes (about 1 to 2 cents a write), and when do existing agents get the verifier? | On for new agents only. | #569 |
+| D5 | What the work statement counts as processed, posted and caught. | The PR's definitions. | #590 |
+| D6 | Read each AI provider's terms page and confirm it; is the Gemini key on a billed project? | "Not yet confirmed", which opens issues nightly. | #576 |
+| D7 | Adopt the three draft policies; who is the security officer. | Drafts; one owner for every criterion. | #571 |
+| D8 | The real unit prices for email, texts, browser time, bank feeds and transcription. | Placeholders marked unverified. | #559, #580, #536 |
+| D9 | Should a client's own Claude connection be held in HIPAA mode too? | Not held. | #526 |
+| D10 | When to refuse an old phone signature (v1) that carries an answer or a note. | Accepted. | #542 |
+| D11 | May a preferred vendor beat a lower price? | It wins ties only. | #529 |
+| D12 | Deleting a learned note outright, or as a new version. | Deleted. | #587 |
+| D13 | Should an invitation reveal that a phone number is already a contact? | It does. | #538 |
+| D14 | Books health sees 90 days. Backfill further? Its thresholds (45, 30, 3 and 7 days, 10%). | 90 days; those thresholds. | #566 |
+| D15 | One word for a step that uses no model: "Rules", "Code" or "Deterministic". | "Rules". | #508 |
+| D16 | Still open from the walk-through: one way to start a client; Areas or Packs. | Unchanged. | `STAGING_QA.md` |
+
+## 6. Results
+
+### 23 November, Pass 1 and Pass 2 (a Claude session; `main` at `c62dc890`)
+
+Run in a cloud container on a local Postgres 16 with pgvector, model answers replayed. Nothing on
+staging or production was changed.
+
+| Check | Result |
+|---|---|
+| P1.1 | **Pass.** All 17 late merges (#590, #554, #583, #587 to #589, #592, #595, #597 to #605) ran their CI green on their last commit. Six of them merged within 25 minutes on one base without being tested against each other (R11); M1 covers that. |
+| P1.2 | **Pass**, with one item left: CLAUDE.md's status line is still dated 8 November. |
+| P1.3 | Not checked: the coordinator's status page is its own. |
+| M1 | **Pass.** Lint, layering and typecheck clean. Every package's tests, three runs in a row: about 9,600 tests, no failure and no test that passed only sometimes. Not run here: 6 Chromium tests in `apps/browser`, whose pinned Chromium this container doesn't have (CI runs them). |
+| M2 | **Pass.** A database built at production's commit (`747d7ff`, 41 migrations, with its seed) took `main`'s migrations to 0100 and `main`'s seed. Its schema is identical, line for line, to a database migrated from nothing. This is seed data, not production's rows: the first real meeting is the release itself. |
+| M3 | **Pass**, by the deploy record: the last deploy (#603, `40164c20`) succeeded and migrates before it deploys; #605 after it is docs only, which doesn't deploy. The migrations table on staging was not read. |
+| M4 | **Pass.** First load 305.7 kB against the 335 kB budget. |
+| M5 | **Pass** for the tables: all 146 tables with a `tenant_id` have row-level security on and forced, each with a policy; only `tenant` and `app_user` have none, by design. The route-level boundary tests are in M1. |
+| M6 | **Pass**, with small things. The every-screen sweep ran in light and dark, at desktop and phone width: 129 routes and 55 walk-through steps in each, 736 checks, no page error, no console error, no 5xx, no sideways scroll on a phone. Not reached, because the seed has nothing that links to them: a build's page, a Reggie conversation, a custom skill's pages, the Lab's check and the process interview. The new screens were also read by eye (Accounts, SOC 2, Evidence, Scorecard, Books health, Work statement, Procedures, the agent's Report and Workflow, Getting started). They are clean in both themes. Four things for Later: on Accounts the client's name wraps over three lines ("Demo / client 2 / agents"); the Work statement shows October with an empty month box, and offers a PDF for a month with no work; the Scorecard shows ids (`bookkeeper`, `daily`) where the rest of the app shows names; the report date boxes are the browser's own (mm/dd/yyyy), not the house format. |
+| M8 | **Pass.** All six languages hold the same 3,765 keys, so no screen can show a raw key. About 390 strings in each of the five other languages (1,960 marks in all) still wait for a fluent reader (L6). |
+| M7 | **Open.** Sentry on staging shows only R1's errors and nothing new from the merges, 2 hours after the last deploy. Look again after 24 hours. |
+
+Read from staging the same day: no failed live run in 48 hours, nothing in Needs us, 7 connections,
+10 open feedback reports (R13). And R12: the Demo client's QuickBooks reads Connected while failing.
+
+### 23 November, Pass 3: the first walk on staging (a browser agent, new work only)
+
+Run from `MERGE_QA_WALK.md` by a browser agent signed in as the operator, then as Demo client's
+admin. 52 checks: 33 pass, 6 fail, 1 partial, 10 blocked, 2 notes. Its seven `QA` notes are in
+staging's feedback. Each failure was then traced in the code.
+
+**Nothing stopped the walk.** No client saw another's data, the portal showed no cost or prompt, and
+nothing was written without approval. Not tested, because QuickBooks was down or nothing was
+waiting: any approval that writes (E1, E2), Books health, the Sandbox record try.
+
+| # | What the walk saw | Cause, from the code | Fix | Size |
+|---|---|---|---|---|
+| W1 | **A bill's page says "No run has been about this yet", though a run created that bill** (G2). | The run keeps the bill under QuickBooks' bare id (`147`); the transaction's page looks for `Bill:147`. `apps/api/src/runs/record-runs.ts`. The test seeds a bare id, so it passes. | Follow the transaction to its raw record. | S |
+| W2 | **A vendor's page and search show no runs for a vendor five runs were about** (G1, G2). | A write keeps its vendor only as a label, never as a subject, and search matches our own id only. `packages/agents/src/log/run-subjects.ts`, `apps/api/src/runs/about.ts`. The backfill skips runs that already have a row. | Write tools name their counterparty; search uses the same match; backfill again. | M |
+| W3 | **A client made minutes ago reads "day 2 of about 17" and "Day 17 · done"** (C3). | "Day 2" is the next step's planned day, not days gone. "Live" is any agent going live, and Sloan goes live when the client is made. `apps/api/src/setup/board.ts`. | Leave Sloan out; say "Next: kickoff, planned day 2". | S |
+| W4 | **Home says nothing needs us, Your call says 7, Accounts says 2 clients need us** (D1). | Three different sets under one name. Accounts counts what the walk-through fix (§1.207) took out of Needs us: approvals the client can answer, and connections no agent uses. | Accounts reuses Needs us, or is renamed "to look at". Home points to Your call. | M |
+| W5 | **Trying a draft fails with "examples are tried in the POC test"** (A4). | On a build still in Draft, a try with no step range goes to a route that only works in the POC phase. `apps/web/src/ops/flow/TryPanel.tsx`. A ranged try works. | Send it to the test-run route. | S |
+| W6 | **Evidence has no client or agent picker** (B7). | The filters exist only in the address. `apps/web/src/ops/security/Evidence.tsx`. | Two selects. | S |
+| W7 | **A model with 123 calls and 0 tokens; another with 30 calls at $0.00** (D3). | Failed calls are stored with no tokens and counted as calls: this keeps happening. The $0.00 row is old calls priced before the model had a price: history. | Count failed calls apart. | S |
+| W8 | "Critical, held 0" above four runs "held for review" that read Done. | The tile counts agents on a safety hold; the rows are finished runs waiting for a spot check. | Rename both. | S |
+| W9 | Procedures says "Live" for a paused agent. "In trial" in the back office, "On trial" in the portal. The SOP calls revision 4.0 its "First revision". | Procedures reads the go-live stage and never the paused state, against `docs/sop-plan.md`. Two strings. "First" means first recorded. | Add Paused; one wording; "First recorded revision". | M |
+| W10 | **Four date formats; a deal's event on "Nov 23 19:50" that the client page lists on "22 Nov, 19:50"; a 1–30 Nov period whose links start "31 Oct".** | Three hand-made "Nov 23" helpers and raw `2026-11-22` slices skip the shared formatter. The deal timeline pairs the UTC day with the browser's clock. The period's start is midnight in the client's zone, shown in the browser's. | One formatter; the chip in the client's zone. | M |
+| W11 | "from Qbo", "QboBill:147", "changed in qbo", "Query purchaseorder", "Ap approver"; cost as $0.2106. | Fallbacks that capitalise an id where the names table wasn't passed; raw 4-decimal strings printed. "Ap approver" is a role on staging with no label. | Pass the names; use the cost formatter. | S |
+| W12 | In Spanish the chart still says "We start it by hand", "the run stops", "Adds bills to QuickBooks Online". | All three are built on the server in English (`packages/core/src/sop/build.ts`), not missing keys. | Return keys, translate in the app. | M |
+| W13 | "The latest 50" over 21 rows. "31 of 43 controls" beside 38 criteria. | The table folds repeated failures; the two counts are different sets with no label. | Wording. | S |
+| W14 | A new client never sees Getting started on Home. | Home sends a client there only when no service is live, and Sloan counts as live. `apps/web/src/portal/screens/Home.tsx`. Found while tracing C1p. | Leave Sloan out. | S |
+
+Also still open from Pass 2: R12 (a connection that can't be read says Connected) and M6's four
+layout nits.
+
+**Not bugs, or not proven.**
+- C2, K3, K5, K7, C1p were blocked by the script, not the product: Start trial shows only for an
+  agent on the bench, Nudge only once a client admin has an open intake, pack reports are buttons
+  on the Areas tab for areas that are on, and Getting started is `/start`. All are hard to find,
+  which is worth a decision. The second walk retries them.
+- I3: no message on resume when nothing came in is by design.
+- Sloan's first reply (seen only after a second send): no defect found. The panel stops polling
+  while its tab is hidden, which a browser agent's tab often is. The second walk retests it (SN7).
+- C1's "We emailed … an invitation": not checked whether the sign-in provider sent one.
+- The bill in W1 also reads "Needs a document" though its PDF exists: not traced yet.
+- Sandbox and Demo client are connected to the same QuickBooks company, so the same records show
+  under both. That is the test set-up, and it matters for the write checks.
+
+**Left on staging by the walk:** the client "QA walk 23 Nov" (with Purchasing on and three to-dos),
+a contact, an interview, the template "QA walk draft, safe to delete", a saved view, portal request
+#4, seven feedback notes, and one setting switched on by accident ("Drafts opens this build in the
+builder"). The second walk reuses the client and the draft.
+
+### Still to run
+
+Pass 0 (the owner's: QuickBooks). The second walk, `MERGE_QA_REGRESSION.md`: everything built before 21 November, the boundaries between clients, and, once QuickBooks is back, the writes. Then Passes 4 to 6. Pass 2 is done but for M7's second look.
