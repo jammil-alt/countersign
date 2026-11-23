@@ -165,6 +165,26 @@ export function actionWrote(action: { status: string; error: unknown }): boolean
   return !(error && typeof error === "object" && error.notWritten === true);
 }
 
+/** The error a change carries when nobody answered its approval in time (S4.5). */
+export const APPROVAL_EXPIRED = {
+  code: "approval_expired",
+  message: "nobody answered in time; the change was not made",
+} as const;
+
+/**
+ * Whether a change was not made because nobody answered its approval in time: `rejected`, by no
+ * one, with `approval_expired` ("Not made: no answer in time"), never a person's no.
+ */
+export function approvalExpired(action: { status: string; error: unknown }): boolean {
+  const error = action.error as { code?: unknown } | null;
+  return (
+    action.status === "rejected" &&
+    error !== null &&
+    typeof error === "object" &&
+    error.code === APPROVAL_EXPIRED.code
+  );
+}
+
 /**
  * Whether a run went on past a failed write of node `nodeId`: the run's error (`{ nodeId }`) names
  * another step, or none (it didn't fail there). A run that ended at the write's step, or at one of
