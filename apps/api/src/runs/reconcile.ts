@@ -23,6 +23,7 @@ import {
 import { emit } from "@countersign/senses";
 import type { RunRange, RunRequest } from "@countersign/workflows";
 import { and, eq, inArray, isNull, lt, ne, sql } from "drizzle-orm";
+import { postCouldNotAnswer } from "../account/could-not-answer";
 import { reportHandled, reportProblem } from "../observability/report";
 import { queueFinishedRun } from "../run-audit/store";
 import type { RunInstances, RunParams } from "./instances";
@@ -185,6 +186,8 @@ export async function failOpenRun(
     },
     { testRun: r.mode === "test" },
   );
+  // S2.1: a lost Sloan run tells the person it couldn't answer (dispatched by the cron sweep).
+  await postCouldNotAnswer(tx, r);
   return true;
 }
 

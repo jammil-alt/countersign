@@ -73,12 +73,14 @@ import {
   tenant,
   withTenant,
 } from "@countersign/db";
+import type { EventTypeRegistry } from "@countersign/senses";
 import { and, desc, eq } from "drizzle-orm";
 import type { Bindings } from "../env";
 import { HttpError } from "../http";
 import { reportHandled } from "../observability/report";
 import { connectionCredentials } from "../secrets";
 import { followCalling } from "./calling";
+import { markTwilioCredentialsLost, openTwilioCredentials } from "./lost-credentials";
 
 type ConnectionRow = typeof connection.$inferSelect;
 type Secrets = Pick<Bindings, "ENCRYPTION_KEY" | "ENCRYPTION_KEY_PREVIOUS">;
@@ -965,7 +967,7 @@ export async function rollupFees(tx: Tx, tenantId: string, now: Date): Promise<v
 /** The hourly pass: every client whose registration Twilio has, one withTenant each. */
 export async function a2pCronTick(
   db: Db,
-  deps: { env: Bindings; fetch: FetchLike },
+  deps: { env: Bindings; fetch: FetchLike; events?: EventTypeRegistry },
   at: Date,
 ): Promise<number> {
   if (at.getUTCMinutes() !== A2P_CRON_MINUTE) return 0;
@@ -973,6 +975,27 @@ export async function a2pCronTick(
   let passes = 0;
   for (const client of clients) {
     try {
+      // The credentials first, in their own transaction: a repair (lost-credentials.ts) is kept
+      // even if the pass after it fails.
+      const opened = await withTenant(db, client.id, async (tx) => {
+        const row = await twilioConnectionOf(tx, client.id);
+        const config = row ? readTwilioConfig(row.config) : null;
+        if (!row || !config || row.status !== "connected") return null;
+        if (!FOLLOWED.includes(registrationOf(config).stage) && !config.calling) return null;
+        return { row, result: await openTwilioCredentials(tx, deps, row, config) };
+      });
+      if (!opened) continue;
+      if (opened.result.kind === "lost") {
+        // Once: the connection leaves `connected`, so the next pass skips it.
+        await markTwilioCredentialsLost(db, deps.events, {
+          tenantId: client.id,
+          connectionId: opened.row.id,
+          detail: opened.result.detail,
+        });
+        continue;
+      }
+      const auth = opened.result.auth;
+      if (!auth) continue;
       await withTenant(db, client.id, async (tx) => {
         const row = await twilioConnectionOf(tx, client.id);
         const config = row ? readTwilioConfig(row.config) : null;
@@ -980,10 +1003,6 @@ export async function a2pCronTick(
         const texting = FOLLOWED.includes(registrationOf(config).stage);
         const calling = Boolean(config.calling);
         if (!texting && !calling) return;
-        const auth = twilioCredentialsOf(
-          await (await connectionCredentials(tx, deps.env, row)).get(),
-        );
-        if (!auth) return;
         if (texting) {
           await pollRegistration(tx, deps.env, { row, config, auth, fetch: deps.fetch, now: at });
         }
