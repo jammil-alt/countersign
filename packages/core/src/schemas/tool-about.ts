@@ -145,6 +145,58 @@ export function aboutOf(
   return out;
 }
 
+// Overnight S3.2 (W2, CL2): a write names who it is with (the bill's vendor), so the vendor's page
+// and a search for it find the runs that wrote for it, not only the records they wrote.
+/** A path into a change: what it was (`before.vendor`) or what was written (`input.vendorId`). */
+const ChangePath = z
+  .string()
+  .regex(/^(before|input)(\.[A-Za-z_][A-Za-z0-9_]*)+$/, "before.… or input.…, a dotted path");
+
+/**
+ * Who a write is with: the record of the client's tool at `path`, an object with its `id` and
+ * `name` (`before.vendor`) or the id itself (`input.vendorId`), kept as a second subject of the
+ * change, of this kind (docs/plan.md §1.188).
+ */
+export const ToolCounterparty = z
+  .strictObject({ kind: RunSubjectKind, path: ChangePath })
+  .meta({ id: "ToolCounterparty" });
+export type ToolCounterparty = z.infer<typeof ToolCounterparty>;
+
+/**
+ * A write's counterparty as a subject, read from the change (the signer's edit when there was
+ * one): the tool's id for it and its name. Null when the change names none there.
+ */
+// DECISION: the counterparty is kept as `read`: the run wrote for the vendor, it didn't change
+// it; the change itself is the record written (overnight S3.2).
+export function counterpartyOf(
+  spec: { counterparty?: ToolCounterparty | undefined },
+  connector: string,
+  change: { before: unknown; input: unknown },
+): SubjectFacts | null {
+  const c = spec.counterparty;
+  if (!c) return null;
+  const [root, ...rest] = c.path.split(".");
+  const v = valueAt(root === "before" ? change.before : change.input, rest.join("."));
+  const rawId = isPlainObject(v) ? v.id : v;
+  const id =
+    typeof rawId === "string" && rawId.trim() !== ""
+      ? rawId.trim()
+      : typeof rawId === "number" && Number.isFinite(rawId)
+        ? String(rawId)
+        : null;
+  if (!id) return null;
+  return {
+    kind: c.kind,
+    role: "read",
+    recordId: null,
+    connector,
+    externalId: id.slice(0, 200),
+    label: isPlainObject(v) ? subjectText(v.name ?? v.displayName) : null,
+    number: null,
+    amount: null,
+  };
+}
+
 /**
  * The kind of a record in a client's tool, from its entity (`bill`, `vendor`, `message`), for a
  * change that declares no `about`. What it can't place is a `record`.

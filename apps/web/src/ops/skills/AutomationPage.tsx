@@ -8,6 +8,7 @@ import { useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { apiRoutes } from "../../api/routes";
 import { useApi } from "../../api/useApi";
+import { EN } from "../../i18n/i18n";
 import { Columns, Loaded, Page } from "../../ui/page";
 import { Badge, Button, buttonClass, Card, PageHeader, Tag } from "../../ui/primitives";
 import { StatusChip } from "../../ui/status";
@@ -178,7 +179,7 @@ export function AutomationPage() {
                           </Badge>
                         </p>
                         <p className="text-sm text-ink-muted">
-                          {v.changeNote ?? "No note"} · {v.createdAt.slice(0, 10)}
+                          {v.changeNote ?? "No note"} · {EN.fmt.date(v.createdAt)}
                         </p>
                       </div>
                       {v.status === "draft" ? (

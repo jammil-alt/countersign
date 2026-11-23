@@ -179,7 +179,7 @@ describe("the agent report", () => {
     const link = within(errors).getByRole("link", { name: "qbo.timeout" });
     expect(link.getAttribute("href")).toContain("/ops/runs?");
     expect(link.getAttribute("href")).toContain("errorKey=qbo.timeout");
-    expect(screen.getByTestId("ops-agent-report-spend").textContent).toContain("$0.7500");
+    expect(screen.getByTestId("ops-agent-report-spend").textContent).toContain("$0.75");
     expect(href("agent-report-csv")).toBe(`/api/ops/agents/${AGENT}/report.csv`);
   });
 });

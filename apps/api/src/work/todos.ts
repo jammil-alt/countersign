@@ -380,13 +380,16 @@ async function auditQueue(tx: Tx, scope: readonly string[]): Promise<TodoView[]>
       source: "run_audit",
       owner: "operator",
       kind: "other",
-      tag: "Run held for review",
+      tag: "Run to check",
       title: `Check a run of ${r.agentName} at ${r.clientName}`,
       client: { id: r.tenantId, name: r.clientName },
       about: { kind: "run", id: r.runId, href: aboutHref("run", r.runId) },
       dueAt: null,
       createdAt: r.createdAt,
-      why: { head: "Held for review", detail: "Reggie doesn't sign off on held runs." },
+      why: {
+        head: "Picked for a spot check",
+        detail: "A person checks a few finished runs; Reggie doesn't sign these off.",
+      },
       primary: "Open the run",
     }),
   );
@@ -580,6 +583,33 @@ async function rowsFor(
     .where(and(...where))
     .orderBy(sql`${todo.dueAt} asc nulls last`, todo.createdAt)
     .limit(500);
+}
+
+/**
+ * S4.3: our to-dos put off with Later and not back yet, soonest back first. Only our own list
+ * snoozes (Later is on Yours alone); "mine" as on Yours.
+ */
+export async function snoozedFor(
+  tx: Tx,
+  tenantIds: readonly string[],
+  userId: string,
+  q: { mine: boolean },
+  now = new Date(),
+): Promise<TodoView[]> {
+  const where: SQL[] = [
+    todoScope(tenantIds),
+    eq(todo.owner, "operator"),
+    eq(todo.state, "snoozed"),
+    sql`${todo.snoozedUntil} > ${now}`,
+  ];
+  if (q.mine) where.push(or(isNull(todo.ownerUserId), eq(todo.ownerUserId, userId)) as SQL);
+  const rows = await tx
+    .select()
+    .from(todo)
+    .where(and(...where))
+    .orderBy(todo.snoozedUntil, todo.createdAt)
+    .limit(500);
+  return todoViews(tx, rows);
 }
 
 /** Critical first, then by due date (undated last), then oldest. */

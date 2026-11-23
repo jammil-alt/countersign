@@ -105,6 +105,11 @@ export interface SpendLine {
   calls: number;
   /** Calls that used tokens but were recorded at no cost (a model with no price). */
   unpricedCalls: number;
+  /**
+   * S4.8 (QA W7, US1): model calls that failed (`stop_reason = 'error'`), counted apart from
+   * `calls`, so a model never reads "123 calls, 0 tokens". Only a run's calls record failures.
+   */
+  failedCalls?: number;
   tokensIn: number;
   tokensOut: number;
   cost: Decimal;
@@ -195,7 +200,9 @@ export async function spendLines(
         model: modelCall.model,
         action: modelCall.action,
         day,
-        calls: sql<string>`count(*)::text`,
+        // S4.8: a failed call is no call answered: counted apart.
+        calls: sql<string>`(count(*) filter (where ${modelCall.stopReason} <> 'error'))::text`,
+        failed: sql<string>`(count(*) filter (where ${modelCall.stopReason} = 'error'))::text`,
         unpriced: sql<string>`(count(*) filter (where ${modelCall.costUsd} = 0 and ${modelCall.tokensIn} + ${modelCall.tokensOut} > 0))::text`,
         tokensIn: sql<string>`sum(${modelCall.tokensIn})::text`,
         tokensOut: sql<string>`sum(${modelCall.tokensOut})::text`,
@@ -216,6 +223,7 @@ export async function spendLines(
         day: r.day,
         calls: n(r.calls),
         unpricedCalls: n(r.unpriced),
+        failedCalls: n(r.failed),
         tokensIn: n(r.tokensIn),
         tokensOut: n(r.tokensOut),
         cost: d(r.cost),

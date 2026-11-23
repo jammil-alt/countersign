@@ -3,7 +3,15 @@
 
 import { describe, expect, it } from "vitest";
 import { ToolSpec } from "./tool";
-import { aboutOf, subjectKindOfEntity, subjectText, ToolAbout, ToolAboutEntry } from "./tool-about";
+import {
+  aboutOf,
+  counterpartyOf,
+  subjectKindOfEntity,
+  subjectText,
+  ToolAbout,
+  ToolAboutEntry,
+  ToolCounterparty,
+} from "./tool-about";
 
 const REQ = "11111111-1111-4111-8111-111111111111";
 const VENDOR = "22222222-2222-4222-8222-222222222222";
@@ -93,5 +101,53 @@ describe("a tool's about", () => {
     expect(subjectKindOfEntity("item")).toBe("item");
     expect(subjectKindOfEntity("account")).toBe("record");
     expect(subjectKindOfEntity(undefined)).toBe("record");
+  });
+});
+
+// Overnight S3.2: who a write is with, read from the change.
+describe("a write's counterparty", () => {
+  const spec = (path: string) => ({
+    counterparty: ToolCounterparty.parse({ kind: "vendor", path }),
+  });
+  it("is the record at its path, by its id and name, or the id itself", () => {
+    const change = {
+      before: { vendor: { id: "56", name: "Acme  Supply" } },
+      input: { vendorId: 57 },
+    };
+    expect(counterpartyOf(spec("before.vendor"), "qbo", change)).toEqual({
+      kind: "vendor",
+      role: "read",
+      recordId: null,
+      connector: "qbo",
+      externalId: "56",
+      label: "Acme Supply",
+      number: null,
+      amount: null,
+    });
+    expect(counterpartyOf(spec("input.vendorId"), "qbo", change)).toMatchObject({
+      externalId: "57",
+      label: null,
+    });
+    expect(
+      counterpartyOf(spec("before.vendor"), "qbo", { before: { vendor: null }, input: {} }),
+    ).toBeNull();
+    expect(counterpartyOf({}, "qbo", change)).toBeNull();
+  });
+
+  it("names a path into the change, on a write only", () => {
+    expect(ToolCounterparty.safeParse({ kind: "vendor", path: "output.vendor" }).success).toBe(
+      false,
+    );
+    const read = {
+      id: "x.read",
+      description: "Reads",
+      input: {},
+      output: {},
+      sideEffect: "none",
+      verb: "read",
+      source: "x",
+      counterparty: { kind: "vendor", path: "before.vendor" },
+    };
+    expect(ToolSpec.safeParse(read).success).toBe(false);
   });
 });

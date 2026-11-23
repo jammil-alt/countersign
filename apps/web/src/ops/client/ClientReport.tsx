@@ -14,11 +14,13 @@ import { OPS_PATHS } from "../paths";
 import { runsLink } from "../run/links";
 
 /** Why a client needs us, in the back office's words. */
+/** S4.6: each of Home's Needs us kinds, as Accounts and the client report name them. */
 export const NEEDS_US_WORDS: Record<NeedsUsReason, string> = {
-  waiting: "Waiting over a day",
-  failed: "Failed run not looked at",
+  waiting: "Approval stuck with the client",
+  failed: "Failed run",
   connection: "Connection needs attention",
-  allowance: "Allowance over 80% used",
+  item: "Item for us",
+  low_confidence: "Reading under the threshold",
 };
 
 export const accountLinks = (clientId: string) => ({
@@ -64,6 +66,7 @@ export function ClientReportScreen() {
             csvHref={`/api/ops/clients/${clientId}/report.csv${csv ? `?${csv}` : ""}`}
             links={accountLinks(clientId)}
             above={<NeedsUs report={data} />}
+            surface="ops"
           />
         )}
       </Loaded>

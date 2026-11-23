@@ -1,6 +1,8 @@
 // Words and times the back office's command center, runs list and run page share (English only).
 
 import {
+  approvalExpired,
+  escalationWords,
   type NobodyToAct,
   type OversightDecisionView,
   type RunState,
@@ -138,6 +140,7 @@ export function runErrorLine(error: unknown, stepName?: string | null): string {
   const first = parts.reason?.split("\n")[0]?.trim() ?? "";
   const reason =
     plain ??
+    escalationWords(first) ??
     (first
       ? (ERROR_REASON_WORDS[first] ?? (first.length > 120 ? `${first.slice(0, 119)}…` : first))
       : "Failed without a reason");
@@ -292,6 +295,15 @@ export function foldSameFailures<R extends Parameters<typeof sameFailureKey>[0] 
   return out;
 }
 
+/**
+ * S4.9 (QA W13): the Runs list's count, which says what it counts: "The latest 50 runs · 21
+ * rows, repeated failures folded" when the table folds runs, so 50 never sits over 21 rows.
+ */
+export function runsCountWords(runs: number, rows: number, more: boolean): string {
+  const base = `${more ? "The latest " : ""}${plural(runs, "run", "runs")}`;
+  return rows < runs ? `${base} · ${plural(rows, "row", "rows")}, repeated failures folded` : base;
+}
+
 /** "32 failed test runs, same error". */
 export function sameFailureWords(runs: readonly { mode: string }[]): string {
   const test = runs.every((r) => r.mode === "test");
@@ -378,9 +390,13 @@ export function errorGroupLabel(key: string): string {
 
 /** A change to a client's tool, by its state: "Needs approval", "Approved", "Done · 9:02". */
 export function actionBadge(
-  a: { status: string; executedAt: string | null },
+  a: { status: string; executedAt: string | null; error?: unknown },
   testRun: boolean,
 ): { label: string; tone: Tone } {
+  // S4.5: nobody answered its approval in time: not made, and no person's no.
+  if (approvalExpired({ status: a.status, error: a.error ?? null })) {
+    return { label: "Not made: no answer in time", tone: "neutral" };
+  }
   switch (a.status) {
     case "proposed":
       return testRun

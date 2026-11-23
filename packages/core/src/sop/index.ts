@@ -2,4 +2,5 @@
 export * from "./build";
 export * from "./changes";
 export * from "./list";
+export * from "./say";
 export * from "./view";

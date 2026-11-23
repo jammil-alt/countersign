@@ -10,6 +10,7 @@ import { TESTKIT_UPDATE_TOOL } from "@countersign/connectors";
 import {
   type AgentBundleInput,
   AgentBundle as AgentBundleSchema,
+  AUDIT_REFRESH_HEADER,
   weekBounds,
   weekStartOf,
 } from "@countersign/core";
@@ -695,8 +696,37 @@ describe.skipIf(!h)("KPIs, the client view, credits and the audit export", () =>
           assigneeRole: "operator",
         })
         .returning();
+      // S6.9: the admin opened it two hours ago, then again now, with the page's polls between:
+      // two visits. The poll's rows are kept, tagged, and never counted as opens.
+      await H.t.db.insert(auditEvent).values({
+        tenantId: H.A.tenantId,
+        actorKind: "user",
+        actorUserId: H.A.admin,
+        actorRole: "client_admin",
+        action: "GET /api/runs/:id",
+        outcome: "ok",
+        target: { id: runId },
+        createdAt: new Date(Date.now() - 2 * 3_600_000),
+      });
       await ok(admin("a"), "GET", `/api/runs/${runId}`);
       await ok(admin("a"), "GET", `/api/runs/${runId}`);
+      for (let i = 0; i < 3; i++) {
+        const polled = await H.call(admin("a"), "GET", `/api/runs/${runId}`, undefined, {
+          [AUDIT_REFRESH_HEADER]: "1",
+        });
+        expect(polled.status).toBe(200);
+      }
+      const tagged = await H.t.db
+        .select()
+        .from(auditEvent)
+        .where(
+          and(
+            eq(auditEvent.action, "GET /api/runs/:id"),
+            sql`${auditEvent.target} ->> 'id' = ${runId}`,
+            sql`${auditEvent.target} ->> 'refresh' = '1'`,
+          ),
+        );
+      expect(tagged).toHaveLength(3);
       await ok(OPERATOR, "GET", `/api/ops/runs/${runId}?client=${H.A.tenantId}`);
       await H.t.db
         .update(inboxItem)

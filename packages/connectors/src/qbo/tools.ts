@@ -306,6 +306,8 @@ function updateLinesTool(entity: QboTxnEntity, clientFor: ClientFor): ToolDefini
     summary: `Itemized the ${word} into {{lineCount}} lines; total unchanged at {{total}}`,
     amount: { path: "expectedTotal", currencyPath: "currency", currency: "USD" },
     display: updateLinesDisplay(entity),
+    // Overnight S3.2: the vendor the change is for, a second subject of the run.
+    counterparty: { kind: "vendor", path: "before.vendor" },
     input: UpdateLinesInput,
     output: z.object({
       entity: z.string(),
@@ -400,6 +402,8 @@ function updateMemoTool(entity: QboTxnEntity, clientFor: ClientFor): ToolDefinit
     undo: { kind: "restore" },
     summary: `Updated the ${word}'s memo`,
     display: updateMemoDisplay(entity),
+    // Overnight S3.2: the vendor the change is for, a second subject of the run.
+    counterparty: { kind: "vendor", path: "before.vendor" },
     input: z.object({ id: QboId, syncToken: SyncToken, memo: z.string().max(4000) }),
     output: z.object({
       entity: z.string(),
@@ -604,6 +608,8 @@ function uploadTool(clientFor: ClientFor): ToolDefinition {
       alreadyDone: z.boolean(),
     }),
     display: attachDisplay,
+    // Overnight S3.2: the vendor the change is for, a second subject of the run.
+    counterparty: { kind: "vendor", path: "before.vendor" },
     beforeSchema: z.object({
       entity: z.string(),
       entityId: z.string(),

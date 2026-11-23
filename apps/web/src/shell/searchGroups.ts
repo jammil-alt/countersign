@@ -4,6 +4,7 @@ import {
   type OpsSearchResult,
   type PortalSearchResult,
   recordHitSubjectKind,
+  SALES_PIPELINES,
 } from "@countersign/core";
 import type { Translate } from "../i18n/catalog";
 import { EN, type I18n } from "../i18n/i18n";
@@ -134,6 +135,17 @@ export function portalSearchGroups(
  * The back office: hits across the clients served, each naming its client. Clients come from the
  * clients list (the search route has none), matched by name here.
  */
+/** A deal's stage by its name on the Sales board ("Proposal and contract"). */
+const DEAL_STAGE_NAMES = new Map<string, string>(
+  [...SALES_PIPELINES.new.stages, ...SALES_PIPELINES.grow.stages].map((s) => [s.id, s.name]),
+);
+const DEAL_OUTCOME_WORDS: Record<string, string> = {
+  won: "Won",
+  lost: "Lost",
+  not_now: "Not now",
+  no: "Closed: no",
+};
+
 export function opsSearchGroups(
   r: OpsSearchResult,
   clients: readonly { id: string; name: string }[],
@@ -148,6 +160,19 @@ export function opsSearchGroups(
         .filter((c) => c.name.toLocaleLowerCase().includes(text))
         .slice(0, 5)
         .map((c) => ({ key: `c:${c.id}`, href: base(c), title: c.name })),
+    },
+    // S6.8 (HM5): deals, by the company or client and what they'd buy.
+    {
+      label: "Deals",
+      hits: (r.deals ?? []).map((d) => ({
+        key: `deal:${d.id}`,
+        href: `/ops/deals/${d.id}`,
+        title: dot(d.company ?? d.client?.name, d.title),
+        meta: dot(
+          DEAL_STAGE_NAMES.get(d.stage) ?? d.stage,
+          d.outcome === "open" ? null : (DEAL_OUTCOME_WORDS[d.outcome] ?? d.outcome),
+        ),
+      })),
     },
     {
       label: "Agents",

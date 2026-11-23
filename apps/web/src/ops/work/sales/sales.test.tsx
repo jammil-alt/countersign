@@ -260,9 +260,23 @@ describe("Sales", () => {
     });
     renderAt("/ops/sales", api);
     await userEvent.click(await screen.findByTestId("sales-new"));
+    // S6.8 (SL2): the disabled button says what it still needs, "A month" among it.
+    expect(screen.getByTestId("sales-start-go")).toBeDisabled();
+    expect(screen.getByTestId("sales-start-needs")).toHaveTextContent(
+      "To add it: the company or a client, what they'd buy, an amount a month.",
+    );
     await userEvent.type(screen.getByTestId("sales-start-company"), "Ridgeline Dental Group");
     await userEvent.type(screen.getByTestId("sales-start-title"), "Purchasing and Bookkeeping");
+    expect(screen.getByTestId("sales-start-needs")).toHaveTextContent(
+      "To add it: an amount a month.",
+    );
+    await userEvent.type(screen.getByTestId("sales-start-mrr"), "about 2k");
+    expect(screen.getByTestId("sales-start-needs")).toHaveTextContent(
+      "an amount a month as a number, like 2400",
+    );
+    await userEvent.clear(screen.getByTestId("sales-start-mrr"));
     await userEvent.type(screen.getByTestId("sales-start-mrr"), "$2,400.50");
+    expect(screen.queryByTestId("sales-start-needs")).toBeNull();
     await userEvent.clear(screen.getByTestId("sales-start-agents"));
     await userEvent.type(screen.getByTestId("sales-start-agents"), "2");
     await userEvent.type(screen.getByTestId("sales-start-person"), "Karen Lowe");

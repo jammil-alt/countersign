@@ -26,12 +26,13 @@ import {
   tenantBilling,
 } from "../billing/ledger";
 import { CSV_TYPE, type CsvValue, csvFile } from "../exports/csv";
-import { type AppEnv, ensureClient, mount, mountFile, notFound } from "../http";
+import { type AppEnv, ensureClient, mount, mountFile, notFound, type Services } from "../http";
 import { tenantRow } from "../notify/people";
 import type { Platform } from "../platform";
 import { accountReport, needsUsOf } from "../runs/account-report";
 import { reportPeriods } from "../runs/agent-report";
 import { REPORT_CSV_COLUMNS } from "./agent-report";
+import { needsUs, needsUsContext } from "./command-center";
 import { checkRange, isService, todayIn } from "./usage";
 
 type Query = { from?: string | undefined; to?: string | undefined };
@@ -139,10 +140,11 @@ async function portalReport(
 /** The back office's report for one client it serves. */
 async function opsReport(
   tx: Tx,
-  platform: Platform,
+  svc: Services,
   tenantId: string,
   query: Query,
 ): Promise<OpsAccountReport> {
+  const { platform } = svc;
   const t = await tenantRow(tx, tenantId);
   if (!t) throw notFound("client");
   const now = new Date();
@@ -153,18 +155,23 @@ async function opsReport(
   const body = await narrowToTenant(tx, tenantId, (one) =>
     report(one, platform, { surface: "ops", t, query, usage, lines: true, now }),
   );
-  return { ...body, needsUs: needsUsOf(body) } as OpsAccountReport;
+  // S4.6 (D5): Home's Needs us for this client, read under the operator's scope as Home reads it.
+  const escalations = await needsUs(tx, [tenantId], now, needsUsContext(svc));
+  return { ...body, needsUs: needsUsOf(escalations, tenantId) } as OpsAccountReport;
 }
 
 /** Every client the operator serves (not retired), side by side; those that need us first. */
 async function opsAccounts(
   tx: Tx,
-  platform: Platform,
+  svc: Services,
   tenantIds: readonly string[],
   query: Query,
 ): Promise<OpsAccountRow[]> {
   if (tenantIds.length === 0) return [];
+  const { platform } = svc;
   const now = new Date();
+  // S4.6 (D5): Home's Needs us, once for every client served, then per client.
+  const escalations = await needsUs(tx, tenantIds, now, needsUsContext(svc));
   const [clients, agents, config] = await Promise.all([
     tx
       .select()
@@ -190,7 +197,7 @@ async function opsAccounts(
       return {
         ...body,
         agents: agents.filter((a) => a.tenantId === t.id).length,
-        needsUs: needsUsOf(body),
+        needsUs: needsUsOf(escalations, t.id),
       } as OpsAccountRow;
     }),
   );
@@ -289,15 +296,15 @@ export function accountReportRouteHandlers(app: Hono<AppEnv>): void {
 
   mount(app, accountReportRoutes.opsClientReport, async (ctx) => {
     ensureClient(ctx, ctx.params.id);
-    return opsReport(ctx.tx, ctx.services.platform, ctx.params.id, ctx.query);
+    return opsReport(ctx.tx, ctx.services, ctx.params.id, ctx.query);
   });
 
   mountFile(app, accountReportRoutes.opsClientReportCsv, async (ctx) => {
     ensureClient(ctx, ctx.params.id);
-    return csvOf(await opsReport(ctx.tx, ctx.services.platform, ctx.params.id, ctx.query));
+    return csvOf(await opsReport(ctx.tx, ctx.services, ctx.params.id, ctx.query));
   });
 
   mount(app, accountReportRoutes.opsAccounts, async (ctx) => ({
-    accounts: await opsAccounts(ctx.tx, ctx.services.platform, ctx.tenantIds, ctx.query),
+    accounts: await opsAccounts(ctx.tx, ctx.services, ctx.tenantIds, ctx.query),
   }));
 }

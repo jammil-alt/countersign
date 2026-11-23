@@ -35,3 +35,57 @@ export function timeZoneChoices(keep?: string | null): string[] {
   if (keep) all.add(keep);
   return ["UTC", ...[...all].filter((z) => z !== "UTC").sort()];
 }
+
+const CALENDAR_DAY = /^\d{4}-\d{2}-\d{2}$/;
+const HOUSE_DATES = new Map<string, Intl.DateTimeFormat>();
+
+/**
+ * "23 Nov 2026": the house date (CLAUDE.md, "UI and copy"; the app's `fmt.date`) for words built
+ * on the server. A calendar day ("2026-11-23") is that day; an instant is its day in `timeZone`
+ * (UTC unless given). Not a date: the text as given.
+ */
+// DECISION (S5.1): one date format everywhere: words built on the server use this, the screens the
+// shared formatter (apps/web/src/i18n/format.ts), both day, short month, year, written en-GB.
+export function houseDate(iso: string, timeZone = "UTC"): string {
+  const calendar = CALENDAR_DAY.test(iso);
+  const d = new Date(calendar ? `${iso}T00:00:00Z` : iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  const zone = calendar || !isTimeZone(timeZone) ? "UTC" : timeZone;
+  let f = HOUSE_DATES.get(zone);
+  if (!f) {
+    f = new Intl.DateTimeFormat("en-GB", {
+      day: "numeric",
+      month: "short",
+      year: "numeric",
+      timeZone: zone,
+    });
+    HOUSE_DATES.set(zone, f);
+  }
+  return f.format(d);
+}
+
+/**
+ * S2.6 (overnight fixes, 2026-11-23): the time now in a zone, for an agent to read ("Sunday 22
+ * November 2026, 22:00 in America/Chicago (GMT-06:00)"), so it says times in the client's zone and
+ * not in UTC. An unknown zone reads as UTC.
+ */
+export function clockLine(now: Date, timeZone: string | null | undefined): string {
+  const zone = timeZone && isTimeZone(timeZone) ? timeZone : "UTC";
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: zone,
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+    timeZoneName: "longOffset",
+  }).formatToParts(now);
+  const part = (type: Intl.DateTimeFormatPartTypes) =>
+    parts.find((p) => p.type === type)?.value ?? "";
+  // Some ICU builds write UTC's offset as a bare "GMT".
+  const name = part("timeZoneName");
+  const offset = name && name !== "GMT" ? name : "GMT+00:00";
+  return `${part("weekday")} ${part("day")} ${part("month")} ${part("year")}, ${part("hour")}:${part("minute")} in ${zone} (${offset})`;
+}

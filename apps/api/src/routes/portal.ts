@@ -16,6 +16,7 @@ import {
 } from "@countersign/connectors";
 import {
   type AnyAgentBundle,
+  approvalExpired,
   type ConnectorAuth,
   checkKindOf,
   clientLabel,
@@ -75,7 +76,7 @@ import { checkDeviceSignature, signatureRequired } from "../mobile/devices";
 // v0.13 W2-I
 import { timelineOversight } from "../oversight/views";
 import type { Platform } from "../platform";
-import { aboutNames } from "../runs/about";
+import { aboutNames, aboutRefs } from "../runs/about";
 import {
   clientRunsPerDay,
   clientStatusWhere,
@@ -86,7 +87,7 @@ import {
 import { dispatchEvents } from "../runs/dispatch";
 // Hand off (2026-11-11): where a handed-off run came from.
 import { handedOffFrom } from "../runs/handoff";
-import { runSubjects, sourceNames } from "../runs/subject";
+import { payloadSources, runSubjects, sourceNames } from "../runs/subject";
 import { actionTimelineWrite, timelineWrite } from "../skill-facts";
 import { steppedInOf } from "../step-in/service";
 import { clientDescription } from "../weekly/stats";
@@ -581,6 +582,8 @@ export async function portalRunView(
         id: externalAction.id,
         tool: externalAction.tool,
         status: externalAction.status,
+        // S4.5: only to tell "not made: no answer in time"; the error itself never leaves here.
+        error: externalAction.error,
         executedAt: externalAction.executedAt,
         // Step panel (§1.95): the change as the Inbox showed it.
         stepRunId: externalAction.stepRunId,
@@ -749,6 +752,7 @@ export async function portalRunView(
       description: platform.tools.get(a.tool)?.spec.description ?? a.tool,
       display: changeDisplay(platform, a.tool),
       status: a.status,
+      ...(approvalExpired(a) ? { expired: true } : {}),
       // Follow-up 9: the time a change was made; one not done (claimed, failed) shows none.
       executedAt: a.status === "done" ? iso(a.executedAt) : null,
       stepRunId: a.stepRunId,
@@ -935,7 +939,14 @@ export function portalRouteHandlers(app: Hono<AppEnv>): void {
       )
       .orderBy(desc(inboxItem.createdAt))
       .limit(200);
-    return { items: await portalItems(tx, rows, services.platform) };
+    return {
+      items: await portalItems(tx, rows, services.platform),
+      sourceNames: await sourceNames(
+        tx,
+        [tenantId],
+        rows.flatMap((i) => payloadSources(i.payload)),
+      ),
+    };
   });
 
   mount(app, routes.portalResolveInbox, async (ctx) => {
@@ -1040,7 +1051,12 @@ export function portalRouteHandlers(app: Hono<AppEnv>): void {
     const theirs = agentWhere(run.agentId, agents);
     const where = [
       // R2: what runs were about, from the rows the client's timeline shows only.
-      ...runFilterWhere(filter, services.platform.ctx.tools.specs(), "portal"),
+      ...runFilterWhere(
+        filter,
+        services.platform.ctx.tools.specs(),
+        "portal",
+        await aboutRefs(tx, [tenantId], filter.about),
+      ),
       ...clientStatusWhere(statuses),
       // §1.122: a client user limited to some agents sees only their runs.
       ...(theirs ? [theirs] : []),

@@ -228,6 +228,45 @@ describe("search groups", () => {
     ]);
   });
 
+  // S6.8 (HM5): deals are found by ⌘K and open on their page.
+  it("finds deals in the back office, by the company or client and what they'd buy", () => {
+    const groups = opsSearchGroups(
+      {
+        agents: [],
+        runs: [],
+        records: [],
+        people: [],
+        organizations: [],
+        documents: [],
+        deals: [
+          {
+            id: "d1",
+            title: "Bills in",
+            company: "Quillfeather Bakery",
+            client: null,
+            stage: "proposal",
+            outcome: "open",
+          },
+          {
+            id: "d2",
+            title: "Reconciliation",
+            company: null,
+            client: { id: SANDBOX, name: "Sandbox" },
+            stage: "pitch",
+            outcome: "lost",
+          },
+        ],
+      },
+      [],
+      "quill",
+    );
+    const deals = groups.find((g) => g.label === "Deals")?.hits ?? [];
+    expect(deals.map((h) => [h.href, h.title, h.meta])).toEqual([
+      ["/ops/deals/d1", "Quillfeather Bakery · Bills in", "Proposal and contract"],
+      ["/ops/deals/d2", "Sandbox · Reconciliation", "Pitch · Lost"],
+    ]);
+  });
+
   // R2 (docs/plan.md §1.193)
   it("says how many runs were about a record or document, and opens the runs list on them", () => {
     const portal = portalSearchGroups(

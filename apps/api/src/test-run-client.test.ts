@@ -131,6 +131,55 @@ describe.skipIf(!h)("test runs on a chosen client", () => {
     expect(copies).toHaveLength(1);
   });
 
+  it("refuses a payload that isn't what its event trigger gives, before a run is made", async () => {
+    // Overnight S3.6: the same workflow, started by a document being read.
+    const bundle = testBundle("Invoice reader");
+    const wf = bundle.workflows[0];
+    if (!wf || wf.workflow.schemaVersion !== 3) throw new Error("no workflow");
+    wf.workflow.trigger = {
+      id: "trg-read",
+      on: { type: "event", event: "document.extracted" },
+    } as typeof wf.workflow.trigger;
+    // It reads the document the event names.
+    const update = wf.workflow.steps[0] as { input: Record<string, unknown> };
+    update.input = { ...update.input, id: "{{trigger.documentId}}" };
+    const tpl = await H.call(OPERATOR, "POST", "/api/ops/templates", {
+      slug: "invoice-reader",
+      bundle,
+    });
+    expect(tpl.status, JSON.stringify(tpl.json)).toBe(200);
+    const id = j(tpl.json).agent.id;
+    const vid = j(tpl.json).version.id;
+    const started = H.instances.started.size;
+    const runs = (await H.t.db.select().from(run)).length;
+
+    const bad = await testRun(id, vid, {
+      clientId: H.B.tenantId,
+      payload: { documentId: "not-a-document", extractionId: "x", lineCount: 1, totalsValid: true },
+    });
+    expect(bad.status, JSON.stringify(bad.json)).toBe(422);
+    expect(j(bad.json).error.code).toBe("invalid_payload");
+    expect(j(bad.json).error.message).toContain("documentId");
+    const empty = await testRun(id, vid, { clientId: H.B.tenantId });
+    expect(empty.status).toBe(422);
+    expect(H.instances.started.size).toBe(started);
+    expect(await H.t.db.select().from(run)).toHaveLength(runs);
+
+    // What it doesn't read, and what the event doesn't carry, are left alone: a file tried in
+    // the builder sends a received document's payload.
+    const good = await testRun(id, vid, {
+      clientId: H.B.tenantId,
+      payload: {
+        documentId: "0193f000-0000-7000-8000-0000000000d1",
+        source: "upload",
+        filename: "invoice.pdf",
+        mimeType: "application/pdf",
+      },
+    });
+    expect(good.status, JSON.stringify(good.json)).toBe(200);
+    expect(H.instances.started.size).toBe(started + 1);
+  });
+
   it("chooses only a client the operator serves", async () => {
     const started = H.instances.started.size;
     const notServed = await testRun(templateId, templateV1, { clientId: H.C.tenantId });

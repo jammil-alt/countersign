@@ -9,6 +9,7 @@
 
 import { z } from "zod";
 import { DecisionKind } from "../build/build";
+import { SopSay } from "./say";
 
 /** Someone who takes part: a person, the client's team, an agent, or Mezonas. */
 export const SOP_PARTY_KINDS = ["person", "team", "agent", "mezonas"] as const;
@@ -54,6 +55,8 @@ export const SopStepLine = z.object({
   model: z.string().nullable(),
   /** One sentence on why the step is there: the operator's, else one made by code. */
   purpose: z.string(),
+  /** S5.7: the purpose by key, when code made it (absent for the operator's own words). */
+  purposeSay: SopSay.optional(),
   purposeWritten: z.boolean(),
   /** Who does it, only when it isn't this agent: a person, another agent. */
   who: SopParty.nullable(),
@@ -65,6 +68,9 @@ export const SopStepLine = z.object({
       byWhen: z.string().nullable(),
       ifNoAnswer: z.string().nullable(),
       ifRejected: z.string().nullable(),
+      /** S5.7: the two above by key. */
+      ifNoAnswerSay: SopSay.optional(),
+      ifRejectedSay: SopSay.optional(),
     })
     .nullable(),
   /** Who is told (notices on the step, or a notify step's recipients). */
@@ -76,6 +82,7 @@ export const SopStepLine = z.object({
   controls: z.array(z.string()),
   /** What happens when the step fails, when it says. */
   onError: z.string().nullable(),
+  onErrorSay: SopSay.optional(),
   /** A person step's or a deadline's: by when. */
   byWhen: z.string().nullable(),
 });
@@ -243,6 +250,12 @@ export const SopView = z
     client: z.string(),
     area: z.object({ id: z.string(), words: z.string() }),
     stage: z.object({ id: z.string(), words: z.string() }),
+    /**
+     * Paused now (the agent's run status). A state of the moment, read with the stage ("Paused"
+     * in its place), and left out of the fingerprint so a pause or a resume makes no revision.
+     * Stored views before it read false.
+     */
+    paused: z.boolean().default(false),
     /** When this view was made. */
     asOf: z.string(),
     /** The current revision and the one before; null until the first is recorded. */
@@ -273,6 +286,8 @@ export const SopView = z
     }),
     start: z.object({
       triggers: z.array(z.string()),
+      /** S5.7: each trigger by key, in the same order; null for one said only in English. */
+      triggersSay: z.array(SopSay.nullable()).optional(),
       hours: z.string().nullable(),
       runByHand: z.string().nullable(),
     }),

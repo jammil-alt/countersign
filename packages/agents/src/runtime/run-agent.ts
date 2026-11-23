@@ -360,6 +360,29 @@ function sourcesOf(output: unknown): string[] | null {
   return Array.isArray(s) && s.every((x) => typeof x === "string") ? s : null;
 }
 
+/**
+ * A built-in skill's sources, from its input (`sourcesFromInput`): the uuid at each path, in
+ * order, once each. Null when the skill doesn't name any.
+ */
+// DECISION: a skill that names `sourcesFromInput` has its sources set in code, never by the model
+// (Prepare bill cited "no document id was provided", overnight S3.5): what the step was given is
+// what it rests on. Ids that aren't uuids are left out (they are no record of ours).
+export function sourcesFromInput(def: SkillDefinition, input: unknown): string[] | null {
+  const paths = def.sourcesFromInput;
+  if (!paths || paths.length === 0) return null;
+  const ids: string[] = [];
+  for (const path of paths) {
+    let v: unknown = input;
+    for (const key of path.split(".")) {
+      v = v !== null && typeof v === "object" ? (v as Record<string, unknown>)[key] : undefined;
+    }
+    if (typeof v === "string" && isUuid(v) && !ids.includes(v.toLowerCase())) {
+      ids.push(v.toLowerCase());
+    }
+  }
+  return ids;
+}
+
 /** Validates a skill's output: its schema, and `sources` when it produces alerts (invariant 10). */
 function checkOutput(
   def: SkillDefinition,
@@ -956,7 +979,12 @@ export async function runAgent(deps: RuntimeDeps, input: RunAgentInput): Promise
   // bookkeeping never fails an answer the skill already gave (its writes log their own failures).
   const succeed = async (value: unknown): Promise<AgentResult> => {
     if (scope) await finishScope(deps, step, scope).catch(() => undefined);
-    return finish(value);
+    const sources = sourcesFromInput(def, checkedInput.value);
+    return finish(
+      sources && value !== null && typeof value === "object" && !Array.isArray(value)
+        ? { ...value, sources }
+        : value,
+    );
   };
 
   const loop = async (): Promise<AgentResult> => {

@@ -105,7 +105,10 @@ describe("the account report", () => {
     expect(failed.searchParams.get("since")).toBe(SINCE);
     expect(screen.getByTestId("account-report-runs-all").textContent).toContain("6");
     expect(href("account-report-waiting")).toContain("statuses=waiting");
-    expect(screen.getByTestId("account-report-waiting").textContent).toContain("2 open items");
+    // QA CL1: the portal's count is the client's own items.
+    expect(screen.getByTestId("account-report-waiting").textContent).toContain(
+      "2 open items for your team",
+    );
     // Failed runs nobody has looked at have no runs filter, and nowhere to go on the portal.
     expect(screen.getByTestId("account-report-failed-unseen").tagName).not.toBe("A");
     expect(href("account-report-usage")).toBe("/settings/billing");
@@ -127,7 +130,7 @@ describe("the account report", () => {
 
   it("adds Needs us in the back office, and links to Escalations and connections", async () => {
     const api = fakeApi({ "GET /api/session": () => OPERATOR_SESSION });
-    const ops = { ...REPORT, needsUs: ["waiting", "failed", "connection", "allowance"] };
+    const ops = { ...REPORT, needsUs: ["waiting", "failed", "connection", "item"] };
     api.on(`GET /api/ops/clients/${CLIENT}/report`, () => ops);
     renderAt(
       `/ops/clients/${CLIENT}/report`,
@@ -136,7 +139,9 @@ describe("the account report", () => {
       api,
     );
     const needs = await screen.findByTestId("ops-account-needs-us");
-    expect(needs.textContent).toContain("Allowance over 80% used");
+    // S4.6: Home's Needs us kinds, in words.
+    expect(needs.textContent).toContain("Approval stuck with the client");
+    expect(needs.textContent).toContain("Item for us");
     expect(href("account-report-failed-unseen")).toBe(`/ops/inbox?client=${CLIENT}`);
     expect(
       within(screen.getByTestId("account-report-connections")).getByRole("link", {
@@ -145,6 +150,10 @@ describe("the account report", () => {
     ).toHaveAttribute("href", `/ops/clients/${CLIENT}/connections`);
     expect(href("account-report-runs-all")).toContain("/ops/runs?");
     expect(href("account-report-csv")).toBe(`/api/ops/clients/${CLIENT}/report.csv`);
+    // QA CL1: the back office's count is every open item, ours included, and says so.
+    expect(screen.getByTestId("account-report-waiting").textContent).toContain(
+      "2 open items, ours and the client's",
+    );
   });
 });
 

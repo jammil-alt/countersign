@@ -1,14 +1,14 @@
 import type { processes } from "@countersign/core";
 import { describe, expect, it } from "vitest";
 import { failureText } from "../screens/RunView";
-import { fieldText, processStepDetail, rulesText, workflowStats } from "./describe";
+import { fieldText, processStepDetail, rulesText, stepCountWords, workflowStats } from "./describe";
 
 const names = new Map([["0193-step", "Review the record"]]);
 
 describe("rule and failure text", () => {
   it("names the step a rule's field comes from instead of its id", () => {
     expect(fieldText("{{steps.0193-step.output.needsFix}}", names)).toBe(
-      "Review the record · needsFix",
+      "Review the record · needs fix",
     );
     expect(fieldText("{{steps.0193-step.output}}", names)).toBe("Review the record output");
     expect(fieldText("{{trigger.amount}}", names)).toBe("trigger · amount");
@@ -25,7 +25,7 @@ describe("rule and failure text", () => {
         },
         names,
       ),
-    ).toBe("Review the record · needsFix = true or trigger · total exists");
+    ).toBe("Review the record · needs fix = true or trigger · total exists");
   });
 
   it("says which step failed and why, not the stored JSON", () => {
@@ -83,6 +83,13 @@ describe("a v4 step's detail line", () => {
       ],
     } as processes.Process;
     const workflows = [{ slug: "a", name: "A", enabled: true, workflow: process }];
-    expect(workflowStats({ workflows })).toEqual({ steps: 2, forks: 1 });
+    expect(workflowStats({ workflows })).toEqual({ steps: 2, forks: 1, workflows: 1 });
+  });
+
+  // S4.9 (QA TP1): 14, 18 and 13 steps for one agent: the agent's count adds up every workflow.
+  it("labels an agent's count by the workflows it adds up", () => {
+    expect(stepCountWords({ steps: 18, workflows: 3 })).toBe("18 steps in 3 workflows");
+    expect(stepCountWords({ steps: 14, workflows: 1 })).toBe("14 steps");
+    expect(stepCountWords({ steps: 1, workflows: 1 })).toBe("1 step");
   });
 });

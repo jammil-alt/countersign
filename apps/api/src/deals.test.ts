@@ -166,7 +166,7 @@ describe.skipIf(!h)("deals", () => {
     });
     expect(termed.deal).toMatchObject({ agreedMrr: "2300.5000", agreedFrom: "2026-12-01" });
     expect(termed.activity[0]?.body).toBe(
-      "Recorded the agreed terms: $2,301 a month from Dec 1. Setup fee waived.",
+      "Recorded the agreed terms: $2,301 a month from 1 Dec 2026. Setup fee waived.",
     );
     expect((await put(`/api/ops/deals/${id}/terms/signed-copy`, PDF, "image/png")).status).toBe(
       422,
@@ -357,6 +357,38 @@ describe.skipIf(!h)("deals", () => {
       originKind: "deal",
       promisedOn: "2026-12-12",
     });
+  });
+
+  // S6.8 (HM5): deals are found with the back office's search (⌘K), in the same scope.
+  it("are found by search: by what they'd buy, the company or the client", async () => {
+    const forA = await ok("POST", "/api/ops/deals", {
+      kind: "expansion",
+      clientId: H.A.tenantId,
+      title: "Quillfeather reconciliation",
+      mrr: "900",
+    });
+    const lead = await ok("POST", "/api/ops/deals", {
+      kind: "new",
+      company: "Quillfeather Bakery",
+      title: "Bills in",
+      mrr: "700",
+    });
+    type Found = { deals: { id: string; company: string | null; client: unknown }[] };
+    const search = (q: string, who = OPERATOR) =>
+      call<Found>("GET", `/api/ops/search?q=${encodeURIComponent(q)}`, undefined, who);
+    const mine = await search("quillfeather");
+    expect(mine.status, JSON.stringify(mine.json)).toBe(200);
+    expect(mine.json.deals.map((d) => d.id).sort()).toEqual([forA.deal.id, lead.deal.id].sort());
+    expect(mine.json.deals.find((d) => d.id === lead.deal.id)).toMatchObject({
+      company: "Quillfeather Bakery",
+      client: null,
+    });
+    // By the client's name.
+    const byClient = await search("Client A");
+    expect(byClient.json.deals.map((d) => d.id)).toContain(forA.deal.id);
+    // Another operator finds the lead, never a deal of a client it doesn't serve.
+    const theirs = await search("quillfeather", OTHER_OPERATOR);
+    expect(theirs.json.deals.map((d) => d.id)).toEqual([lead.deal.id]);
   });
 
   it("keeps a client's deals to the operators serving it; a lead's to every operator", async () => {

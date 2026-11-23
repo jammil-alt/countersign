@@ -34,6 +34,7 @@ import {
   suggestionFacts,
 } from "../inbox/InboxCard";
 import { LateAnswer } from "../inbox/LateAnswer";
+import { itemTitle } from "../inbox/titles";
 import { UndiscussedLines } from "../inbox/Undiscussed";
 import { packReviewCard } from "../packs/reviews";
 import {
@@ -92,8 +93,11 @@ export function DeskDetail({
   entry,
   canSign,
   onChanged,
+  sourceNames,
 }: {
   entry: DeskEntry;
+  /** S5.6: the cited records' names, by id, as the lists served them. */
+  sourceNames?: Readonly<Record<string, string>> | undefined;
   /** False for a viewer: they see the card, never its buttons (the API refuses them too). */
   canSign: boolean;
   /** After any action: the lists and the shell's Desk count reload. */
@@ -143,8 +147,11 @@ export function DeskDetail({
       : null;
   const leadHeading = heading(lead);
   const title = batch
-    ? t("desk.batch.title", { count: items.length, what: leadHeading?.connector ?? lead.title })
-    : (leadHeading?.title ?? lead.title);
+    ? t("desk.batch.title", {
+        count: items.length,
+        what: leadHeading?.connector ?? itemTitle(lead, t),
+      })
+    : (leadHeading?.title ?? itemTitle(lead, t));
   const snoozedNow = open && isSnoozed(lead, now);
   const inWindow = items.filter((i) => undoable(i, now));
   // A decision was made here (a batch may keep open items: they wait as their own entries).
@@ -386,7 +393,7 @@ export function DeskDetail({
             <UndiscussedLines payload={lead.payload} testId="desk-undiscussed" />
           ) : null}
           {/* Round 4 D (§1.211): what the change rests on, and the second check. */}
-          <ChangeEvidence item={lead} surface="portal" recordHref={(id) => `/records/${id}`} />
+          <ChangeEvidence item={lead} surface="portal" documentHref={(id) => `/documents/${id}`} />
 
           {/* R5: an answer after we went ahead, and the undo a late no is offered (§1.86). */}
           <LateAnswer
@@ -466,7 +473,12 @@ export function DeskDetail({
                   {t("inbox.viewRun")}
                 </Link>
               ) : null}
-              <SourceLinks ids={sources} href={(id) => `/records/${id}`} testId="desk-sources" />
+              <SourceLinks
+                ids={sources}
+                href={(id) => `/records/${id}`}
+                testId="desk-sources"
+                names={sourceNames}
+              />
             </div>
           ) : null}
 
@@ -734,7 +746,7 @@ function BatchList({
                     role="checkbox"
                     className="ds-choice mt-0.5 disabled:opacity-60"
                     data-testid={`desk-batch-tick-${item.id}`}
-                    aria-label={t("desk.batch.include", { what: h?.title ?? item.title })}
+                    aria-label={t("desk.batch.include", { what: h?.title ?? itemTitle(item, t) })}
                     aria-checked={ticked.has(item.id)}
                     disabled={!canTick}
                     onClick={() => onTick(item.id, !ticked.has(item.id))}
@@ -746,7 +758,7 @@ function BatchList({
                 )}
                 <details className="min-w-0 flex-1">
                   <summary className="cursor-pointer text-sm font-medium text-ink">
-                    {h?.title ?? item.title}
+                    {h?.title ?? itemTitle(item, t)}
                   </summary>
                   <div className="mt-3 flex flex-col gap-3">
                     <ChangeTables
@@ -759,7 +771,7 @@ function BatchList({
                     <ChangeEvidence
                       item={item}
                       surface="portal"
-                      recordHref={(id) => `/records/${id}`}
+                      documentHref={(id) => `/documents/${id}`}
                     />
                   </div>
                 </details>

@@ -66,13 +66,13 @@ import { logAccountInSales } from "../onboarding/account-deal";
 // v0.13 W2-I
 import { runOversight } from "../oversight/views";
 import { runAuditState, runOwnerChecks } from "../run-audit/store";
-import { aboutNames } from "../runs/about";
+import { aboutNames, aboutRefs } from "../runs/about";
 import { dispatchEvents } from "../runs/dispatch";
 import { daysOf, runsByDay } from "../runs/figures";
 // Hand off (2026-11-11): where a handed-off run came from.
 import { handedOffFrom } from "../runs/handoff";
 import { opsStatusWhere, reachContext, runWaitedMs, runWaits, waitedMsOf } from "../runs/run-wait";
-import { runSubjects, sourceNames } from "../runs/subject";
+import { payloadSources, runSubjects, sourceNames } from "../runs/subject";
 import { stepModelFacts } from "../skill-facts";
 import { checkZohoSetup } from "../zoho/fields";
 import { lastActivityOf, sourceActivity, usedByWith } from "./built-in-sources";
@@ -1079,7 +1079,12 @@ export function opsClientRoutes(app: Hono<AppEnv>): void {
     ensureFilterClients(ctx, query.filter);
     const where: SQL[] = [
       inArray(run.tenantId, [...ctx.tenantIds]),
-      ...runFilterWhere(query.filter, ctx.services.platform.ctx.tools.specs(), "ops"),
+      ...runFilterWhere(
+        query.filter,
+        ctx.services.platform.ctx.tools.specs(),
+        "ops",
+        await aboutRefs(tx, query.filter.clients ?? ctx.tenantIds, query.filter.about),
+      ),
     ];
     // Paging (QA, runs and dates): newest first by (created, id); `before` is the last run of the
     // page before, `next` the last of this one while more match. Groups and days count them all.
@@ -1159,6 +1164,11 @@ export function opsClientRoutes(app: Hono<AppEnv>): void {
     );
     return {
       items: rows.map((i) => opsInboxItem(i, operatorIn(i.tenantId), ctx.services.platform)),
+      sourceNames: await sourceNames(
+        tx,
+        [...new Set(rows.map((i) => i.tenantId))],
+        rows.flatMap((i) => payloadSources(i.payload)),
+      ),
       agents: await agentRefs(
         tx,
         ctx.tenantIds,

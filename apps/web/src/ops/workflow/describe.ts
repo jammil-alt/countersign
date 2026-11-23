@@ -249,8 +249,18 @@ export type StepNames = ReadonlyMap<string, string>;
 
 export function stepNames(workflow: Workflow): StepNames {
   const names = new Map<string, string>();
+  // S5.6: a trigger is named too, so its id ("trg-invoice-read") never shows.
+  for (const t of [workflow.trigger, ...(workflow.moreTriggers ?? [])]) names.set(t.id, "Trigger");
   for (const { step } of allSteps(workflow)) names.set(step.id, step.name || KIND_LABEL[step.kind]);
   return names;
+}
+
+/** "totalsValid" → "totals valid", "line_count" → "line count": a field path's words. */
+function pathWords(path: string): string {
+  return path
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .replace(/[_-]+/g, " ")
+    .toLowerCase();
 }
 
 /** A rule's field as people read it: the step's name and the output field, or the trigger's. */
@@ -259,10 +269,10 @@ export function fieldText(field: string, names?: StepNames): string {
   const step = /^steps\.([^.]+)\.output(?:\.(.+))?$/.exec(path);
   if (step && names) {
     const name = names.get(step[1] as string);
-    if (name) return step[2] ? `${name} · ${step[2]}` : `${name} output`;
+    if (name) return step[2] ? `${name} · ${pathWords(step[2])}` : `${name} output`;
   }
   const trigger = /^trigger\.(.+)$/.exec(path);
-  if (trigger) return `trigger · ${trigger[1]}`;
+  if (trigger) return `trigger · ${pathWords(trigger[1] ?? "")}`;
   return path;
 }
 
@@ -412,8 +422,11 @@ export function processStepDetail(step: ProcessStep, labels: StepLabels = {}): s
 }
 
 /** Step names by id for a v4 process. */
-export function processStepNames(process: Pick<processes.Process, "steps">): StepNames {
+export function processStepNames(
+  process: Pick<processes.Process, "steps"> & Partial<Pick<processes.Process, "triggers">>,
+): StepNames {
   const names = new Map<string, string>();
+  for (const t of process.triggers ?? []) names.set(t.id, PROCESS_KIND_LABEL.trigger);
   for (const { step } of processes.allSteps(process)) {
     names.set(step.id, step.name || PROCESS_KIND_LABEL[step.kind]);
   }
@@ -427,6 +440,8 @@ export function processStepNames(process: Pick<processes.Process, "steps">): Ste
 export function workflowStats(bundle: Pick<AnyAgentBundle, "workflows">): {
   steps: number;
   forks: number;
+  /** S4.9: how many workflows `steps` adds up. */
+  workflows: number;
 } {
   let steps = 0;
   let forks = 0;
@@ -440,5 +455,16 @@ export function workflowStats(bundle: Pick<AnyAgentBundle, "workflows">): {
       if (kind === "fork" || kind === "if") forks += 1;
     }
   }
-  return { steps, forks };
+  return { steps, forks, workflows: bundle.workflows.length };
+}
+
+/**
+ * S4.9 (QA TP1): an agent's step count, labelled by what it adds up: "18 steps in 3 workflows"
+ * beside a workflow's own "14 steps", so the two never read as one number that disagrees. A step
+ * is every step of a workflow, nested ones included, the trigger not (as the workflow builder and
+ * its step table count them).
+ */
+export function stepCountWords(stats: { steps: number; workflows: number }): string {
+  const steps = `${stats.steps} ${stats.steps === 1 ? "step" : "steps"}`;
+  return stats.workflows > 1 ? `${steps} in ${stats.workflows} workflows` : steps;
 }

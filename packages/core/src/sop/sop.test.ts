@@ -188,7 +188,20 @@ describe("the agent's SOP, made by code (docs/sop-plan.md)", () => {
     );
     expect(words).toContain("Step 6, Attach the PDF: Ask me first (was On its own)");
     expect(words).toContain("QuickBooks Online update: Ask me first (was On its own)");
-    expect(sopChanges(null, before)[0]?.words).toBe("First revision of this SOP.");
+    expect(sopChanges(null, before)[0]?.words).toBe("First recorded revision of this SOP.");
+  });
+
+  it("says a paused agent is paused, without a new revision for the pause or the resume", async () => {
+    const live = sopView(input());
+    expect(live.paused).toBe(false);
+    const base = input();
+    const paused = sopView({ ...base, agent: { ...base.agent, runStatus: "paused" } });
+    expect(paused.paused).toBe(true);
+    expect(paused.stage).toEqual({ id: "live", words: "Live" });
+    expect(await sopFingerprint(paused)).toBe(await sopFingerprint(live));
+    // A view stored before `paused` existed reads as not paused.
+    const { paused: _p, ...stored } = live;
+    expect(SopView.parse(stored).paused).toBe(false);
   });
 
   it("writes money by string, never a float", () => {

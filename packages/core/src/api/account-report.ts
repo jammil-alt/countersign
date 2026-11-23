@@ -24,8 +24,19 @@ export const ACCOUNT_WAIT_OVERDUE_HOURS = 24;
 /** An allowance used past this share needs us (the owner's answer 3: "over 80%"). */
 export const ACCOUNT_ALLOWANCE_SHARE = 0.8;
 
-/** Why a client needs us, in the order "Needs us" lists them. */
-export const NEEDS_US_REASONS = ["waiting", "failed", "connection", "allowance"] as const;
+/**
+ * Why a client needs us, in the order "Needs us" lists them: one per kind of Home's Needs us
+ * escalation (S4.6, decision D5): an approval nobody at the client can act on or waiting over a
+ * day, a failed run not tried again, a connection an agent uses in error, an item for us, a
+ * reading under the client's threshold.
+ */
+export const NEEDS_US_REASONS = [
+  "waiting",
+  "failed",
+  "connection",
+  "item",
+  "low_confidence",
+] as const;
 export const NeedsUsReason = z.enum(NEEDS_US_REASONS);
 export type NeedsUsReason = z.infer<typeof NeedsUsReason>;
 

@@ -11,7 +11,9 @@ import {
 } from "@countersign/core";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { apiRoutes } from "../../api/routes";
+import { EN } from "../../i18n/i18n";
 import { Button, cx } from "../../ui/primitives";
+import { cost } from "../../usage/format";
 import { errorText, TextArea, useAction } from "../agents/ui";
 import type { BuilderProblem } from "./catalog";
 import { SmallInput, SmallSelect } from "./fields";
@@ -177,7 +179,7 @@ function FieldEditor({
           <p className="text-xs text-ink-muted">
             JSON from the allowed set: input, value, today, sum, difference, percentChange,
             daysBetween, bucket, formatDate, formatNumber, formatMoney, join, split, pick, pluck,
-            mapList, object, convertUnit.
+            mapList, object, convertUnit, nearestWithin.
           </p>
           {parsed?.ok === false ? (
             <p className="ds-error text-xs">Not an expression from the allowed set.</p>
@@ -432,7 +434,7 @@ export function ReshapeFields({
             {proposal.mapping.fields.length} fields mapped
             {proposal.ai.asked
               ? `; the Builder AI filled ${proposal.ai.fields.length}${
-                  proposal.ai.costUsd ? ` ($${Number(proposal.ai.costUsd).toFixed(4)})` : ""
+                  proposal.ai.costUsd ? ` (${cost(proposal.ai.costUsd)})` : ""
                 }`
               : ""}
             . Check each one before you save.
@@ -451,7 +453,7 @@ export function ReshapeFields({
       {samples ? (
         <p className="text-xs text-ink-muted" data-testid="builder-reshape-sample-source">
           {samples.source === "run" && samples.run
-            ? `Values from the ${samples.run.mode} run of ${samples.run.at.slice(0, 10)}.`
+            ? `Values from the ${samples.run.mode} run of ${EN.fmt.date(samples.run.at)}.`
             : "Values made from the fields' types: no run has reached this step's sources yet."}
         </p>
       ) : null}

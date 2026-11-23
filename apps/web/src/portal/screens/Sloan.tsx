@@ -39,6 +39,50 @@ import { ChangeRequests } from "./Requests";
 // hidden tab (docs/audit-plan.md 2.7); a new message starts it again from 3 s.
 const ANSWER_POLL: Backoff = { firstMs: 3_000, maxMs: 30_000 };
 
+// S2.1 (overnight fixes, 2026-11-23): the panel stops waiting for an answer that doesn't come.
+// DECISION: 3 minutes from when this page saw the message waiting (a Sloan answer takes well under
+// one), or at once for a message already 30 minutes old by this browser's clock; a failed run's
+// fixed message ends the wait sooner. "Check again" asks once more.
+/** How long an open conversation waits for Sloan's answer before it says none came. */
+export const ANSWER_WAIT_MS = 3 * 60_000;
+/** A message this old (by the browser's clock) is not waited on at all. */
+const STALE_MS = 30 * 60_000;
+
+/** Whether the wait for an answer to `messageId` (sent at `sentAt`) has run out; null: no wait. */
+function useAnswerWait(
+  messageId: string | null,
+  sentAt: string | null,
+): {
+  waiting: boolean;
+  gaveUp: boolean;
+  again: () => void;
+} {
+  const [seen, setSeen] = useState<{ id: string; at: number } | null>(null);
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!messageId) return;
+    setSeen((s) => (s?.id === messageId ? s : { id: messageId, at: Date.now() }));
+  }, [messageId]);
+  const since = seen?.id === messageId ? seen.at : Date.now();
+  const stale = sentAt !== null && now - Date.parse(sentAt) >= STALE_MS;
+  const gaveUp = !!messageId && (stale || now - since >= ANSWER_WAIT_MS);
+  useEffect(() => {
+    if (!messageId || gaveUp) return;
+    const left = Math.max(0, since + ANSWER_WAIT_MS - Date.now());
+    const timer = setTimeout(() => setNow(Date.now()), left + 50);
+    return () => clearTimeout(timer);
+  }, [messageId, since, gaveUp]);
+  return {
+    waiting: !!messageId && !gaveUp,
+    gaveUp,
+    again: () => {
+      const at = Date.now();
+      if (messageId) setSeen({ id: messageId, at });
+      setNow(at);
+    },
+  };
+}
+
 /** What Sloan does and doesn't do, in the portal's words (ARCHITECTURE §9.8). */
 const CAN: [PlainKey, boolean][] = [
   ["sloan.can.see", true],
@@ -200,7 +244,9 @@ export function Conversation({
   );
   const list = messages.data?.messages ?? [];
   const last = list[list.length - 1];
-  const waitingForAnswer = !!last && last.sender.you;
+  const asked = last?.sender.you ? last : null;
+  const wait = useAnswerWait(asked?.id ?? null, asked?.createdAt ?? null);
+  const waitingForAnswer = wait.waiting;
   useBackoffPoll(messages.reload, waitingForAnswer, ANSWER_POLL, messages.loading, last?.id);
 
   // Opening a conversation reads it up to now.
@@ -261,6 +307,21 @@ export function Conversation({
               />
             ) : null}
           </ChatLog>
+        ) : null}
+        {wait.gaveUp ? (
+          <div className="flex flex-wrap items-center gap-3" data-testid="portal-sloan-no-answer">
+            <p className="text-sm text-ink-muted">{t("sloan.noAnswer")}</p>
+            <Button
+              size="sm"
+              data-testid="portal-sloan-check-again"
+              onClick={() => {
+                wait.again();
+                messages.reload();
+              }}
+            >
+              {t("sloan.checkAgain")}
+            </Button>
+          </div>
         ) : null}
       </div>
       <div

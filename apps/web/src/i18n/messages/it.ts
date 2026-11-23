@@ -644,6 +644,7 @@ export const it: Messages = {
   "action.status.done": "Fatta",
   "action.status.rejected": "Rifiutata",
   "action.status.failed": "Non riuscita",
+  "action.status.expired": "Non fatta: nessuna risposta in tempo",
 
   // ── Connections ──
   "connections.title": "Account",
@@ -2184,6 +2185,9 @@ export const it: Messages = {
   "sloan.empty":
     "Chiedi perché qualcosa è in attesa, metti in pausa un agente, aggiungi chi approva o passa un'idea al tuo referente.",
   "sloan.answering": "Sloan sta rispondendo…",
+  "sloan.noAnswer":
+    "Sloan non ha ancora risposto. La risposta comparirà qui; per qualcosa di urgente, chiedi al tuo referente.",
+  "sloan.checkAgain": "Controlla di nuovo",
   "sloan.compose": "Chiedi a Sloan, o digli cosa cambiare",
   "sloan.commandHint": "Inizia con / e il nome di un agente per chiederlo a lui, come /pia.",
   "sloan.you": "Tu",
@@ -2232,7 +2236,7 @@ export const it: Messages = {
   "teamPage.subtitleMember": "Chi usa il tuo portale e cosa approva ogni persona.",
   "teamPage.people": "Persone",
   "teamPage.invite": "Invita qualcuno",
-  "teamPage.viewer": "Non approva. Può leggere tutto.",
+  "teamPage.viewer": "Non approva.",
   "exports.title": "Esportazioni",
   "exports.subtitle":
     "File per il tuo commercialista e per i tuoi archivi. Ognuno copre giorni interi, fino a un anno.",
@@ -2461,6 +2465,52 @@ export const it: Messages = {
   "sop.within": "entro {when}", // fluent review
   "sop.ifNoAnswer": "se nessuno risponde: {what}", // fluent review
   "sop.ifRejected": "Se rifiutato: {what}", // fluent review
+  // S5.7: the SOP and the directory's titles, by key (packages/core/src/sop/say.ts).
+  "sop.say.trigger.documentReceived": "Arriva un documento", // fluent review
+  "sop.say.trigger.documentExtracted": "Un documento è stato letto", // fluent review
+  "sop.say.trigger.transactionCreated": "Viene aggiunto un record nei vostri strumenti", // fluent review
+  "sop.say.trigger.transactionUpdated": "Cambia un record nei vostri strumenti", // fluent review
+  "sop.say.trigger.messageReceived": "Arriva un messaggio", // fluent review
+  "sop.say.trigger.runSucceeded": "Un altro agente finisce", // fluent review
+  "sop.say.trigger.manualTeam": "Qualcuno del vostro team lo avvia (Esegui ora)", // fluent review
+  "sop.say.trigger.manualUs": "Lo avviamo a mano", // fluent review
+  "sop.say.trigger.command": "Qualcuno scrive /{command} in una conversazione", // fluent review
+  "sop.say.trigger.webhook": "Un altro sistema gli invia una consegna", // fluent review
+  "sop.say.trigger.message": "Arriva un messaggio da qualcuno da cui può riceverne", // fluent review
+  "sop.say.trigger.handoff": "{name} gli passa il lavoro", // fluent review
+  "sop.say.trigger.handoffAny": "Un altro agente gli passa il lavoro", // fluent review
+  "sop.say.trigger.started": "Viene avviato", // fluent review
+  "sop.say.then.stop": "l'esecuzione si ferma", // fluent review
+  "sop.say.then.proceed": "si va avanti", // fluent review
+  "sop.say.then.skip": "il passaggio viene saltato", // fluent review
+  "sop.say.then.escalate": "si chiede a {name}", // fluent review
+  "sop.say.rejected.continue": "si va avanti senza la modifica", // fluent review
+  "sop.say.rejected.stop": "la modifica non viene fatta e l'esecuzione si ferma", // fluent review
+  "sop.say.onError.continue": "l'esecuzione continua e un passaggio successivo può occuparsene", // fluent review
+  "sop.say.purpose.reads": "Legge {what} da {where}.", // fluent review
+  "sop.say.purpose.adds": "Aggiunge {what} a {where}.", // fluent review
+  "sop.say.purpose.removes": "Rimuove {what} da {where}.", // fluent review
+  "sop.say.purpose.updates": "Aggiorna {what} in {where}.", // fluent review
+  "sop.say.where.mezonas": "i vostri record in Mezonas", // fluent review
+  "sop.say.what.records": "record", // fluent review
+  "sop.say.entity.account": "conti", // fluent review
+  "sop.say.entity.attachment": "allegati", // fluent review
+  "sop.say.entity.bill": "fatture fornitori", // fluent review
+  "sop.say.entity.class": "classi", // fluent review
+  "sop.say.entity.customer": "clienti", // fluent review
+  "sop.say.entity.deposit": "depositi", // fluent review
+  "sop.say.entity.invoice": "fatture", // fluent review
+  "sop.say.entity.item": "prodotti e servizi", // fluent review
+  "sop.say.entity.journal_entry": "registrazioni contabili", // fluent review
+  "sop.say.entity.location": "sedi", // fluent review
+  "sop.say.entity.payment": "pagamenti", // fluent review
+  "sop.say.entity.purchase": "acquisti", // fluent review
+  "sop.say.entity.purchase_order": "ordini di acquisto", // fluent review
+  "sop.say.entity.transfer": "trasferimenti", // fluent review
+  "sop.say.entity.vendor": "fornitori", // fluent review
+  "directory.suggestions.title.add": "Aggiungere {name} alla rubrica", // fluent review
+  "directory.suggestions.title.update": "Aggiornare {name} nella rubrica", // fluent review
+  "directory.suggestions.title.reach": "Cambiare come contattiamo {name}", // fluent review
   "sop.onError": "Se non riesce: {what}", // fluent review
   "sop.told": "Informati", // fluent review
   "sop.controls": "Controlli", // fluent review
@@ -3634,6 +3684,7 @@ export const it: Messages = {
   "requests.lede": "Qualcosa non funziona, o un'idea per noi: dillo qui al tuo referente Mezonas.",
   "requests.new": "Nuova richiesta",
   "requests.empty": "Ancora nessuna richiesta.",
+  "requests.state.sent": "Inviata", // fluent review
   "requests.state.on_it": "Ce ne stiamo occupando",
   "requests.state.waiting_on_you": "In attesa di te",
   "requests.state.fixed": "Risolto",

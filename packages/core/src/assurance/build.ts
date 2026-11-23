@@ -8,6 +8,7 @@
 
 import { PROCESSOR_NAMES, processorForModel } from "../compliance/processors";
 import type { SopLevel, SopStepLine } from "../sop/view";
+import { houseDate } from "../timezone";
 import {
   type AssuranceConnection,
   type AssuranceInput,
@@ -54,10 +55,6 @@ const YOUR_TEAM = "Your team; Mezonas operators who serve you";
 
 function steps(input: AssuranceInput): SopStepLine[] {
   return input.sop.procedure.filter((l): l is SopStepLine => l.line === "step");
-}
-
-function shortDate(iso: string): string {
-  return iso.slice(0, 10);
 }
 
 // ── The architecture ─────────────────────────────────────────────────────────────────────────────
@@ -309,9 +306,9 @@ function accessRows(input: AssuranceInput): AssuranceView["access"] {
     detail:
       [
         c.connectedBy
-          ? `Connected by ${c.connectedBy}${c.connectedAt ? `, ${shortDate(c.connectedAt)}` : ""}`
+          ? `Connected by ${c.connectedBy}${c.connectedAt ? `, ${houseDate(c.connectedAt)}` : ""}`
           : null,
-        c.lastUsedAt ? `last used ${shortDate(c.lastUsedAt)}` : null,
+        c.lastUsedAt ? `last used ${houseDate(c.lastUsedAt)}` : null,
       ]
         .filter(Boolean)
         .join(" · ") || null,

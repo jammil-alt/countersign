@@ -1,11 +1,13 @@
 import { describe, expect, it } from "vitest";
 import {
+  actionBadge,
   age,
   checkFailureWords,
   errorGroupLabel,
   foldSameFailures,
   hoursWords,
   runErrorLine,
+  runsCountWords,
   sameFailureWords,
 } from "./words";
 
@@ -96,5 +98,38 @@ describe("errorGroupLabel", () => {
     expect(errorGroupLabel("person:timeout")).toBe("A person step · timeout");
     expect(errorGroupLabel("run:no_workflow")).toBe("Before any step · no workflow");
     expect(errorGroupLabel("unknown")).toBe("No reason given");
+  });
+});
+
+describe("runsCountWords", () => {
+  // S4.9 (QA W13): "The latest 50" sat over 21 rows: the table folds repeated failures.
+  it("says how many runs, and how many rows when repeated failures fold", () => {
+    expect(runsCountWords(50, 21, true)).toBe(
+      "The latest 50 runs · 21 rows, repeated failures folded",
+    );
+    expect(runsCountWords(50, 50, true)).toBe("The latest 50 runs");
+    expect(runsCountWords(12, 12, false)).toBe("12 runs");
+    expect(runsCountWords(1, 1, false)).toBe("1 run");
+  });
+});
+
+describe("actionBadge", () => {
+  // S4.5: a change nobody answered in time read "Waiting for approval" on a stopped run.
+  it("says a change nobody answered in time was not made, never a person's rejection", () => {
+    const expired = {
+      status: "rejected",
+      executedAt: null,
+      error: { code: "approval_expired", message: "nobody answered in time" },
+    };
+    expect(actionBadge(expired, false)).toEqual({
+      label: "Not made: no answer in time",
+      tone: "neutral",
+    });
+    expect(actionBadge({ status: "rejected", executedAt: null, error: null }, false).label).toBe(
+      "Rejected",
+    );
+    expect(actionBadge({ status: "proposed", executedAt: null }, false).label).toBe(
+      "Needs approval",
+    );
   });
 });

@@ -12,12 +12,12 @@ import {
   SALES_PIPELINES,
   SALES_WORDS,
   salesPipeOf,
-  shortDay,
 } from "@countersign/core";
 import { type ReactNode, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { apiRoutes } from "../../../api/routes";
 import { useApi, useApiClient } from "../../../api/useApi";
+import { EN } from "../../../i18n/i18n";
 import { cx } from "../../../ui/cx";
 import { ErrorNotice } from "../../../ui/ErrorState";
 import { Field, Select, TextArea, TextInput } from "../../../ui/forms";
@@ -35,6 +35,7 @@ import {
   skippedStages,
   useOnboardingLines,
 } from "../onboarding/timeline";
+import { shortDate } from "../parts";
 import { Due, monthValue, plural, Standing } from "./parts";
 import { TermsPanel } from "./TermsPanel";
 
@@ -655,9 +656,12 @@ const KIND_WORDS: Partial<Record<DealActivityView["kind"], string>> = {
   terms: "Terms",
 };
 
-function when(at: string): string {
-  const d = new Date(at);
-  return `${shortDay(at)} ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+/**
+ * "22 Nov, 20:58": a timeline entry's day and time, both in the viewer's zone (S5.2). It paired the
+ * UTC day with the browser's clock ("Nov 23 20:58" for 22 Nov 20:58 in Chicago).
+ */
+export function when(at: string, now: Date = new Date()): string {
+  return EN.fmt.dateTime(at, now);
 }
 
 /** The people Invite offers first: the main contact, then the rest with an email. */
@@ -967,7 +971,7 @@ function Details({ detail }: { detail: DealDetail }) {
       d.sourceDetail ? `${SOURCE_WORDS[d.source]}: ${d.sourceDetail}` : SOURCE_WORDS[d.source],
     ],
     ...(d.outcomeReason ? ([["Why it closed", d.outcomeReason]] as [string, string][]) : []),
-    ...(d.checkBackOn ? ([["Check back", shortDay(d.checkBackOn)]] as [string, string][]) : []),
+    ...(d.checkBackOn ? ([["Check back", shortDate(d.checkBackOn)]] as [string, string][]) : []),
   ];
   return (
     <Panel title="Details" testId="deal-details">

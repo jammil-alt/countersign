@@ -17,7 +17,6 @@ import {
   type FactSourceKind,
   type FactSureness,
   type NewClientFactInput,
-  shortDay,
 } from "@countersign/core";
 import { useState } from "react";
 import { Link } from "react-router-dom";
@@ -27,6 +26,7 @@ import { ErrorNotice } from "../../../ui/ErrorState";
 import { Field, Select, TextArea } from "../../../ui/forms";
 import { Button, Loading } from "../../../ui/primitives";
 import { OPS_PATHS } from "../../paths";
+import { shortDate } from "../parts";
 import { RadioChoice } from "./parts";
 import {
   AUDIENCE_HELP,
@@ -141,7 +141,7 @@ function FileBody({
               f.website,
               f.status === "prospect" ? "Prospect" : f.status === "client" ? "Client" : "Lost",
               plural(f.facts, "fact"),
-              f.lastFactAt ? `last added ${shortDay(f.lastFactAt)}` : null,
+              f.lastFactAt ? `last added ${shortDate(f.lastFactAt)}` : null,
             ]
               .filter(Boolean)
               .join(" · ")}
@@ -255,7 +255,7 @@ function FileBody({
             ))}
             {detail.intakes.map((i) => (
               <li key={i.id} className="text-ink">
-                Intake from {shortDay(i.createdAt)}
+                Intake from {shortDate(i.createdAt)}
                 <span className="ml-2 text-xs text-ink-muted">{INTAKE_STATUS_WORDS[i.status]}</span>
               </li>
             ))}
@@ -292,7 +292,7 @@ function FactLine({
         <FactBadges fact={fact} />
         <span>
           {fact.by ? `${fact.by.name}, ` : ""}
-          {shortDay(fact.createdAt)}
+          {shortDate(fact.createdAt)}
           {fact.replacesId ? " · a correction" : ""}
         </span>
       </div>
@@ -307,7 +307,7 @@ function FactLine({
               <span className="line-through">{e.text}</span>{" "}
               <span>
                 · replaced · {e.by ? `${e.by.name}, ` : ""}
-                {shortDay(e.createdAt)}
+                {shortDate(e.createdAt)}
               </span>
             </li>
           ))}

@@ -56,7 +56,11 @@ const INPUT: AgentBundleInput = {
 
 const LATEST = { ...AGENT_DETAIL.latest, bundle: INPUT };
 
-function setup(kind: "client" | "template" = "client", input: AnyAgentBundleInput = INPUT) {
+function setup(
+  kind: "client" | "template" = "client",
+  input: AnyAgentBundleInput = INPUT,
+  errors: { stepId: string | null; message: string; workflow?: string }[] = [],
+) {
   const saved: Record<string, unknown>[] = [];
   let changed = 0;
   const api = fakeApi({
@@ -105,6 +109,7 @@ function setup(kind: "client" | "template" = "client", input: AnyAgentBundleInpu
           agent={agent}
           latest={{ ...LATEST, bundle: input }}
           bundle={AnyAgentBundle.parse(input)}
+          errors={errors}
           onChanged={() => {
             changed += 1;
           }}
@@ -116,6 +121,29 @@ function setup(kind: "client" | "template" = "client", input: AnyAgentBundleInpu
 }
 
 describe("Triggers", () => {
+  // S6.5: a draft's schedule of "99 99 99 99 99" in "Not/AZone" read On with no issue.
+  it("says a trigger the draft's check stops won't start, and why", () => {
+    setup("client", INPUT, [
+      {
+        stepId: "t-hook",
+        workflow: "new-bill",
+        message: "a schedule needs five cron fields, e.g. 0 7 * * 1-5",
+      },
+      { stepId: "t-hook", workflow: "other", message: "not this workflow's" },
+      { stepId: "some-step", message: "a step's problem" },
+    ]);
+    const row = screen.getByTestId("trigger-row-t-hook");
+    expect(row).toHaveTextContent("Won't start");
+    expect(row).not.toHaveTextContent(/\bOn\b/);
+    expect(within(row).getByTestId("trigger-problems-t-hook")).toHaveTextContent(
+      "Fix before publishing: a schedule needs five cron fields, e.g. 0 7 * * 1-5.",
+    );
+    expect(row).not.toHaveTextContent("not this workflow's");
+    // The other rows are as they were.
+    expect(screen.getByTestId("trigger-row-t1")).toHaveTextContent("On");
+    expect(screen.queryByTestId("trigger-problems-t1")).toBeNull();
+  });
+
   it("lists every trigger with its guards and last fired, and the message and webhook settings", async () => {
     const { user } = setup();
     expect(screen.getByTestId("triggers-table")).toHaveTextContent("Starts when · 3 triggers");

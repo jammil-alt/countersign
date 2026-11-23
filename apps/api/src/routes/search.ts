@@ -18,7 +18,7 @@ import {
   runFilterQuery,
   shortRunId,
 } from "@countersign/core";
-import { agent, run, type Tx, tenant } from "@countersign/db";
+import { agent, deal, run, type Tx, tenant } from "@countersign/db";
 import { createLlmClient } from "@countersign/llm";
 import { and, desc, eq, inArray, type SQL } from "drizzle-orm";
 import type { Hono } from "hono";
@@ -26,7 +26,7 @@ import { agentWhere } from "../assigned";
 import { clientModels } from "../compliance/models";
 import { type AppEnv, ensureClient, mount, mountLong } from "../http";
 import { claimMetered } from "../metered";
-import { runsAboutCounts } from "../runs/about";
+import { aboutRefs, runsAboutCounts } from "../runs/about";
 import { clientStatusWhere, clientWaits, OPEN_RUN } from "../runs/client-status";
 import { reachContext, runWaits } from "../runs/run-wait";
 import { runSubjects } from "../runs/subject";
@@ -37,12 +37,14 @@ import { recordAskUsage } from "../runs-ask/usage";
 import {
   type SearchScope,
   searchAgents,
+  searchDeals,
   searchDocuments,
   searchOrganizations,
   searchPeople,
   searchRecords,
   searchRuns,
 } from "../search/queries";
+import { inSalesScope } from "../work/deals";
 import { runSummaries } from "./portal";
 import { runFilterWhere } from "./run-controls";
 
@@ -171,6 +173,13 @@ export function searchRoutes(app: Hono<AppEnv>): void {
     const { tx, query } = ctx;
     const ids = opsIds(ctx, query.client);
     const hits = await searchAll(tx, { surface: "ops", tenantIds: ids }, query.q);
+    // DECISION (S6.8): deals are found as the Sales board shows them: a prospect's (no client yet)
+    // and those of the clients served; with `?client=`, that client's alone.
+    const deals = await searchDeals(
+      tx,
+      query.client ? eq(deal.clientId, query.client) : inSalesScope(ids),
+      readSearchText(query.q),
+    );
     const subjects = await runSubjects(tx, ids, hits.runs, ctx.services.platform);
     const client = await clientNames(tx, ids);
     // UI cleanup (stream A): who each waiting run waits on.
@@ -212,6 +221,14 @@ export function searchRoutes(app: Hono<AppEnv>): void {
         receivedAt: d.receivedAt.toISOString(),
         runs: d.runs,
         client: named(d.tenantId),
+      })),
+      deals: deals.map((d) => ({
+        id: d.id,
+        title: d.title,
+        company: d.company,
+        client: d.clientId ? { id: d.clientId, name: d.clientName ?? "" } : null,
+        stage: d.stage,
+        outcome: d.outcome,
       })),
     };
     return result;
@@ -273,7 +290,12 @@ export function searchRoutes(app: Hono<AppEnv>): void {
         tx,
         tenantId,
         [
-          ...runFilterWhere(rest, services.platform.ctx.tools.specs(), "portal"),
+          ...runFilterWhere(
+            rest,
+            services.platform.ctx.tools.specs(),
+            "portal",
+            await aboutRefs(tx, [tenantId], rest.about),
+          ),
           ...clientStatusWhere(statuses),
         ],
         ASK_RUNS_LIMIT,
@@ -347,7 +369,12 @@ export function searchRoutes(app: Hono<AppEnv>): void {
         .where(
           and(
             inArray(run.tenantId, ids),
-            ...runFilterWhere(filter, services.platform.ctx.tools.specs(), "ops"),
+            ...runFilterWhere(
+              filter,
+              services.platform.ctx.tools.specs(),
+              "ops",
+              await aboutRefs(tx, filter.clients ?? ids, filter.about),
+            ),
           ),
         )
         .orderBy(desc(run.createdAt))
