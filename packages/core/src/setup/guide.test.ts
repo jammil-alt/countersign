@@ -57,6 +57,21 @@ describe("runbook", () => {
     expect(r[1]?.at).toBe("2026-11-22T09:00:00.000Z");
   });
 
+  it("dates the plan from when it is planned, and leaves the invite to do until one went", () => {
+    const r = runbook(
+      {
+        invitedAt: null,
+        plannedFrom: "2026-11-20T09:00:00.000Z",
+        trialStartedAt: null,
+        liveAt: null,
+        now: "2026-11-21T09:00:00.000Z",
+      },
+      false,
+    );
+    expect(r[0]).toMatchObject({ key: "invite", at: "2026-11-20T09:00:00.000Z", done: false });
+    expect(r[1]?.at).toBe("2026-11-22T09:00:00.000Z");
+  });
+
   it("dates the check-in a week after the trial starts", () => {
     const r = runbook(
       {
