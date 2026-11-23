@@ -22,8 +22,10 @@ export const REENCRYPT_BATCH = 200;
 
 export interface VaultTickResult {
   rewrapped: number;
-  /** Client keys wrapped by a master key this deployment no longer holds: never openable. */
+  /** Active client keys wrapped by a master key this deployment no longer holds: an alarm. */
   lostKeys: number;
+  /** Retired ones (what `retire-lost-keys.yml` leaves behind): expected, never warned about. */
+  retiredLostKeys: number;
   reencrypted: number;
   failed: number;
 }
@@ -33,7 +35,13 @@ export async function vaultUpkeep(
   master: CredentialCipher,
   limit = REENCRYPT_BATCH,
 ): Promise<VaultTickResult> {
-  const out: VaultTickResult = { rewrapped: 0, lostKeys: 0, reencrypted: 0, failed: 0 };
+  const out: VaultTickResult = {
+    rewrapped: 0,
+    lostKeys: 0,
+    retiredLostKeys: 0,
+    reencrypted: 0,
+    failed: 0,
+  };
   // `tenant` is global (no RLS): the list of clients to visit, one at a time.
   const clients = await db.select({ id: tenant.id }).from(tenant).orderBy(asc(tenant.id));
   let budget = limit;
@@ -42,6 +50,7 @@ export async function vaultUpkeep(
       const keys = await rewrapClientKeys(tx, { tenantId: c.id, master });
       out.rewrapped += keys.rewrapped;
       out.lostKeys += keys.lost;
+      out.retiredLostKeys += keys.retiredLost;
       if (budget <= 0) return;
       const r = await reencryptClientCredentials(tx, {
         tenantId: c.id,
@@ -70,8 +79,9 @@ export async function vaultTick(
     });
   }
   if (result.lostKeys > 0) {
-    // One warning a run, not an error per key: nothing can open these; a client whose active key
-    // was lost reconnects once it is retired (.github/workflows/retire-lost-keys.yml).
+    // One warning a run, not an error per key, and only for active keys: nothing can open them,
+    // and the client's next credentials would go under one. Retire them
+    // (.github/workflows/retire-lost-keys.yml) and the client reconnects.
     reportProblem("vault upkeep: client keys wrapped by a master key we no longer hold", {
       job: "vault",
       lost: String(result.lostKeys),

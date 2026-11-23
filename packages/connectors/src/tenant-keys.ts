@@ -142,8 +142,10 @@ export async function reencryptClientCredentials(
 
 /**
  * Re-wraps the client's keys still wrapped by a previous master key. `rewrapped` counts the keys
- * moved under the current master; `lost` the keys wrapped by a master key this deployment no
- * longer holds (they can never be opened again, so they are left as they are and only counted).
+ * moved under the current master. Keys wrapped by a master key this deployment no longer holds can
+ * never be opened again, so they are left as they are and only counted: `lost` the active ones
+ * (an alarm: the client's new credentials go under a key nothing can open), `retiredLost` the
+ * retired ones (expected once `retire-lost-keys.yml` has run).
  */
 // DECISION: a key whose master is unknown is counted, not tried: before, one lost master key
 // (staging's, 2026-11-21) made every hourly upkeep throw on the first such key and stop
@@ -151,7 +153,7 @@ export async function reencryptClientCredentials(
 export async function rewrapClientKeys(
   tx: Tx,
   input: { tenantId: string; master: CredentialCipher },
-): Promise<{ rewrapped: number; lost: number }> {
+): Promise<{ rewrapped: number; lost: number; retiredLost: number }> {
   const rows = await tx
     .select()
     .from(tenantKey)
@@ -166,10 +168,14 @@ export async function rewrapClientKeys(
   const known = new Set(input.master.keyIds);
   let rewrapped = 0;
   let lost = 0;
+  let retiredLost = 0;
   for (const row of rows) {
     const kid = WrappedKey.safeParse(row.wrappedKey);
     if (!kid.success || !known.has(kid.data.kid)) {
-      lost += 1;
+      // DECISION (overnight, Sentry MEZONAS-API-K): a retired key under a lost master is what
+      // the retire workflow leaves behind, counted apart and never warned about.
+      if (row.status === "retired") retiredLost += 1;
+      else lost += 1;
       continue;
     }
     const wrapped = await input.master.rewrap(row.wrappedKey, input.tenantId);
@@ -179,7 +185,7 @@ export async function rewrapClientKeys(
       .where(and(eq(tenantKey.id, row.id), eq(tenantKey.tenantId, input.tenantId)));
     rewrapped += 1;
   }
-  return { rewrapped, lost };
+  return { rewrapped, lost, retiredLost };
 }
 
 /**
