@@ -625,6 +625,7 @@ export const en = {
   "action.status.done": "Made",
   "action.status.rejected": "Rejected",
   "action.status.failed": "Failed",
+  "action.status.expired": "Not made: no answer in time",
 
   // ── Connections ──
   "connections.title": "Accounts",

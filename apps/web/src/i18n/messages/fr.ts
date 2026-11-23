@@ -654,6 +654,7 @@ export const fr: Messages = {
   "action.status.done": "Fait",
   "action.status.rejected": "Refusé",
   "action.status.failed": "Échec",
+  "action.status.expired": "Non fait : pas de réponse à temps",
 
   // ── Connections ──
   "connections.title": "Comptes",

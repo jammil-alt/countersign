@@ -635,6 +635,7 @@ export const es: Messages = {
   "action.status.done": "Hecho",
   "action.status.rejected": "Rechazado",
   "action.status.failed": "Falló",
+  "action.status.expired": "No se hizo: nadie respondió a tiempo",
 
   // ── Connections ──
   "connections.title": "Cuentas",
