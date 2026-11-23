@@ -30,7 +30,7 @@ import { ActivityRow } from "../../ui/activity";
 import { AgentBadge } from "../../ui/badges";
 import { ErrorBoundary } from "../../ui/ErrorBoundary";
 import { Loaded, Page, PageGrid } from "../../ui/page";
-import { Badge, Button, buttonClass, Card, cx, EmptyState, PageHeader } from "../../ui/primitives";
+import { Button, buttonClass, Card, cx, EmptyState, PageHeader } from "../../ui/primitives";
 import {
   Skeleton,
   SkeletonBlock,
