@@ -85,8 +85,12 @@ export function NewClientAgentScreen() {
     apiRoutes.opsAgent,
     template ? { params: { id: template.id } } : null,
   );
-  const chosenVersionId =
-    versionId ?? template?.liveVersionId ?? templateDetail.data?.latest?.id ?? null;
+  // DECISION (S6.7, PLATFORM_QA TOOL-2): only a published template version (live, or retired
+  // after it was live) goes to a client; the server refuses a draft, so none is offered. A
+  // template with no live version isn't offered at all.
+  const chosenVersionId = versionId ?? template?.liveVersionId ?? null;
+  const published = (templateDetail.data?.versions ?? []).filter((v) => v.status !== "draft");
+  const offered = (templates.data?.templates ?? []).filter((t) => t.liveVersionId !== null);
   const templateVersion = useApi(
     apiRoutes.opsAgentVersion,
     template && chosenVersionId ? { params: { id: template.id, vid: chosenVersionId } } : null,
@@ -159,7 +163,7 @@ export function NewClientAgentScreen() {
           onSelect={() => choose({ kind: "blank" })}
           testId="new-agent-start-blank"
         />
-        {templates.data?.templates.map((t) => (
+        {offered.map((t) => (
           <StartOption
             key={t.id}
             selected={start.kind === "template" && start.id === t.id}
@@ -273,7 +277,7 @@ export function NewClientAgentScreen() {
                   value={chosenVersionId ?? ""}
                   onChange={(e) => setVersionId(e.target.value)}
                 >
-                  {templateDetail.data.versions.map((v) => (
+                  {published.map((v) => (
                     <option key={v.id} value={v.id}>
                       v{v.version} ·{" "}
                       {v.id === templateDetail.data?.agent.liveVersionId ? "live" : v.status}

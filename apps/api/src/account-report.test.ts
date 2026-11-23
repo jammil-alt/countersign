@@ -255,7 +255,9 @@ describe.skipIf(!h)("the report per account", () => {
 
     const ops = await get(OPERATOR, `/api/ops/clients/${H.A.tenantId}/report?${PERIOD}`);
     expect(ops.waiting).toMatchObject({ items: 2, overdue: 1 });
-    expect(ops.needsUs).toEqual(["waiting", "failed", "connection"]);
+    // S4.6 (D5): Home's Needs us for A: the approval past a day, the failed run, the item for us.
+    // QuickBooks in error is used by no agent and Gmail is still connected, so neither needs us.
+    expect(ops.needsUs).toEqual(["waiting", "failed", "item"]);
     expect(await opsRuns(ops.runs.filter)).toEqual(sorted(runs.r1, runs.r2, runs.r3));
     expect(await opsRuns(ops.waiting.runs.filter)).toEqual([runs.rWait]);
   });
@@ -316,7 +318,15 @@ describe.skipIf(!h)("the report per account", () => {
   });
 
   it("lists every client the operator serves, those that need us first", async () => {
-    const body = await get(OPERATOR, `/api/ops/accounts?${PERIOD}`);
+    // S4.6 (QA W4): B's QuickBooks in error, used by none of its agents: Home doesn't count it, so
+    // neither does Accounts.
+    const [unused] = await owner
+      .insert(connection)
+      .values({ tenantId: H.B.tenantId, connector: "qbo", status: "error" })
+      .returning();
+    const body = await get(OPERATOR, `/api/ops/accounts?${PERIOD}`).finally(() =>
+      owner.delete(connection).where(eq(connection.id, unused?.id as string)),
+    );
     const names = body.accounts.map((r: { client: { id: string } }) => r.client.id);
     expect(names).toContain(H.A.tenantId);
     expect(names).toContain(H.B.tenantId);
@@ -326,10 +336,19 @@ describe.skipIf(!h)("the report per account", () => {
       agents: 2,
       headline: { runs: 3 },
       failedUnseen: { count: 1 },
-      needsUs: ["waiting", "failed", "connection"],
+      needsUs: ["waiting", "failed", "item"],
     });
     expect(a.connections).toHaveLength(2);
     expect(b).toMatchObject({ agents: 1, headline: { runs: 1 }, needsUs: [] });
+    // S4.6 (QA W4): "2 clients need us" while Home said nothing did. A client needs us on
+    // Accounts exactly when Needs us lists something of it.
+    const home = j((await H.call(OPERATOR, "GET", "/api/ops/needs-us")).json);
+    for (const row of body.accounts as { client: { id: string }; needsUs: string[] }[]) {
+      const listed = (home.escalations as { client: { id: string } }[]).some(
+        (e) => e.client.id === row.client.id,
+      );
+      expect(row.needsUs.length > 0, row.client.id).toBe(listed);
+    }
     expect(names.indexOf(H.A.tenantId)).toBeLessThan(names.indexOf(H.B.tenantId));
     expect(await opsRuns(a.failed.filter)).toEqual([runs.r2]);
     expect(await opsRuns(b.runs.filter)).toEqual([runs.rB]);

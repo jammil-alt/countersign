@@ -320,7 +320,7 @@ export const PREPARE_BILL_SKILL_DEFINITION: SkillDefinition = lazyObject({
     "invoiceNumber, date and currency: the invoice's, as read. dueDate: the invoice's due date; when none is printed, its date.",
     "lines: one bill line per invoice line, in order: its description and amount exactly as read, and account, the id of the account in accounts it belongs on (an expense or cost of goods account that fits what was bought; the same account for lines of the same kind). Freight, surcharges and tax each become a line of their own when the invoice has them, on the account that fits.",
     "total: the invoice's total as read. Never compute or change a figure: before anything is written, Check bill compares the bill with the invoice as read and with the vendors and accounts given, and a bill that differs goes to a person.",
-    'memo: "Invoice <number> from <vendor>". sources: the document id and the extraction id.',
+    'memo: "Invoice <number> from <vendor>". sources: an empty list; the document and its reading are added for you.',
   ].join("\n"),
   tools: [],
   input: {
@@ -329,9 +329,14 @@ export const PREPARE_BILL_SKILL_DEFINITION: SkillDefinition = lazyObject({
       invoice: { type: "object" },
       vendors: { type: "array", items: { type: "object" } },
       accounts: { type: "array", items: { type: "object" } },
+      // Overnight S3.5: the document the invoice was read from, for the bill's sources.
+      documentId: { type: "string" },
     },
     required: ["invoice", "vendors", "accounts"],
   },
+  // DECISION: the bill's sources are the document and its reading (`invoice.id`, docs.get's
+  // extraction), set in code; a step that gives no documentId still cites the reading.
+  sourcesFromInput: ["documentId", "invoice.id"],
   output: lazy(() => ({ ...jsonSchemaOf(PreparedBill), "x-action": "create_bill" })),
   settings: [],
   summary: "Prepared bill {{invoiceNumber}} with {{lines.length}} lines",

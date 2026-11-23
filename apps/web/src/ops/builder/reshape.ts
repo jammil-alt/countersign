@@ -225,6 +225,11 @@ export function exprText(e: processes.ReshapeExpr): string {
   }
   // §1.164: a record built field by field.
   if ("object" in e) return `a record: ${recordText(e.object.fields)}`;
+  // DQ-002: the nearest item within a distance.
+  if ("nearestWithin" in e) {
+    const n = e.nearestWithin;
+    return `from ${operandText(n.list)}, the one nearest ${operandText(n.latitude)}, ${operandText(n.longitude)} within ${operandText(n.maxMetres)} m`;
+  }
   return `${operandText(e.convertUnit.value)} from ${e.convertUnit.from} to ${e.convertUnit.to}`;
 }
 

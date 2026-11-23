@@ -5,10 +5,12 @@
 // during the initial sync (history, not news). Everything for one page, the cursor included, is
 // written in the caller's one transaction for the page's one client.
 
+import { triggerSubjectIds } from "@countersign/agents";
 import {
   type ContentStore,
   findOrCreateVendor,
   findVendor,
+  QBO_TOOLS,
   type RawRecordInput,
 } from "@countersign/connectors";
 import {
@@ -31,10 +33,13 @@ import {
 } from "@countersign/core";
 import {
   connection,
+  document,
   event,
+  externalAction,
   ledgerAccount,
   ledgerDimension,
   rawRecord,
+  run,
   type Tx,
   transaction,
   transactionLine,
@@ -42,7 +47,7 @@ import {
 } from "@countersign/db";
 import { attach, DocumentError, documentPurchaseFor, storeDocument } from "@countersign/documents";
 import { type EventRow, emit } from "@countersign/senses";
-import { and, eq, inArray, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { deleteReceivable, upsertReceivable } from "./receivables";
 import { cursorKeepingClaim } from "./sync-cursor";
 
@@ -223,7 +228,7 @@ export async function storeQboPage(
       } else if (isQboTransactionEntity(record.entityType)) {
         const r = await upsertTransaction(
           tx,
-          tenantId,
+          { tenantId, connectionId, initial: input.initial },
           raw.id,
           mapQboTransaction(record.entityType, record.payload),
           news,
@@ -480,11 +485,12 @@ async function vendorFor(tx: Tx, tenantId: string, t: TransactionInput): Promise
 
 async function upsertTransaction(
   tx: Tx,
-  tenantId: string,
+  at: { tenantId: string; connectionId: string; initial: boolean },
   rawId: string,
   t: TransactionInput,
   news: (e: Parameters<typeof emit>[1]) => Promise<void>,
 ): Promise<"created" | "updated"> {
+  const { tenantId } = at;
   const vendorId = await vendorFor(tx, tenantId, t);
   const [existing] = await tx
     .select()
@@ -566,6 +572,7 @@ async function upsertTransaction(
       subjectId: row.id,
       payload: payload(row.id),
     });
+    if (t.kind === "bill") await linkCreatedBill(tx, at, row);
     return "created";
   }
   const before = await tx
@@ -602,6 +609,55 @@ async function upsertTransaction(
     });
   }
   return "updated";
+}
+
+/**
+ * A bill one of our runs created (`qbo.bill.create`, done, on this connection, answered with this
+ * bill's id) is linked to the document that run started on, when sync first brings it in: the
+ * document arrived, and was linked, before the bill existed (overnight S3.3).
+ */
+// DECISION: the run's trigger names the document (`documentId`, as run subjects read it); a
+// document already linked elsewhere is left as it is. A write done twice under one key is one
+// action, and a test run never writes, so at most one action names a bill.
+async function linkCreatedBill(
+  tx: Tx,
+  at: { tenantId: string; connectionId: string; initial: boolean },
+  row: typeof transaction.$inferSelect,
+): Promise<void> {
+  const prefix = "Bill:";
+  if (!row.externalId.startsWith(prefix)) return;
+  const id = row.externalId.slice(prefix.length);
+  const [made] = await tx
+    .select({ trigger: run.trigger })
+    .from(externalAction)
+    .innerJoin(
+      run,
+      and(eq(run.id, externalAction.runId), eq(run.tenantId, externalAction.tenantId)),
+    )
+    .where(
+      and(
+        eq(externalAction.tenantId, at.tenantId),
+        eq(externalAction.connectionId, at.connectionId),
+        eq(externalAction.tool, QBO_TOOLS.billCreate),
+        eq(externalAction.status, "done"),
+        sql`${externalAction.result}->>'id' = ${id}`,
+      ),
+    )
+    .orderBy(desc(externalAction.executedAt))
+    .limit(1);
+  const documentId = made ? triggerSubjectIds(made.trigger).documentId : undefined;
+  if (!documentId) return;
+  const [doc] = await tx
+    .select()
+    .from(document)
+    .where(
+      and(
+        eq(document.tenantId, at.tenantId),
+        eq(document.id, documentId),
+        isNull(document.transactionId),
+      ),
+    );
+  if (doc) await attach(tx, at.tenantId, doc, row, { testRun: at.initial });
 }
 
 /** The bill's document number as the QuickBooks mapper keeps it (`ext.qbo.docNumber`). */

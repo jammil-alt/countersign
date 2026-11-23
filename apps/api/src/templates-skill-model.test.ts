@@ -89,7 +89,12 @@ async function built(): Promise<Built[]> {
     if (!v) throw new Error(`no seed ${slug} v${version}`);
     return { name: `seed ${slug} v${version}`, bundle: v.bundle };
   };
-  const out: Built[] = [seed("bill-clerk", 3), seed("document-clerk", 2), seed("supervisor", 5)];
+  const out: Built[] = [
+    seed("bill-clerk", 3),
+    seed("bill-clerk", 5),
+    seed("document-clerk", 2),
+    seed("supervisor", 5),
+  ];
   for (const m of [bookkeepingManifest, marketingManifest]) {
     for (const t of m.templates) {
       const versions = t.versions ?? [];
@@ -114,6 +119,7 @@ describe("the skill model's template versions", () => {
   it("cover the seeded and pack templates that used a retired kind of skill", () => {
     expect(all.map((b) => b.name)).toEqual([
       "seed bill-clerk v3",
+      "seed bill-clerk v5",
       "seed document-clerk v2",
       "seed supervisor v5",
       "bookkeeping bookkeeper v7",
@@ -131,6 +137,8 @@ describe("the skill model's template versions", () => {
   // them is the one-process-per-agent work (docs/plan.md §1.86), not this version's.
   const ADVICE: Record<string, string[]> = {
     "seed bill-clerk v3": ["split_long"],
+    // Overnight S3.4: v5 is v4 with the invoice attached to a new bill: the same advice.
+    "seed bill-clerk v5": ["split_long"],
     "bookkeeping bookkeeper v3": ["split_long"],
     // v4 is v3 with the posting loop set to go on past a refused write: the same advice.
     "bookkeeping bookkeeper v4": ["split_long"],
@@ -181,6 +189,37 @@ describe("the skill model's template versions", () => {
       });
     }
     expect(creates).toBe(1);
+  });
+
+  // Overnight S3.4 (WR5): a bill the clerk creates gets its invoice, behind the approver's
+  // signature, as the itemize path's does; Prepare bill is given the document it cites.
+  it("attaches the invoice right after creating a bill, approval required (v5)", () => {
+    const clerk = all.find((b) => b.name === "seed bill-clerk v5");
+    const w = clerk?.bundle.workflows[0]?.workflow;
+    if (w?.schemaVersion !== 4) throw new Error("v4 process expected");
+    const create = processes.findStep(w, "create");
+    const attach = processes.findStep(w, "attach-new");
+    if (!create || !attach) throw new Error("no create or attach step");
+    // The step right after Create bill, on the same path.
+    expect(attach.before.at(-1)).toBe("create");
+    expect(attach.ifs.map((i) => i.branchId)).toEqual(create.ifs.map((i) => i.branchId));
+    expect(attach.step).toMatchObject({
+      kind: "write",
+      tool: "qbo.attachable.upload",
+      input: {
+        documentId: "{{trigger.documentId}}",
+        entity: "Bill",
+        entityId: "{{steps.create.output.id}}",
+      },
+      checks: { approval: { required: "required", approvers: [{ who: "seat:bill-approver" }] } },
+    });
+    expect(processes.findStep(w, "prepare")?.step).toMatchObject({
+      input: { documentId: "{{trigger.documentId}}" },
+    });
+    // Stored history is never edited (invariant 3): v3 has no such step.
+    const v3 = all.find((x) => x.name === "seed bill-clerk v3")?.bundle.workflows[0]?.workflow;
+    if (v3?.schemaVersion !== 4) throw new Error("v4 process expected");
+    expect(processes.findStep(v3, "attach-new")).toBeUndefined();
   });
 
   it.each(all)("$name names no retired kind of skill and keeps approval on changes", (b) => {
@@ -345,12 +384,12 @@ describe.skipIf(!h)("installing, offering and publishing the skill model's versi
     const later = await loadSeedVersions();
     const latest = (slug: string) =>
       Math.max(...later.filter((v) => v.slug === slug).map((v) => v.version));
-    // Setup-plan §4.1: the Bill clerk's v4 names seats.
-    expect(latest("bill-clerk")).toBe(4);
+    // Setup-plan §4.1: the Bill clerk's v4 names seats; overnight S3.4: v5 attaches new bills.
+    expect(latest("bill-clerk")).toBe(5);
     expect(latest("document-clerk")).toBe(2);
     // v0.19: Sloan's v6 is the chat only (ARCHITECTURE §10.15).
     expect(latest("supervisor")).toBe(6);
-    expect(latestSeededVersion("bill-clerk")).toBe(4);
+    expect(latestSeededVersion("bill-clerk")).toBe(5);
     expect(latestSeededVersion("document-clerk")).toBe(2);
     expect(latestSeededVersion("supervisor")).toBe(6);
     // The v1s are as they were (stored history is never edited).

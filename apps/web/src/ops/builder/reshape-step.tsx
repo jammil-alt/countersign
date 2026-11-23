@@ -177,7 +177,7 @@ function FieldEditor({
           <p className="text-xs text-ink-muted">
             JSON from the allowed set: input, value, today, sum, difference, percentChange,
             daysBetween, bucket, formatDate, formatNumber, formatMoney, join, split, pick, pluck,
-            mapList, object, convertUnit.
+            mapList, object, convertUnit, nearestWithin.
           </p>
           {parsed?.ok === false ? (
             <p className="ds-error text-xs">Not an expression from the allowed set.</p>
