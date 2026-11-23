@@ -725,22 +725,35 @@ function withSopRevisions<R extends RouteSpec>(
   mode: "tx" | "long",
 ): (ctx: HandlerCtx<R> & LongHandlerCtx<R>) => Promise<unknown> {
   const change = SOP_CHANGE_ROUTES[`${spec.method} ${spec.path}`];
-  if (!change || mode !== "tx") return handler;
-  return async (ctx) => {
-    const out = await handler(ctx);
+  if (!change) return handler;
+  const record = async (tx: Tx, ctx: HandlerCtx<R> & LongHandlerCtx<R>) => {
     const scope = await change.scope({
-      tx: ctx.tx,
+      tx,
       params: ctx.params as Record<string, string>,
       tenantIds: ctx.tenantIds,
     });
     if (scope && scope.agentIds.length > 0) {
-      await recordSopRevisionQuietly(ctx.tx, ctx.services.platform, {
+      await recordSopRevisionQuietly(tx, ctx.services.platform, {
         tenantId: scope.tenantId,
         agentIds: scope.agentIds,
         by: { userId: ctx.session.user.id, side: ctx.role === "operator" ? "operator" : "client" },
         source: change.source,
       });
     }
+  };
+  // DECISION (Sentry MEZONAS-API-F): a long route (signing in to a tool, whose handler holds no
+  // transaction) records its revisions in one short transaction of its own once it returns, so a
+  // connection made or made again is a revision at the time, not one the hourly check finds.
+  if (mode === "long") {
+    return async (ctx) => {
+      const out = await handler(ctx);
+      await ctx.inTx((scoped) => record(scoped.tx, ctx));
+      return out;
+    };
+  }
+  return async (ctx) => {
+    const out = await handler(ctx);
+    await record(ctx.tx, ctx);
     return out;
   };
 }

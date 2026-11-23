@@ -121,6 +121,14 @@ export interface DocumentForTool {
   receivedAt: string;
   /** Signed, 5 minutes; null where no signer is configured. */
   url: string | null;
+  /**
+   * DQ-001: a photo's (JPEG, PNG, HEIC) location and time taken, read from its metadata in code
+   * (packages/documents' readPhotoMetadata). Absent for every other document.
+   */
+  latitude?: number | null;
+  longitude?: number | null;
+  takenAt?: string | null;
+  locationSource?: "exif" | "none";
   extraction: {
     id: string;
     model: string;

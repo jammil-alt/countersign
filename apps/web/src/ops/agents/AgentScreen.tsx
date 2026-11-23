@@ -446,6 +446,7 @@ export function AgentScreen({
                 agent={view}
                 latest={latest}
                 bundle={latestAny}
+                errors={data.latestErrors ?? []}
                 onChanged={() => reload()}
               />
             </div>

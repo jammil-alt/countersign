@@ -7,6 +7,7 @@ import { Link } from "react-router-dom";
 import { apiRoutes } from "../../../api/routes";
 import { useApi, useApiClient } from "../../../api/useApi";
 import { ErrorNotice } from "../../../ui/ErrorState";
+import { useReloadCallCount } from "../../OpsLayout";
 import { Due } from "../parts";
 
 export function OwnerChip({ owner }: { owner: TodoOwner }) {
@@ -180,8 +181,11 @@ export function TodosPanel({
 }) {
   const list = useApi(apiRoutes.opsTodos, { query: { about: `${about.kind}:${about.id}` } });
   const [adding, setAdding] = useState(false);
+  const reloadCallCount = useReloadCallCount();
   const reload = () => {
     list.reload();
+    // S4.2: Your call's count in the header follows at once.
+    reloadCallCount();
     onChanged?.();
   };
   const { done, busy, error } = useTodoDone(reload);

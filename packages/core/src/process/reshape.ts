@@ -113,7 +113,18 @@ export type ReshapeExpr =
   | { mapList: { list: ReshapeOperand; fields: Record<string, ReshapeExpr> } }
   // §1.164: a record built field by field (`mapList` without the list).
   | { object: { fields: Record<string, ReshapeExpr> } }
-  | { convertUnit: { value: ReshapeOperand; from: string; to: string } };
+  | { convertUnit: { value: ReshapeOperand; from: string; to: string } }
+  // DQ-002: the list's item nearest a point, within a distance.
+  | {
+      nearestWithin: {
+        latitude: ReshapeOperand;
+        longitude: ReshapeOperand;
+        list: ReshapeOperand;
+        latitudeField: string;
+        longitudeField: string;
+        maxMetres: ReshapeOperand;
+      };
+    };
 
 /** An output field's name (top level, or a mapped list item's field). */
 export const ReshapeFieldName = z
@@ -224,6 +235,16 @@ export const ReshapeExpr: z.ZodType<ReshapeExpr> = z.lazy(() =>
           to: z.string().min(1).max(40),
         }),
       }),
+      z.strictObject({
+        nearestWithin: z.strictObject({
+          latitude: ReshapeOperand,
+          longitude: ReshapeOperand,
+          list: ReshapeOperand,
+          latitudeField: FieldPath,
+          longitudeField: FieldPath,
+          maxMetres: ReshapeOperand,
+        }),
+      }),
     ])
     .superRefine((e, ctx) => {
       if (reshapeNesting(e as ReshapeExpr) > RESHAPE_MAX_NESTING) {
@@ -256,6 +277,7 @@ export const RESHAPE_EXPR_KINDS = [
   "mapList",
   "object",
   "convertUnit",
+  "nearestWithin",
 ] as const;
 export type ReshapeExprKind = (typeof RESHAPE_EXPR_KINDS)[number];
 
@@ -626,6 +648,7 @@ function evalExpr(
       .filter((p) => p !== "");
     return ok(e.split.index === undefined ? parts : (at(parts, e.split.index) ?? null));
   }
+  if ("nearestWithin" in e) return nearestWithin(e.nearestWithin, env);
   if ("pick" in e || "pluck" in e || "mapList" in e) {
     const listOperand = "pick" in e ? e.pick.list : "pluck" in e ? e.pluck.list : e.mapList.list;
     const got = operandValue(listOperand, env);
@@ -707,6 +730,117 @@ function evalExpr(
     return ok(typeof got.value === "number" ? rounded.toNumber() : rounded.toFixed());
   }
   return no("an expression this version doesn't know");
+}
+
+// ── Nearest within a distance (DQ-002) ──────────────────────────────────────────────────────
+
+/** The mean Earth radius (IUGG), metres: great-circle distances are on this sphere. */
+export const EARTH_RADIUS_METRES = 6_371_008.8;
+
+/**
+ * How close two distances may be and still be a tie.
+ */
+// DECISION (DQ-002): two items whose distances differ by less than a metre are a tie, and a tie
+// gives none: a phone's position is good to a few metres, so a closer item by less than that
+// isn't nearer, and list order is never used to break one (the request's open question).
+export const NEAREST_TIE_METRES = 1;
+
+/** Why `nearestWithin` gave no item. */
+export const NEAREST_NONE_REASONS = ["no_point", "nothing_within", "tie"] as const;
+export type NearestNoneReason = (typeof NEAREST_NONE_REASONS)[number];
+
+/** What `nearestWithin` gives: the item and its distance, or none with the reason. */
+export interface NearestWithin {
+  item: unknown;
+  /** Metres, to the centimetre; null with no item. */
+  distanceMetres: number | null;
+  reason: NearestNoneReason | null;
+  /** Items left out: coordinates missing, or not degrees in range. */
+  skipped: { index: number; reason: "missing" | "invalid"; item: unknown }[];
+}
+
+/** Great-circle (haversine) distance in metres between two points in decimal degrees. */
+export function greatCircleMetres(
+  a: { latitude: number; longitude: number },
+  b: { latitude: number; longitude: number },
+): number {
+  const rad = Math.PI / 180;
+  const dLat = (b.latitude - a.latitude) * rad;
+  const dLon = (b.longitude - a.longitude) * rad;
+  const h =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(a.latitude * rad) * Math.cos(b.latitude * rad) * Math.sin(dLon / 2) ** 2;
+  return 2 * EARTH_RADIUS_METRES * Math.asin(Math.min(1, Math.sqrt(h)));
+}
+
+/** A coordinate as decimal degrees: a number, or a number written as text. */
+function degreesOf(v: unknown, limit: number): number | "missing" | "invalid" {
+  if (v === undefined || v === null || (typeof v === "string" && v.trim() === "")) {
+    return "missing";
+  }
+  let n: number;
+  if (typeof v === "number") n = v;
+  else if (typeof v === "string" && /^[+-]?(\d+(\.\d*)?|\.\d+)$/.test(v.trim())) n = Number(v);
+  else return "invalid";
+  return Number.isFinite(n) && Math.abs(n) <= limit ? n : "invalid";
+}
+
+function nearestWithin(
+  e: Extract<ReshapeExpr, { nearestWithin: unknown }>["nearestWithin"],
+  env: Env,
+): Got {
+  const max = operandValue(e.maxMetres, env);
+  if (!max.ok) return max;
+  const metres = readNumber(max.value)?.value;
+  if (!metres || metres.isNaN() || metres.lte(0)) {
+    return no(`${operandWords(e.maxMetres)} isn't a distance in metres above 0`);
+  }
+  const got = operandValue(e.list, env);
+  if (!got.ok) return got;
+  const list = got.value === undefined || got.value === null ? [] : got.value;
+  if (!Array.isArray(list)) return no(`${operandWords(e.list)} isn't a list`);
+  const lat = operandValue(e.latitude, env);
+  if (!lat.ok) return lat;
+  const lon = operandValue(e.longitude, env);
+  if (!lon.ok) return lon;
+
+  const skipped: NearestWithin["skipped"] = [];
+  const near: { index: number; item: unknown; metres: number }[] = [];
+  const point = { latitude: degreesOf(lat.value, 90), longitude: degreesOf(lon.value, 180) };
+  const latPath = e.latitudeField.split(".");
+  const lonPath = e.longitudeField.split(".");
+  list.forEach((item, index) => {
+    const ilat = degreesOf(resolvePath(item, latPath), 90);
+    const ilon = degreesOf(resolvePath(item, lonPath), 180);
+    if (typeof ilat !== "number" || typeof ilon !== "number") {
+      const reason = ilat === "invalid" || ilon === "invalid" ? "invalid" : "missing";
+      skipped.push({ index, reason, item });
+      return;
+    }
+    if (typeof point.latitude !== "number" || typeof point.longitude !== "number") return;
+    const d = greatCircleMetres(
+      { latitude: point.latitude, longitude: point.longitude },
+      { latitude: ilat, longitude: ilon },
+    );
+    if (d <= metres.toNumber()) near.push({ index, item, metres: d });
+  });
+  const none = (reason: NearestNoneReason): Got =>
+    ok({ item: null, distanceMetres: null, reason, skipped } satisfies NearestWithin);
+  // DECISION (DQ-002): a point that is missing, empty or not degrees in range is "no point":
+  // none, not an error, so a photo without a location goes on to a person.
+  if (typeof point.latitude !== "number" || typeof point.longitude !== "number") {
+    return none("no_point");
+  }
+  near.sort((a, b) => a.metres - b.metres || a.index - b.index);
+  const [first, second] = near;
+  if (!first) return none("nothing_within");
+  if (second && second.metres - first.metres < NEAREST_TIE_METRES) return none("tie");
+  return ok({
+    item: first.item,
+    distanceMetres: Math.round(first.metres * 100) / 100,
+    reason: null,
+    skipped,
+  } satisfies NearestWithin);
 }
 
 function propertySchema(schema: JsonSchema | undefined, name: string): JsonSchema | undefined {
@@ -866,6 +1000,33 @@ function literalType(v: unknown): JsonSchema {
   if (typeof v === "number") return { type: Number.isInteger(v) ? "integer" : "number" };
   if (typeof v === "boolean") return { type: "boolean" };
   return TEXT;
+}
+
+/** What `nearestWithin` gives, its item typed as the list's items. */
+function nearestSchema(items: JsonSchema | undefined): JsonSchema {
+  const item = items ?? {};
+  return {
+    type: "object",
+    properties: {
+      item: items ? { anyOf: [items, { type: "null" }] } : {},
+      distanceMetres: { type: ["number", "null"] },
+      reason: { type: ["string", "null"], enum: [...NEAREST_NONE_REASONS, null] },
+      skipped: {
+        type: "array",
+        items: {
+          type: "object",
+          properties: {
+            index: { type: "integer" },
+            reason: { type: "string", enum: ["missing", "invalid"] },
+            item,
+          },
+          required: ["index", "reason", "item"],
+        },
+      },
+    },
+    required: ["item", "distanceMetres", "reason", "skipped"],
+    additionalProperties: false,
+  };
 }
 
 interface TypeEnv {
@@ -1029,6 +1190,31 @@ function typeExpr(e: ReshapeExpr, env: TypeEnv): TypedAt {
       required: Object.keys(properties),
       additionalProperties: false,
     });
+  }
+  if ("nearestWithin" in e) {
+    const n = e.nearestWithin;
+    for (const o of [n.latitude, n.longitude]) {
+      const t = read(o);
+      if (schemaTypeNames(t).length > 0 && !numeric(t) && !schemaTypeNames(t).includes("string")) {
+        say(`${operandWords(o)} isn't a coordinate in degrees`);
+      }
+    }
+    const m = read(n.maxMetres);
+    if (schemaTypeNames(m).length > 0 && !numeric(m) && !schemaTypeNames(m).includes("string")) {
+      say(`${operandWords(n.maxMetres)} isn't a distance in metres`);
+    }
+    const list = read(n.list);
+    const types = schemaTypeNames(list);
+    if (types.length > 0 && !types.includes("array")) {
+      say(`${operandWords(n.list)} isn't a list`);
+      return done(nearestSchema(UNKNOWN));
+    }
+    const items = isPlainObject(list?.items) ? (list.items as JsonSchema) : undefined;
+    for (const path of [n.latitudeField, n.longitudeField]) {
+      const t = schemaAtPath(items, path.split("."));
+      if (!t.ok) say(`reads ${path} of each item in ${operandWords(n.list)}: ${t.message}`);
+    }
+    return done(nearestSchema(items));
   }
   // Lists.
   const listOperand = "pick" in e ? e.pick.list : "pluck" in e ? e.pluck.list : e.mapList.list;

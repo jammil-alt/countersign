@@ -84,6 +84,8 @@ const RESHAPE_WORDS: Partial<Record<processes.ReshapeExprKind, string>> = {
   object: "Build a record field by field (a customer with a name and an email)",
   join: "Join texts into one",
   split: "Split a text into a list",
+  nearestWithin:
+    "Pick the item of a list nearest a point (latitude, longitude) within a distance in metres, or none with the reason",
 };
 
 /** The catalog and the requests, as one list the search scores. */

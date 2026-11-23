@@ -20,13 +20,15 @@ import { useApi, useApiClient } from "../../../api/useApi";
 import { ErrorNotice } from "../../../ui/ErrorState";
 import { Page } from "../../../ui/page";
 import { cx, EmptyState, Loading, PageHeader } from "../../../ui/primitives";
+import { useReloadCallCount } from "../../OpsLayout";
 import { FilterChips, HoldBanner, Kpis, todayIso } from "../parts";
 import { CallCard, CallSheet } from "./CallCard";
 import { DoneToday } from "./DoneToday";
+import { SnoozedList } from "./SnoozedList";
 import { TheirList } from "./TheirList";
 
 const W = YOUR_CALL_WORDS;
-type Tab = "you" | "reggie" | "client" | "done";
+type Tab = "you" | "reggie" | "client" | "snoozed" | "done";
 
 const matches = (t: TodoView, kind: CallKind, q: string) => {
   if (kind !== "all" && t.kind !== kind) return false;
@@ -66,6 +68,7 @@ export function YourCallScreen() {
   // jumped back to the top.
   const query = { owner, mine: mine ? "true" : "false" } as const;
   const list = useApi(apiRoutes.opsTodos, { query, keep: true });
+  const reloadCallCount = useReloadCallCount();
   const queryKey = `${query.owner}:${query.mine}`;
   const answered = useRef(queryKey);
   if (list.data && !list.refreshing) answered.current = queryKey;
@@ -128,13 +131,15 @@ export function YourCallScreen() {
         // Done with it: its sheet closes (another item's sheet opened meanwhile stays).
         setOpened((o) => (o === id ? null : o));
         list.reload();
+        // S4.2: the header's count is the frame's own answer: asked again, not a poll behind.
+        reloadCallCount();
       } catch (e) {
         setError(e);
       } finally {
         setBusy(null);
       }
     },
-    [list],
+    [list, reloadCallCount],
   );
 
   const act = useCallback(
@@ -255,6 +260,7 @@ export function YourCallScreen() {
     ["you", W.tabs.you, counts?.yours],
     ["reggie", W.tabs.reggie, counts?.reggie],
     ["client", W.tabs.client, counts?.client],
+    ["snoozed", W.tabs.snoozed, undefined],
     ["done", W.tabs.done, counts?.doneToday],
   ];
   const clear = () => {
@@ -295,7 +301,7 @@ export function YourCallScreen() {
             </button>
           ))}
         </fieldset>
-        {tab !== "done" ? (
+        {tab !== "done" && tab !== "snoozed" ? (
           <>
             <FilterChips
               wrap
@@ -337,6 +343,15 @@ export function YourCallScreen() {
       >
         {tab === "done" ? (
           <DoneToday />
+        ) : tab === "snoozed" ? (
+          <SnoozedList
+            mine={mine}
+            onChanged={() => {
+              list.reload();
+              reloadCallCount();
+            }}
+            onToast={setToast}
+          />
         ) : !list.data ? null : tab === "you" ? (
           all.length === 0 ? (
             <EmptyState
@@ -390,8 +405,13 @@ export function YourCallScreen() {
           <TheirList
             who={tab}
             items={shown}
+            total={all.length}
+            query={q.trim()}
             today={today}
-            onChanged={list.reload}
+            onChanged={() => {
+              list.reload();
+              reloadCallCount();
+            }}
             onToast={setToast}
             onClear={clear}
           />
