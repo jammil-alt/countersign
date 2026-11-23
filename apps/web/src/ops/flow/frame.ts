@@ -241,10 +241,7 @@ export function setupItems(left: readonly LeftItem[], workflow: string): SettleE
   );
 }
 
-/** A request on the Feedback page's Dev queue tab. */
-export function devQueuePath(ref: string): string {
-  return `/ops/utilities/feedback?tab=dev-queue&request=${encodeURIComponent(ref)}`;
-}
+export { devQueuePath } from "../devQueue";
 
 /**
  * docs/plan.md §1.125: a step that requires code says so in place of "missing", with its request's

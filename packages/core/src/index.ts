@@ -64,6 +64,7 @@ export * from "./api/desk";
 export * from "./api/desktop";
 export * from "./api/directory";
 export * from "./api/documents";
+export * from "./api/evals";
 // Round 4 D (docs/plan.md §1.211)
 export * from "./api/evidence";
 export * from "./api/excel";
@@ -172,6 +173,7 @@ export * from "./api/voice";
 export * from "./api/whatsapp-meta";
 // docs/plan.md §1.124: back office work (Build).
 export * from "./api/work";
+export * from "./api/work-statement";
 // v0.14 W4-B
 export * from "./api/zoho";
 export * from "./approvals/rules";
@@ -248,6 +250,9 @@ export * from "./email/onboarding";
 export * from "./email/second-factor";
 // docs/plan.md §1.206 (SU6): the setup nudge, from the lead.
 export * from "./email/setup-nudge";
+// v0.12 W2-C: the test bench
+// docs/plan.md §1.212: the eval and replay harness.
+export * from "./evals";
 // docs/plan.md §1.121: forms, "Request info"
 export * from "./forms";
 // docs/builder-plan.md §8 (B6): governance in tiers
@@ -275,6 +280,7 @@ export * from "./i18n/supervisor";
 export * from "./i18n/threads";
 export * from "./i18n/timeline";
 export * from "./i18n/weekly";
+export * from "./i18n/work-statement";
 export * from "./ids";
 // docs/plan.md §1.217: the process interview
 export * from "./interview";
@@ -378,7 +384,6 @@ export * from "./supervisor/health";
 export * as tableFiles from "./tables";
 export * from "./template/template";
 export * from "./template/typer";
-// v0.12 W2-C: the test bench
 export * from "./testbench/case";
 export * from "./testbench/match";
 export * from "./testbench/suite";

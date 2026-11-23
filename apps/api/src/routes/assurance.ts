@@ -4,6 +4,7 @@
 // leaves out the evidence and the issue (invariant 11).
 
 import { getAgent } from "@countersign/agents";
+import type { ObjectStore } from "@countersign/connectors";
 import { assuranceRoutes } from "@countersign/core";
 import { agent, type Tx } from "@countersign/db";
 import { and, eq } from "drizzle-orm";
@@ -11,15 +12,27 @@ import type { Hono } from "hono";
 import { ensureSeesAgent } from "../assigned";
 import type { AssuranceEnv } from "../assurance/inputs";
 import { readAssurance, runAgentChecks } from "../assurance/run";
+import type { Bindings } from "../env";
 import { type AppEnv, mount, notFound } from "../http";
 import { secondFactorSetupOf } from "../second-factor";
+import { vaultFor } from "../secrets";
 
-type Bindings = Parameters<typeof secondFactorSetupOf>[0];
-
-export function assuranceEnv(env: Bindings): AssuranceEnv {
+/**
+ * The checks' settings. With `objects`, the checks that read stored secrets and model requests run
+ * too (§1.231.2); a view never needs them.
+ */
+export function assuranceEnv(env: Bindings, objects?: ObjectStore | null): AssuranceEnv {
   return {
     covered: env.BAA_PROCESSORS,
     secondFactorOn: secondFactorSetupOf(env).state === "on",
+    ...(objects !== undefined
+      ? {
+          scan: {
+            vault: env.ENCRYPTION_KEY ? (tx: Tx) => vaultFor(tx, env) : null,
+            bodies: objects,
+          },
+        }
+      : {}),
   };
 }
 
@@ -70,7 +83,7 @@ export function assuranceRouteHandlers(app: Hono<AppEnv>): void {
 
   mount(app, assuranceRoutes.opsAgentAssuranceRun, async (ctx) => {
     const a = await opsAgent(ctx.tx, ctx.params.id, ctx.tenantIds);
-    const env = assuranceEnv(ctx.services.env);
+    const env = assuranceEnv(ctx.services.env, ctx.services.deps.objects(ctx.services.env));
     const now = new Date();
     const ran = await runAgentChecks(ctx.tx, ctx.services.platform, env, a, "person", now);
     if (!ran) throw notFound("agent");

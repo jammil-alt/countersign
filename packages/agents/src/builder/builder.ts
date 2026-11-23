@@ -77,6 +77,19 @@ export const DraftAnswer = z.object({
     .describe(
       "The decisions you made to draft the normal case, one row each (what, why, value, kind, risk, the step it shapes)",
     ),
+  // docs/builder-plan.md §12.4 (F-C): the step that stands for each gap, named by the drafter.
+  gapSteps: z
+    .array(
+      z.object({
+        gap: z.number().int().min(0).max(29).describe("The gap's place in gaps, from 0"),
+        stepId: z.string().min(1).max(200).describe("The id of the step that stands for it"),
+      }),
+    )
+    .max(30)
+    .optional()
+    .describe(
+      "For each gap a step of the draft stands for (the person step that does it for now, or a missing step): the gap's place in gaps and that step's id",
+    ),
 });
 export type DraftAnswer = z.infer<typeof DraftAnswer>;
 
@@ -222,7 +235,8 @@ export const WORKS_FIRST = `Works first: this draft must run as it is, so the op
 - Don't leave anything for the operator to answer first. Where the description doesn't say (what starts it, how often, who is asked, a threshold, a deadline), decide: the simplest choice that works, strict where it is a threshold, the client's team for who is asked, and record it in "decisions" with its starting value.
 - Build the steps the description states, in the order it states them, one step for each. Add nothing it doesn't state: no extra checks, branches, notes to the team, waits or handling of cases it doesn't mention. The only additions are the ones the rules require: approval on a step that changes a client's tool, and a person where a stated step can't be done. More is added later, when the operator asks for it.
 - Keep the decisions few: one only where you chose something the description left open and a step depends on it. Each is one short sentence, and so is its why.
-- The summary is one or two sentences: what it does, in the operator's own words where you can. Each gap is one short sentence.`;
+- The summary is one or two sentences: what it does, in the operator's own words where you can. Each gap is one short sentence.
+- For each gap a step stands for, name that step in "gapSteps": the gap's place in "gaps" (from 0) and the step's id.`;
 
 /** With `WORKS_FIRST`, a missing step is the model's to repair: a person step takes its place. */
 const WORKS_FIRST_OPERATOR_FIXES = new Set([...OPERATOR_FIXES].filter((c) => c !== "missing_step"));
@@ -398,6 +412,11 @@ export async function draftAgent(
     serviceName: string | null;
     serviceDescription: string | null;
     decisions: DecisionDraft[];
+    /**
+     * For each of `gaps`, in order, the saved draft's step the drafter said stands for it, or null
+     * (it named none, or a step the guards took out). The caller falls back to core's word match.
+     */
+    gapSteps: (string | null)[];
   }
 > {
   const { ctx } = input;
@@ -454,7 +473,58 @@ ${promptText(input.description)}
       out.answer.bundle,
       out.bundle,
     ),
+    gapSteps: gapStepsNamed(out.answer, out.gaps, out.bundle),
   };
+}
+
+/**
+ * The step a model's answer names by its own id, by the saved draft's id: the server gives every
+ * step its id (guards' `assignIds`), so the model's id is followed to its step's name and that
+ * name to the step's new id.
+ */
+// DECISION: matched by the step's name, which the guards keep; a name used twice, or a step the
+// guards took out, leaves it on no step rather than on a wrong one.
+function savedStepIds(
+  asked: Pick<ProcessAgentBundle, "workflows">,
+  saved: Pick<ProcessAgentBundle, "workflows">,
+): (modelId: string) => string | null {
+  const named = new Map<string, string>();
+  for (const w of asked.workflows) {
+    for (const { step } of processes.allSteps(w.workflow)) named.set(step.id, step.name);
+  }
+  const byName = new Map<string, string | null>();
+  for (const w of saved.workflows) {
+    for (const { step } of processes.allSteps(w.workflow)) {
+      byName.set(step.name, byName.has(step.name) ? null : step.id);
+    }
+  }
+  return (modelId) => {
+    const name = named.get(modelId);
+    return (name === undefined ? undefined : byName.get(name)) ?? null;
+  };
+}
+
+/**
+ * F-C (docs/builder-plan.md §12.4): for each gap of the result, in order, the saved step the
+ * drafter named for it in `gapSteps`, or null. A gap the guards added has no place in the
+ * model's list, so it is never named.
+ */
+// DECISION: the drafter names a gap by its place in its own `gaps`; a place out of range, a gap
+// named twice or an id the draft doesn't have names nothing, and the caller's word match decides.
+export function gapStepsNamed(
+  answer: Pick<DraftAnswer, "gaps" | "gapSteps" | "bundle">,
+  gaps: readonly string[],
+  saved: Pick<ProcessAgentBundle, "workflows">,
+): (string | null)[] {
+  const toSaved = savedStepIds(answer.bundle, saved);
+  const byPlace = new Map<number, string | null>();
+  for (const g of answer.gapSteps ?? []) {
+    byPlace.set(g.gap, byPlace.has(g.gap) ? null : toSaved(g.stepId));
+  }
+  return gaps.map((text) => {
+    const at = answer.gaps.indexOf(text);
+    return at < 0 ? null : (byPlace.get(at) ?? null);
+  });
 }
 
 /**
@@ -469,21 +539,11 @@ export function decisionsOnSteps(
   asked: Pick<ProcessAgentBundle, "workflows">,
   saved: Pick<ProcessAgentBundle, "workflows">,
 ): DecisionDraft[] {
-  const named = new Map<string, string>();
-  for (const w of asked.workflows) {
-    for (const { step } of processes.allSteps(w.workflow)) named.set(step.id, step.name);
-  }
-  const byName = new Map<string, string | null>();
-  for (const w of saved.workflows) {
-    for (const { step } of processes.allSteps(w.workflow)) {
-      byName.set(step.name, byName.has(step.name) ? null : step.id);
-    }
-  }
+  const toSaved = savedStepIds(asked, saved);
   return decisions.map((d) => {
     if (d.stepId === undefined) return d;
     const { stepId, ...rest } = d;
-    const name = named.get(stepId);
-    const id = name === undefined ? undefined : byName.get(name);
+    const id = toSaved(stepId);
     return id ? { ...rest, stepId: id } : rest;
   });
 }

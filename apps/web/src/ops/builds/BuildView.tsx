@@ -17,6 +17,7 @@ import {
   type BuildDetail,
   type BuildIssue,
   type BuildItemOwner,
+  type BuildLink,
   type BuildPhase,
   buildIssues,
   DATA_SOURCES,
@@ -42,10 +43,12 @@ import {
   type QaCheckId,
   SETTLE_WAYS,
   SETTLE_WORDS,
+  SETUP_GUARDS,
   SETUP_KINDS,
   SETUP_WORDS,
   type SettleWay,
   type SetupField,
+  type SetupGuard,
   type SetupKind,
   settledByStep,
   type TestPlan,
@@ -74,6 +77,7 @@ import { ErrorNotice } from "../../ui/ErrorState";
 import { Field, Select, TextArea, TextInput } from "../../ui/forms";
 import { Badge, Button, Card, Count, cx, Loading, Tag } from "../../ui/primitives";
 import type { Voice } from "../../ui/voice";
+import { devQueuePath } from "../devQueue";
 import { CloseMenu, ReplyBox } from "./closeout";
 import { DecisionsCard } from "./decisions";
 import { type Fold, useFirstRows, useFold } from "./fold";
@@ -801,6 +805,7 @@ export const FOCUSED_PLACEHOLDER = "Type your answer, or ask the Builder";
 
 function BuildHeader({ detail }: { detail: BuildDetail }) {
   const b = detail.build;
+  const from = detail.startedFrom ?? null;
   const agentLink = b.agentId ? `/ops/agents/${b.agentId}` : null;
   return (
     <header className="flex flex-col gap-2" data-testid="build-header">
@@ -849,7 +854,76 @@ function BuildHeader({ detail }: { detail: BuildDetail }) {
           </>
         ) : null}
       </p>
+      {from ? (
+        <p className="text-sm text-ink-muted" data-testid="build-started-from">
+          Started from the issue “{from.itemTitle}” in{" "}
+          <Link
+            to={`/ops/builds/${from.build.id}#build-item-${from.itemId}`}
+            className="font-medium text-slate hover:underline"
+            data-testid="build-started-from-link"
+          >
+            {from.build.title}
+          </Link>
+        </p>
+      ) : null}
     </header>
+  );
+}
+
+/** A linked build's state in words: its phase while open, else Live or Stopped. */
+function linkState(b: BuildLink): string {
+  return b.status === "open"
+    ? PHASE_WORDS[b.phase].label
+    : b.status === "live"
+      ? "Live"
+      : "Stopped";
+}
+
+/**
+ * S-E: where an issue's work went: the skill build it started, or the Dev queue request it waits
+ * on (a code request, "Needs code").
+ */
+function IssueLinks({
+  testId,
+  skillBuild,
+  waitingOn,
+}: {
+  testId: string;
+  skillBuild: BuildLink | null;
+  waitingOn: { id: string; ref: string } | null;
+}) {
+  if (!skillBuild && !waitingOn) return null;
+  return (
+    <p
+      className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-ink-muted"
+      data-testid={testId}
+    >
+      {skillBuild ? (
+        <span>
+          Its skill build:{" "}
+          <Link
+            to={`/ops/builds/${skillBuild.id}`}
+            className="font-medium text-slate hover:underline"
+            data-testid={`${testId}-skill`}
+          >
+            {skillBuild.title}
+          </Link>{" "}
+          ({linkState(skillBuild)})
+        </span>
+      ) : null}
+      {waitingOn ? (
+        <span>
+          Needs code:{" "}
+          <Link
+            to={devQueuePath(waitingOn.ref)}
+            className="font-medium text-slate hover:underline"
+            data-testid={`${testId}-dev-queue`}
+          >
+            {waitingOn.ref} in the Dev queue
+          </Link>
+        </span>
+      ) : null}
+    </p>
   );
 }
 
@@ -1568,6 +1642,13 @@ function SetupKindChoice({
   );
 }
 
+/** G10: the stage a client's answer to an intake field holds. */
+const FIELD_GUARD_WORDS: Record<SetupGuard, string> = {
+  setup: "Holds setup",
+  trial: "Holds the trial",
+  live: "Holds go-live",
+};
+
 /**
  * A template's client intake form: what we get from each client to set up their copy. The Builder
  * drafts it in the fit-gap; the operator edits, adds and takes fields out, and saves with the
@@ -1675,14 +1756,35 @@ function SetupFormCard({
                 )}
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   {editing ? (
-                    <SetupKindChoice
-                      label={`Kind: ${f.label}`}
-                      value={f.kind}
-                      testId={`build-setup-${f.id}-kind`}
-                      onChange={(kind) => edit(f.id, { kind })}
-                    />
+                    <span className="flex flex-wrap items-center gap-2">
+                      <SetupKindChoice
+                        label={`Kind: ${f.label}`}
+                        value={f.kind}
+                        testId={`build-setup-${f.id}-kind`}
+                        onChange={(kind) => edit(f.id, { kind })}
+                      />
+                      {/* G10: which stage the client's answer holds. */}
+                      <Select
+                        aria-label={`Holds: ${f.label}`}
+                        className="w-auto"
+                        value={f.guards ?? "setup"}
+                        data-testid={`build-setup-${f.id}-guards`}
+                        onChange={(e) => edit(f.id, { guards: e.target.value as SetupGuard })}
+                      >
+                        {SETUP_GUARDS.map((g) => (
+                          <option key={g} value={g}>
+                            {FIELD_GUARD_WORDS[g]}
+                          </option>
+                        ))}
+                      </Select>
+                    </span>
                   ) : (
-                    <Tag>{SETUP_WORDS[f.kind]}</Tag>
+                    <span className="flex flex-wrap items-center gap-2">
+                      <Tag>{SETUP_WORDS[f.kind]}</Tag>
+                      {f.guards && f.guards !== "setup" ? (
+                        <Tag>{FIELD_GUARD_WORDS[f.guards]}</Tag>
+                      ) : null}
+                    </span>
                   )}
                   <button
                     type="button"
@@ -3139,6 +3241,11 @@ function ItemsPanel({
                         {issue.state}
                       </Badge>
                     </MetaLine>
+                    <IssueLinks
+                      testId={`build-issue-${issue.key}-links`}
+                      skillBuild={null}
+                      waitingOn={issue.waitingOn}
+                    />
                     {settle(issue)}
                     {talk(issue)}
                   </li>
@@ -3194,6 +3301,15 @@ function ItemsPanel({
                       {issue.state}
                     </Badge>
                   </MetaLine>
+                  <IssueLinks
+                    testId={`build-item-${i.id}-links`}
+                    skillBuild={
+                      (i.ref.buildId
+                        ? detail.skillBuilds?.find((s) => s.id === i.ref.buildId)
+                        : undefined) ?? null
+                    }
+                    waitingOn={issue.waitingOn}
+                  />
                   {settle(issue)}
                   {actions(issue, i)}
                   {answering?.key === issue.key ? (

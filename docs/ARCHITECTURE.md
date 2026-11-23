@@ -3419,6 +3419,15 @@ an hourly check at minute 37, record a revision a change site missed as "Recorde
 and report it to Sentry. A connection with an error still counts as connected (its health is the
 Connectors page's): connecting and disconnecting change the SOP, a failing sync doesn't.
 
+**Asking and across agents (S2).** Sloan reads an agent's SOP with `sop.read`: the SOP tab's own
+view (`readSop` in `apps/api/src/routes/sop.ts`) for one agent of the asker's client, through the
+account port, so who asks is checked as for every account tool (a limited client user has no
+Sloan). It answers from it and names the section and step. The portal's **Procedures** page
+(`/procedures`, `GET /api/sops`) lists every agent's SOP the reader can open (a limited client user,
+their own agents only) in a row made by core's `sopListItem` from that agent's SOP: stage, revision,
+revision date, what changed last, the systems it uses and what it may do there, and who else takes
+part, with filters across them. Neither carries anything the SOP tab doesn't.
+
 **Invariants.** 1: one client per request, names resolved within it. 3: revisions are append-only
 (trigger); a step's purpose changes only by a new version. 8 and 13: a write's line is
 `decideToolCall`. 11: no bundle, instructions, prompts, budgets or cost; each AI step's model is
@@ -3476,6 +3485,49 @@ public page shows the client's name and the process, never an agent, a prompt or
 contract test covers its routes. 14: the model calls are held to the client's HIPAA mode, which is
 checked before a link is made.
 
+### 10.23 The Close pack (Wave Y, owner 2026-11-22; `docs/plan.md` §1.232)
+
+Outside v1's scope, with the owner's yes (the owner's build plan 6). **A month's close of a client's
+QuickBooks books: a checklist, the journal entries the month needs, and a person's sign-off.** The
+pack (`close`) extends the Bookkeeping area (`extends: "bookkeeping"`, §12.1.1). Its code lives
+beside the Bookkeeping pack in `packs/bookkeeping/src/close/`, because it reads that area's
+reconciliations and a pack never imports another pack. Migration 0090 adds its tables.
+
+- **The close** (`close_period`): one per client, accounting connection and month. It stays open
+  until a person signs it off. After sign-off nothing about it changes, and a database trigger
+  holds the period, its lines and its entries to that.
+- **The checklist** (`close_item`), checked by code (invariant 7):
+  - each active bank and card account reconciled through the month's end, from the Bookkeeping
+    pack's reconciliations (signed off, or balanced);
+  - uncategorized transactions, bills entered twice and vendors kept twice, from books health's
+    library (§12.5) run on the books as of the month's end;
+  - bank transactions not yet booked;
+  - every proposed entry decided.
+
+  Each line carries its dollars, count, one sentence and `sources` (invariant 10). A person may
+  waive a line with a reason.
+- **Entries** (`close_entry`, `close_entry_line`): accruals, their reversals and recurring
+  journals. Code proposes:
+  - an accrual when a vendor billed the same expense account in each of the months before
+    (default 3) and not yet this month, at the middle month's amount, reversing on the next
+    month's first day;
+  - the reversal of last month's posted accruals;
+  - last month's posted recurring journals again.
+
+  An agent may also propose an entry, which must carry its sources. Lines balance in decimal
+  (invariant 6). Each entry is written to QuickBooks only through `qbo.journal.create`, an external
+  tool behind approval (invariant 8). Its mark (`[Mezonas ce-<id>]`) lets a retried write find
+  itself. What became of the write is read back from the external action.
+- **The template**, Month-end close: on the 5th it checks last month, records each entry (approval
+  on, `onReject: continue`), checks again, and asks the client's admin to sign off on the card
+  `close.signoff`. It runs in `suggest_only` with `oversight.verify: writes` (§10.18), so every
+  journal entry passes the verifier and the evidence panel before a person signs it.
+- **Configuration** (§12.1.1): whether to propose accruals, the accrual account's name, and the
+  months a pattern needs.
+- **Where it shows:** Reports → Month-end close in the portal (`/api/reports/close/close`, read
+  only, one client, no agent, prompt or cost) and the client's Areas tab in the back office. Both
+  load on their own.
+
 ### 10.24 Accounts payable: bills to an approved list (Wave Y item Y4, owner 2026-11-22)
 
 **Outside v1's scope (§1); the owner said yes for Wave Y.** The AP pack (`ap`) takes vendor bills
@@ -3504,6 +3556,31 @@ text only in tool results. 10: every bill, flag and suggestion names its records
 11: the report and card show no agent, prompt or cost.
 
 ---
+
+### 10.25 The work-delivered statement (Wave Y, Y5, owner 2026-11-22)
+
+Outside v1's scope (§1); the owner said yes (build plan 10). Each billing month, a client sees what
+its agents delivered beside what it pays: five counters per agent, per business area and in total.
+
+| Counter | What it counts (over the client agents' live runs created in the month) |
+|---|---|
+| Items processed | Different records a run decided on or changed, or that started it (`run_subject`), once per agent |
+| Posted automatically | Writes done with no approval item (`external_action`) |
+| Sent for approval | The client's own approval items (`inbox_item` of kind `external_action` or `approval`, not routed to us) |
+| Exceptions caught | Alerts its runs raised (not dismissed before the month ended), and writes the verifier disagreed with (§10.18) |
+| Dollars identified | Those alerts' dollar impact, per currency |
+
+- **One definition.** Core's `WORK_COUNTERS` says what each counter means; `workCounts` in
+  `packages/db` is the one query that counts them. The portal's page, its PDF, the PDF sent with
+  the invoice and the back office's view all read it, so they agree.
+- **A month that has ended never changes.** Months are UTC, as billing months are (§11.5 and
+  `docs/plan.md` §1.32), and only what was recorded before the month ended counts.
+- **Work, never our cost.** The statement shows work counts and dollars identified for the client;
+  never our cost, margin, model or vendor spend, bundles, instructions or prompts (invariant 11),
+  and only ever one client. The portal's page is the client admin's, as billing is.
+- **With the invoice.** Stripe's invoice email can't carry a file, so when an invoice is sent the
+  statement goes as a PDF in our own email (Resend) to the same billing address, once. A client in
+  HIPAA mode sees it in the portal only until Resend is covered (`docs/plan.md` §1.234).
 
 ## 11. Inbox and threads
 

@@ -219,6 +219,28 @@ describe("judgeAdjustment: bounds, tightening and requests", () => {
     expect(judgeAdjustment(date, "2026-12-24")).toMatchObject({ outcome: "apply" });
     expect(judgeAdjustment(date, "soon")).toMatchObject({ outcome: "invalid" });
   });
+
+  it("keeps a date within its limits (G11)", () => {
+    const date = {
+      target: { kind: "parameter" as const, skill: "s", parameter: "start", type: "date" as const },
+      bounds: { earliest: "2026-12-01", latest: "2026-12-31" },
+    };
+    expect(judgeAdjustment(date, "2026-12-24")).toMatchObject({ outcome: "apply" });
+    expect(judgeAdjustment(date, "2027-01-05")).toEqual({
+      outcome: "request",
+      text: "2027-01-05",
+      reason: "It is outside what we set up: between 2026-12-01 and 2026-12-31.",
+    });
+    // Later is stricter here (a start put off): past the high limit and later than now applies.
+    const later = { ...date, tighter: "higher" as const };
+    expect(judgeAdjustment(later, "2027-01-05", "2026-12-10")).toMatchObject({
+      outcome: "apply",
+      tightens: true,
+    });
+    expect(judgeAdjustment(later, "2026-11-20", "2026-12-10")).toMatchObject({
+      outcome: "request",
+    });
+  });
 });
 
 describe("applying an adjustment", () => {

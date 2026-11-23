@@ -1086,6 +1086,74 @@ describe("Builds", () => {
     );
   });
 
+  // S-E: an issue links to the skill build it started and to its request in the Dev queue; a
+  // skill build links back to the issue it came from.
+  it("links an issue to its skill build and the Dev queue, and a skill build back", async () => {
+    const SKILL = "00000000-0000-4000-8000-0000000b0002";
+    const PARENT = "00000000-0000-4000-8000-0000000b0003";
+    const gap = (id: string, title: string, ref: Record<string, string>) => ({
+      id,
+      phase: "draft" as const,
+      kind: "gap" as const,
+      title,
+      detail: "",
+      owner: "builder" as const,
+      state: "in_progress" as const,
+      stepId: null,
+      ref,
+      key: null,
+      createdAt: at,
+      resolvedAt: null,
+    });
+    const api = fakeApi({
+      ...common,
+      [`GET /api/ops/builds/${ID}`]: () =>
+        detail({
+          items: [
+            gap(GAP, "Match answers to tasks", { buildId: SKILL }),
+            gap(ITEM, "Read the vendor portal", {
+              codeRequestId: "00000000-0000-4000-8000-0000000d0001",
+              codeRequestRef: "DQ-012",
+            }),
+          ],
+          skillBuilds: [
+            { id: SKILL, title: "Match answers to tasks", phase: "intake", status: "open" },
+          ],
+          startedFrom: null,
+        }),
+      [`GET /api/ops/builds/${SKILL}`]: () =>
+        detail({
+          build: { ...detail().build, id: SKILL, kind: "skill", title: "Match answers to tasks" },
+          items: [],
+          startedFrom: {
+            build: { id: PARENT, title: "Invoice review", phase: "draft", status: "open" },
+            itemId: GAP,
+            itemTitle: "Match answers to tasks",
+          },
+        }),
+    });
+    renderAt(`/ops/builds/${ID}`, api);
+    const skill = await screen.findByTestId(`build-item-${GAP}-links-skill`);
+    expect(skill).toHaveTextContent("Match answers to tasks");
+    expect(skill).toHaveAttribute("href", `/ops/builds/${SKILL}`);
+    expect(screen.getByTestId(`build-item-${GAP}-links`)).toHaveTextContent("(Intake)");
+    const queue = screen.getByTestId(`build-item-${ITEM}-links-dev-queue`);
+    expect(queue).toHaveTextContent("DQ-012 in the Dev queue");
+    expect(queue).toHaveAttribute("href", "/ops/utilities/feedback?tab=dev-queue&request=DQ-012");
+    expect(screen.queryByTestId("build-started-from")).toBeNull();
+    cleanup();
+
+    renderAt(`/ops/builds/${SKILL}`, api);
+    const back = await screen.findByTestId("build-started-from");
+    expect(back).toHaveTextContent(
+      "Started from the issue “Match answers to tasks” in Invoice review",
+    );
+    expect(screen.getByTestId("build-started-from-link")).toHaveAttribute(
+      "href",
+      `/ops/builds/${PARENT}#build-item-${GAP}`,
+    );
+  });
+
   // Owner (2026-11-21): an issue is settled one of three ways, from the issue itself.
   it("settles a draft problem by changing the process, a skill or code, from the issue", async () => {
     const AGENT = "00000000-0000-4000-8000-0000000a0001";

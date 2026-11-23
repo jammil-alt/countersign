@@ -8,12 +8,13 @@ the rest.**
 
 **The order we work it in** (2026-11-22): `docs/work-plan.md`, one item and one PR at a time,
 code and the owner's steps side by side. Reporting and searching runs by their data is agreed
-in `docs/reporting-plan.md`; R1 and R3 (a record's Runs panel, §1.200) are built.
+in `docs/reporting-plan.md`; R1 to R4 are built (a record's Runs panel, §1.200; a report per
+agent, §1.214).
 
 ## Where things stand
 
-- **Built:** everything through M69 (`docs/plan.md` §4) and the work recorded through §1.207,
-  migrations through 0080, merged to `main` and deployed to staging. That includes purchasing end
+- **Built:** everything through M69 (`docs/plan.md` §4) and the work recorded through §1.220,
+  migrations through 0100, merged to `main` and deployed to staging. That includes purchasing end
   to end by email (M42), the Marketing wave (M43–M50), the Bookkeeping area (M51–M57), the back
   office's Sales, onboarding and Build (M64–M69), the SOP and agent assurance.
 - **Every provider is built against a fake.** Nothing has yet run against live QuickBooks, Gmail,
@@ -346,7 +347,7 @@ PRs #384–#414 closed the launch audit's findings for the first clients. What t
 | H6 | ~~"Who is asking" on the Claude approval page~~ Done (§1.201, migration 0078): the page shows the asking Claude client, in words, and where the request came from. | Migration, then code | §1.130. |
 | H7 | ~~The portal's resume screen~~ Done (#535, §1.195): it says how many events came in while the agent was paused. Open: a native speaker's check of the five other languages. | Code, copy in six languages | §1.137. |
 | H8 | **`refresh_failing` connections**: counted in the ops MCP's `needsAttention` and the daily troubled list since #527. Open: LinkedIn's and HubSpot's dead-grant codes come from their docs, not a live call. | Check live | §1.134. |
-| H9 | ~~The web app's first load~~ Done (#531, §1.192): 344 kB, budget 351 kB; main reached 350.8 kB with #523, and R2 (#534) raised the budget to 352 kB, so the headroom is used up. Next toward 300 kB: each portal screen on its own, the route contract split per screen, English on demand. | Code | audit 4.6 |
+| H9 | ~~The web app's first load~~ Done (#531, §1.192): 344 kB, budget 351 kB; main reached 350.8 kB with #523, and R2 (#534) raised the budget to 352 kB, so the headroom is used up. English on demand done (§1.208): 301.9 kB, budget 335 kB. Next toward 300 kB: each portal screen on its own, the route contract split per screen. | Code | audit 4.6 |
 | H10 | ~~Texting edge cases~~ Done (#538, §1.197; the link's own check of a number taken a moment before, fixed in #534). Open, for the owner: a forwarded invitation can still learn that a number is one of the client's contacts (`number_taken`), as before. | Code, small | §1.142. |
 
 ### The phone app (owner, 2026-11-13; `docs/plan.md` §1.116, `apps/mobile/README.md`)
@@ -396,16 +397,16 @@ agent manual, the setup checklist, client adjustments and feedback, and governan
 |---|---|---|
 | G1 | **Run the builds again on staging** (the Nexonia expense agent, invoice intake) and count the operator's actions from New to a running trial. Target: under 15. | `docs/builder-plan.md` §9. Owner, once this is deployed. |
 | G2 | ~~Merge #433~~ Merged. | |
-| G3 | A POC try on **a Sandbox record** (today an uploaded document or a JSON input; a record's id can be given as JSON). A **skill** tried on a document (skill cases run on fixtures only, so the API answers 422). | Code. |
-| G4 | Changing a decision's words directly from the Decisions card (today through the conversation, which marks it changed). A custom skill's step counted as writing in the high-risk check (only built-in skills are looked up). | Code. |
-| G5 | **Known risks counted from runs** (`ManualKnownRisk.hits` stays empty), and **deleting** a learned note from the manual (shown, read only). | Code. §1.153 already lists the count. |
+| G3 | ~~A POC try on **a Sandbox record** (today an uploaded document or a JSON input; a record's id can be given as JSON). A **skill** tried on a document (skill cases run on fixtures only, so the API answers 422).~~ Built (Wave Y, #589). | Code. |
+| G4 | ~~Changing a decision's words directly from the Decisions card (today through the conversation, which marks it changed). A custom skill's step counted as writing in the high-risk check (only built-in skills are looked up).~~ Built (Wave Y, #599). | Code. |
+| G5 | ~~**Known risks counted from runs** (`ManualKnownRisk.hits` stays empty), and **deleting** a learned note from the manual (shown, read only).~~ Built (Wave Y, #587). | Code. §1.153 already lists the count. |
 | G6 | `manual.read` given to every agent: today only when listed (`extraTools` or a skill), because adding it to every step changes every model request and the recorded fixtures. | Code, with new fixtures. |
 | G7 | **Governance in the other model calls**: the owner's review, the AI check (confer), path choice, Sloan's and the area owners' chat, the Builder keep their own preambles; only agent and task steps, conversation turns and reach-out messages read the tiers. | Code. |
 | G8 | **A run-level pin** of the governance versions read (today recorded per model call in its stored body; no column fits without a migration). The guardrails and standard policies as seeded rows (`builder-plan.md` §8 "Where kept") would need a table. | Migration, its own PR. |
 | G9 | The guardrails and standard policies are in English for agents; only "How Mezonas agents work" is translated. A fluent speaker's review of the new portal copy (manual, setup checklist, adjustments, charter) joins the language review below. | Owner. |
-| G10 | Setup checklist: the back office can't send a file item for the client; `setup` and `adjust` changes aren't in the back office's change list (who did what is on the checklist and in the manual); the intake form's fields have no guard and the Builder's decisions no parameter (the setting is worked out by code, `settingForDecision`). | Code. Adding fields changes the Builder's answer and its fixtures. |
-| G11 | Client adjustments: **marking a step's own parameter** from the builder's step panel (the schema and the API take one; the definition editor marks the agent's skill parameters and schedules); limits on a date; a **setup answer written into the manual** as a change, as an adjustment is. | Code. |
-| G12 | Feedback on the manual and requests past the bounds arrive as issues with what they are about on their created event; the **area owner's suggestions** (§10.15) don't read that link yet, so the operator turns them into a change by hand. | Code. |
+| G10 | ~~Setup checklist: the back office can't send a file item for the client; `setup` and `adjust` changes aren't in the back office's change list (who did what is on the checklist and in the manual); the intake form's fields have no guard and the Builder's decisions no parameter (the setting is worked out by code, `settingForDecision`).~~ Built (Wave Y, #601). | Code. Adding fields changes the Builder's answer and its fixtures. |
+| G11 | ~~Client adjustments: **marking a step's own parameter** from the builder's step panel (the schema and the API take one; the definition editor marks the agent's skill parameters and schedules); limits on a date; a **setup answer written into the manual** as a change, as an adjustment is.~~ Built (Wave Y, #601). | Code. |
+| G12 | ~~Feedback on the manual and requests past the bounds arrive as issues with what they are about on their created event; the **area owner's suggestions** (§10.15) don't read that link yet, so the operator turns them into a change by hand.~~ Built (Wave Y, #595). | Code. |
 | G13 | A client user who isn't limited reads "What you can adjust"; only the client admin changes it. Owner to confirm the client user may read it. | Owner decision. |
 
 ### Builds, simplified (owner, 2026-11-21; `docs/plan.md` §1.165, `docs/builder-plan.md` §11)
@@ -418,7 +419,7 @@ from the issue (change the process, build a skill, needs code). Left:
 | # | What | Notes |
 |---|---|---|
 | S-A | **Owner: three answers** in `docs/builder-plan.md` §11.5 (one page with three steps; the high-risk check; where a client build's try runs). The fourth, agree cards, is answered. | S2, S4 and S5 wait on them. |
-| S-E | A skill started from an issue is its own build with no link back from the issue, and a code request has no link to the Dev queue on the build's page. | Code. |
+| S-E | ~~A skill started from an issue is its own build with no link back from the issue, and a code request has no link to the Dev queue on the build's page.~~ Built (Wave Y, #603). | Code. |
 | S-B | **Try it on staging**: New → Template → describe it → "Build it", on the Progress updating agent. The works-first rules have run against a scripted model only; the Builder's evals (§1.108) have no case for them yet. | Owner, once merged. Code: an eval case. |
 | S-C | A client build's draft is still held by what its connection doesn't allow, and its POC by a test run the build's page can't start. | Code: S2 and S4. |
 | S-D | A skill build has no draft-it-now. | Code, if wanted. |
@@ -434,7 +435,7 @@ client). Left:
 | # | What | Notes |
 |---|---|---|
 | F-A | **Try it on staging**: a new template from the lab (Describe, Check, Build it), a try, Turn on at a test client; then a client's agent customized and its template updated. Tweak from there (owner: "we can tweak it once we are testing"). | Owner, after merge. |
-| F-C | Draft-now's gaps find their step by a word match; the drafter should name the step. | Code, `packages/agents`. |
+| F-C | ~~Draft-now's gaps find their step by a word match; the drafter should name the step.~~ Built (Wave Y, #588). | Code, `packages/agents`. |
 | F-D | An automation has no Builder chat or Try it of its own, old-format automations don't open in the editor, and renaming an input doesn't rewrite the steps that read it. | Code, if wanted. |
 | F-E | "Ask an agent" and "Report to an agent" from the mock-up need new step kinds. | Not planned. |
 
@@ -452,8 +453,8 @@ Find, filters and printing. Left:
 | SOP-B | The Builder writes each step's purpose when it drafts (today the operator writes it in the step panel, else the SOP writes a plain line). Changes the Builder's requests, so its fixtures are re-recorded with a key (`LLM_MODE=record`). | Code, with a key. |
 | SOP-R | References: the client's own tagged policies by title, the agents it takes over from, its knowledge base; a step's entity-level settings and a person's own "show me first" on its line. | Code. |
 | SOP-T | Try it on staging after the merge: open an agent's SOP, change a connection's permission or the approval rules, and see revision n.1 with what changed and who. | Owner, after deploy. |
-| SOP-W | W, the Workflow tab, view only (`docs/sop-plan.md` §6a): merged (#515). Left: the chart's own few words in the six languages (zoom, "Otherwise", "Click to see it."), shared with the builder. | Code. |
-| SOP-2 | S2: Sloan's `sop.read`, the Procedures page. | Code. |
+| SOP-W | W, the Workflow tab, view only (`docs/sop-plan.md` §6a): merged (#515); the chart's own words in the six languages built (Wave Y, #578). | Done. |
+| SOP-2 | ~~S2: Sloan's `sop.read`, the Procedures page.~~ Built (Wave Y, #602). | Code. |
 | SOP-3 | S3: share links, the accountable person, packs' own controls; only what the owner agrees. | Migrations, own PRs; a security review for share links. |
 
 ### Agent assurance (owner, 2026-11-21; `docs/agent-assurance-plan.md`, mock-up screens 4 and 5 of `docs/design/sop.html`)
@@ -467,11 +468,17 @@ office. Results are Verified, In review, Not yet checked or Not applicable, neve
 Left:
 - **A3, attacks:** planted cases in the test bench with their pass rules; fixtures recorded with a
   key. Owner: should an attack check in review hold the trial's start (recommended)?
-- **A4, evidence export:** per period, CSV and a printable page; the `/ops/security` rollup.
-- **Provider terms:** record each AI provider's retention and region from its terms in
-  `packages/core/src/assurance/terms.ts` (shown as "Not recorded yet" until then), and xAI's and
-  Google's training terms.
-- **Two checks:** no secret in a stored model request; OAuth scopes as granted.
+- ~~A4, evidence export~~ Built (Wave Y, #600, `docs/plan.md` §1.231.3): per period, CSV and a
+  printable page, and the `/ops/security` rollup.
+- ~~Provider terms~~ Recorded (Wave Y, #576, §1.231.1) in `packages/core/src/assurance/terms.ts`,
+  each with its source page. **Left: read each provider's own page** (only Anthropic's
+  data-residency page was read on the page; the rest come from search snippets quoting them) and
+  set its source to `read: "page"`. Until then `no_training` is In review on every agent that uses
+  AI, and clients see "to be confirmed". **Owner:** confirm our Gemini key is on a billed Cloud
+  project (Google's no-training holds only for paid services).
+- ~~Two checks~~ Built (Wave Y, #592, §1.231.2): no secret in a stored model request; OAuth scopes as
+  granted. K21 stays Not yet checked for QuickBooks-bound agents: Intuit doesn't return the
+  granted scope. **Owner:** accept that Intuit grants exactly what we ask, or leave K21 open.
 - **Retention policy:** the two rows added for run histories and our copies of AI requests
   describe what already happens; the owner adopts them as policy.
 
@@ -500,18 +507,73 @@ Fixed in one PR. What is still open from it:
   locally; a test now covers every route), and why `GET …/skills` hangs there (the agent page no
   longer waits on it). Reading staging from a Claude session needs the operator to approve its
   connect-claude link first.
-- **Code:** back-office questions and Sloan's thread summaries record their cost only in logs
-  (a table, so a migration PR of its own); schedule wording is still 12-hour; deal and contact time
+- **Code:** schedule wording is still 12-hour; deal and contact time
   zones are still free text; a dependent write the model makes inside one skill still reads its
   before state in a test run.
-- **Costs not yet counted** (an audit of 2026-11-22, for build plans 11 and `docs/plan.md` §1.199):
-  - The dev queue's reuse check: its model calls' cost is dropped.
-  - Reggie and its read pass: cost in each message's metadata, never added up.
-  - Builder, build and reshape turns: cost on their rows, but no screen adds them up.
-  - Email through Resend, Browser Run's minutes, Plaid's and BILL's fees, and texts no agent's
-    run sent (notifications, sign-in codes, invitations, inbound): not counted at all.
-  - Texts and call minutes: counted at placeholder unit costs (0009). Model, embedding and
-    transcription prices are still unverified.
+- **Costs not yet counted** (an audit of 2026-11-22, for build plans 11 and `docs/plan.md` §1.199;
+  most are now metered, §1.210, #559 and #580):
+  - BILL's per-payment fee: payments are refused until a trusted session exists, so it is to be
+    metered when they are turned on.
+  - Deal emails, the dev queue's notices to operators, and texts to the agents' own code numbers
+    (`apps/mfa`): still not counted.
+  - Unit costs are placeholders, marked `UNIT_COSTS_CHECKED_ON = "unverified"`: texts and calls
+    (0009) and email, Browser Run, Verify and Plaid (0095). Model, embedding and transcription
+    prices are still unverified.
+
+### Round 4 (2026-11-22; `docs/plan.md` §1.208–§1.214)
+
+Built: the first-load cut (§1.208), the records test's flake (§1.209), metering (§1.210), the
+verifier and evidence (§1.211), the eval harness (§1.212), file and email intake (§1.213) and a
+report per agent (§1.214). What is left:
+
+- **Evidence and a verifier before writes (§1.211).** Built: the verifier before every write of an
+  agent with `oversight.verify: writes` (new agents, Builder drafts, the Bookkeeper's v7 and Vendor
+  contracts' v4), the evidence panel on every change card in both inboxes, and each client's dollar
+  thresholds (only tighten). Open:
+  - **The owner decides the verifier's model.** It runs on the agent's oversight model, else its
+    own: about 1–2 cents a write on both templates' model (3,000–8,000 tokens in, 300 out at $2 and
+    $10 a million), at most about 12 cents when a run's sources fill every limit. A smaller model
+    would be under 0.2 cents. A cheaper or a different provider's model for the check alone would
+    be a new setting (`oversight.verifyModel`), not built.
+  - **How often it is wrong.** Nothing yet counts disagreements a person overruled; the model
+    calls are there (`model_call` action `check`) to measure it on staging.
+  - **Clients' copies.** A client's Bookkeeper or invoice review takes `verify` only by the usual
+    reviewed update merge to the new template version; existing agents stay off until then.
+  - **The phone app's Desk** shows no evidence panel yet (`apps/mobile`).
+  - **Pack review cards** (the bookings review, the match review) propose no write themselves and
+    show their own data; the write each approved line becomes has its own card, with the panel.
+- **Re-record fixtures with a live key.** The eval harness's answers (§1.212) and the verifier's
+  recorded answer (§1.211) are hand-written (`handWritten`). Record real ones with a key
+  (`LLM_MODE=record`); the harness then compares them with the same goldens.
+- **File and email intake (§1.213), not built:** a back-office screen for report profiles (the
+  routes are there; it loads lazily); a screen that lists platform alerts, so the Desk shows
+  intake's alerts; landing reports from portal uploads; reports in the body of an email.
+- **Metering (§1.210):** a run view that adds a run's metered rows (`run.cost_usd` stays model
+  cost). What is still not counted is under "Costs not yet counted" above.
+- **The first load (§1.208):** 301.9 kB against 335 kB. The way toward 300 kB is in H9 above.
+
+### Wave Y (2026-11-22; `docs/plan.md` §1.230–§1.236)
+
+Built: one pack manifest and one install path with configuration only (§1.230, #563); C6's
+follow-ups (§1.231: #576, #578, #587, #588, #589, #592, #595, #599, #600, #601, #602, #603); the
+Close pack (§1.232, migration 0099, #575 and #583); the AP pack (§1.233, migration 0100, #584 and
+#585); the work-delivered statement (§1.234, #590); R5, a report per account and `/ops/accounts`
+(§1.235, #582); R6, the portal's saved views (§1.236, migration 0098, #577 and #581). What is left:
+
+- **Blocked on a live model key** (fixtures to record with `LLM_MODE=record`): SOP-B (the Builder
+  writes each step's purpose), G6 (`manual.read` for every agent), A3 (attack cases), and G10's
+  parameter for the Builder's decisions.
+- **The Close pack (§1.232).** `qbo.journal.create` is built against the fake only: run the
+  journal-entry checks on the QuickBooks sandbox (`packages/connectors/src/qbo/NOTES.md`, "Journal
+  entries"). Approval stays required; a client's matrix never allows journal entries on its own;
+  test runs never post.
+- **The statement (§1.234).** The PDF goes in our own email over Resend to the billing address with
+  the Stripe invoice (Stripe's API can't attach a file); a client in HIPAA mode gets it in the
+  portal only. Its words in the other five languages want a fluent speaker's review.
+- **Words to review.** The new words in #578 (the chart), #601 (setup and adjustments) and #602
+  (Procedures) are marked `// fluent review` in the five languages other than English.
+- **Staging after deploy.** Every agent that uses AI reads `no_training` In review until the
+  providers' pages are read (Agent assurance above), so the next nightly run opens one issue each.
 
 ### Owner decisions still open (`docs/plan.md` §7 and the sections named)
 
@@ -534,6 +596,21 @@ Fixed in one PR. What is still open from it:
   90 days of bills and purchases, here and for the prospect connection. Onboarding (§1.220): the
   items under "Back office work" above. The handoff (§1.219): the six languages want a fluent
   speaker's review.
+- **Wave Y (2026-11-22), to decide or confirm.** Packs (§1.230): a pack's vendors of ours are
+  marked for HIPAA on the Areas tab but don't block its install; refusing a HIPAA client the whole
+  pack is a one-line change. Close (§1.232): whether accruals proposed from billing patterns stay on
+  by default or become opt-in per client; the default accrual account's name
+  (`CLOSE_CONFIG_DEFAULTS`) or the client's own. AP (§1.233): whether a client with the AP pack runs
+  Bills to pay instead of Vendor contracts' invoice review (with both on, each invoice runs twice);
+  confirm that an approved bill is final in our records and a mistake is fixed in the accounting
+  tool (nothing of ours pays). The statement (§1.234): the counters' definitions (read-only records
+  aren't processed; exceptions are alerts and verifier disagreements; dollars identified are
+  alerts' `dollar_impact` only) and the page for client admins only. R5 (§1.235): "Needs us" reuses
+  its existing rules (a live run failed in the last 7 days and not retried, an item waiting over
+  24 hours, a connection in `error` or `refresh_failing`, an allowance over 80%); usage is the
+  projected month in the back office and the Billing page's month so far in the portal, for client
+  admins only. G5 (§1.231.6): deleting a learned note removes its row (notes are read live per
+  client, not from the bundle); known-risk counts match on words and are approximate.
 - **Wave X, not built yet.** Matching: a back-office screen for saved rules and "save as rule" on
   the reconciliation card; a pack tool running the ROMCO configuration (the other system's
   invoices aren't synced). Books health: two facts to check on the QuickBooks sandbox company
@@ -597,9 +674,10 @@ Fixed in one PR. What is still open from it:
 
 ### Docs housekeeping
 
-- `docs/ARCHITECTURE.md` is v0.21. The Marketing area (`docs/marketing-plan.md` §9) and the
-  Bookkeeping area (`docs/plan.md` §1.79) are still to be folded into it. CLAUDE.md's status
-  line still says v0.15.
+- `docs/ARCHITECTURE.md` is v0.22 (the verifier, §10.18). The eval harness (`docs/plan.md`
+  §1.212) and metering (§1.210) have no ARCHITECTURE section yet. The Marketing area
+  (`docs/marketing-plan.md` §9) and the Bookkeeping area (`docs/plan.md` §1.79) are still to be
+  folded into it. CLAUDE.md's status line still says v0.15.
 - `docs/hipaa-plan.md` §1 ("Merge the code") lists PRs that were merged long ago.
 
 ## Suggested order

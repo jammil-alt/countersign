@@ -30,6 +30,7 @@ import {
   buildIssues,
   CODE_REQUEST_STATUS_WORDS,
   ComplianceRefusal,
+  changeDecisionWords,
   type DecisionDraft,
   decisionUnreviewed,
   dqNumber,
@@ -53,6 +54,7 @@ import {
   ProposalState,
   parseDqNumber,
   phaseIndex,
+  processes,
   proposalUndo,
   readBrief,
   readFitGap,
@@ -1563,6 +1565,7 @@ async function makeDraft(
   kept: boolean;
   summary?: string;
   gaps?: string[];
+  gapSteps?: (string | null)[];
 }> {
   const description =
     atOnce?.description ?? draftDescription(row, readBrief(row.brief), readFitGap(row.fitgap));
@@ -1582,6 +1585,7 @@ async function makeDraft(
       kept: false,
       summary: out.summary,
       gaps: out.gaps,
+      ...(out.gapSteps ? { gapSteps: out.gapSteps } : {}),
     };
   }
   if (row.sessionId) return { set: {}, decisions: [], kept: true };
@@ -1600,11 +1604,17 @@ async function makeDraft(
   return { set: { sessionId: started.session.id }, decisions: [], kept: false };
 }
 
-/** The draft's step standing for each gap (a person step that asks, or a missing step), or null. */
+/**
+ * The draft's step standing for each gap, or null: the one the drafter named (F-C), when the saved
+ * draft has it, else the step core's word match finds (a person step that asks, or a missing step).
+ */
+// DECISION (F-C): the drafter's own answer first, the word match only for a gap it named no step
+// for, so a draft whose model leaves `gapSteps` out reads as before.
 async function draftGapSteps(
   tx: Tx,
   agentId: string | null | undefined,
   gaps: readonly string[],
+  named: readonly (string | null)[] = [],
 ): Promise<(string | null)[]> {
   const latest = agentId ? await latestVersion(tx, agentId) : null;
   const parsed = latest ? AnyAgentBundle.safeParse(latest.bundle) : null;
@@ -1612,7 +1622,12 @@ async function draftGapSteps(
   const drafted = parsed.data.workflows.flatMap((w) =>
     w.workflow.schemaVersion === 4 ? [w.workflow] : [],
   );
-  return gapSteps(gaps, drafted);
+  const ids = new Set(drafted.flatMap((p) => processes.allSteps(p).map(({ step }) => step.id)));
+  const matched = gapSteps(gaps, drafted);
+  return gaps.map((_, i) => {
+    const said = named[i];
+    return said && ids.has(said) ? said : (matched[i] ?? null);
+  });
 }
 
 /** A short, stable fingerprint of a fit-gap's first version. */
@@ -1905,7 +1920,10 @@ export async function draftNow(ctx: LongCtx, id: string, given: string | null): 
       userId,
     });
     // docs/builder-plan.md §12.4: each gap names the step that stands for it, when one clearly does.
-    const onSteps = gaps.length > 0 ? await draftGapSteps(scoped.tx, made.set.agentId, gaps) : [];
+    const onSteps =
+      gaps.length > 0
+        ? await draftGapSteps(scoped.tx, made.set.agentId, gaps, made.gapSteps ?? [])
+        : [];
     await addItems(
       scoped.tx,
       r,
@@ -3089,8 +3107,9 @@ export function opsBuildRoutes(app: Hono<AppEnv>): void {
   });
 
   // docs/builder-plan.md §4: the operator marks one of the Builder's decisions discussed or
-  // confirmed. Its words change only through the conversation (the Builder's rewrite, or a draft
-  // edit the operator agrees), so a person's look stays tied to what they looked at.
+  // confirmed. Its words change through the conversation (the Builder's rewrite, or a draft edit
+  // the operator agrees) or on the card (below), each marking it changed, so a person's look stays
+  // tied to what they looked at.
   mount(app, routes.opsBuildDecisionStatus, async (ctx) => {
     const row = await readBuild(ctx.tx, ctx.params.id, true);
     refuseClosed(row);
@@ -3115,6 +3134,55 @@ export function opsBuildRoutes(app: Hono<AppEnv>): void {
       payload: { decision: { id: ctx.params.decisionId, status: ctx.body.status } },
       userId: ctx.session.user.id,
     });
+    return buildDetail(
+      { tx: ctx.tx, services: ctx.services, now },
+      await readBuild(ctx.tx, row.id),
+    );
+  });
+
+  // docs/open.md G4: the operator changes a decision's words on the Decisions card. It is marked
+  // changed by them, as the conversation's rewrite marks it, and the build's history keeps what it
+  // said before and after. The draft isn't changed here: the Builder reads the new words in its
+  // next turn and the drafter's description, as it reads every decision.
+  mount(app, routes.opsBuildDecisionWords, async (ctx) => {
+    const row = await readBuild(ctx.tx, ctx.params.id, true);
+    refuseClosed(row);
+    const fitgap = readFitGap(row.fitgap);
+    const before = fitgap.decisions.find((d) => d.id === ctx.params.decisionId);
+    const by = ctx.session.user.name?.trim() || ctx.session.user.email || null;
+    const decisions = changeDecisionWords(
+      fitgap.decisions,
+      ctx.params.decisionId,
+      ctx.body,
+      by,
+      now().toISOString(),
+    );
+    if (!decisions || !before) throw notFound("decision");
+    const after = decisions.find((d) => d.id === before.id);
+    if (after && JSON.stringify(after) !== JSON.stringify(before)) {
+      await ctx.tx
+        .update(build)
+        .set({ fitgap: { ...fitgap, decisions }, updatedAt: now() })
+        .where(eq(build.id, row.id));
+      // DECISION (docs/open.md G4): the history is the build's event, with the words before and
+      // after (as the conversation keeps the Builder's rewrite in its messages).
+      const words = (d: typeof before) => ({
+        what: d.what,
+        why: d.why,
+        value: d.value ?? null,
+      });
+      await addEvent(ctx.tx, row, {
+        kind: "record",
+        payload: {
+          decision: {
+            id: before.id,
+            status: after.status,
+            words: { before: words(before), after: words(after) },
+          },
+        },
+        userId: ctx.session.user.id,
+      });
+    }
     return buildDetail(
       { tx: ctx.tx, services: ctx.services, now },
       await readBuild(ctx.tx, row.id),

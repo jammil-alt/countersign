@@ -6382,6 +6382,393 @@ action, not just mark it... if it is an issue, just because I say it is closed d
 | Not built | The client as an owner: no step yet sends an item to the client and closes it by their answer (the requirements request asks the intake form's fields, not an item). Until there is one, "Client" is only set by the fit-gap's preconditions. |
 | Checked | `apps/api/src/build-settled-by-step.test.ts` (done by hand refused, a drop, a note done, the Builder's close left out; a put-off gap given to engineering then the Builder, closed by its change and opened by its undo; a test closed by a full passing run and not by a failing or partial one), `apps/web/src/ops/builds/closeout.test.tsx` and `builds.test.tsx` (no selects; Put off, Drop it, Reopen; Take it up on a put-off gap). The skill build's go-live closing has no test of its own. |
 
+### 1.236 R6: the portal's saved views (Wave Y, Y7, 2026-11-22; migration 0098, #577)
+
+- A client person saves the runs list's filter under a name and opens it again from a chip above the list. A client admin can:
+  - share one of their own views with the client's team, or stop sharing it;
+  - delete a view the team shares (its owner may have left).
+
+  Nobody else changes another person's view.
+- **Table:** `portal_view` (tenant table; forced RLS on `app.tenant_ids`). Columns: `user_id`, `name` (1–80 characters, unique per person in a client), `filters` (the portal's `RunFilter`), `shared`, timestamps. Views aren't history: they are changed in place and deleted. The operator's `saved_view` (operator RLS, no client) stays as it is.
+- **Routes:** `GET /api/views` (your own views first, then the team's), `POST /api/views`, `PATCH /api/views/:id` (rename; share or unshare, admin only), `DELETE /api/views/:id`. The roles are `client_admin` and `client_user`, in core's `portalViewRoutes`. They are served through `allRoutes` and kept out of the web's first-load registry.
+- **Filter:** a view's filter is `PortalReportFilter` (R4's), the RunFilter without the back office's keys. So `costOver`, `errorKey`, `mode`, `clients`, `templates` and `versions` are refused with a 400. Opening a view puts its filter in the address (`runFilterQuery`), as a report figure's link does (R4), so it shows as chips and clears the same way.
+- **Limited client user (§1.122):**
+  - the four routes are on `ASSIGNED_USER_ROUTES`;
+  - such a user saves a view only on agents they see (404 otherwise, as `ensureSeesAgent`);
+  - they don't see a shared view that names an agent off their list.
+- **Web:** `portal/screens/SavedViews.tsx` is its own chunk (`lazy`), with its schemas. "Save this view" shows only when the list is filtered. An admin gets "Share with your team" on saving and Share or Stop sharing on their own chips. A shared chip says "Shared", with "Shared by {name}" on hover. The words are in all six languages. The web first load is 271.8 kB gzipped against the 335 kB budget.
+- **Out of scope:** reports by email (§5, answer 5).
+
+### 1.235 A report per account, and every account side by side (R5, 2026-11-22; no migration)
+
+The design: `docs/reporting-plan.md` §3 R5 and the owner's answer 3 (§5).
+
+| Topic | Decision |
+|---|---|
+| Routes | Portal `GET /api/reports/account`; back office `GET /api/ops/clients/:id/report`, each with a `.csv`; and `GET /api/ops/accounts`. `?from&to` as days, as R4. The routes are in `accountReportRoutes`, outside the web's first-load registry (`allRoutes` only). |
+| Reader | `apps/api/src/runs/account-report.ts`, on R4's (`runs/agent-report.ts`): R4's `scopeOf` now takes no agent (the whole client) or no period (what stands now), and its headline can be grouped by agent (`headlines`). Same status conditions and `runFilterWhere`, so every figure's RunFilter opens exactly its runs. Period, comparison and "live runs only" are R4's. // DECISION |
+| Figures | The client's headline this period and the one before; runs, done, failed; a line per agent (the client's services, `isService`) with R4's headline, the period before, and its runs waiting now, the most runs first; what waits now (runs waiting, open items, items over a day, the oldest item); failed runs nobody has looked at; connections that need attention; usage against the allowance. |
+| Waiting now | Runs waiting whenever they started (R4's waiting status on each surface). Items: open, not a test run's, not the supervisor's waiting reminders, as Needs us counts them. The portal counts only the client's own items (`forClient`); the back office counts ours too. // DECISION |
+| Failed, not looked at | Needs us's own rule (`routes/command-center.ts`): live, failed in the last `FAILED_RUN_ESCALATION_DAYS` (7), not tried again. RunFilter can't say "not tried again", so the figure carries no filter; the back office links it to the client's Escalations (`/ops/inbox?client=`). // DECISION |
+| Connections | `error`, or connected with an open `refresh_failing` issue (C4.2), from `apps/api/src/connection-attention.ts`, which the ops MCP server's `connections_list` now shares. Every such connection counts, used by an agent or not (answer 3). // DECISION |
+| Usage | Back office: the month's credits against the allowance the month will have (`creditsMonth`, what the credits check pauses on), so "over 80%" warns before the pause. Portal: its Billing page's month so far (`monthFor`), for a client admin only, since billing is admin-only; null for a client user and for a client not set up for billing. The portal can't read the platform templates that price Sloan, so it can't project. // DECISION |
+| Needs us | Back office only: `waiting` (an item open over a day), `failed`, `connection`, `allowance` (over 80%). `ACCOUNT_WAIT_OVERDUE_HOURS = 24`, `ACCOUNT_ALLOWANCE_SHARE = 0.8` in core. // DECISION |
+| `/ops/accounts` | Every client the operator serves that isn't retired, each in its own days, without agent lines (a count of agents instead). Clients are read at once in the request's transaction (pipelined); every query names its client. Those that need us first, then by name; the screen sorts by any column. // DECISION |
+| The portal | Its own schema (`PortalReportFilter`, no Needs us, cost or errors). The client's own report for the session's one client. Not in `ASSIGNED_USER_ROUTES`, so a client user limited to some agents is refused, as for the other reports. // DECISION |
+| CSV | R4's columns (`section,item,figure,value,currency`), one line per figure; the back office's adds Needs us. |
+| Screens | Portal: an Account tab under Reports (`/reports/account`); the tabs now always show (Activity, Account, then pack reports). Back office: a Report page under the client's Overview tab (`/ops/clients/:id/report`), and Accounts in the sidebar's Business section (`/ops/accounts`). Each screen is its own lazy chunk with its route's schema; the portal's words are in that chunk in six languages (`reports/account-words.ts`), and the catalogs gain only the tab's name. Links: runs to the surface's runs list, connections to Connectors (portal) or the client's Connectors (back office), usage to Billing, an agent to its report (portal) or its page (back office). // DECISION |
+| Checked | `apps/api/src/account-report.test.ts` runs against Postgres as `cs_worker`: the figures, each filter against the real runs list on both surfaces, waiting and failed-not-looked-at (a retried run left out), `error` and `refresh_failing` connections, usage for an admin and not a user, Needs us, the list's order, no cost, errors, Needs us or other client on the portal, a limited person refused, and the CSVs. `contract.test.ts` checks the portal schema and the roles. `apps/web/src/reports/AccountReport.test.tsx` covers the links on both surfaces and the list's sorting. |
+
+### 1.234 The work-delivered statement (Wave Y item Y5, build plan 10, 2026-11-22; no migration)
+
+Outside ARCHITECTURE's v1 scope; the owner said yes, and ARCHITECTURE §10.25 records it. It reuses §1.32's billing statements (the month, the Stripe send, the billing email) and §1.50's KPI conventions (live runs only, decimal money per currency).
+
+| Topic | Decision |
+|---|---|
+| The counters | Core's `WORK_COUNTERS`: **items processed**, **posted automatically**, **sent for approval**, **exceptions caught**, **dollars identified**. Each is over a client agent's live runs created in the month. Never a test run, and never a template's test copy (the Sandbox's copies). |
+| Items processed | Different records a run decided on or changed, or that started it (a `run_subject` with role `decided` or `changed`, or with no step). A record's identity is our id, else its tool and the tool's id, else the row. A record handled in several runs counts once for the agent. A record only *read* for context (a vendor looked up) is not processed. // DECISION |
+| Posted automatically | `external_action` `done` with no approval item, executed before the month ended. // DECISION |
+| Sent for approval | `inbox_item` of kind `external_action` or `approval` for the client (not routed to the operator), whatever the answer. Reviews, extraction reviews and requests aren't approvals. // DECISION |
+| Exceptions caught | The alerts the agent's runs raised (`alert.raised_by_run_id`), unless dismissed before the month ended. Also the items whose verifier check disagreed (`payload.verification.outcome = disagreed`, §1.211), wherever the card went. A verifier that couldn't check, and threshold holds, are not exceptions the agent caught. // DECISION |
+| Dollars identified | Those alerts' `dollar_impact`, summed as numeric per currency and never added across currencies (invariant 6). Verifier disagreements carry no dollar figure. // DECISION |
+| One definition | Meanings in core (`WORK_COUNTERS`). The counting is one SQL query in `packages/db` (`workCounts`), the lower layer with the data; `apps/api` adds names and areas. The portal, the PDF, the email with the invoice and the back office all call `workStatement` → `workCounts`. `work-counts.test.ts` fails if a counter has no column. // DECISION |
+| Months | UTC calendar months, as billing's (§1.32), so the statement covers exactly the bill's month whatever the client's time zone. Default: last month (the one invoiced). A month that hasn't started is 422. The current month is shown as "so far". // DECISION |
+| Frozen once ended | A row counts only if recorded before the month ended (subjects, items, alerts by `created_at`; writes by `executed_at`), and a dismissal counts only if it happened before then. A past month's statement never changes, so the PDF emailed on the 1st matches the page later. // DECISION |
+| Per pack | Per business area, as shared data is organised (ARCHITECTURE §12.0): `processArea` over the agent's `area`, its live bundle's `area`, else its one area pack. Areas are shown in a fixed order; "By area" appears when there are two or more. // DECISION |
+| Who sees it | Portal: `GET /api/billing/work` and `/api/billing/work.pdf`, for the client admin only, as `/billing` is. Back office: `GET /api/ops/billing/clients/:id/work` and `.pdf`, for a client the operator serves, read narrowed to that one client. The routes are in `workStatementRoutes`, served beside the registry (`allRoutes`). // DECISION |
+| What it never shows | Our cost, margin, model or vendor spend, bundles, instructions, prompts. The portal's schema has only the client's name, counts, areas, agents (id, service name, area, runs) and Stripe's invoice number. The integration test walks it for forbidden keys. Counts include subjects of steps the client's timeline hides: they are numbers, not records, and the three surfaces must agree. // DECISION |
+| The PDF | pdf-lib and Helvetica in the Worker, nothing stored (the Weekly Table's `Writer`, now exported). The same bytes for the same month. Portal: the reader's language. Back office: the client's language, so it is exactly the one emailed. Letter or A4 by `paperFor`. Named `mezonas-work-YYYY-MM.pdf`. Words in six languages in core (`WORK_STATEMENT_WORDS`); the five other than English are drafts for the owner's fluent speakers. // DECISION |
+| With the invoice | Stripe's API can't attach a file to the invoice email it sends: SDK 20.1.2 has no invoice attachment parameter or file purpose for one. So, on the send that marks a statement `sent` (by hand or by the cron's auto-send), `emailWorkStatement` sends our own email with the PDF attached. It goes over Resend, Mezonas' mail, to the Stripe customer's billing email: "Your work statement for October 2026", with a link to the portal page. It is sent once: only on the send that marks the statement sent, and Resend's idempotency key is the statement's. Stripe's invoice request is unchanged, since a changed request under the same idempotency key would fail. With no billing email, Resend not configured, or HIPAA mode without `resend` covered, nothing is sent and the statement stays in the portal. A failure is reported, never thrown: the invoice has already gone. // DECISION |
+| Vendors | No new vendor. The email is Resend's, named as `WORK_STATEMENT_EMAIL_FEATURE` (`billing.work_statement_email`) in `packages/core/src/compliance`. It sends the client's name, service names, the counts and dollars identified. The PDF is made by us; nothing new goes to Stripe. |
+| Metering | The email is one `metered_usage` row (`emails`, source `notification`), marked `ours`: the client isn't billed for its own statement. // DECISION |
+| Mail | `MailMessage` gains `attachments` (base64 to Resend's `attachments[].content`). |
+| Screens | `apps/web/src/billing/WorkStatementView.tsx` (shared), `portal/screens/WorkStatement.tsx` (`/billing/work`, lazy), `ops/screens/ClientWorkStatement.tsx` (lazy, under the client's Billing). The catalogs gain two keys (`billing.workStatement`, `billing.workDone`); everything else is in the lazy chunk. Colours: ink figures, no new tokens. |
+| Checked | `apps/api/src/work-statement.test.ts` (the Sandbox client's October against a hand count, on the portal, its PDF, the invoice's emailed PDF and the back office); `packages/db/src/work-counts.test.ts`; core's compliance test; `apps/web/src/billing/WorkStatement.test.tsx`. |
+| Open | The owner may want other definitions. The likeliest asks: whether a read-only record counts as processed; whether verifier holds should carry a dollar figure (the difference between the two answers); whether the client user (not only the admin) should see the page. The non-English words need a fluent speaker. Stripe's lack of invoice attachments is from the SDK's types, unchecked against a live account. |
+
+### 1.233 Accounts payable: bills to an approved list (Wave Y item Y4, owner 2026-11-22; migration 0100, #584)
+
+The owner's AP pack, packaged from the "Vendor contracts and invoice review" template (§1.104) and the Materials pack. It covers bills from email and uploads, coding, matching to PO and receipt, duplicate and price-variance flags, and a weekly approve-to-pay list. **No payment**: the list ends approved. ARCHITECTURE §10.24.
+
+| Topic | Decision |
+|---|---|
+| The pack | `ap`, its own manifest in core's one shape (§1.230), `area: purchasing`, `extends: "materials"`. It lives in `packs/materials/src/ap` because it reads the Purchasing area's orders and a pack never imports another (as the Close pack does in `packs/bookkeeping/src/close`). Core's `AREA_OF_PACK` names `ap` as Purchasing. The template sets `definition.area` itself. It's installed by the generic `/install` route with configuration only. // DECISION |
+| Intake | Round 4's intake work (§1.213) and the existing forwarding and upload paths. An invoice is read and gets its purchase (`docs.record_purchase`), exactly as Vendor contracts' invoice review does, with the same step ids. The template runs on `document.extracted` with valid totals, or by hand on a document. // DECISION |
+| Tables (#584) | `ap_bill`: one per purchase (`transaction`). `ap_bill_line`: the invoice's lines, then freight, each surcharge and tax, so the lines add up to the bill. `ap_receipt`: goods received, a log. All forced RLS, `pack:ap`, no DELETE. A decision names who made it and when, and is made on a week's list. A model never codes a line. // DECISION |
+| Lines made once | A bill's lines come from the reading it was first prepared from (readings are immutable). A later reading of the same invoice doesn't rewrite them; it raises `read_again` (blocking) for a person. // DECISION |
+| Matching to the PO | Core's matching engine with a new configuration, `bill_to_po`: rules `reference`, `partial`, `counterparty_amount`; 120 days; a cent; fuzzy at 0.9 with a 0.5 name floor; no model tier. Two PO numbers that differ, or two currencies, are a hard veto (invariant 7). Each order is one item per reference it goes by (the PO document's reference, the order's id in the client's tool). A fuzzy pair is only `proposed`, and a person confirms it on the card. A bill against two or more orders isn't taken. The client's saved match rules apply as for any configuration. No second matcher. // DECISION |
+| Orders | An order is an ordered or closed purchase request's order (P-5, P-9), priced from its quote's lines as `poContent` prices them. An older order with no quote named uses the request's one received quote; with several received it can't be priced and isn't offered. // DECISION |
+| Lines to order lines | By the invoice line's catalog item (the Materials match), followed through merges; otherwise only when each side has exactly one line. // DECISION |
+| Coding | A line takes the vendor's account only when every coded line of the vendor's last year of bills went to the same account. That covers this pack's bills (any but rejected) and QuickBooks bills (their lines' accounts, by id or name). Otherwise the model skill `ap.suggest-accounts` (cheap model) suggests one per line from the client's codable accounts, and the suggestion is kept apart until a person takes it. Codable accounts: costs, expenses, assets and other liabilities; never bank, card, receivable, payable, income or equity. // DECISION |
+| Flags | Each flag carries its sources (invariant 10) and a severity. **Block**: `duplicate` (same vendor and invoice number as another bill, a copy of another document, or a QuickBooks bill with that number), `price_over_order` (beyond the client's tolerance), `qty_over_order`, `qty_over_received`, `read_again`. **Warn**: `possible_duplicate` (same vendor and amount within the window, numbers differ), `no_order`, `not_received` (each is block when the client requires an order or a receipt), `order_to_confirm`, `uncoded`. **Info**: `price_under_order`, `unit_not_compared`, `amount_differs`. // DECISION |
+| Units | A price or quantity is compared with its order line only in the same unit (`unitKey`); one side unstated reads as the other's. Different stated units are `unit_not_compared` and never compared (invariant 7). // DECISION |
+| Receipts | `ap.receipt.record` (an agent, from a delivery ticket or a message) or a person's "Mark the order received" on the card. A whole order or lines with quantities. Bills against the order are flagged again. // DECISION |
+| The weekly list | `ap.pay_list.build`: every open or held bill due by the coming pay day plus the client's days (or with no due date), not on a later list, goes on that week's list (`pay_week`, its Monday). Running it again moves nothing. The template runs it Wednesdays at 09:23 in the client's time zone, or by hand. A person step (`ap.pay_list` card, the client admin, 2 days, a reminder after 1) follows; unanswered, the run ends and the bills stay listed. // DECISION |
+| Decisions | Approve (the ready ones together, or one at a time; a flagged or uncoded one only with a note: human last), hold or reject with a reason, code a line or take a suggestion, confirm or refuse a proposed order, mark received. Approved and rejected are final. Held goes on next week's list. // DECISION |
+| Configuration | `tenant.settings.packs.ap`: pay day (Friday), bills due within 7 days after it, 2% price tolerance, 60 days for a possible duplicate, and neither an order nor a receipt required. // DECISION |
+| The template | "Bills to pay" (`bills-to-pay`): v1 the definition, v2 two processes ("When a bill comes in", "Every week: the approve-to-pay list"). `suggest_only`, `oversight.verify: writes` in the bundle (install doesn't add it), area Purchasing. It writes only our records. A step to a client's tool (a bill to QuickBooks) is the operator's to add, and starts with approval on. // DECISION |
+| Screens | Bills to pay (`/reports/ap/bills`, portal and back office, read only) and the card, both lazy (the first load is unchanged), with wording in six languages. Flags are shown by name in the reader's language with their money. // DECISION |
+
+Checked:
+- `packages/db/src/ap-migration.test.ts` (#584)
+- `packages/core/src/matching/engine.test.ts`, with the new fixture `fixtures/matching/reconcile/bill-to-po.json`
+- `packs/materials/src/ap/ap.test.ts` (database: match, units, the veto, duplicates, coding, test runs, the list, decisions, receipts, isolation)
+- `packs/materials/src/ap/manifest.test.ts`
+- `apps/api/src/ap-pack.test.ts` (validates against the platform; install with configuration; fork)
+- `apps/api/src/routes/packs.test.ts` (one pack per area, extends); `skill-hashes.test.ts` and `match-rules.test.ts` count the new skills and the new configuration
+- `apps/web/src/packs/ap/PayListReview.test.tsx`
+- the i18n catalog tests
+
+Locally, `pnpm check` is green except `apps/browser`'s Chromium test, which fails on the known local Playwright mismatch. CI is the judge for that one.
+
+Open: a client running both Vendor contracts' invoice review and Bills to pay processes each invoice twice (the writes are idempotent, but it costs a second run). The owner chooses which one a client runs.
+
+### 1.232 The Close pack: a month's checklist, accruals and recurring journals after approval, a signed-off close (Wave Y, Y3, owner's build plan 6, 2026-11-22; migration 0099)
+
+Outside ARCHITECTURE's v1 scope, with the owner's yes; ARCHITECTURE §10.23. It is a pack of its own (`close`) that extends the Bookkeeping area (§1.230's `extends`). Its code is in `packs/bookkeeping/src/close/`.
+
+Done when a fake QuickBooks company with a landlord's monthly bills closes October through the API:
+- the checklist is checked;
+- the accrual is proposed, written once after the admin's signature, and verified;
+- the month is signed off on the card;
+- the portal's report shows it with nothing forbidden;
+- another client sees nothing;
+- a test run proposes the journal entry and never posts it.
+
+| Topic | Decision |
+|---|---|
+| Where it lives | `packs/bookkeeping/src/close/`, its own manifest (`closeManifest`, id `close`, area `bookkeeping`, `extends: "bookkeeping"`), registered in `apps/api/src/packs.ts`. A pack can't import another, and the close reads the area's reconciliations and bank transactions. Core's `AREA_OF_PACK` names `close` too. // DECISION |
+| Tables (0099) | `close_period` (one per client, connection and month), `close_item` (one per period and key), `close_entry` (one live per period and key, status columns only after it is proposed), `close_entry_line` (insert only). All have tenant RLS and `pack:close`. Nothing is deleted, and a signed-off period, its lines and its entries never change (trigger). |
+| Which company | The client's connected QuickBooks connection synced most recently, as books health chooses it. // DECISION |
+| Which month | Last month in the client's time zone (the Bookkeeping pack's `monthPeriod`), or one named. // DECISION |
+| The checklist | Each active bank and card account counts as reconciled when a reconciliation of it as of the month's end or later is signed off or balanced (§1.80: a balanced month asks nobody). An open one says how much isn't explained. Books health's `uncategorized`, `duplicate_bills` and `duplicate_vendors` run on the snapshot cut at the month's end (transactions dated after it are left out). Bank transactions on a link that isn't off, dated in the month and not booked yet. Entries proposed or failed. // DECISION |
+| Waivers | Only a person waives a line, with a reason of at most 500 characters. A waiver stands while the line is still open on re-check, and is cleared once the line is done. // DECISION |
+| Accruals | A vendor billed to the same expense account in each of the N months before (default 3) and not yet in the month gets an accrual at the middle month's amount (the lower middle for an even N; no division), dated at the month's end and reversing the next day. The debit is the expense account, the credit the configured liability account by name or number. Without that account, none are proposed and the entries line says why. Item lines aren't read. // DECISION |
+| Reversals and recurring | Last month's posted accruals are reversed on their `reverse_on` day with each line's side swapped. Last month's posted recurring journals are proposed again at this month's end with the same key until a person turns one down. // DECISION |
+| The write | `qbo.journal.create` (new): `JournalEntry` lines, debits equal credits equal the expected total (decimal), active accounts only, no prior state, the mark `[Mezonas ce-<id>]`. Our own earlier entry is reported done on a retry. One on the same day and total with no Mezonas mark is refused. Permission entity `journal_entry` (read, create). Undo `none`. Approval required by default; the matrix never auto-allows it by default. |
+| What became of a write | Read from the external actions by the entry's mark: done becomes posted with the journal's id, rejected becomes rejected, failed becomes failed. The step after the write records it too. A turned-down write lets the loop go on (`onReject: continue`), and the next check records it. // DECISION |
+| Test runs | A test run's check keeps nothing (a savepoint rolled back). Its ready step rebuilds the month the same way, so the write is laid out and proposed, and it is never made. // DECISION |
+| Turning an entry down on the card | Only when its write isn't waiting, being made or made. Otherwise the person decides it at the signature. // DECISION |
+| Sign-off | `close.signoff`, by the client's admin (or the operator stepping in), only when every line is done or waived and no entry is proposed or failed. It comes with a note. After sign-off the close is read only. Unanswered for 7 days, the run goes on and the month stays open on the report. // DECISION |
+| The template | Month-end close, v1 the definition and v2 the process. It runs at 08:37 on the 5th in the client's time zone (after the Bookkeeper's reconciliations on the 3rd), or by hand. It is `suggest_only`, approval on for the write, `area: "bookkeeping"`, `oversight.verify: writes`. Budget is $0.50 a run and $5.00 a month, with no model call of its own. // DECISION |
+| Configuration | `accruals`, `accrual_account`, `accrual_months`, in `tenant.settings.packs.close`. Read with core's `packConfigOf` (fields in `close/config.ts`). |
+| The report | `close`: the client's last 24 months and one in full (the latest, or `?periodId=`), with CSV and items. In the portal it is read only. No agent version, prompt, model or cost. |
+| Not built | Proposing an entry by hand from the back office; reading journal entries back from QuickBooks (not synced); prepaid amortization schedules; item-line accruals; several currencies in one entry; reopening a signed-off month. |
+| Checked | `packs/bookkeeping/src/close/close.test.ts`, `apps/api/src/close.test.ts`, `packages/connectors/src/qbo/journal.test.ts`, `apps/web/src/packs/close/Close.test.tsx`, `packages/db/src/close-migration.test.ts`. |
+
+### 1.231 C6: Builder, SOP and assurance follow-ups (Wave Y, Y2, 2026-11-22; no migration)
+
+`docs/work-plan.md` C6, as small PRs. SOP-B (the Builder writes each step's purpose), G6
+(`manual.read` for every agent) and A3 (attack cases) need a live model key to record fixtures and
+are not built. Each part below is its own PR.
+
+#### 1.231.1 Agent assurance: the providers' own terms (#576)
+
+**§1.231.1 Agent assurance: the providers' own terms (A0 follow-up).** §4c gap 2 in `docs/agent-assurance-plan.md` left retention and region "Not recorded yet" for every provider, and training unrecorded for xAI and Google. This entry:
+- records them from each provider's public pages
+- cites each page in the code, with the day checked and how it was read
+- shows retention and region together in section 14's AI table
+- never shows a term read only from a search result as confirmed
+
+| Topic | Decision |
+|---|---|
+| Source | The provider's own public page only, quoted briefly. Each entry has `sources`: `{ url, checked, read }`. Checked 2026-11-22. |
+| How it was read | `read: "page"` means read on the page itself. `read: "search-snippet"` means taken from a search result quoting the page; this session's network allows none of these hosts. // DECISION |
+| Unconfirmed terms on screen | An entry counts as confirmed only when every source is `read: "page"`. Until then "Kept by the provider" adds "Not yet confirmed on the provider's own page.", the training words read "no training, to be confirmed on the provider's own page", and `no_training` is In review, never Verified. // DECISION |
+| Which product | Only the product we call: Anthropic API, OpenAI API (`store: false`), xAI global endpoint, Gemini API paid tier on our own key (not Vertex AI). |
+| Not settled by a page | `null`, shown as "Not recorded yet" (OpenAI's region). |
+
+**Not built:** the source URL on the client's screen (it is in `sources`). Choosing a US-only region for any provider: that's an owner decision.
+
+**To finish:** read each `search-snippet` page in a browser, correct any wording, and set `read: "page"` with the day. Only Anthropic's data-residency page has been read so far. It says `global` is the default, and a workspace's `default_inference_geo` can change that; ours sets none.
+
+**Checked:** core assurance tests (10):
+- terms recorded for all four providers, each with a URL and a date
+- unconfirmed while read from search results
+- OpenAI's region null
+- `no_training` in review with "To be confirmed…" while unconfirmed, verified once every page is marked read
+- in the client's view (`buildAssuranceView`), every AI row's "Kept by the provider" and protection say "to be confirmed", every AI box in the architecture says so, and `no_training` is not verified
+
+API assurance tests pass.
+
+#### 1.231.2 The two missing assurance checks: no secret in a stored model request, OAuth scopes as granted (#592)
+
+**§1.231.2 Agent assurance: the two checks A2 left.** §4b asked for "No secret reaches a model" and "OAuth asks for no more than needed". Both are now built as checks K20 and K21. They read stored secrets and stored model requests only when the checks run, in the client's transaction, and keep only counts and ids.
+
+| Topic | Decision |
+|---|---|
+| Where secrets come from | Every connection of the client with stored credentials, opened with the client's key in memory and dropped after comparing. Values come from token, key, password and secret fields of 8 or more characters. |
+| What is scanned | The stored `request` of each model call of the agent's live runs in the period. The answer isn't scanned. |
+| Cap | The newest 200 calls per agent per night. The result says "the newest N of M". |
+| Secret shapes | A short list of distinctive prefixes, so invoice numbers and ids never match. A bare JWT counts. |
+| A secret that won't open | In review ("couldn't be opened to look for"). |
+| No body readable | Not yet checked, never verified. |
+| Declared scopes | One map in connectors, held to the registry by a test. Each entry lists what the connector asks for, plus the sign-in basics its callback already accepts. |
+| A grant the provider doesn't report | The check stays Not yet checked for that agent; it never verifies part of the grants. |
+| Not in a view | Section 14 and the Security tab read stored results only. Secrets and R2 are read only when the checks run. |
+
+**Not built:**
+- Fingerprints of secrets stored for later matching. Each run opens the secrets afresh instead.
+- Scanning model answers or step outputs.
+- Recording a grant for QuickBooks. Intuit's token answer has no `scope` field, so there is nothing to store.
+
+**Checked:** core tests (the new checks' four results, `secrets.test.ts`); API tests: a stored request holding an `sk-proj-` key puts K20 in review with only the call id and the kind, the client sees "In review" without evidence and forbidden keys stay empty, the nightly tick stores 19 rows, and the declared-scopes map matches the registry.
+
+#### 1.231.3 Agent assurance: the evidence export and the rollup (A4; no migration)
+
+| Topic | Decision |
+|---|---|
+| Who | Operator only (`OPS`). No portal route in this PR. // DECISION |
+| Scope | The session's served clients (`tenantIds`), narrowed to one by `client`. A client not served answers 404 (invariant 1). |
+| Audit | Through `mount()`, which writes the audit row (invariant 14). The CSV goes through `mountFile()`. |
+| What it carries | Each `control_check` in the period: check, result, found, record ids, agent and agent version. No secrets, prompts or model requests. // DECISION |
+| Screens | `apps/web/src/ops/security/Evidence.tsx`, lazy-loaded. The rollup card is on `SecurityScreens`. The web first load measured 305.2 of 335 kB before the merge. |
+
+**Not built.** A client's own evidence export in the portal.
+
+#### 1.231.4 Builds that work first: a try on a Sandbox record, and a skill on a document (G3; no migration)
+
+§1.155 let the POC test try a draft on an uploaded document or a JSON input, and a skill only on an input. A record's id could be given only as JSON, and a skill case runs on fixtures only, so the API refused a document for a skill (422). This entry closes both gaps with no migration. A record try is a shared test case like any other try. A skill's document reaches it as a fixture made from the document.
+
+| Topic | Decision |
+|---|---|
+| Which records | Purchases and bills (`transaction`) and invoices to customers (`receivable`): the kinds that have a `*.created` event to start a workflow. Vendors and items start none, so their ids go in a JSON input as before (`TRY_RECORD_KINDS`). // DECISION |
+| Where from | Only the Sandbox's records, from the same Sandbox a try document goes to (`sandboxClient`). A record of another client is 404. // DECISION |
+| The payload | The fields the sync's own events carry (`qbo/store.ts`, `qbo/receivables.ts`), read from the row now (`recordTry`). // DECISION |
+| Which workflow | The one that starts on the record's event, else the one started by hand, else the first one that's on. The operator can still name another with `workflow` (`tryWorkflow`). // DECISION |
+| The try's name | "Try: bill from Northline Panel, 1250.0000 USD" or "Try: invoice 1007 to Acme". Kept, it loses the "Try: " prefix, as a document try does. |
+| A skill on a document | Only for a skill whose input has a `documentId` property; any other gets 422. Its input is `{documentId}`. One fixture, `docs.get` with that id, answers the document and its latest reading as `documentForTool` builds them, with `url` null so no expiring link is stored. `docs.read` and `docs.extract` record something, so the bench refuses them, as it refuses every write. // DECISION |
+| A document not read yet | `409 not_read` ("still being read"), or `422 not_read` when its reading failed. The skill is never tried without the reading. The page asks again every 2 s for up to a minute while it shows "Reading it…". The API waits for nothing. // DECISION |
+| A record for a skill | 422: a skill takes its input or a document, and a record's id goes in its input as JSON. // DECISION |
+| The Sandbox on a skill build | `poc.trySandbox` is now set for a skill build too, so its document is uploaded there (`for=try`, quiet, as before). |
+| The picker | `ops/builds/RecordPick.tsx`. It is loaded lazily from the Try card and the chart's Try bar, and only when opened. It shows 8 rows of the Records page's own list (`GET /api/ops/clients/:id/records`) with its search, and leaves out deleted rows. On the chart only a build's own try offers it. A plain test run of a version takes a record's id in its JSON, as before. // DECISION |
+
+**Not built.** A record try for a client's agent (its POC is test runs on its page, as before). Vendors and items as records to try. A wait in the API for a document's reading.
+
+**Checked.** apps/api `build-tries.test.ts`: a template tried on a Sandbox bill, its payload and workflow; another client's record and an unknown receivable are 404. A skill on a document: 409 while unread, 422 for a record, then a `docs.get` fixture made from the document and its reading, a run on the bench, and kept. apps/web `ops/builds/poc.test.tsx`: Pick a record sends `{record}`; a skill's upload asks again on `not_read`. `ops/flow/TryPanel.test.tsx`: a build's try on a picked receivable.
+
+#### 1.231.5 Builds that work first: a decision's words on the card, and a custom skill's step in the high-risk check (G4; no migration)
+
+§1.155 changed a decision's words only through the conversation, where the Builder's rewrite marks a decision someone looked at as `changed`. Its high-risk check read a custom skill only by its live version. This entry adds a direct edit with the same marking and keeps a history of it. The check now also reads each custom skill's newest saved version.
+
+| Topic | Decision |
+|---|---|
+| What the card edits | The words (`what`), the starting value (`value`; empty or null takes it away) and the why. Kind, risk, category and step are not edited: code works out the risk from the draft, and the words never lower it (core `changeDecisionWords`). // DECISION |
+| The marking | A change to the words or the value counts as a look and then a change: `changed`, `by` the operator's name (else their email), `at` now. This holds even for a decision nobody had discussed, which ends where the conversation's path ends (discussed first, then changed by the rewrite). A change to only the why keeps the status. The same words again: nothing is saved and no history is added. // DECISION |
+| The history | A `build_event` (kind `record`, the operator's user id) with `decision: {id, status, words: {before, after}}`, each with what, why and value. // DECISION |
+| The draft | Not changed by the edit. The Builder reads the new words in its next turn and in the drafter's description, as it reads every decision. The card says "The Builder follows the new words from its next turn." // DECISION |
+| Which version of a custom skill | Two reads: the version a run uses (live or pinned) and the newest saved. A ref with no live version uses its newest in both. A step writes or contacts people when either version does. A ref found nowhere counts as writing, as before. `newest` is used only by this check, never by a run. // DECISION |
+| What counts as writing for a custom skill | Its tools' side effects and `reachesPeople`, through the process validator's `stepWrites` and `stepReaches`. A custom skill can't hold a write tool today (the registry refuses one), so in practice this means contacting people, or an older version saved before that rule. |
+
+**Not built.** Editing a decision's kind or its step from the card (still through the conversation). A history of decision edits on the screen: it is kept only in `build_event`, as the status changes are.
+
+**Checked.**
+- core `build/decisions.test.ts`: `changeDecisionWords`.
+- apps/api `build-decisions.test.ts`:
+  - changed by the operator, with the history before and after
+  - only the why keeps the status; the same words add nothing; the value can be taken away
+  - 404, 400 and 403
+  - a draft-only custom skill that reads isn't raised; one that contacts people is; one found nowhere is
+- apps/web `ops/builds/decisions.test.tsx`: Edit, Cancel and Save, and the row shows Changed.
+- After merging main: lint, lint:deps and typecheck pass. CI runs the full suite.
+
+#### 1.231.6 G5: known risks counted from runs, and deleting a learned note (#587)
+
+G5 (`docs/builder-plan.md` B3, §1.153, §1.155): the manual's known risks are now counted from runs, and a learned note can be deleted. Both work at read and delete time. Nothing new is stored.
+
+| Topic | Decision |
+|---|---|
+| What a hit is | A known risk has no step and no mark in the runs (it is not drafted, §1.153). So the count reads what people wrote where they handled a run: a resolved inbox item's reason, note, comment or answer, and the title of a person step (an approval's title names the write, not the case, so it doesn't count). A run hits a risk when those words name at least two of the risk's words (all of them if it has fewer). Words are four letters or more, fillers are left out, and words are compared by their first five letters. Each run counts once per risk. Deterministic: no model reads it (core `riskWords`, `riskHits`). // DECISION |
+| Which runs | The agent's own live runs (test runs left out), its latest 1000 resolved items, counted when the manual is read, with no stored count (`routes/manual.ts` `knownRiskHits`). // DECISION |
+| A template | No count (`hits: null`): it has no runs of its own, and each copy counts for its own client. // DECISION |
+| Where it shows | `ManualView.knownRisks[].hits` on both routes. The back office shows "Hit in N runs" / "Not hit in runs yet". The portal reads the SOP in place of `ManualSections`, so nothing new is on screen there and no new portal copy. |
+| Deleting a learned note | A learned note is a `memory_note` row, the client's own record, read live (invariant 1). It is not part of the agent's version, so deleting it removes the row the same way `opsOwnerForget` does for an area owner's notes. It makes no version: `memory_note` is not one of invariant 3's immutable tables, and no version holds the note. Only the agent's own `agent`-scope notes can be deleted; a test run's note, another agent's or a template's is 404. // DECISION |
+| Who deletes | Back office only (`opsAgentForgetNote`, roles `operator`). The portal's manual stays read only: a client asks us. // DECISION |
+
+**Not built.** A count across a template's copies. A "this was the known risk" mark on the approval card, which would make the count exact rather than read from words. Showing the count in the portal's SOP.
+
+**Checked.** core `manual/manual.test.ts` (words, the count, the view). apps/api `agent-manual.test.ts` (a rejection's note and a person step's title count, a test run doesn't, the template has none; delete: client 403, operator 200 with no new version, then 404, a template 404). apps/web `manual/manual.test.tsx` (the count shown, a note deleted).
+
+#### 1.231.7 The setup checklist's and client adjustments' gaps (G10, G11; no migration)
+
+| Topic | Decision |
+|---|---|
+| A file item sent by the back office | The operator uploads the file on the client's behalf, and the item records who sent it. This is the same item the client would fill. Operator only. // DECISION |
+| Change list | `setup` and `adjust` changes are listed in words with who and when, like the other changes. // DECISION |
+| Intake field guard | The operator sets which stage a field holds (the stage it must be answered by). // DECISION |
+| A step's own parameter | Marked adjustable from the step panel with the bounds the schema takes. New steps still start not adjustable. // DECISION |
+| Date limits | An earliest and a latest date. A client's value outside them is refused, as a number's bounds are. // DECISION |
+| A setup answer in the manual | A setup answer that sets a value writes a change line into the manual, as an adjustment does. |
+
+**Not built.** A parameter on the Builder's decisions: it needs re-recorded fixtures, so it waits for a model key.
+
+#### 1.231.8 The area owner reads what a request is about (G12; no migration)
+
+§1.155 (B5) links a request past the bounds and "This is wrong because…" to what they are about on the issue's `created` event. §1.117 (O8) makes the owner's suggestions from signals only. This joins the two.
+
+| Topic | Decision |
+|---|---|
+| What is read | Open issues (stage not `closed`) of the last 14 days (`SIGNAL_DAYS`) whose `created` event's `about.kind` is `adjustable` or `manual_line` and whose `about.agentId` is the issue's agent. The link is parsed with Zod, and one that doesn't read is left to the operator. // DECISION |
+| One per request | Fingerprinted by the issue (`issue:<id>`), with the same 30-day check as signals. That window outlasts the 14 days a request is read for, so a suggestion is made once. // DECISION |
+| What it carries | `change`: for a setting, `{kind: "setting", versionId, settingId, label, from, to}`, with the label read from the version the request was made on. For a line, `{kind: "manual_line", versionId, section, lineId, line, because, decision}`, with the decision's words read from that version's manual. Plus `request {id, number}` and `sources: [issue id]` (invariant 10). |
+| The class | A value past a setting's bounds goes past the limits we set: either on the looser side, or on a side with no order (options, schedules, a number with no stricter side), where unknown counts as loosening, as in `classifyChange`. A stricter value was applied at once. So it is passed on in the `never` class with its reason, and never drafted (invariant 9, §10.15). A line said to be wrong is a `process` suggestion: the operator drafts it in the builder, where `classifyChange` labels the draft. // DECISION |
+| Nothing applied | The pass writes only the operator item. No version is drafted or applied, and the issue is unchanged. |
+| Older requests | `because` is now kept on a manual line's `about`. For a request made before this, the why is taken from the issue's description ("This is wrong because: …"). A request past the bounds keeps the value's words only (`asked`), since the judged value of a request isn't parsed. // DECISION |
+| Not built | A button on the suggestion that opens the builder with the change, or applies a setting change once the operator raises the bounds. The inbox shows the title, which names the change. |
+| Checked | apps/api `owner-signals.test.ts`: a request past the bounds and a manual line each become one suggestion carrying its change, in the right class, made once. |
+
+#### 1.231.9 Draft it now: the drafter names a gap's step (F-C; no migration)
+
+§1.170 put Draft it now's gaps on the step that stands for them by a word match (`core build/gap-steps.ts`), because the drafter's answer didn't link the two. Now the answer can link them.
+
+| Topic | Decision |
+|---|---|
+| The answer | `DraftAnswer.gapSteps` is optional: `[{ gap, stepId }]`, where `gap` is the gap's place in `gaps` (from 0) and `stepId` is the model's own step id. An answer without it reads as before. // DECISION |
+| Ids | The model's id is followed to the step's name, and the name to the saved draft's id (the guards remake ids), as for decisions. If a name is used twice or the guards removed the step, the gap gets no step. // DECISION |
+| Bad answers | A place out of range, a gap named twice or an id the draft doesn't have names nothing. A gap the guards added has no place in the model's list, so it is never named. // DECISION |
+| Fallback | The drafter's step first. The word match covers each gap it named no step for, or named a step the saved draft doesn't hold (`draftGapSteps`, apps/api). // DECISION |
+| Requests | The tool schema gains the field for every `draft-agent` call, and works-first drafts gain one rule line. No recorded fixture holds a `submit_draft` request (all tests script the model), so no fixture changes. |
+| Not built | Revisions and conversation turns still list gaps without steps. Only Draft it now records gaps as items on steps. |
+| Checked | agents `builder/builder.test.ts` (`gapStepsNamed`); apps/api `build-draft-now.test.ts` (a gap on the step the drafter named with no shared words, and the word match for a step it named wrongly and for one it didn't name). |
+
+#### 1.231.10 An issue and its skill build, linked both ways; code requests to the Dev queue (S-E; no migration)
+
+§1.125 and §1.169 settle an issue three ways from the issue. "Build a skill" starts a skill build of its own, and "Needs code" files or links a Dev queue request. The build's page linked to neither.
+
+| Topic | Decision |
+|---|---|
+| The link | The issue's item's `ref.buildId`, which `draftSkill` already writes (on the issue's own item, or on a gap item it adds when no issue is named). It is read both ways. No column and no `origin` kind: `build_origin_kind_check` would need a migration. // DECISION |
+| Back from the skill build | `startedFrom` is the first item, by creation, that names the build, together with that item's build. It is read only for a skill build. // DECISION |
+| Scope | Linked only between builds of the same client, or between two builds for everyone, as `draftSkill` starts them. // DECISION |
+| Words | "Its skill build: Match answers to tasks (Draft)", "Needs code: DQ-012 in the Dev queue", "Started from the issue “…” in <build>". A closed skill build reads Live or Stopped. |
+| The Dev queue link | `/ops/utilities/feedback?tab=dev-queue&request=DQ-012`, the path the chart already uses (§1.170). It appears on an item that waits on a request, and on a draft problem whose step waits on one. |
+| Web size | No new screen: the links are on the build page, which already loads. `devQueuePath` has its own module so the page doesn't pull in the chart's. |
+| Not built | The new chart's step panel already links a code request (F6), but doesn't show the skill build yet. |
+
+#### 1.231.11 SOP-W: the workflow chart in the reader's language (#578)
+
+**SOP-W: the workflow chart in the reader's language.** The client's Workflow tab (`docs/sop-plan.md` §6a) draws the builder's chart. Its boxes already carried the SOP's words. The chart's own words (zoom, "Otherwise", a path's and a loop's words, the chips and marks, the tip) were still English. They now come from `flow.*` keys in `apps/web/src/i18n/messages/*`.
+
+| Topic | Decision |
+|---|---|
+| Where the words live | `flow.*` keys in the portal catalog (en, es, fr, pt-BR, it, de). The five non-English files are marked `// fluent review`, like the rest. |
+| How the chart gets them | `Chart`, `BoxMark` and `Tip` call `useI18n()`. The pure helpers (`boxMark`, `boxDoer`, `boxTools`, `badgeWord`, `chartKey`, `kindDoes`) take an optional `t` that defaults to English (`EN.t`). `layoutFlow` takes optional `words` (`LayoutWords`, default `LAYOUT_WORDS_EN`). Every existing caller and test reads the same English. // DECISION |
+| What is translated | Everything the read-only chart can show: zoom out, zoom in and back to 100%, Fit, Key and its label, the drag hint, Otherwise, "Path B", the loop frames ("Once for each item", "Again until done", "… up to N times", plural), Stop, Never runs and why, fold and "Show the N steps inside" (plural), "and N more" on the start box, "Why it is here:", "runs on …", the AI mark, the doer chips (person, code), the badges (AI skill, Rules skill), each mark's words, the key's lines, channel names, and each kind's "what it does" line in the tip. The portal's `outlineProcess` also says "Path B" in the reader's language. |
+| What stays English | What only the builder draws: +, the dot, "+ Add a path", "+ Add a step", "Open its steps", a try's marks, issues and questions, "Decided for you", "Customized". The back office is in English (`i18n/i18n.tsx`), and the client's chart never draws these. // DECISION |
+| "Click to see it." | No longer in the code. The hover tip shows what the step does (§1.182), and the client's card opens on a click, so there is nothing to translate. |
+
+**Not built.** Formatting the zoom percent for the reader's locale (it stays "100%").
+
+**Checked.** A new test (`apps/web/src/sop/sop.test.tsx`) renders the client's Workflow tab in German. The zoom buttons, Fit, Key, "Sonst", the person and rules chips and the AI skill badge are in German. A path's own name stays as written, and "Otherwise" appears nowhere. The builder's and the chart's existing tests pass unchanged.
+
+#### 1.231.12 The SOP across agents: Sloan's sop.read and the Procedures page (SOP-2; no migration)
+
+| Topic | Decision |
+|---|---|
+| What Sloan reads | The SOP tab's own view (`/api/services/:id/sop`) for one agent of the asker's client. Nothing the portal doesn't show: no bundle, instructions, prompts or cost. Another client's agent: not found. // DECISION |
+| One reader | `sop.read` reuses the tab's reader, so a read can record a missing revision exactly as the tab does. // DECISION |
+| The list | Each agent's SOP is built one after another in the request's transaction. Each row has the agent, code, stage, revision (number, date and changes) and parties, taken from its SOP. // DECISION |
+| Limited users | The list holds only their agents (`ASSIGNED_USER_ROUTES`). Sloan stays closed to them. |
+| Recorded fixtures | Sloan's tests use a scripted model, so the new tool changed no recorded request, and no fixture was hand-written. |
+
+### 1.230 One pack manifest, one install path (Wave Y, Y1; owner's yes, outside v0.15; 2026-11-22; no migration)
+Every pack's manifest is core's `PackManifest`. Beyond what it already had, it names:
+- `area`;
+- `config`: fields with defaults, never a secret;
+- `processors`: the vendors of ours the pack itself sends client data to;
+- `reports`.
+
+A test in `apps/api` holds `reports` and `area` equal to what is registered.
+
+There is one pack per area, except packs that `extends` another. An extending pack (Close → `bookkeeping`, AP → `materials`) sits in its base's area, and its base must be registered.
+
+The operator installs any pack from the client page's Areas tab with configuration only, through `POST /api/ops/clients/:id/packs/:pack/install`:
+1. The configuration is checked against the manifest.
+2. It is kept in `tenant.settings.packs.<id>` with a `tenant_change` row.
+3. The pack is switched on, and its templates (approval on) and Library skills are installed once.
+
+Calling the route again changes only the configuration. `…/enable` is the same route with defaults. A pack reads its configuration with `packConfigOf(manifest.config, tenant.settings, PACK_ID)`.
+
+The Areas tab shows the pack's vendors and marks those a client's HIPAA mode holds back. The portal sees none of this. A new pack (Close, AP) is one manifest in this shape plus its registration in `apps/api/src/packs.ts`. See ARCHITECTURE §12.1.1.
+
+### 1.221 The builder's clean-ups from staging feedback, second round (owner, 2026-11-22; no migration)
+
+The owner's open feedback on staging, read through the Ops MCP server on 2026-11-22. Web only.
+
+| Topic | Decision |
+|---|---|
+| What a step does, first | "Move this to the bottom of the step. It should not be the first thing you see… the first thing you see should be a description of what the step does." The step panel's head says what the step does under its name (`StepPanel`'s `does`: the skill's, tool's or automation's own words, else its kind's line, `flow/does.ts`). "Comes after" and "Goes to" are the last of the setup, above Remove. In the panel the inspector no longer repeats the description (`layout="panel"`). // DECISION |
+| No Steps tab | "Steps is basically just the list view below… let's get rid of this up here." The agent page's tabs have no Steps; the builder's Chart and List switch shows the list. `/steps/:workflow` still opens it that way, with the Workflow tab lit. // DECISION |
+| Some of the steps, on a build | §1.185's choice of steps is offered on a template with an open build too (its "Not built" row). // DECISION |
+| A template is the lab's | "These steps and workflow should be part of the lab as well, as we are working on them." The sidebar's Agent lab is lit on a template's own pages (`SidebarLink`'s `current`, `/ops/templates/:slug/*`). A client's agent stays under Clients. Nothing moved: the addresses are the same. // DECISION |
+| The wait while steps are drafted | "Add animations to show progress when you click the draft steps button." Describe shows the design system's Drafting loop, how long it has been, and what the call does in a sentence. The draft is one call, so there is no bar and no list of stages: either would be guessed from the clock. // DECISION |
+| Say it | "Add dictation to this." Describe's words take dictation (`VoiceButton`, as the composers do), added to what is there, up to the draft's limit. |
+| Plaid's mark | "This is Plaid integration, have we not added the icon for Plaid?" The bank feed connector takes Plaid's mark (the site's file, shrunk for a tile) wherever a connector is listed, in place of our bank icon (§1.85's rule for our own connectors no longer covers it). // DECISION |
+| Plaid's mark on the step | "Pull new bank and card transactions" runs a Bookkeeping tool (`bookkeeping.transactions.import`) that reads what the bank feed saved. A tool names a connector only when a call acts through its connection (`connector`, which the runtime binds and the gate reads), so naming the feed there would ask every agent that uses the tool for a binding. `ToolSpec.feed` is a field of its own: the connector whose feed fills what the tool reads, for its mark on a step only. The import tool sets `feed: "bankfeed"`; the chart's mark is the tool's connector, else its feed (`toolFeed`). It adds nothing to what a bundle reaches or needs. // DECISION |
+| Not built | **Documents on Describe** ("we should be able to upload documents"): the draft takes words only (`opsDraftBuildNow`), so files need a place to be kept, the route and the drafter to read them, and a decision on a document's words steering a draft (invariant 9) and on HIPAA mode (invariant 14). |
+| Already so | The Builder folded to a line with half and whole as icons, the room it leaves the conversation, the schedule picked in words (§1.171, §1.177), and Your call's empty filter (2026-11-20). |
+| Checked | `apps/web`: `StepPanel.test.tsx`, `inspector-panel.test.tsx`, `AgentScreen.test.tsx`, `App.test.tsx`, `TryPanel.test.tsx`, `DescribeScreen.test.tsx`, `shell/SidebarLink.test.tsx`, `connections/brands.test.ts`, `builder/catalog.test.ts` (`toolFeed`), `packs/bookkeeping/src/feed.test.ts`; the whole web suite, `tsc` and Biome. Not checked in a browser. |
+
 ### 1.220 Onboarding's smaller items: delivered and bounced, send it again, Just the account's welcome, lost prospects' retention (C7; Wave X, 2026-11-22; migration 0097)
 
 Four parts, each its own PR: delivered and bounced (#564, with the deploy's secret in #565), Send it again (#567), Just the account's welcome (#570), and lost prospects' retention (migration 0097 in #572, the job in #573).
@@ -6517,6 +6904,149 @@ One reconciliation service for two lists of items, generalised from the three ma
 | Web | No screen in this pass. The route contract imports only `matching/fields.ts`, so the first load grows by 0.3 kB gzipped (320.0 → 320.3 kB locally; main is at 351.3 of 352 kB in CI). |
 | Checked | `packages/core/src/matching/engine.test.ts` (both fixtures, tier and rule per match; ROMCO without the saved rule; the model tier's checks; keys; saved rules; `decideRanked`), `packages/db/src/match-rule-migration.test.ts`, `match-rules.test.ts` (one client's rules only), `packs/bookkeeping/src/reconcile/*.test.ts` (unchanged results; two equal transfers settled by saved rules, only that client's), `packs/materials/src/catalog/golden.test.ts`, `packs/sales/src/match/golden.test.ts`, `apps/api/src/match-rules.test.ts` (operator only, normalised, `no_rule`, retire). |
 | Not in this pass | A back-office screen for the rules and "save this correction as a rule" on Bookkeeping's reconciliation card. A pack tool running `invoice_two_systems` on synced records (the invoice records from the other system aren't synced yet). Moving Materials' `matchLine` and Sales' `matchRecords` pipelines (aliases, candidates from the database, embeddings) onto the engine beyond the decision and scoring. |
+
+### 1.214 A report per agent (R4, round 4, #556, 2026-11-22; no migration)
+
+The design: `docs/reporting-plan.md` §3 R4 and the owner's answers 2 and 4 (§5).
+
+| Topic | Decision |
+|---|---|
+| Routes | `GET /api/services/:id/report` and `GET /api/ops/agents/:id/report`, each with a `.csv`, `?from&to` as days. One reader for both surfaces, `apps/api/src/runs/agent-report.ts`. The routes are in `agentReportRoutes`, outside the web's first-load registry (`allRoutes` only). |
+| Period | Days in the client's time zone. The default is this month so far, compared with all of last month. A period someone asks for is compared with the same number of days just before it. At most `USAGE_MAX_DAYS`. // DECISION |
+| Which runs | The agent's live runs created in the period, on both surfaces. The back office's filter also says `mode: live`. Every figure counts the work of those runs: their items, changes and subjects. A run belongs to the day it started, as on the runs lists. // DECISION |
+| Filters | Each figure carries the RunFilter that opens exactly its runs, built from the runs lists' own SQL (`runFilterWhere`, and the portal's client states or the back office's). Outcomes and each day's outcomes use `statuses`. Time to finish uses the done runs. A person's approvals use `signedBy`, a tool's changes `changedConnector`, an error `errorKey`, and a record handled `about`. A figure RunFilter can't express exactly carries `null` and is not a link: approvals by outcome, waiting time, the KPIs, the change total across several tools, and a kind with more than 20 records or with records that aren't ours. RunFilter gets no new key, so plain-words questions and saved views don't change. // DECISION |
+| Figures | Runs by outcome (done, waiting, failed, stopped, going) per day; time to finish (median and 90th percentile of succeeded runs); time waiting on people (the client's items, from creation to answer; median, 90th percentile, total, still open); approvals (signed as shown, edited before signing when the change has `edited_input`, turned down), by person; changes done by connector and record type (`entity`, else `other`), with amounts per currency read where the tool declares them (`amountOf` on the input it ran with), summed in decimal; what it handled, by `run_subject` kind with its five records with the most runs; the agent's `clientView` KPIs over the period. |
+| Same on both | Waiting time and approvals count the client's own items (`forClient`) on both surfaces (answer 2). The back office adds the five most frequent errors and the cost: model cost, cost per run, and tokens from `step_run`. // DECISION |
+| The portal | Its own response schema (`PortalReportFilter` with no back-office keys, so no `costOver`), without errors or spend. It reads only the subjects of steps its timeline shows (`client_visible`). When we stepped in, the row names neither our person nor their id, and it opens no runs. The route is for one of the client's services (`isService`) that a limited person sees, and it is in `ASSIGNED_USER_ROUTES`. // DECISION |
+| CSV | One line per figure: `section,item,figure,value,currency`, with money beside its currency. The portal's CSV has no cost, tokens or errors. |
+| Screens | A Report tab on both agent pages (after the SOP on the portal; after Runs in the back office, for a client agent only), lazy-loaded with its route schemas (`apps/web/src/reports/AgentReportView.tsx`, `portal/screens/AgentReport.tsx`, `ops/agents/ReportTab.tsx`). The portal's wording lives in that chunk in six languages (`reports/report-words.ts`), like the sign-up page's. The catalogs only gain the tab's name. The portal runs list now reads a RunFilter from its address and shows it as chips, which "Clear" removes, so a figure's link opens the list on exactly its runs. A `signedBy` filter has no chip. // DECISION |
+| First load | 320.1 kB gzipped against the 352 kB budget, measured before §1.208's cut: the report's screens, schemas and words are lazy chunks. |
+| Checked | `apps/api/src/agent-report.test.ts` runs against Postgres as `cs_worker`. It covers the figures, last month, and each figure's filter checked against the real list on both surfaces. On the portal it also covers no cost, tokens, errors, hidden step or operator, only one client, a limited person and the CSVs. `contract.test.ts` checks the portal's schema. On the web side, `reports/AgentReport.test.tsx` covers the links on both surfaces, and `portal/screens/Runs.test.tsx` covers a filter from the address. |
+
+### 1.213 File and email intake: the gaps (round 4 item F, #555; owner, 2026-11-22; no migration)
+
+The build plans' plan 3, filling only the gaps: data from systems with no open API (ROMCO's CR2
+and Great Plains) arrives as the reports they email or export. What already existed is reused:
+the upload connection and its forwarding address (§6.5), Read table and its `columns` (§1.164),
+the document store (one document per client and sha256). Done when: a made-up CR2-style report
+sent to the intake address lands as records with their provenance and a second copy is refused
+as a duplicate (`packages/documents/src/intake.test.ts`, samples in `fixtures/intake/`).
+
+| Topic | Decision |
+|---|---|
+| Layout profiles | A **report profile** per kind of report (core `ReportProfile`): an id and name, how to know its files (a file name pattern with `*`, its senders by address or domain; none means any), how to read them, its control total, and when it is expected. `read` **is Read table's parameter values** (`columns`, `header_row`, `sheet`, `skip_rows`, `range`, …), checked by `tableFiles.readTableOptions`. There is no second mapping system: Reshape still maps fields on agents' steps. Profiles are the client's upload connection's settings (`config.reports`, at most 50), saved whole by the operator (`PUT /api/ops/clients/:id/intake/reports`) and logged as a `connection_change`. // DECISION |
+| Which profile a file is | The first profile, in order, whose name and sender rules fit and whose required columns are all found when the file is read with its parameters. A profile must mark at least one column required, so a file can be told apart from another one from the same sender. A table file that no profile reads stays a document, for Read table (`unknown`). The second file of a kind needs no setup. // DECISION |
+| The first file | `POST …/intake/reports/propose` reads one of the client's table files with no columns and suggests them: each header becomes a column, typed by its values (money for amounts with two decimals, number, a date as ISO or month first, text otherwise), and required when no row leaves it empty. The operator checks the suggestion before saving. Code only, no model. // DECISION |
+| Control total | When a profile names one (a money or number column), the column's sum over the rows read must equal the file's own total row, exactly as decimals. When there are subtotals, the last total row (the grand total) counts. A file with no total row for the column isn't checked. If the totals disagree, **nothing lands**: an `intake.control_total` alert names both numbers, with the document as its source. To make this possible, Read table's `TableRead` now gives the skipped total rows (`totals`, typed by the columns). // DECISION |
+| Duplicates | Per client, by content hash. A `raw_record(entity_type='report_file')` is kept per landed file, with the file's sha256 as its external id. The same bytes again, under any name, are refused (`duplicate`) and counted in the upload connection's `sync_cursor.intake`, beside the forwarding counts. A rejected file (control total) has no record, so a corrected file, or the same file after its profile is fixed, can land. // DECISION |
+| Row provenance | Each row lands as `raw_record(connector='upload', entity_type='report:<profile id>')`. Its payload is `{ report, fileRecordId, fields, provenance: { documentId, file, sheet, row } }`. `row` is the row's number in the file (a JSON list's position from 1), from Read table's new `rowNumbers`. The external id is `<sha256>:<sheet>:<row>`, so no row of a file can land twice. Rows are inserted only, never updated (invariant 3), and reach agents only through tools (invariant 9). // DECISION |
+| Missing reports | A profile's `expected` is daily, weekly on a weekday or monthly on a day (1–28), by an hour of the client's time zone, plus grace hours. Every 5 minutes the cron checks each client (`checkMissingReports`). A report is missing when its last due time plus grace has passed, the due time is after the profile was saved, and no file of it landed since the period before. The alert (`intake.report_missing`, subject the upload connection) is raised **once per due time**, even after a person dismisses it. Its `sources` are the report's last landed file record, or the connection before any file has landed (invariant 10). A file of that report landing later dismisses its open missing alerts. // DECISION |
+| Where it runs | Forwarded mail: `receiveForwardedEmail` lands each table attachment after storing it, in the same transaction, with the proven sender. A portal upload doesn't land reports yet. // DECISION |
+| Checked | `packages/documents/src/intake.test.ts` (the sample lands 5 rows with provenance; a second copy is refused as a duplicate) and `apps/api/src/intake-reports.test.ts` (the back-office routes: operator only, audited, the client's own only). |
+| Not built | A back-office screen for profiles: the routes are there, and any screen loads lazily. Platform alerts (`pack` null) are kept in `alert`, but no screen lists them yet, so the Desk doesn't show intake's alerts. Landing from portal uploads. Reports in the body of an email (only attachments are read). |
+
+### 1.212 The eval and replay harness (round 4 item E, the build plans' plan 2, #554; owner agreed 2026-11-22; no migration)
+
+Know whether a change to a skill, prompt, model or catalog part made a workflow better or worse before it reaches a client. Built on the test bench (§1.46), `LLM_MODE` replay and `fixtures/`. Migration 0083 was reserved and isn't used.
+
+| Topic | Decision |
+|---|---|
+| A workflow dataset | `fixtures/evals/<template>/<workflow>.json`, core `EvalDataset` (`packages/core/src/evals/`): each case is a trigger payload, a world (the client's records as the case starts, in the template's own shape), skill `parameters` as a client agent sets them, the model's `answers`, the verifier's `checks` and the writes the run makes. Written from one source, `fixtures/evals/generate.mjs`. Synthetic only: no case is, or is made from, a client's records (invariant 14). // DECISION |
+| Writes | A run's writes are its write steps (and v3 action steps) that succeeded, by step id (a for_each child's own id), with the step's tool, input and output (`runWrites`). Every case is a test run: an external write is "would have done" (§1.94's stand-in output). // DECISION |
+| Exact match | `scoreWrites`: the same write steps, the same number of times, and every field each expected write names equal (lists item by item), within the case's tolerances (§1.46's matchers). Fields a case leaves out (ids a run makes up, wording nobody judges) aren't compared. A guard case may expect the run to stop (`stops: {step, error}`); writes before it are scored. // DECISION |
+| The worlds | `apps/api/src/evals/world-invoice.test-helper.ts` (the invoice read and linked to its bill, the catalog, prices paid before from this vendor and others, the contract with its prices, the AP and pricing mailboxes with Mezonas' email) and `world-books.test-helper.ts` (QuickBooks signed in through its own flow over the fake, its company holding the golden chart; the feed's week; QuickBooks' purchases; rules and notes through the pack's actions; bookings a person approved before the run; the client's QuickBooks matrix at Ask me first). Each case gets a client of its own, its area owners named "Golden"; every world id is fixed from the case and a name (`worldId`; `@name` and `{@name}` in a case). // DECISION |
+| Replay | No API key: answers are written by hand from each case (`WRITE_EVAL_FIXTURES=1`, `handWritten`; tokens counted at 4 characters a token, so a case's cost is near a real call's and the same every run). Replays are keyed without the ids and moments the run makes up itself (a booking's id, an action's, a record's `created_at`), which the verifier sees in earlier steps' outputs; the model is sent the request as it is. A replay miss is an error, never a silent "cannot verify". A change to a skill's prompt, schema or model misses and fails until its answers are written again. // DECISION |
+| The golden sets | Invoice review: 39 cases (rules, history, contract and terms, the AP hand-off three ways, the model on what the rules leave open, the hard rules vetoing it). Bookkeeper: 35 (rules, matches, transfers, proposals and the threshold, settings that leave transactions alone, approved bookings written, a refused split). Every skill and tool of each workflow is used by some case (a test). |
+| Found by the datasets | In a test run, `bookkeeping.booking.propose` answered `proposed` for a split whose lines don't add up, which a live run refuses. It now makes the live checks reading only (`checkProposal`). Noted, not changed: Check matches takes a black-faced line for an item that states no face (it "states less", §1.86). |
+| The CI gate | `apps/api/src/evals/golden.test.ts` replays every dataset on the CI database. No workflow change: CI's `affected` scope tests every package a change reaches, and apps/api depends on every package, pack and skill, so a pull request that changes a skill, a tool or a template runs every workflow's dataset. About 30 seconds. // DECISION |
+| A broken skill fails | The same file breaks two skills in place and expects their datasets to fail: Check matches letting every model answer through, and a Bookkeeper threshold letting every proposal through. In CI, PR #554's one-line prompt change to Propose accounts failed only the golden datasets (run 45062795497), then was reverted. |
+| The verifier | §1.211's verifier, on both templates (`oversight.verify: writes`). A test run routes no person, so the verifier's outcome stays on the write step's output (`verification`). A case's outcome is the worst over its writes (disagreed, else cannot verify, else agreed; none when it checked none); agreement is agreed over the cases it looked at, cannot verify included. Recorded per golden case, per suite result (`diff.verification`, `diff.verifier`) and on the scorecard with the three counts. // DECISION |
+| Cost and run time | A case's cost is its run's (`run.cost_usd`). Run time is the run's wall clock; on replay it says nothing about a live run, so the golden scorecard ships without it and suite runs carry it. |
+| The golden scorecard | `apps/api/src/evals/golden-scorecard.json`: per dataset, cases, passed, exact rate, verifier agreement and counts, cost per case, as CI measures them. The test fails when it differs (`WRITE_EVAL_SCORECARD=1` writes it). On merge: Bookkeeper 35 cases, 100% exact writes, the verifier 6 agreed and 1 disagreed, $0.0064 a case; invoice review 39 cases, 100% exact, 4 agreed and 1 couldn't verify, $0.0013 a case. // DECISION |
+| Bench cases score writes | A template case's expected output may carry `$writes` (core `WRITES_KEY`), scored apart from its named steps' outputs, with `$writesScope`: `all` (exactly those writes) or `named` (each expected write matched by some write of its step). Tolerances on writes are `$writes.<step>.<i>.…`. A result's `diff` carries `writes`, `ms` and the verifier's outcome; suite metrics add `writes {cases, exactRate}`, `verifierAgreement` and `msMedian`. A template case's input may carry skill `parameters`, applied as a version of the test copy. // DECISION |
+| Save as a case | `POST /api/ops/inbox/:id/save-as-case` (operators): a resolved approval of a run's change (approved as proposed, or corrected: `edited_input`) becomes the client's case of the template its agent came from: input the run's workflow, trigger payload and its agent's skill parameters; expected that change as signed (`$writes`, scope `named`); `source: run`, `sourceRef: inbox:<id>`, not required. The same item again answers the case it made. Rejected, no change of a run, or an agent made from no template: 422. The case is the client's: it runs and shows only there and never reaches CI (invariants 1, 14). "Save as a test case" is on resolved approvals in Escalations. // DECISION |
+| The scorecard | `GET /api/ops/evals/scorecard` (operators): the golden scorecard, and per template version and workflow the latest finished full suite run in each scope: passed, exact writes, verifier agreement and counts, cost per case (decimal), median run time. `/ops/scorecard`, linked from the Agent lab, its own chunk; its routes are in `allRoutes`, not the web's first-load registry. |
+| No migration | §1.46's tables hold everything: writes, run time and the verifier's outcome live in `expected`, `diff` and `metrics` (JSON). |
+| Files | Owns `packages/core/src/evals/`, `packages/core/src/api/evals.ts`, `apps/api/src/evals/`, `apps/api/src/routes/evals.ts`, `fixtures/evals/`, `apps/web/src/ops/lab/ScorecardScreen.tsx`, `SaveAsCase.tsx`; edits `apps/api/src/testbench/suite.ts` (`runTemplateTest`, `$writes`, the verifier's outcome), `packages/core/src/testbench/` (case `parameters`, suite metrics), `packages/agents/src/runtime/call-tool.ts` and `apps/api/src/runs/ports.ts` (a test run keeps the verifier's outcome), the Bookkeeping pack's propose tool (test mode), Escalations and the Agent lab's header. |
+| Open | The answers are hand-written; recording real ones needs a live key (`LLM_MODE=record`), and the harness then compares them with the same goldens. |
+
+### 1.211 Evidence and a verifier before writes (round 4 item D, the build plans' plan 1, #569; owner, 2026-11-22; no migration)
+
+The build plans' plan 1, "Evidence and verifier layer", agreed by the owner on 2026-11-22. Outside
+ARCHITECTURE's v1 scope; the owner said yes, and ARCHITECTURE v0.22 §10.18 records it. Goal: every
+write an agent proposes to a client's tool carries proof a person can check in seconds. Built on
+what was there (`sources`, the external action and its before state, §1.138's approvals, §1.54's
+oversight, the approval settings); migration 0082 was reserved and is not needed.
+
+| Topic | Decision |
+|---|---|
+| The setting | `definition.oversight.verify` (`off` \| `writes`), optional: absent is off, so every agent saved before runs as it did. `NEW_AGENT_OVERSIGHT` gains `verify: 'writes'` (the back office's blank agent, Builder drafts). The runtime reads only the saved field: a v4 bundle without `oversight` (which §10.14 reads as `failures`) is not verified. // DECISION |
+| Templates | New versions, never an edited one (invariant 3): the Bookkeeper's v7 and Vendor contracts and invoice review's v4 set `oversight: { review: 'failures', verify: 'writes' }`. `failures` is what an unset `oversight` already means for their v4 bundles, so only the check is new. A client's copy takes it by the usual reviewed update merge. // DECISION |
+| Where it runs | In the gate (`packages/agents/src/runtime/call-tool.ts`), after the grant, matrix, release and before state, and after a retry's carried approval or its first try's action is found, so a retried step is never checked twice. Every write tool call: action steps, v4 write steps and writes a skill's model makes. A reach-out's planned message (`planned.ts`) is approved with its plan and is not checked. // DECISION |
+| What it sees | `dbVerifyPort` (`packages/agents/src/log/verify-port.ts`): the run's trigger, its earlier succeeded steps' outputs (30 at most), what it read (`run_subject` role `read`, 30 at most) and each document's latest `doc_extraction` (5 at most), each clipped to 6,000 characters. As the result of a `read_sources` call already made (invariant 9). Instructions: the preamble, the agent's identity and instructions (the operator's), the step id, the tool's description and input schema. Never the proposal. // DECISION |
+| The call | One model call on `oversight.model`, else the agent's model; `finish({ derivable, input?, note, sources })`. Recorded as a `model_call` with action `check` (§1.115's "the AI's second check of a step"), so no migration widens the column; its cost is the step's and the run's. Not counted toward oversight's `maxPerRun` or `maxCostUsd`: it is one call per write, and a write never goes ahead unchecked for want of budget. // DECISION |
+| Comparing | Core's `compareDerived`: only the fields the verifier gave (it leaves out what the sources don't say, such as the record's id); a field it gave that the proposal lacks differs. Amounts and numeric text as decimals (`"1,250.00"`, `"$1250"` and `1250` agree; never floats, invariant 6), text without case or extra spaces, anything else exactly. A date written two ways differs: a person looks rather than code guess its order. // DECISION |
+| Outcomes | `agreed`: the write goes on exactly as the gate decided. `disagreed`: never automatic; the card goes to the approver the client's rules pick, with both answers per field. `cannot_verify` (`no_sources`: nothing to work from, and no model call; `not_derivable`; `nothing_compared`; `review_failed`: the call failed, was cut off or answered badly): never automatic; the card goes to the operator. A test run is checked too and still never writes (no card). // DECISION |
+| On the card | `payload.verification` = `{ outcome, checked, differences, reason, sources }`: codes and values, no note, model or cost, because the portal reads the payload (invariant 11). The model's note stays in its `model_call` body, back office only. `payload.threshold` when a threshold held it. Both are in the inbox's and the Desk's plumbing keys, shown only in the evidence panel. The card's fingerprint covers them like any payload field. // DECISION |
+| Thresholds | `tenant.settings.write_thresholds` = `{ revision, thresholds: [{ currency, approveFrom }] }`, one per currency, ten at most; read with the approver rules (`approvalRoutingTx`). A write whose amount (`ToolSpec.amount`, `amountOf`) is at or over its currency's amount (by absolute value) is never automatic; no amount, or another currency, changes nothing. Routes: `GET`/`PUT /api/settings/write-thresholds` (the client's admin saves) and `/api/ops/clients/:id/write-thresholds`; every save is a `tenant_change` row with the before and after, and a stale revision answers 409. // DECISION |
+| Only tighten | The operator may only lower an amount or add one (403 `loosening` otherwise: invariant 8, we never loosen a client's setting ourselves). The client's admin may also raise or remove their own: it removes a ceiling they set and never allows `auto` where the matrix, the step or the mode doesn't. // DECISION |
+| Evidence | `GET /api/inbox/:id/evidence` (the portal's inbox filter) and `/api/ops/inbox/:id/evidence` (the operator's clients): read at once from the card's external action (its input or the signer's edit, before state, agent version), the card (step, check, threshold), the agent version's step (its name, the steps its input reads by `{{steps.<id>.}}`, the nearest `when` above it in words: "entity is purchase"), the run's `read` subjects and the documents' readings. Confidence: the run's latest document reading, else a `confidence` (0–1) at the top of the producing steps' outputs, newest first. Not stored again. The portal's copy has no agent version and only `client_visible` subjects. 404 `no_evidence` for an item with no change. // DECISION |
+| The panel | `apps/web/src/inbox/EvidencePanel.tsx`: a closed "Evidence" disclosure on every change card (the back office's inbox, the Desk's lead card and each change of a batch); the check's outcome shows on its summary from the payload, and the evidence loads when it is opened. The values before and after are the card's own table, not repeated. Its words, and the thresholds form's, live in their own files in six languages (the five other than English are drafts for the owner's fluent speakers), so nothing joins `en.ts`. Colours: agrees positive, disagrees risk, couldn't check gold with its word. // DECISION |
+| First load | Both components load with `React.lazy`; their route specs are served beside the registry (`allRoutes`, `evidenceRoutes`), not in `routes`. The first load measured 320.0 kB before and 320.4 kB after (budget 352 kB, before §1.208): `verify` on the oversight schema and the card's lazy wrapper. // DECISION |
+| Checked | `packages/core/src/oversight/verify.test.ts`; `packages/agents/src/runtime/verify.unit.test.ts` (with `LLM_MODE=replay`: a seeded wrong amount, $125.00 for a $1,250.00 invoice, caught and sent to a person with both answers; the same recorded answer agrees with the right amount; no sources goes to the operator with no call; a test run is checked; an agent without `verify` makes no call; thresholds hold at and over, never under). The recorded answer is a hand-written fixture (`fixtures/llm/72cca8e1….json`, `handWritten: true`), written by the test with `VERIFY_SEED=1`. `apps/api/src/evidence.test.ts`: both evidence routes and the thresholds' only-tighten rules against the database. |
+| Open | The verifier's model and its cost per item are the owner's to pick (`docs/open.md`). Nothing measures yet how often the verifier disagrees wrongly. |
+
+### 1.210 Every vendor we pay, counted against its client (build plans 11's metering, round 4 item C, #559 and #580, 2026-11-22; migration 0095)
+
+§1.199 fixed model-call rounding and #523 priced dated model ids. A client's and an agent's cost still left out everything we pay for that isn't a run's model call (the audit in `docs/open.md`, "Costs not yet counted"). So margin per client and per agent could not be trusted. Migration 0095 is in its own PR (#559, written as 0081 and renumbered after 0085 and 0087 reached main first), merged before the code (#580).
+
+| Topic | Decision |
+|---|---|
+| One ledger | `metered_usage`: one row for each thing a vendor charges us for outside a run's model calls. Each row is against its client, plus its agent and run where there are ones. Rows are insert only and counted once by `key`: the provider's id where there is one (`twilio:SM…`, `resend:…`, `notify:<notification>`), else the event's own. Measures are core's `METERED_MEASURES`: `messages`, `emails`, `browser_seconds`, `bank_item_months`, `verifications` and `model`. Sources are core's `METER_SOURCES`. The recorder is `apps/api/src/metering.ts` (`meter`, `meterModelCalls`, `meterBankItems`). // DECISION: a ledger rather than counters bumped in place (as `usage_daily.messages` is): the rollups recompute from it, as they do from step rows. |
+| The migration | 0095 adds `metered_usage` (tenant RLS forced; a client session sees only its own client's rows and never `ours` rows; operator sessions see back-office and platform rows; unique `key`; no grant for update or delete, and a trigger refuses both), `usage_daily.emails` and `browser_seconds`, `usage_platform_daily.messages`, `emails`, `browser_seconds` and `bank_item_months`, all defaulting to 0, and placeholder unit costs. The previous Worker never touches the table and leaves the new columns at 0. |
+| In the caller's transaction | Each row is written in the transaction the work already holds, as a plain insert inside a savepoint. A taken key means the row is already counted. A failed write is reported, never thrown: the email or text has already gone. // DECISION: no transaction of its own, since a portal request holds the database's one pooled connection. Never `ON CONFLICT`, which also holds the new row to the read policy, and a client's session may write a row that is ours (Sloan's summary) but never read one. |
+| Priced on read | Every measure but `model` keeps only its quantity, priced at `billing_unit_cost` when read, as texts and call seconds already were. A corrected unit cost then reprices Usage and the bill alike. A back-office model call keeps its model, tokens and cost, rounded up to the ten-thousandth as a run's calls are (§1.199). // DECISION |
+| Through the existing usage path | The rollups count a client's rows. An agent's go into `usage_daily.emails` and `browser_seconds`. The client's own (no agent) go into `usage_platform_daily.messages`, `emails`, `browser_seconds` and `bank_item_months`. Billing's measures are the tables' columns (§1.24), so each is billed once it has a unit cost. Texts and call seconds a run makes stay counted as they were (`messaging/services.ts`, `calls/store.ts`), so nothing is counted twice. |
+| What is recorded where | **Emails through Resend**: a run's `email.send` (`reach/email.ts`, Resend only, since Gmail and Outlook send from the client's own account), the outbox's emails and onboarding emails, Sloan's answers, text invitations, auto-replies and release codes. **Texts no run sent**: the outbox's texts, Sloan's answers by text, the text sign-up's confirmation, auto-replies, release codes, and every inbound text (`twilio-hooks.ts`, once per SID: Twilio charges for those too). **Browser Run**: each browser session's seconds, rounded up, from its session record (`browser/services.ts`), against its run; the run is passed to `runtimeFor`. **Plaid**: one `bank_item_months` per connected or erroring bank feed per UTC month, counted by the hourly usage sweep, since Plaid bills Transactions per item per month until `/item/remove`. **Twilio Verify**: each sign-in code sent. |
+| The back office's model calls | Each is now recorded: the Builder's drafts and revisions (which saved their cost nowhere), its turns and build turns that fail (whose row is rolled back or saves no cost), builds' brief reviews and generated test cases, reshape, the dev queue's reuse check (failed judges too), Reggie's read pass, Assist (charter, drafts, test data), the back office's questions, Sloan's summaries and back-office dictation, which were only logged. A request's calls are collected by `meteredLlm` (its `onCall`) and written after the response, in a transaction of their own (the request's deferred work runs whether the handler returned or threw). `settled()` skips calls whose cost a saved Builder turn or build answer already holds. // DECISION: after the response, not in the request's transaction, which an error rolls back. |
+| Calls that broke mid-answer | A stream that errors or is stopped after it started carries what it reported using (input and cache from `message_start`, output so far) on its error (`withPartialUsage`), and the client records the call at that, priced. Before, it was `ZERO_USAGE` at $0. A background read that fails (a split PDF's later part, a cut-off answer) saves no `doc_extraction` row, so its calls are metered as the client's own reading (`background_read`, not ours), rolled up and shown with the reads that succeeded. |
+| Tokens with the cost | Builder turns, build answers and Reggie's answers keep their tokens in `meta` (`tokensMeta`: fresh input, output, cache reads and writes), and the back office's lines sum them. Metered model rows keep the cache apart in their own columns. The report's `tokensIn` still counts input with the cache, as §1.115 defines it. |
+| Back office and platform as their own lines | `ours` rows are the back office's and the platform's cost: a row with no client is always ours. A client's session never reads them (RLS), the rollups never count them, and Usage shows them under Back office, never in a client's, agent's or template's row. They are the model calls above (`builder`, `build`, `reshape`, `dev_queue` on the request's one client when it has exactly one, `reggie_read`, `assist`, `questions`, `summaries`, `dictation`), issue answers emailed by the back office, script recordings' browser time, and sign-in codes and setup-link emails (on no client). // DECISION: sign-in codes are the platform's. A person may belong to several clients, and the second step guards our sign-in, whoever signs in. |
+| On Usage | Each row's figures gain `servicesUsd`: the vendors other than the models, at our unit costs. It is shown as the "Services" column beside the model total, and never added into `costUsd`, which stays model cost. By vendor lists Twilio (every text, a run's or not), the calls, Resend, Browser Run, Twilio Verify and Plaid, each marked as an estimate. Back office lists each model source as its own line (in By model and the total, with tokens) and "Texts, emails and sign-in codes" (services). |
+| Placeholder prices | 0095 seeds `emails` at $0.0009 (Resend Pro's overage), `browser_seconds` at $0.09 an hour, `verifications` at $0.05 and `bank_item_months` at $0.30 (assumed). A unit cost already set is kept. Core's `UNIT_COSTS_CHECKED_ON = "unverified"` and `PLACEHOLDER_UNIT_COSTS` mark these and 0009's text and call prices as unchecked, as the models' `PRICES_CHECKED_ON` does. By vendor says the unit costs are unverified. |
+| Not counted yet | **BILL**: payments are refused (`BillcomPaymentRefused`) until a trusted session exists, and its other writes are free. Its per-payment fee is to be metered when payments are turned on. **Small leftovers**: deal emails (`sendTaggedEmail`), the dev queue's notices to operators, and texts to the agents' own code numbers (`apps/mfa`, which has no database). **Run cost**: `run.cost_usd` stays model cost; a run's metered rows carry its `run_id` for a run view to add. **CI**: `builder-evals.yml` ran on staging's key, so its spend showed on staging's console but in no client's or back office's figures; it now has a key of its own (`ANTHROPIC_EVALS_API_KEY`, the owner's, #591). |
+| Staging's gap | This also answers the coordinator's look at staging's cost gap ($72.58 on Usage against $117.89 on the model vendor's console): the Builder's drafts and revisions, recorded nowhere before, were likely its largest share. |
+| Checked | `packages/db/src/metered-usage-migration.test.ts` (RLS for clients, operators and rows with no client; once; insert only; the checks; columns; unit costs). `apps/api/src/metering.test.ts` (the core and database lists agree; browser seconds; once per key and per bank month; a client never sees ours; the rollups; Usage's vendors, services per agent and client, and the back office's lines). `apps/api/src/metering-builder.test.ts` (a draft, and a draft whose answers fail, each leave cost rows, after the request; Usage shows them under the Builder with their tokens). `packages/llm/src/anthropic.test.ts` (a stream that broke mid-answer is recorded at what it used). `apps/web/src/ops/screens/Usage.test.tsx` (the Services column and the new vendors). |
+
+### 1.209 The records test's flake: deferred work kept by the API harness (round 4 item B, #557, 2026-11-22; no migration)
+
+`records.test.ts` failed now and then with "not extracted", with `CONNECTION_ENDED` from `pool.lease` beside it. Done when the same load that fails it (100 runs, 10 at a time) passes every time.
+
+| Topic | Decision |
+|---|---|
+| Cause | The test's upload went through the app with a `waitUntil` that dropped the route's deferred reading, and the test started a second reading itself. Whichever claimed the document first read it; when the route's won, the test's was refused as not due and its select ran before the route's reading committed. `close()` then ended the pool under that reading: the `CONNECTION_ENDED`, an effect, not the cause. |
+| Every request's deferred work is kept | The harness (`api.test-helper.ts`) wraps `app.request`: what a request hands to `waitUntil` goes into the harness's `pending`, whatever execution context the test passed (it still gets the promise) or none. `settle()` waits for it; `close()` settles it before ending the pools. Other files that pass a dummy context, or none, no longer leave after-response work outliving the pool. // DECISION |
+| One reading | `records.test.ts` reads its upload through the route and waits with `settle()`, rather than reading it a second time. No retries or skips. |
+| Checked | 100 runs at 10 at a time on 4 cores: 94/100 before, 100/100 after, no `CONNECTION_ENDED` after; the whole API suite passes with the wrapper. |
+
+### 1.208 English on demand: the web app's first load with room again (H9, round 4 item A, #553, 2026-11-22; no migration)
+
+The first load (`scripts/web-size.mjs`) was 351.4 kB gzipped on main against a 352 kB budget, so
+any new feature failed the check. English's wording (`apps/web/src/i18n/messages/en.ts`, 49.8 kB
+gzipped) was the only language still in it; the other five already loaded on demand (§1.18,
+docs/audit-plan.md 4.1). Now English does too, and the first load is 301.9 kB.
+
+| Topic | Decision |
+|---|---|
+| No language in the first load | `catalog.ts` loads English as it loads the others, as its own chunk (`LOADERS.en`), and imports `en.ts` for its types only. The session already waited for its own language before showing anything signed in or signed out (`session/session.tsx`), so a portal in Spanish fetches Spanish alone and never English; an English portal fetches English. // DECISION |
+| The back office | It always reads in English (`OpsApp`, `EN`), whatever the operator's language, so its chunk's loader loads English beside it (`App.tsx`, `loadOpsApp`): early at an `/ops` address, as the chunk already was, and the back office shows once both are here. // DECISION |
+| Translators look up per call | `createTranslator` reads the catalog on each call, not when it is made, so `EN` (made when its module loads, before English has) reads English once it has arrived. A key missing from a language reads in English if English is loaded, else the key; the typecheck keeps every language complete, so only a stale build could show one. // DECISION |
+| While the session loads | Nothing is fetched (`I18nProvider`'s `load`, false from `SessionLanguage` while the session is loading): the still frame's one word for screen readers, `common.loading`, is kept in the catalog module ("Loading…", `BEFORE_ANY`), as it was English before. // DECISION |
+| No wait added for a returning person | English used to be in the bundle; now a person's language is fetched after the session answers. The session remembers the language a signed-in session read in (`mezonas.language` in local storage) and `main.tsx` starts loading it beside the session call (`startLanguageEarly`), so a returning person's first screen waits no longer than before. A wrong guess costs one language's chunk; a first visit guesses nothing and waits for one chunk after the session. // DECISION |
+| A language that fails to load | As before: another language reads in English that time (now by loading English). English that fails reads in keys that time; a deploy that replaced the chunk reloads the page first (`shell/stale-build.ts`), so this is an offline tab. // DECISION |
+| The budget | 335 kB: 33 kB above the 301.9 kB measured (built with a DSN, as CI does), so features have room again. Round 4 asked for 30 kB or more. Phase 4's 300 kB is still the target. // DECISION |
+| Not built | The route contract split per screen and each portal screen loading on its own (audit item 4.6): not needed for the room asked, and still what brings it toward 300 kB. |
+| Checked | `apps/web/src/i18n/lazy.test.tsx` (no language at the start; a Spanish client's portal reads in Spanish with English never fetched; the back office loads English with its chunk for an operator whose language is German), `session/session.test.tsx` (no English while a Spanish session loads), every `apps/web` test, the size check (`node scripts/web-size.mjs`), lint, `lint:deps`, typecheck; the rest of `pnpm check` in CI. |
 
 ### 1.205 QuickBooks item lines on purchase orders (work plan C2.4, 2026-11-22; no migration)
 
@@ -6983,7 +7513,7 @@ step and then it goes through until the last step selected."
 | What it reads | Core `processes.rangeNeeds` (which earlier steps the picked ones read, whether they read the trigger, why a range can't be tested) and `rangeProblems` (with what was given), shared by the route and the bar. |
 | The data to start from | From the top: the trigger's input, as before (a file in the Sandbox, or JSON started from the trigger's sample). Further down: a box per earlier step that is read, filled from the last try here when it ran that step, else an example of the step's output shape (`sampleFromSchema`); and the trigger's input only when a picked step reads it. |
 | What it shows | "What each step did" under the bar, for any try: every row of the run in the order it ran, with its status, its summary and its output (20,000 characters at most; the rest is on the run's page). Steps outside the range are marked "Not part of this test" on the chart, and the bar says "It ran the steps you picked." |
-| Not built | A form per kind of trigger (an email's fields as fields): the input is JSON started from the trigger's sample. Picking steps inside a decision or a loop. A build's own try (suite mode) keeps running everything. |
+| Not built | A form per kind of trigger (an email's fields as fields): the input is JSON started from the trigger's sample. Picking steps inside a decision or a loop. ~~A build's own try (suite mode) keeps running everything.~~ Since 2026-11-22 (owner: "I tried using it and was not able to"; a template with an open build is where it is built): the choice is offered in suite mode too. A try of every step stays the build's own, kept as a case; a try of some is a test run of the draft at the build's Sandbox (`opsTestRun` with `range` and the Sandbox as `clientId`), since part of a run can't be a case to keep. // DECISION |
 | Checked | `packages/workflows/src/range.test.ts` (all, to a step, from a step with what was given, one step alone, a step given nothing), `apps/api/src/actions.test.ts` (the refusals; a range run through the API on two QuickBooks writes: only the second runs, on what was given, nothing written; the row keeps the range), `apps/web/src/ops/flow/TryPanel.test.tsx` (the choice, the earlier step's output, the request, the marks, each step's output). In a browser on the seeded Bill clerk: Try it with step 2 open started a real test run of that one step, which ran alone and showed its row (it failed there on the sample's made-up document id). |
 
 ### 1.184 Each way a workflow starts, with its own first steps (owner, 2026-11-22; no migration)

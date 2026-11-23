@@ -1650,6 +1650,9 @@ export const de: Messages = {
   "billing.soFarNote": "{period}. Der endgültige Betrag kommt Anfang nächsten Monats.",
   "billing.byService": "Nach Agent",
   "billing.statements": "Rechnungen",
+  // §1.234: the link to the work statement.
+  "billing.workStatement": "Was Ihre Agenten jeden Monat erledigt haben",
+  "billing.workDone": "Erledigte Arbeit",
   "billing.noStatements": "Noch keine Rechnungen. Die erste kommt Anfang nächsten Monats.",
   "billing.column.item": "Posten",
   "billing.pricePerMonth": "{price} pro Monat",
@@ -2601,6 +2604,27 @@ export const de: Messages = {
   "workflow.card.ifFails": "Wenn er fehlschlägt", // fluent review
   "workflow.card.inSop": "Schritt {step} in der SOP", // fluent review
   "workflow.close": "Schließen", // fluent review
+  // ── Procedures: every agent's SOP in a row (docs/sop-plan.md S2) ──
+  "procedures.title": "Verfahren", // fluent review
+  "procedures.subtitle":
+    "Die Standardarbeitsanweisung jedes Ihrer Agenten, erstellt aus seiner heutigen Einrichtung.", // fluent review
+  "procedures.link": "Die SOPs aller Ihrer Agenten", // fluent review
+  "procedures.none": "Noch keiner Ihrer Agenten hat eine SOP.", // fluent review
+  "procedures.find": "Einen Agenten, ein System, eine Person oder eine Änderung finden", // fluent review
+  "procedures.system": "System", // fluent review
+  "procedures.anySystem": "Jedes System", // fluent review
+  "procedures.does": "Was er dort tut", // fluent review
+  "procedures.does.any": "Liest oder ändert", // fluent review
+  "procedures.does.changes": "Ändert", // fluent review
+  "procedures.does.reads": "Liest", // fluent review
+  "procedures.party": "Wer beteiligt ist", // fluent review
+  "procedures.anyone": "Alle", // fluent review
+  "procedures.count": "{shown} von {total} angezeigt", // fluent review
+  "procedures.noMatch": "Kein Agent passt.", // fluent review
+  "procedures.col.agent": "Agent", // fluent review
+  "procedures.col.changed": "Zuletzt geändert", // fluent review
+  "procedures.andMore": "und {count} weitere", // fluent review
+  "procedures.changedBy": "{who}, in {where}", // fluent review
   // ── The workflow chart (shared with the builder) ──
   "flow.zoomOut": "Verkleinern", // fluent review
   "flow.zoomReset": "Zurück auf 100 %", // fluent review
@@ -2721,6 +2745,8 @@ export const de: Messages = {
   "adjust.between": "Zwischen {min} und {max}", // fluent review
   "adjust.atLeast": "Mindestens {min}", // fluent review
   "adjust.atMost": "Höchstens {max}", // fluent review
+  "adjust.onOrAfter": "Am oder nach dem {min}", // fluent review
+  "adjust.onOrBefore": "Am oder vor dem {max}", // fluent review
   "adjust.tighterLower": "Niedriger ist strenger.", // fluent review
   "adjust.tighterHigher": "Höher ist strenger.", // fluent review
   "adjust.notSet": "Nicht festgelegt", // fluent review
@@ -4250,6 +4276,47 @@ export const de: Messages = {
   "books.check.undeposited_funds": "Nicht eingezahlte Zahlungen",
   "books.check.price_drift": "Steigende Lieferantenpreise",
   // (end books health)
+  // §1.232: the Close pack
+  "close.title": "Monatsabschluss",
+  "close.description": "Die Liste jedes Monats, seine Buchungen und seine Freigabe.",
+  "close.empty": "Noch kein Monat wurde geprüft.",
+  "close.notChecked": "Dieser Monat wurde noch nicht geprüft.",
+  "close.loading": "Abschluss wird geladen…",
+  "close.month": "Monat",
+  "close.periodOf": "{start} bis {end}",
+  "close.status.signed_off": "Abgeschlossen",
+  "close.ready": "Bereit zum Abschluss",
+  "close.linesOpen": "Offene Punkte: {count}",
+  "close.signedOffBy": "Abgeschlossen von {name} am {day}",
+  "close.checklist": "Checkliste",
+  "close.entries": "Journalbuchungen",
+  "close.noEntries": "Keine Buchungen in diesem Monat.",
+  "close.item.open": "Offen",
+  "close.item.done": "Erledigt",
+  "close.item.waived": "Erlassen",
+  "close.waivedBecause": "Erlassen: {note}",
+  "close.waive": "Erlassen",
+  "close.waiveReason": "Warum der Punkt offen bleiben darf",
+  "close.unwaive": "Erlass zurücknehmen",
+  "close.reject": "Ablehnen",
+  "close.date": "Datum",
+  "close.entry": "Buchung",
+  "close.amount": "Betrag",
+  "close.statusCol": "Status",
+  "close.kind.accrual": "Abgrenzung",
+  "close.kind.reversal": "Auflösung",
+  "close.kind.recurring": "Wiederkehrend",
+  "close.debit": "Soll",
+  "close.credit": "Haben",
+  "close.entry.proposed": "Wartet",
+  "close.entry.rejected": "Abgelehnt",
+  "close.entry.posted": "Gebucht",
+  "close.entry.failed": "Fehlgeschlagen",
+  "close.entry.superseded": "Ersetzt",
+  "close.entry.waitingSignature": "Wartet auf eine Unterschrift",
+  "close.signOff": "Monat abschließen",
+  "close.signOffNote": "Eine Notiz für die Akte (optional)",
+  // (end close)
   // Plan entry §1.233: the AP pack's Bills to pay and its approve-to-pay card.
   "ap.bills.title": "Zu zahlende Rechnungen",
   "ap.bills.description":

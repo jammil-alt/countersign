@@ -16,6 +16,7 @@ import {
   readWhyApproval,
 } from "@countersign/core";
 import {
+  agent,
   areaOwner,
   inboxItem,
   OVERSIGHT_CAUSES,
@@ -39,6 +40,7 @@ import {
 } from "../routes/portal";
 import { raiseRequest } from "../routes/requests";
 import { runFilterWhere } from "../routes/run-controls";
+import { readSop } from "../routes/sop";
 import { clientDescription } from "../weekly/stats";
 import { draftAccountChange } from "./changes";
 
@@ -72,6 +74,22 @@ function refusalOf(error: unknown): never {
 
 export function accountViews(platform: Platform): AccountViews {
   return {
+    // S2 (docs/sop-plan.md §6 "Ask"): the SOP tab's own view, for this client's agent only, read
+    // as the asker would read it (what it learned only for a client admin).
+    async sop(s, serviceId) {
+      const [a] = await s.tx
+        .select()
+        .from(agent)
+        .where(
+          and(eq(agent.id, serviceId), eq(agent.tenantId, s.tenantId), eq(agent.kind, "client")),
+        );
+      if (!a || a.testCopy) throw notFound("service");
+      return readSop(s.tx, platform, a, {
+        userId: s.asker.userId,
+        admin: s.asker.role === "client_admin",
+      });
+    },
+
     async services(s) {
       const rows = await controllableAgents(s.tx, s.tenantId);
       const out: AccountService[] = [];

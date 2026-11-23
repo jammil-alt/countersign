@@ -18,7 +18,14 @@ import { createLlmClient, FakeModel, type FakeTurn, fakeMessage } from "@counter
 import { describe, expect, it } from "vitest";
 import { ToolRegistry } from "../registry/tools";
 import { PLATFORM_TOOLS } from "../tools/platform";
-import { BUILDER_ANSWER_TOKENS, BuilderError, draftAgent, RULES, reviseAgent } from "./builder";
+import {
+  BUILDER_ANSWER_TOKENS,
+  BuilderError,
+  draftAgent,
+  gapStepsNamed,
+  RULES,
+  reviseAgent,
+} from "./builder";
 import { type BuilderContext, catalogBriefForPrompt, catalogForPrompt } from "./context";
 import { guardBundle, replaceTemplates } from "./guards";
 
@@ -762,5 +769,57 @@ describe("replaceTemplates", () => {
     const started = Date.now();
     expect(replaceTemplates(text, mark)).toBe(text);
     expect(Date.now() - started).toBeLessThan(500);
+  });
+});
+
+// F-C (docs/builder-plan.md §12.4): the step the drafter names for a gap, by the saved draft's id.
+describe("gapStepsNamed", () => {
+  type Saved = Parameters<typeof gapStepsNamed>[2];
+  const wf = (steps: { id: string; name: string }[]) =>
+    ({
+      workflows: [
+        {
+          slug: "main",
+          name: "Main",
+          enabled: true,
+          workflow: {
+            schemaVersion: 4,
+            triggers: [],
+            steps: steps.map((s) => ({ ...s, kind: "stop" })),
+          },
+        },
+      ],
+    }) as unknown as Saved;
+  const asked = wf([
+    { id: "a", name: "Enter the charges" },
+    { id: "b", name: "Check the portal" },
+    { id: "c", name: "Check the portal" },
+  ]);
+  const saved = wf([
+    { id: "s1", name: "Enter the charges" },
+    { id: "s2", name: "Check the portal" },
+    { id: "s3", name: "Check the portal" },
+  ]);
+  it("follows the model's id to the saved step; a name used twice, a bad place or none is null", () => {
+    const answer = {
+      gaps: ["one", "two", "three", "four"],
+      gapSteps: [
+        { gap: 0, stepId: "a" },
+        { gap: 1, stepId: "b" },
+        { gap: 2, stepId: "x" },
+        { gap: 3, stepId: "a" },
+        { gap: 3, stepId: "a" },
+      ],
+      bundle: asked,
+    } as unknown as Parameters<typeof gapStepsNamed>[0];
+    // The result's gaps may add a guard's gap the model didn't list.
+    expect(gapStepsNamed(answer, ["one", "two", "three", "four", "guard"], saved)).toEqual([
+      "s1",
+      null,
+      null,
+      null,
+      null,
+    ]);
+    expect(gapStepsNamed({ ...answer, gapSteps: undefined }, ["one"], saved)).toEqual([null]);
   });
 });

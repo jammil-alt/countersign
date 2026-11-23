@@ -132,7 +132,6 @@ describe("AgentScreen", () => {
     ).toEqual([
       "Overview",
       "Workflow",
-      "Steps",
       "Manual",
       "Runs",
       "Report",
@@ -458,7 +457,6 @@ describe("AgentScreen", () => {
       "Build",
       "Overview",
       "Workflow",
-      "Steps",
       "Manual",
       "Runs",
       "Report",
@@ -490,7 +488,7 @@ describe("AgentScreen", () => {
       within(within(frame).getByRole("navigation"))
         .getAllByRole("link")
         .map((l) => l.textContent),
-    ).toEqual(["Overview", "Workflow", "Steps", "Manual", "Runs", "Versions", "Settings"]);
+    ).toEqual(["Overview", "Workflow", "Manual", "Runs", "Versions", "Settings"]);
     answer(AGENT_DETAIL);
     expect(await screen.findByTestId("agent-bar")).toBeInTheDocument();
   });

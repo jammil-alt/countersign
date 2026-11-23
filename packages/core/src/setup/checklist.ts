@@ -235,7 +235,8 @@ export function buildSetupItems(input: BuildSetupInput): SetupItem[] {
       label: f.label,
       kind: f.kind,
       hint: f.hint,
-      guards: "setup",
+      // G10: the operator may set which stage a field holds; absent, setup.
+      guards: f.guards ?? "setup",
       ...(connector ? { connector } : {}),
       source: "form",
     });

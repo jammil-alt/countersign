@@ -16,6 +16,10 @@ import {
   BOOKKEEPING_REPORTS,
   BOOKKEEPING_REVIEWS,
   bookkeepingManifest,
+  CLOSE_HANDLERS,
+  CLOSE_REPORTS,
+  CLOSE_REVIEWS,
+  closeManifest,
 } from "@countersign/pack-bookkeeping";
 import {
   MARKETING_ACTIONS,
@@ -264,6 +268,16 @@ export const DEPLOYMENT_PACKS: readonly RegisteredPack[] = lazyObjects([
     actions: BOOKKEEPING_ACTIONS,
     nightly: BOOKKEEPING_NIGHTLY,
     portalReports: lazy(() => screenReports(bookkeepingManifest)),
+  },
+  // docs/plan.md §1.232: the Close pack, extending the Bookkeeping area: a month's checklist, its
+  // journal entries (written by the QuickBooks connector after approval) and the sign-off card.
+  // The portal reads its close report (its screen's).
+  {
+    manifest: closeManifest,
+    handlers: CLOSE_HANDLERS,
+    reports: CLOSE_REPORTS,
+    reviews: CLOSE_REVIEWS,
+    portalReports: lazy(() => screenReports(closeManifest)),
   },
   // docs/plan.md §1.164: the Sales area's first version: record keys from the client's synced CRM
   // (built after each sync page), the match and the look-up, and the Confirm matches card

@@ -191,6 +191,19 @@ export const ONBOARDING_EMAIL_FEATURE = {
 } as const;
 
 /**
+ * §1.234 (Y5): the work statement emailed with the invoice sends the client's name, its agents'
+ * service names and the month's counts and dollars identified to Resend (Mezonas' own mail), with
+ * the PDF attached. The PDF is made by us (pdf-lib, in the Worker) and nothing goes to Stripe
+ * beyond what billing already sends. A client in HIPAA mode sees its statement in the portal only
+ * until `resend` is covered.
+ */
+export const WORK_STATEMENT_EMAIL_FEATURE = {
+  id: "billing.work_statement_email",
+  what: "The work statement by email",
+  processors: ["resend"] as readonly Processor[],
+} as const;
+
+/**
  * Voice typing in conversations (the owner, 2026-11-15): what a person dictates is sent to OpenAI
  * to be written out, then put in their message box to read before it goes. A client in HIPAA mode
  * is refused it until `openai` is covered, as its OpenAI model calls are.

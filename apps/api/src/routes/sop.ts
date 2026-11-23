@@ -4,11 +4,11 @@
 // portal's never carries the bundle, instructions, prompts or cost (invariant 11).
 
 import { getAgent } from "@countersign/agents";
-import { type SopView, sopRoutes, sopView } from "@countersign/core";
+import { type SopView, sopListItem, sopRoutes, sopView } from "@countersign/core";
 import { agent, sopRevision, type Tx } from "@countersign/db";
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import type { Hono } from "hono";
-import { ensureSeesAgent } from "../assigned";
+import { agentWhere, ensureSeesAgent } from "../assigned";
 import { type AppEnv, mount, notFound } from "../http";
 import { agentKpisNow, liveClientView, readerLocale } from "../kpi/view";
 import { tenantRow } from "../notify/people";
@@ -21,10 +21,11 @@ import { learnedNotes } from "./manual";
 type AgentRow = typeof agent.$inferSelect;
 
 /**
- * The SOP for one reader. The current revision is made first if the setup changed without one
+ * The SOP for one reader. The portal's SOP tab, the Procedures page and Sloan's `sop.read` all read
+ * it here, so they can't disagree. The current revision is made first if the setup changed without one
  * (a safety net: every change site records its own, so this is reported when it finds one).
  */
-async function readSop(
+export async function readSop(
   tx: Tx,
   platform: Platform,
   a: AgentRow,
@@ -89,6 +90,35 @@ export function sopRouteHandlers(app: Hono<AppEnv>): void {
       userId: ctx.session.user.id,
       admin: ctx.role === "client_admin",
     });
+  });
+
+  // S2 (docs/sop-plan.md §6 "Across agents"): every agent's SOP the reader can open, in a row
+  // each, made from its own SOP. The agents the portal lists (live or paused, never a test copy);
+  // §1.122: a limited client user's own agents only.
+  mount(app, sopRoutes.portalSops, async (ctx) => {
+    const tenantId = ctx.tenantIds[0] as string;
+    const rows = await ctx.tx
+      .select()
+      .from(agent)
+      .where(
+        and(
+          eq(agent.tenantId, tenantId),
+          eq(agent.kind, "client"),
+          eq(agent.testCopy, false),
+          inArray(agent.runStatus, ["active", "paused"]),
+          agentWhere(agent.id, ctx.agents),
+        ),
+      )
+      .orderBy(agent.slug);
+    const reader = { userId: ctx.session.user.id, admin: ctx.role === "client_admin" };
+    // DECISION: one SOP after another in the request's transaction (a client has a handful of
+    // agents); each row is made from the view its SOP tab shows, so a row never says what the
+    // SOP doesn't.
+    const sops = [];
+    for (const a of rows) {
+      sops.push(sopListItem(await readSop(ctx.tx, ctx.services.platform, a, reader)));
+    }
+    return { sops };
   });
 
   mount(app, sopRoutes.opsAgentSop, async (ctx) => {

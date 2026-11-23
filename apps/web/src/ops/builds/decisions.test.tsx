@@ -315,4 +315,78 @@ describe("the Decisions card", () => {
       decisions: false,
     });
   });
+
+  // docs/open.md G4: the words changed on the card, without the conversation.
+  it("edits a decision's words on its row and shows it changed by the operator", async () => {
+    // The card's fold is remembered per browser: an earlier test may have shut it.
+    window.localStorage.clear();
+    const sent: unknown[] = [];
+    let list = decisions;
+    const api = fakeApi({
+      "GET /api/session": () => OPERATOR_SESSION,
+      "GET /api/ops/counts": () => ({ needsUs: 0, clients: [] }),
+      [`GET /api/ops/builds/${ID}`]: () => detail(list),
+      [`PUT /api/ops/builds/${ID}/decisions/tol/words`]: ({ init }) => {
+        const body = JSON.parse(String(init.body));
+        sent.push(body);
+        list = list.map((d) =>
+          d.id === "tol"
+            ? {
+                ...d,
+                what: body.what,
+                value: body.value,
+                why: body.why,
+                status: "changed" as const,
+                by: "Ann",
+                at,
+              }
+            : d,
+        );
+        return detail(list);
+      },
+    });
+    render(
+      <MemoryRouter initialEntries={[`/ops/builds/${ID}`]}>
+        <AppProviders client={api.client}>
+          <AppRoutes />
+        </AppProviders>
+      </MemoryRouter>,
+    );
+    const view = await screen.findByTestId("build-view");
+    const card = within(view).getByTestId("build-decisions");
+    await userEvent.click(within(card).getByTestId("build-decision-tol-edit"));
+    const what = within(card).getByTestId("build-decision-tol-edit-what");
+    expect(what).toHaveValue("Amounts may differ by at most 0%");
+    // Cancel sends nothing.
+    await userEvent.click(within(card).getByTestId("build-decision-tol-edit-cancel"));
+    expect(within(card).queryByTestId("build-decision-tol-edit-form")).toBeNull();
+    expect(sent).toEqual([]);
+
+    await userEvent.click(within(card).getByTestId("build-decision-tol-edit"));
+    await userEvent.clear(within(card).getByTestId("build-decision-tol-edit-what"));
+    await userEvent.type(
+      within(card).getByTestId("build-decision-tol-edit-what"),
+      "Amounts may differ by at most 2%",
+    );
+    await userEvent.clear(within(card).getByTestId("build-decision-tol-edit-value"));
+    await userEvent.type(within(card).getByTestId("build-decision-tol-edit-value"), "2%");
+    await userEvent.click(within(card).getByTestId("build-decision-tol-edit-save"));
+    await waitFor(() =>
+      expect(sent).toEqual([
+        {
+          what: "Amounts may differ by at most 2%",
+          value: "2%",
+          why: "Strict first: more goes to a person.",
+        },
+      ]),
+    );
+    await waitFor(() =>
+      expect(within(card).queryByTestId("build-decision-tol-edit-form")).toBeNull(),
+    );
+    expect(within(card).getByTestId("build-decision-tol")).toHaveTextContent(
+      "Amounts may differ by at most 2%",
+    );
+    expect(within(card).getByTestId("build-decision-tol-status")).toHaveTextContent("Changed");
+    expect(within(card).queryByTestId("build-decision-tol-check")).toBeNull();
+  });
 });
