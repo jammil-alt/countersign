@@ -18,8 +18,8 @@ import {
   type DealStage,
   dealStageIndex,
   dec,
+  houseDate,
   SIGNED_UP_DIRECTLY,
-  shortDay,
   stagesBefore,
   toNumeric,
   wholeMoney,
@@ -162,7 +162,7 @@ export async function logAccountInSales(
       kind: "terms",
       actor: "operator",
       userId,
-      body: `Recorded the agreed terms: ${wholeMoney(agreed, currency)} a month from ${shortDay(from)}.`,
+      body: `Recorded the agreed terms: ${wholeMoney(agreed, currency)} a month from ${houseDate(from)}.`,
       meta: { agreedMrr: agreed, currency, from },
     });
     // A named deal's "Record X's agreed price" is done now (as opsRecordTerms closes it).

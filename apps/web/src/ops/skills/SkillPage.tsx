@@ -9,6 +9,7 @@ import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom"
 import type { ResponseOf } from "../../api/client";
 import { apiRoutes } from "../../api/routes";
 import { type ApiState, useApi } from "../../api/useApi";
+import { EN } from "../../i18n/i18n";
 import { useSession } from "../../session/session";
 import { Columns, Page } from "../../ui/page";
 import {
@@ -265,7 +266,7 @@ function SkillPageBody({
                       </Badge>
                     </p>
                     <p className="text-sm text-ink-muted">
-                      {v.changeNote ?? "No note"} · {v.createdAt.slice(0, 10)}
+                      {v.changeNote ?? "No note"} · {EN.fmt.date(v.createdAt)}
                     </p>
                   </div>
                   {v.status === "draft" ? (

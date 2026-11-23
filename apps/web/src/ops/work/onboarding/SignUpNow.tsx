@@ -14,6 +14,7 @@ import {
 } from "@countersign/core";
 import { useState } from "react";
 import { useApi, useApiClient } from "../../../api/useApi";
+import { EN } from "../../../i18n/i18n";
 import { ErrorNotice } from "../../../ui/ErrorState";
 import { Field, Select, TextInput } from "../../../ui/forms";
 import { Button } from "../../../ui/primitives";
@@ -223,7 +224,7 @@ export function SignUpNowSheet({
                 {confirming.todos.map((t) => (
                   <li key={t.title} className="text-ink">
                     {t.title}
-                    <span className="ml-2 text-xs text-ink-muted">due {t.dueOn}</span>
+                    <span className="ml-2 text-xs text-ink-muted">due {EN.fmt.date(t.dueOn)}</span>
                   </li>
                 ))}
               </ul>

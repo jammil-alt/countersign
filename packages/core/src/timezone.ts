@@ -35,3 +35,31 @@ export function timeZoneChoices(keep?: string | null): string[] {
   if (keep) all.add(keep);
   return ["UTC", ...[...all].filter((z) => z !== "UTC").sort()];
 }
+
+const CALENDAR_DAY = /^\d{4}-\d{2}-\d{2}$/;
+const HOUSE_DATES = new Map<string, Intl.DateTimeFormat>();
+
+/**
+ * "23 Nov 2026": the house date (CLAUDE.md, "UI and copy"; the app's `fmt.date`) for words built
+ * on the server. A calendar day ("2026-11-23") is that day; an instant is its day in `timeZone`
+ * (UTC unless given). Not a date: the text as given.
+ */
+// DECISION (S5.1): one date format everywhere: words built on the server use this, the screens the
+// shared formatter (apps/web/src/i18n/format.ts), both day, short month, year, written en-GB.
+export function houseDate(iso: string, timeZone = "UTC"): string {
+  const calendar = CALENDAR_DAY.test(iso);
+  const d = new Date(calendar ? `${iso}T00:00:00Z` : iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  const zone = calendar || !isTimeZone(timeZone) ? "UTC" : timeZone;
+  let f = HOUSE_DATES.get(zone);
+  if (!f) {
+    f = new Intl.DateTimeFormat("en-GB", {
+      day: "numeric",
+      month: "short",
+      year: "numeric",
+      timeZone: zone,
+    });
+    HOUSE_DATES.set(zone, f);
+  }
+  return f.format(d);
+}

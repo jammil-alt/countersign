@@ -8,6 +8,7 @@ import { Link } from "react-router-dom";
 import type { ResponseOf } from "../../api/client";
 import { type AgentSummary, apiRoutes, type VersionSummary } from "../../api/routes";
 import { type ApiState, useApi } from "../../api/useApi";
+import { EN } from "../../i18n/i18n";
 import {
   Badge,
   Button,
@@ -221,7 +222,7 @@ export function VersionsTab({
                         : (AUTHOR_WORDS[v.authorType] ?? v.authorType)}
                     </td>
                     <td className="text-sm whitespace-nowrap figures">
-                      {v.createdAt.slice(0, 10)}
+                      {EN.fmt.date(v.createdAt)}
                     </td>
                     <td className="text-right whitespace-nowrap">
                       {v.status === "draft" && v.id !== liveId ? (

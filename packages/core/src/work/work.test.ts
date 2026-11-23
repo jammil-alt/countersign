@@ -180,7 +180,7 @@ describe("the work order", () => {
     expect(why("i-1042")?.why).toBe("High issues go before builds.");
     expect(why("b-coast")).toMatchObject({ moved: true });
     expect(why("b-coast")?.why).toMatch(
-      /^Moved up: after the normal issues it would land Nov \d+, past the promised Nov 24\.$/,
+      /^Moved up: after the normal issues it would land \d+ (Nov|Dec) 2026, past the promised 24 Nov 2026\.$/,
     );
     expect(why("i-1045")?.why).toBe("Late: a normal issue.");
     expect(why("i-1047")?.why).toBe("Low: no promised date is at risk after it.");

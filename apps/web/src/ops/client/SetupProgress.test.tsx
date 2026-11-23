@@ -222,7 +222,7 @@ describe("the Setup tab's Progress", () => {
       expect(kpis).toHaveTextContent("Agents in setup2");
       expect(kpis).toHaveTextContent("Waiting on the client2");
       expect(kpis).toHaveTextContent("Change asks1");
-      expect(kpis).toHaveTextContent("Trial targetNov 23");
+      expect(kpis).toHaveTextContent("Trial target23 Nov");
 
       const board = screen.getByTestId("ops-setup-board");
       expect(
@@ -247,7 +247,7 @@ describe("the Setup tab's Progress", () => {
       expect(within(runbook).getAllByRole("listitem")).toHaveLength(5);
       expect(screen.getByTestId("ops-setup-runbook-kickoff")).toHaveAttribute("data-state", "now");
       expect(screen.getByTestId("ops-setup-runbook-invite")).toHaveTextContent(
-        "Day 0 · Nov 20 · done",
+        "Day 0 · 20 Nov · done",
       );
     },
     SLOW,
@@ -260,7 +260,7 @@ describe("the Setup tab's Progress", () => {
       const row = await screen.findByTestId(`ops-setup-waiting-${DANA}`, {}, { timeout: 10_000 });
       expect(row).toHaveTextContent("Dana Ruiz · 2 things");
       expect(row).toHaveTextContent("Bill clerk: Connect Gmail, Bill clerk: Sign the scope");
-      expect(row).toHaveTextContent("Last here Nov 21");
+      expect(row).toHaveTextContent("Last here 21 Nov");
       await userEvent.click(within(row).getByTestId("ops-setup-nudge"));
       expect(await within(row).findByTestId("ops-setup-nudge-result")).toHaveTextContent(
         "Nudged. Dana Ruiz gets an email from you listing what's left.",

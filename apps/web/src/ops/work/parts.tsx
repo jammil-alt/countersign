@@ -4,15 +4,16 @@
 import type { HoldView, Standing, WorkKpi, WorkUrgency } from "@countersign/core";
 import { type ReactNode, useRef } from "react";
 import { Link } from "react-router-dom";
+import { EN } from "../../i18n/i18n";
 import { cx } from "../../ui/cx";
 import { useEvenColumns, useScrollEdges } from "../../ui/tileRows";
 
-const MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-
-/** "Nov 27" for an ISO date or instant. */
+/**
+ * "27 Nov" (with the year when it isn't this year) for an ISO date or instant: the shared
+ * formatter's day (S5.1), an instant on the viewer's day.
+ */
 export function shortDate(iso: string): string {
-  const [, m, d] = iso.slice(0, 10).split("-");
-  return `${MON[Number(m) - 1]} ${Number(d)}`;
+  return EN.fmt.day(iso);
 }
 
 export const todayIso = () => new Date().toISOString().slice(0, 10);

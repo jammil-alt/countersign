@@ -12,6 +12,7 @@ import {
 } from "@countersign/core";
 import { Link, useSearchParams } from "react-router-dom";
 import { useApi } from "../../api/useApi";
+import { EN } from "../../i18n/i18n";
 import { Field, TextInput } from "../../ui/forms";
 import { Loaded } from "../../ui/page";
 import { Badge, Button, buttonClass, EmptyState, type Tone } from "../../ui/primitives";
@@ -25,7 +26,8 @@ const TONE: Record<EvidenceRow["result"], Tone> = {
   not_applicable: "neutral",
 };
 
-const day = (iso: string) => iso.slice(0, 10);
+/** "23 Nov 2026": a period's bound is a UTC day, so it reads as that calendar day (S5.1). */
+const day = (iso: string) => EN.fmt.date(iso.slice(0, 10));
 /** The period's last day: its end is the start of the day after. */
 const lastDay = (endIso: string) => day(new Date(new Date(endIso).getTime() - 1).toISOString());
 
@@ -110,7 +112,7 @@ export default function EvidenceScreen() {
                   <tbody>
                     {data.rows.map((r) => (
                       <tr key={r.id} data-testid={`evidence-row-${r.id}`}>
-                        <td className="figures whitespace-nowrap">{day(r.checkedAt)}</td>
+                        <td className="figures whitespace-nowrap">{EN.fmt.date(r.checkedAt)}</td>
                         <td>
                           <span className="text-ink">{r.client.name}</span>
                           <br />
