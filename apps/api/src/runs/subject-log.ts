@@ -11,7 +11,7 @@ import {
 } from "@countersign/agents";
 import { type AnyAgentBundle, checkKindOf, shownOnTimeline } from "@countersign/core";
 import { agentVersion, type Db, run, stepRun, type Tx, tenant, withTenant } from "@countersign/db";
-import { and, desc, eq, gte, inArray, sql } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, type SQL, sql } from "drizzle-orm";
 import { reportHandled } from "../observability/report";
 import type { Platform } from "../platform";
 import { stepFinder, stepOfRow } from "../routes/run-checks";
@@ -86,7 +86,16 @@ const SOURCES_PATH = `'$.sources[*] ? (@.type() == "string" && @ like_regex "${U
 // are kept each tick is one query per client. A tool call's `about` is kept too when the step's
 // other subjects bring the run in, but alone it doesn't (a run picked only for it might keep
 // nothing, and be picked again every hour).
-async function runsToFill(tx: Tx, tenantId: string, since: Date, limit: number) {
+// Overnight S3.2: and the runs kept before writes named their counterparty: a done change of a
+// tool that names one, whose change names it, with no row for it on its step yet. Once kept,
+// the row is there, so such a run too is picked once.
+async function runsToFill(
+  tx: Tx,
+  tenantId: string,
+  since: Date,
+  limit: number,
+  missing: SQL | null,
+) {
   return tx
     .select({
       id: run.id,
@@ -101,8 +110,8 @@ async function runsToFill(tx: Tx, tenantId: string, since: Date, limit: number) 
         eq(run.tenantId, tenantId),
         gte(run.createdAt, since),
         inArray(run.status, ["succeeded", "failed", "cancelled"]),
-        sql`not exists (select 1 from run_subject s where s.tenant_id = ${run.tenantId} and s.run_id = ${run.id})`,
-        sql`(
+        sql`((not exists (select 1 from run_subject s where s.tenant_id = ${run.tenantId} and s.run_id = ${run.id})
+        and (
           coalesce(${run.trigger}->'payload'->>'documentId', ${run.trigger}->>'documentId', '') ~ ${UUID_RE}
           or coalesce(${run.trigger}->'payload'->>'messageId', ${run.trigger}->>'messageId', '') ~ ${UUID_RE}
           or (${run.trigger}->>'type' = 'message'
@@ -115,11 +124,45 @@ async function runsToFill(tx: Tx, tenantId: string, since: Date, limit: number) 
             where sr.tenant_id = ${run.tenantId} and sr.run_id = ${run.id}
               and sr.status in ('succeeded', 'failed')
               and jsonb_path_exists(sr.output, ${sql.raw(SOURCES_PATH)}))
-        )`,
+        ))${
+          missing
+            ? sql` or exists (select 1 from external_action a
+            join step_run sr on sr.id = a.step_run_id and sr.tenant_id = a.tenant_id
+            where a.tenant_id = ${run.tenantId} and a.run_id = ${run.id}
+              and a.status = 'done' and sr.status in ('succeeded', 'failed') and ${missing})`
+            : sql``
+        })`,
       ),
     )
     .orderBy(desc(run.createdAt), run.id)
     .limit(limit);
+}
+
+/**
+ * Over a done change `a` (in `runsToFill`): its tool names a counterparty, the change names one
+ * there, and its step keeps no row for it. Null when no registered tool names one.
+ */
+export function counterpartyMissing(platform: Pick<Platform, "tools">): SQL | null {
+  const conds = platform.tools.list().flatMap(({ spec }) => {
+    const c = spec.counterparty;
+    if (!c) return [];
+    const [root, ...keys] = c.path.split(".");
+    const doc = root === "before" ? sql`a.before` : sql`coalesce(a.edited_input, a.input)`;
+    const at = `{${keys.join(",")}}`;
+    const idAt = `{${[...keys, "id"].join(",")}}`;
+    // The id as `counterpartyOf` reads it: the object's `id`, else the value itself.
+    const id = sql`btrim(coalesce(${doc} #>> ${idAt}::text[],
+      case when jsonb_typeof(${doc} #> ${at}::text[]) in ('string', 'number')
+        then ${doc} #>> ${at}::text[] end))`;
+    return [
+      sql`(a.tool = ${spec.id} and coalesce(${id}, '') <> ''
+        and not exists (select 1 from run_subject s
+          where s.tenant_id = a.tenant_id and s.run_id = a.run_id and s.step_run_id = a.step_run_id
+            and s.kind = ${c.kind} and s.role = 'read' and s.connector is not null
+            and s.external_id = left(${id}, 200)))`,
+    ];
+  });
+  return conds.length > 0 ? sql`(${sql.join(conds, sql` or `)})` : null;
 }
 
 /** The workflow each (version, slug) ran, read once per pair. */
@@ -157,7 +200,13 @@ export async function backfillClientRunSubjects(
   const since = new Date(options.now.getTime() - RUN_SUBJECT_BACKFILL_DAYS * 86_400_000);
   const tools = subjectTools(platform);
   return withTenant(db, tenantId, async (tx) => {
-    const runs = await runsToFill(tx, tenantId, since, options.limit ?? BATCH);
+    const runs = await runsToFill(
+      tx,
+      tenantId,
+      since,
+      options.limit ?? BATCH,
+      counterpartyMissing(platform),
+    );
     if (runs.length === 0) return 0;
     const workflows = await workflowsOf(tx, tenantId, runs);
     const steps = await tx

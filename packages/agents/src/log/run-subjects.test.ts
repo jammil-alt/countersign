@@ -65,6 +65,20 @@ const SPECS: Record<string, ToolSpec> = {
     },
   },
 };
+// Overnight S3.2: a write that names who it is with.
+const WITH_TOOL = "test.bill.memo";
+SPECS[WITH_TOOL] = {
+  id: WITH_TOOL,
+  description: "Notes a bill",
+  input: {},
+  output: {},
+  sideEffect: "external",
+  verb: "update",
+  source: "testkit",
+  connector: "testkit",
+  entity: "bill",
+  counterparty: { kind: "vendor", path: "before.vendor" },
+};
 SPECS[MONEY_TOOL] = {
   id: MONEY_TOOL,
   description: "Prices a quote",
@@ -359,6 +373,58 @@ describe.skipIf(!harness)("what a run was about", () => {
       }),
     ]);
     expect(rows.every((r) => r.stepRunId === stepRunId && r.clientVisible)).toBe(true);
+  });
+
+  it("keeps who a change is with as a second subject, by its tool's id (overnight S3.2)", async () => {
+    const { runId, stepRunId } = await startedRun("live");
+    await h.client(h.A, async (tx) => {
+      await tx.update(stepRun).set({ status: "succeeded" }).where(eq(stepRun.id, stepRunId));
+      await tx.insert(externalAction).values([
+        {
+          tenantId: h.A.tenantId,
+          connectionId: h.A.connectionId,
+          tool: WITH_TOOL,
+          runId,
+          stepRunId,
+          input: { id: "88", memo: "Released" },
+          before: { id: "88", docNumber: "4472", vendor: { id: "56", name: "Acme\nSupply" } },
+          idempotencyKey: `${runId}:m1`,
+          status: "done",
+          result: { id: "88" },
+        },
+        // A change whose record names no vendor keeps only itself.
+        {
+          tenantId: h.A.tenantId,
+          connectionId: h.A.connectionId,
+          tool: WITH_TOOL,
+          runId,
+          stepRunId,
+          input: { id: "89", memo: "Released" },
+          before: { id: "89", docNumber: "4473", vendor: null },
+          idempotencyKey: `${runId}:m2`,
+          status: "done",
+          result: { id: "89" },
+        },
+      ]);
+    });
+    const write = () =>
+      h.client(h.A, (tx) =>
+        writeStepSubjectsTx(tx, { tenantId: h.A.tenantId, stepRunId, tools, visible: () => true }),
+      );
+    expect(await write()).toBe(3);
+    expect(await write()).toBe(0);
+    const rows = await rowsOf(h.A, runId);
+    expect(rows.filter((r) => r.kind === "vendor")).toEqual([
+      expect.objectContaining({
+        role: "read",
+        recordId: null,
+        connector: "testkit",
+        externalId: "56",
+        label: "Acme Supply",
+        stepRunId,
+      }),
+    ]);
+    expect(rows.filter((r) => r.role === "changed").map((r) => r.externalId)).toEqual(["88", "89"]);
   });
 
   it("keeps a hidden step's and a test run's rows from the client", async () => {

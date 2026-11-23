@@ -75,7 +75,7 @@ import { checkDeviceSignature, signatureRequired } from "../mobile/devices";
 // v0.13 W2-I
 import { timelineOversight } from "../oversight/views";
 import type { Platform } from "../platform";
-import { aboutNames } from "../runs/about";
+import { aboutNames, aboutRefs } from "../runs/about";
 import {
   clientRunsPerDay,
   clientStatusWhere,
@@ -1040,7 +1040,12 @@ export function portalRouteHandlers(app: Hono<AppEnv>): void {
     const theirs = agentWhere(run.agentId, agents);
     const where = [
       // R2: what runs were about, from the rows the client's timeline shows only.
-      ...runFilterWhere(filter, services.platform.ctx.tools.specs(), "portal"),
+      ...runFilterWhere(
+        filter,
+        services.platform.ctx.tools.specs(),
+        "portal",
+        await aboutRefs(tx, [tenantId], filter.about),
+      ),
       ...clientStatusWhere(statuses),
       // §1.122: a client user limited to some agents sees only their runs.
       ...(theirs ? [theirs] : []),

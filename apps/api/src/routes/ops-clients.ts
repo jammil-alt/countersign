@@ -66,7 +66,7 @@ import { logAccountInSales } from "../onboarding/account-deal";
 // v0.13 W2-I
 import { runOversight } from "../oversight/views";
 import { runAuditState, runOwnerChecks } from "../run-audit/store";
-import { aboutNames } from "../runs/about";
+import { aboutNames, aboutRefs } from "../runs/about";
 import { dispatchEvents } from "../runs/dispatch";
 import { daysOf, runsByDay } from "../runs/figures";
 // Hand off (2026-11-11): where a handed-off run came from.
@@ -1079,7 +1079,12 @@ export function opsClientRoutes(app: Hono<AppEnv>): void {
     ensureFilterClients(ctx, query.filter);
     const where: SQL[] = [
       inArray(run.tenantId, [...ctx.tenantIds]),
-      ...runFilterWhere(query.filter, ctx.services.platform.ctx.tools.specs(), "ops"),
+      ...runFilterWhere(
+        query.filter,
+        ctx.services.platform.ctx.tools.specs(),
+        "ops",
+        await aboutRefs(tx, query.filter.clients ?? ctx.tenantIds, query.filter.about),
+      ),
     ];
     // Paging (QA, runs and dates): newest first by (created, id); `before` is the last run of the
     // page before, `next` the last of this one while more match. Groups and days count them all.

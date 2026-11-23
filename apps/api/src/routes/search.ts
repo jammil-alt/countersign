@@ -26,7 +26,7 @@ import { agentWhere } from "../assigned";
 import { clientModels } from "../compliance/models";
 import { type AppEnv, ensureClient, mount, mountLong } from "../http";
 import { claimMetered } from "../metered";
-import { runsAboutCounts } from "../runs/about";
+import { aboutRefs, runsAboutCounts } from "../runs/about";
 import { clientStatusWhere, clientWaits, OPEN_RUN } from "../runs/client-status";
 import { reachContext, runWaits } from "../runs/run-wait";
 import { runSubjects } from "../runs/subject";
@@ -273,7 +273,12 @@ export function searchRoutes(app: Hono<AppEnv>): void {
         tx,
         tenantId,
         [
-          ...runFilterWhere(rest, services.platform.ctx.tools.specs(), "portal"),
+          ...runFilterWhere(
+            rest,
+            services.platform.ctx.tools.specs(),
+            "portal",
+            await aboutRefs(tx, [tenantId], rest.about),
+          ),
           ...clientStatusWhere(statuses),
         ],
         ASK_RUNS_LIMIT,
@@ -347,7 +352,12 @@ export function searchRoutes(app: Hono<AppEnv>): void {
         .where(
           and(
             inArray(run.tenantId, ids),
-            ...runFilterWhere(filter, services.platform.ctx.tools.specs(), "ops"),
+            ...runFilterWhere(
+              filter,
+              services.platform.ctx.tools.specs(),
+              "ops",
+              await aboutRefs(tx, filter.clients ?? ids, filter.about),
+            ),
           ),
         )
         .orderBy(desc(run.createdAt))

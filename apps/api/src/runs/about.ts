@@ -8,6 +8,7 @@
 import { likeContaining, type RunAbout, type RunAboutName } from "@countersign/core";
 import { run, runSubject, type Tx } from "@countersign/db";
 import { and, desc, eq, inArray, or, type SQL, sql } from "drizzle-orm";
+import { aboutRecord, type RecordRefs, recordRefs } from "./record-refs";
 
 /** Who reads what runs kept: the back office every row, the portal the rows its timeline shows. */
 export type SubjectSurface = "ops" | "portal";
@@ -32,14 +33,30 @@ function keptBy(match: SQL, surface: SubjectSurface): SQL {
 // DECISION: the entries are any-of, as every other list in RunFilter is ("Acme" found as two
 // vendors is runs about either), and a record matches by its id alone: our ids are unique, and a
 // tool may keep an organization as the vendor it is, so the kind names it for people only.
-export function aboutWhere(about: readonly RunAbout[], surface: SubjectSurface): SQL {
+// Overnight S3.2: and by the client's tool and its id there, as the record's own page matches
+// (`refs`, from `aboutRefs`): a run that wrote a bill for a vendor is about that vendor.
+export function aboutWhere(
+  about: readonly RunAbout[],
+  surface: SubjectSurface,
+  refs?: RecordRefs,
+): SQL {
   const ids = about.flatMap((e) => ("kind" in e ? [e.id] : []));
   const words = about.flatMap((e) => ("text" in e ? [e.text] : []));
   const match = or(
-    ...(ids.length ? [inArray(runSubject.recordId, ids)] : []),
+    ...ids.map((id) => aboutRecord(id.toLowerCase(), refs?.get(id.toLowerCase()) ?? [])),
     ...words.map(wordsMatch),
   );
   return match ? keptBy(sql`(${match})`, surface) : sql`false`;
+}
+
+/** The tool refs of the records an `about` filter names, in these clients (`aboutWhere`). */
+export async function aboutRefs(
+  tx: Tx,
+  tenantIds: readonly string[],
+  about: readonly RunAbout[] | undefined,
+): Promise<RecordRefs | undefined> {
+  const ids = (about ?? []).flatMap((e) => ("kind" in e ? [e.id] : []));
+  return ids.length > 0 ? recordRefs(tx, tenantIds, ids) : undefined;
 }
 
 /** `text` over what a run was about: a kept label or number containing it. */
@@ -113,21 +130,33 @@ export async function runsAboutCounts(
 ): Promise<Map<string, number>> {
   const ids = [...new Set(recordIds)];
   if (ids.length === 0 || tenantIds.length === 0) return new Map();
-  const rows = await tx
+  // Overnight S3.2: each record by the record page's match (our id, or its tool's id).
+  const refs = await recordRefs(tx, tenantIds, ids);
+  const matches = ids.map((id) => aboutRecord(id.toLowerCase(), refs.get(id.toLowerCase()) ?? []));
+  const counts = ids.map(
+    (_, i) => sql<number>`count(distinct ${runSubject.runId}) filter (where ${matches[i]})`,
+  );
+  const [row] = await tx
     .select({
-      recordId: runSubject.recordId,
-      runs: sql<number>`count(distinct ${runSubject.runId})::int`,
+      counts: sql<number[]>`array[${sql.join(
+        counts.map((c) => sql`${c}::int`),
+        sql`, `,
+      )}]`,
     })
     .from(runSubject)
     .innerJoin(run, and(eq(run.id, runSubject.runId), eq(run.tenantId, runSubject.tenantId)))
     .where(
       and(
         inArray(runSubject.tenantId, [...tenantIds]),
-        inArray(runSubject.recordId, ids),
+        or(...matches),
         ...(surface === "portal" ? [eq(runSubject.clientVisible, true), eq(run.mode, "live")] : []),
         ...(agentScope ? [agentScope] : []),
       ),
-    )
-    .groupBy(runSubject.recordId);
-  return new Map(rows.flatMap((r) => (r.recordId ? [[r.recordId, r.runs] as const] : [])));
+    );
+  const out = new Map<string, number>();
+  ids.forEach((id, i) => {
+    const n = Number(row?.counts?.[i] ?? 0);
+    if (n > 0) out.set(id, n);
+  });
+  return out;
 }
