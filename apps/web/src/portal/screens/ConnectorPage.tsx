@@ -33,6 +33,7 @@ import { SlackChannels } from "../../connections/SlackChannels";
 import { TeamsSetup } from "../../connections/TeamsSetup";
 import { WebhookSetup } from "../../connections/WebhookSetup";
 import { useI18n } from "../../i18n/i18n";
+import { usePoll } from "../../runs/usePoll";
 import { useSession } from "../../session/session";
 import { Page } from "../../ui/page";
 import { Badge, Button, ErrorNotice, Tag } from "../../ui/primitives";
@@ -50,6 +51,10 @@ import {
   STATUS_CHIP,
 } from "../connectors/words";
 import { PORTAL_PATHS } from "../paths";
+
+// DECISION: the page itself polls once a minute while a connection is connected (overnight S3.7:
+// it showed the sync time it loaded with); the vault (`cache: "none"`) is not asked again.
+export const CONNECTOR_POLL_MS = 60_000;
 
 type PageView = ResponseOf<typeof connectorAccessRoutes.portalConnector>;
 type Card = PageView["connector"];
@@ -81,6 +86,10 @@ export function ConnectorPageScreen() {
     page.reload();
     vault.reload();
   };
+  // A sync runs behind the page (every 15 minutes, or a webhook): while a connection here is
+  // connected, the page asks again each minute, so its sync time and status are never older.
+  const live = page.data?.connections.some((c) => c.status === "connected") === true;
+  usePoll(page.reload, live, CONNECTOR_POLL_MS, page.loading);
 
   return (
     <Page testId="portal-connector">
