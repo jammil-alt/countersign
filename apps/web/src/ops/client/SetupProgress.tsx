@@ -310,6 +310,15 @@ function Asks({ board }: { board: OpsSetupBoard }) {
 
 // ── The runbook ─────────────────────────────────────────────────────────────────────────────────
 
+/** Each runbook step in a word, for the header's "Next: kickoff, planned day 2". */
+const RUNBOOK_SHORT: Record<RunbookStep["key"], string> = {
+  invite: "invite",
+  kickoff: "kickoff",
+  trial: "trial",
+  checkin: "check-in",
+  live: "sign-off and live",
+};
+
 function Runbook({ steps }: { steps: RunbookStep[] }) {
   const now = steps.find((s) => s.state === "now");
   return (
@@ -317,7 +326,9 @@ function Runbook({ steps }: { steps: RunbookStep[] }) {
       <div className="flex flex-wrap items-baseline justify-between gap-3">
         <h2 className="type-subheading text-ink">Runbook</h2>
         <span className="text-sm text-ink-muted">
-          {now ? `Now: day ${now.day} of about 17` : "Every step done"}
+          {/* DECISION (S6.1): the header names the next step and its planned day, not "day 2 of
+              about 17", which read as where the client is when nothing had happened yet. */}
+          {now ? `Next: ${RUNBOOK_SHORT[now.key]}, planned day ${now.day}` : "Every step done"}
         </span>
       </div>
       <ol className="flex flex-col gap-3 border-l border-line pl-4">

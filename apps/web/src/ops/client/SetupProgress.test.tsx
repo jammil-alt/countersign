@@ -243,7 +243,7 @@ describe("the Setup tab's Progress", () => {
       expect(ask).toHaveTextContent("Freight should go to overhead, not the job.");
 
       const runbook = screen.getByTestId("ops-setup-runbook");
-      expect(runbook).toHaveTextContent("Now: day 2 of about 17");
+      expect(runbook).toHaveTextContent("Next: kickoff, planned day 2");
       expect(within(runbook).getAllByRole("listitem")).toHaveLength(5);
       expect(screen.getByTestId("ops-setup-runbook-kickoff")).toHaveAttribute("data-state", "now");
       expect(screen.getByTestId("ops-setup-runbook-invite")).toHaveTextContent(
