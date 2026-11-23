@@ -261,6 +261,8 @@ describe("the client page", () => {
     // No figure tiles: the summary opens short.
     expect(screen.queryByTestId("ops-client-stat-live")).toBeNull();
     expect(await screen.findByTestId("ops-client-waiting")).toHaveTextContent("Baltic birch 3/4");
+    // QA CL1: the count says whose items it counts.
+    expect(screen.getByTestId("ops-client-waiting")).toHaveTextContent(/\d+ items? for us/);
     // How many are live is the header's line, not repeated here.
     expect(screen.getByTestId("ops-client-go-live")).not.toHaveTextContent("of 2 live");
     // Billing is in Settings.
