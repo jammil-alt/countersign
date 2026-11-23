@@ -210,6 +210,20 @@ export const OpsSearchResult = z.object({
   people: z.array(SearchPersonHit.extend(WithClient)),
   organizations: z.array(SearchOrganizationHit.extend(WithClient)),
   documents: z.array(SearchDocumentHit.extend(WithClient)),
+  // S6.8 (HM5): deals, by what they'd buy, the company or the client; a prospect has no client.
+  // Optional so older answers still parse.
+  deals: z
+    .array(
+      z.object({
+        id: z.string(),
+        title: z.string(),
+        company: z.string().nullable(),
+        client: Ref.nullable(),
+        stage: z.string(),
+        outcome: z.string(),
+      }),
+    )
+    .optional(),
 });
 export type OpsSearchResult = z.infer<typeof OpsSearchResult>;
 

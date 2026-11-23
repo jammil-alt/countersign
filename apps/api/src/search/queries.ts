@@ -16,6 +16,7 @@ import {
 import {
   agent,
   contact,
+  deal,
   docExtraction,
   document,
   organization,
@@ -23,6 +24,7 @@ import {
   run,
   stepRun,
   type Tx,
+  tenant,
   transaction,
   vendor,
 } from "@countersign/db";
@@ -439,4 +441,28 @@ export async function searchDocuments(tx: Tx, scope: SearchScope, q: SearchText)
     vendor: latest.get(d.id)?.vendor ?? null,
     number: latest.get(d.id)?.number ?? null,
   }));
+}
+
+/**
+ * S6.8 (HM5): the back office's deals, by what they'd buy, the company or the client's name: open
+ * ones first, then the newest. `scope` is the deals the request may see (sales scope, or one
+ * client's).
+ */
+export async function searchDeals(tx: Tx, scope: SQL | undefined, q: SearchText) {
+  const p = likeContaining(q.text);
+  return tx
+    .select({
+      id: deal.id,
+      title: deal.title,
+      company: deal.company,
+      clientId: deal.clientId,
+      clientName: tenant.name,
+      stage: deal.stage,
+      outcome: deal.outcome,
+    })
+    .from(deal)
+    .leftJoin(tenant, eq(tenant.id, deal.clientId))
+    .where(and(scope, or(ilike(deal.title, p), ilike(deal.company, p), ilike(tenant.name, p))))
+    .orderBy(sql`${deal.outcome} = 'open' desc`, desc(deal.createdAt), asc(deal.id))
+    .limit(N);
 }
