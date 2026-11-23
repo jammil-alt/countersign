@@ -69,6 +69,26 @@ export function runErrorCode(reason: string | null | undefined): string {
   return "failed";
 }
 
+/** A budget an agent ran out of, in words (`escalated: max_cost` → "cost"). */
+const BUDGET_WORDS: Record<string, string> = {
+  max_steps: "step",
+  max_cost: "cost",
+  max_monthly_cost: "monthly",
+};
+
+/**
+ * A run's `escalated: <reason>` in words (S4.1): "Stopped: reached its cost budget" for a budget the
+ * agent ran out of, "Stopped and handed to us: <reason in words>" for any other. Null for a reason
+ * that is not an escalation.
+ */
+export function escalationWords(reason: string | null | undefined): string | null {
+  const m = /^escalated:\s*([\w.-]+)\s*$/.exec((reason ?? "").split("\n")[0]?.trim() ?? "");
+  if (!m?.[1]) return null;
+  const budget = BUDGET_WORDS[m[1]];
+  if (budget) return `Stopped: reached its ${budget} budget`;
+  return `Stopped and handed to us: ${m[1].replace(/[_.-]+/g, " ")}`;
+}
+
 /**
  * `error.key` (docs/plan.md §1.40): `<tool id or step kind>:<code>`, e.g. `gmail.send:unauthorized`
  * for an action step, `skill:escalated`, `person:timeout`, `run:no_workflow` before any step.

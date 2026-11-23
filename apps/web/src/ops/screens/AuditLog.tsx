@@ -6,7 +6,9 @@
 // the filters in a bar, the entries as a table in a card with "Load older" in its foot.
 import {
   type AccessReviewUser,
+  AUDIT_REFRESH_KEY,
   AUDIT_RETENTION_YEARS,
+  AUDIT_VISIT_MINUTES,
   type AuditEventRow,
   isUuid,
 } from "@countersign/core";
@@ -76,6 +78,54 @@ export function dayBounds(from: string, to: string): { from?: string; to?: strin
   const t = to ? at(to, 1) : undefined;
   if (f) out.from = f;
   if (t) out.to = t;
+  return out;
+}
+
+/** One line of the log: a row, or a person's reads of one thing folded into one visit. */
+export interface AuditLine {
+  event: AuditEventRow;
+  /** The reads folded into this line (1: the row alone). */
+  reads: number;
+}
+
+const isRead = (e: AuditEventRow) => /^(mcp )?GET /.test(e.action);
+
+/** A row's target without the refresh tag: what the read was of. */
+function readOf(e: AuditEventRow): string {
+  const { [AUDIT_REFRESH_KEY]: _refresh, ...rest } = e.target;
+  return JSON.stringify([e.actor.id, e.client?.id ?? null, e.action, rest]);
+}
+
+/**
+ * The log's rows, newest first, as lines: a person's successful reads of the same thing, each
+ * within AUDIT_VISIT_MINUTES of the next, are one visit, shown once at its first read with how many
+ * reads it took (a page polled every 2 seconds is one line, not 182). Writes, refusals and errors
+ * are always their own line. Every row stays in the log and in the CSV export (invariant 14).
+ */
+// DECISION (S6.9, owner D6): a person's opens within 30 minutes count as one visit. Older rows,
+// written before the app tagged its polls, fold the same way.
+export function auditLines(events: readonly AuditEventRow[]): AuditLine[] {
+  const out: AuditLine[] = [];
+  const gap = AUDIT_VISIT_MINUTES * 60_000;
+  let key: string | null = null;
+  for (const e of events) {
+    const foldable = e.actor.kind === "user" && e.outcome === "ok" && isRead(e);
+    const k = foldable ? readOf(e) : null;
+    const last = out.at(-1);
+    if (
+      last &&
+      k !== null &&
+      k === key &&
+      Date.parse(last.event.createdAt) - Date.parse(e.createdAt) <= gap
+    ) {
+      // Older than the line's: the visit started earlier.
+      last.event = e;
+      last.reads += 1;
+    } else {
+      out.push({ event: e, reads: 1 });
+    }
+    key = k;
+  }
   return out;
 }
 
@@ -348,8 +398,8 @@ function AuditLog({ params, set }: { params: URLSearchParams; set: Set }) {
               </tr>
             </thead>
             <tbody>
-              {events.map((e) => (
-                <AuditRow key={e.id} event={e} />
+              {auditLines(events).map((l) => (
+                <AuditRow key={l.event.id} event={l.event} reads={l.reads} />
               ))}
             </tbody>
           </table>
@@ -364,8 +414,8 @@ function Who({ actor }: { actor: AuditEventRow["actor"] }) {
   if (actor.kind === "anonymous") return <span className="text-ink-muted">Signed out</span>;
   const role = roleName(actor.role);
   return (
-    <span className="flex flex-col">
-      <span className="text-ink">{actor.email ?? actor.id ?? "Unknown user"}</span>
+    <span className="flex flex-col" title={actor.email ?? undefined}>
+      <span className="text-ink">{actor.name ?? actor.email ?? actor.id ?? "Unknown user"}</span>
       {role ? <span className="text-xs text-ink-muted">{role}</span> : null}
     </span>
   );
@@ -402,21 +452,48 @@ function compact(value: unknown): string {
   return text.length > 24 ? `${text.slice(0, 23)}…` : text;
 }
 
-function Target({ target }: { target: Record<string, unknown> }) {
-  const entries = Object.entries(target).filter(([, v]) => v !== null && v !== undefined);
+/** What a target key is, in words, when the row names it. */
+const TARGET_WORDS: Record<string, string> = { client: "client", clientId: "client" };
+
+function Target({
+  target,
+  names = {},
+}: {
+  target: Record<string, unknown>;
+  names?: Record<string, string> | undefined;
+}) {
+  // The refresh tag says how the row was sent, not what it was about.
+  const entries = Object.entries(target).filter(
+    ([k, v]) => k !== AUDIT_REFRESH_KEY && v !== null && v !== undefined,
+  );
   if (entries.length === 0) return <span className="text-ink-muted">–</span>;
   return (
-    <span className="flex flex-col reference text-xs" title={JSON.stringify(target)}>
-      {entries.map(([k, v]) => (
-        <span key={k} className="whitespace-nowrap">
-          <span className="text-ink-muted">{k}</span> <span className="text-ink">{compact(v)}</span>
-        </span>
-      ))}
+    <span className="flex flex-col text-xs" title={JSON.stringify(target)}>
+      {entries.map(([k, v]) => {
+        const name = names[k];
+        return (
+          <span key={k} className="whitespace-nowrap" data-testid={`ops-audit-target-${k}`}>
+            {name ? (
+              <>
+                {TARGET_WORDS[k] ? (
+                  <span className="text-ink-muted">{TARGET_WORDS[k]} </span>
+                ) : null}
+                <span className="text-ink">{name}</span>
+              </>
+            ) : (
+              <span className="reference">
+                <span className="text-ink-muted">{k}</span>{" "}
+                <span className="text-ink">{compact(v)}</span>
+              </span>
+            )}
+          </span>
+        );
+      })}
     </span>
   );
 }
 
-function AuditRow({ event }: { event: AuditEventRow }) {
+function AuditRow({ event, reads = 1 }: { event: AuditEventRow; reads?: number }) {
   return (
     <tr data-testid={`ops-audit-row-${event.id}`}>
       <td className="whitespace-nowrap text-ink figures" title={event.createdAt}>
@@ -438,14 +515,25 @@ function AuditRow({ event }: { event: AuditEventRow }) {
           <span className="text-ink-muted">–</span>
         )}
       </td>
-      <td className="reference text-xs text-ink" data-testid="ops-audit-action-name">
-        {event.action}
+      <td title={event.action}>
+        <span className="block text-sm text-ink" data-testid="ops-audit-action-name">
+          {event.words ?? event.action}
+        </span>
+        {reads > 1 ? (
+          <span className="block text-xs text-ink-muted figures" data-testid="ops-audit-reads">
+            {`One visit: ${reads.toLocaleString()} reads while it was open`}
+          </span>
+        ) : event.refresh ? (
+          <span className="block text-xs text-ink-muted" data-testid="ops-audit-reads">
+            The page refreshing itself
+          </span>
+        ) : null}
       </td>
       <td>
         <OutcomeMark event={event} />
       </td>
       <td>
-        <Target target={event.target} />
+        <Target target={event.target} names={event.names} />
       </td>
       <td
         className="reference text-xs text-ink-muted whitespace-nowrap"

@@ -33,6 +33,7 @@ export function holdNotice(agentName: string): string {
 
 /** What the portal shows for where a request stands. */
 export const PORTAL_REQUEST_STATUS_WORDS = {
+  sent: "Sent",
   on_it: "We're on it",
   waiting_on_you: "Waiting on you",
   fixed: "Fixed",
