@@ -5,6 +5,7 @@
 // routes: the lead's edits in the back office, sent tables and their PDF in the portal.
 
 import {
+  ACCOUNT_AGENT_SLUG,
   addDays,
   clientLabel,
   clientLanguage,
@@ -299,6 +300,7 @@ export async function buildTable(
       description: clientDescription(a),
       status: a.runStatus ?? "draft",
       stage: a.stage,
+      accountAgent: a.slug === ACCOUNT_AGENT_SLUG,
       now: serviceNow(going),
       runsDone: counts.byAgent.get(a.id)?.succeeded ?? 0,
       runs: counts.byAgent.get(a.id) ?? noRuns(),

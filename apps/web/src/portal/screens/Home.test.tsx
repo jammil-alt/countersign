@@ -4,7 +4,7 @@
 // empty sections left out. Never a bundle or a cost.
 
 import { itemFingerprint, PortalInboxItem } from "@countersign/core";
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { describe, expect, it } from "vitest";
@@ -392,6 +392,35 @@ describe("Home", () => {
     expect(card).not.toHaveTextContent(/Running|Working/);
     // Nothing finished this week: no week line at all.
     expect(screen.queryByTestId("home-week-line")).toBeNull();
+  });
+
+  // S6.2: Sloan is live from the day a client is made; it is not the client's agent going live,
+  // so a new client with an open intake is still sent to Getting started.
+  it("asks for the open intake when only Sloan is live, and not once an agent of theirs is", async () => {
+    const SLOAN = "00000000-0000-4000-8000-00000000b005";
+    const sloan = tableService(SLOAN, "Sloan", { stage: "live", accountAgent: true });
+    const only = fakeApi({
+      ...base,
+      "GET /api/overview": () => overview(),
+      "GET /api/table": () => tableView({ services: [sloan] }),
+      "GET /api/access": () => ({ ...ACCESS, items: [] }),
+      "GET /api/intake": () => ({ intake: null }),
+    });
+    renderAt("/", only);
+    await waitFor(() => expect(only.calls).toContain("GET /api/intake"));
+    cleanup();
+
+    const both = fakeApi({
+      ...base,
+      "GET /api/overview": () => overview(),
+      "GET /api/table": () =>
+        tableView({ services: [sloan, tableService(PIA, "Pia", { stage: "live" })] }),
+      "GET /api/access": () => ({ ...ACCESS, items: [] }),
+      "GET /api/intake": () => ({ intake: null }),
+    });
+    renderAt("/", both);
+    await screen.findByTestId(`portal-service-${PIA}`);
+    expect(both.calls).not.toContain("GET /api/intake");
   });
 
   it("puts an item off until tomorrow morning with Not now", async () => {

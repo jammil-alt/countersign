@@ -25,8 +25,16 @@ export const AuditEventRow = z.object({
     id: z.string().nullable(),
     email: z.string().nullable(),
     role: z.string().nullable(),
+    // S6.9: the person's name, so the log reads as who, not an address. Optional: older answers.
+    name: z.string().nullable().optional(),
   }),
   action: z.string(),
+  // S6.9: the action in words ("Viewed a run") and, for the target's ids, what they name ("Bill
+  // clerk", "Demo client"); `refresh` when the app sent it to refresh what was on screen (a poll).
+  // Optional, so older answers still parse.
+  words: z.string().optional(),
+  names: z.record(z.string(), z.string()).optional(),
+  refresh: z.boolean().optional(),
   outcome: z.enum(["ok", "refused", "error"]),
   httpStatus: z.number().int().nullable(),
   target: z.record(z.string(), z.unknown()),

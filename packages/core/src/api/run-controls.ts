@@ -69,6 +69,26 @@ export function runErrorCode(reason: string | null | undefined): string {
   return "failed";
 }
 
+/** A budget an agent ran out of, in words (`escalated: max_cost` → "cost"). */
+const BUDGET_WORDS: Record<string, string> = {
+  max_steps: "step",
+  max_cost: "cost",
+  max_monthly_cost: "monthly",
+};
+
+/**
+ * A run's `escalated: <reason>` in words (S4.1): "Stopped: reached its cost budget" for a budget the
+ * agent ran out of, "Stopped and handed to us: <reason in words>" for any other. Null for a reason
+ * that is not an escalation.
+ */
+export function escalationWords(reason: string | null | undefined): string | null {
+  const m = /^escalated:\s*([\w.-]+)\s*$/.exec((reason ?? "").split("\n")[0]?.trim() ?? "");
+  if (!m?.[1]) return null;
+  const budget = BUDGET_WORDS[m[1]];
+  if (budget) return `Stopped: reached its ${budget} budget`;
+  return `Stopped and handed to us: ${m[1].replace(/[_.-]+/g, " ")}`;
+}
+
 /**
  * `error.key` (docs/plan.md §1.40): `<tool id or step kind>:<code>`, e.g. `gmail.send:unauthorized`
  * for an action step, `skill:escalated`, `person:timeout`, `run:no_workflow` before any step.
@@ -143,6 +163,26 @@ export function actionWrote(action: { status: string; error: unknown }): boolean
   if (action.status !== "failed") return false;
   const error = action.error as { notWritten?: unknown } | null;
   return !(error && typeof error === "object" && error.notWritten === true);
+}
+
+/** The error a change carries when nobody answered its approval in time (S4.5). */
+export const APPROVAL_EXPIRED = {
+  code: "approval_expired",
+  message: "nobody answered in time; the change was not made",
+} as const;
+
+/**
+ * Whether a change was not made because nobody answered its approval in time: `rejected`, by no
+ * one, with `approval_expired` ("Not made: no answer in time"), never a person's no.
+ */
+export function approvalExpired(action: { status: string; error: unknown }): boolean {
+  const error = action.error as { code?: unknown } | null;
+  return (
+    action.status === "rejected" &&
+    error !== null &&
+    typeof error === "object" &&
+    error.code === APPROVAL_EXPIRED.code
+  );
 }
 
 /**
