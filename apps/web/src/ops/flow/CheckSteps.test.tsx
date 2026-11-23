@@ -138,7 +138,7 @@ describe("Check the steps", () => {
     // The draft ends on Create the bill: it changes a tool.
     expect(screen.getByTestId("flow-check-end-write")).toHaveAttribute("aria-pressed", "true");
     expect(screen.getByTestId("flow-check-end-handoff")).toHaveAttribute("aria-pressed", "false");
-    expect(screen.getByTestId("flow-check-ends-on")).toHaveTextContent("Create the bill");
+    expect(screen.getByTestId("flow-check-ways-out")).toHaveTextContent("Ends: Create the bill");
     expect(screen.getByTestId("flow-check-build")).toBeEnabled();
     // Picking another way out adds its line at the bottom, ready to reword.
     await user.click(screen.getByTestId("flow-check-end-handoff"));
@@ -147,7 +147,9 @@ describe("Check the steps", () => {
     expect(inputs.at(-1)).toHaveFocus();
     expect(screen.getByTestId("flow-check-end-handoff")).toHaveAttribute("aria-pressed", "true");
     expect(screen.getByTestId("flow-check-end-write")).toHaveAttribute("aria-pressed", "false");
-    expect(screen.getByTestId("flow-check-ends-on")).toHaveTextContent("Hand off to another agent");
+    expect(screen.getByTestId("flow-check-ways-out")).toHaveTextContent(
+      "Ends: Hand off to another agent",
+    );
     expect(screen.queryByTestId("flow-check-dead-end")).not.toBeInTheDocument();
   });
 
@@ -189,6 +191,85 @@ describe("Check the steps", () => {
     expect(screen.getByTestId("flow-check-build")).toBeEnabled();
   });
 
+  it("lists every way out: a hand-off on the way forks out and marks its card on", async () => {
+    const process = draftProcess();
+    const forks = {
+      ...process,
+      steps: [
+        process.steps[0],
+        {
+          id: "s-hand",
+          kind: "handoff" as const,
+          name: "Hand off to Price checker",
+          to: { agent: "price-checker", step: "" },
+          input: {},
+        },
+        ...process.steps.slice(1),
+      ],
+    };
+    renderCheck(
+      fakeApi({
+        ...drafted(),
+        [`GET /api/ops/agents/${DRAFT_AGENT_ID}`]: () => agentDetail(draftBundle(forks as never)),
+      }),
+    );
+    await screen.findByTestId("flow-check");
+    const ways = screen.getAllByTestId("flow-check-way-out");
+    expect(ways.map((w) => [w.getAttribute("data-how"), w.textContent])).toEqual([
+      ["fork", "·Forks out: Hand off to Price checker"],
+      ["end", "·Ends: Create the bill"],
+    ]);
+    expect(screen.getByTestId("flow-check-end-handoff")).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByTestId("flow-check-end-write")).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByTestId("flow-check-build")).toBeEnabled();
+  });
+
+  it("says a hand-off into the agent's own workflow forks out into that workflow, by name", async () => {
+    const process = draftProcess();
+    const forks = {
+      ...process,
+      steps: [
+        process.steps[0],
+        {
+          id: "s-self",
+          kind: "handoff" as const,
+          name: "Hand off each line",
+          to: { agent: "@self", workflow: "check-an-invoice", step: "" },
+          input: {},
+        },
+        ...process.steps.slice(1),
+      ],
+    };
+    const bundle = draftBundle(forks as never);
+    const second = {
+      slug: "check-an-invoice",
+      name: "Check an invoice",
+      workflow: {
+        ...draftProcess(),
+        triggers: [{ id: "t-2", on: { type: "manual", input: { type: "object" } } }],
+      },
+    };
+    renderCheck(
+      fakeApi({
+        ...drafted(),
+        [`GET /api/ops/agents/${DRAFT_AGENT_ID}`]: () =>
+          agentDetail({
+            ...bundle,
+            workflows: [...(bundle.workflows ?? []), second] as typeof bundle.workflows,
+          }),
+      }),
+    );
+    await screen.findByTestId("flow-check");
+    // The saved draft is read (not a list typed by hand): its lines are there.
+    expect(screen.getByTestId("flow-check-blank")).toBeInTheDocument();
+    const ways = screen.getAllByTestId("flow-check-way-out");
+    expect(ways.map((w) => [w.getAttribute("data-how"), w.textContent])).toEqual([
+      ["fork", "·Forks out into Check an invoice: Hand off each line"],
+      ["end", "·Ends: Create the bill"],
+    ]);
+    expect(screen.getByTestId("flow-check-end-handoff")).toHaveAttribute("aria-pressed", "true");
+  });
+
   it("saves the edited bundle on Build it, asks the Builder once to fill the lines typed by hand, then opens the workflow", async () => {
     const saved: unknown[] = [];
     const started: unknown[] = [];
@@ -227,8 +308,25 @@ describe("Check the steps", () => {
     expect(screen.getAllByTestId("flow-check-line-kind").at(-1)).toHaveTextContent(
       "The Builder fills it",
     );
-    // It starts on a schedule.
+    // It starts on a schedule as well, then on a schedule only.
     await user.click(screen.getByTestId("flow-check-start-schedule"));
+    expect(screen.getByTestId("flow-check-start-document")).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByTestId("flow-check-start-schedule")).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByTestId("flow-check-starts")).toHaveTextContent(
+      "It starts 2 ways: When a document arrives; On a schedule.",
+    );
+    await user.click(screen.getByTestId("flow-check-start-document"));
+    expect(screen.getByTestId("flow-check-start-document")).toHaveAttribute(
+      "aria-pressed",
+      "false",
+    );
+    expect(screen.getByTestId("flow-check-start-words")).toHaveValue("On a schedule");
+    // The last way in stays on, and says why.
+    await user.click(screen.getByTestId("flow-check-start-schedule"));
+    expect(screen.getByTestId("flow-check-start-schedule")).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByTestId("flow-check-start-refused")).toHaveTextContent(
+      "It needs at least one way to start, so the last one stays on.",
+    );
     await user.click(screen.getByTestId("flow-check-build"));
     expect(await screen.findByTestId("landed")).toHaveTextContent(
       "/ops/templates/invoice-intake/workflows/invoice-intake",
@@ -243,7 +341,7 @@ describe("Check the steps", () => {
     expect(body.parentVersionId).toBe(DRAFT_VERSION);
     expect(body.bundle.workflows[0]?.workflow).toEqual({
       ...expected,
-      triggers: [{ id: "t-doc", on: { type: "schedule", cron: "0 7 * * 1-5" } }],
+      triggers: [{ id: "n-3", on: { type: "schedule", cron: "0 7 * * 1-5" } }],
       steps: [
         { ...expected.steps[0], name: "Read each invoice" },
         {
@@ -273,6 +371,9 @@ describe("Check the steps", () => {
     ]);
     expect(turns).toHaveLength(1);
     expect((turns[0] as { text: string }).text).toContain('"Code each line to a job"');
+    expect((turns[0] as { text: string }).text).toContain(
+      "It starts: On a schedule. Set its trigger to match.",
+    );
     expect(api.calls).toContain(`POST /api/ops/builder/sessions/${SESSION_ID}/save`);
   });
 
@@ -329,7 +430,9 @@ describe("Check the steps", () => {
     expect(screen.queryByTestId("flow-check-quote")).toBeNull();
     // Nothing typed yet: nothing to build.
     expect(screen.getByTestId("flow-check-build")).toBeDisabled();
+    // A document arrives, instead of a person starting it.
     await user.click(screen.getByTestId("flow-check-start-document"));
+    await user.click(screen.getByTestId("flow-check-start-person"));
     await user.type(screen.getByTestId("flow-check-line-input"), "Read the invoice{Enter}");
     await user.type(
       screen.getAllByTestId("flow-check-line-input").at(-1) as HTMLElement,

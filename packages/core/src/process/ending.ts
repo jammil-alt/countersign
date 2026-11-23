@@ -13,7 +13,7 @@
 
 import { skillTools } from "../schemas/skill";
 import { lookupSkill, type TypingContext } from "../template/typer";
-import type { Process, Step } from "./schema";
+import { type Process, SELF_AGENT, type Step } from "./schema";
 
 /** Where a run's result goes: a tool or a record, another agent, or a person. */
 export const ENDING_KINDS = ["tool", "agent", "people"] as const;
@@ -106,4 +106,69 @@ export function deadEnds(
 /** The advice for a dead end, as the validator and the builder word it. */
 export function deadEndMessage(step: Pick<Step, "name">): string {
   return `a run can end on "${step.name}" with nothing reported out: end with a step that changes a tool, saves a record, tells someone or hands off to another agent`;
+}
+
+// ── Ways out ─────────────────────────────────────────────────────────────────────────────────────
+// Owner, 2026-11-23: "triggers and report-out forks: multiple ways in if needed, multiple ways out
+// if needed. A fork out inside the workflow can be a handoff; one that leaves and comes back is an
+// automation or a loop." A way out is where a run's work leaves this process: every hand-off,
+// wherever it is, and every step a run can finish on.
+
+/** Where a way out goes: a way out of `ReportsOut`, or `workflow` for another workflow of this agent. */
+export type WayOutKind = ReportsOut | "workflow";
+
+export interface WayOut {
+  step: Step;
+  kind: WayOutKind;
+  /**
+   * `fork`: the run goes on after it (a hand-off before the end; the run it starts is its own).
+   * `end`: a run can finish on it.
+   */
+  how: "fork" | "end";
+  /** Inside a for-each or a repeat: it happens once a time round. */
+  repeats: boolean;
+  /** A hand-off's target: the agent (`"@self"` for this one), its workflow when said, the step. */
+  to?: { agent: string; workflow?: string; step: string };
+}
+
+// DECISION (owner, 2026-11-23): only a hand-off forks out mid-process. A write or a note in the
+// middle changes something on the way, but the run's work doesn't leave by it; an automation
+// (`process`) leaves and comes back, so it is part of the run, not a way out.
+/**
+ * Every way out of a process, in the order the steps are listed: each hand-off (mid-process, in
+ * a path or a loop: a fork out, unless a run can finish on it) and each run end from `runEnds`.
+ */
+export function waysOut(process: Pick<Process, "steps">, ctx: TypingContext = {}): WayOut[] {
+  const ends = new Set(runEnds(process).map((s) => s.id));
+  const out: WayOut[] = [];
+  const seen = new Set<string>();
+  const visit = (steps: readonly Step[], repeats: boolean) => {
+    for (const s of steps) {
+      const end = ends.has(s.id);
+      if ((end || s.kind === "handoff") && !seen.has(s.id)) {
+        seen.add(s.id);
+        const to = s.kind === "handoff" ? handoffTarget(s) : undefined;
+        out.push({
+          step: s,
+          kind: to?.agent === SELF_AGENT ? "workflow" : reportsOut(s, ctx),
+          how: end ? "end" : "fork",
+          repeats,
+          ...(to ? { to } : {}),
+        });
+      }
+      if (s.kind === "if") {
+        for (const p of s.paths) visit(p.steps, repeats);
+        visit(s.otherwise.steps, repeats);
+      } else if (s.kind === "for_each" || s.kind === "repeat") {
+        visit(s.steps, true);
+      }
+    }
+  };
+  visit(process.steps, false);
+  return out;
+}
+
+function handoffTarget(s: Extract<Step, { kind: "handoff" }>): NonNullable<WayOut["to"]> {
+  const { agent, step, workflow } = s.to;
+  return { agent, step, ...(workflow ? { workflow } : {}) };
 }

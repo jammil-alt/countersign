@@ -73,8 +73,13 @@ import {
   setAfterPaths,
   setCondition,
   setPathEnd,
-  setStart,
   startKindOf,
+  startKinds,
+  startTitle,
+  startWordsAll,
+  TRIGGERS_MAX,
+  toggleStart,
+  wayOutWords,
 } from "./checkModel";
 import {
   type CheckStepsState,
@@ -178,10 +183,13 @@ function CheckBody({
   );
   const trigger = process.triggers[0];
   const startNow = trigger ? startKindOf(trigger.on) : null;
+  const startsOn = startKinds(process);
   const [startWords, setStartWords] = useState(() =>
     trigger ? (mine ? "" : triggerTitle(trigger)) : "",
   );
   const [startEdited, setStartEdited] = useState(false);
+  // Why a card didn't change, in words, until the next one does.
+  const [startRefused, setStartRefused] = useState<"last" | "full" | null>(null);
   const [focus, setFocus] = useState<string | null>(null);
   // The way out picked for a line added under How it ends, until the Builder fills that line.
   const [endChosen, setEndChosen] = useState<Record<string, EndKind>>({});
@@ -194,6 +202,7 @@ function CheckBody({
   const ending = endingOf(lines, endChosen);
   // A run that can end with nothing reported is a dead end: it isn't built until it has a way out.
   const deadEnd = ending.dead.length > 0;
+  const workflows = loaded.bundle?.workflows ?? [];
 
   useEffect(() => {
     if (!focus) return;
@@ -258,10 +267,15 @@ function CheckBody({
         });
         from = saved.version.id;
       }
+      const waysInChanged =
+        canonicalJson(lines.triggers) !== canonicalJson(loaded.process.triggers);
       const text = fillRequest({
         workflowName: loaded.workflowName,
         added: handAdded(loaded.process, lines),
-        startWords: startEdited ? startWords : null,
+        starts:
+          startEdited || waysInChanged
+            ? startWordsAll(lines.triggers, startEdited ? startWords : null)
+            : null,
       });
       if (text) {
         // Asked once; when it fails, the lines stay missing steps and show on the chart.
@@ -343,9 +357,12 @@ function CheckBody({
 
       <section className="flex flex-col gap-3 rounded-md border border-line bg-surface p-5">
         <h2 className="text-lg font-medium text-ink">How it starts</h2>
+        <p className="ds-help text-sm">
+          Pick every way it can start. Each one you turn on is a trigger of its own.
+        </p>
         <fieldset className="grid grid-cols-2 gap-2 sm:grid-cols-5" aria-label="How it starts">
           {START_KINDS.map((k) => {
-            const on = trigger ? startKindOf(trigger.on) === k : false;
+            const on = startsOn.includes(k);
             return (
               <button
                 key={k}
@@ -353,8 +370,16 @@ function CheckBody({
                 aria-pressed={on}
                 data-testid={`flow-check-start-${k}`}
                 onClick={() => {
-                  edit((p) => setStart(p, k));
-                  if (!startEdited) setStartWords(startTitle(k));
+                  const out = toggleStart(process, k, newId);
+                  setStartRefused(out.refused ?? null);
+                  if (out.refused) return;
+                  setProcess(out.process);
+                  // In your words follows the first way in, until the operator writes their own.
+                  const first = out.process.triggers[0];
+                  const kindNow = first ? startKindOf(first.on) : null;
+                  if (!startEdited && first?.id !== trigger?.id) {
+                    setStartWords(kindNow ? startTitle(kindNow) : first ? triggerTitle(first) : "");
+                  }
                 }}
                 className={cx(
                   "flex flex-col gap-1 rounded-md border px-3 py-2 text-left text-sm",
@@ -363,13 +388,32 @@ function CheckBody({
                     : "border-line text-ink hover:border-line-strong",
                 )}
               >
-                <span className="font-medium">{STARTS[k].title}</span>
+                <span className="flex items-center justify-between gap-2 font-medium">
+                  {STARTS[k].title}
+                  {on ? <Icon name="check" size={14} className="shrink-0 text-slate" /> : null}
+                </span>
                 <span className="text-xs text-ink-muted">{STARTS[k].hint}</span>
               </button>
             );
           })}
         </fieldset>
-        <Field label="In your words">
+        {startRefused ? (
+          <p
+            className="text-sm text-ink-muted"
+            role="status"
+            data-testid="flow-check-start-refused"
+          >
+            {startRefused === "last"
+              ? "It needs at least one way to start, so the last one stays on."
+              : `A workflow starts at most ${TRIGGERS_MAX} ways. Turn one off first.`}
+          </p>
+        ) : null}
+        {process.triggers.length > 1 ? (
+          <p className="text-sm text-ink-muted" data-testid="flow-check-starts">
+            It starts {process.triggers.length} ways: {startWordsAll(process.triggers).join("; ")}.
+          </p>
+        ) : null}
+        <Field label={process.triggers.length > 1 ? "The first, in your words" : "In your words"}>
           <TextInput
             value={startWords}
             onChange={(e) => {
@@ -498,10 +542,23 @@ function CheckBody({
             Waiting on you: a run can end on {quoted(ending.dead.map((s) => s.name))} with nothing
             reported out. Choose where the result goes; it adds the last step.
           </p>
-        ) : ending.on.length > 0 ? (
-          <p className="text-sm text-ink-muted" data-testid="flow-check-ends-on">
-            It ends on {quoted(ending.on.map((s) => s.name))}.
-          </p>
+        ) : null}
+        {ending.ways.length > 0 ? (
+          <ul className="flex flex-col gap-1 text-sm text-ink" data-testid="flow-check-ways-out">
+            {ending.ways.map((w) => (
+              <li
+                key={w.step.id}
+                className="flex items-start gap-2"
+                data-testid="flow-check-way-out"
+                data-how={w.how}
+              >
+                <span className="text-ink-muted" aria-hidden>
+                  ·
+                </span>
+                <span>{wayOutWords(w, workflows)}</span>
+              </li>
+            ))}
+          </ul>
         ) : null}
       </section>
 
@@ -581,10 +638,6 @@ function quoted(names: readonly string[]): string {
 
 function plural(n: number, word: string): string {
   return `${n} ${word}${n === 1 ? "" : "s"}`;
-}
-
-function startTitle(k: StartKind): string {
-  return `When ${STARTS[k].title.charAt(0).toLowerCase()}${STARTS[k].title.slice(1)}`;
 }
 
 interface LineEvents {
