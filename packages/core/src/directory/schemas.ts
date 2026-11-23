@@ -461,3 +461,41 @@ export const ImportSource = z.object({
   status: z.string(),
 });
 export type ImportSource = z.infer<typeof ImportSource>;
+
+/** The keys an inbox title for a directory suggestion is said by (S5.7). */
+export const DIRECTORY_TITLE_KEYS = {
+  add: "directory.suggestions.title.add",
+  update: "directory.suggestions.title.update",
+  reach: "directory.suggestions.title.reach",
+} as const;
+export type DirectoryTitleKey = (typeof DIRECTORY_TITLE_KEYS)[keyof typeof DIRECTORY_TITLE_KEYS];
+
+const DIRECTORY_TITLE_ENGLISH: Record<DirectoryTitleKey, (name: string) => string> = {
+  "directory.suggestions.title.add": (name) => `Add ${name} to the directory`,
+  "directory.suggestions.title.update": (name) => `Update ${name} in the directory`,
+  "directory.suggestions.title.reach": (name) => `Change how we reach ${name}`,
+};
+
+/**
+ * A directory suggestion's inbox title (S5.7): its key and name, which the app writes in the
+ * reader's language, and the English kept as the item's title. `name` is the record's own name
+ * for an update (the change names only its id).
+ */
+export function directorySuggestionTitle(
+  change: DirectorySuggestionChange,
+  name?: string,
+): { key: DirectoryTitleKey; params: { name: string }; english: string } {
+  const key: DirectoryTitleKey =
+    change.action === "add_person" || change.action === "add_organization"
+      ? DIRECTORY_TITLE_KEYS.add
+      : suggestionChangesAddress(change)
+        ? DIRECTORY_TITLE_KEYS.reach
+        : DIRECTORY_TITLE_KEYS.update;
+  const who =
+    change.action === "add_person"
+      ? change.person.name
+      : change.action === "add_organization"
+        ? change.organization.name
+        : (name ?? "");
+  return { key, params: { name: who }, english: DIRECTORY_TITLE_ENGLISH[key](who) };
+}

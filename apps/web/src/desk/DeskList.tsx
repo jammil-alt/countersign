@@ -6,6 +6,7 @@ import type { PlainKey } from "../i18n/catalog";
 import { type I18n, useI18n } from "../i18n/i18n";
 import { changeHeading } from "../inbox/change";
 import { KIND_LABEL } from "../inbox/InboxCard";
+import { itemTitle } from "../inbox/titles";
 import { AgentBadge } from "../ui/badges";
 import { cx } from "../ui/primitives";
 import { type ChipState, StatusChip } from "../ui/status";
@@ -37,10 +38,10 @@ export function entryTitle(entry: DeskEntry, { t, locale }: Pick<I18n, "t" | "lo
   if (isBatch(entry)) {
     return t("desk.batch.title", {
       count: entry.items.length,
-      what: heading?.connector ?? lead.title,
+      what: heading?.connector ?? itemTitle(lead, t),
     });
   }
-  return heading?.title ?? lead.title;
+  return heading?.title ?? itemTitle(lead, t);
 }
 
 const NEED_CHIP: Record<ReturnType<typeof needOf>, { state: ChipState; key: PlainKey }> = {
