@@ -3,7 +3,7 @@
 // other starts: required fields are checked before sending, and each (blank, template fork) sends
 // the right request.
 import { AnyAgentBundle, toProcessBundle } from "@countersign/core";
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
@@ -249,6 +249,35 @@ describe("new client agent", () => {
         serviceName: "Material costs",
       },
     ]);
+  });
+
+  // S6.7 (TP1): an unpublished template draft was offered as a template for new agents.
+  it("offers published templates and their published versions only", async () => {
+    const DRAFT_ONLY = {
+      ...TEMPLATE,
+      id: "00000000-0000-4000-8000-00000000f002",
+      slug: "draft-only",
+      name: "Draft only",
+      liveVersionId: null,
+    };
+    const { user } = renderAt(`/ops/clients/${CLIENT}/agents/new`, {
+      [`GET /api/ops/clients/${CLIENT}`]: () => SANDBOX_DETAIL,
+      "GET /api/ops/templates": () => ({ templates: [TEMPLATE, DRAFT_ONLY] }),
+      [`GET /api/ops/agents/${TEMPLATE.id}`]: () => ({ ...AGENT_DETAIL, agent: TEMPLATE }),
+      [`GET /api/ops/agents/${TEMPLATE.id}/versions/${AGENT_DETAIL.live.id}`]: () => ({
+        version: AGENT_DETAIL.live,
+      }),
+    });
+    await user.click(await screen.findByTestId("new-agent-start-template-purchasing-clerk"));
+    expect(screen.queryByTestId("new-agent-start-template-draft-only")).toBeNull();
+    const select = await screen.findByTestId("new-agent-template-version-select");
+    // v2 is the template's draft: only v1, live, is offered.
+    expect(
+      within(select)
+        .getAllByRole("option")
+        .map((o) => o.textContent),
+    ).toEqual(["v1 · live · First version"]);
+    expect(select).toHaveValue(AGENT_DETAIL.live.id);
   });
 
   it("refuses a slug the client already uses", async () => {
