@@ -22,6 +22,8 @@ export const REENCRYPT_BATCH = 200;
 
 export interface VaultTickResult {
   rewrapped: number;
+  /** Client keys wrapped by a master key this deployment no longer holds: never openable. */
+  lostKeys: number;
   reencrypted: number;
   failed: number;
 }
@@ -31,13 +33,15 @@ export async function vaultUpkeep(
   master: CredentialCipher,
   limit = REENCRYPT_BATCH,
 ): Promise<VaultTickResult> {
-  const out: VaultTickResult = { rewrapped: 0, reencrypted: 0, failed: 0 };
+  const out: VaultTickResult = { rewrapped: 0, lostKeys: 0, reencrypted: 0, failed: 0 };
   // `tenant` is global (no RLS): the list of clients to visit, one at a time.
   const clients = await db.select({ id: tenant.id }).from(tenant).orderBy(asc(tenant.id));
   let budget = limit;
   for (const c of clients) {
     await withTenant(db, c.id, async (tx) => {
-      out.rewrapped += await rewrapClientKeys(tx, { tenantId: c.id, master });
+      const keys = await rewrapClientKeys(tx, { tenantId: c.id, master });
+      out.rewrapped += keys.rewrapped;
+      out.lostKeys += keys.lost;
       if (budget <= 0) return;
       const r = await reencryptClientCredentials(tx, {
         tenantId: c.id,
@@ -63,6 +67,14 @@ export async function vaultTick(
     reportProblem("vault upkeep: credential envelopes could not be re-encrypted", {
       job: "vault",
       failed: String(result.failed),
+    });
+  }
+  if (result.lostKeys > 0) {
+    // One warning a run, not an error per key: nothing can open these; a client whose active key
+    // was lost reconnects once it is retired (.github/workflows/retire-lost-keys.yml).
+    reportProblem("vault upkeep: client keys wrapped by a master key we no longer hold", {
+      job: "vault",
+      lost: String(result.lostKeys),
     });
   }
   return result;

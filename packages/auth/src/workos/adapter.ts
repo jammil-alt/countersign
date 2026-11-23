@@ -57,6 +57,10 @@ export interface Redirect {
     readonly secondFactor: SecondFactorState;
     /** §1.100: passed by a remembered browser. */
     readonly remembered: boolean;
+    /** §1.100: why a sign-in that takes the step wasn't passed by a remembered browser. */
+    readonly rememberedMiss?: RememberedMiss;
+    /** With `other_person`: who the browser was remembered for (see `RememberedOther`). */
+    readonly rememberedOther?: RememberedOther;
     /** §1.116: a sign-in for the phone app (never `remembered`). */
     readonly phone: boolean;
     /** §1.219: which app, when `phone` (the phone or the desktop app). */
@@ -71,8 +75,53 @@ export interface Redirect {
  */
 export interface SecondFactorPolicy {
   readonly on: boolean;
-  remembered?(input: { request: Request; userId: string; now: Date }): Promise<boolean>;
+  remembered?(input: {
+    request: Request;
+    userId: string;
+    /** The WorkOS user this callback signed in, to compare with an `other_person` browser's. */
+    workosUserId: string;
+    now: Date;
+  }): Promise<RememberedCheck>;
 }
+
+/**
+ * With `other_person`: the app user the browser was remembered for, and whether that user's
+ * WorkOS user is the one this callback signed in (null when they have none on record). The same
+ * WorkOS user under two app users points at provisioning; a different one at two accounts.
+ */
+export interface RememberedOther {
+  readonly userId: string;
+  readonly sameWorkosUser: boolean | null;
+}
+
+/**
+ * §1.100: why a remembered browser didn't skip the step, for the `session.sign_in` audit row, so a
+ * report of "it asked again" says which (overnight S1.5). `no_cookie`: this browser sent none (never
+ * remembered, cleared, or another browser). `unreadable`: it doesn't open with our key, or it has
+ * expired. `other_person`: remembered for someone else. `method_gone`: the method it passed with
+ * was reset or may no longer be used. `check_failed`: the check threw (reported, not swallowed).
+ * `phone_sign_in`: a sign-in for one of our apps, which a browser never skips. `not_checked`: the
+ * step is on but this environment can't check (misconfigured).
+ */
+export const REMEMBERED_MISSES = [
+  "no_cookie",
+  "unreadable",
+  "other_person",
+  "method_gone",
+  "check_failed",
+  "phone_sign_in",
+  "not_checked",
+] as const;
+export type RememberedMiss = (typeof REMEMBERED_MISSES)[number];
+
+/** The remembered-browser check: passed, or why not (a bare `false` is an unexplained miss). */
+export type RememberedCheck =
+  | boolean
+  | {
+      readonly remembered: false;
+      readonly reason: RememberedMiss;
+      readonly other?: RememberedOther;
+    };
 
 /** §1.149: how the welcome page starts a sign-in: Google, Microsoft or AuthKit's email. */
 export const SIGN_IN_METHODS = ["google", "microsoft", "email"] as const;
@@ -391,17 +440,32 @@ export function createWorkOSAdapter(options: {
       const method = auth.authenticationMethod ?? null;
       let secondFactor: SecondFactorState = "exempt";
       let remembered = false;
+      let rememberedMiss: RememberedMiss | undefined;
+      let rememberedOther: RememberedOther | undefined;
       // §1.116: a sign-in for the phone app; its session leaves this browser at the handoff.
       const phone = isMobileSignIn(request);
       const app = phone ? ((await mobileSignInApp(request, password, nowDate)) ?? "phone") : null;
       if (step && !(method && SECOND_FACTOR_EXEMPT_METHODS.includes(method))) {
         // DECISION (§1.116): a remembered browser never lets a sign-in for the phone skip the
         // step: the browser was remembered, not the phone the session goes to.
-        remembered = phone
-          ? false
-          : ((await step
-              .remembered?.({ request, userId: outcome.userId, now: nowDate })
-              .catch(() => false)) ?? false);
+        const check: RememberedCheck = phone
+          ? { remembered: false, reason: "phone_sign_in" }
+          : step.remembered
+            ? // The API's check reports its own errors; one that still throws is a miss, named.
+              await step
+                .remembered({
+                  request,
+                  userId: outcome.userId,
+                  workosUserId: auth.user.id,
+                  now: nowDate,
+                })
+                .catch((): RememberedCheck => ({ remembered: false, reason: "check_failed" }))
+            : { remembered: false, reason: "not_checked" };
+        remembered = check === true;
+        if (typeof check === "object") {
+          rememberedMiss = check.reason;
+          rememberedOther = check.other;
+        }
         secondFactor = remembered ? "done" : "pending";
       }
       const session = newSession(
@@ -430,6 +494,8 @@ export function createWorkOSAdapter(options: {
           method,
           secondFactor,
           remembered,
+          ...(rememberedMiss ? { rememberedMiss } : {}),
+          ...(rememberedOther ? { rememberedOther } : {}),
           phone,
           ...(app ? { app } : {}),
         },
@@ -471,6 +537,12 @@ export function createWorkOSAdapter(options: {
       const raw = requestCookie(request, SESSION_COOKIE);
       const opened = raw ? await openSession(raw, password) : null;
       const home = `${config.appOrigin}/`;
+      // DECISION (overnight S1.6): the WorkOS session is ended here too, not only by the browser
+      // reaching WorkOS's logout page: a sign-out whose navigation is cancelled, or an app that
+      // never follows it, left that session alive to sign the person straight back in. A failed
+      // revoke still signs out of ours; the logout page ends theirs (unchecked against WorkOS:
+      // whether its logout page minds a session already revoked, docs/open.md A4's staging walk).
+      if (opened?.sid) await workos.revokeSession(opened.sid).catch(() => undefined);
       return {
         ok: true,
         redirectTo: opened?.sid ? workos.logoutUrl(opened.sid, home) : home,

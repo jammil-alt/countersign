@@ -1,4 +1,9 @@
-import { buildPath, type RouteSpec, SESSION_ACTIVITY_HEADER } from "@countersign/core";
+import {
+  AUDIT_REFRESH_HEADER,
+  buildPath,
+  type RouteSpec,
+  SESSION_ACTIVITY_HEADER,
+} from "@countersign/core";
 import type { z } from "zod";
 import { reportApiFailure } from "../observability";
 import { recentlyActive } from "../session/activity";
@@ -35,6 +40,11 @@ export interface CallOptions<R extends RouteSpec> {
   query?: QueryOf<R>;
   body?: BodyOf<R>;
   signal?: AbortSignal;
+  /**
+   * A read that refreshes what is already on screen (a poll, a reload): sent with
+   * AUDIT_REFRESH_HEADER, so its audit row isn't counted as the person opening the page (S6.9).
+   */
+  refresh?: boolean;
 }
 
 /**
@@ -157,6 +167,7 @@ export function createApiClient(options: ClientOptions = {}): ApiClient {
       // Only the person's own requests keep the session alive (docs/plan.md §1.35).
       if (recentlyActive()) headers[SESSION_ACTIVITY_HEADER] = "1";
       if (body !== undefined) headers["content-type"] = "application/json";
+      if (opts.refresh && route.method === "GET") headers[AUDIT_REFRESH_HEADER] = "1";
       const init: RequestInit = { method: route.method, headers, credentials: "same-origin" };
       if (body !== undefined) init.body = body;
       if (opts.signal) init.signal = opts.signal;
