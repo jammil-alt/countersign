@@ -80,10 +80,11 @@ function Checklist({ rows }: { rows: Soc2Row[] }) {
   return (
     <>
       <KpiStrip testId="soc2-counts">
-        <StatTile label="Criteria" value={rows.length} />
-        <StatTile label="In place" value={counts.in_place} />
-        <StatTile label="Partial" value={counts.partial} />
-        <StatTile label="Missing" value={counts.missing} />
+        {/* QA SC1: criteria, not controls (the Overview counts controls). */}
+        <StatTile label="Criteria in our scope" value={rows.length} />
+        <StatTile label="Criteria in place" value={counts.in_place} />
+        <StatTile label="Criteria partly in place" value={counts.partial} />
+        <StatTile label="Criteria missing" value={counts.missing} />
       </KpiStrip>
       {SOC2_CATEGORIES.map((category) => {
         const own = rows.filter((r) => r.category === category);
@@ -92,7 +93,7 @@ function Checklist({ rows }: { rows: Soc2Row[] }) {
           <TableCard
             key={category}
             title={`${category} · ${SOC2_CATEGORY_NAMES[category]}`}
-            meta={`${c.in_place} of ${own.length} in place · Owner: ${own[0]?.owner ?? ""}`}
+            meta={`${c.in_place} of ${own.length} criteria in place · Owner: ${own[0]?.owner ?? ""}`}
             testId={`soc2-${category}`}
           >
             <table>

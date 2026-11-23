@@ -41,9 +41,15 @@ export function AccountReportView({
   csvHref,
   links = {},
   above,
+  surface = "portal",
 }: {
   /** The portal's report, or the back office's (which holds it). */
   report: PortalAccountReport;
+  /**
+   * Whose open items "waiting now" counts: the portal's are the client's own, the back office's
+   * every open item, ours included (QA CL1: 22, 24 and 26 for one client with no word for which).
+   */
+  surface?: "portal" | "ops";
   runsLink: (filter: RunFilter) => string;
   csvHref: string;
   links?: AccountLinks;
@@ -122,7 +128,7 @@ export function AccountReportView({
           to={to(waiting.runs.filter)}
           note={
             waiting.items > 0
-              ? w("waitingNote", {
+              ? w(surface === "ops" ? "waitingNoteOps" : "waitingNote", {
                   items: fmt.number(waiting.items),
                   age: age(waiting.oldestSince),
                 })
