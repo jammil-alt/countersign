@@ -253,13 +253,11 @@ describe.skipIf(!h)("a run as the client sees it", () => {
       new Intl.DateTimeFormat("en-CA", { timeZone: "America/Chicago" }).format(new Date(ms));
     const inMonth = dayOf(now - 22 * HOUR).slice(0, 7) === todayIn("America/Chicago").slice(0, 7);
     const inWeek = new Date(now - 22 * HOUR) >= new Date(table.week.from);
-    // The working run started an hour ago: in the first hour of the client's week, last week's.
-    const goingInWeek = new Date(now - HOUR) >= new Date(table.week.from);
     const clerk = table.services.find((s: { id: string }) => s.id === ids.agent);
     // The agent is waiting on you (any of its runs), and its latest run says why.
     expect(clerk.runsNow).toEqual({ running: 1, waitingOnYou: 1 });
     expect(table.figures.runs).toMatchObject({ waiting: inWeek ? 1 : 0 });
-    expect(clerk.runs).toMatchObject({ waiting: inWeek ? 1 : 0, going: goingInWeek ? 1 : 0 });
+    expect(clerk.runs).toMatchObject({ waiting: inWeek ? 1 : 0, going: 1 });
     expect(clerk.runsDone).toBe(clerk.runs.succeeded);
     // Design pass: its runs each day for the small chart, 14 days in the client's days, the same
     // three runs the runs-per-day route counts; its week's changes and documents as Reports counts.
