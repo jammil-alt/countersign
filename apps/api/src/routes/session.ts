@@ -3,8 +3,8 @@
 
 import { getSession, parseSignInMethod, toSessionResponse } from "@countersign/auth";
 import { isOperatorRole, routes } from "@countersign/core";
-import { appUser, userMemberships, withTenant } from "@countersign/db";
-import { asc } from "drizzle-orm";
+import { appUser, type Db, tenant, userMemberships, withTenant } from "@countersign/db";
+import { asc, eq } from "drizzle-orm";
 import type { Hono } from "hono";
 import { assignedAgents } from "../assigned";
 import { auditAlone } from "../audit";
@@ -68,12 +68,15 @@ export function sessionRoutes(app: Hono<AppEnv>): void {
               assignedAgents(tx, active, result.session.user.id),
             )
           : null;
+      // S5.3: the client's zone, so the portal's first draw is on the client's day.
+      const timezone = active ? await clientTimezone(services.db, active) : null;
       return c.json(
         routes.session.response.parse({
           ...toSessionResponse(result.session),
           language,
           lead,
           assignedAgents: assigned ? [...assigned] : null,
+          timezone,
         }),
       );
     } catch (error) {
@@ -247,6 +250,15 @@ export function sessionRoutes(app: Hono<AppEnv>): void {
       ),
     };
   });
+}
+
+/** A client's time zone (`tenant.timezone`), or null when the client is gone. */
+async function clientTimezone(db: Db, tenantId: string): Promise<string | null> {
+  const [t] = await db
+    .select({ timezone: tenant.timezone })
+    .from(tenant)
+    .where(eq(tenant.id, tenantId));
+  return t?.timezone ?? null;
 }
 
 /** The sign-in page, told why sign-in did not complete. */

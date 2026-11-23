@@ -198,6 +198,11 @@ export const SessionResponse = SessionBase.extend({
    * them and their runs and items); null or absent for every agent.
    */
   assignedAgents: z.array(z.string()).nullable().optional(),
+  /**
+   * S5.3: the active client's time zone (`tenant.timezone`), so the portal greets and dates on the
+   * client's day from its first draw; null or absent with no active client.
+   */
+  timezone: z.string().nullable().optional(),
 });
 export type SessionResponse = z.infer<typeof SessionResponse>;
 
