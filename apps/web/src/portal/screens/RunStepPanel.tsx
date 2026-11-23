@@ -9,11 +9,11 @@
 import { clientStepData, pickLocalized, stepDocumentIds } from "@countersign/core";
 import type { ResponseOf } from "../../api/client";
 import type { apiRoutes } from "../../api/routes";
-import type { PlainKey } from "../../i18n/catalog";
 import { useI18n } from "../../i18n/i18n";
 import { ChangeTables } from "../../inbox/ChangePanel";
 import { changeHeading } from "../../inbox/change";
 import { sourceLabel } from "../../records/SourceLinks";
+import { actionStatus } from "../../runs/actionStatus";
 import { duration, shortTime, stepStatusLabel } from "../../runs/format";
 import { conferTitle, StepChecks } from "../../runs/StepChecks";
 import {
@@ -26,7 +26,7 @@ import {
   stepChipState,
 } from "../../runs/StepPanel";
 import { writeLine } from "../../runs/write";
-import { Badge, Button, Tag, type Tone } from "../../ui/primitives";
+import { Badge, Button, Tag } from "../../ui/primitives";
 import { SheetSection } from "../../ui/sheet";
 import { StatusChip } from "../../ui/status";
 import { useSloanPanel } from "../SloanPanel";
@@ -34,22 +34,6 @@ import { useSloanPanel } from "../SloanPanel";
 type RunData = ResponseOf<typeof apiRoutes.portalRun>;
 type Step = RunData["steps"][number];
 type Action = RunData["actions"][number];
-
-const ACTION_WORDS: Record<string, PlainKey> = {
-  proposed: "action.status.proposed",
-  approved: "action.status.approved",
-  executing: "action.status.executing",
-  done: "action.status.done",
-  rejected: "action.status.rejected",
-  failed: "action.status.failed",
-};
-
-const ACTION_TONE: Record<string, Tone> = {
-  proposed: "warning",
-  approved: "person",
-  done: "positive",
-  failed: "risk",
-};
 
 /** What the Data tab lists for a step: its changes, the records it cites, the documents it names. */
 export function portalStepData(
@@ -85,12 +69,11 @@ export function portalStepData(
   return [...changes, ...records, ...documents];
 }
 
-function ActionBadge({ action }: { action: Action }) {
+/** A change's state: "Made", "Waiting for approval", "Not made: no answer in time" (S4.5). */
+export function ActionBadge({ action }: { action: Pick<Action, "status" | "expired"> }) {
   const { t } = useI18n();
-  const words = ACTION_WORDS[action.status];
-  return (
-    <Badge tone={ACTION_TONE[action.status] ?? "neutral"}>{words ? t(words) : action.status}</Badge>
-  );
+  const { key, tone } = actionStatus(action);
+  return <Badge tone={tone}>{key ? t(key) : action.status}</Badge>;
 }
 
 export function PortalStepPanel({
