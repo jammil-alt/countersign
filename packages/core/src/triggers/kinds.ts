@@ -164,7 +164,17 @@ export interface MessageRunPayload {
 
 /** A handoff trigger's run payload. */
 export interface HandoffRunPayload {
-  from: { agentId: string; agentSlug: string; workflowSlug: string; runId: string };
+  from: {
+    agentId: string;
+    agentSlug: string;
+    workflowSlug: string;
+    runId: string;
+    /**
+     * Ways in, ways out (2026-11-23): a hand-off to the agent's own workflow names the workflow
+     * it came from, as the run's page says it ("Handed off from Scan bills"). Absent otherwise.
+     */
+    workflowName?: string;
+  };
   output: unknown;
   sources: string[];
   depth: number;

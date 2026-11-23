@@ -21,6 +21,7 @@ import {
   type HandoffRequest,
   handoffRunRequest,
   type RunRequest,
+  selfHandoffRunRequest,
 } from "@countersign/workflows";
 import { and, eq } from "drizzle-orm";
 import { createRunRow } from "./dispatch";
@@ -53,6 +54,54 @@ async function targetOf(tx: Tx, tenantId: string, slug: string) {
   };
 }
 
+/**
+ * Ways in, ways out (2026-11-23): the sending agent as a self hand-off's router takes it, with the
+ * sending run's own version (not its live one), and its name.
+ */
+async function selfOf(tx: Tx, run: HandoffRequest["run"]) {
+  const [row] = await tx
+    .select({ a: agent, bundle: agentVersion.bundle })
+    .from(agent)
+    .leftJoin(
+      agentVersion,
+      and(
+        eq(agentVersion.id, run.agentVersionId),
+        eq(agentVersion.tenantId, agent.tenantId),
+        eq(agentVersion.agentId, agent.id),
+      ),
+    )
+    .where(and(eq(agent.tenantId, run.tenantId), eq(agent.id, run.agentId)));
+  if (!row) return null;
+  const { a, bundle } = row;
+  return {
+    name: a.serviceName ?? a.name,
+    bundle: bundle ?? null,
+    routable: {
+      id: a.id,
+      slug: a.slug,
+      tenantId: a.tenantId,
+      kind: a.kind,
+      status: a.status,
+      runStatus: a.runStatus,
+      liveVersionId: a.liveVersionId,
+      liveBundle: null,
+    },
+  };
+}
+
+/** A self hand-off's names: the workflow it starts and its step there. */
+function selfNames(
+  self: Awaited<ReturnType<typeof selfOf>>,
+  request: HandoffRequest,
+): HandoffNames & { agentName: string } {
+  const wf = self?.bundle?.workflows.find((w) => w.slug === request.to.workflow);
+  return {
+    agentName: self?.name ?? "",
+    name: wf?.name ?? request.to.workflow ?? "",
+    at: wf ? processes.handoffStepLabel(wf.workflow.steps, request.to.step) : request.to.step,
+  };
+}
+
 /** "5 · Itemize the invoice": the step's place among the workflow's top-level steps. */
 function atLabel(workflows: readonly AnyBundleWorkflow[] | undefined, step: string): string {
   const wf = workflows?.find((w) => w.enabled);
@@ -71,6 +120,29 @@ function refusalWords(refused: HandoffRefusal, name: string, step: string): stri
       return `no agent "${name}" in this client`;
     case "unknown_step":
       return `${name}'s live version has no step "${step}"`;
+    // Ways in, ways out (2026-11-23): `name` is the workflow's.
+    case "same_workflow":
+      return "a hand-off goes to another of this agent's workflows, not back into its own";
+    case "unknown_workflow":
+      return `this agent has no workflow "${name}"`;
+    case "workflow_off":
+      return `"${name}" is turned off, so the hand-off didn't run`;
+  }
+}
+
+/** A self hand-off's refusal in plain words (the step's own workflow named where it helps). */
+function selfRefusalWords(
+  refused: HandoffRefusal,
+  names: HandoffNames & { agentName: string },
+  step: string,
+): string {
+  switch (refused) {
+    case "not_started":
+      return refusalWords(refused, names.agentName, step);
+    case "unknown_step":
+      return `"${names.name}" has no step "${step}" at its top level`;
+    default:
+      return refusalWords(refused, names.name, step);
   }
 }
 
@@ -88,58 +160,96 @@ export function handoffPort(
     name: target?.name ?? request.to.agent,
     at: atLabel(target?.routable.liveBundle?.workflows, request.to.step),
   });
+  type Refused = Partial<HandoffNames> & { refused: string; notStarted?: boolean };
+  type Decided = Refused | (HandoffNames & { request: RunRequest });
+  /** Ways in, ways out (2026-11-23): a new run of this agent's version, in another workflow. */
+  const decideSelf = (request: HandoffRequest): Promise<Decided> =>
+    withTenant(db, request.run.tenantId, async (tx): Promise<Decided> => {
+      const { run } = request;
+      const self = await selfOf(tx, run);
+      const named = selfNames(self, request);
+      const r = await selfRequest(request, self, depth);
+      if ("refused" in r) {
+        // A paused agent is named as itself; anything else names the workflow.
+        const notStarted = r.refused === "not_started";
+        return {
+          refused: selfRefusalWords(r.refused, named, request.to.step),
+          name: notStarted ? named.agentName : named.name,
+          at: named.at,
+          ...(notStarted ? { notStarted: true } : {}),
+        };
+      }
+      try {
+        await createRunRow(tx, r.run);
+      } catch (error) {
+        if (error instanceof AgentsError && error.code === "invalid_state") {
+          return {
+            refused: refusalWords("not_started", named.agentName, ""),
+            name: named.agentName,
+            notStarted: true,
+          };
+        }
+        throw error;
+      }
+      return { request: r.run, name: named.name, at: named.at };
+    });
   return {
     names: (request) =>
-      withTenant(db, request.run.tenantId, async (tx) =>
-        namesOf(await targetOf(tx, request.run.tenantId, request.to.agent), request),
-      ),
+      withTenant(db, request.run.tenantId, async (tx) => {
+        if (request.to.agent === processes.HANDOFF_SELF) {
+          const { agentName: _, ...names } = selfNames(await selfOf(tx, request.run), request);
+          return names;
+        }
+        return namesOf(await targetOf(tx, request.run.tenantId, request.to.agent), request);
+      }),
     async start(request) {
       const { run } = request;
       const instances = deps.instances;
       if (!instances) return { refused: "hand-offs can't start runs here" };
-      type Refused = Partial<HandoffNames> & { refused: string; notStarted?: boolean };
-      type Decided = Refused | (HandoffNames & { request: RunRequest });
-      const decided = await withTenant(db, run.tenantId, async (tx): Promise<Decided> => {
-        const [self] = await tx
-          .select({ slug: agent.slug })
-          .from(agent)
-          .where(and(eq(agent.id, run.agentId), eq(agent.tenantId, run.tenantId)));
-        const target = await targetOf(tx, run.tenantId, request.to.agent);
-        const named = namesOf(target, request);
-        const r = await handoffRunRequest(
-          {
-            tenantId: run.tenantId,
-            from: {
-              runId: run.id,
-              agentId: run.agentId,
-              agentSlug: self?.slug ?? "",
-              workflowSlug: run.workflowSlug,
-              nodeId: request.nodeId,
-              depth,
-            },
-            to: request.to,
-            input: request.input,
-          },
-          target?.routable ?? null,
-        );
-        if ("refused" in r) {
-          return {
-            refused: refusalWords(r.refused, named.name, request.to.step),
-            ...named,
-            ...(r.refused === "not_started" ? { notStarted: true } : {}),
-          };
-        }
-        try {
-          await createRunRow(tx, r.run);
-        } catch (error) {
-          // Paused between the check and the row: not started.
-          if (error instanceof AgentsError && error.code === "invalid_state") {
-            return { refused: refusalWords("not_started", named.name, ""), notStarted: true };
-          }
-          throw error;
-        }
-        return { request: r.run, ...named };
-      });
+      const decided =
+        request.to.agent === processes.HANDOFF_SELF
+          ? await decideSelf(request)
+          : await withTenant(db, run.tenantId, async (tx): Promise<Decided> => {
+              const [self] = await tx
+                .select({ slug: agent.slug })
+                .from(agent)
+                .where(and(eq(agent.id, run.agentId), eq(agent.tenantId, run.tenantId)));
+              const target = await targetOf(tx, run.tenantId, request.to.agent);
+              const named = namesOf(target, request);
+              const r = await handoffRunRequest(
+                {
+                  tenantId: run.tenantId,
+                  from: {
+                    runId: run.id,
+                    agentId: run.agentId,
+                    agentSlug: self?.slug ?? "",
+                    workflowSlug: run.workflowSlug,
+                    nodeId: request.nodeId,
+                    depth,
+                  },
+                  to: request.to,
+                  input: request.input,
+                },
+                target?.routable ?? null,
+              );
+              if ("refused" in r) {
+                return {
+                  refused: refusalWords(r.refused, named.name, request.to.step),
+                  ...named,
+                  ...(r.refused === "not_started" ? { notStarted: true } : {}),
+                };
+              }
+              try {
+                await createRunRow(tx, r.run);
+              } catch (error) {
+                // Paused between the check and the row: not started.
+                if (error instanceof AgentsError && error.code === "invalid_state") {
+                  return { refused: refusalWords("not_started", named.name, ""), notStarted: true };
+                }
+                throw error;
+              }
+              return { request: r.run, ...named };
+            });
       if (!("request" in decided)) return decided;
       const { request: started, ...named } = decided;
       // After the row commits, as a dispatched run starts; the id is fixed, so a repeat is `exists`.
@@ -147,6 +257,34 @@ export function handoffPort(
       return { runId: started.runId, ...named };
     },
   };
+}
+
+/** The router's self hand-off request for one step, from this run. */
+async function selfRequest(
+  request: HandoffRequest,
+  self: Awaited<ReturnType<typeof selfOf>>,
+  depth: number,
+) {
+  const { run } = request;
+  return selfHandoffRunRequest(
+    {
+      tenantId: run.tenantId,
+      from: {
+        runId: run.id,
+        agentId: run.agentId,
+        agentSlug: self?.routable.slug ?? "",
+        workflowSlug: run.workflowSlug,
+        nodeId: request.nodeId,
+        depth,
+        agentVersionId: run.agentVersionId,
+        mode: run.mode,
+      },
+      to: request.to,
+      input: request.input,
+    },
+    self?.routable ?? null,
+    self?.bundle ?? null,
+  );
 }
 
 /**
@@ -184,10 +322,16 @@ export async function handedOffFrom(
         .where(and(eq(agent.id, agentId), eq(agent.tenantId, tenantId)))
     : [];
   const at = typeof trigger.at === "string" ? trigger.at : null;
+  // Ways in, ways out (2026-11-23): a run this agent's other workflow handed off names that
+  // workflow, as it was called when it handed off.
+  const workflowName = typeof from.workflowName === "string" ? from.workflowName : null;
   return {
     fromRunId,
     fromAgent:
-      row?.serviceName ?? row?.name ?? (typeof from.agentSlug === "string" ? from.agentSlug : ""),
+      workflowName ??
+      row?.serviceName ??
+      row?.name ??
+      (typeof from.agentSlug === "string" ? from.agentSlug : ""),
     at: at && workflow ? processes.handoffStepLabel(workflow.steps, at) : at,
   };
 }

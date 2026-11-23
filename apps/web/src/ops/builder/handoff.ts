@@ -27,16 +27,28 @@ export function handoffChoices(
   return handoff ? handoff.agents.filter((a) => a.slug !== handoff.self) : [];
 }
 
+/** The workflows a hand-off to "This agent" can pick: every workflow but the one open now. */
+export function ownWorkflowChoices(
+  data: Pick<BuilderData, "own">,
+): readonly processes.HandoffWorkflow[] {
+  const own = data.own;
+  return own ? own.workflows.filter((w) => w.slug !== own.workflow) : [];
+}
+
+/** A hand-off step's target, as the pickers set it. */
+type HandoffTo = { agent: string; step: string; workflow?: string | undefined };
+
 /**
- * A hand-off step's name after a pick: "Hand off to Price checker at 5 · Itemize the invoice",
- * while it is still the name the builder gave; a name the operator wrote stays.
+ * A hand-off step's name after a pick: "Hand off to Price checker at 5 · Itemize the invoice", or
+ * for this agent's own workflow "Hand off to Check an invoice at 1 · Read it", while it is still
+ * the name the builder gave; a name the operator wrote stays.
  */
 // DECISION: the canvas row shows a step's name, so the builder names the step for its target
 // (the same words the row's second line uses) rather than the row special-casing hand-offs.
 export function handoffName(
-  data: Pick<BuilderData, "handoff">,
+  data: Pick<BuilderData, "handoff" | "own">,
   name: string,
-  to: { agent: string; step: string },
+  to: HandoffTo,
 ): string {
   if (name !== "Hand off" && !name.startsWith("Hand off to ")) return name;
   const named = handoffNames(data, to);
@@ -44,11 +56,19 @@ export function handoffName(
   return to.step ? `Hand off to ${named.name} at ${named.at}` : `Hand off to ${named.name}`;
 }
 
-/** "Price checker" and "5 · Itemize the invoice", for the canvas row; undefined when unknown. */
+/**
+ * "Price checker" and "5 · Itemize the invoice", for the canvas row; for this agent's own
+ * workflow, that workflow's name and its step. Undefined when unknown.
+ */
 export function handoffNames(
-  data: Pick<BuilderData, "handoff">,
-  to: { agent: string; step: string },
+  data: Pick<BuilderData, "handoff" | "own">,
+  to: HandoffTo,
 ): { name: string; at: string } | undefined {
+  if (to.agent === processes.HANDOFF_SELF) {
+    const wf = data.own?.workflows.find((w) => w.slug === to.workflow);
+    if (!wf) return undefined;
+    return { name: wf.name, at: processes.handoffStepLabel(wf.steps, to.step) };
+  }
   const agent = data.handoff?.agents.find((a) => a.slug === to.agent);
   if (!agent) return undefined;
   return { name: agent.name, at: processes.handoffStepLabel(agent.steps, to.step) };

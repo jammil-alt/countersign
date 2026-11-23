@@ -484,7 +484,11 @@ export type HandoffRefusal =
   | "too_deep"
   | "unknown_agent"
   | "not_started"
-  | "unknown_step";
+  | "unknown_step"
+  // Ways in, ways out (2026-11-23): a hand-off to the agent's own workflow.
+  | "same_workflow"
+  | "unknown_workflow"
+  | "workflow_off";
 
 /** What a hand-off step asks for, from the run it is in. */
 export interface HandoffAsk {
@@ -550,6 +554,81 @@ export async function handoffRunRequest(
       agentVersionId: target.liveVersionId,
       workflowSlug: wf.slug,
       mode: "live",
+      trigger: {
+        triggerId: ask.from.nodeId,
+        type: "handoff",
+        fromRunId: ask.from.runId,
+        depth,
+        at: ask.to.step,
+        fromAgentId: ask.from.agentId,
+        fromStep: ask.from.nodeId,
+      },
+      payload,
+    },
+  };
+}
+
+/** What a self hand-off asks for besides `HandoffAsk`: the sending run's own version and mode. */
+export interface SelfHandoffAsk extends HandoffAsk {
+  from: HandoffAsk["from"] & { agentVersionId: string; mode: "live" | "test" };
+  to: { agent: string; step: string; workflow?: string | undefined };
+}
+
+/**
+ * Ways in, ways out (owner, 2026-11-23): the run a hand-off to the agent's own workflow starts. A
+ * new run of the same agent on the sending run's version (not its live one), in workflow
+ * `to.workflow` (enabled, not the sender's own), at its top-level step `to.step`, in the sending
+ * run's mode. The agent must be started, and at most three handoffs deep, as any hand-off. The
+ * run id derives from the sending run and step, so asking twice starts one run.
+ */
+// DECISION: the sending run's version, not the live one, so the two halves of one piece of work
+// run the same definition even if a new version goes live in between.
+export async function selfHandoffRunRequest(
+  ask: SelfHandoffAsk,
+  self: (RoutableAgent & { slug: string }) | null,
+  bundle: AnyAgentBundle | null,
+): Promise<{ run: RunRequest; workflowName: string } | { refused: HandoffRefusal }> {
+  const depth = ask.from.depth + 1;
+  if (depth > MAX_HANDOFF_DEPTH) return { refused: "too_deep" };
+  if (
+    self?.id !== ask.from.agentId ||
+    self.kind !== "client" ||
+    self.tenantId !== ask.tenantId ||
+    !bundle
+  ) {
+    return { refused: "unknown_agent" };
+  }
+  if (self.status !== "active" || self.runStatus !== "active") return { refused: "not_started" };
+  const slug = ask.to.workflow;
+  if (slug === ask.from.workflowSlug) return { refused: "same_workflow" };
+  const wf = bundle.workflows.find((w) => w.slug === slug);
+  if (!wf) return { refused: "unknown_workflow" };
+  if (!wf.enabled) return { refused: "workflow_off" };
+  if (!wf.workflow.steps.some((s) => s.id === ask.to.step)) return { refused: "unknown_step" };
+  const fromName = bundle.workflows.find((w) => w.slug === ask.from.workflowSlug)?.name;
+  const payload: HandoffRunPayload = {
+    from: {
+      agentId: ask.from.agentId,
+      agentSlug: ask.from.agentSlug,
+      workflowSlug: ask.from.workflowSlug,
+      runId: ask.from.runId,
+      ...(fromName !== undefined ? { workflowName: fromName } : {}),
+    },
+    output: null,
+    sources: [],
+    depth,
+    at: ask.to.step,
+    input: ask.input,
+  };
+  return {
+    workflowName: wf.name,
+    run: {
+      runId: await handoffRunId({ fromRunId: ask.from.runId, nodeId: ask.from.nodeId }),
+      tenantId: ask.tenantId,
+      agentId: self.id,
+      agentVersionId: ask.from.agentVersionId,
+      workflowSlug: wf.slug,
+      mode: ask.from.mode,
       trigger: {
         triggerId: ask.from.nodeId,
         type: "handoff",

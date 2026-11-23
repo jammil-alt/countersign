@@ -15,6 +15,7 @@ import { decideToolCall } from "../permissions/decide";
 import { effectiveMatrix, type GrantLimits } from "../permissions/grants";
 import { ACTION_SPECS } from "../process/actions";
 import { loopStepNumber, pathLetter, pathStepNumber } from "../process/numbers";
+import { HANDOFF_SELF } from "../process/schema";
 import type { AgentDefinition, AnyAgentBundle } from "../schemas/agent";
 import type { PermissionLevel, PermissionMatrix, Verb } from "../schemas/permissions";
 import type { Rules } from "../schemas/rules";
@@ -821,7 +822,8 @@ export function sopView(input: SopInput): SopView {
       who = input.agentParty(step.agent);
     } else if (step.kind === "handoff") {
       const to = (step.to as { agent?: string } | undefined)?.agent;
-      who = to ? input.agentParty(to) : null;
+      // Ways in, ways out (2026-11-23): a hand-off to this agent's own workflow names no other party.
+      who = to && to !== HANDOFF_SELF ? input.agentParty(to) : null;
     }
 
     // Systems and data the step touches.

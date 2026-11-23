@@ -9,12 +9,17 @@ import { and, eq } from "drizzle-orm";
 import type { RegistryContext } from "./agents";
 import { convertLookup, skillContext } from "./skills";
 
-/** Whether a bundle has a hand-off step (only those versions need the client's agents). */
+/**
+ * Whether a bundle has a hand-off step to another agent (only those versions need the client's
+ * agents; a hand-off to this agent's own workflow is checked against the bundle alone).
+ */
 export function holdsHandoff(bundle: AnyAgentBundle): boolean {
   return bundle.workflows.some(
     (w) =>
       w.workflow.schemaVersion === 4 &&
-      processes.allSteps(w.workflow).some((l) => l.step.kind === "handoff"),
+      processes
+        .allSteps(w.workflow)
+        .some((l) => l.step.kind === "handoff" && !processes.isSelfHandoff(l.step)),
   );
 }
 
