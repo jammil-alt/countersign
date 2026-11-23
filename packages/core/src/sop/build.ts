@@ -22,6 +22,7 @@ import { type SkillDefinition, skillMethod, skillTools } from "../schemas/skill"
 import { isAlwaysSigned, type ToolSpec } from "../schemas/tool";
 import { runModel } from "../skills/model";
 import { scheduleText } from "../triggers/schedule";
+import { type SopSay, type SopSayKey, say, sopEntityKey } from "./say";
 import type {
   SopApprover,
   SopChartKind,
@@ -253,6 +254,48 @@ const EVENT_WORDS: Record<string, string> = {
   "inbound.message": "A message arrives",
   "run.succeeded": "Another agent finishes",
 };
+
+const EVENT_SAY: Record<string, SopSayKey> = {
+  "document.received": "sop.say.trigger.documentReceived",
+  "document.extracted": "sop.say.trigger.documentExtracted",
+  "transaction.created": "sop.say.trigger.transactionCreated",
+  "transaction.updated": "sop.say.trigger.transactionUpdated",
+  "message.received": "sop.say.trigger.messageReceived",
+  "inbound.message": "sop.say.trigger.messageReceived",
+  "run.succeeded": "sop.say.trigger.runSucceeded",
+};
+
+/** A trigger by key (S5.7), or null for one said only in English (a schedule, an unknown event). */
+export function sopTriggerSay(
+  on: { type: string } & Record<string, unknown>,
+  agentName: (slug: string) => string | null,
+): SopSay | null {
+  switch (on.type) {
+    case "event": {
+      const key = EVENT_SAY[String(on.event)];
+      return key ? say(key) : null;
+    }
+    case "manual":
+      return (on.client as { canRun?: boolean } | undefined)?.canRun
+        ? say("sop.say.trigger.manualTeam")
+        : say("sop.say.trigger.manualUs");
+    case "command":
+      return say("sop.say.trigger.command", { command: String(on.command) });
+    case "webhook":
+      return say("sop.say.trigger.webhook");
+    case "message":
+      return say("sop.say.trigger.message");
+    case "handoff": {
+      const from = on.from as { agent?: string } | undefined;
+      const name = from?.agent ? agentName(from.agent) : null;
+      return name ? say("sop.say.trigger.handoff", { name }) : say("sop.say.trigger.handoffAny");
+    }
+    case "schedule":
+      return null;
+    default:
+      return say("sop.say.trigger.started");
+  }
+}
 
 /** A trigger in words. */
 export function sopTriggerWords(
@@ -552,7 +595,30 @@ export function sopStepModels(input: SopInput): { stepId: string; model: string 
   return out;
 }
 
-/** "Reads vendors from QuickBooks Online." when the step has no purpose of its own. */
+/** A tool's purpose by key (S5.7): "Adds {what} to {where}.", its record type translated. */
+function toolPurposeSay(tool: ToolSpec, systemsOf: (t: ToolSpec) => string | null): SopSay {
+  const system = systemsOf(tool);
+  const entity = tool.entity ?? null;
+  const what = entity ? plural(entity.replaceAll("_", " ")) : "records";
+  const key: SopSayKey =
+    tool.sideEffect === "none"
+      ? "sop.say.purpose.reads"
+      : tool.verb === "create"
+        ? "sop.say.purpose.adds"
+        : tool.verb === "delete"
+          ? "sop.say.purpose.removes"
+          : "sop.say.purpose.updates";
+  const whatKey = entity ? sopEntityKey(entity) : "sop.say.what.records";
+  return say(
+    key,
+    { what, where: system ?? "your records in Mezonas" },
+    {
+      ...(whatKey ? { what: whatKey } : {}),
+      ...(system ? {} : { where: "sop.say.where.mezonas" }),
+    },
+  );
+}
+
 /** "Reads vendors from QuickBooks Online.": what one tool does, in words. */
 function toolPurpose(tool: ToolSpec, systemsOf: (t: ToolSpec) => string | null): string {
   const where = systemsOf(tool) ?? "your records in Mezonas";
@@ -566,6 +632,23 @@ function toolPurpose(tool: ToolSpec, systemsOf: (t: ToolSpec) => string | null):
           ? ["Removes", "from"]
           : ["Updates", "in"];
   return `${verb} ${what} ${prep} ${where}.`;
+}
+
+/** The step's purpose by key, when it is a tool's (S5.7); null for words from elsewhere. */
+function purposeSayFor(
+  step: AnyStep,
+  input: SopInput,
+  systemsOf: (t: ToolSpec) => string | null,
+): SopSay | null {
+  const first = toolsOf(step, input)[0];
+  if ((step.kind === "read" || step.kind === "write" || step.kind === "action") && first) {
+    return toolPurposeSay(first, systemsOf);
+  }
+  if (step.kind === "skill" && first) {
+    const def = lookupSkill(String(step.skill), input.skills);
+    if (!def || def.mode === "tool") return toolPurposeSay(first, systemsOf);
+  }
+  return null;
 }
 
 function purposeFor(
@@ -641,6 +724,16 @@ function targetParty(t: ApproverTarget, input: SopInput): SopParty {
     case "operator":
       return input.party("operator");
   }
+}
+
+/** `ifNoAnswerWords` by key (S5.7). */
+function ifNoAnswerSay(then: unknown, input: SopInput): SopSay | undefined {
+  if (then === undefined || then === null || then === "stop") return say("sop.say.then.stop");
+  if (then === "proceed") return say("sop.say.then.proceed");
+  if (then === "skip") return say("sop.say.then.skip");
+  const esc = (then as { escalate?: { to: string } }).escalate;
+  if (esc) return say("sop.say.then.escalate", { name: input.party(esc.to).name });
+  return undefined;
 }
 
 function ifNoAnswerWords(then: unknown, input: SopInput): string | null {
@@ -816,6 +909,10 @@ export function sopView(input: SopInput): SopView {
             approval.ifNoAnswer = approval.byWhen
               ? ifNoAnswerWords(first?.ifNoAnswer, input)
               : null;
+            const noAnswerSay = approval.byWhen
+              ? ifNoAnswerSay(first?.ifNoAnswer, input)
+              : undefined;
+            if (noAnswerSay) approval.ifNoAnswerSay = noAnswerSay;
             const onReject = v.v4
               ? first?.onReject
               : (step.approval as { onReject?: string } | undefined)?.onReject;
@@ -823,6 +920,9 @@ export function sopView(input: SopInput): SopView {
               onReject === "continue"
                 ? "it goes on without the change"
                 : "the change isn't made and the run stops";
+            approval.ifRejectedSay = say(
+              onReject === "continue" ? "sop.say.rejected.continue" : "sop.say.rejected.stop",
+            );
           }
         }
       } else if (tool.sideEffect === "none" && conn) {
@@ -998,6 +1098,7 @@ export function sopView(input: SopInput): SopView {
     }
 
     const purposeWritten = typeof step.purpose === "string" && step.purpose.trim() !== "";
+    const purposeSay = purposeWritten ? null : purposeSayFor(step, input, systemName);
     stepLines.set(step.id, {
       line: "step",
       id: step.id,
@@ -1011,6 +1112,7 @@ export function sopView(input: SopInput): SopView {
       purpose: purposeWritten
         ? sentence(String(step.purpose))
         : purposeFor(step, v.v4, input, systemName),
+      ...(purposeSay ? { purposeSay } : {}),
       purposeWritten,
       who,
       approval,
@@ -1020,6 +1122,7 @@ export function sopView(input: SopInput): SopView {
       controls: lineControls,
       onError:
         step.onError === "continue" ? "the run goes on and a later step can deal with it" : null,
+      ...(step.onError === "continue" ? { onErrorSay: say("sop.say.onError.continue") } : {}),
       byWhen: byWhen
         ? `${byWhen}${deadline && v.v4 ? `; if nobody answers, ${ifNoAnswerWords((deadline as { ifNoAnswer?: unknown }).ifNoAnswer, input)}` : ""}`
         : null,
@@ -1240,6 +1343,7 @@ export function sopView(input: SopInput): SopView {
   // Triggers, scope, exceptions.
   const agentName = (slug: string) => input.agentParty(slug)?.name ?? null;
   const triggers: string[] = [];
+  const triggersSay: (SopSay | null)[] = [];
   let runByHand: string | null = null;
   for (const w of input.bundle.workflows) {
     if (w.enabled === false) continue;
@@ -1255,7 +1359,10 @@ export function sopView(input: SopInput): SopView {
         : [wf.trigger, ...(wf.moreTriggers ?? [])].filter((t) => t !== undefined);
     for (const t of list) {
       const words = sopTriggerWords(t.on, agentName);
-      if (!triggers.includes(words)) triggers.push(words);
+      if (!triggers.includes(words)) {
+        triggers.push(words);
+        triggersSay.push(sopTriggerSay(t.on, agentName));
+      }
       if (t.on.type === "manual" && (t.on.client as { canRun?: boolean } | undefined)?.canRun) {
         runByHand = "Your admin and people who sign can start it from this agent's page.";
       }
@@ -1347,7 +1454,7 @@ export function sopView(input: SopInput): SopView {
     scope: { covers: triggers, notCovered, never: [...SOP_NEVER] },
     roles,
     matrix: { parties, rows },
-    start: { triggers, hours: input.businessHours, runByHand },
+    start: { triggers, triggersSay, hours: input.businessHours, runByHand },
     summary: {
       steps: steps.length,
       rules: count("rules"),
