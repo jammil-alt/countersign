@@ -7,6 +7,7 @@ import { Link } from "react-router-dom";
 import { useApi } from "../../api/useApi";
 import { Loaded, Page } from "../../ui/page";
 import { cx, EmptyState, PageHeader } from "../../ui/primitives";
+import { cost } from "../../usage/format";
 import { TableCard } from "../screens/business";
 
 const pct = (n: number | null) => (n === null ? "—" : `${Math.round(n * 1000) / 10}%`);
@@ -23,7 +24,7 @@ const verified = (
   ].filter(Boolean);
   return [`${pct(rate)} of ${looked}`, ...off].join(" · ");
 };
-const usd = (s: string) => `$${Number(s).toFixed(4)}`;
+const usd = (s: string) => cost(s);
 const time = (n: number | null) =>
   n === null ? "—" : n < 1000 ? `${n} ms` : `${(n / 1000).toFixed(1)} s`;
 

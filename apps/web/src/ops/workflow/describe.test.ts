@@ -8,7 +8,7 @@ const names = new Map([["0193-step", "Review the record"]]);
 describe("rule and failure text", () => {
   it("names the step a rule's field comes from instead of its id", () => {
     expect(fieldText("{{steps.0193-step.output.needsFix}}", names)).toBe(
-      "Review the record · needsFix",
+      "Review the record · needs fix",
     );
     expect(fieldText("{{steps.0193-step.output}}", names)).toBe("Review the record output");
     expect(fieldText("{{trigger.amount}}", names)).toBe("trigger · amount");
@@ -25,7 +25,7 @@ describe("rule and failure text", () => {
         },
         names,
       ),
-    ).toBe("Review the record · needsFix = true or trigger · total exists");
+    ).toBe("Review the record · needs fix = true or trigger · total exists");
   });
 
   it("says which step failed and why, not the stored JSON", () => {

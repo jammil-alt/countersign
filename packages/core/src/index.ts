@@ -394,6 +394,7 @@ export * from "./text";
 export * from "./threads/command";
 export * from "./threads/schemas";
 export * from "./timezone";
+export * from "./tool-words";
 export * from "./translate/detect";
 export * from "./translate/settings";
 // v0.12 W2-E

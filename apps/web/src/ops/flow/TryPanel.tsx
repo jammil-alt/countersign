@@ -807,7 +807,11 @@ const OUTPUT_MAX_CHARS = 20_000;
  */
 function StepOutputs({ run, process }: { run: TryRun; process: Process }) {
   const names = useMemo(
-    () => new Map(processes.allSteps(process).map((l) => [l.step.id, l.step.name])),
+    () =>
+      new Map([
+        ...process.triggers.map((t): [string, string] => [t.id, "Trigger"]),
+        ...processes.allSteps(process).map((l): [string, string] => [l.step.id, l.step.name]),
+      ]),
     [process],
   );
   const rows = run.steps.slice(0, 100);

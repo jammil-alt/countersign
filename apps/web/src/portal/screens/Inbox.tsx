@@ -342,7 +342,16 @@ export function PortalInboxScreen() {
           {selected ? (
             // One card that can't be shown leaves the list and the other cards working.
             <ErrorBoundary key={selected.key} part="desk-card">
-              <DeskDetail entry={selected} canSign={canSign} onChanged={changed} />
+              <DeskDetail
+                entry={selected}
+                canSign={canSign}
+                onChanged={changed}
+                sourceNames={{
+                  ...waiting.data?.sourceNames,
+                  ...later.data?.sourceNames,
+                  ...done.data?.sourceNames,
+                }}
+              />
             </ErrorBoundary>
           ) : state.data && shown.length > 0 ? (
             <EmptyState>{t("desk.pick")}</EmptyState>

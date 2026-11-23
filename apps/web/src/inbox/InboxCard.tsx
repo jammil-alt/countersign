@@ -312,6 +312,7 @@ export function InboxCard({
   context,
   runHref,
   recordHref,
+  sourceNames,
   documentHref,
   connectorNames,
   onResolve,
@@ -330,6 +331,8 @@ export function InboxCard({
   runHref?: string | null;
   /** The record page for a source id (payload `sources`, invariant 10), in this surface. */
   recordHref?: ((id: string) => string) | null;
+  /** S5.6: the cited records' names, by id, as the list served them. */
+  sourceNames?: Readonly<Record<string, string>> | undefined;
   /** The document page for a document the change rests on (its Evidence), in this surface. */
   documentHref?: ((id: string) => string) | null;
   connectorNames?: Record<string, string>;
@@ -523,7 +526,12 @@ export function InboxCard({
             </Link>
           ) : null}
           {recordHref ? (
-            <SourceLinks ids={sources} href={recordHref} testId="inbox-item-sources" />
+            <SourceLinks
+              ids={sources}
+              href={recordHref}
+              testId="inbox-item-sources"
+              names={sourceNames}
+            />
           ) : null}
         </div>
       ) : null}

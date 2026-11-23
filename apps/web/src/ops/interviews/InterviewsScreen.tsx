@@ -17,6 +17,7 @@ import { useApi, useApiClient } from "../../api/useApi";
 import { ErrorNotice } from "../../ui/ErrorState";
 import { Field, Select, TextInput } from "../../ui/forms";
 import { Badge, Button, Card, Loading, Tag } from "../../ui/primitives";
+import { cost } from "../../usage/format";
 import { ClientFrame, clientPagePath } from "../client/ClientFrame";
 import { OPS_PATHS } from "../paths";
 
@@ -241,7 +242,7 @@ function InterviewDetail({ clientId, id }: { clientId: string; id: string }) {
       >
         <div className="flex flex-col gap-3">
           <p className="text-ink">
-            {v.contact.name}, {v.answered} answered. Their model calls cost us ${v.costUsd}.
+            {v.contact.name}, {v.answered} answered. Their model calls cost us {cost(v.costUsd)}.
           </p>
           {v.link ? <CopyLink link={v.link} /> : null}
           {v.files.length > 0 ? (

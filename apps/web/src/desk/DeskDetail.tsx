@@ -93,8 +93,11 @@ export function DeskDetail({
   entry,
   canSign,
   onChanged,
+  sourceNames,
 }: {
   entry: DeskEntry;
+  /** S5.6: the cited records' names, by id, as the lists served them. */
+  sourceNames?: Readonly<Record<string, string>> | undefined;
   /** False for a viewer: they see the card, never its buttons (the API refuses them too). */
   canSign: boolean;
   /** After any action: the lists and the shell's Desk count reload. */
@@ -470,7 +473,12 @@ export function DeskDetail({
                   {t("inbox.viewRun")}
                 </Link>
               ) : null}
-              <SourceLinks ids={sources} href={(id) => `/records/${id}`} testId="desk-sources" />
+              <SourceLinks
+                ids={sources}
+                href={(id) => `/records/${id}`}
+                testId="desk-sources"
+                names={sourceNames}
+              />
             </div>
           ) : null}
 

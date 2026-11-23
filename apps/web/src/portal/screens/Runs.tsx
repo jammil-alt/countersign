@@ -25,6 +25,7 @@ import { useI18n } from "../../i18n/i18n";
 import { periodEnd } from "../../i18n/zone";
 import { StatusFilter } from "../../inbox/StatusFilter";
 import { shortTime } from "../../runs/format";
+import { connectorChipNames } from "../../runs/labels";
 import { subjectTitle } from "../../runs/subject";
 import { usePoll } from "../../runs/usePoll";
 import { useAssignedAgents, useOptionalSession } from "../../session/session";
@@ -174,9 +175,10 @@ export function PortalRunsScreen() {
       leftOut: [],
       query: linked ? { ...raw, about: linked } : raw,
       // The about entries keep their own chips under the list (R2).
-      chipsOf: askChips(parsed.data.filter, { agents: new Map(), connectors: new Map() }).filter(
-        (c) => c.key !== "about",
-      ),
+      chipsOf: askChips(parsed.data.filter, {
+        agents: new Map(),
+        connectors: connectorChipNames(parsed.data.filter.changedConnector),
+      }).filter((c) => c.key !== "about"),
     };
   }, [params, linked]);
   const agentNames = new Map((overview.data?.services ?? []).map((s) => [s.id, s.name]));

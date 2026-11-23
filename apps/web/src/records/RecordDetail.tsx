@@ -224,15 +224,38 @@ function TransactionDetail({ txn, hrefs }: { txn: Transaction; hrefs: RecordHref
   );
 }
 
-/** A payload's top-level fields as label/value rows; nested values as compact JSON. */
+/**
+ * A payload's top-level fields as label/value rows. A reference reads as its name ("VendorRef":
+ * "Northline Panel Supply (59)"), a list of plain values as a list, a number or yes/no as itself;
+ * only what is left nests as compact JSON (S5.6: the page was a JSON dump).
+ */
 export function payloadRows(payload: unknown, valueLabel = "Value"): [string, string][] {
   if (payload === null || typeof payload !== "object" || Array.isArray(payload)) {
-    return [[valueLabel, JSON.stringify(payload)]];
+    return [[valueLabel, valueText(payload)]];
   }
-  return Object.entries(payload as Record<string, unknown>).map(([k, v]) => [
-    k,
-    typeof v === "string" ? v : JSON.stringify(v, null, 2),
-  ]);
+  return Object.entries(payload as Record<string, unknown>).map(([k, v]) => [k, valueText(v)]);
+}
+
+function valueText(v: unknown): string {
+  if (typeof v === "string") return v;
+  if (typeof v === "number" || typeof v === "boolean") return String(v);
+  if (v === null || v === undefined) return "–";
+  if (Array.isArray(v) && v.every((x) => typeof x === "string" || typeof x === "number")) {
+    return v.join(", ");
+  }
+  if (typeof v === "object" && !Array.isArray(v)) {
+    const o = v as Record<string, unknown>;
+    const keys = Object.keys(o);
+    // A tool's reference to another record ({ value, name }), as QuickBooks writes them.
+    if (
+      typeof o.name === "string" &&
+      keys.every((k) => k === "name" || k === "value" || k === "type")
+    ) {
+      return o.value !== undefined ? `${o.name} (${String(o.value)})` : o.name;
+    }
+    if (keys.length === 1 && keys[0] === "value") return valueText(o.value);
+  }
+  return JSON.stringify(v, null, 2);
 }
 
 function RawDetail({ r, hrefs }: { r: Raw; hrefs: RecordHrefs }) {

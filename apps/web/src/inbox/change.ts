@@ -21,6 +21,7 @@ import {
 } from "@countersign/core";
 import { EN, type I18n } from "../i18n/i18n";
 import { money, moneyShape } from "../runs/format";
+import { connectorLabel } from "../runs/labels";
 
 /** One line of a `lines` list, or one file of a `files` list, as text. */
 export interface ItemView {
@@ -446,9 +447,12 @@ export function connectorOf(toolId: string): string {
   return toolId.split(".")[0] ?? toolId;
 }
 
-/** "Testkit": a connector id as a name, when no manifest name is at hand. */
+/**
+ * "QuickBooks": a connector's name from the manifest's names when given, else the names people
+ * know (S5.6: "Qbo" showed where no names were passed), else its id in words.
+ */
 export function connectorName(id: string, names?: Record<string, string>): string {
-  return names?.[id] ?? id.charAt(0).toUpperCase() + id.slice(1);
+  return names?.[id] ?? connectorLabel(id);
 }
 
 export interface ChangeHeading {
