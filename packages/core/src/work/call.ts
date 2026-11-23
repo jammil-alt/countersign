@@ -145,7 +145,14 @@ export const YOUR_CALL_WORDS = {
   title: "Your call",
   lede: "One list for everything in the back office. Reggie does most of it; these need a person.",
   keys: "J K move · S do it · E edit · O open",
-  tabs: { you: "Yours", reggie: "Reggie's", client: "The clients'", done: "Done today" },
+  tabs: {
+    you: "Yours",
+    reggie: "Reggie's",
+    client: "The clients'",
+    // S4.3: to-dos put off with Later, until they come back.
+    snoozed: "Snoozed",
+    done: "Done today",
+  },
   empty: "Nothing needs you right now.",
   emptyNote: (reggie: number) =>
     `Reggie is on ${reggie} thing${reggie === 1 ? "" : "s"}. You'll see one here when it needs a person.`,
@@ -195,7 +202,12 @@ export const YOUR_CALL_WORDS = {
   internal: "Internal",
   undo: "Undo",
   sending: "Sending in 5 seconds.",
-  snoozed: "Snoozed until the next weekday at 9:00.",
+  snoozed: "Snoozed until the next weekday at 9:00. It's under Snoozed until then.",
+  snoozedIntro: "What you put off with Later. Each comes back to Yours at its time.",
+  snoozedEmpty: "Nothing is snoozed.",
+  backAt: "Back",
+  wake: "Bring back now",
+  woken: "It's back on Yours.",
   taken: "It's yours now. Reggie stops and leaves its notes.",
   mine: "Only mine",
   kpi: {

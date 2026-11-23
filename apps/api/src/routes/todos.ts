@@ -43,7 +43,7 @@ import {
 import { clientActivity } from "../work/activity";
 import { clientWork } from "../work/client-work";
 import { logPlay } from "../work/play-log";
-import { aboutHref, todoList, todoScope, todoViews } from "../work/todos";
+import { aboutHref, snoozedFor, todoList, todoScope, todoViews } from "../work/todos";
 import { addTodo, type TodoRow } from "../work/todos-store";
 import { sendDealEmail } from "./autopilot";
 
@@ -301,6 +301,23 @@ export function todoRoutes(app: Hono<AppEnv>): void {
     const [next] = await tx
       .update(todo)
       .set({ state: "snoozed", snoozedUntil: until })
+      .where(eq(todo.id, row.id))
+      .returning();
+    return viewOf(tx, next ?? row);
+  });
+
+  // S4.3: the Snoozed view, and bringing one back before its time.
+  mount(app, routes.opsTodosSnoozed, async ({ tx, tenantIds, query, session }) => ({
+    items: await snoozedFor(tx, tenantIds, session.user.id, { mine: query.mine === "true" }),
+  }));
+
+  mount(app, routes.opsTodoWake, async ({ tx, tenantIds, params }) => {
+    const row = await readTodo(tx, tenantIds, params.id, true);
+    if (row.state === "open") return viewOf(tx, row);
+    if (row.state !== "snoozed") throw new HttpError(409, "closed", "this to-do is closed");
+    const [next] = await tx
+      .update(todo)
+      .set({ state: "open", snoozedUntil: null })
       .where(eq(todo.id, row.id))
       .returning();
     return viewOf(tx, next ?? row);

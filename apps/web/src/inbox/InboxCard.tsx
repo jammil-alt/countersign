@@ -28,6 +28,7 @@ import { ChangeTables } from "./ChangePanel";
 import { changeHeading, connectorName, connectorOf, fieldLabel, formatValue } from "./change";
 import { LateAnswer } from "./LateAnswer";
 import { LATE_KEYS } from "./late";
+import { itemTitle } from "./titles";
 import { UndiscussedLines } from "./Undiscussed";
 
 export type ResolveInput = z.input<typeof ResolveBody>;
@@ -284,10 +285,10 @@ export function statusBadge(
  */
 export function inboxItemTitle(
   item: InboxCardItem,
-  i18n: Pick<I18n, "locale">,
+  i18n: Pick<I18n, "locale" | "t">,
   connectorNames?: Record<string, string>,
 ): string {
-  if (item.kind !== "external_action") return item.title;
+  if (item.kind !== "external_action") return itemTitle(item, i18n.t);
   const tool = typeof item.payload.tool === "string" ? item.payload.tool : null;
   if (!tool) return item.title;
   const connector =
@@ -445,7 +446,7 @@ export function InboxCard({
 
       <div className="flex flex-col gap-1">
         <h3 className="mz-sign__title text-lg leading-6 font-medium">
-          {heading ? heading.title : item.title}
+          {heading ? heading.title : itemTitle(item, t)}
         </h3>
         {isChange ? (
           <p className="text-sm text-ink-muted" data-testid="inbox-item-description">

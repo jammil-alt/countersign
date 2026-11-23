@@ -16,6 +16,7 @@ import { apiRoutes } from "../../api/routes";
 import { useApi, useApiClient, useApiStore } from "../../api/useApi";
 import type { PlainKey } from "../../i18n/catalog";
 import { type I18n, useI18n } from "../../i18n/i18n";
+import { itemTitle } from "../../inbox/titles";
 import { shortTime } from "../../runs/format";
 import { usePoll } from "../../runs/usePoll";
 import { useAssignedAgents, useSession } from "../../session/session";
@@ -656,7 +657,7 @@ function DeskRow({
           </StatusChip>
         ) : null}
       </span>
-      <p className="line-clamp-2 font-medium text-ink">{item.title}</p>
+      <p className="line-clamp-2 font-medium text-ink">{itemTitle(item, t)}</p>
       <span className="flex flex-wrap gap-2">
         <Link
           to={`${PORTAL_PATHS.inbox}?item=${encodeURIComponent(item.id)}`}

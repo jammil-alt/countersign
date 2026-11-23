@@ -16,6 +16,7 @@ import { Chart } from "../../ops/flow/Chart";
 import { FlowDndContext } from "../../ops/flow/dnd";
 import type { FlowEnds, StatusMap } from "../../ops/flow/types";
 import { boxWords, outlineProcess, outlineWorkflows, stepAnchor, stepLines } from "../../sop/chart";
+import { localSop } from "../../sop/say";
 import { Loaded } from "../../ui/page";
 import { buttonClass, cx } from "../../ui/primitives";
 import { SkeletonRows } from "../../ui/skeleton";
@@ -32,10 +33,17 @@ export function AgentWorkflow({ id }: { id: string }) {
   return (
     <div data-testid="portal-agent-workflow">
       <Loaded state={sop} skeleton={<SkeletonRows rows={8} columns={1} />}>
-        {(view) => <WorkflowView id={id} view={view} />}
+        {(view) => <LocalWorkflowView id={id} view={view} />}
       </Loaded>
     </div>
   );
+}
+
+/** S5.7: the chart and its cards say what code wrote in the reader's language. */
+function LocalWorkflowView({ id, view }: { id: string; view: SopView }) {
+  const { t } = useI18n();
+  const local = useMemo(() => localSop(view, t), [view, t]);
+  return <WorkflowView id={id} view={local} />;
 }
 
 export function WorkflowView({ id, view }: { id: string; view: SopView }) {

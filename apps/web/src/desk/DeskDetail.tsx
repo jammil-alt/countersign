@@ -34,6 +34,7 @@ import {
   suggestionFacts,
 } from "../inbox/InboxCard";
 import { LateAnswer } from "../inbox/LateAnswer";
+import { itemTitle } from "../inbox/titles";
 import { UndiscussedLines } from "../inbox/Undiscussed";
 import { packReviewCard } from "../packs/reviews";
 import {
@@ -146,8 +147,11 @@ export function DeskDetail({
       : null;
   const leadHeading = heading(lead);
   const title = batch
-    ? t("desk.batch.title", { count: items.length, what: leadHeading?.connector ?? lead.title })
-    : (leadHeading?.title ?? lead.title);
+    ? t("desk.batch.title", {
+        count: items.length,
+        what: leadHeading?.connector ?? itemTitle(lead, t),
+      })
+    : (leadHeading?.title ?? itemTitle(lead, t));
   const snoozedNow = open && isSnoozed(lead, now);
   const inWindow = items.filter((i) => undoable(i, now));
   // A decision was made here (a batch may keep open items: they wait as their own entries).
@@ -742,7 +746,7 @@ function BatchList({
                     role="checkbox"
                     className="ds-choice mt-0.5 disabled:opacity-60"
                     data-testid={`desk-batch-tick-${item.id}`}
-                    aria-label={t("desk.batch.include", { what: h?.title ?? item.title })}
+                    aria-label={t("desk.batch.include", { what: h?.title ?? itemTitle(item, t) })}
                     aria-checked={ticked.has(item.id)}
                     disabled={!canTick}
                     onClick={() => onTick(item.id, !ticked.has(item.id))}
@@ -754,7 +758,7 @@ function BatchList({
                 )}
                 <details className="min-w-0 flex-1">
                   <summary className="cursor-pointer text-sm font-medium text-ink">
-                    {h?.title ?? item.title}
+                    {h?.title ?? itemTitle(item, t)}
                   </summary>
                   <div className="mt-3 flex flex-col gap-3">
                     <ChangeTables

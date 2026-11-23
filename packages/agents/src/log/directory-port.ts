@@ -8,6 +8,7 @@ import {
   DIRECTORY_SUGGESTION_SUBJECT,
   type DirectorySuggestInput,
   type DirectorySuggestionChange,
+  directorySuggestionTitle,
   normalizePhone,
   suggestionChangesAddress,
 } from "@countersign/core";
@@ -88,6 +89,15 @@ async function checkAddresses(
   }
 }
 
+/** The record's name in an update's English title (the change names only its id). */
+function nameIn(title: string, change: DirectorySuggestionChange): string | undefined {
+  if (change.action === "add_person" || change.action === "add_organization") return undefined;
+  return (
+    /^Update (.+) in the directory$/.exec(title)?.[1] ??
+    /^Change how we reach (.+)$/.exec(title)?.[1]
+  );
+}
+
 /** Checks the change and returns its subject and a title for the inbox. */
 async function check(
   tx: Tx,
@@ -105,7 +115,7 @@ async function check(
         await organizationName(tx, tenantId, change.person.organizationId);
       }
       await checkAddresses(tx, tenantId, change.person, null);
-      return { subjectId: null, title: `Add ${change.person.name} to the directory` };
+      return { subjectId: null, title: directorySuggestionTitle(change).english };
     }
     case "update_person": {
       const name = await personName(tx, tenantId, change.contactId);
@@ -113,12 +123,7 @@ async function check(
         await organizationName(tx, tenantId, change.changes.organizationId);
       }
       await checkAddresses(tx, tenantId, change.changes, change.contactId);
-      return {
-        subjectId: change.contactId,
-        title: suggestionChangesAddress(change)
-          ? `Change how we reach ${name}`
-          : `Update ${name} in the directory`,
-      };
+      return { subjectId: change.contactId, title: directorySuggestionTitle(change, name).english };
     }
     case "add_organization": {
       const [same] = await tx
@@ -136,11 +141,14 @@ async function check(
           `an organization with that name is already in the directory (organization ${same.id})`,
         );
       }
-      return { subjectId: null, title: `Add ${change.organization.name} to the directory` };
+      return { subjectId: null, title: directorySuggestionTitle(change).english };
     }
     case "update_organization": {
       const name = await organizationName(tx, tenantId, change.organizationId);
-      return { subjectId: change.organizationId, title: `Update ${name} in the directory` };
+      return {
+        subjectId: change.organizationId,
+        title: directorySuggestionTitle(change, name).english,
+      };
     }
   }
 }
@@ -157,6 +165,8 @@ export function dbDirectoryPort(db: Db): DirectoryPort {
       return withTenant(db, tenantId, async (tx) => {
         const s: DirectorySuggestInput = input.suggestion;
         const { subjectId, title } = await check(tx, tenantId, s.suggestion);
+        // S5.7: the title by key, so the app writes it in the reader's language.
+        const said = directorySuggestionTitle(s.suggestion, nameIn(title, s.suggestion));
         if (input.test) return { status: "test_run" as const, inboxItemId: null };
         // The same change waiting already (from any agent): no second item.
         const [open] = await tx
@@ -192,6 +202,7 @@ export function dbDirectoryPort(db: Db): DirectoryPort {
                 agentVersionId: input.agentVersionId,
                 runId: input.runId,
                 changesAddress: suggestionChangesAddress(s.suggestion),
+                title: { key: said.key, params: said.params },
               },
             },
           })

@@ -151,6 +151,44 @@ describe.skipIf(!h)("Your call", () => {
     ).toBe(409);
   });
 
+  // S4.3 (QA2 HM2): a to-do put off with Later couldn't be found again until it came back.
+  it("lists what Later put off under Snoozed, and Bring back puts it on Yours at once", async () => {
+    const later = await ok<TodoView>("POST", "/api/ops/todos", {
+      title: "Call Dana back",
+      owner: "operator",
+      clientId: H.A.tenantId,
+    });
+    const other = await seed(
+      { title: "C's to-do", owner: "operator", clientId: H.C.tenantId, source: "operator" },
+      [H.C.tenantId],
+    );
+    await withOperator(H.db, [H.C.tenantId], (tx) =>
+      tx
+        .update(todo)
+        .set({ state: "snoozed", snoozedUntil: new Date(Date.now() + 86_400_000) })
+        .where(eq(todo.id, other.id)),
+    );
+    await ok<TodoView>("POST", `/api/ops/todos/${later.id}/snooze`, {});
+    const snoozed = await ok<{ items: TodoView[] }>("GET", "/api/ops/todos/snoozed");
+    expect(snoozed.items.map((i) => i.id)).toContain(later.id);
+    // Only the clients served.
+    expect(snoozed.items.map((i) => i.id)).not.toContain(other.id);
+    expect(snoozed.items.find((i) => i.id === later.id)?.snoozedUntil).not.toBeNull();
+    for (const who of [admin("a"), user("a")]) {
+      expect((await H.call(who, "GET", "/api/ops/todos/snoozed")).status).toBe(403);
+      expect((await H.call(who, "POST", `/api/ops/todos/${later.id}/wake`)).status).toBe(403);
+    }
+
+    const back = await ok<TodoView>("POST", `/api/ops/todos/${later.id}/wake`);
+    expect(back).toMatchObject({ state: "open", snoozedUntil: null });
+    expect((await list()).items.map((i) => i.id)).toContain(later.id);
+    const after = await ok<{ items: TodoView[] }>("GET", "/api/ops/todos/snoozed");
+    expect(after.items.map((i) => i.id)).not.toContain(later.id);
+    // A closed one doesn't come back.
+    await ok<TodoView>("POST", `/api/ops/todos/${later.id}/done`);
+    expect((await H.call(OPERATOR, "POST", `/api/ops/todos/${later.id}/wake`)).status).toBe(409);
+  });
+
   it("lists Reggie's and the clients', and Take it makes Reggie's yours", async () => {
     const r = await seed({
       title: "Chase Alder's requirements",
