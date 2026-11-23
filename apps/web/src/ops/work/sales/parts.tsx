@@ -4,11 +4,12 @@
 // shadows; both themes come from the tokens.
 // DECISION: kept in the Sales folder for now; the shared work parts (apps/web/src/ops/work/,
 // §1.124 stage 0) replace them when they land, with the same classes.
-import { type DealStanding, daysFrom, shortDay, wholeMoney } from "@countersign/core";
+import { type DealStanding, daysFrom, wholeMoney } from "@countersign/core";
 import { Children, type ReactNode, useRef } from "react";
 import { Link } from "react-router-dom";
 import { cx } from "../../../ui/cx";
 import { useEvenColumns, useScrollEdges } from "../../../ui/tileRows";
+import { shortDate } from "../parts";
 
 export function Kpis({ children, testId }: { children: ReactNode; testId?: string }) {
   const ref = useRef<HTMLDivElement>(null);
@@ -111,12 +112,12 @@ export function FilterChips<K extends string>({
 /** A due date: late in risk with how late, today in signal, else the date and how far. */
 export function Due({ on, today, done }: { on: string | null; today: string; done?: boolean }) {
   if (!on) return <span className="mz-due mz-due--none">{done ? "Done" : "No date"}</span>;
-  if (done) return <span className="mz-due">{shortDay(on)}</span>;
+  if (done) return <span className="mz-due">{shortDate(on)}</span>;
   const n = daysFrom(today, on);
   if (n < 0) {
     return (
       <span className="mz-due mz-due--late">
-        {shortDay(on)}
+        {shortDate(on)}
         <small>
           {-n} day{n === -1 ? "" : "s"} late
         </small>
@@ -126,7 +127,7 @@ export function Due({ on, today, done }: { on: string | null; today: string; don
   if (n === 0) return <span className="mz-due mz-due--today">Today</span>;
   return (
     <span className="mz-due">
-      {shortDay(on)}
+      {shortDate(on)}
       <small>{n === 1 ? "Tomorrow" : `In ${n} days`}</small>
     </span>
   );

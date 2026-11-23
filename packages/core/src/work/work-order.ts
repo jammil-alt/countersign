@@ -3,6 +3,7 @@
 // and low issues before builds, unless a build would miss its promised date, in which case it goes
 // first. Enhancements after builds, most-asked first. The operator can move anything. Pure.
 
+import { houseDate } from "../timezone";
 import type { WorkUrgency } from "./pipelines";
 
 export type WorkOrderInput =
@@ -56,13 +57,6 @@ const URGENCY_ORDER: Readonly<Record<WorkUrgency, number>> = {
   normal: 2,
   low: 3,
 };
-const MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-
-/** "Nov 27" for an ISO date. */
-export function shortDate(isoDate: string): string {
-  const [, m, d] = isoDate.slice(0, 10).split("-");
-  return `${MON[Number(m) - 1]} ${Number(d)}`;
-}
 
 function addDays(isoDate: string, days: number): string {
   const t = Date.parse(`${isoDate.slice(0, 10)}T00:00:00Z`) + Math.ceil(days) * 86_400_000;
@@ -124,7 +118,7 @@ export function workOrder(items: readonly WorkOrderInput[], today: string): Work
     if (lands > b.promisedOn) {
       movedUp.set(
         b.id,
-        `Moved up: after the normal issues it would land ${shortDate(lands)}, past the promised ${shortDate(b.promisedOn)}.`,
+        `Moved up: after the normal issues it would land ${houseDate(lands)}, past the promised ${houseDate(b.promisedOn)}.`,
       );
     }
   }

@@ -87,7 +87,7 @@ describe("where a deal stands", () => {
         wonAt: "2026-11-03T10:00:00.000Z",
         closedAt: null,
       }),
-    ).toBe("Won Nov 3");
+    ).toBe("Won 3 Nov 2026");
   });
 
   it("is late when an open deal's next step was due before today", () => {

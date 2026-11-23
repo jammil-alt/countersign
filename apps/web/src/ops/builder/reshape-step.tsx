@@ -11,6 +11,7 @@ import {
 } from "@countersign/core";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { apiRoutes } from "../../api/routes";
+import { EN } from "../../i18n/i18n";
 import { Button, cx } from "../../ui/primitives";
 import { cost } from "../../usage/format";
 import { errorText, TextArea, useAction } from "../agents/ui";
@@ -452,7 +453,7 @@ export function ReshapeFields({
       {samples ? (
         <p className="text-xs text-ink-muted" data-testid="builder-reshape-sample-source">
           {samples.source === "run" && samples.run
-            ? `Values from the ${samples.run.mode} run of ${samples.run.at.slice(0, 10)}.`
+            ? `Values from the ${samples.run.mode} run of ${EN.fmt.date(samples.run.at)}.`
             : "Values made from the fields' types: no run has reached this step's sources yet."}
         </p>
       ) : null}

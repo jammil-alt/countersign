@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { clockLine, IanaTimeZone, isTimeZone, timeZoneChoices } from "./timezone";
+import { clockLine, houseDate, IanaTimeZone, isTimeZone, timeZoneChoices } from "./timezone";
 
 describe("time zones", () => {
   it("takes IANA names the runtime knows, and refuses the rest at the boundary", () => {
@@ -30,5 +30,18 @@ describe("time zones", () => {
     );
     expect(clockLine(at, "Not/AZone")).toBe("Monday 23 November 2026, 04:05 in UTC (GMT+00:00)");
     expect(clockLine(at, null)).toBe("Monday 23 November 2026, 04:05 in UTC (GMT+00:00)");
+  });
+});
+
+describe("houseDate (S5.1)", () => {
+  it("writes the house date: day, short month, year", () => {
+    expect(houseDate("2026-11-23")).toBe("23 Nov 2026");
+    // An instant is its day in the zone given, UTC unless given.
+    expect(houseDate("2026-11-23T02:58:00.000Z")).toBe("23 Nov 2026");
+    expect(houseDate("2026-11-23T02:58:00.000Z", "America/Chicago")).toBe("22 Nov 2026");
+    // A calendar day is that day in any zone; an unknown zone reads as UTC; not a date stays.
+    expect(houseDate("2026-11-23", "America/Chicago")).toBe("23 Nov 2026");
+    expect(houseDate("2026-11-23T02:58:00.000Z", "Not/AZone")).toBe("23 Nov 2026");
+    expect(houseDate("soon")).toBe("soon");
   });
 });

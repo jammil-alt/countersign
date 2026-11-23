@@ -1,13 +1,14 @@
 // A deal's terms (docs/design/pipelines.html `termsPanel`): what the client pays now, what is
 // proposed, the signed copy, and Record agreed terms. Contracts stay by hand (owner, 2026-11-17):
 // nothing here is posted to the client.
-import { DECIMAL_RE, type DealDetail, SALES_WORDS, shortDay, wholeMoney } from "@countersign/core";
+import { DECIMAL_RE, type DealDetail, SALES_WORDS, wholeMoney } from "@countersign/core";
 import { useState } from "react";
 import { apiRoutes } from "../../../api/routes";
 import { useApiClient } from "../../../api/useApi";
 import { ErrorNotice } from "../../../ui/ErrorState";
 import { Field, TextInput } from "../../../ui/forms";
 import { Button } from "../../../ui/primitives";
+import { shortDate } from "../parts";
 import { monthValue, plainAmount } from "./parts";
 import { uploadSignedCopy } from "./upload";
 
@@ -82,7 +83,7 @@ export function TermsPanel({ detail, onChanged }: { detail: DealDetail; onChange
               <dt className="text-ink-muted">Agreed</dt>
               <dd data-testid="deal-terms-agreed">
                 {wholeMoney(d.agreedMrr, d.currency)} a month
-                {d.agreedFrom ? ` from ${shortDay(d.agreedFrom)}` : ""}
+                {d.agreedFrom ? ` from ${shortDate(d.agreedFrom)}` : ""}
               </dd>
             </>
           ) : null}

@@ -5,6 +5,7 @@
 
 import { z } from "zod";
 import { Decimal, dec, toNumeric } from "../money";
+import { houseDate } from "../timezone";
 
 import { addDays } from "../weekly/week";
 import { SALES_TABS } from "./pipelines";
@@ -273,13 +274,6 @@ export const DEAL_OUTCOME_WORDS: Record<Exclude<DealOutcome, "open">, string> = 
   no: "Said no",
 };
 
-const MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-/** "Nov 3" for a date (YYYY-MM-DD, or an ISO time read as its UTC day). */
-export function shortDay(iso: string): string {
-  const [, m, d] = iso.slice(0, 10).split("-");
-  return `${MON[Number(m) - 1] ?? ""} ${Number(d)}`;
-}
-
 /** The words beside a deal's standing when its status line is empty. */
 export function dealStatusText(d: {
   standing: DealStanding;
@@ -290,9 +284,9 @@ export function dealStatusText(d: {
   closedAt: string | null;
 }): string {
   if (d.standing === "done") {
-    if (d.outcome === "won") return d.wonAt ? `Won ${shortDay(d.wonAt)}` : "Won";
+    if (d.outcome === "won") return d.wonAt ? `Won ${houseDate(d.wonAt)}` : "Won";
     const word = DEAL_OUTCOME_WORDS[d.outcome as Exclude<DealOutcome, "open">] ?? "Closed";
-    return d.closedAt ? `${word} ${shortDay(d.closedAt)}` : word;
+    return d.closedAt ? `${word} ${houseDate(d.closedAt)}` : word;
   }
   if (d.held) return d.held.reason;
   if (d.statusLine.trim()) return d.statusLine.trim();

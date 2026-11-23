@@ -14,12 +14,12 @@ import {
   type DealStage,
   dealCheckBackOn,
   firstDealStage,
+  houseDate,
   isDealStage,
   lastDealStage,
   routes,
   salesFigures,
   salesPipeOf,
-  shortDay,
   toNumeric,
   wholeMoney,
 } from "@countersign/core";
@@ -336,7 +336,7 @@ export function dealRoutes(app: Hono<AppEnv>): void {
       kind: "terms",
       actor: "operator",
       userId: session.user.id,
-      body: `Recorded the agreed terms: ${wholeMoney(agreed, currency)} a month from ${shortDay(body.from)}.${body.note ? ` ${body.note}` : ""}`,
+      body: `Recorded the agreed terms: ${wholeMoney(agreed, currency)} a month from ${houseDate(body.from)}.${body.note ? ` ${body.note}` : ""}`,
       meta: { agreedMrr: agreed, currency, from: body.from },
     });
     await closeTodosAbout(tx, "deal", row.id, session.user.id, { titlePrefix: "Record " });
@@ -403,7 +403,7 @@ export function dealRoutes(app: Hono<AppEnv>): void {
       kind: "stage",
       actor: "operator",
       userId: session.user.id,
-      body: `${DEAL_OUTCOME_WORDS[body.outcome]}.${body.reason ? ` ${body.reason}` : ""}${checkBackOn ? ` Reggie checks back ${shortDay(checkBackOn)}.` : ""}`,
+      body: `${DEAL_OUTCOME_WORDS[body.outcome]}.${body.reason ? ` ${body.reason}` : ""}${checkBackOn ? ` Reggie checks back ${houseDate(checkBackOn)}.` : ""}`,
       meta: { outcome: body.outcome, pipe: salesPipeOf(row.kind as DealKind) },
     });
     const closed = await readDeal(tx, tenantIds, row.id);

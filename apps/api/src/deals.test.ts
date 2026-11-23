@@ -166,7 +166,7 @@ describe.skipIf(!h)("deals", () => {
     });
     expect(termed.deal).toMatchObject({ agreedMrr: "2300.5000", agreedFrom: "2026-12-01" });
     expect(termed.activity[0]?.body).toBe(
-      "Recorded the agreed terms: $2,301 a month from Dec 1. Setup fee waived.",
+      "Recorded the agreed terms: $2,301 a month from 1 Dec 2026. Setup fee waived.",
     );
     expect((await put(`/api/ops/deals/${id}/terms/signed-copy`, PDF, "image/png")).status).toBe(
       422,

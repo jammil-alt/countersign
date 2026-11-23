@@ -29,6 +29,7 @@ import {
   dealStageOf,
   Guide,
   type GuideFact,
+  houseDate,
   type InviteDraft,
   type InvitePreview,
   type InviteProblem,
@@ -45,7 +46,6 @@ import {
   SIGNED_UP_DIRECTLY,
   type SignUpNowDraft,
   sectionKeysOf,
-  shortDay,
   stagesBefore,
   toNumeric,
   WELCOME_LINK_TTL_DAYS,
@@ -652,7 +652,9 @@ function confirmLines(plan: Plan): string[] {
     }
   } else if (plan.hasIntake) {
     if (emailed.length > 0) {
-      const when = plan.draft.sendAt ? ` on ${shortDay(plan.draft.sendAt)}` : "";
+      const when = plan.draft.sendAt
+        ? ` on ${houseDate(plan.draft.sendAt, plan.draft.timezone)}`
+        : "";
       out.push(`Emails ${listWords(emailed)}${when}.`);
     }
     if (plan.told.length > 0) {
@@ -661,7 +663,9 @@ function confirmLines(plan: Plan): string[] {
       );
     }
   } else if (plan.welcomeOnly && invited.length > 0) {
-    const when = plan.draft.sendAt ? ` on ${shortDay(plan.draft.sendAt)}` : "";
+    const when = plan.draft.sendAt
+      ? ` on ${houseDate(plan.draft.sendAt, plan.draft.timezone)}`
+      : "";
     out.push(
       `Emails ${listWords(invited.map((p) => firstName(p.name)))} our welcome, with a link to sign in${when}.`,
     );
@@ -1268,7 +1272,7 @@ async function recordTerms(tx: Tx, dealId: string, plan: Plan, userId: string): 
     kind: "terms",
     actor: "operator",
     userId,
-    body: `Recorded the agreed terms: ${wholeMoney(agreed, currency)} a month from ${shortDay(from)}.`,
+    body: `Recorded the agreed terms: ${wholeMoney(agreed, currency)} a month from ${houseDate(from)}.`,
     meta: { agreedMrr: agreed, currency, from },
   });
   // The deal's "Record X's agreed price" is done now (as opsRecordTerms closes it).

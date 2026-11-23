@@ -12,7 +12,6 @@ import {
   SALES_PIPELINES,
   SALES_WORDS,
   salesPipeOf,
-  shortDay,
 } from "@countersign/core";
 import { type ReactNode, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
@@ -36,6 +35,7 @@ import {
   skippedStages,
   useOnboardingLines,
 } from "../onboarding/timeline";
+import { shortDate } from "../parts";
 import { Due, monthValue, plural, Standing } from "./parts";
 import { TermsPanel } from "./TermsPanel";
 
@@ -971,7 +971,7 @@ function Details({ detail }: { detail: DealDetail }) {
       d.sourceDetail ? `${SOURCE_WORDS[d.source]}: ${d.sourceDetail}` : SOURCE_WORDS[d.source],
     ],
     ...(d.outcomeReason ? ([["Why it closed", d.outcomeReason]] as [string, string][]) : []),
-    ...(d.checkBackOn ? ([["Check back", shortDay(d.checkBackOn)]] as [string, string][]) : []),
+    ...(d.checkBackOn ? ([["Check back", shortDate(d.checkBackOn)]] as [string, string][]) : []),
   ];
   return (
     <Panel title="Details" testId="deal-details">
