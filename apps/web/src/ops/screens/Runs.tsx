@@ -47,6 +47,7 @@ import {
   RUN_STATUS_WORDS,
   runChip,
   runErrorLine,
+  runsCountWords,
   sameFailureWords,
   waitOnWords,
 } from "../run/words";
@@ -263,6 +264,9 @@ export function OpsRunsScreen() {
     return [...first, ...(more?.runs ?? []).filter((r) => !seen.has(r.id))];
   }, [data?.runs, more?.runs]);
   const next = more ? more.next : (data?.next ?? null);
+  // S4.9: how many rows the table shows once it folds repeated failures (the order doesn't change
+  // what folds).
+  const rowCount = useMemo(() => foldSameFailures(runs).length, [runs]);
 
   const showMore = async () => {
     const last = runs[runs.length - 1];
@@ -373,7 +377,7 @@ export function OpsRunsScreen() {
             disabled={asking}
           />
           <span className="text-sm text-ink-muted figures" data-testid="ops-runs-count">
-            {data ? (next ? `The latest ${runs.length}` : plural(runs.length, "run", "runs")) : ""}
+            {data ? runsCountWords(runs.length, rowCount, next !== null) : ""}
           </span>
         </form>
         {note ? (

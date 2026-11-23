@@ -222,6 +222,9 @@ describe("Your call", () => {
     expect(kpis).toHaveTextContent("Need you2");
     expect(kpis).toHaveTextContent("1 due today");
     expect(kpis).toHaveTextContent("Reggie is on1");
+    // S4.7 (QA W8): the tile counts agents on a safety hold, not "Critical, held".
+    expect(kpis).toHaveTextContent("Agents on safety hold0");
+    expect(kpis).not.toHaveTextContent("Critical, held");
     expect(kpis).toHaveTextContent("Questions this week23");
     expect(kpis).toHaveTextContent("Median answer 18 min");
     // The card is compact: tag, title, client, due, the why word, and the one button.

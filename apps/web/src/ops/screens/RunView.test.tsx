@@ -451,7 +451,9 @@ describe("back-office run view", () => {
       ),
     ).toHaveTextContent("Change in Testkit");
     expect(rows[3]).toHaveTextContent("hidden from client");
-    expect(within(checklist).getByText("1 of 4 steps · $0.09")).toBeInTheDocument();
+    // S4.9 (QA RN4): the steps after "What started it", as the step panel counts them; the
+    // trigger is not a step done ("1 of 4 steps" counted it).
+    expect(within(checklist).getByText("0 of 3 steps done · $0.09")).toBeInTheDocument();
     // The wait, at the top and on the step, in the same words; the status is never "Running".
     expect(screen.getByTestId("ops-run-waiting")).toHaveTextContent("Waiting for approval");
     expect(screen.getByTestId("ops-run-waiting-line")).toHaveTextContent("you · since");

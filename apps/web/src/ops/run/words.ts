@@ -292,6 +292,15 @@ export function foldSameFailures<R extends Parameters<typeof sameFailureKey>[0] 
   return out;
 }
 
+/**
+ * S4.9 (QA W13): the Runs list's count, which says what it counts: "The latest 50 runs · 21
+ * rows, repeated failures folded" when the table folds runs, so 50 never sits over 21 rows.
+ */
+export function runsCountWords(runs: number, rows: number, more: boolean): string {
+  const base = `${more ? "The latest " : ""}${plural(runs, "run", "runs")}`;
+  return rows < runs ? `${base} · ${plural(rows, "row", "rows")}, repeated failures folded` : base;
+}
+
 /** "32 failed test runs, same error". */
 export function sameFailureWords(runs: readonly { mode: string }[]): string {
   const test = runs.every((r) => r.mode === "test");

@@ -706,6 +706,7 @@ function ModelName({ row, label }: { row: UsageModelRow; label: string | undefin
     );
   }
   const unpriced = row.unpricedCalls ?? 0;
+  const failed = row.failedCalls ?? 0;
   return (
     <span className="flex flex-col py-1">
       <span className="text-ink">{label ?? providerModelName(row.model)}</span>
@@ -714,6 +715,8 @@ function ModelName({ row, label }: { row: UsageModelRow; label: string | undefin
         {unpriced > 0
           ? ` · ${plural(unpriced, "call")} had no price, so ${unpriced === 1 ? "it counts" : "they count"} as $0.00`
           : ""}
+        {/* S4.8 (QA W7): failed calls, counted apart from Calls. */}
+        {failed > 0 ? ` · ${plural(failed, "failed call")}, not counted in Calls` : ""}
       </span>
     </span>
   );

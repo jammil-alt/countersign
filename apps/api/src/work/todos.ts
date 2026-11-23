@@ -380,13 +380,16 @@ async function auditQueue(tx: Tx, scope: readonly string[]): Promise<TodoView[]>
       source: "run_audit",
       owner: "operator",
       kind: "other",
-      tag: "Run held for review",
+      tag: "Run to check",
       title: `Check a run of ${r.agentName} at ${r.clientName}`,
       client: { id: r.tenantId, name: r.clientName },
       about: { kind: "run", id: r.runId, href: aboutHref("run", r.runId) },
       dueAt: null,
       createdAt: r.createdAt,
-      why: { head: "Held for review", detail: "Reggie doesn't sign off on held runs." },
+      why: {
+        head: "Picked for a spot check",
+        detail: "A person checks a few finished runs; Reggie doesn't sign these off.",
+      },
       primary: "Open the run",
     }),
   );
