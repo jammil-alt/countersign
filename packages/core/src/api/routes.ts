@@ -1532,6 +1532,10 @@ export const opsRoutes = {
           skills: z.record(z.string(), z.string()),
         })
         .optional(),
+      // S6.5: a stored draft's problems, as a publish would find them, so the Triggers rows can
+      // say a schedule won't start. Only for a latest version that is not live (a published one
+      // passed them). Optional so older answers still parse.
+      latestErrors: z.array(ValidationErrorSchema).optional(),
     }),
   }),
   opsAgentVersion: defineRoute({
