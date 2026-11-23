@@ -644,6 +644,7 @@ export const it: Messages = {
   "action.status.done": "Fatta",
   "action.status.rejected": "Rifiutata",
   "action.status.failed": "Non riuscita",
+  "action.status.expired": "Non fatta: nessuna risposta in tempo",
 
   // ── Connections ──
   "connections.title": "Account",
