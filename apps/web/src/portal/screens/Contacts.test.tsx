@@ -362,10 +362,12 @@ describe("C5 Contacts", () => {
     expect(within(dialog).getByTestId("people-detail-invite-dialog-role")).toHaveValue(
       "client_user",
     );
+    // Overnight D3: a new user approves nothing until it is ticked.
     expect(within(dialog).getByTestId("people-detail-invite-dialog-can-sign")).toHaveAttribute(
       "aria-checked",
-      "true",
+      "false",
     );
+    await userEvent.click(within(dialog).getByTestId("people-detail-invite-dialog-can-sign"));
     await userEvent.click(within(dialog).getByTestId("people-detail-invite-dialog-send"));
     expect(await within(dialog).findByTestId("people-detail-invite-dialog-done")).toHaveTextContent(
       "Invited lisa@harbor.example.com.",
