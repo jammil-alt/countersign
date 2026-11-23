@@ -3,7 +3,7 @@
 import { describe, expect, it } from "vitest";
 import type { SkillDefinition } from "../schemas/skill";
 import type { ToolSpec } from "../schemas/tool";
-import { deadEnds, reportsOut, runEnds } from "./ending";
+import { deadEnds, reportsOut, runEnds, waysOut } from "./ending";
 import { type Process, Process as ProcessSchema, type Step } from "./schema";
 import { validateProcess } from "./validate";
 
@@ -134,5 +134,39 @@ describe("how a process ends", () => {
     const passed = process([write("b"), read("a")], { handoff: { output: "{{steps.a.output}}" } });
     expect(validateProcess(passed).warnings.filter((w) => w.code === "no_output")).toEqual([]);
     expect(validateProcess(process([read("a"), write("b")])).warnings).toEqual([]);
+  });
+
+  it("lists every way out: each hand-off as a fork out or an end, and each run end", () => {
+    const hand = (id: string, to: Record<string, string>): Step =>
+      ({ id, name: `Hand off ${id}`, kind: "handoff", to, input: {} }) as unknown as Step;
+    const loop = (id: string, steps: Step[]): Step =>
+      ({ id, name: "Each", kind: "for_each", over: "{{trigger.items}}", steps }) as Step;
+    const self = { agent: "@self", workflow: "check-an-invoice", step: "s1" };
+    const p = {
+      steps: [
+        read("a"),
+        loop("l", [read("r"), hand("h1", self)]),
+        decision("d", [hand("h2", { agent: "pricer", step: "x" })], []),
+        write("w"),
+      ],
+    };
+    const ways = waysOut(p);
+    expect(ways.map((w) => [w.step.id, w.kind, w.how, w.repeats])).toEqual([
+      ["h1", "workflow", "fork", true],
+      ["h2", "agent", "fork", false],
+      ["w", "tool", "end", false],
+    ]);
+    expect(ways[0]?.to).toEqual(self);
+    expect(ways[1]?.to).toEqual({ agent: "pricer", step: "x" });
+    // A hand-off a run can finish on is an end, still into the workflow it names.
+    const last = waysOut({ steps: [read("a"), loop("l", [hand("h", self)])] });
+    expect(last.map((w) => [w.step.id, w.kind, w.how, w.repeats])).toEqual([
+      ["h", "workflow", "end", true],
+    ]);
+    // A dead end is a way out that reports nothing: listed, so a screen can say so.
+    expect(waysOut({ steps: [write("w"), read("r")] }).map((w) => [w.step.id, w.kind])).toEqual([
+      ["r", "none"],
+    ]);
+    expect(waysOut({ steps: [] })).toEqual([]);
   });
 });

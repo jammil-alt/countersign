@@ -4,8 +4,9 @@
 // step and path ids are made once and never regenerated (CLAUDE.md invariant 3). A line typed by
 // hand is a `missing` step whose need is its words: the kind that exists today for a part not
 // built yet; the Builder fills it on Build it. No step kind is added here.
-import { processes, type TriggerOn, uuidv7 } from "@countersign/core";
+import { processes, type Trigger, type TriggerOn, uuidv7 } from "@countersign/core";
 import {
+  addTrigger,
   type ContainerId,
   createStep,
   insertStep,
@@ -16,11 +17,13 @@ import {
   type Process,
   ROOT,
   removeStep,
+  removeTrigger,
   type Step,
   setTrigger,
   updateContainer,
   updateStep,
 } from "../builder/model";
+import { triggerTitle } from "../workflow/describe";
 import { eventKind } from "../workflow/labels";
 
 type IfStep = Extract<Step, { kind: "if" }>;
@@ -94,6 +97,61 @@ export function setStart(process: Process, kind: StartKind): Process {
   if (!first) return process;
   if (startKindOf(first.on) === kind) return process;
   return setTrigger(process, startOn(kind), first.id);
+}
+
+/** The most ways in a process has (core's `Process.triggers`). */
+export const TRIGGERS_MAX = 10;
+
+/** The kinds the process starts on, as the cards show them: a card is on when a trigger is it. */
+export function startKinds(process: Pick<Process, "triggers">): StartKind[] {
+  const on = new Set(process.triggers.map((t) => startKindOf(t.on)));
+  return START_KINDS.filter((k) => on.has(k));
+}
+
+/**
+ * A card of How it starts turned on or off. On adds one trigger of that kind (`startOn`); off
+ * takes away the triggers of that kind; every other trigger keeps its id. `refused` says why
+ * nothing changed: `last` when it would leave the process with no way in, `full` at the limit.
+ */
+// DECISION (owner, 2026-11-23: "multiple ways in if needed"): the cards are toggles, one trigger
+// a card. Off takes every trigger of the kind (two schedules are one card), since a card can't
+// say which; the chart's trigger panel is where one of two goes.
+export function toggleStart(
+  process: Process,
+  kind: StartKind,
+  newId: NewId = uuidv7,
+): { process: Process; refused?: "last" | "full" } {
+  const mine = process.triggers.filter((t) => startKindOf(t.on) === kind);
+  if (mine.length === 0) {
+    if (process.triggers.length >= TRIGGERS_MAX) return { process, refused: "full" };
+    return { process: addTrigger(process, startOn(kind), newId) };
+  }
+  if (mine.length >= process.triggers.length) return { process, refused: "last" };
+  return { process: mine.reduce((p, t) => removeTrigger(p, t.id), process) };
+}
+
+/** A way in, in words: "When a document arrives", "On a schedule", else the trigger's title. */
+export function startTitle(kind: StartKind): string {
+  const t = STARTS[kind].title;
+  return kind === "schedule" ? t : `When ${t.charAt(0).toLowerCase()}${t.slice(1)}`;
+}
+
+/** Every way in, in words, the first in the operator's own words when they gave them. */
+export function startWordsAll(triggers: readonly Trigger[], first?: string | null): string[] {
+  return triggers.map((t, i) => {
+    const own = i === 0 ? tidy(first ?? "") : "";
+    if (own) return own;
+    const k = startKindOf(t.on);
+    return k ? startTitle(k) : triggerTitle(t);
+  });
+}
+
+/** "It starts: …." for one way in, "It starts 2 ways: …; …." for more. */
+function startsSentence(starts: readonly string[]): string {
+  const said = starts.map(tidy).filter(Boolean);
+  if (said.length === 0) return "";
+  if (said.length === 1) return `It starts: ${said[0]}.`;
+  return `It starts ${said.length} ways: ${said.join("; ")}.`;
 }
 
 /** A process with nothing in it yet: started by a person, no steps (List the steps myself). */
@@ -415,21 +473,50 @@ export function endKindOf(step: Step): EndKind | null {
 }
 
 /**
- * How the process ends as it stands (core's `runEnds` and `deadEnds`): the steps a run can finish
- * on, the ways out among them, and the ones that report nothing. `chosen` names the way out the
- * operator picked for a line typed here, which is a missing step until the Builder fills it.
+ * How the process ends as it stands (core's `runEnds`, `deadEnds` and `waysOut`): the steps a run
+ * can finish on, every way out (the hand-offs that fork out on the way and the ends), the cards
+ * those make on, and the ends that report nothing. `chosen` names the way out the operator picked
+ * for a line typed here, which is a missing step until the Builder fills it.
  */
 export function endingOf(
   process: Process,
   chosen: Readonly<Record<string, EndKind>> = {},
-): { on: Step[]; kinds: EndKind[]; dead: Step[] } {
+): { on: Step[]; ways: processes.WayOut[]; kinds: EndKind[]; dead: Step[] } {
   const on = processes.runEnds(process);
+  const ways = processes.waysOut(process);
   const kinds = new Set<EndKind>();
-  for (const s of on) {
+  for (const w of ways) {
+    const s = w.step;
     const k = endKindOf(s) ?? (s.kind === "missing" ? chosen[s.id] : undefined);
     if (k) kinds.add(k);
   }
-  return { on, kinds: END_KINDS.filter((k) => kinds.has(k)), dead: processes.deadEnds(process) };
+  return {
+    on,
+    ways,
+    kinds: END_KINDS.filter((k) => kinds.has(k)),
+    dead: processes.deadEnds(process),
+  };
+}
+
+/**
+ * A way out in words, for the list under the cards: "Ends: Create the bill", "Forks out: Hand off
+ * to Price checker at 5 · Itemize the invoice", "Forks out each time round into Check an invoice:
+ * Hand off". `workflows` names this agent's workflows, for a hand-off into one of them.
+ */
+export function wayOutWords(
+  way: processes.WayOut,
+  workflows: readonly { slug: string; name: string }[] = [],
+): string {
+  const name = tidy(way.step.name) || "a step with no name";
+  const parts: string[] = [way.how === "fork" ? "Forks out" : "Ends"];
+  if (way.repeats) parts.push("each time round");
+  if (way.kind === "workflow") {
+    const slug = way.to?.workflow;
+    const wf = slug ? (workflows.find((w) => w.slug === slug)?.name ?? slug) : null;
+    parts.push(wf ? `into ${wf}` : "into another of its workflows");
+  }
+  const lead = parts.join(" ");
+  return way.kind === "none" ? `${lead}, with nothing reported out: ${name}` : `${lead}: ${name}`;
 }
 
 /**
@@ -517,8 +604,11 @@ const conditionOf = (s: IfStep) =>
 export function fillRequest(input: {
   workflowName: string;
   added: ReturnType<typeof handAdded>;
-  /** The operator's own words for how it starts, when they changed them. */
-  startWords?: string | null;
+  /**
+   * Every way in, in words (`startWordsAll`), when the operator changed how it starts: its words
+   * or its ways in. Null or absent when they didn't.
+   */
+  starts?: readonly string[] | null;
 }): string | null {
   const parts: string[] = [];
   const { lines, decisions } = input.added;
@@ -533,21 +623,27 @@ export function fillRequest(input: {
       `Give the decisions I added their rules: ${asked.map((d) => `if ${conditionOf(d)}`).join("; ")}. Keep their paths and steps.`,
     );
   }
-  const start = tidy(input.startWords ?? "");
-  if (start) parts.push(`It starts: ${start}. Set its trigger to match.`);
+  const starts = startsSentence(input.starts ?? []);
+  if (starts) {
+    parts.push(
+      (input.starts?.length ?? 0) > 1
+        ? `${starts} Keep a trigger for each, and set each to match.`
+        : `${starts} Set its trigger to match.`,
+    );
+  }
   if (parts.length === 0) return null;
   return parts.join("\n\n").slice(0, 4000);
 }
 
 /**
  * The list in words, for a build with no draft yet (List the steps myself): what the Builder drafts
- * from. "When …. 1. Read the invoice. 2. If the invoice is a duplicate: tell Dana, then it ends.
+ * from, every way in first (`start` is the first one's words). "It starts: When …. 1. Read the invoice. 2. If the invoice is a duplicate: tell Dana, then it ends.
  * Otherwise it goes on."
  */
 export function listWords(process: Process, start: string): string {
   const out: string[] = [];
-  const s = tidy(start);
-  if (s) out.push(`It starts: ${s}.`);
+  const starts = startsSentence(startWordsAll(process.triggers, start));
+  if (starts) out.push(starts);
   const line = (st: Step): string => {
     if (st.kind === "if") {
       // An otherwise with nothing on it goes on to the next line: nothing to say.

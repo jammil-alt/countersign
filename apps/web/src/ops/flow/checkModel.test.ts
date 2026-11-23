@@ -32,6 +32,10 @@ import {
   setPathEnd,
   setStart,
   startKindOf,
+  startKinds,
+  startWordsAll,
+  toggleStart,
+  wayOutWords,
 } from "./checkModel";
 
 function ids() {
@@ -302,6 +306,110 @@ describe("Check the steps' edits", () => {
     });
   });
 
+  it("takes more than one way in, one trigger a card, and keeps one on", () => {
+    const newId = ids();
+    const before = draft();
+    expect(startKinds(before)).toEqual(["document"]);
+    // On: a trigger of its own; the first keeps its id.
+    const two = toggleStart(before, "schedule", newId);
+    expect(two.refused).toBeUndefined();
+    expect(two.process.triggers).toEqual([
+      before.triggers[0],
+      { id: "id-1", on: { type: "schedule", cron: "0 7 * * 1-5" } },
+    ]);
+    expect(startKinds(two.process)).toEqual(["document", "schedule"]);
+    expect(startWordsAll(two.process.triggers, "When Dana emails an invoice")).toEqual([
+      "When Dana emails an invoice",
+      "On a schedule",
+    ]);
+    // Off: that trigger goes; the other keeps its id.
+    const off = toggleStart(two.process, "document", newId);
+    expect(off.process.triggers).toEqual([
+      { id: "id-1", on: { type: "schedule", cron: "0 7 * * 1-5" } },
+    ]);
+    // The last one stays on, and says why.
+    expect(toggleStart(off.process, "schedule", newId)).toEqual({
+      process: off.process,
+      refused: "last",
+    });
+    // A trigger no card shows still counts as a way in: the last card can go.
+    const hook: Process = {
+      ...before,
+      triggers: [...before.triggers, { id: "w", on: { type: "webhook" } as never }],
+    };
+    expect(toggleStart(hook, "document", newId).process.triggers.map((t) => t.id)).toEqual(["w"]);
+    // At most ten.
+    const full: Process = {
+      ...before,
+      triggers: Array.from({ length: 10 }, (_, i) => ({
+        id: `t${i}`,
+        on: { type: "event" as const, event: "document.received" },
+      })),
+    };
+    expect(toggleStart(full, "person", newId).refused).toBe("full");
+    // Two of one kind are one card: off takes both.
+    expect(
+      toggleStart(
+        { ...full, triggers: [...full.triggers.slice(0, 2), two.process.triggers[1] as never] },
+        "document",
+        newId,
+      ).process.triggers.map((t) => t.id),
+    ).toEqual(["id-1"]);
+  });
+
+  it("lists every way out: hand-offs that fork out on the way, and the ends", () => {
+    const before = draft();
+    const hand = (id: string, to: Record<string, string>, name: string): Step =>
+      ({ id, kind: "handoff", name, to, input: {} }) as unknown as Step;
+    const p: Process = {
+      ...before,
+      steps: [
+        before.steps[0] as Step,
+        {
+          id: "each",
+          kind: "for_each",
+          name: "Each invoice",
+          over: "{{trigger.items}}",
+          steps: [
+            hand(
+              "h",
+              { agent: "@self", workflow: "check-an-invoice", step: "s1" },
+              "Hand off to Check an invoice at 1 · Read the invoice",
+            ),
+          ],
+        } as Step,
+        ...before.steps.slice(1),
+      ],
+    };
+    const ending = endingOf(p);
+    expect(ending.ways.map((w) => [w.step.id, w.how])).toEqual([
+      ["h", "fork"],
+      ["bill", "end"],
+    ]);
+    // A fork out marks its card on, as an end does.
+    expect(ending.kinds).toEqual(["write", "handoff"]);
+    const wf = [{ slug: "check-an-invoice", name: "Check an invoice" }];
+    expect(ending.ways.map((w) => wayOutWords(w, wf))).toEqual([
+      "Forks out each time round into Check an invoice: Hand off to Check an invoice at 1 · Read the invoice",
+      "Ends: Create the bill",
+    ]);
+    // Another agent's hand-off, mid-process, and a dead end.
+    const look = {
+      id: "look",
+      kind: "read",
+      name: "Look up the vendor",
+      tool: "qbo.vendor.find",
+      input: {},
+    } as Step;
+    const other = processes.waysOut({
+      steps: [hand("x", { agent: "pricer", step: "" }, "Hand off to Price checker"), look],
+    });
+    expect(other.map((w) => wayOutWords(w))).toEqual([
+      "Forks out: Hand off to Price checker",
+      "Ends, with nothing reported out: Look up the vendor",
+    ]);
+  });
+
   it("finds what was added by hand and asks the Builder to fill it once", () => {
     const newId = ids();
     const before = draft();
@@ -311,7 +419,7 @@ describe("Check the steps' edits", () => {
     const added = handAdded(before, finishLines(p));
     expect(added.lines.map((l) => l.need)).toEqual(["Code each line to a job"]);
     expect(added.decisions.map((d) => d.paths[0]?.name)).toEqual(["the total is over $5,000"]);
-    const text = fillRequest({ workflowName: "Invoice intake", added, startWords: null });
+    const text = fillRequest({ workflowName: "Invoice intake", added, starts: null });
     expect(text).toContain('"Code each line to a job"');
     expect(text).toContain('if "the total is over $5,000"');
     expect(text).not.toContain("It starts");
@@ -320,9 +428,19 @@ describe("Check the steps' edits", () => {
       fillRequest({
         workflowName: "x",
         added: handAdded(before, before),
-        startWords: "When a vendor emails",
+        starts: ["When a vendor emails"],
       }),
     ).toBe("It starts: When a vendor emails. Set its trigger to match.");
+    // Every way in, when there are more.
+    expect(
+      fillRequest({
+        workflowName: "x",
+        added: handAdded(before, before),
+        starts: ["When a vendor emails", "On a schedule"],
+      }),
+    ).toBe(
+      "It starts 2 ways: When a vendor emails; On a schedule. Keep a trigger for each, and set each to match.",
+    );
   });
 
   it("says a list typed with no draft as words the Builder drafts from", () => {
@@ -334,6 +452,11 @@ describe("Check the steps' edits", () => {
     p = addLine(p, ROOT, 2, "Create the bill", newId).process;
     expect(listWords(p, "When an invoice arrives by email")).toBe(
       "It starts: When an invoice arrives by email. 1. Read the invoice. 2. If it is a duplicate: tell Dana, then it ends. 3. Create the bill.",
+    );
+    // Every way in: the first in the operator's words, the rest by their cards.
+    const two = toggleStart(p, "schedule", newId).process;
+    expect(listWords(two, "When an invoice arrives by email")).toMatch(
+      /^It starts 2 ways: When an invoice arrives by email; On a schedule\. 1\. Read the invoice\./,
     );
   });
 
