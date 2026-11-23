@@ -616,9 +616,11 @@ export async function runCron(env: Bindings, scheduledTime: Date, deps: AppDeps 
       );
     }
     // P-8: US texting registrations Twilio has, hourly (docs/plan.md §1.70).
-    await a2pCronTick(db, { env, fetch: deps.fetch?.(env) ?? globalFetch() }, scheduledTime).catch(
-      (error: unknown) => reportHandled("a2p status tick failed", error, { job: "a2p" }),
-    );
+    await a2pCronTick(
+      db,
+      { env, fetch: deps.fetch?.(env) ?? globalFetch(), events: platform.events },
+      scheduledTime,
+    ).catch((error: unknown) => reportHandled("a2p status tick failed", error, { job: "a2p" }));
     // v0.14 capture: captures left pending start again (every 10 minutes, docs/plan.md §1.55).
     if (scheduledTime.getUTCMinutes() % 10 === CAPTURE_CRON_MINUTE) {
       const capture = captureDepsFor({ db, env, deps, platform });
