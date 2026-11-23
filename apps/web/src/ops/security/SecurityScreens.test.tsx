@@ -75,6 +75,19 @@ describe("Security and compliance", () => {
     expect(within(open).getAllByRole("row")).toHaveLength(notInPlace.length + 1);
   });
 
+  it("says which controls each count counts (QA SC1)", async () => {
+    renderAt("/ops/security");
+    await screen.findByRole("heading", { name: "Overview" });
+    const inPlace = CONTROLS.filter((c) => c.status === "in_place").length;
+    expect(
+      screen.getByText(new RegExp(`^${inPlace} of our ${CONTROLS.length} controls in place\\.`)),
+    ).toBeInTheDocument();
+    const soc2 = CONTROLS.filter((c) => (c.maps.soc2?.length ?? 0) > 0);
+    expect(screen.getByTestId("ops-security-framework-soc2-count")).toHaveTextContent(
+      new RegExp(`of the ${soc2.length} controls mapped to SOC 2 in place`),
+    );
+  });
+
   it("filters the register by framework, in the URL", async () => {
     renderAt("/ops/security/controls");
     expect(await screen.findByRole("heading", { name: "Controls" })).toBeInTheDocument();
@@ -115,6 +128,9 @@ describe("Security and compliance", () => {
     expect(await screen.findByRole("heading", { name: "Acme Supply" })).toBeInTheDocument();
     expect(screen.queryByTestId("ops-control-VEN-3")).toBeNull();
     expect(screen.getByTestId("ops-control-ISO-1")).toBeInTheDocument();
+    expect(screen.getByTestId("ops-security-client-controls")).toHaveTextContent(
+      "The controls for the Standard tier",
+    );
   });
 
   it("keeps the audit log's old Utilities address working", async () => {

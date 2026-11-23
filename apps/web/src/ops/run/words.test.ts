@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  actionBadge,
   age,
   checkFailureWords,
   errorGroupLabel,
@@ -96,5 +97,26 @@ describe("errorGroupLabel", () => {
     expect(errorGroupLabel("person:timeout")).toBe("A person step · timeout");
     expect(errorGroupLabel("run:no_workflow")).toBe("Before any step · no workflow");
     expect(errorGroupLabel("unknown")).toBe("No reason given");
+  });
+});
+
+describe("actionBadge", () => {
+  // S4.5: a change nobody answered in time read "Waiting for approval" on a stopped run.
+  it("says a change nobody answered in time was not made, never a person's rejection", () => {
+    const expired = {
+      status: "rejected",
+      executedAt: null,
+      error: { code: "approval_expired", message: "nobody answered in time" },
+    };
+    expect(actionBadge(expired, false)).toEqual({
+      label: "Not made: no answer in time",
+      tone: "neutral",
+    });
+    expect(actionBadge({ status: "rejected", executedAt: null, error: null }, false).label).toBe(
+      "Rejected",
+    );
+    expect(actionBadge({ status: "proposed", executedAt: null }, false).label).toBe(
+      "Needs approval",
+    );
   });
 });

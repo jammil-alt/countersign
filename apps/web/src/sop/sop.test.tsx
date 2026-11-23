@@ -67,6 +67,7 @@ const VIEW: SopView = {
   client: "Harbor Millwork",
   area: { id: "purchasing", words: "Purchasing" },
   stage: { id: "live", words: "Live" },
+  paused: false,
   asOf: "2026-11-21T09:14:00.000Z",
   revision: REV,
   previous: { number: "7.1", at: "2026-11-15T10:00:00.000Z" },
@@ -541,6 +542,7 @@ describe("the portal's Procedures page", () => {
     code: id === SVC ? "SOP-PUR-01" : "SOP-PUR-02",
     area: { id: "purchasing", words: "Purchasing" },
     stage: { id: "live", words: "Live" },
+    paused: false,
     purpose: `${name} does its work.`,
     revision: {
       number: "7.1",
@@ -592,6 +594,31 @@ describe("the portal's Procedures page", () => {
     expect(screen.getByTestId(`procedures-row-${OTHER}`)).toBeInTheDocument();
     await user.type(screen.getByTestId("procedures-find"), "vendor");
     expect(screen.queryByTestId(`procedures-row-${SVC}`)).toBeNull();
+  });
+
+  it("says Paused, not Live, for a paused agent, and finds it by that word", async () => {
+    const user = userEvent.setup();
+    const api = fakeApi({
+      "GET /api/session": () => CLIENT_SESSION,
+      "GET /api/overview": () => new Reply(404, {}),
+      "GET /api/feedback/status": () => ({ enabled: false }),
+      "GET /api/sops": () => ({
+        sops: [{ ...row(SVC, "Bills in", "ask"), paused: true }, row(OTHER, "Vendor check", null)],
+      }),
+    });
+    render(
+      <MemoryRouter initialEntries={["/procedures"]}>
+        <AppProviders client={api.client}>
+          <AppRoutes />
+        </AppProviders>
+      </MemoryRouter>,
+    );
+    const paused = await screen.findByTestId(`procedures-stage-${SVC}`);
+    expect(paused).toHaveTextContent(/^PausedLive$/);
+    expect(screen.getByTestId(`procedures-stage-${OTHER}`)).toHaveTextContent(/^Live$/);
+    await user.type(screen.getByTestId("procedures-find"), "paused");
+    expect(screen.getByTestId(`procedures-row-${SVC}`)).toBeInTheDocument();
+    expect(screen.queryByTestId(`procedures-row-${OTHER}`)).toBeNull();
   });
 
   it("is a link from an agent's SOP tab", async () => {

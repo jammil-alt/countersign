@@ -11,6 +11,7 @@ import {
   type ConnectionRef,
   type ContentStore,
   type CredentialsAccessor,
+  credentialsUnopenable,
   noopLogger,
   QBO_CONNECTOR_ID,
   QboApiError,
@@ -205,6 +206,25 @@ export async function qboSyncStep(
         );
       }
       throw error.error;
+    }
+    // A stored sign-in that can't be opened is one nobody can use: it needs attention like one
+    // QuickBooks refused (overnight S3.7), not a sync that fails quietly while the connection
+    // still reads Connected.
+    // Which credential errors these are is connectors' `credentialsUnopenable`, shared with the
+    // texting pass (overnight S8.2): a bad envelope, or the client's key destroyed or lost.
+    if (credentialsUnopenable(error)) {
+      const collect: EventRow[] = [];
+      const emit = senseEmitter(deps.platform.events, { collect });
+      await dbConnectionAttention(deps.db, { emit }).needsAttention(tenantId, {
+        connectionId,
+        reason: "signin_expired",
+        detail: "the stored sign-in for this tool can't be opened; sign in again",
+      });
+      return {
+        ...skip("the client needs to sign in to QuickBooks again"),
+        eventIds: collect.map((e) => e.id),
+        events: collect,
+      };
     }
     if (error instanceof ReconnectRequiredError) {
       // The client must sign in again (`signin_expired`), or renewing our access has failed for a
