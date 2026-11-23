@@ -352,6 +352,67 @@ describe.skipIf(!h)("v4 processes in apps/api", () => {
     });
   });
 
+  // S4.5: a run whose approval expired read Stopped with its change "Waiting for approval".
+  describe("an approval nobody answers, with ifNoAnswer stop", () => {
+    it("closes the change as not made (approval_expired), and the portal says so", async () => {
+      const version = await processVersion(
+        proc([
+          writeStep({
+            approvers: [{ who: H.A.admin, deadline: { after: "1 hour" } }],
+            ifNoAnswer: "stop",
+          }),
+        ]),
+      );
+      const p = params(version);
+      const step = new FakeWorkflowStep(() => {
+        throw TIMEOUT();
+      });
+      const result = await executeRun(deps(), p, cloudflareStepRunner(step));
+      expect(result).toMatchObject({ status: "cancelled", reason: "rejected", nodeId: "update" });
+      expect(H.backend.writes).toHaveLength(0);
+      const [action] = await H.t.db
+        .select()
+        .from(externalAction)
+        .where(eq(externalAction.runId, p.runId));
+      expect(action?.status).toBe("rejected");
+      expect(action?.error).toMatchObject({ code: "approval_expired" });
+      expect(action?.approvedBy).toBeNull();
+      const [item] = await H.t.db
+        .select()
+        .from(inboxItem)
+        .where(and(eq(inboxItem.runId, p.runId), eq(inboxItem.kind, "external_action")));
+      expect(item?.status).toBe("expired");
+
+      const page = await H.call(admin("a"), "GET", `/api/runs/${p.runId}`);
+      expect(page.status, JSON.stringify(page.json)).toBe(200);
+      expect(j(page.json).actions).toEqual([
+        expect.objectContaining({ status: "rejected", expired: true }),
+      ]);
+      // The error itself never reaches the portal.
+      expect(JSON.stringify(page.json)).not.toContain("approval_expired");
+    });
+
+    it("leaves a person's no as a rejection, never as no answer", async () => {
+      const version = await processVersion(
+        proc([writeStep({ approvers: [{ who: H.A.admin, deadline: { after: "1 hour" } }] })]),
+      );
+      const p = params(version);
+      const step = new FakeWorkflowStep((_name, type) =>
+        resolveAs(type, () => ({ decision: "reject" })),
+      );
+      const result = await executeRun(deps(), p, cloudflareStepRunner(step));
+      expect(result).toMatchObject({ status: "cancelled", reason: "rejected" });
+      const [action] = await H.t.db
+        .select()
+        .from(externalAction)
+        .where(eq(externalAction.runId, p.runId));
+      expect(action?.status).toBe("rejected");
+      expect(action?.error).toBeNull();
+      const page = await H.call(admin("a"), "GET", `/api/runs/${p.runId}`);
+      expect(j(page.json).actions[0].expired).toBeUndefined();
+    });
+  });
+
   describe("an approval nobody answers, with ifNoAnswer proceed", () => {
     const step = () =>
       writeStep({

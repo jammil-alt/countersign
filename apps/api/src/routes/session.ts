@@ -168,6 +168,20 @@ export function sessionRoutes(app: Hono<AppEnv>): void {
           ...(r.signedIn.method ? { method: r.signedIn.method } : {}),
           // §1.100: where the sign-in starts with the second step.
           second_factor: r.signedIn.remembered ? "remembered" : r.signedIn.secondFactor,
+          // Overnight S1.5: why a remembered browser didn't skip the step (adapter's reasons).
+          ...(r.signedIn.rememberedMiss ? { remembered_miss: r.signedIn.rememberedMiss } : {}),
+          ...(r.signedIn.rememberedOther
+            ? {
+                remembered_for: r.signedIn.rememberedOther.userId,
+                // The audit target holds strings: yes, no, or unknown (none on record).
+                remembered_same_workos_user:
+                  r.signedIn.rememberedOther.sameWorkosUser === null
+                    ? "unknown"
+                    : r.signedIn.rememberedOther.sameWorkosUser
+                      ? "yes"
+                      : "no",
+              }
+            : {}),
           // §1.116, §1.219: a sign-in for one of our apps, named: `phone` or `desktop`.
           ...(r.signedIn.phone ? { app: r.signedIn.app ?? "phone" } : {}),
         },

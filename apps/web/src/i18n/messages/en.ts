@@ -625,6 +625,7 @@ export const en = {
   "action.status.done": "Made",
   "action.status.rejected": "Rejected",
   "action.status.failed": "Failed",
+  "action.status.expired": "Not made: no answer in time",
 
   // ── Connections ──
   "connections.title": "Accounts",
@@ -2108,6 +2109,9 @@ export const en = {
   "sloan.empty":
     "Ask why something waits, pause an agent, add an approver, or pass an idea to your lead.",
   "sloan.answering": "Sloan is answering…",
+  "sloan.noAnswer":
+    "No answer from Sloan yet. It will show here when it comes; for anything urgent, ask your lead.",
+  "sloan.checkAgain": "Check again",
   "sloan.compose": "Ask Sloan, or tell it what to change",
   "sloan.commandHint": "Start with / and an agent's name to ask that agent, like /pia.",
   "sloan.you": "You",
@@ -2156,7 +2160,7 @@ export const en = {
   "teamPage.subtitleMember": "Who uses your portal and what each person approves.",
   "teamPage.people": "People",
   "teamPage.invite": "Invite someone",
-  "teamPage.viewer": "Doesn't approve. Can read everything.",
+  "teamPage.viewer": "Doesn't approve.",
   "exports.title": "Exports",
   "exports.subtitle":
     "Files for your accountant and your own records. Each covers whole days, up to a year.",
@@ -3525,6 +3529,7 @@ export const en = {
   "requests.lede": "Something isn't working, or an idea for us: tell your Mezonas lead here.",
   "requests.new": "New request",
   "requests.empty": "No requests yet.",
+  "requests.state.sent": "Sent",
   "requests.state.on_it": "We're on it",
   "requests.state.waiting_on_you": "Waiting on you",
   "requests.state.fixed": "Fixed",

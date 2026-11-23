@@ -123,6 +123,10 @@ export function TryPanel({
   const api = useApiClient();
   const fileId = useId();
   const suite = build?.poc?.mode === "suite" ? build : null;
+  // DECISION (S6.3): a build keeps a try as a case only in its POC test (the route refuses one in
+  // any other phase), so before then a try of every step is a test run of the draft at the
+  // build's Sandbox, as a try of some steps already is; picking a record is the POC's alone.
+  const pocTry = suite?.build.phase === "poc" ? suite : null;
   // A test run reads the Sandbox (a template with no client chosen) or the agent's own client; a
   // file can be uploaded only to the Sandbox.
   const clients = useApi(
@@ -316,8 +320,8 @@ export function TryPanel({
     if (!again) caseRef.current = null;
     try {
       let id: string | null;
-      if (suite && !sentRange.current) {
-        const before = new Set((suite.poc?.tries ?? []).map((t) => t.caseId));
+      if (pocTry && !sentRange.current) {
+        const before = new Set((pocTry.poc?.tries ?? []).map((t) => t.caseId));
         let body:
           | { caseId: string }
           | { documentId: string; workflow: string }
@@ -334,7 +338,10 @@ export function TryPanel({
         } else if ("record" in next) {
           body = { record: { kind: next.record.kind, id: next.record.id }, workflow };
         } else body = { input: next.payload, workflow };
-        const d = await api.call(apiRoutes.opsBuildTry, { params: { id: suite.build.id }, body });
+        const d = await api.call(apiRoutes.opsBuildTry, {
+          params: { id: pocTry.build.id },
+          body,
+        });
         if (gen.current !== mine) return;
         onBuild?.(d);
         id = await buildRun(d, before, mine);
@@ -484,7 +491,7 @@ export function TryPanel({
             </div>
             <div className="flex flex-wrap items-center gap-2">
               {midway ? null : filePicker("Choose a file", true)}
-              {suite && fileClient ? (
+              {pocTry && fileClient ? (
                 <Button
                   size="sm"
                   aria-expanded={picking}
@@ -499,7 +506,7 @@ export function TryPanel({
               </Button>
             </div>
           </div>
-          {suite && fileClient && picking ? (
+          {pocTry && fileClient && picking ? (
             <Suspense fallback={<p className="text-ink-muted">Loading the records…</p>}>
               <RecordPick
                 clientId={fileClient}

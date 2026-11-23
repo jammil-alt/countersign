@@ -72,6 +72,8 @@ export type CredentialErrorCode =
   | "invalid_key"
   | "unknown_key"
   | "key_destroyed"
+  /** The client's key was retired and the master key that wrapped it is gone (never opens). */
+  | "key_lost"
   | "malformed"
   | "decrypt_failed";
 
@@ -83,6 +85,27 @@ export class CredentialError extends Error {
     super(message);
     this.name = "CredentialError";
   }
+}
+
+/**
+ * Whether a connection's stored credentials can never be opened again by this deployment, so the
+ * connection needs a person (a new sign-in, or credentials stored anew) rather than a retry each
+ * tick: the envelope is bad (`decrypt_failed`, `malformed`), or the client key it names is
+ * destroyed or lost (`key_destroyed`, `key_lost`).
+ */
+// DECISION: `unknown_key` and `invalid_key` are left out: they are our master keys (a missing
+// ENCRYPTION_KEY, or a previous key dropped too early), the same for every client and put right
+// by restoring the key, so a connection is not set to `error` for them. A key retired after its
+// master was lost (`retire-lost-keys.yml`) is `key_lost`, one client's, for good (overnight S8.2,
+// shared with S3.7's QuickBooks sync).
+export function credentialsUnopenable(error: unknown): error is CredentialError {
+  return (
+    error instanceof CredentialError &&
+    (error.code === "decrypt_failed" ||
+      error.code === "malformed" ||
+      error.code === "key_destroyed" ||
+      error.code === "key_lost")
+  );
 }
 
 export interface CredentialKeys {
@@ -401,6 +424,12 @@ export class VaultCipher implements CredentialSealer {
   private open(tenantId: string, record: TenantKeyRecord): Promise<CryptoKeyLike> {
     if (record.status === "destroyed" || !record.wrapped) {
       throw new CredentialError("key_destroyed", "the client's key was destroyed");
+    }
+    if (record.status === "retired" && !this.master.keyIds.includes(record.wrapped.kid)) {
+      throw new CredentialError(
+        "key_lost",
+        "the client's key was retired after the master key that wrapped it was lost",
+      );
     }
     const cacheKey = `${tenantId}|${record.id}`;
     let key = this.cache.get(cacheKey);
