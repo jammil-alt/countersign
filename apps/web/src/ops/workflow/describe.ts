@@ -131,7 +131,12 @@ export interface StepLabels {
   connectorOf?(step: processes.Step): { id: string; name: string } | undefined;
   person?(id: string): string | undefined;
   /** Hand off (2026-11-11): the target agent's name and its step's "5 · Itemize the invoice". */
-  handoff?(to: { agent: string; step: string }): { name: string; at: string } | undefined;
+  // Ways in, ways out (2026-11-23): `to.workflow` with `agent: "@self"` names this agent's workflow.
+  handoff?(to: {
+    agent: string;
+    step: string;
+    workflow?: string | undefined;
+  }): { name: string; at: string } | undefined;
   /** What a step's skill, tool or automation does, in its own words (the canvas's tooltip). */
   description?(step: processes.Step): string | undefined;
   /**
@@ -411,7 +416,9 @@ export function processStepDetail(step: ProcessStep, labels: StepLabels = {}): s
     case "handoff": {
       if (!step.to.agent) return "Choose the agent to hand off to";
       const named = labels.handoff?.(step.to);
-      const name = named?.name ?? step.to.agent;
+      const self = processes.isSelfHandoff(step);
+      if (self && !step.to.workflow) return "Choose the workflow to hand off to";
+      const name = named?.name ?? (self ? (step.to.workflow ?? "") : step.to.agent);
       const at = named?.at ?? step.to.step;
       return at ? `Hand off to ${name} at ${at}` : `Hand off to ${name}`;
     }

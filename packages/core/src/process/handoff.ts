@@ -6,7 +6,7 @@ import type { JsonSchema } from "../schemas/common";
 import { collectRefs } from "../template/template";
 import type { TypingContext } from "../template/typer";
 import { stepInputSchema } from "./reshape";
-import type { HandoffStep, Process, Step } from "./schema";
+import { type HandoffStep, type Process, SELF_AGENT, type Step } from "./schema";
 
 /** A top-level step of the target's live version, as a hand-off can start at it. */
 export interface HandoffTargetStep {
@@ -106,4 +106,103 @@ export function handoffTargetOf(
   const agent = agents?.find((a) => a.slug === step.to.agent);
   if (!agent) return undefined;
   return { agent, step: agent.steps.find((s) => s.id === step.to.step) };
+}
+
+// ── Ways in, ways out (owner, 2026-11-23): a hand-off to the agent's own workflow ─────────────
+
+/** True when a hand-off starts this agent's own workflow (`to.agent: "@self"`). */
+export function isSelfHandoff(step: Pick<HandoffStep, "to">): boolean {
+  return step.to.agent === SELF_AGENT;
+}
+
+/** One of this agent's own workflows, as a self hand-off sees it. */
+export interface HandoffWorkflow {
+  slug: string;
+  name: string;
+  enabled: boolean;
+  /** Its top-level steps, in order (`handoffTargetSteps`). */
+  steps: HandoffTargetStep[];
+}
+
+/**
+ * A bundle's v4 workflows as self hand-off targets: what the validator and the builder read. A
+ * stored v3 workflow is left out (it can't be a hand-off's target: it has no entry by step).
+ */
+export function handoffWorkflows(
+  workflows: readonly {
+    slug: string;
+    name: string;
+    enabled?: boolean | undefined;
+    workflow: { schemaVersion: number };
+  }[],
+  ctx: TypingContext,
+): HandoffWorkflow[] {
+  const out: HandoffWorkflow[] = [];
+  for (const w of workflows) {
+    if (w.workflow.schemaVersion !== 4) continue;
+    out.push({
+      slug: w.slug,
+      name: w.name,
+      enabled: w.enabled ?? true,
+      steps: handoffTargetSteps(w.workflow as Process, ctx),
+    });
+  }
+  return out;
+}
+
+/** Every self hand-off step in a process, at any depth (an if's paths, a loop's steps). */
+export function selfHandoffSteps(process: Pick<Process, "steps">): HandoffStep[] {
+  const out: HandoffStep[] = [];
+  const walk = (steps: readonly Step[]) => {
+    for (const step of steps) {
+      if (step.kind === "handoff" && isSelfHandoff(step)) out.push(step);
+      else if (step.kind === "if") {
+        for (const p of step.paths) walk(p.steps);
+        walk(step.otherwise.steps);
+      } else if (step.kind === "for_each" || step.kind === "repeat") walk(step.steps);
+    }
+  };
+  walk(process.steps);
+  return out;
+}
+
+/**
+ * The loops self hand-offs make between a bundle's workflows (A hands to B, B back to A; or
+ * longer): each loop as the workflow slugs in order, starting and ending at the same one. A
+ * hand-off to its own workflow is not counted here (the step's own check refuses it).
+ */
+export function selfHandoffLoops(
+  workflows: readonly { slug: string; workflow: { schemaVersion: number } }[],
+): string[][] {
+  const edges = new Map<string, string[]>();
+  for (const w of workflows) {
+    if (w.workflow.schemaVersion !== 4) continue;
+    const to = new Set<string>();
+    for (const step of selfHandoffSteps(w.workflow as Process)) {
+      const target = step.to.workflow;
+      if (target !== undefined && target !== w.slug) to.add(target);
+    }
+    edges.set(w.slug, [...to]);
+  }
+  // Each loop once: found from its smallest slug, through slugs larger than it.
+  const loops: string[][] = [];
+  const starts = [...edges.keys()].sort();
+  for (const start of starts) {
+    const path = [start];
+    const onPath = new Set(path);
+    const visit = (at: string) => {
+      for (const next of edges.get(at) ?? []) {
+        if (next === start) loops.push([...path, start]);
+        else if (next > start && !onPath.has(next) && edges.has(next)) {
+          path.push(next);
+          onPath.add(next);
+          visit(next);
+          path.pop();
+          onPath.delete(next);
+        }
+      }
+    };
+    visit(start);
+  }
+  return loops;
 }

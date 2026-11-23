@@ -782,12 +782,15 @@ export type NeedsHelp = z.infer<typeof NeedsHelp>;
 
 // ── Hand off (owner, 2026-11-11; docs/plan.md §1.96) ─────────────────────────────────────────
 
-/** A hand-off step's ask: start `to.agent`'s live version at `to.step` with `input`. */
+/**
+ * A hand-off step's ask: start `to.agent`'s live version at `to.step` with `input`; or, with
+ * `to.agent: "@self"`, this run's own version in workflow `to.workflow` (2026-11-23).
+ */
 export interface HandoffRequest {
   run: RunInfo;
   /** The hand-off step's durable name. */
   nodeId: string;
-  to: { agent: string; step: string };
+  to: { agent: string; step: string; workflow?: string | undefined };
   input: unknown;
 }
 

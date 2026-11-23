@@ -6,7 +6,13 @@ import { executeWorkflow } from "./executor";
 import { FakeStepRunner } from "./fake-runner";
 import { Harness, RUN } from "./fakes.test-helper";
 import type { HandoffPort, HandoffRequest } from "./ports";
-import { type HandoffAsk, handoffRunRequest, type RoutableAgent } from "./router";
+import {
+  type HandoffAsk,
+  handoffRunRequest,
+  type RoutableAgent,
+  type SelfHandoffAsk,
+  selfHandoffRunRequest,
+} from "./router";
 
 const MANUAL = { id: "t", on: { type: "manual", input: {} } };
 
@@ -237,5 +243,142 @@ describe("handoffRunRequest", () => {
       refused: "unknown_agent",
     });
     expect(await handoffRunRequest(ask({}, "gone"), target())).toEqual({ refused: "unknown_step" });
+  });
+});
+
+// ── Ways in, ways out (owner, 2026-11-23): a hand-off to this agent's own workflow ──────────────
+
+describe("a hand-off to this agent's own workflow", () => {
+  it("asks once per item inside a for each, each with its own node id", async () => {
+    const h = new Harness();
+    const calls: HandoffRequest[] = [];
+    const p: HandoffPort = {
+      names: async () => ({ name: "Check an invoice", at: "1 · read" }),
+      start: async (req) => {
+        calls.push(req);
+        return {
+          runId: `0192f7a0-0000-7000-8000-00000000000${calls.length}`,
+          name: "Check an invoice",
+          at: "1 · read",
+        };
+      },
+    };
+    const scan = proc([
+      {
+        id: "each",
+        kind: "for_each",
+        name: "For each bill",
+        over: "{{trigger.bills}}",
+        steps: [
+          {
+            id: "hand",
+            kind: "handoff",
+            name: "Hand off",
+            to: { agent: "@self", step: "read", workflow: "check" },
+            input: { documentId: "{{item.id}}" },
+          },
+        ],
+      },
+    ]);
+    const result = await executeWorkflow(new FakeStepRunner(), h.context({ handoff: p }), scan, {
+      bills: [{ id: "b1" }, { id: "b2" }],
+    });
+    expect(result.status).toBe("succeeded");
+    expect(calls.map((c) => [c.nodeId, c.to, c.input])).toEqual([
+      ["each:0:hand", { agent: "@self", step: "read", workflow: "check" }, { documentId: "b1" }],
+      ["each:1:hand", { agent: "@self", step: "read", workflow: "check" }, { documentId: "b2" }],
+    ]);
+    expect(h.row("each:1:hand")).toMatchObject({
+      status: "succeeded",
+      output: { agent: "@self", step: "read", workflow: "check" },
+      summary: "Handed off to Check an invoice (run R-000002)",
+    });
+  });
+});
+
+describe("selfHandoffRunRequest", () => {
+  const TENANT = RUN.tenantId;
+  const bundle = {
+    workflows: [
+      { slug: "check", name: "Check an invoice", enabled: true, workflow: priceChecker },
+      { slug: "scan", name: "Scan bills", enabled: true, workflow: proc([skill("find")]) },
+      { slug: "old", name: "Old", enabled: false, workflow: priceChecker },
+    ],
+  } as unknown as AnyAgentBundle;
+  const self = (over: Partial<RoutableAgent> = {}): RoutableAgent & { slug: string } => ({
+    id: "agent-a",
+    slug: "invoices",
+    tenantId: TENANT,
+    kind: "client",
+    status: "active",
+    runStatus: "active",
+    liveVersionId: "version-live",
+    liveBundle: null,
+    ...over,
+  });
+  const ask = (
+    over: Partial<SelfHandoffAsk["from"]> = {},
+    to: Partial<SelfHandoffAsk["to"]> = {},
+  ): SelfHandoffAsk => ({
+    tenantId: TENANT,
+    from: {
+      runId: "run-a",
+      agentId: "agent-a",
+      agentSlug: "invoices",
+      workflowSlug: "scan",
+      nodeId: "each:0:hand",
+      depth: 0,
+      agentVersionId: "version-old",
+      mode: "live",
+      ...over,
+    },
+    to: { agent: "@self", step: "itemize", workflow: "check", ...to },
+    input: { documentId: "d" },
+  });
+
+  it("asks for a run of the same agent and the sending run's version, in the named workflow", async () => {
+    const r = await selfHandoffRunRequest(ask(), self(), bundle);
+    if (!("run" in r)) throw new Error(r.refused);
+    expect(r.workflowName).toBe("Check an invoice");
+    expect(r.run).toMatchObject({
+      agentId: "agent-a",
+      // Not the live version: the one the sending run is on.
+      agentVersionId: "version-old",
+      workflowSlug: "check",
+      mode: "live",
+      trigger: {
+        type: "handoff",
+        fromRunId: "run-a",
+        depth: 1,
+        at: "itemize",
+        fromAgentId: "agent-a",
+        fromStep: "each:0:hand",
+      },
+      payload: {
+        from: { agentId: "agent-a", workflowSlug: "scan", workflowName: "Scan bills" },
+        at: "itemize",
+        input: { documentId: "d" },
+      },
+    });
+    const again = await selfHandoffRunRequest(ask(), self(), bundle);
+    expect("run" in again && again.run.runId).toBe(r.run.runId);
+    const other = await selfHandoffRunRequest(ask({ nodeId: "each:1:hand" }), self(), bundle);
+    expect("run" in other && other.run.runId).not.toBe(r.run.runId);
+  });
+
+  it("holds the rules: three deep, started, another enabled workflow, a top-level step", async () => {
+    const refused = async (a: SelfHandoffAsk, s = self()) => {
+      const r = await selfHandoffRunRequest(a, s, bundle);
+      return "refused" in r ? r.refused : "started";
+    };
+    expect(await refused(ask({ depth: 3 }))).toBe("too_deep");
+    expect(await refused(ask({ depth: 2 }))).toBe("started");
+    expect(await refused(ask(), self({ runStatus: "paused" }))).toBe("not_started");
+    expect(await refused(ask(), self({ id: "agent-b" }))).toBe("unknown_agent");
+    expect(await refused(ask(), self({ tenantId: "other" }))).toBe("unknown_agent");
+    expect(await refused(ask({}, { workflow: "scan", step: "find" }))).toBe("same_workflow");
+    expect(await refused(ask({}, { workflow: "gone" }))).toBe("unknown_workflow");
+    expect(await refused(ask({}, { workflow: "old" }))).toBe("workflow_off");
+    expect(await refused(ask({}, { step: "gone" }))).toBe("unknown_step");
   });
 });
