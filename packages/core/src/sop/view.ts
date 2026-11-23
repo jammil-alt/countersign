@@ -250,6 +250,12 @@ export const SopView = z
     client: z.string(),
     area: z.object({ id: z.string(), words: z.string() }),
     stage: z.object({ id: z.string(), words: z.string() }),
+    /**
+     * Paused now (the agent's run status). A state of the moment, read with the stage ("Paused"
+     * in its place), and left out of the fingerprint so a pause or a resume makes no revision.
+     * Stored views before it read false.
+     */
+    paused: z.boolean().default(false),
     /** When this view was made. */
     asOf: z.string(),
     /** The current revision and the one before; null until the first is recorded. */

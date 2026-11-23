@@ -448,7 +448,11 @@ export function SopDocument({
                 </div>
                 <div>
                   <dt>{t("sop.stage")}</dt>
-                  <dd>{view.stage.words}</dd>
+                  <dd data-testid="sop-stage">
+                    {view.paused
+                      ? `${t("state.agent.paused")} (${view.stage.words})`
+                      : view.stage.words}
+                  </dd>
                 </div>
                 <div>
                   <dt>{t("sop.area")}</dt>

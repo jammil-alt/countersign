@@ -654,6 +654,7 @@ export const fr: Messages = {
   "action.status.done": "Fait",
   "action.status.rejected": "Refusé",
   "action.status.failed": "Échec",
+  "action.status.expired": "Non fait : pas de réponse à temps",
 
   // ── Connections ──
   "connections.title": "Comptes",
@@ -2258,7 +2259,7 @@ export const fr: Messages = {
   "teamPage.subtitleMember": "Qui utilise votre portail et ce que chaque personne approuve.",
   "teamPage.people": "Personnes",
   "teamPage.invite": "Inviter quelqu'un",
-  "teamPage.viewer": "N'approuve rien. Peut tout lire.",
+  "teamPage.viewer": "N'approuve rien.",
   "exports.title": "Exports",
   "exports.subtitle":
     "Des fichiers pour votre comptable et vos propres dossiers. Chacun couvre des jours entiers, jusqu'à un an.",

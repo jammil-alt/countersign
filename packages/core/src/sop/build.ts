@@ -1439,6 +1439,10 @@ export function sopView(input: SopInput): SopView {
       id: input.agent.stage ?? "bench",
       words: STAGE_WORDS[input.agent.stage ?? "bench"] ?? "Being set up",
     },
+    // DECISION (QA W9): a paused agent's SOP and the Procedures list say "Paused" where the stage
+    // is, never "Live". Outside the fingerprint (`sopContent`), so pausing and resuming make no
+    // revision; a safety hold stays on the agent's page.
+    paused: input.agent.runStatus === "paused",
     asOf: input.asOf,
     revision: input.revision,
     previous: input.previous,

@@ -196,6 +196,22 @@ describe.skipIf(!h)("agents a client user sees (§1.122)", () => {
     expect(j(res.json).member.agentIds).toEqual([ids.two]);
   });
 
+  it("invites a client user who approves nothing unless asked (D3)", async () => {
+    const plain = await H.call(admin("a"), "POST", "/api/users", {
+      email: "viewer@a.example.com",
+      role: "client_user",
+    });
+    expect(plain.status, JSON.stringify(plain.json)).toBe(200);
+    expect(j(plain.json).member.canSign).toBe(false);
+    const signer = await H.call(OPERATOR, "POST", `/api/ops/clients/${H.A.tenantId}/invites`, {
+      email: "signer@a.example.com",
+      role: "client_user",
+      canSign: true,
+    });
+    expect(signer.status, JSON.stringify(signer.json)).toBe(200);
+    expect(j(signer.json).member.canSign).toBe(true);
+  });
+
   it("changes role and signing in place, never your own, and keeps an admin", async () => {
     const self = await H.call(admin("a"), "PATCH", `/api/users/${userId}`, { canSign: false });
     expect(self.status).toBe(200);
@@ -231,6 +247,51 @@ describe.skipIf(!h)("agents a client user sees (§1.122)", () => {
       role: "client_admin",
       canSign: true,
       agentIds: null,
+    });
+  });
+
+  it("an admin made a user again says which agents and whether they approve", async () => {
+    // They were limited to one agent and approved nothing, then made an admin (which clears both).
+    await H.call(admin("a"), "PATCH", `/api/users/${userId}`, {
+      role: "client_user",
+      canSign: false,
+      agentIds: [ids.one],
+    });
+    const promote = await H.call(admin("a"), "PATCH", `/api/users/${userId}`, {
+      role: "client_admin",
+    });
+    expect(promote.status, JSON.stringify(promote.json)).toBe(200);
+    // Back to user with the role alone: refused, never "every agent, approves changes".
+    for (const body of [
+      { role: "client_user" },
+      { role: "client_user", canSign: false },
+      { role: "client_user", agentIds: [ids.one] },
+    ]) {
+      for (const [who, path] of [
+        [admin("a"), `/api/users/${userId}`],
+        [OPERATOR, `/api/ops/clients/${H.A.tenantId}/members/${userId}`],
+      ] as const) {
+        const res = await H.call(who, "PATCH", path, body);
+        expect(res.status, `${path} ${JSON.stringify(body)}`).toBe(422);
+        expect(code(res.json)).toBe("user_access_needed");
+      }
+    }
+    const [still] = await H.t.db
+      .select()
+      .from(membership)
+      .where(and(eq(membership.tenantId, H.A.tenantId), eq(membership.userId, userId)));
+    expect(still).toMatchObject({ role: "client_admin", canSign: true, agentIds: null });
+    // Saying both is a change like any other.
+    const demote = await H.call(admin("a"), "PATCH", `/api/users/${userId}`, {
+      role: "client_user",
+      canSign: false,
+      agentIds: [ids.one],
+    });
+    expect(demote.status, JSON.stringify(demote.json)).toBe(200);
+    expect(j(demote.json).member).toMatchObject({
+      role: "client_user",
+      canSign: false,
+      agentIds: [ids.one],
     });
   });
 

@@ -669,6 +669,7 @@ export const de: Messages = {
   "action.status.done": "Ausgeführt",
   "action.status.rejected": "Abgelehnt",
   "action.status.failed": "Fehlgeschlagen",
+  "action.status.expired": "Nicht ausgeführt: keine Antwort rechtzeitig",
 
   // ── Connections ──
   "connections.title": "Konten",
@@ -2275,7 +2276,7 @@ export const de: Messages = {
   "teamPage.subtitleMember": "Wer Ihr Portal nutzt und was jede Person freigibt.",
   "teamPage.people": "Personen",
   "teamPage.invite": "Jemanden einladen",
-  "teamPage.viewer": "Gibt nichts frei. Kann alles lesen.",
+  "teamPage.viewer": "Gibt nichts frei.",
   "exports.title": "Exporte",
   "exports.subtitle":
     "Dateien für Ihre Buchhaltung und Ihre eigenen Unterlagen. Jeder Export umfasst ganze Tage, höchstens ein Jahr.",
