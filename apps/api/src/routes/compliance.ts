@@ -201,18 +201,21 @@ export function complianceRouteHandlers(app: Hono<AppEnv>): void {
       .from(membership)
       .where(and(inArray(membership.tenantId, ids), inArray(membership.role, [...CLIENT_ROLES])))
       .groupBy(membership.tenantId, membership.role);
+    // A sign-in names no client and no role (it happens before a client is chosen): it counts
+    // for each client the person is a client admin or user of now (QA SC1).
     const signIns = await tx
-      .select({ tenantId: auditEvent.tenantId, at: max(auditEvent.createdAt) })
+      .select({ tenantId: membership.tenantId, at: max(auditEvent.createdAt) })
       .from(auditEvent)
+      .innerJoin(membership, eq(membership.userId, auditEvent.actorUserId))
       .where(
         and(
-          inArray(auditEvent.tenantId, ids),
+          inArray(membership.tenantId, ids),
+          inArray(membership.role, [...CLIENT_ROLES]),
           eq(auditEvent.action, "session.sign_in"),
           eq(auditEvent.outcome, "ok"),
-          inArray(auditEvent.actorRole, [...CLIENT_ROLES]),
         ),
       )
-      .groupBy(auditEvent.tenantId);
+      .groupBy(membership.tenantId);
     const since = new Date(generatedAt.getTime() - 30 * DAY_MS);
     const [audit] = await tx
       .select({

@@ -4,7 +4,7 @@
 
 import { createTwilioConnector, MemoryObjectStore } from "@countersign/connectors";
 import { AUDIT_REFRESH_HEADER, parseCoveredProcessors } from "@countersign/core";
-import { auditEvent, tenant } from "@countersign/db";
+import { appUser, auditEvent, tenant } from "@countersign/db";
 import type { LlmTransport } from "@countersign/llm";
 import { and, eq, sql } from "drizzle-orm";
 import { afterAll, describe, expect, it, vi } from "vitest";
@@ -151,6 +151,39 @@ describe.skipIf(!h)("compliance", () => {
       expect(a?.admins).toBeGreaterThanOrEqual(1);
       expect(body.audit30d.events).toBeGreaterThan(0);
       expect(body.audit30d.refused).toBeLessThanOrEqual(body.audit30d.events);
+    });
+
+    it("gives each client its people's last sign-in (sign-ins name no client)", async () => {
+      const userId = async (email: string) =>
+        (
+          await harness.t.db
+            .select({ id: appUser.id })
+            .from(appUser)
+            .where(eq(appUser.email, email))
+        )[0]?.id as string;
+      const at = new Date(Date.now() - 60_000);
+      const signIn = async (email: string, when: Date, outcome: "ok" | "refused" = "ok") =>
+        harness.t.db.insert(auditEvent).values({
+          tenantId: null,
+          actorKind: "user",
+          actorUserId: await userId(email),
+          actorEmail: email,
+          action: "session.sign_in",
+          outcome,
+          createdAt: when,
+        });
+      // As session.ts writes them: no client and no role on the row.
+      await signIn(admin("a"), at);
+      await signIn(admin("a"), new Date(), "refused");
+      // An operator's sign-in is not the client's, though they serve it.
+      await signIn(OPERATOR, new Date(at.getTime() + 30_000));
+      // Client C's person signs in later still; A's line doesn't move.
+      await signIn(admin("c"), new Date(at.getTime() + 40_000));
+      const res = await call(OPERATOR, "GET", "/api/ops/security");
+      expect(res.status).toBe(200);
+      const clients = (res.json as { clients: { id: string; lastSignInAt: string | null }[] })
+        .clients;
+      expect(clients.find((c) => c.id === A.tenantId)?.lastSignInAt).toBe(at.toISOString());
     });
 
     it("is for operators only", async () => {
