@@ -253,11 +253,15 @@ describe.skipIf(!h)("a run as the client sees it", () => {
       new Intl.DateTimeFormat("en-CA", { timeZone: "America/Chicago" }).format(new Date(ms));
     const inMonth = dayOf(now - 22 * HOUR).slice(0, 7) === todayIn("America/Chicago").slice(0, 7);
     const inWeek = new Date(now - 22 * HOUR) >= new Date(table.week.from);
+    // The run going now started an hour ago: in the hour after a week's or month's start (Monday
+    // 00:00 in the client's zone) it belongs to the one before, and isn't counted in this one.
+    const goingInWeek = new Date(now - HOUR) >= new Date(table.week.from);
+    const goingInMonth = dayOf(now - HOUR).slice(0, 7) === todayIn("America/Chicago").slice(0, 7);
     const clerk = table.services.find((s: { id: string }) => s.id === ids.agent);
     // The agent is waiting on you (any of its runs), and its latest run says why.
     expect(clerk.runsNow).toEqual({ running: 1, waitingOnYou: 1 });
     expect(table.figures.runs).toMatchObject({ waiting: inWeek ? 1 : 0 });
-    expect(clerk.runs).toMatchObject({ waiting: inWeek ? 1 : 0, going: 1 });
+    expect(clerk.runs).toMatchObject({ waiting: inWeek ? 1 : 0, going: goingInWeek ? 1 : 0 });
     expect(clerk.runsDone).toBe(clerk.runs.succeeded);
     // Design pass: its runs each day for the small chart, 14 days in the client's days, the same
     // three runs the runs-per-day route counts; its week's changes and documents as Reports counts.
@@ -282,7 +286,10 @@ describe.skipIf(!h)("a run as the client sees it", () => {
     expect(clerk.now).toMatchObject({ runId: ids.ours, status: "running", waitingOnYou: false });
     // The month (agent page) and Reports count the same way.
     expect(svc.thisMonth.runs).toEqual(report.services[0].runs);
-    expect(svc.thisMonth.runs).toMatchObject({ waiting: inMonth ? 1 : 0, going: 1 });
+    expect(svc.thisMonth.runs).toMatchObject({
+      waiting: inMonth ? 1 : 0,
+      going: goingInMonth ? 1 : 0,
+    });
     // Invoice 20418 was read on upload and worked on by the Bill clerk: it counts for both.
     expect(svc.thisMonth.documentsRead).toBe(inMonth ? 1 : 0);
     expect(report.services[0].documentsRead).toBe(svc.thisMonth.documentsRead);
