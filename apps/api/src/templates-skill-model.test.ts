@@ -388,10 +388,11 @@ describe.skipIf(!h)("installing, offering and publishing the skill model's versi
     expect(latest("bill-clerk")).toBe(5);
     expect(latest("document-clerk")).toBe(2);
     // v0.19: Sloan's v6 is the chat only (ARCHITECTURE §10.15).
-    expect(latest("supervisor")).toBe(6);
+    // Overnight S2.4: Sloan's v7 answers on Claude Sonnet 5.5.
+    expect(latest("supervisor")).toBe(7);
     expect(latestSeededVersion("bill-clerk")).toBe(5);
     expect(latestSeededVersion("document-clerk")).toBe(2);
-    expect(latestSeededVersion("supervisor")).toBe(6);
+    expect(latestSeededVersion("supervisor")).toBe(7);
     // The v1s are as they were (stored history is never edited).
     const v1 = (await loadSeedTemplates()).map((t) => t.slug);
     expect(v1).toEqual(["bill-clerk", "builder", "coordinator", "document-clerk", "supervisor"]);

@@ -99,6 +99,8 @@ describe("seed files", () => {
       "supervisor.v5",
       // v0.19: Sloan is the chat; its watches moved into platform code.
       "supervisor.v6",
+      // Overnight S2.4 (owner, D1): the chat's answer step on Claude Sonnet 5.5.
+      "supervisor.v7",
     ]);
     const v2 = v3Bundle(later.find((v) => v.slug === "supervisor" && v.version === 2));
     if (!v1 || !v2) throw new Error("no supervisor seed");
@@ -290,6 +292,33 @@ describe("seed files, R9", () => {
     ]);
   });
 
+  // Overnight S2.4 (owner, D1): Sloan's v7 answers on Claude Sonnet 5.5 (Opus with a $0.30 cap
+  // stopped on ordinary questions). Its cap, skills and step ids are v6's, so the reviewed update
+  // merge into a client's Sloan changes only the answer step's model.
+  it("hold the supervisor's v7: v6's chat with the answer step on Claude Sonnet 5.5", async () => {
+    const later = await loadSeedVersions();
+    const at = (n: number) => later.find((v) => v.slug === "supervisor" && v.version === n);
+    const v6 = at(6)?.bundle as unknown as {
+      definition: Record<string, unknown>;
+      workflows: {
+        slug: string;
+        workflow: { triggers: unknown[]; steps: Record<string, unknown>[] };
+      }[];
+    };
+    const v7 = at(7)?.bundle as unknown as typeof v6;
+    if (!v6 || !v7) throw new Error("no supervisor v6 or v7");
+    expect(v7.definition).toEqual(v6.definition);
+    expect(v7.definition.budgets).toEqual({ maxSteps: 8, maxCostUsd: "0.30" });
+    expect(v7.workflows.map((w) => w.slug)).toEqual(["chat"]);
+    const [chat6, chat7] = [v6.workflows[0], v7.workflows[0]];
+    expect(chat7?.workflow.triggers).toEqual(chat6?.workflow.triggers);
+    expect(chat7?.workflow.steps.map((x) => x.id)).toEqual(["answer"]);
+    const { model, ...rest } = chat7?.workflow.steps[0] ?? {};
+    expect(rest).toEqual(chat6?.workflow.steps[0]);
+    expect(model).toEqual({ id: "claude-sonnet-5-5", maxTokens: 2048 });
+    expect(processes.validateAnyBundle(v7 as never).valid).toBe(true);
+  });
+
   // One agent, one process (ARCHITECTURE §10.14). The supervisor kept four workflows up to its v5;
   // v0.19's v6 keeps the chat alone (its watches are the platform's, §10.15).
   it("keep one process per agent in every latest seed", async () => {
@@ -330,10 +359,10 @@ describe.skipIf(!online)("seed", () => {
   it("inserts the operator, two clients and five live templates; twice is the same as once", async () => {
     const first = await seed(t.db);
     const afterFirst = await counts();
-    // Five templates: five v1s, the supervisor's v2 to v6, the Bill clerk's v2 to v5, and the
+    // Five templates: five v1s, the supervisor's v2 to v7, the Bill clerk's v2 to v5, and the
     // Builder's, Coordinator's and Document clerk's v2; and the Demo client's Sloan, its v1 forked
     // from the supervisor's live version (§1.47 "On by default").
-    expect(afterFirst).toEqual({ tenants: 2, users: 2, memberships: 3, agents: 6, versions: 18 });
+    expect(afterFirst).toEqual({ tenants: 2, users: 2, memberships: 3, agents: 6, versions: 19 });
     expect(first.demoDesk).toBeNull();
 
     const second = await seed(t.db);
@@ -360,15 +389,15 @@ describe.skipIf(!online)("seed", () => {
     ]);
     const versions = await t.db.select().from(agentVersion);
     const supervisor = first.templates.supervisor;
-    // Each template's live version is its last seeded one: the supervisor's v6 (the chat alone,
-    // v0.19), whose parent is v5, v5's v4, v4's v3 and v3's v2; the Bill clerk's v3 (its parent v2); the Builder's,
+    // Each template's live version is its last seeded one: the supervisor's v7 (the chat alone,
+    // v0.19, answering on Claude Sonnet 5.5), whose parent is v6, v6's v5, v5's v4, v4's v3 and v3's v2; the Bill clerk's v3 (its parent v2); the Builder's,
     // Coordinator's and Document clerk's v2. The others are retired.
     const lastSeeded: Record<string, number> = {
       "bill-clerk": 5,
       builder: 2,
       coordinator: 2,
       "document-clerk": 2,
-      supervisor: 6,
+      supervisor: 7,
     };
     for (const r of templates) {
       expect(r.kind).toBe("template");
@@ -381,7 +410,8 @@ describe.skipIf(!online)("seed", () => {
         expect(at(3)?.parentVersionId).toBe(at(2)?.id);
         expect(at(4)?.parentVersionId).toBe(at(3)?.id);
         expect(at(5)?.parentVersionId).toBe(at(4)?.id);
-        expect(live?.parentVersionId).toBe(at(5)?.id);
+        expect(at(6)?.parentVersionId).toBe(at(5)?.id);
+        expect(live?.parentVersionId).toBe(at(6)?.id);
       } else if (r.slug === "bill-clerk") {
         const at = (n: number) => versions.find((v) => v.agentId === r.id && v.version === n);
         expect(at(2)?.parentVersionId).toBe(first.templates[r.slug]?.versionId);

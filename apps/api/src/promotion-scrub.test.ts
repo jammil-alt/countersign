@@ -29,6 +29,7 @@ import supervisorV3 from "@countersign/db/seed/agents/supervisor.v3.json";
 import supervisorV4 from "@countersign/db/seed/agents/supervisor.v4.json";
 import supervisorV5 from "@countersign/db/seed/agents/supervisor.v5.json";
 import supervisorV6 from "@countersign/db/seed/agents/supervisor.v6.json";
+import supervisorV7 from "@countersign/db/seed/agents/supervisor.v7.json";
 import { knownModelIds } from "@countersign/llm";
 import { afterAll, describe, expect, it } from "vitest";
 import { type ApiHarness, createApiHarness } from "./api.test-helper";
@@ -45,6 +46,7 @@ const SEEDED: Record<string, Record<number, unknown>> = {
     4: supervisorV4,
     5: supervisorV5,
     6: supervisorV6,
+    7: supervisorV7,
   },
 };
 

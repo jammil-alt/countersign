@@ -37,6 +37,8 @@ import supervisorV3 from "@countersign/db/seed/agents/supervisor.v3.json";
 import supervisorV4 from "@countersign/db/seed/agents/supervisor.v4.json";
 import supervisorV5 from "@countersign/db/seed/agents/supervisor.v5.json";
 import supervisorV6 from "@countersign/db/seed/agents/supervisor.v6.json";
+// Overnight S2.4 (owner, D1): Sloan answers on Claude Sonnet 5.5.
+import supervisorV7 from "@countersign/db/seed/agents/supervisor.v7.json";
 import { and, eq, isNull } from "drizzle-orm";
 import { HttpError, notFound } from "../http";
 import type { Platform } from "../platform";
@@ -63,6 +65,8 @@ const SEEDED: Readonly<Record<string, Readonly<Record<number, unknown>>>> = {
     5: supervisorV5,
     // v0.19 (ARCHITECTURE §10.15 "Sloan is the chat"): chat only; its watches are the platform's.
     6: supervisorV6,
+    // Overnight S2.4 (owner, D1): the chat's answer step on Claude Sonnet 5.5, cap unchanged.
+    7: supervisorV7,
   },
 };
 
