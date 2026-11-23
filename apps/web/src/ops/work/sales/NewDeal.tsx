@@ -42,11 +42,24 @@ export function NewDeal({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>(null);
   const amount = mrr.replace(/[$,\s]/g, "");
-  const valid =
-    title.trim() !== "" &&
-    DECIMAL_RE.test(amount) &&
-    !amount.startsWith("-") &&
-    (kind === "expansion" ? clientId !== "" : company.trim() !== "" || clientId !== "");
+  // S6.8 (SL2): what "Add the deal" still needs, said beside it, so a disabled button is never
+  // the only sign that "A month" (or anything else) is missing.
+  const needs = [
+    kind === "expansion"
+      ? clientId === ""
+        ? "the client"
+        : null
+      : company.trim() === "" && clientId === ""
+        ? "the company or a client"
+        : null,
+    title.trim() === "" ? "what they'd buy" : null,
+    amount === ""
+      ? "an amount a month"
+      : !DECIMAL_RE.test(amount) || amount.startsWith("-")
+        ? "an amount a month as a number, like 2400"
+        : null,
+  ].filter((n): n is string => n !== null);
+  const valid = needs.length === 0;
 
   async function start() {
     setBusy(true);
@@ -134,7 +147,7 @@ export function NewDeal({
               data-testid="sales-start-title"
             />
           </Field>
-          <Field label="A month" hint="An estimate until the terms are agreed">
+          <Field label="A month" hint="Needed. An estimate until the terms are agreed">
             <TextInput
               value={mrr}
               onChange={(e) => setMrr(e.target.value)}
@@ -204,6 +217,11 @@ export function NewDeal({
           <Button variant="ghost" onClick={onCancel}>
             Cancel
           </Button>
+          {needs.length > 0 ? (
+            <span className="self-center text-sm text-ink-muted" data-testid="sales-start-needs">
+              {`To add it: ${needs.join(", ")}.`}
+            </span>
+          ) : null}
         </div>
       </form>
     </Card>
