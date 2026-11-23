@@ -6,7 +6,7 @@ import type { JsonSchema } from "../schemas/common";
 import { collectRefs } from "../template/template";
 import type { TypingContext } from "../template/typer";
 import { stepInputSchema } from "./reshape";
-import { HANDOFF_SELF, type HandoffStep, type Process, type Step } from "./schema";
+import { type HandoffStep, type Process, SELF_AGENT, type Step } from "./schema";
 
 /** A top-level step of the target's live version, as a hand-off can start at it. */
 export interface HandoffTargetStep {
@@ -112,7 +112,7 @@ export function handoffTargetOf(
 
 /** True when a hand-off starts this agent's own workflow (`to.agent: "@self"`). */
 export function isSelfHandoff(step: Pick<HandoffStep, "to">): boolean {
-  return step.to.agent === HANDOFF_SELF;
+  return step.to.agent === SELF_AGENT;
 }
 
 /** One of this agent's own workflows, as a self hand-off sees it. */

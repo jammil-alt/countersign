@@ -1226,7 +1226,7 @@ function HandoffFields(
     );
   // `to.workflow` is kept only for "This agent": another agent starts its own first workflow.
   const toWith = (agent: string, stepId: string, workflow?: string) =>
-    agent === processes.HANDOFF_SELF && workflow
+    agent === processes.SELF_AGENT && workflow
       ? { agent, step: stepId, workflow }
       : { agent, step: stepId };
   return (
@@ -1239,7 +1239,7 @@ function HandoffFields(
           onChange={(e) => setTo("to.agent", toWith(e.target.value, ""))}
         >
           <option value="">Choose an agent…</option>
-          <option value={processes.HANDOFF_SELF}>This agent</option>
+          <option value={processes.SELF_AGENT}>This agent</option>
           {agents.map((a) => (
             <option key={a.slug} value={a.slug} disabled={a.workflow === null}>
               {a.workflow === null ? `${a.name} (no live version)` : a.name}

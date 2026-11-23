@@ -196,7 +196,7 @@ export function handoffPort(
   return {
     names: (request) =>
       withTenant(db, request.run.tenantId, async (tx) => {
-        if (request.to.agent === processes.HANDOFF_SELF) {
+        if (request.to.agent === processes.SELF_AGENT) {
           const { agentName: _, ...names } = selfNames(await selfOf(tx, request.run), request);
           return names;
         }
@@ -207,7 +207,7 @@ export function handoffPort(
       const instances = deps.instances;
       if (!instances) return { refused: "hand-offs can't start runs here" };
       const decided =
-        request.to.agent === processes.HANDOFF_SELF
+        request.to.agent === processes.SELF_AGENT
           ? await decideSelf(request)
           : await withTenant(db, run.tenantId, async (tx): Promise<Decided> => {
               const [self] = await tx

@@ -64,7 +64,7 @@ export function handoffNames(
   data: Pick<BuilderData, "handoff" | "own">,
   to: HandoffTo,
 ): { name: string; at: string } | undefined {
-  if (to.agent === processes.HANDOFF_SELF) {
+  if (to.agent === processes.SELF_AGENT) {
     const wf = data.own?.workflows.find((w) => w.slug === to.workflow);
     if (!wf) return undefined;
     return { name: wf.name, at: processes.handoffStepLabel(wf.steps, to.step) };

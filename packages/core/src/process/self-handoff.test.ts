@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 import type { SkillDefinition } from "../schemas/skill";
 import { validateAnyBundle } from "./bundle";
 import { handoffWorkflows, isSelfHandoff, selfHandoffLoops, selfHandoffSteps } from "./handoff";
-import { HANDOFF_SELF, Process as ProcessSchema } from "./schema";
+import { Process as ProcessSchema, SELF_AGENT } from "./schema";
 import { validateProcess } from "./validate";
 
 const readInvoice: SkillDefinition = {
@@ -90,7 +90,7 @@ function bundle(
 }
 
 const self = (workflow?: string, step = "chk-read") => ({
-  agent: HANDOFF_SELF,
+  agent: SELF_AGENT,
   step,
   ...(workflow !== undefined ? { workflow } : {}),
 });

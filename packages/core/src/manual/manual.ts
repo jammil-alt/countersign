@@ -20,7 +20,7 @@ import {
   DecisionRisk,
   DecisionStatus,
 } from "../build/build";
-import { HANDOFF_SELF, type Step as ProcessStep } from "../process/schema";
+import { type Step as ProcessStep, SELF_AGENT } from "../process/schema";
 import { walkSteps } from "../process/walk";
 import type { Step as WorkflowStep } from "../schemas/workflow";
 import { walkSteps as walkV3Steps } from "../workflow/walk";
@@ -133,7 +133,7 @@ export function processStepWords(step: ProcessStep): string {
     case "process":
       return "Runs a shared process";
     case "handoff":
-      return step.to.agent === HANDOFF_SELF
+      return step.to.agent === SELF_AGENT
         ? "Hands over to another of its workflows"
         : "Hands over to another agent";
     case "missing":
