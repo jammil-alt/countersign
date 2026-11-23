@@ -7,6 +7,7 @@ import type { ResponseOf } from "../../api/client";
 import { apiRoutes } from "../../api/routes";
 import { useApi, useApiClient } from "../../api/useApi";
 import { shortTime, usd } from "../../runs/format";
+import { modelCallLabel } from "../../runs/labels";
 import { Loaded } from "../../ui/page";
 import { Button, Card, EmptyState, ErrorNotice } from "../../ui/primitives";
 
@@ -184,9 +185,7 @@ function ModelCallRow({
       <tr data-testid={`ops-run-model-call-${call.id}`}>
         <td className="figures text-ink">{shortTime(call.createdAt)}</td>
         <td className="text-sm text-ink">{step ?? "—"}</td>
-        <td className="reference text-ink">
-          {call.provider} · {call.model}
-        </td>
+        <td className="reference text-ink">{modelCallLabel(call.provider, call.model)}</td>
         <td className="n">{call.tokensIn}</td>
         <td className="n">{call.tokensOut}</td>
         <td className="n">{call.durationMs === null ? "—" : `${call.durationMs} ms`}</td>

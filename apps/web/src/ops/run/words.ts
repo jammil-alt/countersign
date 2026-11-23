@@ -2,6 +2,7 @@
 
 import {
   approvalExpired,
+  escalationWords,
   type NobodyToAct,
   type OversightDecisionView,
   type RunState,
@@ -139,6 +140,7 @@ export function runErrorLine(error: unknown, stepName?: string | null): string {
   const first = parts.reason?.split("\n")[0]?.trim() ?? "";
   const reason =
     plain ??
+    escalationWords(first) ??
     (first
       ? (ERROR_REASON_WORDS[first] ?? (first.length > 120 ? `${first.slice(0, 119)}…` : first))
       : "Failed without a reason");
@@ -291,6 +293,15 @@ export function foldSameFailures<R extends Parameters<typeof sameFailureKey>[0] 
     }
   }
   return out;
+}
+
+/**
+ * S4.9 (QA W13): the Runs list's count, which says what it counts: "The latest 50 runs · 21
+ * rows, repeated failures folded" when the table folds runs, so 50 never sits over 21 rows.
+ */
+export function runsCountWords(runs: number, rows: number, more: boolean): string {
+  const base = `${more ? "The latest " : ""}${plural(runs, "run", "runs")}`;
+  return rows < runs ? `${base} · ${plural(rows, "row", "rows")}, repeated failures folded` : base;
 }
 
 /** "32 failed test runs, same error". */

@@ -22,6 +22,7 @@ import {
 import { Link, useSearchParams } from "react-router-dom";
 import { apiRoutes } from "../../api/routes";
 import { useApi } from "../../api/useApi";
+import { EN } from "../../i18n/i18n";
 import { StatusFilter } from "../../inbox/StatusFilter";
 import { useSession } from "../../session/session";
 import { StatTile } from "../../ui/figures";
@@ -133,6 +134,19 @@ export function usageRange(
     default:
       return { from: monthStart(day, 5), to: day };
   }
+}
+
+/**
+ * "Days are UTC: today began at 19:00 your time." Usage is counted by UTC day (`usage_daily`), so
+ * the periods say so, with when "today" began on the viewer's clock (S5.5).
+ */
+// DECISION (S5.5): usage periods stay UTC days, the days the rollup counts by (a period in the
+// operator's zone would need the rollup by hour); the filter says so instead of showing a "Today"
+// that began at 18:00 on the operator's clock without a word.
+export function utcDayNote(now: Date = new Date()): string {
+  const midnight = new Date(`${isoDay(now)}T00:00:00.000Z`);
+  if (midnight.getHours() === 0 && midnight.getMinutes() === 0) return "Days are UTC.";
+  return `Days are UTC: today began at ${EN.fmt.time(midnight.toISOString(), now)} your time.`;
 }
 
 /** Nothing happened and nothing was spent: a row the table hides until "Show all". */
@@ -373,6 +387,9 @@ export function OpsUsageScreen() {
             </label>
           </span>
         ) : null}
+        <span className="text-sm text-ink-muted" data-testid="ops-usage-zone">
+          {utcDayNote()}
+        </span>
         {/* biome-ignore lint/a11y/noLabelWithoutControl: the Select is the label's control. */}
         <label className="flex items-center gap-2 text-sm text-ink-muted">
           Client
@@ -706,6 +723,7 @@ function ModelName({ row, label }: { row: UsageModelRow; label: string | undefin
     );
   }
   const unpriced = row.unpricedCalls ?? 0;
+  const failed = row.failedCalls ?? 0;
   return (
     <span className="flex flex-col py-1">
       <span className="text-ink">{label ?? providerModelName(row.model)}</span>
@@ -714,6 +732,8 @@ function ModelName({ row, label }: { row: UsageModelRow; label: string | undefin
         {unpriced > 0
           ? ` · ${plural(unpriced, "call")} had no price, so ${unpriced === 1 ? "it counts" : "they count"} as $0.00`
           : ""}
+        {/* S4.8 (QA W7): failed calls, counted apart from Calls. */}
+        {failed > 0 ? ` · ${plural(failed, "failed call")}, not counted in Calls` : ""}
       </span>
     </span>
   );

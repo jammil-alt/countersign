@@ -23,6 +23,8 @@ import billClerkV2 from "@countersign/db/seed/agents/bill-clerk.v2.json";
 import billClerkV3 from "@countersign/db/seed/agents/bill-clerk.v3.json";
 // Setup-plan §4.1: the Bill clerk on seats (who approves, who answers), filled per client.
 import billClerkV4 from "@countersign/db/seed/agents/bill-clerk.v4.json";
+// Overnight S3.4: the new-bill path attaches the invoice after creating the bill.
+import billClerkV5 from "@countersign/db/seed/agents/bill-clerk.v5.json";
 import builderV1 from "@countersign/db/seed/agents/builder.v1.json";
 import builderV2 from "@countersign/db/seed/agents/builder.v2.json";
 import coordinatorV1 from "@countersign/db/seed/agents/coordinator.v1.json";
@@ -35,6 +37,8 @@ import supervisorV3 from "@countersign/db/seed/agents/supervisor.v3.json";
 import supervisorV4 from "@countersign/db/seed/agents/supervisor.v4.json";
 import supervisorV5 from "@countersign/db/seed/agents/supervisor.v5.json";
 import supervisorV6 from "@countersign/db/seed/agents/supervisor.v6.json";
+// Overnight S2.4 (owner, D1): Sloan answers on Claude Sonnet 5.5.
+import supervisorV7 from "@countersign/db/seed/agents/supervisor.v7.json";
 import { and, eq, isNull } from "drizzle-orm";
 import { HttpError, notFound } from "../http";
 import type { Platform } from "../platform";
@@ -43,7 +47,13 @@ import type { Platform } from "../platform";
 const SEEDED: Readonly<Record<string, Readonly<Record<number, unknown>>>> = {
   // Skill model (2026-11-10): the Bill clerk's v3, the Document clerk's v2 and Sloan's v5 are
   // built from AI skills, deterministic skills and write steps (docs/plan.md §1.86).
-  "bill-clerk": { 1: billClerkV1, 2: billClerkV2, 3: billClerkV3, 4: billClerkV4 },
+  "bill-clerk": {
+    1: billClerkV1,
+    2: billClerkV2,
+    3: billClerkV3,
+    4: billClerkV4,
+    5: billClerkV5,
+  },
   builder: { 1: builderV1, 2: builderV2 },
   coordinator: { 1: coordinatorV1, 2: coordinatorV2 },
   "document-clerk": { 1: documentClerkV1, 2: documentClerkV2 },
@@ -55,6 +65,8 @@ const SEEDED: Readonly<Record<string, Readonly<Record<number, unknown>>>> = {
     5: supervisorV5,
     // v0.19 (ARCHITECTURE §10.15 "Sloan is the chat"): chat only; its watches are the platform's.
     6: supervisorV6,
+    // Overnight S2.4 (owner, D1): the chat's answer step on Claude Sonnet 5.5, cap unchanged.
+    7: supervisorV7,
   },
 };
 

@@ -1893,16 +1893,21 @@ export async function draftNow(ctx: LongCtx, id: string, given: string | null): 
     const r = await readBuild(scoped.tx, id, true);
     if (r.status !== "open" || !unchanged(r)) {
       await putBack(scoped.tx, r);
-      return { refused: r.status !== "open" ? r.status : "moved", bound: 0 };
+      return { refused: r.status !== "open" ? r.status : "moved", bound: 0, decided: 0 };
     }
     const fitgap = readFitGap(r.fitgap);
+    const decisions =
+      made.decisions.length > 0 ? mergeDecisions(fitgap.decisions, made.decisions) : null;
+    // DECISION (S6.6, BUILDER_QA AI-5): the Builder says the decisions the build stored, as its
+    // turns do: one row per id (a decision answered twice is one) and none left out for want of
+    // room. It said "I made 5 decisions" where the build listed 2.
+    const madeIds = new Set(made.decisions.map((d) => d.id));
+    const decided = (decisions ?? []).filter((d) => madeIds.has(d.id)).length;
     await scoped.tx
       .update(build)
       .set({
         ...made.set,
-        ...(made.decisions.length > 0
-          ? { fitgap: { ...fitgap, decisions: mergeDecisions(fitgap.decisions, made.decisions) } }
-          : {}),
+        ...(decisions ? { fitgap: { ...fitgap, decisions } } : {}),
         phase: "draft",
         phaseAt: now(),
       })
@@ -1956,7 +1961,7 @@ export async function draftNow(ctx: LongCtx, id: string, given: string | null): 
         bound = Object.keys(after.bindings).length - Object.keys(agentRow.bindings).length;
       }
     }
-    return { refused: null, bound };
+    return { refused: null, bound, decided };
   });
   if (done.refused) {
     const orphan = made.set.agentId;
@@ -1982,7 +1987,7 @@ export async function draftNow(ctx: LongCtx, id: string, given: string | null): 
       role: "builder",
       text: draftedNowText({
         summary: made.summary ?? "",
-        decisions: made.decisions.length,
+        decisions: done.decided,
         gaps,
         bound: done.bound,
         problems: detail.draft?.problems.length ?? 0,

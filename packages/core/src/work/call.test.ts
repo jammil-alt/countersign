@@ -18,6 +18,8 @@ describe("Your call", () => {
     expect(todoTag("deal", { dealKind: "expansion" })).toBe("Expansion");
     expect(todoTag("deal", { dealKind: "new" })).toBe("New account");
     expect(todoTag("enhancement", { asks: 4 })).toBe("Enhancement · 4 clients");
+    // S4.7 (QA W8): a finished run picked for a spot check, never "held".
+    expect(todoTag("run")).toBe("Run to check");
     expect(todoTag("enhancement", { asks: 1 })).toBe("Enhancement · 1 client");
     expect(todoTag(null)).toBe("To-do");
   });

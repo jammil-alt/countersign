@@ -87,7 +87,7 @@ import {
 import { dispatchEvents } from "../runs/dispatch";
 // Hand off (2026-11-11): where a handed-off run came from.
 import { handedOffFrom } from "../runs/handoff";
-import { runSubjects, sourceNames } from "../runs/subject";
+import { payloadSources, runSubjects, sourceNames } from "../runs/subject";
 import { actionTimelineWrite, timelineWrite } from "../skill-facts";
 import { steppedInOf } from "../step-in/service";
 import { clientDescription } from "../weekly/stats";
@@ -939,7 +939,14 @@ export function portalRouteHandlers(app: Hono<AppEnv>): void {
       )
       .orderBy(desc(inboxItem.createdAt))
       .limit(200);
-    return { items: await portalItems(tx, rows, services.platform) };
+    return {
+      items: await portalItems(tx, rows, services.platform),
+      sourceNames: await sourceNames(
+        tx,
+        [tenantId],
+        rows.flatMap((i) => payloadSources(i.payload)),
+      ),
+    };
   });
 
   mount(app, routes.portalResolveInbox, async (ctx) => {

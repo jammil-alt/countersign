@@ -72,7 +72,7 @@ import { daysOf, runsByDay } from "../runs/figures";
 // Hand off (2026-11-11): where a handed-off run came from.
 import { handedOffFrom } from "../runs/handoff";
 import { opsStatusWhere, reachContext, runWaitedMs, runWaits, waitedMsOf } from "../runs/run-wait";
-import { runSubjects, sourceNames } from "../runs/subject";
+import { payloadSources, runSubjects, sourceNames } from "../runs/subject";
 import { stepModelFacts } from "../skill-facts";
 import { checkZohoSetup } from "../zoho/fields";
 import { lastActivityOf, sourceActivity, usedByWith } from "./built-in-sources";
@@ -1159,6 +1159,11 @@ export function opsClientRoutes(app: Hono<AppEnv>): void {
     );
     return {
       items: rows.map((i) => opsInboxItem(i, operatorIn(i.tenantId), ctx.services.platform)),
+      sourceNames: await sourceNames(
+        tx,
+        [...new Set(rows.map((i) => i.tenantId))],
+        rows.flatMap((i) => payloadSources(i.payload)),
+      ),
       agents: await agentRefs(
         tx,
         ctx.tenantIds,

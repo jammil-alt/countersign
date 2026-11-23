@@ -5,6 +5,7 @@
 // DECISION: the labels live in the web app, not in the tool and event specs, so no connector
 // manifest or event registration changes for them; an id with no label here reads as words built
 // from it ("Update record"), never as the raw id.
+import { readToolWords } from "@countersign/core";
 
 /** The trigger kinds the palette and the trigger picker group events under. */
 export type TriggerKind =
@@ -176,6 +177,9 @@ const TOOLS: Record<string, string> = {
 export function toolLabel(id: string): string {
   const known = TOOLS[id];
   if (known) return known;
+  // S5.6: a read in words ("qbo.purchaseorder.query" → "Find purchase orders").
+  const read = readToolWords(id);
+  if (read) return read;
   const parts = id.split(".");
   const verb = parts.at(-1) ?? id;
   const thing = parts.slice(1, -1).join(" ");
@@ -238,9 +242,34 @@ const CONNECTOR_NAMES: Record<string, string> = {
   testkit: "Testkit",
 };
 
+const MODEL_PROVIDERS: Record<string, string> = {
+  anthropic: "Anthropic",
+  openai: "OpenAI",
+  xai: "xAI",
+  google: "Google",
+};
+
+/**
+ * A model call's maker and model in words (S5.6): "Anthropic · Claude Haiku 4.5" for
+ * `claude-haiku-4-5-20251001`, the date it was released left out; another id as given.
+ */
+export function modelCallLabel(provider: string, model: string): string {
+  const who = MODEL_PROVIDERS[provider] ?? provider;
+  const claude = /^claude-([a-z]+)-(\d+)(?:-(\d{1,2}))?(?:-\d{8})?$/.exec(model);
+  const name = claude
+    ? `Claude ${claude[1]?.charAt(0).toUpperCase()}${claude[1]?.slice(1)} ${claude[2]}${claude[3] ? `.${claude[3]}` : ""}`
+    : model.replace(/-\d{8}$/, "");
+  return `${who} · ${name}`;
+}
+
 /** "qbo" → "QuickBooks"; an unknown connector id in words. */
 export function connectorLabel(id: string): string {
   return CONNECTOR_NAMES[id] ?? words(id);
+}
+
+/** A run filter's connector chip names (S5.6: "changed in qbo"), by id. */
+export function connectorChipNames(id: string | undefined): Map<string, string> {
+  return new Map(id ? [[id, connectorLabel(id)]] : []);
 }
 
 /**

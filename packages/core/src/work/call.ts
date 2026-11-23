@@ -102,7 +102,8 @@ export function todoTag(
     case "question":
       return "Question";
     case "run":
-      return "Run held for review";
+      // S4.7 (QA W8): a finished run picked for a spot check, not a run held back.
+      return "Run to check";
     case "client":
       return "Client";
     case "code_request":
@@ -145,7 +146,14 @@ export const YOUR_CALL_WORDS = {
   title: "Your call",
   lede: "One list for everything in the back office. Reggie does most of it; these need a person.",
   keys: "J K move · S do it · E edit · O open",
-  tabs: { you: "Yours", reggie: "Reggie's", client: "The clients'", done: "Done today" },
+  tabs: {
+    you: "Yours",
+    reggie: "Reggie's",
+    client: "The clients'",
+    // S4.3: to-dos put off with Later, until they come back.
+    snoozed: "Snoozed",
+    done: "Done today",
+  },
   empty: "Nothing needs you right now.",
   emptyNote: (reggie: number) =>
     `Reggie is on ${reggie} thing${reggie === 1 ? "" : "s"}. You'll see one here when it needs a person.`,
@@ -167,6 +175,17 @@ export const YOUR_CALL_WORDS = {
   showAll: (n: number) => `Show all ${n}`,
   noMatch: "Nothing matches.",
   clearFilters: "Clear the filters",
+  /** Reggie's or the clients' list with nothing in it at all. */
+  theirEmpty: { reggie: "Reggie isn't on anything", client: "Nothing waits on clients" },
+  theirEmptyNote: {
+    reggie: "When Reggie picks something up, it shows here.",
+    client: "When we ask a client for something, it shows here until they answer.",
+  },
+  /** Reggie's or the clients' list emptied by a kind chip or a search. */
+  theirNoMatch: (who: "reggie" | "client", q: string) =>
+    `${who === "reggie" ? "Nothing Reggie is on" : "Nothing waiting on clients"} matches${q ? ` “${q}”` : ""}`,
+  theirHidden: (n: number) =>
+    `The filters hide ${n === 1 ? "the 1 item" : `all ${n} items`} in this list.`,
   draftHead: "The draft",
   optionsHead: "Pick one",
   readHead: "Reggie's read",
@@ -184,12 +203,18 @@ export const YOUR_CALL_WORDS = {
   internal: "Internal",
   undo: "Undo",
   sending: "Sending in 5 seconds.",
-  snoozed: "Snoozed until the next weekday at 9:00.",
+  snoozed: "Snoozed until the next weekday at 9:00. It's under Snoozed until then.",
+  snoozedIntro: "What you put off with Later. Each comes back to Yours at its time.",
+  snoozedEmpty: "Nothing is snoozed.",
+  backAt: "Back",
+  wake: "Bring back now",
+  woken: "It's back on Yours.",
   taken: "It's yours now. Reggie stops and leaves its notes.",
   mine: "Only mine",
   kpi: {
     needYou: "Need you",
-    critical: "Critical, held",
+    // S4.7 (QA W8): the tile counts agents on a safety hold (`holds`), not critical items.
+    critical: "Agents on safety hold",
     reggie: "Reggie is on",
     clients: "Waiting on clients",
     questions: "Questions this week",

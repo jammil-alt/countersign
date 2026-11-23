@@ -213,7 +213,10 @@ export function OpsInboxScreen() {
         .filter(Boolean)
         .join(" · "),
       outcome: item.status === "resolved" ? outcomeText(item.kind, approved, by) : null,
-      waitingOn: mine ? null : waitingOnLine(item, stuckByItem.get(item.id)),
+      // S4.4 (QA2 HM3): only an open item waits on anyone; a resolved or expired one never says
+      // "Waiting on the client admin for 11 days".
+      waitingOn:
+        mine || item.status !== "open" ? null : waitingOnLine(item, stuckByItem.get(item.id)),
     };
   };
 
@@ -283,6 +286,8 @@ export function OpsInboxScreen() {
         context={context}
         runHref={item.runId ? `/ops/runs/${item.runId}` : null}
         recordHref={(id) => `/ops/clients/${item.tenantId}/records/${id}`}
+        sourceNames={data?.sourceNames}
+        documentHref={(id) => `/ops/clients/${item.tenantId}/documents/${id}`}
         outcome={outcome}
         waitingOn={waitingOn}
         onResolve={
@@ -374,7 +379,7 @@ export function OpsInboxScreen() {
             : needsCount === undefined
               ? "What needs us."
               : // QA (2026-11-22): Needs us and Your call count different things; said here.
-                `${needsCount === 0 ? "Nothing needs us." : `${plural(needsCount, "thing needs", "things need")} us: work blocked until we act.`} Your to-dos, builds and held runs are on Your call.`
+                `${needsCount === 0 ? "Nothing needs us." : `${plural(needsCount, "thing needs", "things need")} us: work blocked until we act.`} Your to-dos, builds and runs to check are on Your call.`
         }
       />
       {view === "us" && status === "open" && needs.data === undefined && !needs.error ? (

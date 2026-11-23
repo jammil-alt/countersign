@@ -11,9 +11,11 @@ import {
   RESULT_WORDS,
 } from "@countersign/core";
 import { Link, useSearchParams } from "react-router-dom";
+import { apiRoutes } from "../../api/routes";
 import { useApi } from "../../api/useApi";
 import { EN } from "../../i18n/i18n";
-import { Field, TextInput } from "../../ui/forms";
+import { useSession } from "../../session/session";
+import { Field, Select, TextInput } from "../../ui/forms";
 import { Loaded } from "../../ui/page";
 import { Badge, Button, buttonClass, EmptyState, type Tone } from "../../ui/primitives";
 import { TableCard } from "../screens/business";
@@ -40,6 +42,15 @@ export default function EvidenceScreen() {
     ...(params.get("agent") ? { agent: params.get("agent") as string } : {}),
   };
   const state = useApi(assuranceRoutes.opsAssuranceEvidence, { query });
+  // S6.4: the clients this operator serves, and the chosen client's agents (not test copies).
+  // DECISION: an agent is picked within a client, so the agent list is that client's alone.
+  const session = useSession();
+  const clients = session.tenants.filter((t) => t.role === "operator");
+  const agents = useApi(
+    apiRoutes.opsClientAgents,
+    query.client ? { params: { id: query.client } } : null,
+  );
+  const clientAgents = (agents.data?.agents ?? []).filter((a) => !a.testCopy);
   const set = (patch: Record<string, string>) => {
     const next = new URLSearchParams(params);
     for (const [k, v] of Object.entries(patch)) {
@@ -56,6 +67,38 @@ export default function EvidenceScreen() {
       subtitle="Every security check's result over the period, per agent and client, with the ids of the records it read. Never their contents."
       actions={
         <div className="flex flex-wrap items-end gap-2" data-print="hide">
+          <Field label="Client" className="w-48">
+            <Select
+              data-testid="evidence-client"
+              value={query.client ?? ""}
+              onChange={(e) => set({ client: e.target.value, agent: "" })}
+              className="h-8 w-48 text-sm"
+            >
+              <option value="">All clients</option>
+              {clients.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name}
+                </option>
+              ))}
+            </Select>
+          </Field>
+          <Field label="Agent" className="w-48">
+            <Select
+              data-testid="evidence-agent"
+              value={query.agent ?? ""}
+              disabled={!query.client}
+              title={query.client ? undefined : "Choose a client first"}
+              onChange={(e) => set({ agent: e.target.value })}
+              className="h-8 w-48 text-sm"
+            >
+              <option value="">{query.client ? "All agents" : "Choose a client first"}</option>
+              {clientAgents.map((a) => (
+                <option key={a.id} value={a.id}>
+                  {a.name}
+                </option>
+              ))}
+            </Select>
+          </Field>
           <Field label="From" className="w-40">
             <TextInput
               type="date"

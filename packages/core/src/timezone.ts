@@ -63,3 +63,29 @@ export function houseDate(iso: string, timeZone = "UTC"): string {
   }
   return f.format(d);
 }
+
+/**
+ * S2.6 (overnight fixes, 2026-11-23): the time now in a zone, for an agent to read ("Sunday 22
+ * November 2026, 22:00 in America/Chicago (GMT-06:00)"), so it says times in the client's zone and
+ * not in UTC. An unknown zone reads as UTC.
+ */
+export function clockLine(now: Date, timeZone: string | null | undefined): string {
+  const zone = timeZone && isTimeZone(timeZone) ? timeZone : "UTC";
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: zone,
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+    timeZoneName: "longOffset",
+  }).formatToParts(now);
+  const part = (type: Intl.DateTimeFormatPartTypes) =>
+    parts.find((p) => p.type === type)?.value ?? "";
+  // Some ICU builds write UTC's offset as a bare "GMT".
+  const name = part("timeZoneName");
+  const offset = name && name !== "GMT" ? name : "GMT+00:00";
+  return `${part("weekday")} ${part("day")} ${part("month")} ${part("year")}, ${part("hour")}:${part("minute")} in ${zone} (${offset})`;
+}

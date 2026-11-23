@@ -113,6 +113,45 @@ describe("escalations", () => {
     await waitFor(() => expect(resolved).toEqual([{ decision: "approve", fingerprint }]));
   });
 
+  // S4.4 (QA2 HM3): resolved items still read "Waiting on the client admin for 11 days".
+  it("says whom an item waits on only while it is open", async () => {
+    const RESOLVED = "00000000-0000-4000-8000-0000000f3103";
+    const EXPIRED = "00000000-0000-4000-8000-0000000f3104";
+    const api = fakeApi({
+      "GET /api/session": () => OPERATOR_SESSION,
+      "GET /api/ops/inbox": () => ({
+        items: [
+          item(DEMO_ITEM, DEMO, false),
+          {
+            ...item(RESOLVED, DEMO, false),
+            status: "resolved",
+            resolution: { approved: true },
+            resolvedBy: "00000000-0000-4000-8000-00000000c001",
+            resolvedAt: "2026-11-16T10:00:00.000Z",
+          },
+          { ...item(EXPIRED, DEMO, false), status: "expired" },
+        ],
+        agents: [],
+      }),
+      "GET /api/ops/needs-us": () => NONE_NEED_US,
+    });
+    render(
+      <MemoryRouter initialEntries={["/ops/inbox?view=clients"]}>
+        <AppProviders client={api.client}>
+          <AppRoutes />
+        </AppProviders>
+      </MemoryRouter>,
+    );
+    expect(await screen.findByTestId(`ops-inbox-row-${DEMO_ITEM}`)).toHaveTextContent(
+      /Waiting on the client admin for/,
+    );
+    for (const id of [RESOLVED, EXPIRED]) {
+      expect(await screen.findByTestId(`ops-inbox-row-${id}`)).not.toHaveTextContent("Waiting on");
+    }
+    const card = await openItem(RESOLVED);
+    expect(card).not.toHaveTextContent("Waiting on");
+  });
+
   it("keeps what we just approved on screen with Undo, and takes it back", async () => {
     const undone: string[] = [];
     let open = true;
@@ -176,7 +215,7 @@ describe("escalations", () => {
     expect(await screen.findByRole("heading", { name: "Escalations" })).toBeInTheDocument();
     expect(
       await screen.findByText(
-        "1 thing needs us: work blocked until we act. Your to-dos, builds and held runs are on Your call.",
+        "1 thing needs us: work blocked until we act. Your to-dos, builds and runs to check are on Your call.",
       ),
     ).toBeInTheDocument();
     const card = await openItem(SANDBOX_ITEM);
@@ -188,7 +227,7 @@ describe("escalations", () => {
     // Nothing needs us now: said once, where the urgency figures were.
     expect(
       await screen.findByText(
-        "Nothing needs us. Your to-dos, builds and held runs are on Your call.",
+        "Nothing needs us. Your to-dos, builds and runs to check are on Your call.",
       ),
     ).toBeInTheDocument();
     expect(screen.getByTestId("ops-inbox-clear")).toBeInTheDocument();
@@ -200,7 +239,7 @@ describe("escalations", () => {
     // Undo puts it back in Needs us too (review of #257): the count is asked again.
     expect(
       await screen.findByText(
-        "1 thing needs us: work blocked until we act. Your to-dos, builds and held runs are on Your call.",
+        "1 thing needs us: work blocked until we act. Your to-dos, builds and runs to check are on Your call.",
       ),
     ).toBeInTheDocument();
   });
@@ -258,7 +297,7 @@ describe("escalations", () => {
     expect(await screen.findByTestId(`ops-inbox-needs-${DEMO_ITEM}`)).toBeInTheDocument();
     expect(
       screen.getByText(
-        "1 thing needs us: work blocked until we act. Your to-dos, builds and held runs are on Your call.",
+        "1 thing needs us: work blocked until we act. Your to-dos, builds and runs to check are on Your call.",
       ),
     ).toBeInTheDocument();
     // One "All clients" control on the page: the top bar's.

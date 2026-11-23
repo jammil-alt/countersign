@@ -770,6 +770,45 @@ describe.skipIf(!h)("usage and reports", () => {
     expect(one.backOffice).toBeUndefined();
   });
 
+  // S4.8 (QA W7, US1): a model read "123 calls, 0 tokens": its failed calls counted as calls.
+  it("counts failed model calls apart from the calls that answered", async () => {
+    const A = H.A.tenantId;
+    const AUG = "from=2026-08-01&to=2026-08-31";
+    const r = await addRun("aA", A, {
+      at: "2026-08-10T12:00:00Z",
+      mode: "test",
+      status: "failed",
+      steps: [{ cost: "0.0100", tokensIn: 300, tokensOut: 50 }],
+    });
+    const [step] = await db.select().from(stepRun).where(eq(stepRun.runId, r));
+    if (!step) throw new Error("no step");
+    const callRow = (n: number, stopReason: string, tokensIn: number, cost: string) => ({
+      tenantId: A,
+      runId: r,
+      stepRunId: step.id,
+      provider: "anthropic",
+      model: "claude-haiku-5-5",
+      tokensIn,
+      tokensOut: tokensIn ? 50 : 0,
+      costUsd: cost,
+      durationMs: 10,
+      stopReason,
+      bodyKey: `tenants/${A}/model-calls/aug-${n}.json`,
+      createdAt: new Date("2026-08-10T12:00:05Z"),
+    });
+    await db
+      .insert(modelCall)
+      .values([
+        callRow(1, "end_turn", 300, "0.0100"),
+        callRow(2, "error", 0, "0.0000"),
+        callRow(3, "error", 0, "0.0000"),
+      ]);
+    const u = j((await call(OPERATOR, "GET", `/api/ops/usage?${AUG}&client=${A}`)).json);
+    const row = u.byModel.find((m: { model: string }) => m.model === "claude-haiku-5-5");
+    expect(row).toMatchObject({ calls: 1, failedCalls: 2, tokensIn: 300, costUsd: "0.0100" });
+    expect(row.unpricedCalls).toBeUndefined();
+  });
+
   it("checks the range", async () => {
     const bad = async (q: string) => (await call(OPERATOR, "GET", `/api/ops/usage?${q}`)).status;
     expect(await bad("from=2026-11-03&to=2026-11-01")).toBe(422);

@@ -374,6 +374,14 @@ const P2 = {
     it: "Ordine d'acquisto QuickBooks",
     de: "QuickBooks-Bestellung",
   },
+  displayName: {
+    en: "Name",
+    es: "Nombre",
+    fr: "Nom",
+    "pt-BR": "Nome",
+    it: "Nome",
+    de: "Name",
+  },
   companyName: {
     en: "Company name",
     es: "Razón social",
@@ -446,7 +454,10 @@ export const vendorCreateDisplay: ToolDisplay = {
     de: "Legt diesen Lieferanten in QuickBooks an. Sonst ändert sich nichts.",
   },
   subject: "input.displayName",
+  // DECISION (QA WR3): the name is a field too, so a vendor added with its name alone reads
+  // "Name: Acme Lumber" on its card, never "Nothing recorded".
   fields: [
+    { label: P2.displayName, kind: "text", after: "input.displayName" },
     { label: P2.companyName, kind: "text", after: "input.companyName" },
     { label: P2.email, kind: "text", after: "input.email" },
     { label: P2.phone, kind: "text", after: "input.phone" },

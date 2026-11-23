@@ -16,6 +16,7 @@ import {
   inboxItem,
   issue,
   membership,
+  message,
   run,
   stepRun,
   tenant,
@@ -672,6 +673,101 @@ describe.skipIf(!h)("Sloan, the account agent", () => {
     expect(deskRuns()).toHaveLength(1);
     const [w] = await H.t.db.select().from(agent).where(eq(agent.id, workerId));
     expect(w?.runStatus).toBe("active");
+  });
+
+  // S2.3, S2.6 (overnight fixes): Sloan's first call names the client it serves and its clock.
+  it("is told the client it serves, by name, with the client's time zone", async () => {
+    await H.t.db
+      .update(tenant)
+      .set({ timezone: "America/Chicago" })
+      .where(eq(tenant.id, H.A.tenantId));
+    const [a] = await H.t.db
+      .select({ name: tenant.name })
+      .from(tenant)
+      .where(eq(tenant.id, H.A.tenantId));
+    const { calls } = await ask(admin("a"), adminThread, "What do you know about Globex?", (m) => [
+      use("account__owner", {}),
+      ...reply(adminThread, `I can only speak for ${a?.name}'s account.`, [m]),
+    ]);
+    expect(calls[0]?.tool).toBe("account.owner");
+    expect(j(calls[0]?.output)).toMatchObject({
+      owner: null,
+      client: {
+        name: a?.name,
+        timeZone: "America/Chicago",
+        now: expect.stringMatching(/ in America\/Chicago \(GMT-0[56]:00\)$/),
+      },
+    });
+  });
+
+  // S2.1 (overnight fixes): a run that fails before Sloan answered left "Sloan is answering…"
+  // on screen for good. Code posts a fixed message, once, and none when Sloan had answered.
+  describe("when its run fails", () => {
+    async function failing(text: string, script: (m: string) => FakeTurn[]) {
+      const before = H.instances.started.size;
+      const posted = await H.call(admin("a"), "POST", `/api/threads/${adminThread}/messages`, {
+        text,
+      });
+      expect(posted.status, JSON.stringify(posted.json)).toBe(200);
+      const messageId = j(posted.json).messages.at(-1).id as string;
+      await H.settle();
+      const params = [...H.instances.started.values()]
+        .slice(before)
+        .find((p) => p.agentId === sloanId) as RunParams;
+      const result = await executeRun(
+        {
+          db: H.db,
+          platform: H.platform,
+          transport: new FakeModel(script(messageId)),
+          instances: H.instances,
+        },
+        params,
+        cloudflareStepRunner(new FakeWorkflowStep()),
+      );
+      expect(result.status).toBe("failed");
+      const after = await H.t.db
+        .select()
+        .from(message)
+        .where(eq(message.threadId, adminThread))
+        .orderBy(message.createdAt, message.id);
+      const mine = after.findIndex((x) => x.id === messageId);
+      return { runId: params.runId, messageId, after: after.slice(mine + 1) };
+    }
+
+    it("posts that it couldn't answer, in the conversation, as Sloan", async () => {
+      const { runId, messageId, after } = await failing("Why is my bill late?", () => [
+        { error: new Error("the model is down") },
+      ]);
+      expect(after).toHaveLength(1);
+      expect(after[0]).toMatchObject({
+        senderType: "agent",
+        senderId: sloanId,
+        audience: "client",
+        body: { text: "I couldn't answer that. We've told your lead.", runId },
+        sources: [messageId, runId],
+      });
+      // The portal shows it as Sloan's answer: the panel stops waiting.
+      const thread = await H.call(admin("a"), "GET", `/api/threads/${adminThread}/messages`);
+      expect(j(thread.json).messages.at(-1)).toMatchObject({
+        sender: { type: "agent", you: false },
+        text: "I couldn't answer that. We've told your lead.",
+      });
+    });
+
+    it("posts nothing more when Sloan had answered before the run failed", async () => {
+      const { after } = await failing("And the other one?", (m) => [
+        use("threads__post", {
+          threadId: adminThread,
+          text: "It's waiting on your signature.",
+          audience: "client",
+          sources: [m],
+        }),
+        { error: new Error("the model is down") },
+      ]);
+      expect(after.map((x) => (x.body as { text?: string }).text)).toEqual([
+        "It's waiting on your signature.",
+      ]);
+    });
   });
 
   it("can't be published with a connector tool", async () => {

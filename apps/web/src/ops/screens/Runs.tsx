@@ -19,7 +19,10 @@ import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom"
 import type { ResponseOf } from "../../api/client";
 import { apiRoutes } from "../../api/routes";
 import { useApi, useApiClient } from "../../api/useApi";
+import { validZone } from "../../i18n/format";
+import { periodEnd, viewerZone, zoneName } from "../../i18n/zone";
 import { isRunGoing, msWords, runsPollMs, runWorkedMs, shortTime, usd } from "../../runs/format";
+import { connectorChipNames } from "../../runs/labels";
 import { opsRunShortTitle, opsRunTitle } from "../../runs/subject";
 import { usePoll } from "../../runs/usePoll";
 import { useSession } from "../../session/session";
@@ -38,6 +41,7 @@ import {
   PageHeader,
 } from "../../ui/primitives";
 import { StatusChip } from "../../ui/status";
+import { useOpsClients } from "../OpsLayout";
 import {
   age,
   errorGroupLabel,
@@ -47,6 +51,7 @@ import {
   RUN_STATUS_WORDS,
   runChip,
   runErrorLine,
+  runsCountWords,
   sameFailureWords,
   waitOnWords,
 } from "../run/words";
@@ -131,10 +136,15 @@ export function aboutChipNames(names: readonly RunAboutName[] | undefined): Map<
   );
 }
 
-/** A time filter's value as people read it, and statuses in words. */
-function chipValue(key: string, value: string): string {
+/**
+ * A time filter's value as people read it, and statuses in words. A period's ends read in the
+ * client's zone when the list is one client's, named when it isn't the viewer's (S5.4).
+ */
+export function chipValue(key: string, value: string, timeZone?: string): string {
   if ((key === "since" || key === "until") && !Number.isNaN(Date.parse(value))) {
-    return shortTime(value);
+    const words = periodEnd(key, value, "en-US", timeZone);
+    const zone = validZone(timeZone);
+    return zone && zone !== validZone(viewerZone()) ? `${words} (${zoneName(zone)})` : words;
   }
   if (key === "statuses") {
     return value
@@ -197,6 +207,10 @@ export function OpsRunsScreen() {
 
   // One client's page lists that client's runs only.
   const effective: RunFilter = clientId ? { ...filter, clients: [clientId] } : filter;
+  // S5.4: one client's list reads its period in that client's zone.
+  const opsClients = useOpsClients();
+  const oneClient = effective.clients?.length === 1 ? effective.clients[0] : undefined;
+  const clientZone = oneClient ? opsClients?.find((c) => c.id === oneClient)?.timezone : undefined;
   const query = { ...runFilterQuery(effective), limit: String(RUNS_LIMIT) };
   const state = useApi(apiRoutes.opsRuns, {
     query: { ...query, ...(grouped ? { groupBy: "error" as const } : {}) } as never,
@@ -224,7 +238,7 @@ export function OpsRunsScreen() {
   const chips = askChips(filter, {
     agents: new Map([...agents].map(([id, a]) => [id, a.name])),
     clients,
-    connectors: new Map(),
+    connectors: connectorChipNames(filter.changedConnector),
     about: aboutChipNames(data?.about),
   });
 
@@ -263,6 +277,9 @@ export function OpsRunsScreen() {
     return [...first, ...(more?.runs ?? []).filter((r) => !seen.has(r.id))];
   }, [data?.runs, more?.runs]);
   const next = more ? more.next : (data?.next ?? null);
+  // S4.9: how many rows the table shows once it folds repeated failures (the order doesn't change
+  // what folds).
+  const rowCount = useMemo(() => foldSameFailures(runs).length, [runs]);
 
   const showMore = async () => {
     const last = runs[runs.length - 1];
@@ -350,7 +367,7 @@ export function OpsRunsScreen() {
               className="ops-chip"
               data-testid={`ops-runs-chip-${c.key}`}
             >
-              <b>{CHIP_WORDS[c.key] ?? c.key}</b> {chipValue(c.key, c.value)}
+              <b>{CHIP_WORDS[c.key] ?? c.key}</b> {chipValue(c.key, c.value, clientZone)}
               <button
                 type="button"
                 aria-label={
@@ -373,7 +390,7 @@ export function OpsRunsScreen() {
             disabled={asking}
           />
           <span className="text-sm text-ink-muted figures" data-testid="ops-runs-count">
-            {data ? (next ? `The latest ${runs.length}` : plural(runs.length, "run", "runs")) : ""}
+            {data ? runsCountWords(runs.length, rowCount, next !== null) : ""}
           </span>
         </form>
         {note ? (

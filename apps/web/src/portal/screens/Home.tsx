@@ -16,6 +16,7 @@ import { apiRoutes } from "../../api/routes";
 import { useApi, useApiClient, useApiStore } from "../../api/useApi";
 import type { PlainKey } from "../../i18n/catalog";
 import { type I18n, useI18n } from "../../i18n/i18n";
+import { itemTitle } from "../../inbox/titles";
 import { shortTime } from "../../runs/format";
 import { usePoll } from "../../runs/usePoll";
 import { useAssignedAgents, useSession } from "../../session/session";
@@ -93,9 +94,10 @@ export function HomeScreen() {
   // to the Inbox still ask for it on hover or focus.
 
   const now = new Date();
-  // DECISION: the greeting and the date draw at once, in the browser's zone until the client's
-  // own zone comes with the table (the same zone for nearly everyone): the title never waits.
-  const tz = data?.client.timezone;
+  // DECISION (S5.3): the greeting and the date draw at once, in the client's zone from the
+  // session (it is known before Home draws), so they never flip from the browser's day to the
+  // client's ("Sunday evening", then "Monday morning"). The table's zone is the fallback.
+  const tz = session.timezone ?? data?.client.timezone;
   const first = session.user.name?.trim().split(/\s+/)[0];
   const part = partOfDay(now, tz);
   const greeting = first ? t(`table.greeting.${part}`, { name: first }) : t(`table.hello.${part}`);
@@ -655,7 +657,7 @@ function DeskRow({
           </StatusChip>
         ) : null}
       </span>
-      <p className="line-clamp-2 font-medium text-ink">{item.title}</p>
+      <p className="line-clamp-2 font-medium text-ink">{itemTitle(item, t)}</p>
       <span className="flex flex-wrap gap-2">
         <Link
           to={`${PORTAL_PATHS.inbox}?item=${encodeURIComponent(item.id)}`}

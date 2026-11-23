@@ -2169,6 +2169,9 @@ export const ptBR: Messages = {
   "sloan.empty":
     "Pergunte por que algo está esperando, pause um agente, adicione um aprovador ou passe uma ideia ao seu responsável.",
   "sloan.answering": "Sloan está respondendo…",
+  "sloan.noAnswer":
+    "O Sloan ainda não respondeu. A resposta aparecerá aqui; para algo urgente, fale com o seu responsável.",
+  "sloan.checkAgain": "Verificar de novo",
   "sloan.compose": "Pergunte ao Sloan ou diga o que mudar",
   "sloan.commandHint": "Comece com / e o nome de um agente para perguntar a ele, como /pia.",
   "sloan.you": "Você",
@@ -2449,6 +2452,52 @@ export const ptBR: Messages = {
   "sop.within": "em até {when}", // fluent review
   "sop.ifNoAnswer": "se ninguém responder: {what}", // fluent review
   "sop.ifRejected": "Se recusado: {what}", // fluent review
+  // S5.7: the SOP and the directory's titles, by key (packages/core/src/sop/say.ts).
+  "sop.say.trigger.documentReceived": "Chega um documento", // fluent review
+  "sop.say.trigger.documentExtracted": "Um documento foi lido", // fluent review
+  "sop.say.trigger.transactionCreated": "Um registro é adicionado nas suas ferramentas", // fluent review
+  "sop.say.trigger.transactionUpdated": "Um registro muda nas suas ferramentas", // fluent review
+  "sop.say.trigger.messageReceived": "Chega uma mensagem", // fluent review
+  "sop.say.trigger.runSucceeded": "Outro agente termina", // fluent review
+  "sop.say.trigger.manualTeam": "Alguém da sua equipe o inicia (Executar agora)", // fluent review
+  "sop.say.trigger.manualUs": "Nós o iniciamos manualmente", // fluent review
+  "sop.say.trigger.command": "Alguém digita /{command} em uma conversa", // fluent review
+  "sop.say.trigger.webhook": "Outro sistema lhe envia uma entrega", // fluent review
+  "sop.say.trigger.message": "Chega uma mensagem de alguém de quem ele pode receber", // fluent review
+  "sop.say.trigger.handoff": "{name} passa o trabalho para ele", // fluent review
+  "sop.say.trigger.handoffAny": "Outro agente passa o trabalho para ele", // fluent review
+  "sop.say.trigger.started": "Ele é iniciado", // fluent review
+  "sop.say.then.stop": "a execução para", // fluent review
+  "sop.say.then.proceed": "segue em frente", // fluent review
+  "sop.say.then.skip": "a etapa é pulada", // fluent review
+  "sop.say.then.escalate": "{name} é consultado", // fluent review
+  "sop.say.rejected.continue": "segue em frente sem a alteração", // fluent review
+  "sop.say.rejected.stop": "a alteração não é feita e a execução para", // fluent review
+  "sop.say.onError.continue": "a execução continua e uma etapa posterior pode cuidar disso", // fluent review
+  "sop.say.purpose.reads": "Lê {what} de {where}.", // fluent review
+  "sop.say.purpose.adds": "Adiciona {what} em {where}.", // fluent review
+  "sop.say.purpose.removes": "Remove {what} de {where}.", // fluent review
+  "sop.say.purpose.updates": "Atualiza {what} em {where}.", // fluent review
+  "sop.say.where.mezonas": "seus registros na Mezonas", // fluent review
+  "sop.say.what.records": "registros", // fluent review
+  "sop.say.entity.account": "contas", // fluent review
+  "sop.say.entity.attachment": "anexos", // fluent review
+  "sop.say.entity.bill": "contas a pagar", // fluent review
+  "sop.say.entity.class": "classes", // fluent review
+  "sop.say.entity.customer": "clientes", // fluent review
+  "sop.say.entity.deposit": "depósitos", // fluent review
+  "sop.say.entity.invoice": "faturas", // fluent review
+  "sop.say.entity.item": "produtos e serviços", // fluent review
+  "sop.say.entity.journal_entry": "lançamentos contábeis", // fluent review
+  "sop.say.entity.location": "locais", // fluent review
+  "sop.say.entity.payment": "pagamentos", // fluent review
+  "sop.say.entity.purchase": "compras", // fluent review
+  "sop.say.entity.purchase_order": "pedidos de compra", // fluent review
+  "sop.say.entity.transfer": "transferências", // fluent review
+  "sop.say.entity.vendor": "fornecedores", // fluent review
+  "directory.suggestions.title.add": "Adicionar {name} ao diretório", // fluent review
+  "directory.suggestions.title.update": "Atualizar {name} no diretório", // fluent review
+  "directory.suggestions.title.reach": "Mudar como contatamos {name}", // fluent review
   "sop.onError": "Se falhar: {what}", // fluent review
   "sop.told": "Informados", // fluent review
   "sop.controls": "Controles", // fluent review
@@ -3619,6 +3668,7 @@ export const ptBR: Messages = {
     "Algo não está funcionando, ou uma ideia para nós: conte aqui ao seu responsável na Mezonas.",
   "requests.new": "Nova solicitação",
   "requests.empty": "Nenhuma solicitação ainda.",
+  "requests.state.sent": "Enviada", // fluent review
   "requests.state.on_it": "Estamos cuidando disso",
   "requests.state.waiting_on_you": "Aguardando você",
   "requests.state.fixed": "Corrigido",
