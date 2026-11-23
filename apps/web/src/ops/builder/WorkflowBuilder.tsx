@@ -586,6 +586,16 @@ function BuilderBody(
   const slug = props.workflow;
   const entry = bundle.workflows.find((w) => w.slug === slug);
   const workflow = entry?.workflow;
+  // Ways in, ways out (2026-11-23): the bundle's workflows a hand-off to "This agent" can start,
+  // as the open bundle has them now; for the inspector's pickers and the canvas names.
+  const ownWorkflows = useMemo(
+    () => processes.handoffWorkflows(bundle.workflows, ctx),
+    [bundle, ctx],
+  );
+  const stepData = useMemo<BuilderData>(
+    () => ({ ...data, own: { workflow: slug, workflows: ownWorkflows } }),
+    [data, slug, ownWorkflows],
+  );
 
   // A new workflow starts on its whole flow, with nowhere chosen to add.
   // biome-ignore lint/correctness/useExhaustiveDependencies: once per workflow.
@@ -704,7 +714,7 @@ function BuilderBody(
         data.catalog.skills.find((s) => s.ref === ref || parseSkillRef(s.ref).id === ref)
           ?.definition.name,
       automation: (ref) => data.catalog.automations?.find((a) => a.ref === ref)?.name,
-      handoff: (to) => handoffNames(data, to),
+      handoff: (to) => handoffNames(stepData, to),
       connector: (toolId) => {
         const c = toolConnector(toolId, data);
         return c ? connectorName(data, c) : undefined;
@@ -769,7 +779,7 @@ function BuilderBody(
         return undefined;
       },
     }),
-    [data, ctx, props.people, bundle],
+    [data, stepData, ctx, props.people, bundle],
   );
 
   // ── Edits ──
@@ -1639,7 +1649,7 @@ function BuilderBody(
       workflow={workflow}
       bundle={bundle}
       selection={selection}
-      data={data}
+      data={stepData}
       ctx={inspectorCtx}
       env={env}
       errors={workflowErrors}
@@ -2055,7 +2065,7 @@ function BuilderBody(
               ) : null}
               <div className="min-h-0 flex-1">
                 <Rail
-                  sections={paletteSections(bundle, data, connectors)}
+                  sections={paletteSections(bundle, stepData, connectors)}
                   onPick={(item) => addItem(item)}
                   onSay={(words) => {
                     // The words go to the Builder, with the place chosen when there is one.

@@ -20,7 +20,7 @@ import { collectRefs } from "../template/template";
 import { lookupSkill, type TypingContext } from "../template/typer";
 import { fromWorkflowV3 } from "./convert";
 import { runEnds } from "./ending";
-import type { Process, Step } from "./schema";
+import { type Process, SELF_AGENT, type Step } from "./schema";
 import { type ProcessWarning, stepWrites, validateProcess } from "./validate";
 import { walkSteps } from "./walk";
 
@@ -229,10 +229,6 @@ export interface SplitAdvisory extends ProcessWarning {
 
 /** A v3 workflow read only for its shape: every skill stays a skill (counts and nesting hold). */
 const SHAPE_ONLY = { wrappedTool: () => null, sideEffect: () => null };
-
-/** The literal a hand-off names as its agent to start a run of the agent it is in. */
-// The hand-off step's schema and checks are the hand-off's own (validate.ts); this reads it only.
-export const SELF_AGENT = "@self";
 
 /** Whether a step is a hand-off into another workflow of this same agent. */
 function selfHandoffTo(step: Step, own: string, slugs: ReadonlySet<string>): boolean {

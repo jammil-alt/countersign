@@ -20,6 +20,7 @@ import {
 import { walkSteps as walkV3Steps } from "../workflow/walk";
 import { fromWorkflowV3 } from "./convert";
 import { copiedSteps, copiedStepsMessage } from "./copies";
+import { handoffWorkflows, selfHandoffLoops, selfHandoffSteps } from "./handoff";
 import { seatProblems } from "./seats";
 import {
   type ProcessValidationCode,
@@ -99,6 +100,39 @@ export function bundleStepSkills(bundle: Pick<AnyAgentBundle, "workflows">): Map
     }
   }
   return out;
+}
+
+/**
+ * Ways in, ways out (2026-11-23): one error on each self hand-off step that closes a loop between
+ * the bundle's workflows (A hands to B, B hands back to A), naming the loop by workflow name.
+ */
+export function handoffLoopErrors(
+  bundle: Pick<AnyAgentBundle, "workflows">,
+): BundleValidationError[] {
+  const errors: BundleValidationError[] = [];
+  const nameOf = (slug: string) => bundle.workflows.find((w) => w.slug === slug)?.name ?? slug;
+  const reported = new Set<string>();
+  for (const loop of selfHandoffLoops(bundle.workflows)) {
+    const words = loop.map((s) => `"${nameOf(s)}"`).join(" → ");
+    for (let i = 0; i < loop.length - 1; i++) {
+      const from = bundle.workflows.find((w) => w.slug === loop[i]);
+      if (!from || from.workflow.schemaVersion !== 4) continue;
+      for (const step of selfHandoffSteps(from.workflow)) {
+        if (step.to.workflow !== loop[i + 1]) continue;
+        const key = `${from.slug}:${step.id}`;
+        if (reported.has(key)) continue;
+        reported.add(key);
+        errors.push({
+          stepId: step.id,
+          field: "to.workflow",
+          code: "handoff_loop",
+          message: `these hand-offs go round in a loop: ${words}`,
+          workflow: from.slug,
+        });
+      }
+    }
+  }
+  return errors;
 }
 
 /**
@@ -195,9 +229,18 @@ export function validateAnyBundle(
     for (const id of ids) seen.add(id);
   }
 
+  // Ways in, ways out (2026-11-23): what a hand-off to this agent's own workflow can start, and
+  // the loops such hand-offs would make (A hands to B and B back to A), refused here.
+  const typing = { ...ctx, agent: bundle.definition };
+  const own = handoffWorkflows(bundle.workflows, typing);
+  errors.push(...handoffLoopErrors(bundle));
+
   for (const w of bundle.workflows) {
     if (w.workflow.schemaVersion === 4) {
-      const r = validateProcess(w.workflow, { ...ctx, agent: bundle.definition });
+      const r = validateProcess(w.workflow, {
+        ...typing,
+        ownWorkflows: { workflow: w.slug, workflows: own },
+      });
       for (const e of r.errors) errors.push({ ...e, workflow: w.slug });
       for (const warning of r.warnings) warnings.push({ ...warning, workflow: w.slug });
       // Setup-plan §4.1: every seat a step names is one the bundle declares, of a kind that fits.

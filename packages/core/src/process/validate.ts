@@ -84,7 +84,15 @@ import {
 } from "./conversation";
 // Hand off (owner, 2026-11-11): the client's other agents a hand-off step can start.
 import { deadEndMessage, deadEnds } from "./ending";
-import { HANDOFF_ENTRY_KINDS, type HandoffAgent, handoffTargetOf, skippedReads } from "./handoff";
+import {
+  HANDOFF_ENTRY_KINDS,
+  type HandoffAgent,
+  type HandoffTargetStep,
+  type HandoffWorkflow,
+  handoffTargetOf,
+  isSelfHandoff,
+  skippedReads,
+} from "./handoff";
 // Wave 5: how each step ended, for an `if` to route on (`steps.<id>.outcome` and the rest).
 import { outcomeVocabulary, stepRecordFields, stepRecordSchema } from "./outcomes";
 // Reshape data (2026-11-11): its output, and the checks on its mapping.
@@ -156,6 +164,12 @@ export type ProcessValidationCode =
   | "handoff_no_live"
   | "handoff_unknown_step"
   | "handoff_entry_kind"
+  // Ways in, ways out (2026-11-23): a hand-off to this agent's own workflow (`checkHandoffStep`)
+  // and the loops such hand-offs make between workflows (bundle.ts).
+  | "handoff_unknown_workflow"
+  | "handoff_same_workflow"
+  | "handoff_workflow_off"
+  | "handoff_loop"
   // v0.17: a repeat with no steps, inside another repeat, waiting too long or too short between
   // passes, or one that could make the run too long for Cloudflare Workflows.
   | "repeat_empty"
@@ -286,6 +300,12 @@ export interface ProcessValidationContext extends TypingContext {
    * (templates, a draft not yet in a client): only the step's own references are checked.
    */
   handoff?: { self?: string | undefined; agents: readonly HandoffAgent[] };
+  /**
+   * Ways in, ways out (2026-11-23): this agent's own workflows a self hand-off (`to.agent:
+   * "@self"`) can start, and the slug of the workflow being checked. Needs no client, so it is
+   * passed for templates too (`validateAnyBundle`). Absent: only the step's own fields are checked.
+   */
+  ownWorkflows?: { workflow: string; workflows: readonly HandoffWorkflow[] };
 }
 
 // ── Schema errors, located ───────────────────────────────────────────────────────────────────
@@ -1754,6 +1774,8 @@ export const HANDOFF_OUTPUT: JsonSchema = {
     runId: { type: "string" },
     agent: { type: "string" },
     step: { type: "string" },
+    // Ways in, ways out (2026-11-23): the workflow a hand-off to this agent's own workflow started.
+    workflow: { type: "string" },
   },
   required: ["agent", "step"],
   additionalProperties: false,
@@ -1767,6 +1789,10 @@ export const HANDOFF_OUTPUT: JsonSchema = {
  */
 function checkHandoffStep(c: Checker, step: HandoffStep, scope: ProcessScope) {
   checkRefs(c, step.id, step.input, ["input"], scope);
+  if (isSelfHandoff(step)) {
+    checkSelfHandoffStep(c, step, scope);
+    return;
+  }
   if (step.to.agent === "") {
     c.add(step.id, "to.agent", "handoff_unknown_agent", "choose the agent to hand off to");
     return;
@@ -1777,7 +1803,12 @@ function checkHandoffStep(c: Checker, step: HandoffStep, scope: ProcessScope) {
   const known = c.ctx.handoff;
   if (!known || step.to.step === "") return;
   if (known.self !== undefined && step.to.agent === known.self) {
-    c.add(step.id, "to.agent", "handoff_same_agent", "a hand-off goes to another agent");
+    c.add(
+      step.id,
+      "to.agent",
+      "handoff_same_agent",
+      'a hand-off goes to another agent; for one of this agent\'s own workflows, choose "This agent"',
+    );
     return;
   }
   const target = handoffTargetOf(known.agents, step);
@@ -1804,7 +1835,19 @@ function checkHandoffStep(c: Checker, step: HandoffStep, scope: ProcessScope) {
     );
     return;
   }
-  if (!HANDOFF_ENTRY_KINDS.has(target.step.kind)) {
+  checkHandoffEntry(c, step, scope, name, target.step, target.agent.steps);
+}
+
+/** The entry step's checks, shared by both kinds of hand-off: its kind, the input, what it skips. */
+function checkHandoffEntry(
+  c: Checker,
+  step: HandoffStep,
+  scope: ProcessScope,
+  name: string,
+  entry: HandoffTargetStep,
+  steps: readonly HandoffTargetStep[],
+) {
+  if (!HANDOFF_ENTRY_KINDS.has(entry.kind)) {
     c.add(
       step.id,
       "to.step",
@@ -1813,8 +1856,8 @@ function checkHandoffStep(c: Checker, step: HandoffStep, scope: ProcessScope) {
     );
     return;
   }
-  checkInput(c, step.id, step.input, target.step.input, scope);
-  for (const { step: later, skipped } of skippedReads(target.agent.steps, step.to.step)) {
+  checkInput(c, step.id, step.input, entry.input, scope);
+  for (const { step: later, skipped } of skippedReads(steps, step.to.step)) {
     c.warn?.(
       step.id,
       "to.step",
@@ -1822,6 +1865,64 @@ function checkHandoffStep(c: Checker, step: HandoffStep, scope: ProcessScope) {
       `${name}'s "${later.name}" reads ${skipped.map((s) => `"${s.name}"`).join(", ")}, which the hand-off skips`,
     );
   }
+}
+
+/**
+ * Ways in, ways out (2026-11-23): a hand-off to this agent's own workflow. The workflow is another
+ * enabled one of this bundle (never the hand-off's own: no self-loop), the step a top-level work
+ * step there, the input fits it. Needs no client. Loops between workflows are the bundle's check.
+ */
+function checkSelfHandoffStep(c: Checker, step: HandoffStep, scope: ProcessScope) {
+  const slug = step.to.workflow;
+  if (slug === undefined) {
+    c.add(step.id, "to.workflow", "handoff_unknown_workflow", "choose the workflow to hand off to");
+    return;
+  }
+  if (step.to.step === "") {
+    c.add(step.id, "to.step", "handoff_unknown_step", "choose the step it starts at");
+  }
+  const own = c.ctx.ownWorkflows;
+  if (!own) return;
+  if (slug === own.workflow) {
+    c.add(
+      step.id,
+      "to.workflow",
+      "handoff_same_workflow",
+      "a hand-off goes to another of this agent's workflows, not back into its own",
+    );
+    return;
+  }
+  const target = own.workflows.find((w) => w.slug === slug);
+  if (!target) {
+    c.add(
+      step.id,
+      "to.workflow",
+      "handoff_unknown_workflow",
+      `this agent has no workflow "${slug}"`,
+    );
+    return;
+  }
+  if (!target.enabled) {
+    c.add(
+      step.id,
+      "to.workflow",
+      "handoff_workflow_off",
+      `"${target.name}" is turned off, so nothing can be handed off to it`,
+    );
+    return;
+  }
+  if (step.to.step === "") return;
+  const entry = target.steps.find((s) => s.id === step.to.step);
+  if (!entry) {
+    c.add(
+      step.id,
+      "to.step",
+      "handoff_unknown_step",
+      `"${target.name}" has no step "${step.to.step}" at its top level`,
+    );
+    return;
+  }
+  checkHandoffEntry(c, step, scope, target.name, entry, target.steps);
 }
 
 function checkStep(c: Checker, step: Step, scope: ProcessScope, allowed: Set<string> | undefined) {
