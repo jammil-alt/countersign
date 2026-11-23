@@ -2,7 +2,7 @@
 // `audit_event` row per request to a session route (reads included), per sign-in and sign-out,
 // and per refused or failed request. Rows hold ids, never bodies or record content.
 
-import { isUuid } from "@countersign/core";
+import { AUDIT_REFRESH_HEADER, AUDIT_REFRESH_KEY, isUuid } from "@countersign/core";
 import { auditEvent, type Db, type Tx, withTenant } from "@countersign/db";
 import { captureException } from "@sentry/cloudflare";
 import type { Context } from "hono";
@@ -44,6 +44,13 @@ export function auditTarget(c: Context, requestedClient: string | null): Record<
     if (typeof v === "string") out[k] = v.slice(0, MAX_TARGET_VALUE);
   }
   if (requestedClient) out.client = requestedClient.slice(0, MAX_TARGET_VALUE);
+  // DECISION (S6.9): a read the app sent to refresh what is on screen (a page's 2-second poll)
+  // keeps its row, tagged, so the log counts the person opening a page once per visit, not 182
+  // times. Only reads are tagged: a write is never a refresh. The tag is the app's word for it;
+  // nothing is hidden by it, and the CSV export carries every row with its tag.
+  if (c.req.method === "GET" && c.req.header(AUDIT_REFRESH_HEADER) === "1") {
+    out[AUDIT_REFRESH_KEY] = "1";
+  }
   return out;
 }
 

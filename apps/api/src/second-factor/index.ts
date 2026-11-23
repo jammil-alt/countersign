@@ -10,6 +10,7 @@ import {
   DEVICE_COOKIE,
   type DevicePayload,
   openDevice,
+  type RememberedCheck,
   requestCookie,
   type SecondFactorPolicy,
   workosStateOf,
@@ -30,6 +31,7 @@ import {
   type SecondFactorKind,
 } from "@countersign/core";
 import {
+  appUser,
   auditEvent,
   type Db,
   type Tx,
@@ -41,7 +43,7 @@ import {
 } from "@countersign/db";
 import { and, count, eq, gt, gte, inArray, isNotNull, isNull, max, sql } from "drizzle-orm";
 import type { Bindings } from "../env";
-import { reportProblem } from "../observability/report";
+import { reportHandled, reportProblem } from "../observability/report";
 import { signingPhones } from "./phone";
 
 /** What the step is built from; tests pass a code service in memory (AppDeps.codeVerifier). */
@@ -340,7 +342,8 @@ export async function claimAttempt(
 
 /**
  * Whether this browser passed the step for this person in the last 30 days, with a method they
- * still have (a reset removes their methods, so it forgets every browser) and may still use.
+ * still have (a reset removes their methods, so it forgets every browser) and may still use; when
+ * not, why not (the `session.sign_in` audit row says which, overnight S1.5).
  */
 export async function rememberedBrowser(
   db: Db,
@@ -348,15 +351,33 @@ export async function rememberedBrowser(
   request: Request,
   userId: string,
   now: Date,
-): Promise<boolean> {
+  workosUserId?: string,
+): Promise<RememberedCheck> {
   const raw = requestCookie(request, DEVICE_COOKIE);
-  if (!raw) return false;
+  if (!raw) return { remembered: false, reason: "no_cookie" };
   const device: DevicePayload | null = await openDevice(
     raw,
     config.cookiePassword,
     Math.floor(now.getTime() / 1000),
   );
-  if (!device || device.uid !== userId) return false;
+  if (!device) return { remembered: false, reason: "unreadable" };
+  if (device.uid !== userId) {
+    // Who it was remembered for, read only: whether that person's WorkOS user is this one.
+    const [them] = await db
+      .select({ workosUserId: appUser.workosUserId })
+      .from(appUser)
+      .where(eq(appUser.id, device.uid));
+    const theirs = them?.workosUserId ?? null;
+    return {
+      remembered: false,
+      reason: "other_person",
+      other: {
+        userId: device.uid,
+        sameWorkosUser: theirs && workosUserId ? theirs === workosUserId : null,
+      },
+    };
+  }
+  const gone = { remembered: false, reason: "method_gone" } as const;
   const [factor] = await withUser(db, userId, (tx) =>
     tx
       .select({ kind: userFactor.kind })
@@ -369,10 +390,10 @@ export async function rememberedBrowser(
         ),
       ),
   );
-  if (factor) return (await allowedKinds(db, userId)).includes(factor.kind);
+  if (factor) return (await allowedKinds(db, userId)).includes(factor.kind) || gone;
   // §1.154: a browser passed with the phone app names that phone: remembered while it is still
   // the person's and set up to sign (never for an operator: signingPhones has none).
-  return (await signingPhones(db, userId, { deviceId: device.fid })).length > 0;
+  return (await signingPhones(db, userId, { deviceId: device.fid })).length > 0 || gone;
 }
 
 /** What the WorkOS adapter is given: whether the step is on, and the remembered-browser check. */
@@ -388,6 +409,12 @@ export function secondFactorPolicy(setup: SecondFactorSetup, db: Db): SecondFact
   const { config } = setup;
   return {
     on: true,
-    remembered: ({ request, userId, now }) => rememberedBrowser(db, config, request, userId, now),
+    // DECISION (overnight S1.5): a check that throws is still a miss (the code is asked), but it
+    // is reported, not swallowed, and the audit row says `check_failed`.
+    remembered: ({ request, userId, now, workosUserId }) =>
+      rememberedBrowser(db, config, request, userId, now, workosUserId).catch((error: unknown) => {
+        reportHandled("remembered browser check failed", error, { kind: "second_factor" });
+        return { remembered: false, reason: "check_failed" } as const;
+      }),
   };
 }

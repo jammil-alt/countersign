@@ -122,6 +122,70 @@ describe("ops audit log", () => {
     expect(queries.at(-1)?.get("before")).toBe(id(3));
   });
 
+  // S6.9: "opened 182 times" was a page's 2-second poll. A person's reads of one thing within 30
+  // minutes are one visit; the action reads in words and the ids by name.
+  it("reads in words with names, and folds a page left open into one visit", async () => {
+    const at = (min: number, sec = 0) => new Date(Date.UTC(2026, 10, 5, 9, min, sec)).toISOString();
+    const named = {
+      actor: {
+        kind: "user",
+        id: USER,
+        email: "admin@demo.example.com",
+        role: "client_admin",
+        name: "Dana Ruiz",
+      },
+      words: "Viewed a run's client timeline",
+      names: { id: "Bill clerk run" },
+    };
+    const api = fakeApi({
+      "GET /api/session": () => OPERATOR_SESSION,
+      "GET /api/ops/audit": () => ({
+        events: [
+          // Newest first: three polls, then the open, then an open an hour before (a visit of its
+          // own), and a write between them.
+          row(10, {
+            ...named,
+            createdAt: at(50, 6),
+            refresh: true,
+            target: { id: RUN, refresh: "1" },
+          }),
+          row(11, {
+            ...named,
+            createdAt: at(50, 4),
+            refresh: true,
+            target: { id: RUN, refresh: "1" },
+          }),
+          row(12, {
+            ...named,
+            createdAt: at(50, 2),
+            refresh: true,
+            target: { id: RUN, refresh: "1" },
+          }),
+          row(13, { ...named, createdAt: at(50, 0) }),
+          row(14, { ...named, createdAt: at(10) }),
+        ],
+        nextBefore: null,
+      }),
+    });
+    renderAt("/ops/security/audit", api);
+    const visit = await screen.findByTestId(`ops-audit-row-${id(13)}`);
+    expect(within(visit).getByTestId("ops-audit-action-name")).toHaveTextContent(
+      "Viewed a run's client timeline",
+    );
+    expect(within(visit).getByTestId("ops-audit-reads")).toHaveTextContent(
+      "One visit: 4 reads while it was open",
+    );
+    expect(within(visit).getByTestId("ops-audit-who")).toHaveTextContent("Dana Ruiz");
+    expect(within(visit).getByTestId("ops-audit-target-id")).toHaveTextContent("Bill clerk run");
+    expect(visit).not.toHaveTextContent("/api/");
+    for (const n of [10, 11, 12]) expect(screen.queryByTestId(`ops-audit-row-${id(n)}`)).toBeNull();
+    // Forty minutes before: another visit.
+    const earlier = screen.getByTestId(`ops-audit-row-${id(14)}`);
+    expect(within(earlier).queryByTestId("ops-audit-reads")).toBeNull();
+    // Every row is still counted as an entry.
+    expect(screen.getByTestId("ops-audit-count")).toHaveTextContent("5 entries");
+  });
+
   it("sends the filters, from the URL and the form", async () => {
     const queries: URLSearchParams[] = [];
     const api = fakeApi({

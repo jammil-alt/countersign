@@ -4,9 +4,11 @@
 import { retire as retireAgent } from "@countersign/agents";
 import {
   type AccessReviewUser,
+  auditActionWords,
   type ClientCompliance,
   complianceOf,
   hipaaReadiness,
+  isAuditRefresh,
   PROCESSOR_NAMES,
   PROCESSORS,
   type Processor,
@@ -42,6 +44,7 @@ import {
   sql,
 } from "drizzle-orm";
 import type { Hono } from "hono";
+import { auditNames } from "../audit-names";
 import { returnAgentLine } from "../channels/agent-line";
 import type { Bindings } from "../env";
 import { type AppEnv, ensureClient, HttpError, iso, mount, notFound, type Services } from "../http";
@@ -131,6 +134,11 @@ export function complianceRouteHandlers(app: Hono<AppEnv>): void {
       .orderBy(desc(auditEvent.id))
       .limit(query.limit + 1);
     const page = rows.slice(0, query.limit);
+    // S6.9: the action in words and the target's ids by name, beside the row as it was written.
+    const named = await auditNames(
+      tx,
+      page.map(({ e }) => e),
+    );
     return {
       events: page.map(({ e, clientName }) => ({
         id: e.id,
@@ -140,8 +148,12 @@ export function complianceRouteHandlers(app: Hono<AppEnv>): void {
           id: e.actorUserId,
           email: e.actorEmail,
           role: e.actorRole,
+          name: e.actorUserId ? (named.actors.get(e.actorUserId) ?? null) : null,
         },
         action: e.action,
+        words: auditActionWords(e.action),
+        names: named.targets.get(e.id) ?? {},
+        refresh: isAuditRefresh(e.target),
         outcome: e.outcome,
         httpStatus: e.httpStatus,
         target: e.target,

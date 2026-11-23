@@ -2,6 +2,7 @@
 
 import {
   approvalExpired,
+  escalationWords,
   type NobodyToAct,
   type OversightDecisionView,
   type RunState,
@@ -139,6 +140,7 @@ export function runErrorLine(error: unknown, stepName?: string | null): string {
   const first = parts.reason?.split("\n")[0]?.trim() ?? "";
   const reason =
     plain ??
+    escalationWords(first) ??
     (first
       ? (ERROR_REASON_WORDS[first] ?? (first.length > 120 ? `${first.slice(0, 119)}…` : first))
       : "Failed without a reason");
