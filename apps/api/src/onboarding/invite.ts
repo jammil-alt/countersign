@@ -955,7 +955,14 @@ export async function runInvite(run: InviteRun, draft: InviteDraft): Promise<Inv
       const invited = await inviteToClient(
         { tx, services, afterCommit: s.afterCommit },
         client,
-        { email: p.email, name: p.name, role: p.isAdmin ? "client_admin" : "client_user" },
+        // DECISION: the people on a new client's plan approve as before; only the invite forms
+        // start a user with approvals off (overnight D3).
+        {
+          email: p.email,
+          name: p.name,
+          role: p.isAdmin ? "client_admin" : "client_user",
+          canSign: true,
+        },
         // DECISION: Just the account has no intake, so no branded invite yet: the sign-in
         // provider's own invitation goes, as New client's does (cases-plan §4.3's welcome-only
         // email is the EMAIL stream's to add). With an intake, the provider sends nothing only
