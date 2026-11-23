@@ -10,8 +10,8 @@ import {
   attentionReasonOf,
   type ConnectionRef,
   type ContentStore,
-  CredentialError,
   type CredentialsAccessor,
+  credentialsUnopenable,
   noopLogger,
   QBO_CONNECTOR_ID,
   QboApiError,
@@ -86,20 +86,6 @@ class AttachmentFailed extends Error {
   ) {
     super(`attachment ${attachableId} failed to download`);
   }
-}
-
-/**
- * The stored sign-in itself can't be opened (its envelope is bad, or the client's key is gone):
- * only a new sign-in brings it back.
- */
-// DECISION: `decrypt_failed`, `malformed` and `key_destroyed` need the client's attention as a
-// refused sign-in does (`signin_expired`). `invalid_key` and `unknown_key` are our keys (a missing
-// or retired `ENCRYPTION_KEY`), the same for every client: the sync fails and is reported as
-// before, rather than set every client's connection to `error` for our mistake (overnight S3.7).
-export function signInUnopenable(error: CredentialError): boolean {
-  return (
-    error.code === "decrypt_failed" || error.code === "malformed" || error.code === "key_destroyed"
-  );
 }
 
 export function qboConnectorOf(platform: Platform): QboConnector | null {
@@ -224,7 +210,9 @@ export async function qboSyncStep(
     // A stored sign-in that can't be opened is one nobody can use: it needs attention like one
     // QuickBooks refused (overnight S3.7), not a sync that fails quietly while the connection
     // still reads Connected.
-    if (error instanceof CredentialError && signInUnopenable(error)) {
+    // Which credential errors these are is connectors' `credentialsUnopenable`, shared with the
+    // texting pass (overnight S8.2): a bad envelope, or the client's key destroyed or lost.
+    if (credentialsUnopenable(error)) {
       const collect: EventRow[] = [];
       const emit = senseEmitter(deps.platform.events, { collect });
       await dbConnectionAttention(deps.db, { emit }).needsAttention(tenantId, {
