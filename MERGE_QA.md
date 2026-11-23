@@ -119,6 +119,10 @@ the Sandbox, never a real client.
 | A4 | Try steps 3 to 5 of a workflow with "Make up data". | Each step shows its output; nothing is written to any tool. |
 | A5 | Give a workflow two starts, press the button for "How did it start?", and run each path. | Each start runs its own first steps, then they join. |
 | A6 | Send the Builder a request it is likely to answer badly (very long, off topic). | It asks again once; no "form we couldn't use" error. |
+| A7 | Open a step in the builder (#597, never seen in a browser). | The panel opens with what the step does; the Steps tab is gone; Plaid shows its mark; Describe takes dictation and shows progress while it drafts. Both themes. |
+| A8 | On a build's test, pick a Sandbox bill and try the template on it; try a skill on an uploaded document. After P0.2. | Each shows its result; nothing is written. |
+| A9 | On a build's Decisions card, change a decision's words. Send the Builder one more turn. | The decision reads Changed; the Builder follows the new words. |
+| A10 | On a build with an issue that started a skill build and a request. | The issue links to both, and the skill build links back. |
 
 **B. SOP, Workflow and security**
 
@@ -128,6 +132,9 @@ the Sandbox, never a real client.
 | B2 | As a client user limited to one agent, open that agent's SOP, then another's by its address. | The first opens; the second is "not found". |
 | B3 | Open the Workflow tab, click a box, press "This is wrong". | A card with purpose, who and approvers; the report reaches us. Switch the portal to Spanish: the chart's words change. |
 | B4 | Back office, agent → Security → "Run the checks now". | 17 checks, each verified, in review or not applicable. The portal's section 14 agrees. |
+| B6 | As a client admin, a client user and a limited user, open Procedures; ask Sloan for an agent's SOP. | Every agent's SOP listed; the limited user sees only their own agents' rows. |
+| B7 | Back office, Security → Evidence: pick a period, a client and an agent; CSV and Print. | Each check's results for the period; a client we don't serve is "not found". |
+| B8 | Back office, an agent's Manual: read "Hit in N runs" on a known risk; delete a learned note. | The count is plausible against the runs list; the note is gone and the change is in the audit trail. |
 | B5 | Next morning: count the issues the nightly run opened. | Known: one per AI agent for "no provider trains on your data" until the pages are confirmed (decision D6). |
 
 **C. Starting a client**
@@ -139,6 +146,7 @@ the Sandbox, never a real client.
 | C3 | Back office, Setup tab: press Nudge; press Start trial. | One nudge is sent; Start trial is held until setup is complete. |
 | C4 | Send an invite to an address that bounces, then press Send it again. | Needs Resend (Pass 5). Without it: a clear "can't send", no crash. |
 | C5 | Start a process interview, open its link in a private window, answer five questions, add a file. | One question at a time; a map and a draft appear for us. English only. |
+| C7 | Back office, an agent's setup checklist: upload a file for the client; mark a step's parameter as one the client may adjust; give a date setting an earliest and latest date. Then, as the client, set a date outside them. | The file is on the item; the client sees the parameter; the date is refused. |
 | C6 | On staging's data, list the prospects the retention job would delete today. | Only deals closed as lost more than 12 months ago. |
 
 **D. The walk-through's fixes.** Go through `STAGING_QA.md` N1 to N10 and C1 to C11 again, on
@@ -208,6 +216,7 @@ and New client, and `GET …/skills` hanging.
 | K4 | Approve a list holding a flagged bill, with a note. | Known: the flag doesn't stop it, and approved is final (decision D2). |
 | K5 | Month-end close on the Sandbox (after #583): run the checklist, approve one accrual, sign off, then try to change the month. | The entry is written once, after approval; the signed month refuses changes. |
 | K6 | Email a report file for a saved profile twice. | The first lands as rows; the second is refused as a duplicate. Known gap: the alerts have no screen. |
+| K8 | As a client admin, open the work-delivered statement for this month; download the PDF. | Counts per agent and area that agree with the runs list; a limited user is refused. The email with the invoice needs Resend and Stripe (Pass 5). |
 | K7 | Reconciliation on the Sandbox, as before the matching engine. | The same matches as last week, each naming the rule that made it. |
 
 ### Pass 4. The things that run by themselves (check the morning after)
