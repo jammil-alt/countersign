@@ -246,8 +246,11 @@ export const UpdateEnhancement = z.strictObject({
 
 // ── The portal: Requests ─────────────────────────────────────────────────────────────────────────
 
-/** How a request stands, in the client's words (core `PORTAL_REQUEST_STATUS_WORDS`). */
-export const PortalRequestState = z.enum(["on_it", "waiting_on_you", "fixed", "closed"]);
+/**
+ * How a request stands, in the client's words (core `PORTAL_REQUEST_STATUS_WORDS`). `sent` until
+ * one of us picks it up (answers it, or moves it on); `on_it` after.
+ */
+export const PortalRequestState = z.enum(["sent", "on_it", "waiting_on_you", "fixed", "closed"]);
 export type PortalRequestState = z.infer<typeof PortalRequestState>;
 
 /** A client's request as it sees it: a problem (an issue) or an idea (an ask). */

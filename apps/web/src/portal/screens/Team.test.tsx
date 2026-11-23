@@ -86,7 +86,9 @@ describe("portal team", () => {
     await waitFor(() => expect(admin).toHaveTextContent("Bills over $5,000"));
     const viewer = screen.getByTestId("portal-team-viewer@demo.example.com");
     expect(viewer).toHaveTextContent("Invited");
-    expect(viewer).toHaveTextContent("Doesn't approve. Can read everything.");
+    expect(viewer).toHaveTextContent("Doesn't approve.");
+    // QA PP4: a user limited to one agent can't read everything.
+    expect(viewer).not.toHaveTextContent("Can read everything");
 
     const form = screen.getByTestId("portal-invite");
     await userEvent.type(within(form).getByTestId("portal-invite-email"), "buyer@demo.example.com");
