@@ -806,6 +806,31 @@ describe("the second step (docs/plan.md §1.100)", () => {
       { authenticationMethod: "Password" },
     );
     expect(broken.done.signedIn?.secondFactor).toBe("pending");
+    // Overnight S1.5: and the sign-in says why, for its audit row.
+    expect(broken.done.signedIn?.rememberedMiss).toBe("check_failed");
+  });
+
+  it("names why a remembered browser didn't skip the code (overnight S1.5)", async () => {
+    const missed = await signInWith(
+      { on: true, remembered: async () => ({ remembered: false, reason: "method_gone" }) },
+      { authenticationMethod: "Password" },
+    );
+    expect(missed.done.signedIn).toMatchObject({
+      secondFactor: "pending",
+      remembered: false,
+      rememberedMiss: "method_gone",
+    });
+    // The step is on but nothing can check: said too.
+    const unchecked = await signInWith({ on: true }, { authenticationMethod: "Password" });
+    expect(unchecked.done.signedIn?.rememberedMiss).toBe("not_checked");
+    // Passed, or not asked at all: nothing to explain.
+    const passed = await signInWith(
+      { on: true, remembered: async () => true },
+      { authenticationMethod: "Password" },
+    );
+    expect(passed.done.signedIn?.rememberedMiss).toBeUndefined();
+    const sso = await signInWith({ on: true }, { authenticationMethod: "SSO" });
+    expect(sso.done.signedIn?.rememberedMiss).toBeUndefined();
   });
 
   it("never skips the code for a sign-in for the phone app (docs/plan.md §1.116)", async () => {
@@ -819,6 +844,7 @@ describe("the second step (docs/plan.md §1.100)", () => {
     expect(done.signedIn).toMatchObject({
       secondFactor: "pending",
       remembered: false,
+      rememberedMiss: "phone_sign_in",
       phone: true,
     });
     expect(remembered).not.toHaveBeenCalled();
@@ -915,6 +941,26 @@ describe("the account carried in the session cookie (docs/plan.md §1.93)", () =
     expect(out.setCookies).toEqual([
       expect.stringMatching(/^__Host-cs_session=; Path=\/; Max-Age=0/),
     ]);
+  });
+
+  it("ends the WorkOS session on sign-out, and signs out of ours if that fails (S1.6)", async () => {
+    const { adapter, workos } = setup();
+    const { sealed } = await sessionCookieFor();
+    const { value } = await carried(sealed, account(T0 + 1));
+    const out = await adapter.signOut(withCookie(`${SESSION_COOKIE}=${value}`));
+    expect(workos.revokeSession).toHaveBeenCalledWith("sess_1");
+    expect(out.redirectTo).toMatch(/^https:\/\/workos\.test\/logout\?session_id=sess_1/);
+
+    const failing = setup(
+      fakeWorkOS({ revokeSession: vi.fn(async () => Promise.reject(new Error("workos down"))) }),
+    );
+    const after = await failing.adapter.signOut(withCookie(`${SESSION_COOKIE}=${value}`));
+    expect(after.setCookies).toEqual([expect.stringMatching(/^__Host-cs_session=;/)]);
+    expect(after.redirectTo).toMatch(/session_id=sess_1/);
+    // No cookie: nothing to end.
+    const none = setup();
+    await none.adapter.signOut(new Request(`${ORIGIN}/api/auth/sign-out`, { method: "POST" }));
+    expect(none.workos.revokeSession).not.toHaveBeenCalled();
   });
 
   it("drops a stale account when asked, and a tampered cookie is refused", async () => {
