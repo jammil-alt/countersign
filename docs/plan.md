@@ -6382,6 +6382,69 @@ action, not just mark it... if it is an issue, just because I say it is closed d
 | Not built | The client as an owner: no step yet sends an item to the client and closes it by their answer (the requirements request asks the intake form's fields, not an item). Until there is one, "Client" is only set by the fit-gap's preconditions. |
 | Checked | `apps/api/src/build-settled-by-step.test.ts` (done by hand refused, a drop, a note done, the Builder's close left out; a put-off gap given to engineering then the Builder, closed by its change and opened by its undo; a test closed by a full passing run and not by a failing or partial one), `apps/web/src/ops/builds/closeout.test.tsx` and `builds.test.tsx` (no selects; Put off, Drop it, Reopen; Take it up on a put-off gap). The skill build's go-live closing has no test of its own. |
 
+### 1.241 Ways in and ways out on Check the steps (owner, 2026-11-23; no migration, #648)
+
+The owner: "Think about it as triggers and report-out forks: multiple ways in if needed, multiple
+ways out if needed. A fork out inside the workflow can be a handoff; one that leaves and comes back
+is an automation or a loop." Worker C of the wave (§1.238–§1.241).
+
+| Topic | Decision |
+|---|---|
+| Ways out | Worked out from the steps (`processes.waysOut`), not stored: every hand-off anywhere (mid-process, in paths, in loops) and every run end (§1.238's `runEnds`), in list order, each with its kind, `how` (`fork`: the run goes on after it; `end`), whether it repeats (inside a `for_each` or `repeat`) and where it goes. // DECISION |
+| What forks out | Only a hand-off. A write or a note mid-process changes something on the way, but the run's work doesn't leave through it. An automation (`process`) leaves and comes back, so it is part of the run. // DECISION |
+| Hand-off into this agent | `to.agent: "@self"` (§1.239) is its own kind, `workflow`; screens say "into <workflow name>", found from the bundle's workflows. |
+| How it ends | Under the four cards, every way out in words: "Forks out: …", "Ends: Create the bill", "Forks out each time round into Check an invoice: …", "Ends, with nothing reported out: …". A fork out marks its card on, as an end does. The dead-end hold (§1.238) is unchanged. |
+| Ways in | The five cards of How it starts are toggles, one trigger per card, ids kept, a new one `startOn(kind)`. Turning a card off removes every trigger of that kind (a card can't say which of two schedules is meant; the chart's trigger panel does). A trigger no card shows (a webhook) still counts. The last way in can't be removed ("It needs at least one way to start, so the last one stays on."); at most 10, the schema's limit. // DECISION |
+| In your words | One line, for the first trigger; it follows the first trigger until the operator writes their own. With two or more ways in the screen says "It starts 2 ways: …". |
+| Builder request | `fillRequest` takes `starts` (every way in, in words) when the operator changed the words or the ways in, and asks the Builder to keep a trigger for each. |
+| Checked | `packages/core/src/process/ending.test.ts`, `apps/web/src/ops/flow/checkModel.test.ts` and `CheckSteps.test.tsx`; Playwright screenshots on a harness page with the tests' fake API, light and dark. Not opened in the running app. |
+
+### 1.240 One main workflow, more ways in, no copied steps (owner, 2026-11-23; no migration, #650)
+
+Asked to add a nightly scan, the Builder added a second workflow, "Scan QuickBooks bills from the
+last week", whose loop ran a copy of every step of "Check an invoice that comes in". In the owner's
+model the scan is a second way in with its own lead-in, ending with a hand-off per unread invoice
+into step 1 of the first. ARCHITECTURE v0.23 §10.14. Worker B of the wave.
+
+| Topic | Decision |
+|---|---|
+| The rule | An agent has one main workflow, its first enabled one. Another way in that starts the same work is another trigger on it (up to 10). A way in with its own lead-in is its own workflow that ends every run (`runEnds`) with a `@self` hand-off (§1.239) into another workflow of the agent, one per item. Work that leaves and comes back is an automation or a loop. Steps are never copied between workflows. // DECISION |
+| Core | `oneProcessProblems` (`process/owner.ts`) checks the rule: a Stop on a path is an end by choice and allowed; only a hand-off naming another enabled workflow counts, and one with no `to.workflow` doesn't. It still runs only where a caller applies it (the seed test; publish doesn't yet). |
+| The Builder | One rule after §1.238's two, in the owner's words; `/trigger` adds to the main workflow and never adds a workflow. `assignIds` points a `@self` hand-off's `to.step` at the target workflow's new ids. |
+| Copied steps | Two steps match when they are the same kind and do the same thing (a read's tool; a write's tool, action and connector; a skill by id, any version, and agent; an automation's ref; a hand-off's target); an `if` or a loop matches only when everything inside it does. A copy is 3 or more matching steps in a row, in any step list of two enabled workflows, at least 2 of them calling a tool, skill or automation (so "ask, notify, stop" twice is not one). Core's `copiedSteps` (`process/copies.ts`) serves both: the Builder's guard sends a new copy back to the repair round, then leaves a note; bundle validation gives the advice `copied_steps`, never an error, so stored agents keep saving. A copy the revised version already had is left to the operator. // DECISION |
+| Found | The shipped Bookkeeper v7 gets `copied_steps`: its payout check ends with the same four steps as the monthly reconciliation's loop (`askAboutLeftoversV2`). A real match, recorded in `apps/api/src/templates-skill-model.test.ts`; the template is unchanged. |
+| Checked | `copies.test.ts`, `owner.test.ts`, `bundle.test.ts`, `builder.test.ts` (scripted model), `copied-steps.builder.test.tsx`; `pnpm check` with Postgres. The rule against a live model: on staging. |
+
+### 1.239 Hand off to the agent's own workflow (owner, 2026-11-23; no migration, #649)
+
+A fork out into another workflow of the same agent, so a second way in can hand its items to the
+first instead of copying it (§1.240). Extends §1.96. Worker A of the wave.
+
+| Topic | Decision |
+|---|---|
+| Step | `to.agent: "@self"` (`processes.SELF_AGENT`, in `process/schema.ts`; not a valid slug, so it never names a real agent) plus `to.workflow`: a new run of this agent in that workflow, at its top-level step `to.step`. `to.workflow` is ignored for another agent, which still starts its first enabled workflow (§1.96). // DECISION |
+| Which version | The sending run's version, not the live one, so both halves of one piece of work run one definition even if a new version goes live in between; the sending run's mode too. // DECISION |
+| Validation | Core, needing no client, so templates are checked (`ownWorkflows`, passed by `validateAnyBundle`): another enabled workflow (`handoff_unknown_workflow`, `handoff_same_workflow`, `handoff_workflow_off`); a top-level read, skill or write step there; the input fits it; no loop between workflows (`handoff_loop`, a bundle check, one error per step that closes the loop). |
+| Run | `MAX_HANDOFF_DEPTH` and "started" hold as for any hand-off. The run id is from the sending run and the node id, so a retry starts one run and each `for_each` item its own. Test runs start nothing. |
+| Trigger | As §1.96, with `payload.from.workflowName` so the run's page says "Handed off from <workflow>". |
+| Builder | "This agent" first in the agent picker (works in a template), then the workflow (one turned off is disabled), then the step and input; the name reads "Hand off to <workflow> at <n> · <step>". A template's palette shows "Hand off to another workflow"; an automation's has none. |
+| Approvals | Unchanged (invariant 8): starting a run is internal, never a write. |
+| Checked | `self-handoff.test.ts` (core), `packages/workflows/src/handoff.test.ts`, `apps/api/src/self-handoff-runtime.test.ts` (a scan handing each bill to "Check an invoice" at step 2 on its own version; both run pages; a test run; refusals), `handoff.builder.test.tsx`; `pnpm check` with Postgres. The builder not opened in a browser. |
+
+### 1.238 Decisions hold only what differs; every process says how it ends (owner, 2026-11-23; no migration, #647)
+
+A drafted invoice intake read "If no vendor found, set up the new vendor; otherwise" and the nine
+steps that make up the rest, so the rest of the agent sat inside the decision, and a new vendor's
+run ended after its setup. And a process said how it starts and nothing about where its result
+goes, so a run could end on a step that only reads.
+
+| Topic | Decision |
+|---|---|
+| Decisions | The Builder's rule: an `if` holds only what differs between its paths; steps every path runs go after it, at its level; one case's extra work is its path alone, the otherwise is empty, and the process continues below. Check the steps' "Move these below the decision" moves an otherwise's steps out in one go (`movePathBelow`), ids kept. // DECISION |
+| How it ends | Core's `runEnds` (the steps a run can finish on), `reportsOut` (a write, a hand-off, a person reached) and `deadEnds`; the validator's advice `no_output`. Worked out from the steps, no stored field: the ways out are step kinds the process has. A Stop is an end by choice and an empty path is "nothing to do"; neither is flagged. // DECISION |
+| Where it holds | Advice everywhere (as an error, every stored agent ending on a read would stop saving), held only on Check the steps: How it ends, beside How it starts, with four ways out, and Build it waits while a run can end on a known dead end. The Builder's rule: the last step on every path reports out; with no place named, a note to the client's team, recorded as a decision. // DECISION |
+| Checked | `ending.test.ts`, `checkModel.test.ts`, `CheckSteps.test.tsx`, `apps/api/src/templates-v4.test.ts` (no seeded or pack template gets the advice). |
+
 ### 1.236 R6: the portal's saved views (Wave Y, Y7, 2026-11-22; migration 0098, #577)
 
 - A client person saves the runs list's filter under a name and opens it again from a chip above the list. A client admin can:

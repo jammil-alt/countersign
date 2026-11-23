@@ -1,8 +1,17 @@
-# Mezonas — Architecture v0.22
+# Mezonas — Architecture v0.23
 
 > **Name and design (2026-11-03, owner):** the product is **Mezonas** (mezonas.com; `countersign` is the
 > code name), built with the Mezonas design system in `packages/design-system`, which replaces Groundwork.
 > Domains: `app.mezonas.com` (production), `staging.mezonas.com`.
+
+> **v0.23, ways in and ways out (2026-11-23, owner):** "Think about it as triggers and report-out
+> forks: multiple ways in if needed, multiple ways out if needed. A fork out inside the workflow can
+> be a handoff; one that leaves and comes back is an automation or a loop." **An agent has one main
+> workflow and as many ways in and out as it needs** (§10.14). Another way in is another trigger; a
+> way in with its own lead-in is a workflow that hands each item into the main one (a hand-off to
+> `@self`); steps are never copied between workflows. A decision holds only what differs between its
+> paths, and every run ends by reporting out: a tool changed, another agent or workflow handed the
+> work, or a person reached. `docs/plan.md` §1.238–§1.241.
 
 > **v0.22, evidence and a verifier before writes (2026-11-22, owner):** **Every write an agent
 > proposes to a client's tool carries proof a person can check in seconds.** Outside v1's scope
@@ -116,7 +125,7 @@
 > a Seen). Everything that waits has one deadline with `ifNoAnswer` (stop by default, proceed, skip,
 > escalate), on clock time or the business hours of the person asked; `proceed` on a write's approval
 > is loosening. Write tools declare their undo, offered never automatic. An agent is one process plus
-> its owner, the AI that watches and fixes within the plan. Every client account has a number and an
+> its owner, the AI that watches and fixes within the plan (v0.23: one main workflow, more ways in). Every client account has a number and an
 > email. Stored v3 workflows are never rewritten; they are read as v4 with every id kept. The
 > Marketing and Bookkeeping areas (built as M43–M57) remain to be folded into this document. Changed:
 > §1, §10.14 (new), §18, §20; `docs/plan.md` §1.86, §9.
@@ -2762,8 +2771,24 @@ says so on the card. The Desk's 60-second undo before a write runs (§11.1) is u
 > **v0.19:** the owner moved up to one per business area per client, overseeing every process in
 > its area (§10.15). What it may and may never do in a run, below, is unchanged.
 
-**One agent owns exactly one process.** The agent is that process plus its **owner**: the AI that
-watches every step and fixes within limits, v0.13's oversight (§10.11) given its proper name (R6):
+**One agent, one main workflow, more ways in** (v0.23, owner 2026-11-23; it replaces "one agent
+owns exactly one process"). An agent has one main workflow: its first enabled one. That is the
+process its owner watches. Another way in that starts the same work is another trigger on the main
+workflow (a workflow holds up to ten). A way in that needs its own steps first, such as a schedule
+that finds last week's bills and loops over them, is a workflow of its own, and every run of it ends
+by handing off into another workflow of the same agent (`to.agent: "@self"`), one hand-off per item.
+A path may stop by choice. Work that leaves and comes back is an automation (a `process` step) or a
+loop (`for_each`, `repeat`). Steps are never copied from one workflow into another: the Builder is
+held to this, and the builder's advice points out any copy already saved. A workflow that would run
+beside the main one and hand nothing to it is a separate agent, joined by a hand-off trigger.
+
+**Ways out.** Every run ends by reporting out: a step that changes a tool or saves a record, a
+hand-off to another agent or workflow, or a person reached. A run that can finish on a step that
+only reads is a dead end: advice on the chart, held back on Check the steps. A decision holds only
+what differs between its paths; what every path does comes after it.
+
+The agent is its process plus its **owner**: the AI that watches every step and fixes within
+limits, v0.13's oversight (§10.11) given its proper name (R6):
 
 | The owner may | v0.13 decision |
 |---|---|

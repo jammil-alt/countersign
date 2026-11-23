@@ -575,6 +575,26 @@ Close pack (§1.232, migration 0099, #575 and #583); the AP pack (§1.233, migra
 - **Staging after deploy.** Every agent that uses AI reads `no_training` In review until the
   providers' pages are read (Agent assurance above), so the next nightly run opens one issue each.
 
+### Ways in, ways out (2026-11-23; `docs/plan.md` §1.238–§1.241, ARCHITECTURE v0.23 §10.14)
+
+Built: decisions that hold only what differs and How it ends (§1.238, #647); a hand-off into the
+agent's own workflow (§1.239, #649); one main workflow, more ways in, no copied steps (§1.240,
+#650); ways in and ways out on Check the steps (§1.241, #648). Merge in that order. What is left:
+
+- **Try it on staging** (owner, once merged): describe an invoice intake with a nightly QuickBooks
+  scan and check the Builder drafts one main workflow, a scan that hands each unread invoice into
+  it, no copied steps, a decision that holds only the new vendor's setup, and an end that reports
+  out. Every rule has run against a scripted model only; the Builder's evals (§1.108) have no case
+  for them yet. Code: an eval case.
+- **Publish doesn't apply the rule.** `oneProcessProblems` (§1.240) runs only in the seed test;
+  applying it at publish refuses a version whose extra workflow doesn't hand off. Sloan keeps its
+  four workflows as the owner's exception (`packages/db/src/seed.ts`). Code, once the owner agrees.
+- **The Bookkeeper's copied steps.** v7's payout check repeats the monthly reconciliation's last
+  four steps (§1.240, "Found"): make them an automation, or a hand-off into one workflow, in the
+  pack's next template version. Code.
+- **Lanes on the chart.** Ways in still show as workflow tabs; drawing them as lanes into the main
+  workflow on one chart is a later screen change. Code, if wanted.
+
 ### Owner decisions still open (`docs/plan.md` §7 and the sections named)
 
 - **Billing**: the credit allowance per agent, whether allowances pool across a client's agents
