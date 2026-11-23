@@ -12,8 +12,11 @@ import {
   findQboBills,
   findSupport,
   getDocument,
+  isPhotoMime,
   matchBill,
+  NO_PHOTO_METADATA,
   readingFile,
+  readPhotoMetadata,
   recordPurchase,
   recordReading,
   storeTableFile,
@@ -86,7 +89,14 @@ export function dbDocumentsPort(db: Db, options: DbDocumentsOptions): DocumentsP
   return {
     async get(tenantId, documentId) {
       const view = await withTenant(db, tenantId, (tx) => getDocument(tx, tenantId, documentId));
-      return view ? documentForTool(view, options.signer) : null;
+      if (!view) return null;
+      const doc = await documentForTool(view, options.signer);
+      if (!isPhotoMime(view.document.mimeType)) return doc;
+      // DQ-001: a photo's location and time taken, from the file's own metadata (no model).
+      // DECISION: a photo whose file is missing gives none, like one without metadata.
+      const stored = await options.content.get(tenantId, view.document.sha256);
+      const photo = stored ? readPhotoMetadata(stored.bytes) : NO_PHOTO_METADATA;
+      return { ...doc, ...photo };
     },
 
     async extract(tenantId, input) {
