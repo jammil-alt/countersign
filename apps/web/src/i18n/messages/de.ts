@@ -669,6 +669,7 @@ export const de: Messages = {
   "action.status.done": "Ausgeführt",
   "action.status.rejected": "Abgelehnt",
   "action.status.failed": "Fehlgeschlagen",
+  "action.status.expired": "Nicht ausgeführt: keine Antwort rechtzeitig",
 
   // ── Connections ──
   "connections.title": "Konten",

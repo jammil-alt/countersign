@@ -639,6 +639,7 @@ export const ptBR: Messages = {
   "action.status.done": "Feito",
   "action.status.rejected": "Rejeitado",
   "action.status.failed": "Falhou",
+  "action.status.expired": "Não feito: sem resposta a tempo",
 
   // ── Connections ──
   "connections.title": "Contas",
