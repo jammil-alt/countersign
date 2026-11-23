@@ -129,12 +129,18 @@ function setup(opts: { empty?: boolean } = {}) {
   const taken: string[] = [];
   const flagged: string[] = [];
   const snoozed: string[] = [];
+  const woken: string[] = [];
   const api = fakeApi({
     "GET /api/session": () => OPERATOR_SESSION,
     "GET /api/ops/clients": () => ({ clients: [] }),
     "GET /api/ops/counts": () => ({ needsUs: 4, clients: [] }),
     "GET /api/ops/todos": ({ url }) => {
-      const out = list(url.searchParams.get("owner") ?? "operator");
+      const listed = list(url.searchParams.get("owner") ?? "operator");
+      // A snoozed to-do leaves Yours, and its count.
+      const out = {
+        ...listed,
+        counts: { ...listed.counts, yours: listed.counts.yours - snoozed.length },
+      };
       return opts.empty && out.items === yours ? { ...out, items: [] } : out;
     },
     [`POST /api/ops/todos/${T1}/act`]: ({ init }) => {
@@ -150,6 +156,15 @@ function setup(opts: { empty?: boolean } = {}) {
       return { ...reggies[0], owner: "operator" };
     },
     "GET /api/ops/todos/done-today": () => doneToday,
+    "GET /api/ops/todos/snoozed": () => ({
+      items: yours
+        .filter((t) => snoozed.includes(t.id) && !woken.includes(t.id))
+        .map((t) => ({ ...t, state: "snoozed", snoozedUntil: "2026-11-18T09:00:00.000Z" })),
+    }),
+    [`POST /api/ops/todos/${T1}/wake`]: () => {
+      woken.push(T1);
+      return { ...yours[0], state: "open" };
+    },
     [`POST /api/ops/play-log/${PLAY}/flag`]: () => {
       flagged.push(PLAY);
       return { ok: true };
@@ -162,7 +177,7 @@ function setup(opts: { empty?: boolean } = {}) {
       </AppProviders>
     </MemoryRouter>,
   );
-  return { api, acted, taken, flagged, snoozed };
+  return { api, acted, taken, flagged, snoozed, woken };
 }
 
 afterEach(() => {
@@ -412,6 +427,38 @@ describe("Your call", () => {
       within(await screen.findByTestId("call-sheet")).getByTestId("call-later"),
     );
     await waitFor(() => expect(s.snoozed).toEqual([T1]));
+  });
+
+  // S4.2 (QA2 HM2): the header's count stayed at the old number after Done or Later until the
+  // 20-second poll.
+  it("asks for the header's count again at once after Later", async () => {
+    const s = setup();
+    await waitFor(() => expect(screen.getByTestId("shell-inbox")).toHaveTextContent("Your call2"));
+    await userEvent.click(within(await screen.findByTestId(`call-${T1}`)).getByTestId("call-open"));
+    await userEvent.click(
+      within(await screen.findByTestId("call-sheet")).getByTestId("call-later"),
+    );
+    await waitFor(() => expect(s.snoozed).toEqual([T1]));
+    await waitFor(() => expect(screen.getByTestId("shell-inbox")).toHaveTextContent("Your call1"));
+  });
+
+  // S4.3 (QA2 HM2): a to-do put off with Later couldn't be found again.
+  it("lists what Later put off under Snoozed, and Bring back puts it back", async () => {
+    const s = setup();
+    await userEvent.click(within(await screen.findByTestId(`call-${T1}`)).getByTestId("call-open"));
+    await userEvent.click(
+      within(await screen.findByTestId("call-sheet")).getByTestId("call-later"),
+    );
+    await waitFor(() => expect(s.snoozed).toEqual([T1]));
+    await userEvent.click(screen.getByTestId("call-tab-snoozed"));
+    const row = await screen.findByTestId(`call-snoozed-${T1}`);
+    expect(row).toHaveTextContent("Approve the fix for Hartley's Ferguson bills");
+    expect(row).toHaveTextContent("Back");
+    await userEvent.click(within(row).getByTestId(`call-wake-${T1}`));
+    await waitFor(() => expect(s.woken).toEqual([T1]));
+    expect(await screen.findByTestId("call-snoozed-empty")).toHaveTextContent(
+      "Nothing is snoozed.",
+    );
   });
 
   it("lists Reggie's as a table, and Take it makes one yours", async () => {
