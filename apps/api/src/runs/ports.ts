@@ -9,6 +9,8 @@ import {
   approveForRunTx,
   callTool,
   executeAction,
+  // S4.5
+  expireForRunTx,
   keepBrowseHelp,
   type RuntimeDeps,
   resolveApprover,
@@ -620,6 +622,20 @@ export function agentPort(
         // Executed once by its idempotency key, in this durable step (docs/plan.md §1.2).
         const r = await executeAction(deps, { tenantId: run.tenantId, actionId: current.actionId });
         return afterExecuted(step, state, index, r, 0);
+      }
+      // S4.5: nobody answered in time (no person's answer: `by` null, not withdrawn). The change
+      // is closed as not made, so it never reads "Waiting for approval" once nothing waits on it.
+      // A person's no already rejected it; then this changes nothing.
+      if (
+        current &&
+        release &&
+        resolution.approved === false &&
+        resolution.by === null &&
+        resolution.withdrawn !== true
+      ) {
+        await withTenant(release.db, run.tenantId, (tx) =>
+          expireForRunTx(tx, run.tenantId, { actionId: current.actionId }),
+        );
       }
       return afterExecuted(step, state, index, null, 0);
     },
