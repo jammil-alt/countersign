@@ -359,6 +359,38 @@ describe.skipIf(!h)("deals", () => {
     });
   });
 
+  // S6.8 (HM5): deals are found with the back office's search (⌘K), in the same scope.
+  it("are found by search: by what they'd buy, the company or the client", async () => {
+    const forA = await ok("POST", "/api/ops/deals", {
+      kind: "expansion",
+      clientId: H.A.tenantId,
+      title: "Quillfeather reconciliation",
+      mrr: "900",
+    });
+    const lead = await ok("POST", "/api/ops/deals", {
+      kind: "new",
+      company: "Quillfeather Bakery",
+      title: "Bills in",
+      mrr: "700",
+    });
+    type Found = { deals: { id: string; company: string | null; client: unknown }[] };
+    const search = (q: string, who = OPERATOR) =>
+      call<Found>("GET", `/api/ops/search?q=${encodeURIComponent(q)}`, undefined, who);
+    const mine = await search("quillfeather");
+    expect(mine.status, JSON.stringify(mine.json)).toBe(200);
+    expect(mine.json.deals.map((d) => d.id).sort()).toEqual([forA.deal.id, lead.deal.id].sort());
+    expect(mine.json.deals.find((d) => d.id === lead.deal.id)).toMatchObject({
+      company: "Quillfeather Bakery",
+      client: null,
+    });
+    // By the client's name.
+    const byClient = await search("Client A");
+    expect(byClient.json.deals.map((d) => d.id)).toContain(forA.deal.id);
+    // Another operator finds the lead, never a deal of a client it doesn't serve.
+    const theirs = await search("quillfeather", OTHER_OPERATOR);
+    expect(theirs.json.deals.map((d) => d.id)).toEqual([lead.deal.id]);
+  });
+
   it("keeps a client's deals to the operators serving it; a lead's to every operator", async () => {
     const forA = await ok("POST", "/api/ops/deals", {
       kind: "expansion",

@@ -3,7 +3,7 @@ import { ToolAmount } from "../approvals/rules";
 import { ToolRecipient } from "../directory/autonomy";
 import { JsonSchema, LocalizedTemplate, ToolId } from "./common";
 import { EntityId, SideEffect, Verb } from "./permissions";
-import { ToolAbout } from "./tool-about";
+import { ToolAbout, ToolCounterparty } from "./tool-about";
 import { ToolDisplay } from "./tool-display";
 
 // R5 (docs/plan.md §1.86, §9): how a write is taken back. A late "no" (an approval answered after
@@ -80,6 +80,11 @@ export const ToolSpec = z
     // request, the quote, the PO) and the platform never special-cases one (invariant 2).
     about: ToolAbout.optional(),
     /**
+     * Overnight S3.2: who a write is with (a bill's vendor), kept as a second subject of its
+     * change, so the counterparty's page and a search for it find the run. Writes only.
+     */
+    counterparty: ToolCounterparty.optional(),
+    /**
      * How the change reads on an approval card: its name, the fields a person reads, their labels
      * and kinds. Writes only; without it the card falls back to the record's own fields.
      */
@@ -152,6 +157,10 @@ export const ToolSpec = z
   .refine((t) => t.display === undefined || t.sideEffect === "external", {
     message: "only external tools describe a change for approval",
     path: ["display"],
+  })
+  .refine((t) => t.counterparty === undefined || t.sideEffect === "external", {
+    message: "only external tools name who a change is with",
+    path: ["counterparty"],
   })
   .refine((t) => t.undo === undefined || t.sideEffect === "external", {
     message: "only external tools say how they are taken back",

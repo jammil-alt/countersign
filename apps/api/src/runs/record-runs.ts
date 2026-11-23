@@ -5,135 +5,15 @@
 // person sees; it never carries cost, a bundle or instructions (invariant 11). Every query names
 // the one client as well as relying on RLS (invariant 1).
 
-import {
-  RECORD_RUNS_LIMIT,
-  type RecordRun,
-  type RecordRunRole,
-  type RunSubjectKind,
-  subjectKindOfEntity,
-} from "@countersign/core";
-import {
-  agent,
-  contact,
-  organization,
-  rawRecord,
-  receivable,
-  run,
-  runSubject,
-  stepRun,
-  type Tx,
-  transaction,
-  vendor,
-} from "@countersign/db";
-import { and, desc, eq, inArray, or, type SQL, sql } from "drizzle-orm";
+import { RECORD_RUNS_LIMIT, type RecordRun, type RecordRunRole } from "@countersign/core";
+import { agent, run, runSubject, stepRun, type Tx, vendor } from "@countersign/db";
+import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { agentWhere } from "../assigned";
 import { iso } from "../http";
 import type { Platform } from "../platform";
 import { clientWaits, OPEN_RUN } from "./client-status";
+import { aboutRecord, toolRefs } from "./record-refs";
 import { runSubjects } from "./subject";
-
-/** A record as the client's tool knows it: the kinds a run may have kept it as, the tool and its id. */
-interface ToolRef {
-  kinds: readonly RunSubjectKind[];
-  connector: string;
-  externalId: string;
-}
-
-/** `{ qbo: "56" }` as tool refs of these kinds. */
-function refsOf(kinds: readonly RunSubjectKind[], refs: unknown): ToolRef[] {
-  if (refs === null || typeof refs !== "object" || Array.isArray(refs)) return [];
-  return Object.entries(refs as Record<string, unknown>).flatMap(([connector, id]) =>
-    typeof id === "string" && id !== "" ? [{ kinds, connector, externalId: id }] : [],
-  );
-}
-
-/**
- * A tool's id in each form a run may have kept it: QuickBooks' transactions are ours as
- * `Bill:149` (the entity and its id, as sync stores them), but a write keeps what QuickBooks
- * returned, `149`.
- */
-// DECISION: a transaction id `Entity:id` also matches its bare `id`, and a raw record's bare id
-// its `Entity:id`; the kind (`transaction`) and the tool still have to match, so a vendor 149 is
-// never bill 149 (overnight S3.1).
-function idForms(externalId: string, entityType?: string): string[] {
-  const forms = new Set([externalId]);
-  const bare = /^[A-Za-z]+:(.+)$/.exec(externalId)?.[1];
-  if (bare) forms.add(bare);
-  else if (entityType) forms.add(`${entityType}:${externalId}`);
-  return [...forms];
-}
-
-function toolIdRefs(
-  kinds: readonly RunSubjectKind[],
-  ref: { connector: string; externalId: string },
-  entityType?: string,
-): ToolRef[] {
-  return idForms(ref.externalId, entityType).map((externalId) => ({
-    kinds,
-    connector: ref.connector,
-    externalId,
-  }));
-}
-
-/**
- * How the client's tools know the record with this id, if one of our tables holds it: a run's
- * change to a client's tool keeps the tool's id for the thing it wrote, not ours (§1.188).
- */
-// DECISION: a change is matched to a record by its tool, its id there and a kind the record can
-// be kept as, so a QuickBooks vendor 56 is never a bill 56. A document, a message and a pack's own
-// record are matched by our id alone (docs/plan.md §1.200).
-async function toolRefs(tx: Tx, tenantId: string, id: string): Promise<ToolRef[]> {
-  const [txn] = await tx
-    .select({ connector: transaction.connector, externalId: transaction.externalId })
-    .from(transaction)
-    .where(and(eq(transaction.tenantId, tenantId), eq(transaction.id, id)));
-  if (txn) return toolIdRefs(["transaction"], txn);
-  const [rec] = await tx
-    .select({ connector: receivable.connector, externalId: receivable.externalId })
-    .from(receivable)
-    .where(and(eq(receivable.tenantId, tenantId), eq(receivable.id, id)));
-  if (rec) return toolIdRefs(["transaction"], rec);
-  const [raw] = await tx
-    .select({
-      connector: rawRecord.connector,
-      externalId: rawRecord.externalId,
-      entityType: rawRecord.entityType,
-    })
-    .from(rawRecord)
-    .where(and(eq(rawRecord.tenantId, tenantId), eq(rawRecord.id, id)));
-  if (raw) return toolIdRefs([subjectKindOfEntity(raw.entityType)], raw, raw.entityType);
-  const [v] = await tx
-    .select({ refs: vendor.externalRefs })
-    .from(vendor)
-    .where(and(eq(vendor.tenantId, tenantId), eq(vendor.id, id)));
-  if (v) return refsOf(["vendor", "organization"], v.refs);
-  const [o] = await tx
-    .select({ refs: organization.externalRefs })
-    .from(organization)
-    .where(and(eq(organization.tenantId, tenantId), eq(organization.id, id)));
-  if (o) return refsOf(["customer", "vendor", "organization"], o.refs);
-  const [c] = await tx
-    .select({ refs: contact.externalRefs })
-    .from(contact)
-    .where(and(eq(contact.tenantId, tenantId), eq(contact.id, id)));
-  if (c) return refsOf(["person"], c.refs);
-  return [];
-}
-
-/** A kept row about this record: by our id, or by the client's tool and its id there. */
-function aboutRecord(id: string, refs: readonly ToolRef[]): SQL {
-  return or(
-    eq(runSubject.recordId, id),
-    ...refs.map(
-      (r) =>
-        and(
-          inArray(runSubject.kind, [...r.kinds]),
-          eq(runSubject.connector, r.connector),
-          eq(runSubject.externalId, r.externalId),
-        ) as SQL,
-    ),
-  ) as SQL;
-}
 
 type Surface = "portal" | "ops";
 
@@ -154,7 +34,7 @@ export async function recordRuns(
 ): Promise<RecordRun[]> {
   const portal = options.surface === "portal";
   const id = recordId.toLowerCase();
-  const about = aboutRecord(id, await toolRefs(tx, tenantId, id));
+  const about = aboutRecord(id, await toolRefs(tx, [tenantId], id));
   const theirs = portal ? agentWhere(run.agentId, options.agents ?? null) : undefined;
   const rows = await tx
     .select({

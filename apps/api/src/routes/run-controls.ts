@@ -39,10 +39,11 @@ import type { Hono } from "hono";
 import { csvFile } from "../exports/csv";
 import { type AppEnv, ensureClient, HttpError, iso, mount, mountFile, notFound } from "../http";
 import { queueFinishedRun } from "../run-audit/store";
-import { aboutWhere, type SubjectSurface, subjectTextWhere } from "../runs/about";
+import { aboutRefs, aboutWhere, type SubjectSurface, subjectTextWhere } from "../runs/about";
 import { createRunRow } from "../runs/dispatch";
 import type { RunParams } from "../runs/instances";
 import { closeRunReachOuts, startAfterCommit } from "../runs/reconcile";
+import type { RecordRefs } from "../runs/record-refs";
 import { opsStatusWhere } from "../runs/run-wait";
 
 // ── RunFilter as SQL ────────────────────────────────────────────────────────────────────────────
@@ -154,6 +155,8 @@ export function runFilterWhere(
   filter: RunFilter,
   tools: Readonly<Record<string, ToolSpec>>,
   surface: SubjectSurface,
+  /** The `about` records' tool refs (`aboutRefs`), so they match as their own pages do. */
+  refs?: RecordRefs,
 ): SQL[] {
   const where: SQL[] = [];
   const f = filter;
@@ -203,7 +206,7 @@ export function runFilterWhere(
     );
   }
   // R2
-  if (f.about?.length) where.push(aboutWhere(f.about, surface));
+  if (f.about?.length) where.push(aboutWhere(f.about, surface, refs));
   return where;
 }
 
@@ -524,7 +527,12 @@ export function runControlRoutes(app: Hono<AppEnv>): void {
       .where(
         and(
           inArray(run.tenantId, [...ctx.tenantIds]),
-          ...runFilterWhere(query.filter, ctx.services.platform.ctx.tools.specs(), "ops"),
+          ...runFilterWhere(
+            query.filter,
+            ctx.services.platform.ctx.tools.specs(),
+            "ops",
+            await aboutRefs(tx, query.filter.clients ?? ctx.tenantIds, query.filter.about),
+          ),
         ),
       )
       .orderBy(desc(run.createdAt))

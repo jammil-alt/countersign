@@ -104,6 +104,30 @@ export const PORTAL_GUIDE: readonly GuideEntry[] = [
       "A client admin can rename an agent there.",
     ],
   },
+  // S2.5 (overnight fixes, 2026-11-23): Sloan couldn't tell a client how to add a Knowledge note.
+  // DECISION (owner, D2 default): Sloan itself still saves no note (ARCHITECTURE §9.8); it gives
+  // these steps. Knowledge is the client admin's: anyone else asks their admin.
+  {
+    id: "knowledge",
+    title: "Add a note, FAQ or policy our agents use",
+    path: "/settings/charter",
+    words: [
+      "knowledge",
+      "note",
+      "notes",
+      "faq",
+      "policy",
+      "policies",
+      "charter",
+      "remember",
+      "add a rule",
+    ],
+    steps: [
+      "Open Settings, then Charter and policies. Only a client admin can; anyone else asks their admin.",
+      "Under Add, choose FAQ (a question and its answer) or Policy (how things are done), write it, then choose Add.",
+      "Our agents use it from then on when they work and answer for you. Every earlier version is kept, and you can edit or archive it there.",
+    ],
+  },
   {
     id: "request",
     title: "Ask us for a change or something new",

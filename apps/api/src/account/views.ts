@@ -41,6 +41,7 @@ import {
 import { raiseRequest } from "../routes/requests";
 import { runFilterWhere } from "../routes/run-controls";
 import { readSop } from "../routes/sop";
+import { aboutRefs } from "../runs/about";
 import { clientDescription } from "../weekly/stats";
 import { draftAccountChange } from "./changes";
 
@@ -109,13 +110,14 @@ export function accountViews(platform: Platform): AccountViews {
       return out;
     },
 
-    runs(s, query) {
+    async runs(s, query) {
       const where: SQL[] = [];
       if (query.serviceId) where.push(eq(run.agentId, query.serviceId));
       if (query.status) where.push(eq(run.status, query.status));
       // R2: what runs were about, from the rows the client's timeline shows only (invariant 11).
       const words = { text: query.text, about: query.about };
-      where.push(...runFilterWhere(words, platform.ctx.tools.specs(), "portal"));
+      const refs = await aboutRefs(s.tx, [s.tenantId], query.about);
+      where.push(...runFilterWhere(words, platform.ctx.tools.specs(), "portal", refs));
       return runSummaries(s.tx, s.tenantId, where, query.limit, platform);
     },
 
