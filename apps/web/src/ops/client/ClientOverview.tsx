@@ -78,7 +78,9 @@ function Overview({ clientId }: { clientId: string }) {
         {waiting.length > 0 ? (
           <Section
             title="Waiting on us"
-            meta={`${waiting.length} open`}
+            // DECISION (QA CL1): each open-items count names whose items it counts: here ours;
+            // the health line the client's people's, as of its check; Home's those on clients.
+            meta={`${plural(waiting.length, "item", "items")} for us`}
             action={
               <Link to={OPS_PATHS.escalations} className="ds-btn ds-btn--link text-sm">
                 Escalations
