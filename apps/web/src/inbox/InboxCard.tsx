@@ -39,11 +39,12 @@ const EvidencePanel = lazy(() => import("./EvidencePanel"));
 export function ChangeEvidence({
   item,
   surface,
-  recordHref,
+  documentHref,
 }: {
   item: { id: string; kind: string; payload: Record<string, unknown> };
   surface: "portal" | "ops";
-  recordHref?: ((id: string) => string) | null;
+  /** The page of a document the change rests on; the portal's by default. */
+  documentHref?: ((id: string) => string) | null;
 }) {
   if (item.kind !== "external_action" || typeof item.payload.tool !== "string") return null;
   const v = item.payload.verification;
@@ -57,7 +58,9 @@ export function ChangeEvidence({
         itemId={item.id}
         surface={surface}
         verification={outcome}
-        recordHref={recordHref ?? null}
+        documentHref={
+          documentHref ?? (surface === "portal" ? (id: string) => `/documents/${id}` : null)
+        }
       />
     </Suspense>
   );
@@ -308,6 +311,7 @@ export function InboxCard({
   context,
   runHref,
   recordHref,
+  documentHref,
   connectorNames,
   onResolve,
   waitingOn,
@@ -325,6 +329,8 @@ export function InboxCard({
   runHref?: string | null;
   /** The record page for a source id (payload `sources`, invariant 10), in this surface. */
   recordHref?: ((id: string) => string) | null;
+  /** The document page for a document the change rests on (its Evidence), in this surface. */
+  documentHref?: ((id: string) => string) | null;
   connectorNames?: Record<string, string>;
   /** Null when this person can't resolve it (it is someone else's), or it is not open. */
   onResolve: ((body: ResolveInput) => Promise<void>) | null;
@@ -458,7 +464,7 @@ export function InboxCard({
           {/* B3: the decisions its step rests on that nobody has discussed yet. */}
           <UndiscussedLines payload={item.payload} />
           {/* Round 4 D: what it rests on, and the second check. */}
-          <ChangeEvidence item={item} surface={surface} recordHref={recordHref ?? null} />
+          <ChangeEvidence item={item} surface={surface} documentHref={documentHref ?? null} />
         </>
       ) : ReviewCard ? (
         <ReviewCard

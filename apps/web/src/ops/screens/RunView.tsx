@@ -1139,6 +1139,7 @@ function Changes({
           item={i}
           testId={`ops-run-item-${i.id}`}
           recordHref={(id) => `/ops/clients/${run.tenantId}/records/${id}`}
+          documentHref={(id) => `/ops/clients/${run.tenantId}/documents/${id}`}
           onResolve={i.resolvableByOperator ? (body) => onResolve(i.id, body) : null}
           waitingOn={`${waitingWhat(i.kind)} · ${waitingOn(i)}. Only they can ${
             i.kind === "approval" ? "approve" : "answer"
