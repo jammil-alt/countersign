@@ -25,6 +25,10 @@ export const TableService = z.object({
   status: z.string(),
   /** bench, trial, signoff or live (null before go-live stages). */
   stage: z.string().nullable(),
+  // S6.2: Sloan, the account agent, is live from the day a client is made; Home doesn't count it
+  // as the client's agent going live. Optional so older answers still parse.
+  /** Whether this is Sloan, the client's account agent. */
+  accountAgent: z.boolean().optional(),
   now: ServiceNow.nullable(),
   /** Live runs started this week that finished well (`runs.succeeded`). */
   runsDone: z.number().int(),

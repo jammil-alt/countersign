@@ -140,7 +140,13 @@ export const RUNBOOK_DAYS = { invite: 0, kickoff: 2, trial: 3, checkin: 10, live
 
 /** What has happened for the runbook to read. */
 export interface RunbookFacts {
+  /** When the invite went out; null while none has. */
   invitedAt: string | null;
+  /**
+   * The day the plan counts from when no invite went yet (the scheduled send, else the client's
+   * creation); ignored once `invitedAt` is set.
+   */
+  plannedFrom?: string | null;
   /** The first agent's scope signed, or its trial started. */
   trialStartedAt: string | null;
   liveAt: string | null;
@@ -158,12 +164,16 @@ export function runbook(
   facts: RunbookFacts,
   kickoffDone: boolean,
 ): { key: keyof typeof RUNBOOK_DAYS; day: number; at: string | null; done: boolean }[] {
-  const start = facts.invitedAt ? Date.parse(facts.invitedAt) : null;
+  // DECISION (S6.1): the plan is dated from the invite once it went, else from when it is
+  // planned (`plannedFrom`), and the invite reads done only once one went: a client with no
+  // invite is "Next: invite", never "Invite sent".
+  const from = facts.invitedAt ?? facts.plannedFrom ?? null;
+  const start = from ? Date.parse(from) : null;
   const due = (day: number) => (start === null ? null : new Date(start + day * DAY).toISOString());
   const trialAt = facts.trialStartedAt ? Date.parse(facts.trialStartedAt) : null;
   const checkinDue = trialAt === null ? null : trialAt + 7 * DAY;
   const steps = [
-    { key: "invite" as const, at: facts.invitedAt, done: facts.invitedAt !== null },
+    { key: "invite" as const, at: from, done: facts.invitedAt !== null },
     { key: "kickoff" as const, at: due(RUNBOOK_DAYS.kickoff), done: kickoffDone },
     {
       key: "trial" as const,

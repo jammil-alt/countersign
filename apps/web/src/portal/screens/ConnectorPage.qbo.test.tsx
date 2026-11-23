@@ -8,6 +8,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { AppProviders, AppRoutes } from "../../App";
 import { accessRow, connectionPage, connectorCard, connectorPageView } from "../../test/connectors";
 import { CLIENT_SESSION, fakeApi } from "../../test/fixtures";
+import { CONNECTOR_POLL_MS } from "./ConnectorPage";
 
 const QBO = connectorCard({
   connector: "qbo",
@@ -110,5 +111,37 @@ describe("QuickBooks Online's page", () => {
     expect(document.body).not.toHaveTextContent("9130357766900456");
     await userEvent.setup().click(screen.getByTestId("access-row-update-bill-open"));
     expect(screen.getByTestId("access-row-update-bill-detail")).toHaveTextContent("Itemize a bill");
+  });
+
+  it("shows a sync that ran while the page was open, without a reload", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    let syncedAt = "2026-11-05T18:00:00.000Z";
+    const api = fakeApi({
+      ...common,
+      "GET /api/portal/connectors/qbo": () =>
+        connectorPageView(QBO, [
+          connectionPage({
+            id: "00000000-0000-4000-8000-0000000000c9",
+            accountName: "Harbor Millwork (sandbox)",
+            lastSyncAt: syncedAt,
+          }),
+        ]),
+    });
+    try {
+      renderAt(api);
+      const head = await screen.findByTestId("portal-connection-qbo");
+      const first = head.textContent;
+      const asked = () => api.calls.filter((c) => c === "GET /api/portal/connectors/qbo").length;
+      const before = asked();
+      // The sync behind the page finishes an hour later.
+      syncedAt = "2026-11-05T19:00:00.000Z";
+      await vi.advanceTimersByTimeAsync(CONNECTOR_POLL_MS + 10);
+      await waitFor(() => expect(asked()).toBeGreaterThan(before));
+      await waitFor(() =>
+        expect(screen.getByTestId("portal-connection-qbo").textContent).not.toBe(first),
+      );
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
