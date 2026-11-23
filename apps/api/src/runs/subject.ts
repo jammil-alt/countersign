@@ -316,6 +316,15 @@ export async function sourceNames(
   return out;
 }
 
+/** The string ids in an item's or an output's `sources` (invariant 10). */
+export function payloadSources(payload: unknown): string[] {
+  const s =
+    payload !== null && typeof payload === "object" && !Array.isArray(payload)
+      ? (payload as { sources?: unknown }).sources
+      : undefined;
+  return Array.isArray(s) ? s.filter((x): x is string => typeof x === "string") : [];
+}
+
 /** `vendor_credit` → "Vendor credit". */
 function kindWords(kind: string): string {
   const words = kind

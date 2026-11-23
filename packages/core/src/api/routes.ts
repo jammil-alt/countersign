@@ -2002,7 +2002,12 @@ export const opsRoutes = {
       status: InboxStatusSchema.default("open"),
       assigned: z.enum(["operator", "all"]).default("operator"),
     }),
-    response: z.object({ items: z.array(OpsInboxItem), agents: z.array(OpsAgentRef) }),
+    response: z.object({
+      items: z.array(OpsInboxItem),
+      agents: z.array(OpsAgentRef),
+      /** S5.6: the records the items cite (`sources`), by id, so a receipt reads as its name. */
+      sourceNames: SourceNames.optional(),
+    }),
   }),
   opsSkills: defineRoute({
     method: "GET",
@@ -2207,7 +2212,11 @@ export const portalRoutes = {
       // v0.12 W1-D: open items leave "waiting" while snoozed; `snoozed` lists them.
       view: z.enum(["waiting", "snoozed"]).optional(),
     }),
-    response: z.object({ items: z.array(PortalInboxItem) }),
+    response: z.object({
+      items: z.array(PortalInboxItem),
+      /** S5.6: the records the items cite (`sources`), by id, so a receipt reads as its name. */
+      sourceNames: SourceNames.optional(),
+    }),
   }),
   portalResolveInbox: defineRoute({
     method: "POST",

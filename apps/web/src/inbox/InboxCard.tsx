@@ -308,6 +308,7 @@ export function InboxCard({
   context,
   runHref,
   recordHref,
+  sourceNames,
   connectorNames,
   onResolve,
   waitingOn,
@@ -325,6 +326,8 @@ export function InboxCard({
   runHref?: string | null;
   /** The record page for a source id (payload `sources`, invariant 10), in this surface. */
   recordHref?: ((id: string) => string) | null;
+  /** S5.6: the cited records' names, by id, as the list served them. */
+  sourceNames?: Readonly<Record<string, string>> | undefined;
   connectorNames?: Record<string, string>;
   /** Null when this person can't resolve it (it is someone else's), or it is not open. */
   onResolve: ((body: ResolveInput) => Promise<void>) | null;
@@ -516,7 +519,12 @@ export function InboxCard({
             </Link>
           ) : null}
           {recordHref ? (
-            <SourceLinks ids={sources} href={recordHref} testId="inbox-item-sources" />
+            <SourceLinks
+              ids={sources}
+              href={recordHref}
+              testId="inbox-item-sources"
+              names={sourceNames}
+            />
           ) : null}
         </div>
       ) : null}
