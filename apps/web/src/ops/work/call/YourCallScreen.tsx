@@ -390,6 +390,8 @@ export function YourCallScreen() {
           <TheirList
             who={tab}
             items={shown}
+            total={all.length}
+            query={q.trim()}
             today={today}
             onChanged={list.reload}
             onToast={setToast}

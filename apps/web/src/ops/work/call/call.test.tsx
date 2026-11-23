@@ -425,6 +425,37 @@ describe("Your call", () => {
     await waitFor(() => expect(s.taken).toEqual([T3]));
   });
 
+  it("says when Reggie's list is emptied by the filters, with an icon, and clears them", async () => {
+    setup();
+    await screen.findByTestId(`call-${T1}`);
+    await userEvent.click(screen.getByTestId("call-tab-reggie"));
+    await screen.findByTestId("call-reggie");
+    await userEvent.type(screen.getByRole("textbox", { name: "Search" }), "nothing like it");
+    const none = await screen.findByTestId("call-reggie-nomatch");
+    expect(none).toHaveClass("ds-empty");
+    expect(none.querySelector(".ui-empty__icon svg")).not.toBeNull();
+    expect(none).toHaveTextContent("Nothing Reggie is on matches “nothing like it”");
+    expect(none).toHaveTextContent("The filters hide the 1 item in this list.");
+    expect(screen.queryByTestId("call-reggie")).toBeNull();
+    await userEvent.click(within(none).getByTestId("call-reggie-clear"));
+    expect(await screen.findByTestId("call-reggie")).toHaveTextContent(
+      "Chase Alder's requirements",
+    );
+    expect(screen.getByRole("textbox", { name: "Search" })).toHaveValue("");
+  });
+
+  it("says nothing waits on clients when that list is empty, with no filters to clear", async () => {
+    setup();
+    await screen.findByTestId(`call-${T1}`);
+    await userEvent.click(screen.getByTestId("call-tab-client"));
+    const empty = await screen.findByTestId("call-client-empty");
+    expect(empty).toHaveClass("ds-empty");
+    expect(empty.querySelector(".ui-empty__icon svg")).not.toBeNull();
+    expect(empty).toHaveTextContent("Nothing waits on clients");
+    expect(within(empty).queryByRole("button")).toBeNull();
+    expect(screen.queryByText("Clear the filters")).toBeNull();
+  });
+
   it("shows what Reggie did today, and a flag goes on the play's record", async () => {
     const s = setup();
     await screen.findByTestId(`call-${T1}`);

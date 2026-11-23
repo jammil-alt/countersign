@@ -167,6 +167,17 @@ export const YOUR_CALL_WORDS = {
   showAll: (n: number) => `Show all ${n}`,
   noMatch: "Nothing matches.",
   clearFilters: "Clear the filters",
+  /** Reggie's or the clients' list with nothing in it at all. */
+  theirEmpty: { reggie: "Reggie isn't on anything", client: "Nothing waits on clients" },
+  theirEmptyNote: {
+    reggie: "When Reggie picks something up, it shows here.",
+    client: "When we ask a client for something, it shows here until they answer.",
+  },
+  /** Reggie's or the clients' list emptied by a kind chip or a search. */
+  theirNoMatch: (who: "reggie" | "client", q: string) =>
+    `${who === "reggie" ? "Nothing Reggie is on" : "Nothing waiting on clients"} matches${q ? ` “${q}”` : ""}`,
+  theirHidden: (n: number) =>
+    `The filters hide ${n === 1 ? "the 1 item" : `all ${n} items`} in this list.`,
   draftHead: "The draft",
   optionsHead: "Pick one",
   readHead: "Reggie's read",
