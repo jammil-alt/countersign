@@ -437,6 +437,36 @@ describe.skipIf(!h)("the second step of signing in (§1.100)", () => {
     ]);
   });
 
+  it("a browser remembered by a text code skips the step after a real sign-out (overnight S1.5)", async () => {
+    const b = new Browser();
+    expect(await signIn(b, H.C.user)).toMatch(/^\/sign-in\/second-step/);
+    const setup = await request(b, "POST", "/api/auth/second-factor/setup", {
+      kind: "sms",
+      phone: "+15550002222",
+    });
+    expect(setup.status, JSON.stringify(setup.json)).toBe(200);
+    const passed = await request(b, "POST", "/api/auth/second-factor/verify", {
+      kind: "sms",
+      code: "246810",
+      remember: true,
+    });
+    expect(passed.status, JSON.stringify(passed.json)).toBe(200);
+    expect(b.jar.has("__Host-cs_device")).toBe(true);
+    for (let round = 0; round < 2; round++) {
+      // Signing out through the route keeps the remembered browser.
+      const out = await request(b, "POST", "/api/auth/sign-out");
+      expect(out.status).toBe(200);
+      expect(b.jar.has("__Host-cs_session")).toBe(false);
+      expect(b.jar.has("__Host-cs_device")).toBe(true);
+      // Sent by a text, asked again on the next sign-in, and passed by a text again.
+      expect(await signIn(b, H.C.user)).toBe("/inbox");
+      expect(await lastAudit("session.sign_in", H.C.user)).toMatchObject({
+        target: { second_factor: "remembered" },
+      });
+      expect((await request(b, "GET", "/api/session")).status).toBe(200);
+    }
+  });
+
   const operator = new Browser();
 
   it("offers operators an authenticator app or a text, never WhatsApp", async () => {
