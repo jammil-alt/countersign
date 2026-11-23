@@ -1,22 +1,22 @@
 # After the merge: what 21–22 November built, and how we check it (2026-11-22)
 
-In about 24 hours, 74 pull requests merged to `main` (#507 to #593) and 8 are still open. Almost all
-of it was built and tested by code alone: against fake providers, with model answers written by
-hand, and without anyone looking at the screens on staging. The tests pass. What nobody has done yet
-is use it.
+In about 30 hours, 91 pull requests merged to `main` (#507 to #605). Nothing is open but this page's
+own PR. Almost all of it was built and tested by code alone: against fake providers, with model
+answers written by hand, and without anyone looking at the screens on staging. The tests pass. What
+nobody has done yet is use it.
 
-This page says what was built in plain words, what is still underway, what the review found, and the
-QA plan to run once the open work has merged. It was written from the pull requests, `main` at
-`d2ac8cd3`, the deploy runs, Sentry and the coordinating sessions' own reports. Staging itself was not read: the Claude connector for staging
-was waiting for the operator's approval.
+This page says what was built in plain words, what the review found, and the QA plan, with results
+as each pass runs (section 6). It was written from the pull requests, `main` at `c62dc890`, the
+deploy runs, Sentry, the coordinating sessions' own reports and, from 23 November, staging itself
+through the Claude connector.
 
 ## 1. What we built, in groups
 
 | Group | In plain words | Pull requests |
 |---|---|---|
-| **A. Building an agent** | The builder's chart is easier to read: each step shows who does it (a tool, the AI, rules or a person). Schedules and reminders are picked in words. You can see exactly what the AI will be given before any run, try just some of the steps with made-up data, and give each way a workflow starts its own first steps. | #507, #512, #513, #517, #518, #520 |
-| **B. What a client can read about their agent** | Every agent has a written procedure (the SOP) with revisions, a read-only flowchart (the Workflow tab), and an "Architecture and security" section with 17 checks that run every night. The AI providers' data terms are listed. | #508, #510, #511, #514, #515, #516, #576, #578 |
-| **C. Starting a client** | The client admin sets up in the portal: who fills each role, which tools are connected, a try on real documents, then a signed scope. We get a Setup tab with progress and a Nudge. Invite emails show delivered or bounced, can be sent again, and a plain new account gets our own welcome. A client contact can answer a process interview from a link with no sign-in. Lost prospects' files are deleted after 12 months. | #522, #564, #565, #567, #570, #572, #573, #574 |
+| **A. Building an agent** | The builder's chart is easier to read: each step shows who does it (a tool, the AI, rules or a person). Schedules and reminders are picked in words. You can see exactly what the AI will be given before any run, try just some of the steps with made-up data or on a Sandbox record, and give each way a workflow starts its own first steps. A step's panel opens with what the step does. An issue links to the skill build and the request it started. | #507, #512, #513, #517, #518, #520, #588, #589, #597, #599, #603 |
+| **B. What a client can read about their agent** | Every agent has a written procedure (the SOP) with revisions, a read-only flowchart (the Workflow tab), and an "Architecture and security" section with 17 checks that run every night. The AI providers' data terms are listed. Clients get a Procedures page of every agent's SOP, and Sloan can read one when asked. We get an evidence export for an auditor. | #508, #510, #511, #514, #515, #516, #576, #578, #587, #592, #600, #602 |
+| **C. Starting a client** | The client admin sets up in the portal: who fills each role, which tools are connected, a try on real documents, then a signed scope. We get a Setup tab with progress and a Nudge. Invite emails show delivered or bounced, can be sent again, and a plain new account gets our own welcome. A client contact can answer a process interview from a link with no sign-in. Lost prospects' files are deleted after 12 months. | #522, #564, #565, #567, #570, #572, #573, #574, #601 |
 | **D. The staging walk-through's fixes** | The problems you found on 22 November: counts that disagreed, links that opened the wrong place, costs that didn't add up, test runs that failed, four statuses for one agent, three date formats. | #523 |
 | **E. Safer writes** | The Bookkeeper can no longer write the same bank transaction twice. Before an agent writes to a client's tool, a second AI call checks the write and shows its evidence. An approval is refused if the card changed after you looked. A phone signature now covers the answer and the note. | #525, #528, #542, #569 |
 | **F. Purchasing** | The buyer matches lines through each vendor's own catalog and fills it from bills and quotes. A reply from a vendor's colleague is kept for a person instead of dropped. Purchase orders can carry QuickBooks item lines. | #529, #533, #545 |
@@ -24,47 +24,34 @@ was waiting for the operator's approval.
 | **H. Counting what it costs us** | Tiny model calls no longer read $0.00. Voice typing, emails, texts, browser minutes, bank feeds and the back office's own AI use are counted. Evals bill to their own key so Usage can match Anthropic's console. | #536, #540, #559, #580, #591 |
 | **I. Hardening and compliance** | A HIPAA client is kept out of the Claude connector. Failing connections are counted. The app's first load went from 495 kB to 302 kB. The Claude approval page says who is asking. Urgent notices retry. A SOC 2 checklist, a recorded access review and a deletion drill exist. | #526, #527, #531, #535, #537, #538, #541, #543, #539, #547, #553, #560, #571 |
 | **J. The desktop app's server side** | A client admin can pair a computer and choose its folders; the computer fetches jobs and sends files with signed requests. Opening the phone or desktop app from the browser asks first. | #546, #548, #562 |
-| **K. New accounting building blocks** | One matching engine for "these two lists should agree". A Books health report: nine problems in a client's QuickBooks, ranked by dollars. Reports emailed from systems with no API land as rows. Packs install one way, with settings. Bills to pay, with a weekly approve-to-pay list (nothing is paid). | #555, #558, #563, #566, #568, #584, #585 |
-| **L. Housekeeping** | Plans and the open list updated, a flaky test fixed, a by-hand tool to repair staging's lost keys. | #521, #532, #550, #557, #586, #593 |
+| **K. New accounting building blocks** | One matching engine for "these two lists should agree". A Books health report: nine problems in a client's QuickBooks, ranked by dollars. Reports emailed from systems with no API land as rows. Packs install one way, with settings. Bills to pay, with a weekly approve-to-pay list (nothing is paid). A month-end close: a checklist, journal entries written only after approval, a signed-off month that can't change. A monthly statement of the work the agents delivered. | #555, #558, #563, #566, #568, #583, #584, #585, #590 |
+| **L. Housekeeping** | Plans and the open list updated, a flaky test fixed, a by-hand tool to repair staging's lost keys. An eval harness: 74 golden cases that fail CI when a change makes an agent's writes worse. A client's request becomes one suggestion that states the change. | #521, #532, #550, #554, #557, #586, #593, #595, #598, #604, #605 |
 
 Fourteen migrations landed: 0074, 0075, 0077 to 0080, 0085, 0087 and 0095 to 0100.
 
-## 2. Still underway (8 open)
+## 2. Still underway
 
-**These are not ours to land.** The coordinator session ("Project priorities and inventory") and its
-Wave Y coordinator own every open PR, with a worker session on each. Their merge order is #590, then
-#554, then #583, then the five drafts one at a time, with other merges to `main` held meanwhile so
-nothing conflicts again. The QA plan below starts when they finish; nothing in it touches these
-branches.
-
-| PR | What it adds | State at 20:15 UTC | Who has it |
-|---|---|---|---|
-| #590 | The work-delivered statement: each month, what the agents did, as a page and a PDF with the invoice. | Ready, clean, CI running. First to merge. | Wave Y · Y5 |
-| #554 | The eval harness: 74 golden cases that fail CI when a change makes an agent's writes worse, and a scorecard. | `main` merged in again at 20:11; waiting for CI. Second. | Round 4 · plan 2 |
-| #583 | The Close pack: a month-end checklist, journal entries written only after approval, a signed-off month that can't change. | Conflicts with `main` after #585; its session is settling them. Third. Its tables (0099) are already on `main`. | Wave Y · Y3 |
-| #587 | The manual counts how often runs hit each known risk; a learned note can be deleted. | Draft, held until #583 lands. | Wave Y · Y2 |
-| #588 | The drafter names the step each gap belongs to. | Draft, held. | Wave Y · Y2 |
-| #589 | Try a template on a Sandbox record, and a skill on a document. | Draft, held. Needs the Sandbox's QuickBooks connected. | Wave Y · Y2 |
-| #592 | Two more security checks: no secret in what goes to the AI; sign-ins granted no more than asked. | Draft, held. | Wave Y · Y2 |
-| #595 | A client's request becomes one suggestion that states the exact change. | Draft, held. | Wave Y · Y2 |
-
-Still to come from the coordinators: round 4's docs PR (after #554 merges) and Wave Y's docs PR
-(branch `claude/wave-y-docs`, after Y2, Y3 and Y5 merge).
+Nothing. The coordinator landed the last 8 in its order (#590, #554, #583, then the drafts) by
+23:48 UTC on 22 November, with nine more that its sessions opened on the way (#597 to #605),
+including both docs PRs. Only this page's PR (#596) is open.
 
 ## 3. What the review found
 
 | # | Finding | Why it matters |
 |---|---|---|
-| F1 | **Staging's QuickBooks is down.** A deploy replaced staging's encryption key on 21 November. Every connection saved before that can't be opened. Sentry shows more than 400 errors, still arriving every 15 minutes (MEZONAS-API-C, D, H), and a failed reconnect at 19:25 UTC (MEZONAS-WEB-8). The repair tool merged in #593. It has not been run. | Books health, the Bookkeeper, the Close pack, bills to pay and #589 can't be tested until it is. |
-| F2 | Two ready PRs conflicted with `main` (#583, #554), and a PR in conflict gets no CI, only the quick "open" check. Five drafts have never run CI. | The coordinator found the same at 20:10 UTC and set a merge order. Nothing for QA to do but confirm each ran full CI on its last commit before it merged. |
-| F3 | **The docs are behind the code.** `docs/plan.md` has no entry for §1.208 to §1.214 (round 4) or §1.230 to §1.236 (Wave Y), though the code cites them. `docs/work-plan.md` shows R4, R5 and R6 unticked. `docs/open.md` says "migrations through 0080". CLAUDE.md's status line is dated 8 November and says v0.15 and 0040; ARCHITECTURE is v0.22 and the migrations reach 0100. Several PRs moved their plan entry to the PR description "so round 4's docs land together". Both docs PRs are planned by the coordinators and not open yet. | Until they land, the decisions taken for you live only in PR descriptions. |
-| F4 | Almost nothing was seen. #523 says "None of this was checked against staging data". #522 had no look in a browser. The interview, the verifier, the matching engine's AI tier and the eval cases all run on model answers written by hand. Every provider is still a fake. | Passing tests don't show a screen reads well or a live model behaves. |
-| F5 | Some things now happen by themselves: lost prospects' files are deleted for good every hour once they are 12 months old (#573); the nightly security run will open one issue per AI agent until the providers' pages are confirmed (#576); the verifier is on for new agents only, and existing agents stay off until a reviewed update (#569). | Each should be watched once before it surprises us. |
-| F6 | Many merges, few deploys of their own. With merges minutes apart, queued deploys were replaced by the next one (8 of the last 25 were cancelled this way). The journal is in order (checked), and the numbering has gaps from renumbering (no 0076, 0081 to 0084, 0086, 0088 to 0094). | Confirm staging runs `main`'s newest commit and applied all 14 migrations. |
-| F7 | Tests that fail under load and pass alone: `RunView`, `text-signup`, and ten web tests in #578. | CI on `main` is green today, but a flaky suite hides real failures. |
-| F8 | The automatic draft-PR workflow opened six duplicates (#509, #519, #549, #551, #579, #594). Old branches remain (`adoring-hopper-cqa4k8`, `relaxed-edison-gqrkyz`, `r4-agent-report`). | Noise. #552 also closed unmerged; its fix is on `main` another way (checked). |
-| F9 | Two dates: the evals key expires 22 December (#591); the Q4 access review is due before 31 December (#571). | Easy to miss. |
-| F10 | Production still runs `747d7ff` with migrations through 0041. It is now 59 migrations behind. | Not part of this clean-up, but the first release gets bigger every day. |
+| R1 | **Staging's QuickBooks is down.** A deploy replaced staging's encryption key on 21 November. Every connection saved before that can't be opened. Sentry shows the errors still arriving every 15 minutes on 23 November (MEZONAS-API-C, D, H). The repair tool (#593) was run once at 21:35 UTC and stopped after 3 seconds, retiring nothing; #604 fixed the tool, and it has not been run since. | Books health, the Bookkeeper, the Close pack, bills to pay and the Sandbox record try can't be tested until it is. **Open.** |
+| R2 | Two ready PRs conflicted with `main` (#583, #554), and a PR in conflict gets no CI, only the quick "open" check. | **Closed.** The coordinator set a merge order; all 17 late merges ran their CI green on their last commit (checked). But see R11. |
+| R3 | The docs were behind the code: no plan entries for round 4 or Wave Y. | **Closed** by #598 and #605, except CLAUDE.md's status line, still dated 8 November (v0.15, migrations through 0040), and the work plan's C8. |
+| R4 | Almost nothing was seen. #523 says "None of this was checked against staging data". #522 had no look in a browser. The interview, the verifier, the matching engine's AI tier and the eval cases all run on model answers written by hand. Every provider is still a fake. | Passing tests don't show a screen reads well or a live model behaves. |
+| R5 | Some things now happen by themselves: lost prospects' files are deleted for good every hour once they are 12 months old (#573); the nightly security run will open one issue per AI agent until the providers' pages are confirmed (#576); the verifier is on for new agents only, and existing agents stay off until a reviewed update (#569). | Each should be watched once before it surprises us. |
+| R6 | Many merges, few deploys of their own. With merges minutes apart, queued deploys were replaced by the next one (8 of the last 25 were cancelled this way). The journal is in order (checked), and the numbering has gaps from renumbering (no 0076, 0081 to 0084, 0086, 0088 to 0094). | Confirm staging runs `main`'s newest commit and applied all 14 migrations. |
+| R7 | Tests that fail under load and pass alone: `RunView`, `text-signup`, and ten web tests in #578. | CI on `main` is green today, but a flaky suite hides real failures. |
+| R8 | The automatic draft-PR workflow opened six duplicates (#509, #519, #549, #551, #579, #594). Old branches remain (`adoring-hopper-cqa4k8`, `relaxed-edison-gqrkyz`, `r4-agent-report`). | Noise. #552 also closed unmerged; its fix is on `main` another way (checked). |
+| R9 | Two dates: the evals key expires 22 December (#591); the Q4 access review is due before 31 December (#571). | Easy to miss. |
+| R10 | Production still runs `747d7ff` with migrations through 0041. It is now 59 migrations behind. | Not part of this clean-up, but the first release gets bigger every day. |
+| R11 | **The whole suite never ran on the combined `main`.** A PR's CI tests only the packages it touches, and a staging deploy of a merge whose PR passed runs lint and typecheck alone. Six PRs merged within 25 minutes on the same base without being tested against each other. | Pass 2's M1 is the first full run of everything together. |
+| R12 | **A connection that can't be read still says Connected.** The Demo client's QuickBooks has not synced since 21 November 02:19 UTC and fails every 15 minutes, yet it reads Connected with nothing needing attention, and Needs us is 0. Only the hourly health check and Sentry say otherwise. In `apps/api/src/qbo/sync.ts` only a sign-in the provider refuses raises attention; a stored sign-in we can't open is thrown again each time. | A client or operator looking at the screens would not know. This week. |
+| R13 | Ten feedback reports are open on staging, eight of them about the builder from 21 and 22 November. #597 and earlier PRs say they answer most of them; none was marked resolved. | The list no longer says what is really open. |
 
 ## 4. The QA plan
 
@@ -255,7 +242,7 @@ Not blocking the clean-up. Each is the first real test of something built agains
 | U1 | Fold this page's results into `docs/open.md` and delete what is done. |
 | U2 | Fix the automatic draft PR so it stops opening a second PR for a branch that has one. |
 | U3 | Delete the merged and dead branches, after the owner confirms `adoring-hopper-cqa4k8` holds nothing wanted. |
-| U4 | Fix the tests that fail under load (F7). Never skip them. |
+| U4 | Fix the tests that fail under load (R7). Never skip them. |
 | U5 | Put the two dates in a calendar: the evals key (22 December), the Q4 access review (31 December). |
 | U6 | Close the Sentry issues that Pass 0 fixed. |
 
