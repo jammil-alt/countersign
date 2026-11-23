@@ -300,18 +300,31 @@ export const SubProcessStep = z.object({
 });
 
 /**
+ * Ways in, ways out (owner, 2026-11-23): `to.agent` set to this marker hands off to the agent's
+ * own workflow `to.workflow`, as a new run of the same version. Not a slug, so it never names a
+ * real agent.
+ */
+export const SELF_AGENT = "@self";
+
+/**
  * Hand off (owner, 2026-11-11): starts a run of another agent of the same client (`to.agent`, its
  * slug) at one of the top-level steps of its live version (`to.step`), with `input` mapped from
  * this run as that step's input. Its earlier steps are skipped. This run goes on at once: the run
  * it starts is its own, with its own approvals. Its output is `{ runId, agent, step }`.
+ * With `to.agent: "@self"` (2026-11-23) it starts this agent's own workflow `to.workflow` instead,
+ * on the same version as this run: a second way in that forks out into the first.
  */
 export const HandoffStep = z.object({
   ...base,
   kind: z.literal("handoff"),
   // Empty while the builder's pickers are unset; validation asks for both.
   to: z.strictObject({
-    agent: z.union([Slug, z.literal("")]),
+    agent: z.union([Slug, z.literal(""), z.literal(SELF_AGENT)]),
     step: z.union([NodeId, z.literal("")]),
+    /** With `agent: "@self"`: which of this agent's workflows (its slug). Ignored otherwise. */
+    // DECISION (ways in, ways out): ignored for another agent, which still starts its first
+    // enabled workflow (§1.96); picking another agent's workflow is not asked for yet.
+    workflow: Slug.optional(),
   }),
   input: TemplateObject.default({}),
 });

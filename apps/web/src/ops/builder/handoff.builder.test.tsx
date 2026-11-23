@@ -130,7 +130,7 @@ function version(): VersionDetail {
   } as unknown as VersionDetail;
 }
 
-function setup() {
+function setup(agent: AgentSummary = AGENT, input: AnyAgentBundleInput = BUNDLE) {
   const sent: Record<string, unknown>[] = [];
   const api = fakeApi({
     [`GET /api/ops/agents/${AGENT_ID}/builder-catalog`]: () => CATALOG,
@@ -144,13 +144,13 @@ function setup() {
       return { version: { ...version(), bundle: undefined }, errors: [] };
     },
   });
-  const bundle = AnyAgentBundle.parse(BUNDLE);
+  const bundle = AnyAgentBundle.parse(input);
   function Page() {
     const { workflow = "" } = useParams();
     return (
       <WorkflowBuilder
-        agent={AGENT}
-        from={version()}
+        agent={agent}
+        from={{ ...version(), bundle } as VersionDetail}
         bundle={bundle}
         workflow={workflow}
         base={BASE}
@@ -186,7 +186,7 @@ describe("the hand-off step in the builder", () => {
     const agentOptions = within(agentPicker)
       .getAllByRole("option")
       .map((o) => o.textContent);
-    expect(agentOptions).toEqual(["Choose an agent…", "Price checker"]);
+    expect(agentOptions).toEqual(["Choose an agent…", "This agent", "Price checker"]);
     await user.selectOptions(agentPicker, "price-checker");
 
     // The step picker numbers and names the live version's steps; a stop can't take an input.
@@ -221,6 +221,96 @@ describe("the hand-off step in the builder", () => {
       name: "Hand off to Price checker at 2 · Itemize the invoice",
       to: { agent: "price-checker", step: "itemize" },
       input: { documentId: "{{trigger.documentId}}" },
+    });
+  });
+});
+
+// Ways in, ways out (owner, 2026-11-23): "This agent" hands off to another of its own workflows,
+// in a template too (no client): the scan's fork out into "Check an invoice" at its step 1.
+describe("a hand-off to this agent's own workflow in the builder", () => {
+  const TEMPLATE: AgentSummary = { ...AGENT, kind: "template", tenantId: null, slug: "invoices" };
+  const TWO: AnyAgentBundleInput = {
+    ...BUNDLE,
+    workflows: [
+      ...BUNDLE.workflows,
+      {
+        slug: "check",
+        name: "Check an invoice",
+        workflow: {
+          schemaVersion: 4,
+          triggers: [{ id: "t2", on: { type: "manual", input: io({}) } }],
+          steps: [
+            {
+              id: "chk-read",
+              kind: "skill",
+              name: "Read the invoice",
+              skill: "custom:read",
+              input: {},
+            },
+            { id: "chk-stop", kind: "stop", name: "Stop", status: "succeeded" },
+          ],
+        },
+      },
+      {
+        slug: "old",
+        name: "Old scan",
+        enabled: false,
+        workflow: {
+          schemaVersion: 4,
+          triggers: [{ id: "t3", on: { type: "manual", input: io({}) } }],
+          steps: [{ id: "old-stop", kind: "stop", name: "Stop", status: "succeeded" }],
+        },
+      },
+    ],
+  };
+
+  it("offers This agent, then the other workflows, then their steps, and names the step", async () => {
+    const { sent, user } = setup(TEMPLATE, TWO);
+    await screen.findByTestId("flow-chart");
+    const item = await screen.findByTestId("flow-rail-item-handoff");
+    expect(item).toHaveTextContent("Hand off to another workflow");
+    await user.click(item);
+
+    const agentPicker = screen.getByTestId("builder-handoff-agent");
+    expect(
+      within(agentPicker)
+        .getAllByRole("option")
+        .map((o) => o.textContent),
+    ).toEqual(["Choose an agent…", "This agent"]);
+    await user.selectOptions(agentPicker, "@self");
+
+    // The other workflows only: never the one open; one turned off can't be picked.
+    const workflowPicker = screen.getByTestId("builder-handoff-workflow");
+    const workflowOptions = within(workflowPicker).getAllByRole("option");
+    expect(workflowOptions.map((o) => o.textContent)).toEqual([
+      "Choose a workflow…",
+      "Check an invoice",
+      "Old scan (turned off)",
+    ]);
+    expect((workflowOptions[2] as HTMLOptionElement).disabled).toBe(true);
+    await user.selectOptions(workflowPicker, "check");
+
+    const stepPicker = screen.getByTestId("builder-handoff-step");
+    expect(
+      within(stepPicker)
+        .getAllByRole("option")
+        .map((o) => o.textContent),
+    ).toEqual(["Choose a step…", "1 · Read the invoice", "2 · Stop"]);
+    await user.selectOptions(stepPicker, "chk-read");
+
+    const row = screen
+      .getAllByTestId(/^flow-box-/)
+      .find((el) => el.textContent?.includes("Hand off to Check an invoice"));
+    expect(row).toHaveTextContent("Hand off to Check an invoice at 1 · Read the invoice");
+
+    await user.click(screen.getByTestId("flow-bar-save"));
+    await waitFor(() => expect(sent.length).toBeGreaterThan(0));
+    const saved = AnyAgentBundle.parse(sent.at(-1)?.bundle).workflows[0]?.workflow;
+    if (saved?.schemaVersion !== 4) throw new Error("not a process");
+    expect(saved.steps.at(-1)).toMatchObject({
+      kind: "handoff",
+      name: "Hand off to Check an invoice at 1 · Read the invoice",
+      to: { agent: "@self", step: "chk-read", workflow: "check" },
     });
   });
 });

@@ -57,7 +57,7 @@ import {
   TemplateInput,
 } from "./fields";
 // Hand off (owner, 2026-11-11)
-import { handoffChoices, handoffName } from "./handoff";
+import { handoffChoices, handoffName, ownWorkflowChoices } from "./handoff";
 // v0.18: a missing step's inspector, and each step's data.
 import { DataSection, type MissingActions, MissingFields } from "./missing";
 import {
@@ -1198,7 +1198,8 @@ function KindFields(
 /**
  * A hand-off step: the client's other agent, the top-level step of its live version where its run
  * starts (numbered and named; its earlier steps are skipped), then that step's input, mapped from
- * this run with the same fields and references as any step's input.
+ * this run with the same fields and references as any step's input. Or "This agent" (2026-11-23,
+ * first, and the only choice in a template): another of this agent's workflows, then its step.
  */
 function HandoffFields(
   props: InspectorProps & {
@@ -1210,14 +1211,24 @@ function HandoffFields(
 ) {
   const { step, paths, fieldErrors, set } = props;
   const agents = handoffChoices(props.data);
-  const target = agents.find((a) => a.slug === step.to.agent);
-  const entry = target?.steps.find((s) => s.id === step.to.step);
-  const setTo = (key: string, to: { agent: string; step: string }) =>
+  // Ways in, ways out (2026-11-23): "This agent" hands off to another of its own workflows.
+  const self = processes.isSelfHandoff(step);
+  const workflows = ownWorkflowChoices(props.data);
+  const ownTarget = self ? workflows.find((w) => w.slug === step.to.workflow) : undefined;
+  const target = self ? undefined : agents.find((a) => a.slug === step.to.agent);
+  const targetSteps = self ? ownTarget?.steps : target?.steps;
+  const entry = targetSteps?.find((s) => s.id === step.to.step);
+  const setTo = (key: string, to: { agent: string; step: string; workflow?: string }) =>
     // A new agent or step takes a new input: the old one was mapped for another step. A name the
     // builder gave follows the pick ("Hand off to Price checker at 5 · Itemize the invoice").
     set(key, (s) =>
       s.kind === "handoff" ? { ...s, to, input: {}, name: handoffName(props.data, s.name, to) } : s,
     );
+  // `to.workflow` is kept only for "This agent": another agent starts its own first workflow.
+  const toWith = (agent: string, stepId: string, workflow?: string) =>
+    agent === processes.SELF_AGENT && workflow
+      ? { agent, step: stepId, workflow }
+      : { agent, step: stepId };
   return (
     <>
       <Row label="Agent" field="to.agent" errors={fieldErrors}>
@@ -1225,9 +1236,10 @@ function HandoffFields(
           data-field="to.agent"
           data-testid="builder-handoff-agent"
           value={step.to.agent}
-          onChange={(e) => setTo("to.agent", { agent: e.target.value, step: "" })}
+          onChange={(e) => setTo("to.agent", toWith(e.target.value, ""))}
         >
           <option value="">Choose an agent…</option>
+          <option value={processes.SELF_AGENT}>This agent</option>
           {agents.map((a) => (
             <option key={a.slug} value={a.slug} disabled={a.workflow === null}>
               {a.workflow === null ? `${a.name} (no live version)` : a.name}
@@ -1235,6 +1247,30 @@ function HandoffFields(
           ))}
         </SmallSelect>
       </Row>
+      {self ? (
+        <Row
+          label="Workflow"
+          field="to.workflow"
+          errors={fieldErrors}
+          hint="A new run of this agent, in that workflow. It can't hand back to this one."
+        >
+          <SmallSelect
+            data-field="to.workflow"
+            data-testid="builder-handoff-workflow"
+            value={step.to.workflow ?? ""}
+            onChange={(e) =>
+              setTo("to.workflow", toWith(step.to.agent, "", e.target.value || undefined))
+            }
+          >
+            <option value="">Choose a workflow…</option>
+            {workflows.map((w) => (
+              <option key={w.slug} value={w.slug} disabled={!w.enabled}>
+                {w.enabled ? w.name : `${w.name} (turned off)`}
+              </option>
+            ))}
+          </SmallSelect>
+        </Row>
+      ) : null}
       <Row
         label="Starts at"
         field="to.step"
@@ -1245,11 +1281,13 @@ function HandoffFields(
           data-field="to.step"
           data-testid="builder-handoff-step"
           value={step.to.step}
-          disabled={!target}
-          onChange={(e) => setTo("to.step", { agent: step.to.agent, step: e.target.value })}
+          disabled={!targetSteps}
+          onChange={(e) =>
+            setTo("to.step", toWith(step.to.agent, e.target.value, step.to.workflow))
+          }
         >
           <option value="">Choose a step…</option>
-          {(target?.steps ?? []).map((s, i) => (
+          {(targetSteps ?? []).map((s, i) => (
             <option key={s.id} value={s.id} disabled={!processes.HANDOFF_ENTRY_KINDS.has(s.kind)}>
               {i + 1} · {s.name}
             </option>

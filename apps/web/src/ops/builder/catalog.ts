@@ -60,6 +60,11 @@ export interface BuilderData {
    * steps, for the hand-off step's pickers and the validator; absent for a template.
    */
   handoff?: { self: string; agents: readonly processes.HandoffAgent[] } | undefined;
+  /**
+   * Ways in, ways out (2026-11-23): this agent's own workflows a hand-off to "This agent" can
+   * start, from the bundle being edited, and the workflow open now. Templates have it too.
+   */
+  own?: { workflow: string; workflows: readonly processes.HandoffWorkflow[] } | undefined;
 }
 
 /** The typing and validation context: skills by the reference bundles use, tools, event types. */
@@ -544,7 +549,9 @@ export function paletteSections(
       label: "Logic",
       items: LOGIC.map((l) => ({ type: "logic", key: `logic:${l.logic}`, ...l })),
     },
-    // Hand off (owner, 2026-11-11): at the bottom, for a client agent.
+    // Hand off (owner, 2026-11-11): at the bottom, for a client agent. Ways in, ways out
+    // (2026-11-23): a template hands off to its own workflows, so it gets the step too; an
+    // automation (no `own`) never hands off.
     ...(data.handoff
       ? [
           {
@@ -556,12 +563,28 @@ export function paletteSections(
                 key: "handoff",
                 title: "Hand off to another agent",
                 detail:
-                  "Start another of this client's agents at one of its steps, with this run's results",
+                  "Start another of this client's agents, or another of this agent's workflows, at one of its steps, with this run's results",
               },
             ],
           },
         ]
-      : []),
+      : data.own
+        ? [
+            {
+              key: "handoff",
+              label: "Other workflows",
+              items: [
+                {
+                  type: "handoff" as const,
+                  key: "handoff",
+                  title: "Hand off to another workflow",
+                  detail:
+                    "Start another of this agent's workflows at one of its steps, with this run's results",
+                },
+              ],
+            },
+          ]
+        : []),
   ];
 }
 

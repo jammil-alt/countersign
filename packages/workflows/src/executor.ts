@@ -3654,7 +3654,7 @@ class Executor {
       const request = { run, nodeId: name, to: step.to, input };
       if (this.testRun) {
         const names = port ? await port.names(request) : { name: step.to.agent, at: step.to.step };
-        const output = { agent: step.to.agent, step: step.to.step };
+        const output = handoffOutput(step);
         await log.update(id, {
           status: "succeeded",
           output,
@@ -3676,7 +3676,7 @@ class Executor {
         });
         return { refused: r.refused };
       }
-      const output = { runId: r.runId, agent: step.to.agent, step: step.to.step };
+      const output = { runId: r.runId, ...handoffOutput(step) };
       await log.update(id, {
         status: "succeeded",
         output,
@@ -4425,4 +4425,15 @@ function passData(step: processes.RepeatStep, scope: RunContext): Record<string,
     if (entry) out[inner.id] = entry.output;
   }
   return out;
+}
+
+/** A hand-off step's output, without the run: the target, and the workflow for a self hand-off. */
+function handoffOutput(step: processes.HandoffStep): Record<string, string> {
+  return {
+    agent: step.to.agent,
+    step: step.to.step,
+    ...(processes.isSelfHandoff(step) && step.to.workflow !== undefined
+      ? { workflow: step.to.workflow }
+      : {}),
+  };
 }
