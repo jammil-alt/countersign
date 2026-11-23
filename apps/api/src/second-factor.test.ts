@@ -188,7 +188,8 @@ describe.skipIf(!h)("the second step of signing in (§1.100)", () => {
     });
     expect(await lastAudit("session.sign_in", H.A.admin)).toMatchObject({
       outcome: "ok",
-      target: { method: "Password", second_factor: "pending" },
+      // Overnight S1.5: why no remembered browser skipped it.
+      target: { method: "Password", second_factor: "pending", remembered_miss: "no_cookie" },
     });
   });
 
@@ -241,8 +242,14 @@ describe.skipIf(!h)("the second step of signing in (§1.100)", () => {
       target: { second_factor: "remembered" },
     });
 
+    const remembered = await lastAudit("session.sign_in", H.A.admin);
+    expect(remembered?.target).not.toHaveProperty("remembered_miss");
+
     const other = new Browser();
     expect(await signIn(other, H.A.admin)).toMatch(/^\/sign-in\/second-step/);
+    expect(await lastAudit("session.sign_in", H.A.admin)).toMatchObject({
+      target: { second_factor: "pending", remembered_miss: "no_cookie" },
+    });
     const status = await request(other, "GET", "/api/auth/second-factor");
     expect(status.json).toMatchObject({
       setupNeeded: false,
@@ -466,6 +473,9 @@ describe.skipIf(!h)("the second step of signing in (§1.100)", () => {
     });
     // The remembered browser is forgotten; the next sign-in sets up again.
     expect(await signIn(admin, H.A.admin)).toMatch(/^\/sign-in\/second-step/);
+    expect(await lastAudit("session.sign_in", H.A.admin)).toMatchObject({
+      target: { second_factor: "pending", remembered_miss: "method_gone" },
+    });
     const status = await request(admin, "GET", "/api/auth/second-factor");
     expect(status.json).toMatchObject({ setupNeeded: true, methods: [], recoveryCodesLeft: 0 });
     // Only people in the operator's clients.
