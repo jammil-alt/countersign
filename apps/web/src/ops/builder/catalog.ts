@@ -64,7 +64,14 @@ export interface BuilderData {
    * Ways in, ways out (2026-11-23): this agent's own workflows a hand-off to "This agent" can
    * start, from the bundle being edited, and the workflow open now. Templates have it too.
    */
-  own?: { workflow: string; workflows: readonly processes.HandoffWorkflow[] } | undefined;
+  own?:
+    | {
+        workflow: string;
+        workflows: readonly processes.HandoffWorkflow[];
+        /** Triggers and outputs (2026-11-23): what the open workflow is to the others. */
+        roles?: ReadonlyMap<string, processes.WorkflowRoleInfo>;
+      }
+    | undefined;
 }
 
 /** The typing and validation context: skills by the reference bundles use, tools, event types. */
@@ -551,40 +558,70 @@ export function paletteSections(
     },
     // Hand off (owner, 2026-11-11): at the bottom, for a client agent. Ways in, ways out
     // (2026-11-23): a template hands off to its own workflows, so it gets the step too; an
-    // automation (no `own`) never hands off.
-    ...(data.handoff
+    // automation (no `own`) never hands off. Triggers and outputs (2026-11-23): a workflow that
+    // isn't the main one gets "Hand in to <main>", placed already pointed at the main workflow's
+    // first step; the main workflow's own hand-off reads as handing off to an output.
+    ...(data.handoff || data.own
       ? [
           {
             key: "handoff",
-            label: "Other agents",
-            items: [
-              {
-                type: "handoff" as const,
-                key: "handoff",
-                title: "Hand off to another agent",
-                detail:
-                  "Start another of this client's agents, or another of this agent's workflows, at one of its steps, with this run's results",
-              },
-            ],
+            label: data.handoff ? "Other workflows and agents" : "Other workflows",
+            items: [...handInItems(data), ...handoffItems(data)],
           },
         ]
-      : data.own
-        ? [
-            {
-              key: "handoff",
-              label: "Other workflows",
-              items: [
-                {
-                  type: "handoff" as const,
-                  key: "handoff",
-                  title: "Hand off to another workflow",
-                  detail:
-                    "Start another of this agent's workflows at one of its steps, with this run's results",
-                },
-              ],
-            },
-          ]
-        : []),
+      : []),
+  ];
+}
+
+/**
+ * "Hand in to Check an invoice": on a workflow that isn't the main one, a hand-off to the main
+ * workflow's first step that takes an input, so the trigger's work goes into it. None without a
+ * main workflow, on the main one itself, or when the main one has no such step yet.
+ */
+function handInItems(data: Pick<BuilderData, "own">): PaletteItem[] {
+  const own = data.own;
+  const main = own ? own.roles?.get(own.workflow)?.main : null;
+  if (!own || !main || main === own.workflow) return [];
+  const target = own.workflows.find((w) => w.slug === main);
+  const entry = target?.steps.find((s) => processes.HANDOFF_ENTRY_KINDS.has(s.kind));
+  if (!target || !entry) return [];
+  const at = processes.handoffStepLabel(target.steps, entry.id);
+  return [
+    {
+      type: "handoff",
+      key: "handoff:in",
+      title: `Hand in to ${target.name}`,
+      detail: `The main workflow takes it from here, at ${at}. Makes this workflow one of its triggers.`,
+      to: { agent: processes.SELF_AGENT, workflow: main, step: entry.id },
+      name: `Hand off to ${target.name} at ${at}`,
+    },
+  ];
+}
+
+/** The open hand-off: another agent (a client agent) or another workflow, picked after. */
+function handoffItems(data: Pick<BuilderData, "handoff" | "own">): PaletteItem[] {
+  const own = data.own;
+  const isMain = own ? own.roles?.get(own.workflow)?.role === "main" : false;
+  if (data.handoff) {
+    return [
+      {
+        type: "handoff",
+        key: "handoff",
+        title: "Hand off to another agent",
+        detail:
+          "Start another of this client's agents, or another of this agent's workflows, at one of its steps, with this run's results",
+      },
+    ];
+  }
+  return [
+    {
+      type: "handoff",
+      key: "handoff",
+      title: isMain ? "Hand off to an output" : "Hand off to another workflow",
+      detail: isMain
+        ? "Start one of this agent's other workflows with this run's results. It becomes one of this workflow's outputs."
+        : "Start another of this agent's workflows at one of its steps, with this run's results",
+    },
   ];
 }
 

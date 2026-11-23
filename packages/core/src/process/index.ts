@@ -29,9 +29,11 @@ export * from "./outcomes";
 export * from "./owner";
 export * from "./paths";
 export * from "./range";
-// Reshape data (owner, 2026-11-11): the mapping, its evaluator, typing and proposer.
 export * from "./reshape";
 export * from "./reshape-propose";
+// Reshape data (owner, 2026-11-11): the mapping, its evaluator, typing and proposer.
+// Triggers and outputs (owner, 2026-11-23): what each workflow is to the agent's others.
+export * from "./roles";
 export * from "./sample";
 export * from "./schema";
 export * from "./seats";

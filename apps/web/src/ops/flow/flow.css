@@ -999,6 +999,14 @@
     position: relative;
     flex: 1;
     min-height: 0;
+    /* Triggers and outputs (2026-11-23): their bands above and below the chart or the List. */
+    display: flex;
+    flex-direction: column;
+  }
+  .flow-host__canvas {
+    position: relative;
+    flex: 1;
+    min-height: 0;
   }
   .flow-host__list {
     position: relative;

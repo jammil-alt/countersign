@@ -268,7 +268,8 @@ describe("a hand-off to this agent's own workflow in the builder", () => {
     const { sent, user } = setup(TEMPLATE, TWO);
     await screen.findByTestId("flow-chart");
     const item = await screen.findByTestId("flow-rail-item-handoff");
-    expect(item).toHaveTextContent("Hand off to another workflow");
+    // On the main workflow (the first enabled one), the hand-off starts one of its outputs.
+    expect(item).toHaveTextContent("Hand off to an output");
     await user.click(item);
 
     const agentPicker = screen.getByTestId("builder-handoff-agent");
