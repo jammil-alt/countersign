@@ -34,6 +34,39 @@ export type AccountRunView = z.infer<typeof AccountRunView>;
 
 export { PortalInboxItem as AccountWaitingItem, PortalRunSummary as AccountRunSummary };
 export type AccountWaitingItem = z.infer<typeof PortalInboxItem>;
+
+/**
+ * S2.2 (overnight fixes, 2026-11-23): one waiting item as `account.waiting` gives it to Sloan: what
+ * it is, what it's called, which service asks and when it's due. The item's detail (the change's
+ * card, its lines) is `account.explain_wait`'s, so a list of 22 change cards isn't resent with every
+ * model call of a question.
+ */
+export const AccountWaitingBrief = z.object({
+  id: z.string(),
+  kind: PortalInboxItem.shape.kind,
+  title: z.string(),
+  status: PortalInboxItem.shape.status,
+  /** The service (agent) that asks, by its name; null for a platform item. */
+  service: z.string().nullable(),
+  runId: z.string().nullable(),
+  dueAt: PortalInboxItem.shape.dueAt,
+  createdAt: PortalInboxItem.shape.createdAt,
+});
+export type AccountWaitingBrief = z.infer<typeof AccountWaitingBrief>;
+
+/** The brief of one waiting item: its detail is left out (`account.explain_wait` has it). */
+export function waitingBrief(item: AccountWaitingItem): AccountWaitingBrief {
+  return {
+    id: item.id,
+    kind: item.kind,
+    title: item.title,
+    status: item.status,
+    service: item.service?.name ?? null,
+    runId: item.runId,
+    dueAt: item.dueAt,
+    createdAt: item.createdAt,
+  };
+}
 export type AccountRunSummary = z.infer<typeof PortalRunSummary>;
 
 /** Why one item waits: the Desk's reasons, each in the client's words. */

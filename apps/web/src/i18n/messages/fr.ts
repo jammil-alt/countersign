@@ -2208,6 +2208,9 @@ export const fr: Messages = {
   "sloan.empty":
     "Demandez pourquoi quelque chose attend, mettez un agent en pause, ajoutez un approbateur ou transmettez une idée à votre interlocuteur.",
   "sloan.answering": "Sloan répond…",
+  "sloan.noAnswer":
+    "Sloan n'a pas encore répondu. La réponse s'affichera ici ; pour une urgence, demandez à votre interlocuteur.",
+  "sloan.checkAgain": "Vérifier à nouveau",
   "sloan.compose": "Demandez à Sloan, ou dites-lui quoi changer",
   "sloan.commandHint":
     "Commencez par / et le nom d'un agent pour lui poser la question, comme /pia.",
