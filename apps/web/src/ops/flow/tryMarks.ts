@@ -141,7 +141,7 @@ export function tryMarks(run: TryRun, process: Pick<Process, "steps">): TryMark[
   return out;
 }
 
-/** The run in one line, for the try's bar once it has ended or while it waits. */
+/** The run in one line, for the try's panel once it has ended or while it waits. */
 export function tryOutcome(run: TryRun, marks: readonly TryMark[]): string | null {
   const count = (s: TryMark["status"]) => marks.filter((m) => m.status === s).length;
   switch (run.run.status) {

@@ -474,8 +474,9 @@ describe("Try it on the chart", () => {
     await screen.findByTestId("flow-chart");
     expect(screen.queryByTestId("flow-try")).toBeNull();
     await user.click(screen.getByTestId("flow-bar-try"));
-    // The try's bar sits at the top of the chart; the chart stays.
-    const bar = within(screen.getByTestId("builder-try")).getByTestId("flow-try");
+    // The try's panel opens in the side column, beside the chart; the chart stays.
+    const bar = within(screen.getByTestId("builder-side")).getByTestId("flow-try");
+    expect(screen.getByTestId("builder-side")).toHaveAttribute("data-side", "try");
     expect(screen.getByTestId("flow-chart")).toBeInTheDocument();
     // A manual start's sample is already there as the input.
     expect(within(bar).getByTestId("flow-try-input")).toHaveValue("{}");
@@ -486,10 +487,20 @@ describe("Try it on the chart", () => {
     expect(await screen.findByTestId("flow-tried-read")).toHaveTextContent("Did");
     expect(screen.queryByTestId("flow-tried-note")).toBeNull();
     expect(screen.getByTestId("flow-box-note")).toHaveClass("is-off");
-    // Done takes the bar and the marks away.
+    // A step opened meanwhile covers the try; closed, the try is back as it was left.
+    await user.click(screen.getByTestId("flow-box-read"));
+    expect(screen.getByTestId("builder-side")).toHaveAttribute("data-side", "step");
+    expect(screen.getByTestId("builder-try")).toHaveClass("hidden");
+    expect(screen.getByTestId("flow-tried-read")).toHaveTextContent("Did");
+    await user.click(screen.getByTestId("flow-bar-try"));
+    expect(screen.getByTestId("builder-side")).toHaveAttribute("data-side", "try");
+    expect(screen.getByTestId("flow-try")).toHaveTextContent("Tried it on");
+    expect(screen.getByTestId("flow-tried-read")).toHaveTextContent("Did");
+    // Closing it takes the panel and the marks away.
     await user.click(screen.getByTestId("flow-try-done"));
     expect(screen.queryByTestId("flow-try")).toBeNull();
     expect(screen.queryByTestId("flow-tried-read")).toBeNull();
+    expect(screen.getByTestId("builder-side")).not.toHaveAttribute("data-side");
   });
 });
 
