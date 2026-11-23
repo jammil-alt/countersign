@@ -2270,6 +2270,8 @@ export const portalRoutes = {
           description: z.string(),
           display: ChangeDisplayView.nullable().optional(),
           status: z.string(),
+          // S4.5: not made because nobody answered its approval in time (`rejected`, by no one).
+          expired: z.boolean().optional(),
           executedAt: NullableTimestamp,
           // Step panel (§1.95): the step that made it, and the record before and the change (the
           // signer's edit when there was one), as the Inbox shows them.
