@@ -2109,6 +2109,9 @@ export const en = {
   "sloan.empty":
     "Ask why something waits, pause an agent, add an approver, or pass an idea to your lead.",
   "sloan.answering": "Sloan is answering…",
+  "sloan.noAnswer":
+    "No answer from Sloan yet. It will show here when it comes; for anything urgent, ask your lead.",
+  "sloan.checkAgain": "Check again",
   "sloan.compose": "Ask Sloan, or tell it what to change",
   "sloan.commandHint": "Start with / and an agent's name to ask that agent, like /pia.",
   "sloan.you": "You",
@@ -3526,6 +3529,7 @@ export const en = {
   "requests.lede": "Something isn't working, or an idea for us: tell your Mezonas lead here.",
   "requests.new": "New request",
   "requests.empty": "No requests yet.",
+  "requests.state.sent": "Sent",
   "requests.state.on_it": "We're on it",
   "requests.state.waiting_on_you": "Waiting on you",
   "requests.state.fixed": "Fixed",

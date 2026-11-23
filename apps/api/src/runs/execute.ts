@@ -94,7 +94,9 @@ import {
 import { and, asc, eq, inArray } from "drizzle-orm";
 import { dbReleasePort, type ReleaseDeps, releaseDepsFromEnv } from "../access/release";
 // §1.150: Sloan by email and text
-import { deliveringThreads } from "../account/answer";
+import { deliveringThreads, deliverSloanAnswer, type SloanAnswerDeps } from "../account/answer";
+// S2.1
+import { postCouldNotAnswer } from "../account/could-not-answer";
 // v0.12 W2-D
 import { accountViews } from "../account/views";
 import { browserRunOpener } from "../browser/driver";
@@ -117,6 +119,7 @@ import { connectorServicesFor } from "../messaging/services";
 import { mailerFromEnv, texterFromEnv } from "../notify/mailer";
 import { type NotifyDeps, originOf } from "../notify/outbox";
 import { pusherFromEnv } from "../notify/push";
+import { reportHandled } from "../observability/report";
 // v0.13 W2-I
 import { choicePort, oversightPort, type RunAreaOwner } from "../oversight/port";
 import { areaOfAgent, ensureAreaOwner } from "../owners/store";
@@ -414,14 +417,7 @@ export function runtimeFor(
   ports.platform = oneAskPerStep(ports.platform, db);
   // §1.150: Sloan's answer to a person who wrote by email or text goes back that way.
   if (deps.notify && ports.threads) {
-    ports.threads = deliveringThreads(ports.threads, {
-      db,
-      mailer: deps.notify.mailer,
-      texter: deps.notify.texter,
-      origin: deps.notify.origin,
-      domain: deps.forwardingDomain ?? null,
-      ...(deps.covered ? { covered: deps.covered } : {}),
-    });
+    ports.threads = deliveringThreads(ports.threads, sloanAnswerDeps(deps, deps.notify));
   }
   return {
     ports,
@@ -466,6 +462,18 @@ export function runtimeFor(
 }
 
 /** The client's stored documents, for tools that send one to the client's tool (QBO attachments). */
+/** §1.150: what sending Sloan's answer by email or text needs, from the run's deps. */
+function sloanAnswerDeps(deps: RunDeps, notify: NotifyDeps): SloanAnswerDeps {
+  return {
+    db: deps.db,
+    mailer: notify.mailer,
+    texter: notify.texter,
+    origin: notify.origin,
+    domain: deps.forwardingDomain ?? null,
+    ...(deps.covered ? { covered: deps.covered } : {}),
+  };
+}
+
 function withDocuments(
   base: NonNullable<RuntimeDeps["services"]>,
   db: Db,
@@ -591,6 +599,7 @@ export async function executeRun(
 
   const finish = async (result: RunResult) => {
     await runner.do("run:finish", async () => {
+      let couldNotAnswer: { threadId: string; messageId: string } | null = null;
       await withTenant(db, info.tenantId, async (tx) => {
         const [exists] = await tx.select({ id: run.id }).from(run).where(eq(run.id, info.id));
         if (!exists) return;
@@ -641,6 +650,10 @@ export async function executeRun(
             { registry: deps.platform.events, testRun: info.mode === "test" },
           );
           if (row) emitted.push(row);
+          // S2.1: Sloan's conversation gets a fixed "couldn't answer" message, never a wait.
+          const fallback = await postCouldNotAnswer(tx, info, { registry: deps.platform.events });
+          if (fallback?.event) emitted.push(fallback.event);
+          if (fallback) couldNotAnswer = fallback;
         }
         // v0.12 W2-E: `run.succeeded`, with what the workflow hands off, in the same transaction
         // (docs/plan.md §1.48). Live runs only: a test run starts nothing (ARCHITECTURE §10.4).
@@ -662,6 +675,16 @@ export async function executeRun(
       // Best effort: whatever this misses (or a replay lost), the cron sweep dispatches.
       if (deps.instances && emitted.length > 0) {
         await dispatchEvents({ db, instances: deps.instances }, emitted.splice(0));
+      }
+      // S2.1, §1.150: a person who wrote by email or text hears it that way too (best effort).
+      if (couldNotAnswer && deps.notify) {
+        await deliverSloanAnswer(
+          sloanAnswerDeps(deps, deps.notify),
+          info.tenantId,
+          couldNotAnswer,
+        ).catch((error) =>
+          reportHandled("sending Sloan's fallback failed", error, { client: info.tenantId }),
+        );
       }
       return null;
     });

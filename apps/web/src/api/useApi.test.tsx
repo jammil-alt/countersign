@@ -451,6 +451,45 @@ describe("the store and the session", () => {
     expect(store?.size).toBe(0);
   });
 
+  it("goes to WorkOS's sign-out page before it says signed out (overnight S1.6)", async () => {
+    const logout = "https://workos.test/logout?session_id=sess_1";
+    const api = fakeApi({
+      "GET /api/session": () => OPERATOR_SESSION,
+      "POST /api/auth/sign-out": () => ({ ok: true, redirectTo: logout }),
+    });
+    const seen: string[] = [];
+    const assign = vi.fn((url: string) => seen.push(`assign ${url}`));
+    const original = window.location;
+    Object.defineProperty(window, "location", {
+      configurable: true,
+      value: { ...original, assign },
+    });
+    function Gate() {
+      const { state } = useSessionState();
+      seen.push(state.status);
+      return <p data-testid="status">{state.status}</p>;
+    }
+    try {
+      render(
+        <ApiProvider client={api.client}>
+          <SessionProvider>
+            <Gate />
+            <Controls />
+          </SessionProvider>
+        </ApiProvider>,
+      );
+      await waitFor(() => expect(screen.getByTestId("status")).toHaveTextContent("signed_in"));
+      act(() => screen.getByTestId("sign-out").click());
+      await waitFor(() => expect(assign).toHaveBeenCalledWith(logout));
+      await new Promise((r) => setTimeout(r, 20));
+      // Never "signed_out", which would send the app to /sign-in and cancel the navigation.
+      expect(seen).not.toContain("signed_out");
+      expect(screen.getByTestId("status")).toHaveTextContent("loading");
+    } finally {
+      Object.defineProperty(window, "location", { configurable: true, value: original });
+    }
+  });
+
   it("removes the builder's drafts from this browser on sign-out, and nothing else", async () => {
     const api = fakeApi({
       "GET /api/session": () => OPERATOR_SESSION,
