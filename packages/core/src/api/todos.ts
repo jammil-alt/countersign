@@ -266,6 +266,28 @@ export const todoRoutes = {
     body: z.strictObject({ until: Instant.optional() }),
     response: TodoView,
   }),
+  // S4.3 (QA2 HM2): a to-do put off with Later could not be found again.
+  opsTodosSnoozed: defineRoute({
+    method: "GET",
+    path: "/api/ops/todos/snoozed",
+    auth: "session",
+    roles: OPS,
+    summary: "Snoozed: our to-dos put off with Later, soonest back first",
+    query: z.object({
+      /** Only the to-dos named to you (or to nobody), as on Yours. */
+      mine: z.enum(["true", "false"]).default("false"),
+    }),
+    response: z.object({ items: z.array(TodoView) }),
+  }),
+  opsTodoWake: defineRoute({
+    method: "POST",
+    path: "/api/ops/todos/:id/wake",
+    auth: "session",
+    roles: OPS,
+    summary: "Bring a snoozed to-do back to Your call now",
+    params: IdParams,
+    response: TodoView,
+  }),
   opsTodoTake: defineRoute({
     method: "POST",
     path: "/api/ops/todos/:id/take",

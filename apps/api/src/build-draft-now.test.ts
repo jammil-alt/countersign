@@ -112,6 +112,37 @@ describe.skipIf(!h)("draft it now", () => {
   };
   const errorOf = (json: unknown) => (json as { error: { code: string } }).error.code;
 
+  // S6.6 (LB3): the Builder said "I made 5 decisions" where the build listed 2. It says what was
+  // stored: a decision answered twice under one id is one row.
+  it("says as many decisions as the build lists", async () => {
+    const started = await ok("POST", "/api/ops/builds", { kind: "agent", title: "Counted" });
+    const decision = (id: string, n: number) => ({
+      id,
+      what: `Decision ${id}, said ${n}.`,
+      why: "The description leaves it open.",
+      kind: "assumption",
+      risk: "normal",
+    });
+    model.push(
+      draftAnswer([update], {
+        decisions: [
+          decision("threshold", 1),
+          decision("threshold", 2),
+          decision("who-signs", 1),
+          decision("threshold", 3),
+          decision("who-signs", 2),
+        ],
+      }),
+    );
+    const b = await ok("POST", `/api/ops/builds/${started.build.id}/draft-now`, {
+      description: DESCRIPTION,
+    });
+    expect(b.build.fitgap.decisions).toHaveLength(2);
+    const said = b.messages.at(-1)?.text ?? "";
+    expect(said).toContain("I made 2 decisions to get it running instead of asking");
+    expect(said).not.toContain("5 decisions");
+  });
+
   it("drafts a template from a description, with no questions, review or fit-gap", async () => {
     const started = await ok("POST", "/api/ops/builds", { kind: "agent", title: "Record fixer" });
     const id = started.build.id;

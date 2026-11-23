@@ -719,11 +719,7 @@ export function requestRun(input: {
   const wf = bundle.workflows.find((w) => w.slug === input.workflowSlug);
   if (!wf) throw new Error(`no workflow ${input.workflowSlug}`);
   if (mode === "live" && !wf.enabled) throw new Error(`workflow ${input.workflowSlug} is off`);
-  // v0.12 W2-E: a manual or command trigger among `moreTriggers` lets it start by hand too.
-  const byHand =
-    triggersOfWorkflow(wf.workflow).find(
-      (t) => t.on.type === "manual" || t.on.type === "command",
-    ) ?? firstTrigger(wf.workflow);
+  const byHand = handTrigger(wf.workflow);
   const type = byHand.on.type;
   if (mode === "live" && type !== "manual" && type !== "command") {
     throw new Error(`workflow ${input.workflowSlug} starts on its ${type} trigger, not by hand`);
@@ -748,6 +744,18 @@ export function requestRun(input: {
 /** Every trigger of a workflow: a v3 workflow's `trigger` and `moreTriggers`, a process's list (core). */
 export function triggersOfWorkflow(workflow: AnyBundleWorkflow["workflow"]): Trigger[] {
   return allTriggers(workflow);
+}
+
+/**
+ * The trigger a run started by a person or the API runs as: a manual or command one, else the
+ * workflow's first (a test run of an event-started workflow runs as that event).
+ */
+// v0.12 W2-E: a manual or command trigger among `moreTriggers` lets it start by hand too.
+export function handTrigger(workflow: AnyBundleWorkflow["workflow"]): Trigger {
+  return (
+    triggersOfWorkflow(workflow).find((t) => t.on.type === "manual" || t.on.type === "command") ??
+    firstTrigger(workflow)
+  );
 }
 
 /** The workflow's first trigger (a process has at least one). */
