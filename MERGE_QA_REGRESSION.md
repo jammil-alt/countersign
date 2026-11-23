@@ -300,30 +300,32 @@ Still signed in as Demo client's admin. Every check here is a stop if it fails (
 
 ## Part D. Writes to QuickBooks (only after QuickBooks is reconnected)
 
-First check: back office → Sandbox → Connections. If QuickBooks is not "Connected" with a sync in
-the last hour, mark all of Part D BLOCKED and finish.
+Use **Demo client**. Its AP bill clerk drafts a bill from an uploaded vendor invoice, and it is in
+trial, so every write waits for a signature. Sandbox has no agent that drafts bills. Demo client's
+QuickBooks is Intuit's sandbox company, not a real company's books.
 
-Use Sandbox only. These are the checks that matter most: they are the only ones where an agent
-changes a client's books.
+First check: Demo client → Connections. If QuickBooks is not "Connected" with a sync in the last
+hour (reload the page first: it can show an old sync time), mark all of Part D BLOCKED and finish.
 
-- **WR1** Sandbox → Records: the newest QuickBooks records should be from today. Books health
+These are the checks that matter most: they are the only ones where an agent changes a client's
+books.
+
+- **WR1** Demo client → Records: the newest QuickBooks records should be from today. Books health
   (`/ops/clients/<client>/books-health`) should list its checks with dollar figures.
-- **WR2** Find a waiting approval for a write to QuickBooks on Sandbox. If there is none, ask the
-  person: "Please upload one vendor invoice PDF to Sandbox so the bill clerk proposes a bill." Wait
-  for the card.
+- **WR2** Find a waiting approval for a write to QuickBooks on Demo client. If there is none, ask
+  the person: "Please upload two vendor invoice PDFs to Demo client's portal (Add documents) so the
+  AP bill clerk proposes a bill for each." Wait for the cards.
 - **WR3** Open the card. It should show exactly what will be written, the document it came from,
   an Evidence panel, and the amount. Compare the amount and the vendor with the PDF.
-- **WR4** Approve it. The run should finish. The bill should appear in Sandbox → Records within a
-  few minutes, once. Search the vendor and the amount: FAIL if Sandbox shows two. (Demo client is
-  connected to the same QuickBooks company, so the same bill will also show there. That is
-  expected.)
+- **WR4** Approve it. The run should finish. The bill should appear in Demo client → Records within
+  a few minutes, once. Search the vendor and the amount: FAIL if Demo client shows two.
 - **WR5** Open the run. The change should show before and after, who approved, and when. The bill's
-  record page should list this run in its Runs panel.
+  record page should list this run in its Runs panel (known bug W1: today it does not).
 - **WR6** Reload the approved card's page and try to approve again, or go back in the browser and
   press approve again. It must refuse. FAIL if a second bill appears.
 - **WR7** Find or wait for a second card. Reject it with a reason. Nothing should be written; the
   run should say why it stopped.
-- **WR8** Bills to pay (`/reports/ap/bills`) and Close (`/reports/close/close`) for Sandbox, if
+- **WR8** Bills to pay (`/reports/ap/bills`) and Close (`/reports/close/close`) for Demo client, if
   those areas are on: describe what each shows now that there is data.
 
 ## When you finish
