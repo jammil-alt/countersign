@@ -956,7 +956,7 @@ WorkOS values below. Each PR's checks pass before it merges.
    }
    ```
    With no version named, each installs its newest seeded version (today bill-clerk 3, builder 2,
-   coordinator 2, document-clerk 2, supervisor 6). Each answers 200 (and 200 again if run twice,
+   coordinator 2, document-clerk 2, supervisor 7). Each answers 200 (and 200 again if run twice,
    changing nothing). Naming a seeded version older than one the template already holds answers
    409 `older_version`: an install never goes back; a rollback in the back office does. Pack
    templates (the Bookkeeper) install themselves when a pack is switched on.
