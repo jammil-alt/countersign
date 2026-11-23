@@ -3525,6 +3525,7 @@ export const en = {
   "requests.lede": "Something isn't working, or an idea for us: tell your Mezonas lead here.",
   "requests.new": "New request",
   "requests.empty": "No requests yet.",
+  "requests.state.sent": "Sent",
   "requests.state.on_it": "We're on it",
   "requests.state.waiting_on_you": "Waiting on you",
   "requests.state.fixed": "Fixed",

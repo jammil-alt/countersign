@@ -3696,6 +3696,7 @@ export const de: Messages = {
     "Etwas funktioniert nicht, oder eine Idee für uns: Sagen Sie es hier Ihrem Ansprechpartner bei Mezonas.",
   "requests.new": "Neue Anfrage",
   "requests.empty": "Noch keine Anfragen.",
+  "requests.state.sent": "Gesendet", // fluent review
   "requests.state.on_it": "Wir kümmern uns darum",
   "requests.state.waiting_on_you": "Wartet auf Sie",
   "requests.state.fixed": "Behoben",
