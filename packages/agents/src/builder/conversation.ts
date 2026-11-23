@@ -239,7 +239,6 @@ ${input.request ? `\nThe client's request, in their words (what they want change
     });
     let bundle = g.bundle;
     let notes = g.notes;
-    let fix = g.fix;
     const scope = commandScope(command, working, bundle);
     if (scope) {
       const all = selectableBetween(working, bundle).map((c) => c.id);
@@ -254,16 +253,14 @@ ${input.request ? `\nThe client's request, in their words (what they want change
           ...(options.newId ? { newId: options.newId } : {}),
         });
         bundle = again.bundle;
-        // DECISION: what a command left out may have been the copy; nothing goes back to repair.
-        notes = [...new Set([...notes.filter((n) => !fix.includes(n)), ...again.notes])];
-        fix = [];
+        notes = [...new Set([...notes, ...again.notes])];
         const left = all.length - allowed.length;
         const what = command?.name === "skill" ? `/skill ${command.skill}` : `/${command?.name}`;
         const note = `${left} change${left === 1 ? "" : "s"} outside ${what} ${left === 1 ? "was" : "were"} left out.`;
         if (!scopeNotes.includes(note)) scopeNotes.push(note);
       }
     }
-    return { bundle, gaps: [...new Set([...a.gaps, ...g.gaps])], notes, fix };
+    return { bundle, gaps: [...new Set([...a.gaps, ...g.gaps])], notes };
   };
   const out = await ask(
     {

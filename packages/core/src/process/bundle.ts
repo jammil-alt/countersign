@@ -18,14 +18,11 @@ import {
   validateWorkflow,
 } from "../workflow/validate";
 import { walkSteps as walkV3Steps } from "../workflow/walk";
-import { fromWorkflowV3 } from "./convert";
-import { copiedSteps, copiedStepsMessage } from "./copies";
 import { seatProblems } from "./seats";
 import {
   type ProcessValidationCode,
   type ProcessValidationContext,
   type ProcessWarning,
-  type ProcessWarningCode,
   validateProcess,
 } from "./validate";
 import { nodeIds, walkSteps } from "./walk";
@@ -35,14 +32,8 @@ export type BundleValidationError = Omit<ValidationError, "code"> & {
   code: ProcessValidationCode;
 };
 
-/** Advice about the bundle as a whole: a workflow that repeats another's steps (`copiedSteps`). */
-export type BundleWarningCode = ProcessWarningCode | "copied_steps";
-
-/** A process's advice (split signals), or the bundle's, with the workflow it is about. */
-export type BundleWarning = Omit<ProcessWarning, "code"> & {
-  code: BundleWarningCode;
-  workflow: string;
-};
+/** A process's advice (split signals), with the workflow it is about. */
+export type BundleWarning = ProcessWarning & { workflow: string };
 
 export interface AnyBundleValidationResult {
   valid: boolean;
@@ -123,7 +114,7 @@ export function validateAnyBundle(
     return {
       valid: r.valid,
       errors: r.errors,
-      warnings: copyWarnings(v3.data),
+      warnings: [],
       ...(r.value ? { value: r.value } : {}),
     };
   }
@@ -210,35 +201,7 @@ export function validateAnyBundle(
     }
   }
   errors.push(...validateClientView(bundle, ctx.packs ? { packs: ctx.packs } : {}));
-  warnings.push(...copyWarnings(bundle));
   return { valid: errors.length === 0, errors, warnings, value: bundle };
-}
-
-/** A v3 workflow read only for its shape: every skill stays a skill. */
-const SHAPE_ONLY = { wrappedTool: () => null, sideEffect: () => null };
-
-/**
- * Ways in, ways out (owner, 2026-11-23): each run of steps an enabled workflow repeats from
- * another (`copiedSteps`), as advice on the workflow that repeats them. v3 workflows are read as
- * processes for this.
- */
-// DECISION: advice, never an error, so every stored agent keeps saving and publishing as before;
-// the Builder's guard asks the model to fix a copy it makes, and the chart shows one already saved.
-export function copyWarnings(bundle: Pick<AnyAgentBundle, "workflows">): BundleWarning[] {
-  const enabled = bundle.workflows
-    .filter((w) => w.enabled !== false)
-    .map((w) => ({
-      slug: w.slug,
-      workflow:
-        w.workflow.schemaVersion === 4 ? w.workflow : fromWorkflowV3(w.workflow, SHAPE_ONLY),
-    }));
-  return copiedSteps(enabled).map((run) => ({
-    stepId: run.stepIds[0] ?? null,
-    field: "",
-    code: "copied_steps",
-    message: copiedStepsMessage(run),
-    workflow: run.in,
-  }));
 }
 
 interface Issue {
