@@ -2,7 +2,7 @@
 // as the operator (audited as Reggie's), proposes changes that happen only when confirmed, once,
 // asks a client admin on their Desk and reads the answer back, and never reaches another
 // operator's conversation or a client the operator doesn't serve.
-import { auditEvent, inboxItem, reggieAction, reggieMessage } from "@countersign/db";
+import { auditEvent, inboxItem, reggieAction, reggieMessage, tenant } from "@countersign/db";
 import { FakeModel, type FakeTurn, type LlmRequest } from "@countersign/llm";
 import { and, eq, like } from "drizzle-orm";
 import { afterAll, describe, expect, it, vi } from "vitest";
@@ -58,6 +58,31 @@ describe.skipIf(!h)("Reggie", () => {
     for (const who of [admin("a"), user("a")]) {
       expect((await H.call(who, "GET", "/api/ops/reggie/conversations")).status).toBe(403);
     }
+  });
+
+  // S2.6 (overnight fixes): Reggie quoted UTC times.
+  it("reads the time now in the client's zone, or in UTC with the rule to say the zone", async () => {
+    const [was] = await H.t.db
+      .select({ timezone: tenant.timezone })
+      .from(tenant)
+      .where(eq(tenant.id, A()));
+    await H.t.db.update(tenant).set({ timezone: "America/Chicago" }).where(eq(tenant.id, A()));
+    const id = await start(OPERATOR, A());
+    model.push(say("It's evening there."));
+    expect((await ask(OPERATOR, id, "What time is it for Client A?")).status).toBe(200);
+    expect(String(model.requests.at(-1)?.system)).toMatch(
+      /It is now \w+ \d+ \w+ \d{4}, \d\d:\d\d in America\/Chicago \(GMT-0[56]:00\), Client A's time\./,
+    );
+    const any = await start(OPERATOR);
+    model.push(say("It's morning in UTC."));
+    expect((await ask(OPERATOR, any, "What time is it?")).status).toBe(200);
+    const system = String(model.requests.at(-1)?.system);
+    expect(system).toMatch(/It is now .* in UTC \(GMT\+00:00\)\./);
+    expect(system).toContain("give a client's times in its own time zone");
+    await H.t.db
+      .update(tenant)
+      .set({ timezone: was?.timezone ?? "UTC" })
+      .where(eq(tenant.id, A()));
   });
 
   it("reviews a client with the operator's own reads, audited as Reggie's", async () => {

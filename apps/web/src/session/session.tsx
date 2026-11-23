@@ -193,13 +193,25 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     let redirectTo: string | null = null;
     try {
       redirectTo = (await client.call(apiRoutes.signOut)).redirectTo;
-    } finally {
+    } catch (error) {
       // A failed sign-out still drops the local session view; the next call re-checks it.
       rememberSignedIn("signed_out");
       setState({ status: "signed_out" });
+      throw error;
     }
-    // WorkOS may name its own sign-out page; the dev adapter never does.
-    if (redirectTo) window.location.assign(redirectTo);
+    rememberSignedIn("signed_out");
+    identifyForErrors(null);
+    if (redirectTo) {
+      // WorkOS names its own sign-out page; the dev adapter never does.
+      // DECISION (overnight S1.6): go there before anything says "signed out". Signed out sends
+      // the app to /sign-in, which starts a WorkOS sign-in that cancelled this navigation, left
+      // WorkOS's session alive and signed the person straight back in (two clicks to sign out).
+      // Until the page goes, it shows the still frame ("loading"), which sends nowhere.
+      setState({ status: "loading" });
+      window.location.assign(redirectTo);
+      return;
+    }
+    setState({ status: "signed_out" });
   }, [client, store]);
 
   useEffect(() => {

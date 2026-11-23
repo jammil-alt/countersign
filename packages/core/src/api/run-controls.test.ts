@@ -5,6 +5,7 @@ import {
   CARRIED_APPROVAL_MAX_AGE_MS,
   carryDecision,
   errorGroupKey,
+  escalationWords,
   OpsModelCall,
   runControlRoutes,
   runErrorCode,
@@ -148,5 +149,19 @@ describe("the routes", () => {
       if (routeFamily(r) === "portal") expect(forbiddenPortalFields(r.response), name).toEqual([]);
     }
     expect(routes.opsRetryRun).toBe(runControlRoutes.opsRetryRun);
+  });
+});
+
+describe("escalationWords", () => {
+  // S4.1: Home titled a failed run "escalated: max_cost".
+  it("says a budget hit, or any other escalation, in words", () => {
+    expect(escalationWords("escalated: max_cost")).toBe("Stopped: reached its cost budget");
+    expect(escalationWords("escalated: max_steps\nmore")).toBe("Stopped: reached its step budget");
+    expect(escalationWords("escalated: max_monthly_cost")).toBe(
+      "Stopped: reached its monthly budget",
+    );
+    expect(escalationWords("escalated: help_needed")).toBe("Stopped and handed to us: help needed");
+    expect(escalationWords("QuickBooks said 401")).toBeNull();
+    expect(escalationWords(null)).toBeNull();
   });
 });
