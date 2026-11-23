@@ -124,7 +124,7 @@ describe("the client's health in the back office", () => {
     );
     // QA (2026-11-22): counts in words that agree with them, and long ages in days.
     expect(screen.getByTestId("ops-client-health-summary")).toHaveTextContent(
-      "0 of 2 connections need a person · 1 item waiting, oldest 9 days",
+      "0 of 2 connections need a person · 1 item waiting on the client's people, oldest 9 days",
     );
   });
 

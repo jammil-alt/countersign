@@ -135,7 +135,7 @@ export function ClientBillingSection({ clientId }: { clientId: string }) {
             <div className="flex flex-col gap-3">
               <h3 className="font-medium text-ink">This month so far</h3>
               <p className="text-sm text-ink-muted">
-                {periodLabel(m.period.start, m.period.through)} · our cost so far{" "}
+                {periodLabel(m.period.start, m.period.through)} · our cost of the billed work so far{" "}
                 <span className="text-ink" data-testid="ops-client-billing-cost">
                   {cost(c.costUsd)}
                 </span>
