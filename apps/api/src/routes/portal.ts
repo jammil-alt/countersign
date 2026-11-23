@@ -16,6 +16,7 @@ import {
 } from "@countersign/connectors";
 import {
   type AnyAgentBundle,
+  approvalExpired,
   type ConnectorAuth,
   checkKindOf,
   clientLabel,
@@ -581,6 +582,8 @@ export async function portalRunView(
         id: externalAction.id,
         tool: externalAction.tool,
         status: externalAction.status,
+        // S4.5: only to tell "not made: no answer in time"; the error itself never leaves here.
+        error: externalAction.error,
         executedAt: externalAction.executedAt,
         // Step panel (§1.95): the change as the Inbox showed it.
         stepRunId: externalAction.stepRunId,
@@ -749,6 +752,7 @@ export async function portalRunView(
       description: platform.tools.get(a.tool)?.spec.description ?? a.tool,
       display: changeDisplay(platform, a.tool),
       status: a.status,
+      ...(approvalExpired(a) ? { expired: true } : {}),
       // Follow-up 9: the time a change was made; one not done (claimed, failed) shows none.
       executedAt: a.status === "done" ? iso(a.executedAt) : null,
       stepRunId: a.stepRunId,
