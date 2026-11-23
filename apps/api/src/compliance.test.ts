@@ -3,7 +3,7 @@
 // on, offering connectors, the run-time tool policy and model guard) and retiring a client.
 
 import { createTwilioConnector, MemoryObjectStore } from "@countersign/connectors";
-import { parseCoveredProcessors } from "@countersign/core";
+import { AUDIT_REFRESH_HEADER, parseCoveredProcessors } from "@countersign/core";
 import { auditEvent, tenant } from "@countersign/db";
 import type { LlmTransport } from "@countersign/llm";
 import { and, eq, sql } from "drizzle-orm";
@@ -92,6 +92,30 @@ describe.skipIf(!h)("compliance", () => {
       const next = await call(OPERATOR, "GET", `/api/ops/audit?limit=1&before=${body.nextBefore}`);
       const older = (next.json as { events: { id: string }[] }).events[0];
       expect(older && older.id < body.nextBefore).toBe(true);
+    });
+
+    // S6.9: the log says what happened in words and names what each id is; a page's poll is
+    // kept, tagged as a refresh.
+    it("reads in words with names, and tags a page's refresh", async () => {
+      await call(OPERATOR, "GET", `/api/ops/clients/${A.tenantId}/compliance`);
+      await call(OPERATOR, "GET", `/api/ops/clients/${A.tenantId}/compliance`, undefined, {
+        [AUDIT_REFRESH_HEADER]: "1",
+      });
+      const res = await call(
+        OPERATOR,
+        "GET",
+        `/api/ops/audit?limit=2&action=${encodeURIComponent("GET /api/ops/clients/:id/compliance")}`,
+      );
+      expect(res.status).toBe(200);
+      const [polled, opened] = (res.json as { events: Record<string, unknown>[] }).events;
+      expect(opened).toMatchObject({
+        words: expect.not.stringMatching(/\/api|:id/),
+        names: { id: "Client A" },
+        refresh: false,
+        actor: { name: expect.any(String) },
+      });
+      expect(polled).toMatchObject({ refresh: true, target: { id: A.tenantId, refresh: "1" } });
+      expect(String(opened?.words)).toMatch(/^Viewed /);
     });
 
     it("reviews access: each user, their roles, and when they were last seen", async () => {

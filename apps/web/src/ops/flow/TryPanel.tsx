@@ -251,8 +251,11 @@ export function TryPanel({
   /** Reads the run until it ends, handing on its marks each time. */
   async function follow(id: string, mine: number) {
     const until = Date.now() + FOLLOW_MS;
+    // Each read after the first follows the run on screen: a refresh, not an open (S6.9).
+    let refresh = false;
     for (;;) {
-      const run: TryRun = await api.call(apiRoutes.opsRun, { params: { id } });
+      const run: TryRun = await api.call(apiRoutes.opsRun, { params: { id }, refresh });
+      refresh = true;
       if (gen.current !== mine) return;
       setLast(run);
       // A step outside the ones picked wasn't skipped by the run: it was never part of the test.

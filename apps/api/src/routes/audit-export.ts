@@ -5,7 +5,14 @@
 // a page at a time, each page in its own client-scoped transaction after the request's commits,
 // so a year of rows never sits in memory; a request covers at most 366 days.
 
-import { type AuditPeriod, isPlainObject, type RunAuditEntry, routes } from "@countersign/core";
+import {
+  AUDIT_VISIT_MINUTES,
+  type AuditPeriod,
+  isAuditRefresh,
+  isPlainObject,
+  type RunAuditEntry,
+  routes,
+} from "@countersign/core";
 import {
   appUser,
   auditEvent,
@@ -246,6 +253,11 @@ function resolutionKind(resolution: unknown): RunAuditEntry["kind"] {
   return "answered";
 }
 
+// DECISION (S6.9, owner D6): a person's opens of a run within 30 minutes of the one before count
+// as one visit, so a page left open (polled every 2 seconds before refreshes were tagged) reads
+// "opened this run" once, not 182 times. Every row is still in the log and the CSV export.
+const VISIT_MS = AUDIT_VISIT_MINUTES * 60_000;
+
 /** At most this many audit rows make one run's trail (a page polled for days stays bounded). */
 const TRAIL_MAX_ROWS = 5000;
 
@@ -308,6 +320,8 @@ export async function runAuditTrail(
   type Line = Omit<RunAuditEntry, "times"> & { order: number };
   const lines: Line[] = [];
   for (const e of rows) {
+    // The page's own refresh while it is open (its poll) is not the person opening it again.
+    if (isAuditRefresh(e.target)) continue;
     const n = nameOf(people, {
       kind: e.actorKind,
       userId: e.actorUserId,
@@ -339,13 +353,17 @@ export async function runAuditTrail(
   }
   lines.sort((a, b) => a.order - b.order);
   const out: RunAuditEntry[] = [];
-  for (const { order: _o, ...l } of lines) {
+  // When the person last opened the run, for each line: opens within AUDIT_VISIT_MINUTES of the
+  // one before are the same visit (D6).
+  let lastOpen = 0;
+  for (const { order, ...l } of lines) {
     const prev = out.at(-1);
     if (prev && prev.who === l.who && prev.kind === l.kind && prev.itemId === l.itemId) {
-      prev.times += 1;
+      if (l.kind !== "opened_run" || order - lastOpen > VISIT_MS) prev.times += 1;
     } else {
       out.push({ ...l, times: 1 });
     }
+    if (l.kind === "opened_run") lastOpen = order;
   }
   return out;
 }
