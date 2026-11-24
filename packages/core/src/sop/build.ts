@@ -325,6 +325,9 @@ export function sopTriggerWords(
       const name = from?.agent ? agentName(from.agent) : null;
       return name ? `${name} hands over to it` : "Another agent hands over to it";
     }
+    // Collect reports (owner, 2026-11-24)
+    case "report":
+      return "The first report arrives by email";
     default:
       return "It is started";
   }

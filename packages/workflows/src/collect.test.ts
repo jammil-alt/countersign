@@ -1,6 +1,6 @@
 // Collect reports (owner, 2026-11-24): a step that waits for several reports, each from its own
 // owner, checks each in code, follows up, and escalates a late one.
-import type { processes } from "@countersign/core";
+import { processes } from "@countersign/core";
 import { describe, expect, it } from "vitest";
 import { executeWorkflow } from "./executor";
 import { FakeStepRunner } from "./fake-runner";
@@ -81,8 +81,20 @@ function checks() {
       calls.push(req);
       const bad = req.documentIds.some((d) => d.includes("bad"));
       return bad
-        ? { ok: false, problems: ["bank.csv has 1 row; we need at least 2."], documents: [] }
-        : { ok: true, problems: [], documents: req.documentIds };
+        ? {
+            ok: false,
+            problems: ["bank.csv has 1 row; we need at least 2."],
+            documents: [],
+            rows: [],
+          }
+        : {
+            ok: true,
+            problems: [],
+            documents: req.documentIds,
+            rows: req.documentIds.map((d) => ({ doc: d, amount: "1.00" })),
+            // "doc-mailed…" came by email, its sender unproven; anything else through the link.
+            senderProven: req.documentIds.some((d) => d.startsWith("doc-mailed")) ? false : null,
+          };
     },
   };
   return { port, calls };
@@ -145,6 +157,47 @@ describe("collecting reports", () => {
     expect(h.agentCalls.find((c) => c.step.id === "rec")?.input).toEqual({
       documents: ["doc-bank", "doc-card"],
     });
+  });
+
+  it("hands on each report's checked rows by its id, so nothing reads the files again", async () => {
+    const { h } = harness({
+      "c1:0:r1:ask": { outcome: "submitted", documents: ["doc-bank"] },
+      "c1:1:r1:ask": { outcome: "submitted", documents: ["doc-card"] },
+    });
+    const { port } = checks();
+    const match = {
+      id: "match",
+      kind: "skill",
+      name: "Match",
+      skill: "custom:match",
+      input: {
+        bank: "{{steps.c1.output.reports.bank.rows}}",
+        card: "{{steps.c1.output.reports.card.rows}}",
+      },
+    };
+    const result = await executeWorkflow(
+      new FakeStepRunner(),
+      h.context({ collect: port }),
+      proc([collect(), match]),
+      {},
+    );
+    expect(result.status).toBe("succeeded");
+    expect(h.agentCalls.find((c) => c.step.id === "match")?.input).toEqual({
+      bank: [{ doc: "doc-bank", amount: "1.00" }],
+      card: [{ doc: "doc-card", amount: "1.00" }],
+    });
+    expect(h.row("c1")?.output).toMatchObject({
+      reports: {
+        bank: { status: "received", documents: ["doc-bank"], rowCount: 1 },
+        card: { status: "received", documents: ["doc-card"], rowCount: 1 },
+      },
+    });
+    expect(h.row("c1")?.output).toMatchObject({
+      reports: { bank: { senderProven: null }, card: { senderProven: null } },
+    });
+    // The rows are kept once, under `reports`, not in the list of reports too.
+    const output = h.row("c1")?.output as { items: object[] } | undefined;
+    expect(output?.items[0]).not.toHaveProperty("rows");
   });
 
   it("asks again with the reasons when a file fails its checks", async () => {
@@ -237,6 +290,55 @@ describe("collecting reports", () => {
         { id: "card", status: "not_sent", problems: ["no consent for email"] },
       ],
     });
+  });
+});
+
+describe("a report emailed to the step", () => {
+  it("says the sender wasn't proven, for whoever reviews the run", async () => {
+    const { h } = harness({
+      "c1:0:r1:ask": { outcome: "submitted", documents: ["doc-mailed-bank"] },
+    });
+    const { port } = checks();
+    const result = await executeWorkflow(
+      new FakeStepRunner(),
+      h.context({ collect: port }),
+      proc([collect({ items: [report("bank")] })]),
+      {},
+    );
+    expect(result.status).toBe("succeeded");
+    expect(h.row("c1")?.output).toMatchObject({
+      complete: true,
+      reports: { bank: { status: "received", senderProven: false } },
+    });
+  });
+});
+
+describe("the step's email address", () => {
+  it("names the step's address in every link, asked once", async () => {
+    const { h, asks } = harness({
+      "c1:0:r2:ask": { outcome: "submitted", documents: ["doc-bank"] },
+    });
+    const { port } = checks();
+    const asked: unknown[] = [];
+    const withAddress: CollectPort = {
+      ...port,
+      address: async (req) => {
+        asked.push(req);
+        return `remy.acme-x+${req.stepId.toLowerCase()}@in.mezonas.test`;
+      },
+    };
+    const result = await executeWorkflow(
+      new FakeStepRunner(),
+      h.context({ collect: withAddress }),
+      proc([collect({ items: [report("bank")] })]),
+      {},
+    );
+    expect(result.status).toBe("succeeded");
+    expect(asked).toEqual([{ tenantId: RUN.tenantId, agentId: RUN.agentId, stepId: "c1" }]);
+    expect(asks.map((a) => (a.input as { purpose: string }).purpose)).toEqual([
+      expect.stringContaining("You can also email it to remy.acme-x+c1@in.mezonas.test."),
+      expect.stringContaining("You can also email it to remy.acme-x+c1@in.mezonas.test."),
+    ]);
   });
 });
 
@@ -375,5 +477,96 @@ describe("replay", () => {
     expect(again.status).toBe("succeeded");
     expect(asks).toHaveLength(2);
     expect(calls).toHaveLength(2);
+  });
+});
+
+describe("started by a report (the report trigger)", () => {
+  const started = (item: string, documents: string[]) => ({
+    report: {
+      step: "c1",
+      item,
+      documents,
+      contactId: "0192f7a0-0000-7000-8000-00000000d001",
+      proven: true,
+      receivedAt: "2026-12-01T09:00:00.000Z",
+    },
+  });
+
+  it("takes the report that started it and the other one emailed meanwhile: no link goes out", async () => {
+    const { h, asks } = harness({});
+    const { port, calls } = checks();
+    const runner = new FakeStepRunner();
+    // The card statement came by email while the run listened.
+    runner.deliver(processes.reportEventType("c1", "card"), { documents: ["doc-card"] });
+    const result = await executeWorkflow(
+      runner,
+      h.context({ collect: port }),
+      proc([collect(), reconcile]),
+      started("bank", ["doc-bank"]),
+    );
+    expect(result.status).toBe("succeeded");
+    expect(asks).toEqual([]);
+    expect(calls.map((c) => c.documentIds).sort()).toEqual([["doc-bank"], ["doc-card"]]);
+    expect(h.row("c1")?.output).toMatchObject({ complete: true, received: 2 });
+    // Once every report is in, the process goes on.
+    expect(h.agentCalls.find((c) => c.step.id === "rec")?.input).toEqual({
+      documents: ["doc-bank", "doc-card"],
+    });
+  });
+
+  it("follows up on a report that didn't come in time, as a reminder", async () => {
+    const { h, asks } = harness({
+      "c1:1:r1:ask": { outcome: "submitted", documents: ["doc-card"] },
+    });
+    const { port } = checks();
+    const result = await executeWorkflow(
+      new FakeStepRunner({ onWait: "timeout" }),
+      h.context({ collect: port }),
+      proc([collect()]),
+      started("bank", ["doc-bank"]),
+    );
+    expect(result.status).toBe("succeeded");
+    // Only the late report gets a link, and it reads as a follow-up.
+    expect(asks.map((a) => a.nodeId)).toEqual(["c1:1:r1:ask"]);
+    expect(asks[0]?.input).toMatchObject({ purpose: expect.stringMatching(/^A reminder:/) });
+    expect(asks[0]?.step.client?.label).toBe("Followed up on the Card statement");
+    expect(h.row("c1")?.output).toMatchObject({ complete: true });
+  });
+
+  it("asks again with the reasons when the report that started it fails its checks", async () => {
+    const { h, asks } = harness({
+      "c1:0:r1:ask": { outcome: "submitted", documents: ["doc-good"] },
+    });
+    const { port } = checks();
+    const runner = new FakeStepRunner({ onWait: "timeout" });
+    runner.deliver(processes.reportEventType("c1", "card"), { documents: ["doc-card"] });
+    const result = await executeWorkflow(
+      runner,
+      h.context({ collect: port }),
+      proc([collect()]),
+      started("bank", ["doc-bad"]),
+    );
+    expect(result.status).toBe("succeeded");
+    expect(asks.map((a) => a.nodeId)).toEqual(["c1:0:r1:ask"]);
+    expect(asks[0]?.input).toMatchObject({
+      purpose: expect.stringContaining("didn't pass our checks"),
+    });
+  });
+
+  it("listens only on the step its trigger names", async () => {
+    const { h, asks } = harness({
+      "c1:0:r1:ask": { outcome: "submitted", documents: ["doc-bank"] },
+      "c1:1:r1:ask": { outcome: "submitted", documents: ["doc-card"] },
+    });
+    const { port } = checks();
+    const result = await executeWorkflow(
+      new FakeStepRunner(),
+      h.context({ collect: port }),
+      proc([collect()]),
+      { report: { ...started("bank", ["doc-x"]).report, step: "other" } },
+    );
+    expect(result.status).toBe("succeeded");
+    // Not started by its reports: it asks everyone, as a scheduled run does.
+    expect(asks).toHaveLength(2);
   });
 });

@@ -792,7 +792,11 @@ export async function executeRun(
       runtime,
     }),
     // Collect reports (owner, 2026-11-24): what a report's owner sent, checked in code.
-    collect: collectChecks({ db, content: deps.documents?.content }),
+    collect: collectChecks({
+      db,
+      content: deps.documents?.content,
+      domain: deps.forwardingDomain,
+    }),
     // R3: AI reviewers, one model call each.
     confer: { ai: (req) => conferAi(runtime, req) },
     // M61: the agent choosing a path or judging a repeat's pass, on its owner's settings.

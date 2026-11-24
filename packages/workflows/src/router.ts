@@ -60,6 +60,8 @@ export interface RoutableEvent {
 
 /** What `run.trigger` records about why a run started. */
 export type RunTrigger =
+  // Collect reports (owner, 2026-11-24): the first report emailed to a collect step's address.
+  | { triggerId: string; type: "report"; step: string; item: string }
   | {
       triggerId: string;
       type: "event";

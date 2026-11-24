@@ -145,6 +145,9 @@ export function whenWords(on: TriggerOn, labels?: EventLabels): string {
       return on.channels.map(channelWords).join(", ");
     case "handoff":
       return `When ${on.from.agent}${on.from.workflow ? ` (${on.from.workflow})` : ""} finishes a live run`;
+    // Collect reports (owner, 2026-11-24)
+    case "report":
+      return "When the first report arrives by email";
   }
 }
 

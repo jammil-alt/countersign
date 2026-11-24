@@ -310,6 +310,19 @@ export const HandoffTriggerOn = z.object({
 });
 // ── end v0.12 W2-E ──
 
+/**
+ * Collect reports (owner, 2026-11-24): "a trigger where any report starts the process and all the
+ * other reports start listening… once we receive all of them we kick off the process". The first
+ * report emailed to a collect step's address (the agent's own with `+<step id>`) starts a run;
+ * that step, the process's first, takes it and listens for the others, each on its own rules.
+ * Only a v4 process takes one (validation), once, naming its first step.
+ */
+export const ReportTriggerOn = z.object({
+  type: z.literal("report"),
+  /** The collect step it starts: the process's first step. */
+  step: NodeId,
+});
+
 export const TriggerOn = z.discriminatedUnion("type", [
   z.object({ type: z.literal("event"), event: z.string().min(1), filter: Rules.optional() }),
   z.object({
@@ -345,6 +358,8 @@ export const TriggerOn = z.discriminatedUnion("type", [
   WebhookTriggerOn,
   MessageTriggerOn,
   HandoffTriggerOn,
+  // Collect reports (owner, 2026-11-24)
+  ReportTriggerOn,
 ]);
 export type TriggerOn = z.infer<typeof TriggerOn>;
 

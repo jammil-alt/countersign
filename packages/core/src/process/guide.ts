@@ -194,7 +194,7 @@ export const STEP_GUIDE: { readonly [K in StepKind]: StepGuideEntry } = {
   },
   collect: {
     use: "Wait for files (reports) from named people on a schedule: each report has an owner, the period it covers, its format (PDF, spreadsheet, image), a due date and follow-ups. Each owner gets a link to send the file; what comes back is checked in code; a late report is escalated.",
-    mind: 'Its owners are fixed in the step ("seat:<role>" each client fills, or a person), at most 20 reports. It collects files, not answers: asking each person in a list for answers through a form is a for_each with a Request info skill step (forms.request). Later steps read {{steps.<id>.output.documents}}.',
+    mind: 'Its owners are fixed in the step ("seat:<role>" each client fills, or a person), at most 20 reports. It collects files, not answers: asking each person in a list for answers through a form is a for_each with a Request info skill step (forms.request). Later steps read each report by its id: {{steps.<id>.output.reports.<report id>.rows}} (a checked spreadsheet\'s rows) and .documents (its files).',
     example: {
       id: "collect_reports",
       kind: "collect",
@@ -278,6 +278,11 @@ export const TRIGGER_GUIDE: { readonly [K in TriggerKind]: TriggerGuideEntry } =
     use: "Another system posts to one of the client's inbound hooks.",
     mind: 'It names the hook ("hookId"); its delivery is {{trigger.data.<field>}}; a "dedupeKey" starts one run per key.',
     example: { type: "webhook", hookId: "01a20000-0000-7000-8000-000000000001" },
+  },
+  report: {
+    use: "The reports themselves start the work: the first report emailed to a collect step's address starts a run, and that step (the process's first) waits for the others.",
+    mind: '"step" names that collect step, which must be the first step; each report\'s "due" then counts from the first report, and a report gets a link only once it is late.',
+    example: { type: "report", step: "collect_reports" },
   },
   handoff: {
     use: "Another agent of the same client hands work to this one.",

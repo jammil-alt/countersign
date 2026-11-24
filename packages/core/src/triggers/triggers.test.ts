@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { Workflow } from "../schemas/workflow";
 import { triggerSchema } from "../template/typer";
 import { validateWorkflow } from "../workflow/validate";
-import { agentAddress, parseAgentAddress, sameAgentAddress } from "./address";
+import { agentAddress, agentStepAddress, parseAgentAddress, sameAgentAddress } from "./address";
 import { INBOUND_TEXT_MAX, inboundText } from "./inbound";
 import { acceptingTriggers, acceptsSloan, passToAgentEvent } from "./kinds";
 import { matchesPeople } from "./people";
@@ -25,6 +25,7 @@ describe("the agent's address", () => {
       tenantId: CLIENT,
       commandName: "remy",
       label: "anas-millwork-in",
+      tag: null,
     });
     expect(parseAgentAddress(a.toUpperCase(), DOMAIN)?.tenantId).toBe(CLIENT);
     expect(parseAgentAddress(a, "other.test")).toBeNull();
@@ -39,6 +40,26 @@ describe("the agent's address", () => {
     });
     expect(sameAgentAddress(forged, a)).toBe(false);
     expect(sameAgentAddress(a.replace("@", "+x@"), a)).toBe(true);
+  });
+
+  it("names one of its steps with +<step id> (collect reports)", () => {
+    const a = agentAddress({
+      commandName: "remy",
+      clientName: "Ana's Millwork, Inc.",
+      tenantId: CLIENT,
+      domain: DOMAIN,
+    });
+    const step = agentStepAddress(a, "Collect_1");
+    expect(step).toBe(a.replace("@", "+collect_1@"));
+    // A step's address of a step's address replaces the tag.
+    expect(agentStepAddress(step, "c2")).toBe(a.replace("@", "+c2@"));
+    expect(parseAgentAddress(step, DOMAIN)).toMatchObject({
+      commandName: "remy",
+      tag: "collect_1",
+    });
+    expect(sameAgentAddress(step, a)).toBe(true);
+    // A tag that couldn't be a step id is no tag.
+    expect(parseAgentAddress(a.replace("@", "+x.y@"), DOMAIN)?.tag).toBeNull();
   });
 });
 

@@ -1846,10 +1846,14 @@ function TriggerInspector(props: InspectorProps & { trigger: Trigger }) {
           onChange={(e) => {
             const type = e.target.value as TriggerOn["type"];
             const first = events[0]?.type;
+            // Collect reports: the workflow's first collect step (it must come first).
+            const collect = workflow.steps.find((s) => s.kind === "collect");
             const next =
               type === "event" && first
                 ? { type, event: first }
-                : DEFAULT_ON[type as keyof typeof DEFAULT_ON];
+                : type === "report"
+                  ? { type, step: collect?.id ?? "" }
+                  : DEFAULT_ON[type as keyof typeof DEFAULT_ON];
             set(next as TriggerOn, "trigger:type");
           }}
         >
@@ -1857,6 +1861,8 @@ function TriggerInspector(props: InspectorProps & { trigger: Trigger }) {
           <option value="schedule">On a schedule</option>
           <option value="manual">By hand</option>
           <option value="command">From a thread command</option>
+          {/* Collect reports (owner, 2026-11-24) */}
+          <option value="report">When a report arrives by email</option>
           {/* v0.12 W2-E: shown when the bundle has one; set in the bundle for now. */}
           <option value="webhook" disabled>
             When a webhook arrives
@@ -1930,6 +1936,34 @@ function TriggerInspector(props: InspectorProps & { trigger: Trigger }) {
       ) : null}
       {on.type === "webhook" ? (
         <WebhookSample on={on} errors={fieldErrors} onChange={(next, key) => set(next, key)} />
+      ) : null}
+      {on.type === "report" ? (
+        <>
+          <Row label="Reports for" field="on.step" errors={fieldErrors}>
+            <SmallSelect
+              data-field="on.step"
+              data-testid="builder-trigger-report-step"
+              value={on.step}
+              onChange={(e) => set({ ...on, step: e.target.value }, "trigger:step")}
+            >
+              {on.step && workflow.steps.some((s) => s.id === on.step) ? null : (
+                <option value={on.step}>Choose a collect step…</option>
+              )}
+              {workflow.steps
+                .filter((s) => s.kind === "collect")
+                .map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.name}
+                  </option>
+                ))}
+            </SmallSelect>
+          </Row>
+          <p className="text-sm text-ink-muted" data-testid="builder-trigger-report-help">
+            The first report emailed to that step's address starts a run. The step, first in the
+            workflow, then listens for the other reports, each on its own rules, and the rest of the
+            workflow runs once they are in.
+          </p>
+        </>
       ) : null}
       {on.type === "command" ? (
         <Row label="Command" field="on.command" errors={fieldErrors}>

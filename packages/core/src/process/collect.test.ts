@@ -8,9 +8,11 @@ import {
   linkClosesAt,
   linkWindow,
   type ReportFile,
+  reportEventType,
   reportFormatOf,
   reportPeriod,
   requestPurpose,
+  triggerReport,
 } from "./collect";
 import { CollectStep } from "./schema";
 import { whoRefsOfStep } from "./seats";
@@ -162,7 +164,16 @@ describe("checking what came in", () => {
         { date: "2026-11-30", amount: "5.00" },
       ]),
     ]);
-    expect(r).toEqual({ ok: true, problems: [], documents: ["d1"] });
+    expect(r).toEqual({
+      ok: true,
+      problems: [],
+      documents: ["d1"],
+      // The rows are handed on as they were read.
+      rows: [
+        { date: "2026-11-01", amount: "10.00" },
+        { date: "2026-11-30", amount: "5.00" },
+      ],
+    });
   });
 
   it("refuses nothing sent, the wrong format, a missing column, too few rows, dates outside", () => {
@@ -214,6 +225,28 @@ describe("what the owner is asked", () => {
     expect(requestPurpose({ item: i, period, send: 2, problems: ["bank.csv has 1 row."] })).toMatch(
       /^The file we got for the Bank statement for November 2026 didn't pass our checks: bank\.csv has 1 row\. Please send it again\./,
     );
+  });
+});
+
+describe("the step's address in what the owner is asked", () => {
+  it("says they may email it, and never cuts the address", () => {
+    const i = item();
+    const email = "remy.acme-aaaaaaaaaaaaaaaaaaaaaaaaaa+c1@in.mezonas.com";
+    const text = requestPurpose({ item: i, period: null, send: 1, email });
+    expect(text).toContain(`You can also email it to ${email}.`);
+    const long = requestPurpose({
+      item: i,
+      period: null,
+      send: 2,
+      email,
+      problems: Array.from(
+        { length: 10 },
+        (_, k) => `bank-${k}.csv has a problem that goes on for a while.`,
+      ),
+    });
+    expect(long.length).toBeLessThanOrEqual(500);
+    expect(long).toContain(`You can also email it to ${email}.`);
+    expect(requestPurpose({ item: i, period: null, send: 1 })).not.toContain("email");
   });
 });
 
@@ -302,6 +335,92 @@ describe("validation", () => {
     expect(codes(processOf([bad]))).toEqual(
       expect.arrayContaining(["collect_owner", "input_not_fixed", "collect_item_ids"]),
     );
+  });
+
+  it("types each report's rows by its columns for the steps after it", () => {
+    const withColumns = step({
+      items: [
+        {
+          ...(step().items[0] as Record<string, unknown>),
+          formats: ["spreadsheet"],
+          columns: [
+            { field: "date", headers: ["Date"], type: "date", required: true },
+            { field: "amount", headers: ["Amount"], type: "money", required: true },
+          ],
+        },
+      ],
+    });
+    const reads = (path: string) =>
+      processOf([
+        withColumns,
+        {
+          id: "n1",
+          kind: "notify",
+          name: "Tell",
+          notify: { to: ["client_admin"], message: `{{steps.c1.output.reports.${path}}}` },
+        },
+      ]);
+    expect(codes(reads("bank.rows.0.amount"))).toEqual([]);
+    expect(codes(reads("bank.rowCount"))).toEqual([]);
+    expect(codes(reads("bank.rows.0.vendor"))).not.toEqual([]);
+    expect(codes(reads("card.rows"))).not.toEqual([]);
+  });
+
+  it("takes a report trigger only on the first step, a collect step, once", () => {
+    const withTrigger = (steps: unknown[], triggers: unknown[]) => ({
+      schemaVersion: 4,
+      triggers,
+      steps,
+    });
+    const report = { id: "t1", on: { type: "report", step: "c1" } };
+    const notify = {
+      id: "n1",
+      kind: "notify",
+      name: "Tell",
+      notify: { to: ["client_admin"], message: "{{steps.c1.output.summary}}" },
+    };
+    expect(codes(withTrigger([step(), notify], [report]))).toEqual([]);
+    // Not first, not a collect step, twice.
+    expect(codes(withTrigger([notify, step()], [report]))).toContain("report_trigger");
+    expect(
+      codes(withTrigger([step(), notify], [{ id: "t1", on: { type: "report", step: "n1" } }])),
+    ).toContain("report_trigger");
+    expect(
+      codes(
+        withTrigger([step(), notify], [report, { id: "t2", on: { type: "report", step: "c1" } }]),
+      ),
+    ).toContain("report_trigger");
+  });
+
+  it("types what a report trigger starts a run with", () => {
+    const p = processOf([
+      step(),
+      {
+        id: "n1",
+        kind: "notify",
+        name: "Tell",
+        notify: { to: ["client_admin"], message: "{{trigger.report.item}} came first" },
+      },
+    ]);
+    (p as { triggers: unknown[] }).triggers = [{ id: "t1", on: { type: "report", step: "c1" } }];
+    expect(codes(p)).toEqual([]);
+  });
+
+  it("reads the report a run's trigger brought to its step", () => {
+    const payload = {
+      report: {
+        step: "c1",
+        item: "bank",
+        documents: ["d1"],
+        contactId: "x",
+        proven: false,
+        receivedAt: "2026-12-01T00:00:00Z",
+      },
+    };
+    expect(triggerReport(payload, "c1")).toMatchObject({ item: "bank", documents: ["d1"] });
+    expect(triggerReport(payload, "c2")).toBeNull();
+    expect(triggerReport({}, "c1")).toBeNull();
+    expect(reportEventType("C1", "Bank_1")).toBe("report-c1-bank-1");
   });
 
   it("refuses a list that could take too many steps", () => {
