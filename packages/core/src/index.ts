@@ -78,7 +78,6 @@ export * from "./api/forms";
 export * from "./api/gchat";
 // docs/setup-plan.md (§1.206): Getting started's chapters, seats and the Setup tab.
 export * from "./api/getting-started";
-export * from "./api/sandbox";
 // v0.14 W4-D
 export * from "./api/gsheets";
 // R4: business hours, person hours and channels (docs/plan.md §1.86).
@@ -137,6 +136,7 @@ export * from "./api/run-subject";
 // v0.12 W2-F
 export * from "./api/runs-ask";
 export * from "./api/runs-filter";
+export * from "./api/sandbox";
 // v0.12 W2-F
 export * from "./api/search";
 export * from "./api/second-factor";
