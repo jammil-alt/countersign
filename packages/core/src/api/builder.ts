@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { isUuid } from "../ids";
 import { NodeId, Slug } from "../schemas/common";
+import { TableColumn } from "../schemas/table";
 import { defineRoute } from "./contract";
 
 // v0.12 W3-A: the Builder as a conversation (ARCHITECTURE §9.6; docs/plan.md §1.51). A session holds
@@ -50,6 +51,10 @@ export const BuilderTurnMeta = z.object({
   model: z.string().optional(),
   /** v0.18 (docs/plan.md §1.105): the step the operator was working on, by id and its name then. */
   focus: z.object({ stepId: z.string(), name: z.string() }).optional(),
+  /** A skill turn's sample file, by name and kind (the file itself is never kept). */
+  sample: z
+    .object({ filename: z.string(), kind: z.enum(["table", "document", "other"]) })
+    .optional(),
 });
 export type BuilderTurnMeta = z.infer<typeof BuilderTurnMeta>;
 
@@ -71,6 +76,10 @@ export const BuilderTurnView = z.object({
   createdAt: z.string(),
   /** v0.18: an operator turn sent while working on one step: that step. */
   focus: z.object({ stepId: z.string(), name: z.string() }).optional(),
+  /** A skill turn's sample file, by name and kind. */
+  sample: z
+    .object({ filename: z.string(), kind: z.enum(["table", "document", "other"]) })
+    .optional(),
 });
 export type BuilderTurnView = z.infer<typeof BuilderTurnView>;
 
@@ -105,6 +114,50 @@ export const BuilderSessionView = z.object({
 export type BuilderSessionView = z.infer<typeof BuilderSessionView>;
 
 /** An example the operator attaches to a skill turn: the input, and the answer when known. */
+// A skill's sample file (owner, 2026-11-24: "allow the upload of a file like excel or csv or pdf,
+// jpeg etc ... then with words specify the input and the output"). The operator adds one when
+// describing a skill; the server reads it and the Builder sees it as data. Never stored: like
+// Read table's and Collect reports' samples, it never becomes a client's document.
+
+/** 5 MB of bytes, as base64: the most a sample file is read at. */
+export const SAMPLE_FILE_BASE64_MAX = Math.ceil((5 * 1024 * 1024) / 3) * 4;
+
+/** A sample file as the browser sends it. */
+export const BuilderSampleFile = z.strictObject({
+  filename: z.string().trim().min(1).max(255),
+  /** As the browser declared it; the extension decides when it is generic. */
+  mimeType: z.string().max(200).default(""),
+  base64: z.string().min(1).max(SAMPLE_FILE_BASE64_MAX),
+});
+export type BuilderSampleFile = z.infer<typeof BuilderSampleFile>;
+
+/** The sample kinds: a table read in code, a document a model reads, or neither. */
+export const SAMPLE_KINDS = ["table", "document", "other"] as const;
+
+/** A sample file as read: a table's columns and first rows, as Read table would give them. */
+export const SkillSampleView = z.object({
+  filename: z.string(),
+  mimeType: z.string(),
+  kind: z.enum(SAMPLE_KINDS),
+  table: z
+    .object({
+      /** The worksheet read (an .xlsx file's), and every worksheet it has. */
+      sheet: z.string().nullable(),
+      sheets: z.array(z.string()),
+      /** Read table's expected columns for it: one per header, typed from its rows. */
+      columns: z.array(TableColumn),
+      /** The first rows, keyed by those columns' fields (at most 5). */
+      rows: z.array(z.record(z.string(), z.unknown())),
+      rowCount: z.number().int(),
+      /** Why it couldn't be read whole; null when it could. */
+      failure: z.string().nullable(),
+    })
+    .nullable(),
+  /** Why the file can't be a sample; null when it can. */
+  failure: z.string().nullable(),
+});
+export type SkillSampleView = z.infer<typeof SkillSampleView>;
+
 export const BuilderExample = z.strictObject({
   name: z.string().trim().min(1).max(200).optional(),
   input: z.unknown(),
@@ -188,8 +241,24 @@ export const builderRoutes = {
        * draft (the step the operator has open): the Builder answers about it or changes it.
        */
       focusStepId: z.string().min(1).max(100).optional(),
+      /**
+       * Skill conversations: a sample of what the skill gets. A spreadsheet's columns and first
+       * rows reach the Builder as data (and its first rows become a test case); a PDF or an image
+       * is attached to its model call. Never stored.
+       */
+      sample: BuilderSampleFile.optional(),
     }),
     response: SessionDetail.extend({ turn: BuilderTurnView }),
+  }),
+  opsSkillSample: defineRoute({
+    method: "POST",
+    path: "/api/ops/skills/sample",
+    auth: "session",
+    roles: OPS,
+    summary:
+      "Read a skill's sample file: a spreadsheet's columns and first rows as Read table gives them, or what kind of document it is. Nothing is stored or sent to a model",
+    body: z.strictObject({ file: BuilderSampleFile }),
+    response: SkillSampleView,
   }),
   opsBuilderUndo: defineRoute({
     method: "POST",

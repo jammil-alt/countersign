@@ -677,3 +677,99 @@ describe("untrusted text between the prompt's tags stays data", () => {
     expect(examples[0].input.note).toBe(forged);
   });
 });
+
+// Owner (2026-11-24): a skill described with a sample file of what it gets.
+describe("draft-skill from a sample file", () => {
+  const count = (text: string, tag: string) => text.split(tag).length - 1;
+  const definition = {
+    slug: "filter-ucc-filings",
+    name: "Filter UCC filings",
+    description: "Keeps the filings that matter and says why the rest were taken out",
+    category: "data",
+    mode: "task",
+    model: { id: "claude-haiku-5-5" },
+    instructions: "Remove amendments and refinances.",
+    tools: [],
+    input: { type: "object", properties: { rows: { type: "array" } } },
+    output: {
+      type: "object",
+      properties: { kept: { type: "array" }, removed: { type: "array" } },
+    },
+    settings: [],
+    producesAlerts: false,
+  };
+  const answer = (cases: unknown[]) =>
+    new FakeModel([
+      { toolUse: { name: SKILL_TOOL, input: { text: "Drafted.", gaps: [], definition, cases } } },
+    ]);
+
+  it("shows a spreadsheet's columns and first rows as data, and makes them a test case", async () => {
+    const rows = [
+      { buyer: "Acme Paving", county: "Harris", filing_type: "Original" },
+      { buyer: "Acme Paving", county: "Harris", filing_type: "Amendment" },
+    ];
+    const model = answer([
+      { example: 1, expected: { kept: [rows[0]], removed: [{ ...rows[1], reason: "amendment" }] } },
+    ]);
+    const r = await skillTurn(
+      {
+        current: EMPTY_SKILL_DRAFT,
+        history: [],
+        message: "What it gets: the UCC filings. What it gives back: kept and removed.",
+        examples: [],
+        ctx: context(),
+        sample: {
+          filename: "ucc-october.xlsx",
+          table: {
+            sheet: "Filings",
+            columns: [{ field: "buyer", headers: ["Buyer"], type: "text" }],
+            rows,
+            rowCount: 412,
+          },
+        },
+      },
+      { llm: createLlmClient({ transport: model }), validate: async () => [] },
+    );
+    const prompt = model.requests[0]?.messages[0]?.content as string;
+    expect(count(prompt, "</sample_file>")).toBe(1);
+    const start = prompt.indexOf("<sample_file>\n") + "<sample_file>\n".length;
+    const seen = JSON.parse(prompt.slice(start, prompt.indexOf("\n</sample_file>")));
+    expect(seen).toMatchObject({ filename: "ucc-october.xlsx", sheet: "Filings", rowCount: 412 });
+    expect(seen.firstRows).toEqual(rows);
+    // The sample's rows are the skill's input as Read table gives them: one test case.
+    expect(r.draft.cases).toHaveLength(1);
+    expect(r.draft.cases[0]).toMatchObject({
+      name: "First rows of ucc-october.xlsx",
+      input: { rows },
+    });
+    // The rules say a spreadsheet is never read by a model.
+    expect(JSON.stringify(model.requests[0]?.system)).toContain(
+      "A spreadsheet, CSV or JSON file is never read",
+    );
+  });
+
+  it("attaches a PDF or an image before the words, as data", async () => {
+    const model = answer([]);
+    const block = {
+      type: "document" as const,
+      source: { type: "base64" as const, media_type: "application/pdf" as const, data: "JVBERi0=" },
+    };
+    await skillTurn(
+      {
+        current: EMPTY_SKILL_DRAFT,
+        history: [],
+        message: "What it gets: a lien filing notice. What it gives back: the debtor and the date.",
+        examples: [],
+        ctx: context(),
+        sample: { filename: "notice.pdf", attach: block },
+      },
+      { llm: createLlmClient({ transport: model }), validate: async () => [] },
+    );
+    const content = model.requests[0]?.messages[0]?.content as unknown[];
+    expect(Array.isArray(content)).toBe(true);
+    expect(content[0]).toEqual(block);
+    const text = (content[1] as { text: string }).text;
+    expect(text).toContain("document, attached above");
+    expect(text).toContain("notice.pdf");
+  });
+});

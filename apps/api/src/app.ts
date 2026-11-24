@@ -174,6 +174,7 @@ import {
 } from "./routes/second-factor";
 import { sessionRoutes } from "./routes/session";
 import { signInApprovalRoutes } from "./routes/sign-in-approvals";
+import { opsSkillSampleRoutes } from "./routes/skill-sample";
 // v0.14 W4-C: the Slack channel picker
 import { slackRoutes } from "./routes/slack";
 // §1.150: Sloan by email and text
@@ -298,6 +299,7 @@ export function createApp(deps: AppDeps = defaultDeps): Hono<AppEnv> {
   opsReadTableRoutes(app);
   // Collect reports (owner, 2026-11-24): a report's sample file.
   opsCollectRoutes(app);
+  opsSkillSampleRoutes(app);
   opsIntakeReportRoutes(app);
   opsMergeRoutes(app);
   opsEventRoutes(app);

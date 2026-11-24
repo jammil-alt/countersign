@@ -31,6 +31,7 @@ import { STORABLE_TEXT_MESSAGE, storable, storableJson } from "../text";
 import { WorkBuildStage, WorkWaitingOn } from "../work/pipelines";
 import { RequirementsRequest } from "../work/requirements";
 import { Standing } from "../work/standing";
+import { BuilderSampleFile } from "./builder";
 import { defineRoute } from "./contract";
 import { StepCodeRequest } from "./step-code-request";
 
@@ -368,6 +369,8 @@ export const StartBuild = z
  */
 export const DraftBuildNow = z.strictObject({
   description: storable(z.string().trim().min(1).max(4000)).optional(),
+  /** A skill build: a sample of what the skill gets, for the Builder (never stored). */
+  sample: BuilderSampleFile.optional(),
 });
 
 /**
@@ -573,7 +576,7 @@ export const buildRoutes = {
     auth: "session",
     roles: OPS,
     summary:
-      "Draft an agent build at once from a description (or the brief as it is), without the intake questions or the fit-gap: the Builder decides what it can, a person does what the catalog can't, and the build lands in its draft",
+      "Draft an agent or skill build at once from a description (or the brief as it is), without the intake questions or the fit-gap: the Builder decides what it can, a person does what the catalog can't, and the build lands in its draft. A skill may come with a sample file of what it gets",
     params: IdParams,
     body: DraftBuildNow,
     response: BuildDetail,

@@ -418,65 +418,51 @@ describe("new skill, with the Builder", () => {
     expect(api.calls).not.toContain("GET /api/ops/skills/account.chat");
   });
 
-  it("starts a skill conversation with the first turn and opens it", async () => {
-    const started: unknown[] = [];
-    const turns: unknown[] = [];
-    const { user } = renderAt("/ops/skills/new", {
-      "POST /api/ops/builder/sessions": ({ init }) => {
-        started.push(JSON.parse(String(init.body)));
-        return { session: BUILDER_SESSION({ definition: null, cases: [] }), turns: [] };
-      },
-      [`POST /api/ops/builder/sessions/${SESSION_ID}/turns`]: ({ init }) => {
-        turns.push(JSON.parse(String(init.body)));
-        const t = TURN(2, "builder", "Here's a draft.");
-        return { session: BUILDER_SESSION(DRAFT), turns: [t], turn: t };
-      },
-      [`GET /api/ops/builder/sessions/${SESSION_ID}`]: () => ({
-        session: BUILDER_SESSION(DRAFT),
-        turns: [
-          TURN(1, "operator", "Match a charge to a receipt"),
-          TURN(2, "builder", "Here's a draft.", [
-            { id: "definition", label: "input, output, 1 setting", undone: false },
-          ]),
-        ],
-      }),
-    });
-    await user.selectOptions(
-      await screen.findByTestId("new-skill-scope"),
-      "Only Demo client's agents",
+  // Owner (2026-11-24, "the skill process uses the old flow"): a new skill starts on Describe the
+  // skill (../flow/SkillDescribe.test.tsx has the drafting); here, who it is for and the way out.
+  it("starts a new skill on Describe the skill, shared or one client's", async () => {
+    const { user } = renderAt("/ops/skills/new", {});
+    expect(await screen.findByTestId("skill-describe")).toBeInTheDocument();
+    expect(screen.getByTestId("skill-describe-sample-pick")).toHaveTextContent("Add a sample file");
+    await user.selectOptions(screen.getByTestId("new-skill-scope"), "Only Demo client's agents");
+    expect(screen.getByTestId("new-skill-by-hand")).toHaveAttribute(
+      "href",
+      "/ops/skills/new?by=hand",
     );
-    await user.type(screen.getByTestId("builder-input"), "Match a charge to a receipt");
-    await user.click(screen.getByTestId("builder-attach"));
-    await user.click(screen.getByTestId("builder-examples"));
-    await user.paste('[{"name":"Hafele","input":{"amount":412.5},"expected":{"result":"match"}}]');
-    await user.click(screen.getByTestId("builder-send"));
-
-    await waitFor(() =>
-      expect(screen.getByTestId("location")).toHaveTextContent(
-        `/ops/skills/new?session=${SESSION_ID}`,
-      ),
-    );
-    expect(started).toEqual([{ kind: "skill", clientId: OPERATOR_SESSION.tenants[1]?.id }]);
-    expect(turns).toEqual([
-      {
-        text: "Match a charge to a receipt",
-        examples: [{ name: "Hafele", input: { amount: 412.5 }, expected: { result: "match" } }],
-      },
-    ]);
-    expect(await screen.findByText("Here's a draft.")).toBeInTheDocument();
-    expect(screen.getByTestId("draft-takes-in")).toHaveTextContent("receipts[]");
-    expect(screen.getByTestId("draft-gives-back")).toHaveTextContent("match | none | ask");
   });
 
-  it("refuses examples that aren't JSON", async () => {
-    const { api, user } = renderAt("/ops/skills/new", {});
-    await user.type(await screen.findByTestId("builder-input"), "Match charges");
+  it("sends a turn with examples in an open conversation, and refuses ones that aren't JSON", async () => {
+    const turns: unknown[] = [];
+    const { user } = renderAt(`/ops/skills/new?session=${SESSION_ID}`, {
+      [`GET /api/ops/builder/sessions/${SESSION_ID}`]: () => ({
+        session: BUILDER_SESSION(DRAFT),
+        turns: [TURN(2, "builder", "Here's a draft.")],
+      }),
+      [`POST /api/ops/builder/sessions/${SESSION_ID}/turns`]: ({ init }) => {
+        turns.push(JSON.parse(String(init.body)));
+        const t = TURN(4, "builder", "Added a test.");
+        return { session: BUILDER_SESSION(DRAFT), turns: [t], turn: t };
+      },
+    });
+    await user.type(await screen.findByTestId("builder-input"), "Add this one");
     await user.click(screen.getByTestId("builder-attach"));
     await user.click(screen.getByTestId("builder-examples"));
     await user.paste("not json");
     await user.click(screen.getByTestId("builder-send"));
     expect(await screen.findByText("The examples aren't valid JSON.")).toBeInTheDocument();
-    expect(api.calls).not.toContain("POST /api/ops/builder/sessions");
+    expect(turns).toEqual([]);
+    await user.clear(screen.getByTestId("builder-examples"));
+    await user.click(screen.getByTestId("builder-examples"));
+    await user.paste('[{"name":"Hafele","input":{"amount":412.5},"expected":{"result":"match"}}]');
+    await user.click(screen.getByTestId("builder-send"));
+    await waitFor(() =>
+      expect(turns).toEqual([
+        {
+          text: "Add this one",
+          examples: [{ name: "Hafele", input: { amount: 412.5 }, expected: { result: "match" } }],
+        },
+      ]),
+    );
   });
 
   it("undoes a change, shows the drafted tests and saves the draft", async () => {

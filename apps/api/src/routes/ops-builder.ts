@@ -115,6 +115,7 @@ import {
   operatorSkills,
   SPLIT_MODEL_TOOLS,
 } from "./ops-lineage";
+import { readSkillSample } from "./skill-sample";
 
 type Ctx = HandlerCtx<never>;
 
@@ -864,6 +865,15 @@ function builderSessionRoutes(app: Hono<AppEnv>): void {
       }
       const current = SkillDraft.parse(s.bundle);
       const bctx = await builderContext(ctx, s.tenantId);
+      // A sample of what the skill gets: read here, seen by the Builder, never stored.
+      const sample = body.sample ? readSkillSample(body.sample) : null;
+      if (sample && !sample.forBuilder) {
+        throw new HttpError(
+          422,
+          "sample_unreadable",
+          sample.view.failure ?? `${body.sample?.filename} couldn't be read`,
+        );
+      }
       const result = await skillTurn(
         {
           current,
@@ -872,11 +882,19 @@ function builderSessionRoutes(app: Hono<AppEnv>): void {
           examples: body.examples ?? [],
           ctx: { ...bctx, models: knownModelIds() },
           turnId: builderTurnId,
+          ...(sample?.forBuilder ? { sample: sample.forBuilder } : {}),
         },
         { llm, validate: async () => [] },
       ).catch(builderHttpError);
       const changes = skillChanges(current, result.draft);
-      await addTurn(tx, s, { role: "operator", text: body.text });
+      await addTurn(tx, s, {
+        role: "operator",
+        text: body.text,
+        // The sample's name and kind only: the file itself is never kept.
+        ...(sample
+          ? { meta: { sample: { filename: sample.view.filename, kind: sample.view.kind } } }
+          : {}),
+      });
       const turn = await addTurn(tx, s, {
         id: builderTurnId,
         role: "builder",
@@ -900,6 +918,9 @@ function builderSessionRoutes(app: Hono<AppEnv>): void {
 
     if (body.examples?.length) {
       throw new HttpError(422, "invalid_request", "examples go with a skill conversation");
+    }
+    if (body.sample) {
+      throw new HttpError(422, "invalid_request", "a sample file goes with a skill conversation");
     }
     const working = asProcesses(ctx, s.bundle);
     const { row, validateAs } = await sessionAgent(ctx, s);
