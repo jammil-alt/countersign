@@ -176,3 +176,51 @@ describe("runSkillCase", () => {
     expect(notPure.error).toMatch(/pure handler/);
   });
 });
+
+// Check the skill (owner, 2026-11-24): a draft tried on a sample PDF reads it from memory.
+describe("runSkillCase with a sample document", () => {
+  const reader: SkillDefinition = {
+    ...skill,
+    id: "custom:read-notice",
+    mode: "task",
+    model: { id: "claude-haiku-5-5" },
+    tools: [],
+    instructions: "Read the debtor's name.",
+    input: {
+      type: "object",
+      properties: { notice: { type: "string", "x-document": true } },
+      required: ["notice"],
+    },
+    output: { type: "object", properties: { debtor: { type: "string" } }, required: ["debtor"] },
+  };
+
+  it("attaches the file the try brought, and only that one", async () => {
+    const model = new FakeModel([{ toolUse: { name: "finish", input: { debtor: "Acme" } } }]);
+    const run = await runSkillCase(
+      { tools: registry().tools, transport: model },
+      {
+        definition: reader,
+        tenantId: null,
+        input: { notice: "sample" },
+        fixtures: [],
+        files: [
+          {
+            documentId: "sample",
+            filename: "notice.pdf",
+            mimeType: "application/pdf",
+            bytes: new TextEncoder().encode("%PDF-1.4"),
+          },
+        ],
+      },
+    );
+    expect(run).toMatchObject({ status: "succeeded", output: { debtor: "Acme" } });
+    expect(JSON.stringify(model.requests[0]?.messages)).toContain('"media_type":"application/pdf"');
+
+    const missing = await runSkillCase(
+      { tools: registry().tools, transport: new FakeModel([]) },
+      { definition: reader, tenantId: null, input: { notice: "other" }, fixtures: [], files: [] },
+    );
+    expect(missing.status).toBe("failed");
+    expect(missing.error).toContain("reading a document is not available here");
+  });
+});

@@ -7,16 +7,17 @@
 // Builder drafts it from these words, with no questions first. Left empty, the build starts with
 // the Builder's questions as before.
 // Owner (2026-11-21, docs/plan.md §1.170): a new template or client agent opens on Describe it
-// (../flow/DescribeScreen), then Check the steps, then the chart. A skill keeps this form.
+// (../flow/DescribeScreen), then Check the steps, then the chart.
+// Owner (2026-11-24, "the skill process uses the old flow"): a skill opens on Describe the skill
+// (../flow/SkillDescribe): a sample file and, in words, what it gets and gives back.
 import { useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { apiRoutes } from "../../api/routes";
 import { useApi, useApiClient } from "../../api/useApi";
 import { ErrorNotice } from "../../ui/ErrorState";
-import { Field, Select, TextInput } from "../../ui/forms";
-import { Button, Card } from "../../ui/primitives";
+import { Field, Select } from "../../ui/forms";
 import { DescribeScreen, readDescribeAgain } from "../flow/DescribeScreen";
-import { buildPath } from "./words";
+import { SkillDescribe } from "../flow/SkillDescribe";
 
 /** What a new build makes: a template (an agent for every client), one client's agent, a skill. */
 export const NEW_KINDS = ["template", "client", "skill"] as const;
@@ -27,8 +28,6 @@ const KIND_WORDS: Record<NewKind, string> = {
   client: "Client agent",
   skill: "Skill",
 };
-
-const PLACEHOLDER = "Group invoices by customer";
 
 /**
  * What the build's page reads from the router to draft at once (`BuildView`'s intake). New agent
@@ -49,19 +48,15 @@ export function NewBuild({
   initial?: NewKind;
   onCancel(): void;
 }) {
-  const api = useApiClient();
-  const navigate = useNavigate();
+  const _api = useApiClient();
+  const _navigate = useNavigate();
   // "Back to the description" from Check the steps: the words, and the client, as they were.
   const again = readDescribeAgain(useLocation().state);
   const clients = useApi(apiRoutes.opsClients, { query: { view: "names" } });
   const [kind, setKind] = useState<NewKind>(initial);
-  const [title, setTitle] = useState("");
   const [clientId, setClientId] = useState(again?.clientId ?? "");
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<unknown>(null);
   // A client agent is for one client; a template is for every client; a skill may be either.
   const needsClient = kind === "client" && !clientId;
-  const ready = !!title.trim() && !needsClient;
   const clientList = clients.data?.clients ?? [];
   // FLOW-8 (QA 2026-11-19): Start was off for a client agent with no client picked, and the only
   // word why was a tooltip. Said on the form: the clients couldn't be read, there's none to pick,
@@ -79,24 +74,6 @@ export function NewBuild({
     ) : (
       "Pick the client it's for."
     );
-  async function start() {
-    setBusy(true);
-    setError(null);
-    try {
-      const out = await api.call(apiRoutes.opsStartBuild, {
-        body: {
-          kind: "skill",
-          title: title.trim(),
-          ...(kind !== "template" && clientId ? { clientId } : {}),
-        },
-      });
-      navigate(buildPath(out.build.id));
-    } catch (e) {
-      setError(e);
-    } finally {
-      setBusy(false);
-    }
-  }
   const kindSwitch = (
     <fieldset className="ds-seg self-end" aria-label="What it builds">
       {NEW_KINDS.map((k) => (
@@ -129,16 +106,11 @@ export function NewBuild({
         </Select>
       </Field>
     );
-  if (kind !== "skill") {
+  if (kind === "skill") {
     return (
       <section data-testid="builds-start">
-        <DescribeScreen
-          kind={kind}
+        <SkillDescribe
           clientId={clientId || null}
-          blocked={needsClient}
-          initialName={again?.name}
-          initialWords={again?.words}
-          buildId={again?.buildId ?? null}
           onCancel={onCancel}
           header={
             <div className="flex flex-col gap-2">
@@ -146,11 +118,6 @@ export function NewBuild({
                 {kindSwitch}
                 {clientPicker}
               </div>
-              {why ? (
-                <span className="text-sm text-ink-muted" data-testid="builds-start-why">
-                  {why}
-                </span>
-              ) : null}
               {clientsFailed ? (
                 <ErrorNotice error={clients.error} onRetry={clients.reload} />
               ) : null}
@@ -161,50 +128,30 @@ export function NewBuild({
     );
   }
   return (
-    <Card pad testId="builds-start">
-      <form
-        className="flex flex-col gap-4"
-        onSubmit={(e) => {
-          e.preventDefault();
-          if (ready) void start();
-        }}
-      >
-        <p className="text-sm text-ink-muted">
-          It starts as a build: the brief, the fit-gap, the draft and a test.
-        </p>
-        <div className="flex flex-wrap gap-4">
-          {kindSwitch}
-          <Field label="What it's called" className="min-w-0 flex-1">
-            <TextInput
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              placeholder={PLACEHOLDER}
-              data-testid="builds-start-title"
-            />
-          </Field>
-          {clientPicker}
-        </div>
-        {clientsFailed ? <ErrorNotice error={clients.error} onRetry={clients.reload} /> : null}
-        {error ? <ErrorNotice error={error} /> : null}
-        <div className="flex flex-wrap items-center gap-2">
-          <Button
-            type="submit"
-            variant="primary"
-            disabled={busy || !ready}
-            data-testid="builds-start-go"
-          >
-            {busy ? "Starting…" : "Start the build"}
-          </Button>
-          <Button variant="ghost" onClick={onCancel}>
-            Cancel
-          </Button>
-          {why ? (
-            <span className="text-sm text-ink-muted" data-testid="builds-start-why">
-              {why}
-            </span>
-          ) : null}
-        </div>
-      </form>
-    </Card>
+    <section data-testid="builds-start">
+      <DescribeScreen
+        kind={kind}
+        clientId={clientId || null}
+        blocked={needsClient}
+        initialName={again?.name}
+        initialWords={again?.words}
+        buildId={again?.buildId ?? null}
+        onCancel={onCancel}
+        header={
+          <div className="flex flex-col gap-2">
+            <div className="flex flex-wrap items-end gap-4">
+              {kindSwitch}
+              {clientPicker}
+            </div>
+            {why ? (
+              <span className="text-sm text-ink-muted" data-testid="builds-start-why">
+                {why}
+              </span>
+            ) : null}
+            {clientsFailed ? <ErrorNotice error={clients.error} onRetry={clients.reload} /> : null}
+          </div>
+        }
+      />
+    </section>
   );
 }

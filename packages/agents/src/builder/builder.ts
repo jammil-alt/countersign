@@ -31,6 +31,7 @@ import {
 import { z } from "zod";
 import { type BuilderContext, catalogBriefForPrompt, catalogForPrompt } from "./context";
 import { guardBundle } from "./guards";
+import { draftCatalog, partsOf, unseenPartsBlock } from "./shortlist";
 
 // ── Answers ──────────────────────────────────────────────────────────────────────────────────────
 
@@ -157,24 +158,32 @@ export function modelUnavailable(error: unknown): Error {
 // workflow, more triggers on it, a way in with its own lead-in that hands off into it with
 // "@self", and never a copy. The guard (`copiedSteps`) sends a copy back to the repair round.
 
+// DECISION (owner, 2026-11-24, "how do we make sure the builder knows all of its options"): the
+// step kinds come from core's guide (`processes.STEP_GUIDE`), typed over every kind and tested
+// against the schema, instead of a hand-written sentence that missed Collect reports, repeat and
+// hand-off. The catalog was already the registries'.
 export const RULES = `You are the Builder for Mezonas, a managed-agents service for back-office work. The operator describes an agent; you answer with an agent bundle that the operator will review, test and publish.
 
 Rules:
 - Use only the skills and tools in the catalog, by their exact ids. Never invent a skill, tool, connector, event or agent. If the job needs something the catalog doesn't have (a connector, a data source, a skill), put a missing step where that part belongs instead of leaving it out: {"kind": "missing", "name": what the step would do, "need": what is missing, one plain sentence (e.g. "There is no payroll connector, so it can't read the pay run."), "fill": "skill", "tool" or "connector", whichever would fill it}. Later steps may use its output. Never use a missing step for something the catalog has. A service named in the request may be in the catalog under another name: each connector's "description" says what it does and names the service behind it (a bank feed's names its provider), so look for a service by what it does before calling it missing, and use that connector's tools. Only what has no place in a workflow goes in "gaps", one plain sentence each.
-- Each workflow is a process ("schemaVersion": 4): one or more "triggers", then "steps" that run top to bottom. Step kinds: read (calls a tool whose sideEffect is "none"), write (calls a tool that changes something: "external" changes the client's tool, "internal" a platform record), skill (runs a skill), person (asks or gets approval from a person, with a "deadline"), conversation (talks with a contact until its goal is met, with a "deadline"), notify (a note to the client's team or ours), if (ordered paths with rules; the first path whose rules match runs, else "otherwise"; then the process continues), for_each (runs its steps for each item of a list), wait, stop, process (runs an automation from the catalog: "process" is its ref, "slug@version"), collect (waits for several reports, each from its own owner, and checks each one before it counts), missing (a part that can't be built yet; it never runs, and the operator fills it).
+- Each workflow is a process ("schemaVersion": 4): one or more "triggers", then "steps" that run top to bottom. The step kinds, each with when to use it, what to mind and an example:
+${processes.stepGuideText()}
 - To wait for reports or files that people send (a bank statement, a report from each location or system), use one collect step: never reads, conversations, waits or repeats for that. It sends each report's owner a link to send the file, follows up on its own schedule, checks each file in code (its format, a spreadsheet's columns, rows and dates) and asks again when one fails, and escalates a late one. The trigger is when the reports are asked for (a schedule, or manual). Each of its "items" is one report: {"id", "name", "describe" (what it is, for the owner), "owner": "seat:<role>" with that role in the bundle's "people" as {"role", "kind": "reached"}, "required", "frequency" ("once", "daily", "weekly", "monthly", "quarterly" or "yearly": the report covers the last whole period), "formats" (any of "pdf", "spreadsheet", "image"), for a spreadsheet "columns" ([{"field", "headers": [its header in the file], "type": "text", "number", "money", "date" or "boolean", "required": true}]) and "dates": {"field": a date column} when its rows must fall in the period, "due" (a duration after the step starts), "hours" ("business" or "clock"), "followUp": {"after": a duration after it's due, "every": a duration, "max": 0 to 5}}. Give the step "escalate": {"to": a person, "after": how late, "hours", "deadline": {"after", "ifNoAnswer": "stop"}} and "ifMissing" ("stop", or "proceed" to go on with what came in). Its output holds each report by its id: {{steps.<step id>.output.reports.<report id>.rows}} are the checked spreadsheet's rows, each with the report's column fields, and .documents its files. Later steps read those directly: never add a read step or Read table for a report it collected. When the reports themselves should start the work (the first one to arrive by email starts it), make the collect step the workflow's first step and give the workflow the trigger {"type": "report", "step": the collect step's id}; each report's "due" then counts from that first report, and a report gets a link only once it is late.
-- A skill whose mode is "tool" only wraps one tool: use a read or write step on that tool instead.
+- A skill whose mode is "tool" only wraps one tool: use a read or write step on that tool instead. Except the skills that run only as a step of their own, never as a tool: ${processes.STEP_ONLY_SKILLS.join(", ")} (reach out to a contact, ask someone through a form and wait for the answers, hold a conversation). Use a skill step for those.
 - An if step holds only what differs between its paths. Steps that run whichever path is taken go after the if, at its level: never inside a path or "otherwise", and never repeated on each path. When one case needs extra work first (no vendor matched, so a person sets one up), its path holds only that work, "otherwise" stays empty ("steps": []) and the process continues below the if. End a path with a stop step only when that case must not go on.
 - Every process ends by reporting out, as it starts with a trigger. The last step a run reaches, on every path that doesn't end with a stop, is a write (it changes a tool or saves a record), a handoff (another agent takes it from there), a notify, or a person or conversation step. Never end on a read, a wait or a skill that only reads: what it found would go nowhere. Where the description doesn't say where the result goes, end with a notify to the client's team that says what was done; in a draft, record that choice in "decisions".
 - An agent has one main workflow, its first. Another way in that starts the same work is another trigger on it (a workflow holds up to 10). A way in that needs its own steps first (a schedule that finds bills, a loop over them) is its own workflow and ends by handing off into the main one, one hand-off per item: {"kind": "handoff", "to": {"agent": "@self", "workflow": the main workflow's slug, "step": the id of its step to start at}, "input": what that step reads}. Work that leaves and comes back is an automation (a process step) or a loop (for_each, repeat). Never copy steps from one workflow into another.
-- Checks on a step ("checks"): "approval" (a person's yes before the step's write), "confer" (a second opinion), "notify" (tell someone after).
-- Triggers: "manual" (with an input JSON Schema), "event" (an event type from the catalog), "schedule" (a five-field cron; "1#1" in its last field is the first Monday of the month, "4#3" the third Thursday, "5L" the last Friday, "L" as the day is the last day; for every other week add "every": {"weeks": 2, "from": a Sunday's date}), "command".
+- Checks on a step ("checks"), run in this order: confer, approval, the step's write, notify:
+${processes.checkGuideText()}
+- Triggers, the ways a workflow starts ("triggers": [{"id": ..., "on": ...}]):
+${processes.triggerGuideText()}
 - References inside step inputs, titles, messages and rules: {{trigger.<path>}}, {{steps.<step id>.output.<path>}}, {{item}} and {{index}} inside a for_each. Refer only to steps that run before.
 - New agents have permissions.mode "suggest_only". Every step that changes a client's tool keeps its approval check on ({"required": "required"}, with no "when", never going ahead when nobody answers). Never loosen an approval or a conversation's message settings: only the operator does that.
 - New agents review their own failed steps: definition.oversight is {"review": "failures"}.
 - A skill step may set "model" ({"id": one of the catalog's models}) when its job needs a different model from its skill's or the agent's (a long document on a stronger one, a simple read on a fast one); leave it out otherwise.
 - Agent kind is "functional". Give each step, if path, otherwise branch and trigger a short id, unique in the bundle.
-- Happy path first: draft the normal case so it runs end to end. What the description lists as known risks is not built in this version: add no steps and no missing steps for them. Where the normal case can't go on (no match, more than one, something it can't read), hand it to a person with a person step, or stop with a note; never a missing step for an exception. A threshold the description doesn't give starts strict, so more goes to a person.
+- Lay out everything the operator mentions: every step the description, the brief or the fit-gap names is a step, and every decision it names is in the draft (an if with a path for each case it names, or a person step where a person decides). There is no limit on the number of steps: a long process stays long, and nothing mentioned is dropped or folded into another step.
+- Happy path first: draft the normal case so it runs end to end, and add nothing beyond what is mentioned. What the description lists as known risks is not built in this version: add no steps and no missing steps for them. Where the normal case can't go on (no match, more than one, something it can't read), hand it to a person with a person step, or stop with a note; never a missing step for an exception. A threshold the description doesn't give starts strict, so more goes to a person.
 - Prefer a template that already does the job: name it in "startFromTemplate" (drafts only).
 - Drafts only: record each decision you make to get the normal case running in "decisions" (a threshold's starting value, what stays out, where a person decides), with the step it shapes by its id. They are part of the process; don't ask about them. Where the agent can't know, the decision is a person step (kind decision_point); a choice that differs by client is client_setup. Risk is high, with its category, for writing into a client's tool (writes), money, contacting people outside the client (contact), data leaving to a vendor of ours (vendor_data), approvals and who signs (approvals), or overwriting records (overwrite).
 - Write names, summaries and gaps in plain words, short sentences, sentence case; no hype, no exclamation marks.`;
@@ -203,7 +212,10 @@ export function catalogBriefBlock(ctx: BuilderContext): string {
 export const BUILDER_ANSWER_TOKENS = 64_000;
 
 /** Asked once of a draft that was cut off: the main path now, the rest added step by step. */
-export const DRAFT_SHORTER = `Your last answer was too long to finish and was cut off. Answer again with a smaller first draft: the main path only, at most 10 steps, short instructions, no optional branches. Name each step you left out in "gaps", one plain sentence each, so it can be added to the draft one at a time.`;
+// DECISION (owner, 2026-11-24): a smaller draft keeps every step the operator stated. "At most 10
+// steps" cut a 10-step process's middle (assign, forms, follow-ups, the write-back); what a
+// smaller draft drops is what nobody asked for.
+export const DRAFT_SHORTER = `Your last answer was too long to finish and was cut off. Answer again with a smaller first draft: keep every step and every decision the description states (each numbered step still one step, in order), with short instructions and nothing it doesn't mention: no extra branches, checks or notes. If a step still doesn't fit, put a person step in its place and name it in "gaps", one plain sentence each, so it can be added to the draft one at a time.`;
 
 export interface BuilderOptions {
   llm: LlmClient;
@@ -215,6 +227,11 @@ export interface BuilderOptions {
   newId?: () => string;
   /** Repair rounds after a failed answer (default 1). */
   repairs?: number;
+  /**
+   * Two rounds (owner, 2026-11-24): a shortlist from the catalog in short, then the draft with the
+   * shortlist in full (`./shortlist`). Default off here; the API turns it on.
+   */
+  shortlist?: boolean;
   signal?: AbortSignal;
 }
 
@@ -252,7 +269,10 @@ export const OPERATOR_FIXES = new Set([
 export const WORKS_FIRST = `Works first: this draft must run as it is, so the operator can try it today and change it after.
 - Never use a missing step: this replaces the rule above about them. Where the catalog has no part for a piece of the work, a person does that piece in this version: put a person step there (mode "ask") whose title says what to do and whose payload shows what they need to do it, and name the missing part in "gaps", one plain sentence each ("No connector reads card charges, so a person enters them for now."). Later steps use that person's answer.
 - Don't leave anything for the operator to answer first. Where the description doesn't say (what starts it, how often, who is asked, a threshold, a deadline), decide: the simplest choice that works, strict where it is a threshold, the client's team for who is asked, and record it in "decisions" with its starting value.
-- Build the steps the description states, in the order it states them, one step for each. Add nothing it doesn't state: no extra checks, branches, notes to the team, waits or handling of cases it doesn't mention. The only additions are the ones the rules require: approval on a step that changes a client's tool, a person where a stated step can't be done, and a last step that reports out when the description names none. More is added later, when the operator asks for it.
+- Build every step the description and the brief state, in the order they state them, one step for each, and every decision they name (an if with a path for each case named, or a person step where a person decides). There is no limit on the number of steps. Add nothing they don't state: no extra checks, branches, notes to the team, waits or handling of cases it doesn't mention. The only additions are the ones the rules require: approval on a step that changes a client's tool, a person where a stated step can't be done, and a last step that reports out when the description names none. More is added later, when the operator asks for it.
+- When the description numbers its steps, each number is one top-level step, in that order, and none is left out or merged with another. Name each step in the operator's words, shortened: never in other words, and never with how it is done ("with AI", a tool's name). A number's sub-points are that step's details: its input, its rules, its instructions or the fields it gives back, never steps of their own, and never dropped. A number done once per item (per filing, per manager) is a for_each holding that work.
+- Asking several people each for their own answers through a form (a form per manager, with a due date) is a for_each over the people with a Request info skill step (forms.request: who, why, the questions, when it is due). Asking again until it is answered is a repeat around it; someone on the client's team who answers in the inbox is a person step, whose deadline holds reminders and an escalation. Collect reports is for files people send.
+- Where a step needs judgment no skill in the catalog gives (cleaning rows by rules, matching by name and address, choosing an outcome), it needs a new skill: a person does it in this version, and its gap says the skill to make, what it gets and what it gives back ("No skill cleans the filings: make one that gets the rows and gives back kept and removed, each with a reason.").
 - Keep the decisions few: one only where you chose something the description left open and a step depends on it. Each is one short sentence, and so is its why.
 - The summary is one or two sentences: what it does, in the operator's own words where you can. Each gap is one short sentence.
 - For each gap a step stands for, name that step in "gapSteps": the gap's place in "gaps" (from 0) and the step's id.`;
@@ -309,6 +329,8 @@ export async function ask<T extends { bundle: ProcessAgentBundle; gaps: string[]
     shorter?: string;
     /** Error codes left out of a repair round (default `OPERATOR_FIXES`). */
     operatorFixes?: ReadonlySet<string>;
+    /** Two rounds: the parts shown in full; a repair round shows the others it used in full. */
+    shown?: ReadonlySet<string> | null;
   },
   options: BuilderOptions,
 ): Promise<{
@@ -425,7 +447,7 @@ export async function ask<T extends { bundle: ProcessAgentBundle; gaps: string[]
         },
         {
           role: "user",
-          content: `That bundle (after the server's rules were applied, so ids may have changed) ${problems}\n\nAnswer again with the whole corrected answer. Keep the ids it has now.`,
+          content: `That bundle (after the server's rules were applied, so ids may have changed) ${problems}\n\nAnswer again with the whole corrected answer. Keep the ids it has now.${unseenPartsBlock(guarded.bundle, input.ctx, input.shown, catalogForPrompt)}`,
         },
       );
       continue;
@@ -465,7 +487,8 @@ export async function draftAgent(
     input.name ? `Name: ${input.name}` : null,
     input.role ? `Area: ${input.role}` : null,
   ].filter(Boolean);
-  const first = `${catalogBlock(ctx)}
+  const catalog = await draftCatalog({ task: input.description }, ctx, options, catalogForPrompt);
+  const first = `${catalog.block}
 
 ${ctx.client ? `Draft a new agent for the client ${ctx.client.name}. Use what it has connected; anything it hasn't connected is a gap.` : "Draft a new template: a reusable agent the operator will fork into clients."}
 ${hints.length ? `\n${hints.join("\n")}\n` : ""}
@@ -482,6 +505,7 @@ ${promptText(input.description)}
       label: "builder.draft-agent",
       ctx,
       first,
+      shown: catalog.shown,
       ...(input.worksFirst
         ? { system: `${RULES}\n\n${WORKS_FIRST}`, operatorFixes: WORKS_FIRST_OPERATOR_FIXES }
         : {}),
@@ -497,14 +521,15 @@ ${promptText(input.description)}
     input.worksFirst ? { ...options, repairs: options.repairs ?? 2 } : options,
   );
   const template = out.answer.startFromTemplate ?? null;
+  const calls = [...catalog.calls, ...out.calls];
   return {
     bundle: out.bundle,
     summary: out.answer.summary,
     gaps: out.gaps,
     notes: out.notes,
     errors: out.errors,
-    calls: out.calls,
-    costUsd: totalCost(out.calls),
+    calls,
+    costUsd: totalCost(calls),
     slug: out.answer.slug ?? null,
     startFromTemplate: template && ctx.templates.some((t) => t.slug === template) ? template : null,
     serviceName: out.answer.serviceName ?? null,
@@ -603,7 +628,19 @@ export async function reviseAgent(
   options: BuilderOptions,
 ): Promise<BuilderResult & { changeNote: string }> {
   const { ctx } = input;
-  const first = `${catalogBlock(ctx)}
+  // The version's own skills and tools stay in full, so its steps keep typing.
+  const own = partsOf(input.source);
+  const catalog = await draftCatalog(
+    {
+      task: [input.instruction, input.request].filter(Boolean).join("\n\n") || "Revise this agent.",
+      current: input.source,
+    },
+    ctx,
+    options,
+    catalogForPrompt,
+    own,
+  );
+  const first = `${catalog.block}
 
 Revise this agent${ctx.client ? ` (it serves the client ${ctx.client.name})` : " (a template)"}. Keep everything the instruction doesn't ask to change, including every id, setting and approval. New steps get new ids.
 
@@ -619,6 +656,7 @@ ${input.instruction ? `\nThe operator's instruction:\n<instruction>\n${promptTex
       label: "builder.revise-agent",
       ctx,
       first,
+      shown: catalog.shown,
       guard: (a) => {
         const g = guardBundle(a.bundle, ctx, {
           mode: "revise",
@@ -636,8 +674,8 @@ ${input.instruction ? `\nThe operator's instruction:\n<instruction>\n${promptTex
     gaps: out.gaps,
     notes: out.notes,
     errors: out.errors,
-    calls: out.calls,
-    costUsd: totalCost(out.calls),
+    calls: [...catalog.calls, ...out.calls],
+    costUsd: totalCost([...catalog.calls, ...out.calls]),
     changeNote: out.answer.changeNote,
   };
 }

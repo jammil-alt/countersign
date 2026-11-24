@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { isUuid } from "../ids";
-import { NodeId, Slug } from "../schemas/common";
+import { JsonSchema, NodeId, Slug } from "../schemas/common";
+import { TableColumn } from "../schemas/table";
 import { defineRoute } from "./contract";
 
 // v0.12 W3-A: the Builder as a conversation (ARCHITECTURE §9.6; docs/plan.md §1.51). A session holds
@@ -50,6 +51,22 @@ export const BuilderTurnMeta = z.object({
   model: z.string().optional(),
   /** v0.18 (docs/plan.md §1.105): the step the operator was working on, by id and its name then. */
   focus: z.object({ stepId: z.string(), name: z.string() }).optional(),
+  /** A skill turn's sample file, by name and kind (the file itself is never kept). */
+  sample: z
+    .object({ filename: z.string(), kind: z.enum(["table", "document", "other"]) })
+    .optional(),
+  /**
+   * Two rounds (owner, 2026-11-24): the parts the conversation's first turn shortlisted, by id;
+   * later turns show these in full without asking again.
+   */
+  shortlist: z
+    .object({
+      skills: z.array(z.string()),
+      tools: z.array(z.string()),
+      automations: z.array(z.string()),
+      events: z.array(z.string()),
+    })
+    .optional(),
 });
 export type BuilderTurnMeta = z.infer<typeof BuilderTurnMeta>;
 
@@ -71,6 +88,10 @@ export const BuilderTurnView = z.object({
   createdAt: z.string(),
   /** v0.18: an operator turn sent while working on one step: that step. */
   focus: z.object({ stepId: z.string(), name: z.string() }).optional(),
+  /** A skill turn's sample file, by name and kind. */
+  sample: z
+    .object({ filename: z.string(), kind: z.enum(["table", "document", "other"]) })
+    .optional(),
 });
 export type BuilderTurnView = z.infer<typeof BuilderTurnView>;
 
@@ -105,6 +126,96 @@ export const BuilderSessionView = z.object({
 export type BuilderSessionView = z.infer<typeof BuilderSessionView>;
 
 /** An example the operator attaches to a skill turn: the input, and the answer when known. */
+// A skill's sample file (owner, 2026-11-24: "allow the upload of a file like excel or csv or pdf,
+// jpeg etc ... then with words specify the input and the output"). The operator adds one when
+// describing a skill; the server reads it and the Builder sees it as data. Never stored: like
+// Read table's and Collect reports' samples, it never becomes a client's document.
+
+/** 5 MB of bytes, as base64: the most a sample file is read at. */
+export const SAMPLE_FILE_BASE64_MAX = Math.ceil((5 * 1024 * 1024) / 3) * 4;
+
+/** A sample file as the browser sends it. */
+export const BuilderSampleFile = z.strictObject({
+  filename: z.string().trim().min(1).max(255),
+  /** As the browser declared it; the extension decides when it is generic. */
+  mimeType: z.string().max(200).default(""),
+  base64: z.string().min(1).max(SAMPLE_FILE_BASE64_MAX),
+});
+export type BuilderSampleFile = z.infer<typeof BuilderSampleFile>;
+
+/** The sample kinds: a table read in code, a document a model reads, or neither. */
+export const SAMPLE_KINDS = ["table", "document", "other"] as const;
+
+/** A sample file as read: a table's columns and first rows, as Read table would give them. */
+export const SkillSampleView = z.object({
+  filename: z.string(),
+  mimeType: z.string(),
+  kind: z.enum(SAMPLE_KINDS),
+  table: z
+    .object({
+      /** The worksheet read (an .xlsx file's), and every worksheet it has. */
+      sheet: z.string().nullable(),
+      sheets: z.array(z.string()),
+      /** Read table's expected columns for it: one per header, typed from its rows. */
+      columns: z.array(TableColumn),
+      /** The first rows, keyed by those columns' fields (at most 5). */
+      rows: z.array(z.record(z.string(), z.unknown())),
+      rowCount: z.number().int(),
+      /** Why it couldn't be read whole; null when it could. */
+      failure: z.string().nullable(),
+    })
+    .nullable(),
+  /** Why the file can't be a sample; null when it can. */
+  failure: z.string().nullable(),
+});
+export type SkillSampleView = z.infer<typeof SkillSampleView>;
+
+// Check the skill (owner, 2026-11-24: "do the edit-and-try screen next"): the operator changes
+// what a drafted skill gets, does and gives back by hand, and tries it once on a sample or an
+// input before saving. A try runs on the test bench: in memory, every write refused, nothing kept
+// but what the operator keeps as a test.
+
+/** The most rows of a sample spreadsheet a try runs on. */
+export const TRY_ROWS_MAX = 50;
+
+/** A change to a skill draft made by hand: each part given replaces the draft's. */
+export const SkillDraftEdit = z.strictObject({
+  name: z.string().trim().min(1).max(120).optional(),
+  description: z.string().trim().min(1).max(500).optional(),
+  instructions: z.string().trim().min(1).max(20_000).optional(),
+  input: JsonSchema.optional(),
+  output: JsonSchema.optional(),
+  /** A test case to add: a try's input with its output as the expected answer. */
+  addCase: z
+    .strictObject({
+      name: z.string().trim().min(1).max(200),
+      input: z.unknown(),
+      expected: z.unknown(),
+    })
+    .optional(),
+});
+export type SkillDraftEdit = z.infer<typeof SkillDraftEdit>;
+
+/** One try of a skill draft: what it got, what it gave back, or why it failed. */
+export const SkillTryView = z.object({
+  status: z.enum(["succeeded", "failed"]),
+  /** The input as the skill got it (a sample's rows, a document's id, or the JSON given). */
+  input: z.unknown(),
+  /** What it got from a sample, in words ("the first 50 of 412 rows of ucc.xlsx"). */
+  from: z.string().nullable(),
+  output: z.unknown(),
+  error: z.string().nullable(),
+  /** USD, the try's model calls (operator only). */
+  costUsd: z.string(),
+  modelCalls: z.number().int(),
+  toolCalls: z.array(
+    z.object({ tool: z.string(), status: z.string(), reason: z.string().nullable() }),
+  ),
+  /** Whether its input can be kept as a test (a sample document can't: it isn't stored). */
+  keepable: z.boolean(),
+});
+export type SkillTryView = z.infer<typeof SkillTryView>;
+
 export const BuilderExample = z.strictObject({
   name: z.string().trim().min(1).max(200).optional(),
   input: z.unknown(),
@@ -188,8 +299,50 @@ export const builderRoutes = {
        * draft (the step the operator has open): the Builder answers about it or changes it.
        */
       focusStepId: z.string().min(1).max(100).optional(),
+      /**
+       * Skill conversations: a sample of what the skill gets. A spreadsheet's columns and first
+       * rows reach the Builder as data (and its first rows become a test case); a PDF or an image
+       * is attached to its model call. Never stored.
+       */
+      sample: BuilderSampleFile.optional(),
     }),
     response: SessionDetail.extend({ turn: BuilderTurnView }),
+  }),
+  opsBuilderSkillEdit: defineRoute({
+    method: "POST",
+    path: "/api/ops/builder/sessions/:id/skill",
+    auth: "session",
+    roles: OPS,
+    summary:
+      "Change a skill draft by hand: what it gets, its instructions, what it gives back, or add a tried input as a test. Undoable like the Builder's changes",
+    params: IdParams,
+    body: SkillDraftEdit,
+    response: SessionDetail.extend({ turn: BuilderTurnView }),
+  }),
+  opsBuilderSkillTry: defineRoute({
+    method: "POST",
+    path: "/api/ops/builder/sessions/:id/try",
+    auth: "session",
+    roles: OPS,
+    summary:
+      "Try a skill draft once on a sample file or an input, on the test bench: in memory, every write refused, nothing kept",
+    params: IdParams,
+    body: z
+      .strictObject({ input: z.unknown().optional(), sample: BuilderSampleFile.optional() })
+      .refine((b) => b.input !== undefined || b.sample !== undefined, {
+        message: "give an input or a sample file",
+      }),
+    response: SkillTryView,
+  }),
+  opsSkillSample: defineRoute({
+    method: "POST",
+    path: "/api/ops/skills/sample",
+    auth: "session",
+    roles: OPS,
+    summary:
+      "Read a skill's sample file: a spreadsheet's columns and first rows as Read table gives them, or what kind of document it is. Nothing is stored or sent to a model",
+    body: z.strictObject({ file: BuilderSampleFile }),
+    response: SkillSampleView,
   }),
   opsBuilderUndo: defineRoute({
     method: "POST",

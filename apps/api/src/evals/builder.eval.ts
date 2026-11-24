@@ -12,7 +12,7 @@
 //   BUILDER_EVAL_CASES=reminders-fitgap  BUILDER_EVAL_MODEL=claude-opus-5-5  BUILDER_EVAL_REPORT=out.md
 
 import { writeFileSync } from "node:fs";
-import { buildTurn, reviewBrief } from "@countersign/agents";
+import { buildTurn, draftAgent, reviewBrief } from "@countersign/agents";
 import {
   anthropicTransport,
   createLlmClient,
@@ -24,6 +24,7 @@ import { z } from "zod";
 import { createPlatform, deploymentConnectors } from "../platform";
 import { platformBuilderContext } from "../routes/ops-builder";
 import { BUILDER_CASES, type BuilderCase, styleProblems } from "./builder-cases";
+import { DRAFT_CASES, renderDraft } from "./draft-cases";
 
 const key = process.env.ANTHROPIC_API_KEY;
 const only = (process.env.BUILDER_EVAL_CASES ?? "")
@@ -190,5 +191,71 @@ describe.skipIf(!key)("the Builder's test cases", () => {
     if (reportPath) writeFileSync(reportPath, text);
     process.stdout.write(`${text}\n`);
     expect(results.length).toBe(cases.length);
+  });
+});
+
+// Draft it now (owner, 2026-11-24): a description in, a drafted workflow out, judged point by point.
+describe.skipIf(!key)("the Builder's drafts", () => {
+  const llm = createLlmClient({ transport: anthropicTransport({ apiKey: key as string }) });
+  const platform = createPlatform({ connectors: deploymentConnectors({} as never, false) });
+  const ctx = platformBuilderContext(platform).context;
+  const cases = DRAFT_CASES.filter((c) => only.length === 0 || only.includes(c.id));
+  const lines: string[] = ["# Builder drafts", ""];
+
+  for (const c of cases) {
+    it(c.id, { timeout: 15 * 60_000 }, async () => {
+      let answer = "";
+      let costUsd: string | null = null;
+      try {
+        const out = await draftAgent(
+          { description: c.description, worksFirst: true, ctx },
+          {
+            llm,
+            validate: async () => [],
+            // As the API drafts: two rounds, a shortlist first.
+            shortlist: process.env.BUILDER_SHORTLIST !== "off",
+            ...(builderModel ? { model: builderModel } : {}),
+          },
+        );
+        answer = renderDraft(out.bundle);
+        costUsd = out.costUsd;
+      } catch (error) {
+        lines.push(
+          `## ${c.id}`,
+          "",
+          `Error: ${error instanceof Error ? error.message : error}`,
+          "",
+        );
+        return;
+      }
+      const judged = await llm.callTool({
+        model: DEFAULT_MODELS.builderComplex,
+        system:
+          "You grade a drafted workflow against a checklist. For each point, decide whether the draft meets it, strictly and literally. Answer with every point.",
+        messages: [
+          {
+            role: "user",
+            content: `<situation>\n${c.situation}\n</situation>\n\n<description>\n${c.description}\n</description>\n\n<draft>\n${answer}\n</draft>\n\n<checklist>\n${c.points.map((p) => `- ${p.id}: ${p.text}`).join("\n")}\n</checklist>`,
+          },
+        ],
+        tool: { name: "submit_grades", description: "The grade of each point", schema: Verdicts },
+        maxTokens: 4000,
+        label: "eval.judge",
+      });
+      const byId = new Map(judged.value.points.map((p) => [p.id, p]));
+      const met = c.points.filter((p) => byId.get(p.id)?.met).length;
+      lines.push(`## ${c.id}: ${met}/${c.points.length} (cost ${costUsd ?? "?"})`, "");
+      for (const p of c.points) {
+        const v = byId.get(p.id);
+        lines.push(`- ${v?.met ? "✅" : "❌"} **${p.id}**: ${p.text}. _${v?.why ?? "not graded"}_`);
+      }
+      lines.push("", "```", answer, "```", "");
+    });
+  }
+
+  it("writes the drafts report", () => {
+    const text = lines.join("\n");
+    if (reportPath) writeFileSync(reportPath.replace(/(\.md)?$/, "-drafts.md"), text);
+    process.stdout.write(`${text}\n`);
   });
 });

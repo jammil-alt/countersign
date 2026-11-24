@@ -460,14 +460,25 @@ function CheckBody({
                       onAfter={(how) => edit((p) => setAfterPaths(p, s.id, how, newId))}
                       onMoveBelow={(container) => edit((p) => movePathBelow(p, s.id, container))}
                     />
-                  ) : (
-                    <LineInput
+                  ) : s.kind === "for_each" || s.kind === "repeat" ? (
+                    <LoopBlock
                       step={s}
-                      container={ROOT}
+                      number={i + 1}
                       index={i}
-                      label={`Step ${i + 1}`}
                       events={lineProps}
+                      onAddStep={(container, index) => add(container, index)}
                     />
+                  ) : (
+                    <>
+                      <LineInput
+                        step={s}
+                        container={ROOT}
+                        index={i}
+                        label={`Step ${i + 1}`}
+                        events={lineProps}
+                      />
+                      {s.kind === "collect" ? <CollectReports step={s} /> : null}
+                    </>
                   )}
                 </TopLine>
               ))}
@@ -741,6 +752,88 @@ function LineInput({
         <Icon name="close" size={14} />
       </Button>
     </div>
+  );
+}
+
+// Owner (2026-11-24, "they really don't match"): a For each's or a repeat's own steps were not on
+// this list, so the work it does per item couldn't be checked. They show under it, numbered 8.1,
+// 8.2…, each editable, with a step added inside; a step nested deeper shows by name.
+/** A loop (For each, repeat): its own line, then the steps it runs for each item or pass. */
+function LoopBlock({
+  step,
+  number,
+  index,
+  events,
+  onAddStep,
+}: {
+  step: Extract<Step, { kind: "for_each" | "repeat" }>;
+  number: number;
+  index: number;
+  events: LineEvents;
+  onAddStep(container: string, index: number): void;
+}) {
+  const container = `loop:${step.id}`;
+  return (
+    <div className="flex flex-col gap-2" data-testid="flow-check-loop">
+      <LineInput
+        step={step}
+        container={ROOT}
+        index={index}
+        label={`Step ${number}`}
+        events={events}
+      />
+      <div className="ml-2 flex flex-col gap-2 border-l border-line pl-4">
+        <span className="text-xs text-ink-muted">
+          {step.kind === "for_each" ? "For each item, it does:" : "Each time round, it does:"}
+        </span>
+        {step.steps.length > 0 ? (
+          <ol className="flex flex-col gap-2" data-testid="flow-check-loop-lines">
+            {step.steps.map((s, j) => (
+              <li key={s.id} className="flex items-center gap-2">
+                <span className="w-8 shrink-0 text-right text-xs text-ink-muted figures">
+                  {number}.{j + 1}
+                </span>
+                <div className="min-w-0 flex-1">
+                  <LineInput
+                    step={s}
+                    container={container}
+                    index={j}
+                    label={`Step ${number}.${j + 1}`}
+                    events={events}
+                  />
+                </div>
+              </li>
+            ))}
+          </ol>
+        ) : null}
+        <div>
+          <Button
+            variant="link"
+            size="sm"
+            onClick={() => onAddStep(container, step.steps.length)}
+            data-testid="flow-check-loop-add-step"
+          >
+            + Step inside
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** Collect reports: the reports it waits for and who sends each, under its line. */
+function CollectReports({ step }: { step: Extract<Step, { kind: "collect" }> }) {
+  return (
+    <ul
+      className="mt-2 ml-2 flex flex-col gap-1 border-l border-line pl-4 text-sm text-ink-muted"
+      data-testid="flow-check-collect"
+    >
+      {step.items.map((it) => (
+        <li key={it.id}>
+          {it.name}, from {it.owner.replace(/^seat:/, "").replaceAll("-", " ")}, due {it.due}
+        </li>
+      ))}
+    </ul>
   );
 }
 

@@ -450,7 +450,13 @@ describe.skipIf(!h)("the Builder as a conversation", () => {
     });
     const prompt = model.requests.at(-1)?.messages[0]?.content as string;
     expect(prompt).toContain('The operator is working on one step: s2 ("');
-    expect(prompt).not.toContain('"confirm"');
+    // The step's own id never reaches the Builder: its draft shows the alias. (The catalog may
+    // have a field of that name: Reach out's message settings.)
+    const shownDraft = prompt.slice(
+      prompt.indexOf("<current_bundle>"),
+      prompt.indexOf("</current_bundle>"),
+    );
+    expect(shownDraft).not.toContain('"confirm"');
     const asked = t.turns.find(
       (x) => x.role === "operator" && x.text === "What does this step do?",
     );

@@ -248,6 +248,9 @@ export async function createApiHarness(options: HarnessOptions = {}): Promise<Ap
   const env = {
     ENVIRONMENT: "development",
     AUTH_PROVIDER: "dev",
+    // Scripted model answers are in order: the Builder's two rounds would take the first one. A
+    // test of the two rounds turns them on (build-shortlist.test.ts).
+    BUILDER_SHORTLIST: "off",
     ...options.env,
   } as unknown as Bindings;
   /** The fingerprint of an item as the portal shows it now (`shownFingerprint`). */

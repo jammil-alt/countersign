@@ -6,8 +6,8 @@
 // version. The conversation lives at `?session=<id>`, so a reload picks it up again.
 // `?by=hand` keeps the form for writing a skill without the Builder.
 import { BuilderExample, type BuilderTurnView, SkillDefinition } from "@countersign/core";
-import { useEffect, useRef, useState } from "react";
-import { Link, useNavigate, useSearchParams } from "react-router-dom";
+import { useEffect, useState } from "react";
+import { Link, useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { z } from "zod";
 import { apiRoutes } from "../../api/routes";
 import { useApi } from "../../api/useApi";
@@ -31,7 +31,9 @@ import {
 } from "../../ui/primitives";
 import { errorText, Field, Notice, Select, TextArea, useAction } from "../agents/ui";
 import { toolTitle } from "../builder/model";
+import { SkillDescribe } from "../flow/SkillDescribe";
 import { OPS_PATHS } from "../paths";
+import { CheckSkill } from "./CheckSkill";
 import { SchemaCard } from "./parts";
 import { SkillEditor } from "./SkillEditor";
 import { SKILLS_PATH, skillPath } from "./SkillsLibrary";
@@ -85,47 +87,23 @@ function Breadcrumb() {
   );
 }
 
-/** Before the first turn: who the skill is for, and what it should do. */
+/**
+ * Before the first turn: Describe the skill (owner, 2026-11-24, "the skill process uses the old
+ * flow"): who it is for, a sample of what it gets, and in words what it gets and gives back. It
+ * starts a skill build drafted at once, which opens this conversation with its draft.
+ */
 function StartConversation() {
   const session = useSession();
   const navigate = useNavigate();
   const clients = [...new Map(session.tenants.map((t) => [t.id, t])).values()];
   const [clientId, setClientId] = useState("");
-  const action = useAction();
-  // The conversation started for a first turn that failed, so sending again uses it.
-  const started = useRef<{ id: string; clientId: string } | null>(null);
-
-  // FLOW-4 (QA 2026-11-19): a failed first turn went to the empty conversation, without the words,
-  // the examples or the error (the API keeps an operator's words only with the Builder's answer).
-  // DECISION: the form stays, with the words, the examples and the error, until a turn answers. The
-  // API's turn runs in one transaction with the model call, so saving the words before it would
-  // leave a question without an answer that the next send repeats.
-  async function send(text: string, examples: z.infer<typeof Examples> | undefined) {
-    let id = started.current?.clientId === clientId ? started.current.id : null;
-    if (!id) {
-      const out = await action.call(apiRoutes.opsStartBuilderSession, {
-        body: { kind: "skill", ...(clientId ? { clientId } : {}) },
-      });
-      if (!out.ok) return false;
-      id = out.data.session.id;
-      started.current = { id, clientId };
-    }
-    const turn = await action.call(apiRoutes.opsBuilderTurn, {
-      params: { id },
-      body: { text, ...(examples ? { examples } : {}) },
-    });
-    if (!turn.ok) return false;
-    navigate(`/ops/skills/new?session=${id}`, { replace: true });
-    return true;
-  }
-
   return (
     <Page width="narrow" testId="new-skill">
       <div>
         <Breadcrumb />
         <PageHeader
           title="New skill"
-          subtitle="Tell the Builder what the skill should do and give it real examples. It drafts the skill and its tests; you decide."
+          subtitle="Add a sample of what it gets and say what it gives back. The Builder drafts the skill and a test from your sample; you decide."
           actions={
             <Link
               to="/ops/skills/new?by=hand"
@@ -137,8 +115,10 @@ function StartConversation() {
           }
         />
       </div>
-      <Card pad>
-        <div className="flex flex-col gap-4">
+      <SkillDescribe
+        clientId={clientId || null}
+        onCancel={() => navigate(SKILLS_PATH)}
+        header={
           <Field
             label="Who can use it"
             hint="A client's own skill is used only by that client's agents, and its examples stay that client's tests."
@@ -156,14 +136,8 @@ function StartConversation() {
               ))}
             </Select>
           </Field>
-          <Composer busy={action.busy} onSend={send} clientId={clientId || null} />
-          {action.error ? (
-            <Notice tone="warning" testId="new-skill-error">
-              {errorText(action.error)}
-            </Notice>
-          ) : null}
-        </div>
-      </Card>
+        }
+      />
     </Page>
   );
 }
@@ -262,6 +236,9 @@ type DraftTab = (typeof DRAFT_TABS)[number];
 
 function SkillConversation({ sessionId }: { sessionId: string }) {
   const navigate = useNavigate();
+  // The sample the skill was described with, handed over by Describe the skill (never stored).
+  const handed = (useLocation().state as { sample?: unknown } | null)?.sample;
+  const sample = typeof File !== "undefined" && handed instanceof File ? handed : null;
   const [params] = useSearchParams();
   const detail = useApi(apiRoutes.opsBuilderSession, { params: { id: sessionId } });
   // The words on their way, shown with the Builder at work until its answer is in.
@@ -471,14 +448,29 @@ function SkillConversation({ sessionId }: { sessionId: string }) {
           ) : null}
           {!def ? (
             <EmptyState>Nothing drafted yet. Tell the Builder what the skill should do.</EmptyState>
+          ) : tab === "definition" && open ? (
+            <>
+              <p className="text-sm text-ink-muted" data-testid="new-skill-edit-hint">
+                Change it here or tell the Builder what to change. Then try it on your sample before
+                you save the draft.
+              </p>
+              <CheckSkill
+                // Read again when the draft changes under it (the Builder's turn, an undo).
+                key={JSON.stringify([def.input, def.output, def.instructions])}
+                sessionId={session.id}
+                definition={def}
+                firstInput={draft.cases[0]?.input}
+                sample={sample}
+                onChanged={detail.reload}
+              />
+              <p className="text-sm text-ink-muted">
+                {def.tools.length === 0
+                  ? "Tools it may use: none. It only reads what the step gives it."
+                  : `Tools it may use: ${def.tools.map((id) => toolTitle({ id }).toLowerCase()).join(", ")}.`}
+              </p>
+            </>
           ) : tab === "definition" ? (
             <>
-              {open ? (
-                <p className="text-sm text-ink-muted" data-testid="new-skill-edit-hint">
-                  To change the draft, tell the Builder what to change, or choose Save and edit to
-                  change any field yourself.
-                </p>
-              ) : null}
               <Columns count={2}>
                 <SchemaCard
                   title="Takes in"
