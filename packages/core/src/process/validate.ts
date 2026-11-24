@@ -130,7 +130,12 @@ import {
   type WriteStep,
 } from "./schema";
 // §1.164: Read table's output, typed by its columns.
-import { isReadTableStep, readTableColumnsFor, readTableOutputSchema } from "./table";
+import {
+  columnValueSchema,
+  isReadTableStep,
+  readTableColumnsFor,
+  readTableOutputSchema,
+} from "./table";
 import { isLogic, stepCount, walkSteps } from "./walk";
 
 // ── Results ──────────────────────────────────────────────────────────────────────────────────
@@ -487,7 +492,7 @@ export function stepOutputSchema(step: Step, ctx: TypingContext): JsonSchema | u
       return conversationOutputSchema(step);
     // Collect reports: `{ complete, items, documents, … }`.
     case "collect":
-      return collectOutputSchema();
+      return collectOutputSchema(step, columnValueSchema);
     default:
       return NO_OUTPUT;
   }
@@ -1781,6 +1786,33 @@ const NO_ON_ERROR: Partial<Record<Step["kind"], string>> = {
   collect: "a collect step's escalation and ifMissing say what a missing report does",
 };
 
+/**
+ * Collect reports (owner, 2026-11-24): a report trigger names the process's first step, a collect
+ * step, and a process has at most one; it starts that step listening for the other reports.
+ */
+function checkReportTriggers(c: Checker, process: Process) {
+  const reports = process.triggers.filter((t) => t.on.type === "report");
+  reports.forEach((t, i) => {
+    if (t.on.type !== "report") return;
+    const first = process.steps[0];
+    if (i > 0) {
+      c.add(
+        t.id,
+        "on.type",
+        "report_trigger",
+        "a workflow starts on its reports once: keep one report trigger",
+      );
+    } else if (!first || first.id !== t.on.step || first.kind !== "collect") {
+      c.add(
+        t.id,
+        "on.step",
+        "report_trigger",
+        "a report trigger starts the workflow's first step, which collects the reports: put the collect step first and name it here",
+      );
+    }
+  });
+}
+
 /** Collect reports: what the schema can't say about the step (`collectProblems`), and owners. */
 function checkCollect(c: Checker, step: Extract<Step, { kind: "collect" }>) {
   for (const p of collectProblems(step)) c.add(step.id, p.field, p.code, p.message);
@@ -2445,6 +2477,7 @@ export function validateProcess(
     },
   };
   for (const t of process.triggers) checkProcessTrigger(c, t);
+  checkReportTriggers(c, process);
   const list = scopeList(process, ctx);
   checkHandoff(c, process, list);
   const allowed = allowedTools(ctx);

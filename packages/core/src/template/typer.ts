@@ -1,6 +1,8 @@
 // P-4
+
 import { typedResultOutput } from "../converse";
 import { isPlainObject } from "../json";
+import { REPORT_TRIGGER_SCHEMA } from "../process/collect";
 import type { AnyAutomationDefinition, AutomationDefinition } from "../schemas/automation";
 import type { JsonSchema } from "../schemas/common";
 import { parseSkillRef } from "../schemas/common";
@@ -127,6 +129,9 @@ export function triggerOnSchema(on: TriggerOn, ctx: TypingContext): JsonSchema |
       return SCHEDULE_PAYLOAD;
     case "command":
       return COMMAND_PAYLOAD;
+    // Collect reports (owner, 2026-11-24): the report that started the run.
+    case "report":
+      return REPORT_TRIGGER_SCHEMA;
   }
 }
 

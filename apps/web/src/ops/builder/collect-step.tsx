@@ -90,6 +90,17 @@ export function CollectFields({
   const escalate = step.escalate;
   return (
     <div className="flex flex-col gap-4" data-testid="builder-collect">
+      <p className="text-xs text-ink-muted" data-testid="builder-collect-trigger">
+        To start the workflow when the first report arrives, put this step first and give the
+        workflow the trigger "When a report arrives by email". The step then listens for the other
+        reports: each one's due time counts from when the run starts, and it gets a link only once
+        it is late.
+      </p>
+      <p className="text-xs text-ink-muted" data-testid="builder-collect-email">
+        Owners can also email their report to this step: the agent's address with{" "}
+        <span className="font-mono">+{step.id.toLowerCase()}</span> before the @. Each request names
+        the whole address. Only mail from a report owner's contact email is taken.
+      </p>
       {step.items.map((item, i) => (
         <ReportCard
           key={item.id}

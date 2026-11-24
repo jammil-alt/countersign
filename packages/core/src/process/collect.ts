@@ -256,6 +256,16 @@ export interface ReportCheck {
   problems: string[];
   /** The documents that passed. */
   documents: string[];
+  /**
+   * The rows of the spreadsheets that passed, read by the report's columns (Read table's rows),
+   * one file after another; empty for a PDF or an image, and when it didn't pass.
+   */
+  rows: Record<string, unknown>[];
+  /**
+   * How it came in, set by the API: `true` or `false` when it was emailed to the step (whether
+   * DMARC proved the sender), absent or null when it was uploaded through the link.
+   */
+  senderProven?: boolean | null;
 }
 
 /** A file's format, or null for one no report takes. */
@@ -294,7 +304,12 @@ export function checkReport(
 ): ReportCheck {
   const problems: string[] = [];
   if (files.length === 0) {
-    return { ok: false, problems: [`No file came with the ${item.name}.`], documents: [] };
+    return {
+      ok: false,
+      problems: [`No file came with the ${item.name}.`],
+      documents: [],
+      rows: [],
+    };
   }
   for (const f of files) {
     const format = reportFormatOf(f.mimeType);
@@ -340,10 +355,17 @@ export function checkReport(
   }
   const shown = problems.slice(0, PROBLEMS_MAX);
   if (problems.length > PROBLEMS_MAX) shown.push(`and ${problems.length - PROBLEMS_MAX} more.`);
+  const ok = problems.length === 0;
+  // Collect reports (owner, 2026-11-24): the rows are handed on, so the next step reads the
+  // report's data without reading its file again.
+  const rows = ok
+    ? files.flatMap((f) => (f.table && !("error" in f.table) ? [...f.table.rows] : []))
+    : [];
   return {
-    ok: problems.length === 0,
+    ok,
     problems: shown,
-    documents: problems.length === 0 ? files.map((f) => f.documentId) : [],
+    documents: ok ? files.map((f) => f.documentId) : [],
+    rows,
   };
 }
 
@@ -367,11 +389,16 @@ export const COLLECT_FILE_QUESTION = "report";
  * so, and one after a file that didn't pass says why. Fixed text built from the operator's own
  * (invariant 9): nothing a model wrote and nothing the owner sent goes into it.
  */
+/** The most a request's purpose says (forms' own limit). */
+const PURPOSE_MAX = 500;
+
 export function requestPurpose(p: {
   item: Pick<CollectItem, "name" | "describe" | "formats" | "columns">;
   period: ReportPeriod | null;
   send: number;
   problems?: readonly string[];
+  /** The step's address (`agentStepAddress`), when owners may email the file too. */
+  email?: string | null;
 }): string {
   const what = p.period ? `the ${p.item.name} for ${p.period.label}` : `the ${p.item.name}`;
   const lead =
@@ -386,8 +413,13 @@ export function requestPurpose(p: {
     required.length > 0
       ? ` with the columns ${required.map((c) => c.headers[0] ?? c.field).join(", ")}.`
       : ".";
+  const email = p.email ? ` You can also email it to ${p.email}.` : "";
+  // The format and the address are never cut: a long list of problems is, then the description.
+  const tail = `${format}${cols}${email}`;
+  const room = PURPOSE_MAX - tail.length;
+  const head = lead.length > room ? `${lead.slice(0, Math.max(0, room - 1))}…` : lead;
   const describe = p.item.describe ? ` ${p.item.describe}` : "";
-  return `${lead}${format}${cols}${describe}`.slice(0, 500);
+  return `${head}${tail}${describe}`.slice(0, PURPOSE_MAX);
 }
 
 // ── The step's output ────────────────────────────────────────────────────────────────────────
@@ -417,12 +449,35 @@ export interface CollectItemResult {
   /** How many links went out (the first request and its follow-ups). */
   sends: number;
   escalations: number;
+  /** A received spreadsheet's rows (`ReportCheck.rows`); the output keeps them under `reports`. */
+  rows?: Record<string, unknown>[];
+  /** Emailed to the step: whether DMARC proved the sender; null when uploaded through the link. */
+  senderProven?: boolean | null;
+}
+
+/** One report as the next step reads it: `steps.<id>.output.reports.<report id>`. */
+export interface CollectReport {
+  status: CollectItemStatus;
+  documents: string[];
+  /** A spreadsheet's rows, by the report's columns; empty for a PDF or an image. */
+  rows: Record<string, unknown>[];
+  rowCount: number;
+  /**
+   * Emailed to the step: whether DMARC proved the sender (false: the From address claimed to be
+   * the owner's, unproven); null when uploaded through the link or not received.
+   */
+  senderProven: boolean | null;
 }
 
 export interface CollectOutput {
   /** Every required report is in and passed. */
   complete: boolean;
-  items: CollectItemResult[];
+  items: Omit<CollectItemResult, "rows">[];
+  /**
+   * Each report by its id, with what came in: its documents and, for a spreadsheet, its rows,
+   * which the next step (a reconciliation) reads as it would a Read table step's.
+   */
+  reports: Record<string, CollectReport>;
   /** Every document that passed, for the next step (a reconciliation). */
   documents: string[];
   received: number;
@@ -431,7 +486,60 @@ export interface CollectOutput {
   sources: string[];
 }
 
-export function collectOutputSchema(): JsonSchema {
+/**
+ * The step's output schema. With the step, `reports` is typed report by report: each one's rows
+ * by its columns (as Read table's are, through `valueSchema`), so a later step's template that
+ * reads a column the report doesn't have is caught.
+ */
+export function collectOutputSchema(
+  step?: { items: readonly Pick<CollectItem, "id" | "columns" | "formats">[] },
+  valueSchema?: (type: TableColumn["type"]) => JsonSchema,
+): JsonSchema {
+  const rowOf = (columns: readonly TableColumn[] | undefined): JsonSchema =>
+    !columns?.length || !valueSchema
+      ? { type: "object", additionalProperties: true }
+      : {
+          type: "object",
+          properties: Object.fromEntries(columns.map((c) => [c.field, valueSchema(c.type)])),
+          required: columns.filter((c) => c.required === true).map((c) => c.field),
+          additionalProperties: false,
+        };
+  const reportOf = (rows: JsonSchema): JsonSchema => ({
+    type: "object",
+    properties: {
+      status: { type: "string", enum: [...COLLECT_ITEM_STATUSES] },
+      documents: { type: "array", items: { type: "string" } },
+      rows: { type: "array", items: rows },
+      rowCount: { type: "integer" },
+      senderProven: { type: ["boolean", "null"] },
+    },
+    required: ["status", "documents", "rows", "rowCount", "senderProven"],
+  });
+  const reports: JsonSchema = step
+    ? {
+        type: "object",
+        properties: Object.fromEntries(
+          step.items.map((i) => [
+            i.id,
+            reportOf(i.formats.includes("spreadsheet") ? rowOf(i.columns) : rowOf(undefined)),
+          ]),
+        ),
+        required: step.items.map((i) => i.id),
+      }
+    : { type: "object", additionalProperties: reportOf(rowOf(undefined)) };
+  return withReports(baseOutputSchema(), reports);
+}
+
+function withReports(base: JsonSchema, reports: JsonSchema): JsonSchema {
+  const b = base as { properties: Record<string, JsonSchema>; required: string[] };
+  return {
+    ...base,
+    properties: { ...b.properties, reports },
+    required: [...b.required, "reports"],
+  } as JsonSchema;
+}
+
+function baseOutputSchema(): JsonSchema {
   const period: JsonSchema = {
     type: ["object", "null"],
     properties: {
@@ -487,9 +595,21 @@ export function collectOutput(items: readonly CollectItemResult[]): CollectOutpu
           .filter((i) => i.status !== "received")
           .map((i) => i.name)
           .join(", ")}`;
+  const reports: Record<string, CollectReport> = {};
+  for (const i of items) {
+    const rows = i.status === "received" ? (i.rows ?? []) : [];
+    reports[i.id] = {
+      status: i.status,
+      documents: i.status === "received" ? i.documents : [],
+      rows,
+      rowCount: rows.length,
+      senderProven: i.status === "received" ? (i.senderProven ?? null) : null,
+    };
+  }
   return {
     complete: missingRequired.length === 0,
-    items: [...items],
+    items: items.map(({ rows: _rows, ...rest }) => rest),
+    reports,
     documents,
     received: received.length,
     missing,
@@ -650,3 +770,69 @@ export function columnsFromSample(
   });
   return out.slice(0, 200);
 }
+
+// ── Started by a report (the `report` trigger) ───────────────────────────────────────────────
+
+/** What a run a report started carries as its trigger: `{{trigger.report.…}}`. */
+export interface ReportTriggerPayload {
+  report: {
+    /** The collect step, and the report the email was for. */
+    step: string;
+    item: string;
+    documents: string[];
+    contactId: string;
+    /** Whether DMARC proved the sender. */
+    proven: boolean;
+    receivedAt: string;
+  };
+}
+
+/** The report a run's trigger brought to this step, or null. */
+export function triggerReport(
+  trigger: unknown,
+  stepId: string,
+): ReportTriggerPayload["report"] | null {
+  if (typeof trigger !== "object" || trigger === null) return null;
+  const r = (trigger as { report?: unknown }).report;
+  if (typeof r !== "object" || r === null) return null;
+  const report = r as Partial<ReportTriggerPayload["report"]>;
+  if (report.step !== stepId || typeof report.item !== "string") return null;
+  if (!Array.isArray(report.documents)) return null;
+  return {
+    step: report.step,
+    item: report.item,
+    documents: report.documents.filter((d): d is string => typeof d === "string"),
+    contactId: typeof report.contactId === "string" ? report.contactId : "",
+    proven: report.proven === true,
+    receivedAt: typeof report.receivedAt === "string" ? report.receivedAt : "",
+  };
+}
+
+/**
+ * The event a listening report waits on: a report emailed to the step while its run listens.
+ * Letters, digits, `-` and `_` only, at most 100 (Workflows' limit), as `conversationEventType`.
+ */
+export function reportEventType(stepId: string, itemId: string): string {
+  const clean = (s: string) => s.toLowerCase().replace(/[^a-z0-9-]/g, "-");
+  return `report-${clean(stepId)}-${clean(itemId)}`.slice(0, 100);
+}
+
+/** The schema of a report trigger's payload, for `{{trigger.report.…}}`. */
+export const REPORT_TRIGGER_SCHEMA: JsonSchema = {
+  type: "object",
+  properties: {
+    report: {
+      type: "object",
+      properties: {
+        step: { type: "string" },
+        item: { type: "string", description: "The report that started the run" },
+        documents: { type: "array", items: { type: "string" } },
+        contactId: { type: "string" },
+        proven: { type: "boolean" },
+        receivedAt: { type: "string" },
+      },
+      required: ["step", "item", "documents", "contactId", "proven", "receivedAt"],
+    },
+  },
+  required: ["report"],
+};

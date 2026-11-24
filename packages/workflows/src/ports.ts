@@ -723,6 +723,11 @@ export interface CollectCheckRequest {
  */
 export interface CollectPort {
   check(request: CollectCheckRequest): Promise<processes.ReportCheck>;
+  /**
+   * The step's own address (the agent's with `+<step id>`), shown to owners so they may email the
+   * file too; null when the agent has none. Absent: owners only upload through the link.
+   */
+  address?(request: { tenantId: string; agentId: string; stepId: string }): Promise<string | null>;
 }
 
 /** Whose hours a deadline runs on (`HoursPort.hoursFor`). */
