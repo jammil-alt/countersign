@@ -162,7 +162,16 @@ describe("checking what came in", () => {
         { date: "2026-11-30", amount: "5.00" },
       ]),
     ]);
-    expect(r).toEqual({ ok: true, problems: [], documents: ["d1"] });
+    expect(r).toEqual({
+      ok: true,
+      problems: [],
+      documents: ["d1"],
+      // The rows are handed on as they were read.
+      rows: [
+        { date: "2026-11-01", amount: "10.00" },
+        { date: "2026-11-30", amount: "5.00" },
+      ],
+    });
   });
 
   it("refuses nothing sent, the wrong format, a missing column, too few rows, dates outside", () => {
@@ -302,6 +311,35 @@ describe("validation", () => {
     expect(codes(processOf([bad]))).toEqual(
       expect.arrayContaining(["collect_owner", "input_not_fixed", "collect_item_ids"]),
     );
+  });
+
+  it("types each report's rows by its columns for the steps after it", () => {
+    const withColumns = step({
+      items: [
+        {
+          ...(step().items[0] as Record<string, unknown>),
+          formats: ["spreadsheet"],
+          columns: [
+            { field: "date", headers: ["Date"], type: "date", required: true },
+            { field: "amount", headers: ["Amount"], type: "money", required: true },
+          ],
+        },
+      ],
+    });
+    const reads = (path: string) =>
+      processOf([
+        withColumns,
+        {
+          id: "n1",
+          kind: "notify",
+          name: "Tell",
+          notify: { to: ["client_admin"], message: `{{steps.c1.output.reports.${path}}}` },
+        },
+      ]);
+    expect(codes(reads("bank.rows.0.amount"))).toEqual([]);
+    expect(codes(reads("bank.rowCount"))).toEqual([]);
+    expect(codes(reads("bank.rows.0.vendor"))).not.toEqual([]);
+    expect(codes(reads("card.rows"))).not.toEqual([]);
   });
 
   it("refuses a list that could take too many steps", () => {

@@ -256,6 +256,11 @@ export interface ReportCheck {
   problems: string[];
   /** The documents that passed. */
   documents: string[];
+  /**
+   * The rows of the spreadsheets that passed, read by the report's columns (Read table's rows),
+   * one file after another; empty for a PDF or an image, and when it didn't pass.
+   */
+  rows: Record<string, unknown>[];
 }
 
 /** A file's format, or null for one no report takes. */
@@ -294,7 +299,12 @@ export function checkReport(
 ): ReportCheck {
   const problems: string[] = [];
   if (files.length === 0) {
-    return { ok: false, problems: [`No file came with the ${item.name}.`], documents: [] };
+    return {
+      ok: false,
+      problems: [`No file came with the ${item.name}.`],
+      documents: [],
+      rows: [],
+    };
   }
   for (const f of files) {
     const format = reportFormatOf(f.mimeType);
@@ -340,10 +350,17 @@ export function checkReport(
   }
   const shown = problems.slice(0, PROBLEMS_MAX);
   if (problems.length > PROBLEMS_MAX) shown.push(`and ${problems.length - PROBLEMS_MAX} more.`);
+  const ok = problems.length === 0;
+  // Collect reports (owner, 2026-11-24): the rows are handed on, so the next step reads the
+  // report's data without reading its file again.
+  const rows = ok
+    ? files.flatMap((f) => (f.table && !("error" in f.table) ? [...f.table.rows] : []))
+    : [];
   return {
-    ok: problems.length === 0,
+    ok,
     problems: shown,
-    documents: problems.length === 0 ? files.map((f) => f.documentId) : [],
+    documents: ok ? files.map((f) => f.documentId) : [],
+    rows,
   };
 }
 
@@ -417,12 +434,28 @@ export interface CollectItemResult {
   /** How many links went out (the first request and its follow-ups). */
   sends: number;
   escalations: number;
+  /** A received spreadsheet's rows (`ReportCheck.rows`); the output keeps them under `reports`. */
+  rows?: Record<string, unknown>[];
+}
+
+/** One report as the next step reads it: `steps.<id>.output.reports.<report id>`. */
+export interface CollectReport {
+  status: CollectItemStatus;
+  documents: string[];
+  /** A spreadsheet's rows, by the report's columns; empty for a PDF or an image. */
+  rows: Record<string, unknown>[];
+  rowCount: number;
 }
 
 export interface CollectOutput {
   /** Every required report is in and passed. */
   complete: boolean;
-  items: CollectItemResult[];
+  items: Omit<CollectItemResult, "rows">[];
+  /**
+   * Each report by its id, with what came in: its documents and, for a spreadsheet, its rows,
+   * which the next step (a reconciliation) reads as it would a Read table step's.
+   */
+  reports: Record<string, CollectReport>;
   /** Every document that passed, for the next step (a reconciliation). */
   documents: string[];
   received: number;
@@ -431,7 +464,59 @@ export interface CollectOutput {
   sources: string[];
 }
 
-export function collectOutputSchema(): JsonSchema {
+/**
+ * The step's output schema. With the step, `reports` is typed report by report: each one's rows
+ * by its columns (as Read table's are, through `valueSchema`), so a later step's template that
+ * reads a column the report doesn't have is caught.
+ */
+export function collectOutputSchema(
+  step?: { items: readonly Pick<CollectItem, "id" | "columns" | "formats">[] },
+  valueSchema?: (type: TableColumn["type"]) => JsonSchema,
+): JsonSchema {
+  const rowOf = (columns: readonly TableColumn[] | undefined): JsonSchema =>
+    !columns?.length || !valueSchema
+      ? { type: "object", additionalProperties: true }
+      : {
+          type: "object",
+          properties: Object.fromEntries(columns.map((c) => [c.field, valueSchema(c.type)])),
+          required: columns.filter((c) => c.required === true).map((c) => c.field),
+          additionalProperties: false,
+        };
+  const reportOf = (rows: JsonSchema): JsonSchema => ({
+    type: "object",
+    properties: {
+      status: { type: "string", enum: [...COLLECT_ITEM_STATUSES] },
+      documents: { type: "array", items: { type: "string" } },
+      rows: { type: "array", items: rows },
+      rowCount: { type: "integer" },
+    },
+    required: ["status", "documents", "rows", "rowCount"],
+  });
+  const reports: JsonSchema = step
+    ? {
+        type: "object",
+        properties: Object.fromEntries(
+          step.items.map((i) => [
+            i.id,
+            reportOf(i.formats.includes("spreadsheet") ? rowOf(i.columns) : rowOf(undefined)),
+          ]),
+        ),
+        required: step.items.map((i) => i.id),
+      }
+    : { type: "object", additionalProperties: reportOf(rowOf(undefined)) };
+  return withReports(baseOutputSchema(), reports);
+}
+
+function withReports(base: JsonSchema, reports: JsonSchema): JsonSchema {
+  const b = base as { properties: Record<string, JsonSchema>; required: string[] };
+  return {
+    ...base,
+    properties: { ...b.properties, reports },
+    required: [...b.required, "reports"],
+  } as JsonSchema;
+}
+
+function baseOutputSchema(): JsonSchema {
   const period: JsonSchema = {
     type: ["object", "null"],
     properties: {
@@ -487,9 +572,20 @@ export function collectOutput(items: readonly CollectItemResult[]): CollectOutpu
           .filter((i) => i.status !== "received")
           .map((i) => i.name)
           .join(", ")}`;
+  const reports: Record<string, CollectReport> = {};
+  for (const i of items) {
+    const rows = i.status === "received" ? (i.rows ?? []) : [];
+    reports[i.id] = {
+      status: i.status,
+      documents: i.status === "received" ? i.documents : [],
+      rows,
+      rowCount: rows.length,
+    };
+  }
   return {
     complete: missingRequired.length === 0,
-    items: [...items],
+    items: items.map(({ rows: _rows, ...rest }) => rest),
+    reports,
     documents,
     received: received.length,
     missing,

@@ -3413,6 +3413,7 @@ class Executor {
       if (check.ok) {
         result.status = "received";
         result.documents = check.documents;
+        result.rows = check.rows ?? [];
         result.problems = [];
         return result;
       }

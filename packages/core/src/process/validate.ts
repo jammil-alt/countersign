@@ -130,7 +130,12 @@ import {
   type WriteStep,
 } from "./schema";
 // §1.164: Read table's output, typed by its columns.
-import { isReadTableStep, readTableColumnsFor, readTableOutputSchema } from "./table";
+import {
+  columnValueSchema,
+  isReadTableStep,
+  readTableColumnsFor,
+  readTableOutputSchema,
+} from "./table";
 import { isLogic, stepCount, walkSteps } from "./walk";
 
 // ── Results ──────────────────────────────────────────────────────────────────────────────────
@@ -487,7 +492,7 @@ export function stepOutputSchema(step: Step, ctx: TypingContext): JsonSchema | u
       return conversationOutputSchema(step);
     // Collect reports: `{ complete, items, documents, … }`.
     case "collect":
-      return collectOutputSchema();
+      return collectOutputSchema(step, columnValueSchema);
     default:
       return NO_OUTPUT;
   }

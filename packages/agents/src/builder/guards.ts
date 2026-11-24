@@ -502,9 +502,12 @@ export function guardBundle(
     const fresh = !keep.has(s.id) || sameStep(revised.get(s.id), s) === undefined;
     if (fresh && next.checks?.approval === undefined) {
       const writes = processes.stepWrites(next, typing);
+      // Collect reports (2026-11-24): its links reach each report's owner, so it starts with
+      // approval on as a reach-out does.
       const reaches =
-        next.kind === "skill" &&
-        skillsById.get(parseSkillRef(next.skill).id)?.reachesPeople === true;
+        next.kind === "collect" ||
+        (next.kind === "skill" &&
+          skillsById.get(parseSkillRef(next.skill).id)?.reachesPeople === true);
       if ((next.kind === "write" && writes === undefined) || (writes?.length ?? 0) > 0 || reaches) {
         next = { ...next, checks: { ...next.checks, approval: DEFAULT_APPROVAL } };
       }

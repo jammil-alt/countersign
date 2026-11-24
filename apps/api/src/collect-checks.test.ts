@@ -65,7 +65,16 @@ describe.skipIf(!h)("checking a report's files", () => {
       "bank-nov.csv",
       "Date,Amount,Memo\n2026-11-02,10.00,a\n2026-11-28,5.50,b\n",
     );
-    expect(await check(H.A.tenantId, [id])).toEqual({ ok: true, problems: [], documents: [id] });
+    expect(await check(H.A.tenantId, [id])).toEqual({
+      ok: true,
+      problems: [],
+      documents: [id],
+      // Read by the report's columns: what the next step reads, without the file again.
+      rows: [
+        { date: "2026-11-02", amount: "10.00" },
+        { date: "2026-11-28", amount: "5.50" },
+      ],
+    });
   });
 
   it("names a missing column and dates outside the period", async () => {
@@ -97,6 +106,7 @@ describe.skipIf(!h)("checking a report's files", () => {
       ok: false,
       problems: ["No file came with the Bank statement."],
       documents: [],
+      rows: [],
     });
   });
 });

@@ -81,8 +81,18 @@ function checks() {
       calls.push(req);
       const bad = req.documentIds.some((d) => d.includes("bad"));
       return bad
-        ? { ok: false, problems: ["bank.csv has 1 row; we need at least 2."], documents: [] }
-        : { ok: true, problems: [], documents: req.documentIds };
+        ? {
+            ok: false,
+            problems: ["bank.csv has 1 row; we need at least 2."],
+            documents: [],
+            rows: [],
+          }
+        : {
+            ok: true,
+            problems: [],
+            documents: req.documentIds,
+            rows: req.documentIds.map((d) => ({ doc: d, amount: "1.00" })),
+          };
     },
   };
   return { port, calls };
@@ -145,6 +155,44 @@ describe("collecting reports", () => {
     expect(h.agentCalls.find((c) => c.step.id === "rec")?.input).toEqual({
       documents: ["doc-bank", "doc-card"],
     });
+  });
+
+  it("hands on each report's checked rows by its id, so nothing reads the files again", async () => {
+    const { h } = harness({
+      "c1:0:r1:ask": { outcome: "submitted", documents: ["doc-bank"] },
+      "c1:1:r1:ask": { outcome: "submitted", documents: ["doc-card"] },
+    });
+    const { port } = checks();
+    const match = {
+      id: "match",
+      kind: "skill",
+      name: "Match",
+      skill: "custom:match",
+      input: {
+        bank: "{{steps.c1.output.reports.bank.rows}}",
+        card: "{{steps.c1.output.reports.card.rows}}",
+      },
+    };
+    const result = await executeWorkflow(
+      new FakeStepRunner(),
+      h.context({ collect: port }),
+      proc([collect(), match]),
+      {},
+    );
+    expect(result.status).toBe("succeeded");
+    expect(h.agentCalls.find((c) => c.step.id === "match")?.input).toEqual({
+      bank: [{ doc: "doc-bank", amount: "1.00" }],
+      card: [{ doc: "doc-card", amount: "1.00" }],
+    });
+    expect(h.row("c1")?.output).toMatchObject({
+      reports: {
+        bank: { status: "received", documents: ["doc-bank"], rowCount: 1 },
+        card: { status: "received", documents: ["doc-card"], rowCount: 1 },
+      },
+    });
+    // The rows are kept once, under `reports`, not in the list of reports too.
+    const output = h.row("c1")?.output as { items: object[] } | undefined;
+    expect(output?.items[0]).not.toHaveProperty("rows");
   });
 
   it("asks again with the reasons when a file fails its checks", async () => {
