@@ -40,6 +40,8 @@ import { healthFindings } from "../observability/health";
 import { opsFeedbackItem, resolveFeedback } from "../routes/feedback";
 import { opsConnection } from "../routes/mappers";
 import { latestHealthSummary } from "../routes/supervisor";
+import { AGENT_TOOLS } from "./agent-tools";
+import { BUILD_TOOLS } from "./build-tools";
 import type { McpConfig } from "./config";
 import {
   CONFIRM_ARG,
@@ -863,6 +865,9 @@ export const OPS_TOOLS: readonly Tool<OpsToolCtx>[] = [
   marketingReport,
   // docs/plan.md §1.125: the Dev queue
   ...DEV_QUEUE_TOOLS,
+  // docs/plan.md §1.34: builds with the Builder, and agents' steps and their settings
+  ...BUILD_TOOLS,
+  ...AGENT_TOOLS,
 ];
 
 /**
