@@ -28,6 +28,7 @@ import {
   createApiHarness,
   FakeWorkflowStep,
   OPERATOR,
+  tamper,
   user,
 } from "./api.test-helper";
 import { dbWriteAttempts, WRITE_ATTEMPT_ENTITY, WRITE_DONE_ENTITY } from "./attempts";
@@ -186,7 +187,7 @@ describe.skipIf(!h)("Slack through the API", () => {
     expect(redirect.searchParams.get("redirect_uri")).toBe(`${ORIGIN}/connections/slack/callback`);
 
     const tampered = await call(admin("a"), "POST", "/api/connections/slack/callback", {
-      params: { code: slack.issueCode(), state: `${state.slice(0, -2)}xx` },
+      params: { code: slack.issueCode(), state: tamper(state) },
     });
     expect(tampered.status).toBe(400);
     const none = await call(admin("a"), "POST", "/api/connections/slack/callback", {
