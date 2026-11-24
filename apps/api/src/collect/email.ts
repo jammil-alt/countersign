@@ -1,6 +1,6 @@
 // Collect reports (owner, 2026-11-24): a report emailed to its step's address, the agent's own
-// address with `+<step id>` (core `agentStepAddress`). The sender must be proven (DMARC) and be
-// the contact a link of that step is open for; the files go to that link as if they had been
+// address with `+<step id>` (core `agentStepAddress`). The sender's From address must be the
+// contact a link of that step is open for, proven by DMARC or not (the file is marked either way); the files go to that link as if they had been
 // uploaded on its page, so the step checks them as it checks any upload, asks again when they
 // don't pass, and stops following up when they do. Mail to a step never starts a run.
 
@@ -88,6 +88,8 @@ export async function handToOpenLink(
     files: readonly EmailedFile[];
     at: Date;
     messageId: string | null;
+    /** Whether DMARC proved the sender; kept on the link's log. */
+    proven?: boolean;
   },
 ): Promise<HandedTo | null> {
   const { open } = input;
@@ -118,6 +120,7 @@ export async function handToOpenLink(
           kind: "emailed",
           documents: input.files.map((f) => f.id),
           messageId: input.messageId,
+          proven: input.proven ?? false,
         },
       ])}::jsonb`,
     })

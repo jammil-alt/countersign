@@ -3432,6 +3432,7 @@ class Executor {
         result.status = "received";
         result.documents = check.documents;
         result.rows = check.rows ?? [];
+        result.senderProven = check.senderProven ?? null;
         result.problems = [];
         return result;
       }

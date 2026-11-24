@@ -74,6 +74,8 @@ describe.skipIf(!h)("checking a report's files", () => {
         { date: "2026-11-02", amount: "10.00" },
         { date: "2026-11-28", amount: "5.50" },
       ],
+      // Uploaded, not emailed to the step.
+      senderProven: null,
     });
   });
 
@@ -107,6 +109,7 @@ describe.skipIf(!h)("checking a report's files", () => {
       problems: ["No file came with the Bank statement."],
       documents: [],
       rows: [],
+      senderProven: null,
     });
   });
 });

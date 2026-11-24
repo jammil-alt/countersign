@@ -261,6 +261,11 @@ export interface ReportCheck {
    * one file after another; empty for a PDF or an image, and when it didn't pass.
    */
   rows: Record<string, unknown>[];
+  /**
+   * How it came in, set by the API: `true` or `false` when it was emailed to the step (whether
+   * DMARC proved the sender), absent or null when it was uploaded through the link.
+   */
+  senderProven?: boolean | null;
 }
 
 /** A file's format, or null for one no report takes. */
@@ -446,6 +451,8 @@ export interface CollectItemResult {
   escalations: number;
   /** A received spreadsheet's rows (`ReportCheck.rows`); the output keeps them under `reports`. */
   rows?: Record<string, unknown>[];
+  /** Emailed to the step: whether DMARC proved the sender; null when uploaded through the link. */
+  senderProven?: boolean | null;
 }
 
 /** One report as the next step reads it: `steps.<id>.output.reports.<report id>`. */
@@ -455,6 +462,11 @@ export interface CollectReport {
   /** A spreadsheet's rows, by the report's columns; empty for a PDF or an image. */
   rows: Record<string, unknown>[];
   rowCount: number;
+  /**
+   * Emailed to the step: whether DMARC proved the sender (false: the From address claimed to be
+   * the owner's, unproven); null when uploaded through the link or not received.
+   */
+  senderProven: boolean | null;
 }
 
 export interface CollectOutput {
@@ -499,8 +511,9 @@ export function collectOutputSchema(
       documents: { type: "array", items: { type: "string" } },
       rows: { type: "array", items: rows },
       rowCount: { type: "integer" },
+      senderProven: { type: ["boolean", "null"] },
     },
-    required: ["status", "documents", "rows", "rowCount"],
+    required: ["status", "documents", "rows", "rowCount", "senderProven"],
   });
   const reports: JsonSchema = step
     ? {
@@ -590,6 +603,7 @@ export function collectOutput(items: readonly CollectItemResult[]): CollectOutpu
       documents: i.status === "received" ? i.documents : [],
       rows,
       rowCount: rows.length,
+      senderProven: i.status === "received" ? (i.senderProven ?? null) : null,
     };
   }
   return {

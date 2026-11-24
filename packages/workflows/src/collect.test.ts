@@ -92,6 +92,8 @@ function checks() {
             problems: [],
             documents: req.documentIds,
             rows: req.documentIds.map((d) => ({ doc: d, amount: "1.00" })),
+            // "doc-mailed…" came by email, its sender unproven; anything else through the link.
+            senderProven: req.documentIds.some((d) => d.startsWith("doc-mailed")) ? false : null,
           };
     },
   };
@@ -190,6 +192,9 @@ describe("collecting reports", () => {
         card: { status: "received", documents: ["doc-card"], rowCount: 1 },
       },
     });
+    expect(h.row("c1")?.output).toMatchObject({
+      reports: { bank: { senderProven: null }, card: { senderProven: null } },
+    });
     // The rows are kept once, under `reports`, not in the list of reports too.
     const output = h.row("c1")?.output as { items: object[] } | undefined;
     expect(output?.items[0]).not.toHaveProperty("rows");
@@ -284,6 +289,26 @@ describe("collecting reports", () => {
         { id: "bank", status: "declined" },
         { id: "card", status: "not_sent", problems: ["no consent for email"] },
       ],
+    });
+  });
+});
+
+describe("a report emailed to the step", () => {
+  it("says the sender wasn't proven, for whoever reviews the run", async () => {
+    const { h } = harness({
+      "c1:0:r1:ask": { outcome: "submitted", documents: ["doc-mailed-bank"] },
+    });
+    const { port } = checks();
+    const result = await executeWorkflow(
+      new FakeStepRunner(),
+      h.context({ collect: port }),
+      proc([collect({ items: [report("bank")] })]),
+      {},
+    );
+    expect(result.status).toBe("succeeded");
+    expect(h.row("c1")?.output).toMatchObject({
+      complete: true,
+      reports: { bank: { status: "received", senderProven: false } },
     });
   });
 });

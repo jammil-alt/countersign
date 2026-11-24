@@ -40,6 +40,7 @@ export function collectChecks(deps: {
                   mimeType: document.mimeType,
                   sizeBytes: document.sizeBytes,
                   sha256: document.sha256,
+                  meta: document.meta,
                 })
                 .from(document)
                 .where(and(eq(document.tenantId, req.tenantId), inArray(document.id, ids))),
@@ -60,7 +61,17 @@ export function collectChecks(deps: {
         }
         files.push(file);
       }
-      return processes.checkReport(req.item, req.period, files);
+      // Emailed to the step (`meta.email.step`): proven only if DMARC proved every emailed file.
+      const emailed = rows
+        .map(
+          (r) => (r.meta as { email?: { step?: unknown; authenticated?: unknown } } | null)?.email,
+        )
+        .filter((e) => e?.step !== undefined);
+      const checked = processes.checkReport(req.item, req.period, files);
+      return {
+        ...checked,
+        senderProven: emailed.length === 0 ? null : emailed.every((e) => e?.authenticated === true),
+      };
     },
   };
 }

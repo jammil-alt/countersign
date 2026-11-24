@@ -72,11 +72,18 @@ function bundle(owner: string): unknown {
   };
 }
 
-function mime(input: { id: string; from: string; to: string; csv?: string }): Uint8Array {
+function mime(input: {
+  id: string;
+  from: string;
+  to: string;
+  csv?: string;
+  /** false: the sender's domain has no DMARC, so nothing proves the From address. */
+  dmarc?: boolean;
+}): Uint8Array {
   const boundary = "b-collect";
   const domain = input.from.split("@")[1];
   const lines = [
-    `Authentication-Results: mx.cloudflare.net; dmarc=pass header.from=${domain}`,
+    `Authentication-Results: mx.cloudflare.net; dmarc=${input.dmarc === false ? "none" : "pass"} header.from=${domain}`,
     `From: ${input.from}`,
     `To: ${input.to}`,
     "Subject: November statement",
@@ -237,12 +244,50 @@ describe.skipIf(!h)("mail to a collect step's address", () => {
     const answer = answers?.report ?? [];
     expect(answer).toEqual([{ documentId: expect.any(String), filename: "bank.csv" }]);
     expect(row?.documents).toEqual([answer[0]?.documentId]);
-    expect(row?.log?.at(-1)).toMatchObject({ kind: "emailed" });
+    expect(row?.log?.at(-1)).toMatchObject({ kind: "emailed", proven: true });
     // The same message again takes nothing.
     const again = await receive(
       mime({ id: "m1", from: "pat@bank.example", to: stepAddr, csv: "Date,Amount\n" }),
     );
     expect(again?.status).not.toBe("accepted");
+  });
+
+  it("takes the owner's report though nothing proves the sender, and marks it unproven", async () => {
+    const id = await openLink();
+    const outcome = await receive(
+      mime({
+        id: "m7",
+        from: "pat@bank.example",
+        to: stepAddr,
+        csv: "Date,Amount\n2026-11-03,4.00\n",
+        dmarc: false,
+      }),
+    );
+    expect(outcome).toMatchObject({ status: "accepted", wake: { formRequestId: id } });
+    const row = await link(id);
+    expect(row?.status).toBe("submitted");
+    expect(row?.log?.at(-1)).toMatchObject({ kind: "emailed", proven: false });
+    // The check the step runs says how it came in.
+    const docs = row?.documents ?? [];
+    const check = await collectChecks({ db: H.db, content }).check({
+      tenantId: H.A.tenantId,
+      runId: row?.runId as string,
+      nodeId: "C1:0:r1",
+      item: {
+        id: "bank",
+        name: "Bank statement",
+        owner: contactId,
+        required: true,
+        frequency: "once",
+        formats: ["spreadsheet"],
+        due: "3 days",
+        hours: "business",
+        followUp: { after: "1 day", every: "2 days", max: 2 },
+      },
+      period: null,
+      documentIds: docs,
+    });
+    expect(check).toMatchObject({ ok: true, senderProven: false });
   });
 
   it("takes nothing from a stranger, without a file, or with no link open", async () => {
@@ -253,6 +298,19 @@ describe.skipIf(!h)("mail to a collect step's address", () => {
       "eve@else.example",
     );
     expect(stranger).toMatchObject({ status: "refused", reason: "sender_not_owner" });
+    // Nor from a stranger whose domain has no DMARC.
+    const unproven = await receive(
+      mime({
+        id: "m2b",
+        from: "eve@else.example",
+        to: stepAddr,
+        csv: "Date,Amount\n",
+        dmarc: false,
+      }),
+      stepAddr,
+      "eve@else.example",
+    );
+    expect(unproven).toMatchObject({ status: "refused", reason: "sender_not_owner" });
     const empty = await receive(mime({ id: "m3", from: "pat@bank.example", to: stepAddr }));
     expect(empty).toMatchObject({ status: "refused", reason: "no_file" });
     expect((await link(id))?.status).toBe("open");

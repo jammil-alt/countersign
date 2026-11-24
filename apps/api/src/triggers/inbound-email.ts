@@ -90,8 +90,9 @@ async function sha256Hex(bytes: Uint8Array): Promise<string> {
 }
 
 /**
- * Collect reports (owner, 2026-11-24): mail to one of the agent's collect steps. Only a proven
- * sender with a link of that step open for them gets in; their attachments go to that link as an
+ * Collect reports (owner, 2026-11-24): mail to one of the agent's collect steps. Only a sender
+ * whose From address is a contact with a link of that step open gets in (DMARC proof is recorded,
+ * not required); their attachments go to that link as an
  * upload would, and the step's run is woken (`wake`). Nothing else is stored, no run is started
  * and nobody is answered automatically: the step itself asks again or follows up.
  */
@@ -156,7 +157,8 @@ async function stepEmail(
       subject: m.headers.subject,
       date: m.headers.date,
       messageId: m.headers.messageId,
-      authenticated: true,
+      // Whether Cloudflare's header proved the From address (DMARC for its domain).
+      authenticated: m.proven !== null,
       authenticatedAs: m.proven,
       agentId: m.agentId,
       step: m.tag,
@@ -189,6 +191,7 @@ async function stepEmail(
         from: m.from,
         contactId: m.sender.id,
         step: m.tag,
+        authenticated: m.proven !== null,
         subject: m.headers.subject?.slice(0, 300) ?? null,
         date: m.headers.date,
         messageId: m.headers.messageId,
@@ -207,6 +210,7 @@ async function stepEmail(
     files: ids.flatMap((id) => types.filter((t) => t.id === id)),
     at: m.now,
     messageId: m.headers.messageId ?? null,
+    proven: m.proven !== null,
   });
   if (!handed) return refused("no_open_report");
   return {
@@ -305,11 +309,16 @@ export async function receiveAgentEmail(
     const key = `${found.agentId}:${messageKey}`;
 
     if (tag !== null) {
+      // DECISION (owner, 2026-11-24: "not an issue right now… lets allow for the email to come
+      // in to the address"): mail to a step is taken from the report owner's address as it
+      // claims to be, proven or not; the report's checks decide whether it counts, and the file
+      // is marked unproven for whoever reviews the run. Nothing else reads an unproven sender.
+      const claimed = sender ?? (from ? await contactByEmail(tx, tenantId, from) : null);
       return stepEmail(tx, deps, {
         tenantId,
         agentId: found.agentId,
         tag,
-        sender,
+        sender: claimed,
         from,
         proven,
         headers: headers.headers,

@@ -93,7 +93,7 @@ export function CollectFields({
       <p className="text-xs text-ink-muted" data-testid="builder-collect-email">
         Owners can also email their report to this step: the agent's address with{" "}
         <span className="font-mono">+{step.id.toLowerCase()}</span> before the @. Each request names
-        the whole address. Only a report's owner, from the email on their contact, gets in.
+        the whole address. Only mail from a report owner's contact email is taken.
       </p>
       {step.items.map((item, i) => (
         <ReportCard
