@@ -98,4 +98,50 @@ describe.skipIf(!h)("the Builder's two rounds", () => {
     // The whole catalog went with every draft before; the shortlist's is a fraction of it.
     expect(catalog.length).toBeLessThan(text(round1).length / 2);
   });
+
+  it("keeps a conversation's shortlist from its first turn for the turns after it", async () => {
+    const start = await H.call(OPERATOR, "POST", "/api/ops/builder/sessions", {
+      kind: "agent",
+      name: "Record fixer",
+    });
+    expect(start.status, JSON.stringify(start.json)).toBe(200);
+    const sid = (start.json as { session: { id: string } }).session.id;
+    /** A turn that keeps the draft it was shown. */
+    const same = (req: LlmRequest) => {
+      const content = req.messages[0]?.content as string;
+      const from = content.indexOf("<current_bundle>") + "<current_bundle>".length;
+      const bundle = JSON.parse(content.slice(from, content.indexOf("</current_bundle>")));
+      return { toolUse: { name: "submit_turn", input: { text: "Noted.", bundle } } };
+    };
+    const from = model.requests.length;
+    model.push(
+      {
+        toolUse: {
+          name: "submit_shortlist",
+          input: { skills: [], tools: [TESTKIT_UPDATE_TOOL], automations: [], events: [] },
+        },
+      },
+      same,
+    );
+    const t1 = await H.call(OPERATOR, "POST", `/api/ops/builder/sessions/${sid}/turns`, {
+      text: "It fixes amounts on testkit records.",
+    });
+    expect(t1.status, JSON.stringify(t1.json)).toBe(200);
+    model.push(same);
+    const t2 = await H.call(OPERATOR, "POST", `/api/ops/builder/sessions/${sid}/turns`, {
+      text: "And asks the client first.",
+    });
+    expect(t2.status, JSON.stringify(t2.json)).toBe(200);
+    const asked = model.requests.slice(from);
+    // Turn one: the shortlist, then the turn. Turn two: the turn alone, on the same shortlist.
+    expect(asked.map((r) => r.tools?.[0]?.name)).toEqual([
+      "submit_shortlist",
+      "submit_turn",
+      "submit_turn",
+    ]);
+    const second = text(asked[2]);
+    expect(second).toContain("<other_parts>");
+    const catalog = second.slice(second.indexOf("<catalog>"), second.indexOf("</catalog>"));
+    expect(catalog).toContain(TESTKIT_UPDATE_TOOL);
+  });
 });

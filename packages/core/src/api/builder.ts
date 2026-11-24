@@ -55,6 +55,18 @@ export const BuilderTurnMeta = z.object({
   sample: z
     .object({ filename: z.string(), kind: z.enum(["table", "document", "other"]) })
     .optional(),
+  /**
+   * Two rounds (owner, 2026-11-24): the parts the conversation's first turn shortlisted, by id;
+   * later turns show these in full without asking again.
+   */
+  shortlist: z
+    .object({
+      skills: z.array(z.string()),
+      tools: z.array(z.string()),
+      automations: z.array(z.string()),
+      events: z.array(z.string()),
+    })
+    .optional(),
 });
 export type BuilderTurnMeta = z.infer<typeof BuilderTurnMeta>;
 

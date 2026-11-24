@@ -110,6 +110,10 @@ export const DRAFT_CASES: DraftCase[] = [
         text: "Steps 5 to 7 go to each sales manager in turn (a for_each over the managers) with a way to ask and wait for their answers (Request info, forms.request, or a person step with a deadline and reminders), not Collect reports and not a single step for everyone",
       },
       {
+        id: "decisions-laid-out",
+        text: "The decisions the description names are in the draft: filings with no territory rule go to a person (an if path or a person step for manual assignment), and each filing gets one of the named match types (won, lost, existing client with no deal, lead only, unmatched)",
+      },
+      {
         id: "zoho-write-approved",
         text: "Writing back to Zoho is a write step on a Zoho tool with its approval check on",
       },

@@ -24,8 +24,9 @@ import { PLATFORM_TOOLS } from "../tools/platform";
 import { aliasBundle, unaliasBundle } from "./aliases";
 import { entryKey, undoChange, undoneEntries } from "./changes";
 import { readCommand } from "./commands";
-import type { BuilderContext } from "./context";
+import { type BuilderContext, catalogForPrompt } from "./context";
 import { agentTurn, blankAgentDraft, TURN_TOOL } from "./conversation";
+import { SHORTLIST_TOOL, unseenPartsBlock } from "./shortlist";
 import {
   EMPTY_SKILL_DRAFT,
   SKILL_TOOL,
@@ -771,5 +772,86 @@ describe("draft-skill from a sample file", () => {
     const text = (content[1] as { text: string }).text;
     expect(text).toContain("document, attached above");
     expect(text).toContain("notice.pdf");
+  });
+});
+
+// Two rounds in a conversation (owner, 2026-11-24): the first turn makes a shortlist from the
+// catalog in short; later turns show it in full without asking again.
+describe("a conversation's turns in two rounds", () => {
+  const start = blankAgentDraft({ name: "Remy", role: "Card receipts" }, () => "trig-1");
+  const options = (model: FakeModel) => ({
+    llm: createLlmClient({ transport: model }),
+    validate,
+    newId,
+    shortlist: true,
+  });
+  const addMatch = editing((b) => {
+    b.definition.skills = [{ skill: matchSkill.id }];
+    (b.workflows[0] as Draft["workflows"][number]).workflow.steps = [matchStep("s1")];
+  });
+
+  it("shortlists on the first turn and reuses the shortlist on the next", async () => {
+    const m1 = new FakeModel([
+      {
+        toolUse: {
+          name: SHORTLIST_TOOL,
+          input: { skills: [matchSkill.id], tools: [], automations: [], events: [] },
+        },
+      },
+      addMatch as never,
+    ]);
+    const t1 = await agentTurn(
+      {
+        working: start,
+        origin: null,
+        history: [],
+        message: "Match each card receipt.",
+        command: null,
+        ctx: context(),
+      },
+      options(m1),
+    );
+    expect(m1.requests[0]?.tools?.[0]).toMatchObject({ name: SHORTLIST_TOOL });
+    expect(t1.shortlist?.skills).toEqual([matchSkill.id]);
+    expect(t1.calls).toHaveLength(2);
+
+    const m2 = new FakeModel([
+      editing((b) => {
+        (b.workflows[0] as Draft["workflows"][number]).workflow.steps.push(
+          noteStep("s2", "s1") as never,
+        );
+      }) as never,
+    ]);
+    const t2 = await agentTurn(
+      {
+        working: t1.bundle,
+        origin: null,
+        history: [],
+        message: "Then note it on the record.",
+        command: null,
+        ctx: context(),
+        shortlist: t1.shortlist,
+      },
+      options(m2),
+    );
+    // One call: the stored shortlist, the draft's own skill in full, the rest by id.
+    expect(m2.requests).toHaveLength(1);
+    const prompt = m2.requests[0]?.messages[0]?.content as string;
+    expect(prompt).toContain("<other_parts>");
+    const catalog = prompt.slice(prompt.indexOf("<catalog>"), prompt.indexOf("</catalog>"));
+    expect(catalog).toContain(matchSkill.id);
+    expect(catalog).not.toContain(TESTKIT_UPDATE_TOOL);
+    // The note step uses the update tool from the ids-only list; the guards accept it.
+    expect(stepsOf(t2.bundle).map((s) => s.kind)).toEqual(["skill", "write"]);
+  });
+
+  it("shows a part used from the ids-only list in full for a repair round", () => {
+    const b = structuredClone(start);
+    b.workflows[0]?.workflow.steps.push(noteStep("s2", "s1") as unknown as Step);
+    const shown = new Set([matchSkill.id]);
+    const block = unseenPartsBlock(b, context(), shown, catalogForPrompt);
+    expect(block).toContain("The parts you used from the ids-only list, in full");
+    expect(block).toContain(TESTKIT_UPDATE_TOOL);
+    expect(unseenPartsBlock(b, context(), null, catalogForPrompt)).toBe("");
   });
 });

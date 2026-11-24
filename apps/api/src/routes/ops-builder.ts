@@ -54,6 +54,7 @@ import {
   type AgentBundle,
   AnyAgentBundle,
   type BuilderChange,
+  BuilderTurnMeta,
   type ClosestTemplate,
   classifyChange,
   closestBundles,
@@ -962,8 +963,15 @@ function builderSessionRoutes(app: Hono<AppEnv>): void {
     // v0.18: a focus on a step the working draft no longer has is dropped (the turn is about the
     // whole draft); the turn keeps the step's name as it was, for the chat.
     const focus = body.focusStepId ? focusedStep(working, body.focusStepId) : null;
+    // Two rounds: the shortlist an earlier turn made, kept on that turn's meta.
+    const madeBefore =
+      [...turns]
+        .reverse()
+        .map((t) => BuilderTurnMeta.parse(t.meta ?? {}).shortlist)
+        .find(Boolean) ?? null;
     const result = await agentTurn(
       {
+        shortlist: madeBefore,
         working,
         origin: await originOf(ctx, s),
         history,
@@ -976,31 +984,35 @@ function builderSessionRoutes(app: Hono<AppEnv>): void {
       },
       {
         llm,
+        shortlist: services.env.BUILDER_SHORTLIST !== "off",
         validate: (bundle) =>
           validateForPublish(tx, validateAs, stored(bundle), services.platform.ctx, { previous }),
       },
     ).catch(builderHttpError);
+    // A shortlist this turn made is kept on its operator turn, for the turns after it.
+    const madeNow = !madeBefore && result.shortlist ? { shortlist: result.shortlist } : {};
     await addTurn(tx, s, {
       role: "operator",
       text: body.text,
       command: command ? `/${command.name}` : null,
-      meta: command
-        ? {
-            command: {
-              name: command.name,
-              target:
-                command.name === "skill"
-                  ? command.skill
-                  : command.name === "automation"
-                    ? command.ref
-                    : command.trigger,
-              args: command.args,
-            },
-            ...(focus ? { focus } : {}),
-          }
-        : focus
-          ? { focus }
-          : {},
+      meta: {
+        ...madeNow,
+        ...(command
+          ? {
+              command: {
+                name: command.name,
+                target:
+                  command.name === "skill"
+                    ? command.skill
+                    : command.name === "automation"
+                      ? command.ref
+                      : command.trigger,
+                args: command.args,
+              },
+            }
+          : {}),
+        ...(focus ? { focus } : {}),
+      },
     });
     const model = result.calls[0]?.model;
     const turn = await addTurn(tx, s, {

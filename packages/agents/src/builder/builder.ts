@@ -31,7 +31,7 @@ import {
 import { z } from "zod";
 import { type BuilderContext, catalogBriefForPrompt, catalogForPrompt } from "./context";
 import { guardBundle } from "./guards";
-import { draftCatalog } from "./shortlist";
+import { draftCatalog, partsOf, unseenPartsBlock } from "./shortlist";
 
 // ── Answers ──────────────────────────────────────────────────────────────────────────────────────
 
@@ -181,7 +181,8 @@ ${processes.triggerGuideText()}
 - New agents review their own failed steps: definition.oversight is {"review": "failures"}.
 - A skill step may set "model" ({"id": one of the catalog's models}) when its job needs a different model from its skill's or the agent's (a long document on a stronger one, a simple read on a fast one); leave it out otherwise.
 - Agent kind is "functional". Give each step, if path, otherwise branch and trigger a short id, unique in the bundle.
-- Happy path first: draft the normal case so it runs end to end. What the description lists as known risks is not built in this version: add no steps and no missing steps for them. Where the normal case can't go on (no match, more than one, something it can't read), hand it to a person with a person step, or stop with a note; never a missing step for an exception. A threshold the description doesn't give starts strict, so more goes to a person.
+- Lay out everything the operator mentions: every step the description, the brief or the fit-gap names is a step, and every decision it names is in the draft (an if with a path for each case it names, or a person step where a person decides). There is no limit on the number of steps: a long process stays long, and nothing mentioned is dropped or folded into another step.
+- Happy path first: draft the normal case so it runs end to end, and add nothing beyond what is mentioned. What the description lists as known risks is not built in this version: add no steps and no missing steps for them. Where the normal case can't go on (no match, more than one, something it can't read), hand it to a person with a person step, or stop with a note; never a missing step for an exception. A threshold the description doesn't give starts strict, so more goes to a person.
 - Prefer a template that already does the job: name it in "startFromTemplate" (drafts only).
 - Drafts only: record each decision you make to get the normal case running in "decisions" (a threshold's starting value, what stays out, where a person decides), with the step it shapes by its id. They are part of the process; don't ask about them. Where the agent can't know, the decision is a person step (kind decision_point); a choice that differs by client is client_setup. Risk is high, with its category, for writing into a client's tool (writes), money, contacting people outside the client (contact), data leaving to a vendor of ours (vendor_data), approvals and who signs (approvals), or overwriting records (overwrite).
 - Write names, summaries and gaps in plain words, short sentences, sentence case; no hype, no exclamation marks.`;
@@ -213,7 +214,7 @@ export const BUILDER_ANSWER_TOKENS = 64_000;
 // DECISION (owner, 2026-11-24): a smaller draft keeps every step the operator stated. "At most 10
 // steps" cut a 10-step process's middle (assign, forms, follow-ups, the write-back); what a
 // smaller draft drops is what nobody asked for.
-export const DRAFT_SHORTER = `Your last answer was too long to finish and was cut off. Answer again with a smaller first draft: keep every step the description states (each numbered step still one step, in order), with short instructions, no optional branches, no extra checks or notes. If a step still doesn't fit, put a person step in its place and name it in "gaps", one plain sentence each, so it can be added to the draft one at a time.`;
+export const DRAFT_SHORTER = `Your last answer was too long to finish and was cut off. Answer again with a smaller first draft: keep every step and every decision the description states (each numbered step still one step, in order), with short instructions and nothing it doesn't mention: no extra branches, checks or notes. If a step still doesn't fit, put a person step in its place and name it in "gaps", one plain sentence each, so it can be added to the draft one at a time.`;
 
 export interface BuilderOptions {
   llm: LlmClient;
@@ -267,7 +268,7 @@ export const OPERATOR_FIXES = new Set([
 export const WORKS_FIRST = `Works first: this draft must run as it is, so the operator can try it today and change it after.
 - Never use a missing step: this replaces the rule above about them. Where the catalog has no part for a piece of the work, a person does that piece in this version: put a person step there (mode "ask") whose title says what to do and whose payload shows what they need to do it, and name the missing part in "gaps", one plain sentence each ("No connector reads card charges, so a person enters them for now."). Later steps use that person's answer.
 - Don't leave anything for the operator to answer first. Where the description doesn't say (what starts it, how often, who is asked, a threshold, a deadline), decide: the simplest choice that works, strict where it is a threshold, the client's team for who is asked, and record it in "decisions" with its starting value.
-- Build the steps the description states, in the order it states them, one step for each. Add nothing it doesn't state: no extra checks, branches, notes to the team, waits or handling of cases it doesn't mention. The only additions are the ones the rules require: approval on a step that changes a client's tool, a person where a stated step can't be done, and a last step that reports out when the description names none. More is added later, when the operator asks for it.
+- Build every step the description and the brief state, in the order they state them, one step for each, and every decision they name (an if with a path for each case named, or a person step where a person decides). There is no limit on the number of steps. Add nothing they don't state: no extra checks, branches, notes to the team, waits or handling of cases it doesn't mention. The only additions are the ones the rules require: approval on a step that changes a client's tool, a person where a stated step can't be done, and a last step that reports out when the description names none. More is added later, when the operator asks for it.
 - When the description numbers its steps, each number is one top-level step, in that order, and none is left out or merged with another. Name each step in the operator's words, shortened: never in other words, and never with how it is done ("with AI", a tool's name). A number's sub-points are that step's details: its input, its rules, its instructions or the fields it gives back, never steps of their own, and never dropped. A number done once per item (per filing, per manager) is a for_each holding that work.
 - Asking several people each for their own answers through a form (a form per manager, with a due date) is a for_each over the people with a Request info skill step (forms.request: who, why, the questions, when it is due). Asking again until it is answered is a repeat around it; someone on the client's team who answers in the inbox is a person step, whose deadline holds reminders and an escalation. Collect reports is for files people send.
 - Where a step needs judgment no skill in the catalog gives (cleaning rows by rules, matching by name and address, choosing an outcome), it needs a new skill: a person does it in this version, and its gap says the skill to make, what it gets and what it gives back ("No skill cleans the filings: make one that gets the rows and gives back kept and removed, each with a reason.").
@@ -327,6 +328,8 @@ export async function ask<T extends { bundle: ProcessAgentBundle; gaps: string[]
     shorter?: string;
     /** Error codes left out of a repair round (default `OPERATOR_FIXES`). */
     operatorFixes?: ReadonlySet<string>;
+    /** Two rounds: the parts shown in full; a repair round shows the others it used in full. */
+    shown?: ReadonlySet<string> | null;
   },
   options: BuilderOptions,
 ): Promise<{
@@ -443,7 +446,7 @@ export async function ask<T extends { bundle: ProcessAgentBundle; gaps: string[]
         },
         {
           role: "user",
-          content: `That bundle (after the server's rules were applied, so ids may have changed) ${problems}\n\nAnswer again with the whole corrected answer. Keep the ids it has now.`,
+          content: `That bundle (after the server's rules were applied, so ids may have changed) ${problems}\n\nAnswer again with the whole corrected answer. Keep the ids it has now.${unseenPartsBlock(guarded.bundle, input.ctx, input.shown, catalogForPrompt)}`,
         },
       );
       continue;
@@ -501,6 +504,7 @@ ${promptText(input.description)}
       label: "builder.draft-agent",
       ctx,
       first,
+      shown: catalog.shown,
       ...(input.worksFirst
         ? { system: `${RULES}\n\n${WORKS_FIRST}`, operatorFixes: WORKS_FIRST_OPERATOR_FIXES }
         : {}),
@@ -651,6 +655,7 @@ ${input.instruction ? `\nThe operator's instruction:\n<instruction>\n${promptTex
       label: "builder.revise-agent",
       ctx,
       first,
+      shown: catalog.shown,
       guard: (a) => {
         const g = guardBundle(a.bundle, ctx, {
           mode: "revise",
@@ -672,17 +677,4 @@ ${input.instruction ? `\nThe operator's instruction:\n<instruction>\n${promptTex
     costUsd: totalCost([...catalog.calls, ...out.calls]),
     changeNote: out.answer.changeNote,
   };
-}
-
-/** The skills and tools a bundle's steps use (a revision keeps them in its catalog in full). */
-function partsOf(bundle: ProcessAgentBundle): { skills: string[]; tools: string[] } {
-  const skills = new Set<string>();
-  const tools = new Set<string>();
-  for (const w of bundle.workflows) {
-    processes.walkSteps(w.workflow, ({ step }) => {
-      if (step.kind === "skill") skills.add(step.skill.split("@")[0] ?? step.skill);
-      if ((step.kind === "read" || step.kind === "write") && step.tool) tools.add(step.tool);
-    });
-  }
-  return { skills: [...skills], tools: [...tools] };
 }

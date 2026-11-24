@@ -24,11 +24,13 @@ import {
 import { DEFAULT_MODEL, type LlmCallRecord } from "@countersign/llm";
 import { z } from "zod";
 import { aliasBundle, aliasText, type IdAliases, mapNodeIds, unaliasBundle } from "./aliases";
-import { ask, type BuilderOptions, catalogBlock, errorKey, RULES, totalCost } from "./builder";
+import { ask, type BuilderOptions, errorKey, RULES, totalCost } from "./builder";
 import { labelledChanges } from "./changes";
 import { commandScope, type TurnCommand } from "./commands";
 import type { BuilderContext } from "./context";
+import { catalogForPrompt } from "./context";
 import { guardBundle } from "./guards";
+import { draftCatalog, partsOf, type ShortlistAnswer } from "./shortlist";
 
 export const TURN_TOOL = "submit_turn";
 
@@ -86,6 +88,11 @@ export interface TurnInput {
    */
   focusStepId?: string;
   ctx: BuilderContext;
+  /**
+   * Two rounds (owner, 2026-11-24): the conversation's shortlist, made on an earlier turn. The
+   * turn uses it without asking again; absent, the turn makes one (when two rounds are on).
+   */
+  shortlist?: ShortlistAnswer | null;
 }
 
 export interface TurnResult {
@@ -98,6 +105,8 @@ export interface TurnResult {
   changes: ReturnType<typeof labelledChanges>;
   calls: LlmCallRecord[];
   costUsd: string | null;
+  /** The shortlist the turn's catalog was made from; null when it showed the whole catalog. */
+  shortlist: ShortlistAnswer | null;
 }
 
 /** Earlier turns, at most this many, reach the model. */
@@ -217,7 +226,29 @@ export async function agentTurn(input: TurnInput, options: BuilderOptions): Prom
   const instruction = command
     ? `${command.instruction}\n\nThe operator's words:\n<instruction>\n${message}\n</instruction>`
     : `The operator's words:\n<instruction>\n${message}\n</instruction>`;
-  const first = `${catalogBlock(ctx)}
+  // Two rounds: the conversation's shortlist in full, the draft's own parts and what a command
+  // names too; every other part by id. The first turn makes the shortlist; later turns reuse it.
+  const own = partsOf(working);
+  const named = {
+    skills: [...own.skills, ...(command?.name === "skill" ? [command.skill] : [])],
+    tools: own.tools,
+  };
+  const stored =
+    input.shortlist && command?.name === "automation"
+      ? { ...input.shortlist, automations: [...input.shortlist.automations, command.ref] }
+      : (input.shortlist ?? null);
+  const catalog = await draftCatalog(
+    {
+      task: [input.message, input.request].filter(Boolean).join("\n\n"),
+      current: shown,
+    },
+    ctx,
+    options,
+    catalogForPrompt,
+    named,
+    stored,
+  );
+  const first = `${catalog.block}
 
 ${ctx.client ? `This agent serves the client ${ctx.client.name}. Use what it has connected; anything it hasn't connected is a gap.` : "This agent is a template: a reusable agent the operator forks into clients."}${input.origin ? "" : " It is a new agent."}
 
@@ -273,6 +304,7 @@ ${input.request ? `\nThe client's request, in their words (what they want change
       label: "builder.turn",
       ctx,
       first,
+      shown: catalog.shown,
       guard,
       system: CONVERSATION_RULES,
       present: (b) => extendAliases(b, aliases),
@@ -294,7 +326,8 @@ ${input.request ? `\nThe client's request, in their words (what they want change
     notes: [...out.notes, ...scopeNotes],
     errors: out.errors,
     changes: labelledChanges(working, out.bundle),
-    calls: out.calls,
-    costUsd: totalCost(out.calls),
+    calls: [...catalog.calls, ...out.calls],
+    costUsd: totalCost([...catalog.calls, ...out.calls]),
+    shortlist: catalog.picked,
   };
 }

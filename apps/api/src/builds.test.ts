@@ -910,7 +910,7 @@ describe.skipIf(!h)("builds", () => {
     // The smaller draft was asked for before giving up, with the higher limit.
     expect(model.requests.at(-2)?.max_tokens).toBe(64_000);
     expect(JSON.stringify(model.requests.at(-1)?.messages)).toContain(
-      "keep every step the description states",
+      "keep every step and every decision the description states",
     );
     expect(sentry.captureException).toHaveBeenCalledWith(
       expect.anything(),

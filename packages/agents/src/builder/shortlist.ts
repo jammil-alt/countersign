@@ -182,9 +182,21 @@ ${promptText(input.task)}
   }
 }
 
+/** What a draft's catalog block holds: the block, the parts shown in full, the shortlist used. */
+export interface DraftCatalog {
+  block: string;
+  calls: LlmCallRecord[];
+  /** The skill and tool ids shown in full; null when the whole catalog was. */
+  shown: ReadonlySet<string> | null;
+  /** The shortlist the block was made from (a conversation keeps it for its next turns). */
+  picked: ShortlistAnswer | null;
+}
+
 /**
- * The catalog block a draft or revision shows: the whole catalog (`two` absent or failed), or the
- * shortlist in full with every other part by id. `keep`: a version's own parts, always in full.
+ * The catalog block a draft, a revision or a conversation's turn shows: the whole catalog (two
+ * rounds off, or the shortlist failed), or a shortlist in full with every other part by id.
+ * `stored`: a shortlist made before (a conversation's), used without asking again. `keep`: the
+ * parts the bundle at hand already uses, always in full.
  */
 export async function draftCatalog(
   task: { task: string; current?: unknown },
@@ -192,11 +204,74 @@ export async function draftCatalog(
   options: Pick<BuilderOptions, "llm" | "model" | "signal" | "shortlist">,
   full: (c: BuilderContext) => Record<string, unknown>,
   keep: { skills?: Iterable<string>; tools?: Iterable<string> } = {},
-): Promise<{ block: string; calls: LlmCallRecord[] }> {
-  const whole = `<catalog>\n${promptJson(full(ctx))}\n</catalog>`;
-  if (!options.shortlist) return { block: whole, calls: [] };
-  const round = await shortlistParts({ ...task, ctx }, options);
-  if (!round.picked) return { block: whole, calls: round.calls };
+  stored: ShortlistAnswer | null = null,
+): Promise<DraftCatalog> {
+  const whole = { block: `<catalog>\n${promptJson(full(ctx))}\n</catalog>`, shown: null };
+  if (!options.shortlist) return { ...whole, calls: [], picked: null };
+  const round = stored
+    ? { picked: stored, calls: [] }
+    : await shortlistParts({ ...task, ctx }, options);
+  if (!round.picked) return { ...whole, calls: round.calls, picked: null };
   const narrowed = narrowContext(ctx, round.picked, keep);
-  return { block: shortlistCatalogBlock(full(narrowed.ctx), narrowed.more), calls: round.calls };
+  return {
+    block: shortlistCatalogBlock(full(narrowed.ctx), narrowed.more),
+    calls: round.calls,
+    shown: new Set([
+      ...narrowed.ctx.skills.map((x) => x.ref),
+      ...narrowed.ctx.tools.map((t) => t.id),
+    ]),
+    picked: round.picked,
+  };
+}
+
+/** The skills and tools a bundle's steps use (a revision keeps them in its catalog in full). */
+export function partsOf(bundle: { workflows: readonly { workflow: unknown }[] }): {
+  skills: string[];
+  tools: string[];
+} {
+  const skills = new Set<string>();
+  const tools = new Set<string>();
+  const visit = (steps: unknown) => {
+    if (!Array.isArray(steps)) return;
+    for (const raw of steps) {
+      const step = raw as Record<string, unknown>;
+      if (step.kind === "skill" && typeof step.skill === "string") {
+        skills.add(step.skill.split("@")[0] ?? step.skill);
+      }
+      if ((step.kind === "read" || step.kind === "write") && typeof step.tool === "string") {
+        tools.add(step.tool);
+      }
+      visit(step.steps);
+      if (Array.isArray(step.paths))
+        for (const p of step.paths) visit((p as { steps?: unknown }).steps);
+      visit((step.otherwise as { steps?: unknown } | undefined)?.steps);
+    }
+  };
+  for (const w of bundle.workflows) visit((w.workflow as { steps?: unknown } | null)?.steps);
+  return { skills: [...skills], tools: [...tools] };
+}
+
+/**
+ * For a repair round: the parts a bundle uses that the model saw by id only, in full, so it can
+ * fix their inputs. Empty when it used none (or saw the whole catalog).
+ */
+export function unseenPartsBlock(
+  bundle: { workflows: readonly { workflow: unknown }[] },
+  ctx: BuilderContext,
+  shown: ReadonlySet<string> | null | undefined,
+  full: (c: BuilderContext) => Record<string, unknown>,
+): string {
+  if (!shown) return "";
+  const used = partsOf(bundle);
+  const skills = new Set(used.skills.filter((id) => !shown.has(id)));
+  const tools = new Set(used.tools.filter((id) => !shown.has(id)));
+  if (skills.size === 0 && tools.size === 0) return "";
+  const detail = full({
+    ...ctx,
+    skills: ctx.skills.filter((x) => skills.has(x.ref)),
+    tools: ctx.tools.filter((t) => tools.has(t.id)),
+    events: [],
+    ...(ctx.automations ? { automations: [] } : {}),
+  });
+  return `\n\nThe parts you used from the ids-only list, in full:\n<catalog>\n${promptJson(detail)}\n</catalog>`;
 }
