@@ -472,3 +472,24 @@ describe("outlook.send", () => {
     expect(body.message.bccRecipients).toBeUndefined();
   });
 });
+
+describe("a sandbox run's email sent to the person who asked (docs/plan.md §1.243)", () => {
+  it("is not a tool, and sends one plain email from the mailbox to the address given", async () => {
+    const { connector, ms, ctx } = await setup();
+    expect(connector.manifest.tools.map((t) => t.id)).toEqual([OUTLOOK_SEND_TOOL]);
+    const out = await connector.sendPreview?.(ctx, {
+      to: "sam@client.test",
+      subject: "[Sandbox] Your order",
+      text: "Would have gone to orders@vendor.test.",
+      key: "p1",
+    });
+    expect(out).toEqual({ id: await outlookRef("preview:p1"), from: "pat.lee@shop.example" });
+    expect(ms.sent).toHaveLength(1);
+    expect(ms.sent[0]?.body.message).toMatchObject({
+      subject: "[Sandbox] Your order",
+      body: { contentType: "Text", content: "Would have gone to orders@vendor.test." },
+      toRecipients: [{ emailAddress: { address: "sam@client.test" } }],
+    });
+    expect(ms.sent[0]?.body.message.replyTo).toBeUndefined();
+  });
+});

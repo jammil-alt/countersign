@@ -8,6 +8,9 @@ export const OPS_PATHS = {
   /** R5 (docs/plan.md §1.235): every client side by side; one client's report. */
   accounts: "/ops/accounts",
   clientReport: (id: string) => `/ops/clients/${id}/report`,
+  /** docs/plan.md §1.243: a client's sandbox (the Agents tab's second page), and one run. */
+  clientSandbox: (id: string) => `/ops/clients/${id}/sandbox`,
+  clientSandboxRun: (id: string, runId: string) => `/ops/clients/${id}/sandbox/${runId}`,
   /** docs/plan.md §1.101: Reggie; `askReggie` starts a conversation about one client. */
   reggie: "/ops/reggie",
   askReggie: (clientId: string) => `/ops/reggie?client=${clientId}`,

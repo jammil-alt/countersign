@@ -331,7 +331,7 @@ export async function runMissedEvents(
 const firstTrigger = (w: AnyAgentBundle["workflows"][number]) => allTriggers(w.workflow)[0];
 
 /** The workflows of the agent's live version the client may start, with their forms. */
-function clientRunnable(bundle: AnyAgentBundle | null): RunForm[] {
+export function clientRunnable(bundle: AnyAgentBundle | null): RunForm[] {
   const out: RunForm[] = [];
   for (const w of bundle?.workflows ?? []) {
     if (!w.enabled) continue;

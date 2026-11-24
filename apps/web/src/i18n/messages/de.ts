@@ -2564,6 +2564,7 @@ export const de: Messages = {
   "directory.suggestions.title.reach": "Ändern, wie wir {name} erreichen", // fluent review
   "sop.onError": "Bei einem Fehler: {what}", // fluent review
   "sop.told": "Informiert", // fluent review
+  "sop.reports": "Berichte", // fluent review
   "sop.controls": "Kontrollen", // fluent review
   "sop.path.if": "Wenn", // fluent review
   "sop.path.otherwise": "Sonst", // fluent review
@@ -2636,6 +2637,7 @@ export const de: Messages = {
   "workflow.noModel": "Regeln", // fluent review
   "workflow.noModel.title": "Läuft nach Regeln, ohne KI", // fluent review
   "workflow.rulesThenAi": "Erst Regeln, dann KI", // fluent review
+  "workflow.reports": { one: "{count} Bericht", other: "{count} Berichte" }, // fluent review
   "workflow.kind.read": "Lesen", // fluent review
   "workflow.kind.change": "Ändern", // fluent review
   "workflow.kind.person": "Person", // fluent review
@@ -2648,6 +2650,7 @@ export const de: Messages = {
   "workflow.kind.decision": "Entscheidung", // fluent review
   "workflow.kind.forEach": "Für jedes", // fluent review
   "workflow.kind.repeat": "Wiederholen", // fluent review
+  "workflow.kind.collect": "Sammelt Berichte", // fluent review
   "workflow.kind.aiSkill": "KI-Fähigkeit", // fluent review
   "workflow.kind.rulesSkill": "Regel-Fähigkeit", // fluent review
   "workflow.aPerson": "Eine Person", // fluent review
@@ -4426,4 +4429,78 @@ export const de: Messages = {
   "ap.flag.uncoded": "Zeilen ohne Konto",
   "ap.flag.read_again": "Neu gelesen",
   "ap.flag.other": "Hinweis",
+  // ── Sandbox (docs/plan.md §1.243) ──
+  "nav.sandbox": "Sandbox",
+  "sandbox.title": "Sandbox",
+  "sandbox.intro":
+    "Lassen Sie einen Ihrer Agenten mit Ihren eigenen Daten laufen und sehen Sie, was er tun würde. In Ihren Tools wird nichts geschrieben und nichts gesendet.",
+  "sandbox.use": { one: "Heute 1 von {max} Läufen.", other: "Heute {count} von {max} Läufen." },
+  "sandbox.usedUp": "Das war's für heute. Morgen können Sie weitere starten.",
+  "sandbox.readOnly":
+    "Nur wer unterschreiben darf, kann einen Lauf starten. Die Läufe können Sie hier lesen.",
+  "sandbox.agents": "Agenten",
+  "sandbox.noAgents": "Hier gibt es noch keine Agenten zum Ausprobieren.",
+  "sandbox.running":
+    "{name} läuft gerade in der Sandbox. Der nächste Lauf kann starten, sobald er fertig ist.",
+  "sandbox.documents": "Mit einem aktuellen Dokument",
+  "sandbox.forms": "Mit einem Formular",
+  "sandbox.nothing":
+    "Es gibt noch nichts, womit er laufen kann. Sobald ein passendes Dokument eintrifft, erscheint es hier.",
+  "sandbox.runOn": "Damit ausführen",
+  "sandbox.start": "In der Sandbox ausführen",
+  "sandbox.starting": "Wird gestartet…",
+  "sandbox.runs": "Letzte Läufe",
+  "sandbox.noRuns": "Noch keine Läufe in der Sandbox.",
+  "sandbox.by": "Von {name}",
+  "sandbox.changes": { one: "1 Änderung", other: "{count} Änderungen" },
+  "sandbox.messages": { one: "1 Nachricht", other: "{count} Nachrichten" },
+  "sandbox.status.running": "Läuft",
+  "sandbox.status.done": "Fertig",
+  "sandbox.status.failed": "Nicht abgeschlossen",
+  "sandbox.run.notWritten":
+    "Ein Testlauf. In Ihren Tools wurde nichts geschrieben und nichts gesendet.",
+  "sandbox.run.steps": "Schritte",
+  "sandbox.run.starting": "Es geht los. Die Schritte erscheinen hier nach und nach.",
+  "sandbox.step.done": "Erledigt",
+  "sandbox.step.running": "In Arbeit",
+  "sandbox.step.waiting": "Würde hier warten",
+  "sandbox.step.skipped": "Übersprungen",
+  "sandbox.step.failed": "Hat nicht geklappt",
+  "sandbox.run.would": "Was er tun würde",
+  "sandbox.run.wouldHint": "Nichts davon wurde geschrieben oder gesendet.",
+  "sandbox.run.noChanges": "Er würde in Ihren Tools nichts ändern.",
+  "sandbox.run.notices": "Hinweise, die er senden würde",
+  "sandbox.notice.to": "An {to}",
+  "sandbox.channel.email": "E-Mail",
+  "sandbox.channel.sms": "SMS",
+  "sandbox.channel.whatsapp": "WhatsApp",
+  "sandbox.channel.voice": "Anruf",
+  "sandbox.channel.other": "Nachricht",
+  "sandbox.change.email": "E-Mail an {to}",
+  "sandbox.change.sms": "SMS an {to}",
+  "sandbox.change.whatsapp": "WhatsApp-Nachricht an {to}",
+  "sandbox.change.voice": "Anruf bei {to}",
+  "sandbox.change.other": "Nachricht an {to}",
+  "sandbox.change.aContact": "einen Kontakt",
+  "sandbox.change.notWritten": "Nicht geschrieben",
+  "sandbox.change.step": "Schritt: {name}",
+  "sandbox.message.from": "Von",
+  "sandbox.message.to": "An",
+  "sandbox.message.subject": "Betreff",
+  "sandbox.message.noSubject": "(kein Betreff)",
+  "sandbox.message.noText": "(kein Text)",
+  "sandbox.message.attachments": { one: "1 Anhang", other: "{count} Anhänge" },
+  "sandbox.record.field": "Feld",
+  "sandbox.record.before": "Jetzt",
+  "sandbox.record.after": "Würde werden",
+  "sandbox.record.empty": "(leer)",
+  "sandbox.send.button": "An mich senden",
+  "sandbox.send.toEmail": "Aus Ihrem eigenen Postfach an {to}, an niemanden sonst.",
+  "sandbox.send.toSms": "Von Ihrer eigenen Nummer an {to}, an niemanden sonst.",
+  "sandbox.sent.by": "Gesendet an {name}, {when} ({to}).",
+  "sandbox.sent.at": "Gesendet, {when} ({to}).",
+  "error.sandbox_running":
+    "Dieser Agent läuft gerade in der Sandbox. Warten Sie, bis er fertig ist.",
+  "error.sandbox_limit":
+    "Sie haben die Sandbox-Läufe für heute aufgebraucht. Versuchen Sie es morgen erneut.",
 };

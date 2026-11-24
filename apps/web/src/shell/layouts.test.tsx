@@ -414,6 +414,8 @@ describe("portal layout", () => {
       ["portal-nav-inbox", "/inbox"],
       ["portal-nav-requests", "/requests"],
       ["portal-nav-runs", "/runs"],
+      // docs/plan.md §1.243: the sandbox.
+      ["portal-nav-sandbox", "/sandbox"],
       ["portal-nav-connectors", "/connectors"],
       ["portal-nav-contacts", "/contacts"],
       // §1.122: the admin's team management.

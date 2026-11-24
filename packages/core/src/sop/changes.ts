@@ -52,6 +52,10 @@ function method(s: SopStepLine): string {
   return s.model ? `${m} (${s.model})` : m;
 }
 
+function reportList(s: SopStepLine): string {
+  return (s.reports ?? []).map((r) => `${r.name} from ${r.owner.name}`).join("; ");
+}
+
 function approvers(s: SopStepLine): string {
   const list = s.approval?.approvers ?? [];
   if (list.length === 0) return "nobody";
@@ -197,6 +201,15 @@ export function sopChanges(before: SopView | null, after: SopView): SopChange[] 
         ref,
         words: `Step ${s.number} is approved by ${approvers(s)}`,
         was: approvers(old),
+      });
+    }
+    // A Collect reports step's reports and owners; a revision made before them says nothing.
+    if (old.reports && s.reports && reportList(old) !== reportList(s)) {
+      add({
+        section: "procedure",
+        ref,
+        words: `Step ${s.number} collects ${reportList(s)}`,
+        was: reportList(old),
       });
     }
     if ((old.byWhen ?? null) !== (s.byWhen ?? null) && s.byWhen) {

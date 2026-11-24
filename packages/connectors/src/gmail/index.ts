@@ -15,6 +15,7 @@ import {
   type Connector,
   defineConnector,
   defineWriteTool,
+  type PreviewEmail,
   type ToolContext,
   UnconfirmedWriteError,
   writeNotMade,
@@ -385,6 +386,31 @@ export function createGmailConnector(options: GmailOptions = {}): GmailConnector
     return { ...res, to: stored };
   }
 
+  /**
+   * docs/plan.md §1.243: a sandbox run's email, from the connected mailbox to the person who asked
+   * to see it. The address is the platform's (their sign-in email), never an input of a tool.
+   */
+  async function sendPreview(ctx: ConnectionContext, email: PreviewEmail) {
+    const stored = ctx.connection.externalAccountId?.trim().toLowerCase();
+    if (!stored) throw new GmailNoAddressError();
+    const creds = GmailCredentials.safeParse(await ctx.credentials.get());
+    if (!creds.success)
+      throw new ReconnectRequiredError("the Gmail connection has no valid sign-in");
+    if (creds.data.address.trim().toLowerCase() !== stored) throw new GmailNoAddressError();
+    const raw = gmailRaw(
+      buildPlainMessage({
+        from: { address: stored },
+        to: email.to,
+        subject: email.subject,
+        text: email.text,
+        messageId: messageIdFor(`preview.${email.key}`, stored),
+        date: ctx.now(),
+      }),
+    );
+    const res = await send(ctx, raw);
+    return { id: res.id, from: stored };
+  }
+
   const connector = defineConnector({
     id: GMAIL_CONNECTOR_ID,
     // Connectors C2 (docs/connectors-plan.md §5.1): writes a new connection starts asking first.
@@ -613,5 +639,5 @@ export function createGmailConnector(options: GmailOptions = {}): GmailConnector
       }),
     ],
   });
-  return Object.assign(connector, { sendToSelf });
+  return Object.assign(connector, { sendToSelf, sendPreview });
 }

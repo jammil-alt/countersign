@@ -123,6 +123,7 @@ import {
   RunStatusSchema,
   RunsPerDay,
 } from "./runs-filter";
+import { sandboxRoutes } from "./sandbox";
 import { secondFactorRoutes } from "./second-factor";
 // The skill model (owner, 2026-11-10)
 import {
@@ -1820,6 +1821,11 @@ export const opsRoutes = {
           given: z.record(z.string().min(1).max(100), z.unknown()).optional(),
         })
         .optional(),
+      /**
+       * A client agent only: the run is a sandbox run (docs/plan.md §1.243), listed in the client's
+       * sandbox on both sides, with what it would have changed and sent.
+       */
+      sandbox: z.literal(true).optional(),
     }),
     // For a template, the run belongs to its test copy: agentId and versionId name that copy.
     response: z.object({ runId: z.string(), agentId: z.string(), versionId: z.string() }),
@@ -2576,6 +2582,8 @@ export const routes = {
   ...lifecycleRoutes,
   // docs/setup-plan.md (§1.206)
   ...gettingStartedRoutes,
+  // docs/plan.md §1.243: a client's sandbox
+  ...sandboxRoutes,
   // v0.12 W1-B: notifications, the Table and the Weekly Table
   ...notifyRoutes,
   // §1.116: the phone app
