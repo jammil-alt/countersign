@@ -291,6 +291,100 @@ describe("the agent's SOP, made by code (docs/sop-plan.md)", () => {
     expect(await sopFingerprint({ ...view, outline: [] })).toBe(await sopFingerprint(view));
   });
 
+  it("draws a Collect reports step as itself, naming each report and who sends it", () => {
+    const b = bundle() as unknown as { workflows: { workflow: { steps: unknown[] } }[] };
+    b.workflows[0]?.workflow.steps.unshift({
+      id: "reports",
+      name: "Collect the month's reports",
+      kind: "collect",
+      items: [
+        {
+          id: "bank",
+          name: "Bank statement",
+          owner: ADA,
+          due: "3 days",
+          followUp: { after: "1 day", every: "1 day", max: 2 },
+        },
+        {
+          id: "sales",
+          name: "Sales report",
+          owner: BEN,
+          due: "3 days",
+          followUp: { after: "1 day", every: "1 day", max: 2 },
+        },
+        {
+          id: "card",
+          name: "Card statement",
+          owner: ADA,
+          due: "3 days",
+          followUp: { after: "1 day", every: "1 day", max: 2 },
+        },
+      ],
+      escalate: {
+        to: "lead",
+        after: "2 days",
+        hours: "business",
+        deadline: { after: "1d", hours: "business", ifNoAnswer: "stop" },
+      },
+      ifMissing: "stop",
+    });
+    const view = sopView(input({ b: b as unknown as AnyAgentBundle }));
+    expect(SopView.safeParse(view).success).toBe(true);
+    // The chart draws it as a Collect reports step, not as a conversation.
+    expect(view.outline.find((o) => o.id === "reports")?.kind).toBe("collect");
+    const line = step(view, "reports");
+    expect(line.kindWords).toBe("Waits for 3 reports and checks each");
+    expect(line.reports?.map((r) => `${r.name}: ${r.owner.name}`)).toEqual([
+      "Bank statement: Ada Ruiz",
+      "Sales report: Ben Ortiz",
+      "Card statement: Ada Ruiz",
+    ]);
+    // Whoever a late report goes to is told; each owner does their part in the people table.
+    expect(line.told.map((p) => p.name)).toEqual(["Sam Patel"]);
+    const row = view.matrix.rows.find((r) => r.step === line.number);
+    const cellOf = (name: string) =>
+      row?.cells[view.matrix.parties.findIndex((p) => p.name === name)];
+    expect(cellOf("Ada Ruiz")).toBe("does");
+    expect(cellOf("Ben Ortiz")).toBe("does");
+    expect(cellOf("Sam Patel")).toBe("told");
+    // Other steps carry no reports.
+    expect(step(view, "vendor").reports).toBeUndefined();
+    // A revision made before: the step stored as a conversation, with no reports, still parses.
+    const older = {
+      ...view,
+      outline: view.outline.map((o) => (o.id === "reports" ? { ...o, kind: "conversation" } : o)),
+      procedure: view.procedure.map((l) => {
+        if (l.line !== "step" || l.id !== "reports") return l;
+        const { reports: _, ...rest } = l;
+        return rest;
+      }),
+    };
+    expect(SopView.safeParse(older).success).toBe(true);
+    // A report's new owner is a change to the SOP, said with the step.
+    const moved = {
+      ...view,
+      procedure: view.procedure.map((l) =>
+        l.line === "step" && l.id === "reports"
+          ? {
+              ...l,
+              reports: l.reports?.map((r) =>
+                r.name === "Sales report" ? { ...r, owner: { ...r.owner, name: "Cara Lin" } } : r,
+              ),
+            }
+          : l,
+      ),
+    };
+    expect(sopChanges(view, moved)).toEqual([
+      {
+        section: "procedure",
+        ref: "1",
+        words:
+          "Step 1 collects Bank statement from Ada Ruiz; Sales report from Cara Lin; Card statement from Ada Ruiz",
+        was: "Bank statement from Ada Ruiz; Sales report from Ben Ortiz; Card statement from Ada Ruiz",
+      },
+    ]);
+  });
+
   it("says a new way of writing SOPs once, without listing changes nobody made", () => {
     const now = sopView(input());
     const older = { ...now, format: now.format - 1, purpose: "Old words" };

@@ -2502,6 +2502,7 @@ export const ptBR: Messages = {
   "directory.suggestions.title.reach": "Mudar como contatamos {name}", // fluent review
   "sop.onError": "Se falhar: {what}", // fluent review
   "sop.told": "Informados", // fluent review
+  "sop.reports": "Relatórios", // fluent review
   "sop.controls": "Controles", // fluent review
   "sop.path.if": "Se", // fluent review
   "sop.path.otherwise": "Caso contrário", // fluent review
@@ -2572,6 +2573,7 @@ export const ptBR: Messages = {
   "workflow.noModel": "regras", // fluent review
   "workflow.noModel.title": "Funciona por regras, sem IA", // fluent review
   "workflow.rulesThenAi": "Primeiro regras, depois IA", // fluent review
+  "workflow.reports": { one: "{count} relatório", other: "{count} relatórios" }, // fluent review
   "workflow.kind.read": "Ler", // fluent review
   "workflow.kind.change": "Alterar", // fluent review
   "workflow.kind.person": "Pessoa", // fluent review
@@ -2584,6 +2586,7 @@ export const ptBR: Messages = {
   "workflow.kind.decision": "Decisão", // fluent review
   "workflow.kind.forEach": "Para cada", // fluent review
   "workflow.kind.repeat": "Repetir", // fluent review
+  "workflow.kind.collect": "Coleta relatórios", // fluent review
   "workflow.kind.aiSkill": "Habilidade de IA", // fluent review
   "workflow.kind.rulesSkill": "Habilidade por regras", // fluent review
   "workflow.aPerson": "Uma pessoa", // fluent review

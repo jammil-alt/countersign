@@ -2544,6 +2544,7 @@ export const fr: Messages = {
   "directory.suggestions.title.reach": "Changer comment nous joignons {name}", // fluent review
   "sop.onError": "En cas d'échec : {what}", // fluent review
   "sop.told": "Informés", // fluent review
+  "sop.reports": "Rapports", // fluent review
   "sop.controls": "Contrôles", // fluent review
   "sop.path.if": "Si", // fluent review
   "sop.path.otherwise": "Sinon", // fluent review
@@ -2614,6 +2615,7 @@ export const fr: Messages = {
   "workflow.noModel": "règles", // fluent review
   "workflow.noModel.title": "Fonctionne par règles, sans IA", // fluent review
   "workflow.rulesThenAi": "D'abord les règles, puis l'IA", // fluent review
+  "workflow.reports": { one: "{count} rapport", other: "{count} rapports" }, // fluent review
   "workflow.kind.read": "Lire", // fluent review
   "workflow.kind.change": "Modifier", // fluent review
   "workflow.kind.person": "Personne", // fluent review
@@ -2626,6 +2628,7 @@ export const fr: Messages = {
   "workflow.kind.decision": "Décision", // fluent review
   "workflow.kind.forEach": "Pour chaque", // fluent review
   "workflow.kind.repeat": "Répéter", // fluent review
+  "workflow.kind.collect": "Collecte des rapports", // fluent review
   "workflow.kind.aiSkill": "Compétence IA", // fluent review
   "workflow.kind.rulesSkill": "Compétence par règles", // fluent review
   "workflow.aPerson": "Une personne", // fluent review
