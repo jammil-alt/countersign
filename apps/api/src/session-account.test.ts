@@ -201,7 +201,10 @@ describe.skipIf(!h)("memberships carried in the cookie", () => {
   it("a tampered cookie is never used: the account is read", async () => {
     const first = await request(admin("a"), portalSpec.path);
     const value = first.carried?.split("=")[1] ?? "";
-    const flipped = `${value.slice(0, -2)}${value.endsWith("AA") ? "AB" : "AA"}`;
+    // Change one character inside the ciphertext, not at its end: base64url's last character
+    // carries bits that decoding drops, so changing it can leave the bytes as they were.
+    const at = value.lastIndexOf(".") + 2;
+    const flipped = `${value.slice(0, at)}${value[at] === "A" ? "B" : "A"}${value.slice(at + 1)}`;
     const res = await request(admin("a"), portalSpec.path, `${DEV_ACCOUNT_COOKIE}=${flipped}`);
     expect(res.status).toBe(200);
     // It did not open, so the account was read and a good cookie sealed in its place.
