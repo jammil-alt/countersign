@@ -111,6 +111,7 @@ import { conversationEngine } from "../converse/engine";
 import { conversePort } from "../converse/service";
 import { dbDesktopServices } from "../desktop/services";
 import type { Bindings } from "../env";
+import { feedCatchUp } from "../feeds";
 // §1.121: forms, "Request info"
 import type { FormLinks } from "../forms/link";
 import { formsPort } from "../forms/service";
@@ -431,6 +432,8 @@ export function runtimeFor(
       transport: deps.transport,
       // P-5: document storage, for a document a pack tool makes (a purchase order PDF).
       ...(deps.documents ? { content: deps.documents.content } : {}),
+      // 2026-11-24: a tool reading a connector's synced records catches them up first (feeds.ts).
+      catchUp: feedCatchUp(deps),
     },
     ...(deps.covered ? { policy: hipaaToolPolicy(profileReader(db), deps.covered) } : {}),
     // Skill model (2026-11-10): a platform tool that called a model without declaring

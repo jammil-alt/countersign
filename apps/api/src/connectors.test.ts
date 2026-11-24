@@ -46,7 +46,13 @@ import {
 } from "./api.test-helper";
 import { credentialsFor, executeRun } from "./runs/execute";
 import { cloudflareStepRunner } from "./runs/step-runner";
-import { runZohoSync, zohoCronTick } from "./zoho/sync";
+import {
+  catchUpZoho,
+  runZohoSync,
+  ZOHO_PASS_DONE_KEY,
+  zohoCronTick,
+  zohoPollDue,
+} from "./zoho/sync";
 
 // biome-ignore lint/suspicious/noExplicitAny: response bodies are read loosely in tests.
 const j = (v: unknown) => v as any;
@@ -643,6 +649,128 @@ describe.skipIf(!h)("connectors through the API", () => {
       expect(j(row?.syncCursor).zoho).toMatchObject({ initial: false, module: 0 });
     });
 
+    // 2026-11-24: deletions, the pass's end time and a step's catch-up.
+    it("marks records deleted in Zoho, records when a pass ends, and catches up for a step", async () => {
+      const zdeps = (iso: string) => ({
+        db: H.db,
+        platform: H.platform,
+        credentials: credentialsFor(H.db, { current: ENCRYPTION_KEY }),
+        now: () => new Date(iso),
+      });
+      zoho.state.deleted.Deals = [
+        { id: "5725767000000411001", deleted_time: "2026-11-06T13:30:00+00:00" },
+      ];
+      const synced = await runZohoSync(zdeps("2026-11-06T14:00:00Z"), {
+        tenantId: H.B.tenantId,
+        connectionId,
+      });
+      // A list and a list of deletions for each module.
+      expect(synced).toMatchObject({ pages: 8 });
+      const deal = await H.t.db
+        .select()
+        .from(rawRecord)
+        .where(
+          and(
+            eq(rawRecord.connectionId, connectionId),
+            eq(rawRecord.externalId, "5725767000000411001"),
+          ),
+        );
+      // Every version we hold is marked; nothing else about them changes.
+      expect(deal.length).toBeGreaterThanOrEqual(2);
+      expect(deal.every((r) => r.isDeleted)).toBe(true);
+      const [row] = await H.t.db.select().from(connection).where(eq(connection.id, connectionId));
+      expect(j(row?.syncCursor)[ZOHO_PASS_DONE_KEY]).toBe("2026-11-06T14:00:00.000Z");
+      expect(zohoPollDue(row?.syncCursor, new Date("2026-11-06T14:09:00Z"))).toBeNull();
+      expect(zohoPollDue(row?.syncCursor, new Date("2026-11-07T13:54:00Z"))).toBe("daily");
+
+      // A step right after: the copy is fresh, so Zoho isn't asked.
+      const calls = zoho.apiCalls().length;
+      expect(await catchUpZoho(zdeps("2026-11-06T14:03:00Z"), H.B.tenantId)).toEqual({
+        read: 0,
+        fresh: 1,
+      });
+      expect(zoho.apiCalls().length).toBe(calls);
+      // Later: what changed since comes in before the step reads it.
+      zoho.state.listed.Leads = [
+        ...(zoho.state.listed.Leads ?? []),
+        {
+          id: "5843104000000424998",
+          Last_Name: "Quinn",
+          Modified_Time: "2026-11-06T15:00:00+00:00",
+        },
+      ];
+      expect(await catchUpZoho(zdeps("2026-11-06T15:30:00Z"), H.B.tenantId)).toEqual({
+        read: 1,
+        fresh: 0,
+      });
+      const quinn = await H.t.db
+        .select()
+        .from(rawRecord)
+        .where(
+          and(
+            eq(rawRecord.connectionId, connectionId),
+            eq(rawRecord.externalId, "5843104000000424998"),
+          ),
+        );
+      expect(quinn).toHaveLength(1);
+    });
+
+    // 2026-11-24: a connection whose first sync read 90 days reads everything once, quietly.
+    it("reads everything again for a 90-day connection: old records quietly, changes as news", async () => {
+      const zdeps = {
+        db: H.db,
+        platform: H.platform,
+        credentials: credentialsFor(H.db, { current: ENCRYPTION_KEY }),
+        now: () => new Date("2026-11-06T16:30:00Z"),
+      };
+      const [before] = await H.t.db
+        .select()
+        .from(connection)
+        .where(eq(connection.id, connectionId));
+      const stored = j(before?.syncCursor) as Record<string, unknown>;
+      const { full: _full, from: _from, ...ninetyDays } = stored.zoho as Record<string, unknown>;
+      await H.t.db
+        .update(connection)
+        .set({
+          syncCursor: { ...stored, zoho: { ...ninetyDays, since: "2026-11-06T15:30:00.000Z" } },
+        })
+        .where(eq(connection.id, connectionId));
+      zoho.state.listed.Accounts = [
+        {
+          id: "5843104000000500001",
+          Account_Name: "Old Co",
+          Modified_Time: "2025-01-01T00:00:00+00:00",
+        },
+        {
+          id: "5843104000000500002",
+          Account_Name: "New Co",
+          Modified_Time: "2026-11-06T16:00:00+00:00",
+        },
+      ];
+      const changed = () =>
+        H.t.db
+          .select()
+          .from(event)
+          .where(and(eq(event.tenantId, H.B.tenantId), eq(event.type, ZOHO_RECORD_CHANGED_EVENT)));
+      const known = new Set((await changed()).map((e) => e.id));
+      await runZohoSync(zdeps, { tenantId: H.B.tenantId, connectionId });
+      const accounts = await H.t.db
+        .select()
+        .from(rawRecord)
+        .where(and(eq(rawRecord.connectionId, connectionId), eq(rawRecord.entityType, "Accounts")));
+      expect(accounts.map((r) => r.externalId).sort()).toEqual([
+        "5843104000000500001",
+        "5843104000000500002",
+      ]);
+      const news = (await changed()).filter((e) => !known.has(e.id)).map((e) => j(e.payload));
+      expect(news).toEqual([
+        expect.objectContaining({ recordId: "5843104000000500002", change: "created" }),
+      ]);
+      const [after] = await H.t.db.select().from(connection).where(eq(connection.id, connectionId));
+      expect(j(after?.syncCursor).zoho).toMatchObject({ full: true, initial: false });
+      expect(j(after?.syncCursor).zoho.quietUntil).toBeUndefined();
+    });
+
     // docs/plan.md §1.164 step 3 ("Zoho's fields").
     it("reads Zoho's fields after a new sign-in, types the builder's writes, and syncs chosen custom fields", async () => {
       const fieldsPath = `/api/ops/clients/${H.B.tenantId}/connections/${connectionId}/zoho-fields`;
@@ -827,7 +955,9 @@ describe.skipIf(!h)("connectors through the API", () => {
         );
       // Not the Zoho minute: nothing.
       expect(await tick("2026-11-06T14:00:00Z")).toBe(0);
-      expect(await tick("2026-11-06T14:09:00Z")).toBeGreaterThanOrEqual(1);
+      // 2026-11-24: the watch is renewed every tick it's due; the poll waits for its day (the
+      // last pass ended later than this clock).
+      expect(await tick("2026-11-06T14:09:00Z")).toBe(0);
       expect(zoho.state.watches.length).toBe(watches + 1);
       expect(j(zoho.state.watches.at(-1)).watch[0].notify_url).toBe(`${ORIGIN}${path}`);
       // Renewed a day later, not before.

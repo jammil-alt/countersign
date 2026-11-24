@@ -48,8 +48,10 @@ import {
   type ZohoSyncedModule,
   type ZohoSyncPage,
   zohoCursorFor,
+  zohoDeletedRecords,
   zohoPageRequest,
   zohoRawRecord,
+  zohoSinceHeader,
   zohoSyncFields,
   zohoSyncFieldsKey,
   zohoWatchBody,
@@ -604,6 +606,51 @@ export function createZohoCrmConnector(options: ZohoCrmOptions = {}): ZohoCrmCon
     const fieldsKey = zohoSyncFieldsKey(extra);
     const cursor = zohoCursorFor(stored, now, fieldsKey);
     const req = zohoPageRequest(cursor);
+    // A full read sends no window: Zoho lists every record (2026-11-24).
+    const since = zohoSinceHeader(req.since);
+    const headers: Record<string, string> = since ? { "if-modified-since": since } : {};
+    if (req.deleted) {
+      // 2026-11-24: the module's deleted records (recycle bin and permanently deleted), so a
+      // record deleted in Zoho leaves what a match searches. UNCHECKED (NOTES.md).
+      const query = formEncode({
+        type: "all",
+        page: String(req.page),
+        per_page: String(ZOHO_SYNC_PAGE_SIZE),
+      });
+      let body: unknown;
+      try {
+        body = await api(ctx, "GET", `/${req.module}/deleted?${query}`, undefined, headers);
+      } catch (error) {
+        // DECISION: a refusal of the deletions (a scope the sign-in lacks, a path this org
+        // doesn't have) skips them for this pass rather than holding every later change back
+        // behind them; a rate limit, a 5xx or a dead sign-in still fails the page, to be tried
+        // again. A deleted record then stays in our copy until a later pass reads it.
+        const refused =
+          error instanceof ZohoApiError &&
+          (error instanceof ZohoScopeMissingError || [400, 403, 404].includes(error.status));
+        if (!refused) throw error;
+        ctx.logger.warn("zoho deleted records refused; skipped this pass", {
+          module: req.module,
+          status: error.status,
+        });
+        body = null;
+      }
+      const answer = ListAnswer.safeParse(body ?? {});
+      if (!answer.success) {
+        throw new ZohoApiError(
+          502,
+          "BAD_LIST",
+          "Zoho's list of deleted records has an unexpected shape",
+          false,
+        );
+      }
+      const deleted = zohoDeletedRecords(req.module, answer.data.data);
+      return afterZohoPage(
+        cursor,
+        { records: [], deleted, more: answer.data.info?.more_records === true },
+        now,
+      );
+    }
     const query = formEncode({
       fields: zohoSyncFields(req.module, extra[req.module] ?? []),
       sort_by: "Modified_Time",
@@ -611,10 +658,7 @@ export function createZohoCrmConnector(options: ZohoCrmOptions = {}): ZohoCrmCon
       page: String(req.page),
       per_page: String(ZOHO_SYNC_PAGE_SIZE),
     });
-    const body = await api(ctx, "GET", `/${req.module}?${query}`, undefined, {
-      // Zoho's format: no milliseconds, with an offset.
-      "if-modified-since": `${req.since.slice(0, 19)}+00:00`,
-    });
+    const body = await api(ctx, "GET", `/${req.module}?${query}`, undefined, headers);
     const answer = ListAnswer.safeParse(body ?? {});
     if (!answer.success) {
       throw new ZohoApiError(502, "BAD_LIST", "Zoho's list answer has an unexpected shape", false);

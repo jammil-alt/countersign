@@ -75,6 +75,11 @@ export const MatchRecordsOutput = z.object({
   sources: z.array(z.string()),
 });
 
+// 2026-11-24 (owner: poll Zoho once a day, and again when an agent needs the records): the tools
+// that read the synced CRM records name Zoho as their feed, so the run brings them up to date first.
+// DECISION: Zoho only, the one connector the area keys (`CRM_MAPPERS`).
+const ZOHO_FEED = "zoho_crm";
+
 /** Save to records: rows matched to the client's synced CRM records, each decision recorded. */
 export const matchRecordsTool = defineTool({
   id: "sales.match_records",
@@ -84,6 +89,7 @@ export const matchRecordsTool = defineTool({
     "Matches each row (a spreadsheet's, or a step's list) to the client's synced CRM records in the modules given: exact email, phone or website first, then the answers a person gave before, then similar names and similar meaning, then a small model choosing among at most five candidates. Two different emails or phones are never the same record. Rows under the threshold, or with two equally sure records, wait for a person. `keys` names the row's field for each key (email, phone, website, company, name or firstName and lastName, deal).",
   sideEffect: "internal",
   entity: "crm_match",
+  feed: ZOHO_FEED,
   summary: "Matched {{counts.matched}} rows; {{counts.unsure}} for a person",
   input: MatchRecordsInput,
   output: MatchRecordsOutput,
@@ -99,6 +105,7 @@ export const keysRefreshTool = defineTool({
   sideEffect: "internal",
   verb: "update",
   entity: "crm_record",
+  feed: ZOHO_FEED,
   summary: "Built {{built}} record keys, embedded {{embedded.embedded}}",
   input: z.object({
     modules: z.array(z.string().min(1).max(100)).min(1).max(10).optional(),
@@ -154,6 +161,7 @@ export const recordsLookupTool = defineTool({
     "Finds the client's synced CRM records in one module by what a person would type: a name, company, email, phone or deal name. Exact emails and phones first, then similar text; at most 20.",
   sideEffect: "none",
   entity: "crm_record",
+  feed: ZOHO_FEED,
   summary: "Found {{records.length}} records",
   input: z.object({
     module: z.string().min(1).max(100),

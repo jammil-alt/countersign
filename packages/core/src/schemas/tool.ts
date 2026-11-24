@@ -50,7 +50,9 @@ export const ToolSpec = z
     connector: z.string().min(1).optional(),
     /**
      * The connector whose feed fills what the tool reads from our own records: the bank feed for a
-     * pack's import of bank transactions (docs/plan.md §1.221). For the tool's mark on a step only.
+     * pack's import of bank transactions (docs/plan.md §1.221), Zoho CRM for the Sales area's
+     * match. The tool's mark on a step, and (2026-11-24) for a connector apps/api can catch up
+     * (`feeds.ts`: Zoho CRM), the client's synced records are brought up to date before it runs.
      */
     // DECISION (owner, 2026-11-21: "this is Plaid integration, have we not added the icon for
     // Plaid?"): its own field, not `connector`. `connector` is the connection a call acts through,

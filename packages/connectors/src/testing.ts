@@ -136,6 +136,10 @@ export function fakeZoho(opts: { acceptAccessTokens?: string[]; rateLimitNext?: 
     leadModifiedTime: leadGet.data[0]?.Modified_Time ?? null,
     // v0.14 W4-B: records the sync's list calls answer from, by module; and the watches asked.
     listed: {} as Record<string, Record<string, unknown>[]>,
+    // 2026-11-24: the deleted records each module's `/deleted` list answers (`deleted_time`).
+    deleted: {} as Record<string, { id: string; deleted_time: string }[]>,
+    /** Zoho refuses the deleted records (a sign-in or an org without them). */
+    deletedRefused: false,
     watches: [] as unknown[],
     // docs/plan.md §1.164: a grant made before the field scope (Zoho refuses `settings/fields`).
     fieldsScopeMissing: false,
@@ -177,6 +181,26 @@ export function fakeZoho(opts: { acceptAccessTokens?: string[]; rateLimitNext?: 
     }
     const path = u.pathname;
     if (path === "/crm/v8/org") return jsonResponse(200, org);
+    // 2026-11-24: a module's deleted records since If-Modified-Since, paged.
+    const deletedModule = /^\/crm\/v8\/(Leads|Contacts|Accounts|Deals)\/deleted$/.exec(path)?.[1];
+    if (deletedModule && method === "GET") {
+      if (state.deletedRefused) {
+        return jsonResponse(403, { code: "NO_PERMISSION", status: "error", message: "denied" });
+      }
+      const since = Date.parse(init.headers?.["if-modified-since"] ?? "1970-01-01T00:00:00Z");
+      const q = formDecode(url.split("?")[1] ?? "");
+      const page = Number(q.page ?? "1");
+      const per = Number(q.per_page ?? "200");
+      const all = (state.deleted[deletedModule] ?? []).filter(
+        (r) => Date.parse(r.deleted_time) > since,
+      );
+      const slice = all.slice((page - 1) * per, page * per);
+      if (slice.length === 0) return jsonResponse(204, undefined);
+      return jsonResponse(200, {
+        data: slice.map((r) => ({ ...r, type: "recycle", display_name: "Deleted record" })),
+        info: { page, per_page: per, count: slice.length, more_records: all.length > page * per },
+      });
+    }
     // v0.14 W4-B: the sync's list calls (If-Modified-Since, oldest first, paged) and the watch.
     const listedModule = /^\/crm\/v8\/(Leads|Contacts|Accounts|Deals)$/.exec(path)?.[1];
     if (listedModule && method === "GET") {
