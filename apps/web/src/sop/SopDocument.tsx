@@ -161,6 +161,7 @@ export function SopDocument({
       s.who?.name,
       ...(s.approval?.approvers.map((a) => a.party.name) ?? []),
       ...s.told.map((p) => p.name),
+      ...(s.reports ?? []).flatMap((r) => [r.name, r.owner.name]),
       ...s.systems.map((x) => x.name),
       ...s.data.map((x) => x.words),
       ...s.controls,
@@ -288,6 +289,19 @@ export function SopDocument({
         <a key={`data-${d.id}-${d.words}`} href={`#sop-${d.id}`}>
           <Hl text={d.words} q={q} />
         </a>,
+      );
+    }
+    if (s.reports && s.reports.length > 0) {
+      facts.push(
+        <span key="reports" data-testid="sop-reports">
+          {t("sop.reports")}{" "}
+          {s.reports.map((r, i) => (
+            <Fragment key={`${r.name}|${r.owner.key}`}>
+              {i > 0 ? "; " : null}
+              <Hl text={r.name} q={q} />: <Party party={r.owner} onPick={pickParty} q={q} />
+            </Fragment>
+          ))}
+        </span>,
       );
     }
     if (s.told.length > 0) {

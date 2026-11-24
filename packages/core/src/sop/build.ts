@@ -481,6 +481,7 @@ const CHART_KINDS = new Set<string>([
   "if",
   "for_each",
   "repeat",
+  "collect",
 ]);
 
 /**
@@ -490,8 +491,6 @@ const CHART_KINDS = new Set<string>([
  */
 function chartKind(v: Visited, input: SopInput): SopChartKind {
   const kind = v.step.kind;
-  // Collect reports (owner, 2026-11-24): drawn as a conversation, a step that contacts people.
-  if (v.v4 && kind === "collect") return "conversation";
   if (v.v4) return (CHART_KINDS.has(kind) ? kind : "missing") as SopChartKind;
   switch (kind) {
     case "action":
@@ -1104,6 +1103,22 @@ export function sopView(input: SopInput): SopView {
       }
     }
 
+    // Collect reports: each report and who sends it; whoever a late one goes to is told.
+    const reports =
+      v.v4 && step.kind === "collect"
+        ? ((step.items as { name: string; owner: string }[] | undefined) ?? []).map((r) => ({
+            name: r.name,
+            owner: input.party(r.owner),
+          }))
+        : null;
+    if (v.v4 && step.kind === "collect") {
+      const to = (step.escalate as { to?: string } | undefined)?.to;
+      if (to) {
+        const p = input.party(to);
+        if (!told.some((t) => t.key === p.key)) told.push(p);
+      }
+    }
+
     const purposeWritten = typeof step.purpose === "string" && step.purpose.trim() !== "";
     const purposeSay = purposeWritten ? null : purposeSayFor(step, input, systemName);
     stepLines.set(step.id, {
@@ -1133,6 +1148,7 @@ export function sopView(input: SopInput): SopView {
       byWhen: byWhen
         ? `${byWhen}${deadline && v.v4 ? `; if nobody answers, ${ifNoAnswerWords((deadline as { ifNoAnswer?: unknown }).ifNoAnswer, input)}` : ""}`
         : null,
+      ...(reports ? { reports } : {}),
     });
   }
 
@@ -1263,6 +1279,11 @@ export function sopView(input: SopInput): SopView {
       { cell: "does" | "approves" | "checks" | "told"; note: string | null }
     >();
     if (s.who) cells.set(addParty(s.who), { cell: "does", note: null });
+    // A report's owner does that part: sends it.
+    for (const r of s.reports ?? []) {
+      const i = addParty(r.owner);
+      if (!cells.has(i)) cells.set(i, { cell: "does", note: null });
+    }
     for (const a of s.approval?.approvers ?? []) {
       cells.set(addParty(a.party), {
         cell: "approves",
