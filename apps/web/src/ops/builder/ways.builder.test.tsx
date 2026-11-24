@@ -262,4 +262,52 @@ describe("triggers and outputs in the builder", () => {
     );
     expect(screen.queryByTestId("flow-rail-item-handoff:in")).toBeNull();
   });
+
+  // All ways in, in one place (owner, 2026-11-24).
+  it("shows the main workflow's own starts with its trigger workflows, and adds one", async () => {
+    const { user } = setup();
+    await screen.findByTestId("flow-chart");
+    const band = screen.getByTestId("ways-triggers");
+    const start = within(band).getByTestId("way-start-t-check");
+    expect(start).toHaveTextContent("Started by hand");
+    expect(start).toHaveTextContent("Starts this workflow · no steps of its own");
+    // The starts come first, then the trigger workflows.
+    expect(band.firstElementChild).toBe(start);
+    expect(within(band).getByTestId("way-card-scan")).toBeInTheDocument();
+
+    // A start opens its settings in the side panel.
+    await user.click(within(start).getByTestId("way-start-t-check-settings"));
+    expect(await screen.findByTestId("builder-trigger-type")).toHaveValue("manual");
+    expect(within(start).getByTestId("way-start-t-check-open")).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+
+    // "Add a trigger" adds a start, opened to pick how it starts.
+    await user.click(within(band).getByTestId("ways-add-trigger"));
+    expect(within(band).getAllByTestId(/^way-start-.*-open$/)).toHaveLength(2);
+    expect(screen.getByTestId("builder-trigger-type")).toBeInTheDocument();
+  });
+
+  it("gives a start steps by moving it to a workflow that hands into the main one", async () => {
+    const { user } = setup();
+    await screen.findByTestId("flow-chart");
+    await user.click(screen.getByTestId("way-start-t-check-steps"));
+    // Its own tab: a trigger, handing into the main workflow at its first step.
+    const back = await screen.findByTestId("ways-back");
+    expect(back).toHaveTextContent("TriggerHands work into Check an invoice ›");
+    expect(screen.getByTestId("builder-workflow-started-by-hand-select")).toHaveTextContent(
+      "Started by handTrigger",
+    );
+    expect(
+      (await screen.findAllByText("Hand off to Check an invoice at 1 · Save the reading")).length,
+    ).toBeGreaterThan(0);
+
+    // Back on the main workflow, it is a trigger card; the main workflow starts by hand.
+    await user.click(screen.getByTestId("ways-back-link"));
+    const band = await screen.findByTestId("ways-triggers");
+    expect(within(band).getByTestId("way-card-started-by-hand")).toHaveTextContent("1 step");
+    expect(within(band).queryByTestId("way-start-t-check")).toBeNull();
+    expect(within(band).getAllByTestId(/^way-start-.*-open$/)).toHaveLength(1);
+  });
 });

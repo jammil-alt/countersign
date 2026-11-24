@@ -5,6 +5,11 @@
 // role (`RoleChip`, after a tab's name), the triggers above the main workflow's chart and its
 // outputs below it (`WaysBand`), and on a trigger's or an output's tab, the line back to the main
 // workflow. Every link is the tab's own link.
+//
+// All ways in, in one place (owner, 2026-11-24): the main workflow's own starts are trigger cards
+// too, before the trigger workflows. A start has no steps of its own; "Add steps" gives it some by
+// moving it to a workflow of its own that hands into the main one (`startToWorkflow`). "Add a
+// trigger" adds a start, opened to pick how it starts.
 import type { processes } from "@countersign/core";
 import { Link } from "react-router-dom";
 import { ConnectorMark } from "../../connections/ConnectorMark";
@@ -44,6 +49,8 @@ export function RoleIcon({ role, size = 16 }: { role: Role; size?: 14 | 16 | 20 
 }
 
 const WORD: Record<Role, string> = { trigger: "Trigger", output: "Output" };
+/** As a variable: Biome reads a literal `role` prop as an ARIA role. */
+const TRIGGER: Role = "trigger";
 
 /** The icon and its word, always together (brand book: an icon never stands alone). */
 export function RoleChip({ role, className }: { role: Role; className?: string }) {
@@ -88,12 +95,15 @@ function Systems({ systems }: { systems: readonly WaySystem[] }) {
   );
 }
 
+const CARD =
+  "flex min-w-[220px] max-w-[340px] flex-1 flex-col gap-1 rounded-md border border-dashed border-slate bg-slate-tint px-3.5 py-3 text-ink";
+
 function Card({ way, role, href }: { way: WayCard; role: Role; href: string }) {
   return (
     <Link
       to={href}
       data-testid={`way-card-${way.slug}`}
-      className="flex min-w-[220px] max-w-[340px] flex-1 flex-col gap-1 rounded-md border border-dashed border-slate bg-slate-tint px-3.5 py-3 text-ink no-underline hover:border-solid"
+      className={cx(CARD, "no-underline hover:border-solid")}
     >
       <RoleChip role={role} />
       <span className="font-medium">{way.name}</span>
@@ -108,6 +118,49 @@ function Card({ way, role, href }: { way: WayCard; role: Role; href: string }) {
   );
 }
 
+/** One of the main workflow's own starts (a trigger with no steps of its own). */
+export interface StartCard {
+  id: string;
+  /** "When a document has been read". */
+  title: string;
+}
+
+function Start({
+  start,
+  selected,
+  onOpen,
+  onAddSteps,
+}: {
+  start: StartCard;
+  selected: boolean;
+  onOpen(): void;
+  onAddSteps(): void;
+}) {
+  return (
+    <div data-testid={`way-start-${start.id}`} className={cx(CARD, selected && "border-solid")}>
+      <RoleChip role={TRIGGER} />
+      <button
+        type="button"
+        aria-pressed={selected}
+        data-testid={`way-start-${start.id}-open`}
+        onClick={onOpen}
+        className="text-left font-medium text-ink"
+      >
+        {start.title}
+      </button>
+      <span className="text-sm text-ink-muted">Starts this workflow · no steps of its own</span>
+      <span className="flex flex-wrap gap-x-4 gap-y-1 text-sm font-medium text-slate">
+        <button type="button" onClick={onOpen} data-testid={`way-start-${start.id}-settings`}>
+          Its settings ›
+        </button>
+        <button type="button" onClick={onAddSteps} data-testid={`way-start-${start.id}-steps`}>
+          Add steps ›
+        </button>
+      </span>
+    </div>
+  );
+}
+
 export interface WaysBandProps {
   /** What the open workflow is (core's `workflowRoles`). */
   role: processes.WorkflowRoleInfo | undefined;
@@ -118,6 +171,14 @@ export interface WaysBandProps {
   /** The main workflow's triggers and outputs, on the main workflow's tab. */
   triggers: readonly WayCard[];
   outputs: readonly WayCard[];
+  /** The main workflow's own starts, on its tab, before its trigger workflows. */
+  starts?: readonly StartCard[];
+  /** The start open in the side panel. */
+  selectedStart?: string | null;
+  onStart?(id: string): void;
+  onAddSteps?(id: string): void;
+  /** Adds a start to the main workflow; absent at the schema's limit of 10. */
+  onAddTrigger?: (() => void) | undefined;
   /** The systems the open workflow reaches, for the line on a trigger's or an output's tab. */
   systems: readonly WaySystem[];
   /** Above the chart, or below it. */
@@ -134,7 +195,8 @@ export function WaysBand(p: WaysBandProps) {
   if (!role || !main) return null;
   if (role === "main") {
     const ways = p.place === "top" ? p.triggers : p.outputs;
-    if (ways.length === 0) return null;
+    const starts = p.place === "top" ? (p.starts ?? []) : [];
+    if (ways.length === 0 && starts.length === 0) return null;
     const kind: Role = p.place === "top" ? "trigger" : "output";
     return (
       <section
@@ -145,9 +207,29 @@ export function WaysBand(p: WaysBandProps) {
           p.place === "top" ? "border-b border-line" : "border-t border-line",
         )}
       >
+        {starts.map((s) => (
+          <Start
+            key={s.id}
+            start={s}
+            selected={p.selectedStart === s.id}
+            onOpen={() => p.onStart?.(s.id)}
+            onAddSteps={() => p.onAddSteps?.(s.id)}
+          />
+        ))}
         {ways.map((w) => (
           <Card key={w.slug} way={w} role={kind} href={p.href(w.slug)} />
         ))}
+        {kind === "trigger" && p.onAddTrigger ? (
+          <button
+            type="button"
+            data-testid="ways-add-trigger"
+            onClick={p.onAddTrigger}
+            className="flex min-w-[160px] flex-col items-center justify-center gap-1 rounded-md border border-dashed border-line px-3.5 py-3 text-sm font-medium text-slate hover:border-slate"
+          >
+            <RoleIcon role={TRIGGER} />
+            Add a trigger
+          </button>
+        ) : null}
       </section>
     );
   }

@@ -31,6 +31,7 @@ import {
   uuidv7,
   type Verb,
 } from "@countersign/core";
+import { slugify } from "../agents/definition-form";
 import { toolLabel } from "../workflow/labels";
 
 export type Step = processes.Step;
@@ -314,6 +315,57 @@ export function addWorkflow(
     workflow: { schemaVersion: 4, triggers: [{ id: newId(), on: input.on }], steps: [] },
   };
   return { ...bundle, workflows: [...bundle.workflows, entry] };
+}
+
+/** A start on the main workflow with nothing to it until it gets one: started by hand. */
+export const BY_HAND: TriggerOn = { type: "manual", input: { type: "object", properties: {} } };
+
+/**
+ * "Add steps" on one of the main workflow's starts (owner, 2026-11-24): the start moves to a
+ * workflow of its own (`name`, a free slug from it), keeping its id, whose one step hands each run
+ * into the main workflow at its first step that takes an input, with that step's input. The same
+ * trigger fills the same references, so the main workflow runs as before; steps added before the
+ * hand-in are the start's own lead-in (§1.240). Null when there is nothing to move.
+ */
+// DECISION: the main workflow keeps at least one start (the schema's minimum). When the moved start
+// was its only one, it starts by hand instead: that starts nothing on its own.
+// DECISION: the new workflow goes last, as "+ Workflow" puts one; its tab chip says it's a trigger.
+export function startToWorkflow(
+  bundle: ProcessAgentBundle,
+  main: string,
+  triggerId: string,
+  name: string,
+  newId: NewId = uuidv7,
+): { bundle: ProcessAgentBundle; slug: string } | null {
+  const entry = bundle.workflows.find((w) => w.slug === main);
+  const trigger = entry?.workflow.triggers.find((t) => t.id === triggerId);
+  if (!entry || !trigger) return null;
+  const base = slugify(name).replace(/-+$/, "") || "trigger";
+  let slug = base;
+  for (let n = 2; bundle.workflows.some((w) => w.slug === slug); n++) slug = `${base}-${n}`;
+  const steps = entry.workflow.steps;
+  const at = steps.find((s) => processes.HANDOFF_ENTRY_KINDS.has(s.kind));
+  const handIn: Step = {
+    id: newId(),
+    kind: "handoff",
+    name: at
+      ? `Hand off to ${entry.name} at ${processes.handoffStepLabel(steps, at.id)}`
+      : `Hand off to ${entry.name}`,
+    to: { agent: processes.SELF_AGENT, workflow: main, step: at?.id ?? "" },
+    input: at && "input" in at && at.input ? { ...at.input } : {},
+  } as Step;
+  const rest = entry.workflow.triggers.filter((t) => t.id !== triggerId);
+  const moved: ProcessBundleWorkflow = {
+    slug,
+    name,
+    enabled: true,
+    workflow: { schemaVersion: 4, triggers: [trigger], steps: [handIn] },
+  };
+  const out = editWorkflow(bundle, main, (w) => ({
+    ...w,
+    triggers: rest.length ? rest : [{ id: newId(), on: BY_HAND }],
+  }));
+  return { bundle: { ...out, workflows: [...out.workflows, moved] }, slug };
 }
 
 // ── New steps ────────────────────────────────────────────────────────────────────────────────────

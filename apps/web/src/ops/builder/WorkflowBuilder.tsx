@@ -113,7 +113,7 @@ import { buildStatuses, FIX_HINT, nextOpen, counts as openCounts, stepOrder } fr
 import { TryPanel } from "../flow/TryPanel";
 import { TurnOnSheet } from "../flow/TurnOnSheet";
 import type { InsertPoint, SettleItem, StatusMap, TryMark } from "../flow/types";
-import { RoleChip, type WayCard, type WaySystem, WaysBand } from "../flow/Ways";
+import { RoleChip, type StartCard, type WayCard, type WaySystem, WaysBand } from "../flow/Ways";
 import { useOpsClients } from "../OpsLayout";
 import { OPS_PATHS } from "../paths";
 import { SchedulePicker, type ScheduleValue } from "../triggers/SchedulePicker";
@@ -158,6 +158,7 @@ import {
   addTrigger,
   addWorkflow,
   allowStep,
+  BY_HAND,
   type ContainerId,
   commit,
   containersWithin,
@@ -182,6 +183,7 @@ import {
   replaceStep,
   setTrigger,
   startHistory,
+  startToWorkflow,
   undo,
   updateStep,
   workflowCounts,
@@ -1551,6 +1553,35 @@ function BuilderBody(
     return { triggers: of("trigger", true), outputs: of("output", false) };
   }, [bundle, roles, systemsOf]);
   const wayHref = (s: string) => `${base}/${view === "list" ? "steps" : "workflows"}/${s}`;
+  // All ways in, in one place (owner, 2026-11-24): the main workflow's own starts as cards.
+  const starts: StartCard[] =
+    role?.role === "main" && workflow
+      ? workflow.triggers.map((t) => ({ id: t.id, title: triggerTitle(t) }))
+      : [];
+  const onAddTrigger =
+    role?.role === "main" && workflow && workflow.triggers.length < 10
+      ? () => {
+          const id = uuidv7();
+          edit((w) => addTrigger(w, BY_HAND, () => id));
+          selectTrigger(id);
+        }
+      : undefined;
+  /** "Add steps" on a start: it moves to a workflow of its own, opened to add them. */
+  const onAddSteps = (id: string) => {
+    const trigger = workflow?.triggers.find((t) => t.id === id);
+    if (!trigger) return;
+    // The same ids however often the edit is applied.
+    const ids = [uuidv7(), uuidv7()];
+    const move = (b: ProcessAgentBundle) => {
+      let n = 0;
+      return startToWorkflow(b, slug, id, triggerTitle(trigger), () => ids[n++] ?? uuidv7());
+    };
+    const made = move(bundle);
+    if (!made) return;
+    apply((b) => move(b)?.bundle ?? b);
+    closeSide();
+    navigate(wayHref(made.slug));
+  };
   const selectedId = selection?.id ?? null;
   const openNext = () => {
     const id = nextOpen(statuses, order, selectedId);
@@ -2276,6 +2307,13 @@ function BuilderBody(
                   href={wayHref}
                   triggers={ways.triggers}
                   outputs={ways.outputs}
+                  starts={starts}
+                  selectedStart={
+                    side === "step" && selection?.type === "trigger" ? selection.id : null
+                  }
+                  onStart={selectTrigger}
+                  onAddSteps={onAddSteps}
+                  onAddTrigger={onAddTrigger}
                   systems={workflow ? systemsOf(workflow) : []}
                   place="top"
                 />
