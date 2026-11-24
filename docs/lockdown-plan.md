@@ -1,7 +1,7 @@
 # Lockdown: one switch that stops everything for a client, or for every client
 
 Owner, 2026-11-24: "a kill switch that locks down the account, stops all writes and reads."
-The entry in `docs/plan.md` is §1.243. Not built. Outside ARCHITECTURE v0.15's v1 scope by the
+The entry in `docs/plan.md` is §1.243. K0 (the migration) and K1 (the database layer) are built; K2 onwards are not. Outside ARCHITECTURE v0.15's v1 scope by the
 owner's decision.
 
 ## 1. Why
@@ -52,7 +52,7 @@ Every read or write of client data goes through `inScope` (`packages/db/src/clie
 `withTenant`, `withTenants`, `withOperator`), which sets `app.tenant_ids` for row-level security
 (invariant 1). The lockdown goes in that same statement:
 
-- A SQL function, `app.unlocked_scope(ids, mode)`, returns the ids that aren't locked. When the
+- A SQL function, `app_scope_tenant_ids(ids, mode)`, returns the ids that aren't locked. When the
   platform is locked it returns none.
 - `withTenant` (one client: a run, a portal request, a webhook) raises `client_locked` when its
   client is locked. The transaction aborts, so nothing after it runs, even code we forgot.
@@ -125,7 +125,8 @@ Migration (own PR, additive, the previous Worker keeps working):
 - `tenant.locked_at timestamptz null` and `tenant.lock json null`: who, when, why, which side
   (`operator` or `client`) and the inbound counts.
 - `platform_lock`, one row at most: who, when, why.
-- `app.unlocked_scope(ids uuid[], mode text)`: the function in §3.
+- `app_scope_tenant_ids(ids uuid[], mode text)`: the function in §3. It raises SQLSTATE `MZLCK`
+  (`client_locked`) in mode `one`, and holds mode `investigate` to a read-only transaction.
 - Each lock and unlock is a `tenant_change` row (platform locks: one per client) and an audit row.
 
 ## 7. On screen
@@ -157,8 +158,8 @@ Each ends green (`pnpm check`).
 
 | Stream | What | Migration |
 |---|---|---|
-| **K0** | The migration (§6) | Own PR |
-| **K1** | `packages/db`: `inScope` through `app.unlocked_scope`; `ClientLockedError`; the investigation scope; lock and unlock functions; DB tests | After K0 |
+| **K0** (built) | The migration (§6), 0101 | Own PR |
+| **K1** (built) | `packages/db`: every scope through `app_scope_tenant_ids` (`inScope`, `withSession`, `narrowToTenant`); `ClientLockedError` and `isClientLocked`; `withInvestigation` and a session's `investigate`; `admitTenant`; `lockClient`, `unlockClient`, `lockEverything`, `unlockEverything`, `lockState`, `countLockedInbound` (`src/lockdown.ts`); the one scope set outside `packages/db` (creating a client, `apps/api/src/routes/ops-clients.ts`) through `admitTenant`; DB tests | After K0 |
 | **K2** | `apps/api`: lock and unlock routes (ops, platform, portal); the lock transaction and ending Workflow instances; `423` mapping; Workflow steps, crons and inbound handlers; sessions; emails and texts; the contract test | None |
 | **K3** | `apps/web` (and the phone and desktop apps' locked page): the controls, the banner, the locked page | None |
 | **K4** | The break-glass edge rule: `lockdown.yml` and a Cloudflare API token scoped to WAF rules on `mezonas.com` (the owner creates it) | Own PR (workflow) |
