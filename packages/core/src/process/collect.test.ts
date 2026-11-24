@@ -8,9 +8,9 @@ import {
   linkClosesAt,
   linkWindow,
   type ReportFile,
+  reportEventType,
   reportFormatOf,
   reportPeriod,
-  reportEventType,
   requestPurpose,
   triggerReport,
 } from "./collect";
