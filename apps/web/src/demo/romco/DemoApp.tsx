@@ -2,15 +2,7 @@
 // end to end with no server. A memory router (the SOP's own `#section` links stay page anchors); a
 // fake API client so the real components' "This is wrong" form answers; the real styles.
 import type { ReactNode } from "react";
-import {
-  Link,
-  MemoryRouter,
-  Navigate,
-  Route,
-  Routes,
-  useLocation,
-  useSearchParams,
-} from "react-router-dom";
+import { Link, MemoryRouter, Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { createApiClient } from "../../api/client";
 import { ApiProvider } from "../../api/useApi";
 import { AgentBadge } from "../../ui/badges";
@@ -28,6 +20,7 @@ import { Mail } from "./Mail";
 import { INVOICE_ID, UCC_ID } from "./people";
 import { ReviewForm } from "./ReviewForm";
 import { RunPage } from "./RunPage";
+import { SloanPage, SloanProvider } from "./Sloan";
 import { AGENT, DemoProvider, INV_AGENT, UCC_STOPS, useDemo } from "./state";
 import "./demo.css";
 
@@ -71,16 +64,18 @@ export function DemoApp() {
     <ApiProvider client={api}>
       <DemoProvider>
         <MemoryRouter initialEntries={[firstPlace()]}>
-          <IconSprite />
-          <ScrollOnMove />
-          <RememberPlace />
-          <Routes>
-            <Route path="/f/marcus" element={<ReviewForm />} />
-            <Route path="/f/deals" element={<DealsForm />} />
-            <Route path="/r/register" element={<RegisterUpload />} />
-            <Route path="/mail/:which" element={<Mail />} />
-            <Route path="*" element={<InShell />} />
-          </Routes>
+          <SloanProvider>
+            <IconSprite />
+            <ScrollOnMove />
+            <RememberPlace />
+            <Routes>
+              <Route path="/f/marcus" element={<ReviewForm />} />
+              <Route path="/f/deals" element={<DealsForm />} />
+              <Route path="/r/register" element={<RegisterUpload />} />
+              <Route path="/mail/:which" element={<Mail />} />
+              <Route path="*" element={<InShell />} />
+            </Routes>
+          </SloanProvider>
         </MemoryRouter>
       </DemoProvider>
     </ApiProvider>
@@ -108,7 +103,8 @@ function InShell() {
         <Route path="/runs" element={<Navigate to="/runs/R-1042/receive" replace />} />
         <Route path="/inbox" element={<Inbox />} />
         <Route path="/home" element={<Home />} />
-        <Route path="/sloan" element={<Sloan />} />
+        <Route path="/sloan" element={<SloanPage />} />
+        <Route path="/sloan/change" element={<SloanPage change />} />
         <Route path="*" element={<Elsewhere />} />
       </Routes>
     </DemoShell>
@@ -171,38 +167,6 @@ function AgentCard({
         <span className="mt-2 block">{chip}</span>
       </span>
     </Link>
-  );
-}
-
-/** Sloan, the account agent, answering what "Ask about this" quoted. */
-function Sloan() {
-  const [params] = useSearchParams();
-  const ask = params.get("ask") ?? "What does the UCC filings review do?";
-  return (
-    <Page width="narrow">
-      <PageHeader
-        leading={<AgentBadge name="Sloan" size="lg" />}
-        title="Sloan"
-        subtitle="Your account agent. Ask it anything."
-      />
-      <div className="flex flex-col gap-4">
-        <div className="demo-bubble demo-bubble--you">{ask}</div>
-        <div className="demo-bubble">
-          <p>
-            That's part of the UCC filings review's SOP (SOP-SAL-04, revision 0.3). It runs on rules
-            first; AI steps use Claude Sonnet 5.5 and the analysis uses Claude Opus 5.5. Nothing is
-            emailed until you sign, and the agent can only read Zoho CRM.
-          </p>
-          <p className="mt-2">
-            If something in it should change, use "This is wrong" on the line and we'll pick it up
-            with you.
-          </p>
-        </div>
-        <Link to={`${AGENT}/sop`} className={buttonClass("secondary", "self-start")}>
-          Back to the SOP
-        </Link>
-      </div>
-    </Page>
   );
 }
 

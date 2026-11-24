@@ -9,6 +9,7 @@ import { Logo, LogoMark } from "../../ui/brand";
 import { Icon } from "../../ui/icons";
 import { Count, cx } from "../../ui/primitives";
 import { CLIENT, INVOICE_ID, UCC_ID } from "./people";
+import { useSloan } from "./Sloan";
 import { type DemoState, TOURS, useDemo } from "./state";
 
 export function useWaiting(): number {
@@ -22,6 +23,7 @@ export function useWaiting(): number {
 
 export function DemoShell({ children }: { children: ReactNode }) {
   const waiting = useWaiting();
+  const sloan = useSloan();
   const { state } = useDemo();
   const line = !state.formsSent
     ? "Trial · waiting on you"
@@ -52,10 +54,16 @@ export function DemoShell({ children }: { children: ReactNode }) {
             <kbd className="ui-kbd">⌘K</kbd>
           </button>
         </div>
-        <Link to="/sloan" className="ui-topbar__ask" title="Your account agent. Ask it anything.">
+        <button
+          type="button"
+          className="ui-topbar__ask"
+          title="Your account agent. Ask it anything."
+          aria-haspopup="dialog"
+          onClick={() => sloan.openPanel()}
+        >
           <AgentBadge name="Sloan" size="sm" />
           <span className="ui-topbar__asklabel">Ask Sloan</span>
-        </Link>
+        </button>
         <NavLink to="/inbox" className="ui-topbar__desk" aria-label={`Inbox (${waiting})`}>
           <Icon name="desk" className="ui-topbar__deskicon" />
           <span className="ui-topbar__desklabel">Inbox</span>

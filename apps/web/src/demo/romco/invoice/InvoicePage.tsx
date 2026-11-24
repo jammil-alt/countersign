@@ -122,41 +122,39 @@ function Overview({ stage }: { stage: Stage }) {
   return (
     <PageGrid
       rail={
-        <>
-          <Card title="Waiting on" pad>
-            {stage === 0 ? (
-              <div className="flex flex-col gap-3">
-                <Badge tone="person">Priya Shah</Badge>
-                <p className="text-sm text-ink">
-                  Yesterday's invoice register, due 9:00 AM. Followed up at 10:00 AM; next at noon.
-                </p>
-                <Link to={INV_RUN("collect")} className={buttonClass("secondary", "self-start")}>
-                  See the reports
-                </Link>
-              </div>
-            ) : stage === 1 ? (
-              <div className="flex flex-col gap-3">
-                <Badge tone="person">Tom Guerra</Badge>
-                <p className="text-sm text-ink">1 sale to match to a Zoho deal, due by 3:00 PM.</p>
-                <Link to={INV_RUN("ask")} className={buttonClass("secondary", "self-start")}>
-                  See them
-                </Link>
-              </div>
-            ) : stage === 2 ? (
-              <div className="flex flex-col gap-3">
-                <Badge tone="warning">Sign</Badge>
-                <p className="text-sm text-ink">
-                  Mark 6 Zoho deals Closed Won with their invoice numbers.
-                </p>
-                <Link to="/inbox" className={buttonClass("primary", "self-start")}>
-                  Open in Inbox
-                </Link>
-              </div>
-            ) : (
-              <p className="text-sm text-ink-muted">Nothing. Tomorrow's run starts at 7:00 AM.</p>
-            )}
-          </Card>
-        </>
+        <Card title="Waiting on" pad>
+          {stage === 0 ? (
+            <div className="flex flex-col gap-3">
+              <Badge tone="person">Priya Shah</Badge>
+              <p className="text-sm text-ink">
+                Yesterday's invoice register, due 9:00 AM. Followed up at 10:00 AM; next at noon.
+              </p>
+              <Link to={INV_RUN("collect")} className={buttonClass("secondary", "self-start")}>
+                See the reports
+              </Link>
+            </div>
+          ) : stage === 1 ? (
+            <div className="flex flex-col gap-3">
+              <Badge tone="person">Tom Guerra</Badge>
+              <p className="text-sm text-ink">1 sale to match to a Zoho deal, due by 3:00 PM.</p>
+              <Link to={INV_RUN("ask")} className={buttonClass("secondary", "self-start")}>
+                See them
+              </Link>
+            </div>
+          ) : stage === 2 ? (
+            <div className="flex flex-col gap-3">
+              <Badge tone="warning">Sign</Badge>
+              <p className="text-sm text-ink">
+                Mark 6 Zoho deals Closed Won with their invoice numbers.
+              </p>
+              <Link to="/inbox" className={buttonClass("primary", "self-start")}>
+                Open in Inbox
+              </Link>
+            </div>
+          ) : (
+            <p className="text-sm text-ink-muted">Nothing. Tomorrow's run starts at 7:00 AM.</p>
+          )}
+        </Card>
       }
     >
       <Card
