@@ -7,7 +7,7 @@
 // `?by=hand` keeps the form for writing a skill without the Builder.
 import { BuilderExample, type BuilderTurnView, SkillDefinition } from "@countersign/core";
 import { useEffect, useState } from "react";
-import { Link, useNavigate, useSearchParams } from "react-router-dom";
+import { Link, useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { z } from "zod";
 import { apiRoutes } from "../../api/routes";
 import { useApi } from "../../api/useApi";
@@ -33,6 +33,7 @@ import { errorText, Field, Notice, Select, TextArea, useAction } from "../agents
 import { toolTitle } from "../builder/model";
 import { SkillDescribe } from "../flow/SkillDescribe";
 import { OPS_PATHS } from "../paths";
+import { CheckSkill } from "./CheckSkill";
 import { SchemaCard } from "./parts";
 import { SkillEditor } from "./SkillEditor";
 import { SKILLS_PATH, skillPath } from "./SkillsLibrary";
@@ -235,6 +236,9 @@ type DraftTab = (typeof DRAFT_TABS)[number];
 
 function SkillConversation({ sessionId }: { sessionId: string }) {
   const navigate = useNavigate();
+  // The sample the skill was described with, handed over by Describe the skill (never stored).
+  const handed = (useLocation().state as { sample?: unknown } | null)?.sample;
+  const sample = typeof File !== "undefined" && handed instanceof File ? handed : null;
   const [params] = useSearchParams();
   const detail = useApi(apiRoutes.opsBuilderSession, { params: { id: sessionId } });
   // The words on their way, shown with the Builder at work until its answer is in.
@@ -444,14 +448,29 @@ function SkillConversation({ sessionId }: { sessionId: string }) {
           ) : null}
           {!def ? (
             <EmptyState>Nothing drafted yet. Tell the Builder what the skill should do.</EmptyState>
+          ) : tab === "definition" && open ? (
+            <>
+              <p className="text-sm text-ink-muted" data-testid="new-skill-edit-hint">
+                Change it here or tell the Builder what to change. Then try it on your sample before
+                you save the draft.
+              </p>
+              <CheckSkill
+                // Read again when the draft changes under it (the Builder's turn, an undo).
+                key={JSON.stringify([def.input, def.output, def.instructions])}
+                sessionId={session.id}
+                definition={def}
+                firstInput={draft.cases[0]?.input}
+                sample={sample}
+                onChanged={detail.reload}
+              />
+              <p className="text-sm text-ink-muted">
+                {def.tools.length === 0
+                  ? "Tools it may use: none. It only reads what the step gives it."
+                  : `Tools it may use: ${def.tools.map((id) => toolTitle({ id }).toLowerCase()).join(", ")}.`}
+              </p>
+            </>
           ) : tab === "definition" ? (
             <>
-              {open ? (
-                <p className="text-sm text-ink-muted" data-testid="new-skill-edit-hint">
-                  To change the draft, tell the Builder what to change, or choose Save and edit to
-                  change any field yourself.
-                </p>
-              ) : null}
               <Columns count={2}>
                 <SchemaCard
                   title="Takes in"

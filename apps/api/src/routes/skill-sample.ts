@@ -38,6 +38,10 @@ interface SampleRead {
   view: SkillSampleView;
   /** For the Builder: the table's first rows, or the document to attach; null for neither. */
   forBuilder: SkillSample | null;
+  /** A table's rows, all of them, keyed as Read table keys them (a try runs on them). */
+  rows: Record<string, unknown>[];
+  /** A PDF's or an image's bytes (a try reads them from memory); null for anything else. */
+  document: { mimeType: string; bytes: Uint8Array } | null;
 }
 
 /** Reads a sample file: a table in code, a PDF or an image as a block for the model. */
@@ -69,6 +73,8 @@ export function readSkillSample(file: BuilderSampleFile): SampleRead {
       };
       return {
         view: { ...none, kind: "table", table },
+        rows,
+        document: null,
         forBuilder: {
           filename,
           table: {
@@ -81,7 +87,12 @@ export function readSkillSample(file: BuilderSampleFile): SampleRead {
       };
     } catch (error) {
       if (error instanceof TableFileError) {
-        return { view: { ...none, kind: "table", failure: error.message }, forBuilder: null };
+        return {
+          view: { ...none, kind: "table", failure: error.message },
+          forBuilder: null,
+          rows: [],
+          document: null,
+        };
       }
       throw error;
     }
@@ -90,6 +101,8 @@ export function readSkillSample(file: BuilderSampleFile): SampleRead {
     return {
       view: { ...none, kind: "document" },
       forBuilder: { filename, attach: documentBlock(mimeType, file.base64.replace(/\s/g, "")) },
+      rows: [],
+      document: { mimeType, bytes: bytesOf(file.base64) },
     };
   }
   return {
@@ -99,6 +112,8 @@ export function readSkillSample(file: BuilderSampleFile): SampleRead {
       failure: `${filename} isn't a file we read: use a spreadsheet (.xlsx, .csv, .json), a PDF or an image`,
     },
     forBuilder: null,
+    rows: [],
+    document: null,
   };
 }
 

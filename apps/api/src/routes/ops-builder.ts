@@ -26,6 +26,7 @@ import {
   createTemplate,
   createVersion,
   customSlug,
+  documentInputFields,
   draftAgent,
   EMPTY_SKILL_DRAFT,
   type ExistingSteps,
@@ -40,6 +41,7 @@ import {
   listTemplates,
   readCommand,
   reviseAgent,
+  runSkillCase,
   SkillDraft,
   skillChanges,
   skillTurn,
@@ -65,7 +67,10 @@ import {
   processes,
   routes,
   type SkillDefinition,
+  SkillDefinition as SkillDefinitionSchema,
+  type SkillTryView,
   skillTools,
+  TRY_ROWS_MAX,
   toolLookup,
   toProcessBundle,
   uuidv7,
@@ -994,6 +999,156 @@ function builderSessionRoutes(app: Hono<AppEnv>): void {
     const detail = await sessionDetail(ctx, await readSession(ctx, s.id));
     metered.settled();
     return { ...detail, turn: turnView(turn, new Set()) };
+  });
+
+  // Check the skill (owner, 2026-11-24): the operator's own change to a skill draft, recorded as
+  // an operator turn with labelled changes, so each can be undone like the Builder's.
+  mount(app, routes.opsBuilderSkillEdit, async (ctx) => {
+    const { tx, body } = ctx;
+    const s = await lockSession(ctx, ctx.params.id);
+    refuseClosed(s);
+    if (s.kind !== "skill") {
+      throw new HttpError(
+        422,
+        "invalid_request",
+        "a skill draft is changed in a skill conversation",
+      );
+    }
+    const current = SkillDraft.parse(s.bundle);
+    if (!current.definition) {
+      throw new HttpError(409, "nothing_drafted", "there is no draft to change yet");
+    }
+    const { addCase, ...parts } = body;
+    const merged = SkillDefinitionSchema.safeParse({ ...current.definition, ...parts });
+    if (!merged.success) {
+      throw new HttpError(
+        422,
+        "invalid_skill",
+        merged.error.issues.map((i) => `${i.path.join(".") || "skill"}: ${i.message}`).join("; "),
+      );
+    }
+    for (const side of ["input", "output"] as const) {
+      const schema = merged.data[side] as { type?: unknown };
+      if (schema.type !== "object") {
+        throw new HttpError(
+          422,
+          "invalid_skill",
+          `what it ${side === "input" ? "gets" : "gives back"} is a set of named fields`,
+        );
+      }
+    }
+    const next = {
+      definition: merged.data,
+      cases: addCase
+        ? [
+            ...current.cases,
+            {
+              key: uuidv7(),
+              name: addCase.name,
+              input: addCase.input,
+              expected: addCase.expected,
+              matcher: { kind: "subset" as const },
+              required: true,
+            },
+          ]
+        : current.cases,
+    };
+    const draft = SkillDraft.parse(next);
+    const changes = skillChanges(current, draft);
+    if (changes.length === 0) {
+      throw new HttpError(409, "no_change", "that is what the draft says already");
+    }
+    const what = [
+      parts.input ? "what it gets" : null,
+      parts.instructions ? "what it does" : null,
+      parts.output ? "what it gives back" : null,
+      parts.name || parts.description ? "its name" : null,
+      addCase ? `a test (${addCase.name})` : null,
+    ].filter(Boolean);
+    const turn = await addTurn(tx, s, {
+      role: "operator",
+      text: `${addCase && what.length === 1 ? "Kept" : "Changed by hand"}: ${what.join(", ")}.`,
+      command: "/edit",
+      changes,
+      bundle: draft,
+    });
+    await updateSession(tx, s.id, { bundle: draft });
+    const detail = await sessionDetail(ctx, await readSession(ctx, s.id));
+    return { ...detail, turn: turnView(turn, new Set()) };
+  });
+
+  // Check the skill (owner, 2026-11-24): the draft tried once, on the test bench (in memory, every
+  // write refused). A sample spreadsheet's rows, a sample PDF or image (read from memory, never
+  // stored), or a JSON input. The model calls are ours, as the Builder's are.
+  mount(app, routes.opsBuilderSkillTry, async (ctx): Promise<SkillTryView> => {
+    const { body, services } = ctx;
+    const s = await readSession(ctx, ctx.params.id);
+    if (s.kind !== "skill") {
+      throw new HttpError(422, "invalid_request", "only a skill draft is tried here");
+    }
+    const def = SkillDraft.parse(s.bundle).definition;
+    if (!def) throw new HttpError(409, "nothing_drafted", "there is no draft to try yet");
+    let input: unknown = body.input;
+    let from: string | null = null;
+    let keepable = true;
+    const files: { documentId: string; filename: string; mimeType: string; bytes: Uint8Array }[] =
+      [];
+    if (body.sample) {
+      const sample = readSkillSample(body.sample);
+      if (sample.view.failure && sample.rows.length === 0) {
+        throw new HttpError(422, "sample_unreadable", sample.view.failure);
+      }
+      const fields =
+        (def.input as { properties?: Record<string, { type?: unknown }> }).properties ?? {};
+      if (sample.document) {
+        const field = documentInputFields(def)[0];
+        if (!field) {
+          throw new HttpError(
+            422,
+            "not_a_document_skill",
+            "this skill doesn't take a document: give what it gets a document field, or try it on JSON",
+          );
+        }
+        files.push({ documentId: "sample", filename: body.sample.filename, ...sample.document });
+        input = { [field]: "sample" };
+        from = body.sample.filename;
+        keepable = false;
+      } else {
+        // The rows go to the skill's list field: `rows` as Read table gives them, else its first.
+        const list =
+          "rows" in fields
+            ? "rows"
+            : Object.entries(fields).find(([, f]) => f?.type === "array")?.[0];
+        if (!list) {
+          throw new HttpError(
+            422,
+            "not_a_rows_skill",
+            "this skill doesn't take a list of rows: give what it gets a list field, or try it on JSON",
+          );
+        }
+        const rows = sample.rows.slice(0, TRY_ROWS_MAX);
+        input = { [list]: rows };
+        from =
+          sample.rows.length > rows.length
+            ? `the first ${rows.length} of ${sample.rows.length} rows of ${body.sample.filename}`
+            : `the ${rows.length} ${rows.length === 1 ? "row" : "rows"} of ${body.sample.filename}`;
+      }
+    }
+    const result = await runSkillCase(
+      { tools: services.platform.tools, transport: transport(ctx, s.tenantId) },
+      { definition: def, tenantId: s.tenantId, input, fixtures: [], files },
+    );
+    return {
+      status: result.status,
+      input,
+      from,
+      output: result.output,
+      error: result.error,
+      costUsd: result.costUsd,
+      modelCalls: result.modelCalls,
+      toolCalls: result.toolCalls,
+      keepable,
+    };
   });
 
   mount(app, routes.opsBuilderUndo, async (ctx) => {

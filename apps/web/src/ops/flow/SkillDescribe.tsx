@@ -82,6 +82,8 @@ export function SkillDescribe({ clientId = null, header, onCancel }: SkillDescri
   const [sample, setSample] = useState<{ file: BuilderSampleFile; view: SkillSampleView } | null>(
     null,
   );
+  // The file as picked, for Try it on the next page.
+  const [sampleFile, setSampleFile] = useState<File | null>(null);
   const [reading, setReading] = useState(false);
   const [sampleError, setSampleError] = useState<string | null>(null);
   // The build once started, so a second try after a failed draft drafts the same one.
@@ -104,6 +106,7 @@ export function SkillDescribe({ clientId = null, header, onCancel }: SkillDescri
       const file = { filename: f.name, mimeType: f.type, base64: base64Of(await f.arrayBuffer()) };
       const view = await api.call(apiRoutes.opsSkillSample, { body: { file } });
       setSample({ file, view });
+      setSampleFile(f);
     } catch (e) {
       setSampleError(e instanceof Error ? e.message : "We couldn't read the file.");
     } finally {
@@ -137,7 +140,11 @@ export function SkillDescribe({ clientId = null, header, onCancel }: SkillDescri
           ...(withSample ? { sample: sample.file } : {}),
         },
       });
-      navigate(draftedSkillPath(detail));
+      // The sample goes along (in the page's history, never stored), so Try it starts on it.
+      navigate(
+        draftedSkillPath(detail),
+        withSample ? { state: { sample: sampleFile } } : undefined,
+      );
     } catch (e) {
       setError(e);
       setBusy(false);

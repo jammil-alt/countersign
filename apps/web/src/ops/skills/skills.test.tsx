@@ -529,9 +529,12 @@ describe("new skill, with the Builder", () => {
         };
       },
     });
+    // Check the skill (owner, 2026-11-24): the open draft is edited and tried in place.
     expect(await screen.findByTestId("new-skill-edit-hint")).toHaveTextContent(
-      "choose Save and edit to change any field yourself",
+      "Change it here or tell the Builder what to change",
     );
+    expect(screen.getByTestId("check-skill")).toBeInTheDocument();
+    expect(screen.getByTestId("try-skill")).toBeInTheDocument();
     // What the Builder is, and where the steps after a skill are built.
     const what = screen.getByTestId("new-skill-what");
     expect(what).toHaveTextContent("A skill is one step");

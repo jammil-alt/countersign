@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { isUuid } from "../ids";
-import { NodeId, Slug } from "../schemas/common";
+import { JsonSchema, NodeId, Slug } from "../schemas/common";
 import { TableColumn } from "../schemas/table";
 import { defineRoute } from "./contract";
 
@@ -158,6 +158,52 @@ export const SkillSampleView = z.object({
 });
 export type SkillSampleView = z.infer<typeof SkillSampleView>;
 
+// Check the skill (owner, 2026-11-24: "do the edit-and-try screen next"): the operator changes
+// what a drafted skill gets, does and gives back by hand, and tries it once on a sample or an
+// input before saving. A try runs on the test bench: in memory, every write refused, nothing kept
+// but what the operator keeps as a test.
+
+/** The most rows of a sample spreadsheet a try runs on. */
+export const TRY_ROWS_MAX = 50;
+
+/** A change to a skill draft made by hand: each part given replaces the draft's. */
+export const SkillDraftEdit = z.strictObject({
+  name: z.string().trim().min(1).max(120).optional(),
+  description: z.string().trim().min(1).max(500).optional(),
+  instructions: z.string().trim().min(1).max(20_000).optional(),
+  input: JsonSchema.optional(),
+  output: JsonSchema.optional(),
+  /** A test case to add: a try's input with its output as the expected answer. */
+  addCase: z
+    .strictObject({
+      name: z.string().trim().min(1).max(200),
+      input: z.unknown(),
+      expected: z.unknown(),
+    })
+    .optional(),
+});
+export type SkillDraftEdit = z.infer<typeof SkillDraftEdit>;
+
+/** One try of a skill draft: what it got, what it gave back, or why it failed. */
+export const SkillTryView = z.object({
+  status: z.enum(["succeeded", "failed"]),
+  /** The input as the skill got it (a sample's rows, a document's id, or the JSON given). */
+  input: z.unknown(),
+  /** What it got from a sample, in words ("the first 50 of 412 rows of ucc.xlsx"). */
+  from: z.string().nullable(),
+  output: z.unknown(),
+  error: z.string().nullable(),
+  /** USD, the try's model calls (operator only). */
+  costUsd: z.string(),
+  modelCalls: z.number().int(),
+  toolCalls: z.array(
+    z.object({ tool: z.string(), status: z.string(), reason: z.string().nullable() }),
+  ),
+  /** Whether its input can be kept as a test (a sample document can't: it isn't stored). */
+  keepable: z.boolean(),
+});
+export type SkillTryView = z.infer<typeof SkillTryView>;
+
 export const BuilderExample = z.strictObject({
   name: z.string().trim().min(1).max(200).optional(),
   input: z.unknown(),
@@ -249,6 +295,32 @@ export const builderRoutes = {
       sample: BuilderSampleFile.optional(),
     }),
     response: SessionDetail.extend({ turn: BuilderTurnView }),
+  }),
+  opsBuilderSkillEdit: defineRoute({
+    method: "POST",
+    path: "/api/ops/builder/sessions/:id/skill",
+    auth: "session",
+    roles: OPS,
+    summary:
+      "Change a skill draft by hand: what it gets, its instructions, what it gives back, or add a tried input as a test. Undoable like the Builder's changes",
+    params: IdParams,
+    body: SkillDraftEdit,
+    response: SessionDetail.extend({ turn: BuilderTurnView }),
+  }),
+  opsBuilderSkillTry: defineRoute({
+    method: "POST",
+    path: "/api/ops/builder/sessions/:id/try",
+    auth: "session",
+    roles: OPS,
+    summary:
+      "Try a skill draft once on a sample file or an input, on the test bench: in memory, every write refused, nothing kept",
+    params: IdParams,
+    body: z
+      .strictObject({ input: z.unknown().optional(), sample: BuilderSampleFile.optional() })
+      .refine((b) => b.input !== undefined || b.sample !== undefined, {
+        message: "give an input or a sample file",
+      }),
+    response: SkillTryView,
   }),
   opsSkillSample: defineRoute({
     method: "POST",

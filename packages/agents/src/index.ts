@@ -74,6 +74,8 @@ export * from "./runtime/context";
 // P-4: conversations
 export * from "./runtime/conversation-step";
 export * from "./runtime/converse";
+// Owner (2026-11-24): a skill tried on a sample names its document input by this.
+export { documentInputFields } from "./runtime/documents";
 export * from "./runtime/json-schema";
 export * from "./runtime/model";
 // v0.13 W2-I
