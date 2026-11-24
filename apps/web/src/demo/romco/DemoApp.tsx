@@ -2,7 +2,7 @@
 // end to end with no server. A memory router (the SOP's own `#section` links stay page anchors); a
 // fake API client so the real components' "This is wrong" form answers; the real styles.
 import type { ReactNode } from "react";
-import { Link, MemoryRouter, Navigate, Route, Routes, useLocation } from "react-router-dom";
+import { Link, MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 import { createApiClient } from "../../api/client";
 import { ApiProvider } from "../../api/useApi";
 import { AgentBadge } from "../../ui/badges";
@@ -20,6 +20,7 @@ import { Mail } from "./Mail";
 import { INVOICE_ID, UCC_ID } from "./people";
 import { ReviewForm } from "./ReviewForm";
 import { RunPage } from "./RunPage";
+import { PastRun, RunsList } from "./Runs";
 import { SloanPage, SloanProvider } from "./Sloan";
 import { AGENT, DemoProvider, INV_AGENT, UCC_STOPS, useDemo } from "./state";
 import "./demo.css";
@@ -99,8 +100,9 @@ function InShell() {
         <Route path={`${INV_AGENT}/report`} element={<InvoicePage tab="report" />} />
         <Route path={`${INV_AGENT}/settings`} element={<InvoicePage tab="settings" />} />
         <Route path="/runs/R-1051/:step" element={<InvoiceRun />} />
-        <Route path="/runs/:run/:step" element={<RunPage />} />
-        <Route path="/runs" element={<Navigate to="/runs/R-1042/receive" replace />} />
+        <Route path="/runs/R-1042/:step" element={<RunPage />} />
+        <Route path="/runs/:run/:step" element={<PastRun />} />
+        <Route path="/runs" element={<RunsList />} />
         <Route path="/inbox" element={<Inbox />} />
         <Route path="/home" element={<Home />} />
         <Route path="/sloan" element={<SloanPage />} />

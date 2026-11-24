@@ -4,9 +4,9 @@ import { Link } from "react-router-dom";
 import { KpiStrip, StatTile } from "../../../ui/figures";
 import { PageGrid } from "../../../ui/page";
 import { Badge, buttonClass, Card } from "../../../ui/primitives";
-import { StatusChip } from "../../../ui/status";
-import { AgentFrame, type AgentTab, HowItWorks, RunRow } from "../AgentFrame";
-import { INVOICE_ID, INVOICE_RUN_ID } from "../people";
+import { AgentFrame, type AgentTab, HowItWorks } from "../AgentFrame";
+import { INVOICE_ID } from "../people";
+import { AgentRunRows } from "../Runs";
 import { INV_AGENT, INV_RUN, useDemo } from "../state";
 import { DAYS, EXCEPTION_GROUPS, RECON, REPORTS, ZOHO } from "./data";
 import { ReportCards } from "./Reports";
@@ -76,7 +76,7 @@ export function InvoicePage({ tab }: { tab: AgentTab }) {
         ),
         sop: INVOICE_SOP,
         overview: <Overview stage={stage} />,
-        runs: <Runs stage={stage} />,
+        runs: <AgentRunRows agent="invoice" />,
         report: <InvoiceReport stage={stage} />,
         settings: {
           rail: (
@@ -95,26 +95,6 @@ export function InvoicePage({ tab }: { tab: AgentTab }) {
         },
       }}
     />
-  );
-}
-
-function Runs({ stage }: { stage: Stage }) {
-  const chip = invoiceChip(stage);
-  return (
-    <>
-      <RunRow
-        to={INV_RUN(stage === 0 ? "collect" : stage === 1 ? "match" : "update")}
-        title={`${INVOICE_RUN_ID} · Thu Nov 6, for Wed Nov 5`}
-        line="Started 7:00 AM · 2 reports to collect"
-        chip={<StatusChip state={chip.state}>{chip.label}</StatusChip>}
-      />
-      <RunRow
-        to={INV_RUN("collect")}
-        title="R-1047 · Wed Nov 5, for Tue Nov 4"
-        line="10 of 11 sales reconciled · 9 deals closed in Zoho CRM"
-        chip={<StatusChip state="checked">Test run</StatusChip>}
-      />
-    </>
   );
 }
 
@@ -166,7 +146,7 @@ function Overview({ stage }: { stage: Stage }) {
       </Card>
       <div className="mt-5" />
       <Card title="Recent runs">
-        <Runs stage={stage} />
+        <AgentRunRows agent="invoice" limit={4} />
       </Card>
       <div className="mt-5" />
       <HowItWorks

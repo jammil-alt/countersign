@@ -3,10 +3,10 @@ import { Link } from "react-router-dom";
 import { KpiStrip, StatTile } from "../../ui/figures";
 import { PageGrid } from "../../ui/page";
 import { Badge, buttonClass, Card } from "../../ui/primitives";
-import { StatusChip } from "../../ui/status";
-import { AgentFrame, type AgentTab, HowItWorks, RunRow } from "./AgentFrame";
-import { REPS, RUN_ID, UCC_ID } from "./people";
+import { AgentFrame, type AgentTab, HowItWorks } from "./AgentFrame";
+import { REPS, UCC_ID } from "./people";
 import { Report } from "./Report";
+import { AgentRunRows } from "./Runs";
 import { UCC_SOP } from "./sop";
 import { AGENT, RUN, useDemo } from "./state";
 
@@ -62,7 +62,7 @@ export function AgentPage({ tab }: { tab: AgentTab }) {
         ),
         sop: UCC_SOP,
         overview: <Overview />,
-        runs: <Runs />,
+        runs: <AgentRunRows agent="ucc" />,
         report: <Report />,
         settings: {
           rail: (
@@ -83,27 +83,6 @@ export function AgentPage({ tab }: { tab: AgentTab }) {
         },
       }}
     />
-  );
-}
-
-function Runs() {
-  const { state } = useDemo();
-  const chip = runChip(state);
-  return (
-    <>
-      <RunRow
-        to={RUN(state.formsSent ? (state.marcusDone ? "report" : "answers") : "forms")}
-        title={`${RUN_ID} · October 2026 UCC file`}
-        line="Started Mon Nov 3, 8:02 AM · 412 filings read, 138 kept"
-        chip={<StatusChip state={chip.state}>{chip.label}</StatusChip>}
-      />
-      <RunRow
-        to={RUN("receive")}
-        title="R-0987 · September 2026 UCC file (test run)"
-        line="Fri Oct 31 · 389 filings read, 121 kept · nothing sent"
-        chip={<StatusChip state="checked">Test run</StatusChip>}
-      />
-    </>
   );
 }
 
@@ -156,7 +135,7 @@ function Overview() {
       }
     >
       <Card title="Recent runs">
-        <Runs />
+        <AgentRunRows agent="ucc" limit={3} />
       </Card>
       <div className="mt-5" />
       <HowItWorks

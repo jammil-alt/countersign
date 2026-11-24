@@ -101,6 +101,11 @@ export const UCC_STOPS: Stop[] = [
     hint: "What it may do in each of ROMCO's tools. Zoho CRM is read only; Gmail asks first.",
   },
   {
+    path: "/runs",
+    title: "Runs",
+    hint: "Every run of both agents. Click October 2026 UCC file to open it.",
+  },
+  {
     path: RUN("receive"),
     title: "1. The raw file",
     hint: "October's UCC file arrives by email: 412 rows, as the state publishes them.",
@@ -173,9 +178,9 @@ export const UCC_STOPS: Stop[] = [
   },
 ];
 
-const UCC_SIGN = 11;
-const UCC_FORM = 13;
-const UCC_SENT = 19;
+const UCC_SIGN = UCC_STOPS.findIndex((s) => s.title.startsWith("7."));
+const UCC_FORM = UCC_STOPS.findIndex((s) => s.path === "/f/marcus");
+const UCC_SENT = UCC_STOPS.findIndex((s) => s.path === "/mail/report");
 
 export const INVOICE_STOPS: Stop[] = [
   {
@@ -197,6 +202,11 @@ export const INVOICE_STOPS: Stop[] = [
     path: `${INV_AGENT}/settings`,
     title: "Access",
     hint: "Zoho CRM: read on its own, changes only after sign-off, never creates or deletes.",
+  },
+  {
+    path: "/runs",
+    title: "Runs",
+    hint: "One run every business day. Click today's, Thu Nov 6, to open it; earlier days are done.",
   },
   {
     path: INV_RUN("collect"),
@@ -265,9 +275,9 @@ export const INVOICE_STOPS: Stop[] = [
   },
 ];
 
-const INV_UPLOAD = 6;
-const INV_FORM = 12;
-const INV_SIGN = 13;
+const INV_UPLOAD = INVOICE_STOPS.findIndex((s) => s.path === "/r/register");
+const INV_FORM = INVOICE_STOPS.findIndex((s) => s.path === "/f/deals");
+const INV_SIGN = INVOICE_STOPS.findIndex((s) => s.path === "/inbox");
 
 export interface Tour {
   key: "ucc" | "invoice";

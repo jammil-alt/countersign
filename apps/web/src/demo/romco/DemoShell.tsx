@@ -83,7 +83,7 @@ export function DemoShell({ children }: { children: ReactNode }) {
               <SidebarLink to="/home" icon="table" label="Home" />
               <SidebarLink to="/inbox" icon="desk" label="Inbox" count={waiting} />
               <SidebarLink to="/requests" icon="message" label="Requests" />
-              <SidebarLink to={`/runs/R-1042/receive`} icon="report" label="Runs" />
+              <SidebarLink to="/runs" icon="report" label="Runs" />
               <SidebarLink to="/connectors" icon="bank" label="Connectors" />
               <SidebarLink to="/contacts" icon="team" label="Contacts" />
             </nav>
