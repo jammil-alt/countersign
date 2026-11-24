@@ -364,8 +364,8 @@ export const UCC_SOP: SopView = {
     outline("records", "2", "skill"),
     outline("verify", "3", "skill"),
     outline("each", "4", "for_each"),
-    outline("deals", "4.1", "skill", "loop:each", 1),
-    outline("accounts", "4.2", "skill", "loop:each", 1),
+    outline("deals", "4.1", "read", "loop:each", 1),
+    outline("accounts", "4.2", "read", "loop:each", 1),
     outline("group", "4.3", "if", "loop:each", 1, [
       { id: "pa", letter: "A", name: "On a deal", words: "it matched a deal", otherwise: false },
       {
