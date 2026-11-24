@@ -37,7 +37,8 @@ import type { Hono } from "hono";
 import { z } from "zod";
 import { releasePeople, releaseView } from "../access/release";
 import { type CatalogueSite, catalogueForClient, offers } from "../browser/sites";
-import { type AppEnv, HttpError, iso, mount, notFound } from "../http";
+import { connectorSettings, shownConnectors } from "../connector-access/service";
+import { type AppEnv, HttpError, iso, mount, notFound, type Services } from "../http";
 import type { Platform } from "../platform";
 import { connectionCredentials } from "../secrets";
 import { offeredTo } from "./connections";
@@ -239,29 +240,50 @@ export async function vaultItem(tx: Tx, tenantId: string, platform: Platform, id
   return item;
 }
 
-/** Offered API-key connectors with a form and no connection yet: what the client can set up. */
-async function vaultSetup(tx: Tx, tenantId: string, platform: Platform): Promise<VaultSetup[]> {
+/**
+ * API-key connectors with a form and no connection yet: what the client can set up. The ones the
+ * client sees on its Connectors list, offered or not.
+ */
+// DECISION (Connectors C4, docs/plan.md §1.161): the same rule as the Connectors list and the
+// route that saves the key (`shownConnectors`, `connectableTo`), not `connectors_offered` alone.
+// A live connector has its page for every client, and its "Enter key" needs the form from here;
+// a custom connector built for another client and one HIPAA mode refuses stay out, as there.
+async function vaultSetup(
+  tx: Tx,
+  tenantId: string,
+  services: Pick<Services, "platform" | "env">,
+): Promise<VaultSetup[]> {
   const [t] = await tx.select().from(tenant).where(eq(tenant.id, tenantId));
   if (!t) throw notFound("client");
   const rows = await tx
     .select({ connector: connection.connector })
     .from(connection)
     .where(eq(connection.tenantId, tenantId));
-  // Browser logins are set up per site (browserSiteOffers), not with this generic form.
-  return offeredConnectors(t.settings)
-    .filter((id) => id !== BROWSER_CONNECTOR_ID && !rows.some((r) => r.connector === id))
-    .flatMap((id) => {
-      const c = platform.connectors.get(id);
-      if (!c || !hasCredentialForm(c)) return [];
-      return [
-        {
-          connector: id,
-          name: c.manifest.name,
-          description: c.manifest.description,
-          fields: c.manifest.credentialFields ?? [],
-        },
-      ];
-    });
+  const connected = new Set(rows.map((r) => r.connector));
+  return (
+    shownConnectors({
+      tenantId,
+      settings: t.settings,
+      connectorSettings: await connectorSettings(tx),
+      inUse: connected,
+      platform: services.platform,
+      baaProcessors: services.env.BAA_PROCESSORS,
+    })
+      .map((s) => s.connector)
+      // Browser logins are set up per site (browserSiteOffers), not with this generic form.
+      .filter(
+        (c) =>
+          c.manifest.id !== BROWSER_CONNECTOR_ID &&
+          !connected.has(c.manifest.id) &&
+          hasCredentialForm(c),
+      )
+      .map((c) => ({
+        connector: c.manifest.id,
+        name: c.manifest.name,
+        description: c.manifest.description,
+        fields: c.manifest.credentialFields ?? [],
+      }))
+  );
 }
 
 /** Sites the client may set a browser login up on: offered, allowed, and not set up yet. */
@@ -344,7 +366,7 @@ export function accessRoutes(app: Hono<AppEnv>): void {
     const canEdit = role === "client_admin";
     return {
       items: await vaultItems(tx, tenantId, services.platform, { names: "service" }),
-      setup: canEdit ? await vaultSetup(tx, tenantId, services.platform) : [],
+      setup: canEdit ? await vaultSetup(tx, tenantId, services) : [],
       browserSites: canEdit ? await browserSiteOffers(tx, tenantId) : [],
       canEdit,
       people: canEdit ? await releasePeople(tx, tenantId) : [],
