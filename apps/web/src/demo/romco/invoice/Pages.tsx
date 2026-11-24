@@ -32,11 +32,11 @@ const REGISTER =
 const CHECKS = [
   "A spreadsheet (.xlsx)",
   `Has every column: ${REGISTER.columns.join(", ")}`,
-  "Every invoice dated October 1 to 31, 2026",
-  "At least 50 rows: 106",
+  "Every invoice dated Wednesday, November 5",
+  "10 invoices",
 ];
 
-/** Priya Shah's link for October's invoice register. */
+/** The link in Priya Shah's follow-up, for yesterday's invoice register. */
 export function RegisterUpload() {
   const { state, set } = useDemo();
   const [file, setFile] = useState(false);
@@ -55,9 +55,12 @@ export function RegisterUpload() {
     return (
       <Frame foot="Sent by Mezonas for ROMCO.">
         <p className="eyebrow text-ink-muted">ROMCO asks · Invoice CRM update</p>
-        <h1 className="type-heading text-ink">Thanks, Priya. October's invoice register is in.</h1>
+        <h1 className="type-heading text-ink">
+          Thanks, Priya. Yesterday's invoice register is in.
+        </h1>
         <p className="mt-2 text-ink">
-          106 invoices, all checks passed. We'll send you the exception report once it's reconciled.
+          10 invoices, all checks passed. We'll send you the exception report once it's reconciled.
+          Tomorrow's can come in from your scheduled email as usual.
         </p>
         <div className="mt-6">
           <Link to={INV_RUN("reconcile")} className="ds-btn ds-btn--primary">
@@ -70,11 +73,11 @@ export function RegisterUpload() {
   return (
     <Frame foot="Sent by Mezonas for ROMCO. Only this file goes to ROMCO's Invoice CRM update agent.">
       <p className="eyebrow text-ink-muted">ROMCO asks · Invoice CRM update</p>
-      <h1 className="type-heading text-ink">Send October's invoice register</h1>
+      <h1 className="type-heading text-ink">Send yesterday's invoice register</h1>
       <p className="mt-2 text-ink">{REGISTER.describe}</p>
       <p className="mt-2 text-sm text-ink-muted">
-        Was due Wednesday, November 5 · follow-up 1 of 2 · Renee Park and Grace Lin can see when it
-        arrives
+        Was due at 9:00 AM today · follow-up 1 of 2 · or reply to the follow-up email with the file
+        attached
       </p>
 
       <section className="mt-6">
@@ -97,7 +100,7 @@ export function RegisterUpload() {
             </svg>
             <span className="min-w-0 flex-1">
               <b className="block text-ink">{REGISTER.file}</b>
-              <span className="text-sm text-ink-muted">48 KB · 106 rows</span>
+              <span className="text-sm text-ink-muted">12 KB · 10 rows</span>
             </span>
             {checked >= CHECKS.length ? (
               <Badge tone="positive">Checks passed</Badge>
@@ -155,10 +158,9 @@ export function DealsForm() {
     return (
       <Frame foot="Sent by Mezonas for ROMCO.">
         <p className="eyebrow text-ink-muted">ROMCO asks · Invoice CRM update</p>
-        <h1 className="type-heading text-ink">Thanks, Tom. All 8 are answered.</h1>
+        <h1 className="type-heading text-ink">Thanks, Tom. It's answered.</h1>
         <p className="mt-2 text-ink">
-          6 deals go to Renee Park to sign with the rest. The 2 with no deal are listed for her to
-          create.
+          Bell County Earthworks goes to Renee Park to sign with today's other 5 deals.
         </p>
         <div className="mt-6">
           <Link to="/inbox" className="ds-btn ds-btn--primary">
@@ -181,12 +183,14 @@ export function DealsForm() {
   return (
     <Frame foot="Sent by Mezonas for ROMCO. Renee Park sees your answers.">
       <p className="eyebrow text-ink-muted">ROMCO asks · Invoice CRM update</p>
-      <h1 className="type-heading text-ink">8 October sales we couldn't match to a Zoho deal</h1>
+      <h1 className="type-heading text-ink">
+        1 sale from yesterday we couldn't match to a Zoho deal
+      </h1>
       <p className="mt-2 text-ink">
-        Each has its Great Plains invoice. Pick the deal it closes, or say there isn't one. We'll
-        mark the deal Closed Won with the invoice number after Renee Park signs.
+        It has its Great Plains invoice. Pick the deal it closes, or say there isn't one. We'll mark
+        the deal Closed Won with the invoice number after Renee Park signs.
       </p>
-      <p className="mt-2 text-sm text-ink-muted">Due Monday, November 10 · about 5 minutes</p>
+      <p className="mt-2 text-sm text-ink-muted">Due by 3:00 PM today · about a minute</p>
       <div className="demo-formbar">
         <span className="text-sm text-ink-muted">For the demo:</span>
         <Button size="sm" onClick={() => setPicks({ ...EXAMPLE_PICKS })}>

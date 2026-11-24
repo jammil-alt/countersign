@@ -137,7 +137,7 @@ function Home() {
           to={`/agents/${INVOICE_ID}`}
           id={INVOICE_ID}
           name="Invoice CRM update"
-          line="October close: 97 of 104 sales reconciled; deals closed in Zoho CRM"
+          line="Daily: 7 of 9 of yesterday's sales reconciled; deals closed in Zoho CRM"
           chip={
             <StatusChip state={invoiceChip(state.inv).state}>
               {invoiceChip(state.inv).label}

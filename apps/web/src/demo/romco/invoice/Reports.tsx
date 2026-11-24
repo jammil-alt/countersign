@@ -5,7 +5,7 @@ import { Link } from "react-router-dom";
 import { PersonBadge } from "../../../ui/badges";
 import { Badge, cx } from "../../../ui/primitives";
 import { StatusChip } from "../../../ui/status";
-import { ESCALATION, REPORTS, type Report, reportEvents } from "./data";
+import { ESCALATION, INBOX, REPORTS, type Report, reportEvents } from "./data";
 
 export function reportIn(r: Report, stage: number): boolean {
   return r.key === "sales" || stage >= 1;
@@ -35,7 +35,7 @@ function ReportCard({ r, stage, compact }: { r: Report; stage: number; compact: 
         {done ? (
           <StatusChip state="done">In · checks passed</StatusChip>
         ) : (
-          <StatusChip state="person">1 day late · followed up</StatusChip>
+          <StatusChip state="person">Due 9:00 AM · followed up</StatusChip>
         )}
       </div>
       <dl className="demo-report__facts">
@@ -63,7 +63,7 @@ function ReportCard({ r, stage, compact }: { r: Report; stage: number; compact: 
             <div>
               <dt>What it must be</dt>
               <dd className="text-sm">
-                {r.format}, every row dated in October, at least 50 rows. Columns:{" "}
+                {r.format}, emailed to {INBOX}, every row dated the business day before. Columns:{" "}
                 <span className="font-mono text-xs">{r.columns.join(", ")}</span>
               </dd>
             </div>
@@ -87,7 +87,7 @@ function ReportCard({ r, stage, compact }: { r: Report; stage: number; compact: 
               </Link>{" "}
               ·{" "}
               <Link to="/r/register" className="text-link hover:underline">
-                Open Priya's link
+                Open the link in it
               </Link>
             </p>
           )}
@@ -113,16 +113,14 @@ function Escalation() {
         </div>
         <div>
           <dt>When</dt>
-          <dd className="text-sm">{ESCALATION.after}, or when follow-ups run out</dd>
+          <dd className="text-sm">{ESCALATION.after}</dd>
         </div>
         <div>
           <dt>They choose</dt>
           <dd className="text-sm">{ESCALATION.choices.join(" · ")}</dd>
         </div>
       </dl>
-      <p className="mt-2 text-sm text-ink-muted">
-        No answer in 1 business day: {ESCALATION.ifNoAnswer}.
-      </p>
+      <p className="mt-2 text-sm text-ink-muted">No answer by 3:00 PM: {ESCALATION.ifNoAnswer}.</p>
     </section>
   );
 }

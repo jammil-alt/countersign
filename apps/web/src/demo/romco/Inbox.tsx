@@ -90,12 +90,12 @@ export function Inbox() {
         {state.inv === 2 ? (
           <SignCard
             from="Invoice CRM update · R-1051 · for Renee Park"
-            title="Mark 95 Zoho deals Closed Won and add their invoice numbers."
-            body="October's invoiced sales: 89 the agent matched and 6 Tom Guerra found. Only Stage, Closing date and Invoice number change. Sign and they change now."
-            before="95 deals open in Zoho CRM (Proposal, Negotiation, 1 Closed Lost), no invoice numbers."
-            after="95 deals Closed Won, each closing on its invoice date with its Great Plains invoice number."
+            title="Mark 6 Zoho deals Closed Won and add their invoice numbers."
+            body="Yesterday's invoiced sales: 5 deals the agent matched and 1 Tom Guerra found. Only Stage, Closing date and Invoice number change. Sign and they change now."
+            before="6 deals open in Zoho CRM (Proposal or Negotiation), no invoice numbers."
+            after="6 deals Closed Won, each closing Nov 5 with its Great Plains invoice number."
             receipts={[
-              { label: "The 95 changes", to: "/runs/R-1051/update" },
+              { label: "The 6 changes", to: "/runs/R-1051/update" },
               { label: "The reconciliation", to: "/runs/R-1051/reconcile" },
               { label: "Tom's answers", to: "/runs/R-1051/ask" },
             ]}
@@ -148,8 +148,8 @@ export function Inbox() {
           <div>
             {state.inv === 3 ? (
               <DoneRow
-                line="Marked 95 Zoho deals Closed Won"
-                when="Fri Nov 7"
+                line="Marked 6 Zoho deals Closed Won"
+                when="Thu Nov 6"
                 to="/runs/R-1051/update"
               />
             ) : null}

@@ -1,5 +1,5 @@
 // The Invoice CRM update's page as ROMCO sees it in the portal, on the shared agent frame: its
-// figures for October, the two reports it waits for, its runs, its report and its settings.
+// figures for today, the two reports it waits for, its runs, its report and its settings.
 import { Link } from "react-router-dom";
 import { KpiStrip, StatTile } from "../../../ui/figures";
 import { PageGrid } from "../../../ui/page";
@@ -8,7 +8,7 @@ import { StatusChip } from "../../../ui/status";
 import { AgentFrame, type AgentTab, HowItWorks, RunRow } from "../AgentFrame";
 import { INVOICE_ID, INVOICE_RUN_ID } from "../people";
 import { INV_AGENT, INV_RUN, useDemo } from "../state";
-import { EXCEPTION_GROUPS, RECON, REPORTS, ZOHO } from "./data";
+import { DAYS, EXCEPTION_GROUPS, RECON, REPORTS, ZOHO } from "./data";
 import { ReportCards } from "./Reports";
 import { INVOICE_SOP } from "./sop";
 
@@ -31,7 +31,7 @@ export function InvoicePage({ tab }: { tab: AgentTab }) {
         id: INVOICE_ID,
         name: "Invoice CRM update",
         subtitle:
-          "Each month, waits for the unit sales report and the Great Plains invoice register, reconciles them, and marks each invoiced sale's deal Closed Won in Zoho CRM.",
+          "Every business day, waits for the unit sales report and the Great Plains invoice register to be emailed in, reconciles them, and marks each invoiced sale's deal Closed Won in Zoho CRM.",
         stage: "Trial",
         chip: invoiceChip(stage),
         actions: (
@@ -44,7 +44,9 @@ export function InvoicePage({ tab }: { tab: AgentTab }) {
             <StatTile
               label="Reports in"
               value={`${stage === 0 ? 1 : 2} of 2`}
-              note={stage === 0 ? "Invoice register 1 day late" : "Both in by Thu Nov 6"}
+              note={
+                stage === 0 ? "Invoice register due 9:00 AM, followed up" : "Both in by 10:47 AM"
+              }
               {...(stage === 0 ? { tone: "signal" as const, noteTone: "signal" as const } : {})}
             />
             <StatTile
@@ -65,7 +67,7 @@ export function InvoicePage({ tab }: { tab: AgentTab }) {
                 stage === 3
                   ? "Closed Won, invoice numbers added"
                   : stage === 2
-                    ? "95 waiting on your sign-off"
+                    ? "6 waiting on your sign-off"
                     : "After matching and sign-off"
               }
               tone="positive"
@@ -81,9 +83,9 @@ export function InvoicePage({ tab }: { tab: AgentTab }) {
             <Card title="When it runs" pad>
               <dl className="demo-dl">
                 <dt>Starts</dt>
-                <dd>The first business day of each month, 8:00 AM</dd>
+                <dd>Every business day at 7:00 AM</dd>
                 <dt>Next</dt>
-                <dd>Mon Dec 1, for November</dd>
+                <dd>Fri Nov 7, for Thu Nov 6</dd>
                 <dt>Late reports</dt>
                 <dd>Grace Lin, Controller</dd>
               </dl>
@@ -102,14 +104,14 @@ function Runs({ stage }: { stage: Stage }) {
     <>
       <RunRow
         to={INV_RUN(stage === 0 ? "collect" : stage === 1 ? "match" : "update")}
-        title={`${INVOICE_RUN_ID} · October 2026 close`}
-        line="Started Mon Nov 3, 8:00 AM · 2 reports to collect"
+        title={`${INVOICE_RUN_ID} · Thu Nov 6, for Wed Nov 5`}
+        line="Started 7:00 AM · 2 reports to collect"
         chip={<StatusChip state={chip.state}>{chip.label}</StatusChip>}
       />
       <RunRow
         to={INV_RUN("collect")}
-        title="R-0991 · September 2026 close (test run)"
-        line="Fri Oct 31 · 91 of 96 sales reconciled · nothing changed in Zoho"
+        title="R-1047 · Wed Nov 5, for Tue Nov 4"
+        line="10 of 11 sales reconciled · 9 deals closed in Zoho CRM"
         chip={<StatusChip state="checked">Test run</StatusChip>}
       />
     </>
@@ -126,7 +128,7 @@ function Overview({ stage }: { stage: Stage }) {
               <div className="flex flex-col gap-3">
                 <Badge tone="person">Priya Shah</Badge>
                 <p className="text-sm text-ink">
-                  October's invoice register, due Wed Nov 5. Followed up Thu 8:00 AM; next Fri.
+                  Yesterday's invoice register, due 9:00 AM. Followed up at 10:00 AM; next at noon.
                 </p>
                 <Link to={INV_RUN("collect")} className={buttonClass("secondary", "self-start")}>
                   See the reports
@@ -135,7 +137,7 @@ function Overview({ stage }: { stage: Stage }) {
             ) : stage === 1 ? (
               <div className="flex flex-col gap-3">
                 <Badge tone="person">Tom Guerra</Badge>
-                <p className="text-sm text-ink">8 sales to match to a Zoho deal, due Mon Nov 10.</p>
+                <p className="text-sm text-ink">1 sale to match to a Zoho deal, due by 3:00 PM.</p>
                 <Link to={INV_RUN("ask")} className={buttonClass("secondary", "self-start")}>
                   See them
                 </Link>
@@ -144,21 +146,21 @@ function Overview({ stage }: { stage: Stage }) {
               <div className="flex flex-col gap-3">
                 <Badge tone="warning">Sign</Badge>
                 <p className="text-sm text-ink">
-                  Mark 95 Zoho deals Closed Won with their invoice numbers.
+                  Mark 6 Zoho deals Closed Won with their invoice numbers.
                 </p>
                 <Link to="/inbox" className={buttonClass("primary", "self-start")}>
                   Open in Inbox
                 </Link>
               </div>
             ) : (
-              <p className="text-sm text-ink-muted">Nothing. November's close starts Mon Dec 1.</p>
+              <p className="text-sm text-ink-muted">Nothing. Tomorrow's run starts at 7:00 AM.</p>
             )}
           </Card>
         </>
       }
     >
       <Card
-        title="October's reports"
+        title="Today's reports"
         meta={<span className="text-sm text-ink-muted">The trigger: both must be in</span>}
         pad
       >
@@ -225,7 +227,7 @@ function Owners() {
         </div>
       </Card>
       <p className="mt-2 text-sm text-ink-muted">
-        Each owner gets their own link. A report 2 business days late goes to Grace Lin, Controller.
+        Both are emailed in every morning. A report not in by 1:00 PM goes to Grace Lin, Controller.
       </p>
     </>
   );
@@ -235,7 +237,7 @@ function InvoiceReport({ stage }: { stage: Stage }) {
   if (stage === 0) {
     return (
       <Card pad>
-        <p className="text-ink">October's report fills in once both reports are in.</p>
+        <p className="text-ink">Today's figures fill in once both reports are in.</p>
         <p className="mt-1 text-sm text-ink-muted">
           Waiting on the invoice register from Priya Shah.
         </p>
@@ -245,15 +247,15 @@ function InvoiceReport({ stage }: { stage: Stage }) {
   return (
     <div className="flex flex-col gap-6">
       <div className="flex flex-wrap items-center gap-3">
-        <span className="type-heading">October 2026 close</span>
+        <span className="type-heading">Thursday, November 6</span>
         <span className="text-sm text-ink-muted">From R-1051</span>
       </div>
       <KpiStrip>
         <StatTile label="Units sold" value={String(RECON.sales)} note="on the unit sales report" />
         <StatTile
           label="Reconciled"
-          value={`${RECON.matched}`}
-          note="93% · invoice numbers applied"
+          value={`${RECON.matched} of ${RECON.sales}`}
+          note="Invoice numbers applied"
           tone="positive"
         />
         <StatTile
@@ -265,7 +267,7 @@ function InvoiceReport({ stage }: { stage: Stage }) {
         <StatTile
           label="Deals closed in Zoho"
           value={stage === 3 ? String(ZOHO.updated) : "0"}
-          note={stage === 3 ? "2 more need a deal created" : "Waiting on sign-off"}
+          note={stage === 3 ? "Closed Won with invoice numbers" : "Waiting on sign-off"}
           tone="slate"
         />
       </KpiStrip>
@@ -288,8 +290,8 @@ function InvoiceReport({ stage }: { stage: Stage }) {
                       <b>Unit sales report</b>
                       <span>Tom Guerra</span>
                     </td>
-                    <td>Tue Nov 4</td>
-                    <td>Tue Nov 4</td>
+                    <td>9:00 AM</td>
+                    <td>6:32 AM</td>
                     <td>
                       <Badge tone="positive">On time</Badge>
                     </td>
@@ -299,10 +301,10 @@ function InvoiceReport({ stage }: { stage: Stage }) {
                       <b>Invoice register</b>
                       <span>Priya Shah</span>
                     </td>
-                    <td>Wed Nov 5</td>
-                    <td>Thu Nov 6</td>
+                    <td>9:00 AM</td>
+                    <td>10:47 AM</td>
                     <td>
-                      <Badge tone="warning">1 day late · 1 follow-up</Badge>
+                      <Badge tone="warning">1 hr 47 min late · 1 follow-up</Badge>
                     </td>
                   </tr>
                 </tbody>
@@ -318,7 +320,7 @@ function InvoiceReport({ stage }: { stage: Stage }) {
                   <span className="demo-bars__label">{g.name}</span>
                   <span className="demo-bars__bar">
                     <span className="dt-track">
-                      <i style={{ width: `${(g.count / 6) * 100}%` }} />
+                      <i style={{ width: `${(g.count / 2) * 100}%` }} />
                     </span>
                   </span>
                   <span className="figures text-sm">{g.count}</span>
@@ -329,6 +331,42 @@ function InvoiceReport({ stage }: { stage: Stage }) {
         </Card>
       </div>
       <ZohoShare stage={stage} />
+      <Card titleAbove title="The last 10 business days">
+        <div className="dt dt-ana">
+          <div className="dt-scroll">
+            <table>
+              <thead>
+                <tr className="dt-cols">
+                  <th>Day</th>
+                  <th>Reports on time</th>
+                  <th className="n">Sales</th>
+                  <th className="n">Reconciled</th>
+                  <th className="n">Exceptions</th>
+                  <th className="n">Deals closed</th>
+                </tr>
+              </thead>
+              <tbody>
+                {DAYS.map((d, i) => (
+                  <tr key={d.day}>
+                    <td>{d.day}</td>
+                    <td>
+                      {d.onTime === "2 of 2" ? (
+                        <Badge tone="positive">2 of 2</Badge>
+                      ) : (
+                        <Badge tone="warning">{d.onTime}</Badge>
+                      )}
+                    </td>
+                    <td className="n">{d.sales}</td>
+                    <td className="n">{d.reconciled}</td>
+                    <td className="n">{d.exceptions}</td>
+                    <td className="n">{i === 0 && stage < 3 ? "–" : d.closed}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </Card>
     </div>
   );
 }
@@ -337,25 +375,24 @@ function ZohoShare({ stage }: { stage: Stage }) {
   const done = stage >= 2;
   const parts: [string, number, string][] = done
     ? [
-        ["is-won", 82, "Matched by rules"],
-        ["is-lost", 7, "Matched, names read by AI"],
-        ["is-existing", 6, "Found by sales ops"],
-        ["is-new", 2, "No deal in Zoho yet"],
+        ["is-won", 5, "Matched by rules"],
+        ["is-lost", 1, "Matched, name read by AI"],
+        ["is-existing", 1, "Found by sales ops"],
       ]
     : [
-        ["is-won", 82, "Matched by rules"],
-        ["is-lost", 7, "Matched, names read by AI"],
-        ["is-new", 8, "With sales ops"],
+        ["is-won", 5, "Matched by rules"],
+        ["is-lost", 1, "Matched, name read by AI"],
+        ["is-new", 1, "With sales ops"],
       ];
   return (
-    <Card titleAbove title="Where the 97 invoiced sales went in Zoho CRM">
+    <Card titleAbove title="Where the 7 invoiced sales went in Zoho CRM">
       <div className="ui-card__body flex flex-col gap-2">
         <span className="demo-share demo-share--big">
           {parts.map(([cls, n, label]) => (
             <i
               key={label}
               className={cls}
-              style={{ width: `${(n / 97) * 100}%` }}
+              style={{ width: `${(n / 7) * 100}%` }}
               title={`${label}: ${n}`}
             />
           ))}

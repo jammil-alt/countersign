@@ -181,12 +181,12 @@ export const INVOICE_STOPS: Stop[] = [
   {
     path: INV_AGENT,
     title: "The agent",
-    hint: "Invoice CRM update: each month it waits for two reports, then closes the deals in Zoho CRM.",
+    hint: "Invoice CRM update: every business day it waits for two emailed reports, then closes the deals in Zoho CRM.",
   },
   {
     path: `${INV_AGENT}/flow`,
     title: "Workflow",
-    hint: "It starts by collecting two reports, each from its owner. Click the first box for who and when.",
+    hint: "It starts by collecting two reports emailed in each morning, each from its owner. Click the first box for who and when.",
   },
   {
     path: `${INV_AGENT}/sop`,
@@ -201,17 +201,17 @@ export const INVOICE_STOPS: Stop[] = [
   {
     path: INV_RUN("collect"),
     title: "1. Waiting for both reports",
-    hint: "The unit sales report is in; the Great Plains invoice register is a day late and followed up.",
+    hint: "Thursday 10:05 AM: the unit sales report came in at 6:32; the invoice register, due at 9:00, has been followed up.",
   },
   {
     path: "/mail/followup",
     title: "2. The follow-up",
-    hint: "What Priya Shah gets the morning after her report was due.",
+    hint: "What Priya Shah gets at 10:00 AM when her report isn't in.",
   },
   {
     path: "/r/register",
     title: "3. Priya sends the file",
-    hint: "Her link checks the file in code before it's taken. Use the example file, then Send.",
+    hint: "She can reply with the file or use the link, which checks it in code. Use the example file, then Send.",
   },
   {
     path: INV_RUN("reconcile"),
@@ -236,7 +236,7 @@ export const INVOICE_STOPS: Stop[] = [
   {
     path: "/mail/deals",
     title: "8. Help with the rest",
-    hint: "The 8 sales it couldn't match go to sales ops by email.",
+    hint: "The sale it couldn't match goes to sales ops by email.",
   },
   {
     path: "/f/deals",
@@ -251,16 +251,16 @@ export const INVOICE_STOPS: Stop[] = [
   {
     path: INV_RUN("update"),
     title: "11. Zoho updated",
-    hint: "95 deals marked Closed Won, each with its Great Plains invoice number.",
+    hint: "6 deals marked Closed Won, each with its Great Plains invoice number.",
   },
   {
     path: `${INV_AGENT}/report`,
     title: "12. Report",
-    hint: "The month at a glance: reports, reconciliation, exceptions and deals closed.",
+    hint: "Today at a glance, and the last 10 business days.",
   },
   {
     path: "/mail/summary",
-    title: "13. The month's summary",
+    title: "13. The day's summary",
     hint: "The summary email to Renee, Priya and Dana. End of the run.",
   },
 ];

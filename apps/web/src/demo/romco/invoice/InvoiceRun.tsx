@@ -1,4 +1,4 @@
-// One run of the Invoice CRM update, R-1051 (October's close), on the shared run frame. Each
+// One run of the Invoice CRM update, R-1051 (Thursday, November 6), on the shared run frame. Each
 // output is what that step made: the two reports and their follow-ups, the reconciliation with
 // invoice numbers applied, the exception report, the Zoho matches, the deals sales ops found, the
 // Zoho updates and the summary.
@@ -41,16 +41,16 @@ const STEPS: Step[] = [
   {
     key: "collect",
     sop: "1",
-    title: "Collect the month's two reports",
+    title: "Collect the day's two reports",
     anchor: "collect",
     at: (s) =>
       s === 0
         ? {
             state: "person",
-            time: "Nov 3",
-            detail: "1 of 2 in · invoice register 1 day late, followed up",
+            time: "7:00",
+            detail: "1 of 2 in · invoice register due 9:00 AM, followed up",
           }
-        : { state: "done", time: "Nov 6", detail: "2 of 2 in · 1 follow-up · checks passed" },
+        : { state: "done", time: "10:47", detail: "2 of 2 in · 1 follow-up · checks passed" },
   },
   {
     key: "reconcile",
@@ -60,7 +60,7 @@ const STEPS: Step[] = [
     at: (s) =>
       s === 0
         ? todo
-        : { state: "done", time: "11:22", detail: "97 of 104 matched · invoice numbers applied" },
+        : { state: "done", time: "10:48", detail: "7 of 9 matched · invoice numbers applied" },
   },
   {
     key: "exceptions",
@@ -68,7 +68,7 @@ const STEPS: Step[] = [
     title: "Build the exception report",
     anchor: "exceptions",
     at: (s) =>
-      s === 0 ? todo : { state: "done", time: "11:22", detail: "13 exceptions in 3 groups" },
+      s === 0 ? todo : { state: "done", time: "10:48", detail: "4 exceptions in 3 groups" },
   },
   {
     key: "send-exceptions",
@@ -78,7 +78,7 @@ const STEPS: Step[] = [
     at: (s) =>
       s === 0
         ? todo
-        : { state: "done", time: "11:23", detail: "To Priya Shah and the accounting team" },
+        : { state: "done", time: "10:49", detail: "To Priya Shah and the accounting team" },
   },
   {
     key: "match",
@@ -86,7 +86,7 @@ const STEPS: Step[] = [
     title: "Match each sale to a Zoho CRM deal",
     anchor: "match",
     at: (s) =>
-      s === 0 ? todo : { state: "done", time: "11:26", detail: "89 of 97 matched · 8 not found" },
+      s === 0 ? todo : { state: "done", time: "10:52", detail: "6 of 7 matched · 1 not found" },
   },
   {
     key: "ask",
@@ -99,10 +99,10 @@ const STEPS: Step[] = [
         : s === 1
           ? {
               state: "person",
-              time: "11:27",
-              detail: "8 sales sent to Tom Guerra · due Mon Nov 10",
+              time: "10:53",
+              detail: "1 sale sent to Tom Guerra · due 3:00 PM",
             }
-          : { state: "done", time: "Nov 7", detail: "6 deals found · 2 have no deal yet" },
+          : { state: "done", time: "11:40", detail: "6 deals found · 2 have no deal yet" },
   },
   {
     key: "update",
@@ -113,18 +113,18 @@ const STEPS: Step[] = [
       s < 2
         ? todo
         : s === 2
-          ? { state: "waiting", time: "Nov 7", detail: "95 changes waiting on Renee Park to sign" }
-          : { state: "done", time: "Nov 7", detail: "95 deals updated in Zoho CRM" },
+          ? { state: "waiting", time: "11:41", detail: "6 changes waiting on Renee Park to sign" }
+          : { state: "done", time: "12:15", detail: "6 deals updated in Zoho CRM" },
   },
   {
     key: "summary",
     sop: "7",
-    title: "Send the month's summary",
+    title: "Send the day's summary",
     anchor: "summary",
     at: (s) =>
       s < 3
         ? todo
-        : { state: "done", time: "Nov 7", detail: "To Renee Park, Priya Shah and Dana Whitfield" },
+        : { state: "done", time: "12:16", detail: "To Renee Park, Priya Shah and Dana Whitfield" },
   },
 ];
 
@@ -137,8 +137,8 @@ export function InvoiceRun() {
     <RunFrame
       agent={{ id: INVOICE_ID, name: "Invoice CRM update" }}
       runId={INVOICE_RUN_ID}
-      title="October 2026 close"
-      started="started Mon Nov 3, 8:00 AM, the first business day after month end"
+      title="Thursday, November 6"
+      started="started 7:00 AM, for the business day before (Wed Nov 5)"
       chip={invoiceChip(stage)}
       steps={STEPS.map((s) => ({
         key: s.key,
@@ -192,8 +192,8 @@ function Collect({ stage }: { stage: Stage }) {
         </span>
       </div>
       <How>
-        Collect reports · each owner gets their own link · each file is checked in code, never by a
-        model · the run goes on only when both are in.
+        Collect reports · both are emailed in each morning by their owners · each file is checked in
+        code, never by a model · the run goes on only when both are in.
       </How>
       <div className="mt-4">
         <ReportCards stage={stage} />
@@ -277,7 +277,7 @@ function Reconcile() {
           </table>
         </div>
       </div>
-      <p className="mt-2 text-sm text-ink-muted">Showing 10 of 97.</p>
+      <p className="mt-2 text-sm text-ink-muted">All 7.</p>
       <NextLink to={INV_RUN("exceptions")}>Next: the exceptions</NextLink>
     </>
   );
@@ -352,10 +352,10 @@ function SendExceptions() {
     <>
       <Facts
         rows={[
-          ["Sent", "Thu Nov 6, 11:23 AM"],
+          ["Sent", "10:49 AM"],
           ["To", "Priya Shah; the accounting team (accounting@romco.example)"],
           ["Copied", "Renee Park"],
-          ["Attached", "ROMCO exceptions – October 2026.xlsx · 13 rows"],
+          ["Attached", "ROMCO exceptions – Nov 5, 2026.xlsx · 4 rows"],
         ]}
       />
       <How>
@@ -428,8 +428,10 @@ function Match() {
           </table>
         </div>
       </div>
-      <p className="mt-2 text-sm text-ink-muted">Showing 6 of 89.</p>
-      <p className="eyebrow mt-5 mb-2 text-ink-muted">Not found: 8, sent to sales ops</p>
+      <p className="mt-2 text-sm text-ink-muted">
+        5 deals for 6 sales (Montgomery County Site Works bought two).
+      </p>
+      <p className="eyebrow mt-5 mb-2 text-ink-muted">Not found: 1, sent to sales ops</p>
       <NotFoundTable />
       <NextLink to="/mail/deals">See the email to sales ops</NextLink>
     </>
@@ -501,8 +503,8 @@ function Ask({ stage }: { stage: Stage }) {
       <Facts
         rows={[
           ["Sent to", "Tom Guerra, Sales operations analyst"],
-          ["Sent", "Thu Nov 6, 11:27 AM, by email with a link"],
-          ["Due", "Mon Nov 10; then Renee Park is asked"],
+          ["Sent", "10:53 AM, by email with a link"],
+          ["Due", "3:00 PM today; then Renee Park is asked"],
           [
             "Status",
             stage === 1 ? (
@@ -511,7 +513,7 @@ function Ask({ stage }: { stage: Stage }) {
               </StatusChip>
             ) : (
               <StatusChip key="s" state="done">
-                Answered Fri Nov 7, 2:05 PM
+                Answered 11:40 AM
               </StatusChip>
             ),
           ],
@@ -530,18 +532,18 @@ function Ask({ stage }: { stage: Stage }) {
   );
 }
 
-const UPDATES: { deal: string; name: string; invoice: string; date: string }[] = [
+const UPDATES: { deal: string; name: string; invoice: string; was: string }[] = [
   {
     deal: "D-2291",
     name: "MCSW – two 30-ton excavators",
     invoice: "INV-245811, INV-245812",
-    date: "Oct 3",
+    was: "Negotiation",
   },
-  { deal: "D-2307", name: "Lake Creek – wheel loader", invoice: "INV-245840", date: "Oct 6" },
-  { deal: "D-2302", name: "GTD – high-reach excavator", invoice: "INV-245866", date: "Oct 9" },
-  { deal: "D-2288", name: "Trinity – tandem roller", invoice: "INV-245871", date: "Oct 10" },
-  { deal: "D-2311", name: "BCE – articulated truck", invoice: "INV-245944", date: "Oct 21" },
-  { deal: "D-2240", name: "Cedar Creek – loader", invoice: "INV-245913", date: "Oct 16" },
+  { deal: "D-2302", name: "GTD – high-reach excavator", invoice: "INV-245866", was: "Proposal" },
+  { deal: "D-2296", name: "Red River – dozer", invoice: "INV-245893", was: "Negotiation" },
+  { deal: "D-2316", name: "BSD – breaker", invoice: "INV-245905", was: "Negotiation" },
+  { deal: "D-2318", name: "CAG – 14 ft grader", invoice: "INV-245921", was: "Proposal" },
+  { deal: "D-2311", name: "BCE – articulated truck", invoice: "INV-245944", was: "Proposal" },
 ];
 
 function Update({ stage }: { stage: Stage }) {
@@ -550,7 +552,7 @@ function Update({ stage }: { stage: Stage }) {
       {stage === 2 ? (
         <div className="demo-wait mb-4">
           <Badge tone="warning">Waiting on you</Badge>
-          <p className="text-sm text-ink">95 changes in Zoho CRM wait on Renee Park's sign-off.</p>
+          <p className="text-sm text-ink">6 changes in Zoho CRM wait on Renee Park's sign-off.</p>
           <Link to="/inbox" className={buttonClass("primary")}>
             Open in Inbox
           </Link>
@@ -560,16 +562,11 @@ function Update({ stage }: { stage: Stage }) {
           <StatTile
             label="Deals updated"
             value={String(ZOHO.updated)}
-            note="89 matched · 6 found by sales ops"
+            note="5 matched · 1 found by sales ops"
             tone="positive"
           />
-          <StatTile
-            label="Need a deal"
-            value={String(ZOHO.noDeal)}
-            note="For Renee Park to create"
-            tone="copper"
-          />
-          <StatTile label="Signed" value="Fri 3:40 PM" note="Renee Park" />
+          <StatTile label="Sales covered" value="7" note="Montgomery County bought two" />
+          <StatTile label="Signed" value="12:15 PM" note="Renee Park" />
         </KpiStrip>
       )}
       <How>
@@ -595,13 +592,11 @@ function Update({ stage }: { stage: Stage }) {
                     <span>{u.name}</span>
                   </td>
                   <td className="text-sm">
-                    <span className="text-ink-muted line-through">
-                      {u.deal === "D-2240" ? "Closed Lost" : "Negotiation"}
-                    </span>{" "}
+                    <span className="text-ink-muted line-through">{u.was}</span>{" "}
                     <Badge tone={stage === 3 ? "positive" : "neutral"}>Closed Won</Badge>
                   </td>
                   <td className="text-sm">
-                    <span className="text-ink-muted line-through">Nov 30</span> {u.date}
+                    <span className="text-ink-muted line-through">Nov 28</span> Nov 5
                   </td>
                   <td className="text-sm">
                     <span className="text-ink-muted">empty</span>{" "}
@@ -613,7 +608,7 @@ function Update({ stage }: { stage: Stage }) {
           </table>
         </div>
       </div>
-      <p className="mt-2 text-sm text-ink-muted">Showing 6 of 95. Before, then after.</p>
+      <p className="mt-2 text-sm text-ink-muted">All 6. Before, then after.</p>
       {stage === 3 ? <NextLink to={`${INV_AGENT}/report`}>Next: the report</NextLink> : null}
     </>
   );
@@ -625,7 +620,7 @@ function Summary({ stage }: { stage: Stage }) {
     <>
       <Facts
         rows={[
-          ["Sent", "Fri Nov 7, 3:41 PM"],
+          ["Sent", "12:16 PM"],
           ["To", "Renee Park; copy Priya Shah, Dana Whitfield"],
         ]}
       />

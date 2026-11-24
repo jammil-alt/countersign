@@ -82,9 +82,9 @@ export const INVOICE_SOP: SopView = {
   owner: { party: SOL, model: OPUS },
   lead: ANA,
   purpose:
-    "Each month, once the unit sales report and the Great Plains invoice register are both in, reconcile them, send accounting the exceptions, and mark each invoiced sale's deal Closed Won in Zoho CRM with its invoice number.",
+    "Every business day, once the unit sales report and the Great Plains invoice register are both emailed in, reconcile them, send accounting the exceptions, and mark each invoiced sale's deal Closed Won in Zoho CRM with its invoice number.",
   scope: {
-    covers: ["The month closes: the first business day of each month"],
+    covers: ["Every business day at 7:00 AM, for the business day before"],
     notCovered: [
       "Parts and service invoices. Only equipment invoices are reconciled.",
       "Correcting an invoice in Great Plains. Accounting does that from the exception report.",
@@ -127,7 +127,7 @@ export const INVOICE_SOP: SopView = {
       party: ACCOUNTING,
       words: "Works the exception report in Great Plains.",
     },
-    { role: "Told of the month's result", party: DANA, words: "VP of Sales." },
+    { role: "Told of the day's result", party: DANA, words: "VP of Sales." },
     { role: "Oversees the area", party: SOL, words: "The Sales area's owner. Checks the matches." },
     { role: "Your Mezonas lead", party: ANA, words: "Set it up; told when a run fails." },
   ],
@@ -136,7 +136,7 @@ export const INVOICE_SOP: SopView = {
     rows: [
       {
         step: "1",
-        name: "Collect the month's reports",
+        name: "Collect the day's reports",
         cells: ["", "does", "does", "approves", ""],
         notes: [null, "Invoice register", "Unit sales report", "If one is late", null],
       },
@@ -160,30 +160,29 @@ export const INVOICE_SOP: SopView = {
       },
       {
         step: "7",
-        name: "Send the month's summary",
+        name: "Send the day's summary",
         cells: ["told", "told", "", "", ""],
         notes: [null, null, null, null, null],
       },
     ],
   },
   start: {
-    triggers: ["The month closes: the first business day of each month, 8:00 AM"],
+    triggers: ["Every business day at 7:00 AM: the two reports for the business day before"],
     hours: "Monday to Friday, 08:00 to 17:00 (America/Chicago)",
-    runByHand: "Start a month again from the agent's page",
+    runByHand: "Run a day again from the agent's page",
   },
   summary: { steps: 10, rules: 5, ai: 0, rulesThenAi: 2, person: 2, writesByRules: true },
   procedure: [
     step({
       id: "collect",
       number: "1",
-      name: "Collect the month's two reports",
+      name: "Collect the day's two reports",
       kindWords: "Collects reports from their owners",
       method: "person",
       who: OWNERS,
       purpose:
-        "Sends each owner a link for their report and waits for both: the unit sales report from Tom Guerra and the invoice register from Priya Shah. Each file is checked in code before it's taken.",
-      byWhen:
-        "Unit sales report by the 2nd business day, invoice register by the 3rd; follow-ups from the next business day, daily, at most 2; 2 business days late, Grace Lin decides",
+        "Waits for both reports to be emailed in: the unit sales report from Tom Guerra and the invoice register from Priya Shah. Each file is checked in code before it's taken.",
+      byWhen: "Both by 9:00 AM; follow-ups at 10:00 AM and noon; at 1:00 PM, Grace Lin decides",
       told: [GRACE],
       data: [
         { id: "D1", words: "Takes the unit sales report" },
@@ -275,7 +274,7 @@ export const INVOICE_SOP: SopView = {
       who: TOM,
       purpose:
         "Emails Tom Guerra the sales it couldn't match, each with the deals it considered. He picks the deal, or says there isn't one.",
-      byWhen: "2 business days; then Renee Park is asked",
+      byWhen: "By 3:00 PM the same day; then Renee Park is asked",
       told: [RENEE],
       controls: ["C5"],
     }),
@@ -290,7 +289,7 @@ export const INVOICE_SOP: SopView = {
       approval: {
         level: "ask",
         approvers: [{ party: RENEE, condition: null }],
-        byWhen: "2 business days",
+        byWhen: "The end of the business day",
         ifNoAnswer: "it waits, and Ana Torres is told",
         ifRejected: "no deal is changed",
       },
@@ -301,7 +300,7 @@ export const INVOICE_SOP: SopView = {
     step({
       id: "summary",
       number: "7",
-      name: "Send the month's summary",
+      name: "Send the day's summary",
       kindWords: "Tells people",
       purpose:
         "Tells Renee Park, Priya Shah and Dana Whitfield what reconciled, what's still open and which deals changed.",
@@ -343,7 +342,7 @@ export const INVOICE_SOP: SopView = {
     control({
       id: "C2",
       key: "rules:collect",
-      name: "Each report is checked in code before it's taken: its columns, every row dated in the month, at least 50 rows",
+      name: "Each report is checked in code before it's taken: its columns, and every row dated the business day before",
       kind: "prevents",
       how: "rules",
       steps: ["1"],
@@ -393,7 +392,7 @@ export const INVOICE_SOP: SopView = {
     control({
       id: "C7",
       key: "person:late",
-      name: "A report 2 business days late goes to Grace Lin, who says keep asking, go on without it, or stop",
+      name: "A report not in by 1:00 PM goes to Grace Lin, who says keep asking, go on without it, or stop today's run",
       kind: "catches",
       how: "person",
       steps: ["1"],
@@ -427,8 +426,8 @@ export const INVOICE_SOP: SopView = {
     {
       id: "S1",
       key: "upload",
-      name: "Report links",
-      account: "One link per report, sent to its owner",
+      name: "Report inbox",
+      account: "invoices@romco.in.mezonas.com",
       connected: true,
       connectedBy: "Ana Torres",
       read: "auto",
@@ -456,7 +455,7 @@ export const INVOICE_SOP: SopView = {
       id: "D1",
       key: "sales",
       record: "Unit sales report",
-      livesIn: "Sales operations' monthly export",
+      livesIn: "Sales operations' daily export, emailed in",
       agentDoes: "Reads",
       steps: ["1", "2"],
       readByAi: null,
@@ -508,7 +507,7 @@ export const INVOICE_SOP: SopView = {
     {
       id: "late",
       words:
-        "A report is late: follow-ups go daily, twice; at 2 business days late, Grace Lin decides.",
+        "A report isn't in by 9:00 AM: follow-ups at 10:00 AM and noon; at 1:00 PM, Grace Lin decides.",
     },
     {
       id: "bad",
@@ -521,7 +520,7 @@ export const INVOICE_SOP: SopView = {
     },
     {
       id: "late-person",
-      words: "Sales ops hasn't answered in 2 business days: Renee Park is asked.",
+      words: "Sales ops hasn't answered by 3:00 PM: Renee Park is asked.",
     },
   ],
   decisions: [
@@ -559,32 +558,37 @@ export const INVOICE_SOP: SopView = {
     },
   ],
   setup: [
-    { label: "When it starts", answer: "The first business day of each month, at 8:00 AM" },
+    { label: "When it starts", answer: "Every business day at 7:00 AM" },
     { label: "Who signs before Zoho CRM changes", answer: "Renee Park, Sales operations manager" },
     { label: "Late reports go to", answer: "Grace Lin, Controller" },
   ],
   settings: [
     {
       label: "Invoice register due",
-      value: "3 business days after month end",
-      limits: "1 to 10",
+      value: "9:00 AM each business day",
+      limits: "Any time before noon",
       changedBy: PRIYA.name,
     },
     {
       label: "Unit sales report due",
-      value: "2 business days after month end",
-      limits: "1 to 10",
+      value: "9:00 AM each business day",
+      limits: "Any time before noon",
       changedBy: null,
     },
-    { label: "Follow-ups", value: "Daily, at most 2", limits: "0 to 5", changedBy: null },
+    {
+      label: "Follow-ups",
+      value: "10:00 AM and noon, at most 2",
+      limits: "0 to 5 a day",
+      changedBy: null,
+    },
   ],
   measures: [
-    { label: "Reports on time, October", value: "1 of 2" },
-    { label: "Sales reconciled", value: "97 of 104" },
-    { label: "Deals closed in Zoho CRM", value: "95" },
+    { label: "Reports on time, last 10 business days", value: "18 of 20" },
+    { label: "Sales reconciled, last 10 business days", value: "91 of 100" },
+    { label: "Deals closed in Zoho CRM, last 10 business days", value: "89" },
   ],
   references: {
-    follows: ["How Mezonas agents work", "ROMCO month-end close calendar"],
+    follows: ["How Mezonas agents work", "ROMCO business-day calendar"],
     handsOverTo: [],
     takesOverFrom: ["UCC filings review (new buyers it finds)"],
     knowledge: ["Great Plains invoice register export", "Zoho CRM deal stages at ROMCO"],
