@@ -1461,7 +1461,20 @@ export const opsRoutes = {
       serviceName: z.string().max(200).optional(),
       serviceDescription: z.string().max(2000).optional(),
     }),
-    response: z.object({ agent: AgentSummary, version: VersionSummary }),
+    response: z.object({
+      agent: AgentSummary,
+      version: VersionSummary,
+      /**
+       * The packs its skills need that were off for the client (owner, 2026-11-24): switched on
+       * now, or left off for the operator to set up, with why.
+       */
+      packs: z
+        .object({
+          switchedOn: z.array(z.string()),
+          needsSetup: z.array(z.object({ pack: z.string(), reason: z.string() })),
+        })
+        .optional(),
+    }),
   }),
   opsClientAgents: defineRoute({
     method: "GET",

@@ -5,7 +5,7 @@
 // its own agent (invariant 11: nothing of another client comes with it).
 
 import { parseSkillRef, processes } from "@countersign/core";
-import { agent, agentVersion } from "@countersign/db";
+import { agent, agentVersion, tenantPack } from "@countersign/db";
 import { DEFAULT_MODELS, knownModelIds } from "@countersign/llm";
 import { materialsManifest } from "@countersign/pack-materials";
 import { and, eq, isNull } from "drizzle-orm";
@@ -110,5 +110,29 @@ describe.skipIf(!h)("installing and forking it", () => {
     expect(v?.tenantId).toBe(H.A.tenantId);
     const bundle = v?.bundle as J;
     expect(bundle.workflows.map((w: J) => w.slug)).toEqual(["contract-intake", "invoice-review"]);
+    // A has the pack already: nothing to switch on.
+    expect((fork.json as J).packs).toEqual({ switchedOn: [], needsSetup: [] });
+  });
+
+  // Owner, 2026-11-24: assigning a template to a client switches on the packs its skills need.
+  it("switches the pack on for a client that doesn't have it", async () => {
+    const isOn = async () =>
+      (
+        await H.t.db
+          .select()
+          .from(tenantPack)
+          .where(and(eq(tenantPack.tenantId, H.B.tenantId), eq(tenantPack.pack, "materials")))
+      ).length > 0;
+    expect(await isOn()).toBe(false);
+    const [tpl] = await H.t.db
+      .select()
+      .from(agent)
+      .where(and(isNull(agent.tenantId), eq(agent.slug, "vendor-contracts")));
+    const fork = await H.call(OPERATOR, "POST", `/api/ops/templates/${tpl?.id}/fork`, {
+      clientId: H.B.tenantId,
+    });
+    expect(fork.status, JSON.stringify(fork.json)).toBe(200);
+    expect((fork.json as J).packs).toEqual({ switchedOn: ["materials"], needsSetup: [] });
+    expect(await isOn()).toBe(true);
   });
 });

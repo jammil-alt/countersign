@@ -452,7 +452,10 @@ export function guardBundle(
       }
       for (const p of d?.requiresPacks ?? []) {
         if (!packs.has(p))
-          gap(`${d?.name} needs the ${p} pack; it is not on for ${ctx.client.name}.`);
+          // Owner, 2026-11-24: it comes on by itself when the agent is turned on for the client.
+          gap(
+            `${d?.name} needs the ${p} pack, off for ${ctx.client.name}: it comes on when the agent is turned on, or switch it on from What's left to try it before then.`,
+          );
       }
     }
   }

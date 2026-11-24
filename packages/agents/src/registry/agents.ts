@@ -1101,6 +1101,24 @@ export function requiredConnectors(
   return [...out].sort();
 }
 
+/** The packs a version's skills need (`requiresPacks`), sorted. */
+function packsOf(skills: Record<string, SkillDefinition>): string[] {
+  return [...new Set(Object.values(skills).flatMap((s) => s.requiresPacks))].sort();
+}
+
+/**
+ * The packs a bundle's skills need for one client (owner, 2026-11-24): what a fork into the
+ * client switches on, and what activation checks. Skills the client can't reach count for nothing
+ * here; activation reports them on their own.
+ */
+export async function requiredPacks(
+  tx: Tx,
+  input: { tenantId: string; bundle: AnyAgentBundle; catalog: SkillCatalog },
+): Promise<string[]> {
+  const { skills } = await skillContext(tx, input);
+  return packsOf(skills);
+}
+
 /**
  * Why a client agent can't become active (docs/plan.md §1.2 "Client agent activation"): every
  * required connector bound to a usable connection of this client, the skills' packs enabled, a
@@ -1171,8 +1189,8 @@ export async function activationProblems(
     if (!usable) problems.push(`the ${c} connection is ${conn.status}`);
   }
 
-  const packs = new Set(Object.values(skills).flatMap((s) => s.requiresPacks));
-  if (packs.size > 0) {
+  const packs = packsOf(skills);
+  if (packs.length > 0) {
     const enabled = await tx
       .select({ pack: tenantPack.pack })
       .from(tenantPack)

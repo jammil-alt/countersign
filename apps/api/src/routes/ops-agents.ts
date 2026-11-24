@@ -24,6 +24,7 @@ import {
   pause,
   publish,
   requiredConnectors,
+  requiredPacks,
   restoreAgent,
   rollback,
   skillContext,
@@ -65,6 +66,7 @@ import type { RunParams } from "../runs/instances";
 import { startAfterCommit } from "../runs/reconcile";
 import { ensureSandboxRoom, markSandbox } from "../sandbox/sandbox";
 import { agentSummary, versionDetail, versionSummary } from "./mappers";
+import { switchOnPacks } from "./packs";
 
 /** The agent, if it is visible to this request (templates, or a client agent of a served client). */
 async function agentInScope(ctx: Pick<HandlerCtx<never>, "tx" | "tenantIds">, id: string) {
@@ -176,6 +178,17 @@ export async function activateAgent(
   row: AgentRow,
   options: { requireTestRun?: boolean } = {},
 ): Promise<AgentRow> {
+  // Owner, 2026-11-24: an agent built for the client (no fork) gets its packs as it is turned on.
+  // A refusal below rolls them back with the rest.
+  if (row.kind === "client" && row.tenantId && row.liveVersionId) {
+    const live = await getVersion(ctx.tx, row.liveVersionId);
+    const needed = await requiredPacks(ctx.tx, {
+      tenantId: row.tenantId,
+      bundle: live.bundle,
+      catalog: ctx.services.platform.ctx.catalog,
+    });
+    await switchOnPacks(ctx.tx, ctx.services, row.tenantId, needed, ctx.session.user.id);
+  }
   const activated = await activate(ctx.tx, {
     agentId: row.id,
     actorId: ctx.session.user.id,
@@ -308,7 +321,18 @@ export function opsAgentRoutes(app: Hono<AppEnv>): void {
         serviceDescription: body.serviceDescription,
       }),
     });
-    return { agent: agentSummary(created.agent), version: versionSummary(created.version) };
+    // Owner, 2026-11-24: the packs its skills need are switched on for the client with it.
+    const needed = await requiredPacks(tx, {
+      tenantId: body.clientId,
+      bundle: created.version.bundle,
+      catalog: ctx.services.platform.ctx.catalog,
+    });
+    const packs = await switchOnPacks(tx, ctx.services, body.clientId, needed, session.user.id);
+    return {
+      agent: agentSummary(created.agent),
+      version: versionSummary(created.version),
+      packs,
+    };
   });
 
   mount(app, routes.opsClientAgents, async (ctx) => {
