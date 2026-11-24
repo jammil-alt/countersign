@@ -9,6 +9,7 @@
     "test": "vitest run --passWithNoTests",
     "dev": "vite",
     "build": "vite build",
+    "demo:build": "vite build -c vite.demo.config.ts",
     "sweep": "node e2e/route-sweep.mjs && node e2e/walkthroughs.mjs"
   },
   "dependencies": {

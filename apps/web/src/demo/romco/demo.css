@@ -1,0 +1,564 @@
+/* The ROMCO demo's own parts, on the design system's tokens only: the tour bar, the run page's two
+ * columns, code blocks, the share bars, the workbook, the form rows and the email preview. Borders,
+ * not shadows (the tour bar alone lifts, as a menu does). Light and dark both work. */
+
+/* ── Tour ── */
+.demo-tour {
+  position: fixed;
+  right: var(--space-4);
+  bottom: var(--space-4);
+  left: var(--space-4);
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-2);
+  pointer-events: none;
+}
+.demo-tour > * {
+  pointer-events: auto;
+}
+.demo-tour__bar {
+  display: flex;
+  width: min(100%, 920px);
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3) var(--space-4);
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  box-shadow: var(--shadow-pop);
+}
+.demo-tour__where {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  border: 0;
+  background: none;
+  color: var(--ink);
+  cursor: pointer;
+  text-align: left;
+}
+.demo-tour__where svg {
+  display: none;
+}
+.demo-tour__title {
+  font: 500 14px / 1.3 var(--font-sans);
+}
+.demo-tour__hint {
+  flex: 1 1 260px;
+  margin: 0;
+  color: var(--ink-muted);
+  font-size: 13px;
+  line-height: 1.4;
+}
+.demo-tour__list {
+  width: min(100%, 920px);
+  max-height: 60vh;
+  overflow: auto;
+  margin: 0;
+  padding: var(--space-2);
+  list-style: none;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 2px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  box-shadow: var(--shadow-pop);
+}
+.demo-tour__list button {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 6px var(--space-2);
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--ink);
+  font: 400 13px / 1.3 var(--font-sans);
+  text-align: left;
+  cursor: pointer;
+}
+.demo-tour__list button:hover {
+  background: var(--surface-subtle);
+}
+.demo-tour__list button.is-here {
+  background: var(--slate-tint);
+  color: var(--slate);
+}
+.demo-tour__n {
+  width: 20px;
+  color: var(--ink-muted);
+  font: 500 11px / 1 var(--font-mono);
+}
+.ui-main {
+  padding-bottom: 140px;
+}
+@media print {
+  .demo-tour {
+    display: none;
+  }
+}
+
+/* ── Run page ── */
+.demo-run {
+  display: grid;
+  grid-template-columns: minmax(280px, 360px) minmax(0, 1fr);
+  align-items: start;
+  gap: var(--space-5);
+}
+.demo-run__steps {
+  position: sticky;
+  top: calc(var(--header-h) + var(--space-4));
+}
+@media (max-width: 1000px) {
+  .demo-run {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .demo-run__steps {
+    position: static;
+  }
+}
+.demo-how-line {
+  margin: var(--space-4) 0 0;
+  padding-left: var(--space-3);
+  border-left: 2px solid var(--line-strong);
+  color: var(--ink-muted);
+  font-size: 13px;
+}
+.demo-how-line b {
+  color: var(--ink);
+  font-weight: 500;
+}
+.demo-dl {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 6px var(--space-4);
+  margin: 0;
+  font-size: 13px;
+}
+.demo-dl dt {
+  color: var(--ink-muted);
+}
+.demo-dl dd {
+  margin: 0;
+  color: var(--ink);
+}
+.demo-dl--row {
+  display: flex;
+  flex-direction: column;
+}
+.demo-dl--row > div {
+  display: grid;
+  grid-template-columns: 96px 1fr;
+  gap: var(--space-4);
+}
+.demo-code {
+  max-height: 460px;
+  overflow: auto;
+  margin: 0;
+  padding: var(--space-4);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--surface-subtle);
+  color: var(--ink);
+  font: 400 12px / 1.55 var(--font-mono);
+  white-space: pre;
+}
+.demo-code--raw {
+  font-size: 11px;
+}
+.demo-wait {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--signal);
+  border-radius: var(--radius-md);
+  background: var(--signal-tint);
+}
+.demo-wait p {
+  flex: 1 1 240px;
+  margin: 0;
+}
+
+/* ── Share bars: ROMCO saw (slate), ROMCO missed (copper) ── */
+.demo-share {
+  display: flex;
+  width: 100%;
+  height: 10px;
+  overflow: hidden;
+  border-radius: 2px;
+  background: var(--data-track);
+  gap: 1px;
+}
+.demo-share--big {
+  height: 16px;
+}
+.demo-share i,
+.demo-legend i {
+  display: block;
+  height: 100%;
+}
+.is-won {
+  background: var(--data-seq-5);
+}
+.is-lost {
+  background: var(--data-seq-3);
+}
+.is-existing {
+  background: var(--data-down);
+}
+.is-new {
+  background: var(--data-down-soft);
+  box-shadow: inset 0 0 0 1px var(--data-down);
+}
+.is-missed {
+  background: var(--data-seq-2);
+}
+.demo-legend {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-4);
+  color: var(--ink-muted);
+  font-size: 12px;
+}
+.demo-legend > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.demo-legend i {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+}
+
+/* ── Bars with labels (lenders, themes) ── */
+.demo-bars {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.demo-bars li {
+  display: grid;
+  grid-template-columns: minmax(120px, 1.2fr) 1fr 56px;
+  align-items: center;
+  gap: var(--space-3);
+}
+.demo-bars__label {
+  overflow: hidden;
+  color: var(--ink);
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.demo-bars li > :last-child {
+  text-align: right;
+}
+.demo-bars .dt-track,
+.demo-themes .dt-track {
+  display: flex;
+  height: 8px;
+  background: var(--data-track);
+}
+.demo-bars .dt-track i,
+.demo-themes .dt-track i {
+  display: block;
+  border-radius: 0 2px 2px 0;
+  background: var(--data-bar);
+}
+.demo-themes {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.demo-themes li {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-bottom: var(--space-4);
+  border-bottom: 1px solid var(--line);
+}
+.demo-theme-bar {
+  width: 100%;
+}
+.demo-next {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  margin: 0;
+  padding-left: calc(var(--space-6) + 16px);
+  font-size: 14px;
+}
+.demo-next b {
+  font-weight: 500;
+}
+
+/* ── Workbook ── */
+.demo-xl {
+  overflow: hidden;
+  margin-top: var(--space-4);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+}
+.demo-xl__bar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--line);
+  background: var(--surface-subtle);
+}
+.demo-xl__file {
+  font: 500 13px / 1.3 var(--font-sans);
+}
+.demo-xl__grid {
+  max-height: 420px;
+  overflow: auto;
+}
+.demo-xl table {
+  border-collapse: collapse;
+  font: 400 12px / 1.3 var(--font-sans);
+}
+.demo-xl th,
+.demo-xl td {
+  padding: 5px 8px;
+  border: 1px solid var(--line);
+  white-space: nowrap;
+}
+.demo-xl thead th,
+.demo-xl tbody th {
+  position: sticky;
+  background: var(--surface-subtle);
+  color: var(--ink-muted);
+  font: 500 10px / 1 var(--font-mono);
+  text-align: center;
+}
+.demo-xl thead th {
+  top: 0;
+  z-index: 1;
+}
+.demo-xl tbody th {
+  left: 0;
+  min-width: 32px;
+}
+.demo-xl thead th.demo-xl__corner {
+  left: 0;
+  z-index: 2;
+}
+.demo-xl__head td {
+  background: var(--slate-tint);
+  color: var(--ink);
+  font-weight: 600;
+}
+.demo-xl td.n {
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+.demo-xl__tabs {
+  display: flex;
+  gap: 2px;
+  padding: 0 var(--space-2);
+  border-top: 1px solid var(--line);
+  background: var(--surface-subtle);
+}
+.demo-xl__tabs button {
+  padding: 6px var(--space-3);
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: none;
+  color: var(--ink-muted);
+  font: 500 12px / 1.2 var(--font-sans);
+  cursor: pointer;
+}
+.demo-xl__tabs button[aria-selected="true"] {
+  border-bottom-color: var(--slate);
+  background: var(--surface);
+  color: var(--ink);
+}
+
+/* ── Overview ── */
+.demo-drop {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-1);
+  padding: var(--space-5);
+  border: 1px dashed var(--line-strong);
+  border-radius: var(--radius-md);
+  text-align: center;
+}
+.demo-how {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.demo-how li {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+}
+.demo-how b {
+  font-weight: 500;
+}
+.demo-how__n {
+  display: inline-flex;
+  width: 24px;
+  height: 24px;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  color: var(--ink-muted);
+  font: 500 11px / 1 var(--font-mono);
+}
+.demo-agentcard {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  padding: var(--space-5);
+  color: inherit;
+  text-decoration: none;
+}
+.demo-agentcard:hover {
+  border-color: var(--line-strong);
+}
+
+/* ── Review form ── */
+.demo-formbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+  margin-top: var(--space-5);
+  padding: var(--space-2) var(--space-3);
+  border: 1px dashed var(--line-strong);
+  border-radius: var(--radius-md);
+}
+.demo-frow {
+  padding: var(--space-4);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+}
+.demo-frow--bad {
+  border-color: var(--risk-line);
+  background: var(--risk-tint);
+}
+
+/* ── Email ── */
+.demo-mail {
+  max-width: 760px;
+  margin: 0 auto;
+}
+.demo-mail__head {
+  padding: var(--space-5) var(--space-6);
+  border-bottom: 1px solid var(--line);
+}
+.demo-mail__meta {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 4px var(--space-4);
+  margin: var(--space-3) 0 0;
+  font-size: 13px;
+}
+.demo-mail__meta dt {
+  color: var(--ink-muted);
+}
+.demo-mail__meta dd {
+  margin: 0;
+}
+.demo-mail__body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-5) var(--space-6) var(--space-6);
+  font-size: 14px;
+  line-height: 1.55;
+}
+.demo-mail__body p,
+.demo-mail__body ol,
+.demo-mail__body ul {
+  margin: 0;
+}
+.demo-mail__body ol,
+.demo-mail__body ul {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding-left: var(--space-6);
+}
+.demo-mail__body ol {
+  list-style: decimal;
+}
+.demo-mail__body ul {
+  list-style: disc;
+}
+.demo-mail__body b {
+  font-weight: 600;
+}
+.demo-mail__foot {
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--line);
+  color: var(--ink-muted);
+  font-size: 12px;
+}
+.demo-attach {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  height: var(--control-h, 32px);
+  padding: 0 var(--space-3);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-md);
+  background: var(--surface-subtle);
+  color: var(--ink);
+  font-size: 13px;
+  text-decoration: none;
+}
+.demo-attach:hover {
+  border-color: var(--slate);
+}
+
+/* ── Sloan ── */
+.demo-bubble {
+  max-width: 85%;
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  font-size: 14px;
+}
+.demo-bubble--you {
+  align-self: flex-end;
+  border-color: var(--slate-tint);
+  background: var(--slate-tint);
+}
+
+/* Rows in the demo's tables read in full: a cell may wrap, with room above and below. */
+.dt-ana td {
+  padding-top: var(--space-2);
+  padding-bottom: var(--space-2);
+  vertical-align: middle;
+}
+.dt-ana .dt-who b,
+.dt-ana .dt-who span {
+  display: block;
+}
