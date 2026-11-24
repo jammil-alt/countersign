@@ -1,7 +1,8 @@
 // The back-office client page's frame (docs/ui-plan.md "Client page", drafted in the prototype's
 // style for the owner to adjust): the client's name with how many of its agents are live, and its
-// tabs: Overview, Agents, Areas (the business areas, each with the connections it needs and its
-// reports; docs/plan.md §1.162), File, Data (Documents, Records, Chart of accounts), Setup
+// tabs: Overview, Agents (and its Sandbox, docs/plan.md §1.243), Areas (the business areas, each
+// with the connections it needs and its reports; docs/plan.md §1.162), File, Data (Documents,
+// Records, Chart of accounts), Setup
 // (Connectors, Messaging, Directory, Knowledge) and Settings. Data and Setup each have a small
 // switch between their pages instead of more tabs. Every page keeps its own route (../routes.tsx),
 // and old addresses redirect (`packs` to `areas`); each
@@ -56,7 +57,15 @@ export const CLIENT_TABS: {
       ["report", "Report"],
     ],
   },
-  { id: "agents", label: "Agents", pages: [["agents", "Agents"]] },
+  // docs/plan.md §1.243: the client's sandbox, an agent run on its real data that writes nothing.
+  {
+    id: "agents",
+    label: "Agents",
+    pages: [
+      ["agents", "Agents"],
+      ["sandbox", "Sandbox"],
+    ],
+  },
   // §1.162 (owner, 2026-11-20): the business areas switched on for the client (packs in the code),
   // the connections each needs with the client's status; their reports open under it. It was
   // the Packs tab. Each area links to the client's one place for connections,

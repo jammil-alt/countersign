@@ -608,6 +608,22 @@ export interface Connector {
    * or empty: the card has no name for the id.
    */
   syncedNames?(list: string, id: string): readonly SyncedNameLookup[];
+  /**
+   * docs/plan.md §1.243: a sandbox run's email, sent once from the connected mailbox to the person
+   * who asked to see it. Not a tool, so no agent can call it; the platform gives the address (the
+   * person's own sign-in email), never the model. Absent: the connector sends no previews.
+   */
+  sendPreview?(ctx: ConnectionContext, email: PreviewEmail): Promise<{ id: string; from: string }>;
+}
+
+/** A sandbox run's email as it is sent to the person who asked to see it. */
+export interface PreviewEmail {
+  /** The person's own address. */
+  to: string;
+  subject: string;
+  text: string;
+  /** A fresh key for the message's id. */
+  key: string;
 }
 
 /** One place a synced record may name an id (see `Connector.syncedNames`). */

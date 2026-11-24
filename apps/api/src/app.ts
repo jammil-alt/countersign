@@ -167,6 +167,7 @@ import { requestRouteHandlers } from "./routes/requests";
 import { resendHookRoutes } from "./routes/resend-hooks";
 import { runAuditRouteHandlers } from "./routes/run-audit";
 import { runControlRoutes } from "./routes/run-controls";
+import { sandboxRoutesFor } from "./routes/sandbox";
 import {
   claudeConnectionRoutes,
   secondFactorRoutes,
@@ -407,6 +408,8 @@ export function createApp(deps: AppDeps = defaultDeps): Hono<AppEnv> {
   lifecycleRoutes(app);
   // docs/setup-plan.md (§1.206): Getting started's chapters and the Setup tab.
   gettingStartedRoutes(app);
+  // docs/plan.md §1.243: a client's sandbox
+  sandboxRoutesFor(app);
   exportRoutes(app);
   // v0.12 W1-B: notifications, the Table and the Weekly Table
   notifyRouteHandlers(app);

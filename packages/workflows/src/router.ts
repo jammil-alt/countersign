@@ -76,6 +76,8 @@ export type RunTrigger =
       type: "manual" | "command";
       // v0.12 W1-A: a client person who started it with Run now (ARCHITECTURE §11.5).
       startedBy?: { userId: string };
+      /** docs/plan.md §1.243: a test run started in the client's sandbox, by whom and where. */
+      sandbox?: { by: string; side: "portal" | "ops"; title?: string };
     }
   // v0.12 W2-E: the new kinds, each with the event that fired it (docs/plan.md §1.48).
   | {
