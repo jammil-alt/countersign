@@ -18,14 +18,17 @@ import { IconSprite } from "../../ui/icons";
 import { Page } from "../../ui/page";
 import { buttonClass, Card, PageHeader } from "../../ui/primitives";
 import { StatusChip } from "../../ui/status";
-import { AgentPage, InvoicePage, runChip } from "./AgentPage";
+import { AgentPage, runChip } from "./AgentPage";
 import { DemoShell, ScrollOnMove } from "./DemoShell";
 import { Inbox } from "./Inbox";
+import { InvoicePage, invoiceChip } from "./invoice/InvoicePage";
+import { InvoiceRun } from "./invoice/InvoiceRun";
+import { DealsForm, RegisterUpload } from "./invoice/Pages";
 import { Mail } from "./Mail";
 import { INVOICE_ID, UCC_ID } from "./people";
 import { ReviewForm } from "./ReviewForm";
 import { RunPage } from "./RunPage";
-import { AGENT, DemoProvider, STOPS, useDemo } from "./state";
+import { AGENT, DemoProvider, INV_AGENT, UCC_STOPS, useDemo } from "./state";
 import "./demo.css";
 
 /** Answers like the Worker for the one write the real components make here. */
@@ -47,9 +50,9 @@ const WHERE = "mezonas-demo-romco-where";
 
 function firstPlace(): string {
   try {
-    return sessionStorage.getItem(WHERE) ?? (STOPS[0]?.path as string);
+    return sessionStorage.getItem(WHERE) ?? (UCC_STOPS[0]?.path as string);
   } catch {
-    return STOPS[0]?.path as string;
+    return UCC_STOPS[0]?.path as string;
   }
 }
 
@@ -73,6 +76,8 @@ export function DemoApp() {
           <RememberPlace />
           <Routes>
             <Route path="/f/marcus" element={<ReviewForm />} />
+            <Route path="/f/deals" element={<DealsForm />} />
+            <Route path="/r/register" element={<RegisterUpload />} />
             <Route path="/mail/:which" element={<Mail />} />
             <Route path="*" element={<InShell />} />
           </Routes>
@@ -92,7 +97,13 @@ function InShell() {
         <Route path={`${AGENT}/sop`} element={<AgentPage tab="sop" />} />
         <Route path={`${AGENT}/report`} element={<AgentPage tab="report" />} />
         <Route path={`${AGENT}/settings`} element={<AgentPage tab="settings" />} />
-        <Route path={`/agents/${INVOICE_ID}/*`} element={<InvoicePage />} />
+        <Route path={INV_AGENT} element={<InvoicePage tab="overview" />} />
+        <Route path={`${INV_AGENT}/runs`} element={<InvoicePage tab="runs" />} />
+        <Route path={`${INV_AGENT}/flow`} element={<InvoicePage tab="flow" />} />
+        <Route path={`${INV_AGENT}/sop`} element={<InvoicePage tab="sop" />} />
+        <Route path={`${INV_AGENT}/report`} element={<InvoicePage tab="report" />} />
+        <Route path={`${INV_AGENT}/settings`} element={<InvoicePage tab="settings" />} />
+        <Route path="/runs/R-1051/:step" element={<InvoiceRun />} />
         <Route path="/runs/:run/:step" element={<RunPage />} />
         <Route path="/runs" element={<Navigate to="/runs/R-1042/receive" replace />} />
         <Route path="/inbox" element={<Inbox />} />
@@ -126,8 +137,12 @@ function Home() {
           to={`/agents/${INVOICE_ID}`}
           id={INVOICE_ID}
           name="Invoice CRM update"
-          line="Next: keeps each account's purchases in Zoho CRM up to date"
-          chip={<StatusChip state="setup">Setting up</StatusChip>}
+          line="October close: 97 of 104 sales reconciled; deals closed in Zoho CRM"
+          chip={
+            <StatusChip state={invoiceChip(state.inv).state}>
+              {invoiceChip(state.inv).label}
+            </StatusChip>
+          }
         />
       </div>
     </Page>

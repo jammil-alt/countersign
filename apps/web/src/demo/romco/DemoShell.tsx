@@ -9,11 +9,15 @@ import { Logo, LogoMark } from "../../ui/brand";
 import { Icon } from "../../ui/icons";
 import { Count, cx } from "../../ui/primitives";
 import { CLIENT, INVOICE_ID, UCC_ID } from "./people";
-import { STOPS, stateAt, useDemo } from "./state";
+import { type DemoState, TOURS, useDemo } from "./state";
 
 export function useWaiting(): number {
   const { state } = useDemo();
-  return (state.formsSent ? 0 : 1) + (state.marcusDone && !state.reportSent ? 1 : 0);
+  return (
+    (state.formsSent ? 0 : 1) +
+    (state.marcusDone && !state.reportSent ? 1 : 0) +
+    (state.inv === 2 ? 1 : 0)
+  );
 }
 
 export function DemoShell({ children }: { children: ReactNode }) {
@@ -85,7 +89,14 @@ export function DemoShell({ children }: { children: ReactNode }) {
               <SidebarAgent
                 to={`/agents/${INVOICE_ID}`}
                 name="Invoice CRM update"
-                line="Setting up"
+                line={
+                  [
+                    "Trial · waiting on 1 report",
+                    "Trial · waiting on sales ops",
+                    "Trial · waiting on you",
+                    "Trial · done",
+                  ][state.inv]
+                }
                 badge={<AgentBadge name="Invoice CRM update" seed={INVOICE_ID} size="sm" />}
               />
             </SidebarSection>
@@ -118,7 +129,10 @@ export function ScrollOnMove() {
   return null;
 }
 
-/** The last stop shown, for a page that is two stops. */
+/** Every stop of every tour, in order: the UCC tour, then the Invoice CRM update's. */
+const ALL = TOURS.flatMap((tour) => tour.stops.map((stop, n) => ({ tour, stop, n })));
+
+/** The last stop shown, for a page that is two stops (the Inbox). */
 let lastStop = 0;
 
 /** The presenter's bar: where we are in the story, Back and Next, every stop, Start over. */
@@ -128,52 +142,73 @@ export function TourBar() {
   const { reset, set, state } = useDemo();
   const [open, setOpen] = useState(false);
   const here = `${pathname}${hash}`;
-  // A page can be two stops (the Inbox, before and after the forms): the one nearest after the last.
-  const match = (path: string) => STOPS.flatMap((s, i) => (s.path === path ? [i] : []));
+  const match = (path: string) => ALL.flatMap((a, i) => (a.stop.path === path ? [i] : []));
   const hits = match(here).length > 0 ? match(here) : match(pathname);
-  // Two stops on one page (the Inbox) are told apart by where the run is: forms or report to sign.
+  // A page that is several stops (the Inbox) is the one whose state is the run's now, in the tour
+  // last shown; else the nearest after the last.
+  const tour = ALL[lastStop]?.tour.key;
   const same = (i: number) => {
-    const want = stateAt(i);
-    return (Object.keys(want) as (keyof typeof want)[]).every((k) => want[k] === state[k]);
+    const a = ALL[i];
+    if (!a) return false;
+    const want = a.tour.stateAt(a.n);
+    return (Object.keys(want) as (keyof DemoState)[]).every((k) => want[k] === state[k]);
   };
-  const at = hits.find(same) ?? hits.find((i) => i >= lastStop) ?? hits[hits.length - 1] ?? -1;
+  const at =
+    hits.find((i) => same(i) && ALL[i]?.tour.key === tour) ??
+    hits.find(same) ??
+    hits.find((i) => i >= lastStop) ??
+    hits[hits.length - 1] ??
+    -1;
   if (at >= 0) lastStop = at;
-  const stop = at >= 0 ? STOPS[at] : null;
+  const here_ = at >= 0 ? ALL[at] : null;
   const go = (i: number) => {
-    const s = STOPS[i];
+    const a = ALL[i];
     lastStop = Math.max(0, i);
-    if (s) {
-      set(stateAt(i));
-      navigate(s.path);
+    if (a) {
+      set(a.tour.stateAt(a.n));
+      navigate(a.stop.path);
     }
     setOpen(false);
   };
   return (
     <div className="demo-tour" data-print="hide">
       {open ? (
-        <ol className="demo-tour__list">
-          {STOPS.map((s, i) => (
-            <li key={s.path}>
-              <button type="button" className={cx(i === at && "is-here")} onClick={() => go(i)}>
-                <span className="demo-tour__n">{i + 1}</span>
-                {s.title}
-              </button>
-            </li>
+        <div className="demo-tour__list">
+          {TOURS.map((t) => (
+            <section key={t.key}>
+              <p className="ds-eyebrow demo-tour__head">{t.name}</p>
+              <ol>
+                {t.stops.map((s, n) => {
+                  const i = ALL.findIndex((a) => a.tour === t && a.n === n);
+                  return (
+                    <li key={`${s.path}-${s.title}`}>
+                      <button
+                        type="button"
+                        className={cx(i === at && "is-here")}
+                        onClick={() => go(i)}
+                      >
+                        <span className="demo-tour__n">{n + 1}</span>
+                        {s.title}
+                      </button>
+                    </li>
+                  );
+                })}
+              </ol>
+            </section>
           ))}
-          <li>
-            <button
-              type="button"
-              onClick={() => {
-                reset();
-                lastStop = 0;
-                go(0);
-              }}
-            >
-              <span className="demo-tour__n">↺</span>
-              Start over
-            </button>
-          </li>
-        </ol>
+          <button
+            type="button"
+            className="demo-tour__again"
+            onClick={() => {
+              reset();
+              lastStop = 0;
+              go(0);
+            }}
+          >
+            <span className="demo-tour__n">↺</span>
+            Start over
+          </button>
+        </div>
       ) : null}
       <div className="demo-tour__bar">
         <button
@@ -182,14 +217,16 @@ export function TourBar() {
           aria-expanded={open}
           onClick={() => setOpen((o) => !o)}
         >
-          <span className="ds-eyebrow">Demo · ROMCO</span>
+          <span className="ds-eyebrow">Demo · {here_ ? here_.tour.name : "ROMCO"}</span>
           <span className="demo-tour__title">
-            {stop ? `${at + 1} of ${STOPS.length} · ${stop.title}` : "Off the tour"}
+            {here_
+              ? `${here_.n + 1} of ${here_.tour.stops.length} · ${here_.stop.title}`
+              : "Off the tour"}
           </span>
           <Icon name="chevron-down" size={14} />
         </button>
         <p className="demo-tour__hint">
-          {stop?.hint ?? "Pick a stop, or press Next to go back on the tour."}
+          {here_?.stop.hint ?? "Pick a stop, or press Next to go back on the tour."}
         </p>
         <span className="flex gap-2">
           <button
@@ -203,10 +240,12 @@ export function TourBar() {
           <button
             type="button"
             className="ds-btn ds-btn--primary ds-btn--sm"
-            disabled={at >= STOPS.length - 1}
+            disabled={at >= ALL.length - 1}
             onClick={() => go(at < 0 ? 0 : at + 1)}
           >
-            Next
+            {here_ && here_.n === here_.tour.stops.length - 1 && at < ALL.length - 1
+              ? `Next: ${ALL[at + 1]?.tour.name}`
+              : "Next"}
           </button>
         </span>
       </div>

@@ -13,6 +13,8 @@ function SignCard({
   after,
   receipts,
   onSign,
+  from = "UCC filings review · R-1042",
+  lead = "Checked by Ana, your lead",
 }: {
   title: string;
   body: string;
@@ -20,12 +22,14 @@ function SignCard({
   after: string;
   receipts: { label: string; to: string }[];
   onSign: () => void;
+  from?: string;
+  lead?: string;
 }) {
   return (
     <article className="mz-sign">
       <div className="ds-row" style={{ justifyContent: "space-between" }}>
         <Badge tone="warning">Waiting on you</Badge>
-        <span className="ds-eyebrow">UCC filings review · R-1042</span>
+        <span className="ds-eyebrow">{from}</span>
       </div>
       <h3 className="mz-sign__title">{title}</h3>
       <p className="mz-sign__body">{body}</p>
@@ -51,7 +55,8 @@ function SignCard({
       </div>
       <div className="mz-sign__foot">
         <span className="mz-person mz-person--lead">
-          <span className="ds-avatar ds-avatar--sm mz-lead">AT</span>Checked by Ana, your lead
+          <span className="ds-avatar ds-avatar--sm mz-lead">AT</span>
+          {lead}
         </span>
         <span className="ds-row">
           <Link
@@ -82,6 +87,25 @@ export function Inbox() {
         subtitle="What waits on you, newest first."
       />
       <div className="flex flex-col gap-5">
+        {state.inv === 2 ? (
+          <SignCard
+            from="Invoice CRM update · R-1051 · for Renee Park"
+            title="Mark 95 Zoho deals Closed Won and add their invoice numbers."
+            body="October's invoiced sales: 89 the agent matched and 6 Tom Guerra found. Only Stage, Closing date and Invoice number change. Sign and they change now."
+            before="95 deals open in Zoho CRM (Proposal, Negotiation, 1 Closed Lost), no invoice numbers."
+            after="95 deals Closed Won, each closing on its invoice date with its Great Plains invoice number."
+            receipts={[
+              { label: "The 95 changes", to: "/runs/R-1051/update" },
+              { label: "The reconciliation", to: "/runs/R-1051/reconcile" },
+              { label: "Tom's answers", to: "/runs/R-1051/ask" },
+            ]}
+            lead="Checked by Sol and Ana, your lead"
+            onSign={() => {
+              set({ inv: 3 });
+              navigate("/runs/R-1051/update");
+            }}
+          />
+        ) : null}
         {reportWaiting ? (
           <SignCard
             title="Email October's UCC report for review."
@@ -115,13 +139,20 @@ export function Inbox() {
             }}
           />
         ) : null}
-        {!formsWaiting && !reportWaiting ? (
+        {!formsWaiting && !reportWaiting && state.inv !== 2 ? (
           <Card pad>
             <EmptyState compact icon="check" line="Nothing waits on you." />
           </Card>
         ) : null}
         <Card title="Done recently">
           <div>
+            {state.inv === 3 ? (
+              <DoneRow
+                line="Marked 95 Zoho deals Closed Won"
+                when="Fri Nov 7"
+                to="/runs/R-1051/update"
+              />
+            ) : null}
             {state.reportSent ? (
               <DoneRow line="Sent October's UCC report" when="Fri Nov 7" to="/mail/report" />
             ) : null}

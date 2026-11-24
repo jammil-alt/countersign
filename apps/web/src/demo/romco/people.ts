@@ -8,6 +8,7 @@ export const CLIENT = "ROMCO";
 export const UCC_ID = "0e5c0c00-0000-4000-8000-000000000001";
 export const INVOICE_ID = "0e5c0c00-0000-4000-8000-000000000002";
 export const RUN_ID = "R-1042";
+export const INVOICE_RUN_ID = "R-1051";
 
 export const DANA: SopParty = { key: "dana", kind: "person", name: "Dana Whitfield" };
 export const ANA: SopParty = { key: "lead", kind: "mezonas", name: "Ana Torres" };
@@ -91,3 +92,11 @@ export const REPS: Rep[] = [
 ];
 
 export const repByKey = (key: string): Rep => REPS.find((r) => r.key === key) ?? (REPS[0] as Rep);
+
+// The Invoice CRM update's people.
+export const INV_ME: SopParty = { key: "agent:invoice", kind: "agent", name: "Invoice CRM update" };
+export const RENEE: SopParty = { key: "renee", kind: "person", name: "Renee Park" };
+export const PRIYA: SopParty = { key: "priya", kind: "person", name: "Priya Shah" };
+export const TOM: SopParty = { key: "tom", kind: "person", name: "Tom Guerra" };
+export const GRACE: SopParty = { key: "grace", kind: "person", name: "Grace Lin" };
+export const ACCOUNTING: SopParty = { key: "accounting", kind: "team", name: "Accounting team" };

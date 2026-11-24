@@ -3,12 +3,11 @@
 // that step made: the raw file, the records, what verification removed, the matches, the
 // territories, the forms, the answers, the analysis and the Excel report.
 import { type ReactNode, useState } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { Link, useParams } from "react-router-dom";
 import { KpiStrip, ProgressBar, StatTile } from "../../ui/figures";
-import { Page } from "../../ui/page";
-import { Badge, buttonClass, Card, cx, PageHeader, Tag } from "../../ui/primitives";
+import { Badge, buttonClass, cx, Tag } from "../../ui/primitives";
 import { StatusChip } from "../../ui/status";
-import { type StepItem, StepList } from "../../ui/steps";
+import type { StepItem } from "../../ui/steps";
 import { runChip } from "./AgentPage";
 import {
   BY_REP,
@@ -24,7 +23,8 @@ import {
   THEMES,
   TOTALS,
 } from "./filings";
-import { REPS, RUN_ID, repByKey } from "./people";
+import { REPS, RUN_ID, repByKey, UCC_ID } from "./people";
+import { Facts, How, NextLink, RunFrame } from "./RunFrame";
 import { AGENT, RUN, useDemo } from "./state";
 import { Workbook } from "./Workbook";
 
@@ -125,66 +125,30 @@ function stepLine(key: string, s: S): { time: string; detail: string } {
 
 export function RunPage() {
   const { step = "receive" } = useParams();
-  const navigate = useNavigate();
   const { state } = useDemo();
-  const chip = runChip(state);
-  const items: StepItem[] = STEPS.map((s) => {
-    const live = stepLine(s.key, state);
-    return {
-      key: s.key,
-      title: `${s.sop}. ${s.title}`,
-      detail: s.detail || live.detail || undefined,
-      time: s.time || live.time || "",
-      state: stepState(s.key, state),
-      selected: s.key === step,
-      onOpen: () => navigate(RUN(s.key)),
-    };
-  });
-  const current = STEPS.find((s) => s.key === step) ?? (STEPS[0] as RunStep);
   return (
-    <Page>
-      <PageHeader
-        eyebrow={
-          <>
-            <Link to={`${AGENT}/runs`}>Runs</Link> / {RUN_ID}
-          </>
-        }
-        title="October 2026 UCC file"
-        badge={<StatusChip state={chip.state}>{chip.label}</StatusChip>}
-        subtitle={
-          <>
-            <Link to={AGENT} className="text-link hover:underline">
-              UCC filings review
-            </Link>{" "}
-            · started Mon Nov 3, 8:02 AM from an email to {FILE.to}
-          </>
-        }
-      />
-      <div className="demo-run">
-        <Card className="demo-run__steps">
-          <div className="p-4">
-            <StepList steps={items} />
-          </div>
-        </Card>
-        <div className="demo-run__out">
-          <Card
-            title={`${current.sop}. ${current.title}`}
-            meta={
-              <Link
-                to={`${AGENT}/sop#sop-step-${sopAnchor(current.key)}`}
-                className="text-sm text-link hover:underline"
-              >
-                Step {current.sop} in the SOP
-              </Link>
-            }
-          >
-            <div className="ui-card__body">
-              <Output step={current.key} />
-            </div>
-          </Card>
-        </div>
-      </div>
-    </Page>
+    <RunFrame
+      agent={{ id: UCC_ID, name: "UCC filings review" }}
+      runId={RUN_ID}
+      title="October 2026 UCC file"
+      started={`started Mon Nov 3, 8:02 AM from an email to ${FILE.to}`}
+      chip={runChip(state)}
+      steps={STEPS.map((s) => {
+        const live = stepLine(s.key, state);
+        return {
+          key: s.key,
+          sop: s.sop,
+          title: s.title,
+          time: s.time || live.time || "",
+          detail: s.detail || live.detail,
+          state: stepState(s.key, state),
+          anchor: sopAnchor(s.key),
+        };
+      })}
+      current={step}
+      runPath={RUN}
+      output={<Output step={STEPS.some((s) => s.key === step) ? step : "receive"} />}
+    />
   );
 }
 
@@ -224,33 +188,6 @@ function Output({ step }: { step: string }) {
     default:
       return <EmailStep />;
   }
-}
-
-function Facts({ rows }: { rows: [string, ReactNode][] }) {
-  return (
-    <dl className="demo-dl demo-dl--row">
-      {rows.map(([k, v]) => (
-        <div key={k}>
-          <dt>{k}</dt>
-          <dd>{v}</dd>
-        </div>
-      ))}
-    </dl>
-  );
-}
-
-function How({ children }: { children: ReactNode }) {
-  return <p className="demo-how-line">{children}</p>;
-}
-
-function NextLink({ to, children }: { to: string; children: ReactNode }) {
-  return (
-    <div className="mt-5 flex justify-end">
-      <Link to={to} className={buttonClass("primary")}>
-        {children}
-      </Link>
-    </div>
-  );
 }
 
 function Receive() {

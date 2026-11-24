@@ -5,9 +5,10 @@ import type { ReactNode } from "react";
 import { Link, useParams } from "react-router-dom";
 import { buttonClass } from "../../ui/primitives";
 import { DemoShell } from "./DemoShell";
+import { DealsMail, ExceptionsMail, FollowUpMail, SummaryMail } from "./invoice/Mails";
 import { AGENT, RUN } from "./state";
 
-function Email({
+export function Email({
   from,
   to,
   cc,
@@ -47,7 +48,21 @@ function Email({
 
 export function Mail() {
   const { which } = useParams();
-  return <DemoShell>{which === "report" ? <ReportMail /> : <FormMail />}</DemoShell>;
+  const mail =
+    which === "report" ? (
+      <ReportMail />
+    ) : which === "form" ? (
+      <FormMail />
+    ) : which === "followup" ? (
+      <FollowUpMail />
+    ) : which === "exceptions" ? (
+      <ExceptionsMail />
+    ) : which === "deals" ? (
+      <DealsMail />
+    ) : (
+      <SummaryMail />
+    );
+  return <DemoShell>{mail}</DemoShell>;
 }
 
 function FormMail() {

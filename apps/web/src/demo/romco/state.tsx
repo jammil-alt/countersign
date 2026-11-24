@@ -1,7 +1,8 @@
 // The demo's state: what has been signed and answered so far, kept for the tab (sessionStorage,
-// where it can be), and the tour: the stops a presenter clicks through, in order.
+// where it can be), and the tours: the stops a presenter clicks through, one tour per agent, in
+// order (the UCC filings review, then the Invoice CRM update).
 import { createContext, type ReactNode, useCallback, useContext, useMemo, useState } from "react";
-import { RUN_ID, UCC_ID } from "./people";
+import { INVOICE_ID, INVOICE_RUN_ID, RUN_ID, UCC_ID } from "./people";
 
 export interface DemoState {
   /** Dana signed "Send 6 review forms". */
@@ -10,9 +11,15 @@ export interface DemoState {
   marcusDone: boolean;
   /** Dana signed "Email the report". */
   reportSent: boolean;
+  /**
+   * The Invoice CRM update's run: 0 waiting on the invoice register (1 of 2 reports in), 1 both in
+   * and reconciled, waiting on sales ops for the deals not found, 2 waiting on Renee to sign the
+   * Zoho updates, 3 done.
+   */
+  inv: 0 | 1 | 2 | 3;
 }
 
-const START: DemoState = { formsSent: false, marcusDone: false, reportSent: false };
+const START: DemoState = { formsSent: false, marcusDone: false, reportSent: false, inv: 0 };
 const KEY = "mezonas-demo-romco-ucc";
 
 function load(): DemoState {
@@ -57,6 +64,8 @@ export const useDemo = () => useContext(Ctx);
 
 export const AGENT = `/agents/${UCC_ID}`;
 export const RUN = (step: string) => `/runs/${RUN_ID}/${step}`;
+export const INV_AGENT = `/agents/${INVOICE_ID}`;
+export const INV_RUN = (step: string) => `/runs/${INVOICE_RUN_ID}/${step}`;
 
 export interface Stop {
   path: string;
@@ -65,7 +74,7 @@ export interface Stop {
   hint: string;
 }
 
-export const STOPS: Stop[] = [
+export const UCC_STOPS: Stop[] = [
   {
     path: AGENT,
     title: "The agent",
@@ -82,7 +91,7 @@ export const STOPS: Stop[] = [
     hint: "The formal procedure, made from how the agent is set up. Click a person or system to filter.",
   },
   {
-    path: `${AGENT}/sop#sop-controls`,
+    path: `${AGENT}/sop#sop-sec-controls`,
     title: "Controls",
     hint: "What prevents and what catches a mistake, who owns it and the evidence.",
   },
@@ -164,18 +173,132 @@ export const STOPS: Stop[] = [
   },
 ];
 
-/**
- * Where the run is at each stop, so Next and Back show the story at that point whether or not the
- * presenter clicked Sign and Send on the way: before the forms go (stops 1 to 12), forms out with
- * Marcus's due (13, 14), all six back (15 to 19), report sent (20).
- */
-export function stateAt(stop: number): DemoState {
-  const signForms = STOPS.findIndex((s) => s.title.startsWith("7."));
-  const form = STOPS.findIndex((s) => s.path === "/f/marcus");
-  const sent = STOPS.findIndex((s) => s.path === "/mail/report");
-  return {
-    formsSent: stop > signForms,
-    marcusDone: stop > form,
-    reportSent: stop >= sent,
-  };
+const UCC_SIGN = 11;
+const UCC_FORM = 13;
+const UCC_SENT = 19;
+
+export const INVOICE_STOPS: Stop[] = [
+  {
+    path: INV_AGENT,
+    title: "The agent",
+    hint: "Invoice CRM update: each month it waits for two reports, then closes the deals in Zoho CRM.",
+  },
+  {
+    path: `${INV_AGENT}/flow`,
+    title: "Workflow",
+    hint: "It starts by collecting two reports, each from its owner. Click the first box for who and when.",
+  },
+  {
+    path: `${INV_AGENT}/sop`,
+    title: "SOP",
+    hint: "The procedure, with who sends each report, the follow-ups and who it escalates to.",
+  },
+  {
+    path: `${INV_AGENT}/settings`,
+    title: "Access",
+    hint: "Zoho CRM: read on its own, changes only after sign-off, never creates or deletes.",
+  },
+  {
+    path: INV_RUN("collect"),
+    title: "1. Waiting for both reports",
+    hint: "The unit sales report is in; the Great Plains invoice register is a day late and followed up.",
+  },
+  {
+    path: "/mail/followup",
+    title: "2. The follow-up",
+    hint: "What Priya Shah gets the morning after her report was due.",
+  },
+  {
+    path: "/r/register",
+    title: "3. Priya sends the file",
+    hint: "Her link checks the file in code before it's taken. Use the example file, then Send.",
+  },
+  {
+    path: INV_RUN("reconcile"),
+    title: "4. Reconcile",
+    hint: "Both reports in: each sale matched to its Great Plains invoice, and the invoice number applied.",
+  },
+  {
+    path: INV_RUN("exceptions"),
+    title: "5. Exception report",
+    hint: "What didn't reconcile, in three groups, for the accounting team.",
+  },
+  {
+    path: "/mail/exceptions",
+    title: "6. Sent to accounting",
+    hint: "The exception report goes to Priya Shah and the accounting team.",
+  },
+  {
+    path: INV_RUN("match"),
+    title: "7. Match to Zoho deals",
+    hint: "Each invoiced sale matched to its Zoho deal by account name and address, then the equipment.",
+  },
+  {
+    path: "/mail/deals",
+    title: "8. Help with the rest",
+    hint: "The 8 sales it couldn't match go to sales ops by email.",
+  },
+  {
+    path: "/f/deals",
+    title: "9. Sales ops finds the deals",
+    hint: "Pick the right deal, or say there isn't one. Fill example answers, then Send.",
+  },
+  {
+    path: "/inbox",
+    title: "10. Sign the Zoho updates",
+    hint: "Nothing changes in Zoho until Renee Park signs. Click Sign.",
+  },
+  {
+    path: INV_RUN("update"),
+    title: "11. Zoho updated",
+    hint: "95 deals marked Closed Won, each with its Great Plains invoice number.",
+  },
+  {
+    path: `${INV_AGENT}/report`,
+    title: "12. Report",
+    hint: "The month at a glance: reports, reconciliation, exceptions and deals closed.",
+  },
+  {
+    path: "/mail/summary",
+    title: "13. The month's summary",
+    hint: "The summary email to Renee, Priya and Dana. End of the run.",
+  },
+];
+
+const INV_UPLOAD = 6;
+const INV_FORM = 12;
+const INV_SIGN = 13;
+
+export interface Tour {
+  key: "ucc" | "invoice";
+  name: string;
+  stops: Stop[];
+  /**
+   * Where the run is at each stop, so Next and Back show the story at that point whether or not
+   * the presenter clicked Sign and Send on the way. Only the tour's own part of the state.
+   */
+  stateAt: (stop: number) => Partial<DemoState>;
 }
+
+export const TOURS: Tour[] = [
+  {
+    key: "ucc",
+    name: "UCC filings review",
+    stops: UCC_STOPS,
+    // Before the forms go (stops 1 to 12), forms out with Marcus's due (13, 14), all six back
+    // (15 to 19), report sent (20).
+    stateAt: (i) => ({
+      formsSent: i > UCC_SIGN,
+      marcusDone: i > UCC_FORM,
+      reportSent: i >= UCC_SENT,
+    }),
+  },
+  {
+    key: "invoice",
+    name: "Invoice CRM update",
+    stops: INVOICE_STOPS,
+    // Waiting on the register (1 to 7), reconciled and waiting on sales ops (8 to 13), waiting on
+    // Renee's sign-off (14), done (15 to 17).
+    stateAt: (i) => ({ inv: i <= INV_UPLOAD ? 0 : i <= INV_FORM ? 1 : i <= INV_SIGN ? 2 : 3 }),
+  },
+];

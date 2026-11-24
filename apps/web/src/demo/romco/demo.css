@@ -58,16 +58,29 @@
   width: min(100%, 920px);
   max-height: 60vh;
   overflow: auto;
-  margin: 0;
-  padding: var(--space-2);
-  list-style: none;
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-  gap: 2px;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: var(--space-2) var(--space-4);
+  padding: var(--space-3);
   border: 1px solid var(--line-strong);
   border-radius: var(--radius-lg);
   background: var(--surface);
   box-shadow: var(--shadow-pop);
+}
+.demo-tour__list ol {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.demo-tour__head {
+  margin: 0 0 var(--space-1);
+  padding: 0 var(--space-2);
+}
+.demo-tour__again {
+  grid-column: 1 / -1;
 }
 .demo-tour__list button {
   display: flex;
@@ -561,4 +574,130 @@
 .dt-ana .dt-who b,
 .dt-ana .dt-who span {
   display: block;
+}
+
+/* ── Collect reports: a report, its owner, dates and what happened ── */
+.demo-report {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+}
+.demo-report--escalate {
+  border-style: dashed;
+  border-color: var(--line-strong);
+}
+.demo-report__facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: var(--space-3) var(--space-5);
+  margin: 0;
+}
+.demo-report__facts--wide {
+  grid-template-columns: minmax(0, 1fr);
+}
+.demo-report__facts dt {
+  margin-bottom: 4px;
+  color: var(--ink-muted);
+  font: 500 10px / 1 var(--font-mono);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+.demo-report__facts dd {
+  margin: 0;
+  color: var(--ink);
+}
+.demo-timeline {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0 0 0 var(--space-4);
+  border-left: 2px solid var(--line);
+  list-style: none;
+  font-size: 13px;
+}
+.demo-timeline li {
+  display: grid;
+  grid-template-columns: 150px minmax(0, 1fr);
+  gap: var(--space-3);
+  color: var(--ink);
+}
+.demo-timeline li.is-late {
+  color: var(--signal-ink);
+}
+.demo-timeline li.is-done {
+  color: var(--positive);
+}
+.demo-timeline__when {
+  color: var(--ink-muted);
+  font: 400 12px / 1.5 var(--font-mono);
+}
+@media (max-width: 600px) {
+  .demo-timeline li {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0;
+  }
+}
+
+/* ── The exception groups: each a button that filters the table ── */
+.demo-pick {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  padding: var(--space-4);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.demo-pick:hover {
+  border-color: var(--line-strong);
+}
+.demo-pick[aria-pressed="true"] {
+  border-color: var(--slate);
+  background: var(--slate-tint);
+}
+
+/* ── A report link's checks and file ── */
+.demo-checks {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 14px;
+  color: var(--ink-muted);
+}
+.demo-checks li {
+  display: flex;
+  gap: var(--space-2);
+}
+.demo-checks li.is-ok {
+  color: var(--ink);
+}
+.demo-checks__mark {
+  width: 16px;
+  color: var(--ink-faint);
+  text-align: center;
+}
+.demo-checks li.is-ok .demo-checks__mark {
+  color: var(--positive);
+}
+.demo-file {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-md);
+  background: var(--surface-subtle);
 }
