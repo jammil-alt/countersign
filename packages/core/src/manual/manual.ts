@@ -138,6 +138,8 @@ export function processStepWords(step: ProcessStep): string {
         : "Hands over to another agent";
     case "missing":
       return "Not built yet: a person does this part";
+    case "collect":
+      return `Waits for ${step.items.length} ${step.items.length === 1 ? "report" : "reports"} and checks each`;
   }
 }
 

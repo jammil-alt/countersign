@@ -320,6 +320,8 @@ export const PROCESS_KIND_LABEL: Record<ProcessStep["kind"] | "trigger", string>
   handoff: "Hand off",
   // v0.18: a piece the Builder couldn't build, held where it belongs.
   missing: "Missing",
+  // Collect reports (owner, 2026-11-24)
+  collect: "Collect reports",
 };
 
 const NOTIFY_CHANNEL: Record<string, string> = {
@@ -425,6 +427,16 @@ export function processStepDetail(step: ProcessStep, labels: StepLabels = {}): s
     // v0.18: what is missing, in the Builder's sentence.
     case "missing":
       return step.need;
+    // Collect reports: "3 reports · escalates to client admin after 5 days".
+    case "collect":
+      return [
+        `${step.items.length} ${step.items.length === 1 ? "report" : "reports"}`,
+        step.escalate
+          ? `escalates to ${whoText(step.escalate.to, labels)} ${deadlineText(step.escalate)} late`
+          : null,
+      ]
+        .filter(Boolean)
+        .join(" · ");
   }
 }
 

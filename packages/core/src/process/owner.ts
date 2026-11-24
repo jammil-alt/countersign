@@ -152,7 +152,8 @@ function inputsOf(step: Step): unknown {
 }
 
 function writesForCheckpoints(step: Step, ctx: ProcessCheckpointContext, depth = 0): boolean {
-  if (step.kind === "conversation") return true;
+  // Collect reports: its links reach people outside, as a conversation does.
+  if (step.kind === "conversation" || step.kind === "collect") return true;
   if (step.kind === "process") {
     const def = Object.hasOwn(ctx.processes ?? {}, step.process)
       ? ctx.processes?.[step.process]

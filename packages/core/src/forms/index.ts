@@ -7,6 +7,7 @@
 // on a public page in the client's name. Pure: schemas, limits, checks and the answers' shape.
 
 import { z } from "zod";
+import { isTableType } from "../documents/tables";
 import { Duration, parseDuration } from "../duration";
 import { RUN_ID_NAMESPACE, uuidv5 } from "../ids";
 import { isPlainObject } from "../json";
@@ -32,8 +33,11 @@ export const QUESTION_TYPES = [
 export const QuestionType = z.enum(QUESTION_TYPES);
 export type QuestionType = z.infer<typeof QuestionType>;
 
-/** What a files question takes: the documents capability keeps PDFs and images. */
-export const FORM_FILE_KINDS = ["pdf", "image"] as const;
+/**
+ * What a files question takes: PDFs and images, and (collect reports, 2026-11-24) spreadsheets,
+ * a .csv or .xlsx file, which the documents capability keeps as table documents (§1.164).
+ */
+export const FORM_FILE_KINDS = ["pdf", "image", "spreadsheet"] as const;
 export const FormFileKind = z.enum(FORM_FILE_KINDS);
 export type FormFileKind = z.infer<typeof FormFileKind>;
 
@@ -552,8 +556,28 @@ export function documentsOf(form: FormDefinition, answers: Record<string, unknow
 /** Whether a file's type is one a files question takes. */
 export function acceptsFile(q: Extract<Question, { type: "files" }>, mimeType: string): boolean {
   const kind: FormFileKind | null =
-    mimeType === "application/pdf" ? "pdf" : mimeType.startsWith("image/") ? "image" : null;
+    mimeType === "application/pdf"
+      ? "pdf"
+      : mimeType.startsWith("image/")
+        ? "image"
+        : isTableType(mimeType) && mimeType !== "application/json"
+          ? "spreadsheet"
+          : null;
   return kind !== null && q.accept.includes(kind);
+}
+
+const FILE_KIND_WORDS: Record<FormFileKind, string> = {
+  pdf: "a PDF",
+  image: "an image",
+  spreadsheet: "a spreadsheet (.csv or .xlsx)",
+};
+
+/** "Add a PDF or an image.": what a files question takes, for a refused file. */
+export function acceptWords(q: Extract<Question, { type: "files" }>): string {
+  const words = q.accept.map((k) => FILE_KIND_WORDS[k]);
+  const list =
+    words.length <= 1 ? (words[0] ?? "") : `${words.slice(0, -1).join(", ")} or ${words.at(-1)}`;
+  return `Add ${list}.`;
 }
 
 // ── The link and the page ───────────────────────────────────────────────────────────────────────

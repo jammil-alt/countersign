@@ -77,6 +77,8 @@ export function reportsOut(step: Step, ctx: TypingContext = {}): ReportsOut {
     case "notify":
     case "person":
     case "conversation":
+    // Collect reports: each link goes to a report's owner.
+    case "collect":
       return "people";
     case "read":
     case "wait":

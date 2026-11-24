@@ -7,6 +7,7 @@
 import { ContentStore, documentMimeType } from "@countersign/connectors";
 import {
   acceptsFile,
+  acceptWords,
   answerProblems,
   cleanAnswers,
   type FormDefinition,
@@ -219,7 +220,7 @@ export function formRoutes(app: Hono<AppEnv>): void {
       }
       const mimeType = documentMimeType(file.type, file.name);
       if (!acceptsFile(question, mimeType)) {
-        throw new HttpError(415, "unsupported_type", "Add a PDF or an image.");
+        throw new HttpError(415, "unsupported_type", acceptWords(question));
       }
       try {
         // DECISION: source `request`: a document a person sent because we asked for it.

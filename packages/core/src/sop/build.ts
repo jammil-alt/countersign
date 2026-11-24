@@ -487,6 +487,8 @@ const CHART_KINDS = new Set<string>([
  */
 function chartKind(v: Visited, input: SopInput): SopChartKind {
   const kind = v.step.kind;
+  // Collect reports (owner, 2026-11-24): drawn as a conversation, a step that contacts people.
+  if (v.v4 && kind === "collect") return "conversation";
   if (v.v4) return (CHART_KINDS.has(kind) ? kind : "missing") as SopChartKind;
   switch (kind) {
     case "action":

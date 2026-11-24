@@ -23,7 +23,7 @@ export function seatRoleOf(who: string | null | undefined): string | null {
 }
 
 /** What a step asks of the person it names. */
-export type SeatUse = "approve" | "answer" | "escalate" | "tell";
+export type SeatUse = "approve" | "answer" | "escalate" | "tell" | "reach";
 
 /** The seat kinds each use takes: a person who only gets messages never signs (invariant 8). */
 export const SEAT_USES: Record<SeatUse, readonly SeatKind[]> = {
@@ -31,6 +31,8 @@ export const SEAT_USES: Record<SeatUse, readonly SeatKind[]> = {
   answer: ["signs", "answers"],
   escalate: ["signs", "answers"],
   tell: ["signs", "answers", "told"],
+  // Collect reports (owner, 2026-11-24): a report's owner is contacted through reach out.
+  reach: ["reached"],
 };
 
 /** One `Who` a step names, how it is used and where (a field path inside the step). */
@@ -98,6 +100,16 @@ export function whoRefsOfStep(step: Step): WhoRef[] {
     case "conversation":
       deadlineRefs(step.deadline, "deadline", out);
       break;
+    // Collect reports (owner, 2026-11-24)
+    case "collect":
+      step.items.forEach((item, i) => {
+        out.push({ who: item.owner, use: "reach", field: `items.${i}.owner` });
+      });
+      if (step.escalate) {
+        out.push({ who: step.escalate.to, use: "escalate", field: "escalate.to" });
+        deadlineRefs(step.escalate.deadline, "escalate.deadline", out);
+      }
+      break;
     case "notify":
       notifyRefs(step.notify, "notify", out);
       break;
@@ -125,6 +137,7 @@ const USE_WORDS: Record<SeatUse, string> = {
   answer: "answer",
   escalate: "be asked when nobody answers",
   tell: "be told",
+  reach: "send a report",
 };
 
 /**
@@ -324,6 +337,17 @@ function fillStep(seats: Seats, step: Step): Step {
       break;
     case "conversation":
       s.deadline = fillDeadline(seats, s.deadline);
+      break;
+    // Collect reports: owners stay seats (reach out finds the role's contacts on the agent);
+    // the person a late report is escalated to is one of the client's people, as a person step's.
+    case "collect":
+      if (s.escalate) {
+        s.escalate = {
+          ...s.escalate,
+          to: one(seats, s.escalate.to),
+          deadline: fillDeadline(seats, s.escalate.deadline),
+        };
+      }
       break;
     case "notify":
       s.notify = fillNotify(seats, s.notify);

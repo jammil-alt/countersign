@@ -579,7 +579,12 @@ function ApprovalPart(
   // A skill that contacts people (a reach-out) is held to approval as a write is (invariant 8).
   // Core's rule (`stepReaches`), as the validator holds it. A conversation's messages are signed
   // under its own message settings, so it is not offered an approval here.
-  const reaches = !writes && step.kind === "skill" && processes.stepReaches(step, env.ctx);
+  // Collect reports (2026-11-24): each link to a report's owner is a message outside the team,
+  // held to approval the same way.
+  const reaches =
+    !writes &&
+    (step.kind === "skill" || step.kind === "collect") &&
+    processes.stepReaches(step, env.ctx);
   const guarded = writes || reaches;
   // A write with no approval check waits for the default approver (invariant 8).
   const current: ApprovalCheck | undefined = approval ?? (guarded ? defaultApproval() : undefined);

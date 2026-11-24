@@ -45,6 +45,8 @@ const KIND_ICON: Partial<Record<Step["kind"], { icon: IconName; words: PlainKey;
     write: { icon: "table", words: "flow.mark.write" },
     person: { icon: "lead", words: "flow.mark.person", person: true },
     conversation: { icon: "message", words: "flow.mark.conversation", person: true },
+    // Collect reports (owner, 2026-11-24): files from people.
+    collect: { icon: "worksheet", words: "flow.mark.collect", person: true },
     notify: { icon: "notifications", words: "flow.mark.notify" },
     wait: { icon: "calendar", words: "flow.mark.wait" },
     for_each: { icon: "copy", words: "flow.mark.forEach" },

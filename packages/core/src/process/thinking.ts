@@ -41,6 +41,7 @@ export function thinkingOf(step: {
       return "tracing";
     case "conversation":
     case "notify":
+    case "collect":
       return "drafting";
   }
   if (!step.skill) return "weighing";

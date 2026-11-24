@@ -116,6 +116,12 @@ export const REPEAT_OUTCOMES = ["done", "limit"] as const;
  */
 export const PROCESS_OUTCOMES = ["completed", "stopped", "failed"] as const;
 
+/**
+ * Collect reports (owner, 2026-11-24): `complete` (every required report in and checked) or
+ * `incomplete` (it went on without one: a person said so, or `ifMissing: proceed`).
+ */
+export const COLLECT_OUTCOMES = ["complete", "incomplete"] as const;
+
 /** How a stop step ends the run (its `status`), and a stopped process's `stopStatus`. */
 export const STOP_STATUSES = ["succeeded", "failed", "cancelled"] as const;
 export type StopStatus = (typeof STOP_STATUSES)[number];
@@ -132,6 +138,7 @@ export const STEP_OUTCOMES = {
   for_each: FOR_EACH_OUTCOMES,
   repeat: REPEAT_OUTCOMES,
   process: PROCESS_OUTCOMES,
+  collect: COLLECT_OUTCOMES,
 } as const satisfies Partial<Record<StepKind, readonly string[]>>;
 
 export type OutcomeKind = keyof typeof STEP_OUTCOMES;
@@ -444,6 +451,7 @@ const KIND_OF_NODE: Record<string, OutcomeKind> = {
   repeat: "repeat",
   process: "process",
   use_automation: "process",
+  collect: "collect",
 };
 
 const ENDED = new Set(["succeeded", "failed", "skipped", "cancelled"]);
@@ -516,6 +524,9 @@ export function outcomeOfRow(row: RowOutcomeInput): StepOutcomeWord | null {
     case "process":
       if (row.status === "succeeded") return "completed";
       return row.status === "failed" ? "failed" : "stopped";
+    case "collect":
+      if (row.status !== "succeeded") return null;
+      return out.complete === false ? "incomplete" : "complete";
   }
 }
 

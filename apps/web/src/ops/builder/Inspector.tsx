@@ -40,6 +40,7 @@ import {
   writeLabelOf,
 } from "./catalog";
 import { ChecksPanel, NotifyEditor } from "./checks";
+import { CollectFields } from "./collect-step";
 // Connections (owner, 2026-11-14)
 import { ConnectionsSection, type MoveRequest } from "./connections-step";
 import { CustomizeSection } from "./customize";
@@ -380,6 +381,8 @@ const STEP_INTRO: Partial<Record<Step["kind"], string>> = {
   person: "Waits for a person in the inbox before the run goes on.",
   conversation: "Talks with someone until it has what it needs, within the limits below.",
   notify: "Tells the client's team or ours that something happened.",
+  collect:
+    "Sends each report's owner a link to send it, follows up, and checks each file before it counts. The run goes on once every required report is in.",
 };
 
 /** Logic steps carry no checks in the builder: they do no work to check. */
@@ -1070,6 +1073,18 @@ function KindFields(
           people={props.people}
           messagesBlocked={looseningBlocked([], props.env)}
           set={(key, fn) => set(key, (s) => (s.kind === "conversation" ? fn(s) : s))}
+        />
+      );
+    // Collect reports (owner, 2026-11-24)
+    case "collect":
+      return (
+        <CollectFields
+          step={step}
+          bundle={props.bundle}
+          people={props.people}
+          fieldErrors={fieldErrors}
+          agentId={props.agentId}
+          set={(key, fn) => set(key, (s) => (s.kind === "collect" ? fn(s) : s))}
         />
       );
     case "notify":

@@ -544,6 +544,12 @@ export function paletteSections(
           detail: "Talk it through with someone until you have the answer, within limits",
         },
         {
+          type: "collect",
+          key: "collect",
+          title: "Collect reports",
+          detail: "Wait for reports from their owners, follow up, and check each one",
+        },
+        {
           type: "notify",
           key: "notify",
           title: "Notify",

@@ -245,7 +245,15 @@ function QuestionInput({
     }
     case "files": {
       const files = Array.isArray(value) ? (value as FormFile[]) : [];
-      const accept = q.accept.map((k) => (k === "pdf" ? "application/pdf" : "image/*")).join(",");
+      const accept = q.accept
+        .map((k) =>
+          k === "pdf"
+            ? "application/pdf"
+            : k === "spreadsheet"
+              ? ".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+              : "image/*",
+        )
+        .join(",");
       return (
         <div className="flex flex-col gap-2" data-testid={testId}>
           {files.map((f) => (

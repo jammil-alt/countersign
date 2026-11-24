@@ -23,6 +23,7 @@ const KIND_DOES: Record<Step["kind"], PlainKey> = {
   process: "flow.does.process",
   handoff: "flow.does.handoff",
   missing: "flow.does.missing",
+  collect: "flow.does.collect",
 };
 
 /** A person's step by what it asks: an approval, or an answer. */

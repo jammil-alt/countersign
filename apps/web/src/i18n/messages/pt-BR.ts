@@ -618,6 +618,8 @@ export const ptBR: Messages = {
   "run.outcome.failed": "falhou",
   "run.outcome.answered": "respondido",
   "run.outcome.not_found": "não encontrou",
+  "run.outcome.complete": "recebeu todos os relatórios", // fluent review
+  "run.outcome.incomplete": "seguiu sem alguns relatórios", // fluent review
   "run.outcome.declined": "recusado",
   "run.outcome.sent": "enviado",
   "run.outcome.not_seen": "não visto a tempo",
@@ -2651,6 +2653,7 @@ export const ptBR: Messages = {
   "flow.mark.write": "Salva em nossos registros", // fluent review
   "flow.mark.person": "Uma pessoa faz isto", // fluent review
   "flow.mark.conversation": "Uma conversa com uma pessoa", // fluent review
+  "flow.mark.collect": "Relatórios dos responsáveis", // fluent review
   "flow.mark.notify": "Avisa alguém", // fluent review
   "flow.mark.wait": "Espera", // fluent review
   "flow.mark.forEach": "Repete para cada item", // fluent review
@@ -2690,6 +2693,7 @@ export const ptBR: Messages = {
   "flow.does.process": "Executa uma automação: um conjunto de etapas salvo.", // fluent review
   "flow.does.handoff": "Passa o trabalho para outro agente, que funciona sozinho.", // fluent review
   "flow.does.missing": "Ocupa o lugar de uma etapa que ninguém construiu ainda.", // fluent review
+  "flow.does.collect": "Espera os relatórios dos responsáveis, cobra e confere cada um.", // fluent review
   "manual.whatItDoes": "O que faz", // fluent review
   "manual.howItWorks": "Como funciona", // fluent review
   "manual.decisions": "Decisões", // fluent review
