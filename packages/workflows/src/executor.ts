@@ -3282,10 +3282,15 @@ class Executor {
       this.ctx.stepConfig,
     );
 
+    // Started by a report (the `report` trigger, on the process's first step): the report that
+    // came is taken at once and every other one is listened for by email first.
+    const first =
+      frame.prefix === "" ? processes.triggerReport(frame.scope.trigger, step.id) : null;
     const results: processes.CollectItemResult[] = new Array(step.items.length);
     await pool(step.items.length, step.items.length, async (i) => {
       const item = step.items[i] as processes.CollectItem;
       const plan = started.items[i] as (typeof started.items)[number];
+      const listen = first ? { documents: first.item === item.id ? first.documents : null } : null;
       results[i] = await this.collectItem(
         step,
         name,
@@ -3295,6 +3300,7 @@ class Executor {
         item,
         plan,
         started.email ?? null,
+        listen,
       );
     });
 
@@ -3334,6 +3340,8 @@ class Executor {
     item: processes.CollectItem,
     plan: { dueAt: string; escalateAt: string | null; period: processes.ReportPeriod | null },
     email: string | null,
+    /** A run a report started: the documents it brought for this report, else null to listen. */
+    listen: { documents: string[] | null } | null = null,
   ): Promise<processes.CollectItemResult> {
     const port = this.ctx.collect;
     const result: processes.CollectItemResult = {
@@ -3351,6 +3359,68 @@ class Executor {
     };
     let escalateAt = plan.escalateAt;
     let budget = 1 + item.followUp.max;
+    const check = async (at: string, documentIds: string[]) => {
+      if (!port) throw new Error("collect steps need the report checks");
+      return this.runner.do(
+        at,
+        () =>
+          port.check({
+            tenantId: this.ctx.run.tenantId,
+            runId: this.ctx.run.id,
+            nodeId: at,
+            item,
+            period: plan.period,
+            documentIds,
+          }),
+        this.ctx.stepConfig,
+      );
+    };
+    // Listening (a run a report started): no link goes out until the report is late. The report
+    // that started the run is checked at once; the others are waited for by email until a first
+    // link would have closed (its due date and `followUp.after`, never past the escalation).
+    // DECISION: a report emailed while listening that fails its checks gets a link asking again
+    // with the reasons, as one that failed through a link does; links from then on are follow-ups.
+    let listened = false;
+    if (listen) {
+      listened = true;
+      const base = `${name}:${index}:listen`;
+      let documents = listen.documents;
+      if (!documents) {
+        const at = new Date(
+          await this.runner.do(`${base}:at`, async () => new Date().toISOString()),
+        );
+        const closes = processes.linkClosesAt({
+          now: at,
+          dueAt: new Date(plan.dueAt),
+          followUp: item.followUp,
+          first: true,
+          escalateAt: escalateAt ? new Date(escalateAt) : null,
+        });
+        try {
+          const event = await this.runner.waitForEvent<{ documents?: unknown }>(`${base}:wait`, {
+            type: processes.reportEventType(step.id, item.id),
+            timeout: untilDue(closes.toISOString()),
+          });
+          const got = event.payload?.documents;
+          documents = Array.isArray(got)
+            ? got.filter((d): d is string => typeof d === "string")
+            : [];
+        } catch (error) {
+          if (!isWaitTimeout(error)) throw error;
+        }
+      }
+      if (documents) {
+        const checked = await check(`${base}:check`, documents);
+        if (checked.ok) {
+          result.status = "received";
+          result.documents = checked.documents;
+          result.rows = checked.rows ?? [];
+          result.senderProven = checked.senderProven ?? null;
+          return result;
+        }
+        result.problems = checked.problems;
+      }
+    }
     for (let n = 1; ; n++) {
       const base = `${name}:${index}:r${n}`;
       const now = new Date(
@@ -3380,10 +3450,17 @@ class Executor {
         now,
         dueAt: new Date(plan.dueAt),
         followUp: item.followUp,
-        first: result.sends === 1,
+        first: result.sends === 1 && !listened,
         escalateAt: escalateAt ? new Date(escalateAt) : null,
       });
-      const ask = this.reportAsk(step, item, plan.period, result, email);
+      // After listening, every link is a follow-up ("A reminder"), counted as one.
+      const ask = this.reportAsk(
+        step,
+        item,
+        plan.period,
+        listened ? { ...result, sends: result.sends + 1 } : result,
+        email,
+      );
       const window = processes.linkWindow(closes.getTime() - now.getTime());
       const inner: processes.SkillStep = { ...ask, input: { ...ask.input, due: window } };
       this.reportAsks.add(inner);

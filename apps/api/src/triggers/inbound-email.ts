@@ -32,8 +32,10 @@ import {
   inboundText,
   messageTriggersOn,
   parseAgentAddress,
+  processes,
   type SenderFacts,
   sameAgentAddress,
+  uuidv7,
 } from "@countersign/core";
 import {
   agent,
@@ -48,9 +50,21 @@ import {
 import { attachmentsToKeep, storeEmailAttachments } from "@countersign/documents";
 import { type EventRow, type EventTypeRegistry, emit } from "@countersign/senses";
 import { commandCandidates } from "@countersign/threads";
-import { and, eq, inArray } from "drizzle-orm";
-import { collectStepTags, type HandedTo, handToOpenLink, openLinks } from "../collect/email";
+import type { RunRequest } from "@countersign/workflows";
+import { and, eq, inArray, sql } from "drizzle-orm";
+import {
+  collectStepTags,
+  type HandedTo,
+  handToOpenLink,
+  listeningRun,
+  openLinks,
+  ownedItems,
+  pickItem,
+  type ReportStart,
+  reportStartOf,
+} from "../collect/email";
 import { tenantLocale } from "../routes/language";
+import { createRunRow } from "../runs/dispatch";
 import { confirmReply, type InboundReply, noteStranger, strangerReply } from "./replies";
 import { contactByEmail, contactFacts } from "./senders";
 
@@ -73,6 +87,10 @@ export type AgentEmailOutcome =
       replies: InboundReply[];
       /** Collect reports: the report link the files went to, whose run is woken. */
       wake?: HandedTo;
+      /** Collect reports: a listening run is sent this report's event. */
+      listen?: { runId: string; eventType: string; documents: string[] };
+      /** Collect reports: the run this report starts (its row is written), to be started. */
+      start?: RunRequest;
     }
   | {
       status: "refused" | "dropped";
@@ -91,20 +109,25 @@ async function sha256Hex(bytes: Uint8Array): Promise<string> {
 
 /**
  * Collect reports (owner, 2026-11-24): mail to one of the agent's collect steps. Only a sender
- * whose From address is a contact with a link of that step open gets in (DMARC proof is recorded,
- * not required); their attachments go to that link as an
- * upload would, and the step's run is woken (`wake`). Nothing else is stored, no run is started
- * and nobody is answered automatically: the step itself asks again or follows up.
+ * whose From address is the contact who owns one of its reports gets in (DMARC proof is recorded,
+ * not required). Their files go, in this order: to their link of that step that is open (as an
+ * upload would); else, where the step has a report trigger, to the run it started that is still
+ * listening (`listen`: the run is sent the report's event); else they start that run (`start`).
+ * Nothing is answered automatically: the step itself asks again or follows up.
  */
-// DECISION: mail from anyone else, or from an owner with no link of the step open, is refused
-// quietly (no reply, nothing stored): a stranger learns nothing, and an owner's report that is
-// late or early is chased by the step's own follow-ups and escalation.
+// DECISION: mail from anyone else, or from an owner with nowhere for it to go, is refused quietly
+// (no reply, nothing stored): a stranger learns nothing, and an owner's report that is late or
+// early is chased by the step's own follow-ups and escalation.
 async function stepEmail(
   tx: Tx,
   deps: { content: ContentStore },
   m: {
     tenantId: string;
     agentId: string;
+    agentVersionId: string;
+    active: boolean;
+    bundle: { workflows: readonly { slug: string; enabled: boolean; workflow: unknown }[] };
+    people: Readonly<Record<string, { contactIds: readonly string[] }>>;
     tag: string;
     sender: { id: string } | null;
     from: string | null;
@@ -127,14 +150,34 @@ async function stepEmail(
     replies: [],
   });
   if (!m.sender) return refused("sender_not_owner");
+  const contactId = m.sender.id;
   const open = await openLinks(tx, {
     tenantId: m.tenantId,
     agentId: m.agentId,
     tag: m.tag,
-    contactId: m.sender.id,
+    contactId,
     at: m.now,
   });
-  if (open.length === 0) return refused("no_open_report");
+  // No link open: the step's report trigger, when it has one, takes it.
+  let start: ReportStart | null = null;
+  let owned: processes.CollectItem[] = [];
+  let listening: string | null = null;
+  if (open.length === 0) {
+    start = reportStartOf(m.bundle, m.tag);
+    if (!start) return refused("no_open_report");
+    owned = ownedItems(start.step, contactId, m.people);
+    if (owned.length === 0) return refused("sender_not_owner");
+    if (!m.active) return refused("agent_not_active");
+    // One run per batch of reports: two arriving at once can't both start one.
+    await tx.execute(
+      sql`select pg_advisory_xact_lock(hashtextextended(${`collect:${m.agentId}:${m.tag}`}, 0))`,
+    );
+    listening = await listeningRun(tx, {
+      tenantId: m.tenantId,
+      agentId: m.agentId,
+      stepId: start.step.id,
+    });
+  }
   const conn = await ensureUploadConnection(tx, m.tenantId);
   const [seen] = await tx
     .select({ id: rawRecord.id })
@@ -176,7 +219,8 @@ async function stepEmail(
     .select({ id: document.id, filename: document.filename, mimeType: document.mimeType })
     .from(document)
     .where(and(eq(document.tenantId, m.tenantId), inArray(document.id, ids)));
-  const [stored] = await tx
+  const stored = ids.flatMap((id) => types.filter((t) => t.id === id));
+  const [record] = await tx
     .insert(rawRecord)
     .values({
       tenantId: m.tenantId,
@@ -189,7 +233,7 @@ async function stepEmail(
         agentId: m.agentId,
         channel: "email",
         from: m.from,
-        contactId: m.sender.id,
+        contactId,
         step: m.tag,
         authenticated: m.proven !== null,
         subject: m.headers.subject?.slice(0, 300) ?? null,
@@ -203,26 +247,66 @@ async function stepEmail(
     })
     .onConflictDoNothing()
     .returning({ id: rawRecord.id });
-  if (!stored) return m.dropped("duplicate");
-  const handed = await handToOpenLink(tx, {
-    open,
-    tenantId: m.tenantId,
-    files: ids.flatMap((id) => types.filter((t) => t.id === id)),
-    at: m.now,
-    messageId: m.headers.messageId ?? null,
-    proven: m.proven !== null,
-  });
-  if (!handed) return refused("no_open_report");
-  return {
-    status: "accepted",
+  if (!record) return m.dropped("duplicate");
+  const accepted = {
+    status: "accepted" as const,
     tenantId: m.tenantId,
     agentId: m.agentId,
-    rawRecordId: stored.id,
+    rawRecordId: record.id,
     fresh: files.documents.filter((d) => d.created).map((d) => d.id),
     events: files.events,
     replies: [],
-    wake: handed,
   };
+  if (open.length > 0) {
+    const handed = await handToOpenLink(tx, {
+      open,
+      tenantId: m.tenantId,
+      files: stored,
+      at: m.now,
+      messageId: m.headers.messageId ?? null,
+      proven: m.proven !== null,
+    });
+    if (!handed) return refused("no_open_report");
+    return { ...accepted, wake: handed };
+  }
+  const reportStart = start as ReportStart;
+  const item = pickItem(owned, stored) as processes.CollectItem;
+  if (listening) {
+    return {
+      ...accepted,
+      listen: {
+        runId: listening,
+        eventType: processes.reportEventType(reportStart.step.id, item.id),
+        documents: ids,
+      },
+    };
+  }
+  const request: RunRequest = {
+    runId: uuidv7(m.now.getTime()),
+    tenantId: m.tenantId,
+    agentId: m.agentId,
+    agentVersionId: m.agentVersionId,
+    workflowSlug: reportStart.workflowSlug,
+    mode: "live",
+    trigger: {
+      triggerId: reportStart.triggerId,
+      type: "report",
+      step: reportStart.step.id,
+      item: item.id,
+    },
+    payload: {
+      report: {
+        step: reportStart.step.id,
+        item: item.id,
+        documents: ids,
+        contactId,
+        proven: m.proven !== null,
+        receivedAt: m.now.toISOString(),
+      },
+    } satisfies processes.ReportTriggerPayload,
+  };
+  await createRunRow(tx, request);
+  return { ...accepted, start: request };
 }
 
 /** Null when `to` isn't an agent address on `domain` (the caller tries the other kinds of mail). */
@@ -263,7 +347,14 @@ export async function receiveAgentEmail(
       return dropped("unknown_address");
     }
     const [row] = await tx
-      .select({ bundle: agentVersion.bundle, name: agent.name })
+      .select({
+        bundle: agentVersion.bundle,
+        name: agent.name,
+        versionId: agentVersion.id,
+        people: agent.people,
+        runStatus: agent.runStatus,
+        kind: agent.kind,
+      })
       .from(agent)
       .innerJoin(
         agentVersion,
@@ -317,6 +408,10 @@ export async function receiveAgentEmail(
       return stepEmail(tx, deps, {
         tenantId,
         agentId: found.agentId,
+        agentVersionId: row?.versionId as string,
+        active: row?.runStatus === "active" && row?.kind === "client",
+        bundle,
+        people: row?.people ?? {},
         tag,
         sender: claimed,
         from,

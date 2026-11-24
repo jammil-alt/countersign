@@ -5,8 +5,8 @@
 // don't pass, and stops following up when they do. Mail to a step never starts a run.
 
 import { acceptsFile, type FormDefinition, processes } from "@countersign/core";
-import { formRequest, type Tx } from "@countersign/db";
-import { and, asc, eq, sql } from "drizzle-orm";
+import { formRequest, run, type Tx } from "@countersign/db";
+import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 
 /** The tags of the collect steps in an agent's enabled workflows (`stepTag` of each id). */
 export function collectStepTags(bundle: {
@@ -139,4 +139,82 @@ export async function handToOpenLink(
   return updated
     ? { formRequestId: updated.id, runId: updated.runId, reachOutId: updated.reachOutId }
     : null;
+}
+
+// ── Started by a report (the `report` trigger) ─────────────────────────────────────────────────
+
+/** The collect step a report trigger starts, with its workflow and trigger. */
+export interface ReportStart {
+  workflowSlug: string;
+  triggerId: string;
+  step: processes.CollectStep;
+}
+
+/** The enabled workflow whose report trigger starts the step this tag names; null for none. */
+export function reportStartOf(
+  bundle: { workflows: readonly { slug: string; enabled: boolean; workflow: unknown }[] },
+  tag: string,
+): ReportStart | null {
+  for (const wf of bundle.workflows) {
+    if (!wf.enabled) continue;
+    const parsed = processes.Process.safeParse(wf.workflow);
+    if (!parsed.success) continue;
+    const first = parsed.data.steps[0];
+    if (first?.kind !== "collect" || first.id.toLowerCase() !== tag) continue;
+    const trigger = parsed.data.triggers.find(
+      (t) => t.on.type === "report" && t.on.step === first.id,
+    );
+    if (trigger) return { workflowSlug: wf.slug, triggerId: trigger.id, step: first };
+  }
+  return null;
+}
+
+/** The reports a contact owns on the step: named, or bound to the seat that owns them. */
+export function ownedItems(
+  step: processes.CollectStep,
+  contactId: string,
+  people: Readonly<Record<string, { contactIds: readonly string[] }>>,
+): processes.CollectItem[] {
+  return step.items.filter((item) => {
+    const role = processes.seatRoleOf(item.owner);
+    return role === null
+      ? item.owner === contactId
+      : (people[role]?.contactIds ?? []).includes(contactId);
+  });
+}
+
+/** The report the files are for: the first that takes every file's format, else the first. */
+export function pickItem(
+  items: readonly processes.CollectItem[],
+  files: readonly { mimeType: string }[],
+): processes.CollectItem | null {
+  const takes = items.find((i) =>
+    files.every((f) => {
+      const format = processes.reportFormatOf(f.mimeType);
+      return format !== null && i.formats.includes(format);
+    }),
+  );
+  return takes ?? items[0] ?? null;
+}
+
+/** A live run this agent's report trigger started on the step that is still under way. */
+export async function listeningRun(
+  tx: Tx,
+  input: { tenantId: string; agentId: string; stepId: string },
+): Promise<string | null> {
+  const [row] = await tx
+    .select({ id: run.id })
+    .from(run)
+    .where(
+      and(
+        eq(run.tenantId, input.tenantId),
+        eq(run.agentId, input.agentId),
+        inArray(run.status, ["queued", "running", "waiting"]),
+        sql`${run.trigger}->>'type' = 'report'`,
+        sql`${run.trigger}->>'step' = ${input.stepId}`,
+      ),
+    )
+    .orderBy(desc(run.createdAt))
+    .limit(1);
+  return row?.id ?? null;
 }

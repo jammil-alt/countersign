@@ -38,6 +38,7 @@ export const TRIGGER_KIND_LABEL: Record<Trigger["on"]["type"], string> = {
   webhook: "Webhook",
   message: "Message",
   handoff: "Another agent",
+  report: "Report",
 };
 
 /**
@@ -67,6 +68,9 @@ export function triggerTitle(trigger: Trigger): string {
       return "When someone sends a message";
     case "handoff":
       return `When ${on.from.agent} finishes`;
+    // Collect reports (owner, 2026-11-24)
+    case "report":
+      return "When a report arrives";
   }
 }
 
@@ -97,6 +101,8 @@ export function triggerDetail(trigger: Trigger): string | null {
       return on.channels.map((c) => CHANNEL_LABEL[c] ?? c).join(", ");
     case "handoff":
       return on.filter && on.filter.rules.length > 0 ? `if ${rulesText(on.filter)}` : null;
+    case "report":
+      return `by email to step ${on.step}`;
   }
 }
 

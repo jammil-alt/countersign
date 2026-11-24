@@ -349,3 +349,147 @@ describe.skipIf(!h)("mail to a collect step's address", () => {
     expect(outcome).toMatchObject({ status: "dropped", reason: "unknown_address" });
   });
 });
+
+describe.skipIf(!h)(
+  "the report trigger: the first report starts the run, the others go to it",
+  () => {
+    const H = h as ApiHarness;
+    const content = new ContentStore(new MemoryObjectStore());
+    let stepAddr = "";
+    let agentId = "";
+    let pat = "";
+    let quinn = "";
+
+    function reportsBundle(owner: string): unknown {
+      const b = bundle(owner) as {
+        definition: Record<string, unknown>;
+        workflows: { workflow: { triggers: unknown[]; steps: { items?: unknown[] }[] } }[];
+        people?: unknown;
+      };
+      const wf = b.workflows[0]?.workflow;
+      if (!wf) throw new Error("no workflow");
+      wf.triggers = [{ id: "t1", on: { type: "report", step: "C1" } }];
+      const first = wf.steps[0] as { items: Record<string, unknown>[] };
+      first.items.push({
+        id: "card",
+        name: "Card statement",
+        owner: "seat:card-owner",
+        formats: ["spreadsheet"],
+        due: "1 day",
+        followUp: { after: "1 day", every: "2 days" },
+      });
+      return {
+        ...b,
+        people: [{ role: "card-owner", description: "Sends the card statement", kind: "reached" }],
+      };
+    }
+
+    beforeAll(async () => {
+      const made = await H.t.db
+        .insert(contact)
+        .values([
+          { tenantId: H.A.tenantId, name: "Pat", email: "pat@bank2.example" },
+          { tenantId: H.A.tenantId, name: "Quinn", email: "quinn@card.example" },
+        ])
+        .returning();
+      pat = made[0]?.id as string;
+      quinn = made[1]?.id as string;
+      const created = await H.call(OPERATOR, "POST", `/api/ops/clients/${H.A.tenantId}/agents`, {
+        slug: "rory",
+        bundle: reportsBundle(pat),
+      });
+      expect(created.status, JSON.stringify(created.json)).toBe(200);
+      agentId = j(created.json).agent.id;
+      const pub = await H.call(
+        OPERATOR,
+        "POST",
+        `/api/ops/agents/${agentId}/versions/${j(created.json).version.id}/publish`,
+      );
+      expect(pub.status, JSON.stringify(pub.json)).toBe(200);
+      await H.t.db
+        .update(agent)
+        .set({
+          runStatus: "active",
+          people: { "card-owner": { contactIds: [quinn], conditions: {} } },
+        })
+        .where(eq(agent.id, agentId));
+      const list = await H.call(OPERATOR, "GET", `/api/ops/agents/${agentId}/triggers`);
+      stepAddr = agentStepAddress(j(list.json).address, "C1");
+    });
+
+    const receive = (raw: Uint8Array, from: string) =>
+      receiveAgentEmail(
+        { db: H.db, content, registry: H.platform.events },
+        { from, to: stepAddr, raw, size: raw.length },
+        { domain: DOMAIN },
+      );
+
+    it("starts a run on the first report and sends the second to it", async () => {
+      const first = await receive(
+        mime({
+          id: "r1",
+          from: "pat@bank2.example",
+          to: stepAddr,
+          csv: "Date,Amount\n2026-11-02,1\n",
+        }),
+        "pat@bank2.example",
+      );
+      expect(first).toMatchObject({
+        status: "accepted",
+        start: {
+          agentId,
+          workflowSlug: "main",
+          mode: "live",
+          trigger: { type: "report", triggerId: "t1", step: "C1", item: "bank" },
+          payload: { report: { step: "C1", item: "bank", contactId: pat, proven: true } },
+        },
+      });
+      const runId = first?.status === "accepted" ? first.start?.runId : undefined;
+      const [row] = await H.t.db
+        .select()
+        .from(run)
+        .where(eq(run.id, runId as string));
+      expect(row).toMatchObject({ agentId, workflowSlug: "main" });
+
+      // The card statement, from the person bound to its seat, goes to that run: no second run.
+      const second = await receive(
+        mime({
+          id: "r2",
+          from: "quinn@card.example",
+          to: stepAddr,
+          csv: "Date,Amount\n2026-11-03,2\n",
+        }),
+        "quinn@card.example",
+      );
+      expect(second).toMatchObject({
+        status: "accepted",
+        listen: { runId, eventType: "report-c1-card", documents: [expect.any(String)] },
+      });
+      expect(second).not.toHaveProperty("start");
+
+      // Someone who owns no report: nothing.
+      const stranger = await receive(
+        mime({ id: "r3", from: "eve@else.example", to: stepAddr, csv: "A\n1\n" }),
+        "eve@else.example",
+      );
+      expect(stranger).toMatchObject({ status: "refused" });
+
+      // Once that run is over, the next report starts a new one.
+      await H.t.db
+        .update(run)
+        .set({ status: "succeeded" })
+        .where(eq(run.id, runId as string));
+      const next = await receive(
+        mime({
+          id: "r4",
+          from: "pat@bank2.example",
+          to: stepAddr,
+          csv: "Date,Amount\n2026-12-02,1\n",
+        }),
+        "pat@bank2.example",
+      );
+      expect(next?.status === "accepted" ? next.start?.runId : null).toBeTruthy();
+      expect(next?.status === "accepted" ? next.start?.runId : null).not.toBe(runId);
+    });
+  },
+);

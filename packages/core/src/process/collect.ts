@@ -770,3 +770,69 @@ export function columnsFromSample(
   });
   return out.slice(0, 200);
 }
+
+// ── Started by a report (the `report` trigger) ───────────────────────────────────────────────
+
+/** What a run a report started carries as its trigger: `{{trigger.report.…}}`. */
+export interface ReportTriggerPayload {
+  report: {
+    /** The collect step, and the report the email was for. */
+    step: string;
+    item: string;
+    documents: string[];
+    contactId: string;
+    /** Whether DMARC proved the sender. */
+    proven: boolean;
+    receivedAt: string;
+  };
+}
+
+/** The report a run's trigger brought to this step, or null. */
+export function triggerReport(
+  trigger: unknown,
+  stepId: string,
+): ReportTriggerPayload["report"] | null {
+  if (typeof trigger !== "object" || trigger === null) return null;
+  const r = (trigger as { report?: unknown }).report;
+  if (typeof r !== "object" || r === null) return null;
+  const report = r as Partial<ReportTriggerPayload["report"]>;
+  if (report.step !== stepId || typeof report.item !== "string") return null;
+  if (!Array.isArray(report.documents)) return null;
+  return {
+    step: report.step,
+    item: report.item,
+    documents: report.documents.filter((d): d is string => typeof d === "string"),
+    contactId: typeof report.contactId === "string" ? report.contactId : "",
+    proven: report.proven === true,
+    receivedAt: typeof report.receivedAt === "string" ? report.receivedAt : "",
+  };
+}
+
+/**
+ * The event a listening report waits on: a report emailed to the step while its run listens.
+ * Letters, digits, `-` and `_` only, at most 100 (Workflows' limit), as `conversationEventType`.
+ */
+export function reportEventType(stepId: string, itemId: string): string {
+  const clean = (s: string) => s.toLowerCase().replace(/[^a-z0-9-]/g, "-");
+  return `report-${clean(stepId)}-${clean(itemId)}`.slice(0, 100);
+}
+
+/** The schema of a report trigger's payload, for `{{trigger.report.…}}`. */
+export const REPORT_TRIGGER_SCHEMA: JsonSchema = {
+  type: "object",
+  properties: {
+    report: {
+      type: "object",
+      properties: {
+        step: { type: "string" },
+        item: { type: "string", description: "The report that started the run" },
+        documents: { type: "array", items: { type: "string" } },
+        contactId: { type: "string" },
+        proven: { type: "boolean" },
+        receivedAt: { type: "string" },
+      },
+      required: ["step", "item", "documents", "contactId", "proven", "receivedAt"],
+    },
+  },
+  required: ["report"],
+};

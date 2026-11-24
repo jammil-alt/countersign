@@ -19,6 +19,7 @@ import { backOfficeLocals } from "./backoffice/outbound-email";
 import type { Bindings } from "./env";
 import { wakeForm } from "./forms/service";
 import { type AppDeps, defaultDeps, type Services } from "./http";
+import { reportHandled } from "./observability/report";
 import { forwardingAddress, receiveReachOutReply, wakeAll } from "./reach/replies";
 import { extractInBackground } from "./routes/documents";
 import { dispatchEvents } from "./runs/dispatch";
@@ -225,6 +226,37 @@ export async function handleEmail(
               if (toAgent.status === "accepted") {
                 // Collect reports: a report emailed to its step wakes the step's run (the cron
                 // re-sends until the run takes it).
+                // Collect reports: the first report starts its run (the row is written; the
+                // reconciler starts it if this misses); a later one goes to the run listening.
+                if (toAgent.start) {
+                  try {
+                    await deps.instances(env).start(toAgent.start);
+                  } catch (error) {
+                    reportHandled(
+                      `starting run ${toAgent.start.runId} for a report failed; the reconciler starts it`,
+                      error,
+                      { job: "email", client: tenantId, run: toAgent.start.runId },
+                    );
+                  }
+                }
+                if (toAgent.listen) {
+                  await deps
+                    .instances(env)
+                    .sendEvent(toAgent.listen.runId, {
+                      type: toAgent.listen.eventType,
+                      payload: { documents: toAgent.listen.documents },
+                    })
+                    .catch((error: unknown) =>
+                      reportHandled(
+                        `sending a report to run ${toAgent.listen?.runId} failed`,
+                        error,
+                        {
+                          job: "email",
+                          client: tenantId,
+                        },
+                      ),
+                    );
+                }
                 if (toAgent.wake) {
                   await wakeForm(
                     { instances: deps.instances(env) },

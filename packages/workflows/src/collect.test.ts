@@ -1,6 +1,6 @@
 // Collect reports (owner, 2026-11-24): a step that waits for several reports, each from its own
 // owner, checks each in code, follows up, and escalates a late one.
-import type { processes } from "@countersign/core";
+import { processes } from "@countersign/core";
 import { describe, expect, it } from "vitest";
 import { executeWorkflow } from "./executor";
 import { FakeStepRunner } from "./fake-runner";
@@ -477,5 +477,96 @@ describe("replay", () => {
     expect(again.status).toBe("succeeded");
     expect(asks).toHaveLength(2);
     expect(calls).toHaveLength(2);
+  });
+});
+
+describe("started by a report (the report trigger)", () => {
+  const started = (item: string, documents: string[]) => ({
+    report: {
+      step: "c1",
+      item,
+      documents,
+      contactId: "0192f7a0-0000-7000-8000-00000000d001",
+      proven: true,
+      receivedAt: "2026-12-01T09:00:00.000Z",
+    },
+  });
+
+  it("takes the report that started it and the other one emailed meanwhile: no link goes out", async () => {
+    const { h, asks } = harness({});
+    const { port, calls } = checks();
+    const runner = new FakeStepRunner();
+    // The card statement came by email while the run listened.
+    runner.deliver(processes.reportEventType("c1", "card"), { documents: ["doc-card"] });
+    const result = await executeWorkflow(
+      runner,
+      h.context({ collect: port }),
+      proc([collect(), reconcile]),
+      started("bank", ["doc-bank"]),
+    );
+    expect(result.status).toBe("succeeded");
+    expect(asks).toEqual([]);
+    expect(calls.map((c) => c.documentIds).sort()).toEqual([["doc-bank"], ["doc-card"]]);
+    expect(h.row("c1")?.output).toMatchObject({ complete: true, received: 2 });
+    // Once every report is in, the process goes on.
+    expect(h.agentCalls.find((c) => c.step.id === "rec")?.input).toEqual({
+      documents: ["doc-bank", "doc-card"],
+    });
+  });
+
+  it("follows up on a report that didn't come in time, as a reminder", async () => {
+    const { h, asks } = harness({
+      "c1:1:r1:ask": { outcome: "submitted", documents: ["doc-card"] },
+    });
+    const { port } = checks();
+    const result = await executeWorkflow(
+      new FakeStepRunner({ onWait: "timeout" }),
+      h.context({ collect: port }),
+      proc([collect()]),
+      started("bank", ["doc-bank"]),
+    );
+    expect(result.status).toBe("succeeded");
+    // Only the late report gets a link, and it reads as a follow-up.
+    expect(asks.map((a) => a.nodeId)).toEqual(["c1:1:r1:ask"]);
+    expect(asks[0]?.input).toMatchObject({ purpose: expect.stringMatching(/^A reminder:/) });
+    expect(asks[0]?.step.client?.label).toBe("Followed up on the Card statement");
+    expect(h.row("c1")?.output).toMatchObject({ complete: true });
+  });
+
+  it("asks again with the reasons when the report that started it fails its checks", async () => {
+    const { h, asks } = harness({
+      "c1:0:r1:ask": { outcome: "submitted", documents: ["doc-good"] },
+    });
+    const { port } = checks();
+    const runner = new FakeStepRunner({ onWait: "timeout" });
+    runner.deliver(processes.reportEventType("c1", "card"), { documents: ["doc-card"] });
+    const result = await executeWorkflow(
+      runner,
+      h.context({ collect: port }),
+      proc([collect()]),
+      started("bank", ["doc-bad"]),
+    );
+    expect(result.status).toBe("succeeded");
+    expect(asks.map((a) => a.nodeId)).toEqual(["c1:0:r1:ask"]);
+    expect(asks[0]?.input).toMatchObject({
+      purpose: expect.stringContaining("didn't pass our checks"),
+    });
+  });
+
+  it("listens only on the step its trigger names", async () => {
+    const { h, asks } = harness({
+      "c1:0:r1:ask": { outcome: "submitted", documents: ["doc-bank"] },
+      "c1:1:r1:ask": { outcome: "submitted", documents: ["doc-card"] },
+    });
+    const { port } = checks();
+    const result = await executeWorkflow(
+      new FakeStepRunner(),
+      h.context({ collect: port }),
+      proc([collect()]),
+      { report: { ...started("bank", ["doc-x"]).report, step: "other" } },
+    );
+    expect(result.status).toBe("succeeded");
+    // Not started by its reports: it asks everyone, as a scheduled run does.
+    expect(asks).toHaveLength(2);
   });
 });

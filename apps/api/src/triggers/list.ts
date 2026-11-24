@@ -32,6 +32,9 @@ function summaryOf(on: TriggerOn): string {
       return `A message by ${on.channels.join(", ")} from the people it names`;
     case "handoff":
       return `When ${on.from.agent}${on.from.workflow ? ` (${on.from.workflow})` : ""} finishes a live run`;
+    // Collect reports (owner, 2026-11-24)
+    case "report":
+      return `When the first report arrives for step ${on.step}`;
   }
 }
 

@@ -64,6 +64,9 @@ import { walkSteps } from "./walk";
 
 export type ValidationCode =
   | "schema"
+  // Collect reports (owner, 2026-11-24): a report trigger, which only a v4 process takes, naming
+  // its first step, a collect step, once.
+  | "report_trigger"
   | "duplicate_id"
   | "duplicate_slug"
   | "duplicate_skill"
@@ -897,6 +900,14 @@ function semantic(workflow: Workflow, ctx: ValidationContext, slug?: string): Va
   // v0.12 W2-E: every trigger, and what a successful run hands off.
   for (const t of allTriggers(workflow)) {
     checkTrigger(c, t, { trigger: triggerOnSchema(t.on, ctx), steps: {} });
+    if (t.on.type === "report") {
+      c.add(
+        t.id,
+        "on.type",
+        "report_trigger",
+        "a report trigger starts a collect step: only the new process format has one",
+      );
+    }
   }
   checkHandoff(c, workflow);
   const allowed = allowedTools(ctx);
