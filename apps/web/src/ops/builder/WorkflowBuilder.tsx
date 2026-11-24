@@ -113,6 +113,7 @@ import { buildStatuses, FIX_HINT, nextOpen, counts as openCounts, stepOrder } fr
 import { TryPanel } from "../flow/TryPanel";
 import { TurnOnSheet } from "../flow/TurnOnSheet";
 import type { InsertPoint, SettleItem, StatusMap, TryMark } from "../flow/types";
+import { RoleChip, type WayCard, type WaySystem, WaysBand } from "../flow/Ways";
 import { useOpsClients } from "../OpsLayout";
 import { OPS_PATHS } from "../paths";
 import { SchedulePicker, type ScheduleValue } from "../triggers/SchedulePicker";
@@ -593,9 +594,12 @@ function BuilderBody(
     () => processes.handoffWorkflows(bundle.workflows, ctx),
     [bundle, ctx],
   );
+  // Triggers and outputs (owner, 2026-11-23): what each workflow is to the others, from the
+  // self hand-offs (core's `workflowRoles`): the tabs' chips, the bands and the rail's hand-in.
+  const roles = useMemo(() => processes.workflowRoles(bundle.workflows), [bundle]);
   const stepData = useMemo<BuilderData>(
-    () => ({ ...data, own: { workflow: slug, workflows: ownWorkflows } }),
-    [data, slug, ownWorkflows],
+    () => ({ ...data, own: { workflow: slug, workflows: ownWorkflows, roles } }),
+    [data, slug, ownWorkflows, roles],
   );
 
   // A new workflow starts on its whole flow, with nowhere chosen to add.
@@ -1494,15 +1498,59 @@ function BuilderBody(
     [workflow],
   );
   const label = useMemo(() => chartLabel(labels, env), [labels, env]);
+  const role = roles.get(slug);
+  const mainName = role?.main
+    ? (bundle.workflows.find((w) => w.slug === role.main)?.name ?? role.main)
+    : "";
   const ends = useMemo(
     () =>
       shownLoop && workflow
         ? loopEnds(shownLoop.loop, workflow, dataCtx, (s) => dataOf(s).lines)
-        : workflow
-          ? agentEnds(workflow)
-          : { start: null, givesBack: null },
-    [shownLoop, workflow, dataCtx, dataOf],
+        : workflow && role?.role === "output"
+          ? // An output starts from the main workflow's hand-off, not from its own trigger.
+            {
+              start: { title: "Starts from", lines: [`Handed out by ${mainName}`] },
+              givesBack: null,
+            }
+          : workflow
+            ? agentEnds(workflow)
+            : { start: null, givesBack: null },
+    [shownLoop, workflow, dataCtx, dataOf, role, mainName],
   );
+  // The systems a workflow reaches (its reads' and writes' connectors), for the bands.
+  const systemsOf = useCallback(
+    (p: processes.Process): WaySystem[] => {
+      const seen = new Map<string, WaySystem>();
+      processes.walkSteps(p, ({ step }) => {
+        const c = labels.connectorOf?.(step);
+        if (c && !seen.has(c.id)) seen.set(c.id, c);
+      });
+      return [...seen.values()];
+    },
+    [labels],
+  );
+  const ways = useMemo(() => {
+    const card = (s: string, starts: boolean): WayCard | null => {
+      const e = bundle.workflows.find((w) => w.slug === s);
+      if (e?.workflow.schemaVersion !== 4) return null;
+      const p = e.workflow;
+      const first = p.triggers[0];
+      return {
+        slug: s,
+        name: e.name,
+        starts: starts && first ? triggerTitle(first) : "",
+        steps: processes.stepCount(p),
+        systems: systemsOf(p),
+      };
+    };
+    const of = (r: processes.WorkflowRole, starts: boolean) =>
+      processes
+        .workflowsOfRole(roles, r)
+        .map((s) => card(s, starts))
+        .filter((c): c is WayCard => c !== null);
+    return { triggers: of("trigger", true), outputs: of("output", false) };
+  }, [bundle, roles, systemsOf]);
+  const wayHref = (s: string) => `${base}/${view === "list" ? "steps" : "workflows"}/${s}`;
   const selectedId = selection?.id ?? null;
   const openNext = () => {
     const id = nextOpen(statuses, order, selectedId);
@@ -2222,50 +2270,70 @@ function BuilderBody(
               </div>
 
               <div className="flow-host__stage" data-view={view}>
-                {shown && view === "list" ? (
-                  <div className="flow-host__list">
-                    <StepTable
+                <WaysBand
+                  role={role}
+                  mainName={mainName}
+                  href={wayHref}
+                  triggers={ways.triggers}
+                  outputs={ways.outputs}
+                  systems={workflow ? systemsOf(workflow) : []}
+                  place="top"
+                />
+                <div className="flow-host__canvas">
+                  {shown && view === "list" ? (
+                    <div className="flow-host__list">
+                      <StepTable
+                        process={shown}
+                        statuses={statuses}
+                        selected={side === "step" ? selectedId : null}
+                        onSelect={(id) =>
+                          workflow?.triggers.some((t) => t.id === id)
+                            ? selectTrigger(id)
+                            : selectStep(id)
+                        }
+                        label={label}
+                        onAdd={() => askWhere(null)}
+                      />
+                    </div>
+                  ) : shown ? (
+                    <Chart
                       process={shown}
+                      ends={ends}
                       statuses={statuses}
-                      selected={side === "step" ? selectedId : null}
-                      onSelect={(id) =>
-                        workflow?.triggers.some((t) => t.id === id)
-                          ? selectTrigger(id)
-                          : selectStep(id)
+                      selected={
+                        side !== "step" || !selection
+                          ? null
+                          : selection.type === "trigger"
+                            ? FLOW_START_ID
+                            : selection.id
+                      }
+                      folded={folded}
+                      onFold={(id, fold) =>
+                        setFolded((f) => {
+                          const next = new Set(f);
+                          if (fold) next.add(id);
+                          else next.delete(id);
+                          return next;
+                        })
                       }
                       label={label}
-                      onAdd={() => askWhere(null)}
+                      {...chartEvents}
                     />
-                  </div>
-                ) : shown ? (
-                  <Chart
-                    process={shown}
-                    ends={ends}
-                    statuses={statuses}
-                    selected={
-                      side !== "step" || !selection
-                        ? null
-                        : selection.type === "trigger"
-                          ? FLOW_START_ID
-                          : selection.id
-                    }
-                    folded={folded}
-                    onFold={(id, fold) =>
-                      setFolded((f) => {
-                        const next = new Set(f);
-                        if (fold) next.add(id);
-                        else next.delete(id);
-                        return next;
-                      })
-                    }
-                    label={label}
-                    {...chartEvents}
-                  />
-                ) : bundle.workflows.length > 0 ? (
-                  <p className="p-4 text-ink-muted" data-testid="builder-no-workflow">
-                    This agent has no workflow “{slug}”. Pick one above.
-                  </p>
-                ) : null}
+                  ) : bundle.workflows.length > 0 ? (
+                    <p className="p-4 text-ink-muted" data-testid="builder-no-workflow">
+                      This agent has no workflow “{slug}”. Pick one above.
+                    </p>
+                  ) : null}
+                </div>
+                <WaysBand
+                  role={role}
+                  mainName={mainName}
+                  href={wayHref}
+                  triggers={ways.triggers}
+                  outputs={ways.outputs}
+                  systems={[]}
+                  place="bottom"
+                />
               </div>
             </div>
 
@@ -2603,29 +2671,37 @@ function WorkflowSwitcher({
   onAdd(): void;
   view: FlowView;
 }) {
+  // Triggers and outputs (2026-11-23): a tab says what its workflow is, after its name.
+  const roles = useMemo(() => processes.workflowRoles(bundle.workflows), [bundle]);
   return (
     <nav
       aria-label="Workflows"
       className="inline-flex max-w-full flex-wrap items-center gap-1 rounded-md border border-line bg-surface p-1"
     >
       {bundle.workflows.length > 1
-        ? bundle.workflows.map((w) => (
-            <Link
-              key={w.slug}
-              to={`${base}/${view === "list" ? "steps" : "workflows"}/${w.slug}`}
-              data-testid={`builder-workflow-${w.slug}-select`}
-              aria-current={w.slug === current ? "page" : undefined}
-              className={cx(
-                "rounded-sm px-2.5 py-1 text-sm",
-                w.slug === current
-                  ? "bg-slate-tint font-medium text-ink"
-                  : "text-ink-muted hover:bg-surface-subtle hover:text-ink",
-              )}
-            >
-              {w.name}
-              {w.enabled ? "" : " · off"}
-            </Link>
-          ))
+        ? bundle.workflows.map((w) => {
+            const r = roles.get(w.slug)?.role;
+            return (
+              <Link
+                key={w.slug}
+                to={`${base}/${view === "list" ? "steps" : "workflows"}/${w.slug}`}
+                data-testid={`builder-workflow-${w.slug}-select`}
+                aria-current={w.slug === current ? "page" : undefined}
+                className={cx(
+                  "rounded-sm px-2.5 py-1 text-sm",
+                  w.slug === current
+                    ? "bg-slate-tint font-medium text-ink"
+                    : "text-ink-muted hover:bg-surface-subtle hover:text-ink",
+                )}
+              >
+                {w.name}
+                {w.enabled ? "" : " · off"}
+                {r === "trigger" || r === "output" ? (
+                  <RoleChip role={r} className="ml-1.5" />
+                ) : null}
+              </Link>
+            );
+          })
         : null}
       <button
         type="button"

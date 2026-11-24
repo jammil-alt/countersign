@@ -362,7 +362,15 @@ export type PaletteItem =
   | { type: "notify"; key: string; title: string; detail: string }
   | { type: "logic"; key: string; title: string; detail: string; logic: LogicKind }
   // Hand off (owner, 2026-11-11): another agent of the client, started at one of its steps.
-  | { type: "handoff"; key: string; title: string; detail: string };
+  | {
+      type: "handoff";
+      key: string;
+      title: string;
+      detail: string;
+      /** Triggers and outputs (2026-11-23): a hand-off placed already pointed (a hand-in). */
+      to?: { agent: string; step: string; workflow?: string };
+      name?: string;
+    };
 
 /** "testkit.record.update" → "Update a record": the tool's label (workflow/labels.ts). */
 export function toolTitle(tool: Pick<ToolSpec, "id">): string {
@@ -479,7 +487,13 @@ export function createStep(item: PaletteItem, ctx: TypingContext, newId: NewId =
       };
     // Hand off: the inspector's pickers choose the agent and the step.
     case "handoff":
-      return { id, kind: "handoff", name: "Hand off", to: { agent: "", step: "" }, input: {} };
+      return {
+        id,
+        kind: "handoff",
+        name: item.name ?? "Hand off",
+        to: item.to ? { ...item.to } : { agent: "", step: "" },
+        input: {},
+      };
     case "logic":
       switch (item.logic) {
         case "if":
