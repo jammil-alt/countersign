@@ -10,7 +10,9 @@ import {
   type ReportFile,
   reportFormatOf,
   reportPeriod,
+  reportEventType,
   requestPurpose,
+  triggerReport,
 } from "./collect";
 import { CollectStep } from "./schema";
 import { whoRefsOfStep } from "./seats";
@@ -362,6 +364,63 @@ describe("validation", () => {
     expect(codes(reads("bank.rowCount"))).toEqual([]);
     expect(codes(reads("bank.rows.0.vendor"))).not.toEqual([]);
     expect(codes(reads("card.rows"))).not.toEqual([]);
+  });
+
+  it("takes a report trigger only on the first step, a collect step, once", () => {
+    const withTrigger = (steps: unknown[], triggers: unknown[]) => ({
+      schemaVersion: 4,
+      triggers,
+      steps,
+    });
+    const report = { id: "t1", on: { type: "report", step: "c1" } };
+    const notify = {
+      id: "n1",
+      kind: "notify",
+      name: "Tell",
+      notify: { to: ["client_admin"], message: "{{steps.c1.output.summary}}" },
+    };
+    expect(codes(withTrigger([step(), notify], [report]))).toEqual([]);
+    // Not first, not a collect step, twice.
+    expect(codes(withTrigger([notify, step()], [report]))).toContain("report_trigger");
+    expect(
+      codes(withTrigger([step(), notify], [{ id: "t1", on: { type: "report", step: "n1" } }])),
+    ).toContain("report_trigger");
+    expect(
+      codes(
+        withTrigger([step(), notify], [report, { id: "t2", on: { type: "report", step: "c1" } }]),
+      ),
+    ).toContain("report_trigger");
+  });
+
+  it("types what a report trigger starts a run with", () => {
+    const p = processOf([
+      step(),
+      {
+        id: "n1",
+        kind: "notify",
+        name: "Tell",
+        notify: { to: ["client_admin"], message: "{{trigger.report.item}} came first" },
+      },
+    ]);
+    (p as { triggers: unknown[] }).triggers = [{ id: "t1", on: { type: "report", step: "c1" } }];
+    expect(codes(p)).toEqual([]);
+  });
+
+  it("reads the report a run's trigger brought to its step", () => {
+    const payload = {
+      report: {
+        step: "c1",
+        item: "bank",
+        documents: ["d1"],
+        contactId: "x",
+        proven: false,
+        receivedAt: "2026-12-01T00:00:00Z",
+      },
+    };
+    expect(triggerReport(payload, "c1")).toMatchObject({ item: "bank", documents: ["d1"] });
+    expect(triggerReport(payload, "c2")).toBeNull();
+    expect(triggerReport({}, "c1")).toBeNull();
+    expect(reportEventType("C1", "Bank_1")).toBe("report-c1-bank-1");
   });
 
   it("refuses a list that could take too many steps", () => {
