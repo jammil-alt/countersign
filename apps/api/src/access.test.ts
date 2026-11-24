@@ -11,12 +11,13 @@ import {
   generateEncryptionKey,
   tenantKeysInDb,
 } from "@countersign/connectors";
-import { allRoutes, routes } from "@countersign/core";
+import { allRoutes, type ConnectorStatus, routes } from "@countersign/core";
 import {
   agent,
   agentChange,
   connection,
   connectionChange,
+  connectorSetting,
   tenant,
   tenantKey,
 } from "@countersign/db";
@@ -363,5 +364,82 @@ describe.skipIf(!h)("access: the vault, write-only secrets and grants", () => {
     const vault = master.forClients(tenantKeysInDb(H.db));
     expect(await vault.decrypt(row?.credentialsEncrypted, binding)).toEqual({ token: "t-1" });
     expect((await vaultUpkeep(H.db, master)).reencrypted).toBe(0);
+  });
+});
+
+// Connectors C4 (docs/connectors-plan.md §3.1, §6): a live connector is on every client's
+// Connectors list with its page, offered or not. Client C was never offered Acme; its page's
+// "Enter key" needs Acme's form in `setup`, which listed offered connectors only.
+describe.skipIf(!h)("access: the key form of a live connector we never offered", () => {
+  const H = h as NonNullable<typeof h>;
+  const call = H.call.bind(H);
+  const view = async (who: string) =>
+    routes.portalAccess.response.parse((await call(who, "GET", routes.portalAccess.path)).json);
+  const forms = async (who: string) => (await view(who)).setup.map((s) => s.connector);
+  const acmeSetting = (values: { status: ConnectorStatus; clients: string[] | null }) =>
+    H.t.db
+      .insert(connectorSetting)
+      .values({ connector: "acme", ...values })
+      .onConflictDoUpdate({ target: connectorSetting.connector, set: values });
+  const clearSetting = () =>
+    H.t.db.delete(connectorSetting).where(eq(connectorSetting.connector, "acme"));
+
+  it("lists it for the client admin, with its fields", async () => {
+    const [c] = await H.t.db.select().from(tenant).where(eq(tenant.id, H.C.tenantId));
+    expect(c?.settings.connectors_offered).toEqual(["testkit"]);
+    // The page is there, as the Connectors list says.
+    const page = await call(admin("c"), "GET", "/api/portal/connectors/acme");
+    expect(page.status, JSON.stringify(page.json)).toBe(200);
+    expect((await view(admin("c"))).setup).toEqual([
+      {
+        connector: "acme",
+        name: "Acme supplies",
+        description: "A supplier's API",
+        fields: [
+          { name: "username", label: "Username", secret: false },
+          { name: "password", label: "Password", secret: true, hint: "From Acme's settings" },
+        ],
+      },
+    ]);
+    // A client user still sets nothing up.
+    expect(await forms(user("c"))).toEqual([]);
+  });
+
+  it("leaves it out where the Connectors list does", async () => {
+    const path = "/api/connections/acme/credentials";
+    const body = { values: { username: "agent@c.example.com", password: PASSWORD } };
+    try {
+      // Built for client A alone: no other client sees it, offered (B) or not (C).
+      await acmeSetting({ status: "live", clients: [H.A.tenantId] });
+      expect(await forms(admin("c"))).toEqual([]);
+      expect(await forms(admin("b"))).toEqual([]);
+      expect((await call(admin("c"), "PUT", path, body)).status).toBe(404);
+      // Not live yet: only a client we offered it to (B) may set it up.
+      await acmeSetting({ status: "building", clients: null });
+      expect(await forms(admin("c"))).toEqual([]);
+      expect(await forms(admin("b"))).toEqual(["acme"]);
+      // In beta it is on the list again.
+      await acmeSetting({ status: "beta", clients: null });
+      expect(await forms(admin("c"))).toEqual(["acme"]);
+    } finally {
+      await clearSetting();
+    }
+  });
+
+  it("takes the key, and the form goes once the connector is connected", async () => {
+    const res = await call(admin("c"), "PUT", "/api/connections/acme/credentials", {
+      values: { username: "agent@c.example.com", password: PASSWORD },
+    });
+    expect(res.status, JSON.stringify(res.json)).toBe(200);
+    const { item } = routes.portalSetCredentials.response.parse(res.json);
+    expect(item).toMatchObject({ connector: "acme", kind: "api_key", status: "connected" });
+    const after = await view(admin("c"));
+    expect(after.setup).toEqual([]);
+    expect(after.items.map((i) => i.connector)).toContain("acme");
+    expect(JSON.stringify(after)).not.toContain(PASSWORD);
+    // Nothing of C's shows to another client.
+    expect((await view(admin("b"))).items.some((i) => i.connectionId === item.connectionId)).toBe(
+      false,
+    );
   });
 });
