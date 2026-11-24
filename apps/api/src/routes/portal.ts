@@ -379,6 +379,11 @@ export async function portalConnections(
   only?: string,
   /** The signed-in person, for `connectedByYou`. */
   viewerId?: string,
+  /**
+   * Connectors to list though we never offered them: one the caller has checked the client may
+   * connect (`connectableTo`: Connectors C4 shows every live connector, offered or not).
+   */
+  also: readonly string[] = [],
 ): Promise<
   {
     connector: string;
@@ -436,7 +441,7 @@ export async function portalConnections(
   const ids = (
     only
       ? rows.map((r) => r.connector)
-      : [...new Set([...builtIn, ...offered, ...rows.map((r) => r.connector)])]
+      : [...new Set([...builtIn, ...offered, ...also, ...rows.map((r) => r.connector)])]
   ).filter((id) => {
     const m = platform.connectors.get(id)?.manifest;
     return (

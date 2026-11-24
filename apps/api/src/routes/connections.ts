@@ -162,7 +162,13 @@ export async function connectNoAuth(
   return row.id;
 }
 
-/** The portal entry for one connector (its connection may be null: not signed in yet). */
+/**
+ * The portal entry for one connector (its connection may be null: not signed in yet). The caller
+ * has checked the client may connect it (`offeredTo`).
+ */
+// DECISION (staging, 2026-11-24): the entry is built for the connector asked for, offered or not.
+// Since Connectors C4 a live connector has its page and Connect for every client; the list this
+// reads held only offered and connected ones, so Connect on one we never offered answered 404.
 async function connectorOut(
   tx: Tx,
   tenantId: string,
@@ -170,7 +176,7 @@ async function connectorOut(
   connectorId: string,
   viewerId?: string,
 ) {
-  const all = await portalConnections(tx, tenantId, platform, undefined, viewerId);
+  const all = await portalConnections(tx, tenantId, platform, undefined, viewerId, [connectorId]);
   const out = all.find((x) => x.connector === connectorId);
   if (!out) throw notFound("connector");
   return out;

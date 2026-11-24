@@ -486,6 +486,23 @@ describe.skipIf(!h)("connectors through the API", () => {
       );
     });
 
+    it("starts the sign-in for a client we never offered Zoho to, as its page's Connect does", async () => {
+      // Connectors C4: a live connector is on every client's Connectors list and has its page
+      // there, offered or not. Client A was never offered Zoho CRM (staging, 2026-11-24: Connect
+      // answered "Not found.").
+      const page = await H.call(admin("a"), "GET", "/api/portal/connectors/zoho_crm");
+      expect(page.status, JSON.stringify(page.json)).toBe(200);
+      expect(j(page.json).connector).toMatchObject({ connector: "zoho_crm", available: true });
+      const start = await H.call(admin("a"), "POST", "/api/connections/zoho_crm/authorize");
+      expect(start.status, JSON.stringify(start.json)).toBe(200);
+      expect(new URL(j(start.json).redirectUrl).origin).toBe("https://accounts.zoho.com");
+      expect(j(start.json).connection).toMatchObject({
+        connector: "zoho_crm",
+        available: true,
+        connection: null,
+      });
+    });
+
     it("runs a read tool, then an approved update once, with the fields' before state", async () => {
       const LEAD = "5843104000000424672";
       await makeAgent(
