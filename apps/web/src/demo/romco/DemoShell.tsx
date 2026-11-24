@@ -9,7 +9,7 @@ import { Logo, LogoMark } from "../../ui/brand";
 import { Icon } from "../../ui/icons";
 import { Count, cx } from "../../ui/primitives";
 import { CLIENT, INVOICE_ID, UCC_ID } from "./people";
-import { STOPS, useDemo } from "./state";
+import { STOPS, stateAt, useDemo } from "./state";
 
 export function useWaiting(): number {
   const { state } = useDemo();
@@ -125,19 +125,27 @@ let lastStop = 0;
 export function TourBar() {
   const { pathname, hash } = useLocation();
   const navigate = useNavigate();
-  const { reset } = useDemo();
+  const { reset, set, state } = useDemo();
   const [open, setOpen] = useState(false);
   const here = `${pathname}${hash}`;
   // A page can be two stops (the Inbox, before and after the forms): the one nearest after the last.
   const match = (path: string) => STOPS.flatMap((s, i) => (s.path === path ? [i] : []));
   const hits = match(here).length > 0 ? match(here) : match(pathname);
-  const at = hits.find((i) => i >= lastStop) ?? hits[hits.length - 1] ?? -1;
+  // Two stops on one page (the Inbox) are told apart by where the run is: forms or report to sign.
+  const same = (i: number) => {
+    const want = stateAt(i);
+    return (Object.keys(want) as (keyof typeof want)[]).every((k) => want[k] === state[k]);
+  };
+  const at = hits.find(same) ?? hits.find((i) => i >= lastStop) ?? hits[hits.length - 1] ?? -1;
   if (at >= 0) lastStop = at;
   const stop = at >= 0 ? STOPS[at] : null;
   const go = (i: number) => {
     const s = STOPS[i];
     lastStop = Math.max(0, i);
-    if (s) navigate(s.path);
+    if (s) {
+      set(stateAt(i));
+      navigate(s.path);
+    }
     setOpen(false);
   };
   return (

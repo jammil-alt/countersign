@@ -163,3 +163,19 @@ export const STOPS: Stop[] = [
     hint: "The report email to Dana and the regional managers. End of the run.",
   },
 ];
+
+/**
+ * Where the run is at each stop, so Next and Back show the story at that point whether or not the
+ * presenter clicked Sign and Send on the way: before the forms go (stops 1 to 12), forms out with
+ * Marcus's due (13, 14), all six back (15 to 19), report sent (20).
+ */
+export function stateAt(stop: number): DemoState {
+  const signForms = STOPS.findIndex((s) => s.title.startsWith("7."));
+  const form = STOPS.findIndex((s) => s.path === "/f/marcus");
+  const sent = STOPS.findIndex((s) => s.path === "/mail/report");
+  return {
+    formsSent: stop > signForms,
+    marcusDone: stop > form,
+    reportSent: stop >= sent,
+  };
+}
