@@ -74,6 +74,9 @@ const CODE_KEYS: Record<string, PlainKey> = {
   invalid_hours: "error.invalid_hours",
   // Wave 4: a recorded click on a button that sends a form, not marked as the one that does.
   sends_form: "error.sends_form",
+  // docs/plan.md §1.243: one open sandbox run per agent, and the day's sandbox runs.
+  sandbox_running: "error.sandbox_running",
+  sandbox_limit: "error.sandbox_limit",
 };
 
 /**

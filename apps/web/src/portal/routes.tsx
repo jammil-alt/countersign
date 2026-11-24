@@ -77,6 +77,13 @@ const BooksHealthScreen = lazy(() =>
   import("../books-health/BooksHealth").then((m) => ({ default: m.PortalBooksHealthScreen })),
 );
 // §1.234: the work statement, for the client admin, from Billing and the invoice's email.
+// docs/plan.md §1.243: the sandbox and a sandbox run load when opened.
+const PortalSandboxScreen = lazy(() =>
+  import("./screens/Sandbox").then((m) => ({ default: m.PortalSandboxScreen })),
+);
+const PortalSandboxRunScreen = lazy(() =>
+  import("./screens/Sandbox").then((m) => ({ default: m.PortalSandboxRunScreen })),
+);
 const WorkStatementScreen = lazy(() =>
   import("./screens/WorkStatement").then((m) => ({ default: m.PortalWorkStatementScreen })),
 );
@@ -92,11 +99,28 @@ const OnDemand = ({ children }: { children: ReactNode }) => (
 
 export const portalRoutes = (
   <>
-    {/* The sidebar: Home, Inbox, Runs, Connectors, Contacts */}
+    {/* The sidebar: Home, Inbox, Runs, Sandbox, Connectors, Contacts */}
     <Route index element={<HomeScreen />} />
     <Route path="inbox" element={<PortalInboxScreen />} />
     <Route path="runs" element={<PortalRunsScreen />} />
     <Route path="runs/:id" element={<PortalRunScreen />} />
+    {/* docs/plan.md §1.243: the sandbox, and one sandbox run */}
+    <Route
+      path="sandbox"
+      element={
+        <OnDemand>
+          <PortalSandboxScreen />
+        </OnDemand>
+      }
+    />
+    <Route
+      path="sandbox/:runId"
+      element={
+        <OnDemand>
+          <PortalSandboxRunScreen />
+        </OnDemand>
+      }
+    />
     {/* Connectors C5 (docs/connectors-plan.md §3): the client's tools, and each one's page */}
     <Route
       path="connectors"

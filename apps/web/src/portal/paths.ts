@@ -15,6 +15,9 @@ export const PORTAL_PATHS = {
     agentId ? `/getting-started/live/${agentId}` : "/getting-started/live",
   inbox: "/inbox",
   runs: "/runs",
+  // docs/plan.md §1.243: the sandbox, an agent run on your own data that writes nothing; one run.
+  sandbox: "/sandbox",
+  sandboxRun: (runId: string) => `/sandbox/${runId}`,
   // DECISION: the portal addresses an agent by its service id (`/agents/:id`), not a slug: every
   // portal route takes the service id, so no lookup is needed (the service route names the
   // template's slug only to pick the agent's own view).

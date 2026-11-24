@@ -38,7 +38,7 @@ import { usePoll } from "../../runs/usePoll";
 import { useAssignedAgents, useSession } from "../../session/session";
 import { HeaderSwitcher } from "../../shell/HeaderSwitcher";
 import { AgentBadge } from "../../ui/badges";
-import { Field, Select, TextArea, TextInput } from "../../ui/forms";
+import { Field, TextArea } from "../../ui/forms";
 import { Loaded, Page, PageGrid, Section } from "../../ui/page";
 import {
   Badge,
@@ -63,6 +63,7 @@ import { type ChipState, StatusChip } from "../../ui/status";
 import { stageWord } from "../agentState";
 import { useKnownAgent, useRememberRuns } from "../known";
 import { PORTAL_PATHS } from "../paths";
+import { type FieldSpec, formFields, formInput, RunFormFields } from "../runForm";
 import { agentChip, runOpen } from "../status";
 import { AgentFiguresStrip, RunRows } from "./agentParts";
 import { APPROVED, KIND_LABEL } from "./Home";
@@ -70,6 +71,9 @@ import { TAB_WORDS as RUN_TAB_WORDS, TABS as RUN_TABS, type Tab as RunTab } from
 import { DropZone, Forwarding, RecentDocuments } from "./Upload";
 
 const RUN_POLL_MS = 5_000;
+
+// The form helpers moved to ../runForm (the sandbox draws the same forms); kept here for callers.
+export { formFields };
 
 // docs/sop-plan.md S1: the SOP tab (in the Manual tab's place) is its own chunk, with its route's
 // schema, fetched when it opens.
@@ -1097,44 +1101,6 @@ function reachOf(id: string, list: ResponseOf<typeof connectorAccessRoutes.porta
 
 // ── Run now ──────────────────────────────────────────────────────────────────────────────────────
 
-type FieldSpec = {
-  key: string;
-  label: string;
-  kind: "text" | "number" | "boolean" | "choice";
-  choices: string[];
-  required: boolean;
-};
-
-/**
- * A run form's fields, when every field is plain (text, a number, yes or no, one of a list).
- * Null for a form we can't draw yet; it is left out (the Desk and the lead start those runs).
- */
-export function formFields(input: Record<string, unknown>): FieldSpec[] | null {
-  const props = input.properties;
-  if (props === undefined) return [];
-  if (typeof props !== "object" || props === null) return null;
-  const required = Array.isArray(input.required) ? (input.required as unknown[]) : [];
-  const out: FieldSpec[] = [];
-  for (const [key, raw] of Object.entries(props)) {
-    if (typeof raw !== "object" || raw === null) return null;
-    const p = raw as Record<string, unknown>;
-    const label = typeof p.title === "string" ? p.title : key;
-    const base = { key, label, required: required.includes(key), choices: [] as string[] };
-    if (Array.isArray(p.enum) && p.enum.every((v) => typeof v === "string")) {
-      out.push({ ...base, kind: "choice", choices: p.enum as string[] });
-    } else if (p.type === "string") {
-      out.push({ ...base, kind: "text" });
-    } else if (p.type === "number" || p.type === "integer") {
-      out.push({ ...base, kind: "number" });
-    } else if (p.type === "boolean") {
-      out.push({ ...base, kind: "boolean" });
-    } else {
-      return null;
-    }
-  }
-  return out;
-}
-
 function RunNow({ id, name, forms }: { id: string; name: string; forms: FormList }) {
   const { t } = useI18n();
   const usable = forms.flatMap((f) => {
@@ -1178,14 +1144,7 @@ function RunFormRow({
     setBusy(true);
     setError(null);
     setStarted(null);
-    const input = Object.fromEntries(
-      fields.flatMap((f) => {
-        const v = values.get(f.key);
-        if (f.kind === "boolean") return [[f.key, v === true]];
-        if (v === undefined || v === "") return [];
-        return [[f.key, f.kind === "number" ? Number(v) : v]];
-      }),
-    );
+    const input = formInput(fields, values);
     try {
       const { runId } = await api.call(apiRoutes.portalRunNow, {
         params: { id, slug: form.workflow },
@@ -1207,43 +1166,7 @@ function RunFormRow({
       data-testid={`agent-run-form-${form.workflow}`}
     >
       <span className="font-medium text-ink">{form.label}</span>
-      {fields.map((f) =>
-        f.kind === "boolean" ? (
-          <label key={f.key} className="flex items-center gap-2 text-sm text-ink">
-            <input
-              type="checkbox"
-              className="size-4 accent-slate"
-              checked={values.get(f.key) === true}
-              onChange={(e) => set(f.key, e.target.checked)}
-            />
-            {f.label}
-          </label>
-        ) : (
-          <Field key={f.key} label={f.label}>
-            {f.kind === "choice" ? (
-              <Select
-                required={f.required}
-                value={String(values.get(f.key) ?? "")}
-                onChange={(e) => set(f.key, e.target.value)}
-              >
-                <option value="" />
-                {f.choices.map((c) => (
-                  <option key={c} value={c}>
-                    {c}
-                  </option>
-                ))}
-              </Select>
-            ) : (
-              <TextInput
-                type={f.kind === "number" ? "number" : "text"}
-                required={f.required}
-                value={String(values.get(f.key) ?? "")}
-                onChange={(e) => set(f.key, e.target.value)}
-              />
-            )}
-          </Field>
-        ),
-      )}
+      <RunFormFields fields={fields} values={values} onChange={set} />
       {error ? <ErrorNotice error={error} /> : null}
       {started ? (
         <p role="status" className="text-sm text-ink">
