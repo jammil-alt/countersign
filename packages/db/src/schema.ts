@@ -146,20 +146,64 @@ const usd = (name: string) => numeric(name, { precision: 14, scale: 4 }).notNull
 // ── Global tables (no tenant_id, no RLS; read by packages/auth) ────────────────────────────────
 
 /** A client. */
-export const tenant = pgTable("tenant", {
-  id: id(),
-  name: text("name").notNull(),
-  timezone: text("timezone").notNull().default("UTC"),
-  /** e.g. `connectors_offered`, `approvals.external_actions`. */
-  settings: json("settings").notNull().default({}),
-  workosOrganizationId: text("workos_organization_id").unique(),
-  createdAt: createdAt(),
-  /**
-   * When the operator retired the client (offboarding, docs/plan.md §1.35): nobody signs in to it,
-   * no agent runs for it, and its data is purged once the retention period has passed.
-   */
-  retiredAt: ts("retired_at"),
-});
+export const tenant = pgTable(
+  "tenant",
+  {
+    id: id(),
+    name: text("name").notNull(),
+    timezone: text("timezone").notNull().default("UTC"),
+    /** e.g. `connectors_offered`, `approvals.external_actions`. */
+    settings: json("settings").notNull().default({}),
+    workosOrganizationId: text("workos_organization_id").unique(),
+    createdAt: createdAt(),
+    /**
+     * When the operator retired the client (offboarding, docs/plan.md §1.35): nobody signs in to it,
+     * no agent runs for it, and its data is purged once the retention period has passed.
+     */
+    retiredAt: ts("retired_at"),
+    /**
+     * Lockdown (docs/plan.md §1.243, docs/lockdown-plan.md): while set, nothing reads or writes the
+     * client's data, its tools or its model calls, and its people can't sign in. Enforced in
+     * `app_scope_tenant_ids`, which every client scope goes through. Set with `lock`, cleared with it.
+     */
+    lockedAt: ts("locked_at"),
+    lock: json<TenantLock>("lock"),
+  },
+  (t) => [
+    check("tenant_lock_check", sql`(${t.lockedAt} is null) = (${t.lock} is null)`),
+    check("tenant_lock_object_check", sql`${t.lock} is null or jsonb_typeof(${t.lock}) = 'object'`),
+  ],
+);
+
+/** Who locked a client, when, why and from which side; what came in while it was locked. */
+export interface TenantLock {
+  side: "operator" | "client";
+  by: string;
+  at: string;
+  reason: string;
+  /** Inbound answered and dropped while locked, by kind (`webhook`, `email`, …): counts only. */
+  inbound?: Record<string, number>;
+}
+
+/**
+ * Lockdown of every client at once (docs/plan.md §1.243): one row at most, present while locked.
+ * Unlocking deletes it; each lock and unlock is in the audit log.
+ */
+export const platformLock = pgTable(
+  "platform_lock",
+  {
+    id: boolean("id").primaryKey().default(true),
+    lockedBy: uuid("locked_by")
+      .notNull()
+      .references(() => appUser.id),
+    lockedAt: ts("locked_at").notNull().defaultNow(),
+    reason: text("reason").notNull(),
+  },
+  (t) => [
+    check("platform_lock_one_row_check", sql`${t.id}`),
+    check("platform_lock_reason_check", sql`length(${t.reason}) between 1 and 500`),
+  ],
+);
 
 export const appUser = pgTable("app_user", {
   id: id(),
