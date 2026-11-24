@@ -70,7 +70,6 @@ import {
   skill,
   skillVersion,
   stepRun,
-  tenant,
   tenantChange,
   tenantKey,
   tenantPack,
@@ -168,7 +167,10 @@ let counter = 0;
 
 export async function insertClient(db: Db, name: string): Promise<ClientFixture> {
   const n = ++counter;
-  const [t] = await db.insert(tenant).values({ name }).returning();
+  // Named columns only, as membership below: 0101's `locked_at` and `lock` are missing on a
+  // database stopped at an earlier migration.
+  const [t] = await db.$client<{ id: string }[]>`
+    insert into tenant (name) values (${name}) returning id`;
   if (!t) throw new Error("no tenant");
   const tenantId = t.id;
   const [u] = await db
