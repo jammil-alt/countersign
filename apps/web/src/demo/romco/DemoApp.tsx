@@ -126,7 +126,7 @@ function Home() {
           to={`/agents/${INVOICE_ID}`}
           id={INVOICE_ID}
           name="Invoice CRM update"
-          line="Next: keeps each account's purchases in the CRM up to date"
+          line="Next: keeps each account's purchases in Zoho CRM up to date"
           chip={<StatusChip state="setup">Setting up</StatusChip>}
         />
       </div>
@@ -176,7 +176,7 @@ function Sloan() {
           <p>
             That's part of the UCC filings review's SOP (SOP-SAL-04, revision 0.3). It runs on rules
             first; AI steps use Claude Sonnet 5.5 and the analysis uses Claude Opus 5.5. Nothing is
-            emailed until you sign, and the agent can only read the CRM.
+            emailed until you sign, and the agent can only read Zoho CRM.
           </p>
           <p className="mt-2">
             If something in it should change, use "This is wrong" on the line and we'll pick it up

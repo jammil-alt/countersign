@@ -466,7 +466,7 @@ function Match() {
           note="bought elsewhere, not quoted"
           tone="copper"
         />
-        <StatTile label="New to ROMCO" value="45" note="not in the CRM" tone="copper" />
+        <StatTile label="New to ROMCO" value="45" note="not in Zoho CRM" tone="copper" />
       </KpiStrip>
       <div className="mt-4 flex flex-col gap-2">
         <ShareBar won={17} lost={24} existing={52} fresh={45} big />
@@ -475,7 +475,7 @@ function Match() {
       <How>
         In order: deals first (same customer and equipment, closed in the 120 days before), then
         accounts by name, address or phone. Rules, then <b>Claude Sonnet 5.5</b> for names that
-        differ. The CRM is read only.
+        differ. Zoho CRM is read only.
       </How>
       <div className="mt-4 flex flex-wrap items-center gap-3">
         <fieldset className="ds-seg flex-wrap" aria-label="Show">
@@ -503,7 +503,7 @@ function FilingTable({ rows }: { rows: Filing[] }) {
               <th>Debtor</th>
               <th>Equipment</th>
               <th>Group</th>
-              <th>Matched to</th>
+              <th>Matched in Zoho CRM</th>
               <th className="n">Sure</th>
             </tr>
           </thead>
@@ -523,12 +523,12 @@ function FilingTable({ rows }: { rows: Filing[] }) {
                 <td className="text-sm">
                   {f.deal ? (
                     <>
-                      <span className="font-mono text-xs">{f.deal.id}</span> {f.deal.name}
+                      <span className="font-mono text-xs">Deal {f.deal.id}</span> {f.deal.name}
                       <span className="block text-xs text-ink-muted">{f.why}</span>
                     </>
                   ) : f.account ? (
                     <>
-                      <span className="font-mono text-xs">{f.account.id}</span> client since{" "}
+                      <span className="font-mono text-xs">Account {f.account.id}</span> client since{" "}
                       {f.account.since}
                       <span className="block text-xs text-ink-muted">{f.why}</span>
                     </>

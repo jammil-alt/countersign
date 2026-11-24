@@ -89,7 +89,7 @@ export const STOPS: Stop[] = [
   {
     path: `${AGENT}/settings`,
     title: "Access",
-    hint: "What it may do in each of ROMCO's tools. The CRM is read only; Gmail asks first.",
+    hint: "What it may do in each of ROMCO's tools. Zoho CRM is read only; Gmail asks first.",
   },
   {
     path: RUN("receive"),

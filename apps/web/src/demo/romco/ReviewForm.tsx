@@ -187,7 +187,7 @@ export function ReviewForm() {
       <Part
         n={1}
         title="Deals you worked"
-        lede="These matched your deals in the CRM. Confirm they're yours; add anything we should know."
+        lede="These matched your deals in Zoho CRM. Confirm they're yours; add anything we should know."
       >
         {DEALS.map((f) => (
           <Row key={f.id} f={f} x={get(f.id)} put={(p) => put(f.id, p)} bad={bad.has(f.id)} />
@@ -197,7 +197,7 @@ export function ReviewForm() {
       <Part
         n={2}
         title="Existing clients we didn't quote"
-        lede="These are ROMCO accounts that bought without a deal in the CRM. Why didn't we get a shot?"
+        lede="These are ROMCO accounts that bought without a deal in Zoho CRM. Why didn't we get a shot?"
       >
         {EXISTING.map((f) => (
           <Row key={f.id} f={f} x={get(f.id)} put={(p) => put(f.id, p)} bad={bad.has(f.id)}>
@@ -222,7 +222,7 @@ export function ReviewForm() {
       <Part
         n={3}
         title="New to ROMCO"
-        lede="These buyers aren't in the CRM. Were they on your radar, and what's next?"
+        lede="These buyers aren't in Zoho CRM. Were they on your radar, and what's next?"
       >
         {NEW.map((f) => (
           <Row key={f.id} f={f} x={get(f.id)} put={(p) => put(f.id, p)} bad={bad.has(f.id)}>

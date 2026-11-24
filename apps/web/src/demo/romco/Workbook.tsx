@@ -56,7 +56,7 @@ const SHEETS: Sheet[] = [
       "Lender",
       "Equipment",
       "Group",
-      "Deal or account",
+      "Zoho CRM deal or account",
       "Sales manager",
     ],
     num: [],

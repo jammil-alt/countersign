@@ -200,7 +200,7 @@ export function Report() {
       </Card>
       <p className="text-xs text-ink-muted">
         Every figure links to its filings in run {RUN_LABEL}. Sources: the October Texas UCC file,
-        ROMCO CRM (read only), Territories by ZIP, and the six sales managers' forms.
+        Zoho CRM (read only), Territories by ZIP, and the six sales managers' forms.
       </p>
     </div>
   );

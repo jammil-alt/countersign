@@ -2,6 +2,7 @@
 // figures, then the tabs. Workflow and SOP are the real tabs' components on the demo's SOP view.
 import type { ReactNode } from "react";
 import { Link } from "react-router-dom";
+import { ConnectorMark } from "../../connections/ConnectorMark";
 import { WorkflowView } from "../../portal/screens/AgentWorkflow";
 import { WrongForm } from "../../portal/screens/LineFeedback";
 import { SopDocument } from "../../sop/SopDocument";
@@ -279,9 +280,14 @@ function Settings() {
               <tbody>
                 {UCC_SOP.systems.map((s) => (
                   <tr key={s.id}>
-                    <td className="dt-who">
-                      <b>{s.name}</b>
-                      <span>Steps {s.steps.join(", ")}</span>
+                    <td>
+                      <span className="flex items-center gap-3">
+                        <ConnectorMark name={s.name} connector={s.key} size="sm" />
+                        <span className="dt-who">
+                          <b>{s.name}</b>
+                          <span>Steps {s.steps.join(", ")}</span>
+                        </span>
+                      </span>
                     </td>
                     <td className="text-sm">{s.account}</td>
                     <td>{s.read ? LEVEL[s.read] : "–"}</td>
@@ -358,7 +364,7 @@ export function InvoicePage() {
         leading={<AgentBadge name="Invoice CRM update" seed={INVOICE_ID} size="lg" />}
         title="Invoice CRM update"
         badge={<StatusChip state="setup">Setting up</StatusChip>}
-        subtitle="Reads ROMCO's invoices and keeps each account's purchases in the CRM up to date."
+        subtitle="Reads ROMCO's invoices and keeps each account's purchases in Zoho CRM up to date."
       />
       <Card pad>
         <p className="text-ink">
