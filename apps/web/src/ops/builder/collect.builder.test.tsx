@@ -134,6 +134,15 @@ describe("the collect step's form", () => {
     expect(processes.collectProblems(last as CollectStep)).toEqual([]);
   });
 
+  it("tells the operator the step's email tag", () => {
+    render(
+      <ApiProvider client={fakeApi({}).client}>
+        <Harness onStep={() => {}} />
+      </ApiProvider>,
+    );
+    expect(screen.getByTestId("builder-collect-email")).toHaveTextContent("+c1");
+  });
+
   it("turns the escalation off and on, and keeps one report at least", async () => {
     let last: CollectStep | undefined;
     const user = userEvent.setup();

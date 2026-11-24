@@ -288,6 +288,35 @@ describe("collecting reports", () => {
   });
 });
 
+describe("the step's email address", () => {
+  it("names the step's address in every link, asked once", async () => {
+    const { h, asks } = harness({
+      "c1:0:r2:ask": { outcome: "submitted", documents: ["doc-bank"] },
+    });
+    const { port } = checks();
+    const asked: unknown[] = [];
+    const withAddress: CollectPort = {
+      ...port,
+      address: async (req) => {
+        asked.push(req);
+        return `remy.acme-x+${req.stepId.toLowerCase()}@in.mezonas.test`;
+      },
+    };
+    const result = await executeWorkflow(
+      new FakeStepRunner(),
+      h.context({ collect: withAddress }),
+      proc([collect({ items: [report("bank")] })]),
+      {},
+    );
+    expect(result.status).toBe("succeeded");
+    expect(asked).toEqual([{ tenantId: RUN.tenantId, agentId: RUN.agentId, stepId: "c1" }]);
+    expect(asks.map((a) => (a.input as { purpose: string }).purpose)).toEqual([
+      expect.stringContaining("You can also email it to remy.acme-x+c1@in.mezonas.test."),
+      expect.stringContaining("You can also email it to remy.acme-x+c1@in.mezonas.test."),
+    ]);
+  });
+});
+
 describe("escalating a late report", () => {
   const escalate = {
     to: "client_admin",

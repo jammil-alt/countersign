@@ -17,6 +17,7 @@ import { receiveSloanEmail } from "./account/reach";
 import { receiveBackOfficeEmail } from "./backoffice/inbound-email";
 import { backOfficeLocals } from "./backoffice/outbound-email";
 import type { Bindings } from "./env";
+import { wakeForm } from "./forms/service";
 import { type AppDeps, defaultDeps, type Services } from "./http";
 import { forwardingAddress, receiveReachOutReply, wakeAll } from "./reach/replies";
 import { extractInBackground } from "./routes/documents";
@@ -222,6 +223,18 @@ export async function handleEmail(
                 toAgent.replies,
               );
               if (toAgent.status === "accepted") {
+                // Collect reports: a report emailed to its step wakes the step's run (the cron
+                // re-sends until the run takes it).
+                if (toAgent.wake) {
+                  await wakeForm(
+                    { instances: deps.instances(env) },
+                    {
+                      id: toAgent.wake.formRequestId,
+                      runId: toAgent.wake.runId,
+                      reachOutId: toAgent.wake.reachOutId,
+                    },
+                  );
+                }
                 await extractInBackground(services, tenantId, toAgent.fresh);
                 // P-7: the email's words, translated beside it where the client has it on.
                 await translateLater(translationDepsFor(services), tenantId);

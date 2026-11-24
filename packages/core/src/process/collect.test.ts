@@ -226,6 +226,28 @@ describe("what the owner is asked", () => {
   });
 });
 
+describe("the step's address in what the owner is asked", () => {
+  it("says they may email it, and never cuts the address", () => {
+    const i = item();
+    const email = "remy.acme-aaaaaaaaaaaaaaaaaaaaaaaaaa+c1@in.mezonas.com";
+    const text = requestPurpose({ item: i, period: null, send: 1, email });
+    expect(text).toContain(`You can also email it to ${email}.`);
+    const long = requestPurpose({
+      item: i,
+      period: null,
+      send: 2,
+      email,
+      problems: Array.from(
+        { length: 10 },
+        (_, k) => `bank-${k}.csv has a problem that goes on for a while.`,
+      ),
+    });
+    expect(long.length).toBeLessThanOrEqual(500);
+    expect(long).toContain(`You can also email it to ${email}.`);
+    expect(requestPurpose({ item: i, period: null, send: 1 })).not.toContain("email");
+  });
+});
+
 describe("the step's output", () => {
   const base = {
     owner: "seat:controller",

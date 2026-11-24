@@ -90,6 +90,11 @@ export function CollectFields({
   const escalate = step.escalate;
   return (
     <div className="flex flex-col gap-4" data-testid="builder-collect">
+      <p className="text-xs text-ink-muted" data-testid="builder-collect-email">
+        Owners can also email their report to this step: the agent's address with{" "}
+        <span className="font-mono">+{step.id.toLowerCase()}</span> before the @. Each request names
+        the whole address. Only a report's owner, from the email on their contact, gets in.
+      </p>
       {step.items.map((item, i) => (
         <ReportCard
           key={item.id}

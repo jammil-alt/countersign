@@ -5,13 +5,28 @@
 // written here.
 
 import { type ContentStore, readTableFile, TableFileError } from "@countersign/connectors";
-import { processes, tableFiles } from "@countersign/core";
+import { agentStepAddress, processes, tableFiles } from "@countersign/core";
 import { type Db, document, withTenant } from "@countersign/db";
 import type { CollectPort } from "@countersign/workflows";
 import { and, eq, inArray } from "drizzle-orm";
+import { agentAddresses } from "../triggers/list";
 
-export function collectChecks(deps: { db: Db; content?: ContentStore | undefined }): CollectPort {
+export function collectChecks(deps: {
+  db: Db;
+  content?: ContentStore | undefined;
+  /** EMAIL_FORWARDING_DOMAIN: agents' addresses; absent: owners only upload through the link. */
+  domain?: string | null | undefined;
+}): CollectPort {
   return {
+    // The step's address: the agent's own with `+<step id>` (core `agentStepAddress`).
+    async address(req) {
+      if (!deps.domain) return null;
+      const addresses = await withTenant(deps.db, req.tenantId, (tx) =>
+        agentAddresses(tx, req.tenantId, deps.domain),
+      );
+      const own = addresses.get(req.agentId);
+      return own ? agentStepAddress(own, req.stepId) : null;
+    },
     async check(req) {
       const ids = [...new Set(req.documentIds)].slice(0, 20);
       const rows =

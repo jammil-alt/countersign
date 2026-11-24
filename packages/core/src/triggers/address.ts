@@ -98,6 +98,32 @@ export interface ParsedAgentAddress {
   tenantId: string;
   commandName: string;
   label: string;
+  /**
+   * Collect reports (owner, 2026-11-24): the `+tag` after the agent's name, lower case, when the
+   * mail is for one of its steps (`agentStepAddress`); null without one.
+   */
+  tag: string | null;
+}
+
+/** A step's tag: its id, lower case (a NodeId is letters, digits, `-` and `_`). */
+export function stepTag(stepId: string): string {
+  return stepId.toLowerCase();
+}
+
+/**
+ * Collect reports (owner, 2026-11-24): the address of one of an agent's steps, the agent's own
+ * address with `+<step id>`: `remy.acme-<id>+c1@in.mezonas.com`. Mail to it goes to that step
+ * (a collect step waiting on the sender's report), never to the agent's message triggers.
+ */
+// DECISION: a plus tag on the agent's address rather than an address of its own: it needs no new
+// mail route or record, and the address still names the client and the agent, so the same checks
+// hold (the whole address must be the one we compute for that client).
+export function agentStepAddress(agentAddr: string, stepId: string): string {
+  const a = agentAddr.trim().toLowerCase();
+  const at = a.lastIndexOf("@");
+  const plus = a.indexOf("+");
+  const local = plus >= 0 && plus < at ? a.slice(0, plus) : a.slice(0, at);
+  return `${local}+${stepTag(stepId)}${a.slice(at)}`;
 }
 
 /**
@@ -112,7 +138,12 @@ export function parseAgentAddress(address: string, domain: string): ParsedAgentA
   if (at < 0 || a.slice(at + 1) !== domain.trim().toLowerCase()) return null;
   let local = a.slice(0, at);
   const plus = local.indexOf("+");
-  if (plus >= 0) local = local.slice(0, plus);
+  let tag: string | null = null;
+  if (plus >= 0) {
+    const t = local.slice(plus + 1);
+    tag = t && /^[a-z0-9][a-z0-9_-]{0,63}$/.test(t) ? t : null;
+    local = local.slice(0, plus);
+  }
   const dot = local.indexOf(".");
   const dash = local.lastIndexOf("-");
   if (dot <= 0 || dash <= dot + 1) return null;
@@ -123,7 +154,7 @@ export function parseAgentAddress(address: string, domain: string): ParsedAgentA
   if (![...commandName].every(isWordChar) || ![...label].every(isWordChar)) return null;
   const bytes = unbase32(id);
   if (bytes?.length !== 16) return null;
-  return { tenantId: bytesUuid(bytes), commandName, label };
+  return { tenantId: bytesUuid(bytes), commandName, label, tag };
 }
 
 /** Constant-time comparison of two addresses, ignoring case and a `+tag`. */

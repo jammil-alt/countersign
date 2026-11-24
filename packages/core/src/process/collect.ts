@@ -384,11 +384,16 @@ export const COLLECT_FILE_QUESTION = "report";
  * so, and one after a file that didn't pass says why. Fixed text built from the operator's own
  * (invariant 9): nothing a model wrote and nothing the owner sent goes into it.
  */
+/** The most a request's purpose says (forms' own limit). */
+const PURPOSE_MAX = 500;
+
 export function requestPurpose(p: {
   item: Pick<CollectItem, "name" | "describe" | "formats" | "columns">;
   period: ReportPeriod | null;
   send: number;
   problems?: readonly string[];
+  /** The step's address (`agentStepAddress`), when owners may email the file too. */
+  email?: string | null;
 }): string {
   const what = p.period ? `the ${p.item.name} for ${p.period.label}` : `the ${p.item.name}`;
   const lead =
@@ -403,8 +408,13 @@ export function requestPurpose(p: {
     required.length > 0
       ? ` with the columns ${required.map((c) => c.headers[0] ?? c.field).join(", ")}.`
       : ".";
+  const email = p.email ? ` You can also email it to ${p.email}.` : "";
+  // The format and the address are never cut: a long list of problems is, then the description.
+  const tail = `${format}${cols}${email}`;
+  const room = PURPOSE_MAX - tail.length;
+  const head = lead.length > room ? `${lead.slice(0, Math.max(0, room - 1))}…` : lead;
   const describe = p.item.describe ? ` ${p.item.describe}` : "";
-  return `${lead}${format}${cols}${describe}`.slice(0, 500);
+  return `${head}${tail}${describe}`.slice(0, PURPOSE_MAX);
 }
 
 // ── The step's output ────────────────────────────────────────────────────────────────────────

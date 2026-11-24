@@ -3269,7 +3269,15 @@ class Executor {
             period: processes.reportPeriod(item.frequency, at, run.timeZone ?? "UTC"),
           });
         }
-        return { stepRunId, items };
+        // The step's address, kept with the step so every link names the same one.
+        const email = this.testRun
+          ? null
+          : ((await this.ctx.collect?.address?.({
+              tenantId: run.tenantId,
+              agentId: run.agentId,
+              stepId: step.id,
+            })) ?? null);
+        return { stepRunId, items, email };
       },
       this.ctx.stepConfig,
     );
@@ -3278,7 +3286,16 @@ class Executor {
     await pool(step.items.length, step.items.length, async (i) => {
       const item = step.items[i] as processes.CollectItem;
       const plan = started.items[i] as (typeof started.items)[number];
-      results[i] = await this.collectItem(step, name, frame, started.stepRunId, i, item, plan);
+      results[i] = await this.collectItem(
+        step,
+        name,
+        frame,
+        started.stepRunId,
+        i,
+        item,
+        plan,
+        started.email ?? null,
+      );
     });
 
     const output = processes.collectOutput(results);
@@ -3316,6 +3333,7 @@ class Executor {
     index: number,
     item: processes.CollectItem,
     plan: { dueAt: string; escalateAt: string | null; period: processes.ReportPeriod | null },
+    email: string | null,
   ): Promise<processes.CollectItemResult> {
     const port = this.ctx.collect;
     const result: processes.CollectItemResult = {
@@ -3365,7 +3383,7 @@ class Executor {
         first: result.sends === 1,
         escalateAt: escalateAt ? new Date(escalateAt) : null,
       });
-      const ask = this.reportAsk(step, item, plan.period, result);
+      const ask = this.reportAsk(step, item, plan.period, result, email);
       const window = processes.linkWindow(closes.getTime() - now.getTime());
       const inner: processes.SkillStep = { ...ask, input: { ...ask.input, due: window } };
       this.reportAsks.add(inner);
@@ -3427,6 +3445,7 @@ class Executor {
     item: processes.CollectItem,
     period: processes.ReportPeriod | null,
     result: processes.CollectItemResult,
+    email: string | null = null,
   ): processes.SkillStep & { input: Record<string, unknown> } {
     const owner = item.owner.startsWith(processes.SEAT_PREFIX)
       ? { role: item.owner.slice(processes.SEAT_PREFIX.length) }
@@ -3437,6 +3456,7 @@ class Executor {
       period,
       send: result.sends,
       problems: result.problems,
+      email,
     });
     const approval = step.checks?.approval;
     return {

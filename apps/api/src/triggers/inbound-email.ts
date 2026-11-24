@@ -35,11 +35,21 @@ import {
   type SenderFacts,
   sameAgentAddress,
 } from "@countersign/core";
-import { agent, agentVersion, type Db, rawRecord, tenant, withTenant } from "@countersign/db";
+import {
+  agent,
+  agentVersion,
+  type Db,
+  document,
+  rawRecord,
+  type Tx,
+  tenant,
+  withTenant,
+} from "@countersign/db";
 import { attachmentsToKeep, storeEmailAttachments } from "@countersign/documents";
 import { type EventRow, type EventTypeRegistry, emit } from "@countersign/senses";
 import { commandCandidates } from "@countersign/threads";
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
+import { collectStepTags, type HandedTo, handToOpenLink, openLinks } from "../collect/email";
 import { tenantLocale } from "../routes/language";
 import { confirmReply, type InboundReply, noteStranger, strangerReply } from "./replies";
 import { contactByEmail, contactFacts } from "./senders";
@@ -61,6 +71,8 @@ export type AgentEmailOutcome =
       fresh: string[];
       events: EventRow[];
       replies: InboundReply[];
+      /** Collect reports: the report link the files went to, whose run is woken. */
+      wake?: HandedTo;
     }
   | {
       status: "refused" | "dropped";
@@ -75,6 +87,138 @@ const MAX_ATTACHMENTS = 20;
 async function sha256Hex(bytes: Uint8Array): Promise<string> {
   const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", bytes));
   return [...digest].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+/**
+ * Collect reports (owner, 2026-11-24): mail to one of the agent's collect steps. Only a proven
+ * sender with a link of that step open for them gets in; their attachments go to that link as an
+ * upload would, and the step's run is woken (`wake`). Nothing else is stored, no run is started
+ * and nobody is answered automatically: the step itself asks again or follows up.
+ */
+// DECISION: mail from anyone else, or from an owner with no link of the step open, is refused
+// quietly (no reply, nothing stored): a stranger learns nothing, and an owner's report that is
+// late or early is chased by the step's own follow-ups and escalation.
+async function stepEmail(
+  tx: Tx,
+  deps: { content: ContentStore },
+  m: {
+    tenantId: string;
+    agentId: string;
+    tag: string;
+    sender: { id: string } | null;
+    from: string | null;
+    proven: string | null;
+    headers: Awaited<ReturnType<typeof parseForwardedEmail>>["headers"];
+    attachments: Awaited<ReturnType<typeof parseForwardedEmail>>["attachments"];
+    text: string;
+    envelopeFrom: string;
+    to: string;
+    key: string;
+    now: Date;
+    dropped: (reason: string) => AgentEmailOutcome;
+  },
+): Promise<AgentEmailOutcome> {
+  const refused = (reason: string): AgentEmailOutcome => ({
+    status: "refused",
+    tenantId: m.tenantId,
+    reason,
+    events: [],
+    replies: [],
+  });
+  if (!m.sender) return refused("sender_not_owner");
+  const open = await openLinks(tx, {
+    tenantId: m.tenantId,
+    agentId: m.agentId,
+    tag: m.tag,
+    contactId: m.sender.id,
+    at: m.now,
+  });
+  if (open.length === 0) return refused("no_open_report");
+  const conn = await ensureUploadConnection(tx, m.tenantId);
+  const [seen] = await tx
+    .select({ id: rawRecord.id })
+    .from(rawRecord)
+    .where(
+      and(
+        eq(rawRecord.tenantId, m.tenantId),
+        eq(rawRecord.connectionId, conn.id),
+        eq(rawRecord.entityType, INBOUND_MESSAGE_ENTITY),
+        eq(rawRecord.externalId, m.key),
+      ),
+    )
+    .limit(1);
+  if (seen) return m.dropped("duplicate");
+  const meta = {
+    email: {
+      from: m.from,
+      envelopeFrom: m.envelopeFrom.toLowerCase(),
+      to: m.to.toLowerCase(),
+      subject: m.headers.subject,
+      date: m.headers.date,
+      messageId: m.headers.messageId,
+      authenticated: true,
+      authenticatedAs: m.proven,
+      agentId: m.agentId,
+      step: m.tag,
+    },
+  };
+  const files = await storeEmailAttachments(tx, deps.content, {
+    tenantId: m.tenantId,
+    connectionId: conn.id,
+    attachments: attachmentsToKeep(m.attachments, MAX_ATTACHMENTS).kept,
+    meta,
+  });
+  if (files.documents.length === 0) return refused("no_file");
+  const ids = files.documents.map((d) => d.id);
+  const types = await tx
+    .select({ id: document.id, filename: document.filename, mimeType: document.mimeType })
+    .from(document)
+    .where(and(eq(document.tenantId, m.tenantId), inArray(document.id, ids)));
+  const [stored] = await tx
+    .insert(rawRecord)
+    .values({
+      tenantId: m.tenantId,
+      connectionId: conn.id,
+      connector: UPLOAD_CONNECTOR_ID,
+      entityType: INBOUND_MESSAGE_ENTITY,
+      externalId: m.key,
+      externalVersion: null,
+      payload: {
+        agentId: m.agentId,
+        channel: "email",
+        from: m.from,
+        contactId: m.sender.id,
+        step: m.tag,
+        subject: m.headers.subject?.slice(0, 300) ?? null,
+        date: m.headers.date,
+        messageId: m.headers.messageId,
+        // The sender's words: data, never instructions (invariant 9).
+        text: inboundText(m.text),
+        documents: ids,
+      },
+      syncedAt: m.now,
+    })
+    .onConflictDoNothing()
+    .returning({ id: rawRecord.id });
+  if (!stored) return m.dropped("duplicate");
+  const handed = await handToOpenLink(tx, {
+    open,
+    tenantId: m.tenantId,
+    files: ids.flatMap((id) => types.filter((t) => t.id === id)),
+    at: m.now,
+    messageId: m.headers.messageId ?? null,
+  });
+  if (!handed) return refused("no_open_report");
+  return {
+    status: "accepted",
+    tenantId: m.tenantId,
+    agentId: m.agentId,
+    rawRecordId: stored.id,
+    fresh: files.documents.filter((d) => d.created).map((d) => d.id),
+    events: files.events,
+    replies: [],
+    wake: handed,
+  };
 }
 
 /** Null when `to` isn't an agent address on `domain` (the caller tries the other kinds of mail). */
@@ -123,9 +267,14 @@ export async function receiveAgentEmail(
       )
       .where(and(eq(agent.id, found.agentId), eq(agent.tenantId, tenantId)));
     const bundle = row?.bundle;
-    // DECISION: an agent with no email message trigger has no inbox: mail to it is dropped
-    // (counted nowhere, answered never), as an unknown address is.
-    if (!bundle || messageTriggersOn(bundle, "email").length === 0) {
+    // Collect reports (owner, 2026-11-24): `+<step id>` names one of the agent's collect steps;
+    // mail to it goes to that step, whatever the agent's message triggers.
+    const tag = target.tag;
+    if (tag !== null) {
+      if (!bundle || !collectStepTags(bundle).has(tag)) return dropped("unknown_address");
+    } else if (!bundle || messageTriggersOn(bundle, "email").length === 0) {
+      // DECISION: an agent with no email message trigger has no inbox: mail to it is dropped
+      // (counted nowhere, answered never), as an unknown address is.
       return dropped("no_email_trigger");
     }
     if (message.size > MAX_FORWARDED_BYTES) return dropped("too_large");
@@ -154,6 +303,25 @@ export async function receiveAgentEmail(
     const accepting = acceptingTriggers(bundle, "email", facts);
     const messageKey = headers.headers.messageId?.slice(0, 300) || (await sha256Hex(message.raw));
     const key = `${found.agentId}:${messageKey}`;
+
+    if (tag !== null) {
+      return stepEmail(tx, deps, {
+        tenantId,
+        agentId: found.agentId,
+        tag,
+        sender,
+        from,
+        proven,
+        headers: headers.headers,
+        attachments: headers.attachments,
+        text: reply.text,
+        envelopeFrom: message.from,
+        to: message.to,
+        key,
+        now,
+        dropped,
+      });
+    }
 
     if (accepting.length === 0) {
       const events: EventRow[] = [];
