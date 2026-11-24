@@ -70,6 +70,7 @@ import {
   SkillDefinition as SkillDefinitionSchema,
   type SkillTryView,
   skillTools,
+  type ToolSpec,
   TRY_ROWS_MAX,
   toolLookup,
   toProcessBundle,
@@ -243,19 +244,40 @@ export async function builderContext(
   }
   return {
     ...base.context,
-    tools: platform.tools
-      .list()
-      .map((t) => t.spec)
-      .filter(
-        (t) =>
-          usedTools.has(t.id) ||
-          !(SPLIT_MODEL_TOOLS.has(t.id) || t.id.startsWith(ACCOUNT_TOOL_PREFIX)),
-      ),
+    tools: builderTools(platform, usedTools),
     skills,
     templates,
     client,
     agentSlugs,
   };
+}
+
+/**
+ * The tools the Builder may name in a read or write step: all of them, less the hidden AI the
+ * splits replaced, the account agent's handlers, and the handlers of the skills that run only as a
+ * step of their own (a version that already calls one keeps it, so its steps still type).
+ */
+export function builderTools(
+  platform: Ctx["services"]["platform"],
+  used: ReadonlySet<string> = new Set(),
+): ToolSpec[] {
+  const stepOnlyTools = new Set(
+    processes.STEP_ONLY_SKILLS.map((id) => platform.catalog.get(id)?.handler).filter(
+      (h): h is string => h !== undefined,
+    ),
+  );
+  return platform.tools
+    .list()
+    .map((t) => t.spec)
+    .filter(
+      (t) =>
+        used.has(t.id) ||
+        !(
+          SPLIT_MODEL_TOOLS.has(t.id) ||
+          t.id.startsWith(ACCOUNT_TOOL_PREFIX) ||
+          stepOnlyTools.has(t.id)
+        ),
+    );
 }
 
 /**
@@ -274,8 +296,15 @@ export function platformBuilderContext(
   const usedSkills = used.usedSkills ?? new Set<string>();
   const usedTools = used.usedTools ?? new Set<string>();
   const lookup = toolLookup(platform.tools.specs());
+  // DECISION (owner, 2026-11-24, "there were multiple steps that it was not aware of"): the skills
+  // that run only as a step of their own (Request info, Reach out, Converse) are offered as skills
+  // and their handler tools are not, as the workflow builder's catalog does (`stepTools`). The
+  // Builder was shown the tools and told to use a tool-wrapping skill's tool, which refuses to run
+  // outside its step: it couldn't send a form and wait for it.
+  const stepOnly = new Set<string>(processes.STEP_ONLY_SKILLS);
   const offered = (def: SkillDefinition) =>
     usedSkills.has(def.id) ||
+    stepOnly.has(def.id) ||
     (!isToolWrapper(def) && newStepSkillReason(def, lookup, platform.superseded) === null);
   const skills: BuilderSkill[] = platform.catalog
     .list()
@@ -285,14 +314,7 @@ export function platformBuilderContext(
     offered,
     skills,
     context: {
-      tools: platform.tools
-        .list()
-        .map((t) => t.spec)
-        .filter(
-          (t) =>
-            usedTools.has(t.id) ||
-            !(SPLIT_MODEL_TOOLS.has(t.id) || t.id.startsWith(ACCOUNT_TOOL_PREFIX)),
-        ),
+      tools: builderTools(platform, usedTools),
       skills,
       // With each one's description: it names the service behind it (the bank feed's says Plaid).
       connectors: platform.connectors.list().map((c) => ({

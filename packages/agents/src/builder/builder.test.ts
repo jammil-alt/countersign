@@ -433,7 +433,7 @@ describe("draftAgent", () => {
     expect(result.bundle.workflows).toHaveLength(1);
     expect(model.requests[0]?.max_tokens).toBe(BUILDER_ANSWER_TOKENS);
     const retried = JSON.stringify(model.requests[1]?.messages);
-    expect(retried).toContain("the main path only");
+    expect(retried).toContain("keep every step the description states");
     expect(model.requests[1]?.messages).toHaveLength(1);
 
     // Cut off again: it stops, and says so.

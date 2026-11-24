@@ -1782,7 +1782,15 @@ export function nowDescription(
   if (!given) return draftDescription(row, brief, fitgap);
   // The operator's own words stand in for the goal; anything else the brief holds follows them.
   const { goal: _goal, ...rest } = brief;
-  const more = draftDescription(row, rest, fitgap).split("\n").slice(1).join("\n").trim();
+  // DECISION (owner, 2026-11-24, "the steps don't match"): with new words, the fit-gap's normal
+  // case (an earlier list of what it does) is left out: it was handed to the Builder as "the
+  // normal case" beside the words and drafted over them. Known risks, what is out of scope and the
+  // decisions made still go with them.
+  const kept = {
+    ...fitgap,
+    rows: fitgap.rows.filter((r) => r.dropped || r.later || r.verdict === "not_possible"),
+  };
+  const more = draftDescription(row, rest, kept).split("\n").slice(1).join("\n").trim();
   const text = [`${row.title}.`, given, more].filter(Boolean).join("\n\n");
   return text.length > 4000 ? `${sliceWhole(text, 3990)}…` : text;
 }
