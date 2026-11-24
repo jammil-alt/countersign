@@ -240,6 +240,14 @@ then one pass of its "To verify" list against the real service.
 
 ## 4. Everything else
 
+### Lockdown: a kill switch per client and for everything (owner, 2026-11-24; `docs/lockdown-plan.md`, `docs/plan.md` §1.243)
+
+Planned, not built. One switch that stops every read and write of a client's data, its tools and
+its AI calls, ends runs in progress, and keeps its people out, until the security officer unlocks
+it; the same for every client at once; and a Cloudflare edge rule for when the app itself may be
+compromised. Enforced in the database on the path every query already takes (`inScope`). Streams
+K0 (migration, own PR) to K5. Owner: the five questions in the plan's §10.
+
 ### Back office work: Sales, onboarding and Build (merged 2026-11-17; onboarding O1–O3 merged)
 
 One to-do list (Your call), Sales (new accounts and expansion), onboarding and Build (issues, agent

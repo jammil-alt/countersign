@@ -6383,6 +6383,21 @@ action, not just mark it... if it is an issue, just because I say it is closed d
 | Not built | The client as an owner: no step yet sends an item to the client and closes it by their answer (the requirements request asks the intake form's fields, not an item). Until there is one, "Client" is only set by the fit-gap's preconditions. |
 | Checked | `apps/api/src/build-settled-by-step.test.ts` (done by hand refused, a drop, a note done, the Builder's close left out; a put-off gap given to engineering then the Builder, closed by its change and opened by its undo; a test closed by a full passing run and not by a failing or partial one), `apps/web/src/ops/builds/closeout.test.tsx` and `builds.test.tsx` (no selects; Put off, Drop it, Reopen; Take it up on a put-off gap). The skill build's go-live closing has no test of its own. |
 
+### 1.243 Lockdown: a kill switch per client and for everything (owner, 2026-11-24; planned, migration in K0)
+
+The owner: "a kill switch that locks down the account, stops all writes and reads." The plan is
+`docs/lockdown-plan.md`. Outside ARCHITECTURE v0.15's v1 scope by the owner's decision.
+
+| Topic | Decision |
+|---|---|
+| Where it is enforced | In the database, in the statement `inScope` (`packages/db/src/client.ts`) already sends: `app.unlocked_scope(ids, mode)`. `withTenant` raises `client_locked` for a locked client, so the transaction aborts; `withTenants` and `withOperator` drop locked clients from `app.tenant_ids`. No cache: the next transaction everywhere sees a lock. // DECISION |
+| What stops | Every read and write of the client's stored data, its tools (secrets can't be opened outside a scope) and its model calls; new runs; runs in progress at their next step (`NonRetryableError`), their Workflow instances ended; sign-ins. Inbound is answered and dropped, counted per kind. // DECISION |
+| Investigation | The security officer only, with a fresh second factor, in a read-only transaction; each read audited. // DECISION |
+| Who | Any operator locks (the incident policy lets whoever finds it contain); only the security officer unlocks. Client admins may lock their own account (owner to confirm). // DECISION |
+| Undo | Unlocking resumes nothing by itself: stopped runs stay stopped and what came in isn't replayed. // DECISION |
+| Outside the app | A Cloudflare WAF rule, created off, blocks everything but `/api/health`; `lockdown.yml` switches it. // DECISION |
+| Streams | K0 migration (own PR), K1 db, K2 api, K3 screens, K4 edge rule (own PR), K5 docs and register `INC-2`. |
+
 ### 1.242 Collect reports: wait for several reports, each from its own owner, checked before they count (owner, 2026-11-24; no migration)
 
 The owner: "a trigger that waits for multiple reports to come in from different sources… once all
