@@ -233,7 +233,7 @@ export async function releasePeople(tx: Tx, tenantId: string): Promise<ReleasePe
 // text consent and no STOP. The number is pinned in the setting when the client admin saves it;
 // if the contact's phone changes later, codes go by email until the setting is saved again, so
 // editing a contact never redirects codes.
-async function textableContact(tx: Tx, tenantId: string, email: string) {
+export async function textableContact(tx: Tx, tenantId: string, email: string) {
   const [c] = await tx
     .select()
     .from(contact)
