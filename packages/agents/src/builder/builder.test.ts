@@ -5,6 +5,7 @@
 import {
   ConnectorRegistry,
   createTestkitConnector,
+  TESTKIT_QUERY_TOOL,
   TESTKIT_UPDATE_TOOL,
 } from "@countersign/connectors";
 import {
@@ -14,7 +15,13 @@ import {
   processes,
   type SkillDefinition,
 } from "@countersign/core";
-import { createLlmClient, FakeModel, type FakeTurn, fakeMessage } from "@countersign/llm";
+import {
+  createLlmClient,
+  FakeModel,
+  type FakeTurn,
+  fakeMessage,
+  type LlmRequest,
+} from "@countersign/llm";
 import { describe, expect, it } from "vitest";
 import { ToolRegistry } from "../registry/tools";
 import { PLATFORM_TOOLS } from "../tools/platform";
@@ -970,5 +977,74 @@ describe("ways in, ways out", () => {
     expect(self?.to.step).toBe(b2);
     // Another agent's step ids are its own.
     expect(other?.to.step).toBe("b");
+  });
+});
+
+// Two rounds (owner, 2026-11-24): a shortlist from the catalog in short, then the draft with the
+// shortlist in full and every other part by id.
+describe("draftAgent in two rounds", () => {
+  const textOf = (req: LlmRequest | undefined) => JSON.stringify(req?.messages ?? []);
+
+  it("shortlists from the short catalog, then drafts with the shortlist in full", async () => {
+    const ctx = context();
+    const model = new FakeModel([
+      {
+        toolUse: {
+          name: "submit_shortlist",
+          input: { skills: ["custom:summarize-records"], tools: ["made.up.tool"], automations: [] },
+        },
+      },
+      { toolUse: { name: "submit_draft", input: cardChargesAnswer } },
+    ]);
+    const result = await draftAgent(
+      { description: "Flag card charges over $500 missing receipts", ctx },
+      { llm: llmWith(model), validate: validateWith(ctx), newId: counter(), shortlist: true },
+    );
+    const [round1, round2] = model.requests;
+    // Round one: the catalog in short (fields by name, no schemas), and the shortlist tool.
+    expect(round1?.tools?.[0]).toMatchObject({ name: "submit_shortlist" });
+    expect(textOf(round1)).toContain("Flag card charges over $500");
+    expect(textOf(round1)).not.toContain('\\"input_schema\\"');
+    // Round two: the picked skill in full, with the tools it calls; the rest by id only.
+    expect(round2?.tools?.[0]).toMatchObject({ name: "submit_draft" });
+    const second = textOf(round2);
+    expect(second).toContain("<other_parts>");
+    const catalog = second.slice(second.indexOf("<catalog>"), second.indexOf("</catalog>"));
+    expect(catalog).toContain("custom:summarize-records");
+    expect(catalog).toContain(TESTKIT_QUERY_TOOL);
+    expect(catalog).not.toContain(TESTKIT_UPDATE_TOOL);
+    // A made-up id in the shortlist is dropped, never shown.
+    expect(second).not.toContain("made.up.tool");
+    const others = second.slice(second.indexOf("<other_parts>"), second.indexOf("</other_parts>"));
+    expect(others).toContain(TESTKIT_UPDATE_TOOL);
+    // The draft still checks against the whole catalog: it uses the update tool from the ids.
+    expect(result.bundle.definition.extraTools).toEqual([TESTKIT_UPDATE_TOOL]);
+    expect(result.calls).toHaveLength(2);
+  });
+
+  it("falls back to the whole catalog when the shortlist can't be had", async () => {
+    const ctx = context();
+    const model = new FakeModel([
+      { toolUse: { name: "submit_shortlist", input: { skills: "not a list" } } },
+      { toolUse: { name: "submit_draft", input: cardChargesAnswer } },
+    ]);
+    const result = await draftAgent(
+      { description: "Flag card charges over $500 missing receipts", ctx },
+      { llm: llmWith(model), validate: validateWith(ctx), newId: counter(), shortlist: true },
+    );
+    const second = textOf(model.requests[1]);
+    expect(second).not.toContain("<other_parts>");
+    expect(second).toContain(TESTKIT_UPDATE_TOOL);
+    expect(result.calls).toHaveLength(2);
+  });
+
+  it("is one round when it is off", async () => {
+    const ctx = context();
+    const model = new FakeModel([{ toolUse: { name: "submit_draft", input: cardChargesAnswer } }]);
+    await draftAgent(
+      { description: "Flag card charges over $500 missing receipts", ctx },
+      { llm: llmWith(model), validate: validateWith(ctx), newId: counter() },
+    );
+    expect(model.requests).toHaveLength(1);
   });
 });

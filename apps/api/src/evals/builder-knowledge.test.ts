@@ -10,7 +10,13 @@
 // so a person can read it: `pnpm --filter @countersign/api exec vitest run src/evals/builder-knowledge`.
 
 import { writeFileSync } from "node:fs";
-import { draftAgent } from "@countersign/agents";
+import {
+  catalogBriefForPrompt,
+  catalogForPrompt,
+  draftAgent,
+  narrowContext,
+  shortlistCatalogBlock,
+} from "@countersign/agents";
 import {
   isToolWrapper,
   newStepSkillReason,
@@ -126,6 +132,30 @@ describe("what the Builder knows", async () => {
     }
   });
 
+  // Two rounds (owner, 2026-11-24): the shortlist reads the catalog in short; the draft sees a
+  // UCC agent's shortlist in full and the rest by id.
+  const whole = JSON.stringify(catalogForPrompt(ctx)).length;
+  const brief = JSON.stringify(catalogBriefForPrompt(ctx)).length;
+  const ucc = narrowContext(ctx, {
+    skills: ["data.read-table", "forms.request"],
+    tools: [
+      "zoho_crm.record.search",
+      "zoho_crm.record.get",
+      "zoho_crm.record.update",
+      "sales.match_records",
+      "data.table.write",
+      "data.list.group",
+    ],
+    automations: [],
+    events: ["document.received", "inbound.message"],
+  });
+  const shortlisted = shortlistCatalogBlock(catalogForPrompt(ucc.ctx), ucc.more).length;
+
+  it("reads a fraction of the catalog in two rounds", () => {
+    expect(brief).toBeLessThan(whole / 3);
+    expect(shortlisted).toBeLessThan(whole / 4);
+  });
+
   it("writes what it is given, for a person to read, when asked", () => {
     const out = process.env.BUILDER_KNOWLEDGE_REPORT;
     if (!out) return;
@@ -148,6 +178,8 @@ describe("what the Builder knows", async () => {
       `System prompt: ${system.length.toLocaleString("en-US")} characters. First message: ${first.length.toLocaleString("en-US")} characters, of which the catalog is most.`,
       "",
       `Catalog: ${catalog.skills.length} skills, ${catalog.tools.length} tools, ${catalog.connectors.length} connectors, ${catalog.events.length} event types.`,
+      "",
+      `In one round the draft reads the whole catalog: ${whole.toLocaleString("en-US")} characters. In two rounds the shortlist reads it in short (${brief.toLocaleString("en-US")}), and the draft reads its shortlist in full with the rest by id (a UCC agent's: ${shortlisted.toLocaleString("en-US")}).`,
       "",
       "## Skills held back",
       ...held,

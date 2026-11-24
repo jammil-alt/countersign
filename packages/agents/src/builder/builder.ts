@@ -31,6 +31,7 @@ import {
 import { z } from "zod";
 import { type BuilderContext, catalogBriefForPrompt, catalogForPrompt } from "./context";
 import { guardBundle } from "./guards";
+import { draftCatalog } from "./shortlist";
 
 // ── Answers ──────────────────────────────────────────────────────────────────────────────────────
 
@@ -224,6 +225,11 @@ export interface BuilderOptions {
   newId?: () => string;
   /** Repair rounds after a failed answer (default 1). */
   repairs?: number;
+  /**
+   * Two rounds (owner, 2026-11-24): a shortlist from the catalog in short, then the draft with the
+   * shortlist in full (`./shortlist`). Default off here; the API turns it on.
+   */
+  shortlist?: boolean;
   signal?: AbortSignal;
 }
 
@@ -477,7 +483,8 @@ export async function draftAgent(
     input.name ? `Name: ${input.name}` : null,
     input.role ? `Area: ${input.role}` : null,
   ].filter(Boolean);
-  const first = `${catalogBlock(ctx)}
+  const catalog = await draftCatalog({ task: input.description }, ctx, options, catalogForPrompt);
+  const first = `${catalog.block}
 
 ${ctx.client ? `Draft a new agent for the client ${ctx.client.name}. Use what it has connected; anything it hasn't connected is a gap.` : "Draft a new template: a reusable agent the operator will fork into clients."}
 ${hints.length ? `\n${hints.join("\n")}\n` : ""}
@@ -509,14 +516,15 @@ ${promptText(input.description)}
     input.worksFirst ? { ...options, repairs: options.repairs ?? 2 } : options,
   );
   const template = out.answer.startFromTemplate ?? null;
+  const calls = [...catalog.calls, ...out.calls];
   return {
     bundle: out.bundle,
     summary: out.answer.summary,
     gaps: out.gaps,
     notes: out.notes,
     errors: out.errors,
-    calls: out.calls,
-    costUsd: totalCost(out.calls),
+    calls,
+    costUsd: totalCost(calls),
     slug: out.answer.slug ?? null,
     startFromTemplate: template && ctx.templates.some((t) => t.slug === template) ? template : null,
     serviceName: out.answer.serviceName ?? null,
@@ -615,7 +623,19 @@ export async function reviseAgent(
   options: BuilderOptions,
 ): Promise<BuilderResult & { changeNote: string }> {
   const { ctx } = input;
-  const first = `${catalogBlock(ctx)}
+  // The version's own skills and tools stay in full, so its steps keep typing.
+  const own = partsOf(input.source);
+  const catalog = await draftCatalog(
+    {
+      task: [input.instruction, input.request].filter(Boolean).join("\n\n") || "Revise this agent.",
+      current: input.source,
+    },
+    ctx,
+    options,
+    catalogForPrompt,
+    own,
+  );
+  const first = `${catalog.block}
 
 Revise this agent${ctx.client ? ` (it serves the client ${ctx.client.name})` : " (a template)"}. Keep everything the instruction doesn't ask to change, including every id, setting and approval. New steps get new ids.
 
@@ -648,8 +668,21 @@ ${input.instruction ? `\nThe operator's instruction:\n<instruction>\n${promptTex
     gaps: out.gaps,
     notes: out.notes,
     errors: out.errors,
-    calls: out.calls,
-    costUsd: totalCost(out.calls),
+    calls: [...catalog.calls, ...out.calls],
+    costUsd: totalCost([...catalog.calls, ...out.calls]),
     changeNote: out.answer.changeNote,
   };
+}
+
+/** The skills and tools a bundle's steps use (a revision keeps them in its catalog in full). */
+function partsOf(bundle: ProcessAgentBundle): { skills: string[]; tools: string[] } {
+  const skills = new Set<string>();
+  const tools = new Set<string>();
+  for (const w of bundle.workflows) {
+    processes.walkSteps(w.workflow, ({ step }) => {
+      if (step.kind === "skill") skills.add(step.skill.split("@")[0] ?? step.skill);
+      if ((step.kind === "read" || step.kind === "write") && step.tool) tools.add(step.tool);
+    });
+  }
+  return { skills: [...skills], tools: [...tools] };
 }

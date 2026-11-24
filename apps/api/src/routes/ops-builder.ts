@@ -444,6 +444,7 @@ export function opsBuilderRoutes(app: Hono<AppEnv>): void {
           { transport: transport(ctx, clientId), tenantId: clientId, source: "builder" },
         ).llm,
         // Review: a new agent from the Builder is a first version: every step is new.
+        shortlist: services.env.BUILDER_SHORTLIST !== "off",
         validate: (bundle) =>
           validateForPublish(tx, pseudo, stored(bundle), services.platform.ctx, {
             previous: "none",
@@ -545,6 +546,7 @@ export function opsBuilderRoutes(app: Hono<AppEnv>): void {
           { db: services.db, defer: ctx.defer },
           { transport: transport(ctx, row.tenantId), tenantId: row.tenantId, source: "builder" },
         ).llm,
+        shortlist: services.env.BUILDER_SHORTLIST !== "off",
         validate: (bundle) =>
           validateForPublish(tx, row, stored(bundle), services.platform.ctx, { previous }),
       },

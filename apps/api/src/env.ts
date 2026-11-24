@@ -166,6 +166,11 @@ export interface Vars {
   MCP_AUDIENCE?: string;
   APP_ORIGIN?: string;
   LLM_MODE?: string;
+  /**
+   * The Builder's two rounds for a draft or a revision (owner, 2026-11-24): a shortlist from the
+   * catalog in short, then the draft with the shortlist in full. On unless "off".
+   */
+  BUILDER_SHORTLIST?: string;
   /** e.g. `in.mezonas.com`: Cloudflare Email Routing sends it to `email()`. Unset: forwarding is off. */
   EMAIL_FORWARDING_DOMAIN?: string;
   /**

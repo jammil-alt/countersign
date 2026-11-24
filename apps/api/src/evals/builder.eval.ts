@@ -209,7 +209,13 @@ describe.skipIf(!key)("the Builder's drafts", () => {
       try {
         const out = await draftAgent(
           { description: c.description, worksFirst: true, ctx },
-          { llm, validate: async () => [], ...(builderModel ? { model: builderModel } : {}) },
+          {
+            llm,
+            validate: async () => [],
+            // As the API drafts: two rounds, a shortlist first.
+            shortlist: process.env.BUILDER_SHORTLIST !== "off",
+            ...(builderModel ? { model: builderModel } : {}),
+          },
         );
         answer = renderDraft(out.bundle);
         costUsd = out.costUsd;

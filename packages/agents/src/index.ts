@@ -21,6 +21,7 @@ export * from "./builder/context";
 export * from "./builder/conversation";
 export * from "./builder/guards";
 export * from "./builder/reshape";
+export * from "./builder/shortlist";
 export * from "./builder/skill-draft";
 export * from "./errors";
 // docs/plan.md §1.217: the process interview
