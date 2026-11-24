@@ -26,6 +26,12 @@ const WHY = [
   "Rental they converted to a purchase",
   "Other (say below)",
 ];
+const COMMENT_PROMPT: Record<Filing["group"], string> = {
+  won: "How did we win it? Anything to repeat?",
+  lost: "What happened? Who won it, and at what price or terms?",
+  existing: "What should we know about this client and this purchase?",
+  new: "Who are they, who did they buy from, and who's the contact?",
+};
 const KNEW = ["Yes, I was talking to them", "I knew of them, no contact", "No, new to me"];
 const NEXT = ["Add as a lead", "Already working them", "Not a fit for ROMCO"];
 
@@ -40,8 +46,8 @@ type Answer = {
 const EMPTY: Answer = { mine: "", moveTo: "", why: "", knew: "", next: "", note: "" };
 
 const EXAMPLE: Record<string, Partial<Answer>> = {
-  f1: { mine: "yes" },
-  f2: { mine: "yes" },
+  f1: { mine: "yes", note: "Second fleet order this year; they want a service quote next." },
+  f2: { mine: "yes", note: "Won on delivery: we had one in the yard." },
   f3: { mine: "yes", note: "Lost on price; their Cat dealer came in 6% under." },
   f4: { mine: "yes", note: "Needed it in two weeks; ours was eight." },
   f5: {
@@ -49,11 +55,24 @@ const EXAMPLE: Record<string, Partial<Answer>> = {
     why: WHY[0] as string,
     note: "Haven't had a call with Tomball Grading since spring.",
   },
-  f6: { mine: "yes", why: WHY[3] as string },
+  f6: {
+    mine: "yes",
+    why: WHY[3] as string,
+    note: "They wanted a smaller track loader than we stock. Worth a look at the line.",
+  },
   f7: { mine: "yes", why: WHY[1] as string, note: "Bought under their parent's fleet agreement." },
   f8: { mine: "yes", why: WHY[0] as string, note: "Same account as Huntsville Timber, confirmed." },
-  f9: { mine: "yes", why: WHY[5] as string },
-  f10: { mine: "yes", knew: KNEW[2] as string, next: NEXT[0] as string },
+  f9: {
+    mine: "yes",
+    why: WHY[5] as string,
+    note: "Rented from us for 6 months, then bought from another dealer.",
+  },
+  f10: {
+    mine: "yes",
+    knew: KNEW[2] as string,
+    next: NEXT[0] as string,
+    note: "New residential developer in Magnolia. I'll call this week.",
+  },
   f11: {
     mine: "no",
     moveTo: "kelsey",
@@ -61,7 +80,12 @@ const EXAMPLE: Record<string, Partial<Answer>> = {
     next: NEXT[1] as string,
     note: "Belongs to Kelsey's Conroe branch account.",
   },
-  f12: { mine: "yes", knew: KNEW[0] as string, next: NEXT[0] as string },
+  f12: {
+    mine: "yes",
+    knew: KNEW[0] as string,
+    next: NEXT[0] as string,
+    note: "Met them at the October demo day; they went with a rental-to-own deal elsewhere.",
+  },
 };
 
 export function ReviewForm() {
@@ -69,6 +93,7 @@ export function ReviewForm() {
   const { state, set } = useDemo();
   const [a, setA] = useState<Record<string, Answer>>({});
   const [problems, setProblems] = useState<string[]>([]);
+  const [overall, setOverall] = useState("");
   const [checking, setChecking] = useState(false);
   const [sent, setSent] = useState(state.marcusDone);
   const get = (id: string): Answer => a[id] ?? EMPTY;
@@ -79,6 +104,9 @@ export function ReviewForm() {
     const next: Record<string, Answer> = {};
     for (const f of MINE) next[f.id] = { ...EMPTY, ...EXAMPLE[f.id] };
     setA(next);
+    setOverall(
+      "Two of the five existing clients bought without calling. I'd like a quarterly check-in list for Houston North accounts that haven't bought in 12 months.",
+    );
     setProblems([]);
   };
 
@@ -145,11 +173,17 @@ export function ReviewForm() {
                   {x.why ? ` · ${x.why}` : ""}
                   {x.knew ? ` · ${x.knew}` : ""}
                   {x.next ? ` · ${x.next}` : ""}
-                  {x.note ? ` · "${x.note}"` : ""}
                 </dd>
+                {x.note ? <dd className="mt-0.5 text-sm text-ink">Comment: {x.note}</dd> : null}
               </div>
             );
           })}
+          {overall ? (
+            <div>
+              <dt className="text-sm font-medium text-ink">Anything else about October</dt>
+              <dd className="text-sm text-ink">{overall}</dd>
+            </div>
+          ) : null}
         </dl>
         <div className="mt-6 flex gap-2">
           <Button variant="secondary" onClick={() => setChecking(false)}>
@@ -256,6 +290,22 @@ export function ReviewForm() {
             ) : null}
           </Row>
         ))}
+      </Part>
+
+      <Part
+        n={4}
+        title="Anything else"
+        lede="Comments on October as a whole: patterns you're seeing, accounts to watch, what would help."
+      >
+        <Field label="Comments" hint="Optional.">
+          <TextArea
+            rows={3}
+            autoSize
+            placeholder="Anything we should know about your territory this month"
+            value={overall}
+            onChange={(e) => setOverall(e.target.value)}
+          />
+        </Field>
       </Part>
 
       {problems.length > 0 ? (
@@ -393,17 +443,17 @@ function Row({
         ) : null}
       </div>
       {children ? <div className="mt-3">{children}</div> : null}
-      {x.mine ? (
-        <div className="mt-3">
+      <div className="mt-3">
+        <Field label="Comments" hint="Optional. Ray Delgado sees them too.">
           <TextArea
-            rows={1}
+            rows={2}
             autoSize
-            placeholder="Anything to add (optional)"
+            placeholder={COMMENT_PROMPT[f.group]}
             value={x.note}
             onChange={(e) => put({ note: e.target.value })}
           />
-        </div>
-      ) : null}
+        </Field>
+      </div>
     </div>
   );
 }
