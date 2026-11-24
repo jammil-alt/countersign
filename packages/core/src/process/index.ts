@@ -9,6 +9,7 @@ export * from "./bundle";
 // R8: the conditions a process uses (the Library's condition sets).
 export * from "./choice";
 export * from "./clock";
+export * from "./collect";
 export * from "./conditions";
 // R7: the conversation step.
 export * from "./conversation";

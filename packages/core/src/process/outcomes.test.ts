@@ -87,6 +87,7 @@ const stepOf = (id: string, input: unknown = raw()): Step => {
 describe("the vocabulary", () => {
   it("has one closed list per kind that records an outcome", () => {
     expect(Object.keys(STEP_OUTCOMES).sort()).toEqual([
+      "collect",
       "conversation",
       "for_each",
       "notify",

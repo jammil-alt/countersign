@@ -103,6 +103,7 @@ import { browserRunOpener } from "../browser/driver";
 import { type BrowserDeps, dbBrowserServices } from "../browser/services";
 import { type VoiceDeps, voiceDepsFromEnv } from "../calls/answer";
 import { codesFor } from "../codes/client";
+import { collectChecks } from "../collect/checks";
 import { guardModels, hipaaToolPolicy, profileReader } from "../compliance/policy";
 // R7: the v4 conversation step's engine over P-4's service.
 import { conversationEngine } from "../converse/engine";
@@ -790,6 +791,8 @@ export async function executeRun(
       }),
       runtime,
     }),
+    // Collect reports (owner, 2026-11-24): what a report's owner sent, checked in code.
+    collect: collectChecks({ db, content: deps.documents?.content }),
     // R3: AI reviewers, one model call each.
     confer: { ai: (req) => conferAi(runtime, req) },
     // M61: the agent choosing a path or judging a repeat's pass, on its owner's settings.

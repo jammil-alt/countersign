@@ -75,6 +75,13 @@ import {
   isAccountingAction,
   resolveActionConnector,
 } from "./actions";
+// Collect reports (owner, 2026-11-24): its reports' checks, its output and its size.
+import {
+  type CollectProblemCode,
+  collectDurableEstimate,
+  collectOutputSchema,
+  collectProblems,
+} from "./collect";
 // R7: the conversation step's own checks, output and send tools (one copy, invariant 4).
 import {
   CONVERSATION_SEND_VERB,
@@ -182,7 +189,12 @@ export type ProcessValidationCode =
   | "choice_too_many"
   // v0.18 (docs/plan.md §1.103): a missing step, which holds a piece nobody has built yet. A draft
   // with one is saved; a publish is refused until it is filled or removed.
-  | "missing_step";
+  | "missing_step"
+  // Collect reports (owner, 2026-11-24): what the schema can't check about its reports, an owner
+  // who isn't a seat or a contact, and a list that could take too many steps.
+  | CollectProblemCode
+  | "collect_owner"
+  | "collect_too_big";
 
 /**
  * `conversationProblems`' codes. A templated goal is reported as `input_not_fixed`, as every other
@@ -473,6 +485,9 @@ export function stepOutputSchema(step: Step, ctx: TypingContext): JsonSchema | u
     // R7: `{ status, found, conversationId, summary }`, `found` typed by the step's `find`.
     case "conversation":
       return conversationOutputSchema(step);
+    // Collect reports: `{ complete, items, documents, … }`.
+    case "collect":
+      return collectOutputSchema();
     default:
       return NO_OUTPUT;
   }
@@ -792,7 +807,8 @@ export function writeActionResolution(
 
 /** Whether the step contacts people: a conversation, or a skill that reaches people. */
 export function stepReaches(step: Step, ctx: TypingContext): boolean {
-  if (step.kind === "conversation") return true;
+  // Collect reports: each link goes to its owner through reach out.
+  if (step.kind === "conversation" || step.kind === "collect") return true;
   return step.kind === "skill" && lookupSkill(step.skill, ctx)?.reachesPeople === true;
 }
 
@@ -1760,7 +1776,40 @@ const NO_ON_ERROR: Partial<Record<Step["kind"], string>> = {
     "a repeat can't fail by itself: set onError on the steps inside it, and onLimit for when it never finishes",
   // DECISION (hand off): a hand-off that can't start ends the run; going on past it is not offered.
   handoff: "a hand-off that can't start ends the run",
+  // DECISION (collect reports): a collect step ends by its escalation or `ifMissing`, which say
+  // what a missing report does; going on past its other failures is not offered.
+  collect: "a collect step's escalation and ifMissing say what a missing report does",
 };
+
+/** Collect reports: what the schema can't say about the step (`collectProblems`), and owners. */
+function checkCollect(c: Checker, step: Extract<Step, { kind: "collect" }>) {
+  for (const p of collectProblems(step)) c.add(step.id, p.field, p.code, p.message);
+  step.items.forEach((item, i) => {
+    checkFixedText(c, step.id, item.name, `items.${i}.name`, "report's name");
+    if (item.describe) {
+      checkFixedText(c, step.id, item.describe, `items.${i}.describe`, "report's description");
+    }
+    if (!item.owner.startsWith("seat:") && !UUID_RE.test(item.owner)) {
+      c.add(
+        step.id,
+        `items.${i}.owner`,
+        "collect_owner",
+        `"${item.name}": its owner is one of the agent's people (a seat) or a contact`,
+      );
+    }
+  });
+  const estimate = collectDurableEstimate(step);
+  if (estimate > REPEAT_DURABLE_MAX) {
+    c.add(
+      step.id,
+      "items",
+      "collect_too_big",
+      `with every follow-up this could take about ${estimate} steps, over ${REPEAT_DURABLE_MAX}: wait for fewer reports or follow up fewer times`,
+    );
+  }
+}
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /** v0.18: what a missing step's error says: what is missing, in the Builder's own sentence. */
 export function missingStepMessage(step: Pick<MissingStep, "name" | "need">): string {
@@ -1977,6 +2026,11 @@ function checkStep(c: Checker, step: Step, scope: ProcessScope, allowed: Set<str
     case "missing":
       c.add(step.id, "", "missing_step", missingStepMessage(step));
       break;
+    // Collect reports (owner, 2026-11-24): each report's name and words go into the message its
+    // owner gets, so they are fixed text (invariant 9); owners are seats or contacts.
+    case "collect":
+      checkCollect(c, step);
+      break;
     default:
       break;
   }
@@ -2131,6 +2185,8 @@ export function durableEstimate(steps: readonly Step[]): number {
       n += durableEstimate(step.steps);
     } else if (step.kind === "repeat") {
       n += Math.min(step.maxTimes, REPEAT_MAX_TIMES) * (durableEstimate(step.steps) + 2);
+    } else if (step.kind === "collect") {
+      n += collectDurableEstimate(step);
     }
   }
   return n;

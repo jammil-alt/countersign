@@ -22,6 +22,8 @@ import {
   DEFAULT_APPROVAL,
   type Duration,
   evaluateRules,
+  // Collect reports (owner, 2026-11-24): each link is a "Request info" step.
+  FORMS_REQUEST_SKILL,
   isPlainObject,
   LEAD_ASSIGNEE,
   lookupSkill,
@@ -75,6 +77,7 @@ import {
 import {
   type AgentPort,
   type ChoicePort,
+  type CollectPort,
   type ConferPort,
   type ConversationPort,
   type ConversationRequest,
@@ -152,6 +155,8 @@ export interface ExecutorContext {
   hours?: HoursPort;
   /** Conversation steps; absent: a conversation step fails the run. */
   conversation?: ConversationPort;
+  /** Collect reports: checks on what owners send; absent: a report that came in fails the run. */
+  collect?: CollectPort;
   /** AI reviewers for confer checks; absent: an AI reviewer's verdict is `no_answer`. */
   confer?: ConferPort;
   // M61 (ARCHITECTURE v0.17 §10.14; docs/plan.md §1.99)
@@ -680,6 +685,14 @@ function message(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+/** The required reports that didn't come in, by name. */
+function missingNames(results: readonly processes.CollectItemResult[]): string {
+  return results
+    .filter((r) => r.required && r.status !== "received" && r.status !== "skipped")
+    .map((r) => r.name)
+    .join(", ");
+}
+
 /** A business-hours wait as the runner takes it: whole seconds until `dueAt`, at least one. */
 function untilDue(dueAt: string): Duration {
   return `${Math.max(1, Math.ceil((Date.parse(dueAt) - Date.now()) / 1000))} seconds`;
@@ -942,6 +955,9 @@ class Executor {
         // Hand off (owner, 2026-11-11)
         case "handoff":
           return await this.handoff(step, name, frame);
+        // Collect reports (owner, 2026-11-24)
+        case "collect":
+          return await this.collect(step, name, frame);
         // v0.18: refused (the check above fails the run first; this holds whatever reaches here).
         case "missing":
           throw new Error(`the step "${step.name}" is missing and can't run`);
@@ -1012,8 +1028,10 @@ class Executor {
   async dueOf(
     who: string,
     deadline: processes.Deadline,
+    // Collect reports: a time counted from another (an escalation after a report's due date).
+    from?: Date,
   ): Promise<{ dueAt: string; remindAt: string[] }> {
-    const start = new Date();
+    const start = from ?? new Date();
     const offsets = deadline.remind ?? [];
     // DECISION: each `remind` is a time after the asking (one reminder each); a v3 step's
     // `remindEvery` becomes one reminder.
@@ -1503,7 +1521,10 @@ class Executor {
     // The sign-off: a read's, or a skill's that proposed no write (a proposed write was signed
     // through the gate above, in the check's mode). A write step's approval is only ever the
     // gate's.
-    const signOff = plan && step.kind !== "write" && !proposed ? plan : undefined;
+    // Collect reports: a report's link is signed as its reach-out's plan (or goes unsent), never
+    // signed off again once it has run.
+    const signOff =
+      plan && step.kind !== "write" && !proposed && !this.reportAsks.has(step) ? plan : undefined;
     const signs =
       signOff &&
       gate?.required !== "not_required" &&
@@ -3194,6 +3215,334 @@ class Executor {
       return null;
     });
     this.record(frame, step, output, { outcome: result.status });
+  }
+
+  // ── Collect reports (owner, 2026-11-24) ─────────────────────────────────────────────────────
+
+  /**
+   * Collect reports: every report on the list at once, each its own loop. A pass sends its owner a
+   * link ("Request info", `forms.request`, run as a step of its own under `${name}:${i}:r${n}:`,
+   * so its approval, wait and timeline row are every step's); what comes back is checked in code
+   * (the collect port). A file that fails its checks is asked for again with the reasons; no
+   * answer by the time the link closes is followed up, at most `followUp.max` times. A report late
+   * by `escalate.after`, or out of follow-ups, goes to the escalation: keep asking, go on without
+   * it, or stop. Output: what came in (`processes.CollectOutput`).
+   */
+  /** The link steps collect steps run (`reportAsk`), which take no sign-off of their own. */
+  readonly reportAsks = new WeakSet<processes.Step>();
+
+  async collect(step: processes.CollectStep, name: string, frame: Frame): Promise<void> {
+    const { run, log } = this.ctx;
+    const label = clientLabel(asLabelled(step));
+    const started = await this.runner.do(
+      name,
+      async () => {
+        const stepRunId = await log.start({
+          runId: run.id,
+          nodeId: name,
+          nodeType: "collect",
+          input: {
+            items: step.items.map((i) => ({ id: i.id, name: i.name, owner: i.owner })),
+          },
+        });
+        await log.update(stepRunId, { status: "running" });
+        const at = new Date();
+        const items = [];
+        for (const item of step.items) {
+          const { dueAt } = await this.dueOf(item.owner, {
+            after: item.due,
+            hours: item.hours,
+            ifNoAnswer: "stop",
+          });
+          const escalateAt = step.escalate
+            ? (
+                await this.dueOf(
+                  step.escalate.to,
+                  { after: step.escalate.after, hours: step.escalate.hours, ifNoAnswer: "stop" },
+                  new Date(dueAt),
+                )
+              ).dueAt
+            : null;
+          items.push({
+            dueAt,
+            escalateAt,
+            period: processes.reportPeriod(item.frequency, at, run.timeZone ?? "UTC"),
+          });
+        }
+        return { stepRunId, items };
+      },
+      this.ctx.stepConfig,
+    );
+
+    const results: processes.CollectItemResult[] = new Array(step.items.length);
+    await pool(step.items.length, step.items.length, async (i) => {
+      const item = step.items[i] as processes.CollectItem;
+      const plan = started.items[i] as (typeof started.items)[number];
+      results[i] = await this.collectItem(step, name, frame, started.stepRunId, i, item, plan);
+    });
+
+    const output = processes.collectOutput(results);
+    // A required report that never came, and that nobody said to go on without, ends the run
+    // under `ifMissing: stop`. A test run sends nothing, so nothing comes in: it goes on.
+    const stops =
+      step.ifMissing === "stop" &&
+      !this.testRun &&
+      results.some((r) => r.required && r.status !== "received" && r.status !== "skipped");
+    await this.runner.do(`${name}:done`, async () => {
+      await log.update(started.stepRunId, {
+        status: stops ? "failed" : "succeeded",
+        output,
+        ...(stops ? { error: `missing: ${missingNames(results)}` } : {}),
+        summary: `${label}: ${output.summary}`,
+      });
+      return null;
+    });
+    if (stops) {
+      throw new RunEnd({
+        status: "failed",
+        reason: `reports missing: ${missingNames(results)}`,
+        nodeId: name,
+      });
+    }
+    this.record(frame, step, output, { outcome: output.complete ? "complete" : "incomplete" });
+  }
+
+  /** One report's loop: links, checks, follow-ups and the escalation, until it ends. */
+  async collectItem(
+    step: processes.CollectStep,
+    name: string,
+    frame: Frame,
+    stepRunId: string,
+    index: number,
+    item: processes.CollectItem,
+    plan: { dueAt: string; escalateAt: string | null; period: processes.ReportPeriod | null },
+  ): Promise<processes.CollectItemResult> {
+    const port = this.ctx.collect;
+    const result: processes.CollectItemResult = {
+      id: item.id,
+      name: item.name,
+      owner: item.owner,
+      required: item.required,
+      status: "missing",
+      period: plan.period,
+      dueAt: plan.dueAt,
+      documents: [],
+      problems: [],
+      sends: 0,
+      escalations: 0,
+    };
+    let escalateAt = plan.escalateAt;
+    let budget = 1 + item.followUp.max;
+    for (let n = 1; ; n++) {
+      const base = `${name}:${index}:r${n}`;
+      const now = new Date(
+        await this.runner.do(`${base}:at`, async () => new Date().toISOString()),
+      );
+      const late = escalateAt !== null && now.getTime() >= Date.parse(escalateAt);
+      if (step.escalate && (late || result.sends >= budget)) {
+        if (result.escalations < processes.COLLECT_ESCALATIONS_MAX) {
+          result.escalations++;
+          const choice = await this.escalateReport(step, base, stepRunId, item, result);
+          if (choice === "go_on") {
+            result.status = "skipped";
+            return result;
+          }
+          // Keep asking: the follow-ups start again, and the next escalation waits for them.
+          escalateAt = null;
+          budget = result.sends + 1 + item.followUp.max;
+        } else if (result.sends >= budget) {
+          return result;
+        }
+      } else if (result.sends >= budget) {
+        return result;
+      }
+
+      result.sends++;
+      const closes = processes.linkClosesAt({
+        now,
+        dueAt: new Date(plan.dueAt),
+        followUp: item.followUp,
+        first: result.sends === 1,
+        escalateAt: escalateAt ? new Date(escalateAt) : null,
+      });
+      const ask = this.reportAsk(step, item, plan.period, result);
+      const window = processes.linkWindow(closes.getTime() - now.getTime());
+      const inner: processes.SkillStep = { ...ask, input: { ...ask.input, due: window } };
+      this.reportAsks.add(inner);
+      const scope: RunContext = { ...frame.scope, steps: { ...frame.scope.steps } };
+      await this.runStep(inner, { prefix: `${base}:`, scope });
+      const entry = scope.steps[inner.id] as
+        | { output?: unknown; outcome?: string; error?: unknown }
+        | undefined;
+      const sent = isPlainObject(entry?.output) ? entry.output : {};
+      const outcome = typeof sent.outcome === "string" ? sent.outcome : null;
+      // The link's message turned down (its approval, or the reach-out's plan).
+      if (entry?.outcome === "rejected" || outcome === "declined") {
+        result.status = "declined";
+        return result;
+      }
+      // It never went out: nobody signed in time, the owner can't be reached, a test run, or the
+      // step failed. Only the form's own `no_answer` (the link closed unanswered) follows up.
+      if (
+        (entry?.outcome ?? "done") !== "done" ||
+        (outcome !== "submitted" && outcome !== "no_answer")
+      ) {
+        result.status = "not_sent";
+        const why = typeof sent.reason === "string" ? sent.reason : sent.error;
+        result.problems = typeof why === "string" ? [why] : [];
+        return result;
+      }
+      if (outcome === "no_answer") continue; // No file before the link closed: follow up.
+      const documentIds = Array.isArray(sent.documents)
+        ? sent.documents.filter((d): d is string => typeof d === "string")
+        : [];
+      if (!port) throw new Error("collect steps need the report checks");
+      const check = await this.runner.do(
+        `${base}:check`,
+        () =>
+          port.check({
+            tenantId: this.ctx.run.tenantId,
+            runId: this.ctx.run.id,
+            nodeId: base,
+            item,
+            period: plan.period,
+            documentIds,
+          }),
+        this.ctx.stepConfig,
+      );
+      if (check.ok) {
+        result.status = "received";
+        result.documents = check.documents;
+        result.problems = [];
+        return result;
+      }
+      result.problems = check.problems;
+    }
+  }
+
+  /** The "Request info" step one pass runs: a link for the report's file, to its owner. */
+  reportAsk(
+    step: processes.CollectStep,
+    item: processes.CollectItem,
+    period: processes.ReportPeriod | null,
+    result: processes.CollectItemResult,
+  ): processes.SkillStep & { input: Record<string, unknown> } {
+    const owner = item.owner.startsWith(processes.SEAT_PREFIX)
+      ? { role: item.owner.slice(processes.SEAT_PREFIX.length) }
+      : { contactId: item.owner };
+    const title = period ? `${item.name}, ${period.label}` : item.name;
+    const purpose = processes.requestPurpose({
+      item,
+      period,
+      send: result.sends,
+      problems: result.problems,
+    });
+    const approval = step.checks?.approval;
+    return {
+      id: "ask",
+      kind: "skill",
+      name: `Ask for the ${item.name}`,
+      client: {
+        visible: true,
+        label: result.sends > 1 ? `Followed up on the ${item.name}` : `Asked for the ${item.name}`,
+      },
+      skill: FORMS_REQUEST_SKILL,
+      input: {
+        to: owner,
+        about: [],
+        purpose,
+        title: title.slice(0, 200),
+        ask: {
+          required: [
+            {
+              id: processes.COLLECT_FILE_QUESTION,
+              type: "files",
+              label: title.slice(0, 300),
+              ...(item.describe ? { help: item.describe.slice(0, 500) } : {}),
+              required: true,
+              accept: item.formats,
+              max: 5,
+            },
+          ],
+          maxExtra: 0,
+          allowFiles: false,
+        },
+      },
+      // Invariant 8: the link's message is signed as the step's approval says (on by default).
+      // A no, or nobody signing in time, ends this report as not sent, never the run.
+      // DECISION: a send nobody signed in time is skipped rather than ending the run: the
+      // report is then missing, which the escalation and `ifMissing` decide on.
+      checks: {
+        approval: {
+          required: approval?.required ?? "required",
+          mode: approval?.mode ?? "in_turn",
+          ...(approval?.when ? { when: approval.when } : {}),
+          ...(approval?.approvers ? { approvers: approval.approvers } : {}),
+          ifNoAnswer: approval?.ifNoAnswer === "stop" || !approval ? "skip" : approval.ifNoAnswer,
+          onReject: "continue",
+        },
+      },
+      onError: "continue",
+    };
+  }
+
+  /** A late report to the escalation's person: keep asking, go on without it, or stop the run. */
+  async escalateReport(
+    step: processes.CollectStep,
+    base: string,
+    stepRunId: string,
+    item: processes.CollectItem,
+    result: processes.CollectItemResult,
+  ): Promise<"keep_asking" | "go_on"> {
+    const escalate = step.escalate as processes.CollectEscalation;
+    const last = result.escalations >= processes.COLLECT_ESCALATIONS_MAX;
+    const choices = processes.COLLECT_ESCALATION_CHOICES.filter(
+      (c) => !(last && c === "keep_asking"),
+    ).map((value) => ({ value, label: processes.COLLECT_CHOICE_LABELS[value] }));
+    const title = `The ${item.name} is late`;
+    const ask = this.personAsker(stepRunId, {
+      stepId: step.id,
+      name: step.name,
+      title,
+      mode: "ask",
+      choices,
+      payload: {
+        report: item.name,
+        owner: item.owner,
+        dueAt: result.dueAt,
+        period: result.period?.label ?? null,
+        sent: result.sends,
+        problems: result.problems,
+      },
+    });
+    const b = `${base}:esc`;
+    const asked = await ask(b, escalate.to, escalate.deadline);
+    let answer = (await this.awaitResolution(b, asked.item, asked.timeout))?.answer;
+    if (answer === undefined) {
+      // Nobody answered in time: the deadline's `ifNoAnswer`, which may ask someone else.
+      const end = await this.escalate(b, thenOf(escalate.deadline), ask);
+      if ("resolution" in end) answer = end.resolution.answer;
+      else if (end.ended === "stop") answer = "stop";
+      else answer = "go_on";
+      if (escalate.deadline.tell?.length) {
+        await this.runner.do(`${b}:tell`, async () => {
+          await this.tell(escalate.deadline.tell, {
+            nodeId: b,
+            inboxItemId: asked.item,
+            reason: `no answer about the late ${item.name} within ${escalate.deadline.after}`,
+          });
+          return null;
+        });
+      }
+    }
+    if (answer === "stop") {
+      throw new RunEnd({
+        status: "failed",
+        reason: `stopped: the ${item.name} is late`,
+        nodeId: base,
+      });
+    }
+    return answer === "keep_asking" && !last ? "keep_asking" : "go_on";
   }
 
   // ── logic ────────────────────────────────────────────────────────────────────────────────────

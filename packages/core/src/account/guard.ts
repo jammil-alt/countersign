@@ -137,7 +137,7 @@ export function accountAgentProblems(input: {
       for (const t of skill ? skillTools(skill) : []) refuse(t, at?.field ?? "skill", id, slug);
     } else if (step.kind === "process") {
       checkPinned(step.process, at ?? { id: step.id, field: "process" }, slug);
-    } else if (step.kind === "conversation") {
+    } else if (step.kind === "conversation" || step.kind === "collect") {
       errors.push({
         stepId: id,
         field: at?.field ?? "channel",

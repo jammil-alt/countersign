@@ -359,6 +359,8 @@ export type PaletteItem =
   | { type: "process"; key: string; title: string; detail: string; ref: string }
   | { type: "person"; key: string; title: string; detail: string; mode: "approve" | "ask" }
   | { type: "conversation"; key: string; title: string; detail: string }
+  // Collect reports (owner, 2026-11-24)
+  | { type: "collect"; key: string; title: string; detail: string }
   | { type: "notify"; key: string; title: string; detail: string }
   | { type: "logic"; key: string; title: string; detail: string; logic: LogicKind }
   // Hand off (owner, 2026-11-11): another agent of the client, started at one of its steps.
@@ -390,6 +392,21 @@ export function defaultApproval(): ApprovalCheck {
 }
 
 /** A deadline as new ones start: on the clock, stop when nobody answers. */
+/** A new report for a collect step: monthly, due 3 business days in, two follow-ups. */
+export function newReport(n: number): processes.CollectItem {
+  return {
+    id: `r${n}`,
+    name: `Report ${n}`,
+    owner: "",
+    required: true,
+    frequency: "monthly",
+    formats: ["pdf", "spreadsheet"],
+    due: "3 days",
+    hours: "business",
+    followUp: { after: "1 day", every: "2 days", max: 2 },
+  };
+}
+
 export function defaultDeadline(after = "1 day"): Deadline {
   return { after, hours: "clock", ifNoAnswer: "stop" };
 }
@@ -477,6 +494,22 @@ export function createStep(item: PaletteItem, ctx: TypingContext, newId: NewId =
         maxTurns: 4,
         messages: { first: "required", later: "required" },
         deadline: defaultDeadline("3 days"),
+      };
+    // Collect reports: one report to start with; every link waits for a person's yes (invariant 8,
+    // the reach-out's plan), and a late report goes to the client admin.
+    case "collect":
+      return {
+        id,
+        kind: "collect",
+        name: "Collect reports",
+        items: [newReport(1)],
+        escalate: {
+          to: "client_admin",
+          after: "3 days",
+          hours: "business",
+          deadline: defaultDeadline("2 days"),
+        },
+        ifMissing: "stop",
       };
     case "notify":
       return {

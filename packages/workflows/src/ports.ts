@@ -705,6 +705,26 @@ export interface ConversationPort {
  */
 export const conversationEventType = processes.conversationEventType;
 
+// Collect reports (owner, 2026-11-24): checks on the files a report's owner sent.
+/** One report's files to check, by its item's rules and the period it covers. */
+export interface CollectCheckRequest {
+  tenantId: string;
+  runId: string;
+  /** The pass's durable name, for the record. */
+  nodeId: string;
+  item: processes.CollectItem;
+  period: processes.ReportPeriod | null;
+  documentIds: string[];
+}
+
+/**
+ * Reads what a report's owner sent (apps/api: the documents, each spreadsheet by the item's
+ * columns) and checks it in code (`processes.checkReport`). Called inside a durable step.
+ */
+export interface CollectPort {
+  check(request: CollectCheckRequest): Promise<processes.ReportCheck>;
+}
+
 /** Whose hours a deadline runs on (`HoursPort.hoursFor`). */
 export interface HoursAnswer {
   client: processes.BusinessHours;

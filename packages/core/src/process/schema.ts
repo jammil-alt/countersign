@@ -20,6 +20,8 @@ import {
   WorkflowHandoff,
 } from "../schemas/workflow";
 import { WriteAction } from "./actions";
+// Collect reports (owner, 2026-11-24)
+import { COLLECT_ITEMS_MAX, CollectItem } from "./collect";
 import { SkillCustomization } from "./customize";
 // Reshape data (owner, 2026-11-11): the step's mapping, as data.
 import { ReshapeMapping } from "./reshape";
@@ -329,6 +331,40 @@ export const HandoffStep = z.object({
   input: TemplateObject.default({}),
 });
 
+// Collect reports (owner, 2026-11-24): several reports, each from its own owner, in and checked.
+/**
+ * When a late report is escalated, and to whom: `after` its due date (on `hours`), or when its
+ * follow-ups run out if sooner. The person picks: keep asking, go on without it, or stop the run;
+ * nobody answering in `deadline` takes its `ifNoAnswer`.
+ */
+export const CollectEscalation = z.strictObject({
+  to: Who,
+  after: Duration,
+  hours: z.enum(DEADLINE_HOURS).default("business"),
+  deadline: Deadline,
+});
+export type CollectEscalation = z.infer<typeof CollectEscalation>;
+
+/**
+ * Collect reports: waits for every report on its list, each from its own owner, sending each a
+ * link to send the file, following up on its own schedule, checking each file in code, and
+ * escalating a late one. Its output lists what came in (`steps.<id>.output.documents`) for the
+ * next step, a reconciliation say. Every link goes out through reach out (approval on by
+ * default, invariant 8). `ifMissing`: what happens when a required report never came and nobody
+ * said to go on without it (no escalation, or its follow-ups ran out after a "Keep asking").
+ */
+// DECISION: a step kind of its own rather than a skill: it holds a list of reports, each with its
+// own owner and schedule, and an escalation, which the builder edits as a form; underneath, each
+// link is a "Request info" step (forms.request) run by the executor, so approvals, waits and the
+// timeline are the ones every step has.
+export const CollectStep = z.object({
+  ...base,
+  kind: z.literal("collect"),
+  items: z.array(CollectItem).min(1).max(COLLECT_ITEMS_MAX),
+  escalate: CollectEscalation.optional(),
+  ifMissing: z.enum(["stop", "proceed"]).default("stop"),
+});
+
 // v0.18 (owner, 2026-11-15; docs/plan.md §1.103): a missing piece, held where it belongs.
 /** What kind of thing would fill a missing step: a skill to draft, a tool, or a connector. */
 export const MISSING_FILLS = ["skill", "tool", "connector"] as const;
@@ -365,6 +401,7 @@ export type StopStep = z.infer<typeof StopStep>;
 export type SubProcessStep = z.infer<typeof SubProcessStep>;
 export type HandoffStep = z.infer<typeof HandoffStep>;
 export type MissingStep = z.infer<typeof MissingStep>;
+export type CollectStep = z.infer<typeof CollectStep>;
 
 type Base = z.infer<z.ZodObject<typeof base>>;
 
@@ -426,7 +463,9 @@ export type Step =
   | SubProcessStep
   | HandoffStep
   // v0.18
-  | MissingStep;
+  | MissingStep
+  // Collect reports (owner, 2026-11-24)
+  | CollectStep;
 export type StepKind = Step["kind"];
 
 export const STEP_KINDS = [
@@ -445,6 +484,8 @@ export const STEP_KINDS = [
   "handoff",
   // v0.18
   "missing",
+  // Collect reports (owner, 2026-11-24)
+  "collect",
 ] as const satisfies readonly StepKind[];
 
 export const IfStep = z.object({
@@ -526,6 +567,8 @@ export const Step: z.ZodType<Step> = z
     HandoffStep,
     // v0.18
     MissingStep,
+    // Collect reports (owner, 2026-11-24)
+    CollectStep,
   ])
   .meta({ id: "ProcessStep" }) as unknown as z.ZodType<Step>;
 

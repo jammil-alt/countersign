@@ -47,6 +47,7 @@ const STEP_KIND: Record<string, string> = {
   read: "read step",
   write: "write step",
   conversation: "conversation",
+  collect: "collect step",
   if: "if",
   process: "automation step",
 };

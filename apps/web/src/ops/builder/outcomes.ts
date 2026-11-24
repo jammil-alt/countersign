@@ -44,6 +44,7 @@ const OUTCOME_PHRASE: { [K in OutcomeKind]: Record<processes.StepOutcomeOf<K>, s
   skill: { done: "was done", ...WORK },
   write: { done: "was done", ...WORK },
   person: { answered: "was answered", no_answer: "nobody answered" },
+  collect: { complete: "got every report", incomplete: "went on without some reports" },
   conversation: {
     done: "got what it needed",
     not_found: "didn't find it",
@@ -435,6 +436,18 @@ function needsFor(step: Step, word: string): Pick<RouteOption, "change" | "apply
     }
     case "wait":
       return word === "arrived" ? null : { change: null, apply: same };
+    // Collect reports: going on without a report means `ifMissing: proceed`.
+    case "collect":
+      if (word === "incomplete" && step.ifMissing === "stop") {
+        return {
+          change: {
+            setting: "If a report never comes",
+            says: "When a required report never comes, the run now goes on to the route instead of stopping.",
+          },
+          apply: (s) => (s.kind === "collect" ? { ...s, ifMissing: "proceed" } : s),
+        };
+      }
+      return { change: null, apply: same };
     default:
       return { change: null, apply: same };
   }

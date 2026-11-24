@@ -133,6 +133,7 @@ import { opsBuilderRoutes } from "./routes/ops-builder";
 import { opsBuildRoutes } from "./routes/ops-builds";
 import { opsClientRoutes } from "./routes/ops-clients";
 import { opsCodeRequestRoutes } from "./routes/ops-code-requests";
+import { opsCollectRoutes } from "./routes/ops-collect";
 // v0.12 W2-A: the connectors catalog
 import { opsConnectorRoutes } from "./routes/ops-connectors";
 import { opsEventRoutes } from "./routes/ops-events";
@@ -295,6 +296,8 @@ export function createApp(deps: AppDeps = defaultDeps): Hono<AppEnv> {
   // Reshape data (2026-11-11): propose a Reshape step's mapping, and its sample values.
   opsReshapeRoutes(app);
   opsReadTableRoutes(app);
+  // Collect reports (owner, 2026-11-24): a report's sample file.
+  opsCollectRoutes(app);
   opsIntakeReportRoutes(app);
   opsMergeRoutes(app);
   opsEventRoutes(app);

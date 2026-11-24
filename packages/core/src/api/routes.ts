@@ -45,6 +45,8 @@ import { callRoutes } from "./calls";
 // docs/plan.md §1.149: onboarding v1
 // v0.12 W2-G: KPIs and the client view, credits running out, the client's audit export
 import { clientViewRoutes } from "./client-view";
+// Collect reports (owner, 2026-11-24)
+import { collectRoutes } from "./collect";
 // v0.12 W2-F: the command center, search and plain-words questions
 import { commandCenterRoutes } from "./command-center";
 import { complianceRoutes } from "./compliance";
@@ -2650,6 +2652,8 @@ export const routes = {
   ...reshapeRoutes,
   // Data in and out of files (owner, 2026-11-20): a Read table step's sample-file check.
   ...readTableRoutes,
+  // Collect reports (owner, 2026-11-24): a report's sample file.
+  ...collectRoutes,
   // File and email intake (owner, 2026-11-22; docs/plan.md §1.213): report profiles.
   ...intakeReportRoutes,
   // docs/plan.md §1.124: back office work

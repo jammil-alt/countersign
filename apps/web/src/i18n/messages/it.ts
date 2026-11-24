@@ -623,6 +623,8 @@ export const it: Messages = {
   "run.outcome.failed": "non riuscito",
   "run.outcome.answered": "risposto",
   "run.outcome.not_found": "non trovato",
+  "run.outcome.complete": "ha ricevuto tutti i report", // fluent review
+  "run.outcome.incomplete": "è andato avanti senza alcuni report", // fluent review
   "run.outcome.declined": "rifiutato",
   "run.outcome.sent": "inviato",
   "run.outcome.not_seen": "non visto in tempo",
@@ -2665,6 +2667,7 @@ export const it: Messages = {
   "flow.mark.write": "Salva nei nostri archivi", // fluent review
   "flow.mark.person": "Lo fa una persona", // fluent review
   "flow.mark.conversation": "Una conversazione con una persona", // fluent review
+  "flow.mark.collect": "Report dai loro responsabili", // fluent review
   "flow.mark.notify": "Avvisa qualcuno", // fluent review
   "flow.mark.wait": "Attende", // fluent review
   "flow.mark.forEach": "Si ripete per ogni elemento", // fluent review
@@ -2704,6 +2707,7 @@ export const it: Messages = {
   "flow.does.process": "Esegue un’automazione: un insieme di passaggi salvato.", // fluent review
   "flow.does.handoff": "Passa il lavoro a un altro agente, che funziona da solo.", // fluent review
   "flow.does.missing": "Tiene il posto di un passaggio che nessuno ha ancora creato.", // fluent review
+  "flow.does.collect": "Attende i report dai responsabili, sollecita e controlla ciascuno.", // fluent review
   "manual.whatItDoes": "Cosa fa", // fluent review
   "manual.howItWorks": "Come funziona", // fluent review
   "manual.decisions": "Decisioni", // fluent review

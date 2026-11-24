@@ -614,6 +614,8 @@ export const es: Messages = {
   "run.outcome.failed": "falló",
   "run.outcome.answered": "respondido",
   "run.outcome.not_found": "no lo encontró",
+  "run.outcome.complete": "recibió todos los informes", // fluent review
+  "run.outcome.incomplete": "siguió sin algunos informes", // fluent review
   "run.outcome.declined": "rechazado",
   "run.outcome.sent": "enviado",
   "run.outcome.not_seen": "no se vio a tiempo",
@@ -2649,6 +2651,7 @@ export const es: Messages = {
   "flow.mark.write": "Guarda en nuestros registros", // fluent review
   "flow.mark.person": "Lo hace una persona", // fluent review
   "flow.mark.conversation": "Una conversación con una persona", // fluent review
+  "flow.mark.collect": "Informes de sus responsables", // fluent review
   "flow.mark.notify": "Avisa a alguien", // fluent review
   "flow.mark.wait": "Espera", // fluent review
   "flow.mark.forEach": "Se repite por cada elemento", // fluent review
@@ -2688,6 +2691,8 @@ export const es: Messages = {
   "flow.does.process": "Ejecuta una automatización: un conjunto de pasos guardado.", // fluent review
   "flow.does.handoff": "Pasa el trabajo a otro agente, que funciona por su cuenta.", // fluent review
   "flow.does.missing": "Ocupa el lugar de un paso que aún nadie ha hecho.", // fluent review
+  "flow.does.collect":
+    "Espera los informes de sus responsables, hace seguimiento y revisa cada uno.", // fluent review
   "manual.whatItDoes": "Qué hace", // fluent review
   "manual.howItWorks": "Cómo funciona", // fluent review
   "manual.decisions": "Decisiones", // fluent review
