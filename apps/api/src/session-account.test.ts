@@ -16,7 +16,7 @@ import { and, eq, sql } from "drizzle-orm";
 import { Hono } from "hono";
 import { afterAll, afterEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
-import { admin, createApiHarness, OPERATOR } from "./api.test-helper";
+import { admin, createApiHarness, OPERATOR, tamper } from "./api.test-helper";
 import type { Bindings } from "./env";
 import { type AppDeps, type AppEnv, mount, mountLong, requestState } from "./http";
 import { sessionRoutes } from "./routes/session";
@@ -201,7 +201,7 @@ describe.skipIf(!h)("memberships carried in the cookie", () => {
   it("a tampered cookie is never used: the account is read", async () => {
     const first = await request(admin("a"), portalSpec.path);
     const value = first.carried?.split("=")[1] ?? "";
-    const flipped = `${value.slice(0, -2)}${value.endsWith("AA") ? "AB" : "AA"}`;
+    const flipped = tamper(value);
     const res = await request(admin("a"), portalSpec.path, `${DEV_ACCOUNT_COOKIE}=${flipped}`);
     expect(res.status).toBe(200);
     // It did not open, so the account was read and a good cookie sealed in its place.

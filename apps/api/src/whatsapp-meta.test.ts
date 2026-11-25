@@ -50,6 +50,7 @@ import {
   FakeWorkflowStep,
   forbiddenKeys,
   OPERATOR,
+  tamper,
   user,
 } from "./api.test-helper";
 import { MESSAGE_MEDIA_ENTITY } from "./conversations/capture";
@@ -345,7 +346,7 @@ describe.skipIf(!h)("WhatsApp through Meta through the API", () => {
     });
     expect(JSON.stringify(start.json)).not.toContain(FAKE_META.appSecret);
     const tampered = await call(admin("a"), "POST", "/api/connections/whatsapp_meta/callback", {
-      params: { code: meta.issueCode(), state: `${link.state.slice(0, -2)}xx` },
+      params: { code: meta.issueCode(), state: tamper(link.state) },
     });
     expect(tampered.status).toBe(400);
 

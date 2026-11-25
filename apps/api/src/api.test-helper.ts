@@ -462,6 +462,17 @@ export async function allowForAgent(
   return res.json;
 }
 
+/**
+ * A signed or sealed token with one character changed, for "a tampered token is refused" tests.
+ * It changes the first character after the last ".", the signature or ciphertext, never the end:
+ * base64url's last character carries bits that decoding drops, so changing it can leave the bytes
+ * as they were and the token still good.
+ */
+export function tamper(token: string): string {
+  const at = token.lastIndexOf(".") + 1;
+  return `${token.slice(0, at)}${token[at] === "A" ? "B" : "A"}${token.slice(at + 1)}`;
+}
+
 export const admin = (c: "a" | "b" | "c") => `admin@${c}.example.com`;
 export const user = (c: "a" | "b" | "c") => `user@${c}.example.com`;
 
