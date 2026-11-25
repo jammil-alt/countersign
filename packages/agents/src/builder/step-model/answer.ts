@@ -1,7 +1,5 @@
 // What the Builder answers in the step model (docs/step-model-plan.md §10, build item 9): an agent
-// bundle whose workflows are all v5 workflows, with the draft's summary, gaps and decisions. The
-// shapes around the bundle are the v4 Builder's (`../builder`), so the build flow, the gap steps and
-// the decisions read a v5 draft the same way.
+// bundle whose workflows are all v5 workflows, with the draft's summary, gaps and decisions.
 
 import { AgentBundle, BundleWorkflow, DecisionAnswer, steps } from "@countersign/core";
 import { z } from "zod";
@@ -11,7 +9,7 @@ import { z } from "zod";
  * and answers. Its value is an `AgentBundle`, so it is saved, hashed and validated as any other.
  */
 // DECISION: defined here, not in core's `schemas/agent.ts` (stream A's): it is the Builder's answer
-// shape, as `ProcessAgentBundle` was for v4, and it goes with v4 in wave 4 when this is the only one.
+// shape.
 export const StepAgentBundle = AgentBundle.extend({
   workflows: z.array(BundleWorkflow.extend({ workflow: steps.Workflow })),
 }).meta({ id: "StepAgentBundle" });

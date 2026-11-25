@@ -5,13 +5,12 @@
 import { describe, expect, it } from "vitest";
 import { diffBundles } from "../bundle/diff";
 import { mergeBundles } from "../bundle/merge";
-import { toProcessBundle } from "../bundle/normalize";
 import { bundleHash, canonicalJson } from "../canonical";
-import { type AgentBundle, AgentBundle as AnyAgentBundleSchema } from "../schemas/agent";
+import { type AgentBundle, AgentBundle as AgentBundleSchema } from "../schemas/agent";
 import { ToolSpec } from "../schemas/tool";
+import type { Step as StepV5 } from "../steps/schema";
 import { bundle, ctx, edit } from "../testing/fixtures";
-import type { ConvertLookup } from "./convert";
-import { Process, type Step, Step as StepSchema } from "./schema";
+import { Process, Step as StepSchema } from "./schema";
 import { missingStepMessage, validateProcess } from "./validate";
 
 const missing = {
@@ -118,23 +117,27 @@ describe("older bundles and tools", () => {
   });
 
   it("hash the same whether or not another bundle holds a missing step", async () => {
-    const lookup: ConvertLookup = { wrappedTool: () => null, sideEffect: () => null };
-    const v4 = toProcessBundle(bundle(), lookup);
-    const before = await bundleHash(v4);
-    expect(await bundleHash(AnyAgentBundleSchema.parse(JSON.parse(JSON.stringify(v4))))).toBe(
+    const before = await bundleHash(bundle());
+    expect(await bundleHash(AgentBundleSchema.parse(JSON.parse(JSON.stringify(bundle()))))).toBe(
       before,
     );
   });
 });
 
 describe("diff and merge", () => {
-  const lookup: ConvertLookup = { wrappedTool: () => null, sideEffect: () => null };
-  const base = (): AgentBundle => toProcessBundle(bundle(), lookup);
+  /** The step model's missing step: a Do that uses a gap. */
+  const gap = {
+    id: "m1",
+    kind: "do",
+    name: "Read card charges",
+    uses: { type: "missing", need: missing.need, fill: "connector" },
+  } as StepV5;
+  const base = (): AgentBundle => bundle();
   const withMissing = (b: AgentBundle): AgentBundle =>
     edit(b, (d) => {
       const w = d.workflows[0]?.workflow;
-      if (w?.schemaVersion !== 4) throw new Error("not a process");
-      w.steps.push(missing as Step);
+      if (!w) throw new Error("no workflow");
+      w.steps.push(gap);
     });
 
   it("a missing step added reads as an added step", () => {
@@ -151,7 +154,7 @@ describe("diff and merge", () => {
     const r = mergeBundles(base(), withMissing(base()), theirs);
     expect(r.clean).toBe(true);
     const w = r.bundle.workflows[0]?.workflow;
-    expect(w?.schemaVersion === 4 && w.steps.some((s) => s.id === "m1")).toBe(true);
+    expect(w?.steps.some((s) => s.id === "m1")).toBe(true);
     expect(r.bundle.definition.instructions).toBe("Changed upstream.");
   });
 });

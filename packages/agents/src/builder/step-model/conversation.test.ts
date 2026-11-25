@@ -176,9 +176,7 @@ function withSteps(base: StepAgentBundle, added: unknown[], skills = true): Step
       skills: skills ? [{ skill: matchSkill.id }] : [],
       extraTools: [TESTKIT_UPDATE_TOOL],
     },
-    workflows: [
-      { ...wf, workflow: { ...wf.workflow, steps: [...added, ...(end ? [end] : [])] } },
-    ],
+    workflows: [{ ...wf, workflow: { ...wf.workflow, steps: [...added, ...(end ? [end] : [])] } }],
   });
 }
 
@@ -200,7 +198,9 @@ async function turn(
 
 describe("aliases", () => {
   it("shows the model short handles and maps its answer back", () => {
-    const ids = ["a", "b", "c", "d", "e", "f"].map((c) => `019a7f00-0000-7000-8000-00000000000${c}`);
+    const ids = ["a", "b", "c", "d", "e", "f"].map(
+      (c) => `019a7f00-0000-7000-8000-00000000000${c}`,
+    );
     let next = 0;
     const blank = blankStepAgentDraft({ name: "Remy" }, () => ids[next++] as string);
     const b = withSteps(blank, [

@@ -45,11 +45,11 @@ function isSpace(code: number): boolean {
 }
 
 /**
- * The skill a step runs, as stored: a v4 skill step's `skill`, a v5 Do's `uses.skill`, a v5 Loop's
- * saved Loop (`skill`). Null for any other step.
+ * The skill a step runs, as stored: a Do's `uses.skill`, a Loop's saved Loop (`skill`). Null for
+ * any other step.
  */
 function stepSkillRef(content: Record<string, unknown>): string | null {
-  if ((content.kind === "skill" || content.kind === "loop") && typeof content.skill === "string") {
+  if (content.kind === "loop" && typeof content.skill === "string") {
     return content.skill;
   }
   const uses = content.uses as { type?: unknown; skill?: unknown } | undefined;

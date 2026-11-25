@@ -32,7 +32,12 @@ const on = (slug: string, trigger: Record<string, unknown>) =>
     {
       slug,
       name: slug,
-      workflow: { schemaVersion: 3, trigger: { id: `trg-${slug}`, on: trigger }, steps: [] },
+      workflow: {
+        schemaVersion: 5,
+        triggers: [{ id: `trg-${slug}`, on: trigger }],
+        outputs: [],
+        steps: [],
+      },
     },
   ] as unknown as Workflows;
 

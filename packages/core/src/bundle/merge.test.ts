@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { bundleHash } from "../canonical";
-import { type AgentBundle, AgentBundle as AgentBundleSchema } from "../schemas/agent";
 import { validateBundle } from "../process/bundle";
+import { type AgentBundle, AgentBundle as AgentBundleSchema } from "../schemas/agent";
 import type { ForkStep, Step, Workflow } from "../steps/schema";
 import { stepModelIds } from "../steps/walk";
 import { bundle, ctx, edit } from "../testing/fixtures";

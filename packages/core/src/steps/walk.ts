@@ -88,7 +88,9 @@ export function stepsWithPointers(workflow: Pick<Workflow, "steps">): StepAt[] {
       const here = [...pointer, i];
       out.push({ step, pointer: here });
       if (step.kind === "fork") {
-        step.paths.forEach((p, pi) => walk(p.steps, [...here, "paths", pi, "steps"]));
+        step.paths.forEach((p, pi) => {
+          walk(p.steps, [...here, "paths", pi, "steps"]);
+        });
         walk(step.otherwise.steps, [...here, "otherwise", "steps"]);
       } else if (step.kind === "for_each" || step.kind === "repeat") {
         walk(step.steps, [...here, "steps"]);

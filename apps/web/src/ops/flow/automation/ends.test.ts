@@ -1,7 +1,7 @@
 // An automation's Takes in and Gives back as rows, and back (F7): the schema and the template the
 // rows write, what a half-typed row leaves out, the words on the chart's end boxes, and the
 // automation as the builder's editing model holds it.
-import { AutomationDefinition, type AutomationDefinition } from "@countersign/core";
+import { AutomationDefinition } from "@countersign/core";
 import { describe, expect, it } from "vitest";
 import {
   automationEnds,

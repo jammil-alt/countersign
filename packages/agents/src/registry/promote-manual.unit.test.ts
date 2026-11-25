@@ -2,7 +2,7 @@
 // into the copy's manual (who, when, the value). A promotion or a copy to another client never
 // carries them: each such row goes back to the base template's, or is left out.
 
-import type { AgentManualInput, AgentBundle, Decision } from "@countersign/core";
+import type { AgentBundle, AgentManualInput, Decision } from "@countersign/core";
 import { AgentManual, cloneJson } from "@countersign/core";
 import { describe, expect, it } from "vitest";
 import { makeBundle } from "../log/harness.test-helper";

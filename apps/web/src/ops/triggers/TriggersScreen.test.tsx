@@ -22,14 +22,15 @@ const HOOK = "00000000-0000-4000-8000-0000000a7001";
 const RUN = "00000000-0000-4000-8000-0000000d0001";
 
 const [first] = FORK_BUNDLE_INPUT.workflows ?? [];
-const INPUT: AgentBundleInput = {
+const INPUT = {
   ...FORK_BUNDLE_INPUT,
   workflows: [
     {
       ...(first as NonNullable<typeof first>),
       workflow: {
         ...(first as NonNullable<typeof first>).workflow,
-        moreTriggers: [
+        triggers: [
+          ...((first as NonNullable<typeof first>).workflow as { triggers: unknown[] }).triggers,
           {
             id: "t-msg",
             on: {
@@ -52,7 +53,7 @@ const INPUT: AgentBundleInput = {
       },
     },
   ],
-};
+} as unknown as AgentBundleInput;
 
 const LATEST = { ...AGENT_DETAIL.latest, bundle: INPUT };
 

@@ -12,7 +12,21 @@
 import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { ACCOUNT_AGENT_SERVICE_DESCRIPTION, ACCOUNT_AGENT_SERVICE_NAME, type AgentBundle, batchKeyOf, bundleHash, DEFAULT_PERMISSIONS, explainWrite, NO_WRITES_REASON, processes, SUPERVISOR_SLUG, stagesPassed, startTrial, uuidv5 } from "@countersign/core";
+import {
+  ACCOUNT_AGENT_SERVICE_DESCRIPTION,
+  ACCOUNT_AGENT_SERVICE_NAME,
+  type AgentBundle,
+  batchKeyOf,
+  bundleHash,
+  DEFAULT_PERMISSIONS,
+  explainWrite,
+  NO_WRITES_REASON,
+  processes,
+  SUPERVISOR_SLUG,
+  stagesPassed,
+  startTrial,
+  uuidv5,
+} from "@countersign/core";
 import { and, eq, isNull } from "drizzle-orm";
 import { type Db, type Tx, withOperator } from "./client";
 import {
@@ -50,15 +64,6 @@ export const SEED_USERS = {
 const SEED_DIR = fileURLToPath(new URL("../seed/agents/", import.meta.url).href);
 const CLIENT_SEED_DIR = fileURLToPath(new URL("../seed/clients/", import.meta.url).href);
 
-/**
- * ONE-OFF (step model, docs/step-model-plan.md §13b): the platform agents' version files as seeded
- * before the step model (v3 workflows and v4 processes), for the tests that run them until the
- * executor runs v5 and v3 and v4 go (wave 4, §12 R2, which deletes this and the folder).
- */
-export const SEED_DIR_BEFORE_STEP_MODEL = fileURLToPath(
-  new URL("../../../fixtures/platform-agents-v4/", import.meta.url).href,
-);
-
 export interface SeedTemplate {
   slug: string;
   bundle: AgentBundle;
@@ -66,9 +71,8 @@ export interface SeedTemplate {
 }
 
 /**
- * A seeded bundle, validated by core's `validateBundle`: v3 workflows as `validateBundle` does,
- * v4 processes with `validateProcess`, step-model (v5) workflows with the step model's publish
- * checks (`steps.validateWorkflow`). Throws naming every error.
+ * A seeded bundle, validated by core's `validateBundle` (its schema, then the step model's publish
+ * checks on each workflow). Throws naming every error.
  */
 function validSeedBundle(raw: unknown, what: string): AgentBundle {
   const result = processes.validateBundle(raw);
@@ -92,10 +96,7 @@ async function seedFiles(dir: string): Promise<Map<string, Record<number, unknow
   return out;
 }
 
-/**
- * The platform templates, parsed and validated. Throws on any file that fails validation. `dir`
- * is the seed's own folder unless a test reads `SEED_DIR_BEFORE_STEP_MODEL`.
- */
+/** The platform templates, parsed and validated. Throws on any file that fails validation. */
 export async function loadSeedTemplates(dir: string = SEED_DIR): Promise<SeedTemplate[]> {
   const out: SeedTemplate[] = [];
   for (const [slug, files] of await seedFiles(dir)) {
@@ -278,8 +279,6 @@ export async function seed(db: Db, options: SeedOptions = {}): Promise<SeedResul
         agentId: template.agentId,
         // DECISION: the next free number, so an operator's own versions keep theirs.
         version: Math.max(0, ...versions.map((x) => x.version)) + 1,
-        // The column is typed v3; a bundle that holds processes is stored as it is and its readers
-        // check `schemaVersion` (as the agents registry's `parseVersionBundle` stores one).
         bundle: v.bundle,
         bundleHash: v.hash,
         status: "live",
@@ -462,7 +461,7 @@ export interface DemoDesk {
   recordId: string;
 }
 
-/** The Demo client agent's v1: a whole bundle of v3 workflows. */
+/** The Demo client agent's v1: a whole bundle (a step-model workflow). */
 export interface DemoAgent extends Omit<SeedTemplate, "bundle"> {
   bundle: AgentBundle;
 }
@@ -470,15 +469,9 @@ export interface DemoAgent extends Omit<SeedTemplate, "bundle"> {
 /** The Demo client agent's bundle, validated. Throws when the file fails validation. */
 export async function loadDemoAgent(): Promise<DemoAgent> {
   const raw: unknown = JSON.parse(await readFile(join(CLIENT_SEED_DIR, DEMO_AGENT_FILE), "utf8"));
-  // Its v1 is a whole bundle of v3 workflows: the version the Desk item's run is on.
+  // Its v1 is a whole bundle (a step-model workflow): the version the Desk item's run is on.
   const bundle = validSeedBundle(raw, `seed/clients/${DEMO_AGENT_FILE}`) as AgentBundle;
   return { slug: DEMO_AGENT_SLUG, bundle, hash: await bundleHash(bundle) };
-}
-
-/** R9: the Demo client agent's versions after v1 (its v2 holds a v4 process), validated. */
-export async function loadDemoAgentVersions(): Promise<SeedTemplateVersion[]> {
-  const stem = DEMO_AGENT_FILE.slice(0, -".v1.json".length);
-  return (await laterVersions(CLIENT_SEED_DIR, "clients")).filter((v) => v.slug === stem);
 }
 
 async function seedDemoDesk(
@@ -500,7 +493,7 @@ async function seedDemoDesk(
   const step = demo.bundle.workflows
     .find((w) => w.slug === DEMO_WORKFLOW)
     ?.workflow.steps.find((s) => s.id === DEMO_STEP);
-  if (step?.kind !== "action" || step.tool !== DEMO_TOOL) {
+  if (step?.kind !== "do" || step.uses?.type !== "action" || step.uses.action !== DEMO_TOOL) {
     throw new Error(`seed: ${DEMO_AGENT_FILE} has no ${DEMO_TOOL} step "${DEMO_STEP}"`);
   }
   const change = step.input as Record<string, string>;
@@ -573,40 +566,6 @@ async function seedDemoDesk(
   if (row.liveVersionId === null) {
     await tx.update(agent).set({ liveVersionId: ids.agentVersionId }).where(eq(agent.id, row.id));
   }
-  // R9: its later versions (v2 holds the same step as a v4 process) become live once, as the
-  // templates' do. The Desk item's run stays on v1, the version it ran (runs pin their version).
-  for (const v of await loadDemoAgentVersions()) {
-    const versions = await tx
-      .select({ id: agentVersion.id, version: agentVersion.version, hash: agentVersion.bundleHash })
-      .from(agentVersion)
-      .where(and(eq(agentVersion.agentId, ids.agentId), eq(agentVersion.tenantId, tenantId)));
-    if (versions.some((x) => x.hash === v.hash)) continue;
-    const [live] = await tx
-      .select({ liveVersionId: agent.liveVersionId })
-      .from(agent)
-      .where(and(eq(agent.id, ids.agentId), eq(agent.tenantId, tenantId)));
-    const id = await seedId(`demo:agent:${DEMO_AGENT_SLUG}:v${v.version}`);
-    await tx.insert(agentVersion).values({
-      id,
-      tenantId,
-      agentId: ids.agentId,
-      version: Math.max(0, ...versions.map((x) => x.version)) + 1,
-      bundle: v.bundle,
-      bundleHash: v.hash,
-      status: "live",
-      changeNote: `Seeded Demo client agent v${v.version}`,
-      authorType: "operator",
-      parentVersionId: live?.liveVersionId ?? null,
-    });
-    if (live?.liveVersionId) {
-      await tx
-        .update(agentVersion)
-        .set({ status: "retired" })
-        .where(eq(agentVersion.id, live.liveVersionId));
-    }
-    await tx.update(agent).set({ liveVersionId: id }).where(eq(agent.id, ids.agentId));
-  }
-
   // The run, waiting on its one step's approval.
   await tx
     .insert(run)
@@ -630,7 +589,7 @@ async function seedDemoDesk(
       tenantId,
       runId: ids.runId,
       nodeId: DEMO_STEP,
-      nodeType: "action",
+      nodeType: "write",
       agentVersionId: ids.agentVersionId,
       input: change,
       summary: "Updated the price: waiting for approval",

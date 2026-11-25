@@ -6,11 +6,7 @@
 // original or an edited value; the agent fields and settings side by side; and, for a promotion,
 // which changes go (client-specific values never do). Merging and validation run in the browser
 // with core's code on every change; Save asks the server, which runs both again.
-// R8 (ARCHITECTURE §10.14 "v3 compatibility"): the versions may hold v4 processes. When any side
-// does, every side is read as v4 once (core's `readBundles`, the lookup from the builder catalog),
-// so the step list, the marks, the conflicts and the merge all see one shape, and checks and
-// deadlines read in words.
-import { type AgentBundle, AgentBundle as AnyAgentBundleSchema, diffBundles, holdsProcess, type MergeConflict, mergeBundles, processes, type Resolution, readBundles, selectableBetween, selectChanges } from "@countersign/core";
+import { type AgentBundle, AgentBundle as AgentBundleSchema, diffBundles, type MergeConflict, mergeBundles, processes, type Resolution, selectableBetween, selectChanges, steps } from "@countersign/core";
 import { type ReactNode, useCallback, useMemo, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import type { ResponseOf } from "../../api/client";
@@ -40,18 +36,20 @@ import {
   TextInput,
   useAction,
 } from "../agents/ui";
-import { typingContext, validateLikeServer, validateProcessesLikeServer } from "../builder/catalog";
+import { typingContext, validateProcessesLikeServer } from "../builder/catalog";
 
 import { JsonInput } from "../builder/fields";
-import { type Process, readProcessBundle } from "../builder/model";
-import { Chart, defaultLabel } from "../flow/Chart";
+import type { Process } from "../builder/model";
+import { usesContextFrom } from "../builder/steps/catalog";
+import { type BoxWords, boxWords, displayProcess } from "../builder/steps/display";
+import type { Workflow } from "../builder/steps/types";
+import { Chart } from "../flow/Chart";
 import type { FlowEnds, StatusMap, StepStatus } from "../flow/types";
 import { usePageClient } from "../pickedClient";
 import { checksLines } from "../workflow/checks";
 import { triggerTitle } from "../workflow/describe";
 import {
   activeResolutions,
-  catalogLookup,
   conflictChoices,
   conflictTarget,
   conflictText,
@@ -80,11 +78,11 @@ export function agentBase(agent: Pick<AgentSummary, "kind" | "slug" | "tenantId"
 type TypingContext = ReturnType<typeof typingContext>;
 
 function parse(v: VersionDetail): AgentBundle | null {
-  const r = AnyAgentBundleSchema.safeParse(v.bundle);
+  const r = AgentBundleSchema.safeParse(v.bundle);
   return r.success ? r.data : null;
 }
 
-/** A problem of the merged agent, v3's or a v4 process's (codes differ, the shape doesn't). */
+/** A problem of the merged agent. */
 interface Problem {
   workflow?: string | undefined;
   stepId: string | null;
@@ -94,17 +92,16 @@ interface Problem {
 }
 
 /**
- * The server's check of the merged agent, in the browser. All v3: `validateLikeServer` as before.
- * Holding processes: the builder's `validateProcessesLikeServer` (core's whole-bundle
- * `validateBundle`, so slugs and ids across workflows are checked too), as the agent it lands
- * on: an update lands on the client agent, a promotion on the template.
+ * The server's check of the merged agent, in the browser: the builder's
+ * `validateProcessesLikeServer` (core's whole-bundle `validateBundle`, so slugs and ids across
+ * workflows are checked too), as the agent it lands on: an update lands on the client agent, a
+ * promotion on the template.
  */
 export function validateMerged(
   bundle: AgentBundle,
   ctx: TypingContext,
   clientAgent: boolean,
 ): { valid: boolean; errors: Problem[] } {
-  if (!holdsProcess(bundle)) return validateLikeServer(bundle as AgentBundle, ctx);
   const r = validateProcessesLikeServer(bundle, ctx, { clientAgent });
   return { valid: r.valid, errors: r.errors };
 }
@@ -173,21 +170,10 @@ export function MergeScreen() {
     parse(preview.data.ours),
     parse(preview.data.theirs),
   ] as const;
-  const read = (() => {
-    if (!parsed[0] || !parsed[1] || !parsed[2]) return null;
-    try {
-      // R8: one shape for all three: every side as v4 once any side holds a process.
-      const r = readBundles([parsed[0], parsed[1], parsed[2]], {
-        lookup: catalogLookup(catalog.data),
-      }).bundles;
-      return { base: r[0], ours: r[1], theirs: r[2] } as Record<
-        "base" | "ours" | "theirs",
-        AgentBundle
-      >;
-    } catch {
-      return null;
-    }
-  })();
+  const read =
+    parsed[0] && parsed[1] && parsed[2]
+      ? { base: parsed[0], ours: parsed[1], theirs: parsed[2] }
+      : null;
   if (!read) {
     return (
       <Page testId="merge-page">
@@ -207,6 +193,7 @@ export function MergeScreen() {
         base={bundles.base}
         ours={bundles.ours}
         theirs={bundles.theirs}
+        catalog={catalog.data}
         ctx={typingContext({ catalog: catalog.data, events: events.data.events })}
       />
     </Page>
@@ -290,6 +277,7 @@ function MergeBody({
   base,
   ours,
   theirs: offered,
+  catalog,
   ctx,
 }: {
   mode: Mode;
@@ -298,6 +286,7 @@ function MergeBody({
   base: AgentBundle;
   ours: AgentBundle;
   theirs: AgentBundle;
+  catalog: ResponseOf<typeof apiRoutes.opsBuilderCatalog>;
   ctx: ReturnType<typeof typingContext>;
 }) {
   const names = sideNames(mode);
@@ -339,8 +328,8 @@ function MergeBody({
   const oursChanges = useMemo(() => diffBundles(base, ours), [base, ours]);
   const theirsChanges = useMemo(() => diffBundles(base, theirs), [base, theirs]);
   const marks = useMemo(
-    () => ({ ours: sideMarks(oursChanges, ours), theirs: sideMarks(theirsChanges, theirs) }),
-    [oursChanges, theirsChanges, ours, theirs],
+    () => ({ ours: sideMarks(oursChanges), theirs: sideMarks(theirsChanges) }),
+    [oursChanges, theirsChanges],
   );
   const conflictAt = useMemo(() => {
     const m = new Map<string, MergeConflict[]>();
@@ -385,18 +374,31 @@ function MergeBody({
   const shownWorkflow = workflows.find((w) => w.slug === slug) ?? workflows[0];
 
   // ── The merged workflow on the chart ──
-  // DECISION (F8): a v3 workflow is read as a v4 process to draw it, as the builder opens one
-  // (`readProcessBundle`: every step, path and trigger id kept). Only the drawing reads it; the
-  // merge, its conflicts and what is saved stay on the bundles as they are.
-  const drawn = useMemo(() => {
-    try {
-      return readProcessBundle(result.bundle, ctx);
-    } catch {
-      return null;
-    }
-  }, [result.bundle, ctx]);
-  const shown: Process | null =
-    drawn?.workflows.find((w) => w.slug === shownWorkflow?.slug)?.workflow ?? null;
+  // DECISION: the chart draws a step-model workflow through the builder's display adapter
+  // (`displayProcess`), with the picker's words from the builder catalog already loaded; only the
+  // drawing reads it, the merge and what is saved stay on the bundles as they are.
+  const uses = useMemo(
+    () => usesContextFrom({ actions: [], catalog }),
+    [catalog],
+  );
+  const shown: Process | null = useMemo(
+    () =>
+      shownWorkflow
+        ? (displayProcess(shownWorkflow.workflow as Workflow, uses) as Process)
+        : null,
+    [shownWorkflow, uses],
+  );
+  // A box's words are the step builder's, read off the step-model step the box stands for.
+  const wordsOf = useCallback(
+    (id: string): BoxWords => {
+      const wf = shownWorkflow?.workflow;
+      const real = wf ? steps.findStep(wf.steps, id) : undefined;
+      return real && wf
+        ? boxWords(real, uses, wf)
+        : { title: "", kind: "", detail: null };
+    },
+    [shownWorkflow, uses],
+  );
   const ends = useMemo<FlowEnds>(
     () => ({
       start: shown ? { title: "Starts when", lines: shown.triggers.map(triggerTitle) } : null,
@@ -430,7 +432,7 @@ function MergeBody({
     }
     for (const { step } of processes.allSteps(shown)) {
       const own = stepMark(step.id);
-      const words = defaultLabel(step);
+      const words = wordsOf(step.id);
       if (own) {
         changeRows.push({
           id: step.id,
@@ -438,7 +440,7 @@ function MergeBody({
           title: words.title,
           kind: words.kind,
           detail: words.detail,
-          checks: checksLines(step.checks),
+          checks: checksLines(steps.findStep(shownWorkflow?.workflow.steps ?? [], step.id)?.checks),
         });
       }
       // A decision carries its paths' changes on the chart; each path has a row of its own.
@@ -684,6 +686,7 @@ function MergeBody({
                   onInsert={NOTHING}
                   onMove={NOTHING}
                   onConnect={NOTHING}
+                  label={((s: { id: string }) => wordsOf(s.id)) as never}
                 />
               </div>
               {changeRows.length > 0 ? (

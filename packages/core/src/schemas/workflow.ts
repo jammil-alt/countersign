@@ -156,7 +156,10 @@ export const WorkflowHandoff = z.object({
 export type WorkflowHandoff = z.infer<typeof WorkflowHandoff>;
 
 /** A step's words for the client: its client label, else its name. */
-export function clientLabel(step: { client?: { label?: string | undefined } | undefined; name: string }): string {
+export function clientLabel(step: {
+  client?: { label?: string | undefined } | undefined;
+  name: string;
+}): string {
   return step.client?.label ?? step.name;
 }
 

@@ -3,8 +3,8 @@
 
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
-import { SkillDefinition } from "../schemas/skill";
 import { validateAutomation } from "../process/automation";
+import { SkillDefinition } from "../schemas/skill";
 import {
   CONVERSE_FIXED_INPUTS,
   CONVERSE_SKILL,
@@ -118,9 +118,21 @@ describe("validation and typing", () => {
   const ctx = { skills: { [CONVERSE_SKILL]: SKILL } };
 
   it("a valid step passes, and a later step reads the result typed", () => {
-    const r = validateAutomation(wf(input({ to: { contactId: "{{input.contactId}}" } }), "First item: {{steps.talk.output.result.items}}"), ctx);
+    const r = validateAutomation(
+      wf(
+        input({ to: { contactId: "{{input.contactId}}" } }),
+        "First item: {{steps.talk.output.result.items}}",
+      ),
+      ctx,
+    );
     expect(r.errors).toEqual([]);
-    const bad = validateAutomation(wf(input({ to: { contactId: "{{input.contactId}}" } }), "{{steps.talk.output.result.colour}}"), ctx);
+    const bad = validateAutomation(
+      wf(
+        input({ to: { contactId: "{{input.contactId}}" } }),
+        "{{steps.talk.output.result.colour}}",
+      ),
+      ctx,
+    );
     expect(bad.errors.map((e) => [e.stepId, e.code])).toEqual([["tell", "template_path"]]);
   });
 
@@ -134,7 +146,10 @@ describe("validation and typing", () => {
   });
 
   it("reports converse problems on the step's field", () => {
-    const r = validateAutomation(wf(input({ to: { contactId: "{{input.contactId}}" }, channel: "portal" }), "x"), ctx);
+    const r = validateAutomation(
+      wf(input({ to: { contactId: "{{input.contactId}}" }, channel: "portal" }), "x"),
+      ctx,
+    );
     expect(r.errors).toContainEqual(
       expect.objectContaining({ stepId: "talk", field: "input.channel", code: "converse_invalid" }),
     );

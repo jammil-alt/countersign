@@ -3,9 +3,7 @@
 // agent, so the validator refuses a step that names another one, rather than letting it publish and
 // then run as the owner (or fail on a skill the owner doesn't have).
 import { describe, expect, it } from "vitest";
-import type { SkillStep as V3SkillStep } from "../schemas/workflow";
-import { bundleInput, ctx, edit, workflowInput } from "../testing/fixtures";
-import { validateWorkflow } from "./checks";
+import { bundleInput, ctx } from "../testing/fixtures";
 import type { Process } from "./schema";
 import { validateProcess } from "./validate";
 
@@ -40,16 +38,6 @@ describe("a skill step's agent", () => {
     // A template (no owner yet) is refused the same way.
     expect(codesOf(validateProcess(process, ctx).errors)).toContain(
       "step_agent_unsupported@ask:agent",
-    );
-  });
-
-  it("(PLATFORM_QA CONS-1) the v3 validator refuses it too", () => {
-    const wf = edit(workflowInput(), (w) => {
-      (w.steps[0] as V3SkillStep).agent = "helper";
-    });
-    const v = validateWorkflow(wf, { ...ctx, agent: owner });
-    expect(codesOf(v.errors)).toEqual(
-      expect.arrayContaining(["step_agent_unsupported@s1:agent", "skill_not_allowed@s1:skill"]),
     );
   });
 });

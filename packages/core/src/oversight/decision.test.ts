@@ -7,8 +7,8 @@ import { routes } from "../api/routes";
 import { LOCALES } from "../i18n/locale";
 import { OVERSIGHT_WORDS, oversightLine } from "../i18n/oversight";
 import { isPlainObject } from "../json";
-import { AgentDefinition } from "../schemas/agent";
 import { Step } from "../process/schema";
+import { AgentDefinition } from "../schemas/agent";
 import {
   changedFields,
   fieldLabel,

@@ -1,6 +1,5 @@
 // The Builder as a conversation in the step model (docs/step-model-plan.md §10, build item 9): one
-// turn on a v5 working draft, as `../conversation` does for v4. The chat and the build's draft edits
-// stay as they are; only the draft they change is v5. The model sees short aliases in place of ids
+// turn on a v5 working draft. The model sees short aliases in place of ids
 // (`t1` triggers, `r1` outputs, `s1` steps, `p1` Fork paths, `o1` otherwise), the guards
 // (`./guards`) hold its answer, and the changes are labelled for undo as before.
 

@@ -4,7 +4,6 @@
 // (approval off to start with) or "Change in <connector>" (approval on).
 import {
   type BuilderCatalog,
-  type ProcessAgentBundle,
   type processes,
   type SkillDefinition,
   uuidv7,
@@ -18,7 +17,7 @@ import {
   typingContext,
   writeLabelOf,
 } from "./catalog";
-import { createStep, type PaletteItem } from "./model";
+import { createStep, type PaletteItem, type ProcessAgentBundle } from "./model";
 
 const io = { type: "object", properties: {} };
 

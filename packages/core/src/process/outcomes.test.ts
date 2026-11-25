@@ -3,7 +3,6 @@
 // route on them, and reading an outcome back from a row.
 import { describe, expect, it } from "vitest";
 import { outcomeOfStepRow } from "../api/run-checks";
-import { fromWorkflowV3 } from "./convert";
 import {
   combinedApproval,
   combinedVerdict,
@@ -342,17 +341,8 @@ describe("validation", () => {
     expect(errors(later(notify("email", "Failed: {{steps.find.error.code}}")))).toEqual([]);
   });
 
-  it("leaves onError out of a parsed step that never said it, and out of converted v3 steps", () => {
+  it("leaves onError out of a parsed step that never said it", () => {
     expect("onError" in stepOf("save")).toBe(false);
-    const v4 = fromWorkflowV3(
-      {
-        schemaVersion: 3,
-        trigger: MANUAL,
-        steps: [{ id: "a", name: "A", kind: "wait", for: "1 hour" }],
-      } as never,
-      { wrappedTool: () => null, sideEffect: () => null },
-    );
-    expect(JSON.stringify(v4)).not.toContain("onError");
   });
 });
 

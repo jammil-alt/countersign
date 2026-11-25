@@ -393,6 +393,16 @@ export function processStepDetail(step: ProcessStep, labels: StepLabels = {}): s
   }
 }
 
+/** Step names by id for a step-model workflow: its triggers and every step, nested ones too. */
+export function workflowStepNames(
+  workflow: Pick<stepModel.Workflow, "triggers" | "steps">,
+): StepNames {
+  const names = new Map<string, string>();
+  for (const t of workflow.triggers) names.set(t.id, KIND_LABEL.trigger);
+  stepModel.eachStep(workflow.steps, ({ step }) => names.set(step.id, step.name || KIND_LABEL[step.kind]));
+  return names;
+}
+
 /** Step names by id for a v4 process. */
 export function processStepNames(
   process: Pick<processes.Process, "steps"> & Partial<Pick<processes.Process, "triggers">>,

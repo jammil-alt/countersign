@@ -1,6 +1,6 @@
-// The server's checks in the browser (wave 3b): a template's bundle is validated as the server's
-// publish validates it, with `clientAgent: false`, so a template's process step can't change an
-// inner step's approval in the builder any more than on the server.
+// The server's checks in the browser: a bundle is validated as the server's publish validates it
+// (core's whole-bundle `validateBundle`, with the catalog's tools, skills and events), and a merged
+// bundle is checked whole.
 import { AgentBundle, type AgentBundleInput, type BuilderCatalog } from "@countersign/core";
 import { describe, expect, it } from "vitest";
 import { validateMerged } from "../merge/MergeScreen";
@@ -21,43 +21,16 @@ const CATALOG: BuilderCatalog = {
     },
   ],
   connectors: [{ id: "testkit", name: "Testkit", icon: null }],
-  automations: [
-    {
-      ref: "correct@1",
-      slug: "correct",
-      version: 1,
-      name: "Correct the record",
-      description: "Corrects a record",
-      source: "shared",
-      status: "live",
-      definition: {
-        schemaVersion: 1,
-        slug: "correct",
-        name: "Correct the record",
-        description: "Corrects a record",
-        input: { type: "object", properties: {} },
-        output: {},
-        steps: [
-          {
-            id: "u",
-            kind: "action",
-            name: "Update",
-            tool: "testkit.record.update",
-            input: { id: "x" },
-            approval: { required: "required", onReject: "stop" },
-          },
-        ],
-        requires: { skills: [], tools: ["testkit.record.update"], connectors: ["testkit"] },
-      },
-      outputSchema: { type: "object", properties: {} },
-    },
-  ],
+  automations: [],
 };
 const ctx = typingContext({ catalog: CATALOG, events: [] });
 
+const END = { id: "end", kind: "end", name: "End", outputs: ["out"], status: "succeeded" };
+const OUT = { id: "out", name: "Nothing to do", kind: "nothing", fields: [] };
+
 function bundle(
-  steps: Record<string, unknown>[],
   more: AgentBundleInput["workflows"] = [],
+  skills: { skill: string }[] = [],
 ): AgentBundle {
   return AgentBundle.parse({
     schemaVersion: 1,
@@ -67,7 +40,7 @@ function bundle(
       kind: "functional",
       model: { id: "claude-opus-5-5" },
       instructions: "Work.",
-      skills: [],
+      skills,
       extraTools: ["testkit.record.update"],
       permissions: { mode: "act" },
     },
@@ -76,9 +49,10 @@ function bundle(
         slug: "main",
         name: "Main",
         workflow: {
-          schemaVersion: 4,
+          schemaVersion: 5,
           triggers: [{ id: "t1", on: { type: "manual", input: { type: "object" } } }],
-          steps,
+          outputs: [OUT],
+          steps: [END],
         },
       },
       ...more,
@@ -86,47 +60,33 @@ function bundle(
   });
 }
 
-const processStep = {
-  id: "p",
-  kind: "process",
-  name: "Correct it",
-  process: "correct@1",
-  input: {},
-  approvals: {
-    u: { required: "required", mode: "in_turn", ifNoAnswer: "stop", onReject: "stop" },
-  },
-};
-
 describe("validateProcessesLikeServer", () => {
-  it("refuses a template's process step that changes an inner approval, as publish does", () => {
-    const b = bundle([processStep]);
-    const template = validateProcessesLikeServer(b, ctx, { clientAgent: false });
-    expect(template.errors.map((e) => e.code)).toContain("approvals_not_client");
-    const client = validateProcessesLikeServer(b, ctx, { clientAgent: true });
-    expect(client.errors.map((e) => e.code)).not.toContain("approvals_not_client");
+  it("passes a finished bundle, and refuses an agent skill the catalog can't resolve", () => {
+    expect(validateProcessesLikeServer(bundle(), ctx, { clientAgent: true }).valid).toBe(true);
+    const missing = validateProcessesLikeServer(bundle([], [{ skill: "docs.nope" }]), ctx, {
+      clientAgent: true,
+    });
+    expect(missing.valid).toBe(false);
+    expect(missing.errors.map((e) => e.code)).toContain("unknown_skill");
   });
 });
 
 describe("validateMerged", () => {
-  it("checks the merged bundle whole, as the server does: ids across workflows, and as its target", () => {
+  it("checks the merged bundle whole, as the server does: ids across workflows", () => {
     const second = {
       slug: "other",
       name: "Other",
       workflow: {
-        schemaVersion: 4 as const,
+        schemaVersion: 5 as const,
         // The same trigger id as the first workflow's: refused across the bundle.
         triggers: [{ id: "t1", on: { type: "manual" as const, input: { type: "object" } } }],
-        steps: [],
+        outputs: [{ ...OUT, id: "out2" }],
+        steps: [{ ...END, id: "end2", outputs: ["out2"] }],
       },
     };
-    const merged = bundle([], [second]);
+    const merged = bundle([second] as unknown as AgentBundleInput["workflows"]);
     expect(validateMerged(merged, ctx, true).errors.map((e) => e.code)).toContain("duplicate_id");
-    // A promotion lands on the template: its process step may not change inner approvals.
-    const promoted = bundle([processStep]);
-    expect(validateMerged(promoted, ctx, false).errors.map((e) => e.code)).toContain(
-      "approvals_not_client",
-    );
-    expect(validateMerged(promoted, ctx, true).valid).toBe(true);
+    expect(validateMerged(bundle(), ctx, false).valid).toBe(true);
   });
 });
 

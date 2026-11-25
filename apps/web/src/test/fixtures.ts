@@ -71,6 +71,38 @@ export function tableView(over: Partial<TableView> = {}): TableView {
   };
 }
 
+const ASK_JAMMIL = {
+  id: "ask",
+  kind: "do",
+  name: "Ask Jammil",
+  doneBy: "person",
+  person: {
+    mode: "ask",
+    who: "client_admin",
+    question: "Check the match",
+    deadline: { after: "2 days", ifNoAnswer: "stop" },
+    channel: "inbox",
+  },
+} as const;
+
+const UPDATE_BILL = {
+  id: "update",
+  kind: "do",
+  name: "Update bill",
+  doneBy: "rules",
+  uses: { type: "action", action: "qbo.bill.update_lines" },
+  input: { billId: "{{trigger.billId}}" },
+} as const;
+
+const FIND_SUPPORT = {
+  id: "find",
+  kind: "do",
+  name: "Find supporting document",
+  doneBy: "ai",
+  uses: { type: "skill", skill: "docs.find-support" },
+  input: {},
+} as const;
+
 /** A bundle whose workflow has a trigger, skills, an action and a fork with two paths. */
 export const FORK_BUNDLE_INPUT: AgentBundleInput = {
   schemaVersion: 1,
@@ -91,16 +123,19 @@ export const FORK_BUNDLE_INPUT: AgentBundleInput = {
       slug: "new-bill",
       name: "New bill",
       workflow: {
-        schemaVersion: 3,
-        trigger: { id: "t1", on: { type: "event", event: "bill.created" } },
+        schemaVersion: 5,
+        triggers: [{ id: "t1", on: { type: "event", event: "bill.created" } }],
+        outputs: [],
         steps: [
+          FIND_SUPPORT,
           {
-            id: "find",
-            kind: "skill",
-            name: "Find supporting document",
-            skill: "docs.find-support",
+            id: "read",
+            kind: "do",
+            name: "Read a document",
+            doneBy: "ai",
+            uses: { type: "skill", skill: "docs.extract" },
+            input: {},
           },
-          { id: "read", kind: "skill", name: "Read a document", skill: "docs.extract" },
           {
             id: "confidence",
             kind: "fork",
@@ -113,18 +148,7 @@ export const FORK_BUNDLE_INPUT: AgentBundleInput = {
                   match: "any",
                   rules: [{ field: "{{steps.read.output.confidence}}", op: "<", value: 0.9 }],
                 },
-                steps: [
-                  {
-                    id: "ask",
-                    kind: "person",
-                    name: "Ask Jammil",
-                    mode: "ask",
-                    assignee: "client_admin",
-                    title: "Check the match",
-                    timeout: "2 days",
-                    onTimeout: "stop",
-                  },
-                ],
+                steps: [ASK_JAMMIL],
               },
               {
                 id: "big",
@@ -135,13 +159,7 @@ export const FORK_BUNDLE_INPUT: AgentBundleInput = {
             ],
             otherwise: { id: "else", steps: [] },
           },
-          {
-            id: "update",
-            kind: "action",
-            name: "Update bill",
-            tool: "qbo.bill.update_lines",
-            input: { billId: "{{trigger.billId}}" },
-          },
+          UPDATE_BILL,
         ],
       },
     },
@@ -151,9 +169,8 @@ export const FORK_BUNDLE_INPUT: AgentBundleInput = {
 export const FORK_BUNDLE = AgentBundle.parse(FORK_BUNDLE_INPUT);
 
 /**
- * R8: the fixture agent saved as a v4 process (what the builder saves, and the templates' v4
- * versions and their forks): a manual trigger first and the event second, an `if`, and a write
- * with no approval check (it waits for the default approver).
+ * The fixture agent with two starts (a manual trigger first, the event second), a fork, and a
+ * write with no approval check set (it waits for the default approver).
  */
 export const PROCESS_BUNDLE_INPUT: AgentBundleInput = {
   ...FORK_BUNDLE_INPUT,
@@ -162,22 +179,17 @@ export const PROCESS_BUNDLE_INPUT: AgentBundleInput = {
       slug: "new-bill",
       name: "New bill",
       workflow: {
-        schemaVersion: 4,
+        schemaVersion: 5,
         triggers: [
           { id: "t0", on: { type: "manual", input: { type: "object", properties: {} } } },
           { id: "t1", on: { type: "event", event: "bill.created" } },
         ],
+        outputs: [],
         steps: [
-          {
-            id: "find",
-            kind: "skill",
-            name: "Find supporting document",
-            skill: "docs.find-support",
-            input: {},
-          },
+          FIND_SUPPORT,
           {
             id: "confidence",
-            kind: "if",
+            kind: "fork",
             name: "Match confidence",
             paths: [
               {
@@ -187,28 +199,12 @@ export const PROCESS_BUNDLE_INPUT: AgentBundleInput = {
                   match: "any",
                   rules: [{ field: "{{steps.find.output.confidence}}", op: "<", value: 0.9 }],
                 },
-                steps: [
-                  {
-                    id: "ask",
-                    kind: "person",
-                    name: "Ask Jammil",
-                    mode: "ask",
-                    assignee: "client_admin",
-                    title: "Check the match",
-                    deadline: { after: "2 days" },
-                  },
-                ],
+                steps: [ASK_JAMMIL],
               },
             ],
             otherwise: { id: "else", steps: [] },
           },
-          {
-            id: "update",
-            kind: "write",
-            name: "Update bill",
-            tool: "qbo.bill.update_lines",
-            input: { billId: "{{trigger.billId}}" },
-          },
+          UPDATE_BILL,
         ],
       },
     },

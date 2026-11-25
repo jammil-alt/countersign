@@ -62,7 +62,6 @@ export function modelUnavailable(error: unknown): Error {
   );
 }
 
-
 /** The catalog in short (`catalogBriefForPrompt`): what each part does, its fields by name. */
 export function catalogBriefBlock(ctx: BuilderContext): string {
   return `<catalog>\n${promptJson(catalogBriefForPrompt(ctx))}\n</catalog>`;
@@ -307,4 +306,3 @@ export async function ask<
     return { answer, ...kept, errors, calls };
   }
 }
-

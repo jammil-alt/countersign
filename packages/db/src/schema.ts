@@ -1290,8 +1290,6 @@ export const agentVersion = pgTable(
     tenantId: optionalTenantId(),
     agentId: uuid("agent_id").notNull(),
     version: integer("version").notNull(),
-    // R8/wave 3b: a stored v3 bundle or one that holds v4 processes; readers check
-    // `schemaVersion` (or read through core's `readConverted` / `toProcessBundle`).
     bundle: json<AgentBundle>("bundle").notNull(),
     /** sha256 of the canonical JSON of the parsed bundle (core's bundleHash). */
     bundleHash: text("bundle_hash").notNull(),

@@ -1,9 +1,9 @@
 // "Add steps" on a start (owner, 2026-11-24): the main workflow's start moves to a workflow of its
 // own, keeping its id, that hands each run into the main workflow at its first step that takes an
 // input, with that step's input; the main workflow keeps a start (by hand when it had only one).
-import { type ProcessAgentBundle, processes, steps } from "@countersign/core";
+import { processes, steps } from "@countersign/core";
 import { describe, expect, it } from "vitest";
-import { startToWorkflow } from "./model";
+import { type ProcessAgentBundle, startToWorkflow } from "./model";
 
 const read = (id: string, name: string, input: Record<string, unknown> = {}) =>
   ({ id, kind: "read", name, tool: "documents.get", input }) as processes.Step;

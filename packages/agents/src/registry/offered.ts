@@ -17,11 +17,10 @@ import type { ToolRegistry } from "./tools";
 
 /**
  * Tools the new model no longer offers because another action does their job. They stay registered,
- * unchanged, for the v3 and v4 agents that still name them (invariant 3) until wave 4 deletes both
- * (docs/step-model-plan.md §12).
+ * unchanged, for the agents that still name them (invariant 3).
  */
-// DECISION: a list here, not a flag on the tool's spec: the spec is stored and shown in the old
-// model's pickers too, and the list is deleted with the tools.
+// DECISION: a list here, not a flag on the tool's spec: the spec is stored and shown in other
+// pickers too, and the list is deleted with the tools.
 export const SUPERSEDED_ACTIONS: ReadonlySet<string> = new Set([
   // One "Read a document": `docs.read` reads once, records the reading and checks its totals.
   // (`docs.reading.record` stays offered: it is the Save that follows the AI skill Read document,

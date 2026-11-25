@@ -32,7 +32,11 @@ const NOT_OFFERED_CATEGORIES = new Set(["in-a-step"]);
  * tool: reach out to a contact, ask someone through a form and wait for the answers, hold a
  * conversation. They were core's `STEP_ONLY_SKILLS`.
  */
-export const STEP_ONLY_SKILLS: readonly string[] = [CONVERSE_SKILL, REACH_OUT_SKILL, FORMS_REQUEST_SKILL];
+export const STEP_ONLY_SKILLS: readonly string[] = [
+  CONVERSE_SKILL,
+  REACH_OUT_SKILL,
+  FORMS_REQUEST_SKILL,
+];
 
 /**
  * The library skills a Do step may use: not a Loop (a Loop step's), not a step's own text, not a

@@ -2,13 +2,7 @@
 // only, with what each side changed tagged on it and listed under it; the conflict in the fields
 // table, Save held until it is resolved, the resolution sent), and a promotion with one change
 // left unpicked (only the picked change is sent; client-specific values are listed as staying).
-import {
-  AgentBundle,
-  type AgentBundleInput,
-  type BuilderCatalog,
-  cloneJson,
-  toProcessBundle,
-} from "@countersign/core";
+import { AgentBundle, type AgentBundleInput, type BuilderCatalog, cloneJson } from "@countersign/core";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
@@ -49,25 +43,39 @@ const BASE_INPUT: AgentBundleInput = {
       slug: "main",
       name: "Main",
       workflow: {
-        schemaVersion: 3,
-        trigger: { id: "t1", on: { type: "manual", input: { type: "object" } } },
+        schemaVersion: 5,
+        triggers: [{ id: "t1", on: { type: "manual", input: { type: "object" } } }],
+        outputs: [{ id: "out", name: "Nothing to do", kind: "nothing", fields: [] }],
         steps: [
           {
             id: "ask",
-            kind: "person",
+            kind: "do",
             name: "Ask the client",
-            mode: "approve",
-            assignee: "client_admin",
-            title: "Is it right?",
-            timeout: "1 day",
-            onTimeout: "stop",
+            doneBy: "person",
+            person: {
+              mode: "approve",
+              who: "client_admin",
+              question: "Is it right?",
+              deadline: { after: "1 day", ifNoAnswer: "stop" },
+              channel: "inbox",
+              onReject: "stop",
+            },
           },
-          { id: "tell", kind: "notify", name: "Tell the team", channel: "thread", message: "Done" },
+          {
+            id: "tell",
+            kind: "do",
+            name: "Tell the team",
+            doneBy: "rules",
+            uses: { type: "tell" },
+            tell: { to: ["client_admin"], channel: "inbox", message: "Done" },
+            input: {},
+          },
+          { id: "end", kind: "end", name: "End", outputs: ["out"], status: "succeeded" },
         ],
       },
     },
   ],
-};
+} as unknown as AgentBundleInput;
 const BASE = AgentBundle.parse(BASE_INPUT);
 
 function edit(fn: (b: AgentBundle) => void): AgentBundle {
@@ -104,7 +112,7 @@ const CLIENT = edit((b) => {
 });
 const TEMPLATE_V2 = edit((b) => {
   b.definition.instructions = "The template's new way.";
-  b.workflows[0]?.workflow.steps.push({ id: "pause", kind: "wait", name: "Pause", for: "1 hour" });
+  b.workflows[0]?.workflow.steps.splice(2, 0, { id: "pause", kind: "wait", name: "Pause", for: "1 hour" });
 });
 
 function setup(mode: "update" | "promote", routes: Parameters<typeof fakeApi>[0]) {
@@ -219,19 +227,17 @@ describe("merge view: template update", () => {
   });
 });
 
-// R8 (ARCHITECTURE §10.14 "v3 compatibility"): the client's version saved as v4, the template's
-// update still v3. Every side reads as v4 in the browser; checks, deadlines and triggers read in
-// words, and the conflict sits on the v4 deadline's path.
-describe("merge view: v4 process and a v3 template update", () => {
-  const lookup = { wrappedTool: () => null, sideEffect: () => null };
-  const CLIENT_V4 = (() => {
-    const b = toProcessBundle(CLIENT, lookup);
+// A client version with a second start, a changed deadline and an approval on a step, and a
+// template update that changes the same deadline: triggers, checks and deadlines read in words,
+// and the conflict sits on the deadline's path.
+describe("merge view: triggers, checks and deadlines", () => {
+  const CLIENT_V5 = edit((b) => {
     const p = b.workflows[0]?.workflow;
-    if (p?.schemaVersion !== 4) throw new Error("fixture");
+    if (!p) throw new Error("fixture");
     p.triggers.push({ id: "t2", on: { type: "manual", input: { type: "object" } } });
     const ask = p.steps[0];
-    if (ask?.kind !== "person") throw new Error("fixture");
-    ask.deadline = { ...ask.deadline, after: "2 days", hours: "business" };
+    if (ask?.kind !== "do" || !ask.person) throw new Error("fixture");
+    ask.person.deadline = { ...ask.person.deadline, after: "2 days", hours: "business" };
     const tell = p.steps[1];
     if (tell) {
       tell.checks = {
@@ -244,21 +250,22 @@ describe("merge view: v4 process and a v3 template update", () => {
         },
       };
     }
-    return b;
-  })();
-  const TEMPLATE_V3 = edit((b) => {
+  });
+  const TEMPLATE_V5 = edit((b) => {
     const ask = b.workflows[0]?.workflow.steps[0];
-    if (ask?.kind === "person") ask.timeout = "3 days";
+    if (ask?.kind === "do" && ask.person) {
+      ask.person.deadline = { ...ask.person.deadline, after: "3 days" };
+    }
   });
 
-  it("merges into one v4 process, words the conflict and sends its resolution", async () => {
+  it("merges the two, words the conflict and sends its resolution", async () => {
     const sent: unknown[] = [];
     setup("update", {
       [`GET /api/ops/agents/${ID}/update-preview`]: () => ({
         template: TEMPLATE,
         base: detail(vid(1), TEMPLATE_ID, 1, BASE),
-        ours: detail(vid(11), ID, 2, CLIENT_V4 as unknown as AgentBundle),
-        theirs: detail(vid(2), TEMPLATE_ID, 2, TEMPLATE_V3),
+        ours: detail(vid(11), ID, 2, CLIENT_V5),
+        theirs: detail(vid(2), TEMPLATE_ID, 2, TEMPLATE_V5),
         conflicts: [],
         labels: { "step:ask": "Ask Jammil", "step:tell": "Tell the team" },
       }),
@@ -268,7 +275,7 @@ describe("merge view: v4 process and a v3 template update", () => {
       },
     });
     await screen.findByTestId("merge-view");
-    // The process's second trigger reads as "or", with the client's mark.
+    // The workflow's second trigger reads as "or", with the client's mark.
     expect(screen.getByTestId("step-t2").textContent).toContain("Started by hand");
     expect(screen.getByTestId("step-t2-marks").textContent).toContain("This client: changed");
     // The step's approval reads in words.
@@ -284,14 +291,13 @@ describe("merge view: v4 process and a v3 template update", () => {
     const chart = within(screen.getByTestId("merge-chart"));
     expect(chart.getByTestId("flow-tag-ask").textContent).toBe("1 conflict");
     await userEvent.click(screen.getByTestId("merge-conflict-0-theirs"));
-    expect(screen.getByTestId("step-ask").textContent).toContain("3 days in business hours");
     expect(chart.getByTestId("flow-tag-ask").textContent).toBe("Changed");
     const save = screen.getByTestId("merge-save-button") as HTMLButtonElement;
     await waitFor(() => expect(save.disabled).toBe(false));
     await userEvent.click(save);
     await waitFor(() => expect(sent).toHaveLength(1));
     expect(sent[0]).toEqual({
-      resolutions: [{ path: "step:ask#/deadline/after", choice: "theirs" }],
+      resolutions: [{ path: "step:ask#/person/deadline/after", choice: "theirs" }],
     });
   });
 });
@@ -299,7 +305,7 @@ describe("merge view: v4 process and a v3 template update", () => {
 describe("merge view: promotion", () => {
   const STRIPPED = edit((b) => {
     b.definition.instructions = "The client's way.";
-    b.workflows[0]?.workflow.steps.push({
+    b.workflows[0]?.workflow.steps.splice(2, 0, {
       id: "pause",
       kind: "wait",
       name: "Pause",

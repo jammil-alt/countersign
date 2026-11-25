@@ -14,7 +14,6 @@ import {
 
 type ApprovalCheck = processes.ApprovalCheck;
 
-
 /**
  * `text.replace(/\{\{([^}]*)\}\}/g, (_, inner) => fn(inner))` without the regular expression,
  * which is quadratic on a long run of `{{` with no `}}` (CodeQL js/polynomial-redos). Same
@@ -101,7 +100,7 @@ export function holdApproval(
 type DefinitionSource = { definition: AgentBundle["definition"] } | null | undefined;
 
 /**
- * The agent's own rules, whatever the model answered (shared by the v4 and step-model guards):
+ * The agent's own rules, whatever the model answered (shared by the step-model guards):
  * functional kind; the mode of the operator's version (`suggest_only` for a new agent); budgets and
  * memory as the operator set them; oversight as the operator set it, or on failures for a new
  * agent. Returns a copy.

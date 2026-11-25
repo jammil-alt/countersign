@@ -1,6 +1,7 @@
-import { gateReasons, groupProblems, ProcessAgentBundle } from "@countersign/core";
+import { AgentBundle, gateReasons, groupProblems } from "@countersign/core";
 import { describe, expect, it } from "vitest";
 import { type BuilderProblem, validateProcessesLikeServer } from "./catalog";
+import type { ProcessAgentBundle } from "./model";
 import { fieldLabel, problemLines, problemPlace, readableProblem } from "./problems";
 
 type ValidationError = BuilderProblem;
@@ -92,8 +93,8 @@ describe("workflow problems in plain words", () => {
 // BUILDER_QA CONS-6: the build's draft gate (fed core's grouped count by apps/api's
 // `draftProblems`) and the workflow builder count one draft's problems the same.
 describe("the draft's problem count, builder and build", () => {
-  /** "Tell" reads three fields of "Ask", which runs after it. */
-  const outOfOrder = ProcessAgentBundle.parse({
+  /** A workflow with no output and no End: two problems to fix. */
+  const unfinished = AgentBundle.parse({
     schemaVersion: 1,
     definition: {
       schemaVersion: 2,
@@ -109,31 +110,31 @@ describe("the draft's problem count, builder and build", () => {
         slug: "main",
         name: "Main",
         workflow: {
-          schemaVersion: 4,
+          schemaVersion: 5,
           triggers: [{ id: "t", on: { type: "manual", input: {} } }],
+          outputs: [],
           steps: [
             {
               id: "tell",
-              kind: "notify",
+              kind: "do",
               name: "Tell",
-              notify: {
-                to: ["client_admin"],
-                channel: "inbox",
-                message:
-                  "{{steps.ask.output.vendor}} {{steps.ask.output.total}} {{steps.ask.output.number}}",
-              },
+              doneBy: "rules",
+              uses: { type: "tell" },
+              tell: { to: ["client_admin"], channel: "inbox", message: "Check it" },
+              input: {},
             },
             {
               id: "ask",
-              kind: "person",
+              kind: "do",
               name: "Ask",
-              mode: "ask",
-              assignee: "client_admin",
-              title: "Which vendor?",
-              payload: {},
-              deadline: { after: "1 day" },
-              channel: "inbox",
-              onReject: "stop",
+              doneBy: "person",
+              person: {
+                mode: "ask",
+                who: "client_admin",
+                question: "Which vendor?",
+                deadline: { after: "1 day", ifNoAnswer: "stop" },
+                channel: "inbox",
+              },
             },
           ],
         },
@@ -143,11 +144,11 @@ describe("the draft's problem count, builder and build", () => {
 
   it("the workflow builder and the build's draft gate count the same problems", () => {
     const r = validateProcessesLikeServer(
-      outOfOrder,
+      unfinished,
       { tools: {}, skills: {} },
       { clientAgent: true },
     );
-    expect(r.errors.length).toBe(3);
+    expect(r.errors.length).toBe(2);
     // The build's gate, as buildDetail feeds it: one per group of validator errors.
     const gate = gateReasons({
       kind: "agent",
@@ -162,7 +163,7 @@ describe("the draft's problem count, builder and build", () => {
       openItems: 0,
     });
     // The workflow builder's header and Publish line: plural(problemCount, "problem").
-    const builder = problemLines(r.errors, outOfOrder).length;
+    const builder = problemLines(r.errors, unfinished as unknown as ProcessAgentBundle).length;
     expect(
       gate,
       `the workflow builder shows ${builder === 1 ? "1 problem" : `${builder} problems`}`,

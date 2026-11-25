@@ -4,7 +4,18 @@
 // a version identical to its parent is refused by hash, and publishing a client agent copies the
 // shared automations it uses into that client as `shared:<slug>` (runs see one client only).
 
-import { type AgentBundle, type AutomationDefinition, AutomationDefinition as AutomationSchema, automationRef, hashJson, parseAutomationRef, processes, type SkillDefinition, steps, type ValidationError } from "@countersign/core";
+import {
+  type AgentBundle,
+  type AutomationDefinition,
+  AutomationDefinition as AutomationSchema,
+  automationRef,
+  hashJson,
+  parseAutomationRef,
+  processes,
+  type SkillDefinition,
+  steps,
+  type ValidationError,
+} from "@countersign/core";
 import { automation, automationVersion, type Tx } from "@countersign/db";
 import { knownModelIds } from "@countersign/llm";
 import { and, desc, eq, isNull, sql } from "drizzle-orm";

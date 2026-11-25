@@ -459,7 +459,7 @@ function scrubPeople(node: unknown, base: unknown, scope: ScrubScope = { inCheck
       case "to":
         if (typeof value === "string" && namesPerson(value)) {
           const kept = from(key);
-          // A v3 notify step's optional address goes; an escalation's required person resets.
+          // A notice's optional address goes; an escalation's required person resets.
           if (typeof kept === "string") node[key] = kept;
           else if ("kind" in node) delete node[key];
           else node[key] = DEFAULT_WHO;

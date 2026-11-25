@@ -1,7 +1,6 @@
-// Wave 3b (docs/plan.md §1.86, readers): every server reader of a stored bundle reads a published
-// v4 version (processes) as well as a v3 one: the connectors a bundle needs, promotion's
-// stripping, the account agent's publish guard, forks, copies and the reviewed update merge. Against
-// a real database as cs_worker, with the harness's testkit.
+// Readers (docs/plan.md §1.86): every server reader of a stored bundle: the connectors a bundle
+// needs, promotion's stripping, the account agent's publish guard, forks, copies and the reviewed
+// update merge. Against a real database as cs_worker, with the harness's testkit.
 
 import { TESTKIT_QUERY_TOOL, TESTKIT_UPDATE_TOOL } from "@countersign/connectors";
 import {
@@ -9,10 +8,8 @@ import {
   classifyChange,
   cloneJson,
   evaluateRules,
-  holdsProcess,
-  type ProcessAgentBundle,
   processes,
-  toProcessBundle,
+  steps,
   uuidv7,
 } from "@countersign/core";
 import type { Tx } from "@countersign/db";
@@ -48,88 +45,108 @@ import {
   UNSET_HOOK_ID,
   updateInfo,
 } from "./lineage";
-import { convertLookup, skillContext } from "./skills";
+import { skillContext } from "./skills";
 
 const harness = await createHarness();
 afterAll(() => harness?.close());
 
-/** The harness's bundle read as v4 processes (ids kept), as the builder saves it. */
-function v4Bundle(h: Harness, edit?: (b: ProcessAgentBundle) => void): ProcessAgentBundle {
-  const b = toProcessBundle(makeBundle(), convertLookup(h.catalog, h.tools));
+/** The harness's bundle, to change in place. */
+function bundleOf(edit?: (b: AgentBundle) => void): AgentBundle {
+  const b = cloneJson(makeBundle() as AgentBundle);
   edit?.(b);
   return b;
 }
 
-function processOf(b: AgentBundle): processes.Process {
+function workflowOf(b: AgentBundle): steps.Workflow {
   const w = b.workflows[0]?.workflow;
-  if (w?.schemaVersion !== 4) throw new Error("fixture: expected a process");
+  if (!w) throw new Error("fixture: no workflow");
   return w;
 }
 
-function stepOf(b: AgentBundle, id: string): processes.Step {
-  const s = processes.findStep(processOf(b), id)?.step;
+function stepOf(b: AgentBundle, id: string): steps.Step {
+  const s = steps.findStep(workflowOf(b).steps, id);
   if (!s) throw new Error(`no step ${id}`);
   return s;
 }
 
-describe.skipIf(!harness)("readers of a published v4 version", () => {
+/** A Do step: the shape the checks and the scrub read. */
+function doStepOf(b: AgentBundle, id: string): steps.DoStep {
+  const s = stepOf(b, id);
+  if (s.kind !== "do") throw new Error("fixture: expected a Do step");
+  return s;
+}
+
+/** Puts steps in ahead of the workflow's End. */
+function addSteps(b: AgentBundle, ...added: unknown[]) {
+  const list = workflowOf(b).steps;
+  list.splice(list.length - 1, 0, ...(added as steps.Step[]));
+}
+
+const nodeIds = (b: AgentBundle) => [...processes.bundleNodeIds(b)].sort();
+
+describe.skipIf(!harness)("readers of a published version", () => {
   const h = harness as Harness;
 
   /** Binds a client A agent to A's testkit connection, so it publishes. */
   const bind = (tx: Tx, agentId: string) =>
     updateOperational(tx, { agentId, patch: { bindings: { testkit: h.A.connectionId } } });
 
-  it("asks for the connector of a v4 read or write tool its skills don't name", () => {
-    // No skills and no extra tools: only the process's write names the testkit.
-    const b = v4Bundle(h, (x) => {
+  it("asks for the connector of an action its skills don't name", () => {
+    // No skills and no extra tools: only the step's action names the testkit.
+    const b = bundleOf((x) => {
       x.definition.skills = [];
-      processOf(x).steps = [
-        { id: "w", name: "Write", kind: "write", tool: TESTKIT_UPDATE_TOOL, input: {} },
+      workflowOf(x).steps = [
+        {
+          id: "w",
+          name: "Write",
+          kind: "do",
+          doneBy: "rules",
+          uses: { type: "action", action: TESTKIT_UPDATE_TOOL },
+          input: {},
+        },
       ];
     });
     expect(requiredConnectors(b, {}, h.tools)).toEqual(["testkit"]);
-    const read = v4Bundle(h, (x) => {
+    const read = bundleOf((x) => {
       x.definition.skills = [];
-      processOf(x).steps = [
-        { id: "r", name: "Read", kind: "read", tool: TESTKIT_QUERY_TOOL, input: {} },
+      workflowOf(x).steps = [
+        {
+          id: "r",
+          name: "Read",
+          kind: "do",
+          doneBy: "rules",
+          uses: { type: "action", action: TESTKIT_QUERY_TOOL },
+          input: {},
+        },
       ];
     });
     expect(requiredConnectors(read, {}, h.tools)).toEqual(["testkit"]);
   });
 
-  it("strips a v4 skill step's customized settings and literal record ids for promotion", () => {
+  it("strips a step's literal record ids for promotion", () => {
     const record = uuidv7();
-    const client = v4Bundle(h, (x) => {
-      const s = stepOf(x, LOOKUP_STEP);
-      if (s.kind !== "skill") throw new Error("fixture");
-      s.customize = { settings: { vendor: record, tone: "plain" } };
-      const w = stepOf(x, UPDATE_STEP);
-      if (w.kind !== "write") throw new Error("fixture");
-      w.input = { id: record, amount: "1.00" };
+    const client = bundleOf((x) => {
+      doStepOf(x, UPDATE_STEP).input = { id: record, amount: "1.00" };
     });
     const out = stripForPromotion(client, makeBundle(), {});
-    const s = stepOf(out, LOOKUP_STEP);
-    const w = stepOf(out, UPDATE_STEP);
-    if (s.kind !== "skill" || w.kind !== "write") throw new Error("fixture");
-    expect(s.customize?.settings).toEqual({ tone: "plain" });
-    // The base (v3) step's input is kept where the client's held a record id.
-    expect(w.input).toEqual({ id: "{{trigger.id}}", amount: "1.00" });
+    // The base step's input is kept where the client's held a record id.
+    expect(doStepOf(out, UPDATE_STEP).input).toEqual({ id: "{{trigger.id}}", amount: "1.00" });
     expect(JSON.stringify(out)).not.toContain(record);
   });
 
-  it("refuses the account agent a v4 process step that pins an automation writing to a client's tool", async () => {
+  it("refuses the account agent a Do step that pins an automation writing to a client's tool", async () => {
     await h.ops(async (tx) => {
       const made = await createAutomation(tx, {
         tenantId: null,
         definition: {
-          schemaVersion: 1,
+          schemaVersion: 2,
           slug: "fix-record",
           name: "Fix a record",
           steps: [
             {
               id: "write",
               name: "Write",
-              kind: "action",
+              kind: "write",
               tool: TESTKIT_UPDATE_TOOL,
               input: { id: "r1", amount: "1.00" },
             },
@@ -142,12 +159,19 @@ describe.skipIf(!harness)("readers of a published v4 version", () => {
         versionId: made.version.id,
         ctx: h.ctx,
       });
-      const bundle = v4Bundle(h, (x) => {
+      const bundle = bundleOf((x) => {
         x.definition.kind = "platform";
         x.definition.skills = [];
-        processOf(x).steps = [
-          { id: "sub", name: "Fix it", kind: "process", process: "fix-record@1", input: {} },
-        ];
+        workflowOf(x).steps = [
+          {
+            id: "sub",
+            name: "Fix it",
+            kind: "do",
+            uses: { type: "automation", automation: "fix-record@1" },
+            input: {},
+          },
+          { id: "step-end", kind: "end", name: "Done", outputs: ["done"] },
+        ] as steps.Step[];
       });
       const { agent: tpl } = await createTemplate(tx, {
         slug: "supervisor",
@@ -155,29 +179,25 @@ describe.skipIf(!harness)("readers of a published v4 version", () => {
       });
       const version = await createVersion(tx, { agentId: tpl.id, bundle });
       const errors = await validateForPublish(tx, tpl, version.bundle, h.ctx);
-      expect(errors.map((e) => [e.stepId, e.field, e.code])).toContainEqual([
-        "sub",
-        "process",
-        "tool_not_allowed",
-      ]);
+      expect(errors.map((e) => [e.stepId, e.code])).toContainEqual(["sub", "tool_not_allowed"]);
     });
   });
 
-  it("offers a template's v4 version to its v3 fork as a reviewed update, never applied", async () => {
+  it("offers a template's new version to its fork as a reviewed update, never applied", async () => {
     const { a, c1, t2 } = await h.ops(async (tx) => {
       const { agent: tpl, version: t1 } = await createTemplate(tx, {
-        slug: "v4-update",
+        slug: "update",
         bundle: makeBundle(),
       });
       await publish(tx, { agentId: tpl.id, versionId: t1.id, ctx: h.ctx });
       const { agent: a, version: c1 } = await fork(tx, {
         tenantId: h.A.tenantId,
-        slug: "v4-update",
+        slug: "update",
         templateVersionId: t1.id,
       });
       await bind(tx, a.id);
       await publish(tx, { agentId: a.id, versionId: c1.id, ctx: h.ctx });
-      const next = v4Bundle(h, (x) => {
+      const next = bundleOf((x) => {
         stepOf(x, UPDATE_STEP).name = "Update the record";
       });
       const v2 = await createVersion(tx, { agentId: tpl.id, bundle: next });
@@ -190,7 +210,6 @@ describe.skipIf(!harness)("readers of a published v4 version", () => {
     const { version } = await h.ops((tx) =>
       createUpdateDraft(tx, { agentId: a.id, actorId: h.operatorId, ctx: h.ctx }),
     );
-    expect(holdsProcess(version.bundle)).toBe(true);
     expect(stepOf(version.bundle, UPDATE_STEP).name).toBe("Update the record");
     expect(version.status).toBe("draft");
     expect(version.authorType).toBe("merge");
@@ -198,29 +217,31 @@ describe.skipIf(!harness)("readers of a published v4 version", () => {
     expect((await h.ops((tx) => getAgent(tx, a.id))).liveVersionId).toBe(c1.id);
   });
 
-  it("forks, copies and promotes a published v4 version with its ids", async () => {
+  it("forks, copies and promotes a published version with its ids", async () => {
     const record = uuidv7();
     const { live, forked, copy } = await h.ops(async (tx) => {
-      // A template's v1 (v3) and its v2 of v4 processes, published: what the builder saves.
-      const { agent: tpl } = await createTemplate(tx, { slug: "v4-fork", bundle: makeBundle() });
-      const t2 = await createVersion(tx, { agentId: tpl.id, bundle: v4Bundle(h) });
+      const { agent: tpl } = await createTemplate(tx, { slug: "fork", bundle: makeBundle() });
+      const t2 = await createVersion(tx, {
+        agentId: tpl.id,
+        bundle: bundleOf((x) => {
+          stepOf(x, LOOKUP_STEP).name = "Look it up (v2)";
+        }),
+      });
       const live = await publish(tx, { agentId: tpl.id, versionId: t2.id, ctx: h.ctx });
       const forked = await fork(tx, {
         tenantId: h.A.tenantId,
-        slug: "v4-fork",
+        slug: "fork",
         templateVersionId: live.id,
       });
       await bind(tx, forked.agent.id);
       const edited = cloneJson(forked.version.bundle);
-      const w = stepOf(edited, UPDATE_STEP);
-      if (w.kind !== "write") throw new Error("fixture");
-      w.input = { ...w.input, id: record };
+      doStepOf(edited, UPDATE_STEP).input = { ...doStepOf(edited, UPDATE_STEP).input, id: record };
       stepOf(edited, LOOKUP_STEP).name = "Look it up for A";
       const c2 = await createVersion(tx, { agentId: forked.agent.id, bundle: edited });
       await publish(tx, { agentId: forked.agent.id, versionId: c2.id, ctx: h.ctx });
       const copy = await copyClientAgent(tx, {
         tenantId: h.A.tenantId,
-        slug: "v4-fork-copy",
+        slug: "fork-copy",
         sourceAgentId: forked.agent.id,
         ctx: h.ctx,
       });
@@ -228,17 +249,16 @@ describe.skipIf(!harness)("readers of a published v4 version", () => {
     });
     expect(forked.version.bundleHash).toBe(live.bundleHash);
     expect(forked.version.basedOnTemplateVersionId).toBe(live.id);
-    expect(processes.nodeIds(processOf(forked.version.bundle))).toContain(UPDATE_STEP);
+    expect(nodeIds(forked.version.bundle)).toContain(UPDATE_STEP);
     // The copy is stripped of the client's record id, as promotion strips it.
     expect(JSON.stringify(copy.version.bundle)).not.toContain(record);
-    expect(holdsProcess(copy.version.bundle)).toBe(true);
     const preview = await h.ops((tx) =>
       previewPromotion(tx, { agentId: forked.agent.id, ctx: h.ctx }),
     );
     expect(JSON.stringify(preview.stripped)).not.toContain(record);
     expect(preview.result.clean).toBe(true);
     expect(stepOf(preview.result.bundle, LOOKUP_STEP).name).toBe("Look it up for A");
-    // The fork needs the testkit bound, from the v4 version's skills and write alike.
+    // The fork needs the testkit bound, from the version's skills and action alike.
     const { skills } = await h.ops((tx) =>
       skillContext(tx, {
         tenantId: h.A.tenantId,
@@ -258,14 +278,13 @@ describe.skipIf(!harness)("readers of a published v4 version", () => {
     const hook = uuidv7();
     const email = "pat@client-a.example";
     const phone = "+15551230000";
-    const client = v4Bundle(h, (x) => {
+    const client = bundleOf((x) => {
       x.definition.instructions = `Check records carefully. Questions go to ${email} or ${phone}.`;
       x.definition.permissions.approver = person;
       const lookup = x.definition.skills.find((s) => s.skill === "test.lookup");
       if (!lookup) throw new Error("fixture");
       lookup.parameters = { cutoff: "2026-01-31", owner: email };
-      const p = processOf(x);
-      p.triggers.push(
+      workflowOf(x).triggers.push(
         { id: "trg-hook", on: { type: "webhook", hookId: hook } },
         {
           id: "trg-message",
@@ -276,9 +295,7 @@ describe.skipIf(!harness)("readers of a published v4 version", () => {
           },
         },
       );
-      const w = stepOf(x, UPDATE_STEP);
-      if (w.kind !== "write") throw new Error("fixture");
-      w.checks = {
+      doStepOf(x, UPDATE_STEP).checks = {
         approval: {
           required: "required",
           mode: "in_turn",
@@ -294,48 +311,48 @@ describe.skipIf(!harness)("readers of a published v4 version", () => {
           },
         ],
       };
-      p.steps.push({
+      addSteps(x, {
         id: "step-ask",
         name: "Ask",
-        kind: "person",
-        mode: "ask",
-        assignee: contact,
-        title: "Is this right?",
-        payload: {},
-        channel: "inbox",
-        onReject: "stop",
-        deadline: {
-          after: "2 days",
-          hours: "clock",
-          tell: [person, "operator"],
-          ifNoAnswer: {
-            escalate: {
-              to: person,
-              deadline: { after: "1 day", hours: "clock", ifNoAnswer: "stop" },
+        kind: "do",
+        doneBy: "person",
+        person: {
+          mode: "ask",
+          who: contact,
+          question: "Is this right?",
+          show: {},
+          channel: "inbox",
+          onReject: "stop",
+          deadline: {
+            after: "2 days",
+            hours: "clock",
+            tell: [person, "operator"],
+            ifNoAnswer: {
+              escalate: {
+                to: person,
+                deadline: { after: "1 day", hours: "clock", ifNoAnswer: "stop" },
+              },
             },
           },
         },
+        input: {},
       });
     });
-    const ids = (b: AgentBundle) => processes.nodeIds(processOf(b));
     const out = stripForPromotion(client, makeBundle(), {});
     const text = JSON.stringify(out);
     for (const literal of [person, contact, hook, email, phone]) {
       expect(text).not.toContain(literal);
     }
-    expect(ids(out)).toEqual(ids(client));
+    expect(nodeIds(out)).toEqual(nodeIds(client));
     expect(out.definition.permissions.approver).toBeUndefined();
-    const w = stepOf(out, UPDATE_STEP);
-    if (w.kind !== "write") throw new Error("fixture");
+    const w = doStepOf(out, UPDATE_STEP);
     // Unset approvers fall to the default approver; a role stays.
     expect(w.checks?.approval?.approvers).toEqual([{}, { who: "client_admin" }]);
     expect(w.checks?.notify?.[0]?.to).toEqual(["lead"]);
-    const ask = stepOf(out, "step-ask");
-    if (ask.kind !== "person") throw new Error("fixture");
-    expect(ask.assignee).toBe("client_admin");
-    expect(ask.deadline.tell).toEqual(["operator"]);
-    const triggers = processOf(out).triggers;
-    const message = triggers.find((t) => t.id === "trg-message")?.on;
+    const ask = doStepOf(out, "step-ask");
+    expect(ask.person?.who).toBe("client_admin");
+    expect(ask.person?.deadline.tell).toEqual(["operator"]);
+    const message = workflowOf(out).triggers.find((t) => t.id === "trg-message")?.on;
     expect(message?.type === "message" && message.from).toEqual({ clientRoles: ["client_admin"] });
     const lookup = out.definition.skills.find((s) => s.skill === "test.lookup");
     expect(lookup?.parameters).toBeUndefined();
@@ -378,10 +395,8 @@ describe.skipIf(!harness)("readers of a published v4 version", () => {
 
   it("drops a check's condition that names the client's records, so the check always applies", async () => {
     const [a, b] = [uuidv7(), uuidv7()];
-    const client = v4Bundle(h, (x) => {
-      const w = stepOf(x, UPDATE_STEP);
-      if (w.kind !== "write") throw new Error("fixture");
-      w.checks = {
+    const client = bundleOf((x) => {
+      doStepOf(x, UPDATE_STEP).checks = {
         approval: {
           required: "required",
           mode: "in_turn",
@@ -405,8 +420,7 @@ describe.skipIf(!harness)("readers of a published v4 version", () => {
     });
     expect(await validate(client)).toEqual([]);
     const out = stripForPromotion(client, makeBundle(), {});
-    const w = stepOf(out, UPDATE_STEP);
-    if (w.kind !== "write") throw new Error("fixture");
+    const w = doStepOf(out, UPDATE_STEP);
     expect(w.checks?.approval).toEqual({
       required: "required",
       mode: "in_turn",
@@ -425,16 +439,15 @@ describe.skipIf(!harness)("readers of a published v4 version", () => {
   it("narrows a trigger's filter and a path's rule that name the client's records", async () => {
     const id = uuidv7();
     const email = "pat@client-a.example";
-    const route = (value: unknown): processes.Step =>
-      ({
-        id: "route",
-        name: "Route",
-        kind: "if",
-        paths: [
-          { id: "big", name: "Big vendor", when: rules("{{trigger.name}}", "=", value), steps: [] },
-        ],
-        otherwise: { id: "rest", steps: [] },
-      }) as processes.Step;
+    const route = (value: unknown) => ({
+      id: "route",
+      name: "Route",
+      kind: "fork",
+      paths: [
+        { id: "big", name: "Big vendor", when: rules("{{trigger.name}}", "=", value), steps: [] },
+      ],
+      otherwise: { id: "rest", steps: [] },
+    });
     const hook = (value: unknown) => ({
       id: "trg-hook",
       on: {
@@ -443,9 +456,9 @@ describe.skipIf(!harness)("readers of a published v4 version", () => {
         filter: rules("{{trigger.data.from}}", "=", value),
       },
     });
-    const client = v4Bundle(h, (x) => {
-      processOf(x).steps.push(route(id));
-      processOf(x).triggers.push(hook(email));
+    const client = bundleOf((x) => {
+      addSteps(x, route(id));
+      workflowOf(x).triggers.push(hook(email));
     });
     expect(await validate(client)).toEqual([]);
     // No base value: the filter's rule can never match (fewer runs start). A path's rule is never
@@ -456,7 +469,7 @@ describe.skipIf(!harness)("readers of a published v4 version", () => {
       expect.objectContaining({ stepId: "route", pathId: "big", field: "paths.0.when" }),
     ]);
     expect(problems[0]?.message).toMatch(/"Big vendor".*"Route"/);
-    const filter = processOf(out).triggers.find((t) => t.id === "trg-hook")?.on;
+    const filter = workflowOf(out).triggers.find((t) => t.id === "trg-hook")?.on;
     expect(filter?.type === "webhook" && filter.filter?.rules).toEqual([
       { field: "{{trigger.data.from}}", op: "in", value: [] },
     ]);
@@ -464,47 +477,47 @@ describe.skipIf(!harness)("readers of a published v4 version", () => {
     expect(JSON.stringify(out)).not.toContain(email);
     expect(await validate(out)).toEqual([]);
     // A filter that can match fewer deliveries is not a widening.
-    const onlyFilter = v4Bundle(h, (x) => {
-      processOf(x).triggers.push(hook(email));
+    const onlyFilter = bundleOf((x) => {
+      workflowOf(x).triggers.push(hook(email));
     });
     expect(
       classifyChange(onlyFilter, stripForPromotion(onlyFilter, makeBundle(), {})).class,
     ).not.toBe("never");
     // The base's own rule, where it has one.
-    const base = v4Bundle(h, (x) => {
-      processOf(x).steps.push(route("Acme"));
-      processOf(x).triggers.push(hook("orders"));
+    const base = bundleOf((x) => {
+      addSteps(x, route("Acme"));
+      workflowOf(x).triggers.push(hook("orders"));
     });
     const none: PromotionProblem[] = [];
     const kept = stripForPromotion(client, base, {}, none);
     const keptPath = stepOf(kept, "route");
-    if (keptPath.kind !== "if") throw new Error("fixture");
+    if (keptPath.kind !== "fork") throw new Error("fixture");
     expect(keptPath.paths[0]?.when).toEqual(rules("{{trigger.name}}", "=", "Acme"));
     expect(none).toEqual([]);
   });
 
   it("stops a repeat whose condition names the client's records after its first pass", async () => {
     const id = uuidv7();
-    const again = (value: unknown) =>
-      ({
-        id: "again",
-        name: "Look again",
-        kind: "repeat",
-        until: { rules: rules("{{trigger.id}}", "=", value) },
-        maxTimes: 10,
-        onLimit: "proceed",
-        steps: [
-          {
-            id: "again-look",
-            name: "Look",
-            kind: "skill",
-            skill: "test.lookup",
-            input: { name: "{{trigger.name}}" },
-          },
-        ],
-      }) as processes.Step;
-    const client = v4Bundle(h, (x) => {
-      processOf(x).steps.push(again(id));
+    const again = (value: unknown) => ({
+      id: "again",
+      name: "Look again",
+      kind: "repeat",
+      until: { rules: rules("{{trigger.id}}", "=", value) },
+      maxTimes: 10,
+      onLimit: "proceed",
+      steps: [
+        {
+          id: "again-look",
+          name: "Look",
+          kind: "do",
+          doneBy: "ai",
+          uses: { type: "skill", skill: "test.lookup" },
+          input: { name: "{{trigger.name}}" },
+        },
+      ],
+    });
+    const client = bundleOf((x) => {
+      addSteps(x, again(id));
     });
     expect(await validate(client)).toEqual([]);
     const out = stripForPromotion(client, makeBundle(), {});
@@ -516,8 +529,8 @@ describe.skipIf(!harness)("readers of a published v4 version", () => {
     expect(evaluateRules(r.until.rules, { trigger: { id: "anything" } })).toBe(true);
     expect(JSON.stringify(out)).not.toContain(id);
     expect(await validate(out)).toEqual([]);
-    const base = v4Bundle(h, (x) => {
-      processOf(x).steps.push(again("done"));
+    const base = bundleOf((x) => {
+      addSteps(x, again("done"));
     });
     const kept = stepOf(stripForPromotion(client, base, {}), "again");
     if (kept.kind !== "repeat") throw new Error("fixture");
@@ -526,46 +539,54 @@ describe.skipIf(!harness)("readers of a published v4 version", () => {
 
   it("refuses to promote or copy a path whose rule names the client's records, naming it", async () => {
     const record = uuidv7();
-    const route = (value: unknown) =>
-      ({
-        id: "risky",
-        name: "Risky vendor?",
-        kind: "if",
-        paths: [
-          {
-            id: "risky-yes",
-            name: "Risky",
-            when: rules("{{trigger.id}}", "in", value),
-            steps: [
-              {
-                id: "risky-ok",
-                name: "Sign off",
-                kind: "person",
+    const route = (value: unknown) => ({
+      id: "risky",
+      name: "Risky vendor?",
+      kind: "fork",
+      paths: [
+        {
+          id: "risky-yes",
+          name: "Risky",
+          when: rules("{{trigger.id}}", "in", value),
+          steps: [
+            {
+              id: "risky-ok",
+              name: "Sign off",
+              kind: "do",
+              doneBy: "person",
+              person: {
                 mode: "approve",
-                assignee: "client_admin",
-                title: "OK?",
-                payload: {},
+                who: "client_admin",
+                question: "OK?",
+                show: {},
                 channel: "inbox",
                 onReject: "stop",
                 deadline: { after: "1 day", hours: "clock", ifNoAnswer: "stop" },
               },
-            ],
-          },
-        ],
-        otherwise: { id: "risky-no", steps: [] },
-      }) as processes.Step;
+              input: {},
+            },
+          ],
+        },
+      ],
+      otherwise: { id: "risky-no", steps: [] },
+    });
     const made = await h.ops(async (tx) => {
-      const { agent: tpl } = await createTemplate(tx, { slug: "v4-paths", bundle: makeBundle() });
-      const t2 = await createVersion(tx, { agentId: tpl.id, bundle: v4Bundle(h) });
+      const { agent: tpl } = await createTemplate(tx, { slug: "paths", bundle: makeBundle() });
+      const t2 = await createVersion(tx, {
+        agentId: tpl.id,
+        bundle: bundleOf((x) => {
+          stepOf(x, LOOKUP_STEP).name = "Look it up (v2)";
+        }),
+      });
       const live = await publish(tx, { agentId: tpl.id, versionId: t2.id, ctx: h.ctx });
       const forked = await fork(tx, {
         tenantId: h.A.tenantId,
-        slug: "v4-paths",
+        slug: "paths",
         templateVersionId: live.id,
       });
       await bind(tx, forked.agent.id);
       const edited = cloneJson(forked.version.bundle);
-      processOf(edited).steps.push(route([record]));
+      addSteps(edited, route([record]));
       const c2 = await createVersion(tx, { agentId: forked.agent.id, bundle: edited });
       await publish(tx, { agentId: forked.agent.id, versionId: c2.id, ctx: h.ctx });
       return { tpl, forked };
@@ -591,7 +612,7 @@ describe.skipIf(!harness)("readers of a published v4 version", () => {
       .ops((tx) =>
         copyClientAgent(tx, {
           tenantId: h.B.tenantId,
-          slug: "v4-paths-copy",
+          slug: "paths-copy",
           sourceAgentId: made.forked.agent.id,
           ctx: h.ctx,
         }),
@@ -607,39 +628,24 @@ describe.skipIf(!harness)("readers of a published v4 version", () => {
 
   it("keeps a message trigger that names only contacts valid: the client admin may start it", async () => {
     const contact = uuidv7();
-    const client = v4Bundle(h, (x) => {
-      processOf(x).triggers.push({
+    const client = bundleOf((x) => {
+      workflowOf(x).triggers.push({
         id: "trg-m",
         on: { type: "message", channels: ["email"], from: { contactIds: [contact] } },
       });
     });
     expect(await validate(client)).toEqual([]);
     const out = stripForPromotion(client, makeBundle(), {});
-    const m = processOf(out).triggers.find((t) => t.id === "trg-m")?.on;
+    const m = workflowOf(out).triggers.find((t) => t.id === "trg-m")?.on;
     expect(m?.type === "message" && m.from).toEqual({ clientRoles: ["client_admin"] });
     expect(await validate(out)).toEqual([]);
   });
 
-  it("leaves out ids in rule rows, a reviewer's view and free text, and phone numbers as written", () => {
+  it("leaves out ids in a reviewer's view and free text, and phone numbers as written", () => {
     const vendor = uuidv7();
-    const account = uuidv7();
-    const client = v4Bundle(h, (x) => {
+    const client = bundleOf((x) => {
       x.definition.instructions = `Vendor ${vendor} is Acme; call Pat at 555-123-4567 or (555) 123-4568.`;
-      const s = stepOf(x, LOOKUP_STEP) as processes.Step & Record<string, unknown>;
-      s.customize = {
-        addInstructions: `Pat (pat@acme.example) approves vendor ${vendor}.`,
-        rules: {
-          add: [
-            {
-              id: "r1",
-              when: rules("{{input.vendorId}}", "=", vendor),
-              set: { account },
-            },
-          ],
-        },
-      } as never;
-      const w = stepOf(x, UPDATE_STEP);
-      if (w.kind !== "write") throw new Error("fixture");
+      const w = doStepOf(x, UPDATE_STEP);
       // A part number shaped like a phone number is data, not a number to call.
       w.input = {
         ...w.input,
@@ -661,41 +667,43 @@ describe.skipIf(!harness)("readers of a published v4 version", () => {
     });
     const out = stripForPromotion(client, makeBundle(), {});
     const text = JSON.stringify(out);
-    for (const literal of [vendor, account, "555-123-4567", "(555) 123-4568", "pat@acme.example"]) {
+    for (const literal of [vendor, "555-123-4567", "(555) 123-4568"]) {
       expect(text).not.toContain(literal);
     }
-    const written = stepOf(out, UPDATE_STEP) as processes.Step & { input: Record<string, unknown> };
+    const written = doStepOf(out, UPDATE_STEP);
     expect(written.input.sku).toBe("400-100-2000");
     expect(written.input.phone).toBeUndefined();
     expect(written.input.mobile).toBeUndefined();
     // Step ids and {{refs}} stay.
     expect(text).toContain("{{trigger.id}}");
-    expect(processes.nodeIds(processOf(out))).toEqual(processes.nodeIds(processOf(client)));
+    expect(nodeIds(out)).toEqual(nodeIds(client));
   });
 
-  it("points a conversation with a written-out contact at a People role the operator binds", async () => {
-    const client = v4Bundle(h, (x) => {
-      processOf(x).steps.push({
+  it("points a contact with a written-out address at a People role the operator binds", async () => {
+    const client = bundleOf((x) => {
+      addSteps(x, {
         id: "talk",
         name: "Ask about the invoice",
-        kind: "conversation",
-        with: "pat@client-a.example",
-        channel: "email",
-        goal: "Ask when the invoice will be paid.",
-        mayShare: [],
-        find: {},
-        maxTurns: 4,
-        messages: { first: "required", later: "required" },
-        deadline: { after: "2 days", hours: "clock", ifNoAnswer: "stop" },
+        kind: "do",
+        doneBy: "contact",
+        contact: {
+          with: "pat@client-a.example",
+          channel: "email",
+          goal: "Ask when the invoice will be paid.",
+          mayShare: [],
+          maxTurns: 4,
+          messages: { first: "required", later: "required" },
+          deadline: { after: "2 days", hours: "clock", ifNoAnswer: "stop" },
+        },
+        input: {},
       });
     });
     expect(await validate(client)).toEqual([]);
     const out = stripForPromotion(client, makeBundle(), {});
-    const talk = stepOf(out, "talk");
-    if (talk.kind !== "conversation") throw new Error("fixture");
-    // A role nobody is bound to: the conversation is refused, never sent, until the operator
+    const talk = doStepOf(out, "talk");
+    // A role nobody is bound to: the conversation is refused (nothing is sent) until the operator
     // binds it or names someone.
-    expect(talk.with).toBe(UNSET_CONTACT_ROLE);
+    expect(talk.contact?.with).toBe(UNSET_CONTACT_ROLE);
     expect(await validate(out)).toEqual([]);
   });
 });

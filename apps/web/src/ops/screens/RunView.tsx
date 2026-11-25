@@ -20,7 +20,7 @@ import {
   isPlainObject,
   itemFingerprint,
   noAnswerOf,
-  processes,
+  steps as stepModel,
   routeOfRow,
   runErrorCode,
   runStartedBy,
@@ -92,7 +92,7 @@ import {
   runChip,
   runErrorParts,
 } from "../run/words";
-import { processStepNames, type StepNames, stepNames } from "../workflow/describe";
+import { type StepNames, workflowStepNames } from "../workflow/describe";
 
 type RunDetail = ResponseOf<typeof apiRoutes.opsRun>;
 type Action = RunDetail["actions"][number];
@@ -246,7 +246,7 @@ export function OpsRunScreen() {
   usePoll(calls.reload, going, 10_000, calls.loading);
   const [params, setParams] = useSearchParams();
 
-  // R8: the workflow that ran, a stored v3 workflow or a v4 process (§1.86).
+  // The workflow that ran, as stored.
   const workflow = useMemo(
     () => (data?.workflow ? ranWorkflow(data.workflow.definition) : null),
     [data?.workflow],
@@ -272,11 +272,7 @@ export function OpsRunScreen() {
     });
     reload();
   };
-  const names: StepNames = workflow
-    ? workflow.schemaVersion === 4
-      ? processStepNames(workflow)
-      : stepNames(workflow)
-    : new Map();
+  const names: StepNames = workflow ? workflowStepNames(workflow) : new Map();
   const rows = checklistRows({
     workflow,
     steps: data.steps,
@@ -638,7 +634,7 @@ function checksFor(
   if (noAnswer) out.noAnswer = noAnswer;
   if (!checkKindOf(s.nodeId)) {
     const id = stepNodeOf(s.nodeId).node.split(":").at(-1) ?? s.nodeId;
-    const step = workflow?.schemaVersion === 4 ? processes.findStep(workflow, id)?.step : undefined;
+    const step = workflow ? stepModel.findStep(workflow.steps, id) : undefined;
     const approval = approvalOf(s, data.inbox, step?.checks?.approval?.mode ?? "in_turn");
     if (approval) {
       out.approval = {
@@ -650,12 +646,13 @@ function checksFor(
       };
     }
     // Wave 5: the route an if took and why (by step name), and a failure the run carried on past.
-    if (step && workflow?.schemaVersion === 4) {
+    if (step && workflow) {
       const route = routeOfRow(
-        step,
+        // A Fork's paths are what a decision's route reads (core's `routeOfRow` calls it an if).
+        step.kind === "fork" ? { id: step.id, kind: "if", paths: step.paths } : step,
         s,
         (nodeId) => outcomes.get(nodeId),
-        (sid) => processes.findStep(workflow, sid)?.step.name,
+        (sid) => stepModel.findStep(workflow.steps, sid)?.name,
       );
       if (route) out.route = route;
       if (carriedOn(step, s.outcome)) out.carriedOn = true;

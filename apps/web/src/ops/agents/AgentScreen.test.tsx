@@ -171,21 +171,28 @@ describe("AgentScreen", () => {
       expect(screen.queryByText(/does not match the agent bundle schema/)).toBeNull();
     });
 
-    // Wave 3c: a process names its tools on its read and write steps, not in the definition.
-    it("lists the tools of a process's read and write steps, nested ones too, each once", async () => {
+    // A workflow names its tools on its steps, not in the definition.
+    it("lists the actions of a workflow's steps, nested ones too, each once", async () => {
       const bundle = structuredClone(PROCESS_BUNDLE);
       bundle.definition.extraTools = ["gmail.message.send"];
       const workflow = bundle.workflows[0]?.workflow;
-      if (workflow?.schemaVersion !== 4) throw new Error("fixture");
-      const branch = workflow.steps[1];
-      if (branch?.kind !== "if") throw new Error("fixture");
+      const branch = workflow?.steps[1];
+      if (branch?.kind !== "fork") throw new Error("fixture");
       branch.paths[0]?.steps.push(
-        { id: "look", kind: "read", name: "Look up the bill", tool: "qbo.bill.get", input: {} },
+        {
+          id: "look",
+          kind: "do",
+          name: "Look up the bill",
+          doneBy: "rules",
+          uses: { type: "action", action: "qbo.bill.get" },
+          input: {},
+        },
         {
           id: "again",
-          kind: "write",
+          kind: "do",
           name: "Update again",
-          tool: "qbo.bill.update_lines",
+          doneBy: "rules",
+          uses: { type: "action", action: "qbo.bill.update_lines" },
           input: {},
         },
       );

@@ -8,8 +8,30 @@
 // Every function runs in the caller's transaction: back-office calls open it with withOperator()
 // (templates are visible only there), so the registry never widens what a session can see.
 
-import { type AgentBundle, AgentBundle as AgentBundleSchema, type AgentData, type AutomationDefinition, // v0.12 W2-D: the account agent's publish guard
-  accountAgentProblems, agentDataProblems, bindingConnector, bundleHash, type EventTypeSpec, GrantLimits, isExternalTool, type PermissionEntity, type PermissionMatrix, parseSkillRef, processes, REVOKED_GRANT, type RecordType, type SkillDefinition, skillTools, steps, type ValidationCode, type ValidationError } from "@countersign/core";
+import {
+  type AgentBundle,
+  AgentBundle as AgentBundleSchema,
+  type AgentData,
+  type AutomationDefinition, // v0.12 W2-D: the account agent's publish guard
+  accountAgentProblems,
+  agentDataProblems,
+  bindingConnector,
+  bundleHash,
+  type EventTypeSpec,
+  GrantLimits,
+  isExternalTool,
+  type PermissionEntity,
+  type PermissionMatrix,
+  parseSkillRef,
+  processes,
+  REVOKED_GRANT,
+  type RecordType,
+  type SkillDefinition,
+  skillTools,
+  steps,
+  type ValidationCode,
+  type ValidationError,
+} from "@countersign/core";
 import {
   agent,
   agentChange,
@@ -666,7 +688,7 @@ export async function createTemplate(
   tx: Tx,
   input: NewAgentInput & { releaseNote?: string | null },
 ): Promise<{ agent: AgentRow; version: AgentVersionRow }> {
-  const bundle = parseVersionBundle(input.bundle); // Wave 3b: a Builder draft holds v4 processes.
+  const bundle = parseVersionBundle(input.bundle);
   const [row] = await tx
     .insert(agent)
     .values({
@@ -734,7 +756,7 @@ export async function createClientAgent(
   tx: Tx,
   input: ClientAgentFields & Omit<NewAgentInput, "slug">,
 ): Promise<{ agent: AgentRow; version: AgentVersionRow }> {
-  const bundle = parseVersionBundle(input.bundle); // Wave 3b: a Builder draft holds v4 processes.
+  const bundle = parseVersionBundle(input.bundle);
   const row = await insertClientAgent(
     tx,
     { ...input, role: input.role ?? bundle.definition.identity.role, templateId: null },
@@ -1034,7 +1056,7 @@ export async function relink(
 
 /**
  * The connectors a bundle needs bound: those its skills require, and the connectors of every
- * connector tool it can call (skills' tools, extra tools, action steps; v4: read and write steps).
+ * connector tool it can call (skills' tools, extra tools, a Do's action).
  */
 export function requiredConnectors(
   bundle: AgentBundle,

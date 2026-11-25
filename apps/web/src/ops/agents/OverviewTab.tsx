@@ -1,7 +1,7 @@
 // The agent Overview tab (design screen 7, without pack KPIs): how it works as step chips from the
 // version shown, its mission, the tools it works in, the skills it uses, and its latest runs.
 // Connections, tools and skills read by their names, never their ids; empty parts are left out.
-import { type AgentBundle, allTriggers, type SkillOption } from "@countersign/core";
+import { type AgentBundle, allTriggers, type SkillOption, steps } from "@countersign/core";
 import { Link } from "react-router-dom";
 import { type AgentSummary, apiRoutes } from "../../api/routes";
 import { type ApiState, useApi } from "../../api/useApi";
@@ -148,9 +148,18 @@ export function skillNamesOf(
   return out;
 }
 
-/** The tools the agent works in: its definition's extra tools, each once. */
+/**
+ * The tools the agent works in: its definition's extra tools, then the actions its workflows' steps
+ * and outputs use at any depth (a merged action names no one tool), each once.
+ */
 export function toolsItWorksIn(bundle: AgentBundle): string[] {
-  return [...new Set(bundle.definition.extraTools)];
+  const ids = [...bundle.definition.extraTools];
+  for (const w of bundle.workflows) {
+    for (const id of steps.stepModelActions(w.workflow)) {
+      if (!steps.mergedAction(id)) ids.push(id);
+    }
+  }
+  return [...new Set(ids)];
 }
 
 /** A workflow's first trigger and its top-level steps as chips. */

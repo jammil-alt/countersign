@@ -3,8 +3,6 @@
 import { describe, expect, it } from "vitest";
 import { PersonRole, seatKindOf, seatLabelOf } from "../reach/rules";
 import type { ToolSpec } from "../schemas/tool";
-import type { TypingContext } from "../template/typer";
-import { validateBundle } from "./bundle";
 import { Process } from "./schema";
 import {
   EMPTY_SEAT_FALLBACK,
@@ -28,7 +26,6 @@ const CREATE: ToolSpec = {
   source: "testkit",
   connector: "testkit",
 };
-const CTX: TypingContext = { tools: { [CREATE.id]: CREATE } };
 
 const ROLES = [
   PersonRole.parse({ role: "bill-approver", kind: "signs", label: "Approves bills" }),
@@ -161,45 +158,6 @@ describe("seatProblems", () => {
         field: "deadline.ifNoAnswer.escalate.to",
         code: "seat_kind",
       }),
-    ]);
-  });
-});
-
-describe("validateBundle with seats", () => {
-  const definition = {
-    schemaVersion: 2 as const,
-    identity: { name: "Clerk", role: "Bills", mission: "Enter bills" },
-    kind: "functional" as const,
-    model: { id: "m" },
-    instructions: "Work carefully.",
-    skills: [],
-    extraTools: [CREATE.id],
-    permissions: { mode: "act" as const },
-  };
-  const bundle = (people: object[]) => ({
-    schemaVersion: 1,
-    definition,
-    people,
-    workflows: [
-      {
-        slug: "bills",
-        name: "Bills",
-        workflow: proc({ approvers: [{ who: seatWho("bill-approver") }] }),
-      },
-    ],
-  });
-
-  it("is valid when the seat is declared to sign", () => {
-    const r = validateBundle(bundle([{ role: "bill-approver", kind: "signs" }]), CTX);
-    expect(r.errors).toEqual([]);
-  });
-
-  it("names the workflow when a seat is unknown or can't sign", () => {
-    expect(validateBundle(bundle([]), CTX).errors).toEqual([
-      expect.objectContaining({ workflow: "bills", stepId: "create", code: "unknown_seat" }),
-    ]);
-    expect(validateBundle(bundle([{ role: "bill-approver" }]), CTX).errors).toEqual([
-      expect.objectContaining({ workflow: "bills", code: "seat_kind" }),
     ]);
   });
 });

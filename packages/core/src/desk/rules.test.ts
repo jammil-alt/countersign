@@ -152,8 +152,10 @@ describe("quick answers", () => {
     expect(PersonInstructions.safeParse({ ...step, choices: [choice("yes")] }).success).toBe(true);
     expect(PersonInstructions.safeParse({ ...step, choices: [] }).success).toBe(false);
     expect(
-      PersonInstructions.safeParse({ ...step, choices: ["a", "b", "c", "d", "e", "f", "g"].map(choice) })
-        .success,
+      PersonInstructions.safeParse({
+        ...step,
+        choices: ["a", "b", "c", "d", "e", "f", "g"].map(choice),
+      }).success,
     ).toBe(false);
   });
 });

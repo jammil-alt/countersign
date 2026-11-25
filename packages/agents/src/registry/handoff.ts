@@ -3,13 +3,7 @@
 // server validates hand-off steps with it at publish, and the builder gets the same list, so both
 // say the same thing (invariant 4: one validator).
 
-import {
-  type AgentBundle,
-  collectRefs,
-  processes,
-  steps,
-  type ToolSpec,
-} from "@countersign/core";
+import { collectRefs, type processes, steps, type ToolSpec } from "@countersign/core";
 import { agent, agentVersion, type Tx } from "@countersign/db";
 import { and, eq } from "drizzle-orm";
 import type { RegistryContext } from "./agents";
@@ -57,7 +51,7 @@ export async function handoffAgents(
 /**
  * The step model: a v5 workflow's top-level steps as hand-off targets, each named by the engine
  * that runs it (`steps.ENGINE_OUTCOMES`: a Do on a Get action is a `read`), so the hand-off
- * picker offers the same work steps as for a v4 process. Their input schemas come with the
+ * picker offers the same work steps as for a process. Their input schemas come with the
  * builder's forms (stream B); until then none is given.
  */
 function stepModelTargets(
