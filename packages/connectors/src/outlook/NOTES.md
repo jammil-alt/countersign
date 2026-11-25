@@ -30,7 +30,7 @@ account) before a client connects, and the connector and fake fixed where they d
   delegated refresh token; the person removes Mezonas from their account's app permissions
   (work accounts: `myapps.microsoft.com`; personal: `account.live.com/consent/Manage`).
 - `outlook.send`: external, verb `create`, entity `message`, behind approval by default, with the
-  same input as `email.send` and `gmail.send` (`to`, `subject`, `text`, `replyTag`), so reach out
+  same input as `resend.send` and `gmail.send` (`to`, `subject`, `text`, `replyTag`), so reach out
   can use it as an agent's email channel (`CHANNEL_TOOLS.outlook`). Its before state is the email
   as it would go. The contact checks (a contact of this client, email consent, not opted out) run in
   code before and again at the send, through the same `EmailServices` as Gmail and Resend.
@@ -46,7 +46,7 @@ account) before a client connects, and the connector and fake fixed where they d
   is never sent again: the action fails as unconfirmed and the operator gets an item to check the
   mailbox, with the `X-Mezonas-Ref` value to search for. This includes a send Graph refused with an
   error after the attempt was recorded.
-- Output: `email.send`'s shape. Graph answers 202 with no body, so `id` is our `X-Mezonas-Ref`
+- Output: `resend.send`'s shape. Graph answers 202 with no body, so `id` is our `X-Mezonas-Ref`
   (`mz-` + 32 hex characters of sha256(`outlook:` + the action's key)) and `messageId` is empty.
 
 ## To verify
@@ -123,5 +123,5 @@ The Entra app (owner):
 - A test email from the portal (Gmail's `sendToSelf`).
 - A client user connecting their own Outlook (Gmail's `PERSONAL_CONNECTORS` rule): only the client
   admin connects Outlook for now.
-- HTML: plain text only, like `email.send` (PDFs and images up to 3 MB in all can be attached,
+- HTML: plain text only, like `resend.send` (PDFs and images up to 3 MB in all can be attached,
   P-3). Larger files (upload sessions need `Mail.ReadWrite`).

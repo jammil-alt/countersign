@@ -20,7 +20,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createTemplate, fork, publish } from "../registry/agents";
 import { SkillCatalog } from "../registry/skills";
 import { FINISH_TOOL, runAgent } from "../runtime/run-agent";
-import { DOCS_SKILLS } from "../tools/docs";
+import { DOCS_SKILLS, docsRead } from "../tools/docs";
 import {
   CHECK_TOTALS_SKILL,
   DOCS_SPLIT_SKILLS,
@@ -271,6 +271,13 @@ describe.skipIf(!harness)("Read document → Check totals → record the reading
     });
     // The process routes it (an If step, then a person); recording raises no inbox item itself.
     expect(saved).toMatchObject({ status: "needs_review", totalsMatch: false });
+  });
+
+  it("Read a document takes no reading from its caller: it only records what it read itself", () => {
+    const keys = Object.keys(
+      (docsRead.spec.input as { properties: Record<string, unknown> }).properties,
+    );
+    expect(keys.sort()).toEqual(["as", "documentId"]);
   });
 
   it("another client's document can't be attached", async () => {

@@ -50,7 +50,7 @@ export async function listAccounts(
 ): Promise<AccountView[]> {
   const accounts = await ledgerChart(tx, tenantId, opts);
   if (accounts.length === 0) return [];
-  const examples = await accountExamples(
+  const examples = await payeesByAccount(
     tx,
     tenantId,
     accounts.map((a) => a.id),
@@ -60,7 +60,7 @@ export async function listAccounts(
 
 /** The payees most often booked to each account, from approved and posted bookings. */
 // DECISION: computed, never stored, so what the agent learns from bookings can't drift from them.
-async function accountExamples(
+export async function payeesByAccount(
   tx: Tx,
   tenantId: string,
   ids: readonly string[],

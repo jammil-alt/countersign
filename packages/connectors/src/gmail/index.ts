@@ -2,7 +2,7 @@
 // own Google account from the portal and lets agents send from it; we ask Google for `gmail.send`
 // and nothing else of Gmail, so nothing here can read, search, label or draft mail. Reading is done
 // by forwarding (§6.5): replies come back to the client's forwarding address through the Reply-To
-// header. `gmail.send` takes the same input as Resend's `email.send`, so reach out (plan §1.25)
+// header. `gmail.send` takes the same input as Resend's `resend.send`, so reach out (plan §1.25)
 // uses either as an agent's email channel. Unchecked facts about Google: ./NOTES.md.
 
 import type { JsonObject } from "@countersign/core";

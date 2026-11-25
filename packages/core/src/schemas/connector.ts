@@ -141,8 +141,25 @@ export const ConnectorManifest = z
      * Sandbox client and a template's test copies), never to a real client. See `showsTestOnly`.
      */
     testOnly: z.boolean().optional(),
+    /**
+     * Step model E (docs/step-model-plan.md §10c): the actions (tool ids) that are off for agents
+     * until the operator turns them on, on the connector's page: a developer's new action lands
+     * here so it never runs before someone has looked at it. Every other tool is on, unless the
+     * operator switched it off.
+     */
+    offByDefault: z.array(z.string()).max(200).optional(),
   })
   .superRefine((m, ctx) => {
+    const toolIds = new Set(m.tools.map((t) => t.id));
+    m.offByDefault?.forEach((id, i) => {
+      if (!toolIds.has(id)) {
+        ctx.addIssue({
+          code: "custom",
+          message: `offByDefault names ${id}, which isn't one of its tools`,
+          path: ["offByDefault", i],
+        });
+      }
+    });
     // v0.12 W2-A: entities and scopes are the connector's own and agree with its tools.
     for (const p of manifestEntityProblems(m)) {
       ctx.addIssue({ code: "custom", message: p, path: ["permissionEntities"] });

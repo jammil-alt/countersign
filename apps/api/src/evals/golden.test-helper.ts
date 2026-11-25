@@ -423,7 +423,11 @@ export async function runGoldenCase(
       H,
       resolveRefs(c.answers, ids),
       resolveRefs(c.checks, ids),
-      Object.values(ids),
+      // The accounting connection's id is made at sign-in, new every run: not the world's own, so a
+      // request that names it (the chart of accounts lists each account's connection) replays.
+      Object.entries(ids)
+        .filter(([name]) => name !== "qbo")
+        .map(([, id]) => id),
     );
     const ran = await runTemplateTest(deps, {
       runTenantId: tenantId,

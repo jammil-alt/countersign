@@ -4,6 +4,7 @@
 // access tests walk this whole list, so none of them skips a check.
 
 import { accountReportRoutes } from "./account-report";
+import { actionRequestRoutes } from "./action-requests";
 import { adjustRoutes } from "./adjust";
 import { agentReportRoutes } from "./agent-report";
 import { assistRoutes } from "./assist";
@@ -34,6 +35,7 @@ import { workStatementRoutes } from "./work-statement";
 export const allRoutes = {
   ...routes,
   ...codeRequestRoutes,
+  ...actionRequestRoutes,
   ...clientFileRoutes,
   ...startRoutes,
   ...inviteRoutes,
