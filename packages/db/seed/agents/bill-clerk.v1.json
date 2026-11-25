@@ -607,6 +607,20 @@
                           "client": {
                             "visible": false
                           },
+                          "checks": {
+                            "confer": {
+                              "with": [
+                                {
+                                  "person": "seat:bill-questions",
+                                  "deadline": {
+                                    "after": "3 days",
+                                    "hours": "clock",
+                                    "ifNoAnswer": "skip"
+                                  }
+                                }
+                              ]
+                            }
+                          },
                           "kind": "do",
                           "doneBy": "rules",
                           "uses": {
@@ -615,7 +629,7 @@
                               "to": "vendors",
                               "type": "hybrid",
                               "keys": ["name"],
-                              "belowFloor": "no_match"
+                              "belowFloor": "person"
                             }
                           },
                           "input": {

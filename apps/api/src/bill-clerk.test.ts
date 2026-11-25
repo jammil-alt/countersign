@@ -4,7 +4,8 @@
 // client; an invoice is read; its one bill is found by vendor, total, number and date; itemizing,
 // attaching and the memo each wait for approval and are written once; a re-read invoice changes
 // nothing; an invoice whose number is on a bill that doesn't match writes nothing and asks; an
-// invoice with no bill gets one, for the vendor matched on our records, after approval; two equal
+// invoice with no bill gets one, for the vendor matched on our records (asked of the person in
+// the bill-questions seat when the model isn't sure, and learned), after approval; two equal
 // bills write nothing and ask the client admin, with the candidates as sources; and a test run
 // proposes everything and writes nothing.
 
@@ -18,7 +19,7 @@ import {
   QBO_TOOLS,
 } from "@countersign/connectors";
 import { FAKE_QBO_CLIENT, FAKE_QBO_REALM, fakeQbo } from "@countersign/connectors/testing";
-import { processes, RECORD_INVOICE_TOOL, steps } from "@countersign/core";
+import { normalizeVendorName, processes, RECORD_INVOICE_TOOL, steps } from "@countersign/core";
 import {
   agent,
   docExtraction,
@@ -46,6 +47,7 @@ import {
   createApiHarness,
   FakeWorkflowStep,
   OPERATOR,
+  user,
 } from "./api.test-helper";
 import { defaultDeps } from "./http";
 import { MemoryQboSyncInstances } from "./qbo/instances";
@@ -163,24 +165,38 @@ describe.skipIf(!h)("the Bill clerk", () => {
   // biome-ignore lint/suspicious/noExplicitAny: response bodies are read loosely in tests.
   const seen: { item: any; count: number; open: number }[] = [];
 
-  /** Approves every item the run waits on, as client A's admin; `before` runs first. */
-  function approver(before: () => void) {
+  /**
+   * Approves every item the run waits on, as client A's admin; `before` runs first. A question
+   * (`answer` gives its answer) is answered by whoever it was put to: the admin, or client A's
+   * user when they sit in the seat it names.
+   */
+  function approver(before: () => void, answer?: (item: { title: string }) => string | undefined) {
     return new FakeWorkflowStep(async (_name, type) => {
       before();
-      const res = await H.call(admin("a"), "GET", "/api/inbox");
-      const item = j(res.json).items.find(
-        (i: { id: string }) => `inbox-${i.id.replace(/-/g, "")}` === type,
-      );
+      const own = (i: { id: string }) => `inbox-${i.id.replace(/-/g, "")}` === type;
+      // The user's own items first: the admin sees the seat's question too, but can't answer it.
+      let who = user("a");
+      let res = await H.call(who, "GET", "/api/inbox");
+      let item = j(res.json).items.find(own);
+      if (!item) {
+        who = admin("a");
+        res = await H.call(who, "GET", "/api/inbox");
+        item = j(res.json).items.find(own);
+      }
       if (!item) throw new Error(`no open item for ${type}`);
-      const overview = await H.call(admin("a"), "GET", "/api/overview");
+      const overview = await H.call(who, "GET", "/api/overview");
       seen.push({
         item,
         count: j(overview.json).needsYou.inbox,
         open: j(res.json).items.length,
       });
-      const done = await H.call(admin("a"), "POST", `/api/inbox/${item.id}/resolve`, {
-        decision: "approve",
-      });
+      const reply = answer?.(item);
+      const done = await H.call(
+        who,
+        "POST",
+        `/api/inbox/${item.id}/resolve`,
+        reply === undefined ? { decision: "approve" } : { answer: reply },
+      );
       expect(done.status, JSON.stringify(done.json)).toBe(200);
       return H.instances.events.find((e) => e.event.type === type)?.event.payload;
     });
@@ -806,6 +822,25 @@ describe.skipIf(!h)("the Bill clerk", () => {
       },
       { tenantId: H.A.tenantId, documentId: docs.cedar },
     );
+    // Our record of the vendor carries the name QuickBooks had before ("Cedar Ridge Hardwood
+    // Co."), not the invoice's: no exact hit, so the model chooses, and isn't sure.
+    const [cedar] = await H.t.db
+      .select()
+      .from(vendor)
+      .where(and(eq(vendor.tenantId, H.A.tenantId), eq(vendor.name, CEDAR[1])));
+    if (!cedar) throw new Error("no Cedar Ridge vendor");
+    const older = "Cedar Ridge Hardwood Co.";
+    await H.t.db
+      .update(vendor)
+      .set({ name: older, normalizedName: normalizeVendorName(older), aliases: [] })
+      .where(eq(vendor.id, cedar.id));
+    // The client puts their user in the bill-questions seat (Your people).
+    await H.t.db
+      .update(agent)
+      .set({
+        people: { "bill-questions": { userIds: [H.A.user], backupUserIds: [], contactIds: [] } },
+      })
+      .where(eq(agent.id, clerkId));
     const [params, ...more] = await dispatchExtracted(docs.cedar);
     expect(more).toEqual([]);
     if (!params) throw new Error("the invoice started no run");
@@ -818,8 +853,15 @@ describe.skipIf(!h)("the Bill clerk", () => {
       ["6", "Freight", "185.00"],
       ["7", "Fuel surcharge 3.5%", "191.35"],
     ].map(([, description, amount]) => ({ description, amount, account: "80" }));
-    // The model's only part: the bill laid out from the invoice, the vendor and accounts given.
+    // The model's parts: which vendor it is (not sure: 60), then the bill laid out from the
+    // invoice for that vendor and the accounts given.
     const model = new FakeModel([
+      {
+        toolUse: {
+          name: "record_choice",
+          input: { record_id: cedar.id, confidence: 0.6, reason: "The same name, older." },
+        },
+      },
       {
         toolUse: {
           name: "finish",
@@ -840,12 +882,30 @@ describe.skipIf(!h)("the Bill clerk", () => {
     const posts = qbo.apiCalls("POST").length;
     const atWaits: number[] = [];
     seen.length = 0;
-    const step = approver(() => void atWaits.push(qbo.apiCalls("POST").length));
-    expect(await executeRun(runDeps(model), params, cloudflareStepRunner(step))).toMatchObject({
-      status: "succeeded",
-    });
-    // Nothing was written before its approval: one write after each signature.
-    expect(atWaits).toEqual([posts, posts + 1]);
+    const step = approver(
+      () => void atWaits.push(qbo.apiCalls("POST").length),
+      (item) => (item.title.includes("which one is") ? cedar.id : undefined),
+    );
+    try {
+      expect(await executeRun(runDeps(model), params, cloudflareStepRunner(step))).toMatchObject({
+        status: "succeeded",
+      });
+    } finally {
+      await H.t.db.update(agent).set({ people: {} }).where(eq(agent.id, clerkId));
+    }
+    // The vendor was asked of the person in the bill-questions seat, with the shortlist, before
+    // anything else; then nothing was written before its approval: one write after each.
+    expect(atWaits).toEqual([posts, posts, posts + 1]);
+    const [asked] = seen;
+    expect(asked?.item.title).toBe('Vendors: which one is "Cedar Ridge Hardwoods"?');
+    const [question] = await H.t.db
+      .select()
+      .from(inboxItem)
+      .where(and(eq(inboxItem.runId, params.runId), eq(inboxItem.title, asked?.item.title)));
+    expect(question?.assigneeUserId).toBe(H.A.user);
+    // Their answer is learned: next time the invoice's name is a hit with nobody asked.
+    const [taught] = await H.t.db.select().from(vendor).where(eq(vendor.id, cedar.id));
+    expect(taught?.aliases).toContain(normalizeVendorName(CEDAR[1]));
     expect(qbo.apiCalls("POST")).toHaveLength(posts + 2);
     const check = await H.t.db
       .select({ output: stepRun.output })
@@ -858,20 +918,17 @@ describe.skipIf(!h)("the Bill clerk", () => {
       .from(stepRun)
       .where(eq(stepRun.runId, params.runId));
     const out = (nodeId: string) => j(logged.find((r) => r.nodeId === nodeId)?.output);
-    const [cedar] = await H.t.db
-      .select({ id: vendor.id })
-      .from(vendor)
-      .where(and(eq(vendor.tenantId, H.A.tenantId), eq(vendor.name, CEDAR[1])));
     expect(out("vendor").items).toEqual([
-      expect.objectContaining({ matched: cedar?.id, how: "exact", unsure: false }),
+      expect.objectContaining({ matched: cedar.id, how: "person", unsure: false }),
     ]);
+    expect(out("vendor").sources).toContain(cedar.id);
     expect(out("vendor-record")).toMatchObject({
-      id: cedar?.id,
-      name: CEDAR[1],
+      id: cedar.id,
+      name: older,
       externalRefs: { qbo: CEDAR[0] },
     });
     expect(j(logged.find((r) => r.nodeId === "prepare")?.input).vendors).toEqual([
-      { id: CEDAR[0], name: CEDAR[1] },
+      { id: CEDAR[0], name: older },
     ]);
     // Create bill ran on QuickBooks, then the invoice was attached to the new bill: each one an
     // external action written once, after the client admin signed it.
@@ -880,7 +937,7 @@ describe.skipIf(!h)("the Bill clerk", () => {
       [QBO_TOOLS.billCreate, "done"],
       [QBO_TOOLS.attachableUpload, "done"],
     ]);
-    expect(seen.map((c) => c.item.payload.tool)).toEqual([
+    expect(seen.slice(1).map((c) => c.item.payload.tool)).toEqual([
       QBO_TOOLS.billCreate,
       QBO_TOOLS.attachableUpload,
     ]);
