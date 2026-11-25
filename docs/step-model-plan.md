@@ -592,7 +592,16 @@ stream's.
 | Engine boundary | `engine.ts` | Which engine a Do step runs on, from done by and uses; an unknown action is a Change. |
 | Converter (one-off) | `convert-v4.ts` | v3 and v4 workflows into the step model. Every seeded agent's workflows convert and pass the publish checks (`apps/api/src/steps-convert.test.ts`). Test fixtures written in TypeScript are moved by each stream as it moves the code they test. Deleted in wave 4. |
 
-Still needed before wave 1: the owner's review of the stored format (§13a), which freezes it.
+The stored format is **approved and frozen** (owner, 2026-11-25), Tell and the group type included.
+
+**Wave 1 streams** (each its own session, branch and draft PR; based on this branch until it merges):
+
+| Stream | Branch | Model | Owns |
+|---|---|---|---|
+| A · Executor | `claude/step-model-a-executor` | Opus | `packages/workflows`, the executor's adapters in `apps/api`, `packages/agents/src/runtime`, and the agent bundle accepting v5 workflows (`packages/core/src/schemas/agent.ts`, `packages/core/src/process/bundle.ts`) |
+| B · Builder screens | `claude/step-model-b-builder` | Sonnet | `apps/web/src/ops/flow`, `apps/web/src/ops/builder`, the builder's API routes that serve the catalog |
+| D · Match | `claude/step-model-d-match` | Opus | Match profiles and their engine: `packs/materials/src/vendor`, the catalog matching in `packs/materials`, `packs/sales/src/match`, `packages/core/src/matching` |
+| E · Connectors and areas | `claude/step-model-e-connectors` | Sonnet | `packages/connectors`, the connector page (`apps/web/src/ops/screens/Connectors.tsx`), Request an action, tool-neutral wording outside what D owns, one chart of accounts, one Read a document |
 
 ## 14. Where we are in the review
 
@@ -643,6 +652,7 @@ release (§12, §13). Then: the stored format, drafted as plain fields for revie
   built after.
 - 2026-11-25 · Purge scope confirmed (§12, R0); `db:purge-agents` built; wave 0 started.
 - 2026-11-25 · Wave 0 contracts built (§13c); Tell added to the Do step, and the group field type.
+- 2026-11-25 · Stored format approved and frozen; wave 1 started (four sessions, §13c).
 - 2026-11-25 · Forms agreed. Suggest (AI icon) on every step and every field: tell it what you need,
   use the default, or resolve; applied at once, with Undo.
 - 2026-11-25 · The eight kinds are stored directly; nine of today's kinds collapse into Do, run by
