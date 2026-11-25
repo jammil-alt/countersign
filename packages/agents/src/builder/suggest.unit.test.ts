@@ -335,6 +335,36 @@ describe("every loosening the Builder's guards know (invariant 8)", () => {
     });
   });
 
+  it("adds no approval when Uses goes to a Save to our own records", async () => {
+    const withSave = {
+      ...world,
+      actions: [
+        ...world.actions,
+        { id: "purchasing.register", label: "Purchasing › Register lines", kind: "save" },
+      ],
+    };
+    const get = {
+      ...DO,
+      uses: { type: "action", action: "qbo.vendor.get" },
+    } as unknown as steps.DoStep;
+    const model = new FakeModel([
+      {
+        toolUse: {
+          name: "submit_suggestion",
+          input: {
+            summary: "Saves the lines.",
+            step: { ...get, uses: { type: "action", action: "purchasing.register" } },
+          },
+        },
+      },
+    ]);
+    const out = await suggestStep(ask({}, get), withSave, {
+      llm: createLlmClient({ transport: model }),
+    });
+    expect(out.applied).toBe(true);
+    expect((out.step as steps.DoStep).checks?.approval).toBeUndefined();
+  });
+
   it("still takes a change that tightens", async () => {
     const out = await run(ask({}, change), {
       summary: "Added an approver.",

@@ -317,13 +317,13 @@ export function guardSuggestion(
   if (after.id !== before.id || after.kind !== before.kind) {
     return keep("That would change which step this is, so it wasn't applied.");
   }
-  // Uses going from a Get (or nothing) to a Change, Save or Send: the approval starts on, as the
+  // Uses going from a Get (or nothing) to a Change or Send (a Save to our own records needs no client approval, plan §3): the approval starts on, as the
   // Builder's drafts do (invariant 8).
   if (after.kind === "do" && after.uses?.type === "action" && !after.checks?.approval) {
     const id = after.uses.action;
     const kind = world.actions.find((a) => a.id === id)?.kind;
     const was = before.kind === "do" && before.uses?.type === "action" ? before.uses.action : null;
-    if (kind !== undefined && kind !== "get" && was !== id) {
+    if ((kind === "change" || kind === "send") && was !== id) {
       after.checks = { ...after.checks, approval: { ...DEFAULT_APPROVAL } };
     }
   }
