@@ -10,6 +10,7 @@ import {
   CUSTOM_PREFIX,
   createSkill,
   createSkillVersion,
+  isStepSkill,
   publishSkill,
   rollbackSkill,
   SHARED_COPY_PREFIX,
@@ -371,6 +372,8 @@ export function opsSkillRoutes(app: Hono<AppEnv>): void {
     for (const e of rows) {
       const shown = e.live ?? e.latest;
       if (!shown) continue;
+      // The rules or text a step holds is stored as a skill behind it; it isn't one to list.
+      if (isStepSkill(shown.definition)) continue;
       items.push(
         listItem(
           {

@@ -14,6 +14,7 @@ import { CollectInstructions } from "./instructions/CollectInstructions";
 import { ContactInstructions } from "./instructions/ContactInstructions";
 import { PersonInstructions } from "./instructions/PersonInstructions";
 import { RulesInstructions } from "./instructions/RulesInstructions";
+import { SaveAsSkill } from "./instructions/SaveAsSkill";
 import { TellInstructions } from "./instructions/TellInstructions";
 import type { BuilderIssue } from "./issues";
 import { MatchSection } from "./MatchSection";
@@ -205,6 +206,11 @@ export function DoForm(props: StepFormProps<DoStep>) {
             issues={at("instructions")}
           >
             {own === "rules" ? <RulesInstructions {...props} /> : <AiInstructions {...props} />}
+            <SaveAsSkill
+              step={step}
+              env={env}
+              onChange={(next) => next.kind === "do" && onChange(next)}
+            />
           </Box>
         ) : null
       ) : null}
