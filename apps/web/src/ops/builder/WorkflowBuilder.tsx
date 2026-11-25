@@ -185,8 +185,10 @@ import {
   setTrigger,
   startHistory,
   startToWorkflow,
+  stepModelWorkflows,
   undo,
   updateStep,
+  withStepModelWorkflows,
   workflowCounts,
 } from "./model";
 import {
@@ -1235,15 +1237,23 @@ function BuilderBody(
   };
 
   // ── Save, test run, publish ──
-  const save = async (): Promise<Saved | null> => {
-    const snapshot = bundle;
+  // The step model: the agent's v5 workflows, set aside by this builder, are saved back where they
+  // were, with a new one ("+ Workflow", "Add steps") when `added` is given (`withStepModelWorkflows`).
+  const save = async (
+    extra: {
+      snapshot?: ProcessAgentBundle;
+      added?: AnyAgentBundle["workflows"];
+      note?: string;
+    } = {},
+  ): Promise<Saved | null> => {
+    const snapshot = extra.snapshot ?? bundle;
     const snapshotCanon = canonicalJson(snapshot);
     const res = await action.call(apiRoutes.opsSaveVersion, {
       params: { id: agent.id },
       body: {
-        bundle: snapshot,
+        bundle: withStepModelWorkflows(snapshot, props.bundle, extra.added),
         parentVersionId: saved.id,
-        changeNote: "Edited in the workflow builder",
+        changeNote: extra.note ?? "Edited in the workflow builder",
       },
     });
     if (res.ok) {
@@ -1584,16 +1594,27 @@ function BuilderBody(
     const trigger = workflow?.triggers.find((t) => t.id === id);
     if (!trigger) return;
     // The same ids however often the edit is applied.
-    const ids = [uuidv7(), uuidv7()];
+    const ids = [uuidv7(), uuidv7(), uuidv7(), uuidv7(), uuidv7()];
+    const taken = stepModelWorkflows(props.bundle).map((w) => w.slug);
     const move = (b: ProcessAgentBundle) => {
       let n = 0;
-      return startToWorkflow(b, slug, id, triggerTitle(trigger), () => ids[n++] ?? uuidv7());
+      return startToWorkflow(b, slug, id, triggerTitle(trigger), () => ids[n++] ?? uuidv7(), taken);
     };
     const made = move(bundle);
     if (!made) return;
-    apply((b) => move(b)?.bundle ?? b);
-    closeSide();
-    navigate(wayHref(made.slug));
+    // The new workflow is in the step model, which opens from a saved version: saved at once, with
+    // the start moved off this workflow, then opened in the steps builder.
+    void (async () => {
+      const ok = await save({
+        snapshot: made.bundle,
+        added: [made.added],
+        note: `Moved a start to ${made.added.name}`,
+      });
+      if (!ok) return;
+      apply((b) => move(b)?.bundle ?? b);
+      closeSide();
+      navigate(wayHref(made.slug));
+    })();
   };
   const selectedId = selection?.id ?? null;
   const openNext = () => {
@@ -2060,6 +2081,7 @@ function BuilderBody(
             lead={
               <WorkflowSwitcher
                 bundle={bundle}
+                stepModel={stepModelWorkflows(props.bundle)}
                 current={slug}
                 base={base}
                 adding={addingWorkflow}
@@ -2202,13 +2224,19 @@ function BuilderBody(
               <div className="flow-host__strip" data-testid="builder-strip">
                 {addingWorkflow || bundle.workflows.length === 0 ? (
                   <AddWorkflowForm
-                    bundle={bundle}
+                    bundle={withStepModelWorkflows(bundle, props.bundle)}
                     events={data.events
                       .filter((e) => !e.connector || connectors.has(e.connector))
                       .map((e) => e.type)}
                     onCancel={() => setAddingWorkflow(false)}
-                    onCreate={(input) => {
-                      apply((b) => addWorkflow(b, input));
+                    onCreate={async (input) => {
+                      // A new workflow starts in the step model: saved at once (with any unsaved
+                      // edits here), then opened in the steps builder.
+                      const ok = await save({
+                        added: [addWorkflow(input)],
+                        note: `Added the workflow ${input.name}`,
+                      });
+                      if (!ok) return;
                       setAddingWorkflow(false);
                       closeSide();
                       navigate(`${base}/${view === "list" ? "steps" : "workflows"}/${input.slug}`);
@@ -2718,6 +2746,7 @@ function MoreConnectors({
  */
 function WorkflowSwitcher({
   bundle,
+  stepModel = [],
   current,
   base,
   adding,
@@ -2725,6 +2754,8 @@ function WorkflowSwitcher({
   view,
 }: {
   bundle: Pick<ProcessAgentBundle, "workflows">;
+  /** The agent's v5 workflows (they open in the steps builder). */
+  stepModel?: readonly { slug: string; name: string; enabled?: boolean | undefined }[];
   current: string;
   base: string;
   adding: boolean;
@@ -2738,8 +2769,8 @@ function WorkflowSwitcher({
       aria-label="Workflows"
       className="inline-flex max-w-full flex-wrap items-center gap-1 rounded-md border border-line bg-surface p-1"
     >
-      {bundle.workflows.length > 1
-        ? bundle.workflows.map((w) => {
+      {bundle.workflows.length + stepModel.length > 1
+        ? [...bundle.workflows, ...stepModel].map((w) => {
             const r = roles.get(w.slug)?.role;
             return (
               <Link
@@ -2755,7 +2786,7 @@ function WorkflowSwitcher({
                 )}
               >
                 {w.name}
-                {w.enabled ? "" : " · off"}
+                {w.enabled !== false ? "" : " · off"}
                 {r === "trigger" || r === "output" ? (
                   <RoleChip role={r} className="ml-1.5" />
                 ) : null}
@@ -2791,7 +2822,7 @@ function AddWorkflowForm({
   onCreate,
   onCancel,
 }: {
-  bundle: Pick<ProcessAgentBundle, "workflows">;
+  bundle: { workflows: readonly { slug: string }[] };
   events: string[];
   onCreate(input: { slug: string; name: string; on: TriggerOn }): void;
   onCancel(): void;

@@ -21,6 +21,28 @@ export type ContainerId = string;
 export const ROOT: ContainerId = "root";
 export type NewId = () => string;
 
+// ── A new workflow ───────────────────────────────────────────────────────────────────────────────
+
+/** The name a new workflow's one output has until the operator names what it delivers. */
+export const NOTHING_TO_DO_OUTPUT = "Nothing to do";
+
+/**
+ * A new workflow, in the step model (coordinator, 2026-11-25: every new workflow starts as v5): its
+ * trigger, one declared output (`nothing`, "Nothing to do" until the operator changes it) and the
+ * End that delivers it, so the builder opens on it and a draft saves.
+ */
+export function newStepWorkflow(
+  on: Workflow["triggers"][number]["on"],
+  newId: NewId = uuidv7,
+  /** Steps before the End (a hand-in), if any. */
+  lead: Step[] = [],
+): Workflow {
+  const trigger = { id: newId(), on };
+  const output = newOutput(NOTHING_TO_DO_OUTPUT, newId);
+  const end: EndStep = { ...(newStep("end", newId) as EndStep), outputs: [output.id] };
+  return { schemaVersion: 5, triggers: [trigger], outputs: [output], steps: [...lead, end] };
+}
+
 // ── Containers ───────────────────────────────────────────────────────────────────────────────────
 
 /** The containers directly inside a step (a fork's paths and otherwise, a loop's block). */
