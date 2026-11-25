@@ -1,6 +1,7 @@
 // Sloan, the account agent, end to end (docs/plan.md §1.47, M24), with the model faked: the
-// supervisor's v2 is installed from the back office (once), forked into a client as "Sloan, your
-// account agent", and answers in account threads. Sloan explains why an item waits, pauses an
+// seeded supervisor (its v1, the chat in the step model: a Do done by AI with Sloan's own
+// `account.chat` skill and its tools) is installed from the back office (once), forked into a
+// client as "Sloan, your account agent", and answers in account threads. Sloan explains why an item waits, pauses an
 // agent until Monday for the client admin (never for a client user), drafts "add Lisa as a signer
 // for bills under $2,000" that applies only when the admin signs, refuses a loosening draft and
 // passes "let small reminders go on their own" to the lead, and passes a request to an agent whose
@@ -35,7 +36,6 @@ import {
   testBundle,
   user,
 } from "./api.test-helper";
-import { installBeforeStepModel } from "./before-step-model.test-helper";
 import { executeRun } from "./runs/execute";
 import type { RunParams } from "./runs/instances";
 import { cloudflareStepRunner } from "./runs/step-runner";
@@ -94,7 +94,7 @@ describe.skipIf(!h)("Sloan, the account agent", () => {
       params,
       cloudflareStepRunner(new FakeWorkflowStep()),
     );
-    expect(result).toEqual({ status: "succeeded" });
+    expect(result).toMatchObject({ status: "succeeded" });
     const calls = await H.t.db
       .select({ tool: toolCall.tool, status: toolCall.status, output: toolCall.output })
       .from(toolCall)
@@ -140,21 +140,25 @@ describe.skipIf(!h)("Sloan, the account agent", () => {
     await H.t.db.update(agent).set({ runStatus: "active" }).where(eq(agent.id, workerId));
   });
 
-  it("is installed as the supervisor's v2 from the back office, once", async () => {
-    const res = await installBeforeStepModel(H, "supervisor", 2);
+  it("is installed as the seeded supervisor from the back office, once", async () => {
+    const res = await H.call(OPERATOR, "POST", "/api/ops/platform-templates/supervisor/install", {
+      version: 1,
+    });
     expect(res.status, JSON.stringify(res.json)).toBe(200);
     expect(j(res.json)).toMatchObject({
       template: { slug: "supervisor" },
-      version: { version: 2, status: "live" },
+      version: { version: 1, status: "live" },
       installed: true,
     });
-    const again = await installBeforeStepModel(H, "supervisor", 2);
+    const again = await H.call(OPERATOR, "POST", "/api/ops/platform-templates/supervisor/install", {
+      version: 1,
+    });
     expect(j(again.json)).toMatchObject({ version: j(res.json).version, installed: false });
     // Operators only; an unknown version or slug is not found.
     expect(
       (
         await H.call(admin("a"), "POST", "/api/ops/platform-templates/supervisor/install", {
-          version: 2,
+          version: 1,
         })
       ).status,
     ).toBe(403);
@@ -656,7 +660,7 @@ describe.skipIf(!h)("Sloan, the account agent", () => {
       params,
       cloudflareStepRunner(new FakeWorkflowStep()),
     );
-    expect(result).toEqual({ status: "succeeded" });
+    expect(result).toMatchObject({ status: "succeeded" });
     const calls = await H.t.db
       .select({ tool: toolCall.tool, output: toolCall.output })
       .from(toolCall)
