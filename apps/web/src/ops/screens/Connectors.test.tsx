@@ -26,6 +26,28 @@ const qbo = (over: Record<string, unknown> = {}) => ({
   tools: [
     { id: "qbo.invoice.add_note", description: "Add a note", verb: "update", entity: "invoice" },
   ],
+  actions: [
+    {
+      id: "qbo.invoice.add_note",
+      label: "Qbo invoice add note",
+      description: "Add a note",
+      kind: "change",
+      entity: "invoice",
+      on: true,
+      isNew: false,
+    },
+    {
+      id: "qbo.bill.attach",
+      label: "Qbo bill attach",
+      description: "Attach a file to a bill",
+      kind: "change",
+      entity: "bill",
+      on: false,
+      isNew: true,
+    },
+  ],
+  syncs: ["Bill", "Invoice"],
+  builtIn: false,
   permissionEntities: [
     {
       id: "invoice",
@@ -229,5 +251,58 @@ describe("ops connectors catalog", () => {
     await waitFor(() =>
       expect(screen.getByTestId("connector-offer-state")).toHaveTextContent("Offered:"),
     );
+  });
+
+  it("lists a connector's actions with their kind, what it syncs, and switches an action on or off", async () => {
+    const puts: unknown[] = [];
+    const api = fakeApi({
+      "GET /api/session": () => OPERATOR_SESSION,
+      "GET /api/ops/connectors": () => ({ connectors: [qbo()] }),
+      "PUT /api/ops/connectors/qbo": ({ init }) => {
+        puts.push(JSON.parse(String(init.body)));
+        return { connector: qbo() };
+      },
+    });
+    renderAt(api);
+    await userEvent.click(await screen.findByTestId("connector-qbo-open"));
+    const panel = screen.getByTestId("connector-panel");
+    expect(within(panel).getByTestId("connector-panel-syncs")).toHaveTextContent("Bill");
+    expect(within(panel).getByTestId("connector-panel-syncs")).toHaveTextContent("Invoice");
+    const on = within(panel).getByTestId("connector-action-qbo.invoice.add_note");
+    expect(on).toHaveTextContent("Change");
+    const onSwitch = within(panel).getByTestId("connector-action-qbo.invoice.add_note-switch");
+    expect(onSwitch).toHaveAttribute("aria-checked", "true");
+    // A new action waits, off, to be turned on here.
+    const waiting = within(panel).getByTestId("connector-action-qbo.bill.attach");
+    expect(waiting).toHaveTextContent("New: waiting to be turned on");
+    const offSwitch = within(panel).getByTestId("connector-action-qbo.bill.attach-switch");
+    expect(offSwitch).toHaveAttribute("aria-checked", "false");
+    await userEvent.click(offSwitch);
+    await waitFor(() => expect(puts).toEqual([{ actions: { "qbo.bill.attach": true } }]));
+    await userEvent.click(onSwitch);
+    await waitFor(() => expect(puts[1]).toEqual({ actions: { "qbo.invoice.add_note": false } }));
+  });
+
+  it("requests an action from the connector's page: the words go to the Dev queue with the connector", async () => {
+    const asks: unknown[] = [];
+    const api = fakeApi({
+      "GET /api/session": () => OPERATOR_SESSION,
+      "GET /api/ops/connectors": () => ({ connectors: [qbo()] }),
+      "POST /api/ops/action-requests": ({ init }) => {
+        asks.push(JSON.parse(String(init.body)));
+        return { ref: "DQ-014", duplicate: null };
+      },
+    });
+    renderAt(api);
+    await userEvent.click(await screen.findByTestId("connector-qbo-open"));
+    const send = screen.getByTestId("connector-request-action-send");
+    expect(send).toBeDisabled();
+    await userEvent.type(
+      screen.getByTestId("connector-request-action-text"),
+      "Attach the vendor's PDF to the bill.",
+    );
+    await userEvent.click(send);
+    expect(await screen.findByTestId("connector-request-action-done")).toHaveTextContent("DQ-014");
+    expect(asks).toEqual([{ what: "Attach the vendor's PDF to the bill.", connector: "qbo" }]);
   });
 });

@@ -28,6 +28,7 @@ import { Field, TextArea, TextInput } from "../../ui/forms";
 import { Icon } from "../../ui/icons";
 import { Loaded, Page, Section } from "../../ui/page";
 import { Badge, Button, EmptyState, PageHeader, Tag } from "../../ui/primitives";
+import { RequestAction } from "../../ui/RequestAction";
 import { StatusChip } from "../../ui/status";
 import { accessSummary, descriptionOf, HOW_KEY, isBroken, STATUS_CHIP } from "../connectors/words";
 import { PORTAL_PATHS } from "../paths";
@@ -134,6 +135,20 @@ export function ConnectorsScreen() {
               {isAdmin ? <PortalScriptsCard /> : null}
             </Section>
             <Browse cards={data.browse} waiting={data.waiting} />
+            {/* Request an action (docs/step-model-plan.md §10c): what they need, in their words. */}
+            <Section title={t("requestAction.title")} testId="connectors-request-action">
+              <RequestAction
+                as="client"
+                label={t("requestAction.label")}
+                hint={t("requestAction.hint")}
+                words={{
+                  send: t("requestAction.send"),
+                  thanks: t("requestAction.thanks"),
+                  another: t("requestAction.another"),
+                }}
+                testId="request-action"
+              />
+            </Section>
           </>
         )}
       </Loaded>

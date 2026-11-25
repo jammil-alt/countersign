@@ -3890,6 +3890,13 @@ export const ptBR: Messages = {
   "connectors.ask.send": "Enviar ao seu responsável",
   "connectors.ask.sent": "Enviado. Ver sua solicitação",
   "connectors.ask.subject": "Um conector para {tool}",
+  "requestAction.title": "Pedir algo novo",
+  "requestAction.label": "O que você precisa que seus agentes façam?",
+  "requestAction.hint":
+    "Diga com suas próprias palavras. Vamos analisar e avisar quando estiver pronto.",
+  "requestAction.send": "Enviar",
+  "requestAction.thanks": "Obrigado. Recebemos e avisaremos quando estiver pronto.",
+  "requestAction.another": "Pedir outra coisa",
   "connectors.browse.title": "Explorar",
   "connectors.browse.search": "Buscar conectores",
   "connectors.browse.recommended": "Recomendados para você",

@@ -38,6 +38,7 @@ import {
   SectionLabel,
   Tabs,
 } from "../../ui/primitives";
+import { RequestAction } from "../../ui/RequestAction";
 import { Skeleton, SkeletonBlock, SkeletonCard, SkeletonLine } from "../../ui/skeleton";
 import { StatusChip } from "../../ui/status";
 import type { Member } from "../builder/Inspector";
@@ -818,6 +819,7 @@ function AgentActions({
 }) {
   const action = useAction();
   const [published, setPublished] = useState<number | null>(null);
+  const [asking, setAsking] = useState(false);
   const { live, draft } = liveAndDraft(view, detail.versions);
 
   async function publish() {
@@ -845,6 +847,15 @@ function AgentActions({
             Revise with the Builder
           </Link>
         ) : null}
+        <Button
+          variant="ghost"
+          size="sm"
+          aria-expanded={asking}
+          data-testid="agent-request-action"
+          onClick={() => setAsking((v) => !v)}
+        >
+          Request an action
+        </Button>
         <Link
           to={`${base}/versions#tests`}
           className={buttonClass("secondary", undefined, "sm")}
@@ -868,6 +879,17 @@ function AgentActions({
           </Button>
         ) : null}
       </span>
+      {asking ? (
+        <div className="w-full max-w-md text-left">
+          <RequestAction
+            as="operator"
+            agentId={view.id}
+            label="What does this agent need to be able to do?"
+            hint="We check what already does it before anyone builds."
+            testId="agent-request-action-form"
+          />
+        </div>
+      ) : null}
       {published !== null ? (
         <Notice tone="positive" testId="agent-publish-done">
           v{published} is live.

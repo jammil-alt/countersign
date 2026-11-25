@@ -3796,6 +3796,13 @@ export const en = {
   "connectors.ask.send": "Send to your lead",
   "connectors.ask.sent": "Sent. See your request",
   "connectors.ask.subject": "A connector for {tool}",
+  "requestAction.title": "Ask for something new",
+  "requestAction.label": "What do you need your agents to do?",
+  "requestAction.hint":
+    "Say it in your own words. We will look at it and tell you when it is ready.",
+  "requestAction.send": "Send",
+  "requestAction.thanks": "Thank you. We have it, and we will tell you when it is ready.",
+  "requestAction.another": "Ask for something else",
   "connectors.browse.title": "Browse",
   "connectors.browse.search": "Search connectors",
   "connectors.browse.recommended": "Recommended for you",

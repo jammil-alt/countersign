@@ -3952,6 +3952,13 @@ export const fr: Messages = {
   "connectors.ask.send": "Envoyer à votre responsable",
   "connectors.ask.sent": "Envoyé. Voir votre demande",
   "connectors.ask.subject": "Un connecteur pour {tool}",
+  "requestAction.title": "Demander quelque chose de nouveau",
+  "requestAction.label": "Que doivent faire vos agents ?",
+  "requestAction.hint":
+    "Dites-le avec vos propres mots. Nous l'examinerons et vous préviendrons quand ce sera prêt.",
+  "requestAction.send": "Envoyer",
+  "requestAction.thanks": "Merci. Nous l'avons bien reçu et vous préviendrons quand ce sera prêt.",
+  "requestAction.another": "Demander autre chose",
   "connectors.browse.title": "Parcourir",
   "connectors.browse.search": "Rechercher des connecteurs",
   "connectors.browse.recommended": "Recommandés pour vous",
