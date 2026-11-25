@@ -365,6 +365,15 @@ Two different things watch an agent, and both stay:
   Sheets, Excel). One action each ("Email › Send"), sent through whichever of them the client has
   connected; the code already lets one action stand for several connectors. Every other connector
   stays as it is.
+- **Areas and templates are tool-neutral** (owner, 2026-11-25: "these should be generic and then tie
+  to qbo or xero or whatever tool"). Our records hold an outside id per connector (a vendor's
+  `external_refs`, ARCHITECTURE §5.2), so a profile's key is "accounting id", not "QuickBooks id", and
+  an area's actions say "tie a vendor to the accounting system", not "to QuickBooks". Writes common
+  to accounting tools are **Accounting** actions ("Accounting › Create bill") that run on whichever
+  accounting connection the client has, as the four built today do (send email, send text, create
+  bill, create vendor, resolving to QuickBooks or BILL; `process/actions.ts`). What only one tool
+  has stays under that connector ("QuickBooks › Itemize a bill's lines"). Templates use Accounting
+  actions wherever one exists.
 - **QuickBooks stays as it is**: 34 actions, one per QuickBooks operation, nothing merged and
   nothing added until the rebuilt agents work (owner, 2026-11-25: "lets get this working and we can
   enhance later").
@@ -456,6 +465,8 @@ matcher, Build list, Release.
   agent or the account; QuickBooks unchanged for now.
 - 2026-11-25 · Email, Team chat and Spreadsheets merged into one connector each; other connectors
   unchanged.
+- 2026-11-25 · Areas and templates are tool-neutral: outside ids per connector; Accounting actions
+  run on whichever accounting tool the client has.
 - 2026-11-25 · Forms agreed. Suggest (AI icon) on every step and every field: tell it what you need,
   use the default, or resolve; applied at once, with Undo.
 - 2026-11-25 · The eight kinds are stored directly; nine of today's kinds collapse into Do, run by
