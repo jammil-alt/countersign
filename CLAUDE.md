@@ -162,6 +162,8 @@ pnpm format           # Biome (pinned to Plenary Labs' version; it leaves Markdo
     snippet, attachments); bodies are fetched on demand; email text reaches models only in tool results.
 13. **Access is explicit and secrets stay apart.** An agent reaches a connection only through its binding,
     within its grant (the strictest of the connection's matrix, the grant, the step and the mode wins).
+    It reaches our own records only through the record-type grants pinned in its version (read,
+    create, update; delete never), and the strictest of the grant, the record type and the mode wins.
     Secrets are encrypted with the client's own key, write-only, and never reach a model, a log, a step
     output or a screen; tool code gets them for one step. Second factors live only in `apps/mfa`, handed
     once to a login in progress. Browser sign-in is code on pinned origins, never the model; agents never
