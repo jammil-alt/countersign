@@ -24,7 +24,7 @@ matching, prices, alerts) is in v1.
 - Where the architecture says "open", pick the simplest option, record it in `docs/plan.md` §1, and
   leave a `// DECISION:` comment in the code.
 
-Status (2026-11-08): everything in ARCHITECTURE v0.15's v1 scope is built and on staging, through M50 (`docs/plan.md` §4): the foundation and Track B, M5–M12, the owner's prototype (Waves 1–4, M13–M29), run oversight and a model per step (M30–M32), WhatsApp capture (M33), the Purchasing area and the P-streams (P-1–P-9, M34–M42, with purchasing end to end by email), the Marketing area (M43–M50) and the Bookkeeping area (M51–M57, with reconciliation), both outside v0.15 until ARCHITECTURE v0.16 is written; migrations through 0040. QuickBooks, Gmail and every provider are built against fakes. The UI is the owner's prototype (`docs/design/prototype.html`, `docs/ui-plan.md`). Production (`app.mezonas.com`) is live from a hand-run deploy of `747d7ff` on 2026-11-09 (migrations through 0041) and has had no `v*` tag yet; its next release is an upgrade (`docs/operations.md`, "The first production release"). **What's still open**, in the owner's order (the buyer working on staging, then the site, then the connectors and the rest), is one list: `docs/open.md`. **The platform is the product.** UI: the **Mezonas design system** in `packages/design-system` (tokens, component classes, logos, icons, Geist fonts; brand book in its README). Groundwork is retired. Stack matches Plenary Labs: Hono Worker + React/Vite app on Cloudflare, Cloudflare Workflows, Neon via Hyperdrive, R2, WorkOS.
+Status (2026-11-08): everything in ARCHITECTURE v0.15's v1 scope is built and on staging, through M50 (`docs/plan.md` §4): the foundation and Track B, M5–M12, the owner's prototype (Waves 1–4, M13–M29), run oversight and a model per step (M30–M32), WhatsApp capture (M33), the Purchasing area and the P-streams (P-1–P-9, M34–M42, with purchasing end to end by email), the Marketing area (M43–M50) and the Bookkeeping area (M51–M57, with reconciliation), both outside v0.15 until ARCHITECTURE v0.16 is written; migrations through 0040. QuickBooks, Gmail and every provider are built against fakes. The UI is the owner's prototype (`docs/design/prototype.html`, `docs/ui-plan.md`). Production (`app.mezonas.com`) is live from a hand-run deploy of `747d7ff` on 2026-11-09 (migrations through 0041) and has had no `v*` tag yet; its next release is an upgrade (`docs/operations.md`, "The first production release"). **The step model** (owner, 2026-11-25; `docs/step-model-plan.md`, ARCHITECTURE v0.24 §10.0) is being built in streams: workflows stored as `schemaVersion: 5` in eight step kinds, Do steps run by done by and uses, connectors and areas, Match profiles, read-only Loops; v3 and v4 workflows are still read until its release, which purges every agent once (`db:purge-agents`) and seeds the platform's agents again. **What's still open**, in the owner's order (the buyer working on staging, then the site, then the connectors and the rest), is one list: `docs/open.md`. **The platform is the product.** UI: the **Mezonas design system** in `packages/design-system` (tokens, component classes, logos, icons, Geist fonts; brand book in its README). Groundwork is retired. Stack matches Plenary Labs: Hono Worker + React/Vite app on Cloudflare, Cloudflare Workflows, Neon via Hyperdrive, R2, WorkOS.
 
 **Separate from Plenary Labs.** Mezonas follows Plenary Labs' stack, conventions and patterns for
 consistency, and code may be copied from it, but nothing is shared: no runtime dependency, package,
@@ -46,7 +46,7 @@ Other docs: `docs/open.md` (everything still open, in priority order), `docs/loc
 | `apps/mobile` | The Mezonas phone app (`docs/plan.md` §1.116): Expo (iOS and Android) for client users: the Desk, signing with Face ID, phone notifications, settings. Talks to `apps/api` over HTTP with its session in a header; imports `@countersign/core` and the design system's tokens; built with EAS, not `deploy.yml`. Merged unfinished: no store build yet, push off until `MOBILE_PUSH=on` (`docs/open.md`). |
 | `apps/desktop` | The Mezonas desktop app (`docs/plan.md` §1.151): Electron (Mac and Windows) for client businesses: folders a client admin gives Mezonas, jobs on those files (reads, rows added to closed .xlsx workbooks, new files) run on the computer and answered to the API, new documents sent, the Desk and notifications. Signs its own requests with a key kept by the OS; imports `@countersign/core` and the design system only; built with `electron-builder`, not `deploy.yml`. Its API is `apps/api/src/desktop` (`docs/plan.md` §1.204); not yet run on a Mac or a PC (`docs/open.md`). |
 | `packages/design-system` | The Mezonas design system as delivered: `tokens.json` (source of truth) and `tokens.css`, component CSS (`ds-*`, `dt-*`, `mz-*`), logos, icons, Geist fonts, brand book. Plain CSS; don't edit it here, replace it with the owner's next delivery. |
-| `packages/core` | Domain types and Zod schemas (agent bundle, skill, workflow steps and rules, tool, connector, pack), workflow validation and template typing, bundle diff and three-way merge (shared with the builder and merge view), API route contract, units, money, mappers. |
+| `packages/core` | Domain types and Zod schemas (agent bundle, skill, workflow steps and rules, tool, connector, pack), the step model (`src/steps`: the v5 format, publish checks, engine boundary, action catalog, match profiles, translation), workflow validation and template typing, bundle diff and three-way merge (shared with the builder and merge view), API route contract, units, money, mappers. |
 | `packages/db` | Drizzle schema, migrations (generated plus custom SQL), seed (agent/workflow definitions as JSON), `withTenant()`. |
 | `packages/llm` | Model client: Anthropic, and OpenAI for `openai:` model ids (one request shape, translated); record/replay, cost tracking. |
 | `packages/auth` | Session, active tenant, roles; `workos` and `dev` adapters. |
@@ -55,7 +55,7 @@ Other docs: `docs/open.md` (everything still open, in priority order), `docs/loc
 | `packages/documents` | Documents capability: store, locate, extract, validate, link. |
 | `packages/threads` | Threads, messages, `/command` parsing. |
 | `packages/agents` | Tool, skill and agent registries; bundle versions, fork, update and promote; runtime; permission gate; external actions; Builder. |
-| `packages/workflows` | Workflow (step list) executor against a `StepRunner` interface, trigger router. No Workers types; `apps/api` adapts Cloudflare Workflows to it. |
+| `packages/workflows` | Workflow (step list) executor against a `StepRunner` interface (a v5 workflow runs on its engines, `src/step-model.ts`), trigger router. No Workers types; `apps/api` adapts Cloudflare Workflows to it. |
 | `packs/materials` | Materials pack: catalog, matching, pricing, alerts, vendor contracts (`docs/plan.md` §1.104); its tools, skills, tables, routes, reports and screens. It ships one agent template, "Vendor contracts and invoice review". |
 | `packs/bookkeeping` | Bookkeeping pack (the Bookkeeping area, `docs/plan.md` §1.79): bank and card transactions from the bank feed, matched with QuickBooks, ruled or proposed from the client's chart of accounts (platform `ledger_account` and its notes), the review cards, reconciliation (`src/reconcile/`, §1.80) and the Bookkeeper template. |
 | `packs/marketing` | Marketing pack (the Marketing area, `docs/marketing-plan.md`): a client's measured websites, the collector's handler, the nightly build and retention, the overview report; search, content and the agent set come next. Mezonas is its first client. |
@@ -114,7 +114,10 @@ pnpm format           # Biome (pinned to Plenary Labs' version; it leaves Markdo
 3. **Immutable history.** `agent_version` (whole bundles, templates and client agents), `skill_version`, `raw_record`
    and `doc_extraction` are never updated (status columns excepted) or deleted. Edits, merges, promotions
    and rollbacks insert new versions; re-extraction inserts new rows. Step and fork-path ids are never
-   regenerated: merges depend on them.
+   regenerated: merges depend on them. The single exception is the one-off agent purge for the step
+   model (`db:purge-agents`, `docs/step-model-plan.md` §12): run by hand as `cs_owner`, once per
+   environment, confirmed by typing the database's name, with a dry run first, and audited. It deletes every
+   agent, version, run, build, skill and template, and clears the links to them on rows that stay.
 4. **No settings in code.** The runtime reads agent, skill and workflow definitions only from version rows.
    Platform agents are seeded from `packages/db/seed/`; pack templates are installed when a pack is enabled.
    The builder and the executor share one workflow schema and one validator (`packages/core`).
@@ -123,10 +126,11 @@ pnpm format           # Biome (pinned to Plenary Labs' version; it leaves Markdo
 7. **Deterministic first, model second, human last.** Hard matching rules veto the model. Never compare prices
    across different `standard_uom` without a conversion rule.
 8. **Approval is on by default.** Writes to a client's tools happen only through `external` tools, each an
-   `external_action` executed once (idempotency key) with its before state. Every step that can write
-   defaults to `approval: 'required'`; it runs without approval only if the operator set that step to
-   `not_required`, the client's connection matrix allows `auto` for the verb, and the agent's mode is
-   `act`. New steps, Builder drafts and pack templates always start with approval on. The client may
+   `external_action` executed once (idempotency key) with its before state. Every step that changes a
+   client's tool or sends (a Change or a Send) defaults to `approval: 'required'`; a Save to our own
+   records needs no client approval (an approver may be added). A Change or a Send runs without
+   approval only if the operator set that step to `not_required`, the client's connection matrix
+   allows `auto` for the verb, and the agent's mode is `act`. New steps, Builder drafts and pack templates always start with approval on. The client may
    set a write between Off and Ask me first; only we propose On its own; we never loosen a client's
    connection by ourselves except under their authorization (Connectors C4). Clients can tighten their
    matrix, which overrides steps at once. Delete is off. Clients sign in
@@ -139,6 +143,8 @@ pnpm format           # Biome (pinned to Plenary Labs' version; it leaves Markdo
    correct its input, never change its plan, approvals or permissions; a corrected write is decided
    again by the gate (ARCHITECTURE §10.11). Where a step lets it, it may pick one of the paths the
    operator built or say a `repeat` is done; that is not a change to the plan (§10.14, v0.17).
+   A Loop reads only, and is used only after its test set passes; what it decides is saved or sent
+   by a step after it (§10.0, v0.24).
    Between runs, an area owner may draft a new version of a process it oversees; it is applied
    only once approved, and an owner never drafts one that loosens (§10.15, v0.19).
 10. **Evidence.** Alerts and agent outputs carry `sources` (record ids); alert-producing commands without
@@ -162,7 +168,8 @@ pnpm format           # Biome (pinned to Plenary Labs' version; it leaves Markdo
     sign in to blocked-tier sites (banks, payments, email accounts, identity providers).
 14. **Audited and held to its compliance mode** (`docs/plan.md` §1.35). Session routes go through
     `mount()`, which writes the audit row; anything else that reads or changes client data on a
-    person's behalf writes its own (`auditAlone`). `audit_event` is never updated or deleted. A new
+    person's behalf writes its own (`auditAlone`). `audit_event` is never updated or deleted, the
+    one-off agent purge (invariant 3) included: it leaves the audit log as it is and adds its own row. A new
     feature that sends client data to a vendor of ours names it in `packages/core/src/compliance`,
     so HIPAA mode can refuse it. Card numbers are never stored. CI never copies client data.
 

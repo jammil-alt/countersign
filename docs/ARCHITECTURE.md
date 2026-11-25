@@ -1,8 +1,27 @@
-# Mezonas — Architecture v0.23
+# Mezonas — Architecture v0.24
 
 > **Name and design (2026-11-03, owner):** the product is **Mezonas** (mezonas.com; `countersign` is the
 > code name), built with the Mezonas design system in `packages/design-system`, which replaces Groundwork.
 > Domains: `app.mezonas.com` (production), `staging.mezonas.com`.
+
+> **v0.24, the step model (2026-11-25, owner):** "It is really hard to be able to add a step
+> manually... we should be able to understand what the step does, provide the input and then
+> dictate the output." **A person can build and change any step by hand.** A workflow is stored as
+> `schemaVersion: 5`: its triggers, its **declared outputs**, and its steps in **eight kinds** (Do,
+> Loop, Fork, For each, Repeat, Wait, Hand off, End), stored as they are. A **Do** step says who does
+> it (**done by**: rules, AI, a person or an outside contact) and what it **uses** (a connector's or
+> an area's action, a skill, an automation, a Match, Collect reports, Tell, or "not built yet"); those
+> two pick the engine that runs it. What a person sees as "tools" are now **actions**: a
+> **connector** (outside Mezonas) has Get, Change and Send; an **area** (our own records) has Get and
+> Save. Data moves between steps as typed fields and is **translated automatically** on each step's
+> incoming side (Fits, Translated, Doesn't fit). One **Match** step serves every kind of record
+> through **match profiles** the areas own. A **Loop** is a model working toward a goal with read
+> actions only, used only after its test set passes. Every path ends on an **End** that delivers
+> declared outputs, or publishing is refused. Rules and AI can be written in the step and **saved as
+> a skill**. Every agent, version, run, build and template is purged once (`db:purge-agents`) and the
+> platform's agents are seeded again in the new model. v3 and v4 are still read until that release.
+> Changed: §1 (concepts), §3, §6.1, §9.1, §9.2, §9.6, §10.0 (new), §10.1, §10.2, §10.14, §12.3,
+> §16, §20; CLAUDE.md invariants 3, 8, 9 and 14 (drafted for the owner); `docs/step-model-plan.md`.
 
 > **v0.23, ways in and ways out (2026-11-23, owner):** "Think about it as triggers and report-out
 > forks: multiple ways in if needed, multiple ways out if needed. A fork out inside the workflow can
@@ -318,11 +337,11 @@ How the parts fit:
 
 1. **Connections.** The operator builds the connectors (QuickBooks Online and Gmail, plus upload) and
    chooses which ones each client is offered; the client signs in to each of its own tools from the
-   portal's Connections page. A connection brings data in and exposes **tools**: actions agents can take
-   against that system, reads and writes, within the permissions set for it.
-2. **Skills.** Reusable capabilities ("extract an invoice", "find the receipt for a transaction", "match
-   line items to the catalog", "write a weekly summary"): instructions plus the tools they need, typed
-   input and output, settings. Built in (platform and packs) or written by the operator; shared by every
+   portal's Connections page. A connection brings data in and exposes **actions** (Get, Change, Send;
+   "tools" in the code) agents can take against that system, within the permissions set for it. Our own
+   records are organised by **business area**, whose actions are Get and Save (§10.0, v0.24).
+2. **Skills.** Prepackaged steps ("read a document", "choose an account", "write a weekly summary"):
+   rules, one AI answer, or a read-only Loop, with typed input and output and parameters (§10.0). Built in (platform and packs) or written by the operator; shared by every
    agent, or written for one client.
 3. **Templates.** A reusable agent: identity, instructions, skills and settings, permissions, budgets, and
    its workflows (step lists in the builder). Created from scratch or by the Builder. Versioned as a whole.
@@ -349,12 +368,19 @@ How the parts fit:
 | Operator | The owner and their team; one back office across all clients | §4 |
 | Client | A business served by the operator (a tenant); its data is isolated | §4 |
 | Connection | One client's link to an external system (credentials, sync state) | §6 |
-| Tool | One atomic action with typed input/output and a side-effect level (`none`, `internal`, `external`) | §6.1, §9.4 |
-| Skill | A reusable capability: instructions + tools + input/output schema + settings | §9.2 |
+| Connector | A system outside Mezonas a step can use; its actions are Get, Change and Send (v0.24) | §6.1, §10.0 |
+| Area | Our own records by business area, plus Shared; its actions are Get and Save (v0.24) | §10.0, §12.0 |
+| Action | What a connector or an area can do; a **tool** in the code: one atomic action with typed input/output and a side-effect level (`none`, `internal`, `external`) | §6.1, §9.4, §10.0 |
+| Skill | A prepackaged step: rules, one AI answer, or a Loop; typed input, output and parameters; versioned and tested (v0.24) | §9.2, §10.0 |
 | Agent bundle | One agent version: definition + workflows + settings, versioned as a whole | §9.1 |
 | Template | An operator agent kept for reuse; not run for clients directly | §9.3 |
 | Client agent | A client's own agent, usually forked from a template, customized and versioned per client | §9.3 |
-| Workflow | A structured list of steps (with forks) inside an agent bundle, edited in the builder | §10 |
+| Workflow | An agent's triggers, its steps in eight kinds, and its declared outputs; `schemaVersion: 5` (v0.24) | §10.0 |
+| Step | One unit of work or flow with one goal: Do, Loop, Fork, For each, Repeat, Wait, Hand off, End (v0.24) | §10.0 |
+| Done by, Uses | Who does a Do step (rules, AI, a person, an outside contact) and what it uses; together they pick its engine (v0.24) | §10.0 |
+| Loop | A model working toward a goal with read actions only, used after its test set passes (v0.24) | §10.0 |
+| Match profile | What one kind of record is matched on, owned by its area; picked by a Match step (v0.24) | §10.0 |
+| Workflow output, End | A workflow's declared ways out; every path ends on an End that delivers them (v0.24) | §10.0 |
 | Run | One execution of a client agent's workflow, with every step, tool call and cost | §10.3 |
 | Inbox | Where people approve, review and answer what agents ask | §11 |
 | Request | A client's ask to the operator (change or new service) | §11 |
@@ -367,8 +393,8 @@ How the parts fit:
 | Automation | A reusable, versioned chain of steps used as one workflow step (v0.12) | §10.7 |
 | Test case | A saved example with its expected answer, for a skill or a template (v0.12) | §9.10 |
 | Weekly Table | The Monday digest per client: stats, the lead's note, decisions, next week (v0.12) | §11.4 |
-| Process | Triggers plus steps, each step able to carry checks; workflow `schemaVersion: 4` (v0.16) | §10.14 |
-| Checks | Confer, approval and notify on any step, each with conditions and a deadline (v0.16) | §10.14 |
+| Process | v0.16's word for a workflow (`schemaVersion: 4`), read until the step model's release | §10.14 |
+| Checks | Approver, confer, the owner's review and tell after, switches on any step, each with conditions and a deadline (v0.16) | §10.14 |
 | Owner | A named AI per business area per client (Pia owns Purchasing) that watches every process in its area, fixes within the plan, and drafts lasting changes; v0.13's oversight (v0.16, per area from v0.19) | §10.15 |
 | Business hours | A client's working week and each person's, with away dates; deadlines can run on them (v0.16) | §10.14 |
 
@@ -656,7 +682,8 @@ pnpm monorepo.
   /core                Domain types and Zod schemas (AgentBundle, AgentDefinition, SkillDefinition,
                        Workflow, ToolSpec, ConnectorManifest, PackManifest), workflow validation,
                        bundle diff and three-way merge (shared with the merge view), route contract,
-                       units, money
+                       units, money; /steps: the step model (v5 format, publish checks, engine
+                       boundary, action catalog, match profiles, translation; §10.0)
   /db                  Drizzle platform schema, migrations (platform + packs), seed, withTenant()
   /llm                 model client (Anthropic, OpenAI), cost tracking, record/replay
   /auth                Tenant + role helpers, WorkOS and dev adapters
@@ -1059,6 +1086,11 @@ languages, never the model or the cost.
 ## 6. Connections and tools
 
 ### 6.1 Connector framework
+
+**v0.24:** a connector's tools are its **actions** in the builder (Get, Change, Send), grouped
+in the action catalog with the merged connectors (Email, Team chat, Spreadsheets, Accounting). Each
+action is on or off for agents on the connector's page (`connector_setting.actions`); a new one
+arrives off. See §10.0, "Connectors and areas".
 
 ```ts
 const ConnectorManifest = z.object({
@@ -1579,6 +1611,10 @@ One version is the **whole agent**: its definition, its workflows and its settin
 (instructions, a skill setting, one step in the builder) makes a new version of the bundle. This keeps a
 client agent's history linear and makes template updates one merge, not one per workflow.
 
+**v0.24:** a bundle's `workflow` may be a v5 workflow (§10.0), stored as it is, beside v3 and v4
+until the release (`AnyBundleWorkflow`). `definition.skills` also pins, with `@N`, the skill behind
+each step whose rules or instructions are written in the step, so what ran is what the version says.
+
 ```ts
 const AgentBundle = z.object({
   schemaVersion: z.literal(1),
@@ -1629,6 +1665,10 @@ An agent's **commands** are its skills: anything that can be a workflow step can
 thread as `/skill-slug args` or by another agent of the same client.
 
 ### 9.2 Skill definition
+
+**v0.24:** a skill version may carry `loop` (goal, most turns, at the limit, confer, review): a
+Loop, agent mode, reading only through `reads` (§10.0). A skill stored behind a step's own rules or
+instructions has category `in-a-step` and is never listed. `mode` (below) goes at the release.
 
 ```ts
 const SkillDefinition = z.object({
@@ -1795,6 +1835,11 @@ runAgent({ tenantId, agentVersionId, skill | task, input, threadId?, runContext 
 
 ### 9.6 Builder
 
+**v0.24:** in the step model the Builder drafts as a person builds, from library skills first,
+with rules or instructions written in the step, "not built yet" steps where code is missing, and
+Loops; its AI also answers Suggest on every step and field (§10.0, "The Builder"). Drafting in v5 is
+stream I, not on `main` yet; until then it drafts as below.
+
 - `draft-agent(input: { description, clientId? })` → `{ bundle: AgentBundle, summary, gaps: string[] }`:
   a new template, or (with `clientId`) a new client agent drafted for that client.
 - The Builder receives the tool and skill registries (ids, descriptions, side effects, input/output
@@ -1931,88 +1976,424 @@ each with its clients, versions behind (from "used by"), promote (built, §9.3) 
 
 ## 10. Workflows
 
-### 10.1 Workflow definition (one per workflow in an agent bundle, §9.1)
+### 10.0 The step model (v0.24, owner 2026-11-25)
 
-A workflow is a **structured list of steps** (owner's design): one trigger, then steps that run top to
-bottom. A **fork** has ordered paths; the first path whose rules match runs, else "otherwise"; then the
-workflow continues after the fork ("paths join here"). Steps can be nested inside fork paths and
-`for_each` blocks. There are no free-form edges.
+The owner could not add a step by hand that didn't depend on the Builder: inputs were wired as
+`{{steps.<uuid>.output.extraction.header.vendorName}}`, a skill step could carry 38 settings, and a
+ten-line workflow took 28 steps. The step model keeps the product (screens, navigation, triggers,
+approvals, the portal, tenancy) and changes the structure under the steps. The plan of record, with
+every decision dated, is `docs/step-model-plan.md`. The code is `packages/core/src/steps`, exported as
+the `steps` namespace: the stored format (`schema.ts`), the publish checks (`validate.ts`), the engine
+boundary (`engine.ts`), the action catalog (`catalog.ts`), match profiles (`match-profile.ts`) and
+translation (`translate.ts`). This section supersedes §10.1's step kinds, §10.14's six definitions and
+process schema, and the v3 and v4 formats. What it doesn't name is unchanged: triggers (§10.8), checks
+(§10.14), deadlines and business hours, owners and the supervisor (§10.11, §10.15), conversations
+(§10.12), test runs (§10.4) and go-live stages (§10.9).
+
+#### Terms
+
+| Term | Meaning |
+|---|---|
+| **Agent** | The worker for a client. It has one or more workflows. |
+| **Workflow** | An agent's triggers, its steps, and its declared outputs. |
+| **Trigger** | What starts a run, as before (§10.8). |
+| **Step** | One unit of work or flow with one goal. Eight kinds. |
+| **Done by** | Who does a Do step: rules, AI (one model answer), a person, or an outside contact. |
+| **Uses** | What a Do step uses: an action, a skill, an automation, a Match, Collect reports, Tell, or "not built yet". |
+| **Connector** | A system outside Mezonas: a client's tool (QuickBooks, BILL, a CRM, spreadsheets), a way to reach people (email, texts and calls, team chat), or outside information (Web). Its actions are **Get**, **Change** and **Send**. |
+| **Area** | Our own records, by business area (Purchasing, Bookkeeping, Sales, Marketing, with AP and month-end close inside them), plus **Shared** (documents, directory, knowledge, chart of accounts, inbox and threads, data jobs). Its actions are **Get** and **Save**. |
+| **Action** | What a connector or an area can do, picked as "QuickBooks › Create bill" or "Purchasing › Register lines". "Tool" stays the word in the code, for one action as a model calls it. |
+| **Skill** | A prepackaged step: saved rules, one AI answer, or a Loop, with its input, output, tools and model. Versioned and tested on its own. One client's, or shared. |
+| **Loop** | A model working toward a goal, choosing its read actions, until done or at its limit. |
+| **Automation** | Several steps saved to reuse as one step (§10.7). |
+| **Match** | Exact match, Semantic match, or Hybrid (exact first, then semantic for what's left). |
+| **Match profile** | What one kind of record is matched on, defined by the area that owns the records. |
+| **Confidence threshold** | The confidence at or above which a semantic match is accepted. |
+| **Workflow output** | A declared result of a workflow: a report, a write to a connector, a save to our records, a hand-off, something passed on, or nothing to do. |
+| **End** | Where a path finishes, delivering one or more of the workflow's outputs. |
+| **Checks** | Switches on a step, never steps of their own: approver, confer, the owner's review, tell after (§10.14). |
+
+#### The stored format (`schemaVersion: 5`)
+
+From `packages/core/src/steps/schema.ts`, in §10.1's short form. `Trigger`, `Rules`, `Template`,
+`Duration`, `Checks`, `Who`, `Deadline`, `NotifyCheck`, `CollectItem`, `ReshapeMapping`, `SkillRule`
+and `ModelChoice` are the existing ones, imported, not copied. The eight kinds are stored as they are,
+not translated into older stored kinds (owner, 2026-11-25).
 
 ```ts
-const Workflow = z.object({
-  schemaVersion: z.literal(3),
-  trigger: z.object({ id: z.string(), on:
-    z.object({ type: z.literal('event'), event: z.string(), filter: Rules.optional() })
-    .or(z.object({ type: z.literal('schedule'), cron: z.string(), tz: z.string().optional() /*client tz*/ }))
-    .or(z.object({ type: z.literal('manual'), input: JsonSchema }))
-    .or(z.object({ type: z.literal('command'), command: z.string() })) }),
-  steps: z.array(Step),
-});
+Workflow = { schemaVersion: 5, triggers: Trigger[] /*1–10*/, outputs: WorkflowOutput[] /*≤ 20*/, steps: Step[] }
 
-Step = { id, kind, name, client?: { visible: boolean, label?: string }, ...config } where kind ∈
-  'skill'     { skill: 'id[@v]', agent?: 'slug' /*default: owner*/, input: Template, settings?,
-                approval?: Approval /*only if the skill's tools can write to a client tool*/ }
-  'action'    { tool: 'id', input: Template, approval: Approval }   // changes a client tool; §9.5
+Field = { name, type: 'text'|'number'|'money'|'date'|'yes_no'|'list'|'group'|'record', required,
+          about?, of?: Field[] /*list and group*/, record?: string /*record*/ }
 
-Approval = { required: 'required' | 'not_required' = 'required', approver?: role | userId,
-             timeout?: Duration, onReject: 'stop' | 'continue' = 'stop' }
-  'person'    { mode: 'approve'|'ask', assignee: role | userId, title: Template, payload: Template,
-                timeout: Duration, remindEvery?: Duration, channel?: 'inbox'|'email',
-                onReject?: 'stop'|'continue', onTimeout: 'stop'|'continue'|'notify_operator' }
-  'fork'      { paths: [{ id, name, when: Rules, steps: Step[] }], otherwise: { id, steps: Step[] } }
-  'for_each'  { over: Template /*array*/, concurrency: number, steps: Step[] }
+Step = { id /*permanent*/, kind, name /*its goal*/, purpose?, client?, review?, onError?, checks?, ...config } where kind ∈
+  'do'        { doneBy?: 'rules'|'ai'|'person'|'contact', agent?: slug /*another agent of the client runs it*/,
+                uses?: { type: 'action', action } | { type: 'skill', skill } | { type: 'automation', automation }
+                     | { type: 'match', match: MatchSettings } | { type: 'collect' } | { type: 'tell' }
+                     | { type: 'missing', need, fill? },
+                input: TemplateObject, translation?: ReshapeMapping,
+                rules?: { rows?, values? } | ai?: { text?, model?, values? } | person?: { mode, who, question,
+                show, choices?, deadline, channel, onReject } | collect?: { items, escalate?, ifMissing }
+                | contact?: { with, channel, goal, mayShare, maxTurns, messages, deadline } | tell?: NotifyCheck,
+                output?: Field[] }
+  'loop'      { skill?, goal, input, translation?, output: Field[], reads: ToolId[] /*Get actions, ≤ 30*/,
+                instructions, model?, maxTurns: 1–50 = 10, atLimit: 'stop'|'hand_back' = 'stop' }
+  'fork'      { paths: [{ id, name, when: Rules, describe?, steps }] /*≥ 1*/, otherwise: { id, steps },
+                decide?: 'rules'|'agent', show?, ifUnsure?: 'otherwise'|'ask' }
+  'for_each'  { over: Template, concurrency: 1–50 = 10, steps }
+  'repeat'    { steps, until: { rules } | { agent: { goal, show? } }, maxTimes: 1–10 = 3, between?, onLimit }
   'wait'      { for: Duration }
-  'notify'    { channel: 'thread'|'email'|'digest', to?: Template, message: Template }
-  'stop'      { status: 'succeeded'|'failed'|'cancelled' }
+  'handoff'   { to: { agent: slug | '@self', step, workflow? }, input }
+  'end'       { outputs: outputId[], nothingToDo?, status: 'succeeded'|'failed'|'cancelled' = 'succeeded' }
+
+WorkflowOutput = { id, name, about?, kind: 'report'|'write'|'save'|'handoff'|'pass_on'|'nothing',
+                   fields: Field[], report?: { to: Who[], channel, message, sources? },
+                   action?: { action, input } /*write, save*/, handoff?: { agent, workflow?, step, input },
+                   passOn?: { output, sources? }, when?: Rules, checks?: Checks }
+```
+
+A draft parses while it is being built (a step with no goal yet, an End not filled in, an empty For
+each); the publish checks below refuse it. An agent bundle holds v5 workflows beside older ones
+(`AnyBundleWorkflow`, §9.1); step and path ids are permanent, so merges and diffs line up as before.
+
+#### Eight step kinds
+
+| Kind | What it is |
+|---|---|
+| **Do** | One piece of work, done by rules, AI (one answer), a person or an outside contact: reading data, saving and changing records, telling or asking someone, using a skill or an automation. |
+| **Loop** | A model works toward a goal with read actions until done or at its limit. |
+| **Fork** | Take one of several paths. Rules decide, or a model picks among the paths the operator built (§10.14, "the agent's choice"). |
+| **For each** | Run the steps inside once per item of a list. |
+| **Repeat** | Run the steps inside again until a rule, or a model judging a goal, says stop; at most 10 times. |
+| **Wait** | Pause the run. |
+| **Hand off** | Start another agent's run, or another workflow of this agent, at a chosen step. |
+| **End** | Where a path finishes, delivering one or more declared outputs. |
+
+A step that needs code that doesn't exist yet stays in place as "not built yet" (`uses: missing`),
+can file a Dev queue request, never runs, and blocks publishing.
+
+#### The Do step and how it runs
+
+A person fills in **Goal**, **Done by**, **Uses** (optional), **Input** (picked as "step name ›
+field"), **Instructions** (rule rows and values; prose; or the question and the answers offered),
+**Output** (the fields it hands on) and **Checks**. Folded under **More**, with defaults: the model,
+if it fails, whether the client sees it, another agent of the client that runs it, the deadline and
+the channel. A person can't change a step's id, the fields a tool or a saved skill takes and gives, a
+match profile's keys and "never the same if" rules, a Loop's reads beyond Get actions, or anything
+looser than the client allows.
+
+Done by and Uses pick the engine (`steps.doEngine`). Every engine already existed in the executor;
+one Do step now chooses among them.
+
+| Done by | Uses | Engine | Runs as |
+|---|---|---|---|
+| Rules | A Get action | `read` | Calls the action. |
+| Rules | A Save, Change or Send action | `write` | Once, through the gate (§9.5). A Change or Send is an external action with its idempotency key and before state; a Save writes our records through the area's tool. |
+| Rules | A Match | `match` | The profile's engine (below). |
+| Rules | Tell | `tell` | A message to the client's team or ours, without waiting. |
+| Rules | A rules skill, or rule rows written in the step | `rules` | In code, no model. |
+| AI | An AI skill, or instructions written in the step | `ai` | One model call, its answer checked against the output fields. |
+| Person | Nothing | `person` | Approve or answer, with a deadline. |
+| Person | Collect reports | `collect` | Several people, followed up, escalated. |
+| Outside contact | Nothing | `contact` | A back-and-forth until the goal is met; each message an approved send (§10.12). |
+| (none) | An automation | `automation` | Its steps run in place. |
+| Any | Not built yet | `missing` | Never runs. |
+
+Any other combination is refused at publish (`uses_not_allowed`): AI and a person never use an action,
+because skills and models never write; the Rules step after them does. An action the catalog doesn't
+know runs as a Change, so approval stays on (invariant 8). A step's outcome (what a Fork routes on), its
+line in the client's timeline and SOP, and how merges name it follow its engine
+(`steps.ENGINE_OUTCOMES`).
+
+The executor runs a v5 workflow by loading it, for one run, onto the engines it already had
+(`packages/workflows/src/step-model.ts`): a Do as its engine's step, a Fork as an `if`, the rest as
+themselves. Nothing stored is rewritten (invariant 3), every step keeps its id, so durable names, step
+rows, idempotency keys, retries and hand-offs are the same as before. Match, Loop and End run beside
+the engines (`Executor.match`, the runtime's loop, `Executor.end`). A version that fails the publish
+checks is refused at load, before any step runs.
+
+**The Data tab.** Every step in the back-office builder has a Data tab beside its settings: **Coming
+in** (the data as the step before hands it over, as JSON), **Changed** (what the incoming side
+translated) and **Going out** (its output). Values come from the step's last test run, else from
+samples made from the fields' types. It is for understanding, not a check.
+
+**Suggest.** A Suggest button (the AI icon) at the top of every step's form and beside every field:
+tell it what you need, use the default, or resolve what is flagged. What it suggests applies at once,
+with Undo. It is the Builder's AI held to the form's rules: it can't save a combination the form
+refuses, never loosens an approval, and adds an approver when Uses moves to a Change or a Send (not
+to a Save) (`packages/agents/src/builder/suggest.ts`).
+
+#### Data between steps and automatic translation
+
+Inside a workflow everything moving between steps is typed fields (JSON underneath, never seen);
+format matters only at the edges, where a reader turns a file into fields and a writer turns fields
+into a file. **Each step defines the fields it needs**; there are no named, shared data shapes. A
+step's fields come from the action or skill it uses, from the setting that picks a profile or record
+type, or from what the person writes in the step, never from a model at run time. Money travels as a
+decimal string (invariant 6). A skill meant for reuse names its fields for the job; each agent's
+Input maps its own data onto them.
+
+Every connection into a step is in one of three states (`steps/translate.ts`):
+
+| State | What it means | What happens |
+|---|---|---|
+| **Fits** | The step before hands on every field this step needs. | The input reads it directly. |
+| **Translated** | The fields differ, but each can be filled from what came before: copied, renamed, converted or worked out. | The builder writes the translation into the step's incoming side (`translation`, a Reshape mapping), where it can be seen and changed. |
+| **Doesn't fit** | A field the step requires has no source. | Flagged on the step (`input_missing`); the workflow can't go live. |
+
+The translation is worked out when the workflow is built, by name, spelling, common synonyms and type
+first (Reshape's proposer), with the Builder's AI only for what is left (`translateLeftovers`, back
+office, our cost). It is saved with the step and runs as code: no model at run time, so the same data
+always translates the same way. Nothing translated needs confirming or marking; only "doesn't fit"
+blocks. Reshape data (§10.14) is the engine behind it, not a step to pick.
+
+#### Match
+
+One **Match** step serves every kind of record. Its first setting, **Match to**, picks a **match
+profile**; the profile fixes the step's input and output. The output is always a Match result: each
+item as it came in, the matched record or none, how (`exact`, `learned`, `semantic`,
+`second_opinion`, `person`), the confidence, whether it is new or unsure, and the candidates.
+
+| Setting | Meaning |
+|---|---|
+| **Match type** | Exact (keys only, never a near match), Semantic, or Hybrid. A profile with no text to read by meaning allows exact only. |
+| **Keys, in order** | From the keys the profile allows; absent, the profile's order. |
+| **Confidence threshold** | At or above it a semantic match is accepted. Default 90; an exact match is 100. |
+| **Second opinion from / by** | Between this level (default 70) and the threshold, each item gets a second opinion: AI (another model by default), a person, or AI then a person. |
+| **Below the floor** | A person decides, no match, or new. |
+| **Search floor** (optional) | Under it, the model is skipped. |
+| **Shortlists** | The model sees 20 by default (at most 50); a person sees 5 with the model's pick and reason. The defaults are to be measured on the matching goldens. |
+| **No match means** | Not found, new, or ask a person. |
+
+A profile is defined once, in code, by the area that owns the records, and declared in its pack's
+manifest (`matchProfiles`): the input fields, the keys allowed for an exact match, the text a semantic
+match reads, the match types allowed, the **"never the same if"** rules (shown on the step, not
+editable, and they veto everything else, invariant 7), and whether a person's answer is learned.
+Developers add profiles. Four are built:
+
+| Profile | Area | Keys | Types |
+|---|---|---|---|
+| **Vendors** | Shared | Accounting id, tax id, email domain, name | Exact, semantic, hybrid |
+| **Vendor items** | Purchasing | SKU only | Exact only: a SKU match or nothing |
+| **Master items** | Purchasing | A vendor's SKU or name for it, key attributes | Exact, semantic, hybrid |
+| **CRM records** | Sales | Email, phone, website, then names | Exact, semantic, hybrid (raw CRM copies with a key index) |
+
+The engine (`packages/core/src/matching`, with each area's store) tries the keys, then the **learned
+names**, then, for semantic or hybrid, a shortlist and a model, then the second opinion, then a
+person. **Matching is always against our own records**, kept in sync from the client's tools: an
+area's table, or the raw copies of a synced type (`raw_record`) with a key index; an outside id is a
+field on our record. Outside a sync it is a lookup by id, a Do step done by rules, not a match.
+Whatever a person decides is saved as a learned name, so the same item is an exact hit next time
+(never in a test run). For **Vendor items** a learned name is a SKU only, never the line's wording,
+and vendor items have no search embeddings. Every model call a Match makes is held to the client's
+compliance mode (invariant 14).
+
+#### Loop
+
+A **Loop** is a model working toward a goal: it chooses which read actions to call, looks at what
+comes back and decides the next, until the goal is met or it reaches its most turns (stop, which fails
+the step, or hand back what it has). It is used where the path can't be known ahead (investigating,
+sorting out leftovers); fixed steps are used where it can. It is a step, or the whole workflow (a
+trigger, the Loop, an End).
+
+- **It reads only.** Its reads are Get actions; publishing refuses any other (`loop_writes`), the
+  runtime offers it only tools with side effect `none`, and a call to any other is refused
+  (`readOnly`). What it decides is delivered by an End or saved by a Do after it, with that step's
+  checks. This is what brings agent-mode skills back: they were retired for new steps on 2026-11-10
+  because they could propose writes.
+- **It is used only after its test set passes.** A saved Loop is a skill (`SkillDefinition.loop`:
+  goal, most turns, at the limit, confer, review; agent mode, reads only). It can't be published
+  without at least one test case, and every kept case must pass on that exact version
+  (`assertLoopTestsPass`); a step that names a Loop version that was never published can't run
+  (`untestedLoopReason`); and it can't be rolled back in one step: an older version is saved as a new
+  draft, tested, then published.
+- **The Loop designer** in the Agent lab builds and tests one, laid out like the skill editor, and its
+  test view shows every turn: the action called, what came back, what it decided next. The first Loop
+  is Bookkeeping's investigation of leftover transactions (`packs/bookkeeping/src/reconcile/skills.ts`).
+
+#### Workflow outputs and End
+
+A workflow declares its **outputs** next to its triggers: triggers are the declared ways in, outputs
+the declared ways out. Each has a name, a kind (a **report** to people; a **write** through a
+connector's action; a **save** through an area's action; a **hand-off** to another agent or workflow
+at a step; **pass on**, what other agents' hand-off triggers receive; or **nothing to do**), its fields,
+an optional `when`, and its own checks (a write's approver is on by default, invariant 8).
+
+Every path that doesn't rejoin the main line finishes on an **End** card, which the builder adds
+itself and which can't be deleted, only filled. An End delivers one or more declared outputs, each in
+its own durable step (`<end>:out:<output>`) with its checks, or says why there is nothing to do; it may
+end on purpose as failed or cancelled. A run that fails on an error ends as failed by itself and goes
+to the owner and the supervisor; End cards are for the outcomes planned. Publishing is refused when a
+path can finish without an End, an End delivers nothing, an End names an output not on the list, or a
+declared output is never delivered: no silent deaths (owner, 2026-11-25).
+
+#### Connectors and areas
+
+The **action catalog** (`steps/catalog.ts`) is what a Do step's Uses picker offers, made by code from
+the registered tools: every action under its connector or its area, with its kind and its input and
+output fields. A tool's kind comes from its side effect: `none` is **Get**, `internal` is **Save**,
+`external` is **Send** when it names a recipient or sends by nature (an email, a channel post, a call),
+else **Change**. The engines behind a Do done by a person or an outside contact, and the platform's own
+tools (the supervisor's, Sloan's, health, asking another agent, reading an SOP), are never offered.
+
+- **Merged connectors**, so a template works for any client (owner, 2026-11-25): **Email** (Send
+  email: Gmail, Outlook or our own), **Team chat** (Post a message: Slack, Teams, Google Chat),
+  **Spreadsheets** (Read cells, Add rows, Change cells: Google Sheets, Excel) and **Accounting**
+  (Create bill, Create vendor: QuickBooks or BILL). Each runs on whichever of its connectors the agent
+  can use, resolved once per run in a durable step, then exactly as a write on that tool. A tool a
+  merged action runs is offered only there. Every other connector stays as it is; QuickBooks keeps one
+  action per operation.
+- **Areas and templates are tool-neutral**: our records hold an outside id per connector (a vendor's
+  `external_refs`, §5.2), so a profile's key is "accounting id", and an area's actions say "the
+  accounting system", not "QuickBooks".
+- **Action switches.** A connector's page in the back office (`/ops/connectors`) lists its actions
+  by kind; a new action arrives off and is turned on there (`connector_setting.actions`, migration
+  0101). An action switched off is refused when an agent calls it, built-in connectors' (Web) included.
+- **Request an action**, from a connector's page, an agent, or the client's account: whoever asks
+  only describes what they need, and it becomes a Dev queue request with the reuse check. A client is
+  told we have it, and nothing more.
+
+**Saves, Changes and Sends.** A **Change** or a **Send** writes outside Mezonas: one external action,
+executed once with its idempotency key and before state, through the gate, with **approval on by
+default** and never looser than the client's connection (invariant 8). A **Save** writes our own
+records, through a tool owned by the area, which checks the data, keeps clients apart, records the
+agent version and the evidence, and never saves twice; it needs **no client approval** (an approver
+can be added as a check). There is no raw "save this to a table". A model, a Loop or a person decides;
+the Save after it writes.
+
+#### Skills
+
+- **The Library** holds the skills a person picks: rules, one AI answer, or a Loop, each versioned,
+  with typed input, output and parameters, tested on its own, and one client's or shared. Skills
+  never write (a Save, Change or Send step after them does).
+- **Written in the step.** A Do done by rules with no Uses holds its rule rows and values in the step;
+  one done by AI holds its instructions and output fields. On save they are stored behind the step as
+  a skill (`custom:step-<agent>-<step>`, category `in-a-step`, never listed or picked), one per agent
+  and step, so two agents forked from one template never share one. Each save makes a new draft; the
+  agent version pins it in `definition.skills` (`@N`), and publishing the agent version publishes the
+  pinned skill versions, so what ran is what that version says (invariants 3 and 10)
+  (`packages/agents/src/registry/step-skills.ts`).
+- **Save as skill** gives the step's text a name, a description and a scope (this client, or shared)
+  in the Library, and the step then uses it. A **shared** skill reaches every client, so it carries no
+  client data: the rules' values are not carried over, and text holding a client's literal (an email
+  address, a phone number) is refused.
+- **Reused skills name their fields for the job** (Classify takes a name, a description and an amount);
+  there is no "works on" setting.
+
+#### The Builder
+
+The Builder (§9.6) drafts in the same model a person uses, so its drafts read like something built by
+hand: library skills first; rules or instructions written in the step when nothing fits; **Save as
+skill** suggested when the same instructions turn up in a second agent; a "not built yet" step and a
+Dev queue request where code is missing; and Loops with a goal, read actions and a limit. Its drafts
+start with approval on (invariant 8). Drafting in the step model is stream I (`docs/step-model-plan.md`
+§13b) and is not on `main` yet; Suggest (above) is.
+
+#### Data: record types, custom fields, data sets (being built)
+
+Work crosses areas, but the database is still not a tool: agents never map to tables, and no model or
+person writes queries (§12.0). Being built in stream N (`docs/step-model-plan.md` §10f); not on `main`:
+
+- **Record types**, defined in code by the area that owns them: fields, keys, links to other record
+  types, and the operations allowed (get, create, update; delete stays off), with their own rules run
+  on every write wherever it comes from.
+- **Standard actions** on every record type, beside the area's own: **Find** (typed filters, grouping
+  and totals across declared links; read only, one client's records; never SQL), **Get by id**,
+  **Create** and **Update** (typed, through the record type's rules, each logged with its agent
+  version or person, its evidence and an idempotency key).
+- **Grants per record type**, the same model as connection grants: what an agent may read, create and
+  update. Writing into another area is explicit, shown on the agent and reviewable.
+- **Data sets**: a named group of record types for one use case, granted together across areas; a
+  back-office setting saved with the agent's version.
+- **Custom fields**: defined in the back office (this client's or shared), stored on the record in its
+  existing `ext` column, checked on every write, used like built-in fields; a field's type never
+  changes once it holds data, and removing one hides it.
+
+#### Publish checks
+
+`steps.validateWorkflow`, each a plain message on the step or output it is about: no output declared;
+an output not filled in; an id used twice; a step without a goal; a path that can finish without an
+End; an End that delivers nothing, or an output not on the list; a declared output no End delivers; a
+"not built yet" step; a Do without done by, or a done by and uses the table above doesn't allow, or
+instructions of another done by, or written-in-the-step work left empty; a Loop that reads with an
+action that writes; a required input field with no source (doesn't fit); a Match to an unknown profile,
+or settings its profile doesn't allow; an empty For each or Repeat. At run time the gate still holds
+every write to the client's connection matrix, the agent's grant, the step and the mode (invariant 13).
+
+#### What is still being wired, and the release
+
+On `main` (2026-11-25) a v5 workflow validates, saves, shows in the builder and runs, except three
+things the executor refuses in plain words until stream A's wiring merges (#682): a Match step (its port
+in the API), a Do written in the step (run through its pinned step skill), and a translated input
+(applied in code before the engine). The Builder's drafting (stream I) and record types (stream N) are
+not merged. Until the release (stream J), v3 workflows and v4 processes are still read and run as §10.1
+and §10.14 describe, a skill still has a `mode`, and a one-off converter (`steps/convert-v4.ts`) turns
+v3 and v4 into v5 for the seeds and tests; all three go at the release. Then every agent, version,
+run, build and template is purged once (`db:purge-agents`, below), and `db:seed` brings the
+platform's agents back in the new model; templates are rebuilt by hand, one by one.
+
+**The one-off purge** (`packages/db/src/purge-agents.ts`). It deletes every agent, skill,
+automation, build and Builder session, and every row that can't exist without one (versions, runs and
+their steps and model calls, builds' items, grants, daily usage, an agent's memory notes and billing
+lines), reading what to touch from the schema's foreign keys. Rows that only point at one where they
+may (a document reading's agent version, a vendor item's) keep everything but that link. The client's
+records, connections, documents, catalog, ledger, alerts, external actions and the audit log stay.
+It runs by hand as `cs_owner`, never by the Worker; it refuses unless the database name typed is the
+one connected to; a dry run does everything and rolls it back. It disables the history triggers on the
+tables it touches for its one transaction only, never touches `audit_event` (no audit row points at an
+agent), and records itself as one `agents.purge` audit row. It is the single exception to immutable
+history (invariant 3).
+
+### 10.1 Workflow definition (one per workflow in an agent bundle, §9.1)
+
+**v0.24:** a workflow is stored in the step model's format, `schemaVersion: 5` (§10.0). What follows
+is what v5 keeps from the earlier formats: the shape of a step list, templates, rules and triggers.
+The v3 step kinds (`skill`, `action`, `person`, `fork`, `for_each`, `wait`, `notify`, `stop`,
+`use_automation`) and v4's (§10.14) are still read and run until the release, then deleted; their full
+description is in v0.23 of this document.
+
+A workflow is a **structured list of steps** (owner's design): its triggers, then steps that run top to
+bottom. A **Fork** has ordered paths; the first path whose rules match runs, else "otherwise"; then the
+workflow continues after the fork ("paths join here"), unless the path ends on an End. Steps can be
+nested inside fork paths, For each and Repeat. There are no free-form edges.
+
+```ts
+Trigger.on =
+    { type: 'event', event: string, filter?: Rules }
+  | { type: 'schedule', cron: string, tz?: string /*client tz*/, skipHolidays?: boolean }
+  | { type: 'manual', input: JsonSchema, client?: { canRun: boolean, label?: LocalizedText } }
+  | { type: 'command', command: string }
+  | { type: 'webhook', hookId, filter?: Rules, dedupeKey?: Template, rateLimit?: { max, per: 'minute'|'hour'|'day' } }
+  | { type: 'message', channels: ('email'|'sms'|'whatsapp'|'command'|'sloan')[], from: PeopleFilter,
+      reply?: { confirm: LocalizedText } }
+  | { type: 'handoff', from: { agent: slug, workflow?: slug }, filter?: Rules }
 
 Rules = { match: 'all'|'any', rules: [{ field: Template, op: '>'|'>='|'<'|'<='|'='|'!='|'contains'|'in'|'is'|'exists',
                                          value: unknown }] }
-```
-
-Templates reference `{{trigger.<path>}}` and `{{steps.<id>.output.<path>}}`; inside a `for_each`,
-`{{item}}` and `{{index}}`. Rules are what the builder shows ("Price change > 15% or Monthly impact >
-$500"); they compile to JSONLogic, never `eval`. A `person` step's output carries `approved` and the
-answer, so a later fork can branch on it. **Approvals are per step:** every step that can change a
-client's tool carries an `approval` setting, `required` unless the operator changes it; the approver
-defaults to the step's, then the agent's, then the client's setting. A `person` step adds a human
-checkpoint anywhere else. `client` controls the portal's run timeline: by default
-skill, action, person and notify steps are shown (with `label`, or the step name), and forks, loops and
-waits are hidden.
-
-**v0.12 additions to the workflow schema** (still `schemaVersion: 3`: every addition is optional or a
-new union member, so stored bundles parse and hash the same):
-
-```ts
-'use_automation' { automation: 'slug@version' /*pinned*/, input: Template,
-                   approvals?: { [innerStepId]: Approval } /*client agents only; §10.7*/ }
-'person'  + choices?: [{ value, label: LocalizedText }] /*1–6 quick answers, mode 'ask'*/
-          + assignee may be 'lead' (the client's lead, §4)
-trigger.on adds (§10.8):
-  { type: 'schedule', cron, tz?, skipHolidays?: boolean }
-  { type: 'webhook', hookId, filter?: Rules, dedupeKey?: Template, rateLimit?: { max, per: 'minute'|'hour'|'day' } }
-  { type: 'manual', input: JsonSchema, client?: { canRun: boolean, label?: LocalizedText } }
-  { type: 'message', channels: ('email'|'sms'|'whatsapp'|'command'|'sloan')[], from: PeopleFilter,
-    reply?: { confirm: LocalizedText } }
-  { type: 'handoff', from: { agent: slug, workflow?: slug }, filter?: Rules }
-Workflow + moreTriggers?: Trigger[]    /*other ways to start the same workflow, each with its own id*/
-         + handoff?: { output: Template, sources?: Template }   /*what a successful run passes on*/
 PeopleFilter = { relationships?: string[], tags?: string[], contactIds?: string[],
                  clientRoles?: ('client_admin'|'client_user')[] }
 ```
 
-Each trigger starts one workflow; a workflow may have more than one (Remy's "Charge comes in" starts on
+Templates reference `{{trigger.<path>}}` and `{{steps.<id>.output.<path>}}`; inside a For each,
+`{{item}}` and `{{index}}`. A person picks inputs as "step name › field" and never types a template.
+Rules are what the builder shows ("Price change > 15% or Monthly impact > $500"); they compile to
+JSONLogic, never `eval`. A person step's output carries `approved` and the answer, so a later Fork can
+branch on it. **Approvals are per step** (§10.14, "Checks"): every step that changes a client's tool
+has its approver on unless the operator turns it off; the approver defaults to the step's, then the
+agent's, then the client's setting. `client` controls whether, and with what label, a step shows in
+the portal's run timeline.
+
+Each trigger starts one workflow; a workflow may have up to ten (Remy's "Charge comes in" starts on
 a new charge and on a texted photo). The run's `trigger` records which one fired (`trigger.id`,
 `trigger.type`); validation types `{{trigger.<path>}}` against every trigger of the workflow: a field
-some triggers lack is typed as optional (it may be empty), never an error.
-
-**v0.13 additions** (still `schemaVersion: 3`; both optional):
-
-```ts
-'skill'            + model?: { id: string, maxTokens?: number }   /*mode 'agent' skills only; §10.11*/
-'skill' | 'action' + review?: 'auto' | 'off' | 'always'           /*default 'auto': the agent's oversight decides*/
-```
+some triggers lack is typed as optional (it may be empty), never an error. What a successful run passes
+to other agents' hand-off triggers is a **pass on** output (§10.0), v3's `handoff`.
 
 ### 10.2 Validation (shared by builder and server, in `packages/core`)
+
+**v0.24:** a v5 workflow is checked by `steps.validateWorkflow` (§10.0, "Publish checks"); the
+rules below are the earlier formats'. For v5, unique ids are a publish check, the input picker offers
+only what runs before a step, and a connection's ceiling is held by the gate when the step runs.
 
 A workflow can be saved as a draft with errors, but only a valid one can be test-run or published.
 - One trigger; step and path ids unique across the bundle; every fork has at least one path; a
@@ -2502,28 +2883,29 @@ step list and one set of checks that every kind of step can carry. The schema is
 portal follow in R1–R9 (`docs/plan.md` §9). Decision: this is §10.14, not a new top-level section,
 so §11–§20 keep their numbers and every reference to them holds.
 
+**v0.24:** the step model (§10.0) replaces this section's six words, its process schema and its
+v3 compatibility. Checks, deadlines, business hours, undo, owners, conversations, communications,
+the Library, browser connectors, Reshape's mapping, automations, repeat and the agent's choice stay as
+written here, read in the step model's words: an `if` is a Fork, a `process` step is a Do that uses
+an automation, and a `read`, `write`, `skill`, `person`, `collect`, `conversation` or `notify` step is
+a Do (§10.0, "How a Do step runs").
+
 #### Six definitions
 
-| Word | What it is | Today |
-|---|---|---|
-| **Connector** | A client's account in one system: its read tools, its write tools and its events. A browser site is a connector too (below) | §6.1, §6.10 |
-| **Tool** | One fixed action that reads or writes. It never decides: same input, same call | §9.4 |
-| **Skill** | Data in, data out: deterministic (rules or built-in code) or AI (instructions and a model), never both (the skill model, below). May read through connectors; never writes | §9.2 |
-| **Trigger** | What starts a process: the six kinds of §10.8 | §10.8 |
-| **Process** | One or more triggers, then steps top to bottom, each step able to carry checks | §10.1, §10.7 |
-| **Person** | Someone on the client's People list (a client user or a directory contact), or the lead | §4, §1.42 of the plan |
-
-**Skills think, tools act.** A skill works out what should happen; a `write` step after it makes it
-happen, through a write tool, the gate (§9.5) and its checks. A skill's output that should change
-anything, the client's tool or a platform record (an alert, a price observation), is the input of a
-write step, never a side effect of the skill (R2 moves today's skills that write). So every change a
-process makes is a step the operator placed, the client can see, and approval can stop (invariant 8).
-
-**An agent** is one process plus its **owner**: the AI that watches the process run (below). The
-Library (below) replaces "automation" with "process": a process used inside another is a `process`
-step, as `use_automation` was (§10.7).
+Replaced by the step model's terms (§10.0, v0.24). The principle stays: **skills think, actions
+act.** A skill works out what should happen; a Do step after it, done by rules using a Save, Change
+or Send action, makes it happen, through the gate (§9.5) and its checks. A skill's output that should
+change anything, the client's tool or one of our records, is the input of that step, never a side
+effect of the skill. So every change a workflow makes is a step the operator placed, the client can
+see, and approval can stop (invariant 8). An agent is one or more workflows plus its area's **owner**
+(below, and §10.15).
 
 #### The skill model (owner, 2026-11-10)
+
+**v0.24:** still true, with three changes (§10.0): a skill is rules, one AI answer, or a **Loop**
+(agent mode back, reading only, used after its test set passes); rules and AI can be written in the
+step and saved as a skill; and the tool-only skills, the skill's `mode` and "rules then AI" go at
+the release (`docs/step-model-plan.md` §12, R1 and R4).
 
 Decided, and it supersedes the method table below (`rules_then_ai` and the four skill modes):
 **two kinds of skill only.**
@@ -2585,70 +2967,25 @@ Decided, and it supersedes the method table below (`rules_then_ai` and the four 
   reviewed update (invariant 11). Sloan keeps its four processes: the owner's one exception to one
   agent, one process.
 
-#### Skill methods and reads
+#### Declared reads and skill templates
 
-Superseded in part by the skill model above (2026-11-10): `rules_then_ai` is retired for new skill
-versions and new steps. A skill declares one **method** (R2; replaces §9.2's `mode`):
+**Declared reads.** A skill, or a Loop, names the read actions it may call, and only those are
+exposed to it; it reaches a connection only through the agent's binding and grant (§6.9). A skill
+that browses names the **sites and the pages** it may open, a subset of the site's allowed pages
+(§6.10): it opens only those, and nothing it reads on them can widen the list (invariant 9).
 
-| Method | Runs as | Use |
-|---|---|---|
-| `rules` | Code over plain rules, no model | Thresholds, lookups, a vendor's known names |
-| `ai` | A model call with typed input and output (the model chosen as §10.11) | Reading an invoice, drafting in the agent's voice |
-| `rules_then_ai` | Rules first; the model only for what the rules leave open, and a hard rule vetoes it | Item matching (§12.3) |
-
-`rules_then_ai` is invariant 7 as a setting: deterministic first, model second, and a person last
-through the step's checks. Today's `tool`-mode skills, a model-free wrapper around one tool, retire
-(85 of the 100 skills): each becomes a `read` or `write` step on that tool (v3 compatibility, below).
-How `task` and `agent` skills map onto `ai` is settled in R2; the model rules of §10.11 hold.
-
-**Declared reads.** A skill names the read tools it may call, and only those are exposed to it; it
-reaches a connection only through the agent's binding and grant (§6.9). A skill that browses names the
-**sites and the pages** it may open, a subset of the site's allowed pages (§6.10): it opens only those,
-and nothing it reads on them can widen the list (invariant 9).
-
-**Skill templates.** Skills in the Library are templates. A step customizes one (its settings and
-input) for this process; the customization is versioned with the agent, offered the template's
-updates by three-way merge and promoted back, like an agent (§9.3). Built in R8.
+**Skill templates.** Skills in the Library are templates. A step customizes one (its parameters and
+input) for this workflow; the customization is versioned with the agent, offered the template's
+updates by three-way merge and promoted back, like an agent (§9.3).
 
 #### The process schema (`schemaVersion: 4`)
 
-From `packages/core/src/process/schema.ts`, written in §10.1's short form. `Template`, `Rules`,
-`Duration`, `ModelChoice`, `PersonChoice`, `ClientVisibility`, `Trigger` and `WorkflowHandoff` are
-§10.1's (`Trigger` with §10.8's kinds).
-
-```ts
-Process = { schemaVersion: 4, triggers: Trigger[] /*1–10*/, steps: Step[], handoff?: WorkflowHandoff }
-
-Step = { id, kind, name, client?: ClientVisibility, checks?: Checks,
-         review?: 'auto' | 'off' | 'always' /*the owner's review of this step; §10.11*/, ...config } where kind ∈
-  // work
-  'read'         { tool: ToolId, input: TemplateObject = {} }
-  'skill'        { skill: 'id[@v]', agent?: slug /*another agent of the same client; default the owner*/,
-                   input: TemplateObject = {}, settings?, model?: ModelChoice }
-  'write'        { tool: ToolId, input: TemplateObject = {} }   // a client's tool (external) or a platform record
-  'person'       { mode: 'approve' | 'ask', assignee: Who, title: Template, payload: TemplateObject = {},
-                   deadline: Deadline, channel: 'inbox' | 'email' = 'inbox',
-                   onReject: 'stop' | 'continue' = 'stop', choices?: PersonChoice[] /*1–6*/ }
-  'conversation' { with: Template, channel: 'email' | 'sms' | 'whatsapp' | 'call', goal: Template,
-                   mayShare: string[] = [] /*≤ 20*/, find: { [field]: recordType /*'?' optional*/ } = {},
-                   maxTurns: 1–20 = 4,
-                   messages: { first: 'required' | 'not_required' = 'required',
-                               later: 'required' | 'within_goal' = 'required' },
-                   deadline: Deadline }
-  'notify'       { notify: NotifyCheck }                     // a note standing on its own (a run's summary)
-  // logic
-  'if'           { paths: [{ id, name, when: Rules, steps: Step[] }] /*≥ 1*/, otherwise: { id, steps: Step[] } }
-  'for_each'     { over: Template, concurrency: 1–50 = 10, steps: Step[] /*≥ 1*/ }
-  'wait'         { for: Duration }
-  'stop'         { status: 'succeeded' | 'failed' | 'cancelled' }
-  'process'      { process: 'slug@version' /*pinned*/, input: TemplateObject = {},
-                   approvals?: { [innerStepId]: ApprovalCheck } /*the operator's, per client; §10.7*/ }
-
-Who = string /*a role ('client_admin', 'lead', 'operator'), a user id or a contact id; 1–200 chars*/
-```
-
-Templates, ids, paths and forks work as §10.1 says: `if` is §10.1's fork, renamed for the builder's
-words. Validation (R1, next) carries §10.2's rules over to v4, plus the checks' rules below.
+Replaced by `schemaVersion: 5` (§10.0). Stored v4 processes (`packages/core/src/process`, exported as
+`processes`) are still read and run until the release (stream J), and the executor runs a v5
+workflow on v4's engines for one run (`packages/workflows/src/step-model.ts`). The v4 step kinds and
+what each became: `read`, `write`, `skill`, `person`, `collect`, `conversation`, `notify` and
+`process` are Do steps; `if` is Fork; `for_each`, `repeat`, `wait` and `handoff` keep their names;
+`stop` is an End; `missing` is a Do that uses "not built yet".
 
 #### Checks
 
@@ -2866,44 +3203,24 @@ in R9.
 
 #### v3 compatibility
 
-Stored v3 workflows are **never rewritten** (invariant 3). `processes.fromWorkflowV3` reads one as a
-v4 process, keeping **every step, path and trigger id**, so merges still line up:
-
-| v3 | v4 |
-|---|---|
-| `trigger` + `moreTriggers` | `triggers` |
-| `skill` whose skill only wraps one tool (no `agent`, `model` or `settings`) | `read` if the tool's side effect is `none`, else `write`; an unknown tool counts as external, so approval stays on |
-| `skill` (any other) | `skill`; its `approval` becomes `checks.approval` |
-| `action` | `write` with `checks.approval` |
-| `Approval { approver, timeout }` | `approvers: [{ who, deadline }]`, `in_turn`, a `clock` deadline, `ifNoAnswer: 'stop'` |
-| `person { timeout, remindEvery, onTimeout }` | `deadline`: `continue` → `proceed`; `stop` → `stop`; `notify_operator` → `stop`, telling the operator |
-| `notify { channel, to }` | `notify`: `thread` and `digest` → `inbox`, `email` → `email`; `to` defaults to `client_admin` |
-| `fork` | `if` |
-| `for_each`, `wait`, `stop` | the same |
-| `use_automation` | `process`, with its `approvals` |
-
-The converter is pure and adds nothing a v3 workflow didn't say: no confer, no notify checks, no
-business hours. New versions are saved as v4 (seeds and pack templates in R9); old versions read as
-v4 through the converter wherever v4 is needed.
+Until the release, stored v3 workflows are read as v4 (`processes.fromWorkflowV3`), and a one-off
+converter (`steps/convert-v4.ts`) turns v3 and v4 into v5 for the seeds and tests; every id is kept.
+Both go at the release with v3 and v4 (`docs/step-model-plan.md` §12, R2).
 
 #### Action write steps (skill model, owner 2026-11-10)
 
-A write step names a **tool**, or an **action**: `send_email`, `send_text`, `create_bill`,
-`create_vendor`, with a provider-neutral input (core `processes.ACTION_INPUTS`; money as decimal
-strings). The action resolves from the agent's bindings when the step runs, once, in a durable step
-(`<step>:action`), so a replay resolves the same way: an accounting action to the one accounting
-connection the agent is bound to (QuickBooks or BILL; with both the step names `via`), a message
-action to the agent's own email or text channel, else the account's (`channelFor`). It then runs
-exactly as a write step calling that tool: its input mapped to the tool's
-(`processes.actionToolInput`), one external action with its idempotency key, before state and undo,
-the gate. Every action is external, so its approval is on by default (invariant 8). Publish checks
-an action against the client agent's bindings and channels (no accounting connection, or two
-without `via`, is refused); a template checks its input only. The run view names where it went
-("Create bill · in QuickBooks"). The builder offers the actions as a palette group and, after a
-skill whose output fits an action's input, the matching write with its fields mapped. Design
-decisions: docs/plan.md §1.86 "Skill model (2026-11-10)".
+Now the merged connectors' actions (§10.0, "Connectors and areas"): Email › Send email and
+Accounting › Create bill and Create vendor run as v4's `send_email`, `create_bill` and
+`create_vendor` did. The action resolves from the agent's bindings when the step runs, once, in a
+durable step, so a replay resolves the same way: an accounting action to the accounting connection the
+agent is bound to (QuickBooks or BILL), a message action to the agent's own email or text channel, else
+the account's. It then runs exactly as a write on that tool: one external action with its idempotency
+key, before state and undo, through the gate, approval on by default (invariant 8).
 
 #### Reshape data (owner, 2026-11-11)
+
+**v0.24:** Reshape's mapping is the engine behind the automatic translation on every step's
+incoming side (§10.0), not a step a person adds.
 
 One built-in deterministic skill, **Reshape data** (`data.reshape`), turns what earlier steps found
 into what the next step takes. Its output is fields the step defines; each is a mapping held in the
@@ -4043,6 +4360,12 @@ Template workflows (step lists in Pia's bundle; each client's fork can change th
 
 ### 12.3 Item matching
 
+**v0.24:** item matching is a Match step on a match profile (§10.0, "Match"): **Vendor items**
+by SKU only, exact or nothing; **Master items** hybrid, the vendors' names and key attributes first,
+then by meaning. The steps below are the engine behind those profiles; Purchasing's thirteen older
+matching and price actions become the profiles and Register lines at the release
+(`docs/step-model-plan.md` §10d).
+
 Deterministic first, model second, human last.
 
 1. **Normalize** `raw_description`: uppercase, strip punctuation noise, expand abbreviations from a
@@ -4443,6 +4766,11 @@ data:
   separate code service and are handed out once, to a login in progress. Browser sign-in is done by
   code on pinned login origins, on sites the operator allows by risk tier; banks, payments, email
   accounts and identity providers are never signed in to by an agent.
+- **The one-off agent purge (v0.24):** `db:purge-agents`, run by hand as `cs_owner` once per
+  environment when the step model ships, with the database name typed and a dry run first, is the one
+  exception to immutable history: it deletes every agent, version, run, build, skill and template,
+  and clears the links to them on rows that stay (§10.0). It never touches `audit_event` and writes one
+  `agents.purge` row there.
 - RLS on every tenant table, keyed on `app.tenant_ids` (§4). Workflows, cron and the senses dispatcher
   run with no request session and set exactly one client id. Operator sessions get only the clients
   they serve.
@@ -4679,6 +5007,13 @@ Decided:
   per item), the contract check as more rules of the price check (every variance noted), invoices that make their own purchase record when no tool has one
   (taken over by the tool's bill when it syncs), and the pack's template "Vendor contracts and
   invoice review" (§5.2, §12.0, §12.2, §12.4).
+- v0.24 (owner, 2026-11-25): the step model (§10.0). Workflows stored as `schemaVersion: 5` in eight
+  kinds, stored as they are; a Do step's done by and uses pick its engine; declared outputs and End
+  cards, no silent deaths; automatic translation, only "doesn't fit" blocks; one Match step on match
+  profiles owned by areas, vendor items by SKU or nothing; Loops read only and are used after their
+  test set passes; connectors (Get, Change, Send) and areas (Get, Save), a Save needing no client
+  approval; rules and AI written in the step, saved as skills; one purge of every agent, then the
+  seed. Plan of record: `docs/step-model-plan.md`.
 
 Open:
 - v0.18 (`docs/plan.md` §1.104): answered by the owner on 2026-11-15: every variance is noted,
