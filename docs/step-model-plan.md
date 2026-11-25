@@ -96,6 +96,23 @@ Folded under **More**, with defaults: model, if it fails, whether the client see
 another agent, deadline, channel. The main form shows only the boxes above; if more fields creep
 onto it, we are back where we started.
 
+**The Data tab** (owner, 2026-11-25: "inside a step we should have a visual JSON of what the data
+that is coming in looks like and what the data that will go out will look like... a tab that lays
+out the data coming in, the modifications it does and then the data coming out. This will help
+humans understand the flow better"). Every step in a workflow has a **Data** tab, next to its
+settings, in three parts, top to bottom:
+
+1. **Coming in:** the data as the step before hands it over, shown as JSON.
+2. **What changes:** the translation on the incoming side, field by field (copied, renamed,
+   converted, worked out), and what the step itself does with it (the rule that matched, the AI's
+   pick and reason, the person's answer). A field the AI suggested is marked until confirmed; a
+   field that doesn't fit is shown in red, with the reason.
+3. **Going out:** the step's output, shown as JSON.
+
+The values come from the step's last test run when there is one, otherwise from a sample made from
+the fields' types (the builder's sample data, plan §1.185, as built). It is in the back office only,
+like everything else about how an agent is built.
+
 **Rules and AI written in the step.** A deterministic Do is a tool call, rule rows (when these
 conditions hold, set or work out these fields), or a data job (reshape, filter and total, read or
 write a table). Rules or instructions are written in the step itself. **Save as skill** turns them
@@ -271,7 +288,7 @@ Proposed: store the new model directly, so no translation layer becomes the next
 |---|---|
 | 1 | The purge (R0) and the release items R1–R10. |
 | 2 | The step model: the eight kinds, the Do form, checks, More. |
-| 3 | Input picker; automatic translation on each step's incoming side (fits, translated, doesn't fit); "doesn't fit" blocks going live. |
+| 3 | Input picker; automatic translation on each step's incoming side (fits, translated, doesn't fit); "doesn't fit" blocks going live. The Data tab on every step: coming in, what changes, going out. |
 | 4 | Rules and AI written in the step; Save as skill. |
 | 5 | Workflow outputs and End cards; the publish checks. |
 | 6 | Match step with profiles: match type, keys, confidence threshold, second opinion per line, shortlists; exact match on every profile. |
@@ -305,5 +322,6 @@ matcher, Build list, Release.
   are required and added by the builder; one End may deliver several outputs.
 - 2026-11-25 · A declared output that no End selects blocks publishing: no silent deaths.
 - 2026-11-25 · No named data shapes and no extra terms: each step defines the fields it needs.
+- 2026-11-25 · Every step has a Data tab: the data coming in, what changes, the data going out.
 - 2026-11-25 · Translation between steps is automatic, on the receiving step's incoming side, worked
   out when building and run as code; steps whose data doesn't fit block going live.
