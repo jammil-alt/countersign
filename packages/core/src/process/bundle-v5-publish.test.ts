@@ -27,12 +27,16 @@ const READ = tool("testkit.record.read", "none", "testkit");
 const NOTE = tool("testkit.note.create", "external", "testkit");
 const SIGNED = tool("testkit.payment.create", "external", "testkit", { approval: "always" });
 const SAVE = tool("purchasing.item.save", "internal", "purchasing");
-const QBO_BILL = tool("qbo.bill.create", "external", "qbo");
+const QBO_BILL = tool("qbo.bill.create", "external", "qbo", { entity: "bill" });
+const QBO_BILL_UPDATE = tool("qbo.bill.update", "external", "qbo", {
+  verb: "update",
+  entity: "bill",
+});
 const BILL_BILL = tool("billcom.bill.create", "external", "billcom");
 const SLACK = tool("slack.message.post", "external", "slack");
 const TEAMS = tool("teams.message.post", "external", "teams");
 const TOOLS = Object.fromEntries(
-  [READ, NOTE, SIGNED, SAVE, QBO_BILL, BILL_BILL, SLACK, TEAMS].map((t) => [t.id, t]),
+  [READ, NOTE, SIGNED, SAVE, QBO_BILL, QBO_BILL_UPDATE, BILL_BILL, SLACK, TEAMS].map((t) => [t.id, t]),
 );
 
 const definition = (mode: "act" | "suggest_only" = "act") => ({
@@ -123,6 +127,19 @@ describe("a v5 workflow at publish", () => {
   it("reads a binding key's connector (`qbo:2` is qbo)", () => {
     const r = validate(workflow(QBO_BILL.id), { matrices: { "qbo:2": { create: "off" } } });
     expect(codes(r)).toEqual([["verb_off", "s_do", "uses.action"]]);
+  });
+
+  it("refuses a write to a record type the connection turns off (bill updates)", () => {
+    const r = validate(workflow(QBO_BILL_UPDATE.id), {
+      matrices: { qbo: { update: "auto", entities: { bill: { update: "off" } } } },
+    });
+    expect(codes(r)).toEqual([["entity_off", "s_do", "uses.action"]]);
+    expect(r.errors[0]?.message).toContain("bill records");
+    // Other record types' updates stay on.
+    const vendors = validate(workflow(QBO_BILL_UPDATE.id), {
+      matrices: { qbo: { entities: { vendor: { update: "off" } } } },
+    });
+    expect(vendors.errors).toEqual([]);
   });
 
   it("holds an approval set to not_required to the connection allowing auto", () => {
