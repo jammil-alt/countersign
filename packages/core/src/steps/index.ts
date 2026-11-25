@@ -7,3 +7,4 @@ export * from "./engine";
 export * from "./match-profile";
 export * from "./schema";
 export * from "./validate";
+export * from "./walk";

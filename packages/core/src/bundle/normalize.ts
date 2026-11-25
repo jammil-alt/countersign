@@ -10,10 +10,13 @@ import {
   type AnyAgentBundle,
   type AnyBundleWorkflow,
   holdsProcess,
+  holdsStepModel,
   type ProcessAgentBundle,
   type ProcessBundleWorkflow,
 } from "../schemas/agent";
 import { Trigger, type Step as V3Step, type Workflow, WorkflowHandoff } from "../schemas/workflow";
+import type { Step as StepModelStep, Workflow as StepWorkflow } from "../steps/schema";
+import { eachStep, findStep as findStepModelStep } from "../steps/walk";
 import { findStep as findV3Step, walkSteps as walkV3Steps } from "../workflow/walk";
 
 /** How diff, merge and select read bundles that hold v4 processes. */
@@ -38,16 +41,54 @@ export interface BundleReadOptions {
  */
 // DECISION: converted processes are parsed with the v4 schema, so a converted v3 side carries the
 // same defaults as a stored (parsed) v4 side and the two never differ by defaults alone.
-export function toProcessBundle(bundle: AnyAgentBundle, lookup: ConvertLookup): ProcessAgentBundle {
+export function toProcessBundle(
+  bundle: AnyAgentBundle,
+  lookup: ConvertLookup,
+  options: { stepModel?: "refuse" | "skip" } = {},
+): ProcessAgentBundle {
   const out = cloneJson(bundle);
-  const workflows: ProcessBundleWorkflow[] = out.workflows.map((w) => ({
-    ...w,
-    workflow:
-      w.workflow.schemaVersion === 4
-        ? w.workflow
-        : readConverted(cloneJson(fromWorkflowV3(w.workflow, lookup))),
-  }));
+  const workflows: ProcessBundleWorkflow[] = [];
+  for (const w of out.workflows) {
+    if (w.workflow.schemaVersion === 5) {
+      if (options.stepModel === "skip") continue;
+      throw new StepModelBundleError(w.slug);
+    }
+    workflows.push({
+      ...w,
+      workflow:
+        w.workflow.schemaVersion === 4
+          ? w.workflow
+          : readConverted(cloneJson(fromWorkflowV3(w.workflow, lookup))),
+    });
+  }
   return { ...out, workflows };
+}
+
+/**
+ * The step model (docs/step-model-plan.md, wave 1): a v5 workflow has no v4 reading. A reader that
+ * would save what it read (the Builder) refuses it; one that only reads passes `stepModel: "skip"`
+ * and reads the v5 workflows apart.
+ */
+// DECISION: refusing is the default, so nothing that saves a v4 reading of a bundle can drop its
+// v5 workflows without saying so; there is no v5-to-v4 converter (§4: no hidden translation).
+export class StepModelBundleError extends Error {
+  override name = "StepModelBundleError";
+  constructor(readonly workflow: string) {
+    super(`workflow "${workflow}" is in the step model (v5), which has no v4 reading`);
+  }
+}
+
+/** Each v3 workflow read as a v4 process; v4 and v5 workflows as they are. A copy. */
+function convertV3(bundle: AnyAgentBundle, lookup: ConvertLookup): AnyAgentBundle {
+  const out = cloneJson(bundle);
+  return {
+    ...out,
+    workflows: out.workflows.map((w) =>
+      w.workflow.schemaVersion === 3
+        ? { ...w, workflow: readConverted(cloneJson(fromWorkflowV3(w.workflow, lookup))) }
+        : w,
+    ),
+  };
 }
 
 /**
@@ -127,16 +168,19 @@ export function readBundles(
   bundles: readonly AnyAgentBundle[],
   options: BundleReadOptions = {},
 ): { bundles: AnyAgentBundle[]; asProcess: boolean } {
-  if (!bundles.some(holdsProcess)) return { bundles: [...bundles], asProcess: false };
-  const allV4 = bundles.every((b) => b.workflows.every((w) => w.workflow.schemaVersion === 4));
-  if (allV4) return { bundles: [...bundles], asProcess: true };
+  if (!bundles.some((b) => holdsProcess(b) || holdsStepModel(b))) {
+    return { bundles: [...bundles], asProcess: false };
+  }
+  // The step model: v5 workflows are compared as they are, beside v4 ones (ids line up as ever).
+  const noV3 = bundles.every((b) => b.workflows.every((w) => w.workflow.schemaVersion !== 3));
+  if (noV3) return { bundles: [...bundles], asProcess: true };
   const { lookup } = options;
   if (!lookup) {
     throw new Error(
       "these bundles mix v3 workflows and v4 processes: pass a lookup to read the v3 ones as v4",
     );
   }
-  return { bundles: bundles.map((b) => toProcessBundle(b, lookup)), asProcess: true };
+  return { bundles: bundles.map((b) => convertV3(b, lookup)), asProcess: true };
 }
 
 /** Visits every v4 step depth first, in run order (if paths, then otherwise; loop bodies). */
@@ -152,8 +196,11 @@ export function eachProcessStep(steps: readonly ProcessStep[], visit: (step: Pro
   }
 }
 
-/** A step of a bundle's workflow: a stored v3 step or a v4 process step (`kind` tells which). */
-export type AnyStep = V3Step | ProcessStep;
+/**
+ * A step of a bundle's workflow: a stored v3 step, a v4 process step or a v5 step (`kind` tells
+ * which; `fork`, `for_each`, `repeat`, `wait` and `handoff` are shared by name).
+ */
+export type AnyStep = V3Step | ProcessStep | StepModelStep;
 
 /**
  * Wave 3b: visits every step of a bundle's workflows, v3 workflows and v4 processes alike, depth
@@ -168,8 +215,10 @@ export function eachBundleStep(
 ): void {
   for (const w of bundle.workflows) {
     if (options.enabledOnly && !w.enabled) continue;
-    if (w.workflow.schemaVersion === 4) eachProcessStep(w.workflow.steps, (step) => visit(step, w));
-    else walkV3Steps(w.workflow, ({ step }) => visit(step, w));
+    if (w.workflow.schemaVersion === 5) eachStep(w.workflow.steps, ({ step }) => visit(step, w));
+    else if (w.workflow.schemaVersion === 4) {
+      eachProcessStep(w.workflow.steps, (step) => visit(step, w));
+    } else walkV3Steps(w.workflow, ({ step }) => visit(step, w));
   }
 }
 
@@ -178,7 +227,10 @@ export function eachBundleStep(
  * last part of `${loop}:${index}:${childId}` inside a loop.
  */
 export function findNodeStep(
-  workflow: Pick<Workflow, "schemaVersion" | "steps"> | Pick<Process, "schemaVersion" | "steps">,
+  workflow:
+    | Pick<Workflow, "schemaVersion" | "steps">
+    | Pick<Process, "schemaVersion" | "steps">
+    | Pick<StepWorkflow, "schemaVersion" | "steps">,
   nodeId: string,
 ): AnyStep | undefined {
   return findAnyStep(workflow, nodeId) ?? findAnyStep(workflow, nodeId.split(":").at(-1) ?? nodeId);
@@ -186,9 +238,13 @@ export function findNodeStep(
 
 /** Wave 3b: a step of a v3 workflow or a v4 process by id, nested ones included. */
 export function findAnyStep(
-  workflow: Pick<Workflow, "schemaVersion" | "steps"> | Pick<Process, "schemaVersion" | "steps">,
+  workflow:
+    | Pick<Workflow, "schemaVersion" | "steps">
+    | Pick<Process, "schemaVersion" | "steps">
+    | Pick<StepWorkflow, "schemaVersion" | "steps">,
   id: string,
 ): AnyStep | undefined {
+  if (workflow.schemaVersion === 5) return findStepModelStep(workflow.steps, id);
   return workflow.schemaVersion === 4
     ? findProcessStep(workflow, id)?.step
     : findV3Step(workflow, id)?.step;

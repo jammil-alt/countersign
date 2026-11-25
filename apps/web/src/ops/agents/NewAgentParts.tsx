@@ -208,22 +208,30 @@ export function WorkflowPreview({
           ]
         : [];
       const body =
-        wf.schemaVersion === 4
+        wf.schemaVersion === 5
           ? wf.steps.map((s) => ({
               key: `${w.slug}:${s.id}`,
-              kind: PROCESS_KIND_LABEL[s.kind],
+              kind: stepModelKindWord(s.kind),
               kindId: s.kind as string,
               name: s.name,
-              approval:
-                s.kind === "write" ? s.checks?.approval?.required !== "not_required" : false,
+              approval: false,
             }))
-          : wf.steps.map((s) => ({
-              key: `${w.slug}:${s.id}`,
-              kind: KIND_LABEL[s.kind],
-              kindId: s.kind as string,
-              name: s.name,
-              approval: s.kind === "action" ? s.approval.required === "required" : false,
-            }));
+          : wf.schemaVersion === 4
+            ? wf.steps.map((s) => ({
+                key: `${w.slug}:${s.id}`,
+                kind: PROCESS_KIND_LABEL[s.kind],
+                kindId: s.kind as string,
+                name: s.name,
+                approval:
+                  s.kind === "write" ? s.checks?.approval?.required !== "not_required" : false,
+              }))
+            : wf.steps.map((s) => ({
+                key: `${w.slug}:${s.id}`,
+                kind: KIND_LABEL[s.kind],
+                kindId: s.kind as string,
+                name: s.name,
+                approval: s.kind === "action" ? s.approval.required === "required" : false,
+              }));
       return [...trigger, ...body];
     }) ?? [];
   return (
@@ -251,4 +259,10 @@ export function WorkflowPreview({
       {note ? <div className="mt-4">{note}</div> : null}
     </Card>
   );
+}
+
+/** The step model's kind, as a word, until the builder's forms name it (stream B). */
+export function stepModelKindWord(kind: string): string {
+  const word = kind.replace("_", " ");
+  return word.charAt(0).toUpperCase() + word.slice(1);
 }

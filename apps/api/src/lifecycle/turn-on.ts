@@ -220,7 +220,10 @@ async function itemsOf(ctx: Ctx, s: Subject, hashes: string[]): Promise<TurnOnIt
   if (s.build) {
     let writes = new Set<string>();
     try {
-      const processes = toProcessBundle(s.bundle, convertLookup(platform.catalog, platform.tools));
+      // A Builder draft's writing steps (v4); a v5 workflow has none the Builder flagged.
+      const processes = toProcessBundle(s.bundle, convertLookup(platform.catalog, platform.tools), {
+        stepModel: "skip",
+      });
       writes = await draftWritingSteps({ tx, services }, { bundle: processes, agentRow: s.row });
     } catch {
       // A bundle that doesn't convert has no writing steps to read; the Builder's flags still count.

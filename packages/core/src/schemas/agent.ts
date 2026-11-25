@@ -14,6 +14,8 @@ import { PersonRole } from "../reach/rules";
 import { AdjustableSettings } from "../setup/adjustable";
 // docs/builder-plan.md §6: the setup checklist a client copy is set up by.
 import { SetupChecklist } from "../setup/item";
+// The step model (docs/step-model-plan.md §13c, wave 1): a bundle entry may hold a v5 workflow.
+import { Workflow as StepWorkflow } from "../steps/schema";
 import { SkillRef, Slug, ToolId } from "./common";
 import { AgentMode } from "./permissions";
 import { ModelChoice } from "./skill";
@@ -137,9 +139,15 @@ export type AgentBundleInput = z.input<typeof AgentBundle>;
 // `bundle_hash`) under either schema. When every reader handles v4 (R3, R8), `AgentBundle` becomes
 // this schema and the v3-only one goes.
 
-/** A workflow entry whose workflow is a stored v3 workflow or a v4 process. */
+/**
+ * A workflow entry whose workflow is a stored v3 workflow, a v4 process, or (the step model,
+ * docs/step-model-plan.md §13a) a v5 workflow.
+ */
+// DECISION (step model, wave 1): v5 joins the same union rather than a bundle schema of its own,
+// so a bundle stores, hashes and validates the same way whichever versions it holds; v3 and v4
+// leave the union in wave 4 (§12, R2).
 export const AnyBundleWorkflow = BundleWorkflow.extend({
-  workflow: z.discriminatedUnion("schemaVersion", [Workflow, Process]),
+  workflow: z.discriminatedUnion("schemaVersion", [Workflow, Process, StepWorkflow]),
 });
 export type AnyBundleWorkflow = z.infer<typeof AnyBundleWorkflow>;
 
@@ -165,6 +173,14 @@ export type ProcessAgentBundle = Omit<AgentBundle, "workflows"> & {
 export const ProcessAgentBundle = AgentBundle.extend({
   workflows: z.array(BundleWorkflow.extend({ workflow: Process })),
 }).meta({ id: "ProcessAgentBundle" });
+
+/** A workflow entry read as a v5 workflow (the step model). */
+export type StepBundleWorkflow = Omit<BundleWorkflow, "workflow"> & { workflow: StepWorkflow };
+
+/** True when any of the bundle's workflows is a v5 workflow (the step model). */
+export function holdsStepModel(bundle: Pick<AnyAgentBundle, "workflows">): boolean {
+  return bundle.workflows.some((w) => w.workflow.schemaVersion === 5);
+}
 
 /** True when any of the bundle's workflows is a v4 process. */
 export function holdsProcess(bundle: Pick<AnyAgentBundle, "workflows">): boolean {

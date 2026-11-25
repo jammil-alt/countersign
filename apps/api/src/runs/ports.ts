@@ -37,6 +37,7 @@ import {
   parseSkillRef,
   processes,
   REACH_OUT_SKILL,
+  steps,
 } from "@countersign/core";
 import {
   type Db,
@@ -49,14 +50,15 @@ import {
   withTenant,
 } from "@countersign/db";
 import { leadOf } from "@countersign/threads";
-import type {
-  AgentPort,
-  InboxPort,
-  NotifyPort,
-  RunInfo,
-  StepLog,
-  StepOutcome,
-  StepRunUpdate,
+import {
+  type AgentPort,
+  type InboxPort,
+  LOOP_SKILL,
+  type NotifyPort,
+  type RunInfo,
+  type StepLog,
+  type StepOutcome,
+  type StepRunUpdate,
 } from "@countersign/workflows";
 import { and, eq, isNull, or, sql } from "drizzle-orm";
 import { z } from "zod";
@@ -332,10 +334,13 @@ export function agentPort(
         if (!converse) return { kind: "failed", error: "comms.converse needs its service" };
         return converse.start(request);
       }
+      // The step model (§8): a Loop written in the step runs on its own goal and reads, no skill.
+      const writtenLoop = request.loop !== undefined && step.skill === LOOP_SKILL;
       const r = await runAgent(deps, {
         tenantId: run.tenantId,
         agentVersionId: run.agentVersionId,
-        skill: step.skill,
+        ...(writtenLoop ? {} : { skill: step.skill }),
+        ...(request.loop ? { loop: request.loop } : {}),
         input,
         ...(step.settings ? { settings: step.settings } : {}),
         ...(step.model ? { model: step.model } : {}),
@@ -483,6 +488,23 @@ export function agentPort(
     // the gate then reads fresh); a message action from `channelFor` (the agent's own channel,
     // else the account's), read now, in the run's own client. Neither is guessed: no connection,
     // or two accounting connections without `via`, is refused (nothing written).
+    // The step model (§10c): a merged action that isn't one of today's write actions, from the
+    // connectors the pinned version is bound to, in the merge's order (`steps.resolveMerged`).
+    // DECISION: never guessed: no bound connector of the merge is refused (nothing written).
+    async resolveMerged({ run, action }) {
+      const pinned = await deps.ports.store.loadAgentVersion(run.tenantId, run.agentVersionId);
+      const bound = Object.keys(pinned.bindings);
+      const tool = steps.resolveMerged(action, bound);
+      const merged = steps.mergedAction(action);
+      if (!tool || !merged) {
+        return {
+          refused: `${merged?.label ?? action}: no connection of it is set up for this agent`,
+        };
+      }
+      const connector = Object.entries(merged.tools).find(([, t]) => t === tool)?.[0] ?? "";
+      return { tool, connector };
+    },
+
     async resolveAction({ run, action, via }) {
       const spec = processes.ACTION_SPECS[action];
       if ("channel" in spec.from) {

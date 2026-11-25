@@ -21,6 +21,8 @@ export {
 } from "./executor";
 // v0.12 W2-B
 export * from "./expand";
+// The step model (docs/step-model-plan.md §7): a fake Match port for tests.
+export { FakeMatchPort } from "./fake-match";
 export {
   type FakeCall,
   FakeStepRunner,
@@ -40,3 +42,15 @@ export {
 } from "./process";
 export * from "./router";
 export * from "./runner";
+// The step model (docs/step-model-plan.md): a v5 workflow on today's engines.
+export {
+  catalogKindOf,
+  fieldsSchema,
+  LOOP_SKILL,
+  type LoadedStepModel,
+  loadStepModel,
+  MATCH_SKILL,
+  STEP_MODEL_WRITE_ACTIONS,
+  type StepLoop,
+  type StepModelRun,
+} from "./step-model";

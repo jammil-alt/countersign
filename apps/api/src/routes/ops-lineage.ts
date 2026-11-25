@@ -11,6 +11,7 @@ import {
   activationProblems,
   bundleSkillRefs,
   CUSTOM_PREFIX,
+  catalogSpecs,
   getAgent,
   getVersion,
   latestVersion,
@@ -45,6 +46,7 @@ import {
   skillKind,
   skillModelFacts,
   skillMoveImpact,
+  steps,
   type ToolInputVariants,
   toolLookup,
 } from "@countersign/core";
@@ -477,6 +479,32 @@ export async function offActionIds(tx: Tx, platform: Platform): Promise<Set<stri
   return off;
 }
 
+/** The areas' names in the Uses picker (`shared` is the records every area builds on). */
+const AREA_NAMES: Readonly<Record<string, string>> = {
+  purchasing: "Purchasing",
+  bookkeeping: "Bookkeeping",
+  sales: "Sales",
+  marketing: "Marketing",
+  receivables: "Receivables",
+  shared: "Shared",
+};
+
+/** A step of a step-model workflow by id, at any depth. */
+function findStepAnywhere(list: readonly steps.Step[], id: string): steps.Step | null {
+  for (const step of list) {
+    if (step.id === id) return step;
+    const inner =
+      step.kind === "fork"
+        ? [...step.paths.flatMap((p) => p.steps), ...step.otherwise.steps]
+        : step.kind === "for_each" || step.kind === "repeat"
+          ? step.steps
+          : [];
+    const found = findStepAnywhere(inner, id);
+    if (found) return found;
+  }
+  return null;
+}
+
 export function opsLineageRoutes(app: Hono<AppEnv>): void {
   mount(app, routes.opsRetire, async (ctx) => {
     const row = await agentInScope(ctx, ctx.params.id);
@@ -575,6 +603,57 @@ export function opsLineageRoutes(app: Hono<AppEnv>): void {
       bundle,
       automations: true,
     });
+  });
+
+  // Step model (docs/step-model-plan.md §10c; stream B): the actions the Uses picker offers, by
+  // connector and by area, from the registered tools. A test-only connector's actions are held
+  // back as in the builder's catalog.
+  // DECISION: area names are the owner areas' words, and `shared` is "Shared"; an area a pack
+  // names that isn't listed shows its id with a capital.
+  mount(app, routes.opsActionCatalog, async (ctx) => {
+    const row = await agentInScope(ctx, ctx.params.id);
+    const latest = await latestVersion(ctx.tx, row.id);
+    const { platform } = ctx.services;
+    const hidden = await hiddenTestConnectors(ctx.tx, row, latest?.bundle ?? null, platform);
+    const connectors = platform.connectors.list().filter((c) => !hidden.has(c.manifest.id));
+    // Step model E: what the operator turned off on a connector's page, and what the new model folded
+    // into another action, is left out; Web's actions sit under the Web connector.
+    const settings = await ctx.tx.select().from(connectorSetting);
+    const specs = catalogSpecs(
+      platform.tools,
+      Object.fromEntries(settings.map((r) => [r.connector, r.actions])),
+    );
+    const shown = specs.filter((spec) => {
+      const owner = platform.connectors.findTool(spec.id)?.connector.manifest.id;
+      return owner === undefined || !hidden.has(owner);
+    });
+    return {
+      groups: steps.buildActionCatalog(shown, {
+        connectors: {
+          ...Object.fromEntries(connectors.map((c) => [c.manifest.id, connectorTitle(c.manifest)])),
+          ...Object.fromEntries(BUILTIN_CONNECTORS.map((b) => [b.id, b.name])),
+        },
+        areas: AREA_NAMES,
+      }),
+    };
+  });
+
+  // Step model (docs/step-model-plan.md §5, "Suggest"): the call's shape is fixed in wave 1 and
+  // its answer is wave 2's (stream F). Until then it checks the step exists and returns it
+  // unchanged, saying so, so the form's pop-up and Undo work end to end.
+  mount(app, routes.opsStepSuggest, async (ctx) => {
+    await agentInScope(ctx, ctx.params.id);
+    const parsed = steps.Workflow.safeParse(ctx.body.workflow);
+    if (!parsed.success) {
+      throw new HttpError(422, "invalid_workflow", "the workflow doesn't read in the step model");
+    }
+    const found = findStepAnywhere(parsed.data.steps, ctx.body.stepId);
+    if (!found) throw notFound(`step ${ctx.body.stepId}`);
+    return {
+      step: found,
+      summary: "Suggest isn't switched on yet. Fill this in by hand for now.",
+      applied: false,
+    };
   });
 
   // Skill model (2026-11-10): what moves if a skill step goes to another version of its skill.
