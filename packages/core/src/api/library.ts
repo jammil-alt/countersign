@@ -67,12 +67,12 @@ export const LibraryProcessWorkflow = z.object({
   slug: z.string(),
   name: z.string(),
   enabled: z.boolean(),
-  /** As stored: 3 (read as v4 here) or 4. */
-  schemaVersion: z.union([z.literal(3), z.literal(4)]),
+  /** As stored: 3 (read as v4 here), 4, or 5 (the step model, read as it is). */
+  schemaVersion: z.union([z.literal(3), z.literal(4), z.literal(5)]),
   triggers: z.array(LibraryTrigger),
   /** Every step, inside `if` paths and loops too. */
   steps: Count,
-  /** Steps by v4 kind: `{ read: 2, write: 1, person: 1 }`. */
+  /** Steps by kind: v4's `{ read: 2, write: 1, person: 1 }`, or the step model's `{ do: 4, fork: 1 }`. */
   kinds: z.record(z.string(), Count),
   /** Steps carrying each check. */
   checks: z.object({ confer: Count, approval: Count, notify: Count }),
@@ -85,8 +85,8 @@ export const LibraryProcessVersion = z.object({
   status: z.string(),
   changeNote: z.string().nullable(),
   createdAt: z.string(),
-  /** 4 when any of its workflows is stored as a v4 process, else 3. */
-  schemaVersion: z.union([z.literal(3), z.literal(4)]),
+  /** The newest format any of its workflows is stored in: 5 (the step model), 4, else 3. */
+  schemaVersion: z.union([z.literal(3), z.literal(4), z.literal(5)]),
 });
 export type LibraryProcessVersion = z.infer<typeof LibraryProcessVersion>;
 

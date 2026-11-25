@@ -3,7 +3,7 @@
 // (triggers, steps by kind, the checks they carry), opening in the builder; then the processes
 // used inside others (today's automations, the Skills screen's card). A stored v3 version is read,
 // never rewritten (invariant 3): saving in the builder makes a new version.
-import type { LibraryProcess, LibraryProcessWorkflow } from "@countersign/core";
+import type { LibraryProcess, LibraryProcessWorkflow, steps } from "@countersign/core";
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { apiRoutes } from "../../api/routes";
@@ -19,6 +19,7 @@ import {
   StepKindTag,
   Tag,
 } from "../../ui/primitives";
+import { PALETTE, kindLabel as stepKindLabel } from "../builder/steps/model";
 import type { AgentLinkState } from "../screens/AgentPage";
 import { AutomationsCard } from "../skills/SkillsLibrary";
 import { PROCESS_KIND_LABEL, TRIGGER_KIND_LABEL } from "../workflow/describe";
@@ -163,7 +164,12 @@ function WorkflowRow({
   process: LibraryProcess;
   workflow: LibraryProcessWorkflow;
 }) {
-  const kinds = Object.keys(PROCESS_KIND_LABEL).filter((k) => (w.kinds[k] ?? 0) > 0);
+  // A workflow in the step model counts its steps by the step model's kinds (Do, Fork, End).
+  const order =
+    w.schemaVersion === 5 ? PALETTE.map((p) => p.kind as string) : Object.keys(PROCESS_KIND_LABEL);
+  const label = (k: string) =>
+    w.schemaVersion === 5 ? stepKindLabel(k as steps.StepKind) : kindLabel(k);
+  const kinds = order.filter((k) => (w.kinds[k] ?? 0) > 0);
   const checks = checksText(w);
   return (
     <li
@@ -195,7 +201,7 @@ function WorkflowRow({
         <div className="flex flex-wrap items-center gap-1.5 text-sm">
           <span className="text-ink figures">{counted(w.steps, "step")}</span>
           {kinds.map((k) => (
-            <StepKindTag key={k} kind={k} label={`${kindLabel(k)} ${w.kinds[k]}`} />
+            <StepKindTag key={k} kind={k} label={`${label(k)} ${w.kinds[k]}`} />
           ))}
           {checks ? <span className="text-ink-muted">· {checks}</span> : null}
         </div>

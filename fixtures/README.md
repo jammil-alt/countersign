@@ -11,6 +11,7 @@
 | `matching/crm/` | A client's synced Zoho leads, contacts, accounts and deals with spreadsheet rows labelled with the record each is (or none), for the Sales area's golden test (`packs/sales/src/match/golden.test.ts`; ≥ 95% precision on `same` at the default threshold). |
 | `evals/` | The golden datasets (docs/plan.md §1.212): per template workflow, cases of a trigger, a synthetic world and the writes the run makes, written by `evals/generate.mjs`. Replayed in CI by `apps/api/src/evals/golden.test.ts`. |
 | `intake/` | Made-up reports from systems with no open API, as they arrive by email (docs/plan.md §1.213): a CR2-style daily sales export (a title block above the headers, a total row), a copy whose total doesn't agree, and a Great Plains-style open payables list. Names and numbers are invented. |
+| `platform-agents-v4/` | ONE-OFF: the platform agents' version files as seeded before the step model (v3 workflows, v4 processes), for the tests that run them until the executor runs v5 (`SEED_DIR_BEFORE_STEP_MODEL`, `packages/db/src/seed.ts`). Deleted in wave 4 with v3 and v4 (`docs/step-model-plan.md` §12, R2). |
 | `llm/` | Recorded model responses for replay mode, keyed by request hash (created by `LLM_MODE=record`). |
 
 Fixtures must not contain real client data. Invoices are synthetic or redacted.

@@ -8,46 +8,29 @@ import {
   type AnyAgentBundle,
   cloneJson,
   holdsProcess,
+  holdsStepModel,
   isPlainObject,
   processes,
   uuidv7,
   validateBundle,
 } from "@countersign/core";
 import { seedVersionBundle, withOperator } from "@countersign/db";
-import billClerkV1 from "@countersign/db/seed/agents/bill-clerk.v1.json";
-import billClerkV2 from "@countersign/db/seed/agents/bill-clerk.v2.json";
-import billClerkV3 from "@countersign/db/seed/agents/bill-clerk.v3.json";
-import builderV1 from "@countersign/db/seed/agents/builder.v1.json";
-import builderV2 from "@countersign/db/seed/agents/builder.v2.json";
-import coordinatorV1 from "@countersign/db/seed/agents/coordinator.v1.json";
-import coordinatorV2 from "@countersign/db/seed/agents/coordinator.v2.json";
-import documentClerkV1 from "@countersign/db/seed/agents/document-clerk.v1.json";
-import documentClerkV2 from "@countersign/db/seed/agents/document-clerk.v2.json";
-import supervisorV1 from "@countersign/db/seed/agents/supervisor.v1.json";
-import supervisorV2 from "@countersign/db/seed/agents/supervisor.v2.json";
-import supervisorV3 from "@countersign/db/seed/agents/supervisor.v3.json";
-import supervisorV4 from "@countersign/db/seed/agents/supervisor.v4.json";
-import supervisorV5 from "@countersign/db/seed/agents/supervisor.v5.json";
-import supervisorV6 from "@countersign/db/seed/agents/supervisor.v6.json";
-import supervisorV7 from "@countersign/db/seed/agents/supervisor.v7.json";
+import billClerk from "@countersign/db/seed/agents/bill-clerk.v1.json";
+import builder from "@countersign/db/seed/agents/builder.v1.json";
+import coordinator from "@countersign/db/seed/agents/coordinator.v1.json";
+import documentClerk from "@countersign/db/seed/agents/document-clerk.v1.json";
+import supervisor from "@countersign/db/seed/agents/supervisor.v1.json";
 import { knownModelIds } from "@countersign/llm";
 import { afterAll, describe, expect, it } from "vitest";
 import { type ApiHarness, createApiHarness } from "./api.test-helper";
 
+// Step model: one seeded version per platform agent, its v1.
 const SEEDED: Record<string, Record<number, unknown>> = {
-  "bill-clerk": { 1: billClerkV1, 2: billClerkV2, 3: billClerkV3 },
-  builder: { 1: builderV1, 2: builderV2 },
-  coordinator: { 1: coordinatorV1, 2: coordinatorV2 },
-  "document-clerk": { 1: documentClerkV1, 2: documentClerkV2 },
-  supervisor: {
-    1: supervisorV1,
-    2: supervisorV2,
-    3: supervisorV3,
-    4: supervisorV4,
-    5: supervisorV5,
-    6: supervisorV6,
-    7: supervisorV7,
-  },
+  "bill-clerk": { 1: billClerk },
+  builder: { 1: builder },
+  coordinator: { 1: coordinator },
+  "document-clerk": { 1: documentClerk },
+  supervisor: { 1: supervisor },
 };
 
 /**
@@ -102,7 +85,8 @@ describe.skipIf(!h)("the promotion scrub on every shipped template", () => {
     const { skills } = await withOperator(H.db, [], (tx) =>
       skillContext(tx, { tenantId: null, bundle, catalog: ctx.catalog }),
     );
-    const validate = holdsProcess(bundle) ? processes.validateAnyBundle : validateBundle;
+    const validate =
+      holdsProcess(bundle) || holdsStepModel(bundle) ? processes.validateAnyBundle : validateBundle;
     const r = validate(bundle, {
       skills,
       tools: ctx.tools.specs(),

@@ -10,6 +10,7 @@ import {
   AnyAgentBundle,
   agentNeeds,
   type ConnectorNeed,
+  holdsStepModel,
   skillNeeds,
   toProcessBundle,
   uncoveredConnectors,
@@ -31,7 +32,8 @@ const ctx = {
 async function templates(): Promise<{ name: string; bundle: AgentBundle }[]> {
   const out: { name: string; bundle: AgentBundle }[] = [];
   const latest = new Map<string, { version: number; bundle: AgentBundle }>();
-  for (const t of await loadSeedTemplates()) latest.set(t.slug, { version: 1, bundle: t.bundle });
+  for (const t of await loadSeedTemplates())
+    latest.set(t.slug, { version: 1, bundle: t.bundle as AgentBundle });
   for (const v of await loadSeedVersions()) {
     const had = latest.get(v.slug);
     if (!had || v.version > had.version) {
@@ -51,10 +53,15 @@ async function templates(): Promise<{ name: string; bundle: AgentBundle }[]> {
   return out;
 }
 
-const all = (await templates()).map((t) => ({
-  ...t,
-  needs: agentNeeds(toProcessBundle(AnyAgentBundle.parse(t.bundle), lookup), ctx),
-}));
+// The step model (the platform agents' seeds): a v5 workflow's needs are read from its steps as
+// they are; older bundles through their v4 reading.
+const all = (await templates()).map((t) => {
+  const bundle = AnyAgentBundle.parse(t.bundle);
+  return {
+    ...t,
+    needs: agentNeeds(holdsStepModel(bundle) ? bundle : toProcessBundle(bundle, lookup), ctx),
+  };
+});
 
 /** A need as one line: `qbo create vendor (ask, via qbo.vendor.create)`. */
 const line = (n: ConnectorNeed) =>

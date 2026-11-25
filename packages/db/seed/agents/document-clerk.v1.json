@@ -8,17 +8,182 @@
       "mission": "Make sure every transaction has its supporting document, read and linked."
     },
     "kind": "platform",
-    "model": { "id": "claude-opus-5-5", "maxTokens": 4096 },
+    "model": {
+      "id": "claude-opus-5-5",
+      "maxTokens": 4096
+    },
     "instructions": "Find the document that supports a transaction and read it. Cite the records you used. Never invent numbers; when a document is missing, ask a person for it.",
     "skills": [
-      { "skill": "docs.find-support", "settings": {} },
-      { "skill": "docs.extract", "settings": {} }
+      {
+        "skill": "docs.read-document",
+        "settings": {},
+        "model": {
+          "id": "claude-haiku-5-5"
+        }
+      }
     ],
-    "extraTools": [],
+    "extraTools": ["docs.totals.check", "docs.reading.record"],
     "canCommand": [],
-    "permissions": { "mode": "suggest_only" },
-    "budgets": { "maxSteps": 12, "maxCostUsd": "0.50" },
-    "memory": { "enabled": true }
+    "permissions": {
+      "mode": "suggest_only"
+    },
+    "budgets": {
+      "maxSteps": 12,
+      "maxCostUsd": "0.50"
+    },
+    "memory": {
+      "enabled": true
+    }
   },
-  "workflows": []
+  "workflows": [
+    {
+      "slug": "read-again",
+      "name": "When a document couldn't be read",
+      "workflow": {
+        "schemaVersion": 5,
+        "triggers": [
+          {
+            "id": "trg-unread",
+            "on": {
+              "type": "event",
+              "event": "document.extraction_failed"
+            }
+          },
+          {
+            "id": "trg-document",
+            "on": {
+              "type": "manual",
+              "input": {
+                "type": "object",
+                "properties": {
+                  "documentId": {
+                    "type": "string",
+                    "format": "uuid"
+                  }
+                },
+                "required": ["documentId"],
+                "additionalProperties": false
+              }
+            }
+          }
+        ],
+        "outputs": [
+          {
+            "id": "out-reading",
+            "name": "The document, read",
+            "about": "The reading becomes the document's latest, so the agents waiting on it can go on.",
+            "kind": "save",
+            "action": {
+              "action": "docs.reading.record",
+              "input": {
+                "documentId": "{{trigger.documentId}}",
+                "reading": "{{steps.totals.output.reading}}"
+              }
+            }
+          }
+        ],
+        "steps": [
+          {
+            "id": "read",
+            "name": "Read the document",
+            "client": {
+              "visible": true,
+              "label": "Read the document"
+            },
+            "kind": "do",
+            "doneBy": "ai",
+            "uses": {
+              "type": "skill",
+              "skill": "docs.read-document"
+            },
+            "input": {
+              "documentId": "{{trigger.documentId}}"
+            }
+          },
+          {
+            "id": "totals",
+            "name": "Check the totals",
+            "client": {
+              "visible": false
+            },
+            "kind": "do",
+            "doneBy": "rules",
+            "uses": {
+              "type": "action",
+              "action": "docs.totals.check"
+            },
+            "input": {
+              "reading": "{{steps.read.output}}"
+            }
+          },
+          {
+            "id": "totals-off",
+            "name": "Totals don't add up?",
+            "client": {
+              "visible": false
+            },
+            "kind": "fork",
+            "paths": [
+              {
+                "id": "totals-off-path",
+                "name": "They don't",
+                "when": {
+                  "match": "all",
+                  "rules": [
+                    {
+                      "field": "{{steps.totals.output.totalsMatch}}",
+                      "op": "=",
+                      "value": false
+                    }
+                  ]
+                },
+                "steps": [
+                  {
+                    "id": "totals-person",
+                    "name": "Ask a person to check the totals",
+                    "client": {
+                      "visible": true,
+                      "label": "Asked you to check a document's totals"
+                    },
+                    "kind": "do",
+                    "doneBy": "person",
+                    "person": {
+                      "mode": "approve",
+                      "who": "client_admin",
+                      "question": "Check the totals on {{steps.totals.output.vendorName}} invoice {{steps.totals.output.invoiceNumber}}",
+                      "show": {
+                        "documentId": "{{trigger.documentId}}",
+                        "problems": "{{steps.totals.output.problems}}"
+                      },
+                      "deadline": {
+                        "after": "3 days",
+                        "hours": "business",
+                        "remind": ["1 day"],
+                        "ifNoAnswer": "stop"
+                      },
+                      "channel": "inbox",
+                      "onReject": "stop"
+                    }
+                  }
+                ]
+              }
+            ],
+            "otherwise": {
+              "id": "totals-ok",
+              "steps": []
+            }
+          },
+          {
+            "id": "save-reading",
+            "name": "Save the reading",
+            "client": {
+              "visible": false
+            },
+            "kind": "end",
+            "outputs": ["out-reading"]
+          }
+        ]
+      }
+    }
+  ]
 }
