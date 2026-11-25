@@ -30,6 +30,7 @@ const ClientWorkStatement = lazy(() =>
   import("./ClientWorkStatement").then((m) => ({ default: m.ClientWorkStatement })),
 );
 
+import { ClientLockSetting } from "../security/Lockdown";
 import { ClientComplianceSetting, ClientRetireSetting } from "./ClientComplianceSetting";
 import { ClientFeedbackSetting } from "./ClientFeedbackSetting";
 import { ClientChannelsSection, ClientHoursSection } from "./ClientHours";
@@ -56,6 +57,8 @@ export const SETTINGS_SECTIONS = [
   // Wave 6 (docs/plan.md §1.86 "Run audit (wave 6)"): which finished runs we check by hand.
   ["audit", "Run audit"],
   ["exports", "Exports"],
+  // §1.243: stop everything for the client while we look into a security concern.
+  ["lockdown", "Lockdown"],
   ["retire", "Retire client"],
 ] as const;
 export type SettingsSection = (typeof SETTINGS_SECTIONS)[number][0];
@@ -135,6 +138,16 @@ function SectionBody({ clientId, section }: { clientId: string; section: Setting
       return <ClientRunAuditSection clientId={clientId} />;
     case "exports":
       return <ClientExportsSection clientId={clientId} />;
+    case "lockdown":
+      return (
+        <Titled title="Lockdown">
+          {client.data ? (
+            <ClientLockSetting clientId={clientId} clientName={client.data.client.name} />
+          ) : (
+            <Loading />
+          )}
+        </Titled>
+      );
     case "retire":
       return (
         <Titled title="Retire client">

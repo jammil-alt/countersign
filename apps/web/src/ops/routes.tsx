@@ -90,6 +90,7 @@ import { OpsRunsScreen } from "./screens/Runs";
 import { OpsRunScreen } from "./screens/RunView";
 import { OpsUsageScreen } from "./screens/Usage";
 import { OpsUsersScreen } from "./screens/Users";
+import { SecurityLockdownScreen } from "./security/Lockdown";
 // §1.102: Security and compliance
 import {
   SecurityClientScreen,
@@ -420,6 +421,7 @@ export const opsRoutes = (
     <Route path="security/clients" element={<SecurityClientsScreen />} />
     <Route path="security/clients/:clientId" element={<SecurityClientScreen />} />
     <Route path="security/audit" element={<OpsAuditScreen />} />
+    <Route path="security/lockdown" element={<SecurityLockdownScreen />} />
     <Route path="requests" element={<Redirect to="/ops/build/issues" />} />
     {/* §1.124 back office work */}
     <Route path="build" element={<BuildSection />} />
