@@ -236,6 +236,22 @@ Settings on the step:
 | **Shortlist a person sees** | Default 5, with the model's pick and reason. |
 | **No match means** | Not found, new, or ask a person. |
 
+**Where matching happens** (owner, 2026-11-25: "if we need to match it has to be in our system,
+otherwise we need the ID to do a lookup"):
+
+- **Matching is always against our records**, kept in sync from the client's tools. An outside id
+  (the QuickBooks vendor id) is a field on our record. A match can then use what only we hold (other
+  names, past wording, people's corrections), it is fast and the same every time, and one profile
+  works whichever accounting tool the client uses.
+- **No table per matchable type.** Anything a connector syncs is kept as raw copies in one table
+  (`raw_record`). A profile can match those directly, with a small index of their keys (how Sales
+  matches CRM records today). A table of its own is built only when an area owns and adds to the
+  record beyond matching (vendors, transactions, catalog items; ARCHITECTURE §5.2).
+- **Outside a sync, it's a lookup by id, not a match.** With the outside id in hand, a Do step done
+  by Rules gets the record by id: exact, no AI, no profile. Where the id is sometimes there, it is a
+  profile's first key ("Vendors: QuickBooks id, then tax id, then name"), so it hits at once when
+  present and falls through when not.
+
 **Vendor items** (owner, 2026-11-25): a SKU match or nothing. "I don't want it finding a near match
 and then calling it the same. In some cases a near match is not a match."
 
@@ -366,6 +382,8 @@ matcher, Build list, Release.
 - 2026-11-25 · No named data shapes and no extra terms: each step defines the fields it needs.
 - 2026-11-25 · Every step has a Data tab: coming in, changed, going out. For understanding, not a check.
 - 2026-11-25 · Translations are applied without confirming or marking; only "doesn't fit" blocks.
+- 2026-11-25 · Matching is always against our synced records (raw copies with a key index, or an
+  area's own table); outside ids are fields on our records; without a sync it's a lookup by id.
 - 2026-11-25 · Forms agreed. Suggest (AI icon) on every step and every field: tell it what you need,
   use the default, or resolve; applied at once, with Undo.
 - 2026-11-25 · The eight kinds are stored directly; nine of today's kinds collapse into Do, run by
