@@ -16,6 +16,7 @@ export {
   ReviewError,
 } from "./api";
 export * from "./catalog/keys";
+export { parseLine } from "./catalog/keys";
 export {
   decideLine,
   type HumanDecisionInput,
