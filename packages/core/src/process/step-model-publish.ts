@@ -261,7 +261,7 @@ function resolve(action: string, ctx: Ctx): Resolved | null {
   const spec = ctx.tools?.[action];
   // DECISION: an action the registries don't know is the step model's own issue (unknown action),
   // not a connection's; it is left to that check.
-  if (!spec || spec.sideEffect !== "external") return null;
+  if (spec?.sideEffect !== "external") return null;
   const connector = spec.connector ?? spec.source;
   const key = keyFor(connector);
   if (key === undefined) {
