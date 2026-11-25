@@ -347,6 +347,23 @@ Two different things watch an agent, and both stay:
   health check, and **Look into a problem** (a Loop) and **Explain a problem** when a run failed that
   the owner couldn't fix, or a connection needs a person.
 
+## 10c. Connectors: how capabilities come in (Agreed)
+
+- **The connector's page** in the back office (today's Connectors screen, `/ops/connectors`) is where
+  a connector's capabilities live: what it syncs into our records; its actions by record type, each
+  with its kind and on or off for agents; and the default access a new client's connection starts
+  with (delete always off).
+- **A new action** is built by a developer, appears on the connector's page off, and is turned on
+  there; it is then available to every agent that can use the connector, within each client's own
+  permissions.
+- **Clients** see connectors only where they sign in and grant permissions, as today.
+- **"Request an action"** can be made from a connector, an agent or the account (owner,
+  2026-11-25). Whoever asks only describes what they need; a client never has to know it is a
+  connector action. It becomes a Dev queue request, with the reuse check, and we resolve it.
+- **QuickBooks stays as it is**: 34 actions, one per QuickBooks operation, nothing merged and
+  nothing added until the rebuilt agents work (owner, 2026-11-25: "lets get this working and we can
+  enhance later").
+
 ## 11. The Invoice item matcher (acceptance test)
 
 The matcher is not a build of its own: it is rebuilt by hand in the new builder, and the build is
@@ -430,6 +447,8 @@ matcher, Build list, Release.
   Choose account replaces three.
 - 2026-11-25 · Connector and Action replace Tool in what people see. A connector is outside Mezonas
   (actions: Get, Change, Send); an area is our own records (actions: Get, Save).
+- 2026-11-25 · Capabilities come in on the connector's page; Request an action from a connector, an
+  agent or the account; QuickBooks unchanged for now.
 - 2026-11-25 · Forms agreed. Suggest (AI icon) on every step and every field: tell it what you need,
   use the default, or resolve; applied at once, with Undo.
 - 2026-11-25 · The eight kinds are stored directly; nine of today's kinds collapse into Do, run by
