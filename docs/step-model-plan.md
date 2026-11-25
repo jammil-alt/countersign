@@ -46,7 +46,8 @@ Last updated 2026-11-25.
 | **Trigger** | What starts a run, as today. A trigger that needs work before the main line (the daily QuickBooks check finds the bills first) has its own steps on a branch that joins the main line. |
 | **Step** | One unit of work or flow with one goal. Eight kinds (§4). |
 | **Done by** | Who does a Do step: Rules, a model (AI), or a Person. |
-| **Tool** | Code that gets, saves or sends, with no judgement: OCR, browser, email, QuickBooks, catalog search. Built by developers; a new one is a Dev queue request. |
+| **Connector** | A thing a step can use: a client's system (QuickBooks, Gmail, BILL), a way to reach people (texts and calls, email, team chat), the browser, or one of ours (Documents, each area's records). Built by developers; a new one is a Dev queue request. |
+| **Action** | What a connector can do, of one kind: **Get**, **Save** (to our records), **Change** (in the client's system), **Send**. Picked as "QuickBooks › Create bill". The kind sets the defaults (a Change has an approver) and matches how the client grants permissions, per connector and per kind. "Tool" stays the word in the code, for one action as a model calls it. |
 | **Skill** | A prepackaged step: a saved Do (rules, or one AI answer) or a saved Loop, with its instructions or rules, input, output, tools and model. Versioned, testable on its own, reusable across agents. One client's, or shared with every client. A skill is to a step what an agent template is to an agent. |
 | **Instructions** | How a step does its work: rule rows and values for Rules, prose for AI, the question for a Person. |
 | **Checks** | Switches on a step, never steps of their own: **Approver**, **Confer** (a second opinion), **Review**, **Tell after**. |
@@ -114,7 +115,7 @@ What a person fills in:
 |---|---|
 | **Goal** | What it does, one sentence. |
 | **Done by** | Rules, AI, or a Person (or an outside contact). |
-| **Uses** (optional) | A tool, a skill, or an automation. |
+| **Uses** (optional) | A connector's action ("QuickBooks › Create bill"), a skill, or an automation. |
 | **Input** | Picked as "step name › field"; translated automatically when the fields differ (§6). |
 | **Instructions** | Rule rows and values; or prose; or the question and the answers offered. |
 | **Output** | The fields it hands on. |
@@ -426,6 +427,8 @@ matcher, Build list, Release.
   area's own table); outside ids are fields on our records; without a sync it's a lookup by id.
 - 2026-11-25 · Skills list agreed by area; the leftovers investigation becomes the first Loop; one
   Choose account replaces three.
+- 2026-11-25 · Connector and Action replace Tool in what people see: a connector (QuickBooks, Twilio,
+  the browser, our Purchasing records) has actions of four kinds: Get, Save, Change, Send.
 - 2026-11-25 · Forms agreed. Suggest (AI icon) on every step and every field: tell it what you need,
   use the default, or resolve; applied at once, with Undo.
 - 2026-11-25 · The eight kinds are stored directly; nine of today's kinds collapse into Do, run by
