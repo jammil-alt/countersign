@@ -52,6 +52,7 @@ import {
   shortRunId,
   singleRef,
   stepStateLabel,
+  type steps,
   TIMELINE_WORDS,
   type TimelineWords,
   type Step as V3Step,
@@ -4786,7 +4787,11 @@ function needsHelpOf(output: unknown, native: boolean): NeedsHelp | null {
  * any). R3: v3 workflows and v4 processes alike.
  */
 export function resumePoint(
-  workflow: Pick<Workflow, "steps"> | Pick<processes.Process, "steps">,
+  // The step model: a v5 Fork, For each and Repeat hold their steps as v4's do.
+  workflow:
+    | Pick<Workflow, "steps">
+    | Pick<processes.Process, "steps">
+    | Pick<steps.Workflow, "steps">,
   nodeId: string | null,
 ): string | null {
   if (!nodeId) return null;

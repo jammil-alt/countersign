@@ -61,6 +61,7 @@ import {
   runOwnerOf,
   type StoredStepLike,
   shortRunId,
+  steps,
 } from "@countersign/core";
 import {
   agent,
@@ -371,9 +372,11 @@ async function automationsOf(
 ): Promise<Record<string, AnyAutomationDefinition>> {
   const out: Record<string, AnyAutomationDefinition> = {};
   const refs =
-    workflow.schemaVersion === 4
-      ? processes.subProcessRefs([workflow])
-      : automationRefs([workflow]);
+    workflow.schemaVersion === 5
+      ? stepModelAutomationRefs(workflow)
+      : workflow.schemaVersion === 4
+        ? processes.subProcessRefs([workflow])
+        : automationRefs([workflow]);
   for (const ref of refs) {
     const found = await resolveAutomation(tx, { tenantId, ref });
     if (found) out[ref] = found.definition;
@@ -892,7 +895,8 @@ async function runSucceededPayload(
   let output: unknown = null;
   let outputTooLarge = false;
   let sources: string[] = [];
-  const handoff = workflow.handoff;
+  // The step model: a v5 workflow passes on what its End delivers (a `pass_on` output).
+  const handoff = workflow.schemaVersion === 5 ? undefined : workflow.handoff;
   if (handoff) {
     const ids = workflow.steps.map((s) => s.id);
     const rows =
@@ -1006,4 +1010,13 @@ async function resumeOf(
     if (found) reused[step.id] = found;
   }
   return { from: params.resumeFrom, of: shortRunId(params.retryOf), reused };
+}
+
+/** The step model: the automations a v5 workflow's Do steps use, by their pinned refs. */
+function stepModelAutomationRefs(workflow: steps.Workflow): string[] {
+  const out: string[] = [];
+  steps.eachStep(workflow.steps, ({ step }) => {
+    if (step.kind === "do" && step.uses?.type === "automation") out.push(step.uses.automation);
+  });
+  return [...new Set(out)];
 }
