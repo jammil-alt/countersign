@@ -1,6 +1,6 @@
 // The AP pack's manifest (Plan entry §1.233), in core's one pack shape (§1.230): its tools and skills
 // for bills (prepared, coded, matched to their purchase orders, flagged) and the week's
-// approve-to-pay list, its report screen, its configuration and the "Bills to pay" template. It
+// approve-to-pay list, its report screen and its configuration. It
 // extends the Purchasing area (`extends: "materials"`): the same business area, its own pack. No
 // payment: nothing in it pays or schedules one.
 
@@ -16,7 +16,6 @@ import type { PackTool } from "../tools";
 import { AP_REPORTS } from "./api";
 import { AP_CONFIG_FIELDS } from "./config";
 import { AP_PACK_ID } from "./ids";
-import { BILLS_TO_PAY_TEMPLATE, SUGGEST_ACCOUNTS_SKILL } from "./template";
 import {
   AP_TOOLS,
   getTool,
@@ -26,6 +25,8 @@ import {
   proposeCodingTool,
   receiptTool,
 } from "./tools";
+
+export const SUGGEST_ACCOUNTS_SKILL = "ap.suggest-accounts";
 
 const schema = (tool: PackTool, key: "input" | "output") =>
   lazy(() => tool.spec[key] as Record<string, unknown>);
@@ -151,7 +152,9 @@ export const apManifest: PackManifest = lazyParse(PackManifest, () => ({
   events: [],
   tools: AP_TOOLS.map((t) => t.spec),
   skills: AP_SKILLS,
-  templates: [BILLS_TO_PAY_TEMPLATE],
+  // No agent template until Bills to pay is built again in the step model (docs/step-model-plan.md
+  // §12 R0: templates are built again one by one, later).
+  templates: [],
   screens: [
     {
       route: "/reports/ap/bills",

@@ -191,10 +191,6 @@ export const LAYOUT_WORDS_EN: LayoutWords = {
 // A step's number is the same on every screen (core `process/numbers.ts`): the chart's, the SOP's.
 export { pathLetter };
 
-export function insertKey(at: InsertPoint): string {
-  return `${at.container}#${at.index}`;
-}
-
 interface Column {
   id: ContainerId;
   pathId: string;

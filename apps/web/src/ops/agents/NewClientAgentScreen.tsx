@@ -17,7 +17,7 @@ import {
   PageHeader,
   SectionLabel,
 } from "../../ui/primitives";
-import { parseAnyBundle } from "../versions";
+import { parseBundle } from "../versions";
 import {
   blankBundle,
   DEFAULT_MODEL,
@@ -134,11 +134,11 @@ export function NewClientAgentScreen() {
   if (start.kind === "blank")
     preview = blankBundle({ ...fields, name: fields.name.trim() || "New agent" }, () => "preview");
   if (start.kind === "template" && templateVersion.data) {
-    const p = parseAnyBundle(templateVersion.data.version);
+    const p = parseBundle(templateVersion.data.version);
     preview = p.ok ? p.bundle : null;
   }
   if (start.kind === "copy" && copyDetail.data?.live) {
-    const p = parseAnyBundle(copyDetail.data.live);
+    const p = parseBundle(copyDetail.data.live);
     preview = p.ok ? p.bundle : null;
   }
 

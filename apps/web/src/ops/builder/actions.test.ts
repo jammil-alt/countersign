@@ -6,7 +6,6 @@ import {
   type ApprovalEnv,
   actionItem,
   actionTarget,
-  addActionAfter,
   approvalOption,
   createStep,
   type Process,
@@ -85,27 +84,6 @@ describe("action steps in the builder's model", () => {
       canSkip: false,
       reason: "Which connection it uses is known only when it runs, so it waits for a person.",
     });
-  });
-
-  it("adds the offered write right after the skill, its input pre-mapped", () => {
-    const process = {
-      schemaVersion: 4,
-      triggers: [{ id: "t", on: { type: "manual", input: {} } }],
-      steps: [
-        { id: "prep", kind: "skill", name: "Prepare bill", skill: "ap.prepare-bill", input: {} },
-        { id: "after", kind: "stop", name: "Stop", status: "succeeded" },
-      ],
-    } as unknown as Process;
-    const fit = { action: "create_bill" as const, input: { total: "{{steps.prep.output.total}}" } };
-    const r = addActionAfter(process, "prep", fit, {}, newId);
-    expect(r?.process.steps.map((s) => s.id)).toEqual(["prep", r?.stepId, "after"]);
-    expect(r?.process.steps[1]).toMatchObject({
-      kind: "write",
-      action: "create_bill",
-      input: { total: "{{steps.prep.output.total}}" },
-      checks: { approval: { required: "required" } },
-    });
-    expect(addActionAfter(process, "nope", fit, {}, newId)).toBeNull();
   });
 });
 

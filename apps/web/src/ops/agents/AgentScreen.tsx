@@ -47,7 +47,7 @@ import { labPath } from "../lab/back";
 import { AssignToClient } from "../lab/TemplateParts";
 import { OPS_PATHS } from "../paths";
 import { TriggersPanel } from "../triggers/TriggersScreen";
-import { liveAndDraft, parseAnyBundle, versionBadges } from "../versions";
+import { liveAndDraft, parseBundle, versionBadges } from "../versions";
 import { stepCountWords, workflowStats } from "../workflow/describe";
 import { ReviseTab } from "./BuilderParts";
 import { DefinitionEditor, type SaveResult } from "./DefinitionEditor";
@@ -338,9 +338,9 @@ export function AgentScreen({
   const shown: VersionDetail | null = requested
     ? (inHand ?? fetched.data?.version ?? null)
     : (data.live ?? data.latest);
-  const parsed = shown ? parseAnyBundle(shown) : null;
+  const parsed = shown ? parseBundle(shown) : null;
   const bundle = parsed?.ok ? parsed.bundle : null;
-  const liveParsed = data.live ? parseAnyBundle(data.live) : null;
+  const liveParsed = data.live ? parseBundle(data.live) : null;
   const liveBundle = liveParsed?.ok ? liveParsed.bundle : null;
 
   const keep = search.toString() ? `?${search.toString()}` : "";
@@ -363,7 +363,7 @@ export function AgentScreen({
   // The builder edits the latest version (draft or live), like the definition editor. R8: every
   // tab reads a version that holds v4 processes too (what the builder saves, and the templates'
   // v4 versions and their forks).
-  const latestAnyParsed = data.latest ? parseAnyBundle(data.latest) : null;
+  const latestAnyParsed = data.latest ? parseBundle(data.latest) : null;
   const latestAny = latestAnyParsed?.ok ? latestAnyParsed.bundle : null;
   const builderStart = latestAny?.workflows[0]?.slug ?? "main";
   const isClient = view.kind === "client";
@@ -1072,7 +1072,7 @@ function DefinitionPart({
     { kind: "saved"; save: SaveResult } | { kind: "no_change"; from: number } | null
   >(null);
   const latest = detail.latest;
-  const parsed = latest ? parseAnyBundle(latest) : null;
+  const parsed = latest ? parseBundle(latest) : null;
 
   return (
     <div className="flex flex-col gap-4" data-testid="agent-settings-definition-part">

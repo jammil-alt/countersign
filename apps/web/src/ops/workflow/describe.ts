@@ -197,19 +197,6 @@ export function actionKindLabel(action: processes.WriteAction, viaName?: string 
   return `Change in ${viaName ?? ACTION_SYSTEM_WORD[action]}`;
 }
 
-/**
- * "Deterministic" or "AI" for a skill step whose skill the labels know; "AI" for a read or a
- * write step whose tool calls a model inside (the hidden AI is never unlabelled); null otherwise.
- */
-export function stepSkillKindLabel(step: processes.Step, labels: StepLabels = {}): string | null {
-  if ((step.kind === "read" || step.kind === "write") && step.tool !== undefined) {
-    return labels.toolUsesModel?.(step.tool) ? SKILL_KIND_LABEL.ai : null;
-  }
-  if (step.kind !== "skill") return null;
-  const kind = labels.skillKind?.(step.skill);
-  return kind ? SKILL_KIND_LABEL[kind] : null;
-}
-
 /** Step names by id, so a rule reads "Review the record · needsFix" rather than `steps.<uuid>…`. */
 export type StepNames = ReadonlyMap<string, string>;
 
@@ -400,18 +387,6 @@ export function workflowStepNames(
   const names = new Map<string, string>();
   for (const t of workflow.triggers) names.set(t.id, KIND_LABEL.trigger);
   stepModel.eachStep(workflow.steps, ({ step }) => names.set(step.id, step.name || KIND_LABEL[step.kind]));
-  return names;
-}
-
-/** Step names by id for a v4 process. */
-export function processStepNames(
-  process: Pick<processes.Process, "steps"> & Partial<Pick<processes.Process, "triggers">>,
-): StepNames {
-  const names = new Map<string, string>();
-  for (const t of process.triggers ?? []) names.set(t.id, PROCESS_KIND_LABEL.trigger);
-  for (const { step } of processes.allSteps(process)) {
-    names.set(step.id, step.name || PROCESS_KIND_LABEL[step.kind]);
-  }
   return names;
 }
 

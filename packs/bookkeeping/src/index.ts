@@ -36,7 +36,6 @@ export {
   readyEntries,
   settleEntries,
 } from "./close/store";
-export { MONTH_END_CLOSE_SLUG, MONTH_END_CLOSE_TEMPLATE } from "./close/template";
 export { CLOSE_TOOLS } from "./close/tools";
 export { type ImportResult, importFeeds } from "./feed";
 export { PACK_ID } from "./ids";
@@ -63,5 +62,4 @@ export {
 } from "./records";
 export * from "./schema";
 export * from "./splits";
-export { BOOKKEEPER_SLUG, BOOKKEEPER_TEMPLATE } from "./template";
 export { BOOKKEEPING_TOOLS, thresholdFrom } from "./tools";

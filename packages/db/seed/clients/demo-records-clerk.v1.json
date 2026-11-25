@@ -14,9 +14,7 @@
     },
     "instructions": "Change records only when asked. Every change waits for a person's signature.",
     "skills": [],
-    "extraTools": [
-      "testkit.record.update"
-    ],
+    "extraTools": ["testkit.record.update"],
     "canCommand": [],
     "permissions": {
       "mode": "suggest_only"
@@ -86,9 +84,7 @@
               "visible": false
             },
             "kind": "end",
-            "outputs": [
-              "out-updated"
-            ]
+            "outputs": ["out-updated"]
           }
         ]
       }

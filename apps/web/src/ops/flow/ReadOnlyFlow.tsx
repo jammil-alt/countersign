@@ -2,10 +2,10 @@
 // page's Workflow tab on an older version (`workflow?version=N`). No +, no dragging, nothing to
 // settle: the boxes and arrows as that version had them, with zoom, Fit and each box's details on
 // hover. A step-model workflow is drawn as the steps builder draws it.
-import type { AgentBundle } from "@countersign/core";
-import { useMemo, useState } from "react";
+import { type AgentBundle, steps } from "@countersign/core";
+import { useCallback, useMemo, useState } from "react";
 import { useStepsCatalog } from "../builder/steps/catalog";
-import { displayProcess } from "../builder/steps/display";
+import { type BoxWords, boxWords, displayProcess } from "../builder/steps/display";
 import type { Workflow } from "../builder/steps/types";
 import { triggerTitle } from "../workflow/describe";
 import { Chart } from "./Chart";
@@ -27,6 +27,13 @@ export default function ReadOnlyFlow({
   const catalog = useStepsCatalog(agentId);
   const flow = workflow.workflow as Workflow;
   const process = useMemo(() => displayProcess(flow, catalog.uses), [flow, catalog.uses]);
+  const label = useCallback(
+    (s: { id: string }): BoxWords => {
+      const real = steps.findStep(flow.steps, s.id);
+      return real ? boxWords(real, catalog.uses, flow) : { title: "", kind: "", detail: null };
+    },
+    [flow, catalog.uses],
+  );
   const ends = useMemo<FlowEnds>(
     () => ({
       start: { title: "Starts when", lines: flow.triggers.map((t) => triggerTitle(t as never)) },
@@ -55,6 +62,7 @@ export default function ReadOnlyFlow({
               return next;
             })
           }
+          label={label as never}
           {...NO_EVENTS}
         />
       </FlowDndContext>

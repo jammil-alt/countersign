@@ -1,4 +1,4 @@
-import { ConnectorManifest, DEFAULT_PERMISSIONS, validateWorkflow } from "@countersign/core";
+import { ConnectorManifest, DEFAULT_PERMISSIONS, steps } from "@countersign/core";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import type { ConnectionRef, ToolContext } from "../connector";
@@ -78,21 +78,26 @@ describe("testkit manifest", () => {
   it("plugs into workflow validation as an action", () => {
     const { connector } = setup();
     const tools = Object.fromEntries(connector.manifest.tools.map((t) => [t.id, t]));
-    const workflow = {
-      schemaVersion: 3,
-      trigger: { id: "t", on: { type: "manual", input: { type: "object" } } },
+    const workflow = steps.Workflow.parse({
+      schemaVersion: 5,
+      triggers: [{ id: "t", on: { type: "manual", input: { type: "object" } } }],
+      outputs: [{ id: "out", name: "Renamed", kind: "nothing" }],
       steps: [
         {
           id: "s1",
           name: "Rename",
-          kind: "action",
-          tool: TESTKIT_UPDATE_TOOL,
+          kind: "do",
+          doneBy: "rules",
+          uses: { type: "action", action: TESTKIT_UPDATE_TOOL },
           input: { id: "r1", name: "Renamed" },
         },
+        { id: "end", name: "End", kind: "end", outputs: ["out"] },
       ],
-    };
-    const r = validateWorkflow(workflow, { tools });
-    expect(r.errors).toEqual([]);
+    });
+    const issues = steps.validateWorkflow(workflow, {
+      sideEffect: (action) => tools[action]?.sideEffect,
+    });
+    expect(issues).toEqual([]);
   });
 });
 

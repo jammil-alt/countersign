@@ -6,19 +6,6 @@ import { apiRoutes } from "../../api/routes";
 import { useApi } from "../../api/useApi";
 import type { BuilderData } from "./catalog";
 
-/** The client's agents as hand-off targets, for a client agent; undefined for a template. */
-export function useHandoffAgents(agent: {
-  kind: string;
-  slug: string;
-  tenantId?: string | null | undefined;
-}): BuilderData["handoff"] {
-  const state = useApi(
-    apiRoutes.opsClientHandoffAgents,
-    agent.kind === "client" && agent.tenantId ? { params: { id: agent.tenantId } } : null,
-  );
-  return state.data ? { self: agent.slug, agents: state.data.agents } : undefined;
-}
-
 /** The agents a hand-off step can pick: every other agent of the client. */
 export function handoffChoices(
   data: Pick<BuilderData, "handoff">,

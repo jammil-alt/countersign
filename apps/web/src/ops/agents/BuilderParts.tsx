@@ -8,7 +8,7 @@ import type { ResponseOf } from "../../api/client";
 import { type AgentSummary, apiRoutes } from "../../api/routes";
 import { useApi } from "../../api/useApi";
 import { Badge, Button, buttonClass, Card, SectionLabel } from "../../ui/primitives";
-import { parseAnyBundle } from "../versions";
+import { parseBundle } from "../versions";
 import { ChangeList } from "./ChangeList";
 import { errorText, Field, isCode, Notice, Select, TextArea, useAction } from "./ui";
 
@@ -22,7 +22,7 @@ export function agentPath(agent: Pick<AgentSummary, "kind" | "slug" | "tenantId"
 }
 
 function bundleOf(raw: unknown): AgentBundle | null {
-  const p = parseAnyBundle({ bundle: raw });
+  const p = parseBundle({ bundle: raw });
   return p.ok ? p.bundle : null;
 }
 

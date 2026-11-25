@@ -1,5 +1,5 @@
 // The Close pack's manifest (docs/plan.md §1.232), in core's one pack shape (§1.230): its tools and
-// skills for a month's close, its report screen, its configuration and the Month-end close template.
+// skills for a month's close, its report screen, and its configuration.
 // It extends the Bookkeeping area (`extends: "bookkeeping"`): the same business area, its own pack.
 
 import {
@@ -14,7 +14,6 @@ import type { PackTool } from "../pack";
 import { CLOSE_REPORTS } from "./api";
 import { CLOSE_CONFIG_FIELDS } from "./config";
 import { CLOSE_PACK_ID } from "./ids";
-import { MONTH_END_CLOSE_TEMPLATE } from "./template";
 import { CLOSE_TOOLS, checkTool, proposeTool, readyTool, writtenTool } from "./tools";
 
 const schema = (tool: PackTool, key: "input" | "output") =>
@@ -98,7 +97,9 @@ export const closeManifest: PackManifest = lazyParse(PackManifest, () => ({
   events: [],
   tools: CLOSE_TOOLS.map((t) => t.spec),
   skills: CLOSE_SKILLS,
-  templates: [MONTH_END_CLOSE_TEMPLATE],
+  // No agent template until the Month-end close is built again in the step model (docs/step-model-plan.md
+  // §12 R0).
+  templates: [],
   screens: [
     {
       route: "/reports/close/close",

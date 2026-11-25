@@ -74,12 +74,6 @@ interface StoredBundle {
   [k: string]: unknown;
 }
 
-/** Whether a stored workflow is in the step model (`schemaVersion: 5`). */
-export function isStepModelWorkflow(bundle: unknown, slug: string): boolean {
-  const entry = (bundle as StoredBundle | null)?.workflows?.find((w) => w.slug === slug);
-  return (entry?.workflow as { schemaVersion?: unknown } | undefined)?.schemaVersion === 5;
-}
-
 /** The bundle with one workflow replaced; the rest as stored. */
 export function withWorkflow(bundle: unknown, slug: string, workflow: Workflow): unknown {
   const b = bundle as StoredBundle;

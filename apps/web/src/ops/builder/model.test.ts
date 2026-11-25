@@ -15,7 +15,6 @@ import {
   type ApprovalEnv,
   addTrigger,
   addWorkflow,
-  allowStep,
   approvalOption,
   commit,
   createStep,
@@ -23,7 +22,6 @@ import {
   editWorkflow,
   getContainer,
   insertStep,
-  isLoosened,
   locate,
   moveStep,
   type Process,
@@ -230,13 +228,6 @@ describe("builder model", () => {
     // Every new step validates as a v4 step.
     for (const s of [write, read, ifStep]) expect(processes.Step.safeParse(s).success).toBe(true);
 
-    const noTools = { ...BUNDLE, definition: { ...BUNDLE.definition, extraTools: [] } };
-    expect(allowStep(noTools, write, CTX).definition.extraTools).toEqual([UPDATE.id]);
-    expect(allowStep(BUNDLE, read, CTX).definition.extraTools).toEqual([UPDATE.id, QUERY.id]);
-    const skill: Step = { id: "s", kind: "skill", name: "S", skill: "docs.extract", input: {} };
-    expect(allowStep(BUNDLE, skill, CTX).definition.skills).toEqual([
-      { skill: "docs.extract", settings: {} },
-    ]);
     expect(toolTitle(UPDATE)).toBe("Update a record");
   });
 
@@ -348,20 +339,6 @@ describe("builder model", () => {
         canSkip: false,
         automatic: false,
       });
-    });
-
-    it("counts going ahead with no answer and some runs only as loosening", () => {
-      expect(isLoosened(approval)).toBe(false);
-      expect(isLoosened({ ...approval, ifNoAnswer: "proceed" })).toBe(true);
-      expect(isLoosened({ ...approval, when: { match: "all", rules: [] } })).toBe(true);
-      expect(
-        isLoosened({
-          ...approval,
-          approvers: [
-            { who: "lead", deadline: { after: "1 day", hours: "clock", ifNoAnswer: "proceed" } },
-          ],
-        }),
-      ).toBe(true);
     });
 
     it("has no approval for steps that change no client tool, and counts the ones that wait", () => {

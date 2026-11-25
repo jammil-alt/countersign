@@ -52,22 +52,3 @@ export function parseBundle(version: Pick<VersionDetail, "bundle">): ParsedBundl
     }.`,
   };
 }
-
-export type ParsedAnyBundle = { ok: true; bundle: AgentBundle } | { ok: false; message: string };
-
-/**
- * R8: a version's bundle as the workflow builder reads it: v3 workflows, v4 processes or both.
- * The builder opens v3 workflows converted and saves processes, so after its first save a version
- * holds processes (docs/plan.md §1.86).
- */
-export function parseAnyBundle(version: Pick<VersionDetail, "bundle">): ParsedAnyBundle {
-  const parsed = AgentBundle.safeParse(version.bundle);
-  if (parsed.success) return { ok: true, bundle: parsed.data };
-  const first = parsed.error.issues[0];
-  return {
-    ok: false,
-    message: `This bundle does not match the agent bundle schema${
-      first ? ` (${first.path.join(".") || "root"}: ${first.message})` : ""
-    }.`,
-  };
-}

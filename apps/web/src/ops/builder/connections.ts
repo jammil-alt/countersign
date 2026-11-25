@@ -115,14 +115,6 @@ function key(e: BuilderProblem): string {
   return `${e.stepId ?? ""}|${e.field}|${e.code}|${e.message}`;
 }
 
-/** The problems in `after` that weren't in `before`. */
-export function newProblems(
-  before: readonly BuilderProblem[],
-  after: readonly BuilderProblem[],
-): BuilderProblem[] {
-  return diff(before, after).added;
-}
-
 function diff(before: readonly BuilderProblem[], after: readonly BuilderProblem[]) {
   const was = new Set(before.map(key));
   const now = new Set(after.map(key));
@@ -207,37 +199,4 @@ export function placeText(p: { prior: Step | null; next: Step | null }): string 
   if (p.prior) return `after “${p.prior.name}”, last`;
   if (p.next) return `first, before “${p.next.name}”`;
   return "on its own";
-}
-
-// ── Asking the Builder ───────────────────────────────────────────────────────────────────────────
-
-/** A move handed to the Builder: the step, where it was, where it went, and the check's words. */
-export interface MoveForBuilder {
-  stepName: string;
-  workflowName: string;
-  from: string;
-  to: string;
-  /** The validator's own messages for the problems the move made (step ids and references). */
-  problems: readonly BuilderProblem[];
-}
-
-/**
- * What the Builder is asked about a move (as Fix asks about one problem): keep the step where the
- * operator put it, explain what breaks, and propose one fix for all of it, changing nothing yet.
- */
-// DECISION: the move is made first and the Builder works on the moved draft, so its proposal and
-// "Make this fix" land on top of the move, each with Undo.
-export function movePrompt(m: MoveForBuilder): string {
-  const n = m.problems.length;
-  return [
-    `Resolve a move in “${m.workflowName}”: I moved “${m.stepName}” so it runs ${m.to} (it ran ${m.from}). Keep it where I put it if you can.`,
-    "",
-    `The move makes ${n === 1 ? "1 problem" : `${n} problems`}: data a step reads, required inputs or the shape of the data. Explain in plain words what breaks and why, then propose one fix for all of them, for example changing what a step reads, adding a Reshape step, or adding the step that gives what is missing. Don't change the workflow yet.`,
-    "",
-    "What the check said:",
-    ...m.problems.map(
-      (e) =>
-        `- step ${e.stepId ?? "none"}, field ${e.field || "the step"} (${e.code}): ${e.message}`,
-    ),
-  ].join("\n");
 }

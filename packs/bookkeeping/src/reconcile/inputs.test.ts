@@ -1,15 +1,15 @@
 // Reconciliation inputs (PLATFORM_QA INPUT-1 to INPUT-4): currencies on each side, amounts at the
 // column's edge, and the client's own "last month". Driven through the pack's real tools as
 // cs_worker, as store.test.ts does. The Bookkeeper's payout check passes the statement's currency,
-// as the reader writes it, to its given side (INPUT-2, the template's v5).
+// as the reader writes it, to its given side (INPUT-2).
 
-import { type AgentBundle, processes, resolveTemplate } from "@countersign/core";
+import { resolveTemplate } from "@countersign/core";
 import { closeDb, createDb, type Db, tenant, withTenant } from "@countersign/db";
 import { createTestDatabase, databaseAvailable, type TestDatabase } from "@countersign/db/testing";
 import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { importFeeds } from "../feed";
-import { BOOKKEEPING_HANDLERS, bookkeepingManifest } from "../manifest";
+import { BOOKKEEPING_HANDLERS } from "../manifest";
 import type { PackToolContext } from "../pack";
 import { bankTxn, reconciliation } from "../schema";
 import { type BooksFixture, insertBooks } from "../testing.test-helper";
@@ -19,14 +19,23 @@ const online = await databaseAvailable();
 
 const DOC = "00000000-0000-4000-8000-000000000001";
 
-/** The latest Bookkeeper's payout check: its reconcile step's input, as the template has it. */
+/**
+ * A payout check's reconcile step input: the bank deposit against the statement as the reader
+ * wrote it, with the statement's currency on the given side. (The Bookkeeper's template is built
+ * again in the step model; this is the shape its payout step passes.)
+ */
 function payoutStepInput(): unknown {
-  const latest = bookkeepingManifest.templates[0]?.versions?.at(-1) as AgentBundle | undefined;
-  const wf = latest?.workflows.find((w) => w.slug === "payout-check")?.workflow;
-  if (wf?.schemaVersion !== 4) throw new Error("no v4 payout check");
-  const step = processes.allSteps(wf).find((l) => l.step.id === "payout")?.step;
-  if (step?.kind !== "write" || step.tool !== "bookkeeping.reconcile") throw new Error("no payout");
-  return step.input;
+  return {
+    a: { source: "records", label: "Bank deposit", bankTxnIds: ["{{trigger.bankTxnId}}"] },
+    b: {
+      source: "given",
+      label: "{{steps.statement.output.label}}",
+      opening: "{{steps.statement.output.opening}}",
+      closing: "{{steps.statement.output.closing}}",
+      currency: "{{steps.statement.output.currency}}",
+      items: "{{steps.statement.output.items}}",
+    },
+  };
 }
 
 /** The payout step's input, resolved over a statement read as the reader would give it. */
@@ -57,7 +66,7 @@ describe("a given side's currency, as a statement reader writes it", () => {
     }
   });
 
-  it("(PLATFORM_QA INPUT-2) the Bookkeeper's payout check passes the statement's currency to its given side", () => {
+  it("(PLATFORM_QA INPUT-2) a payout check passes the statement's currency to its given side", () => {
     const txn = "00000000-0000-4000-8000-000000000002";
     const input = payoutInput(txn, "Stripe payout", "cad");
     expect(input.b.currency).toBe("cad");

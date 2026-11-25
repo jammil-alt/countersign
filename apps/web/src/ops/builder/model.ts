@@ -169,22 +169,6 @@ export function removeStep(process: Process, id: string): Process {
 }
 
 /**
- * v0.18: a missing step replaced by a step from the palette, in its place. The new step takes the
- * missing step's id, so later steps' references to it follow (and the validator says if the new
- * step's output lacks what they read).
- */
-// DECISION (v0.18): the replacement keeps the missing step's id rather than a new one: a missing
-// step never ran or published, so no history depends on its id, and the hole and what fills it are
-// one step to the steps after it (and to a merge, which follows ids).
-export function replaceStep(process: Process, id: string, step: Step): Process {
-  const loc = locate(process, id);
-  if (!loc) return process;
-  return updateContainer(process, loc.container, (steps) =>
-    steps.map((s) => (s.id === id ? ({ ...step, id } as Step) : s)),
-  );
-}
-
-/**
  * Moves a step (with whatever it holds) to `index` of `container`, the index counted after the
  * step has left its place: the same rule as arrayMove within one list. A step can't move into
  * itself; that move changes nothing.
@@ -265,67 +249,6 @@ export function addWorkflow(
 
 /** A start on the main workflow with nothing to it until it gets one: started by hand. */
 export const BY_HAND: TriggerOn = { type: "manual", input: { type: "object", properties: {} } };
-
-/**
- * "Add steps" on one of the main workflow's starts (owner, 2026-11-24): the start moves to a
- * workflow of its own (`name`, a free slug from it), keeping its id, whose one step hands each run
- * into the main workflow at its first step that takes an input, with that step's input. The same
- * trigger fills the same references, so the main workflow runs as before; steps added before the
- * hand-in are the start's own lead-in (§1.240). Null when there is nothing to move.
- */
-// DECISION: the main workflow keeps at least one start (the schema's minimum). When the moved start
-// was its only one, it starts by hand instead: that starts nothing on its own.
-// DECISION: the new workflow goes last, as "+ Workflow" puts one; its tab chip says it's a trigger.
-export function startToWorkflow(
-  bundle: ProcessAgentBundle,
-  main: string,
-  triggerId: string,
-  name: string,
-  newId: NewId = uuidv7,
-  /** Slugs taken outside `bundle` (the agent's v5 workflows, set aside by this builder). */
-  taken: readonly string[] = [],
-): {
-  bundle: ProcessAgentBundle;
-  slug: string;
-  /** The new workflow, in the step model: saved beside the processes (`withStepModelWorkflows`). */
-  added: AgentBundle["workflows"][number];
-} | null {
-  const entry = bundle.workflows.find((w) => w.slug === main);
-  const trigger = entry?.workflow.triggers.find((t) => t.id === triggerId);
-  if (!entry || !trigger) return null;
-  const base = slugify(name).replace(/-+$/, "") || "trigger";
-  const used = (s: string) => bundle.workflows.some((w) => w.slug === s) || taken.includes(s);
-  let slug = base;
-  for (let n = 2; used(slug); n++) slug = `${base}-${n}`;
-  const steps_ = entry.workflow.steps;
-  const at = steps_.find((s) => processes.HANDOFF_ENTRY_KINDS.has(s.kind));
-  const handIn: steps.Step = {
-    id: newId(),
-    kind: "handoff",
-    name: at
-      ? `Hand off to ${entry.name} at ${processes.handoffStepLabel(steps_, at.id)}`
-      : `Hand off to ${entry.name}`,
-    to: { agent: processes.SELF_AGENT, workflow: main, step: at?.id ?? "" },
-    input: at && "input" in at && at.input ? { ...at.input } : {},
-  } as steps.Step;
-  const rest = entry.workflow.triggers.filter((t) => t.id !== triggerId);
-  const moved = newStepWorkflow(trigger.on as steps.Workflow["triggers"][number]["on"], newId, [
-    handIn,
-  ]);
-  // The start keeps its id (its runs' history and its hooks are the same start's).
-  moved.triggers = [trigger as steps.Workflow["triggers"][number]];
-  const added = {
-    slug,
-    name,
-    enabled: true,
-    workflow: moved,
-  } as AgentBundle["workflows"][number];
-  const out = editWorkflow(bundle, main, (w) => ({
-    ...w,
-    triggers: rest.length ? rest : [{ id: newId(), on: BY_HAND }],
-  }));
-  return { bundle: out, slug, added };
-}
 
 // ── New steps ────────────────────────────────────────────────────────────────────────────────────
 
@@ -586,37 +509,6 @@ export function allowedTools(
   return ids;
 }
 
-/**
- * The definition changes a new step needs to be allowed: a library skill joins the agent's skills,
- * a read or write step's tool its extra tools.
- */
-// DECISION: placing a library skill or a tool the agent can't use yet adds it to the agent's
-// skills or extra tools in the same edit (one undo), instead of leaving an error to fix elsewhere.
-export function allowStep(
-  bundle: ProcessAgentBundle,
-  step: Step,
-  ctx: TypingContext,
-): ProcessAgentBundle {
-  const def = bundle.definition;
-  if (step.kind === "skill" && step.agent === undefined) {
-    const id = parseSkillRef(step.skill).id;
-    if (def.skills.some((s) => parseSkillRef(s.skill).id === id)) return bundle;
-    return {
-      ...bundle,
-      definition: { ...def, skills: [...def.skills, { skill: step.skill, settings: {} }] },
-    };
-  }
-  // An action write step names no tool: it brings its resolved tool in when it runs.
-  if (
-    (step.kind === "read" || step.kind === "write") &&
-    step.tool !== undefined &&
-    !allowedTools(bundle, ctx).has(step.tool)
-  ) {
-    return { ...bundle, definition: { ...def, extraTools: [...def.extraTools, step.tool] } };
-  }
-  return bundle;
-}
-
 // ── Actions (skill model, 2026-11-10) ────────────────────────────────────────────────────────────
 
 /** The palette item for an action, with its input when pre-mapped. */
@@ -679,23 +571,6 @@ export function actionTarget(
   };
 }
 
-/**
- * Puts an action write step right after `stepId` (the builder's offer after a skill whose output
- * fits), its input pre-mapped from that step's output. Null when the step isn't in the process.
- */
-export function addActionAfter(
-  process: Process,
-  stepId: string,
-  fit: processes.ActionFit,
-  ctx: TypingContext,
-  newId: NewId = uuidv7,
-): { process: Process; stepId: string } | null {
-  const loc = locate(process, stepId);
-  if (!loc) return null;
-  const step = createStep(actionItem(fit.action, fit.input), ctx, newId);
-  return { process: insertStep(process, loc.container, loc.index + 1, step), stepId: step.id };
-}
-
 // ── Approvals ────────────────────────────────────────────────────────────────────────────────────
 
 const VERB_NOUN: Record<Verb, string> = {
@@ -754,11 +629,6 @@ export function looseningBlocked(writes: readonly ToolSpec[], env: ApprovalEnv):
     return "The agent's mode is suggest only, so every change waits for a person. Switch it to act in Settings.";
   }
   return null;
-}
-
-/** Whether the approval lets a write through without a person's yes on some runs. */
-export function isLoosened(approval: ApprovalCheck | undefined): boolean {
-  return processes.approvalLoosenings(approval, "a").length > 0;
 }
 
 /**
