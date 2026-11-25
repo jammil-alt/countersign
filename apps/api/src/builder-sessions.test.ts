@@ -139,10 +139,11 @@ describe.skipIf(!h)("the Builder as a conversation", () => {
       b.definition.skills = [{ skill: SKILL }];
       b.definition.instructions = "Match card receipts to their records.";
       const wf = b.workflows[0]?.workflow as Json;
+      // The blank draft's output (r1) and End (s1) stay; the new steps get new handles.
       wf.outputs = [{ id: "r1", name: "Receipt noted", kind: "nothing" }];
       wf.steps = [
         {
-          id: "s1",
+          id: "s2",
           kind: "do",
           name: "Match the receipt",
           doneBy: "ai",
@@ -151,24 +152,24 @@ describe.skipIf(!h)("the Builder as a conversation", () => {
           ai: { model: { id: "claude-haiku-5-5" } },
         },
         {
-          id: "s2",
+          id: "s3",
           kind: "do",
           name: "Note it on the record",
           doneBy: "rules",
           uses: { type: "action", action: TESTKIT_UPDATE_TOOL },
-          input: { id: "{{steps.s1.output.recordId}}", name: "Receipt matched" },
+          input: { id: "{{steps.s2.output.recordId}}", name: "Receipt matched" },
           checks: { approval: { required: "not_required" } },
         },
-        { id: "s3", kind: "wait", name: "Wait a day", for: "1 day" },
+        { id: "s4", kind: "wait", name: "Wait a day", for: "1 day" },
         {
-          id: "s4",
+          id: "s5",
           kind: "do",
           name: "Tell the lead",
           doneBy: "rules",
           uses: { type: "tell" },
           tell: { to: ["lead"], message: "Done" },
         },
-        { id: "s5", kind: "end", name: "Done", outputs: ["r1"] },
+        { id: "s1", kind: "end", name: "Done", outputs: ["r1"] },
       ];
       return {
         toolUse: {
