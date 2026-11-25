@@ -1096,6 +1096,29 @@ export const ActionCatalog = z.object({
 });
 export type ActionCatalog = z.infer<typeof ActionCatalog>;
 
+/** What Suggest is asked: the workflow as drawn, the step, and the field (absent: the whole step). */
+export const StepSuggestRequest = z.strictObject({
+  workflow: z.unknown(),
+  stepId: z.string().min(1),
+  /** The field it works on: `goal`, `input.vendorId`, `checks.approval`. Absent: the whole step. */
+  field: z.string().min(1).max(120).optional(),
+  how: z.enum(["tell", "default", "resolve"]),
+  /** "Tell it what you need", in the person's words (`how: tell`). */
+  text: z.string().trim().min(1).max(2000).optional(),
+});
+export type StepSuggestRequest = z.infer<typeof StepSuggestRequest>;
+
+/**
+ * Suggest's answer: the step as it should now be (applied at once, with Undo), and a line on what
+ * changed. `applied: false` says nothing was changed and why (`summary`).
+ */
+export const StepSuggestion = z.object({
+  step: z.unknown(),
+  summary: z.string(),
+  applied: z.boolean(),
+});
+export type StepSuggestion = z.infer<typeof StepSuggestion>;
+
 // ── Skills library and the Builder (ARCHITECTURE §9.2, §9.6) ─────────────────────────────────────
 
 /** A row of the skills library: built-in (code) or operator-written (rows, shared or one client's). */
@@ -1970,6 +1993,20 @@ export const opsRoutes = {
     summary: "The actions a step can use, by connector and by area (the Uses picker)",
     params: IdParams,
     response: ActionCatalog,
+  }),
+  // Step model (docs/step-model-plan.md §5, "Suggest"): the AI icon on a step's form and beside each
+  // field. Wave 1 fixes the call's shape; the answer is wave 2's (stream F), so the server returns
+  // the step unchanged and says so.
+  opsStepSuggest: defineRoute({
+    method: "POST",
+    path: "/api/ops/agents/:id/suggest",
+    auth: "session",
+    roles: OPS,
+    summary:
+      "Suggest a step's settings: from what you tell it, the default, or a fix for what is flagged",
+    params: IdParams,
+    body: StepSuggestRequest,
+    response: StepSuggestion,
   }),
   // The builder on one screen, F7 (docs/plan.md §1.170): an automation opens in the same builder.
   opsAutomationBuilderCatalog: defineRoute({
