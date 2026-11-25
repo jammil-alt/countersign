@@ -468,7 +468,7 @@ agent in the new model.
 
 | # | What goes | Why |
 |---|---|---|
-| R0 | Every agent, version, run, build, test copy and template, on staging and production | Approved by the owner, 2026-11-25. Invariants 3 and 14 say versions and audit events are never deleted; this one reset is recorded in `docs/plan.md` and run as a dated step. Templates are built again one by one, later. |
+| R0 | Every agent, version, run, build, test copy and template, on staging and production; with them every row that can't exist without one (steps, model calls, builds' items, grants, daily usage and per-agent billing rows, marketing reports, forum replies, reach-outs, form requests, agent memory notes, invoice lines billed per agent). Kept, with only the link to the agent cleared: clients and people, connections and synced data, documents and readings, vendors, the catalog and prices, bookings, reconciliations, AP bills, purchase requests and quotes, the ledger, inbox items, external actions, alerts, and the audit log (owner confirmed the scope, 2026-11-25) | Approved by the owner, 2026-11-25. Invariants 3 and 14 say versions and audit events are never deleted; this one reset is recorded in `docs/plan.md` and run as a dated step. Templates are built again one by one, later. |
 | R1 | The 117 tool-only skills, the code that makes them (`connectorReadSkills`) and the code that hides them (`isToolWrapper`) | An action is used directly. |
 | R2 | Version 3 workflows, the v3-to-v4 converter (`process/convert.ts`), version 1 automations and `use_automation` | Only the new model is built. |
 | R3 | Today's fifteen stored step kinds | Replaced by the eight, stored directly (§4). |
@@ -624,6 +624,7 @@ release (§12, §13). Then: the stored format, drafted as plain fields for revie
 - 2026-11-25 · Same product, new structure underneath: screens and flows stay; only forms, groupings
   and what the structure needs change. No templates rebuilt as part of this; the invoice matcher is
   built after.
+- 2026-11-25 · Purge scope confirmed (§12, R0); `db:purge-agents` built; wave 0 started.
 - 2026-11-25 · Forms agreed. Suggest (AI icon) on every step and every field: tell it what you need,
   use the default, or resolve; applied at once, with Undo.
 - 2026-11-25 · The eight kinds are stored directly; nine of today's kinds collapse into Do, run by
