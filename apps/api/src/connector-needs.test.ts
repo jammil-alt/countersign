@@ -135,6 +135,8 @@ describe("what the templates need", () => {
     for (const n of t.needs) expect(n.level).toBe(n.verb === "read" ? "on" : "ask");
   });
 
+  // The vendor is matched on our records (the Vendors profile) and its QuickBooks id read from the
+  // record, so the clerk no longer reads QuickBooks' vendors.
   it("the Bill clerk's needs, read from its steps", () => {
     const clerk = all.find((t) => t.name.startsWith("seed bill-clerk"));
     expect(clerk?.needs.map(line).sort()).toMatchInlineSnapshot(`
@@ -145,7 +147,6 @@ describe("what the templates need", () => {
         "qbo read account (on, via qbo.account.query)",
         "qbo read bill (on, via qbo.bill.query)",
         "qbo read item (on, via qbo.item.query)",
-        "qbo read vendor (on, via qbo.vendor.query)",
         "qbo update bill (ask, via qbo.bill.update_lines)",
         "qbo update bill (ask, via qbo.bill.update_memo)",
       ]

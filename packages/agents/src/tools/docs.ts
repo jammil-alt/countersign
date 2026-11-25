@@ -310,13 +310,15 @@ const MatchBillOut = z.object({
     })
     .nullable(),
   candidates: z.array(z.string()),
+  /** No bill: the vendor's bills with the invoice's number that don't match it (any date). */
+  sameNumber: z.array(z.string()),
   sources: z.array(z.string()),
 });
 
 export const docsMatchBill = defineInternalTool({
   id: "docs.match_bill",
   description:
-    "Find the one synced bill an invoice belongs to: the same vendor, currency and total to the cent, a date within the window, and a document number that agrees. 'none' and 'ambiguous' list the bills considered as candidates. Reads only.",
+    "Find the one synced bill an invoice belongs to: the same vendor, currency and total to the cent, a date within the window, and a document number that agrees. 'none' and 'ambiguous' list the bills considered as candidates; 'none' also lists the vendor's bills of any date with the invoice's number (sameNumber), which a new bill would duplicate. Reads only.",
   sideEffect: "none",
   entity: "document",
   area: "shared",
