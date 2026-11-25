@@ -4,7 +4,7 @@
 
 import {
   type AgentData,
-  type AnyAgentBundle,
+  type AgentBundle,
   accessFor,
   effectiveRecordGrants,
   recordActionSpecs,
@@ -26,7 +26,7 @@ export async function recordActionsFor(
   tx: Tx,
   catalog: RecordCatalog,
   tenantId: string | null,
-  bundle: AnyAgentBundle | null | undefined,
+  bundle: AgentBundle | null | undefined,
 ): Promise<ToolSpec[]> {
   const data = (bundle?.definition as { data?: AgentData } | undefined)?.data;
   const granted = effectiveRecordGrants(data);

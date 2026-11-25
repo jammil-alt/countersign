@@ -9,7 +9,7 @@
 
 import { documentForTool, latestVersion } from "@countersign/agents";
 import {
-  type AnyAgentBundle,
+  type AgentBundle,
   allTriggers,
   type BuildDetail,
   type Fixture,
@@ -112,7 +112,7 @@ async function suiteTarget(scoped: Scoped, services: Services, row: BuildRow): P
   return { kind: "template", id: detail.draft.agentId, versionId };
 }
 
-type Flow = AnyAgentBundle["workflows"][number];
+type Flow = AgentBundle["workflows"][number];
 
 /**
  * The template's workflow a try runs: the one named, else the first that starts on the example's
@@ -125,7 +125,7 @@ type Flow = AnyAgentBundle["workflows"][number];
 // its `*.created` event (a purchase or bill: `transaction.created`; an invoice to a customer:
 // `receivable.created`), then to one started by hand, then to the first that's on.
 export function tryWorkflow(
-  bundle: Pick<AnyAgentBundle, "workflows">,
+  bundle: Pick<AgentBundle, "workflows">,
   as: TryOn,
   slug?: string,
 ): string {
@@ -285,7 +285,7 @@ async function tryCase(
     return { name: "Try: your input", input: body.input ?? null };
   }
   const v = await latestVersion(tx, target.id);
-  const bundle = (v?.bundle ?? { workflows: [] }) as Pick<AnyAgentBundle, "workflows">;
+  const bundle = (v?.bundle ?? { workflows: [] }) as Pick<AgentBundle, "workflows">;
   if (body.record) {
     // The record is the Sandbox's: where a shared template case runs (routes/testbench.ts).
     const made = await recordTry(tx, await sandboxClient(scoped), body.record);

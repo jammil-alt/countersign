@@ -1,7 +1,7 @@
 // v0.18 (docs/plan.md §1.103): a step's data in the builder's words, the client's gaps, the agent's
 // summary and what's left on a draft.
 import {
-  type AnyAgentBundleInput,
+  type AgentBundleInput,
   ProcessAgentBundle,
   processes,
   type SkillDefinition,
@@ -182,7 +182,7 @@ describe("stepDataWarnings", () => {
   });
 });
 
-const BUNDLE: AnyAgentBundleInput = {
+const BUNDLE: AgentBundleInput = {
   schemaVersion: 1,
   definition: {
     schemaVersion: 2,

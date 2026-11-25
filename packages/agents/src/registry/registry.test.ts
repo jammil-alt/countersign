@@ -3,7 +3,7 @@
 
 import { TESTKIT_QUERY_TOOL } from "@countersign/connectors";
 import {
-  type AnyAgentBundle,
+  type AgentBundle,
   cloneJson,
   nodeIds,
   processes,
@@ -112,7 +112,7 @@ describe.skipIf(!harness)("agent registry", () => {
       const v4 = toProcessBundle(v1.bundle, convertLookup(h.catalog, h.tools));
       const v2 = await createVersion(tx, { agentId: tpl.id, bundle: v4 });
       expect(v2.version).toBe(2);
-      const stored = v2.bundle as unknown as AnyAgentBundle;
+      const stored = v2.bundle as unknown as AgentBundle;
       expect(stored.workflows.map((w) => w.workflow.schemaVersion)).toEqual([4]);
       const process = stored.workflows[0]?.workflow;
       const before = v1.bundle.workflows[0]?.workflow;

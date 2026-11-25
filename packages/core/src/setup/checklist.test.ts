@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Decision, SetupField } from "../build/build";
 import { readStageState } from "../lifecycle/stage";
-import { AgentBundle, type AnyAgentBundle, type ProcessAgentBundle } from "../schemas/agent";
+import { AgentBundle, type AgentBundle, type ProcessAgentBundle } from "../schemas/agent";
 import type { SkillDefinition } from "../schemas/skill";
 import {
   applySetupSetting,
@@ -387,7 +387,7 @@ describe("setup checklist: answers", () => {
   });
 
   it("write only the parameter they set: the agent's value, or the step's own", () => {
-    const bundle = draft as unknown as AnyAgentBundle;
+    const bundle = draft as unknown as AgentBundle;
     const agentLevel = {
       skill: "materials.match",
       parameter: "tolerance",

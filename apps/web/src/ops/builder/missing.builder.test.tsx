@@ -3,7 +3,7 @@
 // that's off) and a test run, and a click selects the step; its inspector says what is missing and
 // replaces it from the palette (keeping its id) or removes it, and the list empties as the draft is
 // finished. Each step says what it reads and saves; the agent's data is summed up beside the list.
-import { AnyAgentBundle, type AnyAgentBundleInput, type BuilderCatalog } from "@countersign/core";
+import { AgentBundle, type AgentBundleInput, type BuilderCatalog } from "@countersign/core";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes, useParams } from "react-router-dom";
@@ -40,7 +40,7 @@ const CATALOG = {
   automations: [],
 } as unknown as BuilderCatalog;
 
-const BUNDLE: AnyAgentBundleInput = {
+const BUNDLE: AgentBundleInput = {
   schemaVersion: 1,
   definition: {
     schemaVersion: 2,
@@ -113,7 +113,7 @@ function version(): VersionDetail {
     basedOnTemplateVersionId: null,
     createdAt: "2026-11-15T00:00:00.000Z",
     publishedAt: null,
-    bundle: AnyAgentBundle.parse(BUNDLE),
+    bundle: AgentBundle.parse(BUNDLE),
   } as unknown as VersionDetail;
 }
 
@@ -156,7 +156,7 @@ function setup() {
       return { version: { ...version(), id: V1, bundle: undefined }, errors: [] };
     },
   });
-  const bundle = AnyAgentBundle.parse(BUNDLE);
+  const bundle = AgentBundle.parse(BUNDLE);
   function Page() {
     const { workflow = "" } = useParams();
     return (
@@ -229,7 +229,7 @@ describe("a missing step in the builder", () => {
     await user.type(screen.getByTestId("flow-panel-name"), " daily");
     await user.click(screen.getByTestId("flow-bar-save"));
     await waitFor(() => expect(sent.length).toBeGreaterThan(0));
-    const saved = AnyAgentBundle.parse(sent.at(-1)?.bundle).workflows[0]?.workflow;
+    const saved = AgentBundle.parse(sent.at(-1)?.bundle).workflows[0]?.workflow;
     expect(saved?.schemaVersion === 4 && saved.steps[0]).toMatchObject({
       kind: "missing",
       name: "Read card charges daily",

@@ -13,7 +13,7 @@
 // Idempotent: fixed ids, and a row already there is left as it is.
 
 import {
-  AnyAgentBundle,
+  AgentBundle,
   type BriefFieldKey,
   type BuildPhase,
   bundleHash,
@@ -704,7 +704,7 @@ async function seedOne(tx: Tx, spec: DraftBuild, operator: string, now: Date): P
   const draftAt = at(spec.startedHoursAgo * 0.7);
 
   // The draft agent: what the Builder's draft makes, one draft version and no live one.
-  const bundle = AnyAgentBundle.parse(spec.bundle);
+  const bundle = AgentBundle.parse(spec.bundle);
   const agentId = await id("agent");
   await tx
     .insert(agent)

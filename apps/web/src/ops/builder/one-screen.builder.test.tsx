@@ -4,8 +4,8 @@
 // step; Try it marks the chart with what each step did; and Turn on is the bar's action while the
 // agent is new.
 import {
-  AnyAgentBundle,
-  type AnyAgentBundleInput,
+  AgentBundle,
+  type AgentBundleInput,
   type BuilderCatalog,
   type SkillDefinition,
 } from "@countersign/core";
@@ -118,8 +118,8 @@ const each = {
 };
 const follow = { id: "follow", kind: "process", name: "Follow up", process: "polite@1", input: {} };
 
-function bundle(steps: unknown[]): AnyAgentBundle {
-  return AnyAgentBundle.parse({
+function bundle(steps: unknown[]): AgentBundle {
+  return AgentBundle.parse({
     schemaVersion: 1,
     definition: {
       schemaVersion: 2,
@@ -142,7 +142,7 @@ function bundle(steps: unknown[]): AnyAgentBundle {
         },
       },
     ],
-  } as AnyAgentBundleInput);
+  } as AgentBundleInput);
 }
 
 const TEMPLATE: AgentSummary = {
@@ -217,7 +217,7 @@ function setup(
       <WorkflowBuilder
         agent={TEMPLATE}
         from={from}
-        bundle={from.bundle as AnyAgentBundle}
+        bundle={from.bundle as AgentBundle}
         workflow={workflow}
         base={BASE}
         tabs={<nav aria-label="Sections" />}

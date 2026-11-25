@@ -20,8 +20,8 @@ import {
   TESTKIT_UPDATE_TOOL,
 } from "@countersign/connectors";
 import {
-  type AnyAgentBundle,
-  AnyAgentBundle as AnyAgentBundleSchema,
+  type AgentBundle,
+  AgentBundle as AnyAgentBundleSchema,
   bundleHash,
   DecimalString,
   type ProcessAgentBundle,
@@ -105,7 +105,7 @@ const editkit = defineConnector({
 const h = await createApiHarness({ connectors: () => [editkit] });
 afterAll(() => h?.close());
 
-function processOf(b: AnyAgentBundle): processes.Process {
+function processOf(b: AgentBundle): processes.Process {
   const w = b.workflows[0]?.workflow;
   if (w?.schemaVersion !== 4) throw new Error("fixture: expected a process");
   return w;
@@ -128,7 +128,7 @@ describe.skipIf(!h)("readers of a published v4 version", () => {
   /** A client A agent whose live version is `bundle` (v1 is the v3 clerk), running live. */
   async function liveAgent(
     slug: string,
-    bundle: AnyAgentBundle,
+    bundle: AgentBundle,
     bindings: Record<string, string> = {},
   ) {
     const ids = await withOperator(H.db, [A()], async (tx) => {
@@ -352,7 +352,7 @@ describe.skipIf(!h)("readers of a published v4 version", () => {
   // ── Wave 3c: the tests the wave 3b review asked for ─────────────────────────────────────────
 
   /** A client A agent stored live with `bundle` as its one version, as published (unvalidated). */
-  async function storedAgent(slug: string, bundle: AnyAgentBundle) {
+  async function storedAgent(slug: string, bundle: AgentBundle) {
     const [a] = await H.t.db
       .insert(agent)
       .values({
@@ -493,7 +493,7 @@ describe.skipIf(!h)("readers of a published v4 version", () => {
   });
 
   /** A process with a read, an if around a write, a loop around a read and a hidden note. */
-  function tidyBundle(): AnyAgentBundle {
+  function tidyBundle(): AgentBundle {
     return AnyAgentBundleSchema.parse({
       ...testBundle("Tidy clerk"),
       workflows: [

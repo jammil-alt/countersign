@@ -2,9 +2,9 @@
 // and v4 ones; it parses, validates with the step model's publish checks, and its needs are read.
 import { describe, expect, it } from "vitest";
 import { agentNeeds } from "../permissions/needs";
-import { AnyAgentBundle, holdsStepModel } from "../schemas/agent";
+import { AgentBundle, holdsStepModel } from "../schemas/agent";
 import type { ToolSpec } from "../schemas/tool";
-import { bundleNodeIds, validateAnyBundle } from "./bundle";
+import { bundleNodeIds, validateBundle } from "./bundle";
 
 const tool = (id: string, sideEffect: ToolSpec["sideEffect"], connector: string): ToolSpec => ({
   id,
@@ -62,7 +62,7 @@ const bundle = (workflows: unknown[]) => ({ schemaVersion: 1, definition, workfl
 
 describe("a bundle holding a v5 workflow", () => {
   it("parses beside a v4 process, and says it holds the step model", () => {
-    const b = AnyAgentBundle.parse(
+    const b = AgentBundle.parse(
       bundle([
         { slug: "new", name: "New", workflow: good },
         {
@@ -83,7 +83,7 @@ describe("a bundle holding a v5 workflow", () => {
   });
 
   it("is valid when the step model's publish checks pass", () => {
-    const r = validateAnyBundle(bundle([{ slug: "new", name: "New", workflow: good }]), {
+    const r = validateBundle(bundle([{ slug: "new", name: "New", workflow: good }]), {
       tools: TOOLS,
     });
     expect(r.errors).toEqual([]);
@@ -91,7 +91,7 @@ describe("a bundle holding a v5 workflow", () => {
   });
 
   it("reports the step model's checks on their step, with their own code", () => {
-    const r = validateAnyBundle(
+    const r = validateBundle(
       bundle([
         {
           slug: "new",
@@ -120,7 +120,7 @@ describe("a bundle holding a v5 workflow", () => {
   });
 
   it("refuses an id used in two workflows", () => {
-    const r = validateAnyBundle(
+    const r = validateBundle(
       bundle([
         { slug: "a", name: "A", workflow: good },
         {
@@ -135,7 +135,7 @@ describe("a bundle holding a v5 workflow", () => {
   });
 
   it("names the schema problem in the workflow it is in", () => {
-    const r = validateAnyBundle(
+    const r = validateBundle(
       bundle([{ slug: "new", name: "New", workflow: { ...good, triggers: [] } }]),
       { tools: TOOLS },
     );
@@ -144,7 +144,7 @@ describe("a bundle holding a v5 workflow", () => {
   });
 
   it("saves a draft with no outputs yet, and refuses to publish it", () => {
-    const r = validateAnyBundle(
+    const r = validateBundle(
       bundle([{ slug: "new", name: "New", workflow: { ...good, outputs: [] } }]),
       { tools: TOOLS },
     );
@@ -153,7 +153,7 @@ describe("a bundle holding a v5 workflow", () => {
   });
 
   it("needs its reads, and one of a merged action's connectors for a write output", () => {
-    const b = AnyAgentBundle.parse(bundle([{ slug: "new", name: "New", workflow: good }]));
+    const b = AgentBundle.parse(bundle([{ slug: "new", name: "New", workflow: good }]));
     const needs = agentNeeds(b, {
       tools: TOOLS,
       connectors: new Set(["testkit", "qbo", "billcom"]),

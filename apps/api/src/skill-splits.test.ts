@@ -10,8 +10,8 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { ContentStore, ensureUploadConnection } from "@countersign/connectors";
 import {
-  AnyAgentBundle,
-  type AnyAgentBundleInput,
+  AgentBundle,
+  type AgentBundleInput,
   isToolWrapper,
   newSkillVersionProblems,
   processes,
@@ -98,7 +98,7 @@ describe("the split skills on the platform", () => {
     ]) {
       expect(platform.tools.get(tool)?.spec.sideEffect, tool).toBe("internal");
     }
-    const result = processes.validateAnyBundle(AnyAgentBundle.parse(clerkBundle()), {
+    const result = processes.validateBundle(AgentBundle.parse(clerkBundle()), {
       skills: Object.fromEntries(platform.catalog.list().map((s) => [s.id, s])),
       tools: platform.tools.specs(),
       events: platform.events.byType(),
@@ -107,7 +107,7 @@ describe("the split skills on the platform", () => {
   });
 });
 
-function clerkBundle(): AnyAgentBundleInput {
+function clerkBundle(): AgentBundleInput {
   return {
     schemaVersion: 1,
     definition: {
@@ -126,11 +126,11 @@ function clerkBundle(): AnyAgentBundleInput {
     workflows: [
       { slug: "invoice", name: "Process a vendor invoice", workflow: vendorInvoiceProcess() },
     ],
-  } as unknown as AnyAgentBundleInput;
+  } as unknown as AgentBundleInput;
 }
 
 /** A pattern as a process of its own: a manual trigger with the ids it needs, then its steps. */
-function patternBundle(name: string, steps: processes.Step[]): AnyAgentBundleInput {
+function patternBundle(name: string, steps: processes.Step[]): AgentBundleInput {
   const skills = new Set<string>();
   const tools = new Set<string>();
   processes.walkSteps({ schemaVersion: 4, triggers: [], steps } as never, ({ step }) => {
@@ -193,7 +193,7 @@ describe("the replacement patterns", () => {
 
   for (const [name, steps] of Object.entries(PATTERNS)) {
     it(`${name}: validates, every model skill writes nothing, every change a write step`, () => {
-      const result = processes.validateAnyBundle(AnyAgentBundle.parse(patternBundle(name, steps)), {
+      const result = processes.validateBundle(AgentBundle.parse(patternBundle(name, steps)), {
         skills: Object.fromEntries(platform.catalog.list().map((s) => [s.id, s])),
         tools: platform.tools.specs(),
         events: platform.events.byType(),
@@ -368,7 +368,7 @@ describe.skipIf(!h)("Process a vendor invoice, split", () => {
 
     const created = await H.call(OPERATOR, "POST", `/api/ops/clients/${tenantId}/agents`, {
       slug: "invoice-clerk",
-      bundle: AnyAgentBundle.parse(clerkBundle()),
+      bundle: AgentBundle.parse(clerkBundle()),
     });
     expect(created.status, JSON.stringify(created.json)).toBe(200);
     const agentId = (created.json as J).agent.id as string;

@@ -3,8 +3,8 @@
 // would leave a step without data it reads says what and offers a place where it fits, or hands
 // the move to the Builder; each picker can open the palette to add a new step right there.
 import {
-  AnyAgentBundle,
-  type AnyAgentBundleInput,
+  AgentBundle,
+  type AgentBundleInput,
   type BuilderCatalog,
   type SkillDefinition,
 } from "@countersign/core";
@@ -106,7 +106,7 @@ const BUNDLE = {
       },
     },
   ],
-} as AnyAgentBundleInput;
+} as AgentBundleInput;
 
 const AGENT: AgentSummary = {
   id: AGENT_ID,
@@ -143,7 +143,7 @@ const VERSION = {
   basedOnTemplateVersionId: null,
   createdAt: "2026-11-14T00:00:00.000Z",
   publishedAt: null,
-  bundle: AnyAgentBundle.parse(BUNDLE),
+  bundle: AgentBundle.parse(BUNDLE),
 } as unknown as VersionDetail;
 
 function setup() {
@@ -162,7 +162,7 @@ function setup() {
       <WorkflowBuilder
         agent={AGENT}
         from={VERSION}
-        bundle={AnyAgentBundle.parse(BUNDLE)}
+        bundle={AgentBundle.parse(BUNDLE)}
         workflow={workflow}
         base={BASE}
         tabs={<nav aria-label="Sections" />}

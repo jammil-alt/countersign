@@ -91,7 +91,7 @@ const ctxSkills = (ctx: BuilderContext) =>
 
 /** Validation as a template's publish: skills and tools from the context. */
 const validateWith = (ctx: BuilderContext) => async (bundle: ProcessAgentBundle) =>
-  processes.validateAnyBundle(bundle, { skills: ctxSkills(ctx), tools: registry.specs() })
+  processes.validateBundle(bundle, { skills: ctxSkills(ctx), tools: registry.specs() })
     .errors as never;
 
 function counter(prefix = "n") {

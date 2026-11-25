@@ -17,7 +17,7 @@ import {
 } from "@countersign/connectors";
 import {
   type AccessGap,
-  AnyAgentBundle,
+  AgentBundle,
   accessGaps,
   activeMezonasMay,
   agentNeeds,
@@ -186,7 +186,7 @@ export async function bundleNeeds(
   platform: Pick<Platform, "catalog" | "tools">,
 ): Promise<ConnectorNeed[]> {
   try {
-    const parsed = AnyAgentBundle.parse(stored);
+    const parsed = AgentBundle.parse(stored);
     // The step model: v5 workflows are read as they are, beside the v4 reading of the rest.
     const read = toProcessBundle(parsed, convertLookup(platform.catalog, platform.tools), {
       stepModel: "skip",

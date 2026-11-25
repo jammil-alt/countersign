@@ -7,31 +7,7 @@
 // New step and path ids are generated once (core's uuidv7) and never regenerated, so merges can
 // line them up (CLAUDE.md invariant 3).
 
-import {
-  type AgentBundle,
-  type AnyAgentBundle,
-  canonicalJson,
-  defaultWriteApproval,
-  isToolWrapper,
-  type JsonObject,
-  levelFor,
-  type PermissionMatrix,
-  type ProcessAgentBundle,
-  type ProcessBundleWorkflow,
-  parseSkillRef,
-  processes,
-  readConverted,
-  type SkillDefinition,
-  type SkillKind,
-  skillTools,
-  type steps,
-  type ToolSpec,
-  type Trigger,
-  type TriggerOn,
-  type TypingContext,
-  uuidv7,
-  type Verb,
-} from "@countersign/core";
+import { type AgentBundle, canonicalJson, defaultWriteApproval, isToolWrapper, type JsonObject, levelFor, type PermissionMatrix, type ProcessAgentBundle, type ProcessBundleWorkflow, parseSkillRef, processes, readConverted, type SkillDefinition, type SkillKind, skillTools, type steps, type ToolSpec, type Trigger, type TriggerOn, type TypingContext, uuidv7, type Verb } from "@countersign/core";
 import { slugify } from "../agents/definition-form";
 import { toolLabel } from "../workflow/labels";
 import { newStepWorkflow } from "./steps/model";
@@ -76,7 +52,7 @@ export function convertLookup(ctx: TypingContext): processes.ConvertLookup {
 // aside here (it opens in the steps builder) and put back where it was when this builder saves
 // (`withStepModelWorkflows`), never dropped.
 export function readProcessBundle(
-  bundle: AnyAgentBundle | AgentBundle,
+  bundle: AgentBundle | AgentBundle,
   ctx: TypingContext,
 ): ProcessAgentBundle {
   const lookup = convertLookup(ctx);
@@ -99,8 +75,8 @@ export function readProcessBundle(
 }
 
 /** The stored bundle's v5 workflows (set aside by `readProcessBundle`), by slug. */
-export function stepModelWorkflows(stored: unknown): AnyAgentBundle["workflows"] {
-  const list = (stored as { workflows?: AnyAgentBundle["workflows"] } | null)?.workflows ?? [];
+export function stepModelWorkflows(stored: unknown): AgentBundle["workflows"] {
+  const list = (stored as { workflows?: AgentBundle["workflows"] } | null)?.workflows ?? [];
   return list.filter((w) => w.workflow.schemaVersion === 5);
 }
 
@@ -111,15 +87,15 @@ export function stepModelWorkflows(stored: unknown): AnyAgentBundle["workflows"]
 export function withStepModelWorkflows(
   edited: ProcessAgentBundle,
   stored: unknown,
-  added: AnyAgentBundle["workflows"] = [],
-): AnyAgentBundle {
+  added: AgentBundle["workflows"] = [],
+): AgentBundle {
   const aside = [...stepModelWorkflows(stored), ...added];
-  if (aside.length === 0) return edited as AnyAgentBundle;
+  if (aside.length === 0) return edited as AgentBundle;
   const order = ((stored as { workflows?: { slug: string }[] } | null)?.workflows ?? []).map(
     (w) => w.slug,
   );
   const byEdit = new Map(edited.workflows.map((w) => [w.slug, w] as const));
-  const out: AnyAgentBundle["workflows"] = [];
+  const out: AgentBundle["workflows"] = [];
   const used = new Set<string>();
   for (const slug of order) {
     const v5 = aside.find((w) => w.slug === slug);
@@ -134,11 +110,11 @@ export function withStepModelWorkflows(
     used.add(w.slug);
     out.push(w);
   }
-  return { ...edited, workflows: out } as AnyAgentBundle;
+  return { ...edited, workflows: out } as AgentBundle;
 }
 
 /** Whether any workflow of the stored bundle is still v3 (it opens converted). */
-export function holdsV3(bundle: AnyAgentBundle | AgentBundle): boolean {
+export function holdsV3(bundle: AgentBundle | AgentBundle): boolean {
   return bundle.workflows.some((w) => w.workflow.schemaVersion === 3);
 }
 
@@ -360,13 +336,13 @@ export function removeTrigger(process: Process, id: string): Process {
 export function addWorkflow(
   input: { slug: string; name: string; on: TriggerOn },
   newId: NewId = uuidv7,
-): AnyAgentBundle["workflows"][number] {
+): AgentBundle["workflows"][number] {
   return {
     slug: input.slug,
     name: input.name,
     enabled: true,
     workflow: newStepWorkflow(input.on as steps.Workflow["triggers"][number]["on"], newId),
-  } as AnyAgentBundle["workflows"][number];
+  } as AgentBundle["workflows"][number];
 }
 
 /** A start on the main workflow with nothing to it until it gets one: started by hand. */
@@ -394,7 +370,7 @@ export function startToWorkflow(
   bundle: ProcessAgentBundle;
   slug: string;
   /** The new workflow, in the step model: saved beside the processes (`withStepModelWorkflows`). */
-  added: AnyAgentBundle["workflows"][number];
+  added: AgentBundle["workflows"][number];
 } | null {
   const entry = bundle.workflows.find((w) => w.slug === main);
   const trigger = entry?.workflow.triggers.find((t) => t.id === triggerId);
@@ -425,7 +401,7 @@ export function startToWorkflow(
     name,
     enabled: true,
     workflow: moved,
-  } as AnyAgentBundle["workflows"][number];
+  } as AgentBundle["workflows"][number];
   const out = editWorkflow(bundle, main, (w) => ({
     ...w,
     triggers: rest.length ? rest : [{ id: newId(), on: BY_HAND }],
@@ -681,7 +657,7 @@ export function createStep(item: PaletteItem, ctx: TypingContext, newId: NewId =
 
 /** The tools the agent may use: its extra tools and every tool its skills bring. */
 export function allowedTools(
-  bundle: Pick<AnyAgentBundle, "definition">,
+  bundle: Pick<AgentBundle, "definition">,
   ctx: TypingContext,
 ): Set<string> {
   const ids = new Set(bundle.definition.extraTools);

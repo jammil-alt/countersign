@@ -29,7 +29,7 @@ import {
 } from "@countersign/agents";
 import {
   type AgentStage,
-  AnyAgentBundle,
+  AgentBundle,
   DECISION_CATEGORY_WORDS,
   decisionReviewed,
   type GrantLimits,
@@ -67,7 +67,7 @@ interface Subject {
   clientId: string;
   clientName: string;
   version: AgentVersionRow;
-  bundle: AnyAgentBundle;
+  bundle: AgentBundle;
   /** The client's agent that runs: the agent itself, or a template's copy at the client. */
   running: AgentRow | null;
   /** The agent's open build, when it has one. */
@@ -127,7 +127,7 @@ async function subject(
     clientId,
     clientName: client.name,
     version,
-    bundle: AnyAgentBundle.parse(version.bundle),
+    bundle: AgentBundle.parse(version.bundle),
     running: template ? await copyAt(tx, row, clientId, open ?? null) : row,
     build: open ?? null,
   };
@@ -573,7 +573,7 @@ export async function turnOn(ctx: Ctx, id: string, body: TurnOnBody): Promise<Tu
         }
       }
       if (target) {
-        copy = await bindTestCopy(ctx, current, AnyAgentBundle.parse(target.bundle));
+        copy = await bindTestCopy(ctx, current, AgentBundle.parse(target.bundle));
         if (target.id !== copy.liveVersionId) {
           const vid = target.id;
           const published = await attempt(tx, (sp) =>
@@ -659,7 +659,7 @@ export async function turnOn(ctx: Ctx, id: string, body: TurnOnBody): Promise<Tu
           row: running,
           template: false,
           version: live,
-          bundle: AnyAgentBundle.parse(live.bundle),
+          bundle: AgentBundle.parse(live.bundle),
           running,
         }
       : { ...s, row, running };

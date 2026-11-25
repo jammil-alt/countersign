@@ -6,7 +6,7 @@
 // publish) and Settings, split into Access (applies at once, logged) and Definition (a new draft
 // version). The old Triggers and Tests addresses open their new homes. `/revise` asks the Builder
 // for a new draft. `?version=N` shows an older version on the bundle tabs.
-import type { AnyAgentBundle } from "@countersign/core";
+import type { AgentBundle } from "@countersign/core";
 import type { ReactNode } from "react";
 import { lazy, Suspense, useState } from "react";
 import {
@@ -688,7 +688,7 @@ function AgentBar({
 }: {
   view: AgentSummary;
   clientName: string | undefined;
-  bundle: AnyAgentBundle | null;
+  bundle: AgentBundle | null;
   live: { version: number } | null;
   draft: { version: number } | null;
   lineage: ReactNode;
@@ -901,7 +901,7 @@ function AgentActions({
   );
 }
 
-function WorkflowTab({ bundle, version }: { bundle: AnyAgentBundle; version: VersionDetail }) {
+function WorkflowTab({ bundle, version }: { bundle: AgentBundle; version: VersionDetail }) {
   if (bundle.workflows.length === 0) {
     return <EmptyState>v{version.version} has no workflows.</EmptyState>;
   }

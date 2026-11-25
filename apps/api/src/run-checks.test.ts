@@ -5,7 +5,7 @@
 
 import { TESTKIT_UPDATE_TOOL } from "@countersign/connectors";
 import {
-  type AnyAgentBundle,
+  type AgentBundle,
   type processes,
   shownOnTimeline,
   toProcessBundle,
@@ -22,7 +22,7 @@ afterAll(() => h?.close());
 const j = (v: unknown) => v as any;
 
 /** The test bundle as a v4 process: its write with a confer and an `any` approval; a notice. */
-function bundleV4(dana: string): AnyAgentBundle {
+function bundleV4(dana: string): AgentBundle {
   const b = toProcessBundle(testBundle(), {
     wrappedTool: () => null,
     sideEffect: (t) => (t === TESTKIT_UPDATE_TOOL ? "external" : null),

@@ -9,7 +9,7 @@
 // the runtime tests run the versions seeded before it (`SEED_DIR_BEFORE_STEP_MODEL`).
 
 import {
-  type AnyAgentBundle,
+  type AgentBundle,
   isToolWrapper,
   parseSkillRef,
   processes,
@@ -36,8 +36,8 @@ const ctx = {
 const seeds = await loadSeedTemplates();
 
 /** Each platform agent's latest version as seeded before the step model. */
-async function before(): Promise<Map<string, AnyAgentBundle>> {
-  const out = new Map<string, AnyAgentBundle>();
+async function before(): Promise<Map<string, AgentBundle>> {
+  const out = new Map<string, AgentBundle>();
   for (const t of await loadSeedTemplates(SEED_DIR_BEFORE_STEP_MODEL)) out.set(t.slug, t.bundle);
   const later = await loadSeedVersions(SEED_DIR_BEFORE_STEP_MODEL);
   for (const v of later) out.set(v.slug, v.bundle);
@@ -45,7 +45,7 @@ async function before(): Promise<Map<string, AnyAgentBundle>> {
 }
 const previous = await before();
 
-const v5 = (b: AnyAgentBundle, slug: string) => {
+const v5 = (b: AgentBundle, slug: string) => {
   const w = b.workflows.find((x) => x.slug === slug)?.workflow;
   if (w?.schemaVersion !== 5) throw new Error(`${slug} isn't in the step model`);
   return steps.Workflow.parse(w);
@@ -64,7 +64,7 @@ describe("the platform agents' seeds in the step model", () => {
   });
 
   it.each(seeds)("$slug validates against the platform", (t) => {
-    const r = processes.validateAnyBundle(t.bundle, ctx);
+    const r = processes.validateBundle(t.bundle, ctx);
     expect(r.errors).toEqual([]);
     expect(t.bundle.definition.kind).toBe("platform");
     // Approval stays on by default (invariant 8).
@@ -143,7 +143,7 @@ describe("the platform agents' seeds in the step model", () => {
 
 // What each agent's workflow does, step for step (the PR's account of the rewrite).
 describe("the Bill clerk", () => {
-  const bill = seeds.find((t) => t.slug === "bill-clerk")?.bundle as AnyAgentBundle;
+  const bill = seeds.find((t) => t.slug === "bill-clerk")?.bundle as AgentBundle;
   const w = v5(bill, "invoice-read");
 
   it("ends every path: three reports to the admin, or a question left to a person", () => {
@@ -251,7 +251,7 @@ describe("the Bill clerk", () => {
 });
 
 describe("the Document clerk", () => {
-  const doc = seeds.find((t) => t.slug === "document-clerk")?.bundle as AnyAgentBundle;
+  const doc = seeds.find((t) => t.slug === "document-clerk")?.bundle as AgentBundle;
   const w = v5(doc, "read-again");
 
   it("saves the reading as its End's delivery, after a person checks totals that don't add up", () => {
@@ -286,7 +286,7 @@ describe("the Document clerk", () => {
 });
 
 describe("Sloan", () => {
-  const sloan = seeds.find((t) => t.slug === "supervisor")?.bundle as AnyAgentBundle;
+  const sloan = seeds.find((t) => t.slug === "supervisor")?.bundle as AgentBundle;
 
   // DECISION (stream C): Sloan's answer is a Do done by AI with its own skill, not a Loop: a Loop
   // only reads (§8), and Sloan's answer writes the platform's own records for the person asking

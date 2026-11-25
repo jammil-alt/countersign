@@ -12,7 +12,7 @@
 // with the two-step confirm and the change shown first.
 
 import {
-  type AnyAgentBundle,
+  type AgentBundle,
   allSteps,
   classifyChange,
   isUuid,
@@ -260,7 +260,7 @@ const agentSteps: Tool<OpsToolCtx> = {
     if (!v) throw new HttpError(404, "not_found", `the agent has no ${a.version} version`);
     const isLive = v.id === read.agent.liveVersionId;
     const steps = stepsOf(v.bundle);
-    const bundle = v.bundle as AnyAgentBundle;
+    const bundle = v.bundle as AgentBundle;
     const version = {
       id: v.id,
       version: v.version,

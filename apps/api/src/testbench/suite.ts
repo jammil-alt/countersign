@@ -22,7 +22,7 @@ import {
   updateOperational,
 } from "@countersign/agents";
 import {
-  type AnyAgentBundle,
+  type AgentBundle,
   type CaseOutcome,
   expectedWritesOf,
   Fixtures,
@@ -222,7 +222,7 @@ async function bindCopy(
   tx: Tx,
   deps: RunDeps,
   copy: AgentRow,
-  bundle: AnyAgentBundle,
+  bundle: AgentBundle,
   actorId: string | null,
 ): Promise<AgentRow> {
   const tenantId = copy.tenantId as string;
@@ -273,7 +273,7 @@ function stoppedWhy(result: { reason?: string; nodeId?: string; errorKey?: strin
  * them; the golden datasets and cases saved from a client's run use it.
  */
 export function withParameters(parameters: Record<string, Record<string, unknown>>) {
-  return (bundle: AnyAgentBundle): AnyAgentBundle =>
+  return (bundle: AgentBundle): AgentBundle =>
     ({
       ...bundle,
       definition: {
@@ -283,14 +283,14 @@ export function withParameters(parameters: Record<string, Record<string, unknown
           return own ? { ...ref, parameters: { ...(ref.parameters ?? {}), ...own } } : ref;
         }),
       },
-    }) as AnyAgentBundle;
+    }) as AgentBundle;
 }
 
 /** A template test run's steps, cost and time, as `runTemplateTest` answers them. */
 export interface TemplateTestRun {
   runId: string;
   /** The bundle the run ran (the test copy's version). */
-  bundle: AnyAgentBundle;
+  bundle: AgentBundle;
   result: Awaited<ReturnType<typeof executeRun>>;
   steps: { nodeId: string; nodeType: string; input: unknown; output: unknown; status: string }[];
   costUsd: string;
@@ -312,7 +312,7 @@ export async function runTemplateTest(
     workflow: string;
     payload: Record<string, unknown>;
     /** §1.212: the bundle as a client agent would set it (a skill's parameters), run as a version of the test copy. */
-    adjust?: (bundle: AnyAgentBundle) => AnyAgentBundle;
+    adjust?: (bundle: AgentBundle) => AgentBundle;
   },
 ): Promise<TemplateTestRun> {
   const runTenant = args.runTenantId;
@@ -370,7 +370,7 @@ export async function runTemplateTest(
       bundle: version.bundle,
     });
     await createRunRow(tx, r);
-    return { req: r, ranBundle: version.bundle as AnyAgentBundle };
+    return { req: r, ranBundle: version.bundle as AgentBundle };
   });
   // Run to the end here; a test run emits nothing that starts other runs (§10.4).
   const { instances: _none, ...runDeps } = deps;

@@ -11,16 +11,7 @@
 // (invariant 11).
 
 import { LINKEDIN_POST_TOOL, WEBSITE_META_TOOL } from "@countersign/connectors";
-import {
-  AgentBundle,
-  type AgentBundleInput,
-  AnyAgentBundle,
-  type AnyAgentBundleInput,
-  copyLazy,
-  lazy,
-  lazyObject,
-  type processes,
-} from "@countersign/core";
+import { AgentBundle, type AgentBundleInput, copyLazy, lazy, lazyObject, type processes } from "@countersign/core";
 import { DEFAULT_MODELS } from "@countersign/llm";
 import { CONTENT_GET_TOOL } from "../content/tools";
 import {
@@ -394,7 +385,7 @@ const APPROVAL_REQUIRED = {
 
 /** A v4 process as a bundle takes it (defaults may be left out). */
 type ProcessInput = Extract<
-  AnyAgentBundleInput["workflows"][number]["workflow"],
+  AgentBundleInput["workflows"][number]["workflow"],
   { schemaVersion: 4 }
 >;
 
@@ -406,10 +397,10 @@ function withV2(t: PackTemplate, process: ProcessInput): PackTemplate {
         const [w, ...more] = t.bundle.workflows;
         if (!w || more.length > 0) throw new Error(`${t.slug}: one workflow expected`);
         return [
-          AnyAgentBundle.parse({
+          AgentBundle.parse({
             ...t.bundle,
             workflows: [{ ...w, workflow: process }],
-          } satisfies AnyAgentBundleInput),
+          } satisfies AgentBundleInput),
         ];
       }),
     }),
@@ -594,7 +585,7 @@ function withV3(
         if (!w) throw new Error(`${t.slug}: one workflow expected`);
         return [
           v2,
-          AnyAgentBundle.parse({
+          AgentBundle.parse({
             ...v2,
             definition: {
               ...v2.definition,
@@ -602,7 +593,7 @@ function withV3(
               extraTools: def.extraTools,
             },
             workflows: [{ ...w, ...(name ? { name } : {}), workflow: process }],
-          } satisfies AnyAgentBundleInput),
+          } satisfies AgentBundleInput),
         ];
       }),
     }),

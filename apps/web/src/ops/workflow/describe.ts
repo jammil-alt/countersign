@@ -1,6 +1,6 @@
 // Plain labels for workflow parts, shared by the step list and the agent overview's chips.
 import {
-  type AnyAgentBundle,
+  type AgentBundle,
   allSteps,
   processes,
   type Rule,
@@ -463,7 +463,7 @@ export function processStepNames(
  * "6 steps, 2 forks": counted across nested paths and loops. A v4 process's `if` counts as a
  * fork (it is laid out as one).
  */
-export function workflowStats(bundle: Pick<AnyAgentBundle, "workflows">): {
+export function workflowStats(bundle: Pick<AgentBundle, "workflows">): {
   steps: number;
   forks: number;
   /** S4.9: how many workflows `steps` adds up. */

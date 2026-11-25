@@ -4,7 +4,7 @@
 // end (apps/api/src/platform-qa-lineage.test.ts); these are the v4 shapes.
 
 import {
-  type AnyAgentBundle,
+  type AgentBundle,
   type ProcessAgentBundle,
   processes,
   toProcessBundle,
@@ -17,7 +17,7 @@ import { convertLookup } from "./skills";
 const harness = await createHarness();
 afterAll(() => harness?.close());
 
-function writeOf(b: AnyAgentBundle): processes.WriteStep {
+function writeOf(b: AgentBundle): processes.WriteStep {
   const w = b.workflows[0]?.workflow;
   if (w?.schemaVersion !== 4) throw new Error("fixture: expected a process");
   const s = processes.findStep(w, UPDATE_STEP)?.step;

@@ -5,8 +5,8 @@
 // tools sit under "Materials", the retrieval reads as reads and Register item as a Save to records
 // step whose approval is off until the operator turns it on.
 import {
-  AnyAgentBundle,
-  type AnyAgentBundleInput,
+  AgentBundle,
+  type AgentBundleInput,
   type BuilderCatalog,
   type SkillDefinition,
 } from "@countersign/core";
@@ -149,7 +149,7 @@ const CATALOG = {
   automations: [],
 } as unknown as BuilderCatalog;
 
-const BUNDLE: AnyAgentBundleInput = {
+const BUNDLE: AgentBundleInput = {
   schemaVersion: 1,
   definition: {
     schemaVersion: 2,
@@ -216,7 +216,7 @@ function version(): VersionDetail {
     basedOnTemplateVersionId: null,
     createdAt: "2026-11-11T00:00:00.000Z",
     publishedAt: null,
-    bundle: AnyAgentBundle.parse(BUNDLE),
+    bundle: AgentBundle.parse(BUNDLE),
   } as unknown as VersionDetail;
 }
 
@@ -233,7 +233,7 @@ function setup() {
       return { version: { ...version(), bundle: undefined }, errors: [] };
     },
   });
-  const bundle = AnyAgentBundle.parse(BUNDLE);
+  const bundle = AgentBundle.parse(BUNDLE);
   function Page() {
     const { workflow = "" } = useParams();
     return (
@@ -264,7 +264,7 @@ function setup() {
 
 function savedSteps(sent: { path: string; body: Record<string, unknown> }[]) {
   const body = sent.filter((s) => s.path === "save").at(-1)?.body;
-  const w = AnyAgentBundle.parse(body?.bundle).workflows[0]?.workflow;
+  const w = AgentBundle.parse(body?.bundle).workflows[0]?.workflow;
   if (w?.schemaVersion !== 4) throw new Error("not a process");
   return w.steps;
 }

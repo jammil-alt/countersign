@@ -30,7 +30,7 @@ const latest = template?.versions?.at(-1);
 describe("the vendor contracts template", () => {
   it("validates against the platform as a template", () => {
     if (!latest) throw new Error("no template");
-    const r = processes.validateAnyBundle(latest, ctx);
+    const r = processes.validateBundle(latest, ctx);
     expect(r.errors).toEqual([]);
     expect(latest.workflows.map((w) => [w.slug, w.workflow.schemaVersion])).toEqual([
       ["contract-intake", 4],

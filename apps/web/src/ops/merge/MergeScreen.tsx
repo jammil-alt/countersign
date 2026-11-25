@@ -10,20 +10,7 @@
 // does, every side is read as v4 once (core's `readBundles`, the lookup from the builder catalog),
 // so the step list, the marks, the conflicts and the merge all see one shape, and checks and
 // deadlines read in words.
-import {
-  type AgentBundle,
-  type AnyAgentBundle,
-  AnyAgentBundle as AnyAgentBundleSchema,
-  diffBundles,
-  holdsProcess,
-  type MergeConflict,
-  mergeBundles,
-  processes,
-  type Resolution,
-  readBundles,
-  selectableBetween,
-  selectChanges,
-} from "@countersign/core";
+import { type AgentBundle, AgentBundle as AnyAgentBundleSchema, diffBundles, holdsProcess, type MergeConflict, mergeBundles, processes, type Resolution, readBundles, selectableBetween, selectChanges } from "@countersign/core";
 import { type ReactNode, useCallback, useMemo, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import type { ResponseOf } from "../../api/client";
@@ -92,7 +79,7 @@ export function agentBase(agent: Pick<AgentSummary, "kind" | "slug" | "tenantId"
 
 type TypingContext = ReturnType<typeof typingContext>;
 
-function parse(v: VersionDetail): AnyAgentBundle | null {
+function parse(v: VersionDetail): AgentBundle | null {
   const r = AnyAgentBundleSchema.safeParse(v.bundle);
   return r.success ? r.data : null;
 }
@@ -109,11 +96,11 @@ interface Problem {
 /**
  * The server's check of the merged agent, in the browser. All v3: `validateLikeServer` as before.
  * Holding processes: the builder's `validateProcessesLikeServer` (core's whole-bundle
- * `validateAnyBundle`, so slugs and ids across workflows are checked too), as the agent it lands
+ * `validateBundle`, so slugs and ids across workflows are checked too), as the agent it lands
  * on: an update lands on the client agent, a promotion on the template.
  */
 export function validateMerged(
-  bundle: AnyAgentBundle,
+  bundle: AgentBundle,
   ctx: TypingContext,
   clientAgent: boolean,
 ): { valid: boolean; errors: Problem[] } {
@@ -195,7 +182,7 @@ export function MergeScreen() {
       }).bundles;
       return { base: r[0], ours: r[1], theirs: r[2] } as Record<
         "base" | "ours" | "theirs",
-        AnyAgentBundle
+        AgentBundle
       >;
     } catch {
       return null;
@@ -308,9 +295,9 @@ function MergeBody({
   mode: Mode;
   agent: AgentSummary;
   preview: Preview;
-  base: AnyAgentBundle;
-  ours: AnyAgentBundle;
-  theirs: AnyAgentBundle;
+  base: AgentBundle;
+  ours: AgentBundle;
+  theirs: AgentBundle;
   ctx: ReturnType<typeof typingContext>;
 }) {
   const names = sideNames(mode);
@@ -851,7 +838,7 @@ function Saved({
 }: {
   mode: Mode;
   saved: { version: number; to: AgentSummary };
-  bundle: AnyAgentBundle;
+  bundle: AgentBundle;
 }) {
   const base = agentBase(saved.to);
   const first = bundle.workflows[0]?.slug;
@@ -1076,7 +1063,7 @@ function PromoteChoices({
   );
 }
 
-function Problems({ errors, bundle }: { errors: Problem[]; bundle: AnyAgentBundle }) {
+function Problems({ errors, bundle }: { errors: Problem[]; bundle: AgentBundle }) {
   if (errors.length === 0) {
     return (
       <p className="text-sm text-ink-muted" data-testid="merge-problems-none">

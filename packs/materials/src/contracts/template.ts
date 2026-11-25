@@ -16,16 +16,7 @@
 // step the operator adds (Create bill), never a dependency. The template carries no client's data:
 // the AP mailbox is each client agent's own parameter (invariant 11).
 
-import {
-  AgentBundle,
-  type AgentBundleInput,
-  AnyAgentBundle,
-  type AnyAgentBundleInput,
-  lazy,
-  lazyObject,
-  once,
-  processes,
-} from "@countersign/core";
+import { AgentBundle, type AgentBundleInput, lazy, lazyObject, once, processes } from "@countersign/core";
 import { DEFAULT_MODELS } from "@countersign/llm";
 import { DOCUMENT_TRIGGER, matchLinesSteps, priceSteps } from "../patterns";
 import { INVOICE_REVIEW_SKILL, READ_CONTRACT_SKILL } from "./skills";
@@ -271,7 +262,7 @@ const v2 = once(() => {
     reviewSteps(),
   );
   const tools = processes.processTools([intake, review]);
-  return AnyAgentBundle.parse({
+  return AgentBundle.parse({
     schemaVersion: 1,
     definition: {
       ...definition(),
@@ -304,7 +295,7 @@ const v2 = once(() => {
         workflow: review,
       },
     ],
-  } satisfies AnyAgentBundleInput);
+  } satisfies AgentBundleInput);
 });
 
 // ── v3 (owner, 2026-11-15): the hand-off, one step whose way the operator picks ───────────────
@@ -321,7 +312,7 @@ const v2 = once(() => {
 
 /** The hand-off: v2's `ap-set` If, now routed by the notes' `send`. */
 function handoffStep(): Step {
-  // Parsed with the whole bundle (`AnyAgentBundle.parse`), which fills the defaults.
+  // Parsed with the whole bundle (`AgentBundle.parse`), which fills the defaults.
   const step = {
     id: "ap-set",
     name: "Hand off the review",
@@ -379,7 +370,7 @@ function handoffStep(): Step {
 
 const v3 = once(() => {
   const base = v2();
-  return AnyAgentBundle.parse({
+  return AgentBundle.parse({
     ...base,
     workflows: base.workflows.map((w) => {
       if (w.slug !== "invoice-review" || w.workflow.schemaVersion !== 4) return w;
@@ -388,17 +379,17 @@ const v3 = once(() => {
       );
       return { ...w, workflow: { ...w.workflow, steps } };
     }),
-  } satisfies AnyAgentBundleInput);
+  } satisfies AgentBundleInput);
 });
 
 // Round 4 D (docs/plan.md §1.211): v4 checks every write against the run's sources before it
 // reaches a person. `review: "failures"` is what an unset `oversight` already means here.
 const v4 = once(() => {
   const base = v3();
-  return AnyAgentBundle.parse({
+  return AgentBundle.parse({
     ...base,
     definition: { ...base.definition, oversight: { review: "failures", verify: "writes" } },
-  } satisfies AnyAgentBundleInput);
+  } satisfies AgentBundleInput);
 });
 
 /**

@@ -1,7 +1,7 @@
 // Parts shared by the "new template" and "new client agent" pages (design screen 4): the job's
 // fields, the start-from choices (the Builder's "my description", blank, a template), the
 // stepper, and the starting workflow on the right.
-import { type AnyAgentBundle, allTriggers } from "@countersign/core";
+import { type AgentBundle, allTriggers } from "@countersign/core";
 import type { ReactNode } from "react";
 import { Badge, Card, cx, SectionLabel, StepKindTag } from "../../ui/primitives";
 import { KIND_LABEL, PROCESS_KIND_LABEL, triggerTitle } from "../workflow/describe";
@@ -186,7 +186,7 @@ export function WorkflowPreview({
   title = "Starting workflow",
   note,
 }: {
-  bundle: AnyAgentBundle | null;
+  bundle: AgentBundle | null;
   title?: string;
   note?: ReactNode;
 }) {

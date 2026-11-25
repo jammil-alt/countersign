@@ -7,7 +7,7 @@
 // `${useNodeId}/${innerId}` (inside a loop, `${loop}:${index}:${useId}/${innerId}`).
 
 import {
-  type AnyAutomationDefinition,
+  type AutomationDefinition,
   processes,
   type Step,
   useSteps,
@@ -32,8 +32,8 @@ export type Expansions = Record<string, ExpandedAutomation>;
 
 /** Looks up a pinned automation version: a record by `slug@version`, or a function. */
 export type AutomationResolver =
-  | Readonly<Record<string, AnyAutomationDefinition>>
-  | ((ref: string) => AnyAutomationDefinition | undefined);
+  | Readonly<Record<string, AutomationDefinition>>
+  | ((ref: string) => AutomationDefinition | undefined);
 
 export class ExpandError extends Error {
   override name = "ExpandError";
@@ -46,7 +46,7 @@ export class ExpandError extends Error {
   }
 }
 
-function lookup(resolve: AutomationResolver, ref: string): AnyAutomationDefinition | undefined {
+function lookup(resolve: AutomationResolver, ref: string): AutomationDefinition | undefined {
   if (typeof resolve === "function") return resolve(ref);
   return Object.hasOwn(resolve, ref) ? resolve[ref] : undefined;
 }

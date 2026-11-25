@@ -8,7 +8,7 @@
 
 import {
   type ActivityReport,
-  type AnyBundleWorkflow,
+  type BundleWorkflow,
   type AnyStep,
   BACK_OFFICE_SPEND,
   type BackOfficeSpend,
@@ -865,7 +865,7 @@ export async function activity(
 
 // ── What a service is doing now (audit-plan 6.1, 6.6) ──────────────────────────────────────────
 
-type AnyWorkflow = AnyBundleWorkflow["workflow"];
+type AnyWorkflow = BundleWorkflow["workflow"];
 type AgentRow = typeof agent.$inferSelect;
 
 /** A service's latest live run, its current step and what it has going: one row per service. */
@@ -1032,7 +1032,7 @@ export async function workflowsOf(
   const rows = await tx
     .select({
       id: agentVersion.id,
-      workflows: sql<AnyBundleWorkflow[] | null>`${agentVersion.bundle} -> 'workflows'`,
+      workflows: sql<BundleWorkflow[] | null>`${agentVersion.bundle} -> 'workflows'`,
     })
     .from(agentVersion)
     .where(and(eq(agentVersion.tenantId, tenantId), inArray(agentVersion.id, ids)));

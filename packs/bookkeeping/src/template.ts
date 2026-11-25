@@ -14,16 +14,7 @@ import {
   BANKING_TOOLS,
   QBO_REGISTER_TOOL,
 } from "@countersign/connectors";
-import {
-  AgentBundle,
-  type AgentBundleInput,
-  AnyAgentBundle,
-  type AnyAgentBundleInput,
-  lazy,
-  lazyObject,
-  once,
-  processes,
-} from "@countersign/core";
+import { AgentBundle, type AgentBundleInput, lazy, lazyObject, once, processes } from "@countersign/core";
 import { DEFAULT_MODELS } from "@countersign/llm";
 import { ACCOUNT_QUESTIONS, BOOKINGS_REVIEW } from "./api";
 import { RECONCILIATION_REVIEW } from "./reconcile/api";
@@ -654,7 +645,7 @@ const v1Entry = (slug: string) => {
   return { slug: w.slug, name: w.name, enabled: w.enabled };
 };
 
-const bookkeeperV2 = once(() => AnyAgentBundle.parse(bookkeeperV2Input()));
+const bookkeeperV2 = once(() => AgentBundle.parse(bookkeeperV2Input()));
 
 const bookkeeperV2Input = () =>
   ({
@@ -1012,7 +1003,7 @@ const bookkeeperV2Input = () =>
         },
       },
     ],
-  }) satisfies AnyAgentBundleInput;
+  }) satisfies AgentBundleInput;
 
 // ── Skill model (2026-11-10; docs/plan.md §1.86 "Skill model"): v3 ──────────────────────────────
 //
@@ -1029,7 +1020,7 @@ const bookkeeperV2Input = () =>
 // QuickBooks keeps v2's approval. Its proposals still wait for a person: the bookings' own review.
 
 /** v2's processes with the split's steps in place of the skills that acted on their own. */
-function v3Workflows(): AnyAgentBundle["workflows"] {
+function v3Workflows(): AgentBundle["workflows"] {
   return bookkeeperV2().workflows.map((w) => {
     if (w.workflow.schemaVersion !== 4) throw new Error(`${w.slug}: not v4`);
     const steps = processes.replaceSteps(w.workflow.steps, (step) => {
@@ -1054,7 +1045,7 @@ function v3Workflows(): AnyAgentBundle["workflows"] {
 const V3_WORKFLOWS = once(v3Workflows);
 
 const bookkeeperV3 = once(() =>
-  AnyAgentBundle.parse({
+  AgentBundle.parse({
     ...bookkeeperV2(),
     definition: {
       ...bookkeeperV2().definition,
@@ -1079,7 +1070,7 @@ const bookkeeperV3 = once(() =>
       ],
     },
     workflows: V3_WORKFLOWS(),
-  } satisfies AnyAgentBundleInput),
+  } satisfies AgentBundleInput),
 );
 
 // ── v4 (2026-11-17): one booking that can't be written doesn't hold up the rest ─────────────────
@@ -1090,7 +1081,7 @@ const bookkeeperV3 = once(() =>
 // templates"; a client agent gets it as a template update merged on review (invariant 11).
 
 const bookkeeperV4 = once(() =>
-  AnyAgentBundle.parse({
+  AgentBundle.parse({
     ...bookkeeperV3(),
     workflows: bookkeeperV3().workflows.map((w) => {
       if (w.workflow.schemaVersion !== 4) throw new Error(`${w.slug}: not v4`);
@@ -1101,7 +1092,7 @@ const bookkeeperV4 = once(() =>
       );
       return { ...w, workflow: { ...w.workflow, steps } };
     }),
-  } satisfies AnyAgentBundleInput),
+  } satisfies AgentBundleInput),
 );
 
 // ── v5 (2026-11-20): a statement's currency reaches the reconciliation ──────────────────────────
@@ -1136,13 +1127,13 @@ function withStatementCurrency(steps: readonly processes.Step[]): processes.Step
 }
 
 const bookkeeperV5 = once(() =>
-  AnyAgentBundle.parse({
+  AgentBundle.parse({
     ...bookkeeperV4(),
     workflows: bookkeeperV4().workflows.map((w) => {
       if (w.workflow.schemaVersion !== 4) throw new Error(`${w.slug}: not v4`);
       return { ...w, workflow: { ...w.workflow, steps: withStatementCurrency(w.workflow.steps) } };
     }),
-  } satisfies AnyAgentBundleInput),
+  } satisfies AgentBundleInput),
 );
 
 // ── v6 (2026-11-22, docs/plan.md §1.187): each bank transaction written once ────────────────────
@@ -1232,7 +1223,7 @@ const V6_WORKFLOWS = once(() =>
 );
 
 const bookkeeperV6 = once(() =>
-  AnyAgentBundle.parse({
+  AgentBundle.parse({
     ...bookkeeperV5(),
     definition: {
       ...bookkeeperV5().definition,
@@ -1249,20 +1240,20 @@ const bookkeeperV6 = once(() =>
       ],
     },
     workflows: V6_WORKFLOWS(),
-  } satisfies AnyAgentBundleInput),
+  } satisfies AgentBundleInput),
 );
 
 // Round 4 D (docs/plan.md §1.211): v7 checks every write against the run's sources before it
 // reaches a person (`oversight.verify`). `review: "failures"` is what an unset `oversight` already
 // means for a bundle of v4 processes, so only the check is new.
 const bookkeeperV7 = once(() =>
-  AnyAgentBundle.parse({
+  AgentBundle.parse({
     ...bookkeeperV6(),
     definition: {
       ...bookkeeperV6().definition,
       oversight: { review: "failures", verify: "writes" },
     },
-  } satisfies AnyAgentBundleInput),
+  } satisfies AgentBundleInput),
 );
 
 /**

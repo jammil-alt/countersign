@@ -21,7 +21,7 @@ import {
   schemaFields,
 } from "@countersign/agents";
 import {
-  type AnyAgentBundle,
+  type AgentBundle,
   AUTOMATION_SKILL_REF_PREFIX,
   type AutomationHealth,
   type AutomationListItem,
@@ -328,7 +328,7 @@ async function saveFromSteps(ctx: HandlerCtx<typeof routes.opsAutomationFromStep
   // Wave 3b: a v3 workflow's steps become a v3 automation as before; a v4 process's a v4 one.
   const result = await bundleStepsToAutomation(tx, {
     tenantId: row.tenantId,
-    bundle: v.bundle as AnyAgentBundle,
+    bundle: v.bundle as AgentBundle,
     stepIds: body.stepIds,
     slug: body.slug,
     name: body.name,
@@ -488,7 +488,7 @@ export async function builderAutomations(
   input: {
     tenantId: string | null;
     tenantIds: readonly string[];
-    bundle: AnyAgentBundle | null;
+    bundle: AgentBundle | null;
     skills: Record<string, SkillDefinition>;
     platform: Platform;
   },

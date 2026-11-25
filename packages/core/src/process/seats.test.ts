@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import { PersonRole, seatKindOf, seatLabelOf } from "../reach/rules";
 import type { ToolSpec } from "../schemas/tool";
 import type { TypingContext } from "../template/typer";
-import { validateAnyBundle } from "./bundle";
+import { validateBundle } from "./bundle";
 import { Process } from "./schema";
 import {
   EMPTY_SEAT_FALLBACK,
@@ -165,7 +165,7 @@ describe("seatProblems", () => {
   });
 });
 
-describe("validateAnyBundle with seats", () => {
+describe("validateBundle with seats", () => {
   const definition = {
     schemaVersion: 2 as const,
     identity: { name: "Clerk", role: "Bills", mission: "Enter bills" },
@@ -190,15 +190,15 @@ describe("validateAnyBundle with seats", () => {
   });
 
   it("is valid when the seat is declared to sign", () => {
-    const r = validateAnyBundle(bundle([{ role: "bill-approver", kind: "signs" }]), CTX);
+    const r = validateBundle(bundle([{ role: "bill-approver", kind: "signs" }]), CTX);
     expect(r.errors).toEqual([]);
   });
 
   it("names the workflow when a seat is unknown or can't sign", () => {
-    expect(validateAnyBundle(bundle([]), CTX).errors).toEqual([
+    expect(validateBundle(bundle([]), CTX).errors).toEqual([
       expect.objectContaining({ workflow: "bills", stepId: "create", code: "unknown_seat" }),
     ]);
-    expect(validateAnyBundle(bundle([{ role: "bill-approver" }]), CTX).errors).toEqual([
+    expect(validateBundle(bundle([{ role: "bill-approver" }]), CTX).errors).toEqual([
       expect.objectContaining({ workflow: "bills", code: "seat_kind" }),
     ]);
   });

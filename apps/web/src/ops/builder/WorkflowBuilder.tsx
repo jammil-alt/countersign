@@ -18,28 +18,7 @@
 // frame. Everything it holds is as before: the history (undo and redo), the rolling draft, saving,
 // publishing, rebasing onto a newer version, the Builder session and the validator. Only how it is
 // drawn changed; every chart event goes to the same operations in ./model, and no id is made twice.
-import {
-  type AgentBundle,
-  type AnyAgentBundle,
-  AnyAgentBundle as AnyAgentBundleSchema,
-  agentSkillEntry,
-  type BuildDetail,
-  type BuilderCatalog,
-  canonicalJson,
-  codeRequestRoutes,
-  effectiveModel,
-  lookupSkill,
-  type ProcessAgentBundle,
-  parseSkillRef,
-  processes,
-  providerModelName,
-  skillKind,
-  type TriggerOn,
-  type TypingContext,
-  toolLookup,
-  toolUsesModel,
-  uuidv7,
-} from "@countersign/core";
+import { type AgentBundle, AgentBundle as AnyAgentBundleSchema, agentSkillEntry, type BuildDetail, type BuilderCatalog, canonicalJson, codeRequestRoutes, effectiveModel, lookupSkill, type ProcessAgentBundle, parseSkillRef, processes, providerModelName, skillKind, type TriggerOn, type TypingContext, toolLookup, toolUsesModel, uuidv7 } from "@countersign/core";
 import {
   DndContext,
   type DragEndEvent,
@@ -221,7 +200,7 @@ export interface WorkflowBuilderProps {
   /** The version the builder opens: the agent's latest, draft or live. */
   from: VersionDetail;
   /** That version's bundle as stored: v3 workflows, v4 processes, or both. */
-  bundle: AgentBundle | AnyAgentBundle;
+  bundle: AgentBundle | AgentBundle;
   /** The workflow slug from the URL. */
   workflow: string;
   /** The agent page's URL. */
@@ -470,7 +449,7 @@ interface Saved {
 function BuilderBody(
   props: WorkflowBuilderProps & {
     data: BuilderData;
-    template: AnyAgentBundle | null;
+    template: AgentBundle | null;
     people: People;
     /** Skill model (2026-11-10): a skill version a step moved to joins the builder's catalog. */
     onCatalogSkill?(entry: BuilderCatalog["skills"][number]): void;
@@ -1239,7 +1218,7 @@ function BuilderBody(
   const save = async (
     extra: {
       snapshot?: ProcessAgentBundle;
-      added?: AnyAgentBundle["workflows"];
+      added?: AgentBundle["workflows"];
       note?: string;
     } = {},
   ): Promise<Saved | null> => {

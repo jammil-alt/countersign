@@ -1,7 +1,7 @@
 // The Builder in the back office (ARCHITECTURE §9.6): on an agent page, Revise asks the Builder for a
 // new draft from an instruction or one of the client's requests and shows what changed. New agents
 // are drafted by conversation (NewAgentConversation, O5).
-import type { AnyAgentBundle } from "@countersign/core";
+import type { AgentBundle } from "@countersign/core";
 import { useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import type { ResponseOf } from "../../api/client";
@@ -21,7 +21,7 @@ export function agentPath(agent: Pick<AgentSummary, "kind" | "slug" | "tenantId"
     : `/ops/clients/${agent.tenantId}/agents/${agent.slug}`;
 }
 
-function bundleOf(raw: unknown): AnyAgentBundle | null {
+function bundleOf(raw: unknown): AgentBundle | null {
   const p = parseAnyBundle({ bundle: raw });
   return p.ok ? p.bundle : null;
 }

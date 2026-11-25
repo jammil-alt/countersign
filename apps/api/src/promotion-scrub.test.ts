@@ -5,7 +5,7 @@
 
 import { parseVersionBundle, skillContext, stripForPromotion } from "@countersign/agents";
 import {
-  type AnyAgentBundle,
+  type AgentBundle,
   cloneJson,
   holdsProcess,
   holdsStepModel,
@@ -37,7 +37,7 @@ const SEEDED: Record<string, Record<number, unknown>> = {
  * A client's version of a template: every person it names is one of the client's (a user or
  * contact id), and every message trigger lists only the client's contacts.
  */
-function personalized(bundle: AnyAgentBundle, ids: string[]): AnyAgentBundle {
+function personalized(bundle: AgentBundle, ids: string[]): AgentBundle {
   const out = cloneJson(bundle);
   const id = () => {
     const v = uuidv7();
@@ -81,12 +81,12 @@ describe.skipIf(!h)("the promotion scrub on every shipped template", () => {
   const H = h as ApiHarness;
   const ctx = H?.platform.ctx;
 
-  const errorsOf = async (bundle: AnyAgentBundle) => {
+  const errorsOf = async (bundle: AgentBundle) => {
     const { skills } = await withOperator(H.db, [], (tx) =>
       skillContext(tx, { tenantId: null, bundle, catalog: ctx.catalog }),
     );
     const validate =
-      holdsProcess(bundle) || holdsStepModel(bundle) ? processes.validateAnyBundle : validateBundle;
+      holdsProcess(bundle) || holdsStepModel(bundle) ? processes.validateBundle : validateBundle;
     const r = validate(bundle, {
       skills,
       tools: ctx.tools.specs(),
@@ -96,20 +96,20 @@ describe.skipIf(!h)("the promotion scrub on every shipped template", () => {
     return r.errors.map((e) => `${e.code} ${e.field ?? ""}`).sort();
   };
 
-  const templates = (): [string, AnyAgentBundle][] => {
-    const out: [string, AnyAgentBundle][] = [];
+  const templates = (): [string, AgentBundle][] => {
+    const out: [string, AgentBundle][] = [];
     for (const [slug, files] of Object.entries(SEEDED)) {
       const latest = Math.max(...Object.keys(files).map(Number));
       out.push([
         `${slug} v${latest}`,
-        parseVersionBundle(seedVersionBundle(files, latest, slug)) as AnyAgentBundle,
+        parseVersionBundle(seedVersionBundle(files, latest, slug)) as AgentBundle,
       ]);
     }
     for (const pack of H.platform.packs) {
       for (const t of pack.manifest.templates) {
         out.push([
           `${pack.manifest.id}/${t.slug}`,
-          (t.versions?.at(-1) ?? t.bundle) as AnyAgentBundle,
+          (t.versions?.at(-1) ?? t.bundle) as AgentBundle,
         ]);
       }
     }

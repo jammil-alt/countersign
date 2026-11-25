@@ -8,7 +8,7 @@ import { Decision } from "../build/build";
 import { diffBundles } from "../bundle/diff";
 import { mergeBundles } from "../bundle/merge";
 import { bundleHash } from "../canonical";
-import { AgentBundle, AnyAgentBundle } from "../schemas/agent";
+import { AgentBundle } from "../schemas/agent";
 import { bundle, edit } from "../testing/fixtures";
 import {
   AgentManual,
@@ -31,8 +31,8 @@ const decision = (over: Partial<Decision> & { id: string; what: string }): Decis
   Decision.parse({ kind: "assumption", ...over });
 
 /** A v4 bundle: read, an if with a write inside, a person step, a write with approval off. */
-function processBundle(): AnyAgentBundle {
-  return AnyAgentBundle.parse({
+function processBundle(): AgentBundle {
+  return AgentBundle.parse({
     schemaVersion: 1,
     definition: {
       schemaVersion: 2,

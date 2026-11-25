@@ -37,9 +37,9 @@ import {
 } from "@countersign/connectors";
 import {
   // R6
-  type AnyAgentBundle,
-  type AnyAutomationDefinition,
-  type AnyBundleWorkflow,
+  type AgentBundle,
+  type AutomationDefinition,
+  type BundleWorkflow,
   automationRefs,
   // v0.12 W2-E
   HANDOFF_OUTPUT_MAX_BYTES,
@@ -325,7 +325,7 @@ const STEP_CONFIG = {
 } as const;
 
 /** A stored workflow entry: a v3 workflow or (R3) a v4 process. */
-type StoredWorkflow = AnyBundleWorkflow["workflow"];
+type StoredWorkflow = BundleWorkflow["workflow"];
 
 type Loaded =
   | {
@@ -337,7 +337,7 @@ type Loaded =
       timeZone?: string;
       resume: RunResume | null;
       // v0.12 W2-B: the automation versions its use steps pin.
-      automations?: Record<string, AnyAutomationDefinition>;
+      automations?: Record<string, AutomationDefinition>;
       // v0.13 W2-I: the agent's oversight settings, as pinned (absent: off). R6: its owner's
       // (`processes.ownerOfBundle`): a v3 agent's are exactly its stored ones.
       oversight?: OversightSettings;
@@ -376,8 +376,8 @@ async function automationsOf(
   tx: Tx,
   tenantId: string,
   workflow: StoredWorkflow,
-): Promise<Record<string, AnyAutomationDefinition>> {
-  const out: Record<string, AnyAutomationDefinition> = {};
+): Promise<Record<string, AutomationDefinition>> {
+  const out: Record<string, AutomationDefinition> = {};
   const refs =
     workflow.schemaVersion === 5
       ? stepModelAutomationRefs(workflow)
@@ -582,14 +582,14 @@ export async function executeRun(
         .where(
           and(eq(agentVersion.id, info.agentVersionId), eq(agentVersion.tenantId, info.tenantId)),
         );
-      // R3: a version's entries may be v3 workflows or v4 processes (AnyAgentBundle).
-      const workflows = (v?.bundle.workflows ?? []) as AnyBundleWorkflow[];
+      // R3: a version's entries may be v3 workflows or v4 processes (AgentBundle).
+      const workflows = (v?.bundle.workflows ?? []) as BundleWorkflow[];
       const wf = workflows.find((w) => w.slug === info.workflowSlug);
       if (!wf) return { ok: false, reason: `no workflow ${info.workflowSlug} in that version` };
       // v0.19 (ARCHITECTURE §10.15): the process's area owner, created the first time a process
       // in its area runs, pinned on the run so a replay is watched by the same version.
       const owned = v?.bundle
-        ? await pinOwner(tx, info, v.bundle as AnyAgentBundle, deps.platform.catalog)
+        ? await pinOwner(tx, info, v.bundle as AgentBundle, deps.platform.catalog)
         : null;
       const [client] = await tx
         .select({ timeZone: tenant.timezone })
@@ -612,7 +612,7 @@ export async function executeRun(
         ...(wf.workflow.schemaVersion === 5
           ? {
               pinnedSkills: (
-                (v?.bundle as AnyAgentBundle | undefined)?.definition.skills ?? []
+                (v?.bundle as AgentBundle | undefined)?.definition.skills ?? []
               ).map((s) => s.skill),
             }
           : {}),
@@ -875,7 +875,7 @@ function ownerSettingsOf(
   pinned: PinnedAreaOwner | null,
 ): { oversight?: OversightSettings; watch?: boolean; owner?: RunAreaOwner } {
   if (!bundle) return {};
-  const owner = runOwnerOf(bundle as AnyAgentBundle, pinned ?? undefined);
+  const owner = runOwnerOf(bundle as AgentBundle, pinned ?? undefined);
   return {
     ...(owner.settings ? { oversight: owner.settings } : {}),
     ...(owner.watch ? { watch: true } : {}),
@@ -891,7 +891,7 @@ function ownerSettingsOf(
 async function pinOwner(
   tx: Tx,
   info: RunInfo,
-  bundle: AnyAgentBundle,
+  bundle: AgentBundle,
   catalog: { get(id: string): { requiresPacks: string[] } | undefined },
 ): Promise<PinnedAreaOwner> {
   const area = await areaOfAgent(tx, info.tenantId, info.agentId, bundle.definition, (id) =>

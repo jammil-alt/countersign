@@ -6,7 +6,7 @@
 
 import { convertLookup } from "@countersign/agents";
 import {
-  AnyAgentBundle,
+  AgentBundle,
   buildSetupItems,
   deepEqual,
   draftWriteUses,
@@ -36,7 +36,7 @@ export function draftSetupItems(
   try {
     // Step model (build item 9): v5 workflows are read apart (`stepModelWriteUses`).
     bundle = toProcessBundle(
-      AnyAgentBundle.parse(stored),
+      AgentBundle.parse(stored),
       convertLookup(platform.catalog, platform.tools),
       { stepModel: "skip" },
     );
@@ -51,7 +51,7 @@ export function draftSetupItems(
     if (def) skills[ref] = def;
   };
   for (const s of bundle.definition.skills) addSkill(s.skill);
-  for (const ref of AnyAgentBundle.parse(stored).workflows.flatMap((w) =>
+  for (const ref of AgentBundle.parse(stored).workflows.flatMap((w) =>
     w.workflow.schemaVersion === 5 ? steps.stepModelSkills(w.workflow) : [],
   )) {
     addSkill(ref);
@@ -67,7 +67,7 @@ export function draftSetupItems(
     decisions: fitgap.decisions,
     writes: [
       ...draftWriteUses(bundle, { tools, skills }),
-      ...stepModelWriteUses(AnyAgentBundle.parse(stored), tools),
+      ...stepModelWriteUses(AgentBundle.parse(stored), tools),
     ],
     connectors: platform.connectors.list().map((c) => ({
       id: c.manifest.id,

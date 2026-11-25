@@ -10,16 +10,7 @@
 // reach a person (`oversight.verify: writes`, ARCHITECTURE §10.18). The template carries no
 // client's data. Step ids are fixed: merges depend on them.
 
-import {
-  AgentBundle,
-  type AgentBundleInput,
-  AnyAgentBundle,
-  type AnyAgentBundleInput,
-  lazy,
-  lazyObject,
-  once,
-  processes,
-} from "@countersign/core";
+import { AgentBundle, type AgentBundleInput, lazy, lazyObject, once, processes } from "@countersign/core";
 import { DEFAULT_MODELS } from "@countersign/llm";
 import { CLOSE_REVIEW } from "./api";
 import { JOURNAL_CREATE_TOOL } from "./store";
@@ -178,13 +169,13 @@ const v2 = once(() => {
     triggers: closeTriggers(),
     steps: closeSteps(),
   } as unknown as processes.Process;
-  return AnyAgentBundle.parse({
+  return AgentBundle.parse({
     schemaVersion: 1,
     definition: { ...definition(), extraTools: processes.processTools([process]) },
     workflows: [
       { slug: "monthly", name: "Every month: close the books", enabled: true, workflow: process },
     ],
-  } satisfies AnyAgentBundleInput);
+  } satisfies AgentBundleInput);
 });
 
 /** The template: v1 as first installed (the definition), v2 its process. */

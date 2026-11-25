@@ -10,16 +10,7 @@
 // records (`internal`); a write to anything outside is a connector's external tool, never a
 // pack's (invariant 8).
 
-import {
-  type AgentBundle,
-  type AnyAgentBundle,
-  type EventTypeSpec,
-  lazy,
-  lazyObject,
-  type Role,
-  type SkillDefinition,
-  type ToolSpec,
-} from "@countersign/core";
+import { type AgentBundle, type EventTypeSpec, lazy, lazyObject, type Role, type SkillDefinition, type ToolSpec } from "@countersign/core";
 import type { Db, Tx } from "@countersign/db";
 import type { LlmClient } from "@countersign/llm";
 import { z } from "zod";
@@ -197,7 +188,7 @@ export class PackRefusal extends Error {
 export interface PackTemplate {
   slug: string;
   bundle: AgentBundle;
-  versions?: readonly AnyAgentBundle[];
+  versions?: readonly AgentBundle[];
 }
 
 /** A portal screen (M50); the back office's screens are apps/web's own routes. */

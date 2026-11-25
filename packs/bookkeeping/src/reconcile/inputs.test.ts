@@ -3,7 +3,7 @@
 // cs_worker, as store.test.ts does. The Bookkeeper's payout check passes the statement's currency,
 // as the reader writes it, to its given side (INPUT-2, the template's v5).
 
-import { type AnyAgentBundle, processes, resolveTemplate } from "@countersign/core";
+import { type AgentBundle, processes, resolveTemplate } from "@countersign/core";
 import { closeDb, createDb, type Db, tenant, withTenant } from "@countersign/db";
 import { createTestDatabase, databaseAvailable, type TestDatabase } from "@countersign/db/testing";
 import { eq } from "drizzle-orm";
@@ -21,7 +21,7 @@ const DOC = "00000000-0000-4000-8000-000000000001";
 
 /** The latest Bookkeeper's payout check: its reconcile step's input, as the template has it. */
 function payoutStepInput(): unknown {
-  const latest = bookkeepingManifest.templates[0]?.versions?.at(-1) as AnyAgentBundle | undefined;
+  const latest = bookkeepingManifest.templates[0]?.versions?.at(-1) as AgentBundle | undefined;
   const wf = latest?.workflows.find((w) => w.slug === "payout-check")?.workflow;
   if (wf?.schemaVersion !== 4) throw new Error("no v4 payout check");
   const step = processes.allSteps(wf).find((l) => l.step.id === "payout")?.step;

@@ -89,7 +89,7 @@ const AgentBundleSchema = {
 };
 
 const validate = async (bundle: AgentBundle) =>
-  processes.validateAnyBundle(bundle, {
+  processes.validateBundle(bundle, {
     skills: { [matchSkill.id]: matchSkill },
     tools: registry.specs(),
   }).errors as never;

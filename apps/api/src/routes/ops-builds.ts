@@ -14,7 +14,7 @@ import {
   reviewBrief,
 } from "@countersign/agents";
 import {
-  AnyAgentBundle,
+  AgentBundle,
   BRIEF_FIELDS,
   BRIEF_LABELS,
   type Brief,
@@ -1620,7 +1620,7 @@ async function draftGapSteps(
   named: readonly (string | null)[] = [],
 ): Promise<(string | null)[]> {
   const latest = agentId ? await latestVersion(tx, agentId) : null;
-  const parsed = latest ? AnyAgentBundle.safeParse(latest.bundle) : null;
+  const parsed = latest ? AgentBundle.safeParse(latest.bundle) : null;
   if (!parsed?.success) return gaps.map(() => null);
   const drafted = parsed.data.workflows.flatMap((w) =>
     w.workflow.schemaVersion === 4 ? [w.workflow] : [],
@@ -1740,7 +1740,7 @@ async function writeDraftFromBuild(ctx: LongCtx, id: string, phase: BuildPhase):
     if (r.kind !== "agent" || !r.agentId) return null;
     const latest = await latestVersion(scoped.tx, r.agentId);
     if (!latest) return null;
-    const parsed = AnyAgentBundle.safeParse(latest.bundle);
+    const parsed = AgentBundle.safeParse(latest.bundle);
     if (!parsed.success) return null;
     // The decisions with their risk worked out by code, as the build shows them.
     const detail = await detailIn(scoped, ctx.services, r);
@@ -2059,7 +2059,7 @@ export async function draftNow(ctx: LongCtx, id: string, given: string | null): 
     if (r.clientId && agentId) {
       const agentRow = await getAgent(scoped.tx, agentId);
       const latest = await latestVersion(scoped.tx, agentId);
-      const parsed = latest ? AnyAgentBundle.safeParse(latest.bundle) : null;
+      const parsed = latest ? AgentBundle.safeParse(latest.bundle) : null;
       if (parsed?.success) {
         const after = await bindTestCopy(
           { tx: scoped.tx, services: ctx.services, session: ctx.session },

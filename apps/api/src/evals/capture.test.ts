@@ -5,7 +5,7 @@
 // its agent's AP mailbox): the approved one makes its write, the corrected one doesn't (the agent
 // still sends to AP), and the scorecard says so. Operators only; once per item.
 
-import { type AnyAgentBundle, WRITES_KEY } from "@countersign/core";
+import { type AgentBundle, WRITES_KEY } from "@countersign/core";
 import {
   agent,
   agentVersion,
@@ -72,7 +72,7 @@ describe.skipIf(!h)("saving an approved change as a case", () => {
           s.skill === "materials.invoice-review" ? { ...s, parameters: { ap_email: AP } } : s,
         ),
       },
-    } as AnyAgentBundle;
+    } as AgentBundle;
     const [a] = await H.t.db
       .insert(agent)
       .values({

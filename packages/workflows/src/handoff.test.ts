@@ -1,6 +1,6 @@
 // Hand off (owner, 2026-11-11; docs/plan.md §1.96): a hand-off step starts another agent's run at
 // one of its steps; a run so started skips its earlier steps and takes the input handed over.
-import type { AnyAgentBundle, processes } from "@countersign/core";
+import type { AgentBundle, processes } from "@countersign/core";
 import { describe, expect, it } from "vitest";
 import { executeWorkflow } from "./executor";
 import { FakeStepRunner } from "./fake-runner";
@@ -175,7 +175,7 @@ describe("handoffRunRequest", () => {
   const TENANT = RUN.tenantId;
   const bundle = {
     workflows: [{ slug: "main", enabled: true, workflow: priceChecker }],
-  } as unknown as AnyAgentBundle;
+  } as unknown as AgentBundle;
   const target = (over: Partial<RoutableAgent> = {}): RoutableAgent & { slug: string } => ({
     id: "agent-b",
     slug: "price-checker",
@@ -304,7 +304,7 @@ describe("selfHandoffRunRequest", () => {
       { slug: "scan", name: "Scan bills", enabled: true, workflow: proc([skill("find")]) },
       { slug: "old", name: "Old", enabled: false, workflow: priceChecker },
     ],
-  } as unknown as AnyAgentBundle;
+  } as unknown as AgentBundle;
   const self = (over: Partial<RoutableAgent> = {}): RoutableAgent & { slug: string } => ({
     id: "agent-a",
     slug: "invoices",

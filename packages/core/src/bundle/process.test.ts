@@ -15,8 +15,7 @@ import type {
 import {
   type AgentBundle,
   AgentBundle as AgentBundleSchema,
-  type AnyAgentBundle,
-  AnyAgentBundle as AnyAgentBundleSchema,
+  AgentBundle as AnyAgentBundleSchema,
   holdsProcess,
 } from "../schemas/agent";
 import type { Step, Trigger } from "../schemas/workflow";
@@ -36,15 +35,15 @@ const lookup: ConvertLookup = {
 };
 
 /** The fixture bundle with its one workflow read as a v4 process. */
-const v4 = (): AnyAgentBundle => toProcessBundle(bundle(), lookup);
+const v4 = (): AgentBundle => toProcessBundle(bundle(), lookup);
 
-const proc = (b: AnyAgentBundle, slug = "intake"): Process => {
+const proc = (b: AgentBundle, slug = "intake"): Process => {
   const w = b.workflows.find((x) => x.slug === slug)?.workflow;
   if (w?.schemaVersion !== 4) throw new Error(`${slug} is not a v4 process`);
   return w;
 };
 
-const find = (b: AnyAgentBundle, id: string): ProcessStep => {
+const find = (b: AgentBundle, id: string): ProcessStep => {
   let found: ProcessStep | undefined;
   for (const w of b.workflows) {
     if (w.workflow.schemaVersion !== 4) continue;
@@ -56,7 +55,7 @@ const find = (b: AnyAgentBundle, id: string): ProcessStep => {
   return found;
 };
 
-const approval = (b: AnyAgentBundle, id: string): ApprovalCheck => {
+const approval = (b: AgentBundle, id: string): ApprovalCheck => {
   const a = find(b, id).checks?.approval;
   if (!a) throw new Error(`no approval on ${id}`);
   return a;
@@ -68,7 +67,7 @@ const v3Steps = (b: AgentBundle) => b.workflows[0]?.workflow.steps as Step[];
 
 const secondTrigger: Trigger = { id: "t2", on: { type: "manual", input: { type: "object" } } };
 
-describe("AnyAgentBundle", () => {
+describe("AgentBundle", () => {
   it("parses and hashes a stored v3 bundle exactly as before", async () => {
     const v3 = AgentBundleSchema.parse(bundleInput());
     const any = AnyAgentBundleSchema.parse(bundleInput());
@@ -84,7 +83,7 @@ describe("AnyAgentBundle", () => {
   });
 
   it("holds v4 processes and v3 workflows side by side; AgentBundle stays v3 only", async () => {
-    const mixed = edit(bundle() as AnyAgentBundle, (d) => {
+    const mixed = edit(bundle() as AgentBundle, (d) => {
       d.workflows.push({
         slug: "intake-v4",
         name: "Intake v4",
@@ -174,7 +173,7 @@ describe("flattening a v4 process", () => {
     };
     expect(Object.keys(content.workflow.triggers)).toEqual(["t1", "t2"]);
     expect(content.workflow.triggers.t2).toEqual(secondTrigger);
-    expect(unflattenBundle<AnyAgentBundle>(flat)).toEqual(b);
+    expect(unflattenBundle<AgentBundle>(flat)).toEqual(b);
   });
 
   it("refuses a process with one trigger id twice", () => {
@@ -335,20 +334,16 @@ describe("mergeBundles on v4", () => {
     edit(v4(), (d) => {
       proc(d).triggers.push(...extra);
     });
-  const reorder = (b: AnyAgentBundle, order: string[]) =>
+  const reorder = (b: AgentBundle, order: string[]) =>
     edit(b, (d) => {
       const p = proc(d);
       p.triggers = order.map((id) => p.triggers.find((t) => t.id === id) as Trigger);
     });
-  const triggerIds = (b: AnyAgentBundle) => proc(b).triggers.map((t) => t.id);
+  const triggerIds = (b: AgentBundle) => proc(b).triggers.map((t) => t.id);
 
   it("keeps trigger order through flattening, numeric ids included", () => {
     const b = reorder(withTriggers(secondTrigger, thirdTrigger), ["t2", "t1", "2"]);
-    expect(triggerIds(unflattenBundle<AnyAgentBundle>(flattenBundle(b)))).toEqual([
-      "t2",
-      "t1",
-      "2",
-    ]);
+    expect(triggerIds(unflattenBundle<AgentBundle>(flattenBundle(b)))).toEqual(["t2", "t1", "2"]);
   });
 
   it("shows a trigger reorder as a change, and select carries it with the workflow", () => {

@@ -36,8 +36,8 @@ import {
   validateForPublish,
 } from "@countersign/agents";
 import {
-  type AnyAgentBundle,
-  AnyAgentBundle as AnyAgentBundleSchema,
+  type AgentBundle,
+  AgentBundle as AnyAgentBundleSchema,
   processes,
   routes,
   type SkillDefinition,
@@ -76,7 +76,7 @@ async function agentInScope(ctx: Pick<HandlerCtx<never>, "tx" | "tenantIds">, id
   return row;
 }
 
-function routable(row: AgentRow, liveBundle: AnyAgentBundle | null): RoutableAgent {
+function routable(row: AgentRow, liveBundle: AgentBundle | null): RoutableAgent {
   return {
     id: row.id,
     tenantId: row.tenantId,
@@ -119,7 +119,7 @@ async function sandboxClient(ctx: Pick<HandlerCtx<never>, "tx" | "tenantIds">): 
 export async function bindTestCopy(
   ctx: Pick<HandlerCtx<never>, "tx" | "services" | "session">,
   copy: AgentRow,
-  bundle: AnyAgentBundle,
+  bundle: AgentBundle,
 ): Promise<AgentRow> {
   const add = await bindingsToAdd(ctx, copy, bundle);
   if (Object.keys(add).length === 0) return copy;
@@ -137,7 +137,7 @@ export async function bindTestCopy(
 export async function bindingsToAdd(
   ctx: Pick<HandlerCtx<never>, "tx" | "services">,
   copy: Pick<AgentRow, "tenantId" | "bindings">,
-  bundle: AnyAgentBundle,
+  bundle: AgentBundle,
 ): Promise<Record<string, string>> {
   const tenantId = copy.tenantId as string;
   const { skills } = await skillContext(ctx.tx, {
@@ -241,7 +241,7 @@ function request(make: () => RunRequest): RunRequest {
 // unknown workflow is left to requestRun's own refusal.
 function checkTestPayload(
   events: Pick<EventTypeRegistry, "parsePayload">,
-  bundle: AnyAgentBundle,
+  bundle: AgentBundle,
   workflow: string,
   payload: unknown,
 ): void {
@@ -688,7 +688,7 @@ export function opsAgentRoutes(app: Hono<AppEnv>): void {
     let skills: Record<string, SkillDefinition> = Object.fromEntries(
       platform.catalog.list().map((s) => [s.id, s]),
     );
-    let agentDef: AnyAgentBundle["definition"] | undefined;
+    let agentDef: AgentBundle["definition"] | undefined;
     if (body.agentId) {
       const row = await agentInScope(ctx, body.agentId);
       const latest = await latestVersion(tx, row.id);

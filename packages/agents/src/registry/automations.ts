@@ -4,22 +4,7 @@
 // a version identical to its parent is refused by hash, and publishing a client agent copies the
 // shared automations it uses into that client as `shared:<slug>` (runs see one client only).
 
-import {
-  type AgentBundle,
-  type AnyAgentBundle,
-  type AnyAutomationDefinition,
-  AnyAutomationDefinition as AutomationSchema,
-  automationRef,
-  automationRefs,
-  hashJson,
-  parseAutomationRef,
-  processes,
-  type SkillDefinition,
-  steps,
-  stepsToAutomation,
-  useSteps,
-  type ValidationError,
-} from "@countersign/core";
+import { type AgentBundle, type AutomationDefinition, AutomationDefinition as AutomationSchema, automationRef, automationRefs, hashJson, parseAutomationRef, processes, type SkillDefinition, steps, stepsToAutomation, useSteps, type ValidationError } from "@countersign/core";
 import { automation, automationVersion, type Tx } from "@countersign/db";
 import { knownModelIds } from "@countersign/llm";
 import { and, desc, eq, isNull, sql } from "drizzle-orm";
@@ -34,7 +19,7 @@ export type AutomationSource = "client" | "shared";
 
 export interface ResolvedAutomation {
   ref: string;
-  definition: AnyAutomationDefinition;
+  definition: AutomationDefinition;
   source: AutomationSource;
   versionId: string;
   version: number;
@@ -42,7 +27,7 @@ export interface ResolvedAutomation {
 }
 
 /** A bundle's workflows split by schema. R8: the builder saves v4 processes. */
-function bySchema(bundle: AnyAgentBundle): {
+function bySchema(bundle: AgentBundle): {
   v3: AgentBundle["workflows"][number]["workflow"][];
   v4: processes.Process[];
 } {
@@ -58,7 +43,7 @@ function bySchema(bundle: AnyAgentBundle): {
 }
 
 /** The automation versions a bundle's use steps (v4: process steps) pin, each once. */
-export function bundleAutomationRefs(bundle: AnyAgentBundle): string[] {
+export function bundleAutomationRefs(bundle: AgentBundle): string[] {
   const { v3, v4 } = bySchema(bundle);
   return [...new Set([...automationRefs(v3), ...processes.subProcessRefs(v4)])];
 }
@@ -78,7 +63,7 @@ function refsBundle(refs: readonly string[]): AgentBundle {
 async function innerSkills(
   tx: Tx,
   tenantId: string | null,
-  defs: readonly AnyAutomationDefinition[],
+  defs: readonly AutomationDefinition[],
   ctx: Pick<RegistryContext, "catalog">,
 ): Promise<{ skills: Record<string, SkillDefinition>; missing: string[] }> {
   const refs = new Set<string>();
@@ -96,7 +81,7 @@ async function innerSkills(
 export async function prepareAutomation(
   tx: Tx,
   input: { tenantId: string | null; definition: unknown; ctx: RegistryContext },
-): Promise<{ definition: AnyAutomationDefinition; errors: ValidationError[] }> {
+): Promise<{ definition: AutomationDefinition; errors: ValidationError[] }> {
   const parsed = AutomationSchema.safeParse(input.definition);
   if (!parsed.success) {
     throw new AgentsError("invalid_definition", parsed.error.message, parsed.error.issues);
@@ -104,7 +89,7 @@ export async function prepareAutomation(
   const { skills } = await innerSkills(tx, input.tenantId, [parsed.data], input.ctx);
   const typing = { skills, tools: input.ctx.tools.specs(), models: knownModelIds() };
   const connectorIds = new Set(input.ctx.tools.connectors.list().map((c) => c.manifest.id));
-  const definition: AnyAutomationDefinition = {
+  const definition: AutomationDefinition = {
     ...parsed.data,
     requires: processes.anyAutomationRequires(parsed.data, typing, connectorIds),
   };
@@ -399,14 +384,14 @@ export async function resolveAutomation(
  */
 export async function automationContext(
   tx: Tx,
-  input: { tenantId: string | null; bundle: AnyAgentBundle; catalog: RegistryContext["catalog"] },
+  input: { tenantId: string | null; bundle: AgentBundle; catalog: RegistryContext["catalog"] },
 ): Promise<{
-  automations: Record<string, AnyAutomationDefinition>;
+  automations: Record<string, AutomationDefinition>;
   skills: Record<string, SkillDefinition>;
   missing: string[];
   drafts: string[];
 }> {
-  const automations: Record<string, AnyAutomationDefinition> = {};
+  const automations: Record<string, AutomationDefinition> = {};
   const missing: string[] = [];
   const drafts: string[] = [];
   for (const ref of bundleAutomationRefs(input.bundle)) {
@@ -426,7 +411,7 @@ export async function automationContext(
 // DECISION: an agent publishes only on published automation versions (live or retired): a pinned
 // draft could still change meaning, and only a valid version publishes.
 export function automationPublishErrors(
-  bundle: AnyAgentBundle,
+  bundle: AgentBundle,
   found: { drafts: string[] },
 ): ValidationError[] {
   const errors: ValidationError[] = [];
@@ -469,10 +454,10 @@ export function automationPublishErrors(
  */
 export async function snapshotSharedAutomations(
   tx: Tx,
-  input: { tenantId: string; bundle: AnyAgentBundle; catalog?: RegistryContext["catalog"] },
+  input: { tenantId: string; bundle: AgentBundle; catalog?: RegistryContext["catalog"] },
 ): Promise<{ ref: string; versionId: string }[]> {
   const made: { ref: string; versionId: string }[] = [];
-  const copiedDefs: AnyAutomationDefinition[] = [];
+  const copiedDefs: AutomationDefinition[] = [];
   for (const ref of bundleAutomationRefs(input.bundle)) {
     const { slug, version } = parseAutomationRef(ref);
     const own = await bySlug(tx, input.tenantId, slug);
@@ -553,9 +538,9 @@ export type BundleStepsToAutomation =
   | {
       ok: true;
       /** The new automation's v1 definition (v3 steps from a v3 workflow, v4 from a process). */
-      automation: AnyAutomationDefinition;
+      automation: AutomationDefinition;
       /** The bundle with the selection replaced by the step that uses the automation. */
-      bundle: AnyAgentBundle;
+      bundle: AgentBundle;
     }
   | { ok: false; code: string; message: string };
 
@@ -570,7 +555,7 @@ export async function bundleStepsToAutomation(
   tx: Tx,
   input: {
     tenantId: string | null;
-    bundle: AnyAgentBundle;
+    bundle: AgentBundle;
     stepIds: readonly string[];
     slug: string;
     name: string;
@@ -627,7 +612,7 @@ export async function bundleStepsToAutomation(
     ctx: typing,
     clientAgent: input.clientAgent,
   };
-  const replace = (workflow: AnyAgentBundle["workflows"][number]["workflow"]): AnyAgentBundle => ({
+  const replace = (workflow: AgentBundle["workflows"][number]["workflow"]): AgentBundle => ({
     ...bundle,
     workflows: bundle.workflows.map((w) => (w.slug === holder.slug ? { ...w, workflow } : w)),
   });

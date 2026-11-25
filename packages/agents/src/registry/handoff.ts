@@ -4,7 +4,7 @@
 // say the same thing (invariant 4: one validator).
 
 import {
-  type AnyAgentBundle,
+  type AgentBundle,
   collectRefs,
   processes,
   steps,
@@ -20,7 +20,7 @@ import { convertLookup, skillContext } from "./skills";
  * Whether a bundle has a hand-off step to another agent (only those versions need the client's
  * agents; a hand-off to this agent's own workflow is checked against the bundle alone).
  */
-export function holdsHandoff(bundle: AnyAgentBundle): boolean {
+export function holdsHandoff(bundle: AgentBundle): boolean {
   return bundle.workflows.some(
     (w) =>
       w.workflow.schemaVersion === 4 &&

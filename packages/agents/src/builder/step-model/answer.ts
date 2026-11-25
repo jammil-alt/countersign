@@ -8,7 +8,7 @@ import { z } from "zod";
 
 /**
  * A bundle whose every workflow is in the step model (`schemaVersion: 5`): what the Builder drafts
- * and answers. Its value is an `AnyAgentBundle`, so it is saved, hashed and validated as any other.
+ * and answers. Its value is an `AgentBundle`, so it is saved, hashed and validated as any other.
  */
 // DECISION: defined here, not in core's `schemas/agent.ts` (stream A's): it is the Builder's answer
 // shape, as `ProcessAgentBundle` was for v4, and it goes with v4 in wave 4 when this is the only one.

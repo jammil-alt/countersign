@@ -2,7 +2,7 @@
 // above the builder; FLOW-9, the Builder's answer to a turn sent before the edits). Core's three-way
 // merge (the update merge's), every id kept.
 import {
-  type AnyAgentBundle,
+  type AgentBundle,
   canonicalJson,
   mergeBundles,
   type ProcessAgentBundle,
@@ -16,7 +16,7 @@ export function rebase(
   base: ProcessAgentBundle,
   ours: ProcessAgentBundle,
   theirs: ProcessAgentBundle,
-  read: (bundle: AnyAgentBundle) => ProcessAgentBundle,
+  read: (bundle: AgentBundle) => ProcessAgentBundle,
 ): ProcessAgentBundle | null {
   const was = canonicalJson(base);
   if (canonicalJson(ours) === was) return theirs;

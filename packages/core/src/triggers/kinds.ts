@@ -214,7 +214,7 @@ export interface AcceptingTrigger {
   on: Extract<TriggerOn, { type: "message" }>;
 }
 
-// Wave 3b: a bundle whose workflows may be v4 processes (`AnyAgentBundle`) reads the same way.
+// Wave 3b: a bundle whose workflows may be v4 processes (`AgentBundle`) reads the same way.
 interface BundleLike {
   workflows: readonly {
     slug: string;

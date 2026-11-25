@@ -2,7 +2,7 @@
 // each last fired and their guards, the webhook and message settings on demand, adding a trigger
 // from the dialog that explains the six kinds (saved as a new draft with a new id) and removing an
 // added one.
-import { type AgentBundleInput, AnyAgentBundle, type AnyAgentBundleInput } from "@countersign/core";
+import { type AgentBundleInput, AgentBundle } from "@countersign/core";
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
@@ -58,7 +58,7 @@ const LATEST = { ...AGENT_DETAIL.latest, bundle: INPUT };
 
 function setup(
   kind: "client" | "template" = "client",
-  input: AnyAgentBundleInput = INPUT,
+  input: AgentBundleInput = INPUT,
   errors: { stepId: string | null; message: string; workflow?: string }[] = [],
 ) {
   const saved: Record<string, unknown>[] = [];
@@ -108,7 +108,7 @@ function setup(
         <TriggersPanel
           agent={agent}
           latest={{ ...LATEST, bundle: input }}
-          bundle={AnyAgentBundle.parse(input)}
+          bundle={AgentBundle.parse(input)}
           errors={errors}
           onChanged={() => {
             changed += 1;

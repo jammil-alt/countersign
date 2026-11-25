@@ -12,7 +12,7 @@
 import {
   canonicalJson,
   type OpsConnection,
-  type ProcessAutomationDefinition,
+  type AutomationDefinition,
   parseSkillRef,
   processes,
 } from "@countersign/core";
@@ -99,7 +99,7 @@ interface Saved {
   id: string;
   version: number;
   status: string;
-  definition: ProcessAutomationDefinition;
+  definition: AutomationDefinition;
   canon: string;
 }
 

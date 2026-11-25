@@ -27,7 +27,7 @@ import {
   voiceToolName,
 } from "@countersign/connectors";
 import {
-  type AnyAgentBundle,
+  type AgentBundle,
   type ApprovalRequirement,
   allTriggers,
   type CallLanguage,
@@ -95,7 +95,7 @@ export function voiceAgentConfig(input: {
   tenantId: string;
   client: string;
   agentSlug: string;
-  bundle: Pick<AnyAgentBundle, "definition">;
+  bundle: Pick<AgentBundle, "definition">;
   settings: VoiceSettings;
   language: CallLanguage;
   direction: "in" | "out";
@@ -185,7 +185,7 @@ export interface AnsweringStep {
   agentName: string;
   agentSlug: string;
   agentVersionId: string;
-  bundle: AnyAgentBundle;
+  bundle: AgentBundle;
   /** The answering step: a v3 action's or a v4 write's id, input and approval. */
   step: {
     id: string;
@@ -260,7 +260,7 @@ export async function answeringStep(
 // DECISION (wave 3b): a v4 write whose approval holds a `when` counts as required here: a call
 // ringing in has no run data to test the condition against, so the strictest reading applies.
 function answerStepOf(
-  workflow: AnyAgentBundle["workflows"][number]["workflow"],
+  workflow: AgentBundle["workflows"][number]["workflow"],
 ): AnsweringStep["step"] | null {
   if (workflow.schemaVersion === 4) {
     const w = workflow.steps.find(

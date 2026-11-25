@@ -8,8 +8,8 @@
 // The conversation outlives a reload (feedback, 2026-11-15): its id is kept for the browser
 // session, per agent, and the panel reads it back from the server when it opens.
 import {
-  type AnyAgentBundle,
-  AnyAgentBundle as AnyAgentBundleSchema,
+  type AgentBundle,
+  AgentBundle as AnyAgentBundleSchema,
   canonicalJson,
   type ProcessAgentBundle,
   Slug,
@@ -50,7 +50,7 @@ function rememberChat(agentId: string, sessionId: string | null) {
 
 // R8: the conversation's draft is a v4 process bundle (wave 3b: the server reads a v3 one through
 // the converter); `read` keeps the canvas and the draft comparing like with like either way.
-function parsed(detail: Detail | null): AnyAgentBundle | null {
+function parsed(detail: Detail | null): AgentBundle | null {
   if (!detail) return null;
   const p = AnyAgentBundleSchema.safeParse(detail.session.bundle);
   return p.success ? p.data : null;
@@ -80,7 +80,7 @@ export function useBuilderSession({
   /** What the canvas shows now. */
   bundle: ProcessAgentBundle;
   /** A draft as the canvas shows it (v3 workflows read as processes, ids kept). */
-  read(bundle: AnyAgentBundle): ProcessAgentBundle;
+  read(bundle: AgentBundle): ProcessAgentBundle;
   /** The version the canvas is saved as, saving unsaved edits first; null when saving failed. */
   ensureSaved(): Promise<{ id: string } | null>;
   /**

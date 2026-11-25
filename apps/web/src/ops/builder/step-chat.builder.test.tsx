@@ -4,7 +4,7 @@
 // step. With room, each turn carries the step that is open, the change shows in the setup at once
 // and undoes on its own, and previous and next move the conversation from step to step, where
 // what was said about another step is a folded thread.
-import { AnyAgentBundle, type AnyAgentBundleInput, type BuilderCatalog } from "@countersign/core";
+import { AgentBundle, type AgentBundleInput, type BuilderCatalog } from "@countersign/core";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes, useParams } from "react-router-dom";
@@ -37,7 +37,7 @@ const notify = (id: string, name: string, message: string) => ({
   notify: { to: ["client_admin"], channel: "inbox", message },
 });
 
-function bundleWith(first: { name: string; message: string }): AnyAgentBundleInput {
+function bundleWith(first: { name: string; message: string }): AgentBundleInput {
   return {
     schemaVersion: 1,
     definition: {
@@ -100,7 +100,7 @@ function version(): VersionDetail {
     basedOnTemplateVersionId: null,
     createdAt: "2026-11-15T00:00:00.000Z",
     publishedAt: null,
-    bundle: AnyAgentBundle.parse(BUNDLE),
+    bundle: AgentBundle.parse(BUNDLE),
   } as unknown as VersionDetail;
 }
 
@@ -159,7 +159,7 @@ function setup() {
     "GET /api/ops/clients": () => ({ clients: [] }),
     "GET /api/ops/models": () => ({ models: [] }),
     "GET /api/ops/skills": () => ({ skills: [], tools: [], connectors: [] }),
-    "POST /api/ops/builder/sessions": () => detail(AnyAgentBundle.parse(BUNDLE)),
+    "POST /api/ops/builder/sessions": () => detail(AgentBundle.parse(BUNDLE)),
     [`POST /api/ops/builder/sessions/${SESSION}/turns`]: ({ init }) => {
       const body = JSON.parse(String(init.body)) as Record<string, unknown>;
       bodies.push({ path: "turns", body });
@@ -172,7 +172,7 @@ function setup() {
       });
       asked = operator;
       const answer = turn({ changes: [change] });
-      return { ...detail(AnyAgentBundle.parse(RENAMED), [operator, answer]), turn: answer };
+      return { ...detail(AgentBundle.parse(RENAMED), [operator, answer]), turn: answer };
     },
     [`POST /api/ops/builder/sessions/${SESSION}/undo`]: ({ init }) => {
       bodies.push({ path: "undo", body: JSON.parse(String(init.body)) });
@@ -186,10 +186,10 @@ function setup() {
         command: "/undo",
         changes: [{ ...change, undone: false, undoes: { turnId: TURN, changeId: change.id } }],
       });
-      return { ...detail(AnyAgentBundle.parse(BUNDLE), [asked, undone, undo]), turn: undo };
+      return { ...detail(AgentBundle.parse(BUNDLE), [asked, undone, undo]), turn: undo };
     },
   });
-  const bundle = AnyAgentBundle.parse(BUNDLE);
+  const bundle = AgentBundle.parse(BUNDLE);
   function Page() {
     const { workflow = "" } = useParams();
     return (

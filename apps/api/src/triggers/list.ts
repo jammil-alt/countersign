@@ -4,7 +4,7 @@
 
 import {
   type AgentTriggers,
-  type AnyAgentBundle,
+  type AgentBundle,
   agentAddress,
   agentCommandNames,
   allTriggers,
@@ -84,7 +84,7 @@ export async function agentTriggers(
     .where(where)
     .orderBy(desc(agentVersion.version))
     .limit(1);
-  const bundle: AnyAgentBundle | null = v?.bundle ?? null;
+  const bundle: AgentBundle | null = v?.bundle ?? null;
 
   const fired = await tx.execute<{
     trigger_id: string;

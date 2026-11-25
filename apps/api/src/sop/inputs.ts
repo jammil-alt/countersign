@@ -9,7 +9,7 @@ import {
   skillContext,
 } from "@countersign/agents";
 import {
-  type AnyAgentBundle,
+  type AgentBundle,
   type ApproverRule,
   complianceOf,
   isUuid,
@@ -126,8 +126,8 @@ export async function sopInputFor(
   const tenantId = a.tenantId as string;
   const v = await sopVersion(tx, a);
   if (!v) return null;
-  const bundle = v.bundle as AnyAgentBundle;
-  const definition = bundle.definition as AnyAgentBundle["definition"] & {
+  const bundle = v.bundle as AgentBundle;
+  const definition = bundle.definition as AgentBundle["definition"] & {
     area?: string;
   };
 

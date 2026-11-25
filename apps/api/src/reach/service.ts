@@ -18,7 +18,7 @@ import {
 import { newReplyTag } from "@countersign/connectors";
 import {
   type AgentMode,
-  type AnyAgentBundle,
+  type AgentBundle,
   type ApprovalRequirement,
   type ApprovalSource,
   // P-3: attachments both ways
@@ -357,7 +357,7 @@ async function wake(
 
 interface Loaded {
   agentRow: typeof agent.$inferSelect;
-  bundle: AnyAgentBundle;
+  bundle: AgentBundle;
   tenantRow: typeof tenant.$inferSelect;
   trigger: unknown;
   candidates: ContactRow[];

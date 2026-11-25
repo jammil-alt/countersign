@@ -9,7 +9,7 @@
 // - `/trigger <kind> <details>`: add or change a trigger.
 
 import {
-  type AnyAgentBundle,
+  type AgentBundle,
   flattenBundle,
   holdsStepModel,
   parseCommand,
@@ -61,7 +61,7 @@ function stepSkillRef(content: Record<string, unknown>): string | null {
 }
 
 /** The skill ids an agent draft uses (listed or run by a step). */
-export function draftSkillIds(bundle: AnyAgentBundle): string[] {
+export function draftSkillIds(bundle: AgentBundle): string[] {
   const ids = new Set(bundle.definition.skills.map((s) => parseSkillRef(s.skill).id));
   for (const e of flattenBundle(bundle).entities.values()) {
     const ref = e.kind === "step" ? stepSkillRef(e.content) : null;
@@ -76,7 +76,7 @@ export function draftSkillIds(bundle: AnyAgentBundle): string[] {
  */
 export function readCommand(
   text: string,
-  input: { bundle: AnyAgentBundle; automations: readonly BuilderAutomationRef[] },
+  input: { bundle: AgentBundle; automations: readonly BuilderAutomationRef[] },
 ): ReadCommand {
   const parsed = parseCommand(text);
   if (!parsed) return { ok: true, command: null };
@@ -162,8 +162,8 @@ export function readCommand(
  */
 export function commandScope(
   command: TurnCommand | null,
-  before: AnyAgentBundle,
-  after: AnyAgentBundle,
+  before: AgentBundle,
+  after: AgentBundle,
 ): ((changeId: string) => boolean) | null {
   if (!command || command.name === "automation") return null;
   if (command.name === "trigger") {

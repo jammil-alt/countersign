@@ -5,7 +5,7 @@
 
 import { TESTKIT_QUERY_TOOL, TESTKIT_UPDATE_TOOL } from "@countersign/connectors";
 import {
-  type AnyAgentBundle,
+  type AgentBundle,
   classifyChange,
   cloneJson,
   evaluateRules,
@@ -60,13 +60,13 @@ function v4Bundle(h: Harness, edit?: (b: ProcessAgentBundle) => void): ProcessAg
   return b;
 }
 
-function processOf(b: AnyAgentBundle): processes.Process {
+function processOf(b: AgentBundle): processes.Process {
   const w = b.workflows[0]?.workflow;
   if (w?.schemaVersion !== 4) throw new Error("fixture: expected a process");
   return w;
 }
 
-function stepOf(b: AnyAgentBundle, id: string): processes.Step {
+function stepOf(b: AgentBundle, id: string): processes.Step {
   const s = processes.findStep(processOf(b), id)?.step;
   if (!s) throw new Error(`no step ${id}`);
   return s;
@@ -317,7 +317,7 @@ describe.skipIf(!harness)("readers of a published v4 version", () => {
         },
       });
     });
-    const ids = (b: AnyAgentBundle) => processes.nodeIds(processOf(b));
+    const ids = (b: AgentBundle) => processes.nodeIds(processOf(b));
     const out = stripForPromotion(client, makeBundle(), {});
     const text = JSON.stringify(out);
     for (const literal of [person, contact, hook, email, phone]) {
@@ -355,17 +355,17 @@ describe.skipIf(!harness)("readers of a published v4 version", () => {
       };
     }
     const ctx = { skills, tools: h.tools.specs(), models: knownModelIds() };
-    expect(processes.validateAnyBundle(client, ctx).errors).toEqual([]);
-    expect(processes.validateAnyBundle(out, ctx).errors).toEqual([]);
+    expect(processes.validateBundle(client, ctx).errors).toEqual([]);
+    expect(processes.validateBundle(out, ctx).errors).toEqual([]);
   });
 
   // Review of 5.10: the scrub never loosens (invariant 8), never leaves a version that can't be
   // published, and leaves no record id, address or number of the client behind.
-  const validate = async (b: AnyAgentBundle) => {
+  const validate = async (b: AgentBundle) => {
     const { skills } = await h.ops((tx) =>
       skillContext(tx, { tenantId: null, bundle: b, catalog: h.catalog }),
     );
-    return processes.validateAnyBundle(b, {
+    return processes.validateBundle(b, {
       skills,
       tools: h.tools.specs(),
       models: knownModelIds(),

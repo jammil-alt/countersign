@@ -19,7 +19,7 @@ import {
   validateForPublish,
 } from "@countersign/agents";
 import {
-  type AnyAgentBundle,
+  type AgentBundle,
   allTriggers,
   checkKindOf,
   clientLabel,
@@ -75,7 +75,7 @@ import type { SeeInput } from "./walkthrough";
 
 type DocRow = typeof document.$inferSelect;
 type RunRow = typeof run.$inferSelect;
-type AnyWorkflow = AnyAgentBundle["workflows"][number];
+type AnyWorkflow = AgentBundle["workflows"][number];
 
 /** Candidates shown, newest first. */
 const CANDIDATES_MAX = 5;
@@ -101,7 +101,7 @@ interface DocumentStart {
 // property; the try gives it that id and, where the schema has them, the document's filename,
 // type, source and sha256. Any other manual input has no document to fill it from, so an agent
 // that starts only that way has no candidates.
-export function documentStarts(bundle: Pick<AnyAgentBundle, "workflows">): DocumentStart[] {
+export function documentStarts(bundle: Pick<AgentBundle, "workflows">): DocumentStart[] {
   const out: DocumentStart[] = [];
   for (const w of bundle.workflows as AnyWorkflow[]) {
     if (w.enabled === false) continue;
@@ -255,10 +255,10 @@ export async function tryCandidates(
   row: AgentRow,
   input: Pick<SeeInput, "tenantId" | "sees">,
   /** The version's bundle to read the starts from (a sandbox run's); default the latest. */
-  bundle?: AnyAgentBundle,
+  bundle?: AgentBundle,
 ): Promise<TryCandidate[]> {
   const v = bundle ? { bundle } : await versionToTry(tx, row);
-  const starts = v ? documentStarts(v.bundle as AnyAgentBundle) : [];
+  const starts = v ? documentStarts(v.bundle as AgentBundle) : [];
   if (starts.length === 0) return [];
   const docs = await tx
     .select()
@@ -339,7 +339,7 @@ export async function startTry(
 
   const v = await versionToTry(tx, row);
   if (!v) throw new HttpError(409, "not_ready", "This agent isn't ready to try yet.");
-  const bundle = v.bundle as AnyAgentBundle;
+  const bundle = v.bundle as AgentBundle;
   const found = await startFor(tx, doc, documentStarts(bundle));
   if (!found) {
     throw new HttpError(422, "cannot_try", "This agent doesn't start on that document.");
@@ -506,7 +506,7 @@ export async function runStepsOf(
     .select({ bundle: agentVersion.bundle })
     .from(agentVersion)
     .where(and(eq(agentVersion.id, r.agentVersionId), eq(agentVersion.tenantId, r.tenantId)));
-  const wf = (v?.bundle as AnyAgentBundle | undefined)?.workflows.find(
+  const wf = (v?.bundle as AgentBundle | undefined)?.workflows.find(
     (w) => w.slug === r.workflowSlug,
   );
   const find = stepFinder(wf?.workflow as Parameters<typeof stepFinder>[0]);

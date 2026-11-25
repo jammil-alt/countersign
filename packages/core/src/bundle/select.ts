@@ -1,5 +1,5 @@
 import { cloneJson, fromPointer } from "../json";
-import type { AgentBundle, AnyAgentBundle } from "../schemas/agent";
+import type { AgentBundle } from "../schemas/agent";
 import { type BundleChange, diffFlat } from "./diff";
 import {
   childLists,
@@ -11,7 +11,6 @@ import {
   ROOT,
   unflattenBundle,
 } from "./flatten";
-import { type BundleReadOptions, readBundles } from "./normalize";
 
 /**
  * One change a person can pick when promoting a client's changes into a template (ARCHITECTURE
@@ -81,25 +80,11 @@ function getAt(source: Record<string, unknown>, path: string[]): unknown {
  * items keep their state in `a`. An added or removed container brings its added or removed
  * contents with it. An item whose container is not in the result goes back to its place in `a`,
  * or is left out when `a` has no place for it. Ids are never generated: every item comes from `a`
- * or `b`. R1: when either side holds a v4 process both are read as v4 first (as `diffBundles`
- * does, so the ids from `selectableBetween` with the same options apply), and the result is v4.
+ * or `b`.
  */
-export function selectChanges(a: AgentBundle, b: AgentBundle, ids: readonly string[]): AgentBundle;
-export function selectChanges(
-  a: AnyAgentBundle,
-  b: AnyAgentBundle,
-  ids: readonly string[],
-  options?: BundleReadOptions,
-): AnyAgentBundle;
-export function selectChanges(
-  a: AnyAgentBundle,
-  b: AnyAgentBundle,
-  ids: readonly string[],
-  options: BundleReadOptions = {},
-): AnyAgentBundle {
-  const [ra, rb] = readBundles([a, b], options).bundles as [AnyAgentBundle, AnyAgentBundle];
-  const fa = flattenBundle(ra);
-  const fb = flattenBundle(rb);
+export function selectChanges(a: AgentBundle, b: AgentBundle, ids: readonly string[]): AgentBundle {
+  const fa = flattenBundle(a);
+  const fb = flattenBundle(b);
   const selected = new Set(ids);
 
   // Agent fields, one change path at a time.
@@ -188,15 +173,10 @@ export function selectChanges(
     lists.set(list, out);
   }
 
-  return unflattenBundle<AnyAgentBundle>({ root, entities, lists });
+  return unflattenBundle<AgentBundle>({ root, entities, lists });
 }
 
 /** The selectable changes from `a` to `b` (diffBundles grouped, read as `diffBundles` reads). */
-export function selectableBetween(
-  a: AnyAgentBundle,
-  b: AnyAgentBundle,
-  options: BundleReadOptions = {},
-): SelectableChange[] {
-  const [ra, rb] = readBundles([a, b], options).bundles as [AnyAgentBundle, AnyAgentBundle];
-  return selectableChanges(diffFlat(flattenBundle(ra), flattenBundle(rb)));
+export function selectableBetween(a: AgentBundle, b: AgentBundle): SelectableChange[] {
+  return selectableChanges(diffFlat(flattenBundle(a), flattenBundle(b)));
 }

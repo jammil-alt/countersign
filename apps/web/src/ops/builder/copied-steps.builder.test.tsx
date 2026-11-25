@@ -1,6 +1,6 @@
 // Ways in, ways out (owner, 2026-11-23) in the builder, on a fake API: a second workflow that
 // repeats the main workflow's steps is advice on its chart ("Worth a look"), with its own line.
-import { AnyAgentBundle, type AnyAgentBundleInput, type BuilderCatalog } from "@countersign/core";
+import { AgentBundle, type AgentBundleInput, type BuilderCatalog } from "@countersign/core";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes, useParams } from "react-router-dom";
@@ -37,7 +37,7 @@ const CATALOG = {
   automations: [],
 } as unknown as BuilderCatalog;
 
-const BUNDLE: AnyAgentBundleInput = {
+const BUNDLE: AgentBundleInput = {
   schemaVersion: 1,
   definition: {
     schemaVersion: 2,
@@ -146,7 +146,7 @@ function version(): VersionDetail {
     basedOnTemplateVersionId: null,
     createdAt: "2026-11-15T00:00:00.000Z",
     publishedAt: null,
-    bundle: AnyAgentBundle.parse(BUNDLE),
+    bundle: AgentBundle.parse(BUNDLE),
   } as unknown as VersionDetail;
 }
 
@@ -189,7 +189,7 @@ function setup(at: string) {
       return { version: { ...version(), id: V1, bundle: undefined }, errors: [] };
     },
   });
-  const bundle = AnyAgentBundle.parse(BUNDLE);
+  const bundle = AgentBundle.parse(BUNDLE);
   function Page() {
     const { workflow = "" } = useParams();
     return (

@@ -7,7 +7,7 @@
 import { convertLookup } from "@countersign/agents";
 import {
   type AgentBundle,
-  AnyAgentBundle,
+  AgentBundle,
   agentNeeds,
   type ConnectorNeed,
   holdsStepModel,
@@ -56,7 +56,7 @@ async function templates(): Promise<{ name: string; bundle: AgentBundle }[]> {
 // The step model (the platform agents' seeds): a v5 workflow's needs are read from its steps as
 // they are; older bundles through their v4 reading.
 const all = (await templates()).map((t) => {
-  const bundle = AnyAgentBundle.parse(t.bundle);
+  const bundle = AgentBundle.parse(t.bundle);
   return {
     ...t,
     needs: agentNeeds(holdsStepModel(bundle) ? bundle : toProcessBundle(bundle, lookup), ctx),

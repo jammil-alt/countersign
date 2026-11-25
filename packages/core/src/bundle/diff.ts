@@ -1,17 +1,6 @@
 import { deepEqual, isPlainObject, toPointer } from "../json";
-import type { AnyAgentBundle } from "../schemas/agent";
+import type { AgentBundle } from "../schemas/agent";
 import { buildEntity, type FlatBundle, flattenBundle, ROOT } from "./flatten";
-import { type BundleReadOptions, readBundles } from "./normalize";
-
-// R1 (docs/plan.md §1.86): reading bundles as v4 processes, exported with diff so the package
-// index (which re-exports this file whole) carries them.
-export {
-  type BundleReadOptions,
-  eachProcessStep,
-  readBundles,
-  readConverted,
-  toProcessBundle,
-} from "./normalize";
 
 /**
  * A change between two bundles, keyed so the merge view and version history can place it.
@@ -129,15 +118,8 @@ export function diffFlat(a: FlatBundle, b: FlatBundle): BundleChange[] {
 
 /**
  * What changed from `a` to `b`: fields as values, items by key (ARCHITECTURE §9.3 version history,
- * the customizations view, and each side of the merge view). R1: when either side holds a v4
- * process, both are read as v4 first (`options.lookup` reads the v3 ones), so a v3 version and its
- * v4 successor differ only where they really do.
+ * the customizations view, and each side of the merge view).
  */
-export function diffBundles(
-  a: AnyAgentBundle,
-  b: AnyAgentBundle,
-  options: BundleReadOptions = {},
-): BundleChange[] {
-  const [ra, rb] = readBundles([a, b], options).bundles as [AnyAgentBundle, AnyAgentBundle];
-  return diffFlat(flattenBundle(ra), flattenBundle(rb));
+export function diffBundles(a: AgentBundle, b: AgentBundle): BundleChange[] {
+  return diffFlat(flattenBundle(a), flattenBundle(b));
 }

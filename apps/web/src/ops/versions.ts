@@ -1,4 +1,4 @@
-import { AgentBundle, AnyAgentBundle } from "@countersign/core";
+import { AgentBundle } from "@countersign/core";
 import type { AgentSummary, VersionDetail, VersionSummary } from "../api/routes";
 import type { Tone } from "../ui/primitives";
 
@@ -53,7 +53,7 @@ export function parseBundle(version: Pick<VersionDetail, "bundle">): ParsedBundl
   };
 }
 
-export type ParsedAnyBundle = { ok: true; bundle: AnyAgentBundle } | { ok: false; message: string };
+export type ParsedAnyBundle = { ok: true; bundle: AgentBundle } | { ok: false; message: string };
 
 /**
  * R8: a version's bundle as the workflow builder reads it: v3 workflows, v4 processes or both.
@@ -61,7 +61,7 @@ export type ParsedAnyBundle = { ok: true; bundle: AnyAgentBundle } | { ok: false
  * holds processes (docs/plan.md §1.86).
  */
 export function parseAnyBundle(version: Pick<VersionDetail, "bundle">): ParsedAnyBundle {
-  const parsed = AnyAgentBundle.safeParse(version.bundle);
+  const parsed = AgentBundle.safeParse(version.bundle);
   if (parsed.success) return { ok: true, bundle: parsed.data };
   const first = parsed.error.issues[0];
   return {

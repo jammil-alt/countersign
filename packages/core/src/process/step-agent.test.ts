@@ -5,7 +5,7 @@
 import { describe, expect, it } from "vitest";
 import type { SkillStep as V3SkillStep } from "../schemas/workflow";
 import { bundleInput, ctx, edit, workflowInput } from "../testing/fixtures";
-import { validateWorkflow } from "../workflow/validate";
+import { validateWorkflow } from "./checks";
 import type { Process } from "./schema";
 import { validateProcess } from "./validate";
 

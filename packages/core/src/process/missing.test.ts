@@ -7,7 +7,7 @@ import { diffBundles } from "../bundle/diff";
 import { mergeBundles } from "../bundle/merge";
 import { toProcessBundle } from "../bundle/normalize";
 import { bundleHash, canonicalJson } from "../canonical";
-import { type AnyAgentBundle, AnyAgentBundle as AnyAgentBundleSchema } from "../schemas/agent";
+import { type AgentBundle, AgentBundle as AnyAgentBundleSchema } from "../schemas/agent";
 import { ToolSpec } from "../schemas/tool";
 import { bundle, ctx, edit } from "../testing/fixtures";
 import type { ConvertLookup } from "./convert";
@@ -129,8 +129,8 @@ describe("older bundles and tools", () => {
 
 describe("diff and merge", () => {
   const lookup: ConvertLookup = { wrappedTool: () => null, sideEffect: () => null };
-  const base = (): AnyAgentBundle => toProcessBundle(bundle(), lookup);
-  const withMissing = (b: AnyAgentBundle): AnyAgentBundle =>
+  const base = (): AgentBundle => toProcessBundle(bundle(), lookup);
+  const withMissing = (b: AgentBundle): AgentBundle =>
     edit(b, (d) => {
       const w = d.workflows[0]?.workflow;
       if (w?.schemaVersion !== 4) throw new Error("not a process");

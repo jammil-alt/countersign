@@ -78,7 +78,7 @@ describe("seed files", () => {
     ]);
     expect(await loadSeedVersions()).toEqual([]);
     for (const t of templates) {
-      expect(processes.validateAnyBundle(t.bundle).errors, t.slug).toEqual([]);
+      expect(processes.validateBundle(t.bundle).errors, t.slug).toEqual([]);
       expect(t.bundle.definition.kind).toBe("platform");
       // Approval stays on by default (CLAUDE.md invariant 8).
       expect(t.bundle.definition.permissions.mode).toBe("suggest_only");
@@ -318,7 +318,7 @@ describe.skipIf(!online)("seed", () => {
     );
     for (const v of versions) {
       expect(v.status).toBe(live.has(v.id) ? "live" : "retired");
-      expect(processes.validateAnyBundle(v.bundle).valid).toBe(true);
+      expect(processes.validateBundle(v.bundle).valid).toBe(true);
       expect(v.bundleHash).toBe(await bundleHash(v.bundle));
     }
   });
@@ -471,7 +471,7 @@ describe.skipIf(!online)("seed", () => {
     expect(v2).toMatchObject({ version: 2, status: "live", parentVersionId: d.agentVersionId });
     expect(rows.versions).toHaveLength(2);
     if (!version || !v2) throw new Error("no version");
-    expect(processes.validateAnyBundle(v2.bundle).valid).toBe(true);
+    expect(processes.validateBundle(v2.bundle).valid).toBe(true);
     expect(v2.bundleHash).toBe(await bundleHash(v2.bundle));
     expect(validateBundle(version.bundle).valid).toBe(true);
     expect(version.bundle.definition.permissions.mode).toBe("suggest_only");

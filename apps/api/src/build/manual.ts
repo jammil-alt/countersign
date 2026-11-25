@@ -5,7 +5,7 @@
 
 import {
   type AgentManual,
-  type AnyAgentBundle,
+  type AgentBundle,
   type BuildDetail,
   deepEqual,
   fillManual,
@@ -30,8 +30,8 @@ export function knownRisksOf(detail: Pick<BuildDetail, "items">) {
  */
 export function withBuildManual(
   detail: BuildDetail,
-  bundle: AnyAgentBundle,
-): AnyAgentBundle | null {
+  bundle: AgentBundle,
+): AgentBundle | null {
   const before = readManual(bundle.definition.manual) ?? undefined;
   const manual: AgentManual = fillManual({
     brief: detail.build.brief,

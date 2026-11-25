@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { type AgentBundleInput, AnyAgentBundle } from "../schemas/agent";
+import { AgentBundle, type AgentBundleInput } from "../schemas/agent";
 import type { ToolSpec } from "../schemas/tool";
 import type { TypingContext } from "../template/typer";
-import { validateBundle } from "../workflow/validate";
-import { validateAnyBundle } from "./bundle";
+import { validateBundle } from "./bundle";
+import { validateBundle } from "./checks";
 import { processPathsAt } from "./paths";
 
 const UPDATE: ToolSpec = {
@@ -74,9 +74,9 @@ const process = {
   ],
 };
 
-describe("validateAnyBundle", () => {
+describe("validateBundle", () => {
   it("validates an all-v3 bundle exactly as validateBundle does", () => {
-    expect(validateAnyBundle(v3, CTX)).toEqual({ ...validateBundle(v3, CTX), warnings: [] });
+    expect(validateBundle(v3, CTX)).toEqual({ ...validateBundle(v3, CTX), warnings: [] });
   });
 
   it("validates v3 workflows and v4 processes side by side, naming the workflow", () => {
@@ -84,10 +84,10 @@ describe("validateAnyBundle", () => {
       ...v3,
       workflows: [...(v3.workflows ?? []), { slug: "new", name: "New", workflow: process }],
     };
-    const ok = validateAnyBundle(mixed, CTX);
+    const ok = validateBundle(mixed, CTX);
     expect(ok.errors).toEqual([]);
     expect(ok.valid).toBe(true);
-    expect(AnyAgentBundle.safeParse(ok.value).success).toBe(true);
+    expect(AgentBundle.safeParse(ok.value).success).toBe(true);
 
     const bad = {
       ...mixed,
@@ -105,7 +105,7 @@ describe("validateAnyBundle", () => {
         },
       ],
     };
-    const r = validateAnyBundle(bad, CTX);
+    const r = validateBundle(bad, CTX);
     expect(r.valid).toBe(false);
     expect(r.errors).toEqual(
       expect.arrayContaining([
@@ -116,7 +116,7 @@ describe("validateAnyBundle", () => {
   });
 
   it("reports a process's schema errors on its step and field", () => {
-    const r = validateAnyBundle(
+    const r = validateBundle(
       {
         ...v3,
         workflows: [
@@ -168,10 +168,7 @@ describe("the agent's own models", () => {
     },
   });
   const unknown = (b: AgentBundleInput) =>
-    [
-      validateBundle(b, { ...CTX, models: MODELS }),
-      validateAnyBundle(b, { ...CTX, models: MODELS }),
-    ]
+    [validateBundle(b, { ...CTX, models: MODELS }), validateBundle(b, { ...CTX, models: MODELS })]
       .flatMap((r): { code: string; field: string }[] => r.errors)
       .filter((e) => e.code === "unknown_model")
       .map((e) => e.field);
@@ -216,7 +213,7 @@ describe("copied steps across workflows", () => {
   const main = { ...process, steps: [{ ...process.steps[0], id: "q0" }, ...process.steps] };
 
   it("warns on the workflow that repeats the steps, whatever else it says", () => {
-    const r = validateAnyBundle(
+    const r = validateBundle(
       {
         ...v3,
         workflows: [
@@ -236,7 +233,7 @@ describe("copied steps across workflows", () => {
       },
     ]);
     // A copy that is turned off is no copy.
-    const off = validateAnyBundle(
+    const off = validateBundle(
       {
         ...v3,
         workflows: [

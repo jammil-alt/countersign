@@ -4,7 +4,7 @@
 // rollback rules: every edit is a new immutable version.
 
 import {
-  type AnyAgentBundle,
+  type AgentBundle,
   type BrowserTier,
   hashJson,
   isToolWrapper,
@@ -527,7 +527,7 @@ export async function untestedLoopReason(
 }
 
 /** Every skill reference in a bundle: the agent's skills and every skill step. */
-export function bundleSkillRefs(bundle: AnyAgentBundle): string[] {
+export function bundleSkillRefs(bundle: AgentBundle): string[] {
   const refs = new Set(bundle.definition.skills.map((s) => s.skill));
   // R8: a bundle the builder saved holds v4 processes.
   for (const w of bundle.workflows) {
@@ -556,7 +556,7 @@ export async function skillContext(
   tx: Tx,
   input: {
     tenantId: string | null;
-    bundle: AnyAgentBundle;
+    bundle: AgentBundle;
     catalog: SkillCatalog;
     /** Unpinned custom refs take their newest version, saved or live (`resolveCustomSkill`). */
     newest?: boolean;
@@ -595,7 +595,7 @@ export async function skillContext(
  */
 export async function snapshotSharedSkills(
   tx: Tx,
-  input: { tenantId: string; bundle: AnyAgentBundle; catalog?: SkillCatalog },
+  input: { tenantId: string; bundle: AgentBundle; catalog?: SkillCatalog },
 ): Promise<{ ref: string; versionId: string }[]> {
   const made: { ref: string; versionId: string }[] = [];
   for (const ref of bundleSkillRefs(input.bundle)) {

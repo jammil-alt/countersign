@@ -17,16 +17,7 @@
 // (`XLSX_MIME_TYPE`, `CSV_MIME_TYPE`), inlined here until that PR merges. Reshape's `mapList` is
 // on main; the template needs neither PR #479's `object` nor PR #481's typed inputs to validate.
 
-import {
-  AgentBundle,
-  type AgentBundleInput,
-  AnyAgentBundle,
-  type AnyAgentBundleInput,
-  lazy,
-  lazyObject,
-  once,
-  processes,
-} from "@countersign/core";
+import { AgentBundle, type AgentBundleInput, lazy, lazyObject, once, processes } from "@countersign/core";
 import { DEFAULT_MODELS } from "@countersign/llm";
 import { MATCH_REVIEW } from "./review";
 
@@ -320,7 +311,7 @@ const v2 = once(() => {
     triggers: spreadsheetTriggers(),
     steps: spreadsheetSteps(),
   } as unknown as processes.Process;
-  return AnyAgentBundle.parse({
+  return AgentBundle.parse({
     schemaVersion: 1,
     definition: {
       ...definition(),
@@ -343,7 +334,7 @@ const v2 = once(() => {
         workflow: process,
       },
     ],
-  } satisfies AnyAgentBundleInput);
+  } satisfies AgentBundleInput);
 });
 
 /** The template: v1 as first installed (the definition), v2 its process. */

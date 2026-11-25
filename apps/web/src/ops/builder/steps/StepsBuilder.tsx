@@ -8,7 +8,7 @@
 // Not here yet (wave 1 stops at the forms): Try it and the Builder chat on a v5 draft need stream A's
 // executor and bundle, and the List shows the same boxes as the chart.
 
-import { type AnyAgentBundle, canonicalJson, steps, uuidv7 } from "@countersign/core";
+import { type AgentBundle, canonicalJson, steps, uuidv7 } from "@countersign/core";
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { type AgentSummary, apiRoutes, type VersionDetail } from "../../../api/routes";
@@ -164,7 +164,7 @@ function Body(
   const [adding, setAdding] = useState(false);
   const processBundle = useMemo(() => {
     try {
-      return readProcessBundle(props.bundle as AnyAgentBundle, {});
+      return readProcessBundle(props.bundle as AgentBundle, {});
     } catch {
       return { workflows: [] };
     }
@@ -286,7 +286,7 @@ function Body(
     );
 
   // ── Save and publish ──
-  const save = async (added: AnyAgentBundle["workflows"] = [], note?: string) => {
+  const save = async (added: AgentBundle["workflows"] = [], note?: string) => {
     const snapshot = workflow;
     let bundle = withWorkflow(props.bundle, props.workflow, snapshot);
     if (added.length > 0) {

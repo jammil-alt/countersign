@@ -3,7 +3,7 @@
 // message triggers Sloan passes to.
 
 import { describe, expect, it } from "vitest";
-import { AnyAgentBundle, type AnyAgentBundleInput } from "../schemas/agent";
+import { AgentBundle, type AgentBundleInput } from "../schemas/agent";
 import { acceptsSloan } from "../triggers/kinds";
 import { eachBundleStep, findAnyStep, findNodeStep } from "./normalize";
 
@@ -19,9 +19,9 @@ const definition = {
   permissions: { mode: "suggest_only" },
   budgets: { maxSteps: 4, maxCostUsd: "0.10" },
   memory: { enabled: false },
-} satisfies AnyAgentBundleInput["definition"];
+} satisfies AgentBundleInput["definition"];
 
-const bundle = AnyAgentBundle.parse({
+const bundle = AgentBundle.parse({
   schemaVersion: 1,
   definition,
   workflows: [
@@ -59,7 +59,7 @@ const bundle = AnyAgentBundle.parse({
       },
     },
   ],
-} satisfies AnyAgentBundleInput);
+} satisfies AgentBundleInput);
 
 describe("reading v3 and v4 workflows alike", () => {
   it("visits every step of both schemas, nested ones too, and skips disabled workflows on asking", () => {

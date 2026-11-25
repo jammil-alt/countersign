@@ -62,7 +62,7 @@ import {
 } from "@countersign/agents";
 import {
   type AgentBundle,
-  AnyAgentBundle,
+  AgentBundle,
   type BuilderChange,
   BuilderTurnMeta,
   type ClosestTemplate,
@@ -158,7 +158,7 @@ function transport(ctx: Pick<Ctx, "services" | "tx">, clientId: string | null): 
 function asProcesses(ctx: Pick<Ctx, "services">, raw: unknown): ProcessAgentBundle {
   const { platform } = ctx.services;
   return toProcessBundle(
-    AnyAgentBundle.parse(raw),
+    AgentBundle.parse(raw),
     convertLookup(platform.catalog, platform.tools),
   );
 }
@@ -222,7 +222,7 @@ function isStepDraft(bundle: Draft): bundle is StepAgentBundle {
 // DECISION: a v5 draft is never read as v4 (there is no v5-to-v4 reading, core's
 // `StepModelBundleError`); a bundle mixing v5 with older workflows is refused as before.
 function asDraft(ctx: Pick<Ctx, "services">, raw: unknown): Draft {
-  const parsed = AnyAgentBundle.parse(raw);
+  const parsed = AgentBundle.parse(raw);
   if (parsed.workflows.length > 0 && holdsStepModel(parsed)) {
     const step = StepAgentBundle.safeParse(parsed);
     if (step.success) return step.data;
@@ -264,7 +264,7 @@ export async function builderContext(
   ctx: Pick<Ctx, "tx" | "tenantIds" | "services">,
   clientId: string | null,
   self?: AgentRow,
-  source?: AnyAgentBundle | null,
+  source?: AgentBundle | null,
 ): Promise<BuilderContext> {
   const { tx, services } = ctx;
   const { platform } = services;
@@ -295,7 +295,7 @@ export async function builderContext(
   const templates: BuilderTemplate[] = [];
   // Step model (build item 9): what other agents write in their steps, for Save as skill.
   const written: WrittenElsewhere[] = [];
-  const writtenIn = (agent: WrittenElsewhere["agent"], bundle: AnyAgentBundle) => {
+  const writtenIn = (agent: WrittenElsewhere["agent"], bundle: AgentBundle) => {
     for (const w of writtenSteps(bundle)) written.push({ agent, ...w });
   };
   for (const t of await listTemplates(tx)) {
@@ -690,10 +690,10 @@ export function opsBuilderRoutes(app: Hono<AppEnv>): void {
     };
     // Step model (build item 9): a v5 version is revised in the step model. A v3 or v4 version is
     // revised as before, until wave 4 deletes them (nothing new is drafted as v4).
-    const anyBundle = AnyAgentBundle.parse(from.bundle);
+    const anyBundle = AgentBundle.parse(from.bundle);
     const stepSource = StepAgentBundle.safeParse(anyBundle);
     const result: {
-      bundle: AnyAgentBundle;
+      bundle: AgentBundle;
       summary: string;
       gaps: string[];
       notes: string[];
@@ -849,12 +849,12 @@ async function originOf(ctx: SessionCtx, s: SessionRow): Promise<Draft | null> {
 /** Live templates like the draft, best first (core's bundleSimilarity). */
 async function closestTemplates(
   ctx: SessionCtx,
-  bundle: AnyAgentBundle,
+  bundle: AgentBundle,
   selfId: string | null,
 ): Promise<ClosestTemplate[]> {
   const candidates: {
     key: string;
-    bundle: AnyAgentBundle;
+    bundle: AgentBundle;
     id: string;
     name: string;
     version: number;

@@ -8,38 +8,8 @@
 // Every function runs in the caller's transaction: back-office calls open it with withOperator()
 // (templates are visible only there), so the registry never widens what a session can see.
 
-import {
-  type AgentBundle,
-  AgentBundle as AgentBundleSchema,
-  type AgentData,
-  type AnyAgentBundle,
-  AnyAgentBundle as AnyAgentBundleSchema,
-  type AnyAutomationDefinition,
-  // v0.12 W2-D: the account agent's publish guard
-  accountAgentProblems,
-  agentDataProblems,
-  automationRefs,
-  bindingConnector,
-  bundleHash,
-  type EventTypeSpec,
-  GrantLimits,
-  holdsProcess,
-  holdsStepModel,
-  isExternalTool,
-  type PermissionEntity,
-  type PermissionMatrix,
-  parseSkillRef,
-  processes,
-  REVOKED_GRANT,
-  type RecordType,
-  type SkillDefinition,
-  skillTools,
-  steps,
-  type ValidationCode,
-  type ValidationError,
-  validateBundle,
-  walkSteps,
-} from "@countersign/core";
+import { type AgentBundle, AgentBundle as AgentBundleSchema, type AgentData, AgentBundle as AnyAgentBundleSchema, type AutomationDefinition, // v0.12 W2-D: the account agent's publish guard
+  accountAgentProblems, agentDataProblems, automationRefs, bindingConnector, bundleHash, type EventTypeSpec, GrantLimits, holdsProcess, holdsStepModel, isExternalTool, type PermissionEntity, type PermissionMatrix, parseSkillRef, processes, REVOKED_GRANT, type RecordType, type SkillDefinition, skillTools, steps, type ValidationCode, type ValidationError, validateBundle, walkSteps } from "@countersign/core";
 import {
   agent,
   agentChange,
@@ -100,7 +70,7 @@ export interface RegistryContext {
 }
 
 /** Whether a bundle holds an action write step (a v4 process's). */
-function holdsAction(bundle: AnyAgentBundle): boolean {
+function holdsAction(bundle: AgentBundle): boolean {
   let found = false;
   for (const w of bundle.workflows) {
     if (w.workflow.schemaVersion !== 4) continue;
@@ -125,11 +95,11 @@ export function parseBundle(input: unknown): AgentBundle {
  * (what the workflow builder saves) or both. A v3 bundle parses to the same value, so the same
  * canonical JSON and hash, as `parseBundle` gives it.
  */
-// DECISION (wave 3b): the version row's `bundle` column is typed `AnyAgentBundle`, its true shape;
+// DECISION (wave 3b): the version row's `bundle` column is typed `AgentBundle`, its true shape;
 // every reader checks `schemaVersion` or reads through core (`allTriggers`, `toProcessBundle`).
 // Stored versions are never rewritten (invariant 3): a v3 version stays v3, and the builder's next
 // save is a new version.
-export function parseVersionBundle(input: unknown): AnyAgentBundle {
+export function parseVersionBundle(input: unknown): AgentBundle {
   const parsed = AnyAgentBundleSchema.safeParse(input);
   if (!parsed.success) {
     throw new AgentsError("invalid_bundle", parsed.error.message, parsed.error.issues);
@@ -383,7 +353,7 @@ export async function validateForPublish(
   // v0.12 W2-D: `slug`, for the account agent's guard (rows without one skip it).
   // v0.14 W4-B: `id`, for the agent's grants (a row without one, a draft not yet saved, has none).
   row: Pick<AgentRow, "tenantId" | "kind" | "bindings"> & { slug?: string; id?: string },
-  bundle: AnyAgentBundle,
+  bundle: AgentBundle,
   ctx: RegistryContext,
   // Skill model (2026-11-10): what already exists (`existingBundle`). A skill step the bundle given
   // doesn't have is new, and a new step may not use a retired kind of skill (`rules_then_ai`, agent
@@ -406,7 +376,7 @@ export async function validateForPublish(
     bundle,
     catalog: ctx.catalog,
   });
-  // R8: a bundle that holds v4 processes is validated as one (core's `validateAnyBundle`, which
+  // R8: a bundle that holds v4 processes is validated as one (core's `validateBundle`, which
   // validates an all-v3 bundle exactly as `validateBundle` does).
   const previous = options.previous;
   const existing =
@@ -421,7 +391,7 @@ export async function validateForPublish(
   const validate =
     holdsProcess(bundle) || holdsStepModel(bundle)
       ? (b: unknown, c: Parameters<typeof validateBundle>[1]) =>
-          processes.validateAnyBundle(b, {
+          processes.validateBundle(b, {
             ...c,
             ...(existing ? { existingStepIds: existing } : {}),
             ...(existingSkills ? { existingStepSkills: existingSkills } : {}),
@@ -535,7 +505,7 @@ export async function validateForPublish(
 async function loopPublishErrors(
   tx: Tx,
   row: Pick<AgentRow, "tenantId">,
-  bundle: AnyAgentBundle,
+  bundle: AgentBundle,
   ctx: RegistryContext,
   skills: Record<string, SkillDefinition>,
 ): Promise<ValidationError[]> {
@@ -571,7 +541,7 @@ async function loopPublishErrors(
  * (`validateForPublish`'s `previous`): a bundle (a step it lacks is new), or `"none"` (every step
  * is new).
  */
-export type ExistingSteps = AnyAgentBundle | "none";
+export type ExistingSteps = AgentBundle | "none";
 
 /**
  * Skill model (2026-11-10): what already exists for a version, which says which of its steps are
@@ -802,7 +772,7 @@ async function insertClientAgent(
     testCopy?: boolean;
     id?: string | undefined;
   },
-  bundle: AnyAgentBundle,
+  bundle: AgentBundle,
 ): Promise<AgentRow> {
   const [row] = await tx
     .insert(agent)
@@ -1133,11 +1103,11 @@ export async function relink(
  * connector tool it can call (skills' tools, extra tools, action steps; v4: read and write steps).
  */
 export function requiredConnectors(
-  bundle: AnyAgentBundle,
+  bundle: AgentBundle,
   skills: Record<string, SkillDefinition>,
   tools: ToolRegistry,
   // v0.12 W2-B: the automations its use steps pin (their `requires.connectors` count too).
-  automations: Record<string, AnyAutomationDefinition> = {},
+  automations: Record<string, AutomationDefinition> = {},
   // v0.14 W4-A: a client agent's bindings, so a shared id needs the connector it is bound to
   // (Twilio or Meta for `whatsapp.send`); without them, the first that supplies it.
   bindings?: Readonly<Record<string, string>>,
@@ -1222,7 +1192,7 @@ function packsOf(skills: Record<string, SkillDefinition>): string[] {
  */
 export async function requiredPacks(
   tx: Tx,
-  input: { tenantId: string; bundle: AnyAgentBundle; catalog: SkillCatalog },
+  input: { tenantId: string; bundle: AgentBundle; catalog: SkillCatalog },
 ): Promise<string[]> {
   const { skills } = await skillContext(tx, input);
   return packsOf(skills);

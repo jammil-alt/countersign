@@ -4,7 +4,7 @@
 // the agent's Settings in the portal: within the bounds (or stricter) at once, beyond them as a
 // request to us. Approvals, permissions, writes and steps are never offered here: they are ours.
 
-import type { AdjustTarget, AnyAgentBundle } from "@countersign/core";
+import type { AdjustTarget, AgentBundle } from "@countersign/core";
 import { cronText } from "@countersign/core";
 import { Card, SectionLabel } from "../../ui/primitives";
 import {
@@ -171,7 +171,7 @@ export function ScheduleAdjustCard({
   errors,
   onChange,
 }: {
-  bundle: Pick<AnyAgentBundle, "workflows">;
+  bundle: Pick<AgentBundle, "workflows">;
   drafts: readonly AdjustDraft[];
   errors: Record<string, string>;
   onChange(next: AdjustDraft[]): void;

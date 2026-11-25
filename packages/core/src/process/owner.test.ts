@@ -9,9 +9,9 @@ import {
   OversightDecision,
   OversightSettings,
 } from "../oversight/decision";
-import { type AnyAgentBundle, AnyAgentBundle as AnyBundleSchema } from "../schemas/agent";
+import { type AgentBundle, AgentBundle as AnyBundleSchema } from "../schemas/agent";
 import { bundle, ctx, edit, workflowInput } from "../testing/fixtures";
-import { workflowCheckpoints } from "../workflow/validate";
+import { workflowCheckpoints } from "./checks";
 import { fromWorkflowV3 } from "./convert";
 import {
   OWNER_MAY,
@@ -27,7 +27,7 @@ import { SPLIT_MAX_STEPS } from "./validate";
 /** Reads every skill as a skill (no wrapped tools): the converted process keeps v3's shape. */
 const keepSkills = { wrappedTool: () => null, sideEffect: () => null };
 
-function processBundle(over: (b: AnyAgentBundle) => void = () => {}): AnyAgentBundle {
+function processBundle(over: (b: AgentBundle) => void = () => {}): AgentBundle {
   const b = AnyBundleSchema.parse(bundle());
   const first = b.workflows[0];
   if (first?.workflow.schemaVersion !== 3) throw new Error("fixture");

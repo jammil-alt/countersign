@@ -12,7 +12,7 @@
 // workflow is still v4 keeps the v4 body below (./checkModel) until wave 4 deletes it. Both render
 // the same parts (./checkParts): only the model underneath differs.
 
-import { AnyAgentBundle, canonicalJson, type ProcessAgentBundle } from "@countersign/core";
+import { AgentBundle, canonicalJson, type ProcessAgentBundle } from "@countersign/core";
 import { DndContext, type DragEndEvent } from "@dnd-kit/core";
 import { SortableContext, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { useState } from "react";
@@ -148,7 +148,7 @@ interface Loaded {
 }
 
 function load(agent: AgentData | null, newId: NewId | undefined): Loaded {
-  const parsed = agent?.latest ? AnyAgentBundle.safeParse(agent.latest.bundle) : null;
+  const parsed = agent?.latest ? AgentBundle.safeParse(agent.latest.bundle) : null;
   const bundle = parsed?.success ? readProcessBundle(parsed.data, {}) : null;
   const first = bundle?.workflows[0];
   return {

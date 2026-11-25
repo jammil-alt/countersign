@@ -26,32 +26,7 @@ import {
   withWriteActionFields,
 } from "@countersign/agents";
 import { actionsOff, BUILTIN_CONNECTORS, builtInManifest } from "@countersign/connectors";
-import {
-  type AgentBundle,
-  AgentDefinition,
-  type AnyAgentBundle,
-  type BuilderCatalog,
-  type BundleChange,
-  connectorShown,
-  connectorTitle,
-  diffBundles,
-  flattenBundle,
-  isToolWrapper,
-  mergeBundles,
-  newStepSkillReason,
-  parseSkillRef,
-  processes,
-  recommendedModel,
-  routes,
-  type SkillDefinition,
-  type SkillToolLookup,
-  skillKind,
-  skillModelFacts,
-  skillMoveImpact,
-  steps,
-  type ToolInputVariants,
-  toolLookup,
-} from "@countersign/core";
+import { type AgentBundle, AgentDefinition, type BuilderCatalog, type BundleChange, connectorShown, connectorTitle, diffBundles, flattenBundle, isToolWrapper, mergeBundles, newStepSkillReason, parseSkillRef, processes, recommendedModel, routes, type SkillDefinition, type SkillToolLookup, skillKind, skillModelFacts, skillMoveImpact, steps, type ToolInputVariants, toolLookup } from "@countersign/core";
 import {
   agent,
   connection,
@@ -110,7 +85,7 @@ async function currentVersion(ctx: Scope, row: AgentRow): Promise<AgentVersionRo
  * A name for every entity either bundle has, so the screens can say "Step Ask Jammil changed"
  * instead of `step:9f…`. Skills are labelled by their reference; otherwise branches "Otherwise".
  */
-export function bundleLabels(...bundles: AnyAgentBundle[]): Record<string, string> {
+export function bundleLabels(...bundles: AgentBundle[]): Record<string, string> {
   const out: Record<string, string> = {};
   for (const b of bundles) {
     for (const [key, e] of flattenBundle(b).entities) {
@@ -133,8 +108,8 @@ export function bundleLabels(...bundles: AnyAgentBundle[]): Record<string, strin
  * reads v3 workflows as v4 when the two versions are one of each (an agent updated to v4).
  */
 function diff(
-  a: AnyAgentBundle,
-  b: AnyAgentBundle,
+  a: AgentBundle,
+  b: AgentBundle,
   read: ReturnType<typeof lineageReadOptions>,
 ): { changes: BundleChange[] } {
   try {
@@ -148,7 +123,7 @@ function diff(
   }
 }
 
-export function labels(...bundles: AnyAgentBundle[]): Record<string, string> {
+export function labels(...bundles: AgentBundle[]): Record<string, string> {
   try {
     return bundleLabels(...bundles);
   } catch {
@@ -264,7 +239,7 @@ export const SPLIT_MODEL_TOOLS: ReadonlySet<string> = new Set([
 export const ACCOUNT_TOOL_PREFIX = "account.";
 
 /** The tools an agent's processes call as read or write steps (core's `processTools`). */
-export function bundleStepTools(bundle: AnyAgentBundle | null | undefined): Set<string> {
+export function bundleStepTools(bundle: AgentBundle | null | undefined): Set<string> {
   if (!bundle) return new Set();
   const v4 = bundle.workflows
     .map((w) => w.workflow)
@@ -438,7 +413,7 @@ export interface CatalogSubject {
   /** The tools its steps call as read or write steps. */
   stepTools: ReadonlySet<string>;
   /** An agent's latest bundle, for the automations it already pins; null for an automation. */
-  bundle: AnyAgentBundle | null;
+  bundle: AgentBundle | null;
   /** Whether a use step may be placed: never inside an automation (no nesting). */
   automations: boolean;
 }

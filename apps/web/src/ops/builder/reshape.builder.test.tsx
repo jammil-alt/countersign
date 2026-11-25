@@ -5,8 +5,8 @@
 // the save holds the mapping as data. A mapping the validator flags offers "Propose an updated
 // mapping".
 import {
-  AnyAgentBundle,
-  type AnyAgentBundleInput,
+  AgentBundle,
+  type AgentBundleInput,
   type BuilderCatalog,
   inferSampleSchema,
   processes,
@@ -123,7 +123,7 @@ const BILL_STEP = {
   checks: { approval: { required: "required" } },
 };
 
-function bundleWith(steps: unknown[], triggers: unknown[] = [TRIGGER]): AnyAgentBundleInput {
+function bundleWith(steps: unknown[], triggers: unknown[] = [TRIGGER]): AgentBundleInput {
   return {
     schemaVersion: 1,
     definition: {
@@ -148,7 +148,7 @@ function bundleWith(steps: unknown[], triggers: unknown[] = [TRIGGER]): AnyAgent
         workflow: { schemaVersion: 4, triggers, steps },
       },
     ],
-  } as AnyAgentBundleInput;
+  } as AgentBundleInput;
 }
 
 const AGENT: AgentSummary = {
@@ -171,7 +171,7 @@ const AGENT: AgentSummary = {
   createdAt: "2026-11-11T00:00:00.000Z",
 };
 
-function version(bundle: AnyAgentBundleInput): VersionDetail {
+function version(bundle: AgentBundleInput): VersionDetail {
   return {
     id: V1,
     version: 1,
@@ -184,7 +184,7 @@ function version(bundle: AnyAgentBundleInput): VersionDetail {
     basedOnTemplateVersionId: null,
     createdAt: "2026-11-11T00:00:00.000Z",
     publishedAt: null,
-    bundle: AnyAgentBundle.parse(bundle),
+    bundle: AgentBundle.parse(bundle),
   } as unknown as VersionDetail;
 }
 
@@ -284,7 +284,7 @@ function setup(steps: unknown[], triggers?: unknown[]) {
       return { version: { ...version(BUNDLE), bundle: undefined }, errors: [] };
     },
   });
-  const bundle = AnyAgentBundle.parse(BUNDLE);
+  const bundle = AgentBundle.parse(BUNDLE);
   function Page() {
     const { workflow = "" } = useParams();
     return (
@@ -315,7 +315,7 @@ function setup(steps: unknown[], triggers?: unknown[]) {
 
 function saved(sent: { path: string; body: Record<string, unknown> }[]) {
   const body = sent.filter((s) => s.path === "save").at(-1)?.body;
-  const bundle = AnyAgentBundle.parse(body?.bundle);
+  const bundle = AgentBundle.parse(body?.bundle);
   const w = bundle.workflows[0]?.workflow;
   if (w?.schemaVersion !== 4) throw new Error("not a process");
   return { bundle, process: w };

@@ -3,7 +3,7 @@
 // with a fork out per unread invoice into step 1 of "Check an invoice", instead of a copy of it.
 import { describe, expect, it } from "vitest";
 import type { SkillDefinition } from "../schemas/skill";
-import { validateAnyBundle } from "./bundle";
+import { validateBundle } from "./bundle";
 import { handoffWorkflows, isSelfHandoff, selfHandoffLoops, selfHandoffSteps } from "./handoff";
 import { Process as ProcessSchema, SELF_AGENT } from "./schema";
 import { validateProcess } from "./validate";
@@ -96,7 +96,7 @@ const self = (workflow?: string, step = "chk-read") => ({
 });
 
 const codes = (b: unknown) =>
-  validateAnyBundle(b, typing)
+  validateBundle(b, typing)
     .errors.filter((e) => e.code.startsWith("handoff"))
     .map((e) => [e.workflow, e.stepId, e.code]);
 
@@ -142,7 +142,7 @@ describe("a hand-off to this agent's own workflow", () => {
         bundle({ slug: "check", workflow: check }, { slug: "scan", workflow: scan(self("gone")) }),
       ),
     ).toEqual([["scan", "scan-hand", "handoff_unknown_workflow"]]);
-    const off = validateAnyBundle(
+    const off = validateBundle(
       bundle(
         { slug: "check", name: "Check an invoice", enabled: false, workflow: check },
         { slug: "scan", workflow: scan(self("check")) },
@@ -191,7 +191,7 @@ describe("a hand-off to this agent's own workflow", () => {
       { slug: "check", workflow: check },
       { slug: "scan", workflow: scan(self("check"), { extra: "x" }) },
     );
-    const errors = validateAnyBundle(b, typing).errors.filter((e) => e.stepId === "scan-hand");
+    const errors = validateBundle(b, typing).errors.filter((e) => e.stepId === "scan-hand");
     expect(errors.length).toBeGreaterThan(0);
     expect(errors.every((e) => e.field.startsWith("input"))).toBe(true);
   });
@@ -214,7 +214,7 @@ describe("a hand-off to this agent's own workflow", () => {
       { slug: "check", name: "Check an invoice", workflow: toScan },
       { slug: "scan", name: "Scan bills", workflow: scan(self("check")) },
     );
-    const loops = validateAnyBundle(b, typing).errors.filter((e) => e.code === "handoff_loop");
+    const loops = validateBundle(b, typing).errors.filter((e) => e.code === "handoff_loop");
     expect(loops.map((e) => [e.workflow, e.stepId])).toEqual([
       ["check", "chk-hand"],
       ["scan", "scan-hand"],

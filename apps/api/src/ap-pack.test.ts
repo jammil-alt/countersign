@@ -27,7 +27,7 @@ const latest = apManifest.templates[0]?.versions?.at(-1);
 describe("the Bills to pay template", () => {
   it("validates against the platform as a template", () => {
     if (!latest) throw new Error("no template");
-    expect(processes.validateAnyBundle(latest, ctx).errors).toEqual([]);
+    expect(processes.validateBundle(latest, ctx).errors).toEqual([]);
     expect(latest.workflows.map((w) => [w.slug, w.workflow.schemaVersion])).toEqual([
       ["bill-in", 4],
       ["pay-list", 4],

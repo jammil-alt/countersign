@@ -1,7 +1,7 @@
 // The server's checks in the browser (wave 3b): a template's bundle is validated as the server's
 // publish validates it, with `clientAgent: false`, so a template's process step can't change an
 // inner step's approval in the builder any more than on the server.
-import { AnyAgentBundle, type AnyAgentBundleInput, type BuilderCatalog } from "@countersign/core";
+import { AgentBundle, type AgentBundleInput, type BuilderCatalog } from "@countersign/core";
 import { describe, expect, it } from "vitest";
 import { validateMerged } from "../merge/MergeScreen";
 import { toolConnector, toolFeed, typingContext, validateProcessesLikeServer } from "./catalog";
@@ -57,9 +57,9 @@ const ctx = typingContext({ catalog: CATALOG, events: [] });
 
 function bundle(
   steps: Record<string, unknown>[],
-  more: AnyAgentBundleInput["workflows"] = [],
-): AnyAgentBundle {
-  return AnyAgentBundle.parse({
+  more: AgentBundleInput["workflows"] = [],
+): AgentBundle {
+  return AgentBundle.parse({
     schemaVersion: 1,
     definition: {
       schemaVersion: 2,

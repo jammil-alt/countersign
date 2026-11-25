@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { isUuid } from "../ids";
-import { AnyAutomationDefinition, AutomationRequires } from "../schemas/automation";
+import { AutomationDefinition, AutomationRequires } from "../schemas/automation";
 import { JsonSchema, NodeId, Slug } from "../schemas/common";
 import { defineRoute } from "./contract";
 
@@ -58,7 +58,7 @@ export const AutomationVersionView = z.object({
   version: z.number().int(),
   status: z.string(),
   // Wave 3b: v3 steps or v4 process steps.
-  definition: AnyAutomationDefinition,
+  definition: AutomationDefinition,
   changeNote: z.string().nullable(),
   authorId: z.string().nullable(),
   parentVersionId: z.string().nullable(),
@@ -92,7 +92,7 @@ export const BuilderAutomation = z.object({
   /** live: the version agents get today; pinned: a version the agent's latest version names. */
   status: z.string(),
   // Wave 3b: v3 steps or v4 process steps.
-  definition: AnyAutomationDefinition,
+  definition: AutomationDefinition,
   /** The use step's output, typed from the automation's `output`. */
   outputSchema: JsonSchema,
 });

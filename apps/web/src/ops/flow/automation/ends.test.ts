@@ -1,7 +1,7 @@
 // An automation's Takes in and Gives back as rows, and back (F7): the schema and the template the
 // rows write, what a half-typed row leaves out, the words on the chart's end boxes, and the
 // automation as the builder's editing model holds it.
-import { AnyAutomationDefinition, type ProcessAutomationDefinition } from "@countersign/core";
+import { AutomationDefinition, type AutomationDefinition } from "@countersign/core";
 import { describe, expect, it } from "vitest";
 import {
   automationEnds,
@@ -37,7 +37,7 @@ const INPUT = {
   required: ["billId"],
 };
 
-const DEFINITION = AnyAutomationDefinition.parse({
+const DEFINITION = AutomationDefinition.parse({
   schemaVersion: 2,
   slug: "bill-intake",
   name: "Bill intake",
@@ -52,7 +52,7 @@ const DEFINITION = AnyAutomationDefinition.parse({
       input: { billId: "{{input.billId}}" },
     },
   ],
-}) as ProcessAutomationDefinition;
+}) as AutomationDefinition;
 
 const names = (id: string) => (id === "find" ? "Find the document" : null);
 

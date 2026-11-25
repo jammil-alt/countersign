@@ -4,7 +4,7 @@
 import type { Approver, RegistryContext } from "@countersign/agents";
 import { applyMatrixChange, BROWSER_CONNECTOR_ID } from "@countersign/connectors";
 import {
-  type AnyAgentBundle,
+  type AgentBundle,
   changeDirection,
   clientHolidays,
   complianceOf,
@@ -269,7 +269,7 @@ async function goLiveViews(
   now: Date,
 ): Promise<{
   views: { agentId: string; goLive: GoLive }[];
-  bundles: ReadonlyMap<string, AnyAgentBundle>;
+  bundles: ReadonlyMap<string, AgentBundle>;
 }> {
   if (rows.length === 0) return { views: [], bundles: new Map() };
   const states = new Map(rows.map((r) => [r.id, readStageState(r.stageState)]));
@@ -377,7 +377,7 @@ async function goLiveViews(
 function nextRuns(
   t: Pick<typeof tenant.$inferSelect, "id" | "timezone" | "settings">,
   rows: readonly (typeof agent.$inferSelect)[],
-  bundles: ReadonlyMap<string, AnyAgentBundle>,
+  bundles: ReadonlyMap<string, AgentBundle>,
   now: Date,
 ): Map<string, Date> {
   const agents: RoutableAgent[] = rows
@@ -526,7 +526,7 @@ export const runListColumns = {
 };
 export type RunListRow = Pick<typeof run.$inferSelect, keyof typeof runListColumns>;
 
-type BundleWorkflow = AnyAgentBundle["workflows"][number];
+type BundleWorkflow = AgentBundle["workflows"][number];
 /** A run's workflow as its list row needs it: the name, and the steps only to name a failed one. */
 type RunWorkflow = { name: string | null; workflow: BundleWorkflow["workflow"] | null };
 const workflowKey = (versionId: string, slug: string) => `${versionId}|${slug}`;

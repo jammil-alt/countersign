@@ -4,7 +4,7 @@
 import {
   AgentBundle,
   type AgentBundleInput,
-  type AnyAgentBundle,
+  type AgentBundle,
   canonicalJson,
   nodeIds,
   type ProcessAgentBundle,
@@ -344,7 +344,7 @@ describe("builder model", () => {
 
   it("sets an agent's v5 workflows aside when read, and saves them back where they were", () => {
     const v5 = addWorkflow({ slug: "weekly", name: "Weekly", on: { type: "manual", input: {} } });
-    const stored = { ...BUNDLE, workflows: [v5, ...BUNDLE.workflows] } as AnyAgentBundle;
+    const stored = { ...BUNDLE, workflows: [v5, ...BUNDLE.workflows] } as AgentBundle;
     const read = readProcessBundle(stored, CTX);
     expect(read.workflows.map((w) => w.slug)).toEqual(["main"]);
     expect(holdsV3(stored)).toBe(false);

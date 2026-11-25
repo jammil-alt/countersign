@@ -12,22 +12,7 @@
 import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import {
-  ACCOUNT_AGENT_SERVICE_DESCRIPTION,
-  ACCOUNT_AGENT_SERVICE_NAME,
-  type AgentBundle,
-  type AnyAgentBundle,
-  batchKeyOf,
-  bundleHash,
-  DEFAULT_PERMISSIONS,
-  explainWrite,
-  NO_WRITES_REASON,
-  processes,
-  SUPERVISOR_SLUG,
-  stagesPassed,
-  startTrial,
-  uuidv5,
-} from "@countersign/core";
+import { ACCOUNT_AGENT_SERVICE_DESCRIPTION, ACCOUNT_AGENT_SERVICE_NAME, type AgentBundle, batchKeyOf, bundleHash, DEFAULT_PERMISSIONS, explainWrite, NO_WRITES_REASON, processes, SUPERVISOR_SLUG, stagesPassed, startTrial, uuidv5 } from "@countersign/core";
 import { and, eq, isNull } from "drizzle-orm";
 import { type Db, type Tx, withOperator } from "./client";
 import {
@@ -76,17 +61,17 @@ export const SEED_DIR_BEFORE_STEP_MODEL = fileURLToPath(
 
 export interface SeedTemplate {
   slug: string;
-  bundle: AnyAgentBundle;
+  bundle: AgentBundle;
   hash: string;
 }
 
 /**
- * A seeded bundle, validated by core's `validateAnyBundle`: v3 workflows as `validateBundle` does,
+ * A seeded bundle, validated by core's `validateBundle`: v3 workflows as `validateBundle` does,
  * v4 processes with `validateProcess`, step-model (v5) workflows with the step model's publish
  * checks (`steps.validateWorkflow`). Throws naming every error.
  */
-function validSeedBundle(raw: unknown, what: string): AnyAgentBundle {
-  const result = processes.validateAnyBundle(raw);
+function validSeedBundle(raw: unknown, what: string): AgentBundle {
+  const result = processes.validateBundle(raw);
   if (!result.valid || !result.value) {
     const errors = result.errors.map((e) => `${e.field}: ${e.message}`).join("; ");
     throw new Error(`${what} is not a valid bundle: ${errors}`);

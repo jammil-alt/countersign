@@ -4,17 +4,7 @@
 // enabled and disabled rules, issues on their steps with a clickable summary, and the bundle it
 // saves keeping every step, path and id. R8: the fixture is a stored v3 version; the builder
 // opens it as a v4 process and saves processes (schemaVersion 4) as a new version.
-import {
-  AgentBundle,
-  type AgentBundleInput,
-  AnyAgentBundle,
-  type BuilderCatalog,
-  canonicalJson,
-  nodeIds,
-  type PermissionMatrix,
-  processes,
-  type SessionResponse,
-} from "@countersign/core";
+import { AgentBundle, type AgentBundleInput, type BuilderCatalog, canonicalJson, nodeIds, type PermissionMatrix, processes, type SessionResponse } from "@countersign/core";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
@@ -665,7 +655,7 @@ describe("WorkflowBuilder", () => {
     expect(screen.getByTestId("flow-start")).toHaveTextContent("On a schedule");
     await user.click(screen.getByTestId("flow-bar-save"));
     await waitFor(() => expect(sent).toHaveLength(1));
-    const saved = AnyAgentBundle.parse(sent[0]?.body.bundle).workflows[0]?.workflow;
+    const saved = AgentBundle.parse(sent[0]?.body.bundle).workflows[0]?.workflow;
     expect(saved?.schemaVersion === 4 ? saved.triggers.map((t) => t.id) : null).toEqual(["t1"]);
   });
 
@@ -994,11 +984,11 @@ describe("WorkflowBuilder", () => {
     expect(body.parentVersionId).toBe(V1);
     const before = BUNDLE.workflows[0]?.workflow;
     // R8: saved as a v4 process (a new version; v1 stays v3), every id kept.
-    const after = AnyAgentBundle.parse(body.bundle).workflows[0]?.workflow;
+    const after = AgentBundle.parse(body.bundle).workflows[0]?.workflow;
     if (!before || after?.schemaVersion !== 4) throw new Error("no process");
     expect(processes.nodeIds(after)).toEqual(nodeIds(before));
     // Nothing but the name changed from the stored version read as a process.
-    const renamed = AnyAgentBundle.parse(body.bundle);
+    const renamed = AgentBundle.parse(body.bundle);
     const step = renamed.workflows[0]?.workflow.steps[0];
     if (step) step.name = "Find supporting document";
     const ctx = typingContext({ catalog: CATALOG, events: EVENTS.events });
@@ -1691,7 +1681,7 @@ describe("WorkflowBuilder with the Builder", () => {
     await user.selectOptions(select, "claude-haiku-4-5");
     await user.click(screen.getByTestId("flow-bar-save"));
     await waitFor(() => expect(sent).toHaveLength(1));
-    const saved = AnyAgentBundle.parse((sent[0]?.body as { bundle: unknown } | undefined)?.bundle);
+    const saved = AgentBundle.parse((sent[0]?.body as { bundle: unknown } | undefined)?.bundle);
     const find = saved.workflows[0]?.workflow.steps[0];
     expect(find?.kind === "skill" ? find.model : null).toEqual({ id: "claude-haiku-4-5" });
   });
@@ -1702,7 +1692,7 @@ describe("WorkflowBuilder with the Builder", () => {
 describe("WorkflowBuilder on processes", () => {
   /** The step as saved: the body's bundle read as v4, the step found anywhere in its process. */
   function savedStep(sent: { body: Record<string, unknown> }[], id: string) {
-    const bundle = AnyAgentBundle.parse(sent.at(-1)?.body.bundle);
+    const bundle = AgentBundle.parse(sent.at(-1)?.body.bundle);
     const process = bundle.workflows[0]?.workflow;
     if (process?.schemaVersion !== 4) throw new Error("not saved as a process");
     return processes.findStep(process, id)?.step;
@@ -1710,7 +1700,7 @@ describe("WorkflowBuilder on processes", () => {
 
   /** The last step of the saved process (a step added in the test). */
   function savedLast(sent: { body: Record<string, unknown> }[]) {
-    const bundle = AnyAgentBundle.parse(sent.at(-1)?.body.bundle);
+    const bundle = AgentBundle.parse(sent.at(-1)?.body.bundle);
     const process = bundle.workflows[0]?.workflow;
     if (process?.schemaVersion !== 4) throw new Error("not saved as a process");
     return process.steps.at(-1);

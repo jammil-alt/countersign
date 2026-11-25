@@ -29,7 +29,7 @@ import {
   fakeQbo,
 } from "@countersign/connectors/testing";
 import {
-  type AnyAgentBundle,
+  type AgentBundle,
   isToolWrapper,
   parseSkillRef,
   processes,
@@ -81,7 +81,7 @@ const lookup = toolLookup(platform.tools.specs());
 
 interface Built {
   name: string;
-  bundle: AnyAgentBundle;
+  bundle: AgentBundle;
 }
 
 /**
@@ -115,7 +115,7 @@ async function built(): Promise<Built[]> {
 const all = await built();
 
 /** Every step of a bundle's v4 processes. */
-function stepsOf(b: AnyAgentBundle): processes.Step[] {
+function stepsOf(b: AgentBundle): processes.Step[] {
   return b.workflows.flatMap((w) =>
     w.workflow.schemaVersion === 4 ? processes.allSteps(w.workflow).map((l) => l.step) : [],
   );
@@ -161,7 +161,7 @@ describe("the skill model's template versions", () => {
   };
 
   it.each(all)("$name validates against the platform as a template", (b) => {
-    const r = processes.validateAnyBundle(b.bundle, ctx);
+    const r = processes.validateBundle(b.bundle, ctx);
     expect(r.errors).toEqual([]);
     expect(r.warnings.map((w) => w.code)).toEqual(ADVICE[b.name] ?? []);
     for (const w of b.bundle.workflows) expect(w.workflow.schemaVersion, w.slug).toBe(4);

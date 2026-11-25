@@ -2,7 +2,7 @@
 // page's Workflow tab on an older version (`workflow?version=N`). No +, no dragging, nothing to
 // settle: the boxes and arrows as that version had them, with zoom, Fit and each box's details on
 // hover. A stored v3 workflow is read as a process first (every id kept; nothing stored changes).
-import type { AnyAgentBundle } from "@countersign/core";
+import type { AgentBundle } from "@countersign/core";
 import { useMemo, useState } from "react";
 import { readProcessBundle } from "../builder/model";
 import { Chart } from "./Chart";
@@ -18,13 +18,13 @@ const NO_EVENTS = { onMove: NOTHING, onInsert: NOTHING, onConnect: NOTHING };
 export default function ReadOnlyFlow({
   workflow,
 }: {
-  workflow: AnyAgentBundle["workflows"][number];
+  workflow: AgentBundle["workflows"][number];
 }) {
   // DECISION (F6): an older version is read without the catalog (the tab has none), so a v3 skill
   // that wrapped a tool reads as a skill step here; the builder, which has it, reads it as a write.
   const process = useMemo(
     () =>
-      readProcessBundle({ workflows: [workflow] } as unknown as AnyAgentBundle, {}).workflows[0]
+      readProcessBundle({ workflows: [workflow] } as unknown as AgentBundle, {}).workflows[0]
         ?.workflow,
     [workflow],
   );

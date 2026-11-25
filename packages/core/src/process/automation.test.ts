@@ -1,25 +1,21 @@
 // Wave 3b (docs/plan.md §1.86): automations whose steps are v4 process steps, "Save as automation"
 // on a process, and process steps that pin a v3 or a v4 automation.
 import { describe, expect, it } from "vitest";
-import {
-  AnyAutomationDefinition,
-  type AutomationDefinition,
-  type ProcessAutomationDefinition,
-} from "../schemas/automation";
+import { AutomationDefinition, type AutomationDefinition } from "../schemas/automation";
 import { ctx as baseCtx } from "../testing/fixtures";
-import { type ValidationContext, validateWorkflow } from "../workflow/validate";
 import {
   anyAutomationRequires,
   stepsToProcessAutomation,
   validateAnyAutomation,
 } from "./automation";
+import { type ValidationContext, validateWorkflow } from "./checks";
 import { processPathsAt } from "./paths";
 import { Process, type Step } from "./schema";
 import { approvalLoosenings, tightenedApproval, validateProcess } from "./validate";
 
 /** Summarize a note, then attach the document (a write). */
-function followUp(): ProcessAutomationDefinition {
-  return AnyAutomationDefinition.parse({
+function followUp(): AutomationDefinition {
+  return AutomationDefinition.parse({
     schemaVersion: 2,
     slug: "follow-up",
     name: "Follow up",
@@ -46,7 +42,7 @@ function followUp(): ProcessAutomationDefinition {
         checks: { approval: { required: "required" } },
       },
     ],
-  }) as ProcessAutomationDefinition;
+  }) as AutomationDefinition;
 }
 
 const v3FollowUp: AutomationDefinition = {

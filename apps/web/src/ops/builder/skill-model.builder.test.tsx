@@ -4,8 +4,8 @@
 // click; breaking only once each downstream reference is remapped); a write to our own records
 // reads "Save to records" with approval off, which the operator may turn on.
 import {
-  AnyAgentBundle,
-  type AnyAgentBundleInput,
+  AgentBundle,
+  type AgentBundleInput,
   type BuilderCatalog,
   processes,
   type SkillDefinition,
@@ -97,7 +97,7 @@ const CATALOG: BuilderCatalog = {
   automations: [],
 };
 
-const BUNDLE: AnyAgentBundleInput = {
+const BUNDLE: AgentBundleInput = {
   schemaVersion: 1,
   definition: {
     schemaVersion: 2,
@@ -241,7 +241,7 @@ function version(): VersionDetail {
     basedOnTemplateVersionId: null,
     createdAt: "2026-11-10T00:00:00.000Z",
     publishedAt: null,
-    bundle: AnyAgentBundle.parse(BUNDLE),
+    bundle: AgentBundle.parse(BUNDLE),
   } as unknown as VersionDetail;
 }
 
@@ -272,7 +272,7 @@ function setup(move: unknown = BREAKING) {
       return { version: { ...version(), bundle: undefined }, errors: [] };
     },
   });
-  const bundle = AnyAgentBundle.parse(BUNDLE);
+  const bundle = AgentBundle.parse(BUNDLE);
   function Page() {
     const { workflow = "" } = useParams();
     return (
@@ -303,7 +303,7 @@ function setup(move: unknown = BREAKING) {
 
 function savedProcess(sent: { path: string; body: Record<string, unknown> }[]) {
   const body = sent.filter((s) => s.path === "save").at(-1)?.body;
-  const bundle = AnyAgentBundle.parse(body?.bundle);
+  const bundle = AgentBundle.parse(body?.bundle);
   const w = bundle.workflows[0]?.workflow;
   if (w?.schemaVersion !== 4) throw new Error("not a process");
   return w;
@@ -363,7 +363,7 @@ describe("the builder under the skill model", () => {
     await user.click(screen.getByTestId("flow-bar-save"));
     await waitFor(() => expect(sent.some((s) => s.path === "save")).toBe(true));
     const body = sent.filter((s) => s.path === "save").at(-1)?.body;
-    const saved = AnyAgentBundle.parse(body?.bundle);
+    const saved = AgentBundle.parse(body?.bundle);
     expect((saved.definition as { adjustable?: unknown }).adjustable).toEqual([
       {
         id: "param-match-floor",

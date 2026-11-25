@@ -338,6 +338,8 @@ export * from "./permissions/release";
 // R1: processes, workflow schemaVersion 4 (docs/plan.md §1.86, §9), as the `processes` namespace.
 export * as processes from "./process";
 export * from "./process/change-class";
+// v0.12 W2-B
+export * from "./process/checks";
 export * from "./process/numbers";
 // Agent motion (docs/plan.md §1.106): the thinking state a running step shows.
 export { THINKING_STATES, type ThinkingState, thinkingOf } from "./process/thinking";
@@ -415,7 +417,4 @@ export * from "./units";
 export * from "./weekly/schemas";
 export * from "./weekly/week";
 export * from "./work";
-// v0.12 W2-B
-export * from "./workflow/automation";
-export * from "./workflow/validate";
 export * from "./workflow/walk";

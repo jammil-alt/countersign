@@ -15,8 +15,8 @@ import {
 } from "@countersign/agents";
 import {
   type AgentStage,
-  type AnyAgentBundle,
-  type AnyAutomationDefinition,
+  type AgentBundle,
+  type AutomationDefinition,
   clientLanguage,
   eachBundleStep,
   GO_LIVE_SUBJECT,
@@ -92,7 +92,7 @@ export function stageOf(row: Pick<AgentRow, "kind" | "stage">): AgentStage | nul
 export async function bundleWrites(
   tx: Tx,
   tenantId: string,
-  bundle: AnyAgentBundle,
+  bundle: AgentBundle,
   ctx: RegistryContext,
 ): Promise<boolean> {
   return bundleWritesWith(bundle, await writesContext(tx, tenantId, [bundle], ctx), ctx);
@@ -101,7 +101,7 @@ export async function bundleWrites(
 /** The skills and automations `bundleWritesWith` walks, resolved for one client. */
 export interface WritesContext {
   skills: Record<string, SkillDefinition>;
-  automations: Record<string, AnyAutomationDefinition>;
+  automations: Record<string, AutomationDefinition>;
   automationSkills: Record<string, SkillDefinition>;
 }
 
@@ -115,12 +115,12 @@ export interface WritesContext {
 export async function writesContext(
   tx: Tx,
   tenantId: string,
-  bundles: readonly AnyAgentBundle[],
+  bundles: readonly AgentBundle[],
   ctx: RegistryContext,
 ): Promise<WritesContext> {
   const [first] = bundles;
   if (!first) return { skills: {}, automations: {}, automationSkills: {} };
-  const union = (workflows: AnyAgentBundle["workflows"]): AnyAgentBundle => ({
+  const union = (workflows: AgentBundle["workflows"]): AgentBundle => ({
     ...first,
     definition: { ...first.definition, skills: bundles.flatMap((b) => b.definition.skills) },
     workflows,
@@ -138,7 +138,7 @@ export async function writesContext(
 
 /** Whether a bundle writes (`bundleWrites`), from its client's resolved skills and automations. */
 export function bundleWritesWith(
-  bundle: AnyAgentBundle,
+  bundle: AgentBundle,
   context: WritesContext,
   ctx: RegistryContext,
 ): boolean {
@@ -203,7 +203,7 @@ export function bundleWritesWith(
   return false;
 }
 
-async function liveBundle(tx: Tx, row: AgentRow): Promise<AnyAgentBundle | null> {
+async function liveBundle(tx: Tx, row: AgentRow): Promise<AgentBundle | null> {
   if (!row.liveVersionId) return null;
   const [v] = await tx
     .select({ bundle: agentVersion.bundle })

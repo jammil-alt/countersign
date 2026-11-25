@@ -279,7 +279,7 @@ describe.skipIf(!ready)("Spreadsheet to Zoho, end to end", () => {
   it("ships a template that validates on the platform, approval on", () => {
     const [t] = salesManifest.templates;
     const latest = (t?.versions?.at(-1) ?? t?.bundle) as never;
-    expect(processes.validateAnyBundle(latest, typing()).errors).toEqual([]);
+    expect(processes.validateBundle(latest, typing()).errors).toEqual([]);
   });
 
   it("forks it for the client, with the client's own column for Zoho's custom field", async () => {

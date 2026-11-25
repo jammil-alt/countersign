@@ -9,7 +9,7 @@
 // automatically (DECISION in plan §1.2).
 
 import {
-  type AnyAgentBundle,
+  type AgentBundle,
   type AnyStep,
   canonicalJson,
   cloneJson,
@@ -122,7 +122,7 @@ export interface MergePreview {
   base: AgentVersionRow;
   ours: AgentVersionRow;
   theirs: AgentVersionRow;
-  result: MergeResult<AnyAgentBundle>;
+  result: MergeResult<AgentBundle>;
 }
 
 /**
@@ -169,7 +169,7 @@ export async function previewUpdate(
 async function requireMergeable(
   tx: Tx,
   tenantId: string | null,
-  result: MergeResult<AnyAgentBundle>,
+  result: MergeResult<AgentBundle>,
   ctx: RegistryContext,
 ): Promise<void> {
   if (!result.clean) {
@@ -188,7 +188,7 @@ async function requireMergeable(
   // as before).
   const validate =
     holdsProcess(result.bundle) || holdsStepModel(result.bundle)
-      ? processes.validateAnyBundle
+      ? processes.validateBundle
       : validateBundle;
   const valid = validate(result.bundle, {
     skills,
@@ -592,13 +592,13 @@ function scrubRuleRows(customize: Bag | undefined, base: Bag | undefined): void 
   if (Object.keys(rows).length === 0) delete customize.rules;
 }
 
-function triggersOf(w: AnyAgentBundle["workflows"][number]["workflow"]): Bag[] {
+function triggersOf(w: AgentBundle["workflows"][number]["workflow"]): Bag[] {
   const t = w as { trigger?: unknown; triggers?: unknown };
   const list = Array.isArray(t.triggers) ? t.triggers : t.trigger ? [t.trigger] : [];
   return list.filter(isPlainObject);
 }
 
-function stepsById(bundle: AnyAgentBundle): Map<string, AnyStep> {
+function stepsById(bundle: AgentBundle): Map<string, AnyStep> {
   const out = new Map<string, AnyStep>();
   eachBundleStep(bundle, (step) => out.set(step.id, step));
   return out;
@@ -655,10 +655,10 @@ function scrubApprovals(step: AnyStep, base: AnyStep | undefined): void {
  * are removed. TOOL-1 (invariant 8): the client's mode and loosened approvals are put back to the
  * base's, or approval on. Step and path ids never change (invariant 3).
  */
-export function stripForPromotion<B extends AnyAgentBundle>(
+export function stripForPromotion<B extends AgentBundle>(
   client: B,
   /** The base template version's bundle; null (no template) drops every such value. */
-  base: AnyAgentBundle | null,
+  base: AgentBundle | null,
   skills: Record<string, Pick<SkillDefinition, "settings">>,
   /** Review of 5.10: what can't be carried (a path choosing by records), for the caller to refuse. */
   problems?: PromotionProblem[],
@@ -791,7 +791,7 @@ function scrubManual(def: { manual?: unknown }, base: { manual?: unknown } | und
 }
 
 /** The `when` of a path of a step, or undefined when the bundle has no such path. */
-function pathWhen(bundle: AnyAgentBundle, p: Pick<PromotionProblem, "stepId" | "pathId">): unknown {
+function pathWhen(bundle: AgentBundle, p: Pick<PromotionProblem, "stepId" | "pathId">): unknown {
   let found: unknown;
   eachBundleStep(bundle, (step) => {
     if (step.id !== p.stepId) return;
@@ -827,9 +827,9 @@ export interface PromotionPreview extends MergePreview {
   /** The client version promoted (before stripping). */
   client: AgentVersionRow;
   /** The client version's bundle with client-specific values stripped (every change offered). */
-  stripped: AnyAgentBundle;
+  stripped: AgentBundle;
   /** The "theirs" side merged: `stripped` with only the selected changes (all when none given). */
-  selected: AnyAgentBundle;
+  selected: AgentBundle;
   /** Review of 5.10: paths that choose by the client's records; a draft holding one is refused. */
   problems: PromotionProblem[];
 }

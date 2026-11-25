@@ -3,7 +3,7 @@
 import { typedResultOutput } from "../converse";
 import { isPlainObject } from "../json";
 import { REPORT_TRIGGER_SCHEMA } from "../process/collect";
-import type { AnyAutomationDefinition, AutomationDefinition } from "../schemas/automation";
+import type { AutomationDefinition } from "../schemas/automation";
 import type { JsonSchema } from "../schemas/common";
 import { parseSkillRef } from "../schemas/common";
 import type { EventTypeSpec } from "../schemas/event";
@@ -28,7 +28,7 @@ export interface TypingContext {
   events?: Record<string, EventTypeSpec>;
   // v0.12 W2-B
   /** Automation versions by their pinned reference (`slug@version`). */
-  automations?: Record<string, AnyAutomationDefinition>;
+  automations?: Record<string, AutomationDefinition>;
   /**
    * The owning agent's skills with its parameter values (`definition.skills`), when known: a Read
    * table step's output is typed by its effective columns, the step's own over the agent's
@@ -101,12 +101,6 @@ export function lookupSkill(ref: string, ctx: TypingContext): SkillDefinition | 
   return ctx.skills?.[ref] ?? ctx.skills?.[parseSkillRef(ref).id];
 }
 
-// v0.12 W2-E: every trigger of the workflow (`moreTriggers`) types `{{trigger.…}}`; a field some
-// triggers lack is optional (docs/plan.md §1.48).
-export function triggerSchema(workflow: Workflow, ctx: TypingContext): JsonSchema | undefined {
-  return mergeTriggerSchemas(allTriggers(workflow).map((t) => triggerOnSchema(t.on, ctx)));
-}
-
 /** What one trigger puts in `{{trigger.…}}`. */
 export function triggerOnSchema(on: TriggerOn, ctx: TypingContext): JsonSchema | undefined {
   switch (on.type) {
@@ -132,34 +126,6 @@ export function triggerOnSchema(on: TriggerOn, ctx: TypingContext): JsonSchema |
     // Collect reports (owner, 2026-11-24): the report that started the run.
     case "report":
       return REPORT_TRIGGER_SCHEMA;
-  }
-}
-
-export function outputSchemaOf(step: Step, ctx: TypingContext): JsonSchema | undefined {
-  switch (step.kind) {
-    case "skill": {
-      const def = lookupSkill(step.skill, ctx);
-      // P-4: a conversation's `result` is typed by the step's own result schema (§1.66).
-      if (def?.resultFromInput)
-        return typedResultOutput(def.output, def.resultFromInput, step.input);
-      return def?.output;
-    }
-    case "action":
-      return ctx.tools?.[step.tool]?.output;
-    case "person":
-      return PERSON_OUTPUT;
-    case "fork":
-      return FORK_OUTPUT;
-    case "for_each":
-      return FOR_EACH_OUTPUT;
-    // v0.12 W2-B
-    case "use_automation": {
-      const def = ctx.automations?.[step.automation];
-      // Wave 3b: a v3 use step pins v3 automations only (validation refuses a v4 one).
-      return def && def.schemaVersion === 1 ? automationOutputSchema(def, ctx) : undefined;
-    }
-    default:
-      return NO_OUTPUT;
   }
 }
 
@@ -259,52 +225,6 @@ function itemSchemaOf(over: string, scope: Omit<Scope, "loop"> & { loop?: Scope[
   return isPlainObject(items) ? (items as JsonSchema) : undefined;
 }
 
-function scopeFor(
-  workflow: Workflow,
-  loc: StepLocation,
-  ctx: TypingContext,
-  byId: Map<string, Step>,
-): Scope {
-  return scopeFrom({ trigger: triggerSchema(workflow, ctx), steps: {} }, loc, ctx, byId);
-}
-
-function scopeFrom(
-  scope: Scope,
-  loc: Pick<StepLocation, "before" | "loops">,
-  ctx: TypingContext,
-  byId: Map<string, Step>,
-): Scope {
-  for (const id of loc.before) {
-    const s = byId.get(id);
-    if (s) scope.steps[id] = { step: s, output: outputSchemaOf(s, ctx) };
-  }
-  const loop = loc.loops.at(-1);
-  if (loop) scope.loop = { step: loop, item: itemSchemaOf(loop.over, scope) };
-  return scope;
-}
-
-/** The scope at a step, or undefined when the step isn't in the workflow. */
-export function scopeAt(workflow: Workflow, stepId: string, ctx: TypingContext = {}) {
-  const byId = new Map<string, Step>();
-  let found: StepLocation | undefined;
-  walkSteps(workflow, (loc) => {
-    byId.set(loc.step.id, loc.step);
-    if (loc.step.id === stepId) found = loc;
-  });
-  return found ? scopeFor(workflow, found, ctx, byId) : undefined;
-}
-
-/** Scopes for every step at once (validation uses this). */
-export function scopes(workflow: Workflow, ctx: TypingContext = {}): Map<string, Scope> {
-  const byId = new Map<string, Step>();
-  const locs: StepLocation[] = [];
-  walkSteps(workflow, (loc) => {
-    byId.set(loc.step.id, loc.step);
-    locs.push(loc);
-  });
-  return new Map(locs.map((l) => [l.step.id, scopeFor(workflow, l, ctx, byId)]));
-}
-
 /** The type of a workflow reference (`trigger...`, `steps.<id>.output...`, `item...`, `index`). */
 export function typeTemplatePath(scope: Scope, path: readonly string[]): PathType {
   const [root, ...rest] = path;
@@ -399,27 +319,6 @@ export function pathOptions(
   return out;
 }
 
-/** Every reference the field picker offers at a step, depth-limited. */
-export function pathsAt(
-  workflow: Workflow,
-  stepId: string,
-  ctx: TypingContext = {},
-  depth = 4,
-): PathOption[] {
-  const scope = scopeAt(workflow, stepId, ctx);
-  if (!scope) return [];
-  const out: PathOption[] = [];
-  listPaths(scope.trigger, "trigger", depth, out, undefined);
-  for (const [id, { output }] of Object.entries(scope.steps)) {
-    listPaths(output, `steps.${id}.output`, depth, out, id);
-  }
-  if (scope.loop) {
-    listPaths(scope.loop.item, "item", depth, out, undefined);
-    out.push({ path: "index", schema: { type: "integer" } });
-  }
-  return out;
-}
-
 /** The JSON type of a literal value (`integer` for a whole number). */
 export function jsonTypeOf(v: unknown): string {
   if (v === null) return "null";
@@ -444,35 +343,6 @@ export function schemaTypes(schema: JsonSchema | undefined): string[] {
 
 // ── v0.12 W2-B: automations (ARCHITECTURE §10.7) ────────────────────────────────────────────────
 
-/** Scopes for every step of an automation: `{{input...}}` in place of the trigger. */
-export function automationScopes(
-  automation: Pick<AutomationDefinition, "steps" | "input">,
-  ctx: TypingContext = {},
-): Map<string, Scope> {
-  const byId = new Map<string, Step>();
-  const locs: StepLocation[] = [];
-  walkSteps(automation, (loc) => {
-    byId.set(loc.step.id, loc.step);
-    locs.push(loc);
-  });
-  const base = (): Scope => ({
-    trigger: undefined,
-    input: { schema: automation.input },
-    steps: {},
-  });
-  return new Map(locs.map((l) => [l.step.id, scopeFrom(base(), l, ctx, byId)]));
-}
-
-/** What the automation's `output` template reads: its input and every top-level step. */
-export function automationEndScope(
-  automation: Pick<AutomationDefinition, "steps" | "input">,
-  ctx: TypingContext = {},
-): Scope {
-  const scope: Scope = { trigger: undefined, input: { schema: automation.input }, steps: {} };
-  for (const s of automation.steps) scope.steps[s.id] = { step: s, output: outputSchemaOf(s, ctx) };
-  return scope;
-}
-
 function literalSchema(value: unknown): JsonSchema {
   if (value === null) return { type: "null" };
   if (Array.isArray(value)) return { type: "array" };
@@ -480,20 +350,6 @@ function literalSchema(value: unknown): JsonSchema {
   if (typeof value === "string") return { type: "string" };
   if (typeof value === "boolean") return { type: "boolean" };
   return {};
-}
-
-/**
- * The schema of a use step's output: the automation's `output`, each field typed from what it
- * references (one whole reference keeps its type; text is a string; anything else unknown).
- */
-export function automationOutputSchema(
-  automation: Pick<AutomationDefinition, "steps" | "input" | "output">,
-  ctx: TypingContext = {},
-): JsonSchema {
-  // No nesting (validation refuses it): an inner use step is typed as unknown, never recursed into.
-  const flat: TypingContext = { ...ctx, automations: {} };
-  const scope = automationEndScope(automation, flat);
-  return outputTemplateSchema(automation.output, (path) => typeTemplatePath(scope, path));
 }
 
 /**

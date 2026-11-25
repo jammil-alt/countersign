@@ -14,7 +14,7 @@ import {
   Workflow as WorkflowSchema,
 } from "../schemas/workflow";
 import { bundleInput, ctx, edit, workflowInput } from "../testing/fixtures";
-import { type ValidationContext, validateWorkflow } from "../workflow/validate";
+import { type ValidationContext, validateWorkflow } from "./checks";
 import { type ConvertLookup, fromWorkflowV3 } from "./convert";
 import type { Process, Step } from "./schema";
 import {

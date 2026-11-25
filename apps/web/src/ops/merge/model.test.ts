@@ -1,6 +1,6 @@
 import {
   AgentBundle,
-  type AnyAgentBundle,
+  type AgentBundle,
   cloneJson,
   diffBundles,
   type MergeConflict,
@@ -21,7 +21,7 @@ import {
   triggerLabels,
 } from "./model";
 
-const edit = (b: AnyAgentBundle, fn: (d: AnyAgentBundle) => void): AnyAgentBundle => {
+const edit = (b: AgentBundle, fn: (d: AgentBundle) => void): AgentBundle => {
   const d = cloneJson(b);
   fn(d);
   return d;

@@ -4,25 +4,17 @@
 // Pure, so the server, the Builder and the workflow builder share it.
 
 import { isUuid } from "../ids";
+import { isPlainObject } from "../json";
 import {
-  type AnyAutomationDefinition,
+  type AutomationDefinition,
   type AutomationRequires,
   automationRef,
-  type ProcessAutomationDefinition,
 } from "../schemas/automation";
 import type { JsonSchema } from "../schemas/common";
 import { skillTools } from "../schemas/skill";
+import { parseTemplate } from "../template/template";
 import { lookupSkill, type TypingContext } from "../template/typer";
-import {
-  type FromStepsRefusal,
-  inputFieldName,
-  mapTemplateRefs,
-  automationRequires as v3AutomationRequires,
-} from "../workflow/automation";
-import {
-  type ValidationError,
-  validateAutomation as validateV3Automation,
-} from "../workflow/validate";
+import type { ValidationError } from "./checks";
 import type { ApprovalCheck, Process, Step, SubProcessStep } from "./schema";
 import {
   approvalLoosenings,
@@ -35,13 +27,56 @@ import {
 } from "./validate";
 import { walkSteps } from "./walk";
 
+export type FromStepsRefusal =
+  | "empty"
+  | "not_top_level"
+  | "not_contiguous"
+  | "named_person"
+  | "nested";
+
+/** Rewrites every `{{...}}` reference in a templated JSON value; other values are copied. */
+export function mapTemplateRefs(value: unknown, fn: (path: string[]) => string[]): unknown {
+  if (typeof value === "string") {
+    if (!value.includes("{{")) return value;
+    let parts: ReturnType<typeof parseTemplate>;
+    try {
+      parts = parseTemplate(value);
+    } catch {
+      return value;
+    }
+    return parts.map((p) => (p.type === "text" ? p.text : `{{${fn(p.path).join(".")}}}`)).join("");
+  }
+  if (Array.isArray(value)) return value.map((v) => mapTemplateRefs(v, fn));
+  if (isPlainObject(value)) {
+    // fromEntries defines own properties, so a `__proto__` key stays a plain key.
+    return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, mapTemplateRefs(v, fn)]));
+  }
+  return value;
+}
+
+/** A field name from words: lowercase letters, digits and `_`. */
+export function inputFieldName(words: string, taken: Set<string>): string {
+  const base =
+    words
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "_")
+      .split("_")
+      .filter(Boolean)
+      .join("_")
+      .slice(0, 40) || "value";
+  let name = base;
+  for (let n = 2; taken.has(name); n++) name = `${base}_${n}`;
+  taken.add(name);
+  return name;
+}
+
 /**
  * What a v4 automation needs from an agent that uses it: the skills its steps name, the tools its
  * read and write steps call and its skills' tools, and the connectors behind them. A
  * conversation's channel connection is chosen at run time, so it adds none.
  */
 export function processAutomationRequires(
-  automation: Pick<ProcessAutomationDefinition, "steps">,
+  automation: Pick<AutomationDefinition, "steps">,
   ctx: TypingContext,
   connectorIds?: ReadonlySet<string>,
 ): AutomationRequires {
@@ -74,30 +109,15 @@ export function processAutomationRequires(
   };
 }
 
-/** What a stored automation of either schema requires (v1: v3's `automationRequires`). */
-export function anyAutomationRequires(
-  automation: AnyAutomationDefinition,
-  ctx: TypingContext,
-  connectorIds?: ReadonlySet<string>,
-): AutomationRequires {
-  return automation.schemaVersion === 2
-    ? processAutomationRequires(automation, ctx, connectorIds)
-    : v3AutomationRequires(automation, ctx, connectorIds);
-}
+/** What a stored automation requires. */
+export const automationRequires = processAutomationRequires;
 
-/**
- * Validates an automation version of either schema: v1 exactly as `validateAutomation` always
- * has, v2 with `validateProcessAutomation`. Errors keep v3's shape (v4's codes are v3's and more).
- */
-export function validateAnyAutomation(
+/** Validates an automation version (`validateProcessAutomation`). */
+export function validateAutomation(
   input: unknown,
   ctx: Omit<ProcessValidationContext, "agent" | "publish" | "clientAgent"> = {},
 ): { valid: boolean; errors: ValidationError[] } {
-  const v2 =
-    typeof input === "object" &&
-    input !== null &&
-    (input as { schemaVersion?: unknown }).schemaVersion === 2;
-  const r = v2 ? validateProcessAutomation(input, ctx) : validateV3Automation(input, ctx);
+  const r = validateProcessAutomation(input, ctx);
   return { valid: r.valid, errors: r.errors as ValidationError[] };
 }
 
@@ -107,7 +127,7 @@ export type ProcessFromStepsResult =
   | {
       ok: true;
       /** The new automation's v1 (requires left empty: the server computes it on save). */
-      automation: ProcessAutomationDefinition;
+      automation: AutomationDefinition;
       /** The process step that takes the selection's place. */
       step: SubProcessStep;
       /** The process with that step in place of the selection and later references moved. */
@@ -310,7 +330,7 @@ export function stepsToProcessAutomation(input: ProcessFromStepsInput): ProcessF
     ? (mapTemplateRefs(process.handoff, fromOutput) as Process["handoff"])
     : undefined;
 
-  const automation: ProcessAutomationDefinition = {
+  const automation: AutomationDefinition = {
     schemaVersion: 2,
     slug: input.slug,
     name: input.name,

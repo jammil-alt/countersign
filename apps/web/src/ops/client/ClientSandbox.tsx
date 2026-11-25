@@ -4,7 +4,7 @@
 // (`…/sandbox/:runId`) shows its steps, what it would do and the notices it would send, the same
 // view the client has. "Send to me" is ours only in the Sandbox client: in a real client only the
 // client's own people send from its tools, and the server says so on each change.
-import type { AnyAgentBundle, SandboxRunSummary } from "@countersign/core";
+import type { AgentBundle, SandboxRunSummary } from "@countersign/core";
 import { useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { type AgentSummary, apiRoutes } from "../../api/routes";
@@ -197,7 +197,7 @@ function AgentRunForm({
   );
 }
 
-type Workflows = NonNullable<AnyAgentBundle["workflows"]>;
+type Workflows = NonNullable<AgentBundle["workflows"]>;
 
 function WorkflowInput({
   clientId,

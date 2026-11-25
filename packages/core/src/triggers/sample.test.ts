@@ -8,7 +8,7 @@ import { RESHAPE_SKILL } from "../process/reshape";
 import { proposeReshape, reshapeContext } from "../process/reshape-propose";
 import { Process } from "../process/schema";
 import { validateProcess } from "../process/validate";
-import type { AnyAgentBundle } from "../schemas/agent";
+import type { AgentBundle } from "../schemas/agent";
 import type { JsonSchema } from "../schemas/common";
 import type { SkillDefinition } from "../schemas/skill";
 import { Trigger } from "../schemas/workflow";
@@ -336,12 +336,12 @@ describe("merging a sample", () => {
     if (w?.schemaVersion !== 4) throw new Error("not v4");
     w.triggers.push({ id: "hook", on: { type: "webhook", hookId: HOOK } });
   });
-  const hookOn = (b: AnyAgentBundle) => {
+  const hookOn = (b: AgentBundle) => {
     const w = b.workflows[0]?.workflow;
     if (w?.schemaVersion !== 4) throw new Error("not v4");
     return w.triggers.find((t) => t.id === "hook")?.on;
   };
-  const withShape = (b: AnyAgentBundle, sample: unknown) =>
+  const withShape = (b: AgentBundle, sample: unknown) =>
     edit(b, (d) => {
       const on = hookOn(d);
       if (on?.type === "webhook") on.dataSchema = inferSampleSchema(sample);

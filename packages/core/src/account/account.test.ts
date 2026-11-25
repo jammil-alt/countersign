@@ -7,7 +7,7 @@ import { forbiddenPortalFields } from "../api/contract";
 import type { ApproverRule } from "../approvals/rules";
 import { LOCALES } from "../i18n/locale";
 import { AgentBundle, type AgentBundleInput } from "../schemas/agent";
-import { AnyAutomationDefinition, AutomationDefinition } from "../schemas/automation";
+import { AutomationDefinition } from "../schemas/automation";
 import type { SkillDefinition } from "../schemas/skill";
 import type { ToolSpec } from "../schemas/tool";
 import {
@@ -408,7 +408,7 @@ describe("the words", () => {
       name: "Fix it",
       steps: [{ id: "write", name: "Write", kind: "action", tool: "testkit.record.update" }],
     });
-    const v4 = AnyAutomationDefinition.parse({
+    const v4 = AutomationDefinition.parse({
       schemaVersion: 2,
       slug: "fix-it",
       name: "Fix it",

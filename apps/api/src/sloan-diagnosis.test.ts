@@ -5,7 +5,7 @@
 
 import {
   AgentBundle as AgentBundleSchema,
-  AnyAgentBundle,
+  AgentBundle,
   nodeIds,
   processes,
   type Workflow,
@@ -188,7 +188,7 @@ describe.skipIf(!h)("Sloan reads the failing agent's own diagnosis", () => {
     expect(pub.status, JSON.stringify(pub.json)).toBe(200);
 
     const [row] = await H.t.db.select().from(agentVersion).where(eq(agentVersion.id, versionId));
-    const after = AnyAgentBundle.parse(row?.bundle);
+    const after = AgentBundle.parse(row?.bundle);
     const was = AgentBundleSchema.parse(before?.agent_version.bundle);
     expect(after.workflows.map((w) => [w.slug, w.workflow.schemaVersion])).toEqual(
       was.workflows.map((w) => [w.slug, 4]),

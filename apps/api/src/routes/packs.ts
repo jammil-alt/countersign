@@ -15,7 +15,7 @@ import {
   publishSkill,
 } from "@countersign/agents";
 import {
-  type AnyAgentBundle,
+  type AgentBundle,
   bundleHash,
   type ClientPack,
   complianceOf,
@@ -206,7 +206,7 @@ async function missingVersions(
   tx: Tx,
   templateId: string,
   t: RegisteredPack["manifest"]["templates"][number],
-): Promise<{ n: number; bundle: AnyAgentBundle }[]> {
+): Promise<{ n: number; bundle: AgentBundle }[]> {
   const later = t.versions ?? [];
   if (later.length === 0) return [];
   const held = new Set(
@@ -217,7 +217,7 @@ async function missingVersions(
         .where(eq(agentVersion.agentId, templateId))
     ).map((r) => r.hash),
   );
-  const out: { n: number; bundle: AnyAgentBundle }[] = [];
+  const out: { n: number; bundle: AgentBundle }[] = [];
   for (const [i, bundle] of later.entries()) {
     if (!held.has(await bundleHash(bundle))) out.push({ n: i + 2, bundle });
   }

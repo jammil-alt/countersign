@@ -11,8 +11,8 @@
 
 import { parseOperatorSkill } from "@countersign/agents";
 import {
-  AnyAgentBundle,
-  type AnyAgentBundleInput,
+  AgentBundle,
+  type AgentBundleInput,
   isToolWrapper,
   newSkillVersionProblems,
   newStepSkillReason,
@@ -86,7 +86,7 @@ const KINDS = {
 /** The pack's shared Library skills (the AI ones), as it installs them. */
 const LIBRARY = platform.packs.flatMap((p) => p.manifest.librarySkills ?? []);
 
-function bundle(): AnyAgentBundleInput {
+function bundle(): AgentBundleInput {
   return {
     schemaVersion: 1,
     definition: {
@@ -105,7 +105,7 @@ function bundle(): AnyAgentBundleInput {
     workflows: [
       { slug: "vendor-lines", name: "Match a vendor's invoice", workflow: vendorCatalogProcess() },
     ],
-  } as unknown as AnyAgentBundleInput;
+  } as unknown as AgentBundleInput;
 }
 
 describe("the vendor-first skills on the platform", () => {
@@ -193,7 +193,7 @@ describe("the vendor-first skills on the platform", () => {
   });
 
   it("the pattern validates against the platform's registries", () => {
-    const result = processes.validateAnyBundle(AnyAgentBundle.parse(bundle()), {
+    const result = processes.validateBundle(AgentBundle.parse(bundle()), {
       skills: Object.fromEntries([...platform.catalog.list(), ...LIBRARY].map((s) => [s.id, s])),
       tools: platform.tools.specs(),
       events: platform.events.byType(),
@@ -539,7 +539,7 @@ describe.skipIf(!h)("the vendor catalog's pattern, end to end", () => {
     });
     const created = await H.call(OPERATOR, "POST", `/api/ops/clients/${tenantId()}/agents`, {
       slug: "purchasing-clerk",
-      bundle: AnyAgentBundle.parse(bundle()),
+      bundle: AgentBundle.parse(bundle()),
     });
     expect(created.status, JSON.stringify(created.json)).toBe(200);
     agentId = (created.json as J).agent.id;

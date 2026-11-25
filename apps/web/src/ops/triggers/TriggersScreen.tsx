@@ -5,7 +5,7 @@
 // and message triggers, their settings. "Add a trigger" opens a dialog that explains the six kinds
 // and saves the new trigger as a new draft version. The hook's URL and secret are the client's
 // (their admin keeps them in Accounts), so this panel never shows them.
-import type { AnyAgentBundle, Trigger, TriggerOn } from "@countersign/core";
+import type { AgentBundle, Trigger, TriggerOn } from "@countersign/core";
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import type { ResponseOf } from "../../api/client";
@@ -83,7 +83,7 @@ export function TriggersPanel({
   agent: AgentSummary;
   /** The agent's latest version, which the list reads and new triggers are added to. */
   latest: VersionDetail | null;
-  bundle: AnyAgentBundle | null;
+  bundle: AgentBundle | null;
   /** The latest version's problems when it is a stored draft (S6.5); each row shows its own. */
   errors?: readonly { stepId: string | null; message: string; workflow?: string | undefined }[];
   /** After a save, with the new draft version's id. */
@@ -105,7 +105,7 @@ export function TriggersPanel({
   const labels = eventLabels(events.data?.events);
   const manyWorkflows = bundle.workflows.length > 1;
 
-  async function saveBundle(next: AnyAgentBundle, what: string) {
+  async function saveBundle(next: AgentBundle, what: string) {
     if (!latest) return false;
     setSaved(null);
     const res = await action.call(apiRoutes.opsSaveVersion, {
@@ -358,7 +358,7 @@ function AddTriggerDialog({
   onAdd,
   onClose,
 }: {
-  bundle: AnyAgentBundle;
+  bundle: AgentBundle;
   clientId: string | null;
   agentSlug: string;
   busy: boolean;

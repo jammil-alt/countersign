@@ -16,7 +16,7 @@ import { effectiveMatrix, type GrantLimits } from "../permissions/grants";
 import { ACTION_SPECS } from "../process/actions";
 import { loopStepNumber, pathLetter, pathStepNumber } from "../process/numbers";
 import { SELF_AGENT } from "../process/schema";
-import type { AgentDefinition, AnyAgentBundle } from "../schemas/agent";
+import type { AgentBundle, AgentDefinition } from "../schemas/agent";
 import type { PermissionLevel, PermissionMatrix, Verb } from "../schemas/permissions";
 import type { Rules } from "../schemas/rules";
 import { type SkillDefinition, skillMethod, skillTools } from "../schemas/skill";
@@ -74,7 +74,7 @@ export interface SopInput {
   client: string;
   /** "SOP-PUR-03": worked out by the caller from the client's agents in the area. */
   code: string;
-  bundle: AnyAgentBundle;
+  bundle: AgentBundle;
   skills: Readonly<Record<string, SkillDefinition>>;
   tools: Readonly<Record<string, ToolSpec>>;
   connections: readonly SopConnection[];
@@ -399,7 +399,7 @@ interface Visited {
 }
 
 /** The steps in run order with their numbers, and a line before each path of an `if`. */
-function walk(bundle: AnyAgentBundle): {
+function walk(bundle: AgentBundle): {
   visited: Visited[];
   lines: (Visited | Omit<SopPathLine, "line">)[];
 } {

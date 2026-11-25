@@ -4,8 +4,8 @@
 // has its triggers above and its outputs below, each opening its tab; a trigger's and an output's
 // tab lead back to the main workflow; and the rail places a hand-in already pointed at it.
 import {
-  AnyAgentBundle,
-  type AnyAgentBundleInput,
+  AgentBundle,
+  type AgentBundleInput,
   type BuilderCatalog,
   type steps,
 } from "@countersign/core";
@@ -49,7 +49,7 @@ const trigger = (id: string) => ({
   on: { type: "manual" as const, input: { type: "object", properties: {} } },
 });
 
-const BUNDLE: AnyAgentBundleInput = {
+const BUNDLE: AgentBundleInput = {
   schemaVersion: 1,
   definition: {
     schemaVersion: 2,
@@ -161,15 +161,15 @@ function version(): VersionDetail {
     basedOnTemplateVersionId: null,
     createdAt: "2026-11-23T00:00:00.000Z",
     publishedAt: null,
-    bundle: AnyAgentBundle.parse(BUNDLE),
+    bundle: AgentBundle.parse(BUNDLE),
   } as unknown as VersionDetail;
 }
 
 // What the builder saves becomes the agent's latest version when it reloads (as the agent screen
 // does on `onChanged`), so a workflow saved here opens in its builder.
-function setup(start = "check", stored: AnyAgentBundleInput = BUNDLE) {
-  const sent: { bundle: AnyAgentBundle; changeNote?: string }[] = [];
-  let current = AnyAgentBundle.parse(stored);
+function setup(start = "check", stored: AgentBundleInput = BUNDLE) {
+  const sent: { bundle: AgentBundle; changeNote?: string }[] = [];
+  let current = AgentBundle.parse(stored);
   const listeners = new Set<() => void>();
   const api = fakeApi({
     [`GET /api/ops/agents/${AGENT_ID}/builder-catalog`]: () => CATALOG,
@@ -180,7 +180,7 @@ function setup(start = "check", stored: AnyAgentBundleInput = BUNDLE) {
     "GET /api/ops/skills": () => ({ skills: [], tools: [], connectors: [] }),
     [`POST /api/ops/agents/${AGENT_ID}/versions`]: ({ init }) => {
       const body = JSON.parse(String(init.body)) as { bundle: unknown; changeNote?: string };
-      current = AnyAgentBundle.parse(body.bundle);
+      current = AgentBundle.parse(body.bundle);
       sent.push({ ...body, bundle: current });
       return {
         version: {
@@ -412,7 +412,7 @@ describe("triggers and outputs in the builder", () => {
       instructions: "",
       modelId: "",
     });
-    const { user, sent } = setup("main", blank as AnyAgentBundleInput);
+    const { user, sent } = setup("main", blank as AgentBundleInput);
     await screen.findByTestId("steps-builder");
     // One workflow: no switcher tabs yet, only "+ Workflow".
     expect(screen.queryByTestId("builder-workflow-main-select")).toBeNull();
@@ -459,7 +459,7 @@ describe("triggers and outputs in the builder", () => {
       instructions: "",
       modelId: "",
     });
-    const { user, sent } = setup("main", blank as AnyAgentBundleInput);
+    const { user, sent } = setup("main", blank as AgentBundleInput);
     await addWaitAndSave(user);
     await waitFor(() => expect(sent).toHaveLength(1));
     const saved = sent[0]?.bundle.workflows[0]?.workflow as steps.Workflow;

@@ -3,8 +3,8 @@
 // agents, then a step of its live version (numbered and named), then maps that step's input from
 // this run; the canvas row says where the work goes.
 import {
-  AnyAgentBundle,
-  type AnyAgentBundleInput,
+  AgentBundle,
+  type AgentBundleInput,
   type BuilderCatalog,
   type processes,
 } from "@countersign/core";
@@ -59,7 +59,7 @@ const AGENTS: processes.HandoffAgent[] = [
   },
 ];
 
-const BUNDLE: AnyAgentBundleInput = {
+const BUNDLE: AgentBundleInput = {
   schemaVersion: 1,
   definition: {
     schemaVersion: 2,
@@ -126,11 +126,11 @@ function version(): VersionDetail {
     basedOnTemplateVersionId: null,
     createdAt: "2026-11-11T00:00:00.000Z",
     publishedAt: null,
-    bundle: AnyAgentBundle.parse(BUNDLE),
+    bundle: AgentBundle.parse(BUNDLE),
   } as unknown as VersionDetail;
 }
 
-function setup(agent: AgentSummary = AGENT, input: AnyAgentBundleInput = BUNDLE) {
+function setup(agent: AgentSummary = AGENT, input: AgentBundleInput = BUNDLE) {
   const sent: Record<string, unknown>[] = [];
   const api = fakeApi({
     [`GET /api/ops/agents/${AGENT_ID}/builder-catalog`]: () => CATALOG,
@@ -144,7 +144,7 @@ function setup(agent: AgentSummary = AGENT, input: AnyAgentBundleInput = BUNDLE)
       return { version: { ...version(), bundle: undefined }, errors: [] };
     },
   });
-  const bundle = AnyAgentBundle.parse(input);
+  const bundle = AgentBundle.parse(input);
   function Page() {
     const { workflow = "" } = useParams();
     return (
@@ -214,7 +214,7 @@ describe("the hand-off step in the builder", () => {
 
     await user.click(screen.getByTestId("flow-bar-save"));
     await waitFor(() => expect(sent.length).toBeGreaterThan(0));
-    const saved = AnyAgentBundle.parse(sent.at(-1)?.bundle).workflows[0]?.workflow;
+    const saved = AgentBundle.parse(sent.at(-1)?.bundle).workflows[0]?.workflow;
     if (saved?.schemaVersion !== 4) throw new Error("not a process");
     expect(saved.steps.at(-1)).toMatchObject({
       kind: "handoff",
@@ -229,7 +229,7 @@ describe("the hand-off step in the builder", () => {
 // in a template too (no client): the scan's fork out into "Check an invoice" at its step 1.
 describe("a hand-off to this agent's own workflow in the builder", () => {
   const TEMPLATE: AgentSummary = { ...AGENT, kind: "template", tenantId: null, slug: "invoices" };
-  const TWO: AnyAgentBundleInput = {
+  const TWO: AgentBundleInput = {
     ...BUNDLE,
     workflows: [
       ...BUNDLE.workflows,
@@ -306,7 +306,7 @@ describe("a hand-off to this agent's own workflow in the builder", () => {
 
     await user.click(screen.getByTestId("flow-bar-save"));
     await waitFor(() => expect(sent.length).toBeGreaterThan(0));
-    const saved = AnyAgentBundle.parse(sent.at(-1)?.bundle).workflows[0]?.workflow;
+    const saved = AgentBundle.parse(sent.at(-1)?.bundle).workflows[0]?.workflow;
     if (saved?.schemaVersion !== 4) throw new Error("not a process");
     expect(saved.steps.at(-1)).toMatchObject({
       kind: "handoff",

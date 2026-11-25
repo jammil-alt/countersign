@@ -15,7 +15,7 @@ import {
   UPLOAD_CONNECTOR_ID,
 } from "@countersign/connectors";
 import {
-  type AnyAgentBundle,
+  type AgentBundle,
   approvalExpired,
   type ConnectorAuth,
   checkKindOf,
@@ -108,7 +108,7 @@ import { leadFirstName } from "./threads";
 
 type ConnectionRow = typeof connection.$inferSelect;
 /** The workflow (or v4 process) a run ran, as its version's bundle holds it. */
-type RunWorkflow = AnyAgentBundle["workflows"][number]["workflow"];
+type RunWorkflow = AgentBundle["workflows"][number]["workflow"];
 
 /**
  * What a client user may see of the inbox: never the operator's items (escalations, budget hits,

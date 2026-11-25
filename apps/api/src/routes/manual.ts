@@ -6,7 +6,7 @@
 
 import { getAgent, getVersion, latestVersion } from "@countersign/agents";
 import {
-  type AnyAgentBundle,
+  type AgentBundle,
   adjustRoutes,
   type HandledText,
   manualRoutes,
@@ -75,7 +75,7 @@ function resolutionWords(resolution: unknown): string {
 export async function knownRiskHits(
   tx: Tx,
   a: { id: string; tenantId: string | null },
-  bundle: AnyAgentBundle,
+  bundle: AgentBundle,
 ): Promise<Map<string, number> | undefined> {
   if (!a.tenantId) return undefined;
   const risks = readManual(bundle.definition.manual)?.knownRisks ?? [];

@@ -7,7 +7,7 @@
 // the client lacks, and a test run. Problems come from the validator (./problems.ts words them).
 
 import {
-  type AnyAgentBundle,
+  type AgentBundle,
   type ProcessAgentBundle,
   processes,
   SHARED_AREA,
@@ -192,7 +192,7 @@ export function stepDataWarnings(
 }
 
 /** Every v4 step of the bundle with its workflow's slug, in run order. */
-function bundleSteps(bundle: ProcessAgentBundle | AnyAgentBundle): { slug: string; step: Step }[] {
+function bundleSteps(bundle: ProcessAgentBundle | AgentBundle): { slug: string; step: Step }[] {
   const out: { slug: string; step: Step }[] = [];
   for (const w of bundle.workflows) {
     if (w.workflow.schemaVersion !== 4) continue;
@@ -209,7 +209,7 @@ export interface DataSummary {
 }
 
 export function agentDataSummary(
-  bundle: ProcessAgentBundle | AnyAgentBundle,
+  bundle: ProcessAgentBundle | AgentBundle,
   ctx: processes.DataUseContext,
   names: DataNames,
 ): DataSummary {

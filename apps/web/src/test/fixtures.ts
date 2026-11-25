@@ -1,12 +1,5 @@
 // Shared test data and a fake API: a router over `METHOD /path` that answers like the Worker.
-import {
-  AgentBundle,
-  type AgentBundleInput,
-  AnyAgentBundle,
-  type AnyAgentBundleInput,
-  type SessionResponse,
-  type TableView,
-} from "@countersign/core";
+import { AgentBundle, type AgentBundleInput, type SessionResponse, type TableView } from "@countersign/core";
 import { type ApiClient, createApiClient } from "../api/client";
 
 export const OPERATOR_SESSION: SessionResponse = {
@@ -162,7 +155,7 @@ export const FORK_BUNDLE = AgentBundle.parse(FORK_BUNDLE_INPUT);
  * versions and their forks): a manual trigger first and the event second, an `if`, and a write
  * with no approval check (it waits for the default approver).
  */
-export const PROCESS_BUNDLE_INPUT: AnyAgentBundleInput = {
+export const PROCESS_BUNDLE_INPUT: AgentBundleInput = {
   ...FORK_BUNDLE_INPUT,
   workflows: [
     {
@@ -222,7 +215,7 @@ export const PROCESS_BUNDLE_INPUT: AnyAgentBundleInput = {
   ],
 };
 
-export const PROCESS_BUNDLE = AnyAgentBundle.parse(PROCESS_BUNDLE_INPUT);
+export const PROCESS_BUNDLE = AgentBundle.parse(PROCESS_BUNDLE_INPUT);
 
 /** Version n of the fixture agent. */
 export const versionId = (n: number) =>

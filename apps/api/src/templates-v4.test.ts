@@ -1,7 +1,7 @@
 // R9 (docs/plan.md §1.86, §9): the seeds and the pack templates saved as v4 versions. Each v4
 // version is what core's converter reads its v3 version as, with the platform's own registries (so
 // tool skills became read and write steps by their tool's side effect), every id kept; it passes
-// `validateAnyBundle` against the platform; the skills it names are registered (R2: the seeds' four
+// `validateBundle` against the platform; the skills it names are registered (R2: the seeds' four
 // unregistered names are gone) and none is a tool wrapper (they retire). Then the installs: the
 // platform-template route adds the seeded v4 versions with the seed's hash, once; switching a pack
 // on installs its templates' v2 where v1 is installed already and on a fresh install, once.
@@ -13,16 +13,7 @@ import {
   generateEncryptionKey,
 } from "@countersign/connectors";
 import { FAKE_PLAID, FAKE_QBO_CLIENT, fakePlaid, fakeQbo } from "@countersign/connectors/testing";
-import {
-  type AgentBundle,
-  type AnyAgentBundle,
-  cloneJson,
-  isToolWrapper,
-  parseSkillRef,
-  processes,
-  toProcessBundle,
-  type Workflow,
-} from "@countersign/core";
+import { type AgentBundle, cloneJson, isToolWrapper, parseSkillRef, processes, toProcessBundle, type Workflow } from "@countersign/core";
 import { agent, agentVersion, withOperator } from "@countersign/db";
 import {
   loadDemoAgent,
@@ -58,7 +49,7 @@ const ctx = {
 interface Pair {
   name: string;
   v3: AgentBundle;
-  v4: AnyAgentBundle;
+  v4: AgentBundle;
 }
 
 /** Every v4 version with the v3 version it was read from. */
@@ -134,7 +125,7 @@ describe("the v4 versions of the seeds and pack templates", () => {
   });
 
   it.each(all)("$name passes validation against the platform, approval on", (p) => {
-    const r = processes.validateAnyBundle(p.v4, ctx);
+    const r = processes.validateBundle(p.v4, ctx);
     expect(r.errors).toEqual([]);
     expect(r.warnings).toEqual([]);
     for (const w of p.v4.workflows) {
@@ -158,7 +149,7 @@ describe("the v4 versions of the seeds and pack templates", () => {
 
 describe("R2: the skills the latest seeds and templates name", () => {
   it("are all registered: the four names nothing registers are gone", async () => {
-    const latest = new Map<string, AnyAgentBundle>();
+    const latest = new Map<string, AgentBundle>();
     for (const t of await loadSeedTemplates()) latest.set(t.slug, t.bundle);
     for (const v of await loadSeedVersions()) latest.set(v.slug, v.bundle);
     for (const m of [bookkeepingManifest, marketingManifest]) {
@@ -481,7 +472,7 @@ describe.skipIf(!h)("installing the v4 versions", () => {
       .from(agentVersion)
       .where(eq(agentVersion.id, j(fork.json).version.id));
     expect(row?.basedOnTemplateVersionId).toBe(tpl?.liveVersionId);
-    const forked = row?.bundle as AnyAgentBundle | undefined;
+    const forked = row?.bundle as AgentBundle | undefined;
     expect(forked?.workflows[0]?.workflow.schemaVersion).toBe(4);
   });
 });

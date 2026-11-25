@@ -2,7 +2,7 @@
 // the draft shows beside it, a change can be undone, "Open in workflow builder" saves it), then the
 // other starts: required fields are checked before sending, and each (blank, template fork) sends
 // the right request.
-import { AnyAgentBundle, toProcessBundle } from "@countersign/core";
+import { AgentBundle, toProcessBundle } from "@countersign/core";
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
@@ -96,7 +96,7 @@ function sessionDetail(clientId: string | null, turns: ReturnType<typeof turn>[]
       baseVersionId: null,
       status: "open",
       // Wave 3b: the server answers the draft as a v4 process bundle.
-      bundle: toProcessBundle(AnyAgentBundle.parse(AGENT_DETAIL.live.bundle), NO_LOOKUP),
+      bundle: toProcessBundle(AgentBundle.parse(AGENT_DETAIL.live.bundle), NO_LOOKUP),
       errors: [],
       closest: [
         {

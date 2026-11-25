@@ -13,7 +13,7 @@ import {
   validateForPublish,
 } from "@countersign/agents";
 import {
-  AnyAgentBundle,
+  AgentBundle,
   type BuildClientTestView,
   type BuildDetail,
   type BuildDraftView,
@@ -463,7 +463,7 @@ function draftSteps(
  */
 function readDraftBundle(raw: unknown, platform: Services["platform"]): DraftBundle | null {
   try {
-    const parsed = AnyAgentBundle.parse(raw);
+    const parsed = AgentBundle.parse(raw);
     if (parsed.workflows.length > 0 && holdsStepModel(parsed)) {
       const step = StepAgentBundle.safeParse(parsed);
       if (step.success) return step.data;

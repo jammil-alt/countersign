@@ -3,7 +3,7 @@
 // and the agent fields and settings side by side. Pure: the screen re-runs core's mergeBundles
 // and validation with these on every change, and the server runs them again on save.
 import {
-  type AnyAgentBundle,
+  type AgentBundle,
   type BuilderCatalog,
   type BundleChange,
   diffBundles,
@@ -19,7 +19,7 @@ import { checkValueWords } from "../workflow/checks";
 import { triggerTitle } from "../workflow/describe";
 
 /** R8: a bundle the merge view reads: v3 workflows, v4 processes, or both (ARCHITECTURE §10.14). */
-type AgentBundle = AnyAgentBundle;
+type AgentBundle = AgentBundle;
 
 /** The trigger order of a v4 process, as diff and merge key it (core's `TRIGGER_ORDER`). */
 const TRIGGER_ORDER = "#/workflow/triggerOrder";

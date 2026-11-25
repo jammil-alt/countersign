@@ -139,7 +139,7 @@ const client = {
 
 /** Validation as a publish: the bundle's validator, which runs `steps.validateWorkflow`. */
 const validateWith = (ctx: BuilderContext) => async (bundle: StepAgentBundle) =>
-  processes.validateAnyBundle(bundle, {
+  processes.validateBundle(bundle, {
     skills: Object.fromEntries(
       [...ctx.skills, ...(ctx.stepModel?.loops ?? [])].map((s) => [s.ref, s.definition]),
     ),

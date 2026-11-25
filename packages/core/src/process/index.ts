@@ -13,7 +13,6 @@ export * from "./collect";
 export * from "./conditions";
 // R7: the conversation step.
 export * from "./conversation";
-export * from "./convert";
 // Ways in, ways out (owner, 2026-11-23): steps one workflow repeats from another.
 export * from "./copies";
 export * from "./customize";

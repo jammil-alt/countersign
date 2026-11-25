@@ -1,34 +1,8 @@
 // What the builder knows besides the bundle: the skills, tools and event types it types steps with
 // (the same context the server validates with), the palette built from them, and a client
 // agent's bound connections.
-import {
-  type AgentBundle,
-  type AnyAgentBundle,
-  allSteps,
-  type BrowserScriptTool,
-  type BuilderCatalog,
-  // P-4
-  CONVERSE_SKILL,
-  type EventTypeSpec,
-  isToolWrapper,
-  lookupSkill,
-  type OpsConnection,
-  type PermissionMatrix,
-  type ProcessAgentBundle,
-  parseSkillRef,
-  processes,
-  type SkillDefinition,
-  type SkillKind,
-  skillKind,
-  steps,
-  type ToolSpec,
-  type TriggerOn,
-  type TypingContext,
-  toolLookup,
-  type ValidationError,
-  validateBundle,
-  writeStepLabel,
-} from "@countersign/core";
+import { type AgentBundle, allSteps, type BrowserScriptTool, type BuilderCatalog, // P-4
+  CONVERSE_SKILL, type EventTypeSpec, isToolWrapper, lookupSkill, type OpsConnection, type PermissionMatrix, type ProcessAgentBundle, parseSkillRef, processes, type SkillDefinition, type SkillKind, skillKind, steps, type ToolSpec, type TriggerOn, type TypingContext, toolLookup, type ValidationError, validateBundle, writeStepLabel } from "@countersign/core";
 import type { z } from "zod";
 import {
   connectorLabel,
@@ -133,13 +107,13 @@ export type BuilderProblem = processes.BundleValidationError;
 
 /**
  * R8: the server's check of a bundle that holds processes, in the browser: core's
- * `validateAnyBundle` with the same context, plus the refusal of agent skills it can't resolve.
+ * `validateBundle` with the same context, plus the refusal of agent skills it can't resolve.
  * Warnings are advice (a process that might be better split), never a reason to refuse.
  * `clientAgent` is always given, as the server's `validateForPublish` gives it (`row.kind ===
  * "client"`): a template's process step may not change an inner step's approval.
  */
 export function validateProcessesLikeServer(
-  bundle: ProcessAgentBundle | AnyAgentBundle,
+  bundle: ProcessAgentBundle | AgentBundle,
   ctx: TypingContext,
   agent: {
     clientAgent: boolean;
@@ -147,7 +121,7 @@ export function validateProcessesLikeServer(
     handoff?: BuilderData["handoff"];
   },
 ): { valid: boolean; errors: BuilderProblem[]; warnings: processes.BundleWarning[] } {
-  const r = processes.validateAnyBundle(bundle, {
+  const r = processes.validateBundle(bundle, {
     ...ctx,
     ...(agent.publish ? { publish: agent.publish } : {}),
     clientAgent: agent.clientAgent,
@@ -292,7 +266,7 @@ export function toolFeed(id: string, data: BuilderData): string | null {
  * (v3 actions, v4 reads and writes).
  */
 export function bundleConnectors(
-  bundle: AgentBundle | AnyAgentBundle | ProcessAgentBundle,
+  bundle: AgentBundle | AgentBundle | ProcessAgentBundle,
   data: BuilderData,
 ): Set<string> {
   const out = new Set<string>();
@@ -343,7 +317,7 @@ export function bundleConnectors(
 // skills and steps already reach, since a bundle has no separate list of them.
 export function paletteConnectors(input: {
   agent: { kind: "template" | "client"; testCopy: boolean };
-  bundle: AgentBundle | AnyAgentBundle | ProcessAgentBundle;
+  bundle: AgentBundle | AgentBundle | ProcessAgentBundle;
   data: BuilderData;
   connections: readonly { connector: string; status: string }[];
   sandbox: boolean;
@@ -394,7 +368,7 @@ function wrappedTools(data: BuilderData): Set<string> {
  * (R2): their tool is offered as a read or a write instead.
  */
 export function paletteSections(
-  bundle: ProcessAgentBundle | AnyAgentBundle,
+  bundle: ProcessAgentBundle | AgentBundle,
   data: BuilderData,
   connectors: ReadonlySet<string> = new Set(data.catalog.connectors.map((c) => c.id)),
 ): PaletteSection[] {

@@ -19,16 +19,7 @@
 // carries no client's data. Step ids are fixed: merges depend on them; the invoice steps keep
 // Vendor contracts' ids.
 
-import {
-  AgentBundle,
-  type AgentBundleInput,
-  AnyAgentBundle,
-  type AnyAgentBundleInput,
-  lazy,
-  lazyObject,
-  once,
-  processes,
-} from "@countersign/core";
+import { AgentBundle, type AgentBundleInput, lazy, lazyObject, once, processes } from "@countersign/core";
 import { DEFAULT_MODELS } from "@countersign/llm";
 import { DOCUMENT_TRIGGER, matchLinesSteps, priceSteps } from "../patterns";
 import { AP_PAY_LIST_REVIEW } from "./api";
@@ -257,7 +248,7 @@ const v2 = once(() => {
     ],
     payListSteps(),
   );
-  return AnyAgentBundle.parse({
+  return AgentBundle.parse({
     schemaVersion: 1,
     definition: {
       ...definition(),
@@ -285,7 +276,7 @@ const v2 = once(() => {
         workflow: weekly,
       },
     ],
-  } satisfies AnyAgentBundleInput);
+  } satisfies AgentBundleInput);
 });
 
 /** The template: v1 as first installed (the definition), v2 its two processes. */
