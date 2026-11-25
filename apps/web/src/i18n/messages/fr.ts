@@ -4485,4 +4485,28 @@ export const fr: Messages = {
     "Cet agent est en cours dans le bac à sable. Attendez qu'il ait terminé.",
   "error.sandbox_limit":
     "Vous avez utilisé les exécutions du bac à sable d'aujourd'hui. Réessayez demain.",
+  // §1.243: lockdown, the locked page and locking your own account.
+  "error.client_locked":
+    "Ce compte est verrouillé pendant que nous examinons un problème de sécurité. Nous vous contacterons.",
+  "lockdown.title": "Votre compte est verrouillé",
+  "lockdown.ours":
+    "Nous avons verrouillé votre compte pendant que nous examinons un problème de sécurité. Vos agents sont arrêtés et rien ne lit ni ne modifie vos outils tant qu'il n'est pas déverrouillé. Nous vous contacterons sous 24 heures.",
+  "lockdown.yours":
+    "Votre équipe a verrouillé ce compte le {when}. Vos agents sont arrêtés et rien ne lit ni ne modifie vos outils tant qu'il n'est pas déverrouillé.",
+  "lockdown.reason": "Motif : {reason}",
+  "lockdown.contact":
+    "Des questions ? Répondez à notre e-mail ou demandez à votre contact Mezonas.",
+  "lockdown.noteLabel": "Ce qui s'est passé (nous le voyons)",
+  "lockdown.unlock": "Déverrouiller notre compte",
+  "lockdown.unlocking": "Déverrouillage…",
+  "lockdown.unlockFailed": "Nous n'avons pas pu le déverrouiller. Réessayez.",
+  "lockdown.resume":
+    "Rien ne redémarre seul. Une fois le compte déverrouillé, relancez ce dont vous avez besoin.",
+  "lockdown.settingsTitle": "Verrouiller notre compte",
+  "lockdown.settingsBody":
+    "Si vous pensez que quelqu'un a votre connexion ou l'accès à un outil, verrouillez votre compte. Vos agents s'arrêtent aussitôt, rien ne lit ni ne modifie vos outils, et votre équipe voit une page de compte verrouillé jusqu'à ce que vous ou nous le déverrouillions.",
+  "lockdown.reasonLabel": "Ce qui s'est passé",
+  "lockdown.lock": "Verrouiller notre compte",
+  "lockdown.locking": "Verrouillage…",
+  "lockdown.lockFailed": "Nous n'avons pas pu le verrouiller. Réessayez.",
 };

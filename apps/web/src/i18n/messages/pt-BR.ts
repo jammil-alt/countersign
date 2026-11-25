@@ -4408,4 +4408,26 @@ export const ptBR: Messages = {
   "error.sandbox_running":
     "Este agente está em execução no ambiente de testes. Aguarde até ele terminar.",
   "error.sandbox_limit": "Você usou as execuções de teste de hoje. Tente de novo amanhã.",
+  // §1.243: lockdown, the locked page and locking your own account.
+  "error.client_locked":
+    "Esta conta está bloqueada enquanto verificamos um problema de segurança. Entraremos em contato.",
+  "lockdown.title": "Sua conta está bloqueada",
+  "lockdown.ours":
+    "Bloqueamos sua conta enquanto verificamos um problema de segurança. Seus agentes estão parados, e nada lê nem altera suas ferramentas até que ela seja desbloqueada. Entraremos em contato em até 24 horas.",
+  "lockdown.yours":
+    "Sua equipe bloqueou esta conta em {when}. Seus agentes estão parados, e nada lê nem altera suas ferramentas até que ela seja desbloqueada.",
+  "lockdown.reason": "Motivo: {reason}",
+  "lockdown.contact": "Dúvidas? Responda ao nosso e-mail ou pergunte ao seu contato na Mezonas.",
+  "lockdown.noteLabel": "O que aconteceu (nós vemos isto)",
+  "lockdown.unlock": "Desbloquear nossa conta",
+  "lockdown.unlocking": "Desbloqueando…",
+  "lockdown.unlockFailed": "Não conseguimos desbloqueá-la. Tente de novo.",
+  "lockdown.resume": "Nada recomeça sozinho. Depois de desbloquear, inicie de novo o que precisar.",
+  "lockdown.settingsTitle": "Bloquear nossa conta",
+  "lockdown.settingsBody":
+    "Se você acha que alguém tem o seu acesso ou o de uma ferramenta, bloqueie sua conta. Seus agentes param na hora, nada lê nem altera suas ferramentas, e sua equipe vê uma página de conta bloqueada até que você ou nós a desbloqueemos.",
+  "lockdown.reasonLabel": "O que aconteceu",
+  "lockdown.lock": "Bloquear nossa conta",
+  "lockdown.locking": "Bloqueando…",
+  "lockdown.lockFailed": "Não conseguimos bloqueá-la. Tente de novo.",
 };

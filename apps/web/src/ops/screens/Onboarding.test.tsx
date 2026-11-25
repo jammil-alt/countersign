@@ -260,6 +260,8 @@ describe("client settings", () => {
       // Wave 6 (plan §1.86)
       "Run audit",
       "Exports",
+      // §1.243
+      "Lockdown",
       "Retire client",
     ]);
     expect(within(nav).getByRole("link", { name: "Approvals" })).toHaveAttribute(

@@ -5,6 +5,7 @@ import {
   SESSION_ACTIVITY_HEADER,
 } from "@countersign/core";
 import type { z } from "zod";
+import { noteLockedFailure } from "../lockdown/locked";
 import { reportApiFailure } from "../observability";
 import { recentlyActive } from "../session/activity";
 
@@ -125,6 +126,8 @@ export function createApiClient(options: ClientOptions = {}): ApiClient {
       let request: string | null = null;
       const fail = (init: Omit<ConstructorParameters<typeof ApiError>[0], "route">) => {
         const error = new ApiError({ request, ...init, route: name });
+        // §1.243: a locked account shows the portal's locked page, whichever screen asked.
+        noteLockedFailure(error);
         options.onFailure?.(error);
         return error;
       };

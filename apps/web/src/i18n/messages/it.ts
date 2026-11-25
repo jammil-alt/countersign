@@ -4430,4 +4430,26 @@ export const it: Messages = {
   "sandbox.sent.at": "Inviato, {when} ({to}).",
   "error.sandbox_running": "Questo agente è in esecuzione nella sandbox. Aspetta che finisca.",
   "error.sandbox_limit": "Hai usato le esecuzioni nella sandbox di oggi. Riprova domani.",
+  // §1.243: lockdown, the locked page and locking your own account.
+  "error.client_locked":
+    "Questo account è bloccato mentre verifichiamo un problema di sicurezza. Ti contatteremo noi.",
+  "lockdown.title": "Il tuo account è bloccato",
+  "lockdown.ours":
+    "Abbiamo bloccato il tuo account mentre verifichiamo un problema di sicurezza. I tuoi agenti sono fermi e nulla legge o modifica i tuoi strumenti finché non viene sbloccato. Ti contatteremo entro 24 ore.",
+  "lockdown.yours":
+    "Il tuo team ha bloccato questo account il {when}. I tuoi agenti sono fermi e nulla legge o modifica i tuoi strumenti finché non viene sbloccato.",
+  "lockdown.reason": "Motivo: {reason}",
+  "lockdown.contact": "Domande? Rispondi alla nostra email o chiedi al tuo referente Mezonas.",
+  "lockdown.noteLabel": "Cosa è successo (lo vediamo noi)",
+  "lockdown.unlock": "Sblocca il nostro account",
+  "lockdown.unlocking": "Sblocco in corso…",
+  "lockdown.unlockFailed": "Non siamo riusciti a sbloccarlo. Riprova.",
+  "lockdown.resume": "Niente riparte da solo. Una volta sbloccato, riavvia ciò che ti serve.",
+  "lockdown.settingsTitle": "Blocca il nostro account",
+  "lockdown.settingsBody":
+    "Se pensi che qualcuno abbia il tuo accesso o quello di uno strumento, blocca il tuo account. I tuoi agenti si fermano subito, nulla legge o modifica i tuoi strumenti e il tuo team vede una pagina di account bloccato finché tu o noi non lo sblocchiamo.",
+  "lockdown.reasonLabel": "Cosa è successo",
+  "lockdown.lock": "Blocca il nostro account",
+  "lockdown.locking": "Blocco in corso…",
+  "lockdown.lockFailed": "Non siamo riusciti a bloccarlo. Riprova.",
 };

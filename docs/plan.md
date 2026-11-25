@@ -6383,7 +6383,7 @@ action, not just mark it... if it is an issue, just because I say it is closed d
 | Not built | The client as an owner: no step yet sends an item to the client and closes it by their answer (the requirements request asks the intake form's fields, not an item). Until there is one, "Client" is only set by the fit-gap's preconditions. |
 | Checked | `apps/api/src/build-settled-by-step.test.ts` (done by hand refused, a drop, a note done, the Builder's close left out; a put-off gap given to engineering then the Builder, closed by its change and opened by its undo; a test closed by a full passing run and not by a failing or partial one), `apps/web/src/ops/builds/closeout.test.tsx` and `builds.test.tsx` (no selects; Put off, Drop it, Reopen; Take it up on a put-off gap). The skill build's go-live closing has no test of its own. |
 
-### 1.243 Lockdown: a kill switch per client and for everything (owner, 2026-11-24; migration 0101; K0, K1 and K2 built)
+### 1.243 Lockdown: a kill switch per client and for everything (owner, 2026-11-24; migration 0101; K0 to K3 built)
 
 The owner: "a kill switch that locks down the account, stops all writes and reads." The plan is
 `docs/lockdown-plan.md`. Outside ARCHITECTURE v0.15's v1 scope by the owner's decision.
@@ -6412,6 +6412,9 @@ The owner: "a kill switch that locks down the account, stops all writes and read
 | K2: investigation | A back-office GET with `?investigate=1` by the security officer, recently signed in: `withInvestigation`, its audit row written apart and tagged `investigate`. // DECISION |
 | K2: audit | A locked client's requests are still audited (invariant 14): `auditAlone` opens `withTenants`, and 0101's `audit_write` accepts a row for a client the transaction asked for and the lockdown left out (`app_locked_tenant_ids`). // DECISION |
 | K2: checked | `apps/api/src/lockdown.test.ts` walks every portal route a client's people may call with the client locked: each answers 423, but the locked page's two, the session and the welcome page's unknown token. |
+| K3: back office | Security → Lockdown: what is locked (everything, and each client served with who, why, since and what came in, counts only), lock everything ("lock everything" typed, a reason) and Unlock with a note for the security officer only. A client's settings → Lockdown: lock it (its name typed, a reason), or its lock and Unlock. A risk banner on every back-office page while anything is locked, asked again on each page change. English, as the back office is. // DECISION |
+| K3: portal | Any call answered 423 `client_locked` sets one signal in the API client (`lockdown/locked.ts`); the portal's frame then shows the locked page in place of every screen and stops its 20-second poll. The page never shows our reason; a client-side lock shows the client's own, and its admin may unlock with a note, after which every stored answer is dropped and the screens ask again. Choosing another account clears the signal. Settings → General, for a client admin: Lock our account, with what happened. Six languages, written with the code for a fluent speaker to review (§1.18). // DECISION |
+| K3: not built | The phone and desktop apps' own locked page: their calls get the same 423 and its words (`error.client_locked`), shown as their error notices are. |
 
 ### 1.242 Collect reports: wait for several reports, each from its own owner, checked before they count (owner, 2026-11-24; no migration)
 

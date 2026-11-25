@@ -232,7 +232,7 @@ function LockdownBody({ data, reload }: { data: LockdownState; reload: () => voi
           <LockForm
             testId="ops-lockdown-lock-everything"
             explain={`Locks every client at once. ${LOCK_EFFECTS} Only the security officer can still read them, read only.`}
-            confirmLabel={`Type ${LOCK_EVERYTHING_CONFIRM} to confirm`}
+            confirmLabel={`Type "${LOCK_EVERYTHING_CONFIRM}" to confirm`}
             confirmWord={LOCK_EVERYTHING_CONFIRM}
             button="Lock everything"
             onLock={async (reason, typed) => {

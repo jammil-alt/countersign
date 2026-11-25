@@ -4503,4 +4503,28 @@ export const de: Messages = {
     "Dieser Agent läuft gerade in der Sandbox. Warten Sie, bis er fertig ist.",
   "error.sandbox_limit":
     "Sie haben die Sandbox-Läufe für heute aufgebraucht. Versuchen Sie es morgen erneut.",
+  // §1.243: lockdown, the locked page and locking your own account.
+  "error.client_locked":
+    "Dieses Konto ist gesperrt, während wir einem Sicherheitsverdacht nachgehen. Wir melden uns bei Ihnen.",
+  "lockdown.title": "Ihr Konto ist gesperrt",
+  "lockdown.ours":
+    "Wir haben Ihr Konto gesperrt, während wir einem Sicherheitsverdacht nachgehen. Ihre Agenten sind angehalten, und nichts liest oder ändert Ihre Tools, bis es entsperrt ist. Wir melden uns innerhalb von 24 Stunden bei Ihnen.",
+  "lockdown.yours":
+    "Ihr Team hat dieses Konto am {when} gesperrt. Ihre Agenten sind angehalten, und nichts liest oder ändert Ihre Tools, bis es entsperrt ist.",
+  "lockdown.reason": "Grund: {reason}",
+  "lockdown.contact":
+    "Fragen? Antworten Sie auf unsere E-Mail oder fragen Sie Ihre Ansprechperson bei Mezonas.",
+  "lockdown.noteLabel": "Was passiert ist (wir sehen das)",
+  "lockdown.unlock": "Unser Konto entsperren",
+  "lockdown.unlocking": "Wird entsperrt…",
+  "lockdown.unlockFailed": "Wir konnten es nicht entsperren. Bitte versuchen Sie es noch einmal.",
+  "lockdown.resume":
+    "Nichts startet von selbst neu. Starten Sie nach dem Entsperren neu, was Sie brauchen.",
+  "lockdown.settingsTitle": "Unser Konto sperren",
+  "lockdown.settingsBody":
+    "Wenn Sie glauben, dass jemand Ihre Anmeldung oder den Zugang zu einem Tool hat, sperren Sie Ihr Konto. Ihre Agenten halten sofort an, nichts liest oder ändert Ihre Tools, und Ihr Team sieht eine Sperrseite, bis Sie oder wir es entsperren.",
+  "lockdown.reasonLabel": "Was passiert ist",
+  "lockdown.lock": "Unser Konto sperren",
+  "lockdown.locking": "Wird gesperrt…",
+  "lockdown.lockFailed": "Wir konnten es nicht sperren. Bitte versuchen Sie es noch einmal.",
 };

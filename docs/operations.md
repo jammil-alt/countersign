@@ -1514,24 +1514,26 @@ cd apps/api && printf '%s' 'officer@example.com' | pnpm exec wrangler secret put
 
 Without it anyone can still lock, and nobody can unlock in the app (`no_security_officer`).
 
-**Lock.** Any operator who serves the client, until the screens (K3) are in, through the API
-with the back office's session: `POST /api/ops/clients/<id>/lock` with `{ "reason", "confirmName" }`
-(the client's name, typed), or everything with `POST /api/ops/lockdown/lock` and
-`{ "reason", "confirm": "lock everything" }`. The client's admins and the security officer are
-emailed. `GET /api/ops/lockdown` lists what is locked, with who, why and the inbound counts.
-A client admin may lock their own account: `POST /api/account/lock`.
+**Lock.** Any operator who serves the client: the client's settings → Lockdown (a reason and its
+name typed), or every client at once from Security → Lockdown (a reason and "lock everything"
+typed). The API behind them: `POST /api/ops/clients/<id>/lock` with `{ "reason", "confirmName" }`,
+or `POST /api/ops/lockdown/lock` with `{ "reason", "confirm": "lock everything" }`. Every
+back-office page shows a banner while anything is locked. The client's admins and the security officer are
+emailed. Security → Lockdown (`GET /api/ops/lockdown`) lists what is locked, with who, why and the
+inbound counts. A client admin may lock their own account: the portal's Settings → General, Lock
+our account. Their people then see the locked page in place of every screen.
 
 **Investigate.** The security officer, signed in (or past the second step) in the last 10
 minutes, reads a locked client as the back office does by adding `?investigate=1` to a back-office
 GET: read only (the database refuses any write), each read in the audit log tagged `investigate`.
 
-**Unlock.** The security officer, signed in in the last 10 minutes: `POST
-/api/ops/clients/<id>/unlock` or `POST /api/ops/lockdown/unlock` with `{ "note" }` (what was
-found, kept in each client's change log). Unlocking resumes nothing: runs stopped by the lock stay
+**Unlock.** The security officer, signed in in the last 10 minutes: Unlock on Security → Lockdown
+or on the client's settings → Lockdown, with a note of what was found, kept in each client's change
+log (`POST /api/ops/clients/<id>/unlock`, `POST /api/ops/lockdown/unlock`). Unlocking resumes nothing: runs stopped by the lock stay
 cancelled (`client_locked`), and what came in while locked isn't replayed; start what's needed by
 hand. A write that was being made when the lock came stays `executing`: check it in the client's
-tool and settle it by hand. A client admin may lift a lock their own side made
-(`POST /api/account/unlock`), never ours.
+tool and settle it by hand. A client admin may lift a lock their own side made, from the locked
+page, never ours.
 
 **Break-glass.** If the app can't be used (no security officer set, sign-in down), unlock as
 `cs_owner` (§1.3, "Break-glass database access") and record it the same day:

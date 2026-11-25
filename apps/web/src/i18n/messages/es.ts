@@ -4414,4 +4414,27 @@ export const es: Messages = {
   "error.sandbox_running":
     "Este agente se está ejecutando en el entorno de pruebas. Espere a que termine.",
   "error.sandbox_limit": "Ha usado las ejecuciones de prueba de hoy. Inténtelo de nuevo mañana.",
+  // §1.243: lockdown, the locked page and locking your own account.
+  "error.client_locked":
+    "Esta cuenta está bloqueada mientras revisamos un posible problema de seguridad. Nos pondremos en contacto con usted.",
+  "lockdown.title": "Su cuenta está bloqueada",
+  "lockdown.ours":
+    "Hemos bloqueado su cuenta mientras revisamos un posible problema de seguridad. Sus agentes están detenidos y nada lee ni cambia sus herramientas hasta que se desbloquee. Nos pondremos en contacto con usted en 24 horas.",
+  "lockdown.yours":
+    "Su equipo bloqueó esta cuenta el {when}. Sus agentes están detenidos y nada lee ni cambia sus herramientas hasta que se desbloquee.",
+  "lockdown.reason": "Motivo: {reason}",
+  "lockdown.contact": "¿Preguntas? Responda a nuestro correo o pregunte a su contacto en Mezonas.",
+  "lockdown.noteLabel": "Qué pasó (lo vemos nosotros)",
+  "lockdown.unlock": "Desbloquear nuestra cuenta",
+  "lockdown.unlocking": "Desbloqueando…",
+  "lockdown.unlockFailed": "No pudimos desbloquearla. Inténtelo de nuevo.",
+  "lockdown.resume":
+    "Nada se reinicia solo. Una vez desbloqueada, vuelva a iniciar lo que necesite.",
+  "lockdown.settingsTitle": "Bloquear nuestra cuenta",
+  "lockdown.settingsBody":
+    "Si cree que alguien tiene su acceso o el de una herramienta, bloquee su cuenta. Sus agentes se detienen de inmediato, nada lee ni cambia sus herramientas y su equipo ve una página de cuenta bloqueada hasta que usted o nosotros la desbloqueemos.",
+  "lockdown.reasonLabel": "Qué pasó",
+  "lockdown.lock": "Bloquear nuestra cuenta",
+  "lockdown.locking": "Bloqueando…",
+  "lockdown.lockFailed": "No pudimos bloquearla. Inténtelo de nuevo.",
 };
