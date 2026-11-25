@@ -6652,6 +6652,114 @@ export const intakeEvent = pgTable(
 );
 
 /**
+ * Step model §10f (stream N): the kinds of value a custom field holds. Kept equal to core's
+ * `CUSTOM_FIELD_TYPES` (a core test reads both); this file imports only drizzle-orm at runtime.
+ */
+export const CUSTOM_FIELD_TYPES = [
+  "text",
+  "number",
+  "money",
+  "date",
+  "yes_no",
+  "list",
+  "group",
+  "record",
+] as const;
+
+/**
+ * Step model §10f: a custom field on one of an area's record types, defined in the back office
+ * and stored on each record in its `ext` column (`ext.custom.<name>`), never as a new column.
+ * `tenant_id` null: a shared field, offered to every client as templates are (operator sessions
+ * only, as every operator table). Removing a field hides it (`hidden_at`) and keeps its data:
+ * never deleted. Its type never changes once a record holds a value (checked by the API, which
+ * can see the records; a field's own row can't).
+ */
+export const customField = pgTable(
+  "custom_field",
+  {
+    id: id(),
+    tenantId: optionalTenantId(),
+    /** A record type's id as its area declares it (`vendor`, `bank_transaction`). */
+    recordType: text("record_type").notNull(),
+    /** The key on the record (`ext.custom.<name>`) and in steps' fields. */
+    name: text("name").notNull(),
+    /** What a person reads. */
+    label: text("label").notNull(),
+    type: text("type").$type<(typeof CUSTOM_FIELD_TYPES)[number]>().notNull(),
+    /** By type: a list's choices, a group's fields, a record link's record type (core checks). */
+    spec: json("spec").notNull().default({}),
+    required: boolean("required").notNull().default(false),
+    /** One line on what it means. */
+    about: text("about").notNull().default(""),
+    hiddenAt: ts("hidden_at"),
+    createdBy: uuid("created_by").references(() => appUser.id),
+    createdAt: createdAt(),
+    updatedAt: ts("updated_at")
+      .notNull()
+      .defaultNow()
+      .$onUpdate(() => new Date()),
+  },
+  (t) => [
+    // Nulls not distinct: shared fields are unique among themselves too.
+    unique("custom_field_name_key").on(t.tenantId, t.recordType, t.name).nullsNotDistinct(),
+    unique("custom_field_id_tenant_key").on(t.id, t.tenantId),
+    check("custom_field_type_check", oneOf(t.type, CUSTOM_FIELD_TYPES)),
+    check("custom_field_name_check", sql`${t.name} ~ '^[a-z][a-zA-Z0-9_]{0,39}$'`),
+    check("custom_field_record_type_check", sql`${t.recordType} ~ '^[a-z][a-z0-9_]{0,39}$'`),
+    index("custom_field_record_type_idx").on(t.tenantId, t.recordType),
+  ],
+);
+
+export const RECORD_WRITE_OPS = ["create", "update"] as const;
+
+/**
+ * Step model §10f: every write through a record type's standard Create or Update, one row each
+ * (insert only, as model_call): which record, by which agent version in which run, or which
+ * person, its before and after state and its evidence (invariant 10). `key` is the write's
+ * idempotency key: a retried step finds its first write here and never saves twice.
+ */
+export const recordWrite = pgTable(
+  "record_write",
+  {
+    id: id(),
+    tenantId: tenantId(),
+    recordType: text("record_type").notNull(),
+    recordId: uuid("record_id").notNull(),
+    op: text("op").$type<(typeof RECORD_WRITE_OPS)[number]>().notNull(),
+    key: text("key").notNull(),
+    agentVersionId: uuid("agent_version_id").references(() => agentVersion.id),
+    runId: uuid("run_id"),
+    stepRunId: uuid("step_run_id"),
+    userId: uuid("user_id").references(() => appUser.id),
+    /** The record's fields before the write; null for a create. */
+    before: json("before"),
+    /** The record's fields after it. */
+    after: json("after").notNull(),
+    /** Record ids the write rests on (invariant 10). */
+    sources: json<string[]>("sources").notNull().default([]),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    unique("record_write_key").on(t.tenantId, t.key),
+    index("record_write_record_idx").on(t.tenantId, t.recordType, t.recordId),
+    check("record_write_op_check", oneOf(t.op, RECORD_WRITE_OPS)),
+    // An agent's write or a person's, never both. DECISION: not "exactly one", as catalog_item's
+    // created_by: purging a client nulls what pointed at its agent versions and people.
+    check("record_write_by_check", sql`num_nonnulls(${t.agentVersionId}, ${t.userId}) <= 1`),
+    foreignKey({
+      name: "record_write_run_fk",
+      columns: [t.runId, t.tenantId],
+      foreignColumns: [run.id, run.tenantId],
+    }),
+    foreignKey({
+      name: "record_write_step_run_fk",
+      columns: [t.stepRunId, t.tenantId],
+      foreignColumns: [stepRun.id, stepRun.tenantId],
+    }),
+  ],
+);
+
+/**
  * Onboarding's operator-only tables tied to a client (§1.149): an operator session reads only the
  * files about clients it serves or about none (prospects), and a fact only with its file. A
  * client's session never sees a row. `sales_start` is global and in OPERATOR_ONLY_TABLES.
@@ -6809,6 +6917,9 @@ export const TENANT_TABLES = [
   "run_subject",
   // 0087: process interviews (docs/plan.md §1.217).
   "process_interview",
+  // 0102: custom fields and the standard writes to records (step model §10f).
+  "custom_field",
+  "record_write",
 ] as const;
 export type TenantTable = (typeof TENANT_TABLES)[number];
 
@@ -6830,6 +6941,8 @@ export const OPERATOR_TABLES = [
   "builder_turn",
   // §1.210 (0095): the platform's own vendor costs have no client.
   "metered_usage",
+  // 0102: a shared custom field is offered to every client (step model §10f).
+  "custom_field",
 ] as const satisfies readonly TenantTable[];
 
 /** Global tables only operator sessions may read or write (row-level security on `app.operator`). */
