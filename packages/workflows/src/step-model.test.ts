@@ -236,10 +236,59 @@ describe("a v5 workflow's Do steps", () => {
     expect(h.row("s_ai")?.nodeType).toBe("skill");
   });
 
-  it("refuses rules or AI written in the step, which can't run yet", async () => {
+  it("runs AI written in the step on the step skill its version pins, on the step's model", async () => {
+    const h = new Harness();
+    const written = {
+      id: "s_ai",
+      kind: "do",
+      name: "Work it out",
+      doneBy: "ai",
+      ai: { text: "Decide.", model: { id: "claude-haiku-5-5" } },
+    };
+    const pinned = "custom:step-agent-1-s-ai@3";
+    const asked: string[] = [];
+    const { result } = await run(
+      h,
+      wf([written, end()]),
+      { id: "7" },
+      {
+        stepSkill: (id: string) => {
+          asked.push(id);
+          return id === "s_ai" ? pinned : undefined;
+        },
+      },
+    );
+    expect(result.status).toBe("succeeded");
+    expect(asked).toEqual(["s_ai"]);
+    expect(h.agentCalls[0]?.step).toMatchObject({
+      kind: "skill",
+      skill: pinned,
+      model: { id: "claude-haiku-5-5" },
+    });
+    // The text is the pinned skill's: nothing of the step's is layered on it.
+    expect((h.agentCalls[0] as SkillStepRequest).customize).toBeUndefined();
+  });
+
+  it("runs rules written in the step as their pinned skill", async () => {
     const h = new Harness();
     const written = {
       id: "s_rules",
+      kind: "do",
+      name: "Sort it",
+      doneBy: "rules",
+      rules: { rows: [{ id: "r1", when: { match: "all", rules: [] }, set: { ok: true } }] },
+    };
+    await run(h, wf([written, end()]), { id: "7" }, { stepSkill: () => "custom:step-a-s-rules@1" });
+    expect(h.agentCalls[0]?.step).toMatchObject({
+      kind: "skill",
+      skill: "custom:step-a-s-rules@1",
+    });
+  });
+
+  it("fails a step written in the step with no pinned version, in plain words", async () => {
+    const h = new Harness();
+    const written = {
+      id: "s_ai",
       kind: "do",
       name: "Work it out",
       doneBy: "ai",
@@ -247,7 +296,9 @@ describe("a v5 workflow's Do steps", () => {
     };
     const { result } = await run(h, wf([written, end()]));
     expect(result.status).toBe("failed");
-    expect(result.reason).toContain("written in the step");
+    expect(result.reason).toBe(
+      `the step "Work it out" has no saved version of what is written in it: save the workflow and publish it again`,
+    );
     expect(h.agentCalls).toEqual([]);
   });
 

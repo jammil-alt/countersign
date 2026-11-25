@@ -124,6 +124,8 @@ function common(step: steps.Step): Out {
 export function loadStepModel(
   workflow: steps.Workflow,
   kindOf: (action: string) => steps.ActionKind | undefined,
+  /** The step skill the agent version pins for a step written in the step (stream F). */
+  stepSkill: (stepId: string) => string | undefined = () => undefined,
 ): LoadedStepModel {
   const parsed = steps.Workflow.safeParse(workflow);
   if (!parsed.success) {
@@ -148,7 +150,7 @@ export function loadStepModel(
   const merged = new WeakSet<object>();
 
   const load = (step: steps.Step): processes.Step => {
-    const out = loadOne(step, kindOf, load, merged);
+    const out = loadOne(step, kindOf, load, merged, stepSkill);
     sources.set(out, step);
     return out;
   };
@@ -175,11 +177,12 @@ function loadOne(
   kindOf: (action: string) => steps.ActionKind | undefined,
   load: (step: steps.Step) => processes.Step,
   merged: WeakSet<object>,
+  stepSkill: (stepId: string) => string | undefined,
 ): processes.Step {
   const base = common(step);
   switch (step.kind) {
     case "do":
-      return loadDo(step, base, kindOf, merged);
+      return loadDo(step, base, kindOf, merged, stepSkill);
     case "loop":
       // Run by the executor through the runtime's loop (`Executor.loop`); a skill row, as an
       // agent-mode skill's was.
@@ -239,6 +242,7 @@ function loadDo(
   base: Out,
   kindOf: (action: string) => steps.ActionKind | undefined,
   merged: WeakSet<object>,
+  stepSkill: (stepId: string) => string | undefined,
 ): processes.Step {
   let engine: steps.DoEngine;
   try {
@@ -262,8 +266,21 @@ function loadDo(
     }
     case "rules":
     case "ai": {
-      // Written in the step (no skill): stream F's (wave 2). It loads as a skill step the
+      // Written in the step (no Uses): stream F's step skill, the version the agent version pins
+      // (`custom:step-<agent>-<step>@N`). Its rows or its text are the skill's, so nothing of the
+      // step's own is layered on it but the AI's model. With no pin it loads as a skill step the
       // executor refuses when it is reached (`Executor.runStep`), naming why.
+      if (engine.skill === undefined) {
+        const pinned = stepSkill(step.id);
+        const model = engine.engine === "ai" ? step.ai?.model : undefined;
+        return {
+          ...base,
+          kind: "skill",
+          skill: pinned ?? WRITTEN_SKILL,
+          input,
+          ...(model ? { model } : {}),
+        } as processes.Step;
+      }
       const values = engine.engine === "rules" ? step.rules?.values : step.ai?.values;
       const rows = engine.engine === "rules" ? step.rules?.rows : undefined;
       const text = engine.engine === "ai" ? step.ai?.text?.trim() : undefined;

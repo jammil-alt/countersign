@@ -135,6 +135,7 @@ import {
   type StepLoop,
   type StepModelRun,
   translates,
+  WRITTEN_SKILL,
   writtenInStep,
 } from "./step-model";
 
@@ -201,6 +202,12 @@ export interface ExecutorContext {
   // The step model (docs/step-model-plan.md §7)
   /** Match steps (stream D's engine); absent: a Match step fails, nothing matched or saved. */
   match?: MatchPort;
+  /**
+   * The step model (stream F): the step skill the run's agent version pins for a step written in
+   * the step (`custom:step-<agent>-<step>@N` in its `definition.skills`), by step id; undefined:
+   * none pinned, and the step fails. Read from the pinned version, so a replay resolves the same.
+   */
+  stepSkill?: (stepId: string) => string | undefined;
 }
 
 /**
@@ -602,7 +609,11 @@ export async function executeWorkflow(
   try {
     if (workflow.schemaVersion === 5) {
       // The step model: each step on the engine its kind, done by and uses pick (`./step-model`).
-      const v5 = loadStepModel(workflow, catalogKindOf(ctx.catalog?.tools));
+      const v5 = loadStepModel(
+        workflow,
+        catalogKindOf(ctx.catalog?.tools),
+        ctx.stepSkill ?? (() => undefined),
+      );
       stepModel = v5.stepModel;
       loaded = v5;
     } else loaded = loadProcess(workflow, ctx.lookup ?? NO_LOOKUP);
@@ -994,9 +1005,9 @@ class Executor {
         if (v5.kind === "do" && v5.uses?.type === "match") {
           return await this.match(v5, v5.uses.match, step, name, frame);
         }
-        if (writtenInStep(v5)) {
+        if (writtenInStep(v5) && step.kind === "skill" && step.skill === WRITTEN_SKILL) {
           throw new Error(
-            `the step "${v5.name}" is written in the step, which can't run yet: pick a skill for it`,
+            `the step "${v5.name}" has no saved version of what is written in it: save the workflow and publish it again`,
           );
         }
       }
