@@ -4704,6 +4704,14 @@ export const connectorSetting = pgTable(
     // DECISION: no foreign key (Postgres has none for array elements). A purged client's id stays
     // and matches no client, since ids are never reused.
     clients: uuid("clients").array(),
+    /**
+     * Step model E (docs/step-model-plan.md §10c): which of the connector's actions are on for
+     * agents, by action (tool) id. Null: nothing was ever switched, so every action is on (what the
+     * connector had before); an id missing from the map follows the manifest (`offByDefault`: a new
+     * action appears off until turned on here). Off actions are left out of the catalog and refused
+     * by the gate.
+     */
+    actions: json<Record<string, boolean>>("actions"),
     note: text("note").notNull().default(""),
     updatedBy: uuid("updated_by").references(() => appUser.id),
     updatedAt: ts("updated_at")
