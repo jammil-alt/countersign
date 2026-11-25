@@ -40,13 +40,13 @@ export interface StepContext {
 
 /** Which `uses` each `doneBy` allows (§4, "How a Do step runs"). */
 const ALLOWED: Record<DoneBy, readonly (Uses["type"] | "none")[]> = {
-  rules: ["action", "skill", "match", "none"],
+  rules: ["action", "skill", "match", "tell", "none"],
   ai: ["skill", "none"],
   person: ["collect", "none"],
   contact: ["none"],
 };
 
-const INSTRUCTIONS = ["rules", "ai", "person", "collect", "contact"] as const;
+const INSTRUCTIONS = ["rules", "ai", "person", "collect", "contact", "tell"] as const;
 
 export function validateWorkflow(workflow: Workflow, context: StepContext = {}): StepIssue[] {
   const issues: StepIssue[] = [];
@@ -179,9 +179,11 @@ function doIssues(step: DoStep, context: StepContext): StepIssue[] {
   const own =
     step.doneBy === "person" && uses === "collect"
       ? "collect"
-      : step.doneBy === "contact"
-        ? "contact"
-        : step.doneBy;
+      : step.doneBy === "rules" && uses === "tell"
+        ? "tell"
+        : step.doneBy === "contact"
+          ? "contact"
+          : step.doneBy;
   for (const key of INSTRUCTIONS) {
     if (key !== own && step[key] !== undefined) {
       out.push({
@@ -197,7 +199,8 @@ function doIssues(step: DoStep, context: StepContext): StepIssue[] {
     (own === "ai" && uses === "none" && !step.ai?.text?.trim()) ||
     (own === "person" && !step.person) ||
     (own === "collect" && !step.collect) ||
-    (own === "contact" && !step.contact);
+    (own === "contact" && !step.contact) ||
+    (own === "tell" && !step.tell);
   if (needs) {
     out.push({
       at,

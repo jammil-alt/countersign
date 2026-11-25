@@ -15,6 +15,7 @@ import type { DoStep, MatchSettings } from "./schema";
  * - `ai`: one model call against the output fields, written in the step or an AI skill (today's
  *   `skill`, task);
  * - `match`: a Match on a profile (§7);
+ * - `tell`: a message to the client's team or ours (today's `notify`);
  * - `person`, `collect`, `contact`: today's `person`, `collect` and `conversation`;
  * - `automation`: its steps run in place (today's `process`);
  * - `missing`: never runs.
@@ -25,6 +26,7 @@ export type DoEngine =
   | { engine: "rules"; skill?: string | undefined }
   | { engine: "ai"; skill?: string | undefined }
   | { engine: "match"; match: MatchSettings }
+  | { engine: "tell" }
   | { engine: "person" }
   | { engine: "collect" }
   | { engine: "contact" }
@@ -40,6 +42,7 @@ export const ENGINE_OUTCOMES: Record<DoEngineName, string> = {
   rules: "skill",
   ai: "skill",
   match: "skill",
+  tell: "notify",
   person: "person",
   collect: "collect",
   contact: "conversation",
@@ -72,6 +75,7 @@ export function doEngine(
           : { engine: "write", action: uses.action, kind };
       }
       if (uses?.type === "match") return { engine: "match", match: uses.match };
+      if (uses?.type === "tell") return { engine: "tell" };
       if (uses?.type === "skill") return { engine: "rules", skill: uses.skill };
       if (uses === undefined) return { engine: "rules" };
       break;

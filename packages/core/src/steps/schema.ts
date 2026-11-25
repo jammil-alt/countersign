@@ -13,7 +13,7 @@ import { Duration } from "../duration";
 import { StepReview } from "../oversight/decision";
 import { COLLECT_ITEMS_MAX, CollectItem } from "../process/collect";
 import { ReshapeMapping } from "../process/reshape";
-import { Checks, CollectEscalation, Deadline, OnError, Who } from "../process/schema";
+import { Checks, CollectEscalation, Deadline, NotifyCheck, OnError, Who } from "../process/schema";
 import { NodeId, SkillRef, Slug, TemplateObject, TemplateString, ToolId } from "../schemas/common";
 import { ApprovalRequirement } from "../schemas/permissions";
 import { Rules } from "../schemas/rules";
@@ -142,6 +142,8 @@ export const Uses = z.discriminatedUnion("type", [
   z.strictObject({ type: z.literal("automation"), automation: AutomationRef }),
   z.strictObject({ type: z.literal("match"), match: MatchSettings }),
   z.strictObject({ type: z.literal("collect") }),
+  /** Tell the client's team or ours (inbox, email, text), without waiting (today's `notify`). */
+  z.strictObject({ type: z.literal("tell") }),
   /** Not built yet (today's `missing` step): it never runs and blocks publishing. */
   z.strictObject({
     type: z.literal("missing"),
@@ -215,6 +217,8 @@ export const DoStep = z
     person: PersonInstructions.optional(),
     collect: CollectInstructions.optional(),
     contact: ContactInstructions.optional(),
+    /** What a Tell says, to whom and how (`uses.type: tell`). */
+    tell: NotifyCheck.optional(),
     /** The fields it hands on, when it defines them (rules or AI written in the step). */
     output: Fields.optional(),
   })
