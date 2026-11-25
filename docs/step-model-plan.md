@@ -654,6 +654,7 @@ release (§12, §13). Then: the stored format, drafted as plain fields for revie
 - 2026-11-25 · Wave 0 contracts built (§13c); Tell added to the Do step, and the group field type.
 - 2026-11-25 · Stored format approved and frozen; wave 1 started (four sessions, §13c).
 - 2026-11-25 · Screen changes approved (mock-up `docs/design/step-model.html`), with stream B's two choices: the rail stays as today and the eight kinds open from the chart's +; workflow outputs sit in a section above the chart.
+- 2026-11-25 · Drafts parse as they are being built (a step with no goal yet, an End not filled in, an empty For each); the publish checks refuse them. A Do step may be run by another agent of the client (More). Stream B's PR #672 keeps 10 of its 12 differences from the mock-up (today's controls, editable Match settings, an input picker per field) and closes 2 (the sheet's eyebrow, the test run's time).
 - 2026-11-25 · Forms agreed. Suggest (AI icon) on every step and every field: tell it what you need,
   use the default, or resolve; applied at once, with Undo.
 - 2026-11-25 · The eight kinds are stored directly; nine of today's kinds collapse into Do, run by
