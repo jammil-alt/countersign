@@ -201,8 +201,9 @@ export function categorizeSteps(bankTxnIds: string, prefix = ""): Step[] {
       id: id("chart"),
       name: "The chart of accounts",
       kind: "read",
-      tool: "bookkeeping.accounts.list",
-      input: {},
+      // One chart of accounts (Shared): the classifications Bookkeeping books to.
+      tool: "ledger.accounts.list",
+      input: { classifications: ["expense", "revenue", "asset", "liability", "equity"] },
       client: { visible: false },
     },
     {

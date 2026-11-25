@@ -3,7 +3,7 @@
 // from it; we ask Microsoft for delegated `Mail.Send` (with `openid email offline_access` for the
 // address and a refresh token) and no read scope, so nothing here can read, search or file mail.
 // Replies come back by forwarding, through the tagged Reply-To, as for Gmail. `outlook.send` takes
-// the same input as `email.send` and `gmail.send`, and has Gmail's once-only rule: Graph's
+// the same input as `resend.send` and `gmail.send`, and has Gmail's once-only rule: Graph's
 // `sendMail` takes no idempotency key, so the attempt is recorded first and a started, unrecorded
 // send is never sent again. Unchecked facts about Microsoft: ./NOTES.md.
 
@@ -87,7 +87,7 @@ export type OutlookCredentials = MicrosoftCredentials;
 /** Graph refused a send (Outlook's name for the shared error). */
 export const OutlookApiError = MicrosoftApiError;
 
-/** `email.send`'s output. Graph answers a send with 202 and no body, so `id` is our own reference. */
+/** `resend.send`'s output. Graph answers a send with 202 and no body, so `id` is our own reference. */
 // DECISION: `id` is our `X-Mezonas-Ref` (from the action's key; it is on the sent message) and
 // `messageId` is empty: Graph assigns the Internet Message-ID itself and `sendMail` doesn't say
 // it, and without a read scope we can't look it up. Replies are matched by the tagged Reply-To.

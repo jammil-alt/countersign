@@ -154,7 +154,7 @@ describe.skipIf(!h)("saving an approved change as a case", () => {
       await H.t.db.insert(externalAction).values({
         tenantId,
         connectionId: email?.id as string,
-        tool: "email.send",
+        tool: "resend.send",
         runId: r?.id as string,
         stepRunId: s?.id as string,
         agentVersionId: v?.id as string,

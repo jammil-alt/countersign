@@ -105,8 +105,8 @@ describe("the Do form", () => {
     expect(screen.getByText(/approval is on/)).toBeTruthy();
   });
 
-  it("offers an Input as step name › field and stores the id underneath", async () => {
-    const user = userEvent.setup();
+  it("fits an Input of the same name and type by itself, the id stored underneath", () => {
+    // Stream G (§6): what fits is read directly, without anyone picking it.
     const seen = setup({
       kind: "do",
       id: "s_do",
@@ -115,12 +115,9 @@ describe("the Do form", () => {
       input: {},
       uses: { type: "action", action: "qbo.bill.create" },
     } as DoStep);
-    expect(screen.getByText(/Doesn't fit: nothing gives "vendorName"/)).toBeTruthy();
-    await user.selectOptions(
-      screen.getByLabelText("Input vendorName"),
-      "Read the invoice › vendorName",
-    );
     expect(seen.at(-1)?.input.vendorName).toBe("{{steps.s_read.output.vendorName}}");
+    const select = screen.getByLabelText("Input vendorName") as HTMLSelectElement;
+    expect(select.selectedOptions[0]?.textContent).toBe("Read the invoice › vendorName");
     expect(screen.queryByText(/Doesn't fit/)).toBeNull();
   });
 

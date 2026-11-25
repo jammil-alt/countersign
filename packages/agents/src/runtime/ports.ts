@@ -97,6 +97,11 @@ export interface RuntimeStore {
   ): Promise<MemoryNoteRecord[]>;
   connection(tenantId: string, connectionId: string): Promise<ConnectionRef | null>;
   /**
+   * Step model E: the operator's switches for a built-in connector's actions (Web), read fresh for
+   * every call. Optional: a store without it switches nothing off.
+   */
+  actionSwitches?(connectorId: string): Promise<Record<string, boolean> | null>;
+  /**
    * The client agent's grant on a connection (docs/plan.md §1.26), read fresh for every call so a
    * client's tightening or revoke applies at once; null = no narrowing.
    */

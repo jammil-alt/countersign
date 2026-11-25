@@ -37,8 +37,14 @@ describe("the Bookkeeping manifest", () => {
   });
 
   it("gives every skill tools that exist, and requires the pack", () => {
-    // The statement reader reads the document with the platform's own docs tools.
-    const tools = new Set([...bookkeepingManifest.tools.map((t) => t.id), "docs.read", "docs.get"]);
+    // The statement reader reads the document with the platform's own docs tools, and the chart of
+    // accounts is Shared's (one list for every area).
+    const tools = new Set([
+      ...bookkeepingManifest.tools.map((t) => t.id),
+      "docs.read",
+      "docs.get",
+      "ledger.accounts.list",
+    ]);
     for (const skill of BOOKKEEPING_SKILLS) {
       expect(SkillDefinition.safeParse(skill).success, skill.id).toBe(true);
       for (const t of [...(skill.handler ? [skill.handler] : []), ...skill.tools]) {

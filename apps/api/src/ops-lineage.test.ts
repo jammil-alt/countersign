@@ -296,6 +296,33 @@ describe.skipIf(!h)("agent pages API", () => {
       const ids = groups.flatMap((g) => g.actions.map((a) => a.id));
       expect(ids).not.toContain("comms.reach_out");
       expect(ids.some((id) => id.startsWith("health."))).toBe(false);
+      // Step model E: Web's two actions sit under the Web connector; what the new model folded into
+      // another action (Read a document, Get accounts) is offered once.
+      const web = groups.find((g) => g.id === "web");
+      expect(web?.type).toBe("connector");
+      expect(web?.name).toBe("Web");
+      expect(web?.actions.map((a) => a.id).sort()).toEqual(["web.fetch", "web.search"]);
+      expect(ids).not.toContain("docs.extract");
+      expect(ids).not.toContain("docs.totals.check");
+      expect(ids.filter((id) => id.endsWith("accounts.list"))).toEqual(["ledger.accounts.list"]);
+    });
+
+    it("leaves an action the operator turned off out of the Uses picker", async () => {
+      const ids = async () =>
+        (
+          j((await H.call(OPERATOR, "GET", `/api/ops/agents/${agentA}/action-catalog`)).json)
+            .groups as { actions: { id: string }[] }[]
+        ).flatMap((g) => g.actions.map((a) => a.id));
+      expect(await ids()).toContain("testkit.record.update");
+      await H.call(OPERATOR, "PUT", "/api/ops/connectors/testkit", {
+        actions: { "testkit.record.update": false },
+      });
+      expect(await ids()).not.toContain("testkit.record.update");
+      expect(await ids()).toContain("testkit.record.query");
+      await H.call(OPERATOR, "PUT", "/api/ops/connectors/testkit", {
+        actions: { "testkit.record.update": true },
+      });
+      expect(await ids()).toContain("testkit.record.update");
     });
 
     it("gives the builder every skill with its schemas, every tool and the connectors", async () => {

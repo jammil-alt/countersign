@@ -19,7 +19,7 @@ export const CLOSE_CONFIG_FIELDS: PackConfigField[] = [
   },
   {
     key: "accrual_account",
-    label: "Accrual account in QuickBooks",
+    label: "Accrual account in the accounting system",
     help: "The liability account accruals are credited to, by its name or number.",
     type: "text",
     default: CLOSE_CONFIG_DEFAULTS.accrualAccount,

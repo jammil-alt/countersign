@@ -1,11 +1,20 @@
 // The Input box's body (§5, §6): each field the step's Uses takes, with where it comes from; or,
 // for rules and AI written in the step, a list of named inputs the person adds.
+//
+// Stream G (§6): for the fields a Uses takes, the incoming side is worked out as the box opens and
+// whenever the steps before change (core `steps.translateStep`: Fits, Translated, Doesn't fit) and
+// saved with the step at once, without confirming (owner, 2026-11-25). If a needed field still has
+// no source, Suggest's Resolve is asked once (the Builder AI's Reshape suggestion) and its answer
+// applied as it comes back.
 
+import { steps } from "@countersign/core";
+import { useEffect, useMemo, useRef } from "react";
 import { Button } from "../../../ui/primitives";
 import { SmallInput } from "../fields";
+import { incomingSources } from "./data";
 import type { StepFormProps } from "./form-kit";
 import { InputPicker } from "./InputPicker";
-import { inputOptions } from "./options";
+import { inputOptions, usesKey } from "./options";
 import { SuggestButton } from "./SuggestButton";
 import type { DoStep, Field, Step } from "./types";
 
@@ -17,6 +26,7 @@ export function Input({
   free,
 }: StepFormProps<DoStep> & { takes: readonly Field[]; free: boolean }) {
   const options = inputOptions(env.workflow, step.id, env.uses, env.trigger);
+  const worked = useTranslation({ step, env, onChange, takes, free });
   const setValue = (name: string, value: unknown) => {
     const { [name]: _gone, ...rest } = step.input;
     onChange({ ...step, input: value === undefined ? rest : { ...rest, [name]: value } });
@@ -65,6 +75,7 @@ export function Input({
               options={options}
               value={step.input[name]}
               onChange={(v) => setValue(name, v)}
+              source={worked?.fields.find((f) => f.name === name)}
             />
           </div>
         );
@@ -97,4 +108,51 @@ function AddInput({ taken, onAdd }: { taken: readonly string[]; onAdd(name: stri
       </Button>
     </form>
   );
+}
+
+/**
+ * The step's incoming side worked out and kept saved with the step (stream G). Returns each field's
+ * source; null for a step that writes its own inputs.
+ */
+function useTranslation({
+  step,
+  env,
+  onChange,
+  takes,
+  free,
+}: Pick<StepFormProps<DoStep>, "step" | "env" | "onChange"> & {
+  takes: readonly Field[];
+  free: boolean;
+}): steps.WorkedOut | null {
+  const sources = useMemo(
+    () => incomingSources(env.workflow, step.id, env.uses, env.trigger),
+    [env.workflow, step.id, env.uses, env.trigger],
+  );
+  const result = free || takes.length === 0 ? null : steps.translateStep(step, takes, sources);
+  const next = result?.step;
+  useEffect(() => {
+    if (next && next !== step) onChange(next);
+  }, [next, step, onChange]);
+
+  // Once per step, Uses and set of fields left: the AI's suggestion, applied unless the step was
+  // changed meanwhile.
+  const latest = useRef(step);
+  latest.current = next ?? step;
+  const asked = useRef(new Set<string>());
+  const left = result?.worked.state === "doesnt_fit" ? steps.unfilled(result.worked).join(",") : "";
+  const suggest = env.suggest;
+  const key = left ? `${step.id}|${usesKey(step.uses)}|${left}` : "";
+  useEffect(() => {
+    if (!key || asked.current.has(key)) return;
+    asked.current.add(key);
+    const sent = latest.current;
+    suggest({ step: sent, field: "input", how: "resolve" })
+      .then((s) => {
+        if (s.applied && s.step.kind === "do" && latest.current === sent) onChange(s.step);
+      })
+      .catch(() => {
+        // Nothing to do: the field stays Doesn't fit and says so.
+      });
+  }, [key, suggest, onChange]);
+  return result?.worked ?? null;
 }

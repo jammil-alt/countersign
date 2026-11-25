@@ -1,0 +1,1 @@
+ALTER TABLE "connector_setting" ADD COLUMN "actions" jsonb;
