@@ -404,6 +404,48 @@ describe("triggers and outputs in the builder", () => {
     expect(saved.steps.map((x) => x.kind)).toEqual(["wait", "end"]);
   });
 
+  it("adds and switches workflows inside the steps builder, for an agent of v5 workflows only", async () => {
+    const blank = blankBundle({
+      name: "Card receipts",
+      role: "Expenses",
+      mission: "Chase receipts",
+      instructions: "",
+      modelId: "",
+    });
+    const { user, sent } = setup("main", blank as AnyAgentBundleInput);
+    await screen.findByTestId("steps-builder");
+    // One workflow: no switcher tabs yet, only "+ Workflow".
+    expect(screen.queryByTestId("builder-workflow-main-select")).toBeNull();
+    await user.click(screen.getByTestId("builder-workflow-add"));
+    await user.type(screen.getByTestId("builder-workflow-name"), "Weekly digest");
+    await user.selectOptions(screen.getByTestId("builder-workflow-trigger"), "schedule");
+    await user.click(screen.getByTestId("builder-workflow-create"));
+    await waitFor(() => expect(sent).toHaveLength(1));
+    expect(sent[0]?.bundle.workflows.map((w) => [w.slug, w.workflow.schemaVersion])).toEqual([
+      ["main", 5],
+      ["weekly-digest", 5],
+    ]);
+    // It opens on the new workflow, and the switcher goes back and forth.
+    const weekly = await screen.findByTestId("builder-workflow-weekly-digest-select");
+    expect(weekly).toHaveAttribute("aria-current", "page");
+    await addWaitAndSave(user);
+    await waitFor(() => expect(sent).toHaveLength(2));
+    const saved = sent[1]?.bundle.workflows ?? [];
+    expect((saved[1]?.workflow as steps.Workflow | undefined)?.steps.map((x) => x.kind)).toEqual([
+      "wait",
+      "end",
+    ]);
+    expect(saved[0]).toEqual(sent[0]?.bundle.workflows[0]);
+    await user.click(screen.getByTestId("builder-workflow-main-select"));
+    await waitFor(() =>
+      expect(screen.getByTestId("builder-workflow-main-select")).toHaveAttribute(
+        "aria-current",
+        "page",
+      ),
+    );
+    expect(screen.getByTestId("steps-builder")).toBeTruthy();
+  });
+
   it("opens a new agent's blank workflow in the steps builder, and its draft saves", async () => {
     const blank = blankBundle({
       name: "Card receipts",
