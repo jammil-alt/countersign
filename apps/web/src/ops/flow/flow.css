@@ -399,6 +399,21 @@
     background: var(--surface-subtle);
     padding: 0 10px;
   }
+  /* An End's deliveries, under its pill (docs/design/step-model.html §1). */
+  .flow-box__cap {
+    position: absolute;
+    top: calc(100% + 4px);
+    left: 50%;
+    transform: translateX(-50%);
+    max-width: 220px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 11px;
+    line-height: 14px;
+    color: var(--ink-muted);
+    pointer-events: none;
+  }
   .flow-box--pill .flow-box__t {
     font-size: 12px;
     line-height: 1;
