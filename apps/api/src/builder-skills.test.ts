@@ -366,8 +366,13 @@ describe.skipIf(!h)("the Builder", () => {
     const prompt = JSON.stringify(model.requests[0]?.messages);
     expect(prompt).toContain("Client A");
     // v0.18: the step on a skill that doesn't exist is held as a missing step ("Not built yet" in
-    // the step model). The step model's publish checks don't check bindings yet (stream I, Not done).
-    expect((res.json as { errors: Json[] }).errors.map(codeOf).sort()).toEqual(["not_built_yet"]);
+    // the step model). A client agent's writes are also held to its bindings at publish: the draft
+    // writes to Testkit, which it isn't bound to yet, so it can't publish until it is.
+    const errors = (res.json as { errors: Json[] }).errors;
+    expect(errors.map(codeOf).sort()).toEqual(["connection_missing", "not_built_yet"]);
+    expect(JSON.stringify(errors.find((e) => codeOf(e) === "connection_missing"))).toContain(
+      "testkit",
+    );
     expect(
       (
         await H.call(OTHER_OPERATOR, "POST", "/api/ops/agents/draft", {
