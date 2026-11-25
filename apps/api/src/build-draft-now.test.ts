@@ -9,7 +9,7 @@ import { agent, agentVersion } from "@countersign/db";
 import { FakeModel, type LlmRequest } from "@countersign/llm";
 import { desc, eq } from "drizzle-orm";
 import { afterAll, describe, expect, it, vi } from "vitest";
-import { createApiHarness, OPERATOR } from "./api.test-helper";
+import { createApiHarness, OPERATOR, v5Workflow } from "./api.test-helper";
 import { stepModelAnswer } from "./builder-v5.test-helper";
 
 for (const level of process.env.SHOW_LOGS ? [] : (["warn", "error"] as const)) {
@@ -57,11 +57,9 @@ function draftAnswer(steps: StepDraft[] = [update], more: Record<string, unknown
             {
               slug: "main",
               name: "Fix a record",
-              workflow: {
-                schemaVersion: 4,
+              workflow: v5Workflow(steps, {
                 triggers: [{ id: "t", on: { type: "manual", input: {} } }],
-                steps,
-              },
+              }),
             },
           ],
         },

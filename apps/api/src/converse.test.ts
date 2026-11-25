@@ -39,6 +39,7 @@ import {
   OPERATOR,
   unsigned,
   user,
+  v5Workflow,
 } from "./api.test-helper";
 import { conversePort } from "./converse/service";
 import { quietNever } from "./quiet-hours.test-helper";
@@ -95,38 +96,39 @@ function talkStep(input: Record<string, unknown> = {}, extra: Record<string, unk
   return {
     id: "talk",
     name: "Clarify the request",
-    kind: "skill",
-    skill: "comms.converse",
+    client: { visible: true, label: "Clarified the request" },
+    checks: { approval: { required: "required" } },
+    kind: "do",
+    doneBy: "rules",
+    uses: { type: "skill", skill: "comms.converse" },
     input: {
       to: { contactId: "{{trigger.contactId}}" },
       channel: "whatsapp",
-      goal: GOAL,
-      result: RESULT,
+      goal: "Get the exact item list and the date needed for this purchase request.",
+      result: {
+        type: "object",
+        properties: {
+          items: {
+            type: "array",
+            items: {
+              type: "object",
+              properties: { name: { type: "string" }, qty: { type: "number" } },
+              required: ["name", "qty"],
+            },
+          },
+          neededBy: { type: "string" },
+        },
+        required: ["items", "neededBy"],
+      },
       opening: "Thank them for the request and ask which items, how many, and by when.",
       about: ["{{trigger.request}}"],
-      ...input,
     },
-    approval: { required: "required" },
-    client: { visible: true, label: "Clarified the request" },
-    ...extra,
   };
 }
 
 function workflow(step = talkStep()) {
-  return {
-    schemaVersion: 3,
-    trigger: {
-      id: "trg",
-      on: {
-        type: "manual",
-        input: {
-          type: "object",
-          properties: { contactId: { type: "string" }, request: { type: "string" } },
-          required: ["contactId", "request"],
-        },
-      },
-    },
-    steps: [
+  return v5Workflow(
+    [
       step,
       {
         id: "after",
@@ -144,9 +146,14 @@ function workflow(step = talkStep()) {
               {
                 id: "note",
                 name: "Note the items",
-                kind: "notify",
-                channel: "thread",
-                message: "Needed by {{steps.talk.output.result.neededBy}}",
+                kind: "do",
+                doneBy: "rules",
+                uses: { type: "tell" },
+                tell: {
+                  to: ["client_admin"],
+                  channel: "inbox",
+                  message: "Needed by {{steps.talk.output.result.neededBy}}",
+                },
               },
             ],
           },
@@ -154,7 +161,22 @@ function workflow(step = talkStep()) {
         otherwise: { id: "p-else", steps: [] },
       },
     ],
-  };
+    {
+      triggers: [
+        {
+          id: "trg",
+          on: {
+            type: "manual",
+            input: {
+              type: "object",
+              properties: { contactId: { type: "string" }, request: { type: "string" } },
+              required: ["contactId", "request"],
+            },
+          },
+        },
+      ],
+    },
+  );
 }
 
 function bundle(step = talkStep(), definition: Record<string, unknown> = {}): AgentBundle {

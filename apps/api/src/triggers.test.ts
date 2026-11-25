@@ -31,6 +31,7 @@ import {
   FakeWorkflowStep,
   OPERATOR,
   user,
+  v5Workflow,
 } from "./api.test-helper";
 import { handleEmail } from "./email";
 import { defaultDeps } from "./http";
@@ -86,12 +87,8 @@ function bundle(name: string, workflow: unknown): AgentBundle {
   } as AgentBundleInput);
 }
 
-const wf = (trigger: unknown, extra: Record<string, unknown> = {}) => ({
-  schemaVersion: 3,
-  trigger,
-  steps: [],
-  ...extra,
-});
+const wf = (trigger: unknown, extra: Record<string, unknown> = {}) =>
+  v5Workflow([], { triggers: [trigger] });
 
 describe.skipIf(!h)("triggers, six kinds", () => {
   const H = h as ApiHarness;

@@ -13,7 +13,7 @@ import { seed } from "@countersign/db/seed";
 import { FakeModel, type LlmRequest } from "@countersign/llm";
 import { and, eq, isNull } from "drizzle-orm";
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
-import { type ApiHarness, createApiHarness, OPERATOR } from "./api.test-helper";
+import { type ApiHarness, createApiHarness, OPERATOR, v5Workflow } from "./api.test-helper";
 import { stepModelAnswer } from "./builder-v5.test-helper";
 
 // biome-ignore lint/suspicious/noExplicitAny: response bodies are read loosely in tests.
@@ -26,9 +26,10 @@ afterAll(() => h?.close());
 /** A step reading a vendor's quote with `materials.read-quote`, a task skill that writes. */
 const READ_QUOTE_STEP = {
   id: "read-quote",
-  kind: "skill",
   name: "Read the vendor's quote",
-  skill: "materials.read-quote",
+  kind: "do",
+  doneBy: "ai",
+  uses: { type: "skill", skill: "materials.read-quote" },
   input: { quoteRequestId: "{{trigger.quoteRequestId}}", text: "{{trigger.text}}" },
 };
 
@@ -63,11 +64,7 @@ function bundleOf(steps: unknown[], skills: string[] = []) {
       {
         slug: "read",
         name: "Read a quote",
-        workflow: {
-          schemaVersion: 4,
-          triggers: [{ id: "t", on: { type: "manual", input: {} } }],
-          steps,
-        },
+        workflow: v5Workflow(steps, { triggers: [{ id: "t", on: { type: "manual", input: {} } }] }),
       },
     ],
   };

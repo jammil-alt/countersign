@@ -35,6 +35,7 @@ import {
   createApiHarness,
   FakeWorkflowStep,
   OPERATOR,
+  v5Workflow,
 } from "./api.test-helper";
 import { MemoryQboSyncInstances } from "./qbo/instances";
 import { dispatchByIds, runQboSync } from "./qbo/sync";
@@ -149,11 +150,9 @@ describe.skipIf(!h)("QuickBooks accounts receivable and create bill through the 
         {
           slug: "main",
           name: "Main",
-          workflow: {
-            schemaVersion: 3,
-            trigger: { id: "trg", on: { type: "manual", input: {} } },
-            steps,
-          },
+          workflow: v5Workflow(steps, {
+            triggers: [{ id: "trg", on: { type: "manual", input: {} } }],
+          }),
         },
       ],
     } as AgentBundleInput);
@@ -355,19 +354,21 @@ describe.skipIf(!h)("QuickBooks accounts receivable and create bill through the 
         {
           id: "aging",
           name: "Read the aging report",
-          kind: "skill",
-          skill: QBO_TOOLS.agingReport,
-          input: {},
           client: { visible: true, label: "Read the aging report" },
+          kind: "do",
+          doneBy: "rules",
+          uses: { type: "action", action: "qbo.aging_report" },
+          input: {},
         },
         {
           id: "note",
           name: "Note the call",
-          kind: "action",
-          tool: QBO_TOOLS.invoiceAddNote,
-          input: { invoiceId: "130", note: "Called Pat, check promised Friday", syncToken: "1" },
-          approval: { required: "required" },
           client: { visible: true, label: "Noted the call" },
+          checks: { approval: { required: "required" } },
+          kind: "do",
+          doneBy: "rules",
+          uses: { type: "action", action: QBO_TOOLS.invoiceAddNote },
+          input: { invoiceId: "130", note: "Called Pat, check promised Friday", syncToken: "1" },
         },
       ],
       [QBO_TOOLS.invoiceAddNote],
@@ -413,11 +414,12 @@ describe.skipIf(!h)("QuickBooks accounts receivable and create bill through the 
     const action = (input: unknown) => ({
       id: "create",
       name: "Create the bill",
-      kind: "action",
-      tool: QBO_TOOLS.billCreate,
-      input,
-      approval: { required: "required" },
       client: { visible: true, label: "Created the bill" },
+      checks: { approval: { required: "required" } },
+      kind: "do",
+      doneBy: "rules",
+      uses: { type: "action", action: QBO_TOOLS.billCreate },
+      input: input,
     });
     const params = await makeAgent([action(bill)], [QBO_TOOLS.billCreate], []);
     const atWait: number[] = [];

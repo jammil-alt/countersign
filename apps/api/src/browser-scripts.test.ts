@@ -40,6 +40,7 @@ import {
   OTHER_OPERATOR,
   testBundle,
   user,
+  v5Workflow,
 } from "./api.test-helper";
 import { codesClient } from "./codes/client";
 import type { Bindings } from "./env";
@@ -184,11 +185,9 @@ describe.skipIf(!h)("scripted site tools through the API", () => {
         {
           slug: "fix-record",
           name: "Order supplies",
-          workflow: {
-            schemaVersion: 4,
+          workflow: v5Workflow(steps, {
             triggers: [{ id: "trg-manual", on: { type: "manual", input: {} } }],
-            steps,
-          },
+          }),
         },
       ],
     };

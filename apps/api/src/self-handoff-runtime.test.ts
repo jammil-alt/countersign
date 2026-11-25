@@ -16,6 +16,7 @@ import {
   FakeWorkflowStep,
   OPERATOR,
   testBundle,
+  v5Workflow,
 } from "./api.test-helper";
 import { executeRun } from "./runs/execute";
 import type { RunParams } from "./runs/instances";
@@ -70,28 +71,28 @@ const CHECK = {
 };
 
 /** Scan QuickBooks bills: for each bill, hand off to Check an invoice at step 2. */
-const scan = (to: Record<string, unknown>) => ({
-  schemaVersion: 4,
-  triggers: [{ id: "scan-manual", on: { type: "manual", input: {} } }],
-  steps: [
-    read("scan-find", "Find last week's bills"),
-    {
-      id: "scan-each",
-      name: "For each bill",
-      kind: "for_each",
-      over: "{{trigger.bills}}",
-      steps: [
-        {
-          id: "scan-hand",
-          name: "Hand off",
-          kind: "handoff",
-          to,
-          input: { nameContains: "{{item.vendor}}" },
-        },
-      ],
-    },
-  ],
-});
+const scan = (to: Record<string, unknown>) =>
+  v5Workflow(
+    [
+      read("scan-find", "Find last week's bills"),
+      {
+        id: "scan-each",
+        name: "For each bill",
+        kind: "for_each",
+        over: "{{trigger.bills}}",
+        steps: [
+          {
+            id: "scan-hand",
+            name: "Hand off",
+            kind: "handoff",
+            to,
+            input: { nameContains: "{{item.vendor}}" },
+          },
+        ],
+      },
+    ],
+    { triggers: [{ id: "scan-manual", on: { type: "manual", input: {} } }] },
+  );
 
 const TO_CHECK = { agent: "@self", step: "chk-read", workflow: "check" };
 

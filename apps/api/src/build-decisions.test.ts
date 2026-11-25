@@ -9,7 +9,7 @@ import { buildEvent, build as buildTable } from "@countersign/db";
 import { FakeModel } from "@countersign/llm";
 import { desc, eq } from "drizzle-orm";
 import { afterAll, describe, expect, it, vi } from "vitest";
-import { admin, createApiHarness, OPERATOR } from "./api.test-helper";
+import { admin, createApiHarness, OPERATOR, v5Workflow } from "./api.test-helper";
 import { draftWritingSteps } from "./build/store";
 import { stepModelAnswer } from "./builder-v5.test-helper";
 
@@ -390,15 +390,14 @@ describe.skipIf(!h)("decisions on a build", () => {
       workflows: [
         {
           slug: "main",
-          workflow: {
-            schemaVersion: 4,
-            triggers: [],
-            steps: [
+          workflow: v5Workflow(
+            [
               step("reads", "custom:g4-reads"),
               step("writes", "custom:g4-writes"),
               step("nowhere", "custom:g4-nowhere"),
             ],
-          },
+            { triggers: [] },
+          ),
         },
       ],
     };

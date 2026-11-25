@@ -17,6 +17,7 @@ import {
   FakeWorkflowStep,
   OPERATOR,
   testBundle,
+  v5Workflow,
 } from "./api.test-helper";
 import { executeRun } from "./runs/execute";
 import type { RunParams } from "./runs/instances";
@@ -72,20 +73,20 @@ const PRICE_CHECKER = {
 };
 
 /** AP bill clerk: read the invoice, then hand off to `to` at `step`. */
-const apClerk = (to: string, step = "itemize") => ({
-  schemaVersion: 4,
-  triggers: [MANUAL],
-  steps: [
-    read("read", "Read the invoice"),
-    {
-      id: "hand",
-      name: "Hand off",
-      kind: "handoff",
-      to: { agent: to, step },
-      input: { nameContains: "{{trigger.vendor}}" },
-    },
-  ],
-});
+const apClerk = (to: string, step = "itemize") =>
+  v5Workflow(
+    [
+      read("read", "Read the invoice"),
+      {
+        id: "hand",
+        name: "Hand off",
+        kind: "handoff",
+        to: { agent: to, step },
+        input: { nameContains: "{{trigger.vendor}}" },
+      },
+    ],
+    { triggers: [MANUAL] },
+  );
 
 describe.skipIf(!h)("hand-off steps in apps/api", () => {
   const H = h as ApiHarness;

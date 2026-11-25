@@ -33,6 +33,7 @@ import {
   createApiHarness,
   FakeWorkflowStep,
   OPERATOR,
+  v5Workflow,
 } from "./api.test-helper";
 import { quietNever } from "./quiet-hours.test-helper";
 import { credentialsFor, executeRun } from "./runs/execute";
@@ -94,11 +95,9 @@ function processBundle(steps: unknown[], extraTools: string[] = []) {
       {
         slug: "main",
         name: "Main",
-        workflow: {
-          schemaVersion: 4,
+        workflow: v5Workflow(steps, {
           triggers: [{ id: "trg-manual", on: { type: "manual", input: {} } }],
-          steps,
-        },
+        }),
       },
     ],
   };

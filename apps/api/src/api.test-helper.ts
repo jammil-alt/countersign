@@ -25,6 +25,7 @@ import {
   hashJson,
   type SkillDefinition,
   SkillDefinition as SkillDefinitionSchema,
+  type steps,
 } from "@countersign/core";
 import {
   appUser,
@@ -489,6 +490,100 @@ export function forbiddenKeys(value: unknown, also?: RegExp, at = "$"): string[]
   ]);
 }
 
+/** The id of the output `v5Workflow`'s End delivers. */
+export const DONE_OUTPUT = "out-done";
+
+/** The manual trigger `v5Workflow` gives a workflow with none of its own. */
+export const MANUAL_TRIGGER = { id: "trg-manual", on: { type: "manual", input: {} } } as const;
+
+/**
+ * A v5 workflow around `list`: a manual trigger unless `triggers` says otherwise, one declared
+ * output ("Done", nothing to deliver) and, unless `end` is false, one End after the steps that
+ * delivers it, so it publishes. Pass `outputs` to declare others (the End then delivers all).
+ */
+export function v5Workflow(
+  list: readonly unknown[],
+  options: {
+    triggers?: readonly unknown[];
+    outputs?: readonly { id: string }[];
+    end?: boolean;
+  } = {},
+): steps.WorkflowInput {
+  const outputs = options.outputs ?? [{ id: DONE_OUTPUT, name: "Done", kind: "nothing" }];
+  return {
+    schemaVersion: 5,
+    triggers: options.triggers ?? [MANUAL_TRIGGER],
+    outputs,
+    steps: [
+      ...list,
+      ...(options.end === false
+        ? []
+        : [{ id: "end", kind: "end", name: "Done", outputs: outputs.map((o) => o.id) }]),
+    ],
+  } as steps.WorkflowInput;
+}
+
+/** A Do step done by rules that calls an action (a Change or a Send waits for a person by default). */
+export function doAction(
+  id: string,
+  name: string,
+  action: string,
+  input: Record<string, unknown> = {},
+  extra: Record<string, unknown> = {},
+) {
+  return {
+    id,
+    name,
+    kind: "do",
+    doneBy: "rules",
+    uses: { type: "action", action },
+    input,
+    checks: { approval: { required: "required" } },
+    ...extra,
+  };
+}
+
+/** A Do step a person does: approve (or answer) a question; the deadline stops the run. */
+export function doPerson(
+  id: string,
+  name: string,
+  person: Record<string, unknown> = {},
+  extra: Record<string, unknown> = {},
+) {
+  return {
+    id,
+    name,
+    kind: "do",
+    doneBy: "person",
+    person: {
+      mode: "approve",
+      who: "client_admin",
+      question: name,
+      deadline: { after: "1 day", ifNoAnswer: "stop" },
+      ...person,
+    },
+    ...extra,
+  };
+}
+
+/** A Do step that tells the team (the thread, by default) and waits for nobody. */
+export function doTell(
+  id: string,
+  name: string,
+  message: string,
+  extra: Record<string, unknown> = {},
+) {
+  return {
+    id,
+    name,
+    kind: "do",
+    doneBy: "rules",
+    uses: { type: "tell" },
+    tell: { to: ["lead"], channel: "inbox", message },
+    ...extra,
+  };
+}
+
 /**
  * A bundle with one manual workflow: a change to the testkit record (approval on), a person's
  * approval, then a note in the run's thread.
@@ -513,48 +608,23 @@ export function testBundle(name = "Records clerk"): AgentBundle {
       {
         slug: "fix-record",
         name: "Fix a record",
-        workflow: {
-          schemaVersion: 5,
-          triggers: [{ id: "trg-manual", on: { type: "manual", input: {} } }],
-          outputs: [{ id: "out-done", name: "Done", kind: "nothing" }],
-          steps: [
-            {
-              id: "update",
-              name: "Update the record",
-              client: { visible: true, label: "Corrected the record" },
-              checks: { approval: { required: "required" } },
-              kind: "do",
-              doneBy: "rules",
-              uses: { type: "action", action: TESTKIT_UPDATE_TOOL },
-              input: { id: "r1", amount: "12.00" },
-            },
-            {
-              id: "confirm",
-              name: "Confirm",
-              kind: "do",
-              doneBy: "person",
-              person: {
-                mode: "approve",
-                who: "client_admin",
-                question: "Is the record right now?",
-                show: {},
-                deadline: { after: "1 day", hours: "clock", ifNoAnswer: "stop" },
-                channel: "inbox",
-                onReject: "stop",
-              },
-            },
-            {
-              id: "internal",
-              name: "Operator note",
-              client: { visible: false },
-              kind: "do",
-              doneBy: "rules",
-              uses: { type: "tell" },
-              tell: { to: ["client_admin"], channel: "inbox", message: "Record fixed" },
-            },
-            { id: "end", kind: "end", name: "Done", outputs: ["out-done"] },
-          ],
-        },
+        workflow: v5Workflow([
+          doAction(
+            "update",
+            "Update the record",
+            TESTKIT_UPDATE_TOOL,
+            { id: "r1", amount: "12.00" },
+            { client: { visible: true, label: "Corrected the record" } },
+          ),
+          doPerson("confirm", "Confirm", {
+            who: "client_admin",
+            question: "Is the record right now?",
+            deadline: { after: "1 day", ifNoAnswer: "stop" },
+          }),
+          doTell("internal", "Operator note", "Record fixed", {
+            client: { visible: false },
+          }),
+        ]),
       },
     ],
   } satisfies AgentBundleInput);

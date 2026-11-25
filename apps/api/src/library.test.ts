@@ -45,9 +45,10 @@ function libraryBundle(): AgentBundle {
           {
             id: "tell",
             name: "Tell the lead",
-            kind: "notify",
-            channel: "thread",
-            message: "A big one",
+            kind: "do",
+            doneBy: "rules",
+            uses: { type: "tell" },
+            tell: { to: ["client_admin"], channel: "inbox", message: "A big one" },
           },
         ],
       },

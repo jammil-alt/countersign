@@ -33,6 +33,7 @@ import {
   OPERATOR,
   OTHER_OPERATOR,
   testBundle,
+  v5Workflow,
 } from "./api.test-helper";
 import { executeRun } from "./runs/execute";
 import type { RunParams } from "./runs/instances";
@@ -59,11 +60,8 @@ describe.skipIf(!h)("the run audit (wave 6)", () => {
     instances: H.instances,
   });
 
-  const proc = (steps: unknown[]) => ({
-    schemaVersion: 4,
-    triggers: [{ id: "trg-manual", on: { type: "manual", input: {} } }],
-    steps,
-  });
+  const proc = (steps: unknown[]) =>
+    v5Workflow(steps, { triggers: [{ id: "trg-manual", on: { type: "manual", input: {} } }] });
 
   async function processVersion(process: unknown): Promise<string> {
     const bundle = testBundle();

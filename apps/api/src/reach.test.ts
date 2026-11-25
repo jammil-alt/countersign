@@ -59,6 +59,7 @@ import {
   signatureOf,
   unsigned,
   user,
+  v5Workflow,
 } from "./api.test-helper";
 import { handleEmail } from "./email";
 import { defaultDeps } from "./http";
@@ -126,12 +127,15 @@ function reachStep(input: Record<string, unknown> = {}) {
   return {
     id: "reach",
     name: "Ask the purchaser",
-    kind: "skill",
-    skill: "comms.reach-out",
+    client: { visible: true, label: "Asked the purchaser" },
+    checks: { approval: { required: "required" } },
+    kind: "do",
+    doneBy: "rules",
+    uses: { type: "skill", skill: "comms.reach-out" },
     input: {
       to: { role: "purchaser" },
       about: ["{{trigger.order}}"],
-      purpose: PURPOSE,
+      purpose: "Confirm Friday's delivery of the oak order",
       message: {
         template: {
           en: "Can you confirm Friday's delivery? Reply YES or NO.",
@@ -141,24 +145,13 @@ function reachStep(input: Record<string, unknown> = {}) {
       urgency: "normal",
       expectReply: true,
       timeout: "2 days",
-      ...input,
     },
-    approval: { required: "required" },
-    client: { visible: true, label: "Asked the purchaser" },
   };
 }
 
 function workflow(step = reachStep()) {
-  return {
-    schemaVersion: 3,
-    trigger: {
-      id: "trg",
-      on: {
-        type: "manual",
-        input: { type: "object", properties: { order: { type: "string" } }, required: ["order"] },
-      },
-    },
-    steps: [
+  return v5Workflow(
+    [
       step,
       {
         id: "after",
@@ -178,7 +171,22 @@ function workflow(step = reachStep()) {
         otherwise: { id: "p-else", steps: [] },
       },
     ],
-  };
+    {
+      triggers: [
+        {
+          id: "trg",
+          on: {
+            type: "manual",
+            input: {
+              type: "object",
+              properties: { order: { type: "string" } },
+              required: ["order"],
+            },
+          },
+        },
+      ],
+    },
+  );
 }
 
 function bundle(wf: unknown = workflow()): AgentBundle {

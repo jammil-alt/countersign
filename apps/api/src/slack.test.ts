@@ -30,6 +30,7 @@ import {
   OPERATOR,
   tamper,
   user,
+  v5Workflow,
 } from "./api.test-helper";
 import { dbWriteAttempts, WRITE_ATTEMPT_ENTITY, WRITE_DONE_ENTITY } from "./attempts";
 import { credentialsFor, executeRun } from "./runs/execute";
@@ -69,21 +70,18 @@ function bundle(name: string, input: Record<string, unknown>): AgentBundle {
       {
         slug: "main",
         name: "Main",
-        workflow: {
-          schemaVersion: 3,
-          trigger: { id: "trg-manual", on: { type: "manual", input: {} } },
-          // No `approval` on the step: a write waits for a person by default.
-          steps: [
-            {
-              id: "post",
-              name: "Post",
-              kind: "action",
-              tool: SLACK_POST_TOOL,
-              input,
-              client: { visible: true, label: name },
-            },
-          ],
-        },
+        workflow: v5Workflow([
+          {
+            id: "post",
+            name: "Post",
+            client: { visible: true, label: name },
+            checks: { approval: { required: "required" } },
+            kind: "do",
+            doneBy: "rules",
+            uses: { type: "action", action: SLACK_POST_TOOL },
+            input: input,
+          },
+        ]),
       },
     ],
   } as AgentBundleInput);

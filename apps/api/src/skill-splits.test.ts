@@ -50,7 +50,13 @@ import {
 } from "@countersign/pack-materials";
 import { and, eq } from "drizzle-orm";
 import { afterAll, describe, expect, it } from "vitest";
-import { type ApiHarness, createApiHarness, FakeWorkflowStep, OPERATOR } from "./api.test-helper";
+import {
+  type ApiHarness,
+  createApiHarness,
+  FakeWorkflowStep,
+  OPERATOR,
+  v5Workflow,
+} from "./api.test-helper";
 import { createPlatform, deploymentConnectors } from "./platform";
 import { executeRun } from "./runs/execute";
 import { cloudflareStepRunner } from "./runs/step-runner";
@@ -133,7 +139,7 @@ function clerkBundle(): AgentBundleInput {
 function patternBundle(name: string, steps: processes.Step[]): AgentBundleInput {
   const skills = new Set<string>();
   const tools = new Set<string>();
-  processes.walkSteps({ schemaVersion: 4, triggers: [], steps } as never, ({ step }) => {
+  processes.walkSteps(v5Workflow(steps, { triggers: [] }) as never, ({ step }) => {
     if (step.kind === "skill") skills.add(step.skill);
     if ((step.kind === "write" || step.kind === "read") && step.tool) tools.add(step.tool);
   });
@@ -144,8 +150,7 @@ function patternBundle(name: string, steps: processes.Step[]): AgentBundleInput 
     {
       slug: "pattern",
       name,
-      workflow: {
-        schemaVersion: 4,
+      workflow: v5Workflow(steps, {
         triggers: [
           {
             id: "trg-pattern",
@@ -166,8 +171,7 @@ function patternBundle(name: string, steps: processes.Step[]): AgentBundleInput 
             },
           },
         ],
-        steps,
-      },
+      }),
     },
   ];
   return bundle;
@@ -199,7 +203,7 @@ describe("the replacement patterns", () => {
         events: platform.events.byType(),
       });
       expect(result.errors).toEqual([]);
-      processes.walkSteps({ schemaVersion: 4, triggers: [], steps } as never, ({ step }) => {
+      processes.walkSteps(v5Workflow(steps, { triggers: [] }) as never, ({ step }) => {
         if (step.kind !== "skill") return;
         const def = platform.catalog.get(step.skill);
         expect(def, step.skill).toBeDefined();

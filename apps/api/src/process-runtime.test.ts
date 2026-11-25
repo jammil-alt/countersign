@@ -31,6 +31,7 @@ import {
   OPERATOR,
   testBundle,
   user,
+  v5Workflow,
 } from "./api.test-helper";
 import type { Mailer, MailMessage, Texter } from "./notify/mailer";
 import { sendQueued } from "./notify/outbox";
@@ -199,11 +200,8 @@ describe.skipIf(!h)("v4 processes in apps/api", () => {
     input: { id: "r1", amount: "12.00" },
     checks: { approval },
   });
-  const proc = (steps: unknown[]) => ({
-    schemaVersion: 4,
-    triggers: [{ id: "trg-manual", on: { type: "manual", input: {} } }],
-    steps,
-  });
+  const proc = (steps: unknown[]) =>
+    v5Workflow(steps, { triggers: [{ id: "trg-manual", on: { type: "manual", input: {} } }] });
 
   describe("an approval in mode `all` with two approvers", () => {
     const approval = () => ({

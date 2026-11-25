@@ -30,6 +30,7 @@ import {
   createApiHarness,
   FakeWorkflowStep,
   OPERATOR,
+  v5Workflow,
 } from "./api.test-helper";
 import { credentialsFor, executeRun } from "./runs/execute";
 import { cloudflareStepRunner } from "./runs/step-runner";
@@ -75,21 +76,18 @@ function bundle(input: Record<string, unknown>): AgentBundle {
       {
         slug: "main",
         name: "Main",
-        workflow: {
-          schemaVersion: 3,
-          trigger: { id: "trg-manual", on: { type: "manual", input: {} } },
-          // No `approval` on the step: a write waits for a person by default.
-          steps: [
-            {
-              id: "file",
-              name: "File it",
-              kind: "action",
-              tool: ONEDRIVE_TOOLS.upload,
-              input,
-              client: { visible: true, label: "File it" },
-            },
-          ],
-        },
+        workflow: v5Workflow([
+          {
+            id: "file",
+            name: "File it",
+            client: { visible: true, label: "File it" },
+            checks: { approval: { required: "required" } },
+            kind: "do",
+            doneBy: "rules",
+            uses: { type: "action", action: ONEDRIVE_TOOLS.upload },
+            input: input,
+          },
+        ]),
       },
     ],
   } as AgentBundleInput);

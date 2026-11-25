@@ -23,6 +23,7 @@ import {
   createApiHarness,
   FakeWorkflowStep,
   OPERATOR,
+  v5Workflow,
 } from "./api.test-helper";
 import { MemoryQboSyncInstances } from "./qbo/instances";
 import { credentialsFor, executeRun } from "./runs/execute";
@@ -134,11 +135,9 @@ describe.skipIf(!h)("QuickBooks ingredients through the API", () => {
         {
           slug: "main",
           name: "Main",
-          workflow: {
-            schemaVersion: 3,
-            trigger: { id: "trg", on: { type: "manual", input: {} } },
-            steps,
-          },
+          workflow: v5Workflow(steps, {
+            triggers: [{ id: "trg", on: { type: "manual", input: {} } }],
+          }),
         },
       ],
     } as AgentBundleInput);
@@ -197,20 +196,40 @@ describe.skipIf(!h)("QuickBooks ingredients through the API", () => {
         {
           id: "vendor",
           name: "Add the vendor",
-          kind: "action",
-          tool: QBO_TOOLS.vendorCreate,
-          input: { displayName: "Rogue Valley Veneers", email: "ap@roguevalley.example" },
-          approval: { required: "required" },
           client: { visible: true, label: "Added the vendor" },
+          checks: { approval: { required: "required" } },
+          kind: "do",
+          doneBy: "rules",
+          uses: { type: "action", action: QBO_TOOLS.vendorCreate },
+          input: { displayName: "Rogue Valley Veneers", email: "ap@roguevalley.example" },
         },
         {
           id: "order",
           name: "Order the walnut",
-          kind: "action",
-          tool: QBO_TOOLS.purchaseOrderCreate,
-          input: { ...ORDER, vendorId: "{{steps.vendor.output.id}}" },
-          approval: { required: "required" },
           client: { visible: true, label: "Ordered the walnut" },
+          checks: { approval: { required: "required" } },
+          kind: "do",
+          doneBy: "rules",
+          uses: { type: "action", action: QBO_TOOLS.purchaseOrderCreate },
+          input: {
+            docNumber: "PO-2001",
+            txnDate: "2026-11-06",
+            dueDate: "2026-11-20",
+            expectedTotal: "1125.00",
+            lines: [
+              {
+                itemId: "22",
+                qty: "120",
+                unitPrice: "8.75",
+                amount: "1050.00",
+                classId: "5000000000000301",
+                customerId: "8",
+                billable: true,
+              },
+              { accountId: "81", description: "Delivery", amount: "75.00" },
+            ],
+            vendorId: "{{steps.vendor.output.id}}",
+          },
         },
       ],
       [QBO_TOOLS.vendorCreate, QBO_TOOLS.purchaseOrderCreate],
@@ -263,11 +282,30 @@ describe.skipIf(!h)("QuickBooks ingredients through the API", () => {
     const step = (docNumber: string) => ({
       id: "order",
       name: "Order the walnut",
-      kind: "action",
-      tool: QBO_TOOLS.purchaseOrderCreate,
-      input: { ...ORDER, vendorId: "57", docNumber },
-      approval: { required: "not_required" },
       client: { visible: true, label: "Ordered the walnut" },
+      checks: { approval: { required: "not_required" } },
+      kind: "do",
+      doneBy: "rules",
+      uses: { type: "action", action: QBO_TOOLS.purchaseOrderCreate },
+      input: {
+        docNumber: docNumber,
+        txnDate: "2026-11-06",
+        dueDate: "2026-11-20",
+        expectedTotal: "1125.00",
+        lines: [
+          {
+            itemId: "22",
+            qty: "120",
+            unitPrice: "8.75",
+            amount: "1050.00",
+            classId: "5000000000000301",
+            customerId: "8",
+            billable: true,
+          },
+          { accountId: "81", description: "Delivery", amount: "75.00" },
+        ],
+        vendorId: "57",
+      },
     });
     const posts = () => qbo.apiCalls("POST", "purchaseorder").length;
     const start = posts();

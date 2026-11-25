@@ -30,6 +30,7 @@ import {
   OPERATOR,
   storedSkill,
   testBundle,
+  v5Workflow,
 } from "./api.test-helper";
 import { executeRun } from "./runs/execute";
 import type { RunParams } from "./runs/instances";
@@ -69,11 +70,9 @@ describe.skipIf(!h)("forks on a failure or an answer, against the database", () 
         {
           slug: "fix-record",
           name: "Fix a record",
-          workflow: {
-            schemaVersion: 4,
+          workflow: v5Workflow(steps, {
             triggers: [{ id: "trg-manual", on: { type: "manual", input: {} } }],
-            steps,
-          },
+          }),
         },
       ],
     };
@@ -346,12 +345,11 @@ describe.skipIf(!h)("forks on a failure or an answer, against the database", () 
         [
           {
             id: "pay",
-            kind: "skill",
             name: "Pay vendor",
-            skill: "custom:pay-vendor",
+            kind: "do",
+            doneBy: "ai",
+            uses: { type: "skill", skill: "custom:pay-vendor" },
             input: { id: "r1" },
-            onError: "continue",
-            checks: { approval: { required: "not_required" } },
           },
           {
             id: "route",

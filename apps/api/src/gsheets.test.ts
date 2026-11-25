@@ -25,6 +25,7 @@ import {
   FakeWorkflowStep,
   OPERATOR,
   user,
+  v5Workflow,
 } from "./api.test-helper";
 import { credentialsFor, executeRun } from "./runs/execute";
 import { cloudflareStepRunner } from "./runs/step-runner";
@@ -77,21 +78,18 @@ function bundle(name: string, input: Record<string, unknown>): AgentBundle {
       {
         slug: "main",
         name: "Main",
-        workflow: {
-          schemaVersion: 3,
-          trigger: { id: "trg-manual", on: { type: "manual", input: {} } },
-          // No `approval` on the step: a write waits for a person by default.
-          steps: [
-            {
-              id: "write",
-              name: "Write",
-              kind: "action",
-              tool: GSHEETS_TOOLS.append,
-              input,
-              client: { visible: true, label: name },
-            },
-          ],
-        },
+        workflow: v5Workflow([
+          {
+            id: "write",
+            name: "Write",
+            client: { visible: true, label: name },
+            checks: { approval: { required: "required" } },
+            kind: "do",
+            doneBy: "rules",
+            uses: { type: "action", action: GSHEETS_TOOLS.append },
+            input: input,
+          },
+        ]),
       },
     ],
   } as AgentBundleInput);
