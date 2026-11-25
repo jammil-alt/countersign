@@ -49,6 +49,7 @@ import {
   salesManifest,
 } from "@countersign/pack-sales";
 import type { z } from "zod";
+import { reportHandled } from "./observability/report";
 import type { SignedWrite } from "./signed-writes";
 
 /**
@@ -303,6 +304,34 @@ export function packToolTransport(
   return (services?.transport as LlmTransport | null | undefined) ?? null;
 }
 
+/**
+ * Brings what a connector's sync saved up to date for one client before a tool reads it
+ * (`ToolSpec.feed`; apps/api `feeds.ts`). A feed it can't catch up is left as it is.
+ */
+export type FeedCatchUp = (tenantId: string, feed: string) => Promise<void>;
+
+/**
+ * 2026-11-24: before a pack tool that reads a connector's synced records (`feed`), the run's
+ * catch-up (packServices.catchUp) reads what changed in the client's tool. A failed catch-up never
+ * fails the step: the tool reads what we hold, and the failure is reported.
+ */
+export async function catchUpFeed(
+  spec: Pick<ToolSpec, "id" | "feed">,
+  tenantId: string,
+  services: Readonly<Record<string, unknown>> | undefined,
+): Promise<void> {
+  const catchUp = services?.catchUp as FeedCatchUp | null | undefined;
+  if (!spec.feed || !catchUp) return;
+  try {
+    await catchUp(tenantId, spec.feed);
+  } catch (error) {
+    reportHandled(`${spec.feed} catch-up before ${spec.id} failed`, error, {
+      job: "feed_catch_up",
+      client: tenantId,
+    });
+  }
+}
+
 function adapt(tool: PackTool): InternalTool {
   return {
     spec: tool.spec,
@@ -311,6 +340,7 @@ function adapt(tool: PackTool): InternalTool {
     async run(input, ctx) {
       const db = ctx.packServices?.db as Db | undefined;
       if (!db) throw new Error(`${tool.spec.id} needs the run's database, which wasn't passed`);
+      await catchUpFeed(tool.spec, ctx.tenantId, ctx.packServices);
       // Skill model (2026-11-10): only a tool that declares it calls a model (`usesModel`) is
       // handed one; every other pack tool gets `llm: null`, so it can't call a model unlabelled.
       const transport = packToolTransport(tool.spec, ctx.packServices);
