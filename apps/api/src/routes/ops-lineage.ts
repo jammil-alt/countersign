@@ -44,6 +44,7 @@ import {
   skillKind,
   skillModelFacts,
   skillMoveImpact,
+  steps,
   type ToolInputVariants,
   toolLookup,
 } from "@countersign/core";
@@ -454,6 +455,16 @@ export async function builderCatalogFor(
   };
 }
 
+/** The areas' names in the Uses picker (`shared` is the records every area builds on). */
+const AREA_NAMES: Readonly<Record<string, string>> = {
+  purchasing: "Purchasing",
+  bookkeeping: "Bookkeeping",
+  sales: "Sales",
+  marketing: "Marketing",
+  receivables: "Receivables",
+  shared: "Shared",
+};
+
 export function opsLineageRoutes(app: Hono<AppEnv>): void {
   mount(app, routes.opsRetire, async (ctx) => {
     const row = await agentInScope(ctx, ctx.params.id);
@@ -552,6 +563,32 @@ export function opsLineageRoutes(app: Hono<AppEnv>): void {
       bundle,
       automations: true,
     });
+  });
+
+  // Step model (docs/step-model-plan.md §10c; stream B): the actions the Uses picker offers, by
+  // connector and by area, from the registered tools. A test-only connector's actions are held
+  // back as in the builder's catalog.
+  // DECISION: area names are the owner areas' words, and `shared` is "Shared"; an area a pack
+  // names that isn't listed shows its id with a capital.
+  mount(app, routes.opsActionCatalog, async (ctx) => {
+    const row = await agentInScope(ctx, ctx.params.id);
+    const latest = await latestVersion(ctx.tx, row.id);
+    const { platform } = ctx.services;
+    const hidden = await hiddenTestConnectors(ctx.tx, row, latest?.bundle ?? null, platform);
+    const connectors = platform.connectors.list().filter((c) => !hidden.has(c.manifest.id));
+    const specs = platform.tools.list().map((t) => t.spec);
+    const shown = specs.filter((spec) => {
+      const owner = platform.connectors.findTool(spec.id)?.connector.manifest.id;
+      return owner === undefined || !hidden.has(owner);
+    });
+    return {
+      groups: steps.buildActionCatalog(shown, {
+        connectors: Object.fromEntries(
+          connectors.map((c) => [c.manifest.id, connectorTitle(c.manifest)]),
+        ),
+        areas: AREA_NAMES,
+      }),
+    };
   });
 
   // Skill model (2026-11-10): what moves if a skill step goes to another version of its skill.

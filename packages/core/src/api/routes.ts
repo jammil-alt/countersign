@@ -19,6 +19,7 @@ import { EntityPermissions, PermissionEntity, PermissionLevel } from "../schemas
 import { SkillBrowse, SkillDefinition, SkillMethod } from "../schemas/skill";
 import { ToolInputVariants, ToolSpec } from "../schemas/tool";
 import { ToolDisplay } from "../schemas/tool-display";
+import { Fields as StepFields } from "../steps/schema";
 import { IanaTimeZone } from "../timezone";
 // P-8: US texting registration
 import { a2pRoutes } from "./a2p";
@@ -1070,6 +1071,31 @@ export const BuilderCatalog = z.object({
 });
 export type BuilderCatalog = z.infer<typeof BuilderCatalog>;
 
+/**
+ * Step model (docs/step-model-plan.md §10c): the action catalog the Uses picker reads, as
+ * `steps.buildActionCatalog` makes it: connectors first, then areas, each with its actions.
+ */
+export const ActionCatalog = z.object({
+  groups: z.array(
+    z.object({
+      type: z.enum(["connector", "area"]),
+      id: z.string(),
+      name: z.string(),
+      actions: z.array(
+        z.object({
+          id: z.string(),
+          label: z.string(),
+          description: z.string(),
+          kind: z.enum(["get", "save", "change", "send"]),
+          input: StepFields,
+          output: StepFields,
+        }),
+      ),
+    }),
+  ),
+});
+export type ActionCatalog = z.infer<typeof ActionCatalog>;
+
 // ── Skills library and the Builder (ARCHITECTURE §9.2, §9.6) ─────────────────────────────────────
 
 /** A row of the skills library: built-in (code) or operator-written (rows, shared or one client's). */
@@ -1933,6 +1959,17 @@ export const opsRoutes = {
     summary: "What the workflow builder needs for an agent: skills with schemas, tools, connectors",
     params: IdParams,
     response: BuilderCatalog,
+  }),
+  // Step model (docs/step-model-plan.md §10c, §13c; stream B): the actions a Do step's Uses picker
+  // offers, grouped by connector and by area, with each action's kind and fields.
+  opsActionCatalog: defineRoute({
+    method: "GET",
+    path: "/api/ops/agents/:id/action-catalog",
+    auth: "session",
+    roles: OPS,
+    summary: "The actions a step can use, by connector and by area (the Uses picker)",
+    params: IdParams,
+    response: ActionCatalog,
   }),
   // The builder on one screen, F7 (docs/plan.md §1.170): an automation opens in the same builder.
   opsAutomationBuilderCatalog: defineRoute({
