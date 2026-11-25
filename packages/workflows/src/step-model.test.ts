@@ -683,6 +683,79 @@ describe("a v5 Match and Loop", () => {
     expect(b.h.row("s_match")?.output).toMatchObject({ anyUnsure: true });
   });
 
+  it("asks the person or seat the Match's confer names, by its deadline, and learns their answer", async () => {
+    const port = unsure();
+    const named = {
+      ...match,
+      checks: {
+        confer: {
+          with: [
+            { ai: { focus: "Is it the same vendor item?" } },
+            {
+              person: "seat:bill-questions",
+              deadline: { after: "2 days", hours: "clock", ifNoAnswer: "skip" },
+            },
+          ],
+        },
+      },
+    };
+    const { h, runner } = answering("vi-7");
+    const seats = {
+      "bill-questions": { userIds: ["u-5"], backupUserIds: [], contactIds: [] },
+    };
+    const first = await executeWorkflow(
+      runner,
+      h.context({ catalog: CATALOG, match: port, seats }),
+      wf([named, end()]),
+      { lines: [{ sku: "SKU-7" }] },
+    );
+    expect(first.status).toBe("succeeded");
+    const asked = [...h.items.values()][0]?.item;
+    expect(asked?.step).toMatchObject({ assignee: "u-5" });
+    // The reviewer's deadline (2 days), not the default seven.
+    const due = Date.parse(asked?.dueAt ?? "") - Date.now();
+    expect(due).toBeGreaterThan(86_400_000);
+    expect(due).toBeLessThanOrEqual(2 * 86_400_000);
+    expect(port.learned).toEqual([
+      expect.objectContaining({ item: { sku: "SKU-7" }, recordId: "vi-7", personId: "u-5" }),
+    ]);
+
+    // The next run's same item is a learned hit: nobody is asked.
+    const again = new Harness();
+    await run(again, wf([named, end()]), { lines: [{ sku: "SKU-7" }] }, { match: port, seats });
+    expect(again.items.size).toBe(0);
+    expect(again.row("s_match")?.output).toMatchObject({
+      matched: 1,
+      anyUnsure: false,
+      items: [{ matched: "vi-7", how: "learned" }],
+    });
+  });
+
+  it("asks the client admin when the Match names nobody, or its seat is empty", async () => {
+    for (const checks of [
+      undefined,
+      {
+        confer: {
+          with: [
+            {
+              person: "seat:bill-questions",
+              deadline: { after: "2 days", hours: "clock", ifNoAnswer: "skip" },
+            },
+          ],
+        },
+      },
+    ]) {
+      const { h, runner } = answering("vi-8");
+      await executeWorkflow(
+        runner,
+        h.context({ catalog: CATALOG, match: unsure() }),
+        wf([{ ...match, ...(checks ? { checks } : {}) }, end()]),
+        { lines: [{ sku: "SKU-7" }] },
+      );
+      expect([...h.items.values()][0]?.item?.step).toMatchObject({ assignee: "client_admin" });
+    }
+  });
+
   it("leaves an item unsure when nobody answers in time", async () => {
     const h = new Harness();
     const port = unsure();
