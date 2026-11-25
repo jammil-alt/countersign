@@ -7,7 +7,7 @@
 // People's pages (forms, interviews, text sign-up) keep the 423: a person is told the account is
 // locked. So does the desktop app, which shows its locked page.
 
-import { allRoutes as routes } from "@countersign/core";
+import { type RouteSpec, allRoutes as routes } from "@countersign/core";
 import { countLockedInbound, isClientLocked, withOperator } from "@countersign/db";
 import type { Context, Hono, MiddlewareHandler } from "hono";
 import type { AppEnv } from "../http";
@@ -30,23 +30,23 @@ export function noteLockedClients(c: Context, error: unknown): void {
 type Answer = "json" | "twiml" | "empty";
 
 /** Each provider's inbound route, the kind it is counted as, and the answer it expects. */
-export const LOCKED_INBOUND: readonly { path: string; kind: string; answer: Answer }[] = [
-  { path: routes.inboundHook.path, kind: "webhook", answer: "json" },
-  { path: routes.twilioInboundMessage.path, kind: "text", answer: "twiml" },
-  { path: routes.twilioMessageStatus.path, kind: "text_status", answer: "twiml" },
-  { path: routes.twilioVoiceInbound.path, kind: "call", answer: "twiml" },
-  { path: routes.twilioVoiceAnswer.path, kind: "call", answer: "twiml" },
-  { path: routes.twilioVoiceStatus.path, kind: "call_status", answer: "twiml" },
-  { path: routes.voiceTool.path, kind: "voice_agent", answer: "json" },
-  { path: routes.elevenlabsPostCall.path, kind: "voice_agent", answer: "json" },
-  { path: routes.qboWebhook.path, kind: "quickbooks", answer: "json" },
-  { path: routes.zohoNotify.path, kind: "zoho_crm", answer: "json" },
-  { path: routes.bankfeedWebhook.path, kind: "bank_feed", answer: "json" },
-  { path: routes.gchatEvents.path, kind: "google_chat", answer: "json" },
-  { path: routes.teamsEvents.path, kind: "teams", answer: "json" },
-  { path: routes.metaWebhook.path, kind: "whatsapp", answer: "json" },
-  { path: routes.packInbound.path, kind: "beacon", answer: "empty" },
-  { path: routes.resendEvents.path, kind: "email_event", answer: "json" },
+export const LOCKED_INBOUND: readonly { route: RouteSpec; kind: string; answer: Answer }[] = [
+  { route: routes.inboundHook, kind: "webhook", answer: "json" },
+  { route: routes.twilioInboundMessage, kind: "text", answer: "twiml" },
+  { route: routes.twilioMessageStatus, kind: "text_status", answer: "twiml" },
+  { route: routes.twilioVoiceInbound, kind: "call", answer: "twiml" },
+  { route: routes.twilioVoiceAnswer, kind: "call", answer: "twiml" },
+  { route: routes.twilioVoiceStatus, kind: "call_status", answer: "twiml" },
+  { route: routes.voiceTool, kind: "voice_agent", answer: "json" },
+  { route: routes.elevenlabsPostCall, kind: "voice_agent", answer: "json" },
+  { route: routes.qboWebhook, kind: "quickbooks", answer: "json" },
+  { route: routes.zohoNotify, kind: "zoho_crm", answer: "json" },
+  { route: routes.bankfeedWebhook, kind: "bank_feed", answer: "json" },
+  { route: routes.gchatEvents, kind: "google_chat", answer: "json" },
+  { route: routes.teamsEvents, kind: "teams", answer: "json" },
+  { route: routes.metaWebhook, kind: "whatsapp", answer: "json" },
+  { route: routes.packInbound, kind: "beacon", answer: "empty" },
+  { route: routes.resendEvents, kind: "email_event", answer: "json" },
 ];
 
 /** Twilio's empty answer: no reply to a text, and a call ends. */
@@ -88,7 +88,9 @@ export function answerWhileLocked(kind: string, answer: Answer): MiddlewareHandl
 
 /** Mounted before the routes, on each provider's inbound path. */
 export function lockedInboundMiddleware(app: Hono<AppEnv>): void {
-  for (const route of LOCKED_INBOUND) {
-    app.use(route.path, answerWhileLocked(route.kind, route.answer));
+  // Under the route's own method, not `use` (ALL): the same middleware, and the app's list of
+  // routes keeps one method per path (request-origin.test.ts).
+  for (const { route, kind, answer } of LOCKED_INBOUND) {
+    app.on(route.method, route.path, answerWhileLocked(kind, answer));
   }
 }
