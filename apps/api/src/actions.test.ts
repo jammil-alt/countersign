@@ -598,7 +598,7 @@ describe.skipIf(!h)("action write steps through the API", () => {
     const [action] = await actionsOf(params.runId);
     expect(action).toMatchObject({
       status: "done",
-      tool: "email.send",
+      tool: "resend.send",
       connectionId: conn.emailA,
       approvedBy: H.A.admin,
     });

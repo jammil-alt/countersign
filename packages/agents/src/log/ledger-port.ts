@@ -11,6 +11,7 @@ export function dbLedgerPort(db: Db): LedgerPort {
         ledgerChart(tx, tenantId, {
           connectionId: input.connectionId,
           kinds: input.kinds,
+          classifications: input.classifications,
           inactive: input.inactive,
         }),
       );

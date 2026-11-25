@@ -40,7 +40,7 @@ const tools: Record<string, ToolSpec> = {
   "billcom.bill.create": writeTool("billcom.bill.create", "billcom"),
   "qbo.vendor.create": writeTool("qbo.vendor.create", "qbo"),
   "billcom.vendor.create": writeTool("billcom.vendor.create", "billcom"),
-  "email.send": writeTool("email.send", "resend"),
+  "resend.send": writeTool("resend.send", "resend"),
   "gmail.send": writeTool("gmail.send", "gmail"),
   "sms.send": writeTool("sms.send", "twilio"),
 };
@@ -97,7 +97,7 @@ describe("action write steps: schema", () => {
     expect(actionTool("create_bill", "qbo")).toBe("qbo.bill.create");
     expect(actionTool("create_bill", "billcom")).toBe("billcom.bill.create");
     expect(actionTool("create_vendor", "billcom")).toBe("billcom.vendor.create");
-    expect(actionTool("send_email", "resend")).toBe("email.send");
+    expect(actionTool("send_email", "resend")).toBe("resend.send");
     expect(actionTool("send_email", "gmail")).toBe("gmail.send");
     expect(actionTool("send_email", "outlook")).toBe("outlook.send");
     expect(actionTool("send_text", "twilio")).toBe("sms.send");
@@ -209,10 +209,10 @@ describe("actionToolInput", () => {
     expect(() =>
       actionToolInput("create_bill", "qbo.bill.create", { ...bill, total: 12.5 }),
     ).toThrow(ActionInputError);
-    expect(() => actionToolInput("create_bill", "email.send", bill)).toThrow(/doesn't run with/);
+    expect(() => actionToolInput("create_bill", "resend.send", bill)).toThrow(/doesn't run with/);
     const err = (() => {
       try {
-        actionToolInput("send_email", "email.send", {
+        actionToolInput("send_email", "resend.send", {
           to: "a@b.co",
           cc: ["c@d.co"],
           subject: "Hi",

@@ -483,7 +483,7 @@ export function pickMessage(template: MessageTemplate, language: ReachLanguage):
 // DECISION: both email tools take the same input (`to`, `subject`, `text`, `replyTag`), so the
 // reach-out service builds one input whichever connection the agent's email channel is bound to.
 export const CHANNEL_TOOLS: Record<string, Partial<Record<ReachChannel, string>>> = {
-  resend: { email: "email.send" },
+  resend: { email: "resend.send" },
   gmail: { email: "gmail.send" },
   // v0.12 W3-B: Outlook takes the same input (docs/plan.md §1.52).
   outlook: { email: "outlook.send" },
@@ -491,6 +491,18 @@ export const CHANNEL_TOOLS: Record<string, Partial<Record<ReachChannel, string>>
   // v0.14 W4-A: WhatsApp on the client's own number through Meta (docs/plan.md §1.57).
   whatsapp_meta: { whatsapp: "whatsapp.send" },
 };
+/**
+ * Tool ids that were renamed, to their new ids: what `external_action.tool` and `tool_call.tool`
+ * rows written before the rename still say. Resend's send tool was `email.send` until 2026-11-25,
+ * when that id became the merged Email action's (`steps.MERGED_CONNECTORS`).
+ */
+export const LEGACY_TOOL_IDS: Readonly<Record<string, string>> = { "email.send": "resend.send" };
+
+/** The current id of a tool a stored row names. */
+export function currentToolId(id: string): string {
+  return LEGACY_TOOL_IDS[id] ?? id;
+}
+
 /** Connectors planned to carry a channel, refused with "isn't built yet" until then. */
 export const PLANNED_CHANNEL_CONNECTORS: Record<string, ReachChannel[]> = {};
 

@@ -115,7 +115,7 @@ describe("the output", () => {
 describe("channels", () => {
   it("send through reach out's tools, each a create", () => {
     expect(conversationSendTools("email").map((t) => t.tool)).toEqual([
-      "email.send",
+      "resend.send",
       "gmail.send",
       "outlook.send",
     ]);

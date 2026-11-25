@@ -3,9 +3,12 @@
 // same way.
 
 import {
+  actionIsOn,
   BROWSE_NOTE_SCOPE,
   bindingKeyFor,
   browseHelpNote,
+  builtInConnectorOf,
+  builtInManifest,
   type ConnectionRef,
   captureBefore,
   isBrowseHelpTag,
@@ -356,6 +359,15 @@ async function dispatch(
           toolId: tool.spec.id,
         });
     };
+    // Step model E: a built-in connector's action (Web's search and page read) the operator turned
+    // off on its page is refused, as a connector's is; read fresh like the matrix.
+    const builtIn = builtInConnectorOf(tool.spec.id);
+    if (builtIn && deps.ports.store.actionSwitches) {
+      const switches = await deps.ports.store.actionSwitches(builtIn.id);
+      if (!actionIsOn(builtInManifest(builtIn), tool.spec.id, switches)) {
+        return { status: "refused", reason: `${tool.spec.id} is turned off for agents` };
+      }
+    }
     // Platform and pack tools write only the platform's own records: `none` and `internal` run.
     const parsed = tool.tool.input.safeParse(input);
     if (!parsed.success)
@@ -441,6 +453,11 @@ async function dispatch(
       status: "refused",
       reason: `${tool.spec.id} is not in this agent's access to the ${connectorId} connection`,
     };
+  }
+  // Step model E: an action the operator turned off on the connector's page is refused, whatever
+  // the matrix, the grant, the step and the mode say; it only ever narrows (invariant 8).
+  if (!actionIsOn(tool.connector.manifest, tool.spec.id, conn.actionSwitches)) {
+    return { status: "refused", reason: `${tool.spec.id} is turned off for agents` };
   }
   // v0.12 W1-G: a send's recipient's autonomy for the channel is one more ceiling, read fresh.
   const recipient = recipientOf(tool.spec, input);

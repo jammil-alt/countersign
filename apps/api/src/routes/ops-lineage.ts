@@ -11,6 +11,7 @@ import {
   activationProblems,
   bundleSkillRefs,
   CUSTOM_PREFIX,
+  catalogSpecs,
   getAgent,
   getVersion,
   latestVersion,
@@ -22,6 +23,7 @@ import {
   SHARED_COPY_PREFIX,
   skillContext,
 } from "@countersign/agents";
+import { actionsOff, BUILTIN_CONNECTORS, builtInManifest } from "@countersign/connectors";
 import {
   type AgentBundle,
   AgentDefinition,
@@ -51,6 +53,7 @@ import {
 import {
   agent,
   connection,
+  connectorSetting,
   memoryNote,
   run,
   skill,
@@ -418,8 +421,12 @@ export async function builderCatalogFor(
   // Test-only connectors (the testkit) and their tools only for the Sandbox and test copies, or
   // where the agent or its client already uses them (core's connectorShown).
   const hidden = await hiddenTestConnectors(tx, subject, subject.latest, platform);
+  // Step model E: an action the operator turned off on its connector's page is left out of the
+  // pickers (an agent already using it keeps it, so its steps still type; the gate refuses the call).
+  const off = await offActionIds(tx, platform);
   const toolHidden = (id: string) => {
     const owner = platform.connectors.findTool(id)?.connector.manifest.id;
+    if (off.has(id) && !subject.stepTools.has(id)) return true;
     return owner !== undefined && hidden.has(owner);
   };
   return {
@@ -453,6 +460,23 @@ export async function builderCatalogFor(
     // docs/plan.md §1.164: a client agent's Zoho writes typed from its client's own fields.
     ...(await builderToolInputs(tx, platform, subject)),
   };
+}
+
+/**
+ * The actions (tool ids) switched off on their connector's page, or waiting there to be turned on:
+ * every registered connector's and the built-in ones' (Web). Read in the back office's scope.
+ */
+export async function offActionIds(tx: Tx, platform: Platform): Promise<Set<string>> {
+  const settings = await tx.select().from(connectorSetting);
+  const byConnector = new Map(settings.map((r) => [r.connector, r.actions]));
+  const off = new Set<string>();
+  for (const c of platform.connectors.list()) {
+    for (const id of actionsOff(c.manifest, byConnector.get(c.manifest.id))) off.add(id);
+  }
+  for (const b of BUILTIN_CONNECTORS) {
+    for (const id of actionsOff(builtInManifest(b), byConnector.get(b.id))) off.add(id);
+  }
+  return off;
 }
 
 /** The areas' names in the Uses picker (`shared` is the records every area builds on). */
@@ -592,16 +616,23 @@ export function opsLineageRoutes(app: Hono<AppEnv>): void {
     const { platform } = ctx.services;
     const hidden = await hiddenTestConnectors(ctx.tx, row, latest?.bundle ?? null, platform);
     const connectors = platform.connectors.list().filter((c) => !hidden.has(c.manifest.id));
-    const specs = platform.tools.list().map((t) => t.spec);
+    // Step model E: what the operator turned off on a connector's page, and what the new model folded
+    // into another action, is left out; Web's actions sit under the Web connector.
+    const settings = await ctx.tx.select().from(connectorSetting);
+    const specs = catalogSpecs(
+      platform.tools,
+      Object.fromEntries(settings.map((r) => [r.connector, r.actions])),
+    );
     const shown = specs.filter((spec) => {
       const owner = platform.connectors.findTool(spec.id)?.connector.manifest.id;
       return owner === undefined || !hidden.has(owner);
     });
     return {
       groups: steps.buildActionCatalog(shown, {
-        connectors: Object.fromEntries(
-          connectors.map((c) => [c.manifest.id, connectorTitle(c.manifest)]),
-        ),
+        connectors: {
+          ...Object.fromEntries(connectors.map((c) => [c.manifest.id, connectorTitle(c.manifest)])),
+          ...Object.fromEntries(BUILTIN_CONNECTORS.map((b) => [b.id, b.name])),
+        },
         areas: AREA_NAMES,
       }),
     };

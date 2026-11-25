@@ -1,5 +1,6 @@
 import { isPlainObject, renderSummary, type ToolSpec } from "@countersign/core";
 import type { z } from "zod";
+import { actionIsOn } from "./actions";
 import {
   type Connector,
   NotWrittenError,
@@ -15,6 +16,7 @@ export type ToolCallErrorCode =
   | "wrong_connection"
   | "not_connected"
   | "permission_off"
+  | "action_off"
   | "invalid_input"
   | "invalid_output"
   | "invalid_before"
@@ -72,6 +74,11 @@ function check(connector: Connector, spec: ToolSpec, ctx: ToolContext, input: un
     c.status === "connected" || (c.status === "pending" && connector.manifest.auth === "none");
   if (!usable) {
     throw new ToolCallError("not_connected", spec.id, `the connection is ${c.status}`);
+  }
+  // Step model E: an action the operator turned off on the connector's page, or one still waiting to
+  // be turned on, is refused here too, so a step stored while it was on stops at the call.
+  if (!actionIsOn(connector.manifest, spec.id, c.actionSwitches)) {
+    throw new ToolCallError("action_off", spec.id, "this action is turned off");
   }
   // v0.12 W2-A: the entity and its scope count too (connectionLevel folds them into the verb).
   if (connectionLevel(connector.manifest, spec, c.permissions, input) === "off") {

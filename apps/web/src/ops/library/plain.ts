@@ -36,7 +36,7 @@ export const TOOL_TITLES: Record<string, string> = {
   "directory.search": "Find people and organizations",
   "directory.get": "Read a directory entry",
   "directory.suggest": "Suggest a directory change",
-  "ledger.accounts.list": "List the chart of accounts",
+  "ledger.accounts.list": "Get accounts",
   "ledger.dimensions.list": "List classes and locations",
   "comms.reach_out": "Reach out to a person",
   "comms.converse": "Hold a conversation",
@@ -135,7 +135,7 @@ export const TOOL_TITLES: Record<string, string> = {
   "materials.vendors-for-items": "Find who sold each item",
   "materials.frequent-items": "List the most-bought items",
   "materials.vendor-contacts": "Find vendor contacts",
-  "materials.vendor.qbo": "Link a vendor to QuickBooks",
+  "materials.vendor.qbo": "Link a vendor to the accounting system",
   "materials.request.create": "Open a purchase request",
   "materials.request.get": "Read a purchase request",
   "materials.request.list": "List purchase requests",
@@ -152,7 +152,7 @@ export const TOOL_TITLES: Record<string, string> = {
   "materials.quote.document": "Make a quote request PDF",
   "materials.quote.chosen": "Read the chosen vendor",
   "materials.po.document": "Make a purchase order PDF",
-  "materials.po.qbo-lines": "Prepare a QuickBooks purchase order",
+  "materials.po.qbo-lines": "Prepare a purchase order",
   // Marketing
   "marketing.site.figures": "Read the week's site figures",
   "marketing.site.page": "Read one page's figures",
@@ -173,11 +173,11 @@ export const TOOL_TITLES: Record<string, string> = {
   "bookkeeping.transactions.settle": "Settle what rules can",
   "bookkeeping.transactions.open": "List undecided transactions",
   "bookkeeping.transactions.to-review": "List transactions to review",
-  "bookkeeping.accounts.list": "List the chart of accounts",
+  "bookkeeping.account.payees": "List the payees booked to an account",
   "bookkeeping.accounts.unclear": "List unclear accounts",
   "bookkeeping.account.note": "Note what an account is for",
   "bookkeeping.booking.propose": "Propose a booking",
-  "bookkeeping.booking.qbo-input": "Prepare a QuickBooks booking",
+  "bookkeeping.booking.qbo-input": "Prepare a booking",
   "bookkeeping.booking.write-check": "Check no other copy is written",
   "bookkeeping.booking.posted": "Record a posted booking",
   "bookkeeping.bookings.ready": "List bookings ready to post",
@@ -217,16 +217,16 @@ export const TOOL_LINES: Record<string, string> = {
   "materials.quote.compare": "Compares the quotes received for a purchase request.",
   "materials.po.document": "Makes a purchase order PDF from a request and the vendor's quote.",
   "materials.po.qbo-lines":
-    "Turns a purchase request and its chosen quote into a QuickBooks purchase order, ready to create.",
+    "Turns a purchase request and its chosen quote into a purchase order for the accounting system, ready to create.",
   "materials.backfill-from-bills":
-    "Turns the client's past QuickBooks bills into catalog matches and prices.",
+    "Turns the client's past bills from the accounting system into catalog matches and prices.",
   "bookkeeping.transactions.settle":
     "Settles the transactions rules can: skips accounts that are off and matches what's already in the books.",
   "bookkeeping.accounts.unclear":
     "Income and expense accounts nobody has described yet, to ask the client about.",
   "bookkeeping.bookings.ready": "Bookings proposed or approved and not yet in the accounting tool.",
   "bookkeeping.reconcile.pairs":
-    "The client's bank and card accounts linked to a QuickBooks account, ready to reconcile.",
+    "The client's bank and card accounts linked to an account in the accounting system, ready to reconcile.",
   "bookkeeping.reconcile.propose":
     "Proposes which leftover items on each side are the same money, each with a reason.",
 };

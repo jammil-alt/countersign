@@ -50,6 +50,25 @@ export const CatalogTool = z.object({
   entity: z.string().nullable(),
 });
 
+/**
+ * One action of a connector (step model, docs/step-model-plan.md §10c): what it does, its kind
+ * (Get, Save, Change, Send) and whether it is on for agents. An action that is off is left out of
+ * the catalog and refused by the gate.
+ */
+export const CatalogAction = z.object({
+  id: z.string(),
+  /** In the words people read, not the tool's id. */
+  label: z.string(),
+  description: z.string(),
+  kind: z.enum(["get", "save", "change", "send"]),
+  /** The record type it touches, when it has one. */
+  entity: z.string().nullable(),
+  on: z.boolean(),
+  /** A new action that nobody has turned on yet: it waits for the operator. */
+  isNew: z.boolean(),
+});
+export type CatalogAction = z.infer<typeof CatalogAction>;
+
 /** One registered connector in the catalog. */
 export const CatalogConnector = z
   .object({
@@ -73,6 +92,15 @@ export const CatalogConnector = z
     /** Clients (of those you serve) with a connection that is connected. */
     clientsConnected: z.number().int(),
     tools: z.array(CatalogTool),
+    /** Its actions, each with its kind and whether it is on for agents (the tools, as the catalog names them). */
+    actions: z.array(CatalogAction),
+    /** What it syncs into our records, in plain words (the manifest's entities). */
+    syncs: z.array(z.string()),
+    /**
+     * Built into Mezonas, not a client's tool (Web): no sign-in, no default access, nothing for a
+     * client to connect.
+     */
+    builtIn: z.boolean(),
     permissionEntities: z.array(PermissionEntity),
     /** In the last 24 hours: failed tool calls, and connections now in error. */
     errors: z.object({ toolCalls: z.number().int(), connections: z.number().int() }),
@@ -91,6 +119,11 @@ export const SetConnectorBody = z.strictObject({
   status: ConnectorStatus.optional(),
   defaultPermissions: AccessMatrix.nullable().optional(),
   note: z.string().max(2000).optional(),
+  /**
+   * Switch actions on or off by action id, for agents. Only the ids named change; ids the connector
+   * doesn't have are refused. (Delete stays off whatever is set here: it is not an action.)
+   */
+  actions: z.record(z.string().min(1).max(100), z.boolean()).optional(),
 });
 export type SetConnectorBody = z.infer<typeof SetConnectorBody>;
 

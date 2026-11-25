@@ -79,7 +79,7 @@ export const CheckOutputSchema = z.object({
 export const checkTool = defineCloseTool({
   id: "close.check",
   description:
-    "Opens the month's close for the client's QuickBooks company (last month unless one is named) and checks it again: each bank and card account reconciled, uncategorized transactions, bills and vendors entered twice, bank transactions not booked, and the journal entries to record. Proposes the reversals of last month's accruals, last month's recurring journals, and accruals for vendors that bill every month and haven't yet. Writes nothing to QuickBooks. A test run keeps nothing.",
+    "Opens the month's close for the client's accounting company (last month unless one is named) and checks it again: each bank and card account reconciled, uncategorized transactions, bills and vendors entered twice, bank transactions not booked, and the journal entries to record. Proposes the reversals of last month's accruals, last month's recurring journals, and accruals for vendors that bill every month and haven't yet. Writes nothing to the accounting system. A test run keeps nothing.",
   sideEffect: "internal",
   verb: "update",
   entity: "close_period",
@@ -118,7 +118,7 @@ const JournalLine = z.object({
 export const readyTool = defineCloseTool({
   id: "close.entries.ready",
   description:
-    "The month's proposed journal entries with no QuickBooks write laid out yet, each with the journal entry it becomes (qbo.journal.create's input).",
+    "The month's proposed journal entries with no write to the accounting system laid out yet, each with the journal entry it becomes (the input of the accounting system's journal entry write).",
   sideEffect: "none",
   summary: "{{count}} journal entries to record",
   input: z.object({
@@ -172,7 +172,7 @@ export const readyTool = defineCloseTool({
 export const writtenTool = defineCloseTool({
   id: "close.entry.written",
   description:
-    "Records what an entry's QuickBooks write became: its journal entry id, or, when the write wasn't made, what the person decided.",
+    "Records what an entry's write to the accounting system became: its journal entry id, or, when the write wasn't made, what the person decided.",
   sideEffect: "internal",
   verb: "update",
   entity: "close_entry",
@@ -190,7 +190,7 @@ export const writtenTool = defineCloseTool({
 export const proposeTool = defineCloseTool({
   id: "close.entry.propose",
   description:
-    "Proposes one journal entry for the month's close (an accrual or a recurring journal): its date, memo, why, balanced debit and credit lines to the client's accounts (ledger account ids), and the records it rests on. Refused without sources or when the lines don't balance. Nothing is written to QuickBooks until a person signs its write.",
+    "Proposes one journal entry for the month's close (an accrual or a recurring journal): its date, memo, why, balanced debit and credit lines to the client's accounts (ledger account ids), and the records it rests on. Refused without sources or when the lines don't balance. Nothing is written to the accounting system until a person signs its write.",
   sideEffect: "internal",
   entity: "close_entry",
   summary: "Proposed a journal entry: {{memo}}",
@@ -235,7 +235,7 @@ export const proposeTool = defineCloseTool({
       }
       const conn = await closeConnection(tx, ctx.tenantId);
       if (!conn || conn.id !== p.connectionId) {
-        throw new PackRefusal("that month's QuickBooks company isn't connected");
+        throw new PackRefusal("that month's accounting company isn't connected");
       }
       const entry = {
         tenantId: ctx.tenantId,
