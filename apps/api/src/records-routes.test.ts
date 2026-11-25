@@ -254,6 +254,7 @@ describe.skipIf(!h)("record types and custom fields", () => {
       "id",
       "name",
       "createdAt",
+      "externalRefs",
       "region",
       "aMore",
       "terms",

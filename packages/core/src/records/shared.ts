@@ -14,6 +14,19 @@ export const VENDOR_RECORD_TYPE: RecordType = RecordType.parse({
   fields: [
     { name: "name", type: "text", required: true, about: "The vendor's name" },
     { name: "createdAt", type: "date", required: true, about: "When we first kept it" },
+    // The owner's call on the Bill clerk (2026-11-25): a Match on Vendors, then Get by id, gives the
+    // vendor's id in the client's accounting system for Accounting › Create bill.
+    {
+      name: "externalRefs",
+      type: "group",
+      required: true,
+      about: "The vendor's id in each connected tool, by connector",
+      of: [
+        { name: "qbo", type: "text", required: false, about: "Its QuickBooks vendor id" },
+        { name: "billcom", type: "text", required: false, about: "Its BILL vendor id" },
+        { name: "odoo", type: "text", required: false, about: "Its Odoo partner id" },
+      ],
+    },
   ],
   keys: ["name"],
   // DECISION (§10d: "our records have no add-a-vendor action"): a vendor is added by the sync or

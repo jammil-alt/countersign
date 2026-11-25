@@ -13,6 +13,7 @@ import {
   type RecordStore,
   type RecordType,
   type StoredRecord,
+  type steps,
 } from "@countersign/core";
 import { and, desc, eq, inArray, type SQL, sql } from "drizzle-orm";
 import type { AnyPgColumn, PgTable } from "drizzle-orm/pg-core";
@@ -32,10 +33,23 @@ export interface TableRecordStoreOptions {
   where?: SQL;
 }
 
-/** A value as a step reads it: dates as YYYY-MM-DD, times as ISO text, numerics as decimals. */
-function present(value: unknown, type: string | undefined): unknown {
+/**
+ * A value as a step reads it: dates as YYYY-MM-DD, times as ISO text, numerics as decimals, and a
+ * group (a jsonb column) as its declared fields only, each as text or null, so it is the type the
+ * record type says (a vendor's `external_refs` by connector).
+ */
+function present(value: unknown, field: steps.Field | undefined): unknown {
   if (value instanceof Date) {
-    return type === "date" ? value.toISOString().slice(0, 10) : value.toISOString();
+    return field?.type === "date" ? value.toISOString().slice(0, 10) : value.toISOString();
+  }
+  if (field?.type === "group") {
+    const obj = asObject(value);
+    return Object.fromEntries(
+      (field.of ?? []).map((f) => {
+        const v = obj[f.name];
+        return [f.name, v === undefined || v === null || v === "" ? null : String(v)];
+      }),
+    );
   }
   return value ?? null;
 }
@@ -44,7 +58,7 @@ const asObject = (v: unknown): Record<string, unknown> =>
   typeof v === "object" && v !== null && !Array.isArray(v) ? (v as Record<string, unknown>) : {};
 
 export function tableRecordStore(o: TableRecordStoreOptions): RecordStore<Tx> {
-  const typeOf = new Map(o.type.fields.map((f) => [f.name, f.type]));
+  const fieldOf = new Map(o.type.fields.map((f) => [f.name, f]));
   const missing = o.type.fields.filter((f) => !o.columns[f.name]).map((f) => f.name);
   if (missing.length > 0) {
     throw new Error(`${o.type.id}: no column for ${missing.join(", ")}`);
@@ -58,7 +72,7 @@ export function tableRecordStore(o: TableRecordStoreOptions): RecordStore<Tx> {
     and(eq(o.tenantId, tenantId), o.where, ...more);
   const toRecord = (row: Record<string, unknown>): StoredRecord => {
     const values: Record<string, unknown> = {};
-    for (const name of Object.keys(o.columns)) values[name] = present(row[name], typeOf.get(name));
+    for (const name of Object.keys(o.columns)) values[name] = present(row[name], fieldOf.get(name));
     return { id: String(row.__id), values, ext: asObject(row.__ext) };
   };
 

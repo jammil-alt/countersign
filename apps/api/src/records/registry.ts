@@ -22,7 +22,7 @@ export const SHARED_RECORD_STORES: readonly RecordStore<Tx>[] = [
     tenantId: vendor.tenantId,
     ext: vendor.ext,
     order: vendor.createdAt,
-    columns: { name: vendor.name, createdAt: vendor.createdAt },
+    columns: { name: vendor.name, createdAt: vendor.createdAt, externalRefs: vendor.externalRefs },
   }),
   tableRecordStore({
     type: TRANSACTION_RECORD_TYPE,

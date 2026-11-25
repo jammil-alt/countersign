@@ -6,7 +6,7 @@
 
 import type { RecordWriteMeta } from "@countersign/agents";
 import { runFind } from "@countersign/agents";
-import { FindQuery, TRANSACTION_RECORD_TYPE } from "@countersign/core";
+import { FindQuery, steps, TRANSACTION_RECORD_TYPE } from "@countersign/core";
 import {
   agent,
   agentVersion,
@@ -25,9 +25,10 @@ import {
   databaseAvailable,
   type TestDatabase,
 } from "@countersign/db/testing";
+import { packToolContext } from "@countersign/pack-materials";
 import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { DEPLOYMENT_PACKS } from "../packs";
+import { DEPLOYMENT_PACKS, matchPort } from "../packs";
 import { dbRecordsPort } from "./port";
 import { recordCatalog } from "./registry";
 
@@ -195,12 +196,45 @@ describe.skipIf(!online)("the records port", () => {
       "id",
       "name",
       "createdAt",
+      "externalRefs",
       "region",
       "creditLimit",
       "terms",
     ]);
     const [vb] = await port.get(B.tenantId, "vendor", [B.vendorId]);
-    expect(Object.keys(vb ?? {})).toEqual(["id", "name", "createdAt", "bOnly", "terms"]);
+    expect(Object.keys(vb ?? {})).toEqual([
+      "id",
+      "name",
+      "createdAt",
+      "externalRefs",
+      "bOnly",
+      "terms",
+    ]);
+  });
+
+  it("gives a Vendors match's record its accounting id by Get by id (the Bill clerk)", async () => {
+    await t.db
+      .update(vendor)
+      .set({ externalRefs: { qbo: "56", other: "x" } })
+      .where(eq(vendor.id, A.vendorId));
+    const matched = await matchPort().match({
+      ctx: packToolContext({
+        tenantId: A.tenantId,
+        agentVersionId: A.meta.agentVersionId,
+        mode: "live",
+        db: asWorkerDb(t.db),
+      }),
+      settings: steps.MatchSettings.parse({ to: "vendors", type: "exact", keys: ["name"] }),
+      items: [{ name: "A Lumber" }],
+    });
+    const id = matched.output.items[0]?.matched;
+    expect(id).toBe(A.vendorId);
+    const [v] = await port.get(A.tenantId, "vendor", [id as string]);
+    // Typed as declared: each connector's id or null, nothing else from the column.
+    expect(v?.externalRefs).toEqual({ qbo: "56", billcom: null, odoo: null });
+    // B's vendor has none, and A's id is never B's.
+    const [vb] = await port.get(B.tenantId, "vendor", [B.vendorId]);
+    expect(vb?.externalRefs).toEqual({ qbo: null, billcom: null, odoo: null });
   });
 
   it("never reaches another client's record", async () => {
