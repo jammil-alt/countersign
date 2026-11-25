@@ -18,6 +18,7 @@ import {
   type RuntimeDeps,
   resolveAutomation,
   rollupUsageForRun,
+  stepSkillRef,
 } from "@countersign/agents";
 import {
   ContentStore,
@@ -52,6 +53,7 @@ import {
   type PinnedAreaOwner,
   type Processor,
   parseCoveredProcessors,
+  parseSkillRef,
   processes,
   RUN_SUCCEEDED_EVENT,
   type RunSucceededPayload,
@@ -140,6 +142,7 @@ import { createRunRow, dispatchEvents, dispatchingRunner, senseEmitter } from ".
 // Hand off (owner, 2026-11-11): hand-off steps, and a handed-off run's entry step.
 import { handoffPort, handoffStart } from "./handoff";
 import type { RunInstances, RunParams } from "./instances";
+import { runMatchPort } from "./match";
 import { agentPort, dbInboxPort, dbStepLog, threadNotifyPort } from "./ports";
 import { clientShowsNode, subjectTools } from "./subject-log";
 
@@ -344,6 +347,9 @@ type Loaded =
       owner?: RunAreaOwner;
       // Setup-plan §4.1: who sat in each seat when the run started (its `config.people`).
       seats?: processes.Seats;
+      // The step model (stream F): the skills the version pins, where a step written in the step
+      // finds its own (`custom:step-<agent>-<step>@N`). v5 workflows only.
+      pinnedSkills?: string[];
     }
   | { ok: false; reason: string; cancelled?: true };
 
@@ -603,6 +609,13 @@ export async function executeRun(
         // with the area owner's say merged in (`runOwnerOf`).
         ...ownerSettingsOf(v?.bundle, owned),
         seats: seatsOfConfig(state?.config),
+        ...(wf.workflow.schemaVersion === 5
+          ? {
+              pinnedSkills: (
+                (v?.bundle as AnyAgentBundle | undefined)?.definition.skills ?? []
+              ).map((s) => s.skill),
+            }
+          : {}),
       };
     }),
   );
@@ -812,6 +825,20 @@ export async function executeRun(
     choice: choicePort(runtime, db, info, loaded.oversight),
     // Hand off (owner, 2026-11-11): other agents' runs started at a step, and this run's own start.
     handoff: handoffPort({ db, instances: deps.instances }, params),
+    // The step model (stream F): a step written in the step runs the version its agent version pins.
+    ...(loaded.pinnedSkills
+      ? {
+          stepSkill: (stepId: string) =>
+            pinnedStepSkill(loaded.pinnedSkills ?? [], info.agentId, stepId),
+        }
+      : {}),
+    // The step model §7: Match steps on every area's profiles, on the client's guarded transport.
+    match: runMatchPort({
+      db,
+      transport: runtime.transport ?? null,
+      runtime,
+      info,
+    }),
     ...handoffStart(params),
   };
 
@@ -1036,4 +1063,22 @@ function stepModelAutomationRefs(workflow: steps.Workflow): string[] {
     if (step.kind === "do" && step.uses?.type === "automation") out.push(step.uses.automation);
   });
   return [...new Set(out)];
+}
+
+/**
+ * The step skill an agent version pins for one of its steps written in the step (stream F): the
+ * entry of its `definition.skills` that is `custom:step-<agent id>-<step id>@N`, with its version.
+ * Never resolved by convention without the pin: an unpinned or unversioned entry is none, and the
+ * step fails saying so.
+ */
+export function pinnedStepSkill(
+  pinned: readonly string[],
+  agentId: string,
+  stepId: string,
+): string | undefined {
+  const own = stepSkillRef(agentId, stepId);
+  return pinned.find((ref) => {
+    const { id, version } = parseSkillRef(ref);
+    return id === own && version !== null;
+  });
 }

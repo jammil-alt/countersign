@@ -25,6 +25,7 @@ import type { FlowEnds, InsertPoint } from "../../flow/types";
 import { triggerTitle } from "../../workflow/describe";
 import type { Member, People } from "../people";
 import { triggerFields, useStepsCatalog } from "./catalog";
+import { translateAll } from "./data";
 import { type BoxWords, boxWords, displayProcess } from "./display";
 import type { SaveAsSkill, StepFormEnv } from "./form-kit";
 import { canRedo, canUndo, commit, redo, startHistory, undo } from "./history";
@@ -153,7 +154,13 @@ function Body(
 ) {
   const { agent, from, catalog } = props;
   const action = useAction();
-  const [history, setHistory] = useState(() => startHistory(props.start));
+  // Stream G: every Do step's incoming side worked out on load, opened or not; what changes shows
+  // as unsaved, as an edit would.
+  const [history, setHistory] = useState(() =>
+    startHistory(
+      translateAll(props.start, catalog.uses, triggerFields(props.start, catalog.events)),
+    ),
+  );
   const workflow = history.present;
   const edit = useCallback((next: Workflow) => setHistory((h) => commit(h, next)), []);
   const [saved, setSaved] = useState({
@@ -355,147 +362,154 @@ function Body(
   };
 
   return props.frame(
-    <div className="flex flex-col gap-3" data-testid="steps-builder">
-      <FlowBar
-        name={agent.serviceName ?? agent.name}
-        version={
-          dirty
-            ? { state: "unsaved", version: saved.version }
-            : { state: saved.status === "live" ? "live" : "draft", version: saved.version }
-        }
-        counts={{ ...counts }}
-        open={open}
-        onNextOpen={nextOpen}
-        view={view}
-        onView={setView}
-        canUndo={canUndo(history)}
-        canRedo={canRedo(history)}
-        onUndo={() => setHistory(undo)}
-        onRedo={() => setHistory(redo)}
-        onSave={() => void save()}
-        saving={action.busy}
-        saved={!dirty}
-        primary={
-          <Button
-            variant="primary"
-            size="sm"
-            data-testid="steps-publish"
-            disabled={action.busy || (!dirty && saved.status === "live")}
-            title={canPublish(issues) ? undefined : publishSummary(issues)}
-            onClick={() => void publish()}
-          >
-            Publish
-          </Button>
-        }
-      />
-      {notice ? <Notice tone={notice.tone}>{notice.body}</Notice> : null}
-      {action.error ? (
-        <Notice tone="warning" testId="builder-error">
-          {errorText(action.error)}
-          {detailMessages(action.error).length ? (
-            <ul className="mt-2 list-disc pl-5">
-              {detailMessages(action.error).map((m) => (
-                <li key={m}>{m}</li>
-              ))}
-            </ul>
-          ) : null}
-        </Notice>
-      ) : null}
-      {showIssues || !canPublish(issues) ? (
-        <PublishIssues
-          issues={issues}
-          show={showIssues}
-          name={stepName}
-          outputName={(id) => workflow.outputs.find((o) => o.id === id)?.name ?? id}
-          onToggle={() => setShowIssues((s) => !s)}
-          onPick={(id) => {
-            if (findStep(workflow, id)) setSelection(id);
-          }}
+    // One frame at least as tall as the window under the header, ending the page as the v4
+    // builder's does (`builder-frame`: the walkthrough checks the page scrolls no further).
+    <div
+      className="-mb-8 flex min-h-[calc(100vh-var(--header-h))] flex-col gap-3 md:-mb-12"
+      data-testid="builder-frame"
+    >
+      <div className="contents" data-testid="steps-builder">
+        <FlowBar
+          name={agent.serviceName ?? agent.name}
+          version={
+            dirty
+              ? { state: "unsaved", version: saved.version }
+              : { state: saved.status === "live" ? "live" : "draft", version: saved.version }
+          }
+          counts={{ ...counts }}
+          open={open}
+          onNextOpen={nextOpen}
+          view={view}
+          onView={setView}
+          canUndo={canUndo(history)}
+          canRedo={canRedo(history)}
+          onUndo={() => setHistory(undo)}
+          onRedo={() => setHistory(redo)}
+          onSave={() => void save()}
+          saving={action.busy}
+          saved={!dirty}
+          primary={
+            <Button
+              variant="primary"
+              size="sm"
+              data-testid="steps-publish"
+              disabled={action.busy || (!dirty && saved.status === "live")}
+              title={canPublish(issues) ? undefined : publishSummary(issues)}
+              onClick={() => void publish()}
+            >
+              Publish
+            </Button>
+          }
         />
-      ) : null}
-      <details open data-testid="steps-outputs" className="border border-line bg-surface">
-        <summary className="cursor-pointer px-4 py-2 text-sm font-medium text-ink">
-          Outputs · {workflow.outputs.length}
-          <span className="ml-2 text-xs font-normal text-ink-muted">
-            What this workflow promises: every End delivers one or more of them.
-          </span>
-        </summary>
-        <div className="px-4 pb-4">
-          <OutputsEditor
-            workflow={workflow}
-            env={env}
-            issues={issues.filter(
-              (i) => i.at !== undefined && workflow.outputs.some((o) => o.id === i.at),
-            )}
-            onChange={edit}
+        {notice ? <Notice tone={notice.tone}>{notice.body}</Notice> : null}
+        {action.error ? (
+          <Notice tone="warning" testId="builder-error">
+            {errorText(action.error)}
+            {detailMessages(action.error).length ? (
+              <ul className="mt-2 list-disc pl-5">
+                {detailMessages(action.error).map((m) => (
+                  <li key={m}>{m}</li>
+                ))}
+              </ul>
+            ) : null}
+          </Notice>
+        ) : null}
+        {showIssues || !canPublish(issues) ? (
+          <PublishIssues
+            issues={issues}
+            show={showIssues}
+            name={stepName}
+            outputName={(id) => workflow.outputs.find((o) => o.id === id)?.name ?? id}
+            onToggle={() => setShowIssues((s) => !s)}
+            onPick={(id) => {
+              if (findStep(workflow, id)) setSelection(id);
+            }}
           />
-        </div>
-      </details>
-      <div className="flex gap-3">
-        <div className="min-w-0 flex-1 border border-line bg-surface" data-testid="steps-canvas">
-          {view === "chart" ? (
-            <Chart
-              process={process}
-              ends={ends}
-              statuses={statuses}
-              selected={selection}
-              folded={folded}
-              onFold={(id, fold) =>
-                setFolded((f) => {
-                  const next = new Set(f);
-                  if (fold) next.add(id);
-                  else next.delete(id);
-                  return next;
-                })
-              }
-              label={label as never}
-              onSelect={setSelection}
-              onInsert={(at) => setAddAt(at)}
-              onMove={(id, to) => edit(moveStep(workflow, id, to))}
-              onConnect={() => {}}
-              onAddPath={addPath}
-            />
-          ) : (
-            <StepTable
-              process={process}
-              statuses={statuses}
-              selected={selection}
-              onSelect={setSelection}
-              label={label as never}
-              onAdd={() =>
-                setAddAt({ container: ROOT, index: Math.max(0, workflow.steps.length - 1) })
-              }
-            />
-          )}
-        </div>
-        {addAt ? (
-          <Palette onPick={add} onClose={() => setAddAt(null)} />
-        ) : selected ? (
-          <StepPanel
-            stepId={selected.id}
-            kind={`Step ${walk(workflow).findIndex((l) => l.step.id === selected.id) + 1} · ${kindLabel(selected.kind)}`}
-            title={selected.name}
-            onRename={(name) => edit(updateStep(workflow, selected.id, (s) => ({ ...s, name })))}
-            status={statuses.get(selected.id)}
-            onClose={() => setSelection(null)}
-            onRemove={
-              canRemove(workflow, selected.id)
-                ? () => {
-                    edit(removeStep(workflow, selected.id));
-                    setSelection(null);
-                  }
-                : undefined
-            }
-          >
-            <StepEditor
-              key={selected.id}
-              step={selected}
+        ) : null}
+        <details open data-testid="steps-outputs" className="border border-line bg-surface">
+          <summary className="cursor-pointer px-4 py-2 text-sm font-medium text-ink">
+            Outputs · {workflow.outputs.length}
+            <span className="ml-2 text-xs font-normal text-ink-muted">
+              What this workflow promises: every End delivers one or more of them.
+            </span>
+          </summary>
+          <div className="px-4 pb-4">
+            <OutputsEditor
+              workflow={workflow}
               env={env}
-              issues={byStep.get(selected.id) ?? []}
-              onChange={(next: Step) => edit(updateStep(workflow, selected.id, () => next))}
+              issues={issues.filter(
+                (i) => i.at !== undefined && workflow.outputs.some((o) => o.id === i.at),
+              )}
+              onChange={edit}
             />
-          </StepPanel>
-        ) : selection === FLOW_START_ID ? null : null}
+          </div>
+        </details>
+        <div className="flex flex-1 gap-3">
+          <div className="min-w-0 flex-1 border border-line bg-surface" data-testid="steps-canvas">
+            {view === "chart" ? (
+              <Chart
+                process={process}
+                ends={ends}
+                statuses={statuses}
+                selected={selection}
+                folded={folded}
+                onFold={(id, fold) =>
+                  setFolded((f) => {
+                    const next = new Set(f);
+                    if (fold) next.add(id);
+                    else next.delete(id);
+                    return next;
+                  })
+                }
+                label={label as never}
+                onSelect={setSelection}
+                onInsert={(at) => setAddAt(at)}
+                onMove={(id, to) => edit(moveStep(workflow, id, to))}
+                onConnect={() => {}}
+                onAddPath={addPath}
+              />
+            ) : (
+              <StepTable
+                process={process}
+                statuses={statuses}
+                selected={selection}
+                onSelect={setSelection}
+                label={label as never}
+                onAdd={() =>
+                  setAddAt({ container: ROOT, index: Math.max(0, workflow.steps.length - 1) })
+                }
+              />
+            )}
+          </div>
+          {addAt ? (
+            <Palette onPick={add} onClose={() => setAddAt(null)} />
+          ) : selected ? (
+            <StepPanel
+              stepId={selected.id}
+              kind={`Step ${walk(workflow).findIndex((l) => l.step.id === selected.id) + 1} · ${kindLabel(selected.kind)}`}
+              title={selected.name}
+              onRename={(name) => edit(updateStep(workflow, selected.id, (s) => ({ ...s, name })))}
+              status={statuses.get(selected.id)}
+              onClose={() => setSelection(null)}
+              onRemove={
+                canRemove(workflow, selected.id)
+                  ? () => {
+                      edit(removeStep(workflow, selected.id));
+                      setSelection(null);
+                    }
+                  : undefined
+              }
+            >
+              <StepEditor
+                key={selected.id}
+                step={selected}
+                env={env}
+                issues={byStep.get(selected.id) ?? []}
+                onChange={(next: Step) => edit(updateStep(workflow, selected.id, () => next))}
+              />
+            </StepPanel>
+          ) : selection === FLOW_START_ID ? null : null}
+        </div>
       </div>
     </div>,
   );
