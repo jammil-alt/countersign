@@ -8,8 +8,9 @@
 // Not here yet (wave 1 stops at the forms): Try it and the Builder chat on a v5 draft need stream A's
 // executor and bundle, and the List shows the same boxes as the chart.
 
-import { canonicalJson, steps, uuidv7 } from "@countersign/core";
+import { type AnyAgentBundle, canonicalJson, steps, uuidv7 } from "@countersign/core";
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { type AgentSummary, apiRoutes, type VersionDetail } from "../../../api/routes";
 import { useApi } from "../../../api/useApi";
 import { Badge, Button, ErrorNotice } from "../../../ui/primitives";
@@ -23,7 +24,9 @@ import { StepPanel } from "../../flow/StepPanel";
 import { StepTable } from "../../flow/StepTable";
 import type { FlowEnds, InsertPoint } from "../../flow/types";
 import { triggerTitle } from "../../workflow/describe";
+import { addWorkflow, readProcessBundle, stepModelWorkflows } from "../model";
 import type { Member, People } from "../people";
+import { AddWorkflowForm, WorkflowSwitcher } from "../workflow-switcher";
 import { triggerFields, useStepsCatalog } from "./catalog";
 import { translateAll } from "./data";
 import { type BoxWords, boxWords, displayProcess } from "./display";
@@ -131,6 +134,8 @@ export default function StepsBuilder(props: StepsBuilderProps) {
   }
   return (
     <Body
+      // Another workflow of the agent is another chart, with its own history.
+      key={props.workflow}
       {...props}
       start={parsed.data}
       catalog={catalog}
@@ -154,6 +159,17 @@ function Body(
 ) {
   const { agent, from, catalog } = props;
   const action = useAction();
+  const navigate = useNavigate();
+  // The agent's workflows to switch to, and "+ Workflow" (the v4 builder's, `../workflow-switcher`).
+  const [adding, setAdding] = useState(false);
+  const processBundle = useMemo(() => {
+    try {
+      return readProcessBundle(props.bundle as AnyAgentBundle, {});
+    } catch {
+      return { workflows: [] };
+    }
+  }, [props.bundle]);
+  const stepModel = useMemo(() => stepModelWorkflows(props.bundle), [props.bundle]);
   // Stream G: every Do step's incoming side worked out on load, opened or not; what changes shows
   // as unsaved, as an edit would.
   const [history, setHistory] = useState(() =>
@@ -270,9 +286,13 @@ function Body(
     );
 
   // ── Save and publish ──
-  const save = async () => {
+  const save = async (added: AnyAgentBundle["workflows"] = [], note?: string) => {
     const snapshot = workflow;
     let bundle = withWorkflow(props.bundle, props.workflow, snapshot);
+    if (added.length > 0) {
+      const b = bundle as { workflows: unknown[] };
+      bundle = { ...b, workflows: [...b.workflows, ...added] };
+    }
     // The rules and the AI written in steps are stored behind them, as drafts of the agent's own
     // skills, and this version pins them, so what ran is what the version says. Nothing is saved
     // if they can't be stored: a version that names no text would run nothing.
@@ -301,7 +321,7 @@ function Body(
       body: {
         bundle: bundle as never,
         parentVersionId: saved.id,
-        changeNote: "Edited in the workflow builder",
+        changeNote: note ?? "Edited in the workflow builder",
       },
     });
     if (!res.ok) return null;
@@ -370,6 +390,17 @@ function Body(
     >
       <div className="contents" data-testid="steps-builder">
         <FlowBar
+          lead={
+            <WorkflowSwitcher
+              bundle={processBundle}
+              stepModel={stepModel}
+              current={props.workflow}
+              base={props.base}
+              adding={adding}
+              onAdd={() => setAdding((a) => !a)}
+              view={view}
+            />
+          }
           name={agent.serviceName ?? agent.name}
           version={
             dirty
@@ -401,6 +432,21 @@ function Body(
             </Button>
           }
         />
+        {adding ? (
+          <AddWorkflowForm
+            bundle={{ workflows: [...processBundle.workflows, ...stepModel] }}
+            events={catalog.events.map((e) => e.type)}
+            onCancel={() => setAdding(false)}
+            onCreate={async (input) => {
+              // A new workflow starts in the step model, saved at once with any edits here, then
+              // opened (the builder opens a saved version).
+              const ok = await save([addWorkflow(input)], `Added the workflow ${input.name}`);
+              if (!ok) return;
+              setAdding(false);
+              navigate(`${props.base}/${view === "list" ? "steps" : "workflows"}/${input.slug}`);
+            }}
+          />
+        ) : null}
         {notice ? <Notice tone={notice.tone}>{notice.body}</Notice> : null}
         {action.error ? (
           <Notice tone="warning" testId="builder-error">

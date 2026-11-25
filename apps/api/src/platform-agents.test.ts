@@ -160,8 +160,10 @@ describe("the Bill clerk", () => {
       ["done", ["out-itemized"], false],
       ["nothing", ["out-already-done"], false],
       ["end-asked-bill", [], true],
+      ["end-asked-same-number", [], true],
       ["created", ["out-added"], false],
       ["end-asked-new-bill", [], true],
+      ["end-asked-vendor-books", [], true],
       ["end-asked-vendor", [], true],
       ["end-asked-which", [], true],
     ]);
@@ -185,6 +187,66 @@ describe("the Bill clerk", () => {
       expect(step.kind, step.id).not.toBe("loop");
     });
     expect(ai).toEqual(["map", "prepare"]);
+  });
+
+  // The owner's call (2026-11-25): the vendor is matched on our records, not searched by name in
+  // QuickBooks; its QuickBooks id comes from the record (Get by id), and Prepare bill is given that
+  // one vendor instead of a list of candidates.
+  it("matches the vendor on the Vendors profile and reads its QuickBooks id by Get by id", () => {
+    expect(steps.findStep(w.steps, "vendor")).toMatchObject({
+      kind: "do",
+      doneBy: "rules",
+      uses: {
+        type: "match",
+        match: { to: "vendors", type: "hybrid", keys: ["name"], belowFloor: "no_match" },
+      },
+      input: { name: "{{steps.match.output.invoice.vendorName}}" },
+    });
+    expect(steps.findStep(w.steps, "vendor-record")).toMatchObject({
+      uses: { type: "action", action: "records.vendor.get" },
+      input: { id: "{{steps.vendor.output.items.0.matched}}" },
+    });
+    const vendor = [
+      {
+        id: "{{steps.vendor-record.output.externalRefs.qbo}}",
+        name: "{{steps.vendor-record.output.name}}",
+      },
+    ];
+    for (const id of ["prepare", "check-bill"]) {
+      expect(steps.findStep(w.steps, id), id).toMatchObject({ input: { vendors: vendor } });
+    }
+    // Get by id reads only what the agent is granted: our vendors, read only.
+    expect(bill.definition.data).toEqual({
+      grants: [{ recordType: "vendor", read: true, create: false, update: false }],
+      sets: [],
+    });
+    expect(bill.definition.extraTools).not.toContain("qbo.vendor.query");
+    // No vendor we're sure of, or one not in QuickBooks: the bill-questions seat is asked.
+    for (const id of ["no-vendor", "vendor-not-in-books"]) {
+      expect(steps.findStep(w.steps, id), id).toMatchObject({
+        doneBy: "person",
+        person: { mode: "ask", who: "seat:bill-questions" },
+      });
+    }
+  });
+
+  it("asks about a bill with the invoice's number that doesn't match, and adds none", () => {
+    expect(steps.findStep(w.steps, "same-number")).toMatchObject({
+      kind: "fork",
+      paths: [
+        {
+          id: "path-same-number",
+          when: {
+            rules: [{ field: "{{steps.match.output.sameNumber.0}}", op: "exists" }],
+          },
+          steps: [
+            { id: "same-number-ask", person: { who: "seat:bill-questions" } },
+            { id: "end-asked-same-number", kind: "end", outputs: [] },
+          ],
+        },
+      ],
+      otherwise: { id: "path-other-number" },
+    });
   });
 });
 

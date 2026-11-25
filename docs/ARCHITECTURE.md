@@ -20,6 +20,7 @@
 > declared outputs, or publishing is refused. Rules and AI can be written in the step and **saved as
 > a skill**. Every agent, version, run, build and template is purged once (`db:purge-agents`) and the
 > platform's agents are seeded again in the new model. v3 and v4 are still read until that release.
+> Record types, grants per record type, data sets and custom fields followed the same day (#687).
 > Changed: §1 (concepts), §3, §6.1, §9.1, §9.2, §9.6, §10.0 (new), §10.1, §10.2, §10.14, §12.3,
 > §16, §20; CLAUDE.md invariants 3, 8, 9 and 14 (drafted for the owner); `docs/step-model-plan.md`.
 
@@ -2289,25 +2290,46 @@ Dev queue request where code is missing; and Loops with a goal, read actions and
 start with approval on (invariant 8). Drafting in the step model is stream I (`docs/step-model-plan.md`
 §13b) and is not on `main` yet; Suggest (above) is.
 
-#### Data: record types, custom fields, data sets (being built)
+#### Data: record types, custom fields, data sets
 
 Work crosses areas, but the database is still not a tool: agents never map to tables, and no model or
-person writes queries (§12.0). Being built in stream N (`docs/step-model-plan.md` §10f); not on `main`:
+person writes queries (§12.0). Built in stream N (#683, #687; `packages/core/src/records`):
 
-- **Record types**, defined in code by the area that owns them: fields, keys, links to other record
-  types, and the operations allowed (get, create, update; delete stays off), with their own rules run
-  on every write wherever it comes from.
-- **Standard actions** on every record type, beside the area's own: **Find** (typed filters, grouping
-  and totals across declared links; read only, one client's records; never SQL), **Get by id**,
-  **Create** and **Update** (typed, through the record type's rules, each logged with its agent
-  version or person, its evidence and an idempotency key).
-- **Grants per record type**, the same model as connection grants: what an agent may read, create and
-  update. Writing into another area is explicit, shown on the agent and reviewable.
-- **Data sets**: a named group of record types for one use case, granted together across areas; a
-  back-office setting saved with the agent's version.
-- **Custom fields**: defined in the back office (this client's or shared), stored on the record in its
-  existing `ext` column, checked on every write, used like built-in fields; a field's type never
-  changes once it holds data, and removing one hides it.
+- **Record types**, each a kind of our own record, defined once in code by the area that owns it and
+  declared on its pack's manifest (`recordTypes`), or by the platform for the shared records (Vendor,
+  Transaction; `records/shared.ts`). Materials declares Master item and Vendor item; Bookkeeping,
+  Bank transaction. Each has its fields and keys, its links to other record types, and the operations
+  it allows: get, create, update. Delete is never one of them. Its own rules run on every write,
+  wherever it comes from. A vendor can't be created (the sync or an invoice adds one); an update sets
+  its custom fields only.
+- **Standard actions** on every record type, made from its declaration, beside the area's own
+  actions: **Find** (typed filters, grouping and decimal totals, following declared links across
+  record types and areas; read only, one client's records; a person's words become the typed query,
+  never SQL), **Get by id**, and, where the record type allows them, **Create** and **Update**. Each
+  write is checked against the record type's fields and custom fields and logged once in
+  `record_write` (insert only): the agent version or the person who wrote it, the run and step, before
+  and after, its `sources` (invariant 10) and an idempotency key, so it never saves twice.
+- **Grants per record type**, pinned in the agent's version (`definition.data`): per record type,
+  read, create and update, each off unless granted. The gate refuses a standard action the version
+  doesn't grant (`recordGrantRefusal`), and a Find that follows a link into a record type the agent
+  can't read. Publishing checks that every grant names a real record type and a write it allows.
+  Writing into another area is shown on the agent (`crossAreaWrites`), and an edit that widens a grant
+  shows what it widens against the version opened (`widenedRecordGrants`). Nothing in a run changes a
+  grant (invariant 9).
+- **Data sets**: a named group of record-type grants for one use case, across areas ("Margin and ROI"),
+  turned on or off for the agent and saved with its version; an agent's grant is its own grants and
+  its data sets that are on, together. Set on the agent's Data sets card in the back office.
+- **Custom fields**, defined in the back office per record type, for this client or shared (client
+  settings, Custom fields): name, type (the step model's field types), required or not, and one line
+  on what it means. Values are stored on the record under `ext.custom`, so an area's own `ext` keys
+  are never touched, and they are checked on every write. A field's type never changes once it holds
+  data; removing one hides it and keeps its data; at most 50 per record type per client; card numbers
+  are refused (invariant 14). They are used like built-in fields: the Input picker and translation,
+  the Data tab, Find, grants and data sets.
+- **Saves outside a live, acting agent.** A Create or Update to our own records needs no client
+  approval from an agent that acts and is live. From an agent in `suggest_only`, or in its trial or
+  sign-off stage, every write must be signed by a person, and a signed save to our own records isn't
+  built yet, so such a write is refused with that reason. A test run checks it and saves nothing.
 
 #### Publish checks
 
@@ -2322,11 +2344,9 @@ every write to the client's connection matrix, the agent's grant, the step and t
 
 #### What is still being wired, and the release
 
-On `main` (2026-11-25) a v5 workflow validates, saves, shows in the builder and runs, except three
-things the executor refuses in plain words until stream A's wiring merges (#682): a Match step (its port
-in the API), a Do written in the step (run through its pinned step skill), and a translated input
-(applied in code before the engine). The Builder's drafting (stream I) and record types (stream N) are
-not merged. Until the release (stream J), v3 workflows and v4 processes are still read and run as §10.1
+On `main` (2026-11-25) a v5 workflow validates, saves, shows in the builder and runs, Match steps,
+Do steps written in the step (through their pinned step skills) and translated inputs included (#682),
+and record types with their grants (#687). The Builder's drafting (stream I) is not merged. Until the release (stream J), v3 workflows and v4 processes are still read and run as §10.1
 and §10.14 describe, a skill still has a `mode`, and a one-off converter (`steps/convert-v4.ts`) turns
 v3 and v4 into v5 for the seeds and tests; all three go at the release. Then every agent, version,
 run, build and template is purged once (`db:purge-agents`, below), and `db:seed` brings the

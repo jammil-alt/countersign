@@ -184,8 +184,12 @@ function aliasText(text: string, aliases: StepAliases): string {
 
 /**
  * A new agent's starting draft in the step model: suggest only, reviewing its failed steps, one
- * workflow `main` started by hand, with no outputs and no steps yet. The trigger id is made here.
+ * workflow `main` started by hand, declaring "Nothing to do" and ending on the End that delivers
+ * it, so it reads as a workflow does in the builder (§9: every path ends on an End). Its ids are
+ * made here, once.
  */
+// DECISION (coordinator, with stream A's #697): a new workflow starts with its trigger, a "Nothing
+// to do" output and the End, as the workflow builder starts one.
 export function blankStepAgentDraft(
   input: { name: string; role?: string; model?: string },
   newId: () => string = () => uuidv7(),
@@ -210,12 +214,23 @@ export function blankStepAgentDraft(
       {
         slug: "main",
         name: "Main",
-        workflow: {
-          schemaVersion: 5,
-          triggers: [{ id: newId(), on: { type: "manual", input: { type: "object" } } }],
-          outputs: [],
-          steps: [],
-        },
+        workflow: (() => {
+          const trigger = newId();
+          const output = newId();
+          return {
+            schemaVersion: 5,
+            triggers: [{ id: trigger, on: { type: "manual", input: { type: "object" } } }],
+            outputs: [
+              {
+                id: output,
+                name: "Nothing to do",
+                kind: "nothing",
+                about: "Nothing is built yet.",
+              },
+            ],
+            steps: [{ id: newId(), kind: "end", name: "Done", outputs: [output] }],
+          };
+        })(),
       },
     ],
   });

@@ -3,18 +3,26 @@
 // result to a bill workflow (an output). The tabs say which is which; the main workflow's chart
 // has its triggers above and its outputs below, each opening its tab; a trigger's and an output's
 // tab lead back to the main workflow; and the rail places a hand-in already pointed at it.
-import { AnyAgentBundle, type AnyAgentBundleInput, type BuilderCatalog } from "@countersign/core";
-import { render, screen, within } from "@testing-library/react";
+import {
+  AnyAgentBundle,
+  type AnyAgentBundleInput,
+  type BuilderCatalog,
+  type steps,
+} from "@countersign/core";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { useEffect, useState } from "react";
 import { MemoryRouter, Route, Routes, useParams } from "react-router-dom";
 import { describe, expect, it } from "vitest";
 import type { AgentSummary, VersionDetail } from "../../api/routes";
 import { ApiProvider } from "../../api/useApi";
 import { fakeApi } from "../../test/fixtures";
+import { blankBundle } from "../agents/definition-form";
 import WorkflowBuilder from "./WorkflowBuilder";
 
 const AGENT_ID = "00000000-0000-4000-8000-00000000b501";
 const V1 = "00000000-0000-4000-8000-0000000f0501";
+const V2 = "00000000-0000-4000-8000-0000000f0502";
 const BASE = "/ops/agents/invoice-intake";
 
 const CATALOG = {
@@ -157,17 +165,47 @@ function version(): VersionDetail {
   } as unknown as VersionDetail;
 }
 
-function setup(start = "check") {
+// What the builder saves becomes the agent's latest version when it reloads (as the agent screen
+// does on `onChanged`), so a workflow saved here opens in its builder.
+function setup(start = "check", stored: AnyAgentBundleInput = BUNDLE) {
+  const sent: { bundle: AnyAgentBundle; changeNote?: string }[] = [];
+  let current = AnyAgentBundle.parse(stored);
+  const listeners = new Set<() => void>();
   const api = fakeApi({
     [`GET /api/ops/agents/${AGENT_ID}/builder-catalog`]: () => CATALOG,
+    [`GET /api/ops/agents/${AGENT_ID}/action-catalog`]: () => ({ groups: [] }),
     "GET /api/ops/catalog/events": () => ({ events: [] }),
     "GET /api/ops/clients": () => ({ clients: [] }),
     "GET /api/ops/models": () => ({ models: [] }),
     "GET /api/ops/skills": () => ({ skills: [], tools: [], connectors: [] }),
+    [`POST /api/ops/agents/${AGENT_ID}/versions`]: ({ init }) => {
+      const body = JSON.parse(String(init.body)) as { bundle: unknown; changeNote?: string };
+      current = AnyAgentBundle.parse(body.bundle);
+      sent.push({ ...body, bundle: current });
+      return {
+        version: {
+          ...version(),
+          id: V2,
+          agentId: AGENT_ID,
+          version: sent.length + 1,
+          authorType: "operator",
+          mergedFromVersionIds: null,
+          bundle: undefined,
+        },
+        errors: [],
+      };
+    },
   });
-  const bundle = AnyAgentBundle.parse(BUNDLE);
   function Page() {
     const { workflow = "" } = useParams();
+    const [bundle, setBundle] = useState(current);
+    useEffect(() => {
+      const reload = () => setBundle(current);
+      listeners.add(reload);
+      return () => {
+        listeners.delete(reload);
+      };
+    }, []);
     return (
       <WorkflowBuilder
         agent={AGENT}
@@ -178,7 +216,9 @@ function setup(start = "check") {
         tabs={<nav aria-label="Sections" />}
         connections={[]}
         members={[]}
-        onChanged={() => {}}
+        onChanged={() => {
+          for (const reload of listeners) reload();
+        }}
       />
     );
   }
@@ -191,7 +231,15 @@ function setup(start = "check") {
       </MemoryRouter>
     </ApiProvider>,
   );
-  return { user: userEvent.setup() };
+  return { user: userEvent.setup(), sent };
+}
+
+/** A wait added before a v5 workflow's End, then the draft saved: what that save sent. */
+async function addWaitAndSave(user: ReturnType<typeof userEvent.setup>) {
+  await screen.findByTestId("steps-builder");
+  await user.click(await screen.findByTestId("flow-insert-root-0"));
+  await user.click(await screen.findByTestId("palette-wait"));
+  await user.click(screen.getByTestId("flow-bar-save"));
 }
 
 describe("triggers and outputs in the builder", () => {
@@ -289,25 +337,129 @@ describe("triggers and outputs in the builder", () => {
     expect(screen.getByTestId("builder-trigger-type")).toBeInTheDocument();
   });
 
-  it("gives a start steps by moving it to a workflow that hands into the main one", async () => {
-    const { user } = setup();
+  it("gives a start steps by moving it to a new v5 workflow, saved and opened in the steps builder", async () => {
+    const { user, sent } = setup();
     await screen.findByTestId("flow-chart");
     await user.click(screen.getByTestId("way-start-t-check-steps"));
-    // Its own tab: a trigger, handing into the main workflow at its first step.
-    const back = await screen.findByTestId("ways-back");
-    expect(back).toHaveTextContent("TriggerHands work into Check an invoice ›");
-    expect(screen.getByTestId("builder-workflow-started-by-hand-select")).toHaveTextContent(
-      "Started by handTrigger",
-    );
-    expect(
-      (await screen.findAllByText("Hand off to Check an invoice at 1 · Save the reading")).length,
-    ).toBeGreaterThan(0);
+    // Saved at once: the main workflow starts by hand, and the start's own workflow is in the step
+    // model, handing into the main one at its first step, its End delivering "Nothing to do".
+    await waitFor(() => expect(sent).toHaveLength(1));
+    const saved = sent[0]?.bundle.workflows ?? [];
+    expect(saved.map((w) => [w.slug, w.workflow.schemaVersion])).toEqual([
+      ["check", 4],
+      ["scan", 4],
+      ["bill", 4],
+      ["loose", 4],
+      ["started-by-hand", 5],
+    ]);
+    const moved = saved[4]?.workflow as steps.Workflow;
+    expect(moved.triggers.map((t) => t.id)).toEqual(["t-check"]);
+    expect(moved.steps.map((x) => x.kind)).toEqual(["handoff", "end"]);
+    expect(moved.steps[0]).toMatchObject({
+      to: { agent: "@self", workflow: "check", step: "save" },
+    });
+    expect(moved.outputs).toMatchObject([{ name: "Nothing to do", kind: "nothing" }]);
+    const main = saved[0]?.workflow as { triggers: { id: string }[] };
+    expect(main.triggers.map((t) => t.id)).not.toContain("t-check");
 
-    // Back on the main workflow, it is a trigger card; the main workflow starts by hand.
-    await user.click(screen.getByTestId("ways-back-link"));
-    const band = await screen.findByTestId("ways-triggers");
-    expect(within(band).getByTestId("way-card-started-by-hand")).toHaveTextContent("1 step");
-    expect(within(band).queryByTestId("way-start-t-check")).toBeNull();
-    expect(within(band).getAllByTestId(/^way-start-.*-open$/)).toHaveLength(1);
+    // It opens in the steps builder, and a draft of it saves with the processes kept as they are.
+    await addWaitAndSave(user);
+    await waitFor(() => expect(sent).toHaveLength(2));
+    const again = sent[1]?.bundle.workflows ?? [];
+    expect(again.slice(0, 4)).toEqual(saved.slice(0, 4));
+    expect((again[4]?.workflow as steps.Workflow | undefined)?.steps.map((x) => x.kind)).toEqual([
+      "wait",
+      "handoff",
+      "end",
+    ]);
+  });
+
+  it("adds a new workflow as v5, saved and opened in the steps builder", async () => {
+    const { user, sent } = setup("loose");
+    await screen.findByTestId("flow-chart");
+    await user.click(screen.getByTestId("builder-workflow-add"));
+    await user.type(screen.getByTestId("builder-workflow-name"), "Weekly digest");
+    await user.selectOptions(screen.getByTestId("builder-workflow-trigger"), "schedule");
+    await user.click(screen.getByTestId("builder-workflow-create"));
+    await waitFor(() => expect(sent).toHaveLength(1));
+    const added = sent[0]?.bundle.workflows.find((w) => w.slug === "weekly-digest");
+    expect(added?.workflow).toMatchObject({
+      schemaVersion: 5,
+      triggers: [{ on: { type: "schedule" } }],
+      outputs: [{ name: "Nothing to do", kind: "nothing" }],
+      steps: [{ kind: "end" }],
+    });
+    expect(sent[0]?.changeNote).toBe("Added the workflow Weekly digest");
+
+    await addWaitAndSave(user);
+    await waitFor(() => expect(sent).toHaveLength(2));
+    const again = sent[1]?.bundle.workflows ?? [];
+    expect(again.filter((w) => w.workflow.schemaVersion === 4).map((w) => w.slug)).toEqual([
+      "check",
+      "scan",
+      "bill",
+      "loose",
+    ]);
+    const saved = again.find((w) => w.slug === "weekly-digest")?.workflow as steps.Workflow;
+    expect(saved.steps.map((x) => x.kind)).toEqual(["wait", "end"]);
+  });
+
+  it("adds and switches workflows inside the steps builder, for an agent of v5 workflows only", async () => {
+    const blank = blankBundle({
+      name: "Card receipts",
+      role: "Expenses",
+      mission: "Chase receipts",
+      instructions: "",
+      modelId: "",
+    });
+    const { user, sent } = setup("main", blank as AnyAgentBundleInput);
+    await screen.findByTestId("steps-builder");
+    // One workflow: no switcher tabs yet, only "+ Workflow".
+    expect(screen.queryByTestId("builder-workflow-main-select")).toBeNull();
+    await user.click(screen.getByTestId("builder-workflow-add"));
+    await user.type(screen.getByTestId("builder-workflow-name"), "Weekly digest");
+    await user.selectOptions(screen.getByTestId("builder-workflow-trigger"), "schedule");
+    await user.click(screen.getByTestId("builder-workflow-create"));
+    await waitFor(() => expect(sent).toHaveLength(1));
+    expect(sent[0]?.bundle.workflows.map((w) => [w.slug, w.workflow.schemaVersion])).toEqual([
+      ["main", 5],
+      ["weekly-digest", 5],
+    ]);
+    // It opens on the new workflow, and the switcher goes back and forth.
+    const weekly = await screen.findByTestId("builder-workflow-weekly-digest-select");
+    expect(weekly).toHaveAttribute("aria-current", "page");
+    await addWaitAndSave(user);
+    await waitFor(() => expect(sent).toHaveLength(2));
+    const saved = sent[1]?.bundle.workflows ?? [];
+    expect((saved[1]?.workflow as steps.Workflow | undefined)?.steps.map((x) => x.kind)).toEqual([
+      "wait",
+      "end",
+    ]);
+    expect(saved[0]).toEqual(sent[0]?.bundle.workflows[0]);
+    await user.click(screen.getByTestId("builder-workflow-main-select"));
+    await waitFor(() =>
+      expect(screen.getByTestId("builder-workflow-main-select")).toHaveAttribute(
+        "aria-current",
+        "page",
+      ),
+    );
+    expect(screen.getByTestId("steps-builder")).toBeTruthy();
+  });
+
+  it("opens a new agent's blank workflow in the steps builder, and its draft saves", async () => {
+    const blank = blankBundle({
+      name: "Card receipts",
+      role: "Expenses",
+      mission: "Chase receipts",
+      instructions: "",
+      modelId: "",
+    });
+    const { user, sent } = setup("main", blank as AnyAgentBundleInput);
+    await addWaitAndSave(user);
+    await waitFor(() => expect(sent).toHaveLength(1));
+    const saved = sent[0]?.bundle.workflows[0]?.workflow as steps.Workflow;
+    expect(saved.schemaVersion).toBe(5);
+    expect(saved.steps.map((x) => x.kind)).toEqual(["wait", "end"]);
+    expect(saved.outputs).toMatchObject([{ name: "Nothing to do", kind: "nothing" }]);
   });
 });

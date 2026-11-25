@@ -129,6 +129,15 @@ function closest(
 export interface Case {
   item: ProfileItem;
   right: readonly string[];
+  /**
+   * How a match outside `right` is judged. Closed: `right` is every right record, so any other
+   * match is wrong (CRM rows). Open: only the records the goldens label "different" for this item
+   * are wrong; any other record may be an equal the goldens don't pair it with, so the match is
+   * left unjudged and counted apart from precision (Master items: a line's only labelled pair may
+   * be a near-miss, while the pool holds an unlabelled equal).
+   */
+  closed: boolean;
+  different?: readonly string[];
 }
 
 /** A profile's cases, and how its store is built for one item. */
@@ -156,10 +165,14 @@ export function materialsSet(dir: string = matchingDir): CaseSet {
   const ids = new Map<string, string>();
   for (const p of pairs) if (!ids.has(p.b)) ids.set(p.b, `item-${ids.size + 1}`);
   const rights = new Map<string, Set<string>>();
+  const differents = new Map<string, Set<string>>();
   for (const p of pairs) {
     const set = rights.get(p.a) ?? new Set<string>();
+    const not = differents.get(p.a) ?? new Set<string>();
     if (p.label === "same") set.add(ids.get(p.b) as string);
+    else not.add(ids.get(p.b) as string);
     rights.set(p.a, set);
+    differents.set(p.a, not);
   }
   const pool = [...ids].map(([text, id]) => {
     const parsed = parseLine(text);
@@ -190,7 +203,12 @@ export function materialsSet(dir: string = matchingDir): CaseSet {
   return {
     profile: MASTER_ITEMS_PROFILE,
     base: { type: "hybrid", keys: ["attributes"] },
-    cases: [...rights].map(([a, set]) => ({ item: { description: a }, right: [...set] })),
+    cases: [...rights].map(([a, set]) => ({
+      item: { description: a },
+      right: [...set],
+      closed: false,
+      different: [...(differents.get(a) ?? [])],
+    })),
     store: () => store,
   };
 }
@@ -232,7 +250,11 @@ export function crmSet(dir: string = join(matchingDir, "crm")): CaseSet {
   const cases: Case[] = [];
   sets.forEach((set, n) => {
     for (const row of set.rows) {
-      const c: Case = { item: rowValues(row.values, set.keys), right: row.expect ?? [] };
+      const c: Case = {
+        item: rowValues(row.values, set.keys),
+        right: row.expect ?? [],
+        closed: true,
+      };
       modulesOf.set(c, { set: n, modules: row.modules });
       cases.push(c);
     }
@@ -289,6 +311,22 @@ export interface Deciders {
   second: ProfileChooser;
 }
 
+/** One item a setting got wrong, couldn't judge, or sent to a person. */
+export interface Detail {
+  item: string;
+  /** The record it was matched to, or null. */
+  pick: string | null;
+  expected: string[];
+  /** How it was decided: exact, learned, semantic or second_opinion; none when it wasn't. */
+  how: string;
+  /** The engine's rule for it (a key, the model, why it was left). */
+  rule: string | null;
+  confidence: number | null;
+  outcome: "wrong" | "unjudged" | "person";
+  /** The model's reason, when one was asked (data, never instructions). */
+  reason: string | null;
+}
+
 export interface Result {
   profile: string;
   setting: Setting;
@@ -298,6 +336,8 @@ export interface Result {
   matched: number;
   right: number;
   wrong: number;
+  /** Matched to a record the goldens neither pair nor rule out: not in precision. */
+  unjudged: number;
   /** Matched by the model (a semantic or second-opinion match), of `matched`. */
   byModel: number;
   rightByModel: number;
@@ -309,6 +349,8 @@ export interface Result {
   tokens: { input: number; output: number };
   /** USD, decimal. */
   cost: string;
+  /** Every item counted wrong, unjudged or sent to a person. */
+  details: Detail[];
 }
 
 /** What a setting's model calls used: a decider reports it through this. */
@@ -345,6 +387,12 @@ export async function runSetting(
   let rightByModel = 0;
   let toPerson = 0;
   let withRight = 0;
+  let unjudged = 0;
+  const details: Detail[] = [];
+  const labelOf = async (c: Case, id: string | null) =>
+    id === null ? null : ((await set.store(c).get(id))?.label ?? id);
+  const describe = (c: Case) =>
+    typeof c.item.description === "string" ? c.item.description : JSON.stringify(c.item);
   for (const c of set.cases) {
     if (c.right.length > 0) withRight += 1;
     const run = await matchWithProfile({
@@ -356,13 +404,35 @@ export async function runSetting(
       second: deciders.second,
     });
     const got = run.output.items[0];
+    const note = run.notes[0];
     if (!got) continue;
-    if (got.unsure) toPerson += 1;
+    const detail = async (outcome: Detail["outcome"]) =>
+      details.push({
+        item: describe(c),
+        pick: await labelOf(c, got.matched),
+        expected: await Promise.all(c.right.map(async (id) => (await labelOf(c, id)) ?? id)),
+        how: got.how ?? "none",
+        rule: note?.rule ?? null,
+        confidence: got.confidence,
+        outcome,
+        reason: note?.reason ?? null,
+      });
+    if (got.unsure) {
+      toPerson += 1;
+      await detail("person");
+    }
     if (got.matched === null) continue;
     matched += 1;
     const ok = c.right.includes(got.matched);
+    const known = ok || c.closed || (c.different ?? []).includes(got.matched);
     if (ok) right += 1;
-    else wrong += 1;
+    else if (known) {
+      wrong += 1;
+      await detail("wrong");
+    } else {
+      unjudged += 1;
+      await detail("unjudged");
+    }
     if (got.how === "semantic" || got.how === "second_opinion") {
       byModel += 1;
       if (ok) rightByModel += 1;
@@ -377,14 +447,16 @@ export async function runSetting(
     matched,
     right,
     wrong,
+    unjudged,
     byModel,
     rightByModel,
     toPerson,
-    precision: matched === 0 ? 1 : right / matched,
+    precision: right + wrong === 0 ? 1 : right / (right + wrong),
     recall: withRight === 0 ? 1 : right / withRight,
     personShare: n === 0 ? 0 : toPerson / n,
     tokens: { input: spend.input, output: spend.output },
     cost: spend.cost.toFixed(4),
+    details,
   };
 }
 
@@ -409,7 +481,26 @@ const pct = (x: number) => `${(x * 100).toFixed(1)}%`;
 
 function row(r: Result): string {
   const s = r.setting;
-  return `| ${s.shortlist} | ${s.threshold} | ${s.floor ?? "off"} | ${pct(r.precision)}${r.precision < PRECISION_TARGET ? " ✗" : ""} | ${pct(r.recall)} | ${pct(r.personShare)} | ${r.matched} (${r.wrong} wrong) | ${r.byModel} | ${r.tokens.input + r.tokens.output} | $${r.cost} |`;
+  return `| ${s.shortlist} | ${s.threshold} | ${s.floor ?? "off"} | ${pct(r.precision)}${r.precision < PRECISION_TARGET ? " ✗" : ""} | ${pct(r.recall)} | ${pct(r.personShare)} | ${r.matched} (${r.wrong} wrong, ${r.unjudged} unjudged) | ${r.byModel} | ${r.tokens.input + r.tokens.output} | $${r.cost} |`;
+}
+
+const cell = (v: string | null, max = 120) =>
+  (v ?? "").replace(/\s+/g, " ").replace(/\|/g, "/").slice(0, max);
+
+/** The items a setting got wrong, couldn't judge or sent to a person, one row each. */
+function detailLines(r: Result): string[] {
+  if (r.details.length === 0) return [];
+  return [
+    `### ${r.profile}: ${settingLabel(r.setting)}, item by item`,
+    "",
+    "| Outcome | Item | Picked | Expected | Decided by | Confidence | Model's reason |",
+    "|---|---|---|---|---|---|---|",
+    ...r.details.map(
+      (d) =>
+        `| ${d.outcome} | ${cell(d.item)} | ${cell(d.pick)} | ${cell(d.expected.join("; ") || "none")} | ${d.how}${d.rule ? ` (${cell(d.rule, 40)})` : ""} | ${d.confidence ?? ""} | ${cell(d.reason)} |`,
+    ),
+    "",
+  ];
 }
 
 /** The report: a table per profile, the recommendation, and what the numbers rest on. */
@@ -424,7 +515,7 @@ export function renderReport(input: {
     "",
     `Model ${input.model}; second opinion ${input.secondModel}. Goldens: fixtures/matching (Master items) and fixtures/matching/crm (CRM records), made up. Vendor items are exact by SKU only and not measured.`,
     "",
-    `Precision is of what was matched (target ${pct(PRECISION_TARGET)}, ✗ where missed); recall is of the items that have a right record; "to a person" is the share left unsure. Cost is the model calls the setting would make, in USD.`,
+    `Precision is of what was matched and judged (target ${pct(PRECISION_TARGET)}, ✗ where missed): a match to a record the goldens neither pair with the item nor label different for it is unjudged and left out, since it may be an equal they do not pair; CRM rows list every right record, so none is unjudged. Recall is of the items that have a right record; "to a person" is the share left unsure. Cost is the model calls the setting would make, in USD.`,
     "",
   ];
   const total = input.results.reduce((s, r) => s.plus(r.cost), new Decimal(0));
@@ -457,6 +548,11 @@ export function renderReport(input: {
       ...mine.map(row),
       "",
     );
+    // The items behind the numbers, for the setting recommended and today's (every setting's are
+    // in the .json): what a person would check first.
+    const shown = new Set<Result>();
+    for (const r of [best, today]) if (r && !shown.has(r)) shown.add(r);
+    for (const r of shown) lines.push(...detailLines(r));
   }
   lines.push(
     `Total cost of the settings as if each ran alone: $${total.toFixed(2)} (the run asks each question once).`,
