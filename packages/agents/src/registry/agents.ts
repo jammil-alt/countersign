@@ -93,16 +93,26 @@ export interface RegistryContext {
     agentId: string | null,
   ) => Promise<processes.ActionBindings["channels"]>;
   /**
+   * The step model (docs/step-model-plan.md §10c): the actions switched off on their connector's
+   * page (apps/api's `offActionIds`). Absent: a v5 workflow's actions aren't checked for it at
+   * publish (the gate still refuses them at the call).
+   */
+  actionsOff?: (tx: Tx) => Promise<ReadonlySet<string>>;
+  /**
    * Step model §10f: every declared record type (the areas' and the shared ones). Absent: an
    * agent's record grants and data sets aren't checked at publish (the gate still holds them).
    */
   recordTypes?: readonly RecordType[];
 }
 
-/** Whether a bundle holds an action write step (a v4 process's). */
+/**
+ * Whether a bundle holds an action write step (a v4 process's), or a v5 workflow (whose Email and
+ * Text actions resolve from the agent's channels as an action write step does).
+ */
 function holdsAction(bundle: AnyAgentBundle): boolean {
   let found = false;
   for (const w of bundle.workflows) {
+    if (w.workflow.schemaVersion === 5) return true;
     if (w.workflow.schemaVersion !== 4) continue;
     processes.walkSteps(w.workflow, ({ step }) => {
       if (step.kind === "write" && step.action !== undefined) found = true;
@@ -441,6 +451,10 @@ export async function validateForPublish(
             // v0.14 W4-B
             grants: await boundGrants(tx, row),
             entities: boundEntities(row.bindings, ctx.tools),
+            // The step model: an action switched off on its connector is a publish issue.
+            ...(ctx.actionsOff && holdsStepModel(bundle)
+              ? { actionsOff: await ctx.actionsOff(tx) }
+              : {}),
           },
           // Skill model (2026-11-10): action write steps resolve from the bindings and channels.
           ...(holdsAction(bundle)
