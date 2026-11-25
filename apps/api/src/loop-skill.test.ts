@@ -3,7 +3,10 @@
 // case and every case passing on that exact version), has no one-step rollback, and keeps its turns
 // with each case's result. Against a real database as cs_worker, with the FakeModel.
 
+import { runSkillCase } from "@countersign/agents";
+import { newSkillVersionProblems, toolLookup } from "@countersign/core";
 import { FakeModel } from "@countersign/llm";
+import { RECONCILE_SKILLS } from "@countersign/pack-bookkeeping";
 import { afterAll, describe, expect, it } from "vitest";
 import { type ApiHarness, createApiHarness, OPERATOR } from "./api.test-helper";
 import { MemoryTestSuiteJobs } from "./testbench/instances";
@@ -205,5 +208,94 @@ describe.skipIf(!h)("Loop skills (step model §8)", () => {
     });
     expect(res.status).toBe(422);
     expect(j(res.json).error.code).toBe("loop_rollback");
+  });
+
+  // The first Loop: the Bookkeeping leftovers investigation, read only (§10a).
+  describe("the Bookkeeping leftovers Loop", () => {
+    const def = RECONCILE_SKILLS.find((x) => x.id === "bookkeeping.investigate-leftovers");
+    const ITEM_A = "11111111-1111-4111-8111-111111111111";
+    const ITEM_B = "22222222-2222-4222-8222-222222222222";
+    const RECON = "33333333-3333-4333-8333-333333333333";
+
+    it("only reads, by the platform's own tools", () => {
+      if (!def) throw new Error("the Loop isn't in the pack");
+      const lookup = toolLookup(H.platform.tools.specs());
+      expect(newSkillVersionProblems(def, lookup)).toEqual([]);
+      for (const t of def.reads ?? []) expect(lookup(t)?.sideEffect, t).toBe("none");
+    });
+
+    it("looks, then hands back proposals, and a write it tries is refused", async () => {
+      if (!def) throw new Error("the Loop isn't in the pack");
+      const model = new FakeModel([
+        {
+          text: "Open the reconciliation.",
+          toolUse: { name: "bookkeeping__reconcile__open", input: { reconciliationId: RECON } },
+        },
+        // It tries to propose the match itself: not an action a Loop is offered.
+        {
+          toolUse: {
+            name: "bookkeeping__reconcile__propose",
+            input: {
+              reconciliationId: RECON,
+              aItemIds: [ITEM_A],
+              bItemIds: [ITEM_B],
+              reason: "same deposit",
+              confidence: 0.9,
+            },
+          },
+        },
+        {
+          toolUse: {
+            name: "finish",
+            input: {
+              proposals: [
+                {
+                  aItemIds: [ITEM_A],
+                  bItemIds: [ITEM_B],
+                  reason: "The same deposit, dated two days apart.",
+                  confidence: 0.9,
+                },
+              ],
+              unexplained: "Nothing else is left.",
+              sources: [RECON, ITEM_A, ITEM_B],
+            },
+          },
+        },
+      ]);
+      const run = await runSkillCase(
+        { tools: H.platform.tools, transport: model },
+        {
+          definition: def,
+          tenantId: null,
+          input: { reconciliationId: RECON },
+          fixtures: [
+            {
+              tool: "bookkeeping.reconcile.open",
+              output: {
+                reconciliationId: RECON,
+                unmatched: [
+                  { id: ITEM_A, side: "a", effect: "250.00", description: "Deposit" },
+                  { id: ITEM_B, side: "b", effect: "250.00", description: "DEP 0412" },
+                ],
+              },
+            },
+          ],
+        },
+      );
+      expect(run.status, run.error ?? "").toBe("succeeded");
+      expect(run.output).toMatchObject({ proposals: [{ aItemIds: [ITEM_A] }] });
+      expect(run.turns.map((t) => t.calls.map((c) => [c.tool, c.status]))).toEqual([
+        [["bookkeeping.reconcile.open", "succeeded"]],
+        [["bookkeeping.reconcile.propose", "refused"]],
+        [],
+      ]);
+      expect(run.turns[2]?.finished).toBe(true);
+      // Only the reads were offered.
+      const offered = (model.requests[0]?.tools ?? []).map((t) => t.name);
+      expect(offered).toEqual(
+        expect.arrayContaining(["bookkeeping__reconcile__open", "bookkeeping__transactions__open"]),
+      );
+      expect(offered).not.toContain("bookkeeping__reconcile__propose");
+    });
   });
 });
