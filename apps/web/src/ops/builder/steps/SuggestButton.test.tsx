@@ -22,6 +22,7 @@ describe("Suggest", () => {
     expect(screen.getByText("Tell it what you need")).toBeTruthy();
     expect(screen.getByText("Use the default")).toBeTruthy();
     await user.click(screen.getByText("Use the default"));
+    await user.click(screen.getByRole("button", { name: "Suggest" }));
     await waitFor(() =>
       expect(onApply).toHaveBeenCalledWith(expect.objectContaining({ name: "Read the invoice" })),
     );
@@ -40,7 +41,6 @@ describe("Suggest", () => {
     }));
     render(<SuggestButton step={step} label="this step" suggest={suggest} onApply={onApply} />);
     await user.click(screen.getByRole("button", { name: "Suggest for this step" }));
-    await user.click(screen.getByText("Tell it what you need"));
     await user.type(screen.getByRole("textbox"), "only lines over $500");
     await user.click(screen.getByRole("button", { name: "Suggest" }));
     await screen.findByText("Suggest isn't switched on yet.");

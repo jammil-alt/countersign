@@ -24,8 +24,7 @@ export interface SuggestButtonProps {
 
 type State =
   | { phase: "closed" }
-  | { phase: "menu" }
-  | { phase: "tell"; text: string }
+  | { phase: "menu"; how: SuggestHow; text: string }
   | { phase: "working" }
   | { phase: "done"; summary: string; undo: Step | null }
   | { phase: "failed"; message: string };
@@ -36,10 +35,13 @@ export function SuggestButton(props: SuggestButtonProps) {
   const box = useRef<HTMLDivElement>(null);
   const id = useId();
   const open = state.phase !== "closed";
+  // Resolve is the first choice where something is flagged, else "Tell it what you need".
+  const first: SuggestHow = props.flagged ? "resolve" : "tell";
+  const menu = (): State => ({ phase: "menu", how: first, text: "" });
 
   // A click outside closes the pop-up, unless it is working or shows what it did (Undo stays).
   useEffect(() => {
-    if (state.phase !== "menu" && state.phase !== "tell") return;
+    if (state.phase !== "menu") return;
     const away = (e: MouseEvent) => {
       if (box.current && !box.current.contains(e.target as Node)) setState({ phase: "closed" });
     };
@@ -62,10 +64,6 @@ export function SuggestButton(props: SuggestButtonProps) {
     }
   };
 
-  const choices = props.flagged
-    ? [...SUGGEST_CHOICES].sort((a, b) => Number(b.how === "resolve") - Number(a.how === "resolve"))
-    : SUGGEST_CHOICES;
-
   return (
     <div ref={box} className="relative inline-flex" data-testid={`suggest-${field ?? "step"}`}>
       <button
@@ -77,7 +75,7 @@ export function SuggestButton(props: SuggestButtonProps) {
           "ds-btn ds-btn--ghost ds-btn--icon ds-btn--sm",
           props.flagged ? "text-slate" : "text-ink-muted hover:text-ink",
         )}
-        onClick={() => setState(open ? { phase: "closed" } : { phase: "menu" })}
+        onClick={() => setState(open ? { phase: "closed" } : menu())}
       >
         <SopIcon name="ai" size={16} />
       </button>
@@ -89,47 +87,51 @@ export function SuggestButton(props: SuggestButtonProps) {
           className="absolute right-0 top-full z-20 mt-1 flex w-72 flex-col gap-2 border border-line bg-surface p-3 text-sm"
         >
           {state.phase === "menu" ? (
-            <ul className="flex flex-col">
-              {choices.map((c) => (
-                <li key={c.how}>
-                  <button
-                    type="button"
-                    className="flex w-full flex-col items-start px-2 py-1.5 text-left hover:bg-surface-muted"
-                    onClick={() =>
-                      c.how === "tell" ? setState({ phase: "tell", text: "" }) : void ask(c.how)
-                    }
-                  >
-                    <span className="text-ink">{c.label}</span>
-                    <span className="text-xs text-ink-muted">{c.hint}</span>
-                  </button>
-                </li>
-              ))}
-            </ul>
-          ) : null}
-          {state.phase === "tell" ? (
             <form
               className="flex flex-col gap-2"
               onSubmit={(e) => {
                 e.preventDefault();
-                if (state.text.trim()) void ask("tell", state.text.trim());
+                if (state.how === "tell" && !state.text.trim()) return;
+                void ask(state.how, state.how === "tell" ? state.text.trim() : undefined);
               }}
             >
-              <label className="text-ink" htmlFor={`${id}-text`}>
-                Tell it what you need
-              </label>
-              <textarea
-                id={`${id}-text`}
-                className="ds-input min-h-16"
-                value={state.text}
-                onChange={(e) => setState({ phase: "tell", text: e.target.value })}
-                placeholder="Only lines over $500"
-              />
-              <div className="flex gap-2">
-                <Button type="submit" variant="primary" size="sm" disabled={!state.text.trim()}>
-                  Suggest
+              <span className="eyebrow text-ink-muted">Suggest</span>
+              {SUGGEST_CHOICES.map((c) => (
+                <div key={c.how} className="flex flex-col">
+                  <button
+                    type="button"
+                    aria-pressed={state.how === c.how}
+                    className={cx(
+                      "flex w-full flex-col items-start px-2 py-1.5 text-left hover:bg-surface-muted",
+                      state.how === c.how && "bg-surface-muted",
+                    )}
+                    onClick={() => setState({ ...state, how: c.how })}
+                  >
+                    <span className="text-ink">{c.label}</span>
+                    <span className="text-xs text-ink-muted">{c.hint}</span>
+                  </button>
+                  {c.how === "tell" && state.how === "tell" ? (
+                    <textarea
+                      aria-label="What you need"
+                      className="ds-input mt-1 min-h-16"
+                      value={state.text}
+                      onChange={(e) => setState({ ...state, text: e.target.value })}
+                      placeholder="Only lines over $500"
+                    />
+                  ) : null}
+                </div>
+              ))}
+              <div className="flex justify-end gap-2">
+                <Button size="sm" onClick={() => setState({ phase: "closed" })}>
+                  Cancel
                 </Button>
-                <Button size="sm" onClick={() => setState({ phase: "menu" })}>
-                  Back
+                <Button
+                  type="submit"
+                  variant="primary"
+                  size="sm"
+                  disabled={state.how === "tell" && !state.text.trim()}
+                >
+                  Suggest
                 </Button>
               </div>
             </form>
@@ -159,7 +161,7 @@ export function SuggestButton(props: SuggestButtonProps) {
           {state.phase === "failed" ? (
             <div className="flex flex-col gap-2">
               <p className="text-risk-ink">{state.message}</p>
-              <Button size="sm" onClick={() => setState({ phase: "menu" })}>
+              <Button size="sm" onClick={() => setState(menu())}>
                 Back
               </Button>
             </div>

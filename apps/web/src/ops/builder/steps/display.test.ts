@@ -64,8 +64,8 @@ describe("how the chart draws a step-model workflow", () => {
     );
     expect(boxWords(named, ctx)).toMatchObject({
       title: "Enter the bill",
-      kind: "Do · Rules",
-      detail: "QuickBooks › Create bill",
+      kind: "Do",
+      detail: "Rules · QuickBooks › Create bill",
       connector: { id: "qbo", name: "QuickBooks" },
     });
     expect(boxWords(newStep("end", id), ctx).detail).toBe("Not filled in yet");

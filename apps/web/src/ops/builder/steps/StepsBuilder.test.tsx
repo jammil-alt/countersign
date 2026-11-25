@@ -165,6 +165,11 @@ describe("the step-model builder", () => {
     await screen.findByTestId("flow-chart");
     expect(rootOrder()).toEqual(["enter", "end"]);
     expect(screen.getByTestId("steps-builder")).toBeTruthy();
+    // The line under a card says who does it and what it uses; an End says what it delivers.
+    expect(screen.getByTestId("flow-box-enter").textContent).toContain(
+      "Rules · QuickBooks Online › Create a bill",
+    );
+    expect(screen.getByTestId("flow-cap-end").textContent).toBe("Not filled in yet");
   });
 
   it("says what stops Publish on its steps, in words, and refuses while any remain", async () => {

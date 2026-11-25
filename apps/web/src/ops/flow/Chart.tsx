@@ -708,7 +708,14 @@ function StepBox(p: {
       onMouseLeave={() => p.onHover(null)}
     >
       {box.shape === "pill" ? (
-        <span className="flow-box__t">{t("flow.stop")}</span>
+        <>
+          <span className="flow-box__t">{words.pill?.word ?? t("flow.stop")}</span>
+          {words.pill?.under ? (
+            <span className="flow-box__cap" data-testid={`flow-cap-${step.id}`}>
+              {words.pill.under}
+            </span>
+          ) : null}
+        </>
       ) : box.shape === "diamond" ? (
         <span className="flow-box__t">{words.title}</span>
       ) : (

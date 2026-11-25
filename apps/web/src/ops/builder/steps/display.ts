@@ -116,6 +116,8 @@ export interface BoxWords {
   connector?: { id: string; name: string };
   does?: string;
   purpose?: string;
+  /** An End drawn as a Stop pill with what it delivers under it. */
+  pill?: { word: string; under: string };
 }
 
 const KIND_WORDS: Record<steps.StepKind, string> = {
@@ -131,6 +133,34 @@ const KIND_WORDS: Record<steps.StepKind, string> = {
 
 const DONE_BY_WORDS = { rules: "Rules", ai: "AI", person: "Person", contact: "Outside contact" };
 
+/**
+ * The small line under a Do's name (docs/design/step-model.html §1): who does it, then what it uses,
+ * "AI · Read a document", "Match · Vendors · hybrid", "Rules · Purchasing › Register lines".
+ */
+export function doLine(step: Extract<Step, { kind: "do" }>, ctx: UsesContext): string {
+  const uses = step.uses;
+  if (uses?.type === "missing") return "Not built yet";
+  if (uses?.type === "automation") return `Automation · ${usesLabel(step, ctx)}`;
+  const confer = step.checks?.confer ? " · confer" : "";
+  if (uses?.type === "match") {
+    const profile = ctx.profiles.find((p) => p.id === uses.match.to);
+    const type =
+      uses.match.type === "exact"
+        ? (() => {
+            const keys = (uses.match.keys ?? []).map(
+              (k) => profile?.keys.find((x) => x.id === k)?.name ?? k,
+            );
+            return keys.length > 0 ? `exact on ${keys.join(", ")}` : "exact";
+          })()
+        : uses.match.type;
+    return `Match · ${profile?.name ?? uses.match.to} · ${type}${confer}`;
+  }
+  if (!step.doneBy) return "Not chosen yet";
+  const who = DONE_BY_WORDS[step.doneBy];
+  if (uses) return `${who} · ${usesLabel(step, ctx)}${confer}`;
+  return `${who}${confer}`;
+}
+
 /** The words for a v5 step's box, from the step and what it uses. */
 export function boxWords(
   step: Step,
@@ -143,15 +173,10 @@ export function boxWords(
   switch (step.kind) {
     case "do": {
       const a = step.uses?.type === "action" ? ctx.actions.get(step.uses.action) : undefined;
-      const detail = step.uses
-        ? usesLabel(step, ctx)
-        : step.doneBy
-          ? `Done by ${DONE_BY_WORDS[step.doneBy].toLowerCase()}`
-          : "Not chosen yet";
       return {
         title,
-        kind: step.doneBy ? `Do · ${DONE_BY_WORDS[step.doneBy]}` : kind,
-        detail,
+        kind,
+        detail: doLine(step, ctx),
         ...(step.doneBy === "ai" ? { skillKind: "AI" } : {}),
         ...(step.ai?.model ? { model: step.ai.model.id } : {}),
         ...(a ? { connector: { id: a.groupId, name: a.groupName }, does: actionPath(a) } : {}),
@@ -164,15 +189,17 @@ export function boxWords(
       const names = step.outputs
         .map((id) => workflow?.outputs.find((o) => o.id === id)?.name)
         .filter((n): n is string => !!n);
+      const under =
+        names.length > 0
+          ? names.join(" · ")
+          : step.nothingToDo
+            ? `Nothing to do: ${step.nothingToDo}`
+            : "Not filled in yet";
       return {
         title: step.name.trim() || "End",
         kind,
-        detail:
-          names.length > 0
-            ? names.join(", ")
-            : step.nothingToDo
-              ? `Nothing to do: ${step.nothingToDo}`
-              : "Not filled in yet",
+        detail: under,
+        pill: { word: "End", under },
         ...purpose,
       };
     }
