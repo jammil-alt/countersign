@@ -245,6 +245,25 @@ describe.skipIf(!online)("the records port", () => {
     expect(still?.region).toBe("West");
   });
 
+  it("keeps both of two updates made at once to the same record", async () => {
+    // Each write locks its record: the second waits for the first and adds to what it wrote.
+    await Promise.all([
+      port.update(A.tenantId, "vendor", A.vendorId, { region: "South" }, meta(A, "c1")),
+      port.update(A.tenantId, "vendor", A.vendorId, { terms: "Net 45" }, meta(A, "c2")),
+      port.update(A.tenantId, "vendor", A.vendorId, { creditLimit: "900.00" }, meta(A, "c3")),
+    ]);
+    const [v] = await port.get(A.tenantId, "vendor", [A.vendorId]);
+    expect(v).toMatchObject({ region: "South", terms: "Net 45", creditLimit: "900.00" });
+    // Put back what later tests read.
+    await port.update(
+      A.tenantId,
+      "vendor",
+      A.vendorId,
+      { region: "West", terms: "Net 30", creditLimit: "2500.00" },
+      meta(A, "c4"),
+    );
+  });
+
   it("refuses what the rules refuse: built-in fields, wrong types, card numbers, unknown fields", async () => {
     await expect(
       port.update(A.tenantId, "vendor", A.vendorId, { name: "Renamed" }, meta(A, "k2")),

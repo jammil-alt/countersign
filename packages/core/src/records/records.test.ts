@@ -235,52 +235,59 @@ describe("custom fields", () => {
 
   it("checks a definition: names, links, the limit, and no type change once it holds data", () => {
     const def = field({ name: "terms", type: "text" });
-    expect(
-      customFieldProblems({ def, recordType: VENDOR, knownTypes: known, existing: [] }),
-    ).toEqual([]);
-    expect(
+    const check = (over: Partial<Parameters<typeof customFieldProblems>[0]>) =>
       customFieldProblems({
-        def: field({ name: "name", type: "text" }),
+        def,
         recordType: VENDOR,
         knownTypes: known,
-        existing: [],
-      }),
-    ).toEqual(["vendor already has a field name"]);
+        others: [],
+        counted: 0,
+        ...over,
+      });
+    expect(check({})).toEqual([]);
+    expect(check({ def: field({ name: "name", type: "text" }) })).toEqual([
+      "vendor already has a field name",
+    ]);
     expect(
-      customFieldProblems({
-        def: field({ name: "owner", type: "record", spec: { record: "deal" } }),
-        recordType: VENDOR,
-        knownTypes: known,
-        existing: [],
-      }),
+      check({ def: field({ name: "owner", type: "record", spec: { record: "deal" } }) }),
     ).toEqual(["there is no record type deal to link to"]);
-    const many = Array.from({ length: MAX_CUSTOM_FIELDS }, (_, i) =>
-      field({ name: `f${i}`, type: "text" }),
-    );
-    expect(
-      customFieldProblems({ def, recordType: VENDOR, knownTypes: known, existing: many }),
-    ).toEqual([`vendor has ${MAX_CUSTOM_FIELDS} custom fields, the most it can have`]);
+    expect(check({ counted: MAX_CUSTOM_FIELDS })).toEqual([
+      `vendor has ${MAX_CUSTOM_FIELDS} custom fields, the most it can have`,
+    ]);
+    // Showing a removed field again counts like a new one; changing a shown one doesn't.
+    const hidden = { ...def, hidden: true };
+    expect(check({ before: hidden, counted: MAX_CUSTOM_FIELDS })).toHaveLength(1);
+    expect(check({ before: def, def: { ...def, label: "Terms" }, counted: 60 })).toEqual([]);
     const changed = { ...def, type: "number" as const };
+    expect(check({ def: changed, before: def, holdsData: true })).toEqual([
+      "terms holds data, so its type can't change; add a new field instead",
+    ]);
+    expect(check({ def: changed, before: def, holdsData: false })).toEqual([]);
+  });
+
+  it("never lets a client's field and a shared field share a name, and never changes a shared type", () => {
+    const shared = field({ name: "terms", type: "text", scope: "shared" });
+    const own = field({ name: "terms", type: "number" });
+    const base = { recordType: VENDOR, knownTypes: known, counted: 0 };
+    expect(customFieldProblems({ ...base, def: own, others: [shared] })).toEqual([
+      "vendor already has a shared custom field terms",
+    ]);
+    expect(customFieldProblems({ ...base, def: shared, others: [own] })).toEqual([
+      "vendor already has a client's custom field terms",
+    ]);
+    // A hidden field's name stays taken.
+    expect(
+      customFieldProblems({ ...base, def: own, others: [{ ...shared, hidden: true }] }),
+    ).toHaveLength(1);
     expect(
       customFieldProblems({
-        def: changed,
-        recordType: VENDOR,
-        knownTypes: known,
-        existing: [def],
-        before: def,
-        holdsData: true,
-      }),
-    ).toEqual(["terms holds data, so its type can't change; add a new field instead"]);
-    expect(
-      customFieldProblems({
-        def: changed,
-        recordType: VENDOR,
-        knownTypes: known,
-        existing: [def],
-        before: def,
+        ...base,
+        def: { ...shared, type: "number" },
+        others: [],
+        before: shared,
         holdsData: false,
       }),
-    ).toEqual([]);
+    ).toEqual(["terms is shared, so its type can't change; add a new field instead"]);
   });
 
   it("shows a client's own and shared fields, never hidden ones, its own first", () => {

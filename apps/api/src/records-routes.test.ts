@@ -158,6 +158,58 @@ describe.skipIf(!h)("record types and custom fields", () => {
     await H.call(OPERATOR, "PATCH", `/api/ops/custom-fields/${region.id}`, { hidden: false });
   });
 
+  it("keeps a name to one field across a client's and the shared ones, and never changes a shared type", async () => {
+    const own = await create(OPERATOR, { clientId: H.B.tenantId, name: "terms", label: "Terms" });
+    expect(own.status).toBe(422);
+    expect(j(own.json).error.message).toContain("already has a shared custom field terms");
+    const shared = await create(OPERATOR, { name: "region", label: "Region" });
+    expect(shared.status).toBe(422);
+    expect(j(shared.json).error.message).toContain("already has a client's custom field region");
+    const fields = j((await H.call(OPERATOR, "GET", "/api/ops/record-types")).json).fields;
+    const terms = fields.find((f: { name: string }) => f.name === "terms");
+    const retyped = await H.call(OPERATOR, "PATCH", `/api/ops/custom-fields/${terms.id}`, {
+      type: "number",
+    });
+    expect(retyped.status).toBe(422);
+    expect(j(retyped.json).error.message).toContain("is shared, so its type can't change");
+  });
+
+  it("caps a client at 50 fields per record type, its own and the shared ones together", async () => {
+    // B has the shared "terms"; 49 of its own make 50.
+    await H.t.db.insert(customField).values(
+      Array.from({ length: 49 }, (_, i) => ({
+        tenantId: H.B.tenantId,
+        recordType: "vendor",
+        name: `b${i}`,
+        label: `B ${i}`,
+        type: "text" as const,
+      })),
+    );
+    const full = await create(OPERATOR, { clientId: H.B.tenantId, name: "more", label: "More" });
+    expect(full.status).toBe(422);
+    expect(j(full.json).error.message).toContain("50 custom fields, the most it can have");
+    // A new shared field would show at B too.
+    const sharedFull = await create(OPERATOR, { name: "sharedMore", label: "Shared more" });
+    expect(sharedFull.status).toBe(422);
+    // Remove one, add one, and the removed one can't be shown again.
+    const forB = j(
+      (await H.call(OPERATOR, "GET", `/api/ops/record-types?client=${H.B.tenantId}`)).json,
+    ).fields;
+    const b0 = forB.find((f: { name: string }) => f.name === "b0");
+    await H.call(OPERATOR, "PATCH", `/api/ops/custom-fields/${b0.id}`, { hidden: true });
+    expect(
+      (await create(OPERATOR, { clientId: H.B.tenantId, name: "more", label: "More" })).status,
+    ).toBe(200);
+    const shown = await H.call(OPERATOR, "PATCH", `/api/ops/custom-fields/${b0.id}`, {
+      hidden: false,
+    });
+    expect(shown.status).toBe(422);
+    // A's count isn't B's.
+    expect(
+      (await create(OPERATOR, { clientId: H.A.tenantId, name: "aMore", label: "A" })).status,
+    ).toBe(200);
+  });
+
   it("offers record actions only as the agent's grants allow, typed with its client's fields", async () => {
     const ids = async () =>
       (
@@ -198,7 +250,14 @@ describe.skipIf(!h)("record types and custom fields", () => {
       "records.vendor.update",
     ]);
     const get = actions.find((a) => a.id === "records.vendor.get");
-    expect(get?.output.map((f) => f.name)).toEqual(["id", "name", "createdAt", "region", "terms"]);
+    expect(get?.output.map((f) => f.name)).toEqual([
+      "id",
+      "name",
+      "createdAt",
+      "region",
+      "aMore",
+      "terms",
+    ]);
   });
 
   it("won't publish a grant on a record type nobody declares or a write it doesn't allow", async () => {

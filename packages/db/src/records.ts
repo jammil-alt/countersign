@@ -62,12 +62,18 @@ export function tableRecordStore(o: TableRecordStoreOptions): RecordStore<Tx> {
     return { id: String(row.__id), values, ext: asObject(row.__ext) };
   };
 
-  async function get(tx: Tx, tenantId: string, ids: readonly string[]) {
+  async function get(
+    tx: Tx,
+    tenantId: string,
+    ids: readonly string[],
+    options: { lock?: boolean } = {},
+  ) {
     if (ids.length === 0) return [];
-    const rows = await tx
+    const query = tx
       .select(select)
       .from(o.table)
       .where(scoped(tenantId, inArray(o.id, [...ids])));
+    const rows = options.lock ? await query.for("update") : await query;
     return rows.map(toRecord);
   }
 

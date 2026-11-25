@@ -1,26 +1,21 @@
 // Back office: record types and custom fields (docs/step-model-plan.md §10f). The operator adds a
 // field to a record type for one client or shared with every client, changes its words, and
-// removes it (hidden, its data kept). A field's type changes only while no record holds a value
-// for it. Operator only (invariant 11); every route through `mount`, which writes the audit row
+// removes it (hidden, its data kept). A client's field's type changes only while none of its
+// records holds a value for it; a shared field's never does. A name is never both a client's and a
+// shared field's. Operator only (invariant 11); every route through `mount`, which writes the audit row
 // (invariant 14). A client's fields are read and written in that client's scope only.
 
 import {
   type CustomFieldDef,
   type CustomFieldView,
   customFieldProblems,
-  MAX_CUSTOM_FIELDS,
   routes,
 } from "@countersign/core";
 import { customField, narrowToTenant, type Tx } from "@countersign/db";
 import { eq, isNull } from "drizzle-orm";
 import type { Hono } from "hono";
 import { type AppEnv, ensureClient, HttpError, mount, notFound } from "../http";
-import {
-  type CustomFieldRow,
-  clientCustomFields,
-  defOf,
-  sharedCustomFields,
-} from "../records/fields";
+import { type CustomFieldRow, defOf } from "../records/fields";
 import type { RecordCatalog } from "../records/registry";
 
 function view(row: CustomFieldRow): CustomFieldView {
@@ -34,30 +29,48 @@ function view(row: CustomFieldRow): CustomFieldView {
   };
 }
 
-/** Whether any record holds a value for the field: in its client, or (shared) in any served. */
+/** Whether any of the client's records holds a value for its field. */
 async function holdsData(
   tx: Tx,
   catalog: RecordCatalog,
   def: CustomFieldDef,
-  clientId: string | null,
-  served: readonly string[],
+  clientId: string,
 ): Promise<boolean> {
   const store = catalog.store(def.recordType);
   if (!store) return false;
-  // DECISION: a shared field's data is looked for in every client this operator serves; RLS keeps
-  // the rest out of reach, so an operator who serves fewer clients may change a shared field's type
-  // that another client's records use. Shared fields are few and an owner's change; noted under
-  // Not done in the PR.
-  for (const t of clientId ? [clientId] : served) {
-    if (await narrowToTenant(tx, t, (one) => store.holdsCustom(one, def.name))) return true;
-  }
-  return false;
+  return narrowToTenant(tx, clientId, (one) => store.holdsCustom(one, def.name));
 }
 
-async function existingDefs(tx: Tx, clientId: string | null, recordType: string) {
-  return clientId
-    ? narrowToTenant(tx, clientId, (one) => clientCustomFields(one, clientId, recordType))
-    : sharedCustomFields(tx, recordType);
+/**
+ * What a field's name and the cap are checked against (core's `customFieldProblems`): for a
+ * client's field, its own and the shared ones on the record type; for a shared field, the shared
+ * ones and the own fields of every client this operator serves (RLS shows those), the cap being the
+ * most any of them would show. `except` leaves out the field being changed.
+ */
+async function around(
+  tx: Tx,
+  clientId: string | null,
+  recordType: string,
+  except?: string,
+): Promise<{ others: CustomFieldDef[]; counted: number }> {
+  const rows = await tx.select().from(customField).where(eq(customField.recordType, recordType));
+  const defs = rows
+    .filter((r) => r.id !== except)
+    .map((r) => ({ row: r, def: defOf(r) }))
+    .filter((x): x is { row: CustomFieldRow; def: CustomFieldDef } => x.def !== null);
+  const shared = defs.filter((x) => x.row.tenantId === null);
+  const shown = (xs: typeof defs) => xs.filter((x) => !x.def.hidden).length;
+  if (clientId) {
+    const own = defs.filter((x) => x.row.tenantId === clientId);
+    return { others: [...own, ...shared].map((x) => x.def), counted: shown(own) + shown(shared) };
+  }
+  const perClient = new Map<string, typeof defs>();
+  for (const x of defs) {
+    if (x.row.tenantId)
+      perClient.set(x.row.tenantId, [...(perClient.get(x.row.tenantId) ?? []), x]);
+  }
+  const most = Math.max(0, ...[...perClient.values()].map(shown));
+  return { others: defs.map((x) => x.def), counted: shown(shared) + most };
 }
 
 export function opsRecordRoutes(app: Hono<AppEnv>): void {
@@ -106,7 +119,7 @@ export function opsRecordRoutes(app: Hono<AppEnv>): void {
       def,
       recordType: records.type(body.recordType),
       knownTypes: new Set(records.types.map((t) => t.id)),
-      existing: await existingDefs(tx, clientId, body.recordType),
+      ...(await around(tx, clientId, body.recordType)),
     });
     if (problems.length > 0) throw new HttpError(422, "invalid_field", problems.join("; "));
     const [row] = await tx
@@ -146,23 +159,16 @@ export function opsRecordRoutes(app: Hono<AppEnv>): void {
     };
     const typeChanged =
       after.type !== before.type || JSON.stringify(after.spec) !== JSON.stringify(before.spec);
-    const existing = await existingDefs(tx, row.tenantId, row.recordType);
     const problems = customFieldProblems({
       def: after,
       recordType: records.type(row.recordType),
       knownTypes: new Set(records.types.map((t) => t.id)),
-      existing,
+      ...(await around(tx, row.tenantId, row.recordType, row.id)),
       before,
-      holdsData: typeChanged
-        ? await holdsData(tx, records, before, row.tenantId, ctx.tenantIds)
-        : false,
+      // A shared field's type never changes (core says so); a client's only while it holds no data.
+      holdsData:
+        typeChanged && row.tenantId ? await holdsData(tx, records, before, row.tenantId) : false,
     });
-    // A field shown again counts toward the limit like a new one.
-    if (before.hidden && !after.hidden) {
-      const shown = existing.filter((d) => !d.hidden).length;
-      if (shown >= MAX_CUSTOM_FIELDS)
-        problems.push(`${row.recordType} has ${shown} custom fields, the most it can have`);
-    }
     if (problems.length > 0) throw new HttpError(422, "invalid_field", problems.join("; "));
     const [updated] = await tx
       .update(customField)

@@ -95,7 +95,16 @@ function memoryRecords() {
   return { port, calls, writes };
 }
 
-function setUp(data: AgentData | undefined, opts: { tenantId?: string; readOnly?: boolean } = {}) {
+function setUp(
+  data: AgentData | undefined,
+  opts: {
+    tenantId?: string;
+    readOnly?: boolean;
+    mode?: "act" | "suggest_only";
+    stage?: string | null;
+    run?: "live" | "test";
+  } = {},
+) {
   const records = memoryRecords();
   const logged: { status: string; output: unknown }[] = [];
   const deps = {
@@ -111,7 +120,7 @@ function setUp(data: AgentData | undefined, opts: { tenantId?: string; readOnly?
           logged.push(done);
         },
       },
-      store: {},
+      store: { agentStage: async () => (opts.stage === undefined ? "live" : opts.stage) },
       platform: {},
       records: records.port,
     },
@@ -121,13 +130,15 @@ function setUp(data: AgentData | undefined, opts: { tenantId?: string; readOnly?
     runId: "r1",
     stepRunId: "s1",
     stepId: "margin",
-    mode: "live",
+    mode: opts.run ?? "live",
     readOnly: opts.readOnly,
     agent: {
       agentId: "a1",
       agentVersionId: "v1",
       bindings: {},
-      bundle: { definition: { permissions: { mode: "act" }, ...(data ? { data } : {}) } },
+      bundle: {
+        definition: { permissions: { mode: opts.mode ?? "act" }, ...(data ? { data } : {}) },
+      },
     },
     externalIndex: { next: 0 },
   } as unknown as StepContext;
@@ -247,6 +258,31 @@ describe("the gate on record types", () => {
     // The port saves once under the key (the record_write log); the same write has the same key.
     expect(first?.meta.key).toMatch(/^rec:r1:margin:records\.job_margin\.create:/);
     expect(again?.meta.key).toBe(first?.meta.key);
+  });
+
+  it("writes without a person only for an agent that acts and is live; reads go on", async () => {
+    const write = { id: J1, margin: "1.00" };
+    for (const [opts, words] of [
+      [{ mode: "suggest_only" as const }, /suggests only/],
+      [{ stage: "trial" }, /in its trial stage/],
+      [{ stage: "signoff" }, /in its signoff stage/],
+      [{ stage: null }, /in its bench stage/],
+    ] as const) {
+      const t = setUp(MARGIN_SET, opts);
+      expect(await t.call("records.job_margin.update", write), JSON.stringify(opts)).toMatchObject({
+        status: "refused",
+        reason: expect.stringMatching(words),
+      });
+      expect(t.writes).toEqual([]);
+      expect(await t.call("records.job_margin.find", {})).toMatchObject({ status: "done" });
+    }
+    // A test run in its trial checks the write (the port saves nothing in a test run).
+    const tried = setUp(MARGIN_SET, { stage: "trial", run: "test" });
+    expect(await tried.call("records.job_margin.update", write)).toMatchObject({ status: "done" });
+    expect(tried.writes[0]?.meta.mode).toBe("test");
+    // Acting and live: no person needed.
+    const live = setUp(MARGIN_SET);
+    expect(await live.call("records.job_margin.update", write)).toMatchObject({ status: "done" });
   });
 
   it("lets an asked agent read only, whatever it is granted", async () => {

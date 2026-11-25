@@ -213,7 +213,9 @@ export function dbRecordsPort(db: Db, catalog: RecordCatalog): RecordsPort {
         const custom = await visible(tx, tenantId, recordType);
         const again = await earlier(tx, tenantId, store, meta.key, custom);
         if (again) return again;
-        const [before] = await store.get(tx, tenantId, [id]);
+        // Locked until this write commits: a write at the same time waits and reads what this one
+        // wrote, so neither loses the other's custom values (invariant 10).
+        const [before] = await store.get(tx, tenantId, [id], { lock: true });
         if (!before)
           throw new RecordRuleError(`there is no ${store.type.name.toLowerCase()} ${id}`);
         const write = splitWrite(store.type, custom, values, before);

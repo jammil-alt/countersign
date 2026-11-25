@@ -96,15 +96,23 @@ export function visibleCustomFields(
 }
 
 /**
- * What a new or changed definition breaks, in plain words (empty: none). `existing` is every
- * definition the client has on the record type (hidden ones included: their names are taken);
- * `holdsData` whether any record has a value for the field being changed.
+ * What a new or changed definition breaks, in plain words (empty: none).
+ * - `others`: every other definition its name could meet on the record type, hidden ones included
+ *   (their names stay taken): for a client's field, the client's own and the shared ones; for a
+ *   shared field, the shared ones and the clients' own the caller can see.
+ * - `counted`: how many fields already count toward the cap where it would show: a client's own and
+ *   the shared ones together (for a shared field, the most any client has).
+ * - `holdsData`: whether a record holds a value for the field being changed (a client's field).
  */
+// DECISION (review of #687): a name is never both a client's and a shared field's, so a client's
+// field can't shadow a shared one that holds data with another type; and a shared field's type
+// never changes once created (add a new field), since no one operator can see every client's data.
 export function customFieldProblems(input: {
   def: CustomFieldDef;
   recordType: Pick<RecordType, "id" | "fields" | "links" | "customFields"> | undefined;
   knownTypes: ReadonlySet<string>;
-  existing: readonly CustomFieldDef[];
+  others: readonly CustomFieldDef[];
+  counted: number;
   before?: CustomFieldDef | undefined;
   holdsData?: boolean;
 }): string[] {
@@ -122,24 +130,32 @@ export function customFieldProblems(input: {
   if (def.spec.record && !input.knownTypes.has(def.spec.record)) {
     out.push(`there is no record type ${def.spec.record} to link to`);
   }
+  const typeChanged =
+    before !== undefined &&
+    (before.type !== def.type || JSON.stringify(before.spec) !== JSON.stringify(def.spec));
   if (before) {
     if (before.name !== def.name) out.push("a field's name can't change; add a new field");
     if (before.recordType !== def.recordType) out.push("a field can't move to another record type");
     if (before.scope !== def.scope) out.push("a field can't change between client and shared");
-    if (
-      input.holdsData &&
-      (before.type !== def.type || JSON.stringify(before.spec) !== JSON.stringify(def.spec))
-    ) {
+    if (typeChanged && before.scope === "shared") {
+      out.push(`${def.label} is shared, so its type can't change; add a new field instead`);
+    } else if (typeChanged && input.holdsData) {
       out.push(`${def.label} holds data, so its type can't change; add a new field instead`);
     }
   } else {
-    if (input.existing.some((d) => d.name === def.name && d.scope === def.scope)) {
-      out.push(`${def.recordType} already has a custom field ${def.name}`);
+    const taken = input.others.find((d) => d.name === def.name);
+    if (taken) {
+      out.push(
+        taken.scope === def.scope
+          ? `${def.recordType} already has a custom field ${def.name}`
+          : `${def.recordType} already has a ${taken.scope === "shared" ? "shared" : "client's"} custom field ${def.name}`,
+      );
     }
-    const count = input.existing.filter((d) => !d.hidden).length;
-    if (!def.hidden && count >= MAX_CUSTOM_FIELDS) {
-      out.push(`${def.recordType} has ${count} custom fields, the most it can have`);
-    }
+  }
+  // A new field, or a removed one shown again, counts toward the cap.
+  const shows = !def.hidden && (before === undefined || before.hidden);
+  if (shows && input.counted >= MAX_CUSTOM_FIELDS) {
+    out.push(`${def.recordType} has ${input.counted} custom fields, the most it can have`);
   }
   return out;
 }

@@ -378,6 +378,28 @@ async function dispatch(
     // grant is read from the pinned version only: nothing in a run widens it (invariant 9).
     const ungranted = recordGrantRefusal(step.agent, tool.spec, parsed.data);
     if (ungranted) return { status: "refused", reason: ungranted };
+    // Review of #687 (coordinator's decision): a live run's record write needs no client approval
+    // only from an agent that acts and is live. In `suggest_only`, or in its trial or sign-off stage
+    // (read fresh, as for a write to a client's tool), a person signs every write (invariant 8).
+    // DECISION (option a): a signed save to our own records isn't built yet, so such a write is
+    // refused with that reason; it only tightens. A test run goes on: it checks and saves nothing.
+    const record = tool.spec.record;
+    if (
+      record &&
+      (record.action === "create" || record.action === "update") &&
+      step.mode !== "test"
+    ) {
+      const stage = await deps.ports.store.agentStage(step.tenantId, step.agent.agentId);
+      if (effectiveMode(step.agent.bundle.definition, stage) !== "act") {
+        return {
+          status: "refused",
+          reason:
+            stage === "live"
+              ? `this agent suggests only, so a save to our records waits for a person, which isn't built yet (${tool.spec.id})`
+              : `in its ${stage ?? "bench"} stage every save waits for a person, which isn't built yet for our records (${tool.spec.id})`,
+        };
+      }
+    }
     const raw = await tool.tool.run(parsed.data, {
       tenantId: step.tenantId,
       agentId: step.agent.agentId,

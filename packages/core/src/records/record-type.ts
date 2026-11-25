@@ -188,7 +188,16 @@ export interface RecordStore<Tx> {
     tenantId: string,
     limit: number,
   ): Promise<{ rows: StoredRecord[]; truncated: boolean }>;
-  get(tx: Tx, tenantId: string, ids: readonly string[]): Promise<StoredRecord[]>;
+  /**
+   * With `lock`, the rows are locked for this transaction (`for update`): a write reads its record
+   * so, and writes its custom values whole, so two writes at once never lose each other's.
+   */
+  get(
+    tx: Tx,
+    tenantId: string,
+    ids: readonly string[],
+    options?: { lock?: boolean },
+  ): Promise<StoredRecord[]>;
   /** Where the record type allows Create: inserts the built-in values and the custom ones. */
   create?(
     tx: Tx,
