@@ -426,7 +426,7 @@ describe("triggers and outputs in the builder", () => {
       ["weekly-digest", 5],
     ]);
     // It opens on the new workflow, and the switcher goes back and forth.
-    // The tab shows when the saved version reloads, a moment before the switch to it lands.
+    // The tab shows as soon as the save lands; it is current once the builder has moved to it.
     await waitFor(() =>
       expect(screen.getByTestId("builder-workflow-weekly-digest-select")).toHaveAttribute(
         "aria-current",

@@ -63,6 +63,59 @@ export interface RecordsPort {
     values: RecordValues,
     meta: RecordWriteMeta,
   ): Promise<RecordValues>;
+  /**
+   * A write that waits for a person's signature (the agent suggests only, is in its trial or
+   * sign-off stage, or the step adds an approver): checked by the record type's rules now, then
+   * one approval card per key, assigned as routed. `done`: this key's write was already signed
+   * and made (a retried step); `rejected`: a person turned it down. Live runs only.
+   */
+  propose?(tenantId: string, request: RecordProposal): Promise<RecordProposalOutcome>;
+}
+
+/** A record write proposed for a person's signature. */
+export interface RecordProposal {
+  recordType: string;
+  action: "create" | "update";
+  /** The record an update changes. */
+  id?: string | undefined;
+  values: RecordValues;
+  meta: RecordWriteMeta;
+  agentId: string;
+  /** Why it waits, in plain words, for the card. */
+  why: string;
+  assignee: {
+    assigneeRole: "operator" | "client_admin" | "client_user" | null;
+    assigneeUserId: string | null;
+  };
+}
+
+export type RecordProposalOutcome =
+  | { status: "proposed"; inboxItemId: string }
+  | { status: "done"; record: RecordValues }
+  | { status: "rejected" };
+
+/** A record write's parts from its tool input: the record (an update's), the values, the evidence. */
+export function recordWriteParts(
+  action: "create" | "update",
+  input: unknown,
+): { id?: string; values: RecordValues; sources: string[] } {
+  const parsed = (action === "update" ? UpdateInput : WriteInput).parse(input) as {
+    id?: string;
+    sources: string[];
+  } & RecordValues;
+  const { id, sources, ...values } = parsed;
+  return { ...(action === "update" ? { id: id as string } : {}), values, sources };
+}
+
+/** The key a write is saved once under: the run, the step and what it writes. */
+// DECISION: the step's id and the write's input, not the step run's id, so a retried step (a new
+// step run) finds the write its first try made; the same write twice in one step is one write.
+export async function recordWriteKey(
+  at: { runId: string; stepId: string },
+  toolId: string,
+  input: unknown,
+): Promise<string> {
+  return `rec:${at.runId}:${at.stepId}:${toolId}:${(await hashJson(input)).slice(0, 32)}`;
 }
 
 function port(ctx: ToolInvocation): RecordsPort {
@@ -75,13 +128,6 @@ const Sources = z.array(z.string().min(1).max(100)).max(100).default([]);
 
 const WriteInput = z.looseObject({ sources: Sources });
 const UpdateInput = z.looseObject({ id: Id, sources: Sources });
-
-/** The key a write is saved once under: the run, the step and what it writes. */
-// DECISION: the step's id and the write's input, not the step run's id, so a retried step (a new
-// step run) finds the write its first try made; the same write twice in one step is one write.
-async function writeKey(ctx: ToolInvocation, toolId: string, input: unknown): Promise<string> {
-  return `rec:${ctx.runId}:${ctx.stepId}:${toolId}:${(await hashJson(input)).slice(0, 32)}`;
-}
 
 function meta(ctx: ToolInvocation, key: string, sources: string[]): RecordWriteMeta {
   return {
@@ -189,7 +235,7 @@ export function recordTools(type: RecordType): InternalTool[] {
           output: z.record(z.string(), z.unknown()),
           async run(input, ctx) {
             const { sources, ...values } = input as z.output<typeof WriteInput>;
-            const key = await writeKey(ctx, spec.id, input);
+            const key = await recordWriteKey(ctx, spec.id, input);
             return port(ctx).create(ctx.tenantId, type.id, values, meta(ctx, key, sources));
           },
         };
@@ -201,7 +247,7 @@ export function recordTools(type: RecordType): InternalTool[] {
           output: z.record(z.string(), z.unknown()),
           async run(input, ctx) {
             const { id, sources, ...values } = input as z.output<typeof UpdateInput>;
-            const key = await writeKey(ctx, spec.id, input);
+            const key = await recordWriteKey(ctx, spec.id, input);
             return port(ctx).update(ctx.tenantId, type.id, id, values, meta(ctx, key, sources));
           },
         };

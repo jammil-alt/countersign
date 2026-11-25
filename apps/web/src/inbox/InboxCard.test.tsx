@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { describe, expect, it, vi } from "vitest";
 import { changeModel, changeTarget } from "./change";
-import { InboxCard, type InboxCardItem, isAccountChangeItem } from "./InboxCard";
+import { InboxCard, type InboxCardItem, isAccountChangeItem, recordSaveFacts } from "./InboxCard";
 
 const CHANGE: InboxCardItem = {
   id: "00000000-0000-4000-8000-0000000f0001",
@@ -190,5 +190,30 @@ describe("InboxCard: a change Sloan drafted", () => {
     expect(screen.getByText("After this change")).toBeInTheDocument();
     expect(isAccountChangeItem({ payload: { accountChange: {} } })).toBe(true);
     expect(isAccountChangeItem({ payload: {} })).toBe(false);
+  });
+});
+
+// Signed record saves (step model §10f): a save to our records waiting for a signature.
+describe("InboxCard: a save to our records", () => {
+  it("shows why it waits and each field before and after", () => {
+    const save = {
+      recordType: "vendor",
+      action: "update",
+      why: "This agent is in its trial stage: every save waits for you.",
+      changes: [{ field: "region", label: "Region", before: null, after: "West" }],
+    };
+    expect(recordSaveFacts({ recordSave: save }, { t: (k: string) => k } as never)).toEqual([
+      ["change.recordSave.why", "This agent is in its trial stage: every save waits for you."],
+      ["Region", "— → West"],
+    ]);
+    expect(
+      recordSaveFacts({ recordSave: { ...save, action: "create" } }, {
+        t: (k: string) => k,
+      } as never),
+    ).toEqual([
+      ["change.recordSave.why", "This agent is in its trial stage: every save waits for you."],
+      ["Region", "West"],
+    ]);
+    expect(recordSaveFacts({}, { t: (k: string) => k } as never)).toBeNull();
   });
 });

@@ -3,9 +3,10 @@
 // to a person, whose answer matches the item and is learned, so the next run's same wording is an
 // exact hit with no model and no person. The step's output carries its evidence (invariant 10).
 // For a client in HIPAA mode the engine's model call is refused (the guarded transport) and the
-// item waits for a person instead.
+// item waits for a person instead. A Match whose confer names a seat (the Bill clerk's
+// `seat:bill-questions`) asks the person in it, not the client admin (stream P).
 
-import { agent, modelCall, stepRun, tenant, vendor } from "@countersign/db";
+import { agent, inboxItem, modelCall, stepRun, tenant, vendor } from "@countersign/db";
 import { FakeModel, type FakeTurn } from "@countersign/llm";
 import { and, eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -15,6 +16,7 @@ import {
   createApiHarness,
   FakeWorkflowStep,
   OPERATOR,
+  user,
 } from "./api.test-helper";
 import { executeRun } from "./runs/execute";
 import { cloudflareStepRunner } from "./runs/step-runner";
@@ -64,6 +66,36 @@ const bundle = {
   ],
 };
 
+/** The same agent, its unsure vendors asked of whoever sits in `seat:bill-questions`. */
+const seated = {
+  ...bundle,
+  people: [{ role: "bill-questions", kind: "answers", label: "Answers questions about vendors" }],
+  workflows: [
+    {
+      ...bundle.workflows[0],
+      workflow: {
+        ...bundle.workflows[0]?.workflow,
+        steps: [
+          {
+            ...bundle.workflows[0]?.workflow.steps[0],
+            checks: {
+              confer: {
+                with: [
+                  {
+                    person: "seat:bill-questions",
+                    deadline: { after: "3 days", hours: "clock", ifNoAnswer: "skip" },
+                  },
+                ],
+              },
+            },
+          },
+          bundle.workflows[0]?.workflow.steps[1],
+        ],
+      },
+    },
+  ],
+};
+
 const choose = (recordId: string, confidence: number): FakeTurn => ({
   toolUse: {
     name: "record_choice",
@@ -76,26 +108,31 @@ describe.skipIf(!h)("a v5 Match step through the API", () => {
   let northline = "";
   let northlineB = "";
 
-  /** Answers each person's question with `answer`, as the client's admin. */
-  const answering = (client: "a" | "b", answer: () => string, asked: string[] = []) =>
+  /** Answers each person's question with `answer`, as `who` (default the client's admin). */
+  const answering = (
+    client: "a" | "b",
+    answer: () => string,
+    asked: string[] = [],
+    who = admin(client),
+  ) =>
     new FakeWorkflowStep(async (_name, type) => {
-      const res = await H.call(admin(client), "GET", "/api/inbox");
+      const res = await H.call(who, "GET", "/api/inbox");
       const item = j(res.json).items.find(
         (i: { id: string }) => `inbox-${i.id.replace(/-/g, "")}` === type,
       );
       if (!item) throw new Error(`no open item for ${type}`);
       asked.push(item.title);
-      const done = await H.call(admin(client), "POST", `/api/inbox/${item.id}/resolve`, {
+      const done = await H.call(who, "POST", `/api/inbox/${item.id}/resolve`, {
         answer: answer(),
       });
       expect(done.status, JSON.stringify(done.json)).toBe(200);
       return H.instances.events.find((e) => e.event.type === type)?.event.payload;
     });
 
-  async function agentFor(tenantId: string, slug: string) {
+  async function agentFor(tenantId: string, slug: string, body: unknown = bundle) {
     const created = await H.call(OPERATOR, "POST", `/api/ops/clients/${tenantId}/agents`, {
       slug,
-      bundle,
+      bundle: body,
     });
     expect(created.status, JSON.stringify(created.json)).toBe(200);
     const id = j(created.json).agent.id as string;
@@ -113,6 +150,7 @@ describe.skipIf(!h)("a v5 Match step through the API", () => {
     model: FakeModel,
     asked: string[],
     extra: Record<string, unknown> = {},
+    who = admin(client),
   ) {
     const res = await H.call(OPERATOR, "POST", `/api/ops/agents/${agentId}/run`, {
       workflow: "main",
@@ -126,7 +164,7 @@ describe.skipIf(!h)("a v5 Match step through the API", () => {
       deps,
       params,
       cloudflareStepRunner(
-        answering(client, () => (client === "a" ? northline : northlineB), asked),
+        answering(client, () => (client === "a" ? northline : northlineB), asked, who),
       ),
     );
     const [row] = await H.t.db
@@ -177,6 +215,46 @@ describe.skipIf(!h)("a v5 Match step through the API", () => {
     const again: string[] = [];
     const quiet = new FakeModel([]);
     const second = await run(id, "a", [{ name: "Northline Panel" }], quiet, again);
+    expect(second.result.status).toBe("succeeded");
+    expect(quiet.requests).toHaveLength(0);
+    expect(again).toEqual([]);
+    expect((second.row?.output as { items: unknown[] } | undefined)?.items[0]).toMatchObject({
+      matched: northline,
+      how: "learned",
+    });
+  });
+
+  it("asks the person in the seat the Match names, and learns their answer", async () => {
+    const id = await agentFor(H.A.tenantId, "v5-matcher-seat", seated);
+    // The client fills the seat with its user (not the admin), as Your people does.
+    await H.t.db
+      .update(agent)
+      .set({
+        people: { "bill-questions": { userIds: [H.A.user], backupUserIds: [], contactIds: [] } },
+      })
+      .where(eq(agent.id, id));
+    const model = new FakeModel([choose(northline, 0.6)]);
+    const asked: string[] = [];
+    const wording = [{ name: "Northline Panel Sup." }];
+    const first = await run(id, "a", wording, model, asked, {}, user("a"));
+    expect(first.result).toMatchObject({ status: "succeeded", nodeId: "s_end" });
+    expect(asked).toEqual(['Vendors: which one is "Northline Panel Sup."?']);
+    const [item] = await H.t.db
+      .select()
+      .from(inboxItem)
+      .where(eq(inboxItem.runId, first.params.runId));
+    expect(item?.assigneeUserId).toBe(H.A.user);
+    const out = first.row?.output as {
+      items: { matched: string; how: string }[];
+      sources: string[];
+    };
+    expect(out.items[0]).toMatchObject({ matched: northline, how: "person" });
+    expect(out.sources).toContain(northline);
+
+    // Next time: a learned hit, with no model and nobody asked.
+    const again: string[] = [];
+    const quiet = new FakeModel([]);
+    const second = await run(id, "a", wording, quiet, again, {}, user("a"));
     expect(second.result.status).toBe("succeeded");
     expect(quiet.requests).toHaveLength(0);
     expect(again).toEqual([]);

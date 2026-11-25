@@ -67,6 +67,12 @@ export interface StepContext {
   /** The step's approval setting; absent means required (approval is on by default). */
   approval?: Approval | undefined;
   /**
+   * Signed record saves: `approval` is the step's own approval check (an approver the operator
+   * added), not a default filled in for a step with none. Only then does a save to our records
+   * from an agent that acts and is live wait for a person.
+   */
+  ownApproval?: boolean | undefined;
+  /**
    * An action step's input as written in the agent's version, before templates: the gate checks a
    * tool's fixed inputs (ToolSpec `fixedInputs`) against it. Absent when a model wrote the call
    * (skills, agent mode), so such tools are refused there.

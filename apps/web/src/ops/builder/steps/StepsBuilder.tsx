@@ -595,7 +595,7 @@ function Palette({ onPick, onClose }: { onPick(kind: StepKind): void; onClose():
 }
 
 /** What stops Publish, each on its step, in plain words; a step's line opens it. */
-function PublishIssues(props: {
+export function PublishIssues(props: {
   issues: ReturnType<typeof workflowIssues>;
   show: boolean;
   name(id: string): string;

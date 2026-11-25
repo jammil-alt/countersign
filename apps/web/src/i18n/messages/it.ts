@@ -470,6 +470,7 @@ export const it: Messages = {
   "desk.team.undoIs": "Tempo per annullare: {window}.",
   "desk.approvalSettings": "Impostazioni di approvazione",
   "change.now": "Ora",
+  "change.recordSave.why": "Perché attende",
   "change.after": "Dopo la modifica",
   "change.createsIt": "Non esiste ancora: questa modifica lo crea.",
   "change.nothingRecorded": "Niente di registrato.",
