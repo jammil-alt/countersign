@@ -9,6 +9,7 @@
 
 import {
   type AgentRow,
+  agentStepSkillPrefix,
   agentTurn,
   type BuilderContext,
   BuilderError,
@@ -51,6 +52,7 @@ import {
   skillChanges,
   skillTurn,
   stepAgentTurn,
+  storeStepSkills,
   undoChange,
   undoneEntries,
   undoSkillChange,
@@ -128,6 +130,7 @@ import { builderAutomations } from "./ops-automations";
 import {
   ACCOUNT_TOOL_PREFIX,
   actionCatalogFor,
+  actionCatalogOf,
   bundleLabels,
   bundleStepTools,
   operatorSkills,
@@ -165,6 +168,45 @@ const stored = (bundle: Draft): AgentBundle => bundle as unknown as AgentBundle;
 
 /** A conversation's draft: v4 processes, or (the step model) v5 workflows. */
 type Draft = ProcessAgentBundle | StepAgentBundle;
+
+/**
+ * Stream F (docs/step-model-plan.md §5): the rules and AI written in a v5 draft's steps, stored
+ * behind them as the agent's own step skills (a new draft version only when the text changed) and
+ * pinned in its skills, as the workflow builder saves them: the executor runs a written step only
+ * through its pin. Any other draft is returned as it is.
+ */
+// DECISION (step model, build item 9): the Builder's saves pin as the workflow builder's do, so a
+// draft it made runs (a test, the POC) without a save by hand first; its older pins for this agent
+// are replaced by these.
+async function pinWrittenSteps<B extends Draft>(
+  ctx: Pick<Ctx, "tx" | "services">,
+  agent: { id: string; tenantId: string | null },
+  bundle: B,
+  authorId: string | null,
+): Promise<B> {
+  if (!isStepDraft(bundle)) return bundle;
+  const pins: string[] = [];
+  for (const w of bundle.workflows) {
+    const stored = await storeStepSkills(ctx.tx, {
+      agentId: agent.id,
+      tenantId: agent.tenantId,
+      workflow: w.workflow,
+      authorId,
+      tools: ctx.services.platform.tools,
+    });
+    pins.push(...stored.map((p) => p.pin));
+  }
+  const own = `custom:${agentStepSkillPrefix(agent.id)}`;
+  const kept = bundle.definition.skills.filter((x) => !x.skill.startsWith(own));
+  if (pins.length === 0 && kept.length === bundle.definition.skills.length) return bundle;
+  return {
+    ...bundle,
+    definition: {
+      ...bundle.definition,
+      skills: [...kept, ...pins.map((skill) => ({ skill, settings: {} }))],
+    },
+  } as B;
+}
 
 /** A draft in the step model: it has workflows, all of them v5. */
 function isStepDraft(bundle: Draft): bundle is StepAgentBundle {
@@ -405,6 +447,17 @@ export function platformBuilderContext(
       templates: [],
       client: null,
       agentSlugs: [],
+      // Step model (build item 9): the Uses picker's catalog with no connector's switches read
+      // (`builderContext` reads them), the areas' match profiles and the built-in Loops.
+      stepModel: {
+        actions: actionCatalogOf(platform, {}),
+        profiles: platform.packs.flatMap((p) => p.manifest.matchProfiles),
+        loops: platform.catalog
+          .list()
+          .filter((def) => def.loop !== undefined)
+          .map((definition) => ({ ref: definition.id, definition, source: "builtin" as const })),
+        written: [],
+      },
     },
   };
 }
@@ -541,11 +594,20 @@ export function opsBuilderRoutes(app: Hono<AppEnv>): void {
         : (result.slug ?? slugify(bundle.definition.identity.name)),
     );
     const changeNote = "Drafted by the Builder";
+    // The agent's id first, so its written steps are stored under it and v1 pins them.
+    const agentId = uuidv7();
+    const pinned = await pinWrittenSteps(
+      ctx,
+      { id: agentId, tenantId: clientId },
+      bundle,
+      session.user.id,
+    );
     const created = clientId
       ? await createClientAgent(tx, {
+          id: agentId,
           tenantId: clientId,
           slug,
-          bundle,
+          bundle: pinned,
           authorType: "builder",
           authorId: session.user.id,
           changeNote,
@@ -553,8 +615,9 @@ export function opsBuilderRoutes(app: Hono<AppEnv>): void {
           ...(result.serviceDescription ? { serviceDescription: result.serviceDescription } : {}),
         })
       : await createTemplate(tx, {
+          id: agentId,
           slug,
-          bundle,
+          bundle: pinned,
           authorType: "builder",
           authorId: session.user.id,
           changeNote,
@@ -659,7 +722,7 @@ export function opsBuilderRoutes(app: Hono<AppEnv>): void {
 
     const v = await createVersion(tx, {
       agentId: row.id,
-      bundle: result.bundle,
+      bundle: await pinWrittenSteps(ctx, row, result.bundle as Draft, session.user.id),
       parentVersionId: from.id,
       authorType: "builder",
       authorId: session.user.id,
@@ -1464,7 +1527,16 @@ function builderSessionRoutes(app: Hono<AppEnv>): void {
     const casesOut: { id: string; name: string; clientId: string | null }[] = [];
 
     if (s.kind === "agent") {
-      const bundle = asDraft(ctx, s.bundle);
+      const draft = asDraft(ctx, s.bundle);
+      // The agent's id first (a new one's made here), so a v5 draft's written steps are stored
+      // under it and the version pins them.
+      const agentId = s.agentId ?? uuidv7();
+      const bundle = await pinWrittenSteps(
+        ctx,
+        { id: agentId, tenantId: s.tenantId },
+        draft,
+        session.user.id,
+      );
       let row: AgentRow;
       let saved: Parameters<typeof existingBundle>[1];
       if (!s.agentId) {
@@ -1475,6 +1547,7 @@ function builderSessionRoutes(app: Hono<AppEnv>): void {
         );
         const created = s.tenantId
           ? await createClientAgent(tx, {
+              id: agentId,
               tenantId: s.tenantId,
               slug,
               bundle,
@@ -1483,6 +1556,7 @@ function builderSessionRoutes(app: Hono<AppEnv>): void {
               changeNote,
             })
           : await createTemplate(tx, {
+              id: agentId,
               slug,
               bundle,
               authorType: "builder",

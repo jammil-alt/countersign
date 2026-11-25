@@ -52,14 +52,22 @@ export interface StepBuilderResult extends Omit<BuilderResult, "bundle"> {
 }
 
 /**
- * A "Not built yet" step is the Builder's answer for code that doesn't exist: not the model's to
- * repair (it reaches validation as the step model's `not_built_yet`), except in a works-first
- * draft, where a person must take its place.
+ * What a v5 draft's repair round leaves to the operator: a "Not built yet" step, the Builder's
+ * answer for code that doesn't exist (the step model's `not_built_yet`), and a Loop written in
+ * the step or not tested yet (`loop_unsaved`, `loop_untested`): it is tested in the Loop designer
+ * the Builder offers, never published untested (§8).
  */
 // DECISION: a step-model error is `step_model` with its own code in `stepCode`; the "Not built yet"
-// one is held out by that code, as v4's `missing_step` is by its own.
+// one is held out by that code, as v4's `missing_step` is by its own. With works first, "Not built
+// yet" goes back to the model (a person takes its place); the Loops stay the operator's.
+const LOOP_GATE = new Set(["loop_unsaved", "loop_untested"]);
+
 export function notBuiltYet(e: ValidationError): boolean {
   return (e as ValidationError & { stepCode?: string }).stepCode === "not_built_yet";
+}
+
+export function stepModelOperatorFix(e: ValidationError): boolean {
+  return notBuiltYet(e) || LOOP_GATE.has(e.code);
 }
 
 /** The options `ask` takes: validation is the step model's own (`ask`'s `validate`). */
@@ -125,9 +133,8 @@ ${promptText(input.description)}
       shown: catalog.shown,
       full: stepCatalogForPrompt,
       system: worksFirst ? `${STEP_RULES}\n\n${STEP_WORKS_FIRST}` : STEP_RULES,
-      ...(worksFirst
-        ? { operatorFixes: WORKS_FIRST_OPERATOR_FIXES }
-        : { operatorFix: notBuiltYet }),
+      operatorFix: worksFirst ? (e) => LOOP_GATE.has(e.code) : stepModelOperatorFix,
+      ...(worksFirst ? { operatorFixes: WORKS_FIRST_OPERATOR_FIXES } : {}),
       validate: options.validate,
       guard: (a) => {
         const g = guardStepBundle(a.bundle, ctx, {
@@ -146,11 +153,13 @@ ${promptText(input.description)}
   const calls = [...catalog.calls, ...out.calls];
   const decisions = clampDecisions(out.answer.decisions ?? []);
   const toSaved = savedStepIds(out.answer.bundle, out.bundle);
+  const saveAsSkill = saveAsSkillSuggestions(out.bundle, ctx.stepModel?.written);
+  const loops = loopOffers(out.bundle);
   return {
     bundle: out.bundle,
     summary: out.answer.summary,
     gaps: out.gaps,
-    notes: out.notes,
+    notes: offerNotes(out.notes, saveAsSkill, loops),
     errors: out.errors,
     calls,
     costUsd: totalCost(calls),
@@ -165,9 +174,23 @@ ${promptText(input.description)}
       return id ? { ...rest, stepId: id } : rest;
     }),
     gapSteps: gapStepsOf(out.answer, out.gaps, toSaved),
-    saveAsSkill: saveAsSkillSuggestions(out.bundle, ctx.stepModel?.written),
-    loops: loopOffers(out.bundle),
+    saveAsSkill,
+    loops,
   };
+}
+
+/**
+ * The notes with what the Builder offers, in words: the screens that show a draft's notes show
+ * these too, and the offers are also returned apart for a screen that acts on them.
+ */
+// DECISION: the Builder chat and the build flow stay as they are (§2, principle 6), so an offer
+// reaches the operator in the notes they already read; nothing is done until they accept it.
+function offerNotes(
+  notes: readonly string[],
+  saveAsSkill: readonly SaveAsSkillSuggestion[],
+  loops: readonly LoopOffer[],
+): string[] {
+  return [...new Set([...notes, ...saveAsSkill.map((s) => s.text), ...loops.map((l) => l.text)])];
 }
 
 /**
@@ -254,7 +277,7 @@ ${input.instruction ? `\nThe operator's instruction:\n<instruction>\n${promptTex
       shown: catalog.shown,
       full: stepCatalogForPrompt,
       system: STEP_RULES,
-      operatorFix: notBuiltYet,
+      operatorFix: stepModelOperatorFix,
       validate: options.validate,
       // What the version already had is the operator's, not the model's to repair.
       known: new Set((await options.validate(input.source)).map(errorKey)),
@@ -270,16 +293,18 @@ ${input.instruction ? `\nThe operator's instruction:\n<instruction>\n${promptTex
     askOptions(options),
   );
   const calls = [...catalog.calls, ...out.calls];
+  const saveAsSkill = saveAsSkillSuggestions(out.bundle, ctx.stepModel?.written);
+  const loops = loopOffers(out.bundle);
   return {
     bundle: out.bundle,
     summary: out.answer.summary,
     gaps: out.gaps,
-    notes: out.notes,
+    notes: offerNotes(out.notes, saveAsSkill, loops),
     errors: out.errors,
     calls,
     costUsd: totalCost(calls),
     changeNote: out.answer.changeNote,
-    saveAsSkill: saveAsSkillSuggestions(out.bundle, ctx.stepModel?.written),
-    loops: loopOffers(out.bundle),
+    saveAsSkill,
+    loops,
   };
 }

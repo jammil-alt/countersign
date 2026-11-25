@@ -324,12 +324,26 @@ export async function actionCatalogFor(
     options.testConnectors === "shown"
       ? new Set<string>()
       : await hiddenTestConnectors(ctx.tx, row, read, platform);
-  const connectors = platform.connectors.list().filter((c) => !hidden.has(c.manifest.id));
   const settings = await ctx.tx.select().from(connectorSetting);
-  const specs = catalogSpecs(
-    platform.tools,
+  return actionCatalogOf(
+    platform,
     Object.fromEntries(settings.map((r) => [r.connector, r.actions])),
+    hidden,
   );
+}
+
+/**
+ * The action catalog from the platform alone: `switches` is each connector's action switches
+ * (`connector_setting.actions`), `hidden` the connectors held back. What the Builder's evals read
+ * with no database; `actionCatalogFor` reads the switches and the test-only connectors first.
+ */
+export function actionCatalogOf(
+  platform: Platform,
+  switches: Parameters<typeof catalogSpecs>[1],
+  hidden: ReadonlySet<string> = new Set(),
+): steps.CatalogGroup[] {
+  const connectors = platform.connectors.list().filter((c) => !hidden.has(c.manifest.id));
+  const specs = catalogSpecs(platform.tools, switches);
   const shown = specs.filter((spec) => {
     const owner = platform.connectors.findTool(spec.id)?.connector.manifest.id;
     return owner === undefined || !hidden.has(owner);

@@ -12,7 +12,7 @@
 //   BUILDER_EVAL_CASES=reminders-fitgap  BUILDER_EVAL_MODEL=claude-opus-5-5  BUILDER_EVAL_REPORT=out.md
 
 import { writeFileSync } from "node:fs";
-import { buildTurn, draftAgent, reviewBrief } from "@countersign/agents";
+import { buildTurn, draftStepAgent, reviewBrief } from "@countersign/agents";
 import {
   anthropicTransport,
   createLlmClient,
@@ -207,8 +207,9 @@ describe.skipIf(!key)("the Builder's drafts", () => {
       let answer = "";
       let costUsd: string | null = null;
       try {
-        const out = await draftAgent(
-          { description: c.description, worksFirst: true, ctx },
+        // Step model (build item 9): the Builder drafts v5; a case is a template's unless it says.
+        const out = await draftStepAgent(
+          { description: c.description, worksFirst: c.id === "ucc-monthly-cycle", ctx },
           {
             llm,
             validate: async () => [],

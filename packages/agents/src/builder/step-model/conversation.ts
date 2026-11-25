@@ -24,7 +24,7 @@ import { rewriteRefs } from "../guards";
 import { draftCatalog, partsOf, type ShortlistAnswer } from "../shortlist";
 import { StepAgentBundle } from "./answer";
 import { stepCatalogForPrompt } from "./catalog";
-import { notBuiltYet, type StepBuilderOptions } from "./draft";
+import { type StepBuilderOptions, stepModelOperatorFix } from "./draft";
 import { guardStepBundle } from "./guards";
 import { STEP_RULES } from "./rules";
 
@@ -397,7 +397,7 @@ ${input.request ? `\nThe client's request, in their words (what they want change
       guard,
       system: STEP_CONVERSATION_RULES,
       validate: options.validate,
-      operatorFix: notBuiltYet,
+      operatorFix: stepModelOperatorFix,
       present: (b) => extendStepAliases(b, aliases),
       presentText: (t) => aliasText(t, aliases),
       // What the draft already got wrong before this turn is not the answer's to repair.

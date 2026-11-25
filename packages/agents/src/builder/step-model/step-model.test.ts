@@ -482,6 +482,30 @@ describe("draftStepAgent", () => {
     expect(r.errors).toEqual([]);
   });
 
+  it("never drafts an action the operator turned off on its connector's page", () => {
+    const ctx = context();
+    const stepModel = ctx.stepModel as NonNullable<BuilderContext["stepModel"]>;
+    // The Uses picker's catalog without Testkit's update (switched off).
+    const off: BuilderContext = {
+      ...ctx,
+      stepModel: {
+        ...stepModel,
+        actions: stepModel.actions.map((g) => ({
+          ...g,
+          actions: g.actions.filter((a) => a.id !== TESTKIT_UPDATE_TOOL),
+        })),
+      },
+    };
+    const g = guardStepBundle(parse(cardAnswer.bundle), off, { mode: "draft", newId: counter() });
+    const mark = allSteps(g.bundle).find((s) => s.name === "Mark the record");
+    expect(mark).toMatchObject({
+      uses: {
+        type: "missing",
+        need: `No action does this yet (asked for "${TESTKIT_UPDATE_TOOL}").`,
+      },
+    });
+  });
+
   it("passes a HIPAA refusal through as it is: nothing was sent", async () => {
     const ctx = context(client);
     const refusal = new ComplianceRefusal("HIPAA mode: no model without a BAA");
@@ -759,6 +783,8 @@ describe("Loops", () => {
       }),
     ]);
     expect(r.loops[0]?.text).toContain("Loop designer");
+    // The screens that show a draft's notes show the offer too.
+    expect(r.notes).toContain(r.loops[0]?.text);
   });
 
   it("uses a saved Loop as a Loop step, and writes in the step one that doesn't exist", () => {
