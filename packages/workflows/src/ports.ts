@@ -154,6 +154,8 @@ export interface SkillStepRequest {
   input: unknown;
   /** The step's approval, or the default (required) when it has none. */
   approval: Approval;
+  /** Signed record saves: `approval` is the step's own check, not the default. */
+  ownApproval?: boolean;
   // v0.12 W2-B
   /**
    * Inside a use step: the automation (`slug@version`). Its skill steps run as the using agent
@@ -203,6 +205,8 @@ export interface ActionStepRequest {
   stepRunId: string;
   input: unknown;
   approval: Approval;
+  /** Signed record saves: `approval` is the step's own check, not the default. */
+  ownApproval?: boolean;
   // Skill model (2026-11-10)
   /**
    * An action write step's channel connection (`ResolvedAction.connectionId`): the tool's call

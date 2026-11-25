@@ -465,6 +465,7 @@ export const ptBR: Messages = {
   "desk.team.undoIs": "Prazo para desfazer: {window}.",
   "desk.approvalSettings": "Configurações de aprovação",
   "change.now": "Agora",
+  "change.recordSave.why": "Por que aguarda",
   "change.after": "Depois da mudança",
   "change.createsIt": "Ainda não existe: esta mudança cria.",
   "change.nothingRecorded": "Nada registrado.",

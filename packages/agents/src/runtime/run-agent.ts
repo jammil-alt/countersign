@@ -93,6 +93,8 @@ export interface RunAgentInput {
   stepRunId?: string;
   /** The step's approval setting (absent: required). */
   approval?: Approval;
+  /** Signed record saves: `approval` is the step's own check (StepContext `ownApproval`). */
+  ownApproval?: boolean;
   threadId?: string;
   /** Defaults to the run's mode. */
   mode?: RunMode;
@@ -170,6 +172,8 @@ export interface PendingAction {
   inboxItemId: string | null;
   /** `would_have_done`: a test run's write, recorded and never executed. */
   status: "awaiting_approval" | "would_have_done";
+  /** Signed record saves: a save to our own records, `actionId` its card's id. */
+  recordSave?: true;
 }
 
 interface ResultBase {
@@ -633,6 +637,7 @@ export async function runAgent(deps: RuntimeDeps, input: RunAgentInput): Promise
     stepId: input.stepId,
     mode,
     approval: input.approval,
+    ...(input.ownApproval ? { ownApproval: true } : {}),
     threadId: input.threadId,
     // P-1: the skill's resolved settings, for its tools (a pack's thresholds). Skill model
     // (2026-11-10): a built-in code skill's handler reads its parameter values here too.
@@ -668,7 +673,12 @@ export async function runAgent(deps: RuntimeDeps, input: RunAgentInput): Promise
   const pending: PendingAction[] = [];
   const track = (o: ToolOutcome) => {
     if (o.status === "awaiting_approval") {
-      pending.push({ actionId: o.actionId, inboxItemId: o.inboxItemId, status: o.status });
+      pending.push({
+        actionId: o.actionId,
+        inboxItemId: o.inboxItemId,
+        status: o.status,
+        ...(o.recordSave ? { recordSave: true as const } : {}),
+      });
     }
     if (o.status === "would_have_done") {
       pending.push({ actionId: o.actionId, inboxItemId: null, status: o.status });

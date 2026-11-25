@@ -480,6 +480,7 @@ export const fr: Messages = {
   "desk.team.undoIs": "Délai d'annulation : {window}.",
   "desk.approvalSettings": "Réglages d'approbation",
   "change.now": "Maintenant",
+  "change.recordSave.why": "Pourquoi il attend",
   "change.after": "Après la modification",
   "change.createsIt": "N'existe pas encore : cette modification le crée.",
   "change.nothingRecorded": "Rien d'enregistré.",
