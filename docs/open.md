@@ -32,9 +32,9 @@ agent, §1.214).
 - **The step model** (2026-11-25, `docs/plan.md` §1.244, `docs/step-model-plan.md` §13d): waves 1
   to 3 are merged and staging runs it, purged and seeded again in v5. Open: the release (#707,
   deleting v3, v4 and the converters), then production: the purge's dry run and the real one (the
-  owner approves each), the deploy, the templates' install and each client's Sloan. For the owner:
-  the matching defaults (shortlist 10 instead of 20) and whether two agreeing models must both reach
-  the second opinion's level; a native read of the timeline's output wording in five languages.
+  owner approves each), the deploy, the templates' install and each client's Sloan. Matching
+  defaults decided: a shortlist of 10 (#709). For the owner: a native read of the timeline's output
+  wording in five languages.
 
 ## 0. Enterprise readiness (2026-11-15)
 

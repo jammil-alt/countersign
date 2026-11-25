@@ -723,13 +723,11 @@ with its install route (`POST /api/ops/platform-templates/bill-clerk/install`).
 each v5 step as an engine step, and the executor runs those: §12 R3 holds for what is stored); v5
 automations (they are still version 2); the vendor-item embeddings' column, by its own migration.
 
-**For the owner:**
-- Matching defaults (K, run 45700654719). One default serves both profiles: shortlist 10, threshold 90,
-  second opinion from 70 (today 20, 90, 70). CRM: 100% precision, 96.2% recall, nobody asked. Master
-  items: 94.9% judged precision (the two wrong are fuel and freight lines the goldens call "not an
-  item"), 62.7% recall, 9% to a person. Change the shortlist to 10?
-- When two models agree, the match takes the lower of their two confidences, so it can land below
-  the threshold (one at 60). Keep it, or have the second model also reach the second opinion's level?
+**Decided by the owner (2026-11-25), on K's measurement (run 45700654719):** one default serves both
+profiles: shortlist 10, threshold 90, second opinion from 70 (#709; the shortlist was 20). CRM: 100%
+precision, 96.2% recall, nobody asked. Master items: 94.9% judged precision (the two wrong are fuel
+and freight lines the goldens call "not an item"), 62.7% recall, 9% to a person. We go back to 20 if
+a client's records need it. Two models agreeing still match at the lower of their two confidences.
 
 ## 14. Where we are in the review
 
@@ -798,6 +796,8 @@ Agreed and built: everything through §10f, on `main` and on staging (§13d). Be
   id, and an unsure vendor is asked of the `bill-questions` seat (owner: "do it right").
 - 2026-11-25 · Staging purged and seeded again in v5 (21:43 UTC). The release keeps the engine's
   internal step shapes and v2 automations; moving them to v5 is a follow-up, not part of the purge.
+- 2026-11-25 · Match defaults: a model shortlist of 10 (was 20), threshold 90, second opinion from
+  70; two agreeing models match at the lower of their confidences, as built (owner, on K's numbers).
 - 2026-11-25 · A Loop is published only as a saved Loop skill whose test set passes: a Loop written
   in a step may be drafted, but publishing the agent asks to save and test it first; a pinned
   draft version never runs; built-in and pack Loops ship with their test sets, run in CI.
