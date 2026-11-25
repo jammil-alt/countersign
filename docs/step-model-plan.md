@@ -543,6 +543,40 @@ every required input field has a source ("doesn't fit" otherwise); no "not built
 done by and uses are a combination the table in §4 allows; a Loop uses Get actions only; approvers
 are on by default for every Change to a client's tool, and never looser than the client allows.
 
+## 13b. What runs in parallel, and on which model (draft for review)
+
+**Rule for splitting:** streams run in parallel only once the contracts they share are fixed, and
+never two streams in the same files (the stored format, the API contract, the executor). At most four
+streams at once; each its own branch and PR; workers don't edit this page (the coordinator does, per
+wave, as CLAUDE.md asks).
+
+**Rule for the model:** Opus where a mistake is silent or breaks an invariant: the runtime and its
+approvals (8, 9), matching precision (7), translation of money and data, the platform's own agents,
+the Builder's prompts, and the rules documents. Sonnet where the spec is exact and the work follows a
+pattern already in the code: screens, renames, connector merges on the existing multi-provider
+pattern, deletions the compiler checks, measurement runs. Every Sonnet PR that touches the gate, the
+executor or a pack's records gets an Opus review before merge.
+
+| Wave | Stream | What | Needs | Model |
+|---|---|---|---|---|
+| 0 (sequential) | Contracts | Freeze the stored format (owner's review); the match profile shape; the action catalog the pickers read (connector or area, kind, fields); the engine boundary a Do step runs through; a one-off converter that rewrites today's test fixtures and seeds into the new format, deleted when wave 4 is done | — | Opus |
+| 1 | A · Executor | Runs the new format: a Do picks its engine; Loop; Fork, For each, Repeat, Wait, Hand off; End delivers outputs with their checks; outcomes keyed by done by and uses | Wave 0 | Opus |
+| 1 | B · Builder screens | Same screens, new forms and groupings: the eight kinds, the Uses picker, the Do form, Checks, More, End cards, workflow outputs, the Data tab, Suggest buttons | Wave 0 | Sonnet |
+| 1 | D · Match | Profiles (Vendors, Vendor items, Master items, CRM records) on the shared engine; exact on every profile; thresholds and second opinion per line; learned answers | Wave 0 | Opus |
+| 1 | E · Connectors and areas | Actions on or off; Request an action; Email, Team chat and Spreadsheets merged; tool-neutral wording; one chart of accounts; one Read a document; Register lines; the dropped actions | Wave 0 | Sonnet (Opus review: the merges touch the gate) |
+| 2 | C · Platform agents | The Builder, Supervisor, Coordinator and clerks rewritten in the new format for the seed | A | Opus |
+| 2 | G · Translation | Fits, translated, doesn't fit, worked out on each step's incoming side (core), shown in the Data tab | A, B | Opus (core), Sonnet (screens) |
+| 2 | F · Written in the step | Rules and AI written in the step, saved behind it; Save as skill; Suggest's backend | B | Sonnet |
+| 2 | H · Loop designer | The designer and its turn-by-turn test, on A's Loop runtime; the test-set gate | A, B | Sonnet (Opus review of the read-only rule) |
+| 3 | I · Builder (AI) | Drafts in the new model: writes in the step, suggests Save as skill, drafts Loops; its guards and evals | A, C | Opus |
+| 3 | K · Measure | Shortlist size and thresholds on the matching goldens; set the defaults | D | Sonnet |
+| 4 (sequential) | J · Release | Delete v3, v4, the converters, the tool-only skills and the rest of §12, the compiler finding every use | A, B, C, I | Sonnet (Opus review) |
+| 4 | L · Rules documents | A new ARCHITECTURE version; CLAUDE.md (the one-off purge, the Loop) | J | Opus |
+| 4 | M · Ship | Deploy, `db:purge-agents` (dry run, then real) and `db:seed`, staging then production with the owner's approval | J, L | By hand |
+
+Roughly: wave 0 two to three days, waves 1 and 2 about a week each, wave 3 three to four days, wave 4
+three to four days: three and a half to four weeks, against about six one after another.
+
 ## 14. Where we are in the review
 
 Agreed: terms, step kinds, forms, skills, connectors, areas. Being reviewed: the build list and the
