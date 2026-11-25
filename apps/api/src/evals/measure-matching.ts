@@ -59,8 +59,8 @@ export const FLOORS = [60, 70, null] as const;
 
 /** The precision on "same" a setting must reach (CLAUDE.md, Testing). */
 export const PRECISION_TARGET = 0.95;
-/** Today's defaults (`MatchSettings`): a shortlist of 20, a threshold of 90. */
-export const CURRENT = { shortlist: 20, threshold: 90 } as const;
+/** Today's defaults (`MatchSettings`): a shortlist of 10, a threshold of 90. */
+export const CURRENT = { shortlist: 10, threshold: 90 } as const;
 
 export interface Setting {
   shortlist: number;
