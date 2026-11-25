@@ -3,7 +3,7 @@
 // they arise, and publishing refuses a workflow that has any.
 
 import { type MatchProfile, matchSettingsProblems } from "./match-profile";
-import type { DoneBy, DoStep, Step, Uses, Workflow } from "./schema";
+import type { DoneBy, DoStep, Step, Uses, Workflow, WorkflowOutput } from "./schema";
 
 export interface StepIssue {
   /** The step (or output) it is about; absent: the workflow as a whole. */
@@ -26,7 +26,12 @@ export type StepIssueCode =
   | "loop_writes"
   | "input_missing"
   | "unknown_profile"
-  | "match_settings";
+  | "match_settings"
+  | "goal_missing"
+  | "end_empty"
+  | "empty_container"
+  | "no_outputs"
+  | "output_incomplete";
 
 /** What the validator may know of the registries; each part optional. */
 export interface StepContext {
@@ -54,11 +59,19 @@ export function validateWorkflow(workflow: Workflow, context: StepContext = {}):
   const outputs = new Set(workflow.outputs.map((o) => o.id));
   const delivered = new Set<string>();
 
+  // DECISION (wave 1, stream B): the schema parses a draft as it is being built (an End not filled
+  // in, a step with no goal yet, an empty For each); what a published workflow must have is held
+  // here, so a draft saves and publishing refuses it.
+  if (workflow.outputs.length === 0) {
+    issues.push({ code: "no_outputs", message: "Say what this workflow produces: add an output." });
+  }
   for (const o of workflow.outputs) {
     if (seen.has(o.id)) {
       issues.push({ at: o.id, code: "duplicate_id", message: `"${o.id}" is used twice` });
     }
     seen.add(o.id);
+    const missing = outputMissing(o);
+    if (missing) issues.push({ at: o.id, code: "output_incomplete", message: missing });
   }
 
   const visit = (list: readonly Step[]) => {
@@ -67,11 +80,21 @@ export function validateWorkflow(workflow: Workflow, context: StepContext = {}):
         issues.push({ at: step.id, code: "duplicate_id", message: `"${step.id}" is used twice` });
       }
       seen.add(step.id);
+      if (!step.name.trim()) {
+        issues.push({ at: step.id, code: "goal_missing", message: "Say what this step does." });
+      }
       switch (step.kind) {
         case "do":
           issues.push(...doIssues(step, context));
           break;
         case "loop":
+          if (!step.goal.trim()) {
+            issues.push({
+              at: step.id,
+              code: "goal_missing",
+              message: "Say what 'done' means for this Loop.",
+            });
+          }
           for (const action of step.reads) {
             const effect = context.sideEffect?.(action);
             if (effect !== undefined && effect !== "none") {
@@ -84,6 +107,13 @@ export function validateWorkflow(workflow: Workflow, context: StepContext = {}):
           }
           break;
         case "end":
+          if (step.outputs.length === 0 && !step.nothingToDo?.trim()) {
+            issues.push({
+              at: step.id,
+              code: "end_empty",
+              message: "Pick what this End delivers, or say why there is nothing to do.",
+            });
+          }
           for (const id of step.outputs) {
             if (!outputs.has(id)) {
               issues.push({
@@ -106,6 +136,13 @@ export function validateWorkflow(workflow: Workflow, context: StepContext = {}):
           break;
         case "for_each":
         case "repeat":
+          if (step.steps.length === 0) {
+            issues.push({
+              at: step.id,
+              code: "empty_container",
+              message: "Add the steps it runs.",
+            });
+          }
           visit(step.steps);
           break;
         case "wait":
@@ -133,6 +170,26 @@ export function validateWorkflow(workflow: Workflow, context: StepContext = {}):
     }
   }
   return issues;
+}
+
+/** What an output still needs before it can be delivered, in plain words; null when complete. */
+function outputMissing(o: WorkflowOutput): string | null {
+  if (!o.name.trim()) return "Name this output.";
+  switch (o.kind) {
+    case "report":
+      if (!o.report) return "Say who gets this report and what it says.";
+      if (o.report.to.length === 0) return "Say who gets this report.";
+      return o.report.message.trim() ? null : "Say what this report says.";
+    case "write":
+    case "save":
+      return o.action ? null : "Pick the action that delivers this output.";
+    case "handoff":
+      return o.handoff ? null : "Pick the agent or workflow this hands off to.";
+    case "pass_on":
+      return o.passOn ? null : "Say what is passed on.";
+    case "nothing":
+      return null;
+  }
 }
 
 /** Whether a list can't run past its last step: it ends on an End, or on a Fork whose every path does. */

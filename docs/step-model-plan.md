@@ -653,6 +653,7 @@ release (§12, §13). Then: the stored format, drafted as plain fields for revie
 - 2026-11-25 · Purge scope confirmed (§12, R0); `db:purge-agents` built; wave 0 started.
 - 2026-11-25 · Wave 0 contracts built (§13c); Tell added to the Do step, and the group field type.
 - 2026-11-25 · Stored format approved and frozen; wave 1 started (four sessions, §13c).
+- 2026-11-25 · Screen changes approved (mock-up `docs/design/step-model.html`), with stream B's two choices: the rail stays as today and the eight kinds open from the chart's +; workflow outputs sit in a section above the chart.
 - 2026-11-25 · Forms agreed. Suggest (AI icon) on every step and every field: tell it what you need,
   use the default, or resolve; applied at once, with Undo.
 - 2026-11-25 · The eight kinds are stored directly; nine of today's kinds collapse into Do, run by
