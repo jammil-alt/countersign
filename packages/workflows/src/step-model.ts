@@ -131,6 +131,17 @@ export function loadStepModel(
     );
   }
   const wf = parsed.data;
+  // A draft parses (an empty goal, an End with nothing to deliver); only a version that passes
+  // the publish checks runs. Structural checks only: what needs the registries was checked at
+  // publish, against the catalog of that day.
+  // DECISION: refused at load, before any step runs, naming the first problem.
+  const problems = steps.validateWorkflow(wf);
+  const first = problems[0];
+  if (first) {
+    throw new ProcessLoadError(
+      `the workflow can't run: ${first.message}${first.at ? ` (${first.at})` : ""}`,
+    );
+  }
   const sources = new WeakMap<object, steps.Step>();
   const merged = new WeakSet<object>();
 
@@ -258,6 +269,8 @@ function loadDo(
         ...base,
         kind: "skill",
         skill: engine.skill ?? WRITTEN_SKILL,
+        // Another agent of the same client runs it, as a v4 skill step's `agent`.
+        ...(step.agent ? { agent: step.agent } : {}),
         input,
         ...(values && Object.keys(values).length > 0 ? { settings: values } : {}),
         ...(model ? { model } : {}),

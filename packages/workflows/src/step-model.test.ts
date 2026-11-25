@@ -376,7 +376,7 @@ describe("a v5 End delivers the workflow's outputs", () => {
       kind: "end",
       name: "Give up",
       status: "failed",
-      nothingToDo: "x",
+      outputs: ["o_done"],
     };
     const { result } = await run(h, wf([failed], [DONE]));
     expect(result).toMatchObject({ status: "failed", reason: "stop", nodeId: "s_end" });
@@ -454,6 +454,27 @@ describe("loading a v5 workflow", () => {
     const { result } = await run(h, { schemaVersion: 5, triggers: [MANUAL] } as never);
     expect(result.status).toBe("failed");
     expect(h.rows.size).toBe(0);
+  });
+
+  it("refuses a draft that doesn't pass the publish checks, before anything runs", async () => {
+    const h = new Harness();
+    const { result } = await run(h, wf([read, end([])]));
+    expect(result.status).toBe("failed");
+    expect(result.reason).toContain("can't run");
+    expect(h.rows.size).toBe(0);
+  });
+
+  it("runs a skill on another agent of the client when the step names one", () => {
+    const ai = {
+      id: "s_ai",
+      kind: "do",
+      name: "Read it",
+      doneBy: "ai",
+      uses: { type: "skill", skill: "docs.read-document" },
+      agent: "reader",
+    };
+    const loaded = loadStepModel(wf([ai, end()]), () => undefined);
+    expect(loaded.process.steps[0]).toMatchObject({ kind: "skill", agent: "reader" });
   });
 
   it("keeps every id, so durable names and hand-offs are a v4 step's", () => {

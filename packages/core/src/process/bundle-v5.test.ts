@@ -136,11 +136,20 @@ describe("a bundle holding a v5 workflow", () => {
 
   it("names the schema problem in the workflow it is in", () => {
     const r = validateAnyBundle(
+      bundle([{ slug: "new", name: "New", workflow: { ...good, triggers: [] } }]),
+      { tools: TOOLS },
+    );
+    expect(r.valid).toBe(false);
+    expect(r.errors[0]).toMatchObject({ code: "schema", workflow: "new", field: "triggers" });
+  });
+
+  it("saves a draft with no outputs yet, and refuses to publish it", () => {
+    const r = validateAnyBundle(
       bundle([{ slug: "new", name: "New", workflow: { ...good, outputs: [] } }]),
       { tools: TOOLS },
     );
     expect(r.valid).toBe(false);
-    expect(r.errors[0]).toMatchObject({ code: "schema", workflow: "new", field: "outputs" });
+    expect(r.errors.every((e) => e.code === "step_model")).toBe(true);
   });
 
   it("needs its reads, and one of a merged action's connectors for a write output", () => {
