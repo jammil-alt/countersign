@@ -14,6 +14,7 @@ import {
   catalogSpecs,
   getAgent,
   getVersion,
+  isStepSkill,
   latestVersion,
   lineageReadOptions,
   previewStepPrompt,
@@ -182,6 +183,8 @@ export async function operatorSkills(
   >();
   for (const r of rows) {
     if (r.skill.slug.startsWith(SHARED_COPY_PREFIX)) continue;
+    // A skill that only holds a step's own rules or text is no skill to pick (stream F).
+    if (isStepSkill(r.version.definition)) continue;
     const source = r.skill.tenantId === null ? "shared" : "client";
     const existing = bySlug.get(r.skill.slug);
     if (existing?.source === "client") continue;
@@ -305,15 +308,22 @@ function skillOption(
 // into another action, is left out; Web's actions sit under the Web connector.
 export async function actionCatalogFor(
   ctx: Pick<HandlerCtx<never>, "tx" | "services">,
-  row: Pick<AgentRow, "tenantId" | "testCopy">,
-  bundle: unknown,
+  row: Pick<AgentRow, "tenantId" | "testCopy"> & { id?: string },
+  /** The bundle a test-only connector may be in use in; absent: the agent's latest version's. */
+  bundle?: unknown,
   options: { testConnectors?: "hidden" | "shown" } = {},
 ): Promise<steps.CatalogGroup[]> {
   const { platform } = ctx.services;
+  const read =
+    bundle !== undefined
+      ? bundle
+      : row.id
+        ? ((await latestVersion(ctx.tx, row.id))?.bundle ?? null)
+        : null;
   const hidden =
     options.testConnectors === "shown"
       ? new Set<string>()
-      : await hiddenTestConnectors(ctx.tx, row, bundle, platform);
+      : await hiddenTestConnectors(ctx.tx, row, read, platform);
   const connectors = platform.connectors.list().filter((c) => !hidden.has(c.manifest.id));
   const settings = await ctx.tx.select().from(connectorSetting);
   const specs = catalogSpecs(
@@ -526,22 +536,6 @@ const AREA_NAMES: Readonly<Record<string, string>> = {
   shared: "Shared",
 };
 
-/** A step of a step-model workflow by id, at any depth. */
-function findStepAnywhere(list: readonly steps.Step[], id: string): steps.Step | null {
-  for (const step of list) {
-    if (step.id === id) return step;
-    const inner =
-      step.kind === "fork"
-        ? [...step.paths.flatMap((p) => p.steps), ...step.otherwise.steps]
-        : step.kind === "for_each" || step.kind === "repeat"
-          ? step.steps
-          : [];
-    const found = findStepAnywhere(inner, id);
-    if (found) return found;
-  }
-  return null;
-}
-
 export function opsLineageRoutes(app: Hono<AppEnv>): void {
   mount(app, routes.opsRetire, async (ctx) => {
     const row = await agentInScope(ctx, ctx.params.id);
@@ -649,26 +643,7 @@ export function opsLineageRoutes(app: Hono<AppEnv>): void {
   // names that isn't listed shows its id with a capital.
   mount(app, routes.opsActionCatalog, async (ctx) => {
     const row = await agentInScope(ctx, ctx.params.id);
-    const latest = await latestVersion(ctx.tx, row.id);
-    return { groups: await actionCatalogFor(ctx, row, latest?.bundle ?? null) };
-  });
-
-  // Step model (docs/step-model-plan.md §5, "Suggest"): the call's shape is fixed in wave 1 and
-  // its answer is wave 2's (stream F). Until then it checks the step exists and returns it
-  // unchanged, saying so, so the form's pop-up and Undo work end to end.
-  mount(app, routes.opsStepSuggest, async (ctx) => {
-    await agentInScope(ctx, ctx.params.id);
-    const parsed = steps.Workflow.safeParse(ctx.body.workflow);
-    if (!parsed.success) {
-      throw new HttpError(422, "invalid_workflow", "the workflow doesn't read in the step model");
-    }
-    const found = findStepAnywhere(parsed.data.steps, ctx.body.stepId);
-    if (!found) throw notFound(`step ${ctx.body.stepId}`);
-    return {
-      step: found,
-      summary: "Suggest isn't switched on yet. Fill this in by hand for now.",
-      applied: false,
-    };
+    return { groups: await actionCatalogFor(ctx, row) };
   });
 
   // Skill model (2026-11-10): what moves if a skill step goes to another version of its skill.

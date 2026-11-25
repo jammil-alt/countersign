@@ -30,6 +30,7 @@ export * from "./builder/step-model/draft";
 export * from "./builder/step-model/guards";
 export * from "./builder/step-model/rules";
 export * from "./builder/step-model/suggestions";
+export * from "./builder/suggest";
 export * from "./builder/translate";
 export * from "./errors";
 // docs/plan.md §1.217: the process interview
@@ -72,6 +73,7 @@ export * from "./registry/offered";
 export * from "./registry/people";
 export * from "./registry/runtime-store";
 export * from "./registry/skills";
+export * from "./registry/step-skills";
 export * from "./registry/tools";
 export * from "./runtime/actions";
 export * from "./runtime/attention";
@@ -88,6 +90,8 @@ export * from "./runtime/converse";
 export { documentInputFields } from "./runtime/documents";
 export * from "./runtime/json-schema";
 export * from "./runtime/model";
+// The step model: the Match port records its model calls at its step, as the runtime does.
+export { recordModelCall } from "./runtime/model-call";
 // v0.13 W2-I
 export * from "./runtime/oversee";
 export * from "./runtime/planned";

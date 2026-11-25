@@ -22,6 +22,8 @@ import { ProcessLoadError } from "./process";
 export interface StepModelRun {
   /** Engine step (by object) → the v5 step it runs. */
   sources: WeakMap<object, steps.Step>;
+  /** The v5 steps by id (a loop's copies share theirs), for what the ports see of a step. */
+  byId: ReadonlyMap<string, steps.Step>;
   /** The workflow's declared outputs, by id. */
   outputs: ReadonlyMap<string, steps.WorkflowOutput>;
   /**
@@ -122,6 +124,8 @@ function common(step: steps.Step): Out {
 export function loadStepModel(
   workflow: steps.Workflow,
   kindOf: (action: string) => steps.ActionKind | undefined,
+  /** The step skill the agent version pins for a step written in the step (stream F). */
+  stepSkill: (stepId: string) => string | undefined = () => undefined,
 ): LoadedStepModel {
   const parsed = steps.Workflow.safeParse(workflow);
   if (!parsed.success) {
@@ -146,7 +150,7 @@ export function loadStepModel(
   const merged = new WeakSet<object>();
 
   const load = (step: steps.Step): processes.Step => {
-    const out = loadOne(step, kindOf, load, merged);
+    const out = loadOne(step, kindOf, load, merged, stepSkill);
     sources.set(out, step);
     return out;
   };
@@ -159,7 +163,12 @@ export function loadStepModel(
     process,
     origins: new WeakMap(),
     v3: null,
-    stepModel: { sources, outputs: new Map(wf.outputs.map((o) => [o.id, o])), merged },
+    stepModel: {
+      sources,
+      byId: new Map(allSteps(wf.steps).map((s) => [s.id, s])),
+      outputs: new Map(wf.outputs.map((o) => [o.id, o])),
+      merged,
+    },
   };
 }
 
@@ -168,11 +177,12 @@ function loadOne(
   kindOf: (action: string) => steps.ActionKind | undefined,
   load: (step: steps.Step) => processes.Step,
   merged: WeakSet<object>,
+  stepSkill: (stepId: string) => string | undefined,
 ): processes.Step {
   const base = common(step);
   switch (step.kind) {
     case "do":
-      return loadDo(step, base, kindOf, merged);
+      return loadDo(step, base, kindOf, merged, stepSkill);
     case "loop":
       // Run by the executor through the runtime's loop (`Executor.loop`); a skill row, as an
       // agent-mode skill's was.
@@ -232,6 +242,7 @@ function loadDo(
   base: Out,
   kindOf: (action: string) => steps.ActionKind | undefined,
   merged: WeakSet<object>,
+  stepSkill: (stepId: string) => string | undefined,
 ): processes.Step {
   let engine: steps.DoEngine;
   try {
@@ -255,8 +266,21 @@ function loadDo(
     }
     case "rules":
     case "ai": {
-      // Written in the step (no skill): stream F's (wave 2). It loads as a skill step the
+      // Written in the step (no Uses): stream F's step skill, the version the agent version pins
+      // (`custom:step-<agent>-<step>@N`). Its rows or its text are the skill's, so nothing of the
+      // step's own is layered on it but the AI's model. With no pin it loads as a skill step the
       // executor refuses when it is reached (`Executor.runStep`), naming why.
+      if (engine.skill === undefined) {
+        const pinned = stepSkill(step.id);
+        const model = engine.engine === "ai" ? step.ai?.model : undefined;
+        return {
+          ...base,
+          kind: "skill",
+          skill: pinned ?? WRITTEN_SKILL,
+          input,
+          ...(model ? { model } : {}),
+        } as processes.Step;
+      }
       const values = engine.engine === "rules" ? step.rules?.values : step.ai?.values;
       const rows = engine.engine === "rules" ? step.rules?.rows : undefined;
       const text = engine.engine === "ai" ? step.ai?.text?.trim() : undefined;
@@ -354,15 +378,26 @@ export function writtenInStep(step: steps.Step): boolean {
   );
 }
 
-/** A Do step's incoming translation that no engine runs yet (stream G's, wave 2). */
-export function unrunTranslation(step: steps.Step): boolean {
-  if (step.kind !== "do" && step.kind !== "loop") return false;
-  if (!step.translation) return false;
+/**
+ * Whether a Do step's `translation` is its incoming translation (stream G, run on its resolved
+ * input), rather than a Reshape skill's own mapping (the one-off converter's reading of v4).
+ */
+export function incomingTranslation(step: steps.Step): boolean {
+  if (step.kind !== "do" || !step.translation) return false;
   return !(
-    step.kind === "do" &&
-    step.uses?.type === "skill" &&
-    step.uses.skill.split("@")[0] === processes.RESHAPE_SKILL
+    step.uses?.type === "skill" && step.uses.skill.split("@")[0] === processes.RESHAPE_SKILL
   );
+}
+
+/** Whether any Do step of the workflow translates what comes in. */
+export function translates(workflow: Pick<steps.Workflow, "steps">): boolean {
+  return allSteps(workflow.steps).some(incomingTranslation);
+}
+
+function allSteps(list: readonly steps.Step[]): steps.Step[] {
+  const out: steps.Step[] = [];
+  steps.eachStep(list, ({ step }) => out.push(step));
+  return out;
 }
 
 /** A Loop's limits and reads, as the runtime takes them (`SkillStepRequest.loop`). */

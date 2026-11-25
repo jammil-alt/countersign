@@ -22,6 +22,22 @@ export interface StepFormEnv {
   models: readonly { id: string; label: string }[];
   /** The client's other agents a Hand off may go to, by slug and name. */
   agents?: readonly { slug: string; name: string }[] | undefined;
+  /** Save as skill; absent where the host can't save one. */
+  saveAsSkill?: SaveAsSkill | undefined;
+}
+
+/** Save as skill (stream F): a Do step's rules or AI, named, in the library; the step then uses it. */
+export interface SaveAsSkillRequest {
+  step: Step;
+  name: string;
+  description: string;
+  scope: "client" | "shared";
+}
+export interface SaveAsSkill {
+  /** Where the skill may go: a client agent's own client, or every client; a template: shared only. */
+  scopes: readonly ("client" | "shared")[];
+  /** The step as it is now (it uses the skill). Rejects with the reason in plain words. */
+  run(request: SaveAsSkillRequest): Promise<Step>;
 }
 
 export interface StepFormProps<S extends Step = Step> {

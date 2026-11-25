@@ -23,6 +23,7 @@ import {
   type OperationalPatch,
   pause,
   publish,
+  publishStepSkills,
   requiredConnectors,
   requiredPacks,
   restoreAgent,
@@ -482,6 +483,16 @@ export function opsAgentRoutes(app: Hono<AppEnv>): void {
 
   mount(app, routes.opsPublish, async (ctx) => {
     const row = await agentInScope(ctx, ctx.params.id);
+    // The rules and the AI written in this version's steps were saved as drafts and pinned in its
+    // skills; the version going live makes exactly those versions live (stream F).
+    const pinning = await getVersion(ctx.tx, ctx.params.vid);
+    if (pinning.agentId === row.id) {
+      await publishStepSkills(ctx.tx, {
+        agentId: row.id,
+        tenantId: row.tenantId,
+        skills: pinning.bundle.definition.skills,
+      });
+    }
     const v = await publish(ctx.tx, {
       agentId: row.id,
       versionId: ctx.params.vid,

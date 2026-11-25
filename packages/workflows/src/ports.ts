@@ -322,6 +322,13 @@ export interface AgentPort {
    * Ports without it fail such steps (nothing is written).
    */
   resolveMerged?(request: ResolveMergedRequest): Promise<ResolvedAction>;
+  /**
+   * A merged action's input in the words of the connector's tool it resolved to (the merge's
+   * mappings: Google Chat's `space` for Team chat's `channel`). Pure. Absent: passed as it is.
+   */
+  mergedInput?(action: string, connector: string, input: unknown): unknown;
+  /** The tool's output back in the merged action's words. Pure. Absent: as the tool gave it. */
+  mergedOutput?(action: string, connector: string, output: unknown): unknown;
 }
 
 /** A merged action to resolve for the run's agent (`AgentPort.resolveMerged`). */
@@ -352,9 +359,9 @@ export interface MatchItem {
   item: unknown;
   /** The record it matched, by id; null: none. */
   matched: string | null;
-  how?: (typeof steps.MATCHED_BY)[number] | undefined;
+  how?: (typeof steps.MATCHED_BY)[number] | null | undefined;
   /** 0 to 100. */
-  confidence?: number | undefined;
+  confidence?: number | null | undefined;
   isNew: boolean;
   unsure: boolean;
   candidates: { record: string; confidence: number }[];
@@ -368,20 +375,53 @@ export interface MatchResult {
   anyUnsure: boolean;
 }
 
+/** What one item's match rests on (`ProfileMatchNote`): its evidence and the records' names. */
+export interface MatchNote {
+  /** The records that are the evidence of its match (invariant 10). */
+  sources: string[];
+  /** What a person reads for each record on its shortlist, by record id. */
+  labels: Record<string, string>;
+}
+
 export type MatchOutcome =
-  | { kind: "done"; output: MatchResult; summary?: string }
+  | {
+      kind: "done";
+      output: MatchResult;
+      /** One per item, in order. */
+      notes?: MatchNote[];
+      /** The profile's name ("Vendors"), for what a person is asked. */
+      profileName?: string;
+      summary?: string;
+    }
   | { kind: "failed"; error: string };
+
+/** A person's answer on an unsure item, to save as a learned name (`MatchPort.learn`). */
+export interface MatchLearnRequest {
+  run: RunInfo;
+  /** The durable name of the ask that was answered: with the run it keys what is saved. */
+  nodeId: string;
+  /** The profile (the Match step's `to`). */
+  profile: string;
+  item: unknown;
+  recordId: string;
+  /** Who answered. */
+  personId: string;
+}
 
 /**
  * Matches the step's input against our records on the step's profile (§7). Deterministic first,
  * model second, person last (invariant 7); it never writes to a client's tool. In a test run it
  * saves nothing it learned.
  */
-// DECISION (wave 1, stream A): the interface only; the profiles and their engine are stream D's.
-// A person's answers (a second opinion, below the floor) are the engine's to collect; a wait for
-// them is added here when stream D needs one.
+// DECISION (wave 1, stream A): the profiles and their engine are stream D's; the executor asks a
+// person about each item the engine leaves unsure, and hands the answer to `learn`.
 export interface MatchPort {
   match(request: MatchRequest): Promise<MatchOutcome>;
+  /**
+   * Saves a person's answer as a learned name, so the same item is an exact hit next time. False:
+   * the profile learns nothing, or the item gives nothing to learn by. Never called in a test run.
+   */
+  learn?(request: MatchLearnRequest): Promise<boolean>;
 }
 
 /** The lead's answer to a help request, to keep (`AgentPort.keepHelp`). */

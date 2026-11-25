@@ -104,6 +104,7 @@ function bundle(w: unknown) {
 
 function setup(w: unknown) {
   const sent: Record<string, unknown>[] = [];
+  const stored: Record<string, unknown>[] = [];
   const api = fakeApi({
     [`GET /api/ops/agents/${AGENT_ID}/action-catalog`]: () => ACTIONS,
     [`GET /api/ops/agents/${AGENT_ID}/builder-catalog`]: () => ({
@@ -114,9 +115,40 @@ function setup(w: unknown) {
     }),
     "GET /api/ops/catalog/events": () => ({ events: [] }),
     "GET /api/ops/models": () => ({ models: [] }),
+    [`POST /api/ops/agents/${AGENT_ID}/step-skills`]: ({ init }) => {
+      stored.push(JSON.parse(String(init.body)));
+      return {
+        skills: [
+          {
+            stepId: "enter",
+            ref: `custom:step-${AGENT_ID}-enter`,
+            version: 3,
+            pin: `custom:step-${AGENT_ID}-enter@3`,
+            changed: true,
+          },
+        ],
+      };
+    },
     [`POST /api/ops/agents/${AGENT_ID}/versions`]: ({ init }) => {
       sent.push(JSON.parse(String(init.body)));
-      return { version: { id: V1, version: 2, status: "draft" }, errors: [] };
+      return {
+        version: {
+          id: V1,
+          agentId: AGENT_ID,
+          version: 2,
+          status: "draft",
+          bundleHash: "h",
+          changeNote: null,
+          releaseNote: null,
+          authorType: "operator",
+          authorId: null,
+          parentVersionId: null,
+          basedOnTemplateVersionId: null,
+          mergedFromVersionIds: null,
+          createdAt: at,
+        },
+        errors: [],
+      };
     },
   });
   const from = {
@@ -151,7 +183,7 @@ function setup(w: unknown) {
       </MemoryRouter>
     </ApiProvider>,
   );
-  return { sent, user: userEvent.setup() };
+  return { sent, stored, user: userEvent.setup() };
 }
 
 beforeEach(() => {
@@ -223,5 +255,41 @@ describe("the step-model builder", () => {
     };
     expect(body.bundle.workflows[0]?.workflow.schemaVersion).toBe(5);
     expect(body.bundle.workflows[0]?.workflow.steps[0]?.name).toBe("Enter the bill now");
+  });
+
+  it("stores rules written in a step behind it when the workflow is saved", async () => {
+    const written = workflow();
+    (written.steps[0] as Record<string, unknown>).uses = undefined;
+    Object.assign(written.steps[0] as Record<string, unknown>, {
+      checks: undefined,
+      rules: {
+        rows: [{ id: "r1", when: { match: "all", rules: [] }, set: { account: "Materials" } }],
+      },
+    });
+    const { user, sent, stored } = setup(written);
+    await screen.findByTestId("flow-chart");
+    await user.click(await screen.findByTestId("flow-box-enter"));
+    await user.type(await screen.findByRole("textbox", { name: "Goal" }), " now");
+    await user.click(screen.getByTestId("flow-bar-save"));
+    await waitFor(() => expect(sent).toHaveLength(1));
+    await waitFor(() => expect(stored).toHaveLength(1));
+    const body = stored[0] as { workflow: { steps: { id: string; rules?: unknown }[] } };
+    expect(body.workflow.steps[0]?.id).toBe("enter");
+    expect(body.workflow.steps[0]?.rules).toBeTruthy();
+    // The saved version pins the draft it was just given, so what ran is what it says.
+    const saved = sent[0] as { bundle: { definition: { skills: { skill: string }[] } } };
+    expect(saved.bundle.definition.skills.map((s) => s.skill)).toEqual([
+      `custom:step-${AGENT_ID}-enter@3`,
+    ]);
+  });
+
+  it("makes no extra call when no step writes anything in itself", async () => {
+    const { user, sent, stored } = setup(workflow());
+    await screen.findByTestId("flow-chart");
+    await user.click(await screen.findByTestId("flow-box-enter"));
+    await user.type(await screen.findByRole("textbox", { name: "Goal" }), " now");
+    await user.click(screen.getByTestId("flow-bar-save"));
+    await waitFor(() => expect(sent).toHaveLength(1));
+    expect(stored).toHaveLength(0);
   });
 });

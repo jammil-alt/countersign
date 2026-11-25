@@ -3,7 +3,13 @@
 // models, and the fields the trigger hands on. The pure part (`usesContextFrom`) is tested alone;
 // `useStepsCatalog` is the hook that loads the pieces.
 
-import { type ActionCatalog, type BuilderCatalog, steps } from "@countersign/core";
+import {
+  type ActionCatalog,
+  type BuilderCatalog,
+  parseSkillRef,
+  processes,
+  steps,
+} from "@countersign/core";
 import { useMemo } from "react";
 import { apiRoutes } from "../../../api/routes";
 import { useApi } from "../../../api/useApi";
@@ -24,8 +30,10 @@ export function usesContextFrom(input: {
   profiles?: readonly MatchProfile[];
 }): UsesContext {
   const skills: SkillChoice[] = input.catalog.skills
-    // The palette's own: no tool wrappers, no agent-mode skills, nothing that writes.
-    .filter((s) => s.palette !== false)
+    // The palette's own: no tool wrappers, no agent-mode skills, nothing that writes. Reshape data
+    // is the engine behind the automatic translation on a step's incoming side (§6, §10a), not a
+    // step to pick; a stored step that uses it still runs.
+    .filter((s) => s.palette !== false && parseSkillRef(s.ref).id !== processes.RESHAPE_SKILL)
     .map((s) => ({
       ref: s.ref,
       name: s.definition.name,

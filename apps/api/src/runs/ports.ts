@@ -20,6 +20,7 @@ import {
   signerItemsTx,
   unsignedRefusal,
 } from "@countersign/agents";
+import { actionIsOn, mergedOutput, resolveMergedCall } from "@countersign/connectors";
 import {
   type Approval,
   type ApprovalAssignee,
@@ -81,6 +82,7 @@ import { queueUrgent } from "../notify/urgent";
 import { reportHandled } from "../observability/report";
 import { type ReachPort, reachOutState } from "../reach/service";
 import { leaseWaitDone, leaseWaitOf, leaseWaitOutcome, MAX_LEASE_WAITS } from "./lease-wait";
+import { boundWithActionOn, channelFallback, pickMerged } from "./merged-pick";
 import { keepStepSubjects } from "./subject-log";
 
 const TERMINAL = new Set(["succeeded", "failed", "skipped", "cancelled"]);
@@ -259,6 +261,14 @@ export function agentPort(
   forms?: FormsPort,
 ): AgentPort {
   const now = () => deps.now?.() ?? new Date();
+  // The step model (§10c): whether the operator has a connector's action on for agents.
+  const actionOn = async (connector: string, tool: string): Promise<boolean> => {
+    const manifest = deps.tools.connectors.get(connector)?.manifest;
+    if (!manifest) return true;
+    const switches = (await deps.ports.store.actionSwitches?.(connector)) ?? null;
+    return actionIsOn(manifest, tool, switches);
+  };
+  const connectorName = (id: string) => deps.tools.connectors.get(id)?.manifest.name ?? id;
   // A call the platform makes for a step (an action step's tool, the lead's answer kept).
   const platformStep = async (
     run: RunInfo,
@@ -488,21 +498,23 @@ export function agentPort(
     // the gate then reads fresh); a message action from `channelFor` (the agent's own channel,
     // else the account's), read now, in the run's own client. Neither is guessed: no connection,
     // or two accounting connections without `via`, is refused (nothing written).
-    // The step model (§10c): a merged action that isn't one of today's write actions, from the
-    // connectors the pinned version is bound to, in the merge's order (`steps.resolveMerged`).
-    // DECISION: never guessed: no bound connector of the merge is refused (nothing written).
+    // The step model (§10c): a merged action that isn't one of today's write actions (Team chat,
+    // Spreadsheets), from the connectors the pinned version is bound to, in the merge's order,
+    // skipping one whose action the operator switched off (`connector_setting.actions`), so an
+    // off action is refused before the gate and another bound connector of the merge still runs.
+    // DECISION: never guessed: no bound connector of the merge with the action on is refused,
+    // saying whether it was off or not connected (nothing written).
     async resolveMerged({ run, action }) {
       const pinned = await deps.ports.store.loadAgentVersion(run.tenantId, run.agentVersionId);
-      const bound = Object.keys(pinned.bindings);
-      const tool = steps.resolveMerged(action, bound);
-      const merged = steps.mergedAction(action);
-      if (!tool || !merged) {
-        return {
-          refused: `${merged?.label ?? action}: no connection of it is set up for this agent`,
-        };
-      }
-      const connector = Object.entries(merged.tools).find(([, t]) => t === tool)?.[0] ?? "";
-      return { tool, connector };
+      return pickMerged(action, Object.keys(pinned.bindings), actionOn, connectorName);
+    },
+
+    mergedInput(action, connector, input) {
+      return resolveMergedCall(action, [connector], input)?.input ?? input;
+    },
+
+    mergedOutput(action, connector, output) {
+      return mergedOutput(action, connector, output);
     },
 
     async resolveAction({ run, action, via }) {
@@ -518,14 +530,39 @@ export function agentPort(
           channels: { [kind]: line ? { connector: line.connector } : null },
         });
         if (!r?.ok || !line) return { refused: r && !r.ok ? r.message : "no channel" };
-        return { tool: r.tool, connector: r.connector, connectionId: line.connectionId };
+        if (await actionOn(r.connector, r.tool)) {
+          return { tool: r.tool, connector: r.connector, connectionId: line.connectionId };
+        }
+        // The step model (§10c): the channel's action is switched off; another of the merge's
+        // connectors the agent is bound to, with it on, sends instead (Gmail when Resend's is off).
+        const pinned = await deps.ports.store.loadAgentVersion(run.tenantId, run.agentVersionId);
+        const other = await channelFallback(
+          action,
+          r.connector,
+          Object.keys(pinned.bindings),
+          actionOn,
+        );
+        return (
+          other ?? { refused: `${spec.label} is switched off for ${connectorName(r.connector)}` }
+        );
       }
       const pinned = await deps.ports.store.loadAgentVersion(run.tenantId, run.agentVersionId);
-      const r = processes.resolveActionConnector(action, via, {
-        bound: Object.keys(pinned.bindings),
-      });
-      if (!r) return { refused: `${spec.label} doesn't resolve here` };
-      return r.ok ? { tool: r.tool, connector: r.connector } : { refused: r.message };
+      // The step model (§10c): a bound connector whose action is switched off isn't a candidate.
+      const { bound, off } = await boundWithActionOn(
+        action,
+        Object.keys(pinned.bindings),
+        actionOn,
+      );
+      const r = processes.resolveActionConnector(action, via, { bound });
+      if (!r || !r.ok) {
+        if (off.length > 0 && (via === undefined || off.includes(via))) {
+          return {
+            refused: `${spec.label} is switched off for ${off.map(connectorName).join(" and ")}`,
+          };
+        }
+        return { refused: r && !r.ok ? r.message : `${spec.label} doesn't resolve here` };
+      }
+      return { tool: r.tool, connector: r.connector };
     },
 
     async waitDone(request) {
