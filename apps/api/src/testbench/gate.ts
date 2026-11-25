@@ -3,11 +3,18 @@
 // version, in the skill's own scope, passed every required case. A shared skill is gated on shared
 // cases only; a client's cases never count for it (invariant 1).
 
-import { gatePasses } from "@countersign/core";
-import { type skill, type Tx, testCase, testCaseResult, testSuiteRun } from "@countersign/db";
-import { and, desc, eq, isNull, ne } from "drizzle-orm";
+import { gatePasses, type SkillDefinition } from "@countersign/core";
+import {
+  type skill,
+  skillVersion,
+  type Tx,
+  testCase,
+  testCaseResult,
+  testSuiteRun,
+} from "@countersign/db";
+import { and, desc, eq, isNull, ne, sql } from "drizzle-orm";
 import { HttpError } from "../http";
-import { fullSuiteRun } from "./partial";
+import { fullSuiteRun, notPendingTry } from "./partial";
 
 type SkillRow = typeof skill.$inferSelect;
 
@@ -19,7 +26,13 @@ export interface GateVerdict {
   failing: string[];
 }
 
-export async function skillGate(tx: Tx, row: SkillRow, versionId: string): Promise<GateVerdict> {
+export async function skillGate(
+  tx: Tx,
+  row: SkillRow,
+  versionId: string,
+  /** A Loop skill: every kept case is required, not only those marked so. */
+  every = false,
+): Promise<GateVerdict> {
   const scope = row.tenantId;
   const required = await tx
     .select({ id: testCase.id })
@@ -28,7 +41,7 @@ export async function skillGate(tx: Tx, row: SkillRow, versionId: string): Promi
       and(
         eq(testCase.targetKind, "skill"),
         eq(testCase.targetId, row.id),
-        eq(testCase.required, true),
+        every ? notPendingTry() : eq(testCase.required, true),
         isNull(testCase.archivedAt),
         scope ? eq(testCase.tenantId, scope) : isNull(testCase.tenantId),
       ),
@@ -85,4 +98,62 @@ export async function assertSkillTestsPass(
       : "run the tests on this version before publishing it",
     { suiteRunId: verdict.suiteRunId, failing: verdict.failing },
   );
+}
+
+/**
+ * Step model §8: a Loop skill can't be published until its test set passes in the lab. Unlike
+ * `assertSkillTestsPass` it is not a switch: the skill's `require_tests` doesn't open it. The set
+ * is every kept case in the skill's scope (at least one), and the latest full suite run of this
+ * exact version must have passed all of them. A Loop reads and never writes, so the set is what
+ * stands behind its judgment (invariant 9).
+ */
+export async function assertLoopTestsPass(tx: Tx, row: SkillRow, versionId: string): Promise<void> {
+  if ((await caseCount(tx, row)) === 0) {
+    throw new HttpError(422, "tests_failing", "a Loop needs a test set: add at least one case", {
+      suiteRunId: null,
+      failing: [],
+    });
+  }
+  const verdict = await skillGate(tx, row, versionId, true);
+  if (verdict.pass) return;
+  throw new HttpError(
+    422,
+    "tests_failing",
+    verdict.suiteRunId
+      ? `${verdict.failing.length} test case(s) did not pass on this version`
+      : "run the test set on this version before publishing it",
+    { suiteRunId: verdict.suiteRunId, failing: verdict.failing },
+  );
+}
+
+async function caseCount(tx: Tx, row: SkillRow): Promise<number> {
+  const rows = await tx
+    .select({ id: testCase.id })
+    .from(testCase)
+    .where(
+      and(
+        eq(testCase.targetKind, "skill"),
+        eq(testCase.targetId, row.id),
+        notPendingTry(),
+        isNull(testCase.archivedAt),
+        row.tenantId ? eq(testCase.tenantId, row.tenantId) : isNull(testCase.tenantId),
+      ),
+    );
+  return rows.length;
+}
+
+/** Whether a stored skill definition is a Loop skill (§8). */
+export const isLoopSkill = (def: unknown): boolean =>
+  typeof def === "object" && def !== null && (def as Partial<SkillDefinition>).loop !== undefined;
+
+/** Whether any version of the skill is a Loop (a skill that was one stays gated). */
+export async function hasLoopVersion(tx: Tx, skillId: string): Promise<boolean> {
+  const rows = await tx
+    .select({ id: skillVersion.id })
+    .from(skillVersion)
+    .where(
+      and(eq(skillVersion.skillId, skillId), sql`${skillVersion.definition} -> 'loop' is not null`),
+    )
+    .limit(1);
+  return rows.length > 0;
 }

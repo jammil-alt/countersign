@@ -69,11 +69,14 @@ export function skillKindLabel(def: KindFields, tools?: SkillToolLookup): string
  * with tools that may propose writes) becomes an AI skill followed by write steps. Stored versions
  * and the steps already using them keep running (invariant 3).
  */
-export function retiredSkillReason(def: Pick<SkillDefinition, "mode" | "method">): string | null {
+export function retiredSkillReason(
+  def: Pick<SkillDefinition, "mode" | "method"> & { loop?: SkillDefinition["loop"] },
+): string | null {
   if (def.method === "rules_then_ai") {
     return "Rules then AI is retired: make two skills, a deterministic one and an AI one, and chain them (the deterministic checks after the AI one veto it).";
   }
-  if (def.mode === "agent") {
+  // Step model §8: an agent-mode skill that only reads (a Loop) is back; the rest stay retired.
+  if (def.mode === "agent" && def.loop === undefined) {
     return "Skills that run the agent's own reasoning are retired: use an AI skill, then a write step for each change.";
   }
   return null;
@@ -111,13 +114,18 @@ export function skillIsWriter(
  * here (`isToolWrapper`): its tool is offered as a step instead.
  */
 export function newStepSkillReason(
-  def: Pick<SkillDefinition, "mode" | "method" | "handler" | "tools" | "reads"> & { id?: string },
+  def: Pick<SkillDefinition, "mode" | "method" | "handler" | "tools" | "reads"> & {
+    id?: string;
+    loop?: SkillDefinition["loop"];
+  },
   tools?: SkillToolLookup,
   /** §1.88: skills replaced for new steps (a pack's `superseded`), id → the replacement's id. */
   superseded?: Readonly<Record<string, string>>,
 ): string | null {
   const retired = retiredSkillReason(def);
   if (retired) return retired;
+  // A Loop skill is a Loop step's, not a Do step's (§8): the Loop form picks it.
+  if (def.loop !== undefined) return "A Loop skill is used in a Loop step.";
   const by = def.id !== undefined ? superseded?.[def.id] : undefined;
   if (by) {
     return `Replaced for new steps by ${by}: steps that already use this skill keep running it.`;
@@ -137,16 +145,18 @@ export function newSkillVersionProblems(
   def: Pick<
     SkillDefinition,
     "mode" | "method" | "handler" | "tools" | "reads" | "rules" | "model" | "parameters"
-  >,
+  > & { loop?: SkillDefinition["loop"] },
   tools?: SkillToolLookup,
 ): string[] {
   const problems: string[] = [];
   const retired = retiredSkillReason(def);
   if (retired) problems.push(retired);
+  if (def.loop !== undefined) problems.push(...loopSkillProblems(def, tools));
   if (def.mode === "tool" && def.handler !== undefined && (def.rules?.length ?? 0) > 0) {
     problems.push("A deterministic skill runs its rule rows or its built-in code, not both.");
   }
-  if (tools) {
+  // A Loop's reads were checked above, in a Loop's words.
+  if (tools && def.loop === undefined) {
     for (const id of [...skillTools(def), ...(def.reads ?? [])]) {
       const t = tools(id);
       if (t && t.sideEffect !== "none") {
@@ -157,4 +167,43 @@ export function newSkillVersionProblems(
     }
   }
   return problems;
+}
+
+// ── Loop skills (docs/step-model-plan.md §8) ─────────────────────────────────────────────────
+
+/**
+ * What stops an agent-mode skill being a Loop skill, in plain words (empty: none). A Loop only
+ * reads: every action it lists must be a Get (a tool with no side effect), and it must say which.
+ * Checked when a version is saved and again when it runs (the runtime offers only these); without
+ * a lookup nothing can be checked, so a Loop is refused rather than trusted.
+ */
+export function loopSkillProblems(
+  def: Pick<SkillDefinition, "tools" | "reads" | "handler"> & { loop?: SkillDefinition["loop"] },
+  tools?: SkillToolLookup,
+): string[] {
+  const problems: string[] = [];
+  if (skillTools(def).length > 0) {
+    problems.push("A Loop reads through its read actions only: it has no tools of its own.");
+  }
+  const reads = def.reads ?? [];
+  if (reads.length === 0) problems.push("Pick at least one action the Loop may read.");
+  if (!tools) {
+    if (reads.length > 0) problems.push("A Loop's actions can't be checked: it must only read.");
+    return problems;
+  }
+  for (const id of reads) {
+    const t = tools(id);
+    if (t === undefined) problems.push(`A Loop can only use actions that exist: "${id}" doesn't.`);
+    else if (t.sideEffect !== "none") {
+      problems.push(
+        `A Loop only reads: "${id}" changes something. Save what it decides in a step after it.`,
+      );
+    }
+  }
+  return problems;
+}
+
+/** The reads of a Loop skill that a Loop may call: those that exist and have no side effect. */
+export function loopReads(def: Pick<SkillDefinition, "reads">, tools: SkillToolLookup): string[] {
+  return (def.reads ?? []).filter((id) => tools(id)?.sideEffect === "none");
 }

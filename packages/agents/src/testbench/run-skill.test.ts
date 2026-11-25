@@ -223,4 +223,92 @@ describe("runSkillCase with a sample document", () => {
     expect(missing.status).toBe("failed");
     expect(missing.error).toContain("reading a document is not available here");
   });
+
+  // Step model §8: a Loop skill runs as a Loop would, and its turns are laid out one by one.
+  describe("a Loop skill", () => {
+    const loopSkill: SkillDefinition = {
+      ...skill,
+      id: "custom:find-price",
+      tools: [],
+      // The update tool is listed to prove it is never offered: a Loop reads only.
+      reads: [TESTKIT_QUERY_TOOL, TESTKIT_UPDATE_TOOL],
+      loop: { goal: "Find the record's price.", maxTurns: 4, atLimit: "hand_back" },
+    };
+
+    it("shows each turn: what it said, the call, what came back, and the finish", async () => {
+      const { tools, query, update } = registry();
+      const model = new FakeModel([
+        {
+          text: "Start with r1.",
+          toolUse: { name: "testkit__record__query", input: { ids: ["r1"] } },
+        },
+        { text: "r2 next.", toolUse: { name: "testkit__record__query", input: { ids: ["r2"] } } },
+        { toolUse: { name: "testkit__record__update", input: { id: "r1", amount: "1.00" } } },
+        { text: "That is enough.", toolUse: { name: "finish", input: { amount: "12.50" } } },
+      ]);
+      const run = await runSkillCase(
+        { tools, transport: model },
+        {
+          definition: loopSkill,
+          tenantId: null,
+          input: { id: "r1" },
+          fixtures: [
+            {
+              tool: TESTKIT_QUERY_TOOL,
+              input: { ids: ["r1"] },
+              output: { records: [{ id: "r1", amount: "12.50" }] },
+            },
+          ],
+        },
+      );
+      expect(run.status).toBe("succeeded");
+      expect(run.turns.map((t) => [t.n, t.said, t.calls.length, t.finished])).toEqual([
+        [1, "Start with r1.", 1, false],
+        [2, "r2 next.", 1, false],
+        [3, null, 1, false],
+        [4, "That is enough.", 0, true],
+      ]);
+      expect(run.turns[0]?.calls[0]).toMatchObject({
+        tool: TESTKIT_QUERY_TOOL,
+        status: "succeeded",
+        input: { ids: ["r1"] },
+        output: { records: [{ id: "r1", amount: "12.50" }] },
+      });
+      // A read no fixture answers is refused; the write is never offered, and nothing is touched.
+      expect(run.turns[1]?.calls[0]?.reason).toMatch(/no fixture answers/);
+      expect(run.turns[2]?.calls[0]).toMatchObject({
+        tool: TESTKIT_UPDATE_TOOL,
+        status: "refused",
+        reason: "not an action this Loop may use",
+      });
+      expect(query).not.toHaveBeenCalled();
+      expect(update).not.toHaveBeenCalled();
+      // Only the Get was offered to the model.
+      const offered = (model.requests[0]?.tools ?? []).map((t) => t.name);
+      expect(offered).toContain("testkit__record__query");
+      expect(offered).not.toContain("testkit__record__update");
+    });
+
+    it("stops at its turns, or hands back, as the skill says", async () => {
+      const { tools } = registry();
+      const spin = (n: number) =>
+        Array.from({ length: n }, () => ({
+          toolUse: { name: "testkit__record__query", input: { ids: ["r1"] } },
+        }));
+      const stopped = await runSkillCase(
+        { tools, transport: new FakeModel(spin(10)) },
+        {
+          definition: {
+            ...loopSkill,
+            loop: { goal: "Find the record's price.", maxTurns: 4, atLimit: "stop" },
+          },
+          tenantId: null,
+          input: { id: "r1" },
+          fixtures: [],
+        },
+      );
+      expect(stopped.status).toBe("failed");
+      expect(stopped.turns.length).toBeLessThanOrEqual(4);
+    });
+  });
 });

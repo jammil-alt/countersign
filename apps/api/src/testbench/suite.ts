@@ -200,10 +200,12 @@ async function runSkill(deps: RunDeps, params: SuiteParams, c: CaseRow): Promise
     },
   );
   const calls = result.toolCalls;
+  // Step model §8: a Loop's turns are kept with its result, for the turn-by-turn view.
+  const trace = result.turns.length > 0 ? { calls, turns: result.turns } : { calls };
   if (result.status !== "succeeded") {
-    return failed(result.error ?? "the skill failed", { calls }, result.costUsd);
+    return failed(result.error ?? "the skill failed", trace, result.costUsd);
   }
-  return { ...scored(c, result.output, { calls }, result.costUsd), runId: null };
+  return { ...scored(c, result.output, trace, result.costUsd), runId: null };
 }
 
 /** Binds the test copy's unbound required connectors to its client's connection for each. */

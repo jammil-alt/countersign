@@ -556,6 +556,8 @@ export async function runAgent(deps: RuntimeDeps, input: RunAgentInput): Promise
   // the skill (`definition.skills[].model`).
   let parameters: Record<string, unknown> = {};
   let agentSkillModel: ModelChoice | undefined;
+  // The step model (§8): the Loop this run is, after a saved Loop skill has narrowed it.
+  let stepLoop: StepLoopInput | undefined = input.loop;
   if (skillRef !== null) {
     const resolved = await resolveSkill(deps, input.tenantId, skillRef);
     if (!resolved) return fail(`skill ${skillRef} is not available to this agent`);
@@ -586,13 +588,26 @@ export async function runAgent(deps: RuntimeDeps, input: RunAgentInput): Promise
       def = customized.def;
     }
     // The step model (§8): a saved Loop runs as an agent loop, with the step's goal and reads.
+    if (def.loop !== undefined && !input.loop) {
+      return fail(`${def.id} is a Loop skill: it runs in a Loop step`);
+    }
     if (input.loop) {
+      // A saved Loop skill is the ceiling on what its step may read (§8): the step can pick fewer
+      // of its actions, never more, and a Loop never calls what is not a Get.
+      const own = def.loop !== undefined ? new Set(def.reads ?? []) : null;
+      stepLoop = own
+        ? {
+            ...input.loop,
+            reads: input.loop.reads.filter((r) => own.has(r)),
+            maxTurns: Math.min(input.loop.maxTurns, def.loop?.maxTurns ?? input.loop.maxTurns),
+          }
+        : input.loop;
       def = {
         ...def,
         mode: "agent",
-        instructions: loopInstructions(def.instructions, input.loop),
-        tools: input.loop.reads,
-        ...(input.loop.output ? { output: input.loop.output } : {}),
+        instructions: loopInstructions(def.instructions, stepLoop),
+        tools: stepLoop.reads,
+        ...(stepLoop.output ? { output: stepLoop.output } : {}),
       };
     }
   } else if (input.loop) {
@@ -627,11 +642,11 @@ export async function runAgent(deps: RuntimeDeps, input: RunAgentInput): Promise
     externalIndex: { next: 0 },
     language: input.language,
     // The step model (§8): a Loop never writes, whatever it lists.
-    readOnly: asked !== undefined || input.loop !== undefined,
+    readOnly: asked !== undefined || stepLoop !== undefined,
     ...(input.retryOf ? { retryOf: input.retryOf } : {}),
     // No asks within an ask: the asked agent can't start a chain.
     ask:
-      asked || input.loop
+      asked || stepLoop
         ? undefined
         : (q) =>
             askAgent(deps, {
@@ -645,9 +660,9 @@ export async function runAgent(deps: RuntimeDeps, input: RunAgentInput): Promise
   const allowed = new Set(
     asked
       ? skillTools(def).filter((t) => deps.tools.get(t)?.spec.sideEffect === "none")
-      : input.loop
+      : stepLoop
         ? // The step model (§8): its reads only, and only those that read.
-          input.loop.reads.filter((t) => deps.tools.get(t)?.spec.sideEffect === "none")
+          stepLoop.reads.filter((t) => deps.tools.get(t)?.spec.sideEffect === "none")
         : stepToolIds(def, agent.bundle.definition.extraTools, deps.tools),
   );
   const pending: PendingAction[] = [];
@@ -810,9 +825,9 @@ export async function runAgent(deps: RuntimeDeps, input: RunAgentInput): Promise
   // An ask's budget is the smaller of the ask's and the agent's own.
   const maxSteps = asked
     ? Math.min(definition.budgets.maxSteps, asked.budget.maxSteps)
-    : input.loop
+    : stepLoop
       ? // The step model (§8): a Loop's most turns, within the agent's own budget.
-        Math.min(definition.budgets.maxSteps, input.loop.maxTurns)
+        Math.min(definition.budgets.maxSteps, stepLoop.maxTurns)
       : definition.budgets.maxSteps;
   const agentMaxCost = asked
     ? Decimal.min(definition.budgets.maxCostUsd, asked.budget.maxCostUsd)
@@ -1112,7 +1127,7 @@ export async function runAgent(deps: RuntimeDeps, input: RunAgentInput): Promise
       if (scope && limit) return helpNeeded(scope.needsHelp());
       if (stepCalls() >= maxSteps) {
         // The step model (§8): a Loop at its most turns stops, or hands back what it has.
-        if (input.loop) return atLoopLimit(input.loop);
+        if (stepLoop) return atLoopLimit(stepLoop);
         return overBudget("max_steps");
       }
       if (stepCost().gt(maxCost)) return overBudget("max_cost");
