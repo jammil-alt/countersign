@@ -7,7 +7,7 @@ import { DecimalString } from "@countersign/core";
 import { ledgerAccount, withTenant } from "@countersign/db";
 import { and, asc, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
-import { addNote, listAccounts, unclearAccounts } from "./accounts";
+import { addNote, payeesByAccount, unclearAccounts } from "./accounts";
 import {
   BOOK_CONFIDENCE_AUTO,
   checkProposal,
@@ -207,52 +207,34 @@ function openItemView(t: Parameters<typeof openItemOf>[0]) {
   return { kind, docNumber, name, date, balance, confirmed: item.confirmed === true };
 }
 
-const AccountOut = z.object({
-  id: z.string(),
-  name: z.string(),
-  fullName: z.string(),
-  number: z.string().nullable(),
-  classification: z.string().nullable(),
-  type: z.string(),
-  subType: z.string().nullable(),
-  description: z.string().nullable(),
-  notes: z.array(z.object({ note: z.string(), source: z.enum(["client", "operator", "agent"]) })),
-  examples: z.array(z.object({ payee: z.string(), times: z.number() })),
-});
 
-export const accountsTool = defineTool({
-  id: "bookkeeping.accounts.list",
+// One chart of accounts (docs/step-model-plan.md §10e): the list of accounts is Shared's
+// `ledger.accounts.list`; what only Bookkeeping knows, the payees its bookings put on each account,
+// is this read, for the accounts the caller names.
+export const accountPayeesTool = defineTool({
+  id: "bookkeeping.account.payees",
   description:
-    "The client's chart of accounts: each active account's name, number and type, what the accounting tool says about it, notes on what it is for (the client's own words first) and the payees most often booked to it.",
+    "The payees most often booked to each of the accounts given (approved and posted bookings), most first. Read the accounts themselves, with their notes, from the chart of accounts.",
   sideEffect: "none",
   entity: "ledger_account",
   area: "shared",
-  input: z.object({
-    classifications: z
-      .array(z.enum(["expense", "revenue", "asset", "liability", "equity"]))
-      .optional(),
+  input: z.object({ ledgerAccountIds: z.array(Id).min(1).max(200) }),
+  output: z.object({
+    accounts: z.array(
+      z.object({
+        ledgerAccountId: Id,
+        examples: z.array(z.object({ payee: z.string(), times: z.number() })),
+      }),
+    ),
   }),
-  output: z.object({ accounts: z.array(AccountOut) }),
   async run(input, ctx) {
-    const accounts = await withTenant(ctx.db, ctx.tenantId, (tx) =>
-      listAccounts(
-        tx,
-        ctx.tenantId,
-        input.classifications ? { classifications: input.classifications } : {},
-      ),
+    const examples = await withTenant(ctx.db, ctx.tenantId, (tx) =>
+      payeesByAccount(tx, ctx.tenantId, input.ledgerAccountIds),
     );
     return {
-      accounts: accounts.map((a) => ({
-        id: a.id,
-        name: a.name,
-        fullName: a.fullName,
-        number: a.number,
-        classification: a.classification,
-        type: a.type,
-        subType: a.subType,
-        description: a.description,
-        notes: a.notes.map((n) => ({ note: n.note, source: n.source })),
-        examples: a.examples,
+      accounts: input.ledgerAccountIds.map((id) => ({
+        ledgerAccountId: id,
+        examples: examples.get(id) ?? [],
       })),
     };
   },
@@ -398,7 +380,7 @@ export const BOOKKEEPING_TOOLS: readonly PackTool[] = [
   importTool,
   settleTool,
   openTool,
-  accountsTool,
+  accountPayeesTool,
   proposeTool,
   noteTool,
   unclearTool,

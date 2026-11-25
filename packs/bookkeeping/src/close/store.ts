@@ -540,7 +540,7 @@ async function doCheck(
   const tz = await clientTimezone(tx, tenantId);
   const { periodStart, asOf: periodEnd } = monthPeriod(input.today, input.month, tz);
   const conn = await closeConnection(tx, tenantId);
-  if (!conn) throw new PackRefusal("there's no connected QuickBooks company to close");
+  if (!conn) throw new PackRefusal("there's no connected accounting company to close");
   const snapshot = booksAsOf(
     await loadQboBooks(tx, { tenantId, connectionId: conn.id }),
     periodEnd,
@@ -674,7 +674,7 @@ async function doCheck(
       config.accrualMonths,
     );
     if (!liability && patterns.length > 0) {
-      accrualNote = `No liability account named "${config.accrualAccount}" in QuickBooks, so ${patterns.length} accruals weren't proposed.`;
+      accrualNote = `No liability account named "${config.accrualAccount}" in the accounting system, so ${patterns.length} accruals weren't proposed.`;
     }
     for (const p of patterns) {
       if (!liability) break;
@@ -1013,7 +1013,7 @@ async function entriesItem(
       count: 0,
       summary:
         (posted > 0
-          ? `${posted} journal entries recorded in QuickBooks.`
+          ? `${posted} journal entries recorded in the accounting system.`
           : "No journal entries to record this month.") + tail,
       detail: {},
       sources: rows.map((r) => r.id),
@@ -1284,7 +1284,7 @@ export async function decideClose(
     const w = (await writesOf(tx, tenantId, [d.input.entryId])).get(d.input.entryId);
     if (w && LIVE_WRITE.has(w.status)) {
       throw new PackRefusal(
-        "its QuickBooks write is waiting for a signature or being made: decide it there",
+        "its write to the accounting system is waiting for a signature or being made: decide it there",
       );
     }
     await tx

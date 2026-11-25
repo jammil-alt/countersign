@@ -1211,7 +1211,7 @@ async function recordWritten(tx: Tx, who: Decider): Promise<void> {
         .update(booking)
         .set({
           status: "failed",
-          error: `Already in QuickBooks as ${qbo.entity ?? "a record"} ${qbo.id ?? ""} from an earlier booking of this transaction`,
+          error: `Already in the accounting system as ${qbo.entity ?? "a record"} ${qbo.id ?? ""} from an earlier booking of this transaction`,
           decidedAt: sql`now()`,
         })
         .where(and(eq(booking.tenantId, who.tenantId), eq(booking.id, b.id)));

@@ -56,12 +56,12 @@ function write(entity: "purchase" | "deposit" | "transfer", tool: string, fields
     steps: [
       {
         id: `write-${entity}`,
-        name: "Book it in QuickBooks",
+        name: "Book it in the accounting system",
         kind: "action" as const,
         tool,
         input,
         approval: { required: "required" as const },
-        client: { visible: true, label: "Booked a bank transaction in QuickBooks" },
+        client: { visible: true, label: "Booked a bank transaction in the accounting system" },
       },
       {
         id: `posted-${entity}`,
@@ -141,7 +141,7 @@ const BOOKKEEPER_V1 = lazyObject({
       schemaVersion: 2,
       identity: {
         name: "Bookkeeper",
-        role: "Books the bank and card transactions in QuickBooks",
+        role: "Books the bank and card transactions in the accounting system",
         mission:
           "Every bank and card transaction is in the books, in the right account, within a day, and nothing is booked twice.",
       },
@@ -203,7 +203,7 @@ const BOOKKEEPER_V1 = lazyObject({
               kind: "skill",
               skill: "bookkeeping.settle",
               input: {},
-              client: { visible: true, label: "Matched what was already in QuickBooks" },
+              client: { visible: true, label: "Matched what was already in the accounting system" },
             },
             {
               id: "any-open",
@@ -286,14 +286,14 @@ const BOOKKEEPER_V1 = lazyObject({
             },
             {
               id: "post",
-              name: "Book each in QuickBooks",
+              name: "Book each in the accounting system",
               kind: "for_each",
               over: "{{steps.ready.output.bookings}}",
               concurrency: 1,
               steps: [
                 {
                   id: "qin",
-                  name: "Lay out the QuickBooks record",
+                  name: "Lay out the record for the accounting system",
                   kind: "skill",
                   skill: "bookkeeping.qbo-input",
                   input: { bookingId: "{{item.bookingId}}" },
@@ -377,7 +377,7 @@ const BOOKKEEPER_V1 = lazyObject({
               steps: [
                 {
                   id: "register",
-                  name: "Read the account in QuickBooks",
+                  name: "Read the account in the accounting system",
                   kind: "skill",
                   skill: QBO_REGISTER_TOOL,
                   input: {
@@ -389,7 +389,7 @@ const BOOKKEEPER_V1 = lazyObject({
                 },
                 {
                   id: "rec",
-                  name: "Compare the bank with QuickBooks",
+                  name: "Compare the bank with the accounting system",
                   kind: "skill",
                   skill: "bookkeeping.reconcile-two",
                   input: {
@@ -401,7 +401,7 @@ const BOOKKEEPER_V1 = lazyObject({
                     },
                     b: {
                       source: "given",
-                      label: "QuickBooks",
+                      label: "Accounting system",
                       opening: "{{steps.register.output.opening}}",
                       closing: "{{steps.register.output.closing}}",
                       items: "{{steps.register.output.items}}",
@@ -410,7 +410,7 @@ const BOOKKEEPER_V1 = lazyObject({
                     asOf: "{{steps.pairs.output.asOf}}",
                     pairKey: "{{item.pairKey}}",
                   },
-                  client: { visible: true, label: "Reconciled a bank account with QuickBooks" },
+                  client: { visible: true, label: "Reconciled a bank account with the accounting system" },
                 },
                 askAboutLeftovers("month", "rec"),
               ],
@@ -568,12 +568,12 @@ function writeV2(entity: "purchase" | "deposit" | "transfer", tool: string, fiel
     steps: [
       {
         id: `write-${entity}`,
-        name: "Book it in QuickBooks",
+        name: "Book it in the accounting system",
         kind: "write" as const,
         tool,
         input,
         checks: { approval: APPROVAL_REQUIRED },
-        client: { visible: true, label: "Booked a bank transaction in QuickBooks" },
+        client: { visible: true, label: "Booked a bank transaction in the accounting system" },
       },
       {
         id: `posted-${entity}`,
@@ -680,7 +680,7 @@ const bookkeeperV2Input = () =>
               kind: "write",
               tool: "bookkeeping.transactions.settle",
               input: {},
-              client: { visible: true, label: "Matched what was already in QuickBooks" },
+              client: { visible: true, label: "Matched what was already in the accounting system" },
             },
             {
               id: "any-open",
@@ -768,14 +768,14 @@ const bookkeeperV2Input = () =>
             },
             {
               id: "post",
-              name: "Book each in QuickBooks",
+              name: "Book each in the accounting system",
               kind: "for_each",
               over: "{{steps.ready.output.bookings}}",
               concurrency: 1,
               steps: [
                 {
                   id: "qin",
-                  name: "Lay out the QuickBooks record",
+                  name: "Lay out the record for the accounting system",
                   kind: "read",
                   tool: "bookkeeping.booking.qbo-input",
                   input: { bookingId: "{{item.bookingId}}" },
@@ -857,7 +857,7 @@ const bookkeeperV2Input = () =>
               steps: [
                 {
                   id: "register",
-                  name: "Read the account in QuickBooks",
+                  name: "Read the account in the accounting system",
                   kind: "read",
                   tool: QBO_REGISTER_TOOL,
                   input: {
@@ -869,7 +869,7 @@ const bookkeeperV2Input = () =>
                 },
                 {
                   id: "rec",
-                  name: "Compare the bank with QuickBooks",
+                  name: "Compare the bank with the accounting system",
                   kind: "write",
                   tool: "bookkeeping.reconcile",
                   input: {
@@ -881,7 +881,7 @@ const bookkeeperV2Input = () =>
                     },
                     b: {
                       source: "given",
-                      label: "QuickBooks",
+                      label: "Accounting system",
                       opening: "{{steps.register.output.opening}}",
                       closing: "{{steps.register.output.closing}}",
                       items: "{{steps.register.output.items}}",
@@ -890,7 +890,7 @@ const bookkeeperV2Input = () =>
                     asOf: "{{steps.pairs.output.asOf}}",
                     pairKey: "{{item.pairKey}}",
                   },
-                  client: { visible: true, label: "Reconciled a bank account with QuickBooks" },
+                  client: { visible: true, label: "Reconciled a bank account with the accounting system" },
                 },
                 askAboutLeftoversV2("month", "rec"),
               ],
@@ -1156,7 +1156,7 @@ const bookkeeperV5 = once(() =>
 /** Asks QuickBooks for this booking's write already made, under any mark of its money. */
 const FIND_WRITTEN = {
   id: "find",
-  name: "Look for it in QuickBooks",
+  name: "Look for it in the accounting system",
   kind: "read" as const,
   tool: BANKING_FIND_TOOL,
   input: {
@@ -1170,7 +1170,7 @@ const FIND_WRITTEN = {
 /** Already in QuickBooks: recorded as that record, and not written again. */
 const WRITTEN_PATH = {
   id: "post-written",
-  name: "Already in QuickBooks",
+  name: "Already in the accounting system",
   when: {
     match: "all" as const,
     rules: [{ field: "{{steps.find.output.found}}", op: "is" as const, value: true }],

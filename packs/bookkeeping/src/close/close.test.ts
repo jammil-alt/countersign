@@ -436,7 +436,7 @@ describe.skipIf(!online)("the Close pack (database, as cs_worker)", () => {
     expect(v.entries.find((e) => e.id === recurring.entryId)?.status).toBe("rejected");
     expect(v.items.find((i) => i.key === "entries")).toMatchObject({
       status: "done",
-      summary: "1 journal entries recorded in QuickBooks.",
+      summary: "1 journal entries recorded in the accounting system.",
     });
   });
 

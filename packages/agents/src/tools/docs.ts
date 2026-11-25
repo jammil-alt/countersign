@@ -233,7 +233,7 @@ const QboBillCopyOut = z.object({
 export const docsQboBills = defineInternalTool({
   id: "docs.qbo_bills",
   description:
-    "For bills read from QuickBooks, Mezonas's copy of each: its transaction and its attachments as documents, ready to read. The QuickBooks sync brings bills and attachments in every 15 minutes, so a bill entered minutes ago may be 'not_yet'.",
+    "For bills read from the accounting system, Mezonas's copy of each: its transaction and its attachments as documents, ready to read. The accounting sync brings bills and attachments in every 15 minutes, so a bill entered minutes ago may be 'not_yet'.",
   sideEffect: "none",
   input: z
     .object({
@@ -246,7 +246,7 @@ export const docsQboBills = defineInternalTool({
       ids: z.array(z.string().min(1)).max(200).optional(),
     })
     .refine((v) => (v.bills?.length ?? 0) + (v.ids?.length ?? 0) > 0, {
-      message: "give the bills from QuickBooks, or their ids",
+      message: "give the bills from the accounting system, or their ids",
     }),
   output: z.object({
     bills: z.array(QboBillCopyOut),
@@ -257,7 +257,7 @@ export const docsQboBills = defineInternalTool({
   }),
   async run(input, ctx) {
     const p = port(ctx);
-    if (!p.qboBills) throw new Error("finding bills from QuickBooks is not available here");
+    if (!p.qboBills) throw new Error("finding bills from the accounting system is not available here");
     const ids = [...(input.bills ?? []).map((b) => b.id), ...(input.ids ?? [])];
     const bills = await p.qboBills(ctx.tenantId, ids);
     const documentIds = bills.flatMap((b) => b.documentIds);

@@ -272,7 +272,7 @@ export const requestList = defineTool({
 export const requestUpdate = defineTool({
   id: "materials.request.update",
   description:
-    "Changes a purchase request's status or fields. The status only moves forward (open, quoting, quoted, ordered, closed); a request can be cancelled any time before it is ordered. Passing the order's reference (e.g. the QuickBooks purchase order id) marks it ordered.",
+    "Changes a purchase request's status or fields. The status only moves forward (open, quoting, quoted, ordered, closed); a request can be cancelled any time before it is ordered. Passing the order's reference (e.g. the accounting system's purchase order id) marks it ordered.",
   sideEffect: "internal",
   // docs/plan.md §1.188: the request, and who asked for it.
   about: [
@@ -942,7 +942,7 @@ export const poDocument = defineTool({
 export const backfillFromBillsTool = defineTool({
   id: "materials.backfill-from-bills",
   description:
-    "Turns the client's synced QuickBooks bills dated `from` to `to` into catalog matches and prices (deterministic matching; unsure lines are counted and listed for review, never guessed). Safe to run again: a bill line is priced once. Reads at most `limit` bills a call; pass `next` back as `after` to continue.",
+    "Turns the client's synced bills from the accounting system dated `from` to `to` into catalog matches and prices (deterministic matching; unsure lines are counted and listed for review, never guessed). Safe to run again: a bill line is priced once. Reads at most `limit` bills a call; pass `next` back as `after` to continue.",
   sideEffect: "internal",
   entity: "vendor_item",
   summary: "Recorded {{recorded}} prices from {{bills}} bills; {{needsReview}} lines to review",
@@ -1131,12 +1131,12 @@ const QboVendorSeenIn = z.object({
 export const vendorQboTool = defineTool({
   id: "materials.vendor.qbo",
   description:
-    "Ties one of the client's vendors to its QuickBooks vendor: the id kept from sync or before; else the one active vendor of the same name among `qboVendors` (qbo.vendor.query's `vendors`); else `qboVendorId` (qbo.vendor.create's new id). Without one, answers `create`, the input for qbo.vendor.create (which waits for approval). Writes nothing to QuickBooks.",
+    "Ties one of the client's vendors to its vendor in the accounting system: the id kept from sync or before; else the one active vendor of the same name among `qboVendors` (qbo.vendor.query's `vendors`); else `qboVendorId` (qbo.vendor.create's new id). Without one, answers `create`, the input for qbo.vendor.create (which waits for approval). Writes nothing to the accounting system.",
   sideEffect: "internal",
   entity: "vendor",
   area: "shared",
   verb: "update",
-  summary: "{{vendorName}} in QuickBooks: {{qboVendorId}}",
+  summary: "{{vendorName}} in the accounting system: {{qboVendorId}}",
   input: z.object({
     vendorId: z.uuid(),
     qboVendors: z.array(QboVendorSeenIn).max(1000).optional(),
@@ -1171,11 +1171,11 @@ const QboItemSeenIn = z.object({
 export const itemQboTool = defineTool({
   id: "materials.item.qbo",
   description:
-    "Ties one of the client's catalog items to its QuickBooks item, so purchase orders order it as an item line: the id kept (from a bill or before); else the one active item of the same name among `qboItems` (qbo.item.query's `items`, looked up by `searchName`); else `qboItemId` as a person gave it. Without one, its lines stay account lines. Writes nothing to QuickBooks.",
+    "Ties one of the client's catalog items to its item in the accounting system, so purchase orders order it as an item line: the id kept (from a bill or before); else the one active item of the same name among `qboItems` (qbo.item.query's `items`, looked up by `searchName`); else `qboItemId` as a person gave it. Without one, its lines stay account lines. Writes nothing to the accounting system.",
   sideEffect: "internal",
   entity: "catalog_item",
   verb: "update",
-  summary: "{{name}} in QuickBooks: {{qboItemId}}",
+  summary: "{{name}} in the accounting system: {{qboItemId}}",
   input: z.object({
     catalogItemId: z.uuid(),
     qboItems: z.array(QboItemSeenIn).max(1000).optional(),
@@ -1201,10 +1201,10 @@ export const itemQboTool = defineTool({
 export const poQboLinesTool = defineTool({
   id: "materials.po.qbo-lines",
   description:
-    "Turns a purchase request and its chosen quote (or a split's share of the lines) into qbo.purchaseorder.create's input as `order`: the vendor's QuickBooks id (materials.vendor.qbo first), one line per quoted line, an item line when its catalog item is tied to a QuickBooks item (materials.item.qbo) and otherwise an account line on the client's expense account for purchase orders, each amount rounded to cents, the total, the reference as its number and needed-by as its date. `untied` lists the order's items with no QuickBooks item. Writes nothing.",
+    "Turns a purchase request and its chosen quote (or a split's share of the lines) into qbo.purchaseorder.create's input as `order`: the vendor's id in the accounting system (materials.vendor.qbo first), one line per quoted line, an item line when its catalog item is tied to an item in the accounting system (materials.item.qbo) and otherwise an account line on the client's expense account for purchase orders, each amount rounded to cents, the total, the reference as its number and needed-by as its date. `untied` lists the order's items with no item in the accounting system. Writes nothing.",
   sideEffect: "none",
   entity: "purchase_request",
-  summary: "Laid out {{order.lines.length}} lines for {{vendorName}}'s QuickBooks order",
+  summary: "Laid out {{order.lines.length}} lines for {{vendorName}}'s order in the accounting system",
   input: z.object({
     requestId: z.uuid(),
     quoteRequestId: z.uuid(),

@@ -28,7 +28,8 @@ describe("the AP manifest", () => {
   });
 
   it("gives every skill tools that exist, and requires the pack", () => {
-    const tools = new Set(apManifest.tools.map((t) => t.id));
+    // The chart of accounts is Shared's: one list for every area (docs/step-model-plan.md §10e).
+    const tools = new Set([...apManifest.tools.map((t) => t.id), "ledger.accounts.list"]);
     for (const skill of AP_SKILLS) {
       expect(SkillDefinition.safeParse(skill).success, skill.id).toBe(true);
       for (const t of [...(skill.handler ? [skill.handler] : []), ...skill.tools]) {
