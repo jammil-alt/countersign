@@ -2,8 +2,8 @@
 // as Getting started reads it (the client's own copy, inside the request's one client: invariant
 // 1), the steps its SOP numbers, and its guide in `stage_state.guide`, written with the row locked.
 import {
-  type AgentGuideState,
   type AgentBundle,
+  type AgentGuideState,
   readAgentGuide,
   type StoredTry,
 } from "@countersign/core";

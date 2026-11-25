@@ -2,7 +2,7 @@
 // trial, sign-off, live), the trial's days and runs against its minimums, the client's sign-off,
 // skips and rejections; the operator moves it with a reason, changes the trial's minimums, runs
 // it live on one of the client's past events, and (audit 4.2) on what came in while it was paused. Minimal by design: the owner's redesign replaces it.
-import { type AgentStage, type AgentBundle, pauseReasonWords } from "@countersign/core";
+import { type AgentBundle, type AgentStage, pauseReasonWords } from "@countersign/core";
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { type AgentSummary, apiRoutes } from "../../api/routes";

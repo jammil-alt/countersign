@@ -37,14 +37,35 @@ const read = (id: string, name: string, input: Record<string, unknown> = {}) => 
 
 /** Check an invoice: find the document, read the invoice, save what it found. */
 const CHECK = {
-  schemaVersion: 4,
+  schemaVersion: 5,
   triggers: [{ id: "chk-manual", on: { type: "manual", input: {} } }],
+  outputs: [{ id: "out-done", name: "Done", kind: "nothing" }],
   steps: [
-    read("chk-find", "Find the document"),
-    read("chk-read", "Read the invoice", { nameContains: "{{trigger.vendor}}" }),
-    read("chk-save", "Save it", {
-      nameContains: "{{steps.chk-read.output.records.length}} found",
-    }),
+    {
+      id: "chk-find",
+      name: "Find the document",
+      kind: "do",
+      doneBy: "rules",
+      uses: { type: "action", action: TESTKIT_QUERY_TOOL },
+      input: {},
+    },
+    {
+      id: "chk-read",
+      name: "Read the invoice",
+      kind: "do",
+      doneBy: "rules",
+      uses: { type: "action", action: TESTKIT_QUERY_TOOL },
+      input: { nameContains: "{{trigger.vendor}}" },
+    },
+    {
+      id: "chk-save",
+      name: "Save it",
+      kind: "do",
+      doneBy: "rules",
+      uses: { type: "action", action: TESTKIT_QUERY_TOOL },
+      input: { nameContains: "{{steps.chk-read.output.records.length}} found" },
+    },
+    { id: "end", kind: "end", name: "Done", outputs: ["out-done"] },
   ],
 };
 

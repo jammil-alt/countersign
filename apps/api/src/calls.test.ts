@@ -116,74 +116,84 @@ const PURPOSE = "Confirm the delivery window for Friday's order";
 
 // Texting "call me" asks for a call back: the call waits for approval.
 const CALL_BACK = {
-  schemaVersion: 3,
-  trigger: { id: "trg", on: { type: "event", event: "message.received" } },
+  schemaVersion: 5,
+  triggers: [{ id: "trg", on: { type: "event", event: "message.received" } }],
+  outputs: [{ id: "out-done", name: "Done", kind: "nothing" }],
   steps: [
     {
       id: "call",
       name: "Call them back",
-      kind: "action",
-      tool: CALL_PLACE_TOOL,
+      client: { visible: true, label: "Called back" },
+      checks: { approval: { required: "required" } },
+      kind: "do",
+      doneBy: "rules",
+      uses: { type: "action", action: CALL_PLACE_TOOL },
       input: {
         to: "{{trigger.from}}",
-        purpose: PURPOSE,
+        purpose: "Confirm the delivery window for Friday's order",
         firstMessage: "I'm calling about your order.",
-        // A write listed here is still refused on the call.
         tools: [MESSAGES_SEARCH_TOOL, SMS_SEND_TOOL],
         maxMinutes: 5,
       },
-      approval: { required: "required" },
-      client: { visible: true, label: "Called back" },
     },
+    { id: "end", kind: "end", name: "Done", outputs: ["out-done"] },
   ],
 };
 
 /** Calls the number it is given, without approval (the connection allows `create` on auto). */
 const CALL_NOW = {
-  schemaVersion: 3,
-  trigger: {
-    id: "trg-manual",
-    on: {
-      type: "manual",
-      input: { type: "object", properties: { to: { type: "string" } }, required: ["to"] },
+  schemaVersion: 5,
+  triggers: [
+    {
+      id: "trg-manual",
+      on: {
+        type: "manual",
+        input: { type: "object", properties: { to: { type: "string" } }, required: ["to"] },
+      },
     },
-  },
+  ],
+  outputs: [{ id: "out-done", name: "Done", kind: "nothing" }],
   steps: [
     {
       id: "call",
       name: "Call the customer",
-      kind: "action",
-      tool: CALL_PLACE_TOOL,
+      client: { visible: true, label: "Called the customer" },
+      checks: { approval: { required: "not_required" } },
+      kind: "do",
+      doneBy: "rules",
+      uses: { type: "action", action: CALL_PLACE_TOOL },
       input: {
         to: "{{trigger.to}}",
-        purpose: PURPOSE,
+        purpose: "Confirm the delivery window for Friday's order",
         firstMessage: "I'm calling about your order.",
         tools: [MESSAGES_SEARCH_TOOL],
         maxMinutes: 5,
       },
-      approval: { required: "not_required" },
-      client: { visible: true, label: "Called the customer" },
     },
+    { id: "end", kind: "end", name: "Done", outputs: ["out-done"] },
   ],
 };
 
 const ANSWER = {
-  schemaVersion: 3,
-  trigger: { id: "trg", on: { type: "event", event: "call.received" } },
+  schemaVersion: 5,
+  triggers: [{ id: "trg", on: { type: "event", event: "call.received" } }],
+  outputs: [{ id: "out-done", name: "Done", kind: "nothing" }],
   steps: [
     {
       id: "answer",
       name: "Answer the call",
-      kind: "action",
-      tool: CALL_ANSWER_TOOL,
+      client: { visible: true, label: "Answered a call" },
+      checks: { approval: { required: "not_required" } },
+      kind: "do",
+      doneBy: "rules",
+      uses: { type: "action", action: CALL_ANSWER_TOOL },
       input: {
         callSid: "{{trigger.callSid}}",
         purpose: "Answer questions about orders and opening hours",
         tools: [MESSAGES_SEARCH_TOOL],
       },
-      approval: { required: "not_required" },
-      client: { visible: true, label: "Answered a call" },
     },
+    { id: "end", kind: "end", name: "Done", outputs: ["out-done"] },
   ],
 };
 

@@ -1,8 +1,21 @@
 // The definition editor's model (ARCHITECTURE §9.1): a bundle's definition as form fields (strings
 // while typing), checked field by field, then written back into a copy of the bundle with its
 // workflows untouched. Pure, so the checks are tested without rendering.
-import { type AgentBundle, AgentBundle as AnyAgentBundleSchema, DECIMAL_RE, MODEL_PROVIDER_NAMES, modelProvider, // v0.13 W2-I
-  NEW_AGENT_OVERSIGHT, type OversightReview, OversightSettings, parameterValueProblem, parseSkillRef, providerModelName, type SkillOption, uuidv7 } from "@countersign/core";
+import {
+  type AgentBundle,
+  AgentBundle as AnyAgentBundleSchema,
+  DECIMAL_RE,
+  MODEL_PROVIDER_NAMES,
+  modelProvider, // v0.13 W2-I
+  NEW_AGENT_OVERSIGHT,
+  type OversightReview,
+  OversightSettings,
+  parameterValueProblem,
+  parseSkillRef,
+  providerModelName,
+  type SkillOption,
+  uuidv7,
+} from "@countersign/core";
 
 import { newStepWorkflow } from "../builder/steps/model";
 import { type AdjustDraft, draftProblems, draftsFrom, withAdjustable } from "./adjustable-form";

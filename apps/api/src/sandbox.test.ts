@@ -192,7 +192,7 @@ function bundle(): unknown {
         slug: "orders",
         name: "Send the order",
         workflow: {
-          schemaVersion: 4,
+          schemaVersion: 5,
           triggers: [
             {
               id: "t",
@@ -203,7 +203,38 @@ function bundle(): unknown {
               },
             },
           ],
-          steps,
+          outputs: [{ id: "out-done", name: "Done", kind: "nothing" }],
+          steps: [
+            {
+              id: "email",
+              name: "Email the vendor",
+              kind: "do",
+              doneBy: "rules",
+              uses: { type: "action", action: "fakemail.send" },
+              input: {
+                to: "orders@northside.example.com",
+                subject: "Order 1042",
+                text: "Please confirm Friday.",
+              },
+            },
+            {
+              id: "update",
+              name: "Update the record",
+              kind: "do",
+              doneBy: "rules",
+              uses: { type: "action", action: TESTKIT_UPDATE_TOOL },
+              input: { id: "r1", amount: "12.00" },
+            },
+            {
+              id: "text",
+              name: "Text the driver",
+              kind: "do",
+              doneBy: "rules",
+              uses: { type: "action", action: "fakesms.send" },
+              input: { to: "+15125550100", text: "Pick up at 9." },
+            },
+            { id: "end", kind: "end", name: "Done", outputs: ["out-done"] },
+          ],
         },
       },
     ],

@@ -2,14 +2,7 @@
 import { type BuilderCatalog, processes, type ToolSpec } from "@countersign/core";
 import { describe, expect, it } from "vitest";
 import { type BuilderData, paletteSections } from "./catalog";
-import {
-  type ApprovalEnv,
-  actionItem,
-  actionTarget,
-  approvalOption,
-  createStep,
-  type Process,
-} from "./model";
+import { type ApprovalEnv, actionItem, actionTarget, approvalOption, createStep } from "./model";
 
 const billTool: ToolSpec = {
   id: "qbo.bill.create",

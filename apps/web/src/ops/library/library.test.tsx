@@ -48,13 +48,13 @@ const BILL_KEEPER = {
       slug: "enter-bills",
       name: "Enter bills",
       enabled: true,
-      schemaVersion: 3,
+      schemaVersion: 5,
       triggers: [
         { id: "t1", kind: "event", event: "document.extracted" },
         { id: "t2", kind: "manual", event: null },
       ],
       steps: 5,
-      kinds: { skill: 1, write: 1, person: 1, if: 1, notify: 1 },
+      kinds: { do: 3, fork: 1, end: 1 },
       checks: { confer: 1, approval: 2, notify: 0 },
     },
   ],
@@ -65,7 +65,7 @@ const BILL_KEEPER = {
       status: "draft",
       changeNote: "Ask Dana on big bills",
       createdAt: "2026-11-09T10:00:00.000Z",
-      schemaVersion: 4,
+      schemaVersion: 5,
     },
     {
       id: V1,
@@ -73,7 +73,7 @@ const BILL_KEEPER = {
       status: "live",
       changeNote: "First",
       createdAt: "2026-11-01T10:00:00.000Z",
-      schemaVersion: 3,
+      schemaVersion: 5,
     },
   ],
 };
@@ -93,10 +93,10 @@ const COLLECTOR = {
       slug: "chase",
       name: "Chase",
       enabled: true,
-      schemaVersion: 4,
+      schemaVersion: 5,
       triggers: [{ id: "t1", kind: "schedule", event: null }],
       steps: 1,
-      kinds: { conversation: 1 },
+      kinds: { do: 1 },
       checks: { confer: 0, approval: 0, notify: 0 },
     },
   ],
@@ -362,7 +362,7 @@ describe("the Library", () => {
     );
   });
 
-  it("lists templates with their workflows read as processes, and opens the builder", async () => {
+  it("lists templates with their workflows, and opens the builder", async () => {
     const { user } = renderAt("/ops/library/processes", {
       "GET /api/ops/library/processes": () => ({ processes: [BILL_KEEPER, COLLECTOR] }),
       "GET /api/ops/automations": () => ({ automations: [] }),
@@ -376,10 +376,9 @@ describe("the Library", () => {
     const row = within(card).getByTestId("process-bill-keeper-workflow-enter-bills");
     expect(row).toHaveTextContent("Event: document.extracted · Manual");
     expect(row).toHaveTextContent("5 steps");
-    expect(within(row).getByText("Person 1")).toBeInTheDocument();
-    expect(within(row).getByText("If 1")).toBeInTheDocument();
+    expect(within(row).getByText("Do 3")).toBeInTheDocument();
+    expect(within(row).getByText("Fork 1")).toBeInTheDocument();
     expect(row).toHaveTextContent("1 confer · 2 approvals");
-    expect(row).toHaveTextContent("Stored as a v3 workflow");
     expect(within(row).getByTestId("process-bill-keeper-open-enter-bills")).toHaveAttribute(
       "href",
       "/ops/templates/bill-keeper/workflows/enter-bills",

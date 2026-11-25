@@ -16,8 +16,8 @@ import {
   type RegistryContext,
 } from "@countersign/agents";
 import {
-  type AgentStage,
   type AgentBundle,
+  type AgentStage,
   applySetupSetting,
   deepEqual,
   type GrantLimits,

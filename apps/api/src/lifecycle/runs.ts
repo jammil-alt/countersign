@@ -8,13 +8,7 @@
 // Writes behave as in any live run: behind approval, and in trial or signoff every one is signed.
 
 import { checkAgainst } from "@countersign/agents";
-import {
-  type AgentBundle,
-  allTriggers,
-  type Role,
-  type RunForm,
-  uuidv7,
-} from "@countersign/core";
+import { type AgentBundle, allTriggers, type Role, type RunForm, uuidv7 } from "@countersign/core";
 import { agent, agentChange, agentVersion, event, run, type Tx } from "@countersign/db";
 import {
   eventTypesRouted,

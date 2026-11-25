@@ -164,8 +164,8 @@ describe("AgentScreen", () => {
       setup(BASE, routes);
       const chips = await screen.findByTestId("agent-chips-new-bill");
       expect(chips).toHaveTextContent("Started by hand");
-      expect(chips).toHaveTextContent("If");
-      expect(chips).toHaveTextContent("Write");
+      expect(chips).toHaveTextContent("Fork");
+      expect(chips).toHaveTextContent("Do");
       expect(screen.getByTestId("agent-how-it-works")).toHaveTextContent("4 steps, 1 fork");
       expect(screen.getByTestId("agent-bar-line")).toHaveTextContent("4 steps · 1 fork");
       expect(screen.queryByText(/does not match the agent bundle schema/)).toBeNull();
@@ -219,9 +219,7 @@ describe("AgentScreen", () => {
       setup(`${BASE}/workflow?version=1`, routes);
       const list = await screen.findByTestId("workflow-new-bill");
       // F6: drawn as the chart, read only.
-      expect(await within(list).findByTestId("flow-box-update")).toHaveTextContent(
-        "needs approval",
-      );
+      expect(await within(list).findByTestId("flow-box-update")).toHaveTextContent("Update bill");
       expect(within(list).queryByTestId("flow-tail")).toBeNull();
       cleanup();
       setup(`${BASE}/settings/definition`, routes);

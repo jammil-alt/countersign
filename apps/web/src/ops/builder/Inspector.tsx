@@ -67,9 +67,9 @@ import {
   looseningBlocked,
   newPath,
   type Process,
+  type ProcessAgentBundle,
   processClientVisible,
   type Step,
-  type ProcessAgentBundle,
 } from "./model";
 import {
   labelPaths,

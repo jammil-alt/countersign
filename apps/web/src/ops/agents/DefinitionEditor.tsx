@@ -3,8 +3,8 @@
 // budgets. Saving makes a new draft version from the version it was opened on; the workflows are
 // kept as they are (the builder edits them). The same editor serves templates and client agents.
 import {
-  type AgentData,
   type AgentBundle,
+  type AgentData,
   type OversightReview,
   OWNER_REVIEW_CHOICES,
   SKILL_KIND_LABEL,

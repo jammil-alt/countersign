@@ -6,8 +6,8 @@
 // workflow builder. The conversation's id rides in `?session=` so a reload picks it up again.
 // The Builder's draft is a step-model bundle (docs/step-model-plan.md).
 import {
-  AgentBundle as AgentBundleSchema,
   type AgentBundle,
+  AgentBundle as AgentBundleSchema,
   type BuilderSessionView,
   type BuilderTurnView,
   steps,
@@ -31,12 +31,7 @@ import {
 } from "../../ui/primitives";
 import { StatusChip } from "../../ui/status";
 import { BuilderMark, Composer, Turns } from "../builder/chat";
-import {
-  KIND_LABEL,
-  TRIGGER_KIND_LABEL,
-  triggerDetail,
-  triggerTitle,
-} from "../workflow/describe";
+import { KIND_LABEL, TRIGGER_KIND_LABEL, triggerDetail, triggerTitle } from "../workflow/describe";
 
 import { Stepper } from "./NewAgentParts";
 import { detailMessages, errorText, isCode, Notice, notifyAgentsChanged, useAction } from "./ui";

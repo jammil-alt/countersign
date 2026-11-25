@@ -57,26 +57,31 @@ function bundle(): AgentBundle {
         slug: "fix-record",
         name: "Fix a record",
         workflow: {
-          schemaVersion: 3,
-          trigger: {
-            id: "trg-manual",
-            on: {
-              type: "manual",
-              input: {
-                type: "object",
-                properties: { id: { type: "string" }, amount: { type: "string" } },
+          schemaVersion: 5,
+          triggers: [
+            {
+              id: "trg-manual",
+              on: {
+                type: "manual",
+                input: {
+                  type: "object",
+                  properties: { id: { type: "string" }, amount: { type: "string" } },
+                },
               },
             },
-          },
+          ],
+          outputs: [{ id: "out-done", name: "Done", kind: "nothing" }],
           steps: [
             {
               id: "update",
               name: "Update the record",
-              kind: "action",
-              tool: TESTKIT_UPDATE_TOOL,
+              checks: { approval: { required: "required" } },
+              kind: "do",
+              doneBy: "rules",
+              uses: { type: "action", action: TESTKIT_UPDATE_TOOL },
               input: { id: "{{trigger.id}}", amount: "{{trigger.amount}}" },
-              approval: { required: "required" },
             },
+            { id: "end", kind: "end", name: "Done", outputs: ["out-done"] },
           ],
         },
       },
@@ -131,30 +136,36 @@ function billBundle(review: "checkpoints" | "failures"): AgentBundle {
         slug: "bill-invoice",
         name: "Bill an invoice",
         workflow: {
-          schemaVersion: 3,
-          trigger: {
-            id: "trg-bill",
-            on: {
-              type: "manual",
-              input: { type: "object", properties: { note: { type: "string" } } },
+          schemaVersion: 5,
+          triggers: [
+            {
+              id: "trg-bill",
+              on: {
+                type: "manual",
+                input: { type: "object", properties: { note: { type: "string" } } },
+              },
             },
-          },
+          ],
+          outputs: [{ id: "out-done", name: "Done", kind: "nothing" }],
           steps: [
             {
               id: "read",
               name: "Read the invoice",
-              kind: "skill",
-              skill: READ_INVOICE.id,
+              kind: "do",
+              doneBy: "ai",
+              uses: { type: "skill", skill: "test.read-invoice" },
               input: { note: "{{trigger.note}}" },
             },
             {
               id: "bill",
               name: "Create the bill",
-              kind: "action",
-              tool: TESTKIT_UPDATE_TOOL,
+              checks: { approval: { required: "required" } },
+              kind: "do",
+              doneBy: "rules",
+              uses: { type: "action", action: TESTKIT_UPDATE_TOOL },
               input: { id: "r1", amount: "{{steps.read.output.total}}" },
-              approval: { required: "required" },
             },
+            { id: "end", kind: "end", name: "Done", outputs: ["out-done"] },
           ],
         },
       },

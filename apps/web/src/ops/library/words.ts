@@ -1,10 +1,5 @@
 // R8: the Library's words: skill methods, a tool's side effect and undo, and where a condition sits. Pure.
-import type {
-  LibraryConditionUse,
-  LibraryTool,
-  SkillKind,
-  SkillListItem,
-} from "@countersign/core";
+import type { LibraryConditionUse, LibraryTool, SkillKind, SkillListItem } from "@countersign/core";
 
 type Method = NonNullable<SkillListItem["method"]>;
 

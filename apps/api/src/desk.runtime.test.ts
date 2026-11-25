@@ -15,17 +15,20 @@ import { probeItemId } from "./runtime-harness";
 const probe = (env as unknown as { DESK_PROBE_WORKFLOW: Workflow }).DESK_PROBE_WORKFLOW;
 
 const workflow: WorkflowDef = {
-  schemaVersion: 3,
-  trigger: { id: "trg", on: { type: "manual", input: {} } },
+  schemaVersion: 5,
+  triggers: [{ id: "trg", on: { type: "manual", input: {} } }],
+  outputs: [{ id: "out-done", name: "Done", kind: "nothing" }],
   steps: [
     {
       id: "send",
       name: "Change the record",
-      kind: "action",
-      tool: TESTKIT_UPDATE_TOOL,
+      checks: { approval: { required: "required" } },
+      kind: "do",
+      doneBy: "rules",
+      uses: { type: "action", action: TESTKIT_UPDATE_TOOL },
       input: { id: "R-1", amount: "12.0000" },
-      approval: { required: "required", onReject: "stop" },
     },
+    { id: "end", kind: "end", name: "Done", outputs: ["out-done"] },
   ],
 };
 

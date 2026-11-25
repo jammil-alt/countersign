@@ -3,7 +3,7 @@
 // stepper, and the starting workflow on the right.
 import { type AgentBundle, allTriggers } from "@countersign/core";
 import type { ReactNode } from "react";
-import { Badge, Card, cx, SectionLabel, StepKindTag } from "../../ui/primitives";
+import { Card, cx, SectionLabel, StepKindTag } from "../../ui/primitives";
 import { KIND_LABEL, triggerTitle } from "../workflow/describe";
 import { MODEL_OPTIONS, modelOptionLabel, type NewAgentFields } from "./definition-form";
 import { Field, Select, TextArea, TextInput } from "./ui";

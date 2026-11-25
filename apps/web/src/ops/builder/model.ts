@@ -7,8 +7,26 @@
 // New step and path ids are generated once (core's uuidv7) and never regenerated, so merges can
 // line them up (CLAUDE.md invariant 3).
 
-import { type AgentBundle, canonicalJson, defaultWriteApproval, isToolWrapper, type JsonObject, levelFor, type PermissionMatrix, parseSkillRef, processes, type SkillDefinition, type SkillKind, skillTools, type steps, type ToolSpec, type Trigger, type TriggerOn, type TypingContext, uuidv7, type Verb } from "@countersign/core";
-import { slugify } from "../agents/definition-form";
+import {
+  type AgentBundle,
+  canonicalJson,
+  defaultWriteApproval,
+  type JsonObject,
+  levelFor,
+  type PermissionMatrix,
+  parseSkillRef,
+  processes,
+  type SkillDefinition,
+  type SkillKind,
+  skillTools,
+  type steps,
+  type ToolSpec,
+  type Trigger,
+  type TriggerOn,
+  type TypingContext,
+  uuidv7,
+  type Verb,
+} from "@countersign/core";
 import { toolLabel } from "../workflow/labels";
 import { newStepWorkflow } from "./steps/model";
 

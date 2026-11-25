@@ -70,13 +70,43 @@ describe("kinds of the built-in skills", () => {
 describe("what the run views say of a step (wave A)", () => {
   it("labels skill steps by kind and writes by where they write", async () => {
     const definition = {
-      schemaVersion: 4,
+      schemaVersion: 5,
       triggers: [{ id: "t1", on: { type: "manual", input: { type: "object" } } }],
+      outputs: [{ id: "out-done", name: "Done", kind: "nothing" }],
       steps: [
-        { id: "read-doc", name: "Read", kind: "skill", skill: "docs.extract", input: {} },
-        { id: "look", name: "Look", kind: "skill", skill: TESTKIT_QUERY_TOOL, input: {} },
-        { id: "save", name: "Draft", kind: "write", tool: "account.draft_change", input: {} },
-        { id: "change", name: "Fix", kind: "write", tool: "testkit.record.update", input: {} },
+        {
+          id: "read-doc",
+          name: "Read",
+          kind: "do",
+          doneBy: "rules",
+          uses: { type: "skill", skill: "docs.extract" },
+          input: {},
+        },
+        {
+          id: "look",
+          name: "Look",
+          kind: "do",
+          doneBy: "rules",
+          uses: { type: "skill", skill: TESTKIT_QUERY_TOOL },
+          input: {},
+        },
+        {
+          id: "save",
+          name: "Draft",
+          kind: "do",
+          doneBy: "rules",
+          uses: { type: "action", action: "account.draft_change" },
+          input: {},
+        },
+        {
+          id: "change",
+          name: "Fix",
+          kind: "do",
+          doneBy: "rules",
+          uses: { type: "action", action: "testkit.record.update" },
+          input: {},
+        },
+        { id: "end", kind: "end", name: "Done", outputs: ["out-done"] },
       ],
     };
     // Built-ins only: no operator skill to read, so no transaction is needed.
@@ -124,27 +154,32 @@ const v1 = {
 };
 
 const process = {
-  schemaVersion: 4,
+  schemaVersion: 5,
   triggers: [
     {
       id: "t1",
       on: { type: "manual", input: { type: "object", properties: { line: { type: "string" } } } },
     },
   ],
+  outputs: [{ id: "out-done", name: "Done", kind: "nothing" }],
   steps: [
     {
       id: "match",
       name: "Match",
-      kind: "skill",
-      skill: "custom:match-line@1",
+      kind: "do",
+      doneBy: "ai",
+      uses: { type: "skill", skill: "custom:match-line@1" },
       input: { line: "{{trigger.line}}" },
     },
     {
       id: "tell",
       name: "Tell",
-      kind: "notify",
-      notify: { to: ["lead"], message: "Matched {{steps.match.output.itemId}}" },
+      kind: "do",
+      doneBy: "rules",
+      uses: { type: "tell" },
+      tell: { to: ["lead"], channel: "inbox", message: "Matched {{steps.match.output.itemId}}" },
     },
+    { id: "end", kind: "end", name: "Done", outputs: ["out-done"] },
   ],
 };
 

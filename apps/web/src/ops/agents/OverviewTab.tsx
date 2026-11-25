@@ -15,12 +15,7 @@ import { NeedsPanel } from "../connectors/AgentPanels";
 import { ClientViewCard, WhereItRuns } from "../lab/TemplateParts";
 import { runChip } from "../run/words";
 import type { RunLinkState } from "../screens/RunView";
-import {
-  KIND_LABEL,
-  stepCountWords,
-  triggerTitle,
-  workflowStats,
-} from "../workflow/describe";
+import { KIND_LABEL, stepCountWords, triggerTitle, workflowStats } from "../workflow/describe";
 import { optionFor } from "./definition-form";
 import { stepModelKindWord } from "./NewAgentParts";
 import { useConnectorNames } from "./OperationPanel";

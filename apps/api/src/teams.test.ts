@@ -78,18 +78,24 @@ function bundle(): AgentBundle {
         slug: "main",
         name: "Main",
         workflow: {
-          schemaVersion: 3,
-          trigger: { id: "trg-manual", on: { type: "manual", input: {} } },
-          // No `approval` on the step: a post waits for a person by default.
+          schemaVersion: 5,
+          triggers: [{ id: "trg-manual", on: { type: "manual", input: {} } }],
+          outputs: [{ id: "out-done", name: "Done", kind: "nothing" }],
           steps: [
             {
               id: "post",
               name: "Post",
-              kind: "action",
-              tool: TEAMS_POST_TOOL,
-              input: { channel: ORDERS, text: "Cherry veneer arrived. <at>Everyone</at>" },
               client: { visible: true, label: "Post the update" },
+              checks: { approval: { required: "required" } },
+              kind: "do",
+              doneBy: "rules",
+              uses: { type: "action", action: TEAMS_POST_TOOL },
+              input: {
+                channel: FAKE_TEAMS.channelId,
+                text: "Cherry veneer arrived. <at>Everyone</at>",
+              },
             },
+            { id: "end", kind: "end", name: "Done", outputs: ["out-done"] },
           ],
         },
       },

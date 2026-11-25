@@ -124,28 +124,34 @@ function bundle(): AgentBundle {
         slug: "main",
         name: "Main",
         workflow: {
-          schemaVersion: 3,
-          trigger: {
-            id: "trg",
-            on: {
-              type: "manual",
-              input: {
-                type: "object",
-                properties: { order: { type: "string" }, po: { type: "string" } },
-                required: ["order", "po"],
+          schemaVersion: 5,
+          triggers: [
+            {
+              id: "trg",
+              on: {
+                type: "manual",
+                input: {
+                  type: "object",
+                  properties: { order: { type: "string" }, po: { type: "string" } },
+                  required: ["order", "po"],
+                },
               },
             },
-          },
+          ],
+          outputs: [{ id: "out-done", name: "Done", kind: "nothing" }],
           steps: [
             {
               id: "reach",
               name: "Send the PO to the vendor",
-              kind: "skill",
-              skill: "comms.reach-out",
+              client: { visible: true, label: "Sent the purchase order" },
+              checks: { approval: { required: "required" } },
+              kind: "do",
+              doneBy: "rules",
+              uses: { type: "skill", skill: "comms.reach-out" },
               input: {
                 to: { role: "vendor" },
                 about: ["{{trigger.order}}"],
-                purpose: PURPOSE,
+                purpose: "Send the purchase order and ask for a quote",
                 message: {
                   template: { en: "Our purchase order is attached. Please send a quote." },
                 },
@@ -153,12 +159,10 @@ function bundle(): AgentBundle {
                 urgency: "normal",
                 expectReply: true,
                 timeout: "2 days",
-                // The step's own input names the document: never a model.
                 attachments: ["{{trigger.po}}"],
               },
-              approval: { required: "required" },
-              client: { visible: true, label: "Sent the purchase order" },
             },
+            { id: "end", kind: "end", name: "Done", outputs: ["out-done"] },
           ],
         },
       },

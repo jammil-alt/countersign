@@ -14,8 +14,8 @@ import {
   skillContext,
 } from "@countersign/agents";
 import {
-  type AgentStage,
   type AgentBundle,
+  type AgentStage,
   type AutomationDefinition,
   clientLanguage,
   GO_LIVE_SUBJECT,
@@ -25,7 +25,6 @@ import {
   isExternalTool,
   NO_WRITES_REASON,
   processes,
-  steps,
   readPause,
   readStageState,
   type SignoffSummary,
@@ -36,6 +35,7 @@ import {
   stageMove,
   stagesPassed,
   startTrial,
+  steps,
   trialProgress,
 } from "@countersign/core";
 import {

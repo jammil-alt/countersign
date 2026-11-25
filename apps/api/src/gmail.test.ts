@@ -82,42 +82,47 @@ function bundle(): AgentBundle {
         slug: "main",
         name: "Main",
         workflow: {
-          schemaVersion: 3,
-          trigger: {
-            id: "trg",
-            on: {
-              type: "manual",
-              input: {
-                type: "object",
-                properties: { order: { type: "string" } },
-                required: ["order"],
+          schemaVersion: 5,
+          triggers: [
+            {
+              id: "trg",
+              on: {
+                type: "manual",
+                input: {
+                  type: "object",
+                  properties: { order: { type: "string" } },
+                  required: ["order"],
+                },
               },
             },
-          },
+          ],
+          outputs: [{ id: "out-done", name: "Done", kind: "nothing" }],
           steps: [
             {
               id: "reach",
               name: "Ask the vendor",
-              kind: "skill",
-              skill: "comms.reach-out",
+              client: { visible: true, label: "Asked the vendor" },
+              checks: { approval: { required: "required" } },
+              kind: "do",
+              doneBy: "rules",
+              uses: { type: "skill", skill: "comms.reach-out" },
               input: {
                 to: { role: "vendor" },
                 about: ["{{trigger.order}}"],
-                purpose: PURPOSE,
-                subject: SUBJECT,
+                purpose: "Confirm Friday's delivery of the oak order",
+                subject: "Entrega del viernes: pedido nº {{trigger.order}}",
                 message: {
                   template: {
                     en: "Can you confirm Friday's delivery? Reply YES or NO.",
-                    es: SPANISH,
+                    es: "Hola, ¿confirma la entrega del viernes? Responda SÍ o NO. Gracias.",
                   },
                 },
                 urgency: "fyi",
                 expectReply: true,
                 timeout: "2 days",
               },
-              approval: { required: "required" },
-              client: { visible: true, label: "Asked the vendor" },
             },
+            { id: "end", kind: "end", name: "Done", outputs: ["out-done"] },
           ],
         },
       },

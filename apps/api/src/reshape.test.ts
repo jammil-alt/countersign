@@ -75,7 +75,7 @@ afterAll(() => h?.close());
 
 /** Read document, a new Reshape step, then Create bill: the builder's draft, unsaved. */
 const draft = {
-  schemaVersion: 4,
+  schemaVersion: 5,
   triggers: [
     {
       id: "t1",
@@ -85,23 +85,34 @@ const draft = {
       },
     },
   ],
+  outputs: [{ id: "out-done", name: "Done", kind: "nothing" }],
   steps: [
     {
       id: "read",
       name: "Read document",
-      kind: "skill",
-      skill: "docs.read-document",
+      kind: "do",
+      doneBy: "ai",
+      uses: { type: "skill", skill: "docs.read-document" },
       input: { documentId: "{{trigger.documentId}}" },
     },
     {
       id: "shape",
       name: "Reshape data",
-      kind: "skill",
-      skill: processes.RESHAPE_SKILL,
+      kind: "do",
+      doneBy: "rules",
+      uses: { type: "skill", skill: processes.RESHAPE_SKILL },
       input: {},
-      reshape: { fields: [] },
+      translation: { fields: [] },
     },
-    { id: "bill", name: "Create bill", kind: "write", action: "create_bill", input: {} },
+    {
+      id: "bill",
+      name: "Create bill",
+      kind: "do",
+      doneBy: "rules",
+      uses: { type: "action", action: "accounting.bill.create" },
+      input: {},
+    },
+    { id: "end", kind: "end", name: "Done", outputs: ["out-done"] },
   ],
 };
 

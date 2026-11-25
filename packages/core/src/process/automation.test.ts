@@ -3,10 +3,10 @@
 import { describe, expect, it } from "vitest";
 import { AutomationDefinition } from "../schemas/automation";
 import { ctx as baseCtx } from "../testing/fixtures";
-import { automationRequires, stepsToProcessAutomation, validateAutomation } from "./automation";
+import { automationRequires, validateAutomation } from "./automation";
 import type { ValidationContext } from "./checks";
 import { processPathsAt } from "./paths";
-import { Process, type Step } from "./schema";
+import { Process } from "./schema";
 import { approvalLoosenings, tightenedApproval, validateProcess } from "./validate";
 
 /** Summarize a note, then attach the document (a write). */
@@ -116,126 +116,6 @@ describe("an automation", () => {
       skills: ["test.summarize"],
       tools: ["qbo.attachable.upload"],
       connectors: ["qbo"],
-    });
-  });
-});
-
-/** A process: extract, then the selection (summarize, attach), then a step reading the summary. */
-function process(attach: Partial<Step> = {}): Process {
-  return Process.parse({
-    schemaVersion: 4,
-    triggers: [{ id: "t1", on: { type: "event", event: "document.received" } }],
-    steps: [
-      {
-        id: "s1",
-        name: "Summarize",
-        kind: "skill",
-        skill: "test.summarize",
-        input: { text: "{{trigger.vendor}}" },
-      },
-      {
-        id: "s2",
-        name: "Attach",
-        kind: "write",
-        tool: "qbo.attachable.upload",
-        input: { documentId: "{{trigger.documentId}}" },
-        ...attach,
-      },
-      {
-        id: "s3",
-        name: "Tell",
-        kind: "notify",
-        notify: { to: ["lead"], message: "Done: {{steps.s1.output.summary}}" },
-      },
-    ],
-  });
-}
-
-describe("save as automation, from a process", () => {
-  let n = 0;
-  const newId = () => `n${++n}`;
-
-  it("copies the steps with new ids, infers input and output, and puts a process step there", () => {
-    n = 0;
-    const r = stepsToProcessAutomation({
-      process: process(),
-      stepIds: ["s1", "s2"],
-      slug: "summarize-attach",
-      name: "Summarize and attach",
-      newId,
-      ctx: baseCtx,
-    });
-    if (!r.ok) throw new Error(r.message);
-    expect(r.automation.schemaVersion).toBe(2);
-    expect(r.automation.steps.map((s) => s.id)).toEqual(["n1", "n2"]);
-    expect(r.automation.input).toMatchObject({
-      properties: { vendor: { type: "string" }, documentid: { type: "string" } },
-    });
-    expect(r.automation.steps[0]).toMatchObject({ input: { text: "{{input.vendor}}" } });
-    expect(r.automation.output).toEqual({ summarize: "{{steps.n1.output}}" });
-    expect(r.step).toMatchObject({
-      id: "n3",
-      kind: "process",
-      process: "summarize-attach@1",
-      input: { vendor: "{{trigger.vendor}}", documentid: "{{trigger.documentId}}" },
-    });
-    expect(r.process.steps.map((s) => s.id)).toEqual(["n3", "s3"]);
-    expect(r.process.steps[1]).toMatchObject({
-      notify: { message: "Done: {{steps.n3.output.summarize.summary}}" },
-    });
-    // The automation validates, and the process validates with it pinned.
-    expect(validateAutomation(r.automation, baseCtx).errors).toEqual([]);
-    const pinned = { ...baseCtx, automations: { "summarize-attach@1": r.automation } };
-    expect(validateProcess(r.process, pinned).errors).toEqual([]);
-  });
-
-  it("starts the copy with approval on; a client agent keeps its loosening on the step", () => {
-    const loose = {
-      checks: {
-        approval: {
-          required: "not_required" as const,
-          mode: "in_turn" as const,
-          ifNoAnswer: "proceed" as const,
-          onReject: "stop" as const,
-        },
-      },
-    };
-    for (const clientAgent of [false, true]) {
-      n = 0;
-      const r = stepsToProcessAutomation({
-        process: process(loose as Partial<Step>),
-        stepIds: ["s2"],
-        slug: "attach",
-        name: "Attach",
-        newId,
-        ctx: baseCtx,
-        clientAgent,
-      });
-      if (!r.ok) throw new Error(r.message);
-      const inner = r.automation.steps[0];
-      expect(approvalLoosenings(inner?.checks?.approval, "a")).toEqual([]);
-      expect(r.step.approvals).toEqual(clientAgent ? { n1: loose.checks.approval } : undefined);
-    }
-  });
-
-  it("refuses a step that isn't at the top, a gap, and a process step", () => {
-    const p = process();
-    const base = { slug: "x", name: "X", newId, ctx: baseCtx };
-    expect(stepsToProcessAutomation({ ...base, process: p, stepIds: ["zz"] })).toMatchObject({
-      ok: false,
-      code: "not_top_level",
-    });
-    expect(stepsToProcessAutomation({ ...base, process: p, stepIds: ["s1", "s3"] })).toMatchObject({
-      ok: false,
-      code: "not_contiguous",
-    });
-    const nested = Process.parse({
-      ...p,
-      steps: [{ id: "u", name: "Use", kind: "process", process: "x@1", input: {} }],
-    });
-    expect(stepsToProcessAutomation({ ...base, process: nested, stepIds: ["u"] })).toMatchObject({
-      ok: false,
-      code: "nested",
     });
   });
 });

@@ -4,7 +4,6 @@ import {
   processes,
   type Rule,
   type Rules,
-  SKILL_KIND_LABEL,
   type SkillKind,
   scheduleText,
   steps as stepModel,
@@ -386,7 +385,9 @@ export function workflowStepNames(
 ): StepNames {
   const names = new Map<string, string>();
   for (const t of workflow.triggers) names.set(t.id, KIND_LABEL.trigger);
-  stepModel.eachStep(workflow.steps, ({ step }) => names.set(step.id, step.name || KIND_LABEL[step.kind]));
+  stepModel.eachStep(workflow.steps, ({ step }) =>
+    names.set(step.id, step.name || KIND_LABEL[step.kind]),
+  );
   return names;
 }
 

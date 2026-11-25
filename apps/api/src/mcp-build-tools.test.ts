@@ -113,9 +113,21 @@ const draftAnswer = () =>
               slug: "main",
               name: "Fix a record",
               workflow: {
-                schemaVersion: 4,
+                schemaVersion: 5,
                 triggers: [{ id: "t", on: { type: "manual", input: {} } }],
-                steps: [update],
+                outputs: [{ id: "out-done", name: "Done", kind: "nothing" }],
+                steps: [
+                  {
+                    id: "update",
+                    name: "Update the record",
+                    checks: { approval: { required: "required" } },
+                    kind: "do",
+                    doneBy: "rules",
+                    uses: { type: "action", action: TESTKIT_UPDATE_TOOL },
+                    input: { id: "r1", amount: "12.00" },
+                  },
+                  { id: "end", kind: "end", name: "Done", outputs: ["out-done"] },
+                ],
               },
             },
           ],

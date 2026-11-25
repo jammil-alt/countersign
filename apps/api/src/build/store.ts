@@ -4,11 +4,9 @@
 // operator transaction: RLS shows a build only to operators serving its client and test client.
 
 import {
-  convertLookup,
   existingBundle,
   getAgent,
   latestVersion,
-  StepAgentBundle,
   skillContext,
   validateForPublish,
 } from "@countersign/agents";
@@ -28,7 +26,6 @@ import {
   type DraftProblem,
   gateReasons,
   groupProblems,
-  holdsStepModel,
   howItWorks,
   itemOpen,
   nextPhase,
@@ -50,7 +47,6 @@ import {
   readTestPlan,
   sliceWhole,
   steps,
-  toProcessBundle,
   withDecisionRisk,
   writingStepIds,
 } from "@countersign/core";
@@ -442,33 +438,22 @@ async function sessionSkill(tx: Tx, row: BuildRow): Promise<string | null> {
   return s?.skillId ?? null;
 }
 
-/** A draft as the build reads it: v4 processes, or (the step model) v5 workflows. */
-type DraftBundle = ReturnType<typeof toProcessBundle> | StepAgentBundle;
+/** A draft as the build reads it: an agent's bundle, its workflows in the step model. */
+type DraftBundle = AgentBundle;
 
-/** A draft's workflow's steps in run order, whichever model it is in. */
+/** A draft's workflow's steps in run order. */
 function draftSteps(
   workflow: DraftBundle["workflows"][number]["workflow"],
 ): { id: string; name: string; kind: string }[] {
-  if (workflow.schemaVersion === 5) {
-    const out: { id: string; name: string; kind: string }[] = [];
-    steps.eachStep(workflow.steps, ({ step }) => out.push(step));
-    return out;
-  }
-  return processes.allSteps(workflow).map(({ step }) => step);
+  const out: { id: string; name: string; kind: string }[] = [];
+  steps.eachStep(workflow.steps, ({ step }) => out.push(step));
+  return out;
 }
 
-/**
- * The latest version as the build reads it. Step model (build item 9): a bundle whose workflows
- * are all v5 is read as it is; anything else as processes, as before.
- */
-function readDraftBundle(raw: unknown, platform: Services["platform"]): DraftBundle | null {
+/** The latest version as the build reads it; null when it does not parse. */
+function readDraftBundle(raw: unknown): DraftBundle | null {
   try {
-    const parsed = AgentBundle.parse(raw);
-    if (parsed.workflows.length > 0 && holdsStepModel(parsed)) {
-      const step = StepAgentBundle.safeParse(parsed);
-      if (step.success) return step.data;
-    }
-    return toProcessBundle(parsed, convertLookup(platform.catalog, platform.tools));
+    return AgentBundle.parse(raw);
   } catch {
     return null;
   }
@@ -726,7 +711,7 @@ async function bundleDraftFacts(ctx: StoreCtx, row: BuildRow): Promise<DraftFact
   const errors = await validateForPublish(ctx.tx, agentRow, latest.bundle, platform.ctx, {
     previous: await existingBundle(ctx.tx, latest),
   });
-  const bundle = readDraftBundle(latest.bundle, platform);
+  const bundle = readDraftBundle(latest.bundle);
   return {
     view: {
       agentId: agentRow.id,
@@ -982,11 +967,8 @@ async function clientTestFacts(ctx: StoreCtx, row: BuildRow): Promise<BuildClien
  * conversations' messages sent without a person's yes, and process steps' approval overrides.
  */
 function loosenedApprovals(bundle: NonNullable<DraftFacts["bundle"]>): number {
-  // Step model (build item 9): a v5 step's approval and an outside contact's messages, as core
-  // counts a v4 step's (`approvalLoosenings`, `conversationLoosenings`).
   let n = 0;
   for (const w of bundle.workflows) {
-    if (w.workflow.schemaVersion !== 5) continue;
     steps.eachStep(w.workflow.steps, ({ step }) => {
       n += processes.approvalLoosenings(step.checks?.approval, "checks.approval").length;
       if (step.kind === "do" && step.contact) {
@@ -997,10 +979,7 @@ function loosenedApprovals(bundle: NonNullable<DraftFacts["bundle"]>): number {
       n += processes.approvalLoosenings(o.checks?.approval, "checks.approval").length;
     }
   }
-  const older = bundle.workflows.filter((w) => w.workflow.schemaVersion !== 5) as ReturnType<
-    typeof toProcessBundle
-  >["workflows"];
-  return n + processes.bundleLoosenings({ workflows: older }).length;
+  return n;
 }
 
 function qaChecks(

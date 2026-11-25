@@ -93,7 +93,7 @@ describe("adjustable marks in the definition editor", () => {
     });
   });
 
-  it("lists the agent's schedules from both workflow shapes", () => {
+  it("lists the agent's schedules from a workflow's triggers", () => {
     expect(
       scheduleTargets({
         workflows: [
@@ -101,32 +101,15 @@ describe("adjustable marks in the definition editor", () => {
             slug: "main",
             name: "Main",
             workflow: {
-              schemaVersion: 4,
+              schemaVersion: 5,
               triggers: [
                 { id: "t1", on: { type: "schedule", cron: "0 7 * * 1-5" } },
                 { id: "t2", on: { type: "manual", input: {} } },
               ],
             },
           },
-          {
-            slug: "old",
-            name: "Old",
-            workflow: {
-              schemaVersion: 3,
-              trigger: { id: "m", on: { type: "manual", input: {} } },
-              moreTriggers: [{ id: "s", on: { type: "schedule", cron: "0 9 * * 1" } }],
-              steps: [],
-            },
-          },
         ] as never,
       }),
-    ).toEqual([
-      { target: daily, workflow: "Main", cron: "0 7 * * 1-5" },
-      {
-        target: { kind: "schedule", workflow: "old", triggerId: "s" },
-        workflow: "Old",
-        cron: "0 9 * * 1",
-      },
-    ]);
+    ).toEqual([{ target: daily, workflow: "Main", cron: "0 7 * * 1-5" }]);
   });
 });

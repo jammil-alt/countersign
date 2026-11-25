@@ -69,18 +69,24 @@ function bundle(workbookId: string): AgentBundle {
         slug: "main",
         name: "Main",
         workflow: {
-          schemaVersion: 3,
-          trigger: { id: "trg-manual", on: { type: "manual", input: {} } },
-          // No `approval` on the step: a write waits for a person by default.
+          schemaVersion: 5,
+          triggers: [{ id: "trg-manual", on: { type: "manual", input: {} } }],
+          outputs: [{ id: "out-done", name: "Done", kind: "nothing" }],
           steps: [
             {
               id: "log",
               name: "Log it",
-              kind: "action",
-              tool: EXCEL_TOOLS.append,
-              input: { workbookId, rows: [["2026-11-12", "Hardwood Supply", '=HYPERLINK("x")']] },
               client: { visible: true, label: "Log the delivery" },
+              checks: { approval: { required: "required" } },
+              kind: "do",
+              doneBy: "rules",
+              uses: { type: "action", action: EXCEL_TOOLS.append },
+              input: {
+                workbookId: workbookId,
+                rows: [["2026-11-12", "Hardwood Supply", '=HYPERLINK("x")']],
+              },
             },
+            { id: "end", kind: "end", name: "Done", outputs: ["out-done"] },
           ],
         },
       },

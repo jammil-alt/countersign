@@ -3,8 +3,8 @@
 // last fired, answered from `run.trigger` (no new table). The operator's only.
 
 import {
-  type AgentTriggers,
   type AgentBundle,
+  type AgentTriggers,
   agentAddress,
   agentCommandNames,
   allTriggers,

@@ -123,15 +123,20 @@ function bundle(): AgentBundle {
         slug: "one",
         name: "Send one",
         workflow: {
-          schemaVersion: 3,
-          trigger: { id: "trg-one", on: { type: "manual", input: {} } },
+          schemaVersion: 5,
+          triggers: [{ id: "trg-one", on: { type: "manual", input: {} } }],
+          outputs: [{ id: "out-done", name: "Done", kind: "nothing" }],
           steps: [
-            send("send1", {
-              to: "pat@example.com",
-              subject: "Your invoice",
-              body: "Hi",
-              total: "10.00",
-            }),
+            {
+              id: "send1",
+              name: "Send",
+              checks: { approval: { required: "required" } },
+              kind: "do",
+              doneBy: "rules",
+              uses: { type: "action", action: "deskkit.message.send" },
+              input: { to: "pat@example.com", subject: "Your invoice", body: "Hi", total: "10.00" },
+            },
+            { id: "end", kind: "end", name: "Done", outputs: ["out-done"] },
           ],
         },
       },
@@ -139,25 +144,28 @@ function bundle(): AgentBundle {
         slug: "many",
         name: "Send many",
         workflow: {
-          schemaVersion: 3,
-          trigger: {
-            id: "trg-many",
-            on: {
-              type: "manual",
-              input: {
-                type: "object",
-                properties: {
-                  messages: {
-                    type: "array",
-                    items: {
-                      type: "object",
-                      properties: { to: { type: "string" }, subject: { type: "string" } },
+          schemaVersion: 5,
+          triggers: [
+            {
+              id: "trg-many",
+              on: {
+                type: "manual",
+                input: {
+                  type: "object",
+                  properties: {
+                    messages: {
+                      type: "array",
+                      items: {
+                        type: "object",
+                        properties: { to: { type: "string" }, subject: { type: "string" } },
+                      },
                     },
                   },
                 },
               },
             },
-          },
+          ],
+          outputs: [{ id: "out-done", name: "Done", kind: "nothing" }],
           steps: [
             {
               id: "each",
@@ -166,13 +174,23 @@ function bundle(): AgentBundle {
               over: "{{trigger.messages}}",
               concurrency: 5,
               steps: [
-                send(
-                  "send",
-                  { to: "{{item.to}}", subject: "{{item.subject}}", body: "Hi", total: "1.00" },
-                  "continue",
-                ),
+                {
+                  id: "send",
+                  name: "Send",
+                  checks: { approval: { required: "required", onReject: "continue" } },
+                  kind: "do",
+                  doneBy: "rules",
+                  uses: { type: "action", action: "deskkit.message.send" },
+                  input: {
+                    to: "{{item.to}}",
+                    subject: "{{item.subject}}",
+                    body: "Hi",
+                    total: "1.00",
+                  },
+                },
               ],
             },
+            { id: "end", kind: "end", name: "Done", outputs: ["out-done"] },
           ],
         },
       },
@@ -180,23 +198,30 @@ function bundle(): AgentBundle {
         slug: "ask",
         name: "Ask",
         workflow: {
-          schemaVersion: 3,
-          trigger: { id: "trg-ask", on: { type: "manual", input: {} } },
+          schemaVersion: 5,
+          triggers: [{ id: "trg-ask", on: { type: "manual", input: {} } }],
+          outputs: [{ id: "out-done", name: "Done", kind: "nothing" }],
           steps: [
             {
               id: "pay",
               name: "Pay now?",
-              kind: "person",
-              mode: "ask",
-              assignee: "client_admin",
-              title: "Pay this bill now?",
-              timeout: "1 day",
-              onTimeout: "stop",
-              choices: [
-                { value: "now", label: { en: "Pay now", es: "Pagar ya" } },
-                { value: "later", label: "Pay on the due date" },
-              ],
+              kind: "do",
+              doneBy: "person",
+              person: {
+                mode: "ask",
+                who: "client_admin",
+                question: "Pay this bill now?",
+                show: {},
+                choices: [
+                  { value: "now", label: { en: "Pay now", es: "Pagar ya" } },
+                  { value: "later", label: "Pay on the due date" },
+                ],
+                deadline: { after: "1 day", hours: "clock", ifNoAnswer: "stop" },
+                channel: "inbox",
+                onReject: "stop",
+              },
             },
+            { id: "end", kind: "end", name: "Done", outputs: ["out-done"] },
           ],
         },
       },

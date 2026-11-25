@@ -6,7 +6,6 @@ import { describe, expect, it } from "vitest";
 import {
   automationEnds,
   draftProcess,
-  editable,
   inputFields,
   inputLine,
   inputProblems,
@@ -243,10 +242,5 @@ describe("the automation as a draft", () => {
     expect(def.requires).toBe(DEFINITION.requires);
     // The same process again is the same draft (no undo step).
     expect(withProcess(draft, draftProcess(draft))).toBe(draft);
-  });
-
-  it("opens only v4 process steps", () => {
-    expect(editable(DEFINITION)).toBe(true);
-    expect(editable({ ...DEFINITION, schemaVersion: 1, steps: [] } as never)).toBe(false);
   });
 });

@@ -17,8 +17,8 @@ import {
 } from "@countersign/agents";
 import { newReplyTag } from "@countersign/connectors";
 import {
-  type AgentMode,
   type AgentBundle,
+  type AgentMode,
   type ApprovalRequirement,
   type ApprovalSource,
   // P-3: attachments both ways

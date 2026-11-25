@@ -9,7 +9,7 @@
 import { problemGroupKey } from "@countersign/core";
 import { connectorLabel, toolLabel } from "../../runs/labels";
 import type { BuilderProblem } from "./catalog";
-import { ifOfBranch, locate, type Process, type ProcessAgentBundle, type Step } from "./model";
+import { locate, type Process, type ProcessAgentBundle, type Step } from "./model";
 
 type ValidationError = BuilderProblem;
 type AgentBundle = ProcessAgentBundle;

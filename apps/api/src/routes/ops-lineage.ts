@@ -16,17 +16,41 @@ import {
   getVersion,
   isStepSkill,
   latestVersion,
-  lineageReadOptions,
   previewStepPrompt,
   requiredConnectors,
   resolveCustomSkill,
   retire,
   SHARED_COPY_PREFIX,
+  STEP_ONLY_SKILLS,
   skillContext,
   withWriteActionFields,
 } from "@countersign/agents";
 import { actionsOff, BUILTIN_CONNECTORS, builtInManifest } from "@countersign/connectors";
-import { type AgentBundle, AgentDefinition, type BuilderCatalog, type BundleChange, connectorShown, connectorTitle, diffBundles, flattenBundle, isToolWrapper, mergeBundles, newStepSkillReason, parseSkillRef, processes, recommendedModel, routes, type SkillDefinition, type SkillToolLookup, skillKind, skillModelFacts, skillMoveImpact, steps, type ToolInputVariants, toolLookup } from "@countersign/core";
+import {
+  type AgentBundle,
+  AgentDefinition,
+  type BuilderCatalog,
+  type BundleChange,
+  connectorShown,
+  connectorTitle,
+  diffBundles,
+  flattenBundle,
+  isToolWrapper,
+  mergeBundles,
+  newStepSkillReason,
+  parseSkillRef,
+  processes,
+  recommendedModel,
+  routes,
+  type SkillDefinition,
+  type SkillToolLookup,
+  skillKind,
+  skillModelFacts,
+  skillMoveImpact,
+  steps,
+  type ToolInputVariants,
+  toolLookup,
+} from "@countersign/core";
 import {
   agent,
   connection,
@@ -103,17 +127,10 @@ export function bundleLabels(...bundles: AgentBundle[]): Record<string, string> 
   return out;
 }
 
-/**
- * diffBundles, refusing cleanly when a stored draft can't be flattened (duplicate ids). R9: `read`
- * reads v3 workflows as v4 when the two versions are one of each (an agent updated to v4).
- */
-function diff(
-  a: AgentBundle,
-  b: AgentBundle,
-  read: ReturnType<typeof lineageReadOptions>,
-): { changes: BundleChange[] } {
+/** diffBundles, refusing cleanly when a stored draft can't be flattened (duplicate ids). */
+function diff(a: AgentBundle, b: AgentBundle): { changes: BundleChange[] } {
   try {
-    return { changes: diffBundles(a, b, read) };
+    return { changes: diffBundles(a, b) };
   } catch (error) {
     throw new HttpError(
       422,
@@ -188,7 +205,7 @@ export async function operatorSkills(
 // step (`used`), so a stored step still types and reads by name.
 export function stepTools(platform: Platform, used: ReadonlySet<string> = new Set()): string[] {
   const stepOnly = new Set(
-    processes.STEP_ONLY_SKILLS.map((id) => platform.catalog.get(id)?.handler).filter(
+    STEP_ONLY_SKILLS.map((id) => platform.catalog.get(id)?.handler).filter(
       (h): h is string => h !== undefined,
     ),
   );
@@ -781,8 +798,7 @@ export function opsLineageRoutes(app: Hono<AppEnv>): void {
     const from = fromId ? await getVersion(tx, fromId) : null;
     if (from && from.agentId !== row.id) throw notFound("version");
     // The first version has nothing to compare against: no changes, `from` null.
-    const read = lineageReadOptions(ctx.services.platform.ctx);
-    const { changes } = from ? diff(from.bundle, to.bundle, read) : { changes: [] };
+    const { changes } = from ? diff(from.bundle, to.bundle) : { changes: [] };
     return {
       from: from ? versionSummary(from) : null,
       to: versionSummary(to),
@@ -811,7 +827,7 @@ export function opsLineageRoutes(app: Hono<AppEnv>): void {
     return {
       base: versionSummary(base),
       version: versionSummary(v),
-      ...diff(base.bundle, v.bundle, lineageReadOptions(ctx.services.platform.ctx)),
+      ...diff(base.bundle, v.bundle),
       labels: labels(base.bundle, v.bundle),
     };
   });
@@ -851,7 +867,6 @@ export function opsLineageRoutes(app: Hono<AppEnv>): void {
 
     const agents = [];
     // R9: a v3 client agent against a template version of v4 processes.
-    const read = lineageReadOptions(ctx.services.platform.ctx);
     for (const row of rows) {
       const v = await currentVersion(ctx, row);
       const base = v?.basedOnTemplateVersionId
@@ -863,9 +878,9 @@ export function opsLineageRoutes(app: Hono<AppEnv>): void {
       let conflicts: number | null = null;
       if (v && base) {
         try {
-          customizations = diffBundles(base.bundle, v.bundle, read).length;
+          customizations = diffBundles(base.bundle, v.bundle).length;
           if (behind > 0 && templateLive) {
-            conflicts = mergeBundles(base.bundle, v.bundle, templateLive.bundle, [], read).conflicts
+            conflicts = mergeBundles(base.bundle, v.bundle, templateLive.bundle, []).conflicts
               .length;
           }
         } catch {

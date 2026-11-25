@@ -13,7 +13,15 @@ import {
   generateEncryptionKey,
 } from "@countersign/connectors";
 import { FAKE_PLAID, FAKE_QBO_CLIENT, fakePlaid, fakeQbo } from "@countersign/connectors/testing";
-import { type AgentBundle, cloneJson, isToolWrapper, parseSkillRef, processes, toProcessBundle, type Workflow } from "@countersign/core";
+import {
+  type AgentBundle,
+  cloneJson,
+  isToolWrapper,
+  parseSkillRef,
+  processes,
+  toProcessBundle,
+  type Workflow,
+} from "@countersign/core";
 import { agent, agentVersion, withOperator } from "@countersign/db";
 import {
   loadDemoAgent,

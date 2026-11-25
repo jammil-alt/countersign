@@ -4,8 +4,8 @@
 // Sloan on v2 moves to v3 by the usual reviewed update merge, its step ids kept.
 
 import {
-  AgentBundle as AgentBundleSchema,
   AgentBundle,
+  AgentBundle as AgentBundleSchema,
   nodeIds,
   processes,
   type Workflow,

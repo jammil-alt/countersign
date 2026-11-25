@@ -183,11 +183,7 @@ export function addTrigger<B extends AgentBundle>(
 /**
  * Removes one of a workflow's later triggers; its first trigger stays (every workflow has one).
  */
-export function removeTrigger<B extends AgentBundle>(
-  bundle: B,
-  workflow: string,
-  id: string,
-): B {
+export function removeTrigger<B extends AgentBundle>(bundle: B, workflow: string, id: string): B {
   return {
     ...bundle,
     workflows: bundle.workflows.map((w) => {

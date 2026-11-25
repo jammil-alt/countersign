@@ -91,35 +91,54 @@ function bundle(): AgentBundle {
         slug: "main",
         name: "Main",
         workflow: {
-          schemaVersion: 3,
-          trigger: {
-            id: "trg",
-            on: {
-              type: "manual",
-              input: {
-                type: "object",
-                properties: { contactId: { type: "string" }, request: { type: "string" } },
-                required: ["contactId", "request"],
+          schemaVersion: 5,
+          triggers: [
+            {
+              id: "trg",
+              on: {
+                type: "manual",
+                input: {
+                  type: "object",
+                  properties: { contactId: { type: "string" }, request: { type: "string" } },
+                  required: ["contactId", "request"],
+                },
               },
             },
-          },
+          ],
+          outputs: [{ id: "out-done", name: "Done", kind: "nothing" }],
           steps: [
             {
               id: "talk",
               name: "Clarify the request",
-              kind: "skill",
-              skill: "comms.converse",
+              client: { visible: true, label: "Clarified the request" },
+              checks: { approval: { required: "required" } },
+              kind: "do",
+              doneBy: "rules",
+              uses: { type: "skill", skill: "comms.converse" },
               input: {
                 to: { contactId: "{{trigger.contactId}}" },
                 channel: "email",
-                goal: GOAL,
-                result: RESULT,
+                goal: "Get the exact item list and the date needed for this purchase request.",
+                result: {
+                  type: "object",
+                  properties: {
+                    items: {
+                      type: "array",
+                      items: {
+                        type: "object",
+                        properties: { name: { type: "string" }, qty: { type: "number" } },
+                        required: ["name", "qty"],
+                      },
+                    },
+                    neededBy: { type: "string" },
+                  },
+                  required: ["items", "neededBy"],
+                },
                 opening: "Thank them for the request and ask which items, how many, and by when.",
                 about: ["{{trigger.request}}"],
               },
-              approval: { required: "required" },
-              client: { visible: true, label: "Clarified the request" },
             },
+            { id: "end", kind: "end", name: "Done", outputs: ["out-done"] },
           ],
         },
       },

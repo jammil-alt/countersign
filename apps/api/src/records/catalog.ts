@@ -3,8 +3,8 @@
 // picked, wired and translated like built-in fields; a template's with the shared fields only.
 
 import {
-  type AgentData,
   type AgentBundle,
+  type AgentData,
   accessFor,
   effectiveRecordGrants,
   recordActionSpecs,

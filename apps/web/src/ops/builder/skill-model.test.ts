@@ -2,12 +2,7 @@
 // every skill says its kind, retired kinds and tool wrappers are never offered for a new step, the
 // tools a step may call come from the server's `stepTools`, and a write reads "Save to records"
 // (approval off to start with) or "Change in <connector>" (approval on).
-import {
-  type BuilderCatalog,
-  type processes,
-  type SkillDefinition,
-  uuidv7,
-} from "@countersign/core";
+import { type BuilderCatalog, type SkillDefinition, uuidv7 } from "@countersign/core";
 import { describe, expect, it } from "vitest";
 import {
   type BuilderData,

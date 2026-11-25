@@ -3,8 +3,6 @@
 // `browser.script.read` / `browser.script.submit` with the script already named in its input. A
 // write step starts with its approval on, as every write does (invariant 8).
 import type { BrowserScriptTool, JsonObject } from "@countersign/core";
-import { apiRoutes } from "../../api/routes";
-import { useApi } from "../../api/useApi";
 import type { BuilderData } from "./catalog";
 import type { PaletteItem } from "./model";
 

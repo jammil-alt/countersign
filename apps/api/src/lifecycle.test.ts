@@ -50,9 +50,20 @@ function quietBundle(): AgentBundle {
         slug: "note",
         name: "Note",
         workflow: {
-          schemaVersion: 3,
-          trigger: { id: "trg-manual", on: { type: "manual", input: {} } },
-          steps: [{ id: "n", name: "Note", kind: "notify", channel: "thread", message: "hello" }],
+          schemaVersion: 5,
+          triggers: [{ id: "trg-manual", on: { type: "manual", input: {} } }],
+          outputs: [{ id: "out-done", name: "Done", kind: "nothing" }],
+          steps: [
+            {
+              id: "n",
+              name: "Note",
+              kind: "do",
+              doneBy: "rules",
+              uses: { type: "tell" },
+              tell: { to: ["client_admin"], channel: "inbox", message: "hello" },
+            },
+            { id: "end", kind: "end", name: "Done", outputs: ["out-done"] },
+          ],
         },
       },
     ],
@@ -78,29 +89,55 @@ function fullBundle(): AgentBundle {
         slug: "on-doc",
         name: "On a document",
         workflow: {
-          schemaVersion: 3,
-          trigger: { id: "trg-doc", on: { type: "event", event: "document.received" } },
-          steps: [update("u-doc")],
+          schemaVersion: 5,
+          triggers: [{ id: "trg-doc", on: { type: "event", event: "document.received" } }],
+          outputs: [{ id: "out-done", name: "Done", kind: "nothing" }],
+          steps: [
+            {
+              id: "u-doc",
+              name: "Update",
+              checks: { approval: { required: "required" } },
+              kind: "do",
+              doneBy: "rules",
+              uses: { type: "action", action: TESTKIT_UPDATE_TOOL },
+              input: { id: "r1", amount: "1.00" },
+            },
+            { id: "end", kind: "end", name: "Done", outputs: ["out-done"] },
+          ],
         },
       },
       {
         slug: "client-run",
         name: "Recount",
         workflow: {
-          schemaVersion: 3,
-          trigger: {
-            id: "trg-client",
-            on: {
-              type: "manual",
-              input: {
-                type: "object",
-                properties: { note: { type: "string", minLength: 1 } },
-                required: ["note"],
+          schemaVersion: 5,
+          triggers: [
+            {
+              id: "trg-client",
+              on: {
+                type: "manual",
+                input: {
+                  type: "object",
+                  properties: { note: { type: "string", minLength: 1 } },
+                  required: ["note"],
+                },
+                client: { canRun: true, label: "Recount the records" },
               },
-              client: { canRun: true, label: "Recount the records" },
             },
-          },
-          steps: [update("u-client")],
+          ],
+          outputs: [{ id: "out-done", name: "Done", kind: "nothing" }],
+          steps: [
+            {
+              id: "u-client",
+              name: "Update",
+              checks: { approval: { required: "required" } },
+              kind: "do",
+              doneBy: "rules",
+              uses: { type: "action", action: TESTKIT_UPDATE_TOOL },
+              input: { id: "r1", amount: "1.00" },
+            },
+            { id: "end", kind: "end", name: "Done", outputs: ["out-done"] },
+          ],
         },
       },
     ],

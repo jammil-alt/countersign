@@ -98,31 +98,36 @@ function bundle(): AgentBundle {
         slug: "reach",
         name: "Reach",
         workflow: {
-          schemaVersion: 3,
-          trigger: {
-            id: "trg-reach",
-            on: {
-              type: "manual",
-              input: { type: "object", properties: { order: { type: "string" } } },
+          schemaVersion: 5,
+          triggers: [
+            {
+              id: "trg-reach",
+              on: {
+                type: "manual",
+                input: { type: "object", properties: { order: { type: "string" } } },
+              },
             },
-          },
+          ],
+          outputs: [{ id: "out-done", name: "Done", kind: "nothing" }],
           steps: [
             {
               id: "reach",
               name: "Ask the requester",
-              kind: "skill",
-              skill: "comms.reach-out",
+              checks: { approval: { required: "required" } },
+              kind: "do",
+              doneBy: "rules",
+              uses: { type: "skill", skill: "comms.reach-out" },
               input: {
                 to: { role: "requester" },
                 about: ["{{trigger.order}}"],
-                purpose: PURPOSE,
+                purpose: "Ask them to confirm Friday's delivery.",
                 message: { compose: true },
                 urgency: "normal",
                 expectReply: true,
                 timeout: "2 days",
               },
-              approval: { required: "required" },
             },
+            { id: "end", kind: "end", name: "Done", outputs: ["out-done"] },
           ],
         },
       },
@@ -130,22 +135,27 @@ function bundle(): AgentBundle {
         slug: "translate",
         name: "Translate",
         workflow: {
-          schemaVersion: 3,
-          trigger: {
-            id: "trg-translate",
-            on: {
-              type: "manual",
-              input: { type: "object", properties: { sourceId: { type: "string" } } },
+          schemaVersion: 5,
+          triggers: [
+            {
+              id: "trg-translate",
+              on: {
+                type: "manual",
+                input: { type: "object", properties: { sourceId: { type: "string" } } },
+              },
             },
-          },
+          ],
+          outputs: [{ id: "out-done", name: "Done", kind: "nothing" }],
           steps: [
             {
               id: "tr",
               name: "Translate the message",
-              kind: "skill",
-              skill: "comms.translate",
+              kind: "do",
+              doneBy: "rules",
+              uses: { type: "action", action: "comms.translate" },
               input: { sourceId: "{{trigger.sourceId}}", to: "de" },
             },
+            { id: "end", kind: "end", name: "Done", outputs: ["out-done"] },
           ],
         },
       },

@@ -135,7 +135,7 @@ describe.skipIf(!h)("test runs on a chosen client", () => {
     // Overnight S3.6: the same workflow, started by a document being read.
     const bundle = testBundle("Invoice reader");
     const wf = bundle.workflows[0];
-    if (!wf || wf.workflow.schemaVersion !== 3) throw new Error("no workflow");
+    if (wf?.workflow.schemaVersion !== 3) throw new Error("no workflow");
     wf.workflow.trigger = {
       id: "trg-read",
       on: { type: "event", event: "document.extracted" },

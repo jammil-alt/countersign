@@ -82,47 +82,65 @@ function bundle(): AgentBundle {
         slug: "main",
         name: "Main",
         workflow: {
-          schemaVersion: 3,
-          trigger: {
-            id: "trg",
-            on: {
-              type: "manual",
-              input: {
-                type: "object",
-                properties: { contactId: { type: "string" }, invoice: { type: "string" } },
-                required: ["contactId", "invoice"],
+          schemaVersion: 5,
+          triggers: [
+            {
+              id: "trg",
+              on: {
+                type: "manual",
+                input: {
+                  type: "object",
+                  properties: { contactId: { type: "string" }, invoice: { type: "string" } },
+                  required: ["contactId", "invoice"],
+                },
               },
             },
-          },
+          ],
+          outputs: [{ id: "out-done", name: "Done", kind: "nothing" }],
           steps: [
             {
               id: "draft",
               name: "Draft the questions",
-              kind: "skill",
-              skill: "forms.draft",
+              kind: "do",
+              doneBy: "ai",
+              uses: { type: "skill", skill: "forms.draft" },
               input: {
                 need: "The PO number for this invoice, and the freight quote behind its freight line.",
                 data: { invoice: "{{trigger.invoice}}" },
-                ask: { required: [PO, QUOTE], maxExtra: 2 },
+                ask: {
+                  required: [
+                    { id: "po_number", label: "PO number", type: "text", required: true },
+                    { id: "freight_quote", label: "Freight quote", type: "files", required: true },
+                  ],
+                  maxExtra: 2,
+                },
                 audience: "the vendor's sales rep",
               },
             },
             {
               id: "ask",
               name: "Ask the vendor",
-              kind: "skill",
-              skill: "forms.request",
+              client: { visible: true, label: "Asked the vendor" },
+              checks: { approval: { required: "required" } },
+              kind: "do",
+              doneBy: "rules",
+              uses: { type: "skill", skill: "forms.request" },
               input: {
                 to: { contactId: "{{trigger.contactId}}" },
                 about: ["{{trigger.invoice}}"],
-                purpose: PURPOSE,
-                ask: { required: [PO, QUOTE], maxExtra: 2 },
+                purpose: "Invoice 1042 has no PO number and its freight looks high",
+                ask: {
+                  required: [
+                    { id: "po_number", label: "PO number", type: "text", required: true },
+                    { id: "freight_quote", label: "Freight quote", type: "files", required: true },
+                  ],
+                  maxExtra: 2,
+                },
                 form: "{{steps.draft.output}}",
                 due: "3 days",
               },
-              approval: { required: "required" },
-              client: { visible: true, label: "Asked the vendor" },
             },
+            { id: "end", kind: "end", name: "Done", outputs: ["out-done"] },
           ],
         },
       },

@@ -15,7 +15,6 @@ import {
   type AgentRow,
   AgentsError,
   type AgentVersionRow,
-  convertLookup,
   createUpdateDraft,
   discardDraft,
   existingBundle,
@@ -28,8 +27,8 @@ import {
   validateForPublish,
 } from "@countersign/agents";
 import {
-  type AgentStage,
   AgentBundle,
+  type AgentStage,
   DECISION_CATEGORY_WORDS,
   decisionReviewed,
   type GrantLimits,
@@ -42,7 +41,6 @@ import {
   type TurnOnAnswer,
   type TurnOnBody,
   type TurnOnItem,
-  toProcessBundle,
   withDecisionRisk,
 } from "@countersign/core";
 import { agent, agentVersion, build, connection, run, type Tx, tenant } from "@countersign/db";
@@ -220,13 +218,9 @@ async function itemsOf(ctx: Ctx, s: Subject, hashes: string[]): Promise<TurnOnIt
   if (s.build) {
     let writes = new Set<string>();
     try {
-      // A Builder draft's writing steps (v4); a v5 workflow has none the Builder flagged.
-      const processes = toProcessBundle(s.bundle, convertLookup(platform.catalog, platform.tools), {
-        stepModel: "skip",
-      });
-      writes = await draftWritingSteps({ tx, services }, { bundle: processes, agentRow: s.row });
+      writes = await draftWritingSteps({ tx, services }, { bundle: s.bundle, agentRow: s.row });
     } catch {
-      // A bundle that doesn't convert has no writing steps to read; the Builder's flags still count.
+      // A bundle that doesn't read has no writing steps to read; the Builder's flags still count.
     }
     for (const d of withDecisionRisk(readFitGap(s.build.fitgap).decisions, writes)) {
       if (d.risk !== "high") continue;

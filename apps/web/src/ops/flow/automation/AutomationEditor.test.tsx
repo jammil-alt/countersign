@@ -403,21 +403,15 @@ describe("an automation in the builder", () => {
     expect(first.api.calls).toContain(`GET /api/ops/clients/${CLIENT_ID}/connections`);
   });
 
-  it("doesn't open an automation saved in the older step format", async () => {
-    const old = AutomationDefinition.parse({
-      schemaVersion: 1,
-      slug: "bill-intake",
-      name: "Bill intake",
-      steps: [],
-    });
+  it("says so when an automation has no version to open", async () => {
     open({
       [`GET /api/ops/automations/${AUTO_ID}`]: () => ({
         automation: AUTOMATION,
-        versions: [version(V1, 1, "live", old)],
+        versions: [],
         usedBy: [],
       }),
     });
-    expect(await screen.findByTestId("flow-auto-old")).toHaveTextContent("older step format");
+    expect(await screen.findByTestId("flow-auto-empty")).toHaveTextContent("no version");
     expect(screen.queryByTestId("flow-bar")).toBeNull();
     expect(screen.getByTestId("flow-auto-back")).toHaveAttribute(
       "href",

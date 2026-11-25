@@ -933,26 +933,31 @@ describe.skipIf(!h)("end to end: the managed service, through the API", () => {
       name: "Check a vendor",
       enabled: true,
       workflow: {
-        schemaVersion: 3,
-        trigger: {
-          id: "0192f7a0-0000-7000-8000-0000000c0de1",
-          on: {
-            type: "manual",
-            input: {
-              type: "object",
-              properties: { vendorName: { type: "string" } },
-              required: ["vendorName"],
+        schemaVersion: 5,
+        triggers: [
+          {
+            id: "0192f7a0-0000-7000-8000-0000000c0de1",
+            on: {
+              type: "manual",
+              input: {
+                type: "object",
+                properties: { vendorName: { type: "string" } },
+                required: ["vendorName"],
+              },
             },
           },
-        },
+        ],
+        outputs: [{ id: "out-done", name: "Done", kind: "nothing" }],
         steps: [
           {
             id: "vendor",
-            kind: "skill",
             name: "Find the vendor",
-            skill: FIND_VENDOR.id,
+            kind: "do",
+            doneBy: "ai",
+            uses: { type: "skill", skill: "test.find-vendor" },
             input: { name: "{{trigger.vendorName}}" },
           },
+          { id: "end", kind: "end", name: "Done", outputs: ["out-done"] },
         ],
       },
     });

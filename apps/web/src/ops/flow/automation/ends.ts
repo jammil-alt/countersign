@@ -3,7 +3,15 @@
 // a template over its input and its top-level steps), as rows a person edits, and back. Also the
 // automation as the builder's own editing model reads it: one process with no trigger, kept in a
 // bundle so `../../builder/model`'s edits and History apply unchanged. Pure; no React.
-import { type AutomationDefinition, isPlainObject, type JsonSchema, type PathOption, pathOptions, processes, type TypingContext } from "@countersign/core";
+import {
+  type AutomationDefinition,
+  isPlainObject,
+  type JsonSchema,
+  type PathOption,
+  pathOptions,
+  processes,
+  type TypingContext,
+} from "@countersign/core";
 import type { Process, ProcessAgentBundle } from "../../builder/model";
 import { type Namer, referenceLabel } from "../../builder/problems";
 import type { FlowEnds } from "../types";
@@ -250,11 +258,6 @@ export interface AutomationFace {
 // DECISION (F7): a stand-in bundle around the steps, rather than a second editing model and a
 // second undo for automations: the builder's operations, inspector and History all take a bundle.
 export type AutomationDraft = ProcessAgentBundle & { automation: AutomationFace };
-
-/** Whether a stored version can be edited here: only v4 process steps (`schemaVersion: 2`). */
-export function editable(def: AutomationDefinition): def is AutomationDefinition {
-  return def.schemaVersion === 2;
-}
 
 export function toDraft(def: AutomationDefinition): AutomationDraft {
   const bundle = {

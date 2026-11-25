@@ -91,55 +91,66 @@ function bundle(workflow: unknown, mode: "suggest_only" | "act" = "suggest_only"
 
 /** Texts the number it is given, without approval (the connection allows `create` on auto). */
 const NOTIFY_WORKFLOW = {
-  schemaVersion: 3,
-  trigger: {
-    id: "trg-manual",
-    on: {
-      type: "manual",
-      input: { type: "object", properties: { to: { type: "string" } }, required: ["to"] },
+  schemaVersion: 5,
+  triggers: [
+    {
+      id: "trg-manual",
+      on: {
+        type: "manual",
+        input: { type: "object", properties: { to: { type: "string" } }, required: ["to"] },
+      },
     },
-  },
+  ],
+  outputs: [{ id: "out-done", name: "Done", kind: "nothing" }],
   steps: [
     {
       id: "notify",
       name: "Text the customer",
-      kind: "action",
-      tool: SMS_SEND_TOOL,
-      input: { to: "{{trigger.to}}", text: "Your order has shipped." },
-      approval: { required: "not_required" },
       client: { visible: true, label: "Texted the customer" },
+      checks: { approval: { required: "not_required" } },
+      kind: "do",
+      doneBy: "rules",
+      uses: { type: "action", action: SMS_SEND_TOOL },
+      input: { to: "{{trigger.to}}", text: "Your order has shipped." },
     },
+    { id: "end", kind: "end", name: "Done", outputs: ["out-done"] },
   ],
 };
 
 const REPLY_WORKFLOW = {
-  schemaVersion: 3,
-  trigger: {
-    id: "trg-text",
-    on: {
-      type: "event",
-      event: "message.received",
-      filter: { match: "all", rules: [{ field: "{{trigger.keyword}}", op: "is", value: null }] },
+  schemaVersion: 5,
+  triggers: [
+    {
+      id: "trg-text",
+      on: {
+        type: "event",
+        event: "message.received",
+        filter: { match: "all", rules: [{ field: "{{trigger.keyword}}", op: "is", value: null }] },
+      },
     },
-  },
+  ],
+  outputs: [{ id: "out-done", name: "Done", kind: "nothing" }],
   steps: [
     {
       id: "read",
       name: "Read the text",
-      kind: "skill",
-      skill: MESSAGE_GET_TOOL,
-      input: { sid: "{{trigger.messageSid}}" },
       client: { visible: true, label: "Read the text" },
+      kind: "do",
+      doneBy: "rules",
+      uses: { type: "action", action: "message.get" },
+      input: { sid: "{{trigger.messageSid}}" },
     },
     {
       id: "reply",
       name: "Text back",
-      kind: "action",
-      tool: SMS_SEND_TOOL,
-      input: { to: "{{trigger.from}}", text: "Thanks, we got your message." },
-      approval: { required: "required" },
       client: { visible: true, label: "Texted back" },
+      checks: { approval: { required: "required" } },
+      kind: "do",
+      doneBy: "rules",
+      uses: { type: "action", action: SMS_SEND_TOOL },
+      input: { to: "{{trigger.from}}", text: "Thanks, we got your message." },
     },
+    { id: "end", kind: "end", name: "Done", outputs: ["out-done"] },
   ],
 };
 

@@ -284,27 +284,40 @@ describe.skipIf(!h)("Draft", () => {
     const agentId = (template.json as { agent: { id: string } }).agent.id;
     const READ = "0193f000-0000-7000-8000-00000000aa01";
     const drawn = {
-      schemaVersion: 4,
+      schemaVersion: 5,
       triggers: [{ id: "t", on: { type: "manual", input: { type: "object", properties: {} } } }],
+      outputs: [{ id: "out-done", name: "Done", kind: "nothing" }],
       steps: [
-        { id: READ, kind: "wait", name: "Read the bill", for: "1 minute" },
+        {
+          id: "0193f000-0000-7000-8000-00000000aa01",
+          name: "Read the bill",
+          kind: "wait",
+          for: "1 minute",
+        },
         {
           id: "check",
-          kind: "if",
           name: "Over the limit?",
+          kind: "fork",
           paths: [
             {
               id: "p",
               name: "Over",
               when: {
                 match: "all",
-                rules: [{ field: `{{steps.${READ}.output.total}}`, op: ">", value: 500 }],
+                rules: [
+                  {
+                    field: "{{steps.0193f000-0000-7000-8000-00000000aa01.output.total}}",
+                    op: ">",
+                    value: 500,
+                  },
+                ],
               },
               steps: [],
             },
           ],
           otherwise: { id: "o", steps: [] },
         },
+        { id: "end", kind: "end", name: "Done", outputs: ["out-done"] },
       ],
     };
     const make = (body: Record<string, unknown>, who = OPERATOR) =>

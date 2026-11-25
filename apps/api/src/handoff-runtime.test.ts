@@ -39,14 +39,35 @@ const read = (id: string, name: string, input: Record<string, unknown> = {}) => 
 
 /** Price checker: pull bills, itemize the invoice, check prices (reads what itemize found). */
 const PRICE_CHECKER = {
-  schemaVersion: 4,
-  triggers: [MANUAL],
+  schemaVersion: 5,
+  triggers: [{ id: "trg-manual", on: { type: "manual", input: {} } }],
+  outputs: [{ id: "out-done", name: "Done", kind: "nothing" }],
   steps: [
-    read("pull", "Pull bills from QuickBooks"),
-    read("itemize", "Itemize the invoice", { nameContains: "{{trigger.name}}" }),
-    read("check", "Check prices", {
-      nameContains: "{{steps.itemize.output.records.length}} found",
-    }),
+    {
+      id: "pull",
+      name: "Pull bills from QuickBooks",
+      kind: "do",
+      doneBy: "rules",
+      uses: { type: "action", action: TESTKIT_QUERY_TOOL },
+      input: {},
+    },
+    {
+      id: "itemize",
+      name: "Itemize the invoice",
+      kind: "do",
+      doneBy: "rules",
+      uses: { type: "action", action: TESTKIT_QUERY_TOOL },
+      input: { nameContains: "{{trigger.name}}" },
+    },
+    {
+      id: "check",
+      name: "Check prices",
+      kind: "do",
+      doneBy: "rules",
+      uses: { type: "action", action: TESTKIT_QUERY_TOOL },
+      input: { nameContains: "{{steps.itemize.output.records.length}} found" },
+    },
+    { id: "end", kind: "end", name: "Done", outputs: ["out-done"] },
   ],
 };
 

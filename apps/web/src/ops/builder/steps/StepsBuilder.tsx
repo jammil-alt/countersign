@@ -157,7 +157,9 @@ function Body(
   // The agent's workflows to switch to, and "+ Workflow" (the v4 builder's, `../workflow-switcher`).
   const [adding, setAdding] = useState(false);
   const workflows = useMemo(
-    () => (props.bundle as { workflows: { slug: string; name: string; enabled?: boolean }[] }).workflows,
+    () =>
+      (props.bundle as { workflows: { slug: string; name: string; enabled?: boolean }[] })
+        .workflows,
     [props.bundle],
   );
   // Stream G: every Do step's incoming side worked out on load, opened or not; what changes shows

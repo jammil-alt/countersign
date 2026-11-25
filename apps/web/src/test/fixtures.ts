@@ -1,5 +1,10 @@
 // Shared test data and a fake API: a router over `METHOD /path` that answers like the Worker.
-import { AgentBundle, type AgentBundleInput, type SessionResponse, type TableView } from "@countersign/core";
+import {
+  AgentBundle,
+  type AgentBundleInput,
+  type SessionResponse,
+  type TableView,
+} from "@countersign/core";
 import { type ApiClient, createApiClient } from "../api/client";
 
 export const OPERATOR_SESSION: SessionResponse = {

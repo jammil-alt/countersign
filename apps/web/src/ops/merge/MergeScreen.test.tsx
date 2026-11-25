@@ -2,7 +2,12 @@
 // only, with what each side changed tagged on it and listed under it; the conflict in the fields
 // table, Save held until it is resolved, the resolution sent), and a promotion with one change
 // left unpicked (only the picked change is sent; client-specific values are listed as staying).
-import { AgentBundle, type AgentBundleInput, type BuilderCatalog, cloneJson } from "@countersign/core";
+import {
+  AgentBundle,
+  type AgentBundleInput,
+  type BuilderCatalog,
+  cloneJson,
+} from "@countersign/core";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
@@ -112,7 +117,12 @@ const CLIENT = edit((b) => {
 });
 const TEMPLATE_V2 = edit((b) => {
   b.definition.instructions = "The template's new way.";
-  b.workflows[0]?.workflow.steps.splice(2, 0, { id: "pause", kind: "wait", name: "Pause", for: "1 hour" });
+  b.workflows[0]?.workflow.steps.splice(2, 0, {
+    id: "pause",
+    kind: "wait",
+    name: "Pause",
+    for: "1 hour",
+  });
 });
 
 function setup(mode: "update" | "promote", routes: Parameters<typeof fakeApi>[0]) {

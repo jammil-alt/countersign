@@ -16,7 +16,6 @@ import {
   getAgent,
   getVersion,
   handoffAgents,
-  latestVersion,
   listClientAgents,
   listTemplates,
   listVersionHeads,
@@ -35,15 +34,8 @@ import {
   updateOperational,
   validateForPublish,
 } from "@countersign/agents";
-import {
-  type AgentBundle,
-  AgentBundle as AnyAgentBundleSchema,
-  processes,
-  routes,
-  type SkillDefinition,
-} from "@countersign/core";
+import { type AgentBundle, routes } from "@countersign/core";
 import { connection, tenant } from "@countersign/db";
-import { knownModelIds } from "@countersign/llm";
 import {
   EventPayloadError,
   type EventTypeRegistry,

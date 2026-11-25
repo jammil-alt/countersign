@@ -6,7 +6,18 @@
 // original or an edited value; the agent fields and settings side by side; and, for a promotion,
 // which changes go (client-specific values never do). Merging and validation run in the browser
 // with core's code on every change; Save asks the server, which runs both again.
-import { type AgentBundle, AgentBundle as AgentBundleSchema, diffBundles, type MergeConflict, mergeBundles, processes, type Resolution, selectableBetween, selectChanges, steps } from "@countersign/core";
+import {
+  type AgentBundle,
+  AgentBundle as AgentBundleSchema,
+  diffBundles,
+  type MergeConflict,
+  mergeBundles,
+  processes,
+  type Resolution,
+  selectableBetween,
+  selectChanges,
+  steps,
+} from "@countersign/core";
 import { type ReactNode, useCallback, useMemo, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import type { ResponseOf } from "../../api/client";
@@ -377,15 +388,10 @@ function MergeBody({
   // DECISION: the chart draws a step-model workflow through the builder's display adapter
   // (`displayProcess`), with the picker's words from the builder catalog already loaded; only the
   // drawing reads it, the merge and what is saved stay on the bundles as they are.
-  const uses = useMemo(
-    () => usesContextFrom({ actions: [], catalog }),
-    [catalog],
-  );
+  const uses = useMemo(() => usesContextFrom({ actions: [], catalog }), [catalog]);
   const shown: Process | null = useMemo(
     () =>
-      shownWorkflow
-        ? (displayProcess(shownWorkflow.workflow as Workflow, uses) as Process)
-        : null,
+      shownWorkflow ? (displayProcess(shownWorkflow.workflow as Workflow, uses) as Process) : null,
     [shownWorkflow, uses],
   );
   // A box's words are the step builder's, read off the step-model step the box stands for.
@@ -393,9 +399,7 @@ function MergeBody({
     (id: string): BoxWords => {
       const wf = shownWorkflow?.workflow;
       const real = wf ? steps.findStep(wf.steps, id) : undefined;
-      return real && wf
-        ? boxWords(real, uses, wf)
-        : { title: "", kind: "", detail: null };
+      return real && wf ? boxWords(real, uses, wf) : { title: "", kind: "", detail: null };
     },
     [shownWorkflow, uses],
   );

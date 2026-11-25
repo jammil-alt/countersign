@@ -1,8 +1,28 @@
 // What the builder knows besides the bundle: the skills, tools and event types it types steps with
 // (the same context the server validates with), the palette built from them, and a client
 // agent's bound connections.
-import { type AgentBundle, type BrowserScriptTool, type BuilderCatalog, // P-4
-  CONVERSE_SKILL, type EventTypeSpec, isToolWrapper, lookupSkill, type OpsConnection, type PermissionMatrix, parseSkillRef, processes, type SkillDefinition, type SkillKind, skillKind, steps, type ToolSpec, type TriggerOn, type TypingContext, toolLookup, type ValidationError, writeStepLabel } from "@countersign/core";
+import {
+  type AgentBundle,
+  type BrowserScriptTool,
+  type BuilderCatalog, // P-4
+  CONVERSE_SKILL,
+  type EventTypeSpec,
+  isToolWrapper,
+  lookupSkill,
+  type OpsConnection,
+  type PermissionMatrix,
+  parseSkillRef,
+  processes,
+  type SkillDefinition,
+  type SkillKind,
+  skillKind,
+  steps,
+  type ToolSpec,
+  type TriggerOn,
+  type TypingContext,
+  toolLookup,
+  writeStepLabel,
+} from "@countersign/core";
 import type { z } from "zod";
 import {
   connectorLabel,
