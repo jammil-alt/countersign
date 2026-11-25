@@ -12,6 +12,8 @@ import { parseSkillRef } from "../schemas/common";
 import { type SkillDefinition, skillTools } from "../schemas/skill";
 import type { ToolSpec } from "../schemas/tool";
 import type { Step } from "../schemas/workflow";
+import { mergedAction } from "../steps/catalog";
+import { eachStep } from "../steps/walk";
 import { ACCOUNT_AGENT_SLUG } from "../threads/schemas";
 import type { ValidationError } from "../workflow/validate";
 import { walkSteps } from "../workflow/walk";
@@ -149,6 +151,48 @@ export function accountAgentProblems(input: {
     }
   };
   for (const w of bundle.workflows) {
+    if (w.workflow.schemaVersion === 5) {
+      // The step model: a Do's action or skill, a Loop's reads, an automation opened as above; a
+      // person's collect or an outside contact messages people, which the account agent never
+      // does; a write or save output is refused as its action.
+      eachStep(w.workflow.steps, ({ step }) => {
+        if (step.kind === "loop") {
+          for (const t of step.reads) refuse(t, "reads", step.id, w.slug);
+          return;
+        }
+        if (step.kind !== "do") return;
+        const uses = step.uses;
+        if (uses?.type === "action") {
+          if (mergedAction(uses.action)) {
+            errors.push({
+              stepId: step.id,
+              field: "uses.action",
+              code: "tool_not_allowed",
+              message: `the account agent only reads what the portal shows: "${uses.action}" writes to a client's tool`,
+              workflow: w.slug,
+            });
+          } else refuse(uses.action, "uses.action", step.id, w.slug);
+        } else if (uses?.type === "skill") {
+          const skill = input.skills[uses.skill] ?? input.skills[parseSkillRef(uses.skill).id];
+          for (const t of skill ? skillTools(skill) : []) refuse(t, "uses.skill", step.id, w.slug);
+        } else if (uses?.type === "automation") {
+          checkPinned(uses.automation, { id: step.id, field: "uses.automation" }, w.slug);
+        } else if (uses?.type === "collect" || step.doneBy === "contact") {
+          errors.push({
+            stepId: step.id,
+            field: "doneBy",
+            code: "tool_not_allowed",
+            message:
+              "the account agent only reads what the portal shows: a conversation messages someone outside",
+            workflow: w.slug,
+          });
+        }
+      });
+      for (const o of w.workflow.outputs) {
+        if (o.action) refuse(o.action.action, "action", o.id, w.slug);
+      }
+      continue;
+    }
     if (w.workflow.schemaVersion === 4) {
       walkProcessSteps(w.workflow, ({ step }) => checkProcessStep(step, w.slug));
       continue;

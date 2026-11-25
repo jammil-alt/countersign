@@ -19,6 +19,7 @@ import { EntityPermissions, PermissionEntity, PermissionLevel } from "../schemas
 import { SkillBrowse, SkillDefinition, SkillMethod } from "../schemas/skill";
 import { ToolInputVariants, ToolSpec } from "../schemas/tool";
 import { ToolDisplay } from "../schemas/tool-display";
+import { Fields as StepFields } from "../steps/schema";
 import { IanaTimeZone } from "../timezone";
 // P-8: US texting registration
 import { a2pRoutes } from "./a2p";
@@ -1070,6 +1071,54 @@ export const BuilderCatalog = z.object({
 });
 export type BuilderCatalog = z.infer<typeof BuilderCatalog>;
 
+/**
+ * Step model (docs/step-model-plan.md §10c): the action catalog the Uses picker reads, as
+ * `steps.buildActionCatalog` makes it: connectors first, then areas, each with its actions.
+ */
+export const ActionCatalog = z.object({
+  groups: z.array(
+    z.object({
+      type: z.enum(["connector", "area"]),
+      id: z.string(),
+      name: z.string(),
+      actions: z.array(
+        z.object({
+          id: z.string(),
+          label: z.string(),
+          description: z.string(),
+          kind: z.enum(["get", "save", "change", "send"]),
+          input: StepFields,
+          output: StepFields,
+        }),
+      ),
+    }),
+  ),
+});
+export type ActionCatalog = z.infer<typeof ActionCatalog>;
+
+/** What Suggest is asked: the workflow as drawn, the step, and the field (absent: the whole step). */
+export const StepSuggestRequest = z.strictObject({
+  workflow: z.unknown(),
+  stepId: z.string().min(1),
+  /** The field it works on: `goal`, `input.vendorId`, `checks.approval`. Absent: the whole step. */
+  field: z.string().min(1).max(120).optional(),
+  how: z.enum(["tell", "default", "resolve"]),
+  /** "Tell it what you need", in the person's words (`how: tell`). */
+  text: z.string().trim().min(1).max(2000).optional(),
+});
+export type StepSuggestRequest = z.infer<typeof StepSuggestRequest>;
+
+/**
+ * Suggest's answer: the step as it should now be (applied at once, with Undo), and a line on what
+ * changed. `applied: false` says nothing was changed and why (`summary`).
+ */
+export const StepSuggestion = z.object({
+  step: z.unknown(),
+  summary: z.string(),
+  applied: z.boolean(),
+});
+export type StepSuggestion = z.infer<typeof StepSuggestion>;
+
 // ── Skills library and the Builder (ARCHITECTURE §9.2, §9.6) ─────────────────────────────────────
 
 /** A row of the skills library: built-in (code) or operator-written (rows, shared or one client's). */
@@ -1933,6 +1982,31 @@ export const opsRoutes = {
     summary: "What the workflow builder needs for an agent: skills with schemas, tools, connectors",
     params: IdParams,
     response: BuilderCatalog,
+  }),
+  // Step model (docs/step-model-plan.md §10c, §13c; stream B): the actions a Do step's Uses picker
+  // offers, grouped by connector and by area, with each action's kind and fields.
+  opsActionCatalog: defineRoute({
+    method: "GET",
+    path: "/api/ops/agents/:id/action-catalog",
+    auth: "session",
+    roles: OPS,
+    summary: "The actions a step can use, by connector and by area (the Uses picker)",
+    params: IdParams,
+    response: ActionCatalog,
+  }),
+  // Step model (docs/step-model-plan.md §5, "Suggest"): the AI icon on a step's form and beside each
+  // field. Wave 1 fixes the call's shape; the answer is wave 2's (stream F), so the server returns
+  // the step unchanged and says so.
+  opsStepSuggest: defineRoute({
+    method: "POST",
+    path: "/api/ops/agents/:id/suggest",
+    auth: "session",
+    roles: OPS,
+    summary:
+      "Suggest a step's settings: from what you tell it, the default, or a fix for what is flagged",
+    params: IdParams,
+    body: StepSuggestRequest,
+    response: StepSuggestion,
   }),
   // The builder on one screen, F7 (docs/plan.md §1.170): an automation opens in the same builder.
   opsAutomationBuilderCatalog: defineRoute({

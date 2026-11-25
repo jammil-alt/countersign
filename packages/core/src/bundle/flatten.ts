@@ -3,9 +3,10 @@ import type { Step as ProcessStep } from "../process/schema";
 import type { AgentBundle, AnyAgentBundle } from "../schemas/agent";
 import { parseSkillRef } from "../schemas/common";
 import type { Trigger, Step as WorkflowStep } from "../schemas/workflow";
+import type { Step as StepModelStep } from "../steps/schema";
 
-/** A v3 workflow step or a v4 process step. */
-type Step = WorkflowStep | ProcessStep;
+/** A v3 workflow step, a v4 process step or a v5 step (the step model). */
+type Step = WorkflowStep | ProcessStep | StepModelStep;
 
 /**
  * A bundle as a flat set of keyed entities in ordered lists, the shape diff and merge work on
@@ -40,10 +41,13 @@ function isBranching(kind: unknown): boolean {
   return kind === "fork" || kind === "if";
 }
 
-/** A workflow entity's content holds a v4 process. */
+/**
+ * A workflow entity's content holds a v4 process or a v5 workflow (the step model): both keep their
+ * triggers as a list, flattened by id; a v5 workflow's outputs stay a field of the entity.
+ */
 function isProcess(content: Record<string, unknown>): boolean {
   const wf = content.workflow as { schemaVersion?: unknown } | undefined;
-  return wf?.schemaVersion === 4;
+  return wf?.schemaVersion === 4 || wf?.schemaVersion === 5;
 }
 
 /** The field of a v4 workflow entity's `workflow` that holds its trigger ids in order. */
@@ -151,7 +155,7 @@ export function flattenBundle(bundle: AnyAgentBundle): FlatBundle {
   ensure(`${ROOT}>workflows`);
   for (const w of b.workflows) {
     const key = `workflow:${w.slug}`;
-    if (w.workflow.schemaVersion === 4) {
+    if (w.workflow.schemaVersion === 4 || w.workflow.schemaVersion === 5) {
       const { steps: inner, triggers, ...wf } = w.workflow;
       const byId: Record<string, Trigger> = {};
       for (const t of triggers) {

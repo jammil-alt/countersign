@@ -18,6 +18,7 @@ import {
   type Step,
   shownOnTimeline,
   stepNodeOf,
+  steps,
   type TimelineChecks,
   urgentOf,
   type Workflow,
@@ -25,16 +26,17 @@ import {
 import { appUser, type stepRun, type Tx } from "@countersign/db";
 import { inArray } from "drizzle-orm";
 
-type StoredWorkflow = Workflow | processes.Process;
+type StoredWorkflow = Workflow | processes.Process | steps.Workflow;
 
-/** What the timeline reads of a step, v3 or v4: its id, kind, name and client label. */
-export type TimelineStepDef = Step | processes.Step;
+/** What the timeline reads of a step, v3, v4 or v5: its id, kind, name and client label. */
+export type TimelineStepDef = Step | processes.Step | steps.Step;
 
 /** Finds a step by id in a stored v3 workflow or a v4 process. */
 export function stepFinder(
   workflow: StoredWorkflow | undefined,
 ): (id: string) => TimelineStepDef | undefined {
   if (!workflow) return () => undefined;
+  if (workflow.schemaVersion === 5) return (id) => steps.findStep(workflow.steps, id);
   if (workflow.schemaVersion === 4) {
     return (id) => processes.findStep(workflow, id)?.step;
   }

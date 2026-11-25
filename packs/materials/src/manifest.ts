@@ -34,6 +34,7 @@ import {
   pricesDigest,
   pricesRecord,
 } from "./tools";
+import { MATERIALS_MATCHERS, MATERIALS_RETIRED_TOOLS } from "./vendor/matchers";
 import {
   SUPERSEDED_BY_LIBRARY_SKILLS,
   VENDOR_LIBRARY_SKILLS,
@@ -290,6 +291,9 @@ export const materialsManifest: PackManifest = lazyParse(PackManifest, () => ({
   // built before stay registered for stored steps, and new steps take the Library ones.
   librarySkills: VENDOR_LIBRARY_SKILLS,
   superseded: SUPERSEDED_BY_LIBRARY_SKILLS,
+  // Step model §7, §10d (stream D): the area's match profiles, and the actions they replace.
+  matchProfiles: MATERIALS_MATCHERS.map((m) => m.profile),
+  retiredTools: MATERIALS_RETIRED_TOOLS,
   // §1.149.2: the area's questions for a client's intake (Getting started's card).
   intakeSection: PURCHASING_INTAKE_SECTION,
   screens: [

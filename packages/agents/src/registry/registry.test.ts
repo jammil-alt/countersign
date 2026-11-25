@@ -173,7 +173,11 @@ describe.skipIf(!harness)("agent registry", () => {
     expect(forked.version.bundleHash).toBe(tv.bundleHash);
     const ids = (b: typeof tv.bundle) =>
       b.workflows.flatMap((w) =>
-        w.workflow.schemaVersion === 4 ? processes.nodeIds(w.workflow) : nodeIds(w.workflow),
+        w.workflow.schemaVersion === 5
+          ? []
+          : w.workflow.schemaVersion === 4
+            ? processes.nodeIds(w.workflow)
+            : nodeIds(w.workflow),
       );
     expect(ids(forked.version.bundle)).toEqual(ids(tv.bundle));
     expect(ids(forked.version.bundle)).toContain(LOOKUP_STEP);

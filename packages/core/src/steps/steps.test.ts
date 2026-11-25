@@ -57,14 +57,26 @@ describe("the step model's schema", () => {
     });
   });
 
-  it("refuses an End that neither delivers an output nor says why there is nothing to do", () => {
-    expect(() => wf([read, { id: "e", kind: "end", name: "End" }])).toThrow(/End delivers/);
-  });
-
-  it("refuses an output that doesn't say how it is delivered", () => {
-    expect(() =>
-      wf([read, endSaved], { outputs: [{ id: "o", name: "Report", kind: "report" }] as never }),
-    ).toThrow(/report output says how/);
+  it("parses a draft as it is being built, and leaves the rest to publishing", () => {
+    const draft = wf(
+      [
+        { id: "s", kind: "do", name: "" },
+        { id: "f", kind: "for_each", name: "Each line", over: "{{trigger.lines}}", steps: [] },
+        { id: "e", kind: "end", name: "End" },
+      ],
+      { outputs: [{ id: "o", name: "", kind: "report" }] as never },
+    );
+    expect(validateWorkflow(draft).map((i) => [i.at, i.code])).toEqual(
+      expect.arrayContaining([
+        ["o", "output_incomplete"],
+        ["s", "goal_missing"],
+        ["f", "empty_container"],
+        ["e", "end_empty"],
+      ]),
+    );
+    expect(validateWorkflow(wf([read, endSaved], { outputs: [] })).map((i) => i.code)).toContain(
+      "no_outputs",
+    );
   });
 
   it("types a field list and a record link", () => {

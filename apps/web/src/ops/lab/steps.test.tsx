@@ -10,7 +10,7 @@ import { workflowStepItems } from "./steps";
 describe("a template's workflow in the lab and the new-agent preview", () => {
   it("lists a process's first trigger and its steps, a write waiting for approval", () => {
     const process = PROCESS_BUNDLE.workflows[0]?.workflow;
-    if (!process) throw new Error("no workflow");
+    if (!process || process.schemaVersion === 5) throw new Error("no workflow");
     const items = workflowStepItems(process);
     expect(items.map((i) => i.key)).toEqual(["trigger", "find", "confidence", "update"]);
     render(<StepList steps={items} testId="lab-steps" />);

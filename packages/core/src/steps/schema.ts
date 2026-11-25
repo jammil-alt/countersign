@@ -85,8 +85,8 @@ export const Fields = z.array(Field).max(100);
 
 const base = {
   id: NodeId,
-  /** The step's goal, which is its name. */
-  name: z.string().min(1).max(200),
+  /** The step's goal, which is its name (empty in a draft; publishing needs it). */
+  name: z.string().trim().max(200),
   purpose: StepPurpose.optional(),
   client: ClientVisibility.optional(),
   review: StepReview.optional(),
@@ -147,7 +147,7 @@ export const Uses = z.discriminatedUnion("type", [
   /** Not built yet (today's `missing` step): it never runs and blocks publishing. */
   z.strictObject({
     type: z.literal("missing"),
-    need: z.string().trim().min(1).max(300),
+    need: z.string().trim().max(300),
     fill: z.enum(["skill", "tool", "connector"]).optional(),
   }),
 ]);
@@ -207,6 +207,8 @@ export const DoStep = z
     kind: z.literal("do"),
     /** Absent only when it uses an automation (its own steps say who does each). */
     doneBy: DoneBy.optional(),
+    /** Another agent of the same client (by slug) runs it; absent: this agent (under More). */
+    agent: Slug.optional(),
     uses: Uses.optional(),
     /** Each input field's source: the trigger, an earlier step's field, or a fixed value. */
     input: TemplateObject.default({}),
@@ -233,7 +235,7 @@ export const LoopStep = z.object({
   kind: z.literal("loop"),
   /** A saved Loop from the library; absent: written in the step. */
   skill: SkillRef.optional(),
-  goal: z.string().trim().min(1).max(1000),
+  goal: z.string().trim().max(1000),
   input: TemplateObject.default({}),
   translation: ReshapeMapping.optional(),
   output: Fields.default([]),
@@ -264,19 +266,14 @@ export const HandoffStep = z.object({
 export type HandoffStep = z.infer<typeof HandoffStep>;
 
 /** Where a path finishes (§9): the declared outputs it delivers, or nothing to do and why. */
-export const EndStep = z
-  .object({
-    ...base,
-    kind: z.literal("end"),
-    outputs: z.array(NodeId).max(10).default([]),
-    nothingToDo: z.string().trim().min(1).max(300).optional(),
-    /** A path that ends in failure on purpose (today's Stop with `failed`). */
-    status: z.enum(["succeeded", "failed", "cancelled"]).default("succeeded"),
-  })
-  .refine((s) => s.outputs.length > 0 !== (s.nothingToDo !== undefined), {
-    message: "an End delivers one or more outputs, or says why there is nothing to do",
-    path: ["outputs"],
-  });
+export const EndStep = z.object({
+  ...base,
+  kind: z.literal("end"),
+  outputs: z.array(NodeId).max(10).default([]),
+  nothingToDo: z.string().trim().max(300).optional(),
+  /** A path that ends in failure on purpose (today's Stop with `failed`). */
+  status: z.enum(["succeeded", "failed", "cancelled"]).default("succeeded"),
+});
 export type EndStep = z.infer<typeof EndStep>;
 
 export const CHOICE_TEXT_MAX = 300;
@@ -367,7 +364,7 @@ export const ForEachStep = z.object({
   over: TemplateString,
   concurrency: z.number().int().min(1).max(50).default(10),
   get steps() {
-    return z.array(Step).min(1);
+    return z.array(Step);
   },
 });
 
@@ -385,7 +382,7 @@ export const RepeatStep = z.object({
   ...base,
   kind: z.literal("repeat"),
   get steps() {
-    return z.array(Step).min(1);
+    return z.array(Step);
   },
   until: RepeatUntil,
   maxTimes: z.number().int().min(1).max(REPEAT_MAX_TIMES).default(3),
@@ -418,57 +415,43 @@ export type OutputKind = z.infer<typeof OutputKind>;
  * A declared result of a workflow (§9): what it is, where it goes and how it is delivered. An End
  * that selects it delivers it, with its checks (a write's approver is on by default, invariant 8).
  */
-export const WorkflowOutput = z
-  .strictObject({
-    id: NodeId,
-    name: z.string().trim().min(1).max(120),
-    about: z.string().max(200).optional(),
-    kind: OutputKind,
-    fields: Fields.default([]),
-    /** report: to whom, how, and what it says. */
-    report: z
-      .strictObject({
-        to: z.array(Who).min(1).max(10),
-        channel: z.enum(["inbox", "email", "sms"]).default("inbox"),
-        message: TemplateString,
-        sources: z.array(TemplateString).max(50).optional(),
-      })
-      .optional(),
-    /** write (a connector's action) or save (an area's action): which, with what. */
-    action: z.strictObject({ action: ToolId, input: TemplateObject.default({}) }).optional(),
-    /** handoff: another agent, or another workflow of this agent, at a step. */
-    handoff: z
-      .strictObject({
-        agent: z.union([Slug, z.literal("@self")]),
-        workflow: Slug.optional(),
-        step: NodeId,
-        input: TemplateObject.default({}),
-      })
-      .optional(),
-    /** pass_on: what other agents' hand-off triggers receive. */
-    passOn: z
-      .strictObject({
-        output: z.union([TemplateString, TemplateObject]),
-        sources: z.union([TemplateString, z.array(TemplateString).max(50)]).optional(),
-      })
-      .optional(),
-    /** Only when it applies (an exception report only when there are exceptions). */
-    when: Rules.optional(),
-    checks: Checks.optional(),
-  })
-  .superRefine((o, ctx) => {
-    const has = {
-      report: o.report !== undefined,
-      write: o.action !== undefined,
-      save: o.action !== undefined,
-      handoff: o.handoff !== undefined,
-      pass_on: o.passOn !== undefined,
-      nothing: true,
-    } as const;
-    if (!has[o.kind]) {
-      ctx.addIssue({ code: "custom", path: [o.kind], message: `a ${o.kind} output says how` });
-    }
-  });
+export const WorkflowOutput = z.strictObject({
+  id: NodeId,
+  name: z.string().trim().max(120),
+  about: z.string().max(200).optional(),
+  kind: OutputKind,
+  fields: Fields.default([]),
+  /** report: to whom, how, and what it says. */
+  report: z
+    .strictObject({
+      to: z.array(Who).max(10),
+      channel: z.enum(["inbox", "email", "sms"]).default("inbox"),
+      message: TemplateString,
+      sources: z.array(TemplateString).max(50).optional(),
+    })
+    .optional(),
+  /** write (a connector's action) or save (an area's action): which, with what. */
+  action: z.strictObject({ action: ToolId, input: TemplateObject.default({}) }).optional(),
+  /** handoff: another agent, or another workflow of this agent, at a step. */
+  handoff: z
+    .strictObject({
+      agent: z.union([Slug, z.literal("@self")]),
+      workflow: Slug.optional(),
+      step: NodeId,
+      input: TemplateObject.default({}),
+    })
+    .optional(),
+  /** pass_on: what other agents' hand-off triggers receive. */
+  passOn: z
+    .strictObject({
+      output: z.union([TemplateString, TemplateObject]),
+      sources: z.union([TemplateString, z.array(TemplateString).max(50)]).optional(),
+    })
+    .optional(),
+  /** Only when it applies (an exception report only when there are exceptions). */
+  when: Rules.optional(),
+  checks: Checks.optional(),
+});
 export type WorkflowOutput = z.infer<typeof WorkflowOutput>;
 
 // ── The workflow ───────────────────────────────────────────────────────────────────────────────
@@ -477,7 +460,7 @@ export const Workflow = z
   .object({
     schemaVersion: z.literal(5),
     triggers: z.array(Trigger).min(1).max(10),
-    outputs: z.array(WorkflowOutput).min(1).max(20),
+    outputs: z.array(WorkflowOutput).max(20),
     steps: z.array(Step),
   })
   .meta({ id: "WorkflowV5" });

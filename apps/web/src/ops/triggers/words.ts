@@ -175,9 +175,9 @@ export function addTrigger<B extends AnyAgentBundle>(
     workflows: bundle.workflows.map((w) => {
       if (w.slug !== workflow) return w;
       const wf = w.workflow;
-      return wf.schemaVersion === 4
-        ? { ...w, workflow: { ...wf, triggers: [...wf.triggers, trigger] } }
-        : { ...w, workflow: { ...wf, moreTriggers: [...(wf.moreTriggers ?? []), trigger] } };
+      return wf.schemaVersion === 3
+        ? { ...w, workflow: { ...wf, moreTriggers: [...(wf.moreTriggers ?? []), trigger] } }
+        : { ...w, workflow: { ...wf, triggers: [...wf.triggers, trigger] } };
     }),
   };
 }
@@ -196,7 +196,7 @@ export function removeTrigger<B extends AnyAgentBundle>(
     workflows: bundle.workflows.map((w) => {
       if (w.slug !== workflow) return w;
       const wf = w.workflow;
-      if (wf.schemaVersion === 4) {
+      if (wf.schemaVersion !== 3) {
         const [first, ...more] = wf.triggers;
         if (!first || first.id === id) return w;
         return { ...w, workflow: { ...wf, triggers: [first, ...more.filter((t) => t.id !== id)] } };

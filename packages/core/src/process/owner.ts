@@ -14,7 +14,12 @@ import {
   OversightSettings,
   ownerWatches,
 } from "../oversight/decision";
-import { type AgentDefinition, type AnyAgentBundle, holdsProcess } from "../schemas/agent";
+import {
+  type AgentDefinition,
+  type AnyAgentBundle,
+  holdsProcess,
+  holdsStepModel,
+} from "../schemas/agent";
 import type { AgentMode } from "../schemas/permissions";
 import { collectRefs } from "../template/template";
 import { lookupSkill, type TypingContext } from "../template/typer";
@@ -104,7 +109,10 @@ export function ownerOf(definition: OwnerDefinition, options: { process: boolean
 
 /** The owner of the agent a bundle stores. */
 export function ownerOfBundle(bundle: Pick<AnyAgentBundle, "definition" | "workflows">): Owner {
-  return ownerOf(bundle.definition, { process: holdsProcess(bundle) });
+  // The step model: a v5 workflow is native too, so its owner watches as a v4 process's does.
+  return ownerOf(bundle.definition, {
+    process: holdsProcess(bundle) || holdsStepModel(bundle),
+  });
 }
 
 // ── What the owner may and may never do ──────────────────────────────────────────────────────
@@ -265,14 +273,23 @@ function selfHandoffTo(step: Step, own: string, slugs: ReadonlySet<string>): boo
 // with a Stop is an end by choice ("nothing to do tonight") and asks nothing. A way in that never
 // hands off (no ends at all, or none a hand-off) is refused, since its runs would start nothing.
 // A hand-off into itself or a cycle is the hand-off's own check, not this one.
+type OlderWorkflow = AnyAgentBundle["workflows"][number] & { workflow: { schemaVersion: 3 | 4 } };
+
 export function oneProcessProblems(bundle: Pick<AnyAgentBundle, "workflows">): {
   errors: OneProcessError[];
   advisories: SplitAdvisory[];
 } {
   const errors: OneProcessError[] = [];
   const advisories: SplitAdvisory[] = [];
-  const enabled = bundle.workflows.map((w, i) => ({ w, i })).filter(({ w }) => w.enabled !== false);
-  const asProcess = (w: AnyAgentBundle["workflows"][number]): Process =>
+  // DECISION (step model, wave 1): a v5 workflow's ways in and out are its declared outputs and
+  // End cards, checked by the step model's own publish checks; this rule reads v3 and v4 only.
+  const enabled = bundle.workflows
+    .map((w, i) => ({ w, i }))
+    .filter(
+      (x): x is { w: OlderWorkflow; i: number } =>
+        x.w.enabled !== false && x.w.workflow.schemaVersion !== 5,
+    );
+  const asProcess = (w: OlderWorkflow): Process =>
     w.workflow.schemaVersion === 4 ? w.workflow : fromWorkflowV3(w.workflow, SHAPE_ONLY);
   const main = enabled[0]?.w.slug ?? "";
   const slugs = new Set(enabled.map(({ w }) => w.slug));

@@ -187,7 +187,17 @@ export async function bundleNeeds(
 ): Promise<ConnectorNeed[]> {
   try {
     const parsed = AnyAgentBundle.parse(stored);
-    const bundle = toProcessBundle(parsed, convertLookup(platform.catalog, platform.tools));
+    // The step model: v5 workflows are read as they are, beside the v4 reading of the rest.
+    const read = toProcessBundle(parsed, convertLookup(platform.catalog, platform.tools), {
+      stepModel: "skip",
+    });
+    const bundle = {
+      ...read,
+      workflows: [
+        ...read.workflows,
+        ...parsed.workflows.filter((w) => w.workflow.schemaVersion === 5),
+      ],
+    };
     const { skills } = await skillContext(tx, {
       tenantId,
       bundle: parsed,

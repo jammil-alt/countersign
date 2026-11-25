@@ -387,6 +387,10 @@ const NeedsPersonOut = z.object({
 /** Step 5 (and 6's answer): Save to records: register the items. */
 export const vendorItemsRegister = defineTool({
   id: "materials.vendor_items.register",
+  // Step model §10d (stream D): Register lines is the one save for a document's decided lines, and
+  // makes the master items it adds searchable by meaning itself (Make search embeddings folds in).
+  usesModel:
+    "embeds the master items it adds, for the search by meaning (OpenAI embeddings); vendor items are not embedded",
   description:
     "Registers a document's decided lines: each line's match, the vendor's item (made when new), its SKU and wording, a new master item when the line is new everywhere, and the price, which becomes the vendor item's last price unless a newer one is kept. Lines nobody is sure of are listed for a person. Given a person's answers (each line's master item, or a new one) it registers them as theirs, so the vendor's wording is known next time. A line registered before is left as it is.",
   sideEffect: "internal",
@@ -415,6 +419,8 @@ export const vendorItemsRegister = defineTool({
     catalogItemIds: z.array(z.string()),
     vendorItemIds: z.array(z.string()),
     testRun: z.boolean(),
+    /** Master items it made searchable by meaning now (none in a test run, or without a model). */
+    embedded: z.number().int(),
     sources: z.array(z.string()),
   }),
   async run(input, ctx) {
@@ -431,8 +437,20 @@ export const vendorItemsRegister = defineTool({
       runId: ctx.runId,
       testRun: ctx.mode === "test",
     });
+    // DECISION (R10): only the master items it made are embedded, between transactions; vendor
+    // items get none (nothing searches them by meaning: a SKU match or nothing). A failed
+    // embedding fails nothing: the item stays due for the next save, and names still find it.
+    let embedded = 0;
+    if (!r.testRun && r.catalogItemIds.length > 0 && ctx.llm) {
+      try {
+        embedded = (await writeEmbeddings(ctx, { catalogItemIds: r.catalogItemIds })).catalogItems;
+      } catch {
+        embedded = 0;
+      }
+    }
     return {
       ...r,
+      embedded,
       registered: r.lines.filter((l) => l.recorded).length,
       newMasterItems: r.catalogItemIds.length,
       newVendorItems: r.vendorItemIds.length,
