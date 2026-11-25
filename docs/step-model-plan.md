@@ -134,6 +134,30 @@ JSON). The values come from the step's last test run, otherwise from sample data
 fields' types (plan §1.185, as built). It is for understanding, not a check, and it is in the back
 office only.
 
+**Suggest** (owner, 2026-11-25: "Many fields will be irrelevant to the end user as long as the flow
+works, I don't want to force them to have to think about every one, but have the option of changing
+them"). A **Suggest** button with the AI icon (the one the SOP already uses) sits at the top of every
+step's form, and beside every field. It opens a small pop-up with three choices:
+
+- **Tell it what you need**, in your own words ("only lines over $500", "ask Maria, not the admin").
+- **Use the default.**
+- **Resolve**: fix whatever is flagged (a field that doesn't fit, a required field left empty).
+
+At the top of the form it works on the whole step, from the step's goal and the workflow around it;
+beside a field, on that field only. What it suggests is applied straight away, and Undo takes it
+back. The Builder's AI does the work, held to the same rules as a person: it can't save a combination
+the form refuses.
+
+**What a person can't change on a step** (shown, so the step reads in full):
+- the step's id;
+- the fields a tool or a saved skill takes and gives (the skill itself is changed in the skill
+  editor, as a new version);
+- a match profile's allowed keys and "never the same if" rules (set by the area that owns the
+  records);
+- anything looser than the client allows: an approver can be switched off only where the client's
+  connection allows it to run on its own, and delete stays off (invariant 8);
+- a Loop's tools beyond reads, and an End's existence (it can be filled, not removed).
+
 **Rules and AI written in the step.** A deterministic Do is a tool call, rule rows (when these
 conditions hold, set or work out these fields), or a data job (reshape, filter and total, read or
 write a table). Rules or instructions are written in the step itself. **Save as skill** turns them
@@ -307,7 +331,7 @@ The purge also lets the eight step kinds be stored directly, replacing today's f
 | 1 | The purge (R0) and the release items R1–R10. |
 | 2 | The step model: the eight kinds, the Do form, checks, More. |
 | 3 | Input picker; automatic translation on each step's incoming side (fits, translated, doesn't fit); "doesn't fit" blocks going live. The Data tab on every step: coming in, changed, going out. |
-| 4 | Rules and AI written in the step; Save as skill. |
+| 4 | Rules and AI written in the step; Save as skill; Suggest on every step and every field. |
 | 5 | Workflow outputs and End cards; the publish checks. |
 | 6 | Match step with profiles: match type, keys, confidence threshold, second opinion per line, shortlists; exact match on every profile. |
 | 7 | Loop designer in the Agent lab, with the turn-by-turn test and the test-set gate. |
@@ -317,8 +341,8 @@ The purge also lets the eight step kinds be stored directly, replacing today's f
 
 ## 14. Where we are in the review
 
-Going tab by tab through the working spreadsheet: **Terms** and **Step kinds**
-agreed. Next: Forms, Skills, Tools, Where it's built, Invoice
+Going tab by tab through the working spreadsheet: **Terms**, **Step kinds** and
+**Forms** agreed. Next: Skills, Tools, Where it's built, Invoice
 matcher, Build list, Release.
 
 ## Decision log
@@ -342,6 +366,8 @@ matcher, Build list, Release.
 - 2026-11-25 · No named data shapes and no extra terms: each step defines the fields it needs.
 - 2026-11-25 · Every step has a Data tab: coming in, changed, going out. For understanding, not a check.
 - 2026-11-25 · Translations are applied without confirming or marking; only "doesn't fit" blocks.
+- 2026-11-25 · Forms agreed. Suggest (AI icon) on every step and every field: tell it what you need,
+  use the default, or resolve; applied at once, with Undo.
 - 2026-11-25 · The eight kinds are stored directly; nine of today's kinds collapse into Do, run by
   Done by and Uses.
 - 2026-11-25 · Translation between steps is automatic, on the receiving step's incoming side, worked
