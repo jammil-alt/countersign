@@ -205,6 +205,7 @@ import { applySkillMove } from "./skill-move";
 import { splitStarts } from "./starts";
 // v0.18: the Builder on the step that is open (F6: under its setup in the side panel).
 import { readStepChatSize, StepChat, writeStepChatSize } from "./step-chat";
+import StepsBuilder, { isStepModelWorkflow } from "./steps/StepsBuilder";
 import { WhatsLeft } from "./whats-left";
 
 type Connection = ResponseOf<typeof apiRoutes.opsClient>["connections"][number];
@@ -254,7 +255,18 @@ export interface WorkflowBuilderProps {
   buildId?: string | null | undefined;
 }
 
+/**
+ * A step-model workflow (`schemaVersion: 5`) opens in its own builder, with the same screens
+ * (docs/step-model-plan.md §2, principle 6); v3 and v4 stay here until wave 4 deletes them.
+ */
 export default function WorkflowBuilder(props: WorkflowBuilderProps) {
+  if (isStepModelWorkflow(props.bundle, props.workflow)) {
+    return <StepsBuilder {...props} />;
+  }
+  return <ProcessWorkflowBuilder {...props} />;
+}
+
+function ProcessWorkflowBuilder(props: WorkflowBuilderProps) {
   const catalog = useApi(apiRoutes.opsBuilderCatalog, {
     params: { id: props.agent.id },
     life: "catalog",
