@@ -7,6 +7,7 @@ import { createDb } from "@countersign/db";
 import type { Bindings } from "../env";
 import { defaultDeps } from "../http";
 import { platformFor } from "../platform";
+import { stepUnlessLocked } from "../runs/step-runner";
 import { type CaptureParams, runCapture } from "./media";
 import { captureDepsFor } from "./start";
 
@@ -29,8 +30,9 @@ export class CaptureWorkflow extends WorkflowEntrypoint<Bindings, CaptureParams>
       });
       const results = await runCapture(deps, event.payload, {
         // Step results are plain JSON; the structural cast stands in for Rpc.Serializable.
+        // §1.243: a step its client's lockdown refused ends the instance, without retries.
         do: <T>(name: string, fn: () => Promise<T>) =>
-          step.do(name, MEDIA_STEP, fn as never) as Promise<T>,
+          stepUnlessLocked<T>((body) => step.do(name, MEDIA_STEP, body as never), fn),
       });
       return results.map((r) => ({ index: r.index, status: r.status }));
     } finally {

@@ -10,6 +10,7 @@
 
 import { errorGroupKey, runErrorKey } from "@countersign/core";
 import {
+  activeClient,
   connection,
   type Db,
   event,
@@ -316,7 +317,7 @@ export async function healthTick(
 ): Promise<number> {
   if (scheduledTime.getUTCMinutes() !== HEALTH_MINUTE) return 0;
   const w = healthWindow(scheduledTime);
-  const clients = await db.select({ id: tenant.id }).from(tenant).where(isNull(tenant.retiredAt));
+  const clients = await db.select({ id: tenant.id }).from(tenant).where(activeClient());
   let sent = 0;
   for (const client of clients) {
     try {

@@ -5,7 +5,7 @@
 // write its audit row in one commit. Who may lock or unlock is decided by the caller (stream K2).
 
 import { isUuid } from "@countersign/core";
-import { and, eq, inArray, isNotNull, sql } from "drizzle-orm";
+import { and, eq, inArray, isNotNull, type SQL, sql } from "drizzle-orm";
 import { admitTenant, type Tx } from "./client";
 import { platformLock, type TenantLock, tenant, tenantChange } from "./schema";
 
@@ -231,4 +231,18 @@ export async function countLockedInbound(tx: Tx, tenantId: string, kind: string)
     where id = ${tenantId} and locked_at is not null
     returning id`);
   return [...rows].length > 0;
+}
+
+/**
+ * A `tenant` condition for background work: the client isn't locked, and everything isn't. A sweep
+ * that lists clients and opens each one's scope leaves locked ones out here, rather than having
+ * every one of their transactions refused (docs/lockdown-plan.md §3).
+ */
+export function notLocked(): SQL {
+  return sql`(${tenant.lockedAt} is null and not exists (select 1 from ${platformLock}))`;
+}
+
+/** A `tenant` condition for sweeps: neither retired nor locked (`notLocked`). */
+export function activeClient(): SQL {
+  return sql`(${tenant.retiredAt} is null and ${notLocked()})`;
 }

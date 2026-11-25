@@ -11,6 +11,7 @@
 import { closeRunApprovalsTx } from "@countersign/agents";
 import { isPlainObject } from "@countersign/core";
 import {
+  activeClient,
   agent,
   type Db,
   reachOut,
@@ -22,7 +23,7 @@ import {
 } from "@countersign/db";
 import { emit } from "@countersign/senses";
 import type { RunRange, RunRequest } from "@countersign/workflows";
-import { and, eq, inArray, isNull, lt, ne, sql } from "drizzle-orm";
+import { and, eq, inArray, lt, ne, sql } from "drizzle-orm";
 import { postCouldNotAnswer } from "../account/could-not-answer";
 import { reportHandled, reportProblem } from "../observability/report";
 import { queueFinishedRun } from "../run-audit/store";
@@ -288,10 +289,7 @@ export async function reconcileClientRuns(
 export async function reconcileRuns(deps: ReconcileDeps, at: Date): Promise<Reconciled> {
   const out: Reconciled = { started: 0, failed: 0, quiet: 0 };
   if (at.getUTCMinutes() % RECONCILE_EVERY_MINUTES !== RECONCILE_MINUTE) return out;
-  const clients = await deps.db
-    .select({ id: tenant.id })
-    .from(tenant)
-    .where(isNull(tenant.retiredAt));
+  const clients = await deps.db.select({ id: tenant.id }).from(tenant).where(activeClient());
   for (const client of clients) {
     try {
       const done = await reconcileClientRuns(deps, client.id, at);

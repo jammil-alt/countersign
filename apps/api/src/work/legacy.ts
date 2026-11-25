@@ -6,6 +6,7 @@
 
 import { isUuid } from "@countersign/core";
 import {
+  activeClient,
   agent,
   appUser,
   type Db,
@@ -16,7 +17,7 @@ import {
   tenant,
   withOperator,
 } from "@countersign/db";
-import { and, eq, inArray, isNull, notExists, sql } from "drizzle-orm";
+import { and, eq, inArray, notExists, sql } from "drizzle-orm";
 import { reportHandled } from "../observability/report";
 import { createIssue, type IssueRow, issueTitle, postOnThread } from "./issues";
 
@@ -161,7 +162,7 @@ export const ADOPT_MINUTE = 23;
 /** Hourly from the cron: each live client's change requests and open Feedback, adopted. */
 export async function adoptLegacy(db: Db, scheduledTime: Date): Promise<void> {
   if (scheduledTime.getUTCMinutes() !== ADOPT_MINUTE) return;
-  const clients = await db.select({ id: tenant.id }).from(tenant).where(isNull(tenant.retiredAt));
+  const clients = await db.select({ id: tenant.id }).from(tenant).where(activeClient());
   for (const c of clients) {
     try {
       await withOperator(db, [c.id], (tx) => adoptLegacyFor(tx, c.id));

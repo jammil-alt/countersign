@@ -35,6 +35,7 @@ import {
 } from "./http";
 // v0.12 W1-A: go-live stages and client controls
 import { lifecycleTick } from "./lifecycle/cron";
+import { lockedInboundMiddleware } from "./lockdown/inbound";
 import { mcpRoutes } from "./mcp/routes";
 // P-8: US texting registration
 import { a2pCronTick } from "./messaging/a2p";
@@ -277,6 +278,8 @@ export function createApp(deps: AppDeps = defaultDeps): Hono<AppEnv> {
     });
   });
   // Readiness reaches the database through the request's client, so it comes after requestState.
+  // §1.243: a provider's call for a locked client is answered as usual and counted, not refused.
+  lockedInboundMiddleware(app);
   readyRoutes(app);
   sessionRoutes(app);
   // §1.100

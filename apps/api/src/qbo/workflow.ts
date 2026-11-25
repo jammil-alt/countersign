@@ -9,6 +9,7 @@ import type { Bindings } from "../env";
 import { platformFor } from "../platform";
 import { credentialsFor } from "../runs/execute";
 import { workflowInstances } from "../runs/instances";
+import { stepUnlessLocked } from "../runs/step-runner";
 import { type QboSyncParams, qboSyncInstances } from "./instances";
 import { dispatchByIds } from "./sync";
 import { runQboSyncInstance } from "./sync-now";
@@ -40,8 +41,9 @@ export class QboSyncWorkflow extends WorkflowEntrypoint<Bindings, QboSyncParams>
         event.instanceId,
         {
           // Step results are plain JSON; the structural cast stands in for Rpc.Serializable.
+          // §1.243: a step its client's lockdown refused ends the instance, without retries.
           do: <T>(name: string, fn: () => Promise<T>) =>
-            step.do(name, PAGE_STEP, fn as never) as Promise<T>,
+            stepUnlessLocked<T>((body) => step.do(name, PAGE_STEP, body as never), fn),
         },
         (ids) => dispatchByIds({ db, instances }, event.payload.tenantId, ids),
       );

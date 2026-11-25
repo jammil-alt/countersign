@@ -1,6 +1,7 @@
 // Audit 4.4: a durable step's result over the limit (960 KiB) fails its step with a clear error,
 // before the engine's own 1 MiB limit, stored as a small marker so the step is neither retried nor run again
 // on a replay.
+import { ClientLockedError } from "@countersign/db";
 import { describe, expect, it } from "vitest";
 import { FakeWorkflowStep } from "../api.test-helper";
 import {
@@ -8,6 +9,7 @@ import {
   resultBytes,
   STEP_RESULT_MAX_BYTES,
   StepResultTooLargeError,
+  stepUnlessLocked,
 } from "./step-runner";
 
 const big = (bytes: number) => ({ text: "x".repeat(bytes) });
@@ -45,5 +47,50 @@ describe("the step runner's result limit", () => {
     await expect(runner.do("huge", async () => big(2 * 1024 * 1024))).rejects.toBeInstanceOf(
       StepResultTooLargeError,
     );
+  });
+});
+
+// Lockdown (docs/plan.md §1.243): a step refused because its client is locked ends the instance at
+// once, never retried and the same on a replay; every other error is the step's own.
+describe("a step whose client is locked", () => {
+  const locked = () => Object.assign(new Error("client_locked"), { cause: { code: "MZLCK" } });
+
+  it("stores a marker instead of failing the step, and throws ClientLockedError", async () => {
+    const step = new FakeWorkflowStep();
+    const runner = cloudflareStepRunner(step);
+    let runs = 0;
+    const work = async () => {
+      runs += 1;
+      throw locked();
+    };
+    await expect(runner.do("load", work)).rejects.toBeInstanceOf(ClientLockedError);
+    expect(step.results.get("load")).toEqual({ __clientLocked: true });
+    await expect(runner.do("load", work)).rejects.toBeInstanceOf(ClientLockedError);
+    expect(runs).toBe(1);
+  });
+
+  it("leaves any other error to the engine, so it is retried as configured", async () => {
+    const step = new FakeWorkflowStep();
+    await expect(
+      stepUnlessLocked(
+        (body) => step.do("other", body),
+        async () => {
+          throw new Error("network");
+        },
+      ),
+    ).rejects.toThrow("network");
+    expect(step.results.has("other")).toBe(false);
+  });
+
+  it("hands on a result as it came", async () => {
+    const step = new FakeWorkflowStep();
+    expect(
+      await stepUnlessLocked(
+        (body) => step.do("ok", body),
+        async () => ({ n: 1 }),
+      ),
+    ).toEqual({
+      n: 1,
+    });
   });
 });

@@ -14,6 +14,7 @@
 
 import { SUPERVISOR_SLUG } from "@countersign/core";
 import {
+  activeClient,
   agent,
   agentVersion,
   auditEvent,
@@ -26,7 +27,7 @@ import {
   withTenant,
 } from "@countersign/db";
 import { createLlmClient, type LlmCallRecord, type LlmTransport } from "@countersign/llm";
-import { and, asc, desc, eq, gte, isNotNull, isNull, lte, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, isNotNull, lte, sql } from "drizzle-orm";
 import { meterModelCalls } from "../metering";
 
 /** How long a conversation is quiet before it is summarized. */
@@ -343,9 +344,7 @@ export async function summaryPass(
   const deadline = clock() + (options.budgetMs ?? SUMMARY_BUDGET_MS);
   const clients =
     deps.clients ??
-    (await deps.db.select({ id: tenant.id }).from(tenant).where(isNull(tenant.retiredAt))).map(
-      (c) => c.id,
-    );
+    (await deps.db.select({ id: tenant.id }).from(tenant).where(activeClient())).map((c) => c.id);
   const n = clients.length;
   if (n === 0) return 0;
   // DECISION: the starting client turns with the minute, so a budget spent early never leaves

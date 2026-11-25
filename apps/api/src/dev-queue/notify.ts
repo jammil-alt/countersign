@@ -9,6 +9,7 @@
 
 import { dqNumber } from "@countersign/core";
 import {
+  activeClient,
   appUser,
   build,
   codeRequest,
@@ -19,7 +20,7 @@ import {
   tenant,
   withOperator,
 } from "@countersign/db";
-import { eq, inArray, isNull } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 import { addMessage } from "../build/store";
 import type { NotifyDeps } from "../notify/outbox";
 import { reportHandled } from "../observability/report";
@@ -36,7 +37,7 @@ export type Moment =
 // operator serves every client (add-operator), and a build waiting on a request may be any
 // client's. The words name no client.
 export async function asSystem<T>(db: Db, work: (tx: Tx) => Promise<T>): Promise<T> {
-  const clients = await db.select({ id: tenant.id }).from(tenant).where(isNull(tenant.retiredAt));
+  const clients = await db.select({ id: tenant.id }).from(tenant).where(activeClient());
   return withOperator(
     db,
     clients.map((c) => c.id),

@@ -12,6 +12,7 @@ import {
   processingRefusal,
 } from "@countersign/core";
 import {
+  activeClient,
   type Db,
   issue,
   issueEvent,
@@ -22,7 +23,7 @@ import {
   withOperator,
 } from "@countersign/db";
 import { leadDisplayName, leadOf } from "@countersign/threads";
-import { and, eq, gte, inArray, isNotNull, isNull, ne, sql } from "drizzle-orm";
+import { and, eq, gte, inArray, isNotNull, ne, sql } from "drizzle-orm";
 import type { Bindings } from "../env";
 import { meter } from "../metering";
 import type { Mailer } from "../notify/mailer";
@@ -130,7 +131,7 @@ export async function sendIssueEmails(
   covered: ReadonlySet<Processor> = new Set(),
 ): Promise<number> {
   if (!mailer.isConfigured || !domain?.trim()) return 0;
-  const clients = await db.select({ id: tenant.id }).from(tenant).where(isNull(tenant.retiredAt));
+  const clients = await db.select({ id: tenant.id }).from(tenant).where(activeClient());
   if (clients.length === 0) return 0;
   const since = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
   const pending = await withOperator(

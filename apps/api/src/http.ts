@@ -38,6 +38,7 @@ import {
   closeDb,
   createDb,
   type Db,
+  isClientLocked,
   membership,
   ScopeError,
   type Tx,
@@ -57,6 +58,7 @@ import { readTextLimited } from "./body";
 import type { BrowserDeps } from "./browser/services";
 import type { Bindings } from "./env";
 import type { ExportJobs } from "./exports/instances";
+import { noteLockedClients } from "./lockdown/inbound";
 import type { McpDeps } from "./mcp/routes";
 import { PHONE_ENDED_MESSAGE, phoneEndedForPerson } from "./mobile/phone-session";
 import { reportHandled } from "./observability/report";
@@ -245,7 +247,21 @@ export function requestState(deps: AppDeps) {
 
 export class HttpError extends Error {
   constructor(
-    readonly status: 400 | 401 | 403 | 404 | 409 | 413 | 415 | 422 | 429 | 500 | 501 | 502 | 503,
+    readonly status:
+      | 400
+      | 401
+      | 403
+      | 404
+      | 409
+      | 413
+      | 415
+      | 422
+      | 423
+      | 429
+      | 500
+      | 501
+      | 502
+      | 503,
     readonly code: string,
     message: string,
     readonly details?: unknown,
@@ -255,6 +271,11 @@ export class HttpError extends Error {
 }
 
 export const notFound = (what: string) => new HttpError(404, "not_found", `${what} not found`);
+
+/** Lockdown (§1.243): what every request for a locked client is answered. */
+export const CLIENT_LOCKED_MESSAGE =
+  "This account is locked while we look into a security concern. We'll be in touch.";
+export const clientLocked = () => new HttpError(423, "client_locked", CLIENT_LOCKED_MESSAGE);
 
 const AGENTS_STATUS: Record<AgentsError["code"], HttpError["status"]> = {
   not_found: 404,
@@ -315,6 +336,8 @@ export function toHttpError(error: unknown): HttpError {
       error.details,
     );
   }
+  // Lockdown (§1.243): the client, or everything, is locked. Not a fault, so never a 500.
+  if (isClientLocked(error)) return clientLocked();
   if (error instanceof ScopeError) return new HttpError(403, "forbidden", error.message);
   // HIPAA mode (§1.35): a call that would send a client's data to a vendor without a BAA.
   if (error instanceof ComplianceRefusal) return new HttpError(409, "hipaa", error.message);
@@ -339,6 +362,8 @@ function contractBroken(c: Context, spec: RouteSpec, error: z.ZodError) {
 
 export function errorResponse(c: Context, error: unknown, setCookies: readonly string[] = []) {
   const e = toHttpError(error);
+  // §1.243: which client a lockdown refusal named, for the inbound routes to count.
+  if (e.status === 423) noteLockedClients(c, error);
   if (e.status === 500) {
     console.error(error);
     // A no-op where Sentry is off (no SENTRY_DSN, the tests): src/observability/sentry.ts.

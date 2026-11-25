@@ -21,11 +21,13 @@ import {
 } from "./client";
 import { type ClientFixture, insertClient } from "./fixtures.test-helper";
 import {
+  activeClient,
   countLockedInbound,
   LockError,
   lockClient,
   lockEverything,
   lockState,
+  notLocked,
   unlockClient,
   unlockEverything,
 } from "./lockdown";
@@ -371,6 +373,27 @@ describe.skipIf(!online)("lockdown, as cs_worker", () => {
         await withOperator(t.db, [B.tenantId], async (tx) => admitTenant(tx, A.tenantId)),
       ).toBe(false);
     });
+  });
+
+  it("gives sweeps the clients neither retired nor locked, and none while everything is locked", async () => {
+    const swept = async (where: () => ReturnType<typeof activeClient>) =>
+      (await t.db.select({ id: tenant.id }).from(tenant).where(where()))
+        .map((r) => r.id)
+        .filter((id) => id === A.tenantId || id === B.tenantId)
+        .sort();
+    expect(await swept(activeClient)).toEqual(both());
+    await lock(A);
+    expect(await swept(activeClient)).toEqual([B.tenantId]);
+    expect(await swept(notLocked)).toEqual([B.tenantId]);
+    await t.db.$client`update tenant set retired_at = now() where id = ${B.tenantId}`;
+    try {
+      expect(await swept(activeClient)).toEqual([]);
+      expect(await swept(notLocked)).toEqual([B.tenantId]);
+    } finally {
+      await t.db.$client`update tenant set retired_at = null where id = ${B.tenantId}`;
+    }
+    await lockAll();
+    expect(await swept(notLocked)).toEqual([]);
   });
 
   it("recognises the refusal however it is wrapped", () => {

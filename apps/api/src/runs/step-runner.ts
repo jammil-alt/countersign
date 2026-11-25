@@ -5,6 +5,7 @@
 // call to a method named `bind` (Plenary Labs found this the hard way). Every call below goes
 // through a closure over `step`.
 
+import { ClientLockedError, isClientLocked } from "@countersign/db";
 import {
   type StepConfig,
   type StepRunner,
@@ -14,7 +15,7 @@ import {
 
 /** The parts of Cloudflare's WorkflowStep used here, loosely typed so a fake can stand in. */
 // v0.14 W4-B: Cloudflare hands the callback its step context, whose `attempt` counts tries from 1.
-type StepCallback = (ctx?: { attempt?: number }) => Promise<unknown>;
+export type StepCallback = (ctx?: { attempt?: number }) => Promise<unknown>;
 
 export interface WorkflowStepLike {
   do(name: string, callback: StepCallback): Promise<unknown>;
@@ -98,6 +99,35 @@ function tooLarge(value: unknown): number | null {
   return typeof bytes === "number" ? bytes : null;
 }
 
+/** What the engine stores in place of a step its client's lockdown refused (§1.243). */
+const LOCKED = "__clientLocked";
+
+/**
+ * Lockdown (docs/plan.md §1.243): runs one durable step so that a step refused because its client
+ * is locked is not tried again. The refusal is stored as a small marker (the engine then neither
+ * retries nor waits out the backoff) and thrown here as ClientLockedError, the same on a replay,
+ * so the instance ends at once. Every other error is the step's own, retried as configured.
+ */
+// DECISION: a marker, as for a result over the limit (audit 4.4), not the engine's
+// NonRetryableError: the same code runs in Node tests, which have no `cloudflare:workflows`.
+export async function stepUnlessLocked<T>(
+  doStep: (body: StepCallback) => Promise<unknown>,
+  body: StepCallback,
+): Promise<T> {
+  const result = await doStep(async (ctx) => {
+    try {
+      return await body(ctx);
+    } catch (error) {
+      if (isClientLocked(error)) return { [LOCKED]: true };
+      throw error;
+    }
+  });
+  if (result !== null && typeof result === "object" && LOCKED in result) {
+    throw new ClientLockedError([]);
+  }
+  return result as T;
+}
+
 export function cloudflareStepRunner(step: WorkflowStepLike): StepRunner {
   return {
     async do<T>(
@@ -113,7 +143,10 @@ export function cloudflareStepRunner(step: WorkflowStepLike): StepRunner {
         const bytes = resultBytes(out);
         return bytes > STEP_RESULT_MAX_BYTES ? { [TOO_LARGE]: bytes } : out;
       };
-      const result = config ? await step.do(name, toConfig(config), run) : await step.do(name, run);
+      const result = await stepUnlessLocked(
+        (body) => (config ? step.do(name, toConfig(config), body) : step.do(name, body)),
+        run,
+      );
       const over = tooLarge(result);
       if (over !== null) throw new StepResultTooLargeError(name, over);
       return result as T;

@@ -6,6 +6,7 @@ import { WorkflowEntrypoint, type WorkflowEvent, type WorkflowStep } from "cloud
 import { R2ObjectStore } from "@countersign/connectors";
 import { createDb } from "@countersign/db";
 import type { Bindings } from "../env";
+import { stepUnlessLocked } from "../runs/step-runner";
 import { type ExportParams, runClientExport } from "./client-data";
 import type { ExportStorage } from "./store";
 
@@ -47,8 +48,12 @@ export class ExportWorkflow extends WorkflowEntrypoint<Bindings, ExportParams> {
         event.payload,
         {
           // Step results are plain JSON; the structural cast stands in for Rpc.Serializable.
+          // §1.243: a step its client's lockdown refused ends the instance, without retries.
           do: <T>(name: string, fn: () => Promise<T>) =>
-            step.do(name, name === "zip" ? ZIP_STEP : PAGE_STEP, fn as never) as Promise<T>,
+            stepUnlessLocked<T>(
+              (body) => step.do(name, name === "zip" ? ZIP_STEP : PAGE_STEP, body as never),
+              fn,
+            ),
         },
       );
     } finally {
