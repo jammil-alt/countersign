@@ -5,9 +5,17 @@
 // to a person, so a miss here costs a review, never a wrong match.
 
 import { readdirSync, readFileSync } from "node:fs";
-import { type MatchConfig, matchItems, type PairScorer } from "@countersign/core";
+import {
+  type MatchConfig,
+  matchItems,
+  matchWithProfile,
+  type PairScorer,
+  type ProfileStore,
+  steps,
+} from "@countersign/core";
 import { describe, expect, it } from "vitest";
 import { parseLine, scorePair } from "./keys";
+import { attributesHit, MASTER_ITEMS_PROFILE, masterNeverSame } from "./profile";
 import { MATCH_CONFIDENCE_AUTO } from "./settings";
 
 interface Pair {
@@ -113,6 +121,49 @@ describe("matching golden set", () => {
       if (engine && p.label === "same") tp += 1;
       else if (engine) fp += 1;
     }
+    expect(tp / (tp + fp)).toBeGreaterThanOrEqual(0.95);
+  });
+
+  // Step model §7 (stream D): the same pairs on the Match engine with the Master items profile:
+  // one master item (side b), the line (side a) matched by its key attributes (the profile's exact
+  // key), the never-the-same rule vetoing. Exact only: no model answers here (LLM_MODE=replay has
+  // no recorded answers for these), so a pair the rules leave goes to a person, never matched.
+  it("runs on the Match engine's Master items profile at 95% precision", async () => {
+    const settings = steps.MatchSettings.parse({
+      to: "master-items",
+      type: "exact",
+      keys: ["attributes"],
+    });
+    let tp = 0;
+    let fp = 0;
+    let fn = 0;
+    for (const p of all) {
+      const b = parseLine(p.b);
+      const record = { id: "b", label: p.b };
+      const store: ProfileStore = {
+        get: async () => record,
+        byKey: async (_key, item) => {
+          const a = parseLine(String(item.description));
+          return attributesHit(a, [b]).map(() => record);
+        },
+        neverSame: (item) => masterNeverSame(parseLine(String(item.description)), b),
+      };
+      const out = await matchWithProfile({
+        profile: MASTER_ITEMS_PROFILE,
+        settings,
+        store,
+        items: [{ description: p.a }],
+      });
+      const matched = out.output.items[0]?.matched === "b";
+      const direct = scorePair(parseLine(p.a), parseLine(p.b)).confidence >= MATCH_CONFIDENCE_AUTO;
+      expect(matched, `${p.a} | ${p.b}`).toBe(direct);
+      if (matched && p.label === "same") tp += 1;
+      else if (matched) fp += 1;
+      else if (p.label === "same") fn += 1;
+    }
+    console.info(
+      `golden on the Match engine (Master items, exact): ${all.length} pairs; precision ${((tp / (tp + fp)) * 100).toFixed(1)}%, recall ${((tp / (tp + fn)) * 100).toFixed(1)}% (${tp} matched, ${fp} wrong, ${fn} to a person)`,
+    );
     expect(tp / (tp + fp)).toBeGreaterThanOrEqual(0.95);
   });
 });

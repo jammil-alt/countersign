@@ -10,6 +10,7 @@ import {
   type Step,
   type StepKind,
   scheduleText,
+  steps as stepModel,
   type Trigger,
   type Workflow,
 } from "@countersign/core";
@@ -471,10 +472,12 @@ export function workflowStats(bundle: Pick<AnyAgentBundle, "workflows">): {
   let steps = 0;
   let forks = 0;
   for (const w of bundle.workflows) {
-    const kinds =
-      w.workflow.schemaVersion === 4
-        ? processes.allSteps(w.workflow).map((l) => l.step.kind as string)
-        : allSteps(w.workflow).map((l) => l.step.kind as string);
+    const kinds: string[] = [];
+    if (w.workflow.schemaVersion === 5) {
+      stepModel.eachStep(w.workflow.steps, ({ step }) => kinds.push(step.kind));
+    } else if (w.workflow.schemaVersion === 4) {
+      kinds.push(...processes.allSteps(w.workflow).map((l) => l.step.kind as string));
+    } else kinds.push(...allSteps(w.workflow).map((l) => l.step.kind as string));
     for (const kind of kinds) {
       steps += 1;
       if (kind === "fork" || kind === "if") forks += 1;

@@ -33,6 +33,13 @@ export {
   type CategorySpec,
   detectCategory,
 } from "./catalog/parsers";
+export {
+  attributesHit,
+  MASTER_ITEMS_MATCHER,
+  MASTER_ITEMS_PROFILE,
+  masterItemsStore,
+  masterNeverSame,
+} from "./catalog/profile";
 export * from "./catalog/split";
 export { lookupDocument, recordMatches } from "./catalog/split-store";
 // §1.104: vendor contracts and invoices without an accounting tool.
@@ -74,6 +81,7 @@ export {
   specsText,
   stripTerms,
 } from "./vendor/embedding-text";
+export { MATERIALS_MATCHERS, MATERIALS_RETIRED_TOOLS } from "./vendor/matchers";
 export * from "./vendor/patterns";
 export {
   type LoadedDocument,
@@ -87,6 +95,7 @@ export {
   VendorMatchError,
   vendorItemText,
 } from "./vendor/pipeline";
+export * from "./vendor/profiles";
 export {
   MASTER_ITEM_MANAGER,
   SEMANTIC_MATCH_VENDOR,

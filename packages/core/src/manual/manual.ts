@@ -178,6 +178,9 @@ export function howItWorks(bundle: ManualWorkflows): HowLine[] {
   const out: HowLine[] = [];
   for (const w of bundle.workflows) {
     if (w.enabled === false) continue;
+    // DECISION (step model, wave 1): a v5 workflow's lines come with its own words (build item 2),
+    // not from the v3 reading below; until then it is left out.
+    if (w.workflow.schemaVersion === 5) continue;
     if (w.workflow.schemaVersion === 4) {
       walkSteps({ steps: w.workflow.steps as ProcessStep[] }, ({ step, depth }) => {
         out.push({
@@ -233,6 +236,9 @@ export function decisionPointsOf(
   const covered = new Set<string>();
   for (const w of bundle.workflows) {
     if (w.enabled === false) continue;
+    // DECISION (step model, wave 1): a v5 workflow's lines come with its own words (build item 2),
+    // not from the v3 reading below; until then it is left out.
+    if (w.workflow.schemaVersion === 5) continue;
     if (w.workflow.schemaVersion === 4) {
       walkSteps({ steps: w.workflow.steps as ProcessStep[] }, ({ step }) => {
         if (step.kind === "person") {

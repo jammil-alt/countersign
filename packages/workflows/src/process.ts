@@ -13,12 +13,13 @@ import {
   type PersonStep,
   processes,
   type SkillStep,
+  type steps,
   type Step as V3Step,
   type Workflow,
 } from "@countersign/core";
 
-/** What the executor runs: a stored v3 workflow or a v4 process. */
-export type AnyWorkflow = Workflow | processes.Process;
+/** What the executor runs: a stored v3 workflow, a v4 process or a v5 workflow (the step model). */
+export type AnyWorkflow = Workflow | processes.Process | steps.Workflow;
 
 /**
  * A lookup that knows nothing: tool-wrapper skills stay skill steps. Converted steps run through
@@ -96,6 +97,9 @@ export function loadProcess(
   lookup: processes.ConvertLookup = NO_LOOKUP,
 ): LoadedProcess {
   const origins: Origins = new WeakMap();
+  if (workflow.schemaVersion === 5) {
+    throw new ProcessLoadError("a workflow in the step model (v5) can't run yet");
+  }
   if (workflow.schemaVersion === 4) {
     const parsed = processes.Process.safeParse(workflow);
     if (!parsed.success) {

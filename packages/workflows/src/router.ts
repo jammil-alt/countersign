@@ -843,7 +843,7 @@ export function handTrigger(workflow: AnyBundleWorkflow["workflow"]): Trigger {
 
 /** The workflow's first trigger (a process has at least one). */
 function firstTrigger(workflow: AnyBundleWorkflow["workflow"]): Trigger {
-  const first = workflow.schemaVersion === 4 ? workflow.triggers[0] : workflow.trigger;
+  const first = workflow.schemaVersion === 3 ? workflow.trigger : workflow.triggers[0];
   if (!first) throw new Error("a process needs a trigger");
   return first;
 }

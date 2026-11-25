@@ -61,6 +61,7 @@ import {
   runOwnerOf,
   type StoredStepLike,
   shortRunId,
+  steps,
 } from "@countersign/core";
 import {
   agent,
@@ -371,9 +372,11 @@ async function automationsOf(
 ): Promise<Record<string, AnyAutomationDefinition>> {
   const out: Record<string, AnyAutomationDefinition> = {};
   const refs =
-    workflow.schemaVersion === 4
-      ? processes.subProcessRefs([workflow])
-      : automationRefs([workflow]);
+    workflow.schemaVersion === 5
+      ? stepModelAutomationRefs(workflow)
+      : workflow.schemaVersion === 4
+        ? processes.subProcessRefs([workflow])
+        : automationRefs([workflow]);
   for (const ref of refs) {
     const found = await resolveAutomation(tx, { tenantId, ref });
     if (found) out[ref] = found.definition;
@@ -669,7 +672,7 @@ export async function executeRun(
               type: RUN_SUCCEEDED_EVENT,
               subjectType: "run",
               subjectId: info.id,
-              payload: await runSucceededPayload(tx, params, loaded.workflow),
+              payload: await runSucceededPayload(tx, params, loaded.workflow, result.passedOn),
             },
             { registry: deps.platform.events },
           );
@@ -883,6 +886,8 @@ async function runSucceededPayload(
   tx: Tx,
   params: RunParams,
   workflow: StoredWorkflow,
+  // The step model: what the End that ended the run passed on (`RunResult.passedOn`).
+  passedOn?: { output: unknown; sources: string[] },
 ): Promise<RunSucceededPayload> {
   const [a] = await tx
     .select({ slug: agent.slug })
@@ -892,7 +897,20 @@ async function runSucceededPayload(
   let output: unknown = null;
   let outputTooLarge = false;
   let sources: string[] = [];
-  const handoff = workflow.handoff;
+  if (workflow.schemaVersion === 5 && passedOn) {
+    // DECISION (step model): the same limits as a v4 hand-off output: at most 16 KB (else left
+    // out, flagged) and only record ids among the sources, at most `HANDOFF_SOURCES_MAX`.
+    output = passedOn.output ?? null;
+    if (
+      new TextEncoder().encode(JSON.stringify(output) ?? "null").length > HANDOFF_OUTPUT_MAX_BYTES
+    ) {
+      output = null;
+      outputTooLarge = true;
+    }
+    sources = passedOn.sources.filter((s) => isUuid(s)).slice(0, HANDOFF_SOURCES_MAX);
+  }
+  // The step model: a v5 workflow passes on what its End delivers (a `pass_on` output).
+  const handoff = workflow.schemaVersion === 5 ? undefined : workflow.handoff;
   if (handoff) {
     const ids = workflow.steps.map((s) => s.id);
     const rows =
@@ -1006,4 +1024,13 @@ async function resumeOf(
     if (found) reused[step.id] = found;
   }
   return { from: params.resumeFrom, of: shortRunId(params.retryOf), reused };
+}
+
+/** The step model: the automations a v5 workflow's Do steps use, by their pinned refs. */
+function stepModelAutomationRefs(workflow: steps.Workflow): string[] {
+  const out: string[] = [];
+  steps.eachStep(workflow.steps, ({ step }) => {
+    if (step.kind === "do" && step.uses?.type === "automation") out.push(step.uses.automation);
+  });
+  return [...new Set(out)];
 }

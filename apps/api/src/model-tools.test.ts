@@ -40,7 +40,15 @@ const INVENTORY: Record<string, readonly string[]> = {
     "materials.master_items.candidates",
     "materials.embeddings.write",
     "materials.vendor_item.upsert",
+    // Step model §10d: Register lines embeds the master items it makes (never vendor items).
+    "materials.vendor_items.register",
   ],
+  // Step model §7: the Match engine's profiles embed an item to shortlist by meaning. They are no
+  // tools (the executor's Match step reaches them through `matchPort()`, with the step's model
+  // transport, held to the client's compliance by `guardModels`), so they name none here. A
+  // refused or failed embedding fails no match: the names still give a shortlist.
+  "packs/materials/src/catalog/profile.ts": [],
+  "packs/sales/src/match/profile.ts": [],
   // §1.164: the Sales area's match (embeddings of rows and records, the model's choice among
   // candidates) and the record keys' refresh (their embeddings).
   "packs/sales/src/match/match.ts": ["sales.match_records"],

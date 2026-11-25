@@ -52,6 +52,7 @@ import {
   shortRunId,
   singleRef,
   stepStateLabel,
+  steps,
   TIMELINE_WORDS,
   type TimelineWords,
   type Step as V3Step,
@@ -88,6 +89,7 @@ import {
   type HoursPort,
   type InboxPort,
   InboxResolution,
+  type MatchPort,
   NeedsHelp,
   type NotifyPort,
   // v0.13 W2-I
@@ -119,6 +121,18 @@ import {
   workView,
 } from "./process";
 import { inboxEventType, isWaitTimeout, type StepConfig, type StepRunner } from "./runner";
+// The step model (docs/step-model-plan.md): a v5 workflow's steps on today's engines.
+import {
+  catalogKindOf,
+  loadStepModel,
+  loopRequest,
+  MATCH_SKILL,
+  STEP_MODEL_WRITE_ACTIONS,
+  type StepLoop,
+  type StepModelRun,
+  unrunTranslation,
+  writtenInStep,
+} from "./step-model";
 
 export interface ExecutorContext {
   run: RunInfo;
@@ -180,6 +194,9 @@ export interface ExecutorContext {
   start?: { at: string; input: unknown };
   /** A test of some of the steps: see `RunRange`. */
   range?: RunRange;
+  // The step model (docs/step-model-plan.md §7)
+  /** Match steps (stream D's engine); absent: a Match step fails, nothing matched or saved. */
+  match?: MatchPort;
 }
 
 /**
@@ -236,6 +253,12 @@ export interface RunResult {
   // v0.13 W2-I
   /** A failure the run's agent reviewed: its last decision's note (operator side only). */
   diagnosis?: string;
+  // The step model (docs/step-model-plan.md §9)
+  /**
+   * What the End that ended the run passed on (its `pass_on` output), evaluated over the run: what
+   * other agents' hand-off triggers receive (`run.succeeded`). Absent: nothing passed on.
+   */
+  passedOn?: { output: unknown; sources: string[] };
 }
 
 // v0.13 W2-I: run oversight (ARCHITECTURE §10.11; docs/plan.md §1.54). R6: the owner, whose
@@ -301,6 +324,8 @@ interface WorkOptions {
   customize?: processes.SkillCustomization;
   /** Reshape data (2026-11-11): a Reshape step's mapping, for the runtime to run. */
   reshape?: processes.ReshapeMapping;
+  /** The step model: a Loop's goal, reads and limits, for the runtime's loop (§8). */
+  loop?: StepLoop;
   /** The step's row kind when not its port view's: a native `read` or `write`. */
   nodeType?: "read" | "write";
   // R6
@@ -569,8 +594,14 @@ export async function executeWorkflow(
 ): Promise<RunResult> {
   // R3: v4 only. Pure over immutable versions, so a replay or a retry reads the same steps.
   let loaded: LoadedProcess;
+  let stepModel: StepModelRun | undefined;
   try {
-    loaded = loadProcess(workflow, ctx.lookup ?? NO_LOOKUP);
+    if (workflow.schemaVersion === 5) {
+      // The step model: each step on the engine its kind, done by and uses pick (`./step-model`).
+      const v5 = loadStepModel(workflow, catalogKindOf(ctx.catalog?.tools));
+      stepModel = v5.stepModel;
+      loaded = v5;
+    } else loaded = loadProcess(workflow, ctx.lookup ?? NO_LOOKUP);
     // Setup-plan §4.1: a v4 process's seats become the people in them before anything runs, so
     // the engine and the ports see plain user ids. Pure over the run's snapshot, so a replay reads
     // the same people. A converted v3 workflow names no seat.
@@ -629,7 +660,7 @@ export async function executeWorkflow(
     const reason = `the step "${ctx.start.at}" this hand-off starts at isn't in this version`;
     return { status: "failed", reason, errorKey: runErrorKey({ tool: null, kind: "run" }, reason) };
   }
-  const ex = new Executor(runner, ctx, expansions, loaded.origins, overrides);
+  const ex = new Executor(runner, ctx, expansions, loaded.origins, overrides, stepModel);
   // DECISION (wave 5): outcomes are recorded for native v4 processes only; a converted v3 workflow's
   // scope stays `{ output }` (its conditions can't name an outcome, and nothing it reads changes).
   ex.records = loaded.v3 === null;
@@ -642,9 +673,13 @@ export async function executeWorkflow(
       scope: { trigger, steps: {} },
       top: true,
     });
-    return { status: "succeeded" };
+    return { status: "succeeded", ...(ex.passedOn ? { passedOn: ex.passedOn } : {}) };
   } catch (error) {
-    if (error instanceof RunEnd) return error.result;
+    if (error instanceof RunEnd) {
+      return ex.passedOn && error.result.status === "succeeded"
+        ? { ...error.result, passedOn: ex.passedOn }
+        : error.result;
+    }
     throw error;
   }
 }
@@ -718,7 +753,17 @@ class Executor {
     readonly origins: Origins = new WeakMap(),
     /** Approval checks a v4 process step set on its automation's (converted) steps. */
     readonly overrides: WeakSet<object> = new WeakSet(),
+    // The step model (docs/step-model-plan.md): a v5 workflow's steps beside their engines'.
+    readonly stepModel?: StepModelRun,
   ) {}
+
+  /** The step model: what the End that ended the run passed on (`RunResult.passedOn`). */
+  passedOn: { output: unknown; sources: string[] } | undefined;
+
+  /** The step model: the v5 step an engine step runs, if the run is a v5 workflow's. */
+  source(step: processes.Step): steps.Step | undefined {
+    return this.stepModel?.sources.get(step);
+  }
 
   // v0.13 W2-I
   /** Oversight decisions taken in this run so far (each counts toward `maxPerRun`). */
@@ -927,6 +972,24 @@ class Executor {
   async runStep(step: processes.Step, frame: Frame): Promise<void> {
     const name = `${frame.prefix}${step.id}`;
     try {
+      // The step model: what runs beside the engines (docs/step-model-plan.md §7, §9).
+      const v5 = this.source(step);
+      if (v5) {
+        if (v5.kind === "end" && step.kind === "stop") return await this.end(v5, step, name, frame);
+        if (v5.kind === "do" && v5.uses?.type === "match") {
+          return await this.match(v5, v5.uses.match, step, name, frame);
+        }
+        if (writtenInStep(v5)) {
+          throw new Error(
+            `the step "${v5.name}" is written in the step, which can't run yet: pick a skill for it`,
+          );
+        }
+        if (unrunTranslation(v5)) {
+          throw new Error(
+            `the step "${v5.name}" translates what comes in, which can't run yet: map its input instead`,
+          );
+        }
+      }
       switch (step.kind) {
         case "read":
         case "skill":
@@ -1341,7 +1404,27 @@ class Executor {
           : undefined,
       );
     }
+    // The step model: a merged action that isn't one of today's write actions resolves to its tool
+    // for this run's agent first (durably), then runs as a step calling that tool, through the gate.
+    if (
+      (step.kind === "read" || step.kind === "write") &&
+      step.tool !== undefined &&
+      this.stepModel?.merged.has(step)
+    ) {
+      const resolved = await this.resolveMerged(name, step.tool);
+      const concrete = { ...step, tool: resolved.tool } as WorkStep;
+      return this.workStep(
+        concrete,
+        name,
+        frame,
+        mapInput,
+        resolved.connectionId
+          ? { connector: resolved.connector, connectionId: resolved.connectionId }
+          : binding,
+      );
+    }
     const origin = this.origin(step);
+    const source = this.source(step);
     const checks = step.checks;
     const check = checks?.approval;
     // A read, or a skill the catalog knows writes nothing and contacts nobody: its output exists
@@ -1428,6 +1511,10 @@ class Executor {
       ...(plan ? { plan } : {}),
       ...(step.kind === "skill" && step.customize ? { customize: step.customize } : {}),
       ...(step.kind === "skill" && step.reshape ? { reshape: step.reshape } : {}),
+      // The step model: a Loop's reads (Get actions only) and limits, for the runtime's loop.
+      ...(source?.kind === "loop"
+        ? { loop: loopRequest(source, (a) => this.actionKind(a) === "get") }
+        : {}),
       // A converted step's row keeps its stored kind; a native read or write is named as such.
       ...(!origin && step.kind !== "skill" ? { nodeType: step.kind } : {}),
       // R6: the owner watches the native step itself (a converted step as its stored v3 step).
@@ -1593,6 +1680,32 @@ class Executor {
       throw new Error(`refused: ${label} doesn't run with ${r.tool}`);
     }
     return r;
+  }
+
+  /**
+   * The step model: the tool a merged action (`spreadsheet.rows.append`) runs on for this run's
+   * agent (`AgentPort.resolveMerged`), resolved once in a durable step (`<name>:action`), as an
+   * action write step's is. One that doesn't resolve fails the step before anything is proposed.
+   */
+  async resolveMerged(
+    name: string,
+    action: string,
+  ): Promise<Exclude<ResolvedAction, { refused: string }>> {
+    const port = this.ctx.agent.resolveMerged;
+    if (!port) throw new Error(`refused: ${action} can't run here: nothing resolves it to a tool`);
+    const r = await this.runner.do(`${name}:action`, () =>
+      port.call(this.ctx.agent, { run: this.ctx.run, nodeId: name, action }),
+    );
+    if ("refused" in r) throw new Error(`refused: ${r.refused}`);
+    if (!Object.values(steps.mergedAction(action)?.tools ?? {}).includes(r.tool)) {
+      throw new Error(`refused: ${action} doesn't run with ${r.tool}`);
+    }
+    return r;
+  }
+
+  /** The step model: an action's kind, from the catalog's tools (absent: unknown). */
+  actionKind(action: string): steps.ActionKind | undefined {
+    return catalogKindOf(this.ctx.catalog?.tools)(action);
   }
 
   /**
@@ -1866,6 +1979,8 @@ class Executor {
                   ...(opts.customize ? { customize: opts.customize } : {}),
                   // Reshape data (2026-11-11): the step's mapping, which the runtime runs.
                   ...(opts.reshape ? { reshape: opts.reshape } : {}),
+                  // The step model: a Loop, reads only (§8).
+                  ...(opts.loop ? { loop: opts.loop } : {}),
                 })
               : await agent.runAction({
                   ...request,
@@ -4659,6 +4774,202 @@ class Executor {
     return result();
   }
 
+  // ── The step model: Match, End and the workflow's outputs (docs/step-model-plan.md §7, §9) ─────
+
+  /**
+   * A Match step (§7): its input matched on its profile through stream D's port, in one durable
+   * step with its row (a skill row, as `steps.ENGINE_OUTCOMES.match` says), its outcome `done`, or
+   * `failed` with `onError: continue`. Its Tell after checks are sent as any step's.
+   */
+  // DECISION (wave 1): no confer or owner review on a Match yet: its second opinion is the
+  // profile's own (`secondOpinion`), which the engine asks per line; a step's Confer and Review
+  // on it come with stream D's engine.
+  async match(
+    v5: steps.DoStep,
+    settings: steps.MatchSettings,
+    step: processes.Step,
+    name: string,
+    frame: Frame,
+  ): Promise<void> {
+    const port = this.ctx.match;
+    if (!port) throw new Error(`refused: "${v5.name}" matches records, which can't run here yet`);
+    const { run, log } = this.ctx;
+    const input = this.inputOf(v5, frame);
+    const ended = await this.runner.do(name, async () => {
+      const id = await log.start({
+        runId: run.id,
+        nodeId: name,
+        nodeType: "skill",
+        skillRef: MATCH_SKILL,
+        input,
+      });
+      const r = await port.match({ run, nodeId: name, stepRunId: id, match: settings, input });
+      if (r.kind === "done") {
+        await log.update(id, {
+          status: "succeeded",
+          output: r.output,
+          summary:
+            r.summary ??
+            `${clientLabel(asLabelled(step))}: ${r.output.matched} of ${r.output.items.length} matched`,
+        });
+      } else {
+        await log.update(id, {
+          status: "failed",
+          error: r.error,
+          summary: `${stepStateLabel(asLabelled(step), false)}: ${this.words.failed}`,
+        });
+      }
+      return r;
+    });
+    if (ended.kind === "failed") {
+      if (this.continues(step)) {
+        this.record(frame, step, null, {
+          outcome: "failed",
+          error: processes.plainError(ended.error),
+        });
+        return;
+      }
+      throw new RunEnd({
+        status: "failed",
+        reason: ended.error,
+        nodeId: name,
+        errorKey: this.errorKeyOf(step, ended.error),
+      });
+    }
+    if (v5.checks?.notify?.length) {
+      const scope = checkScope(frame.scope, { id: step.id, output: ended.output }, undefined);
+      for (const [i, n] of v5.checks.notify.entries()) {
+        await this.notice(n, `${name}:notify:${i}`, scope, clientLabel(asLabelled(step)));
+      }
+    }
+    this.record(frame, step, ended.output, { outcome: "done" });
+  }
+
+  /**
+   * An End (§9): each declared output it selects is delivered, in order, then it ends the run as
+   * a Stop does, with its status (a failed End ends the run failed, as today's Stop).
+   */
+  async end(
+    v5: steps.EndStep,
+    step: processes.StopStep,
+    name: string,
+    frame: Frame,
+  ): Promise<void> {
+    for (const id of v5.outputs) {
+      const output = this.stepModel?.outputs.get(id);
+      if (!output) {
+        throw new Error(`"${v5.name}" delivers "${id}", which isn't one of the workflow's outputs`);
+      }
+      await this.deliver(output, name, frame);
+    }
+    return this.stop(step, name);
+  }
+
+  /**
+   * One workflow output, delivered by the End `endName` through the path today's steps take: a
+   * report as a notice, a write or a save as a write step through the gate (a write's approval on
+   * by default, invariant 8), a hand off as a hand-off step, `pass_on` as what the run passes on.
+   * Its durable name is `${endName}:out:${outputId}`; its record (`steps.<outputId>`) has its
+   * outcome. An output with `when` is delivered only when its rules hold (else `skipped`).
+   */
+  async deliver(o: steps.WorkflowOutput, endName: string, frame: Frame): Promise<void> {
+    const out: Frame = { ...frame, prefix: `${endName}:out:`, top: false };
+    const name = `${out.prefix}${o.id}`;
+    const as = { id: o.id, name: o.name } as processes.Step;
+    if (o.when) {
+      const when = o.when;
+      const applies = await this.runner.do(`${name}:when`, async () =>
+        evaluateRules(when, checkScope(frame.scope, undefined, undefined)),
+      );
+      if (!applies) {
+        this.record(frame, as, null, { outcome: "skipped" });
+        return;
+      }
+    }
+    const base = { id: o.id, name: o.name, ...(o.checks ? { checks: o.checks } : {}) };
+    switch (o.kind) {
+      case "report": {
+        const r = o.report;
+        if (!r) throw new Error(`the report "${o.name}" says nothing`);
+        const notify = {
+          to: r.to,
+          channel: r.channel,
+          message: r.message,
+          ...(r.sources ? { sources: r.sources } : {}),
+        };
+        return this.runStep({ ...base, kind: "notify", notify } as processes.Step, out);
+      }
+      case "write":
+      case "save": {
+        const a = o.action;
+        if (!a) throw new Error(`"${o.name}" names no action`);
+        const kind = this.actionKind(a.action) ?? "change";
+        if (kind === "get") {
+          return this.runStep({ ...base, kind: "read", tool: a.action, input: a.input }, out);
+        }
+        // Invariant 8: a write to a client's tool asks for approval unless the operator set it off.
+        const checks =
+          kind !== "save" && !o.checks?.approval
+            ? { ...(o.checks ?? {}), approval: processes.ApprovalCheck.parse({}) }
+            : o.checks;
+        const action = STEP_MODEL_WRITE_ACTIONS[a.action];
+        const write = (
+          action
+            ? { ...base, kind: "write", action, input: a.input }
+            : { ...base, kind: "write", tool: a.action, input: a.input }
+        ) as processes.Step;
+        if (checks) write.checks = checks;
+        if (!action && steps.mergedAction(a.action)) this.stepModel?.merged.add(write);
+        return this.runStep(write, out);
+      }
+      case "handoff": {
+        const h = o.handoff;
+        if (!h) throw new Error(`"${o.name}" hands off to nobody`);
+        const to = {
+          agent: h.agent,
+          step: h.step,
+          ...(h.workflow ? { workflow: h.workflow } : {}),
+        };
+        return this.runStep({ ...base, kind: "handoff", to, input: h.input }, out);
+      }
+      case "pass_on": {
+        const p = o.passOn;
+        if (!p) throw new Error(`"${o.name}" passes nothing on`);
+        const { run, log } = this.ctx;
+        const got = await this.runner.do(name, async () => {
+          const id = await log.start({ runId: run.id, nodeId: name, nodeType: "stop" });
+          let output: unknown = null;
+          let raw: unknown = [];
+          try {
+            output = resolveTemplate(p.output, frame.scope) ?? null;
+            raw = p.sources === undefined ? [] : resolveTemplate(p.sources, frame.scope);
+          } catch {
+            // What can't be read passes on as nothing, as a v4 process's hand-off output does.
+          }
+          const sources = [
+            ...new Set(
+              (Array.isArray(raw) ? raw : [raw])
+                .flat(2)
+                .filter((s): s is string => typeof s === "string" && s.length > 0),
+            ),
+          ];
+          await log.update(id, {
+            status: "succeeded",
+            output: { output, sources },
+            summary: `${o.name}: ${this.words.done}`,
+          });
+          return { output, sources };
+        });
+        this.passedOn = got;
+        this.record(frame, as, got.output, { outcome: "done" });
+        return;
+      }
+      case "nothing":
+        this.record(frame, as, null, { outcome: "done" });
+        return;
+    }
+  }
+
   async stop(step: processes.StopStep, name: string): Promise<void> {
     const { run, log } = this.ctx;
     await this.runner.do(name, async () => {
@@ -4786,7 +5097,11 @@ function needsHelpOf(output: unknown, native: boolean): NeedsHelp | null {
  * any). R3: v3 workflows and v4 processes alike.
  */
 export function resumePoint(
-  workflow: Pick<Workflow, "steps"> | Pick<processes.Process, "steps">,
+  // The step model: a v5 Fork, For each and Repeat hold their steps as v4's do.
+  workflow:
+    | Pick<Workflow, "steps">
+    | Pick<processes.Process, "steps">
+    | Pick<steps.Workflow, "steps">,
   nodeId: string | null,
 ): string | null {
   if (!nodeId) return null;
