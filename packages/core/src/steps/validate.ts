@@ -2,6 +2,7 @@
 // publish"), each as a plain message on the step it is about. Pure: the builder shows these as
 // they arise, and publishing refuses a workflow that has any.
 
+import { type MatchProfile, matchSettingsProblems } from "./match-profile";
 import type { DoneBy, DoStep, Step, Uses, Workflow } from "./schema";
 
 export interface StepIssue {
@@ -23,7 +24,9 @@ export type StepIssueCode =
   | "instructions_missing"
   | "instructions_not_for_done_by"
   | "loop_writes"
-  | "input_missing";
+  | "input_missing"
+  | "unknown_profile"
+  | "match_settings";
 
 /** What the validator may know of the registries; each part optional. */
 export interface StepContext {
@@ -31,6 +34,8 @@ export interface StepContext {
   sideEffect?(action: string): "none" | "internal" | "external" | undefined;
   /** The input fields an action or a skill requires. */
   requiredInput?(uses: Uses): readonly string[] | undefined;
+  /** A match profile by its id. */
+  profile?(id: string): MatchProfile | undefined;
 }
 
 /** Which `uses` each `doneBy` allows (§4, "How a Do step runs"). */
@@ -204,6 +209,20 @@ function doIssues(step: DoStep, context: StepContext): StepIssue[] {
             ? "Say what the AI does, or pick a skill."
             : "Fill in who is asked and what.",
     });
+  }
+  if (step.uses?.type === "match" && context.profile) {
+    const profile = context.profile(step.uses.match.to);
+    if (!profile) {
+      out.push({
+        at,
+        code: "unknown_profile",
+        message: `Nothing can be matched to "${step.uses.match.to}"`,
+      });
+    } else {
+      for (const problem of matchSettingsProblems(step.uses.match, profile)) {
+        out.push({ at, code: "match_settings", message: `${problem}.` });
+      }
+    }
   }
   if (step.uses) {
     const required = context.requiredInput?.(step.uses) ?? [];

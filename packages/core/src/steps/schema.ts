@@ -28,8 +28,20 @@ import {
 
 // ── Fields ─────────────────────────────────────────────────────────────────────────────────────
 
-/** The types a field can have (§13a): plain values, a list of fields, or a link to a record. */
-export const FIELD_TYPES = ["text", "number", "money", "date", "yes_no", "list", "record"] as const;
+/**
+ * The types a field can have (§13a): plain values, a list of items (each with the fields in `of`),
+ * a group of fields (one item), or a link to a record.
+ */
+export const FIELD_TYPES = [
+  "text",
+  "number",
+  "money",
+  "date",
+  "yes_no",
+  "list",
+  "group",
+  "record",
+] as const;
 export const FieldType = z.enum(FIELD_TYPES);
 export type FieldType = z.infer<typeof FieldType>;
 
@@ -39,7 +51,7 @@ export interface Field {
   required: boolean;
   /** One line on what it means. */
   about?: string | undefined;
-  /** A list's own fields (`type: list`). */
+  /** A list's items' fields, or a group's (`type: list`, `group`). */
   of?: Field[] | undefined;
   /** The kind of record a `record` field links to (`vendor`, `document`). */
   record?: string | undefined;
@@ -57,8 +69,8 @@ export const Field: z.ZodType<Field> = z.lazy(() =>
       of: z.array(Field).max(100).optional(),
       record: z.string().min(1).max(60).optional(),
     })
-    .refine((f) => (f.type === "list") === (f.of !== undefined), {
-      message: "a list names its fields, and only a list does",
+    .refine((f) => (f.type === "list" || f.type === "group") === (f.of !== undefined), {
+      message: "a list or a group names its fields, and only they do",
       path: ["of"],
     })
     .refine((f) => (f.type === "record") === (f.record !== undefined), {

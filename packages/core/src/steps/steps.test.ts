@@ -77,7 +77,7 @@ describe("the step model's schema", () => {
         rules: { rows: [] },
         output: [{ name: "lines", type: "list", required: true }],
       }),
-    ).toThrow(/list names its fields/);
+    ).toThrow(/list or a group names its fields/);
   });
 });
 
