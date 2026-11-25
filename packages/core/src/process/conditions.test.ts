@@ -106,6 +106,11 @@ describe("the conditions a process uses", () => {
 });
 
 describe("the conditions of a workflow in the step model", () => {
+  // `match` unsaid is `all` (conditionKey).
+  const big = conditionKey({
+    match: "all",
+    rules: [{ field: "{{trigger.total}}", op: ">", value: 5000 }],
+  });
   it("are its triggers' filters, its Forks' paths, its steps' and outputs' checks", () => {
     const w = StepWorkflow.parse({
       schemaVersion: 5,
@@ -144,10 +149,10 @@ describe("the conditions of a workflow in the step model", () => {
     expect(
       stepModelConditionUses(w).map((u) => [u.place, u.stepId, u.label, conditionKey(u.when)]),
     ).toEqual([
-      ["trigger", null, "t1", conditionKey(BIG)],
-      ["if_path", "size", "Big bills", conditionKey(BIG)],
-      ["notify", "tell", null, conditionKey(BIG)],
-      ["approval", "out", null, conditionKey(BIG)],
+      ["trigger", null, "t1", big],
+      ["if_path", "size", "Big bills", big],
+      ["notify", "tell", null, big],
+      ["approval", "out", null, big],
     ]);
   });
 });
