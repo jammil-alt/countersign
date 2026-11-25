@@ -6,10 +6,11 @@
 // (invariant 8), and anything it can't hold to those is not applied (`applied: false`, and why).
 // The workflow's own text reaches the model as data between tags, never as instructions (invariant 9).
 
-import { promptJson, promptText, steps } from "@countersign/core";
+import { processes, promptJson, promptText, steps } from "@countersign/core";
 import { BUILDER_EFFORT, DEFAULT_MODELS, type LlmCallRecord, LlmToolError } from "@countersign/llm";
 import { z } from "zod";
 import { type BuilderOptions, modelUnavailable, totalCost, unusableAnswer } from "./builder";
+import { DEFAULT_APPROVAL } from "./guards";
 
 export const SUGGEST_TOOL = "submit_suggestion";
 const SUGGEST_ANSWER_TOKENS = 16_000;
@@ -200,25 +201,58 @@ export function onlyField(
 }
 
 /**
- * Why an approval would be looser than it was, in plain words; null when it isn't (invariant 8). An
- * approval that was on stays on, as `required`, with no condition that skips it and no fewer
- * approvers; one that was off can only be added as an approval that always asks.
+ * Every way a step lets something through without a person's yes (invariant 8), each as a key, by
+ * the same functions the Builder's guards use: an approval switched off, limited to some runs or
+ * going ahead when nobody answers (its own or an approver's deadline), a conversation's messages
+ * sent unsigned, a person sign-off that goes ahead on no answer or on a rejection. Also an
+ * approval that any one approver may give where all had to, and one that continues after a no.
+ */
+export function looseningKeys(step: steps.Step): Set<string> {
+  const out = new Set<string>();
+  const add = (l: processes.Loosening) => out.add(`${l.field}:${l.what}`);
+  const approval = step.checks?.approval;
+  for (const l of processes.approvalLoosenings(approval, "checks.approval")) add(l);
+  if (approval?.mode === "any") out.add("checks.approval.mode:any");
+  if (approval?.onReject === "continue") out.add("checks.approval.onReject:continue");
+  if (step.kind === "do" && step.contact) {
+    for (const l of processes.conversationLoosenings({ messages: step.contact.messages })) {
+      add({ ...l, field: `contact.${l.field}` });
+    }
+  }
+  if (step.kind === "do" && step.person?.mode === "approve") {
+    const p = step.person;
+    for (const l of processes.approvalLoosenings(
+      { required: "required", ifNoAnswer: p.deadline.ifNoAnswer } as never,
+      "person.deadline",
+    )) {
+      add(l);
+    }
+    if (p.onReject === "continue") out.add("person.onReject:continue");
+  }
+  return out;
+}
+
+/** The approvers an approval names, for "no fewer approvers". */
+const approverCount = (s: steps.Step) => s.checks?.approval?.approvers?.length ?? 0;
+
+/**
+ * Why a suggestion would be looser than the step was, in plain words; null when it isn't. Nothing
+ * may be added to `looseningKeys` that the step didn't have, and no approver may be taken off.
  */
 export function approvalLoosened(before: steps.Step, after: steps.Step): string | null {
-  const was = before.checks?.approval;
-  const now = after.checks?.approval;
-  if (was) {
-    if (!now || now.required !== "required" || now.when !== undefined) {
-      return "That would loosen an approval, so it wasn't applied.";
-    }
-    if (was.approvers && (now.approvers?.length ?? 0) < was.approvers.length) {
-      return "That would take an approver off, so it wasn't applied.";
-    }
-    if (was.ifNoAnswer !== now.ifNoAnswer && now.ifNoAnswer !== "stop") {
-      return "That would let a write go ahead with no answer, so it wasn't applied.";
-    }
-  } else if (now && (now.required !== "required" || now.when !== undefined)) {
-    return "That would add an approval that doesn't always ask, so it wasn't applied.";
+  const had = looseningKeys(before);
+  const grown = [...looseningKeys(after)].filter((k) => !had.has(k));
+  if (grown.length > 0) {
+    return "That would loosen an approval (a write or a message could go ahead without a person's yes), so it wasn't applied.";
+  }
+  if (before.checks?.approval && !after.checks?.approval) {
+    return "That would turn an approval off, so it wasn't applied.";
+  }
+  if (before.checks?.approval && after.checks?.approval?.required !== "required") {
+    return "That would loosen an approval, so it wasn't applied.";
+  }
+  if (approverCount(after) < approverCount(before)) {
+    return "That would take an approver off, so it wasn't applied.";
   }
   return null;
 }
@@ -282,6 +316,16 @@ export function guardSuggestion(
   const after = parsed.data;
   if (after.id !== before.id || after.kind !== before.kind) {
     return keep("That would change which step this is, so it wasn't applied.");
+  }
+  // Uses going from a Get (or nothing) to a Change, Save or Send: the approval starts on, as the
+  // Builder's drafts do (invariant 8).
+  if (after.kind === "do" && after.uses?.type === "action" && !after.checks?.approval) {
+    const id = after.uses.action;
+    const kind = world.actions.find((a) => a.id === id)?.kind;
+    const was = before.kind === "do" && before.uses?.type === "action" ? before.uses.action : null;
+    if (kind !== undefined && kind !== "get" && was !== id) {
+      after.checks = { ...after.checks, approval: { ...DEFAULT_APPROVAL } };
+    }
   }
   const loosened = approvalLoosened(before, after);
   if (loosened) return keep(loosened);

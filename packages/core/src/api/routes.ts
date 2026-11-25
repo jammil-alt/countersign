@@ -1120,18 +1120,22 @@ export const StepSuggestion = z.object({
 export type StepSuggestion = z.infer<typeof StepSuggestion>;
 
 /**
- * Rules and AI written in a step are stored behind it as the agent's own skill when the workflow
- * is saved (docs/step-model-plan.md §5, §10): the workflow as drawn goes in, and each step written
- * in itself comes back with the skill that backs it.
+ * Rules and AI written in a step are stored behind it as the agent's own skill, as a draft, when
+ * the workflow is saved (docs/step-model-plan.md §5, §10): the workflow as drawn goes in, and each
+ * step written in itself comes back with the skill version that backs it. The saved agent version
+ * pins each one in its skills; publishing that version makes them live.
  */
 export const StepSkillsStoreRequest = z.strictObject({ workflow: z.unknown() });
 export const StepSkillsStored = z.object({
   skills: z.array(
     z.object({
       stepId: z.string(),
-      /** The skill behind the step (`custom:step-<id>`). */
+      /** The skill behind the step (`custom:step-<agent id>-<step id>`). */
       ref: z.string(),
+      /** The draft version holding what the step wrote now. */
       version: z.number().int(),
+      /** What the agent version pins in its skills: `<ref>@<version>`. */
+      pin: z.string(),
       /** False when what the step wrote is what was already stored. */
       changed: z.boolean(),
     }),

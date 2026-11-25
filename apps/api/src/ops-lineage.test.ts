@@ -6,7 +6,7 @@
 
 import { createSkill, publishSkill } from "@countersign/agents";
 import { type AgentBundle, cloneJson, isToolWrapper } from "@countersign/core";
-import { run } from "@countersign/db";
+import { run, skillVersion } from "@countersign/db";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   type ApiHarness,
@@ -429,24 +429,55 @@ describe.skipIf(!h)("agent pages API", () => {
       expect(bad.status).toBe(422);
     });
 
-    it("stores the rules written in a step as the agent's own skill, kept out of the library", async () => {
+    it("stores the rules written in a step as a draft of the agent's own skill, kept out of the library", async () => {
       const path = `/api/ops/agents/${agentA}/step-skills`;
       const workflow = stepWorkflow([rulesStep("0190a1b2-c3d4")]);
+      const ref = `custom:step-${agentA}-0190a1b2-c3d4`;
       const first = await H.call(OPERATOR, "POST", path, { workflow });
       expect(first.status, JSON.stringify(first.json)).toBe(200);
       expect(j(first.json).skills).toEqual([
-        { stepId: "0190a1b2-c3d4", ref: "custom:step-0190a1b2-c3d4", version: 1, changed: true },
+        { stepId: "0190a1b2-c3d4", ref, version: 1, pin: `${ref}@1`, changed: true },
       ]);
       const again = await H.call(OPERATOR, "POST", path, { workflow });
       expect(j(again.json).skills[0]).toMatchObject({ version: 1, changed: false });
 
+      // A draft save makes nothing live.
+      const rows = await H.t.db.select().from(skillVersion);
+      const mine = rows.filter((r) => (r.definition as { id: string }).id === ref);
+      expect(mine.map((r) => r.status)).toEqual(["draft"]);
+
       // It isn't a skill to pick: not in the library, not in the Uses picker's skills.
       const library = await H.call(OPERATOR, "GET", "/api/ops/skills");
-      expect(JSON.stringify(j(library.json).skills)).not.toContain("step-0190a1b2-c3d4");
+      expect(JSON.stringify(j(library.json).skills)).not.toContain("0190a1b2-c3d4");
       const catalog = await H.call(OPERATOR, "GET", `/api/ops/agents/${agentA}/builder-catalog`);
-      expect(JSON.stringify(j(catalog.json).skills)).not.toContain("step-0190a1b2-c3d4");
+      expect(JSON.stringify(j(catalog.json).skills)).not.toContain("0190a1b2-c3d4");
       const uses = await H.call(OPERATOR, "GET", `/api/ops/agents/${agentA}/skills`);
-      expect(JSON.stringify(j(uses.json).skills)).not.toContain("step-0190a1b2-c3d4");
+      expect(JSON.stringify(j(uses.json).skills)).not.toContain("0190a1b2-c3d4");
+    });
+
+    it("makes the pinned step skill live when the agent version that pins it is published", async () => {
+      const ref = `custom:step-${agentA}-0190a1b2-c3d4`;
+      const status = async () =>
+        (await H.t.db.select().from(skillVersion))
+          .filter((r) => (r.definition as { id: string }).id === ref)
+          .map((r) => r.status);
+      expect(await status()).toEqual(["draft"]);
+      const bundle = withInstructions(testBundle(), "Pins the step skill.");
+      bundle.definition.skills = [{ skill: `${ref}@1`, settings: {} }];
+      const saved = await H.call(OPERATOR, "POST", `/api/ops/agents/${agentA}/versions`, {
+        bundle,
+        parentVersionId: agentAv2,
+      });
+      expect(saved.status, JSON.stringify(saved.json)).toBe(200);
+      // Saving the agent version leaves the skill a draft.
+      expect(await status()).toEqual(["draft"]);
+      const published = await H.call(
+        OPERATOR,
+        "POST",
+        `/api/ops/agents/${agentA}/versions/${j(saved.json).version.id}/publish`,
+      );
+      expect(published.status, JSON.stringify(published.json)).toBe(200);
+      expect(await status()).toEqual(["live"]);
     });
 
     it("saves a step as a skill this client's or shared; the library and the picker list it", async () => {
@@ -485,6 +516,39 @@ describe.skipIf(!h)("agent pages API", () => {
         scope: "shared",
       });
       expect(j(shared.json).skill).toMatchObject({ scope: "shared" });
+
+      // Shared with a client's own email in its rules: refused, naming what to take out.
+      const literal = rulesStep("n2", {
+        rules: {
+          rows: [
+            {
+              id: "r1",
+              when: {
+                match: "all",
+                rules: [{ field: "{{input.email}}", op: "=", value: "ap@acme.com" }],
+              },
+              set: { account: "Materials" },
+            },
+          ],
+        },
+      });
+      const leaky = await H.call(OPERATOR, "POST", path, {
+        ...body,
+        workflow: stepWorkflow([literal]),
+        name: "Acme rule",
+        scope: "shared",
+      });
+      expect(leaky.status).toBe(422);
+      expect(JSON.stringify(leaky.json)).toMatch(
+        /names a record of this client: \\"ap@acme.com\\"/,
+      );
+      const own = await H.call(OPERATOR, "POST", path, {
+        ...body,
+        workflow: stepWorkflow([literal]),
+        name: "Acme rule",
+        scope: "client",
+      });
+      expect(own.status).toBe(200);
 
       // Not a Do step by rules or AI, or nothing written: refused in words.
       const person = await H.call(OPERATOR, "POST", path, {

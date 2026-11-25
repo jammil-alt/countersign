@@ -5,18 +5,35 @@
 // skill step does. "Save as skill" gives the same text a name, a description and a scope, in the
 // library and the Uses picker, and the step then uses it.
 //
-// DECISION: the stored format is frozen, so a step carries no link to its backing skill. The link
-// is the id: `custom:step-<step id>` (`stepSkillRef`), made by code, in the agent's own scope (the
-// client's, or shared for a template). Its category is `IN_A_STEP`, which the library and the Uses
-// picker leave out: it isn't a skill a person picks, it is the step's own text, stored.
+// DECISION: the stored format is frozen, so a step carries no link to its backing skill. The skill
+// is keyed by agent and step: `custom:step-<agent id>-<step id>` (`stepSkillRef`), in the agent's
+// own scope (the client's, or shared for a template), so two agents forked from one template into
+// one client never share one. A save of the workflow stores a new *draft* version only; the agent
+// version pins it in its `definition.skills` (`custom:step-…@N`), so what ran is what that version
+// says (invariants 3, 10), and publishing the agent version makes the pinned skill versions live
+// (`publishStepSkills`). Its category is `IN_A_STEP`, which the library and the Uses picker leave
+// out: it isn't a skill a person picks, it is the step's own text, stored.
 // Skills never write (invariant 8): both shapes read only, and `parseOperatorSkill` refuses the rest.
 
-import type { SkillDefinition, SkillParameter, steps } from "@countersign/core";
+import {
+  parseSkillRef,
+  type SkillDefinition,
+  type SkillParameter,
+  type steps,
+} from "@countersign/core";
 import { skill, skillVersion, type Tx } from "@countersign/db";
 import { DEFAULT_MODELS } from "@countersign/llm";
 import { and, desc, eq, isNull } from "drizzle-orm";
 import { AgentsError } from "../errors";
-import { CUSTOM_PREFIX, createSkill, createSkillVersion, customSlug, publishSkill } from "./skills";
+import { holdsClientLiteral } from "./lineage";
+import {
+  CUSTOM_PREFIX,
+  createSkill,
+  createSkillVersion,
+  customSlug,
+  isCustomSkill,
+  publishSkill,
+} from "./skills";
 import type { ToolRegistry } from "./tools";
 
 /** The category of a skill that only backs a step: never listed, never picked. */
@@ -27,11 +44,11 @@ export function isStepSkill(def: Pick<SkillDefinition, "category">): boolean {
   return def.category === IN_A_STEP;
 }
 
-/** The slug of the skill behind a step: its id, made a slug (ids hold `_` and capitals). */
-export function stepSkillSlug(stepId: string): string {
+/** A slug part from an id (ids hold `_` and capitals): lowercase letters and digits, dashes between. */
+function slugPart(id: string): string {
   let out = "";
   let dash = false;
-  for (const ch of stepId.toLowerCase()) {
+  for (const ch of id.toLowerCase()) {
     const ok = (ch >= "a" && ch <= "z") || (ch >= "0" && ch <= "9");
     if (ok) {
       out += ch;
@@ -42,10 +59,18 @@ export function stepSkillSlug(stepId: string): string {
     }
   }
   while (out.endsWith("-")) out = out.slice(0, -1);
-  return `step-${out || "x"}`.slice(0, 80);
+  return out || "x";
 }
 
-export const stepSkillRef = (stepId: string): string => `${CUSTOM_PREFIX}${stepSkillSlug(stepId)}`;
+/** What every step skill of an agent starts with: `step-<agent id>-`. */
+export const agentStepSkillPrefix = (agentId: string): string => `step-${slugPart(agentId)}-`;
+
+/** The slug of the skill behind a step of an agent. */
+export const stepSkillSlug = (agentId: string, stepId: string): string =>
+  `${agentStepSkillPrefix(agentId)}${slugPart(stepId)}`;
+
+export const stepSkillRef = (agentId: string, stepId: string): string =>
+  `${CUSTOM_PREFIX}${stepSkillSlug(agentId, stepId)}`;
 
 type DoStep = steps.DoStep;
 
@@ -129,7 +154,12 @@ export interface StepSkillText {
  * The skill a written-in-step Do is: Rules is rule rows (deterministic, no code); AI is one task on
  * a model, its answer checked against the output fields. Null when the step writes neither.
  */
-export function stepSkillDefinition(step: steps.Step, text: StepSkillText): unknown | null {
+export function stepSkillDefinition(
+  step: steps.Step,
+  text: StepSkillText,
+  /** A shared skill reaches every client: the rules' values are the client's own, so none go in. */
+  options: { shared?: boolean } = {},
+): unknown | null {
   const written = writtenInStep(step);
   if (written === null || step.kind !== "do") return null;
   const common = {
@@ -140,7 +170,7 @@ export function stepSkillDefinition(step: steps.Step, text: StepSkillText): unkn
     output: fieldsToSchema(step.output ?? []),
   };
   if (written === "rules") {
-    const parameters = valuesAsParameters(step.rules?.values);
+    const parameters = options.shared ? [] : valuesAsParameters(step.rules?.values);
     return {
       ...common,
       mode: "tool",
@@ -178,14 +208,19 @@ async function skillIn(tx: Tx, tenantId: string | null, slug: string) {
 
 export interface StoredStepSkill {
   stepId: string;
+  /** The skill behind the step (`custom:step-<agent id>-<step id>`). */
   ref: string;
-  /** The skill's version now live behind the step. */
+  /** The version holding what the step wrote now (a draft until the agent version is published). */
   version: number;
+  /** The reference the agent version pins in its skills: `<ref>@<version>`. */
+  pin: string;
   /** False when what the step wrote is what was already stored. */
   changed: boolean;
 }
 
 export interface StoreStepSkillsInput {
+  /** The agent the workflow belongs to: its step skills are its own. */
+  agentId: string;
   /** The agent's client; null for a template (its step skills are shared). */
   tenantId: string | null;
   workflow: steps.Workflow;
@@ -194,9 +229,11 @@ export interface StoreStepSkillsInput {
 }
 
 /**
- * Stores the rules and the AI written in a workflow's steps behind them: one skill per such step,
- * a new version (made live) when the text changed, nothing when it didn't. A step that no longer
- * writes anything keeps its skill's history (versions are never deleted, invariant 3); nothing
+ * Stores the rules and the AI written in a workflow's steps behind them: one skill per such step of
+ * this agent, a new **draft** version when the text changed, nothing when it didn't. Nothing is
+ * made live here: a draft save never changes what the live agent runs (invariants 3, 11). The
+ * caller pins each `pin` in the agent version's skills; publishing that version makes them live
+ * (`publishStepSkills`). A step that no longer writes anything keeps its skill's history; nothing
  * reads it any more.
  */
 export async function storeStepSkills(
@@ -216,16 +253,27 @@ async function storeOne(
   input: StoreStepSkillsInput,
   step: DoStep,
 ): Promise<StoredStepSkill> {
-  const slug = stepSkillSlug(step.id);
+  const slug = stepSkillSlug(input.agentId, step.id);
   const ref = `${CUSTOM_PREFIX}${slug}`;
-  const definition = stepSkillDefinition(step, {
-    id: ref,
-    name: stepName(step),
-    description: step.purpose?.trim() || stepName(step),
-    category: IN_A_STEP,
-  });
+  const definition = stepSkillDefinition(
+    step,
+    {
+      id: ref,
+      name: stepName(step),
+      description: step.purpose?.trim() || stepName(step),
+      category: IN_A_STEP,
+    },
+    { shared: input.tenantId === null },
+  );
   const row = await skillIn(tx, input.tenantId, slug);
   const tools = input.tools ? { tools: input.tools } : {};
+  const done = (version: number, changed: boolean): StoredStepSkill => ({
+    stepId: step.id,
+    ref,
+    version,
+    pin: `${ref}@${version}`,
+    changed,
+  });
   if (!row) {
     const created = await createSkill(tx, {
       tenantId: input.tenantId,
@@ -234,8 +282,7 @@ async function storeOne(
       changeNote: "Written in a step",
       ...tools,
     });
-    await publishSkill(tx, { skillId: created.skill.id, versionId: created.version.id });
-    return { stepId: step.id, ref, version: created.version.version, changed: true };
+    return done(created.version.version, true);
   }
   const [latest] = await tx
     .select()
@@ -252,18 +299,40 @@ async function storeOne(
       changeNote: "Edited in a step",
       ...tools,
     });
-    await publishSkill(tx, { skillId: row.id, versionId: v.id });
-    return { stepId: step.id, ref, version: v.version, changed: true };
+    return done(v.version, true);
   } catch (error) {
     if (error instanceof AgentsError && error.code === "no_op") {
-      // What the step wrote is what is stored; make sure it is the live one.
-      if (latest && row.liveVersionId !== latest.id) {
-        await publishSkill(tx, { skillId: row.id, versionId: latest.id });
-      }
-      return { stepId: step.id, ref, version: latest?.version ?? 1, changed: false };
+      return done(latest?.version ?? 1, false);
     }
     throw error;
   }
+}
+
+/**
+ * Makes live the step-skill versions an agent version pins, when that version is published: every
+ * `custom:step-<this agent's id>-…@N` in its skills. Another agent's step skills, and anything not
+ * pinned, are left alone. Returns the versions made live.
+ */
+export async function publishStepSkills(
+  tx: Tx,
+  input: { agentId: string; tenantId: string | null; skills: readonly { skill: string }[] },
+): Promise<{ ref: string; version: number }[]> {
+  const prefix = agentStepSkillPrefix(input.agentId);
+  const made: { ref: string; version: number }[] = [];
+  for (const { skill: ref } of input.skills) {
+    const { id, version } = parseSkillRef(ref);
+    if (!isCustomSkill(id) || version === null || !customSlug(id).startsWith(prefix)) continue;
+    const row = await skillIn(tx, input.tenantId, customSlug(id));
+    if (!row) continue;
+    const [v] = await tx
+      .select()
+      .from(skillVersion)
+      .where(and(eq(skillVersion.skillId, row.id), eq(skillVersion.version, version)));
+    if (!v || v.status === "live") continue;
+    await publishSkill(tx, { skillId: row.id, versionId: v.id });
+    made.push({ ref: id, version });
+  }
+  return made;
 }
 
 export interface SaveAsSkillInput {
@@ -317,6 +386,15 @@ export async function saveStepAsSkill(tx: Tx, input: SaveAsSkillInput): Promise<
     );
   }
   const step = input.step;
+  if (input.tenantId === null) {
+    const named = clientLiteralIn(step);
+    if (named) {
+      throw new AgentsError(
+        "invalid_definition",
+        `The step names a record of this client: ${named}. Take it out of the rules or the instructions, or save the skill for this client only.`,
+      );
+    }
+  }
   const taken = new Set(
     (
       await tx
@@ -331,12 +409,16 @@ export async function saveStepAsSkill(tx: Tx, input: SaveAsSkillInput): Promise<
   let slug = root;
   for (let n = 2; taken.has(slug); n += 1) slug = `${root}-${n}`;
   const ref = `${CUSTOM_PREFIX}${slug}`;
-  const definition = stepSkillDefinition(step, {
-    id: ref,
-    name: input.name.trim(),
-    description: input.description.trim(),
-    category: "Saved from a step",
-  });
+  const definition = stepSkillDefinition(
+    step,
+    {
+      id: ref,
+      name: input.name.trim(),
+      description: input.description.trim(),
+      category: "Saved from a step",
+    },
+    { shared: input.tenantId === null },
+  );
   const created = await createSkill(tx, {
     tenantId: input.tenantId,
     definition,
@@ -348,6 +430,34 @@ export async function saveStepAsSkill(tx: Tx, input: SaveAsSkillInput): Promise<
   // What was written now lives in the skill: the step uses it, and it takes its fields from it.
   const { rules: _r, ai: _a, output: _o, ...rest } = step;
   return { ref, slug: customSlug(ref), step: { ...rest, uses: { type: "skill", skill: ref } } };
+}
+
+/**
+ * The first thing in a step's rule rows or AI text that is one client's own (a record id, an email
+ * address, a phone number, as `holdsClientLiteral` reads them), shortened for a message; null when
+ * there is none. A shared skill reaches every client (invariant 11), so it holds none.
+ */
+export function clientLiteralIn(step: steps.Step): string | null {
+  if (step.kind !== "do") return null;
+  const found = (value: unknown): string | null => {
+    if (typeof value === "string") return holdsClientLiteral(value) ? value : null;
+    if (Array.isArray(value)) {
+      for (const v of value) {
+        const f = found(v);
+        if (f) return f;
+      }
+    } else if (value !== null && typeof value === "object") {
+      for (const v of Object.values(value)) {
+        const f = found(v);
+        if (f) return f;
+      }
+    }
+    return null;
+  };
+  // A rule row's id is the builder's label, not a record: only what it tests and sets is read.
+  const rows = step.rules?.rows?.map(({ id: _id, ...row }) => row);
+  const hit = found(rows) ?? found(step.ai?.text);
+  return hit ? `"${hit.length > 60 ? `${hit.slice(0, 57)}...` : hit}"` : null;
 }
 
 function nameSlug(text: string): string {

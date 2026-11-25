@@ -117,7 +117,17 @@ function setup(w: unknown) {
     "GET /api/ops/models": () => ({ models: [] }),
     [`POST /api/ops/agents/${AGENT_ID}/step-skills`]: ({ init }) => {
       stored.push(JSON.parse(String(init.body)));
-      return { skills: [] };
+      return {
+        skills: [
+          {
+            stepId: "enter",
+            ref: `custom:step-${AGENT_ID}-enter`,
+            version: 3,
+            pin: `custom:step-${AGENT_ID}-enter@3`,
+            changed: true,
+          },
+        ],
+      };
     },
     [`POST /api/ops/agents/${AGENT_ID}/versions`]: ({ init }) => {
       sent.push(JSON.parse(String(init.body)));
@@ -266,6 +276,11 @@ describe("the step-model builder", () => {
     const body = stored[0] as { workflow: { steps: { id: string; rules?: unknown }[] } };
     expect(body.workflow.steps[0]?.id).toBe("enter");
     expect(body.workflow.steps[0]?.rules).toBeTruthy();
+    // The saved version pins the draft it was just given, so what ran is what it says.
+    const saved = sent[0] as { bundle: { definition: { skills: { skill: string }[] } } };
+    expect(saved.bundle.definition.skills.map((s) => s.skill)).toEqual([
+      `custom:step-${AGENT_ID}-enter@3`,
+    ]);
   });
 
   it("makes no extra call when no step writes anything in itself", async () => {

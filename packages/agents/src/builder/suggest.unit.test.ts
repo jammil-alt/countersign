@@ -117,7 +117,7 @@ describe("suggestStep", () => {
     }).result;
     expect(off.applied).toBe(false);
     expect(off.step).toEqual(guarded);
-    expect(off.summary).toMatch(/loosen an approval/);
+    expect(off.summary).toMatch(/turn an approval off/);
 
     const conditional = await run(ask({}, guarded), {
       summary: "Only asks over $500.",
@@ -218,6 +218,135 @@ describe("suggestStep", () => {
   });
 });
 
+describe("every loosening the Builder's guards know (invariant 8)", () => {
+  const approval = {
+    required: "required",
+    mode: "all",
+    approvers: [
+      { who: "maria", deadline: { after: "1 day", hours: "clock", ifNoAnswer: "stop" } },
+      { who: "sam" },
+    ],
+    ifNoAnswer: "stop",
+    onReject: "stop",
+  };
+  const change = {
+    ...DO,
+    uses: { type: "action", action: "qbo.bill.create" },
+    checks: { approval },
+  } as unknown as steps.DoStep;
+  const contact = {
+    id: "c1",
+    kind: "do",
+    name: "Ask the vendor",
+    doneBy: "contact",
+    input: {},
+    contact: {
+      with: "{{trigger.vendor}}",
+      channel: "email",
+      goal: "Get the ship date",
+      mayShare: [],
+      maxTurns: 4,
+      messages: { first: "required", later: "required" },
+      deadline: { after: "2 days", hours: "clock", ifNoAnswer: "stop" },
+    },
+  } as unknown as steps.DoStep;
+  const person = {
+    id: "p1",
+    kind: "do",
+    name: "Sign off",
+    doneBy: "person",
+    input: {},
+    person: {
+      mode: "approve",
+      who: "client_admin",
+      question: "Ok?",
+      show: {},
+      deadline: { after: "1 day", hours: "clock", ifNoAnswer: "stop" },
+      channel: "inbox",
+      onReject: "stop",
+    },
+  } as unknown as steps.DoStep;
+
+  const refused = async (before: steps.DoStep, after: unknown) => {
+    const out = await run(ask({}, before), { summary: "Changed.", step: after }).result;
+    expect(out.applied).toBe(false);
+    expect(out.step).toEqual(before);
+    return out.summary;
+  };
+
+  it("(a) refuses a contact's messages going out unsigned", async () => {
+    const summary = await refused(contact, {
+      ...contact,
+      contact: { ...contact.contact, messages: { first: "not_required", later: "within_goal" } },
+    });
+    expect(summary).toMatch(/loosen an approval/);
+  });
+
+  it("(b) refuses an approver's deadline that goes ahead on no answer", async () => {
+    await refused(change, {
+      ...change,
+      checks: {
+        approval: {
+          ...approval,
+          approvers: [
+            { who: "maria", deadline: { after: "1 day", hours: "clock", ifNoAnswer: "proceed" } },
+            { who: "sam" },
+          ],
+        },
+      },
+    });
+  });
+
+  it("(c) refuses all approvers becoming any one of them", async () => {
+    await refused(change, { ...change, checks: { approval: { ...approval, mode: "any" } } });
+  });
+
+  it("(d) refuses a person's sign-off that goes ahead on no answer or on a no", async () => {
+    await refused(person, {
+      ...person,
+      person: {
+        ...person.person,
+        deadline: { after: "1 day", hours: "clock", ifNoAnswer: "proceed" },
+        onReject: "continue",
+      },
+    });
+  });
+
+  it("refuses an approval that continues after a no", async () => {
+    await refused(change, {
+      ...change,
+      checks: { approval: { ...approval, onReject: "continue" } },
+    });
+  });
+
+  it("starts an approval on when Uses goes from a Get to a Change", async () => {
+    const get = {
+      ...DO,
+      uses: { type: "action", action: "qbo.vendor.get" },
+    } as unknown as steps.DoStep;
+    const out = await run(ask({}, get), {
+      summary: "Now enters the bill.",
+      step: { ...get, uses: { type: "action", action: "qbo.bill.create" } },
+    }).result;
+    expect(out.applied).toBe(true);
+    expect((out.step as steps.DoStep).checks?.approval).toMatchObject({
+      required: "required",
+      ifNoAnswer: "stop",
+    });
+  });
+
+  it("still takes a change that tightens", async () => {
+    const out = await run(ask({}, change), {
+      summary: "Added an approver.",
+      step: {
+        ...change,
+        checks: { approval: { ...approval, approvers: [...approval.approvers, { who: "lee" }] } },
+      },
+    }).result;
+    expect(out.applied).toBe(true);
+  });
+});
+
 describe("the guards by themselves", () => {
   it("takes only the instructions blocks for 'instructions'", () => {
     const proposed = { ...DO, name: "Renamed", rules: { rows: [row] } };
@@ -241,6 +370,6 @@ describe("the guards by themselves", () => {
     } as unknown as steps.Step;
     expect(approvalLoosened(on, on)).toBeNull();
     expect(approvalLoosened(DO, on)).toBeNull();
-    expect(approvalLoosened(on, DO)).toMatch(/loosen/);
+    expect(approvalLoosened(on, DO)).toMatch(/turn an approval off/);
   });
 });

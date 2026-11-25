@@ -23,3 +23,20 @@ export function hasWrittenSteps(workflow: Workflow): boolean {
     });
   return any(workflow.steps);
 }
+
+/**
+ * The bundle with the step skills of this agent pinned in its skills (`custom:step-<agent id>-<step
+ * id>@N`), the ones saved just now, and the agent's older ones taken out. The version then says
+ * which text ran (invariants 3, 10), and publishing it makes exactly those versions live.
+ */
+export function withStepSkillPins(
+  bundle: unknown,
+  agentId: string,
+  pins: readonly string[],
+): unknown {
+  const b = bundle as { definition: { skills?: { skill: string; [k: string]: unknown }[] } };
+  const own = `custom:step-${agentId.toLowerCase()}-`;
+  const kept = (b.definition.skills ?? []).filter((s) => !s.skill.startsWith(own));
+  const skills = [...kept, ...pins.map((skill) => ({ skill, settings: {} }))];
+  return { ...b, definition: { ...b.definition, skills } };
+}

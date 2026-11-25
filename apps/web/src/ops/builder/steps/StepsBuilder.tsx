@@ -47,7 +47,7 @@ import { StepEditor } from "./StepEditor";
 import { statusesFor, stepCounts } from "./status";
 import { guardedSuggestion, type SuggestFn, suggestBody, withStep } from "./suggest";
 import type { Step, StepKind, Workflow } from "./types";
-import { hasWrittenSteps } from "./written";
+import { hasWrittenSteps, withStepSkillPins } from "./written";
 
 export interface StepsBuilderProps {
   agent: AgentSummary;
@@ -265,10 +265,34 @@ function Body(
   // ── Save and publish ──
   const save = async () => {
     const snapshot = workflow;
+    let bundle = withWorkflow(props.bundle, props.workflow, snapshot);
+    // The rules and the AI written in steps are stored behind them, as drafts of the agent's own
+    // skills, and this version pins them, so what ran is what the version says. Nothing is saved
+    // if they can't be stored: a version that names no text would run nothing.
+    if (hasWrittenSteps(snapshot)) {
+      const stored = await action.call(apiRoutes.opsStepSkillsStore, {
+        params: { id: agent.id },
+        body: { workflow: snapshot },
+      });
+      if (!stored.ok) {
+        setNotice({
+          tone: "warning",
+          body: `Not saved: the rules or AI written in a step couldn't be stored as skills. ${errorText(stored.error)}`,
+        });
+        return null;
+      }
+      bundle = withStepSkillPins(
+        bundle,
+        agent.id,
+        stored.data.skills.map((s) => s.pin),
+      );
+    } else {
+      bundle = withStepSkillPins(bundle, agent.id, []);
+    }
     const res = await action.call(apiRoutes.opsSaveVersion, {
       params: { id: agent.id },
       body: {
-        bundle: withWorkflow(props.bundle, props.workflow, snapshot) as never,
+        bundle: bundle as never,
         parentVersionId: saved.id,
         changeNote: "Edited in the workflow builder",
       },
@@ -281,20 +305,6 @@ function Body(
       canon: canonicalJson(snapshot),
     };
     setSaved(next);
-    // The rules and the AI written in steps are stored behind them, as the agent's skills, so the
-    // steps run as any skill step does. The version is saved either way; this says if they weren't.
-    if (hasWrittenSteps(snapshot)) {
-      const stored = await action.call(apiRoutes.opsStepSkillsStore, {
-        params: { id: agent.id },
-        body: { workflow: snapshot },
-      });
-      if (!stored.ok) {
-        setNotice({
-          tone: "warning",
-          body: `Saved, but the rules or AI written in a step weren't stored as skills: ${errorText(stored.error)} Save again to retry.`,
-        });
-      }
-    }
     props.onChanged();
     return next;
   };

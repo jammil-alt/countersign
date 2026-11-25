@@ -36,6 +36,7 @@ export function opsStepSkillRoutes(app: Hono<AppEnv>): void {
     const row = await agentInScope(ctx, ctx.params.id);
     const workflow = readWorkflow(ctx.body.workflow);
     const stored = await storeStepSkills(ctx.tx, {
+      agentId: row.id,
       tenantId: row.tenantId,
       workflow,
       authorId: ctx.session.user.id,
