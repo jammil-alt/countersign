@@ -577,6 +577,23 @@ executor or a pack's records gets an Opus review before merge.
 Roughly: wave 0 two to three days, waves 1 and 2 about a week each, wave 3 three to four days, wave 4
 three to four days: three and a half to four weeks, against about six one after another.
 
+## 13c. Wave 0: the contracts (built)
+
+What the parallel streams build on, in `packages/core/src/steps` (exported as the `steps` namespace
+while v4 is still read). Changing one of these after wave 1 starts is a coordinator's decision, not a
+stream's.
+
+| Contract | File | What it fixes |
+|---|---|---|
+| Stored format | `schema.ts` | Workflow `schemaVersion: 5`: the eight kinds, Do's done by and uses, instructions by done by, Match settings, typed fields (text, number, money, date, yes/no, list, group, record), workflow outputs, End. Added in wave 0: **Tell** (a Do done by rules that tells the client's team or ours, today's notify) and the **group** field type. |
+| Publish checks | `validate.ts` | Every path ends; every output delivered; Do combinations; Loops read only; inputs have a source; Match settings against their profile. |
+| Match profiles | `match-profile.ts` | A profile's records, keys, semantic text, allowed match types, never-the-same rules, learning; the one Match result every profile gives. Areas declare their profiles (stream D). |
+| Action catalog | `catalog.ts` | Every offered action under its connector or area, with its kind and fields; the merged Email, Team chat, Spreadsheets and Accounting, and which tool each runs on for a client. |
+| Engine boundary | `engine.ts` | Which engine a Do step runs on, from done by and uses; an unknown action is a Change. |
+| Converter (one-off) | `convert-v4.ts` | v3 and v4 workflows into the step model. Every seeded agent's workflows convert and pass the publish checks (`apps/api/src/steps-convert.test.ts`). Test fixtures written in TypeScript are moved by each stream as it moves the code they test. Deleted in wave 4. |
+
+Still needed before wave 1: the owner's review of the stored format (§13a), which freezes it.
+
 ## 14. Where we are in the review
 
 Agreed: terms, step kinds, forms, skills, connectors, areas. Being reviewed: the build list and the
@@ -625,6 +642,7 @@ release (§12, §13). Then: the stored format, drafted as plain fields for revie
   and what the structure needs change. No templates rebuilt as part of this; the invoice matcher is
   built after.
 - 2026-11-25 · Purge scope confirmed (§12, R0); `db:purge-agents` built; wave 0 started.
+- 2026-11-25 · Wave 0 contracts built (§13c); Tell added to the Do step, and the group field type.
 - 2026-11-25 · Forms agreed. Suggest (AI icon) on every step and every field: tell it what you need,
   use the default, or resolve; applied at once, with Undo.
 - 2026-11-25 · The eight kinds are stored directly; nine of today's kinds collapse into Do, run by
