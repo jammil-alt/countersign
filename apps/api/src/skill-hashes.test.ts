@@ -48,7 +48,8 @@ const builtins = platform.catalog.list();
 // and read the week's list), each a wrapper of its tool, and Suggest accounts (an agent skill).
 // §1.232: the Close pack's four tool skills (close.check-month, close.entries-to-record,
 // close.record-written, close.propose-entry), each a wrapper over one handler.
-const BUILTINS = 164;
+// Step model §8: the Bookkeeping pack's first Loop, bookkeeping.investigate-leftovers (no wrapper).
+const BUILTINS = 165;
 const WRAPPERS = 117;
 
 describe("built-in skills under the R2 skill schema", () => {
