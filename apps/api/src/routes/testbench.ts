@@ -5,9 +5,10 @@
 // insert-only. Every handler runs inside withOperator(the clients served), and every query also
 // filters by client.
 
-import { SHARED_COPY_PREFIX } from "@countersign/agents";
+import { runSkillCase, SHARED_COPY_PREFIX } from "@countersign/agents";
 import {
   type CaseResultView,
+  type LoopTryView,
   type MatcherInput,
   routes,
   type SuiteRunView,
@@ -29,6 +30,7 @@ import {
 import { and, asc, desc, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import type { Hono } from "hono";
 import { auditInTx } from "../audit";
+import { clientModels } from "../compliance/models";
 import type { Bindings } from "../env";
 import {
   type AppDeps,
@@ -41,6 +43,7 @@ import {
   notFound,
 } from "../http";
 import { runDepsFromEnv } from "../runs/execute";
+import { hasLoopVersion } from "../testbench/gate";
 import { type TestSuiteJobs, testSuiteJobs } from "../testbench/instances";
 import { notPendingTry, partialMarks } from "../testbench/partial";
 import { executeSuite, finishSuite, type SuiteParams } from "../testbench/suite";
@@ -447,9 +450,53 @@ export function testbenchRoutes(app: Hono<AppEnv>): void {
     return { suiteRun: (await suiteViews(tx, [suite]))[0] as SuiteRunView, results };
   });
 
+  // Step model §8: a Loop skill's saved version tried once: every turn, nothing written. The
+  // bench answers reads from the fixtures given and refuses every write (invariant 8); the model
+  // calls are ours and never reach a client's usage.
+  mount(app, routes.opsLoopTry, async (ctx): Promise<LoopTryView> => {
+    const { tx, body, services } = ctx;
+    const target = await targetInScope(ctx, "skill", ctx.params.id);
+    const [v] = await tx
+      .select()
+      .from(skillVersion)
+      .where(and(eq(skillVersion.id, body.versionId), eq(skillVersion.skillId, target.id)));
+    if (!v) throw notFound("skill version");
+    if (!v.definition.loop) {
+      throw new HttpError(422, "not_a_loop", "only a Loop skill is tried here");
+    }
+    const result = await runSkillCase(
+      {
+        tools: services.platform.tools,
+        transport: clientModels(services, { clients: [target.tenantId], read: tx }),
+      },
+      {
+        definition: v.definition,
+        tenantId: target.tenantId,
+        input: body.input,
+        fixtures: body.fixtures,
+      },
+    );
+    return {
+      status: result.status,
+      output: result.output,
+      error: result.error,
+      costUsd: result.costUsd,
+      modelCalls: result.modelCalls,
+      turns: result.turns,
+    };
+  });
+
   mount(app, routes.opsSkillRequireTests, async (ctx) => {
     const { tx, body, session } = ctx;
     const target = await targetInScope(ctx, "skill", ctx.params.id);
+    // Step model §8: a Loop skill's test set is not optional, so its requirement never goes off.
+    if (!body.required && (await hasLoopVersion(tx, target.id))) {
+      throw new HttpError(
+        422,
+        "loop_tests_required",
+        "A Loop can't be published without its test set passing: this can't be turned off",
+      );
+    }
     await tx
       .update(skill)
       .set({ requireTests: body.required })

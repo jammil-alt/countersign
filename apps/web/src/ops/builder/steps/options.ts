@@ -69,6 +69,25 @@ export interface SkillChoice {
   output: Field[];
 }
 
+/**
+ * A saved Loop (docs/step-model-plan.md §8): a skill with a loop block, picked in a Loop step. The
+ * step takes its goal, reads, turns and checks from it; it may read fewer actions or run fewer
+ * turns, never more (the runtime holds the skill's own as the ceiling).
+ */
+export interface LoopChoice {
+  ref: string;
+  name: string;
+  description: string;
+  goal: string;
+  reads: string[];
+  maxTurns: number;
+  atLimit: "stop" | "hand_back";
+  output: Field[];
+  /** A second model's focus on the result, when the Loop sets one. */
+  conferFocus?: string | undefined;
+  review?: "auto" | "off" | "always" | undefined;
+}
+
 export interface AutomationChoice {
   ref: string;
   name: string;
@@ -82,6 +101,8 @@ export interface UsesContext {
   skills: readonly SkillChoice[];
   automations: readonly AutomationChoice[];
   profiles: readonly MatchProfile[];
+  /** The saved Loops a Loop step may pick (absent: none). */
+  loops?: readonly LoopChoice[];
 }
 
 export const NO_USES_CONTEXT: UsesContext = {

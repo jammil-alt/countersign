@@ -460,19 +460,16 @@ export async function resolveCustomSkill(
   const { id, version } = parseSkillRef(input.ref);
   if (!isCustomSkill(id)) return null;
   const slug = customSlug(id);
-  const candidates: [string | null, string, SkillSource][] =
-    input.tenantId === null
-      ? [[null, slug, "shared"]]
-      : [
-          [input.tenantId, slug, "client"],
-          [input.tenantId, `${SHARED_COPY_PREFIX}${slug}`, "shared"],
-          [null, slug, "shared"],
-        ];
+  const candidates = candidatesFor(input.tenantId, slug);
   for (const [tenantId, s, source] of candidates) {
     const row = await skillBySlug(tx, tenantId, s);
     if (row?.status !== "active") continue;
     const v = await versionOf(tx, row, version, input.newest === true);
     if (!v) continue;
+    // Step model §8: a Loop that was never live has not passed its test set. A pinned reference
+    // reaches a draft (`versionOf` takes any version), so a run refuses it here; the newest-version
+    // lookup is the designer's own, never a run.
+    if (!input.newest && isUntestedLoop(v)) continue;
     return {
       ref: input.ref,
       definition: v.definition,
@@ -480,6 +477,51 @@ export async function resolveCustomSkill(
       versionId: v.id,
       version: v.version,
     };
+  }
+  return null;
+}
+
+/** Where a custom skill's slug is looked up for a client (or among shared skills, for none). */
+function candidatesFor(
+  tenantId: string | null,
+  slug: string,
+): [string | null, string, SkillSource][] {
+  return tenantId === null
+    ? [[null, slug, "shared"]]
+    : [
+        [tenantId, slug, "client"],
+        [tenantId, `${SHARED_COPY_PREFIX}${slug}`, "shared"],
+        [null, slug, "shared"],
+      ];
+}
+
+/**
+ * Step model §8: a Loop skill version that is still a draft was never live, so its test set never
+ * gated it (a published version, live or since retired, passed it). Stored definitions only.
+ */
+function isUntestedLoop(v: Pick<SkillVersionRow, "status" | "definition">): boolean {
+  return v.status === "draft" && v.definition.loop !== undefined;
+}
+
+/**
+ * Why a reference to a custom skill can't run, when it names a Loop version that never passed its
+ * test set (a pinned `custom:slug@N` that is still a draft); null when it can. Checked when an
+ * agent is published, so the refusal is in plain words on the step, and again at run time.
+ */
+export async function untestedLoopReason(
+  tx: Tx,
+  input: { tenantId: string | null; ref: string },
+): Promise<string | null> {
+  const { id, version } = parseSkillRef(input.ref);
+  if (!isCustomSkill(id) || version === null) return null;
+  for (const [tenantId, s] of candidatesFor(input.tenantId, customSlug(id))) {
+    const row = await skillBySlug(tx, tenantId, s);
+    if (row?.status !== "active") continue;
+    const v = await versionOf(tx, row, version);
+    if (!v) continue;
+    return isUntestedLoop(v)
+      ? `${input.ref} is a draft: a Loop is used only after its test set passes and it is published`
+      : null;
   }
   return null;
 }
@@ -570,6 +612,12 @@ export async function snapshotSharedSkills(
     }
     const source = await versionOf(tx, shared, version);
     if (!source) throw new AgentsError("unknown_skill", `skill ${ref} has no such version`);
+    if (isUntestedLoop(source)) {
+      throw new AgentsError(
+        "invalid_state",
+        `${ref} is a Loop that was never published: its test set must pass first`,
+      );
+    }
 
     const copySlug = `${SHARED_COPY_PREFIX}${slug}`;
     let copy = await skillBySlug(tx, input.tenantId, copySlug);

@@ -4,7 +4,10 @@
 
 import { uuidv7 } from "@countersign/core";
 import type { ReactNode } from "react";
+import { useNavigate } from "react-router-dom";
 import { Button } from "../../../ui/primitives";
+import { NEW_LOOP_PATH } from "../../lab/loops/paths";
+import { formFromStep, fromSavedLoop, readableFor, writeInStep } from "../../lab/loops/use-loop";
 import { DurationPicker } from "../duration";
 import { NO_ERRORS, Row, SmallInput, SmallSelect } from "../fields";
 import { RulesEditor } from "../rules";
@@ -110,14 +113,62 @@ const area = "ds-textarea min-h-20 w-full";
 
 export function LoopForm(props: StepFormProps<Of<"loop">>) {
   const { step, env } = props;
-  const gets = env.uses.actions.groups
-    .map((g) => ({ ...g, actions: g.actions.filter((a) => a.kind === "get") }))
-    .filter((g) => g.actions.length > 0);
   const set = (patch: Partial<Of<"loop">>) => props.onChange({ ...step, ...patch });
+  // Step model §8: a saved Loop (from the Agent lab's Loop designer) or one written in the step.
+  const saved = env.uses.loops ?? [];
+  const chosen = saved.find((l) => l.ref === step.skill);
+  const navigate = useNavigate();
+  const canRead = readableFor(chosen);
+  const gets = env.uses.actions.groups
+    .map((g) => ({
+      ...g,
+      actions: g.actions.filter((a) => a.kind === "get" && (canRead ? canRead(a.id) : true)),
+    }))
+    .filter((g) => g.actions.length > 0);
   return (
     <div className="flex flex-col gap-4" data-testid="form-loop">
       <Head props={props} label="Name" placeholder="Look into the leftovers" />
       <Issues issues={props.issues} />
+      {saved.length > 0 || step.skill ? (
+        <Row
+          label="Loop"
+          hint={
+            chosen
+              ? "It reads at most what this Loop reads and runs at most its turns."
+              : "Pick one from the Agent lab's Loop designer, or write it here."
+          }
+        >
+          <SmallSelect
+            aria-label="Saved Loop"
+            value={step.skill ?? ""}
+            onChange={(e) => {
+              const next = saved.find((l) => l.ref === e.target.value);
+              props.onChange(next ? fromSavedLoop(step, next) : writeInStep(step));
+            }}
+          >
+            <option value="">Written in this step</option>
+            {step.skill && !chosen ? <option value={step.skill}>{step.skill}</option> : null}
+            {saved.map((l) => (
+              <option key={l.ref} value={l.ref}>
+                {l.name}
+              </option>
+            ))}
+          </SmallSelect>
+        </Row>
+      ) : null}
+      {!step.skill ? (
+        <Row
+          label="Save as Loop"
+          hint="A Loop written here can be drafted, but an agent publishes only a saved Loop that passed its tests."
+        >
+          <Button
+            size="sm"
+            onClick={() => navigate(NEW_LOOP_PATH, { state: { loop: formFromStep(step) } })}
+          >
+            Save as Loop
+          </Button>
+        </Row>
+      ) : null}
       <Field
         label="Goal"
         step={step}

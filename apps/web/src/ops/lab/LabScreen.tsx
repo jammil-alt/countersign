@@ -25,6 +25,7 @@ import { isNewKind, NewBuild, type NewKind } from "../builds/NewBuild";
 import { TableCard } from "../screens/business";
 import { rememberLabQuery } from "./back";
 import { ClearDrafts, StoppedBuilds } from "./ClearDrafts";
+import { NEW_LOOP_PATH } from "./loops/paths";
 import { handOver } from "./TemplateParts";
 
 export { useSlow } from "./TemplateParts";
@@ -272,6 +273,9 @@ export function LabScreen() {
         actions={
           <>
             {/* §1.212 */}
+            <Link to={NEW_LOOP_PATH} className={buttonClass("ghost")} data-testid="lab-new-loop">
+              New Loop
+            </Link>
             <Link to="/ops/scorecard" className={buttonClass("ghost")} data-testid="lab-scorecard">
               Scorecard
             </Link>

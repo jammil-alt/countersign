@@ -59,6 +59,7 @@ import { CommandCenterScreen } from "./command/CommandCenter";
 import { OpsClientConnectorScreen } from "./connectors/ClientConnector";
 import { CheckStepsScreen } from "./flow/CheckSteps";
 import { LabScreen } from "./lab/LabScreen";
+import { LoopPage, NewLoopScreen } from "./lab/loops/LoopDesigner";
 // R8: the Library (docs/plan.md §1.86)
 import { ConditionsBank } from "./library/ConditionsBank";
 import { LibraryIndexScreen } from "./library/LibraryIndex";
@@ -162,6 +163,9 @@ export const opsRoutes = (
     <Route path="runs/:id" element={<OpsRunScreen />} />
     {/* O2 Agent lab, update merge (UI-2b) */}
     <Route path="lab" element={<LabScreen />} />
+    {/* Step model §8: the Loop designer, laid out as the skill page is. */}
+    <Route path="lab/loops/new" element={<NewLoopScreen />} />
+    <Route path="lab/loops/:id" element={<LoopPage />} />
     {/* §1.212: the eval scorecard, per template workflow and version (its own chunk) */}
     <Route
       path="scorecard"

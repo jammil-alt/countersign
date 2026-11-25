@@ -47,11 +47,45 @@ describe("the Bookkeeping manifest", () => {
     ]);
     for (const skill of BOOKKEEPING_SKILLS) {
       expect(SkillDefinition.safeParse(skill).success, skill.id).toBe(true);
-      for (const t of [...(skill.handler ? [skill.handler] : []), ...skill.tools]) {
+      for (const t of [
+        ...(skill.handler ? [skill.handler] : []),
+        ...skill.tools,
+        ...(skill.reads ?? []),
+      ]) {
         expect(tools.has(t), `${skill.id} → ${t}`).toBe(true);
       }
       expect(skill.requiresPacks).toContain("bookkeeping");
     }
+  });
+
+  it("ships its Loop reading only: Get actions, no write, its own limits (step model §8)", () => {
+    const loop = BOOKKEEPING_SKILLS.find((s) => s.id === "bookkeeping.investigate-leftovers");
+    expect(loop?.mode).toBe("agent");
+    expect(loop?.loop).toMatchObject({ maxTurns: 10, atLimit: "hand_back" });
+    const specs = new Map(bookkeepingManifest.tools.map((t) => [t.id, t]));
+    expect(loop?.tools).toEqual([]);
+    expect(loop?.reads?.length).toBeGreaterThan(0);
+    for (const t of loop?.reads ?? []) expect(specs.get(t)?.sideEffect, t).toBe("none");
+    // It never proposes by itself: the write is a step after it.
+    expect(loop?.reads).not.toContain("bookkeeping.reconcile.propose");
+  });
+
+  it("ships its Loop with a test set, and isn't a manifest without one", () => {
+    expect(Object.keys(bookkeepingManifest.loopTests ?? {})).toEqual([
+      "bookkeeping.investigate-leftovers",
+    ]);
+    const without = PackManifest.safeParse({ ...bookkeepingManifest, loopTests: undefined });
+    expect(without.success).toBe(false);
+    expect(JSON.stringify(without.error?.issues)).toContain("ships without a test set");
+    const stray = PackManifest.safeParse({
+      ...bookkeepingManifest,
+      loopTests: {
+        ...bookkeepingManifest.loopTests,
+        "bookkeeping.read-statement":
+          bookkeepingManifest.loopTests?.["bookkeeping.investigate-leftovers"],
+      },
+    });
+    expect(stray.success).toBe(false);
   });
 
   it("ships the Bookkeeper with approval on for every write, in suggest-only mode", () => {

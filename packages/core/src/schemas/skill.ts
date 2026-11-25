@@ -141,6 +141,26 @@ export const SkillNeed = z
   .meta({ id: "SkillNeed" });
 export type SkillNeed = z.infer<typeof SkillNeed>;
 
+/**
+ * A Loop skill (docs/step-model-plan.md §8): an agent-mode skill that only reads. A model works
+ * toward `goal` with the Get actions in the skill's `reads`, deciding each next call from what the
+ * last one returned, for at most `maxTurns` model calls. It never writes: what it decides is saved
+ * by a step after it (invariant 9).
+ */
+export const SkillLoop = z
+  .strictObject({
+    goal: z.string().trim().min(1).max(1000),
+    maxTurns: z.number().int().min(1).max(50).default(10),
+    /** At the limit: stop (the step fails) or hand back what it has. */
+    atLimit: z.enum(["stop", "hand_back"]).default("stop"),
+    /** Confer: a second model's opinion on the result, in this focus (a step may add a person). */
+    confer: z.strictObject({ focus: z.string().trim().min(1).max(500) }).optional(),
+    /** Review: the owner's check of the step, as a step's own (absent: the owner decides). */
+    review: z.enum(["auto", "off", "always"]).optional(),
+  })
+  .meta({ id: "SkillLoop" });
+export type SkillLoop = z.infer<typeof SkillLoop>;
+
 /** ARCHITECTURE §9.2. */
 export const SkillDefinition = z
   .object({
@@ -209,6 +229,17 @@ export const SkillDefinition = z
     // Skill model (2026-11-10): named, typed values the agent sets for its use of the skill.
     /** The skill version's parameters; values are set per agent and per step. */
     parameters: z.array(SkillParameter).max(30).optional(),
+    /** A Loop skill (agent mode, reads only): its goal, turns and limit. Absent on every other. */
+    loop: SkillLoop.optional(),
+  })
+  // Step model §8: only an agent-mode skill is a Loop, and a Loop reads through `reads` alone.
+  .refine((s) => s.loop === undefined || s.mode === "agent", {
+    message: "only an agent-mode skill is a Loop",
+    path: ["loop"],
+  })
+  .refine((s) => s.loop === undefined || s.tools.length === 0, {
+    message: "a Loop reads through its read actions, not tools: move them to reads",
+    path: ["tools"],
   })
   // Skill model (2026-11-10): a deterministic skill is code (a handler, built-ins only) or rule rows.
   .refine((s) => s.mode !== "tool" || s.handler !== undefined || (s.rules?.length ?? 0) > 0, {

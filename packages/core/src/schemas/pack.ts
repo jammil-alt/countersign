@@ -4,6 +4,7 @@ import { GuideSectionSource } from "../onboarding/guide";
 import { OwnerArea } from "../owners/areas";
 import { Role } from "../roles";
 import { MatchProfile } from "../steps/match-profile";
+import { LoopTests, loopsWithoutTests } from "../testbench/loop-tests";
 import { AgentBundle, AnyAgentBundle } from "./agent";
 import { Slug } from "./common";
 import { EventTypeSpec } from "./event";
@@ -112,6 +113,10 @@ export const PackManifest = z
     // v1, the first time it is switched on. From then on they are the operator's: edited, versioned,
     // tested and published in the Library like any skill they wrote; the pack never changes them.
     librarySkills: z.array(SkillDefinition).optional(),
+    // Step model §8: a Loop the pack ships (a skill with a `loop` block, built in or a Library
+    // skill) carries its test set: hand-written replays, by skill id. CI runs them and the pack
+    // can't be installed without them: a Loop is never published untested.
+    loopTests: LoopTests.optional(),
     // §1.88: the pack's skills another skill replaces for new steps (skill id → its replacement's
     // id, one of the pack's skills or Library skills). Stored steps keep running the old one
     // (invariant 3); the palette and the Builder offer the replacement instead (core's
@@ -157,6 +162,22 @@ export const PackManifest = z
       });
     }
     const library = p.librarySkills ?? [];
+    for (const id of loopsWithoutTests([...p.skills, ...library], p.loopTests)) {
+      ctx.addIssue({
+        code: "custom",
+        message: `${id} is a Loop and ships without a test set: add its cases to loopTests`,
+        path: ["loopTests", id],
+      });
+    }
+    for (const id of Object.keys(p.loopTests ?? {})) {
+      if (![...p.skills, ...library].some((s) => s.id === id && s.loop !== undefined)) {
+        ctx.addIssue({
+          code: "custom",
+          message: `loopTests names ${id}, which isn't one of the pack's Loops`,
+          path: ["loopTests", id],
+        });
+      }
+    }
     for (const [from, to] of Object.entries(p.superseded ?? {})) {
       if (!p.skills.some((s) => s.id === from)) {
         ctx.addIssue({
