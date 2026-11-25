@@ -11,7 +11,7 @@ import {
 import { DEFAULT_MODELS } from "@countersign/llm";
 import { describe, expect, it } from "vitest";
 import type { BuilderContext } from "./context";
-import { DEFAULT_APPROVAL, guardBundle } from "./guards";
+import { DEFAULT_APPROVAL, guardBundle, plainPurpose } from "./guards";
 
 const sendSkill: SkillDefinition = {
   schemaVersion: 1,
@@ -257,5 +257,51 @@ describe("guards: the Builder never changes an agent's record grants or data set
     const drafted = withData(bundleWith(step), READ_VENDORS);
     const out = guardBundle(drafted, context(), { mode: "draft" });
     expect(out.bundle.definition.data).toBeUndefined();
+  });
+});
+
+// Staging, 2026-11-25: "Too big: expected string to have <=200 characters → at
+// workflows[0].workflow.steps[1].purpose". A purpose checked with short ids grew past the limit
+// once its {{steps.…}} references got their real ids, and the turn failed after the model answered.
+describe("guards: a step's purpose stays plain and within the limit", () => {
+  const ID = "01a2104a-928c-78c6-84dd-828e77acf308";
+
+  it("takes references out of a purpose and leaves short plain ones alone", () => {
+    expect(plainPurpose("Looks the vendor up so the bill goes to the right vendor")).toBe(
+      "Looks the vendor up so the bill goes to the right vendor",
+    );
+    expect(
+      plainPurpose(`Compares the vendor ({{steps.${ID}.vendor}}) with earlier invoices.`),
+    ).toBe("Compares the vendor with earlier invoices.");
+    expect(plainPurpose(`{{steps.${ID}.output}}`)).toBeNull();
+  });
+
+  it("cuts a long one at its last sentence, else its last word, within 200", () => {
+    const first = `Checks the vendor and invoice number against invoices this agent already reviewed${", so a repeat stops early".repeat(3)}.`;
+    const long = `${first} ${"Then it goes on to match the lines. ".repeat(4)}`;
+    // The last whole sentence that fits.
+    expect(plainPurpose(long)).toBe(`${first} Then it goes on to match the lines.`);
+    const words = plainPurpose("word ".repeat(60)) ?? "";
+    expect(words.length).toBeLessThanOrEqual(200);
+    expect(words.endsWith("word…")).toBe(true);
+  });
+
+  it("guards a draft whose purpose grew past the limit instead of failing the turn", () => {
+    const step = {
+      id: "s-bills",
+      kind: "read",
+      name: "Find earlier invoices",
+      tool: "qbo.bill.list",
+      input: {},
+    };
+    const origin = bundleWith(step);
+    const answer = structuredClone(origin);
+    const grown = `Checks {{steps.${ID}.vendor}} and {{steps.${ID}.number}} against {{steps.${ID}.reviewed}} so an invoice this agent already reviewed stops here instead of being matched a second time by the steps below.`;
+    expect(grown.length).toBeGreaterThan(200);
+    (answer.workflows[0]?.workflow.steps[0] as { purpose?: string }).purpose = grown;
+    const out = stepById(guarded(origin, answer), "s-bills") as { purpose?: string };
+    expect(out.purpose).toBe(
+      "Checks and against so an invoice this agent already reviewed stops here instead of being matched a second time by the steps below.",
+    );
   });
 });

@@ -25,6 +25,7 @@ import {
   parseSkillRef,
   processes,
   type SkillDefinition,
+  STEP_PURPOSE_MAX,
   type ToolSpec,
   type TypingContext,
   uuidv7,
@@ -329,6 +330,50 @@ export function guardDefinition<D extends ProcessAgentBundle["definition"]>(
 }
 
 /** Applies every guard to the model's bundle (already through Zod). */
+/**
+ * A step's purpose as its SOP shows it (staging, 2026-11-25): plain words, at most
+ * `STEP_PURPOSE_MAX`. The model's answer is checked with short ids; a `{{steps.s6…}}` written in a
+ * purpose then grows by an id's length per mention as the ids are put back, and the bundle failed
+ * to parse after the model had answered. A reference means nothing in prose, so it is taken out;
+ * a purpose still too long is cut at its last sentence or word that fits. Null when nothing is left.
+ */
+// DECISION: cut, not sent back to repair: the purpose is one line of the SOP, the operator edits
+// it in the step panel, and a repair round would cost the turn a second model call.
+export function plainPurpose(text: string): string | null {
+  const plain = text
+    .replace(/\{\{[^}]*\}\}/g, "")
+    .replace(/\s+([,.;:)])/g, "$1")
+    .replace(/\(\s*\)/g, "")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+  if (!plain) return null;
+  if (plain.length <= STEP_PURPOSE_MAX) return plain;
+  const room = plain.slice(0, STEP_PURPOSE_MAX);
+  const sentence = room.lastIndexOf(". ");
+  if (sentence >= STEP_PURPOSE_MAX / 2) return room.slice(0, sentence + 1);
+  const word = room.slice(0, STEP_PURPOSE_MAX - 1).lastIndexOf(" ");
+  return `${room.slice(0, word > 0 ? word : STEP_PURPOSE_MAX - 1).replace(/[\s,;:]+$/, "")}…`;
+}
+
+/** Every step's purpose made plain (`plainPurpose`), anywhere in a workflow's steps. */
+function plainPurposes(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(plainPurposes);
+  if (!isPlainObject(value)) return value;
+  const isStep = typeof value.id === "string" && typeof value.kind === "string";
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(value)) {
+    if (isStep && k === "purpose" && typeof v === "string") {
+      const purpose = plainPurpose(v);
+      if (purpose) out[k] = purpose;
+    } else if (k !== "input") {
+      out[k] = plainPurposes(v);
+    } else {
+      out[k] = v;
+    }
+  }
+  return out;
+}
+
 export function guardBundle(
   input: ProcessAgentBundle,
   ctx: BuilderContext,
@@ -608,7 +653,10 @@ export function guardBundle(
   }
 
   return {
-    bundle: ProcessAgentBundleSchema.parse(bundle) as ProcessAgentBundle,
+    bundle: ProcessAgentBundleSchema.parse({
+      ...bundle,
+      workflows: bundle.workflows.map((w) => ({ ...w, workflow: plainPurposes(w.workflow) })),
+    }) as ProcessAgentBundle,
     gaps,
     notes,
     fix,
