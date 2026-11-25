@@ -31,7 +31,10 @@ describe.skipIf(!h)("model-driven skills and readings", () => {
 
   it("docs.read takes no reading from its caller", () => {
     const spec = platform().tools.get("docs.read")?.spec;
-    const keys = Object.keys((spec?.input as { properties: object }).properties).sort();
+    expect(spec).toBeDefined();
+    const keys = Object.keys(
+      (spec?.input as { properties?: object } | undefined)?.properties ?? {},
+    ).sort();
     expect(keys).toEqual(["as", "documentId"]);
   });
 });
