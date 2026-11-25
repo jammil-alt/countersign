@@ -11,11 +11,13 @@
 import {
   type AgentBundle,
   AgentBundle as AgentBundleSchema,
+  type AgentData,
   type AnyAgentBundle,
   AnyAgentBundle as AnyAgentBundleSchema,
   type AnyAutomationDefinition,
   // v0.12 W2-D: the account agent's publish guard
   accountAgentProblems,
+  agentDataProblems,
   automationRefs,
   bindingConnector,
   bundleHash,
@@ -29,6 +31,7 @@ import {
   parseSkillRef,
   processes,
   REVOKED_GRANT,
+  type RecordType,
   type SkillDefinition,
   skillTools,
   steps,
@@ -89,6 +92,11 @@ export interface RegistryContext {
     tenantId: string,
     agentId: string | null,
   ) => Promise<processes.ActionBindings["channels"]>;
+  /**
+   * Step model §10f: every declared record type (the areas' and the shared ones). Absent: an
+   * agent's record grants and data sets aren't checked at publish (the gate still holds them).
+   */
+  recordTypes?: readonly RecordType[];
 }
 
 /** Whether a bundle holds an action write step (a v4 process's). */
@@ -490,6 +498,19 @@ export async function validateForPublish(
   );
   if (!options.installed) {
     errors.push(...(await loopPublishErrors(tx, row, bundle, ctx, { ...used.skills, ...skills })));
+  }
+  // Step model §10f: the agent's grants and data sets name declared record types, and grant writes
+  // only where a record type allows them.
+  if (ctx.recordTypes) {
+    const data = (bundle.definition as { data?: AgentData }).data;
+    for (const message of agentDataProblems(data, ctx.recordTypes)) {
+      errors.push({
+        stepId: null,
+        field: "definition.data",
+        code: "record_grant_invalid",
+        message,
+      });
+    }
   }
   for (const ref of missing) {
     // Workflow steps are reported by validateBundle; the agent's own skill list is checked here.

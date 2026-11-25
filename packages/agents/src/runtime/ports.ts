@@ -22,6 +22,8 @@ import type { AccountPort } from "../tools/account";
 import type { InboundPort } from "../tools/inbound";
 // B3 (docs/builder-plan.md §8, tier 3)
 import type { ManualsPort } from "../tools/manual";
+// §1.77
+import type { RecordsPort } from "../tools/records";
 import type { ThreadsPort } from "../tools/threads";
 // P-7
 import type { TranslationPort } from "../tools/translate";
@@ -35,7 +37,6 @@ import type {
   PlatformStore,
   RunMode,
 } from "../tools/types";
-// §1.77
 import type { WebResearchPort } from "../tools/web";
 
 export interface PinnedAgent {
@@ -489,6 +490,8 @@ export interface RuntimePorts {
   // §1.77: web research
   /** `web.search` and `web.fetch`; absent: research is off and they answer `off`. */
   web?: WebResearchPort;
+  // Step model §10f: our own records by record type (the standard record actions).
+  records?: RecordsPort;
   // Round 4 D (§1.211)
   /** The run's sources for the verifier before a write; absent: writes go on unverified. */
   verify?: VerifyPort;

@@ -148,6 +148,7 @@ import { opsModelRoutes } from "./routes/ops-models";
 // v0.13 W2-I
 import { opsOversightRoutes } from "./routes/ops-oversight";
 import { opsReadTableRoutes } from "./routes/ops-read-table";
+import { opsRecordRoutes } from "./routes/ops-records";
 import { opsReshapeRoutes } from "./routes/ops-reshape";
 import { opsSkillRoutes } from "./routes/ops-skills";
 import { ownerRoutes } from "./routes/owners";
@@ -301,6 +302,8 @@ export function createApp(deps: AppDeps = defaultDeps): Hono<AppEnv> {
   opsReadTableRoutes(app);
   // Collect reports (owner, 2026-11-24): a report's sample file.
   opsCollectRoutes(app);
+  // Step model §10f: record types and custom fields.
+  opsRecordRoutes(app);
   opsSkillSampleRoutes(app);
   opsIntakeReportRoutes(app);
   opsMergeRoutes(app);

@@ -67,6 +67,7 @@ import type { Hono } from "hono";
 import { returnAgentLine } from "../channels/agent-line";
 import { type AppEnv, type HandlerCtx, HttpError, mount, notFound } from "../http";
 import type { Platform } from "../platform";
+import { recordActionsFor } from "../records/catalog";
 import { zohoToolInputsFor } from "../zoho/fields";
 import { tenantLocale } from "./language";
 import { agentSummary, versionSummary } from "./mappers";
@@ -627,8 +628,11 @@ export function opsLineageRoutes(app: Hono<AppEnv>): void {
       const owner = platform.connectors.findTool(spec.id)?.connector.manifest.id;
       return owner === undefined || !hidden.has(owner);
     });
+    // Step model §10f: a record type's standard actions are typed with the client's custom fields
+    // (a template's with the shared ones), and offered as the agent's grants and data sets allow.
+    const records = await recordActionsFor(ctx.tx, platform.records, row.tenantId, latest?.bundle);
     return {
-      groups: steps.buildActionCatalog(shown, {
+      groups: steps.buildActionCatalog([...shown.filter((spec) => !spec.record), ...records], {
         connectors: {
           ...Object.fromEntries(connectors.map((c) => [c.manifest.id, connectorTitle(c.manifest)])),
           ...Object.fromEntries(BUILTIN_CONNECTORS.map((b) => [b.id, b.name])),

@@ -130,6 +130,7 @@ import type { Platform } from "../platform";
 import { dbDocumentServices } from "../qbo/documents";
 import { dbSyncedRecords } from "../qbo/receivables";
 import { type ReachDeps, reachPort } from "../reach/service";
+import { dbRecordsPort } from "../records/port";
 import { tenantLocale } from "../routes/language";
 // Wave 6: the owner's check on every step, and the audit queue (docs/plan.md §1.86)
 import { dbOwnerCheckLog, queueFinishedRun } from "../run-audit/store";
@@ -420,6 +421,8 @@ export function runtimeFor(
   });
   // PLATFORM_QA STATE-8: a step tried again by the engine asks a person once.
   ports.platform = oneAskPerStep(ports.platform, db);
+  // Step model §10f: the standard record actions reach the client's records through their stores.
+  ports.records = dbRecordsPort(db, deps.platform.records);
   // §1.150: Sloan's answer to a person who wrote by email or text goes back that way.
   if (deps.notify && ports.threads) {
     ports.threads = deliveringThreads(ports.threads, sloanAnswerDeps(deps, deps.notify));

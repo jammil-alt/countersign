@@ -13,6 +13,7 @@ import {
   type MatchPort,
   type PackManifest,
   type ProfileMatcher,
+  type RecordStore,
   type ToolSpec,
 } from "@countersign/core";
 import type { Db, Tx } from "@countersign/db";
@@ -21,6 +22,7 @@ import {
   BOOKKEEPING_ACTIONS,
   BOOKKEEPING_HANDLERS,
   BOOKKEEPING_NIGHTLY,
+  BOOKKEEPING_RECORD_STORES,
   BOOKKEEPING_REPORTS,
   BOOKKEEPING_REVIEWS,
   bookkeepingManifest,
@@ -45,6 +47,7 @@ import {
   MATERIALS_ACTIONS,
   MATERIALS_HANDLERS,
   MATERIALS_MATCHERS,
+  MATERIALS_RECORD_STORES,
   MATERIALS_REPORTS,
   MATERIALS_REVIEWS,
   materialsManifest,
@@ -186,6 +189,11 @@ export interface RegisteredPack {
    * manifest declares (`matchProfiles`), one matcher per profile; `matchPort` gathers them all.
    */
   matchers?: readonly ProfileMatcher<PackToolContext>[];
+  /**
+   * Step model §10f: the stores of the record types its manifest declares (`recordTypes`), one per
+   * record type; the platform offers Find, Get by id, Create and Update on each.
+   */
+  records?: readonly RecordStore<Tx>[];
 }
 
 /** What the inbound route hands a pack: the body (capped at `maxBytes`) and the request's facts. */
@@ -249,6 +257,8 @@ export const DEPLOYMENT_PACKS: readonly RegisteredPack[] = lazyObjects([
     portalReports: lazy(() => [...screenReports(materialsManifest), "master-vendors"]),
     // Step model §7: Vendors, Vendor items and Master items.
     matchers: MATERIALS_MATCHERS,
+    // Step model §10f: Master items and Vendor items.
+    records: MATERIALS_RECORD_STORES,
   },
   // Plan entry §1.233: the AP pack, extending the Purchasing area: bills prepared from invoices,
   // matched to their purchase orders, coded and flagged, and the week's approve-to-pay list (its
@@ -286,6 +296,8 @@ export const DEPLOYMENT_PACKS: readonly RegisteredPack[] = lazyObjects([
     reviews: BOOKKEEPING_REVIEWS,
     actions: BOOKKEEPING_ACTIONS,
     nightly: BOOKKEEPING_NIGHTLY,
+    // Step model §10f: Bank transactions.
+    records: BOOKKEEPING_RECORD_STORES,
     portalReports: lazy(() => screenReports(bookkeepingManifest)),
   },
   // docs/plan.md §1.232: the Close pack, extending the Bookkeeping area: a month's checklist, its

@@ -6653,7 +6653,7 @@ export const intakeEvent = pgTable(
 
 /**
  * Step model §10f (stream N): the kinds of value a custom field holds. Kept equal to core's
- * `CUSTOM_FIELD_TYPES` (a core test reads both); this file imports only drizzle-orm at runtime.
+ * `CUSTOM_FIELD_TYPES` (records.test.ts reads both); this file imports only drizzle-orm at runtime.
  */
 export const CUSTOM_FIELD_TYPES = [
   "text",

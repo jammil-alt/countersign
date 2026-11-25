@@ -23,6 +23,7 @@ import { PURCHASING_INTAKE_SECTION } from "./intake";
 import { PRICE_DEFAULTS } from "./pricing/rules";
 import { PURCHASING_SKILLS } from "./purchasing/skills";
 import { PURCHASING_TOOLS } from "./purchasing/tools";
+import { MATERIALS_RECORD_TYPES } from "./records";
 import { REPLACEMENT_SKILLS, SPLIT_SKILLS, SPLIT_TOOLS } from "./split";
 import {
   catalogDuplicates,
@@ -294,6 +295,8 @@ export const materialsManifest: PackManifest = lazyParse(PackManifest, () => ({
   // Step model §7, §10d (stream D): the area's match profiles, and the actions they replace.
   matchProfiles: MATERIALS_MATCHERS.map((m) => m.profile),
   retiredTools: MATERIALS_RETIRED_TOOLS,
+  // Step model §10f (stream N): the area's record types; their stores are MATERIALS_RECORD_STORES.
+  recordTypes: [...MATERIALS_RECORD_TYPES],
   // §1.149.2: the area's questions for a client's intake (Getting started's card).
   intakeSection: PURCHASING_INTAKE_SECTION,
   screens: [

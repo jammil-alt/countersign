@@ -137,6 +137,18 @@ export const ToolSpec = z
     // DECISION: optional and absent on every tool that calls no model, so specs stored before it
     // parse unchanged.
     usesModel: z.string().min(1).max(300).optional(),
+    // Step model §10f (stream N): one of a record type's standard actions (Find, Get by id,
+    // Create, Update; core `records`). The gate checks the agent version's grant on `type`, and a
+    // Find's on each record type it follows (`links`: link name → record type).
+    // DECISION: declared on the spec, as `entity` and `area` are, so the gate stays a function of
+    // the spec, the input and the pinned version; the platform names no record type.
+    record: z
+      .strictObject({
+        type: EntityId,
+        action: z.enum(["find", "get", "create", "update"]),
+        links: z.record(z.string(), EntityId).optional(),
+      })
+      .optional(),
   })
   .refine((t) => t.approval === undefined || t.sideEffect === "external", {
     message: "only external tools can always need a person's signature",
@@ -168,6 +180,16 @@ export const ToolSpec = z
     message: "only external tools say how they are taken back",
     path: ["undo"],
   })
+  .refine(
+    (t) =>
+      t.record === undefined ||
+      (t.sideEffect !== "external" &&
+        (t.sideEffect === "none") === (t.record.action === "find" || t.record.action === "get")),
+    {
+      message: "a record action reads or saves our own records, as its action says",
+      path: ["record"],
+    },
+  )
   .refine((t) => t.undo?.kind !== "reverse" || t.undo.tool !== t.id, {
     message: "a write isn't reversed by itself; use restore",
     path: ["undo", "tool"],

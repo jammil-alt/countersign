@@ -86,6 +86,8 @@ export type ValidationCode =
   // Step model §8: a Loop step publishes only as a saved, tested Loop skill.
   | "loop_unsaved"
   | "loop_not_a_loop"
+  // Step model §10f: a grant on a record type nobody declares, or a write it doesn't allow.
+  | "record_grant_invalid"
   | "loop_untested"
   | "skill_not_allowed"
   | "agent_not_commandable"

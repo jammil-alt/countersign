@@ -61,6 +61,7 @@ import {
 } from "./context";
 import { recordModelCall } from "./model-call";
 import type { ExternalActionRecord, ToolCallStatus } from "./ports";
+import { recordGrantRefusal } from "./record-grants";
 import { verifyWrite } from "./verify";
 
 export type ToolOutcome =
@@ -372,6 +373,11 @@ async function dispatch(
     const parsed = tool.tool.input.safeParse(input);
     if (!parsed.success)
       return { status: "failed", error: `invalid input: ${parsed.error.message}` };
+    // Step model §10f: a record type's standard action runs only within the agent version's
+    // grant on that record type, and a Find within its grant on each record type it follows. The
+    // grant is read from the pinned version only: nothing in a run widens it (invariant 9).
+    const ungranted = recordGrantRefusal(step.agent, tool.spec, parsed.data);
+    if (ungranted) return { status: "refused", reason: ungranted };
     const raw = await tool.tool.run(parsed.data, {
       tenantId: step.tenantId,
       agentId: step.agent.agentId,
@@ -403,6 +409,8 @@ async function dispatch(
       translation: deps.ports.translation,
       // §1.77: web research
       web: deps.ports.web,
+      // Step model §10f: the standard record actions.
+      records: deps.ports.records,
       ask: step.ask,
       language: step.language,
       now: deps.now,
