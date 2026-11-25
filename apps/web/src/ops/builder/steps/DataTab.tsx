@@ -3,7 +3,16 @@
 // what the step did) and Going out (its output). From the step's last test run, otherwise sample data
 // made from the fields' types. For understanding only: nothing here is checked.
 
-import { ago, changed, comingIn, goingOut, type LastRun, type Runs } from "./data";
+import {
+  afterTranslation,
+  ago,
+  changed,
+  comingIn,
+  goingOut,
+  incomingSources,
+  type LastRun,
+  type Runs,
+} from "./data";
 import type { StepFormEnv } from "./form-kit";
 import type { Step } from "./types";
 
@@ -54,7 +63,9 @@ const json = (value: unknown) => JSON.stringify(value, null, 2);
 export function DataTab({ step, env, lastRun, runs }: DataTabProps) {
   const incoming = comingIn(step, env.workflow, env.uses, runs, lastRun, env.trigger);
   const outgoing = goingOut(step, env.uses, runs, lastRun);
-  const did = changed(step, env.uses);
+  const sources = incomingSources(env.workflow, step.id, env.uses, env.trigger);
+  const did = changed(step, env.uses, sources);
+  const translated = afterTranslation(step, incoming.value, new Date().toISOString().slice(0, 10));
   return (
     <div className="flex flex-col gap-4" data-testid="data-tab">
       <p className="text-xs text-ink-muted">For understanding only: nothing here is checked.</p>
@@ -69,11 +80,25 @@ export function DataTab({ step, env, lastRun, runs }: DataTabProps) {
       </Block>
       <Block title="Changed" source="What this step did" testId="data-changed">
         {did.translated.length > 0 ? (
-          <ul className="font-mono text-xs text-ink">
-            {did.translated.map((t) => (
-              <li key={t}>{t}</li>
-            ))}
-          </ul>
+          <>
+            <p className="text-sm text-ink">
+              Translated on the way in, {did.translated.length}{" "}
+              {did.translated.length === 1 ? "field" : "fields"}:
+            </p>
+            <ul className="font-mono text-xs text-ink">
+              {did.translated.map((t) => (
+                <li key={t}>{t}</li>
+              ))}
+            </ul>
+            {translated !== undefined ? (
+              <pre
+                className="overflow-x-auto border border-line bg-surface-subtle p-2 font-mono text-xs text-ink"
+                data-testid="data-translated"
+              >
+                {json(translated)}
+              </pre>
+            ) : null}
+          </>
         ) : (
           <p className="text-sm text-ink-muted">Nothing changed on the way in.</p>
         )}

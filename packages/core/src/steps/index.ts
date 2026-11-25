@@ -6,4 +6,5 @@ export * from "./convert-v4";
 export * from "./engine";
 export * from "./match-profile";
 export * from "./schema";
+export * from "./translate";
 export * from "./validate";
