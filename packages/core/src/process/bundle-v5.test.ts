@@ -136,7 +136,8 @@ describe("a bundle holding a v5 workflow", () => {
 
   it("names the schema problem in the workflow it is in", () => {
     const r = validateAnyBundle(
-      bundle([{ slug: "new", name: "New", workflow: { ...good, outputs: [] } }]),
+      // Drafts parse with no outputs yet (a publish check); a list that isn't one never does.
+      bundle([{ slug: "new", name: "New", workflow: { ...good, outputs: "none" as never } }]),
       { tools: TOOLS },
     );
     expect(r.valid).toBe(false);

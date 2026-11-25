@@ -29,6 +29,7 @@ import {
   loadDemoAgentVersions,
   loadSeedTemplates,
   loadSeedVersions,
+  SEED_DIR_BEFORE_STEP_MODEL,
 } from "@countersign/db/seed";
 import { knownModelIds } from "@countersign/llm";
 import { bookkeepingManifest } from "@countersign/pack-bookkeeping";
@@ -63,11 +64,12 @@ interface Pair {
 /** Every v4 version with the v3 version it was read from. */
 async function pairs(): Promise<Pair[]> {
   const out: Pair[] = [];
-  const v1s = await loadSeedTemplates();
-  const later = await loadSeedVersions();
+  // The seeds' v3 to v4 history, as seeded before the step model (wave 4 deletes it).
+  const v1s = await loadSeedTemplates(SEED_DIR_BEFORE_STEP_MODEL);
+  const later = await loadSeedVersions(SEED_DIR_BEFORE_STEP_MODEL);
   const seedAt = (slug: string, n: number) =>
     n === 1
-      ? v1s.find((t) => t.slug === slug)?.bundle
+      ? (v1s.find((t) => t.slug === slug)?.bundle as AgentBundle | undefined)
       : (later.find((v) => v.slug === slug && v.version === n)?.bundle as AgentBundle | undefined);
   for (const [slug, from, to] of [
     ["bill-clerk", 1, 2],
@@ -169,8 +171,8 @@ describe("R2: the skills the latest seeds and templates name", () => {
         .map((id) => `${slug}: ${id}`),
     );
     expect(missing).toEqual([]);
-    // The v1s still name them (stored history is never edited).
-    const v1Missing = (await loadSeedTemplates()).flatMap((t) =>
+    // The v1s seeded before the step model still name them (stored history is never edited).
+    const v1Missing = (await loadSeedTemplates(SEED_DIR_BEFORE_STEP_MODEL)).flatMap((t) =>
       t.bundle.definition.skills
         .map((s) => parseSkillRef(s.skill).id)
         .filter((id) => !platform.catalog.get(id)),
@@ -263,25 +265,31 @@ describe.skipIf(!h)("installing the v4 versions", () => {
     return { live: tpl.liveVersionId, versions };
   }
 
-  it("adds each seeded v4 version from the back office, with the seed's hash, once", async () => {
-    const later = await loadSeedVersions();
-    for (const [slug, version] of [
-      ["bill-clerk", 2],
-      ["builder", 2],
-      ["coordinator", 2],
-      ["supervisor", 4],
-    ] as const) {
-      const seeded = later.find((v) => v.slug === slug && v.version === version);
-      const path = `/api/ops/platform-templates/${slug}/install`;
-      const res = await H.call(OPERATOR, "POST", path, { version });
+  // Step model (docs/step-model-plan.md §12, R0): each platform agent is seeded once, as v1.
+  it("adds each seeded platform agent from the back office, with the seed's hash, once", async () => {
+    const seeds = await loadSeedTemplates();
+    expect(seeds.map((t) => t.slug)).toEqual([
+      "bill-clerk",
+      "builder",
+      "coordinator",
+      "document-clerk",
+      "supervisor",
+    ]);
+    for (const seeded of seeds) {
+      const path = `/api/ops/platform-templates/${seeded.slug}/install`;
+      const res = await H.call(OPERATOR, "POST", path, { version: 1 });
       expect(res.status, JSON.stringify(res.json)).toBe(200);
-      expect(j(res.json)).toMatchObject({ version: { status: "live" }, installed: true });
-      const { live, versions } = await versionsOf(slug);
-      const row = versions.find((v) => v.id === live);
-      expect(row?.bundleHash, slug).toBe(seeded?.hash);
-      // A template missing here starts from its v1, so v4 lands on top of it.
-      expect(versions[0]?.version).toBe(1);
-      const again = await H.call(OPERATOR, "POST", path, { version });
+      expect(j(res.json)).toMatchObject({
+        version: { version: 1, status: "live" },
+        installed: true,
+      });
+      const { live, versions } = await versionsOf(seeded.slug);
+      expect(
+        versions.map((v) => v.version),
+        seeded.slug,
+      ).toEqual([1]);
+      expect(versions.find((v) => v.id === live)?.bundleHash, seeded.slug).toBe(seeded.hash);
+      const again = await H.call(OPERATOR, "POST", path, { version: 1 });
       expect(j(again.json)).toMatchObject({ version: j(res.json).version, installed: false });
     }
   });

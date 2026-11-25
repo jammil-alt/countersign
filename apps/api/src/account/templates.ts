@@ -1,73 +1,42 @@
 // Installing a seeded platform template version from the back office (docs/plan.md §1.47
-// "Template"): environments where the seed never runs (staging, production) get the supervisor's
-// v2, Sloan, by `POST /api/ops/platform-templates/:slug/install`. The bundles are the seed's own
-// files, bundled into the Worker. Idempotent by bundle hash; a missing template is installed from
-// its v1 first, so its lineage matches the seed's. Publishing a template changes no client agent
-// (invariant 11): each client's fork moves only by the usual reviewed update merge. R9: the latest
-// seeded versions hold v4 processes, and a later version file may name the version it changes
-// (`seedVersionBundle`), read here exactly as the seed reads it, so the hashes agree.
+// "Template"): environments where the seed never runs (staging, production) get a platform agent
+// by `POST /api/ops/platform-templates/:slug/install`. The bundles are the seed's own files,
+// bundled into the Worker. Idempotent by bundle hash; a missing template is installed from its v1
+// first, so its lineage matches the seed's. Publishing a template changes no client agent
+// (invariant 11): each client's fork moves only by the usual reviewed update merge. Step model
+// (docs/step-model-plan.md §12, R0): each platform agent is seeded once, as v1 in the step model;
+// a later version file may still name the version it changes (`seedVersionBundle`), read here
+// exactly as the seed reads it, so the hashes agree.
 
 import {
   createTemplate,
   createVersion,
   getVersion,
-  parseBundle,
   parseVersionBundle,
   publish,
   validateForPublish,
 } from "@countersign/agents";
 import { bundleHash, type InstalledPlatformTemplate } from "@countersign/core";
 import { agent, agentVersion, seedVersionBundle, type Tx } from "@countersign/db";
-import billClerkV1 from "@countersign/db/seed/agents/bill-clerk.v1.json";
-import billClerkV2 from "@countersign/db/seed/agents/bill-clerk.v2.json";
-import billClerkV3 from "@countersign/db/seed/agents/bill-clerk.v3.json";
-// Setup-plan §4.1: the Bill clerk on seats (who approves, who answers), filled per client.
-import billClerkV4 from "@countersign/db/seed/agents/bill-clerk.v4.json";
-// Overnight S3.4: the new-bill path attaches the invoice after creating the bill.
-import billClerkV5 from "@countersign/db/seed/agents/bill-clerk.v5.json";
-import builderV1 from "@countersign/db/seed/agents/builder.v1.json";
-import builderV2 from "@countersign/db/seed/agents/builder.v2.json";
-import coordinatorV1 from "@countersign/db/seed/agents/coordinator.v1.json";
-import coordinatorV2 from "@countersign/db/seed/agents/coordinator.v2.json";
-import documentClerkV1 from "@countersign/db/seed/agents/document-clerk.v1.json";
-import documentClerkV2 from "@countersign/db/seed/agents/document-clerk.v2.json";
-import supervisorV1 from "@countersign/db/seed/agents/supervisor.v1.json";
-import supervisorV2 from "@countersign/db/seed/agents/supervisor.v2.json";
-import supervisorV3 from "@countersign/db/seed/agents/supervisor.v3.json";
-import supervisorV4 from "@countersign/db/seed/agents/supervisor.v4.json";
-import supervisorV5 from "@countersign/db/seed/agents/supervisor.v5.json";
-import supervisorV6 from "@countersign/db/seed/agents/supervisor.v6.json";
-// Overnight S2.4 (owner, D1): Sloan answers on Claude Sonnet 5.5.
-import supervisorV7 from "@countersign/db/seed/agents/supervisor.v7.json";
+import billClerk from "@countersign/db/seed/agents/bill-clerk.v1.json";
+import builder from "@countersign/db/seed/agents/builder.v1.json";
+import coordinator from "@countersign/db/seed/agents/coordinator.v1.json";
+import documentClerk from "@countersign/db/seed/agents/document-clerk.v1.json";
+import supervisor from "@countersign/db/seed/agents/supervisor.v1.json";
 import { and, eq, isNull } from "drizzle-orm";
 import { HttpError, notFound } from "../http";
 import type { Platform } from "../platform";
 
 /** The seed's platform template version files, by slug and version number. */
+// DECISION (step model, stream C): after the purge (docs/step-model-plan.md §12, R0) each platform
+// agent is seeded once, as v1 in the step model (workflow `schemaVersion: 5`); its earlier v3 and
+// v4 versions are in git history, not in the seed.
 const SEEDED: Readonly<Record<string, Readonly<Record<number, unknown>>>> = {
-  // Skill model (2026-11-10): the Bill clerk's v3, the Document clerk's v2 and Sloan's v5 are
-  // built from AI skills, deterministic skills and write steps (docs/plan.md §1.86).
-  "bill-clerk": {
-    1: billClerkV1,
-    2: billClerkV2,
-    3: billClerkV3,
-    4: billClerkV4,
-    5: billClerkV5,
-  },
-  builder: { 1: builderV1, 2: builderV2 },
-  coordinator: { 1: coordinatorV1, 2: coordinatorV2 },
-  "document-clerk": { 1: documentClerkV1, 2: documentClerkV2 },
-  supervisor: {
-    1: supervisorV1,
-    2: supervisorV2,
-    3: supervisorV3,
-    4: supervisorV4,
-    5: supervisorV5,
-    // v0.19 (ARCHITECTURE §10.15 "Sloan is the chat"): chat only; its watches are the platform's.
-    6: supervisorV6,
-    // Overnight S2.4 (owner, D1): the chat's answer step on Claude Sonnet 5.5, cap unchanged.
-    7: supervisorV7,
-  },
+  "bill-clerk": { 1: billClerk },
+  builder: { 1: builder },
+  coordinator: { 1: coordinator },
+  "document-clerk": { 1: documentClerk },
+  supervisor: { 1: supervisor },
 };
 
 /** The newest seeded version of a platform template, or null when the seed has none. */
@@ -91,7 +60,7 @@ export async function installPlatformTemplate(
   tx: Tx,
   input: { slug: string; version: number; actorId: string | null; platform: Platform },
 ): Promise<InstalledPlatformTemplate> {
-  // R9: a later version may hold v4 processes (a v3 one parses as `parseBundle` gives it).
+  // A seeded version holds step-model (v5) workflows; `parseVersionBundle` reads every version.
   const bundle = parseVersionBundle(seeded(input.slug, input.version));
   if (bundle.definition.kind !== "platform") {
     throw new HttpError(422, "not_platform", "only platform templates are installed this way");
@@ -122,7 +91,7 @@ export async function installPlatformTemplate(
   if (!templateId) {
     // DECISION: a template that isn't there yet starts from its seeded v1 (published), so each
     // later version has the same parent as in a seeded database.
-    const first = parseBundle(seeded(input.slug, 1));
+    const first = parseVersionBundle(seeded(input.slug, 1));
     const made = await createTemplate(tx, {
       slug: input.slug,
       bundle: first,
@@ -133,9 +102,8 @@ export async function installPlatformTemplate(
     });
     templateId = made.agent.id;
     created = true;
-    // DECISION (R9): v1 is published only when it passes publishing's checks. The Builder's and
-    // the Coordinator's v1 name skills nothing registers (R2), so they never could; asked for
-    // their v2, v1 stays the template's first version, a draft under it, and v2 is published.
+    // DECISION (R9): asked for a later version, v1 is published only when it passes publishing's
+    // checks; otherwise it stays the template's first version, a draft under the one asked for.
     const v1Errors =
       input.version === 1
         ? []

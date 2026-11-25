@@ -26,6 +26,7 @@ import {
   validateWorkflow,
 } from "../workflow/validate";
 import { walkSteps as walkV3Steps } from "../workflow/walk";
+import { actionInputSchema, type WriteAction } from "./actions";
 import { fromWorkflowV3 } from "./convert";
 import { copiedSteps, copiedStepsMessage } from "./copies";
 import { handoffWorkflows, selfHandoffLoops, selfHandoffSteps } from "./handoff";
@@ -71,11 +72,24 @@ export function stepContext(ctx: Pick<ValidationContext, "tools">): StepContext 
     sideEffect: (action) => spec(action)?.sideEffect,
     requiredInput: (uses) => {
       if (uses.type !== "action") return undefined;
-      const required = (spec(uses.action)?.input as { required?: unknown } | undefined)?.required;
+      const write = MERGED_WRITE_ACTIONS[uses.action];
+      const input = write ? actionInputSchema(write) : spec(uses.action)?.input;
+      const required = (input as { required?: unknown } | undefined)?.required;
       return Array.isArray(required) ? required.filter((r) => typeof r === "string") : undefined;
     },
   };
 }
+
+/**
+ * The Accounting actions stand for a write action (`process/actions.ts`): they take its own input,
+ * translated to each tool's when they run (`toToolInput`), not their first tool's.
+ */
+// DECISION (step model, stream C): only the Accounting merges, which the catalog builds from
+// `ACTION_SPECS`; the Email, Team chat and Spreadsheets merges keep their tools' inputs.
+const MERGED_WRITE_ACTIONS: Readonly<Record<string, WriteAction>> = {
+  "accounting.bill.create": "create_bill",
+  "accounting.vendor.create": "create_vendor",
+};
 
 /** A workflow entry holding a v3 workflow or a v4 process (not the step model). */
 type OlderBundleWorkflow = AnyAgentBundle["workflows"][number] & {

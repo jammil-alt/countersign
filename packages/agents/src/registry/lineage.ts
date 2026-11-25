@@ -15,6 +15,7 @@ import {
   cloneJson,
   eachBundleStep,
   holdsProcess,
+  holdsStepModel,
   isPlainObject,
   type MergeResult,
   mergeBundles,
@@ -185,7 +186,10 @@ async function requireMergeable(
   });
   // R9: a merge with a template's v4 version is all v4, validated as such (an all-v3 one exactly
   // as before).
-  const validate = holdsProcess(result.bundle) ? processes.validateAnyBundle : validateBundle;
+  const validate =
+    holdsProcess(result.bundle) || holdsStepModel(result.bundle)
+      ? processes.validateAnyBundle
+      : validateBundle;
   const valid = validate(result.bundle, {
     skills,
     tools: ctx.tools.specs(),
@@ -471,6 +475,10 @@ function scrubPeople(node: unknown, base: unknown, scope: ScrubScope = { inCheck
         if (namesPerson(value)) {
           const kept = from(key);
           node[key] = typeof kept === "string" ? kept : DEFAULT_WHO;
+        } else if (key === "person" && isPlainObject(value)) {
+          // The step model: a Do step's person instructions, whose `who` is required.
+          scrubPeople(value, b?.[key], scope);
+          if (value.who === undefined) value.who = DEFAULT_WHO;
         }
         continue;
       case "to":
@@ -493,6 +501,9 @@ function scrubPeople(node: unknown, base: unknown, scope: ScrubScope = { inCheck
           if (Array.isArray(kept)) node[key] = kept;
           else if (roles.length) node[key] = roles;
           else delete node[key];
+        } else if (isPlainObject(value)) {
+          // The step model: a Tell step's message (who it goes to, as a notice's `to`).
+          scrubPeople(value, b?.[key], scope);
         }
         continue;
       case "contactIds":
@@ -728,6 +739,22 @@ export function stripForPromotion<B extends AnyAgentBundle>(
         t,
         baseTriggers.find((x) => x.id === t.id),
       );
+    }
+  }
+  // The step model: a workflow's declared outputs name people (a report's `to`), carry checks and
+  // the input of the action or hand-off that delivers them; scrubbed as a step's are, against the
+  // base's output of the same id.
+  for (const w of out.workflows) {
+    if (w.workflow.schemaVersion !== 5) continue;
+    const bw = base?.workflows.find((x) => x.slug === w.slug)?.workflow;
+    const baseOutputs = bw?.schemaVersion === 5 ? bw.outputs : [];
+    for (const o of w.workflow.outputs) {
+      const b = baseOutputs.find((x) => x.id === o.id);
+      for (const part of ["action", "handoff"] as const) {
+        scrub(o[part]?.input as Bag | undefined, b?.[part]?.input as Bag | undefined, new Set());
+      }
+      scrubPeople(o, b, { inCheck: false, step: { id: o.id, name: o.name }, problems });
+      scrubApprovals(o as unknown as AnyStep, b as unknown as AnyStep | undefined);
     }
   }
   // What is left in free text (instructions, titles, messages): addresses removed.

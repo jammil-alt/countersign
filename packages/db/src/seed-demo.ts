@@ -46,6 +46,7 @@ import {
   goLiveItem,
   type HealthSummary,
   holdsProcess,
+  holdsStepModel,
   normalizeVendorName,
   type PermissionMatrix,
   runErrorKey,
@@ -100,7 +101,7 @@ import {
   vendor,
   weeklyTable,
 } from "./schema";
-import { SEED_NAMESPACE } from "./seed";
+import { loadSeedTemplates, SEED_DIR_BEFORE_STEP_MODEL, SEED_NAMESPACE } from "./seed";
 
 // ── Who and what ─────────────────────────────────────────────────────────────────────────────────
 
@@ -1190,9 +1191,22 @@ async function seedAgents(tx: Tx, ctx: Ctx): Promise<Agents> {
         .where(eq(agentVersion.agentId, trow.id))
         .orderBy(desc(agentVersion.version));
       template = trow;
-      const v3 = vrows.find((v) => !holdsProcess(v.bundle));
+      const v3 = vrows.find((v) => !holdsProcess(v.bundle) && !holdsStepModel(v.bundle));
+      // Step model (docs/step-model-plan.md §12, R0): a platform template seeded since the purge
+      // holds only its v5 version; the agent then starts from its v1 as seeded before it (v3
+      // workflows), based on the template's live version, which is the update it is offered.
+      // DECISION: so the demo's weeks of v3 runs still read as the platform ran then. Wave 4
+      // rebuilds the demo in the step model with the rest of v3 and v4.
+      const before = v3
+        ? null
+        : (await loadSeedTemplates(SEED_DIR_BEFORE_STEP_MODEL)).find(
+            (t) => t.slug === spec.template,
+          );
+      const live = vrows.find((v) => v.id === trow.live);
       tv = must(
-        v3 && { ...v3, bundle: v3.bundle as AgentBundle },
+        v3
+          ? { ...v3, bundle: v3.bundle as AgentBundle }
+          : before && live && { ...live, bundle: before.bundle as AgentBundle },
         `${spec.template} version of v3 workflows`,
       );
     }

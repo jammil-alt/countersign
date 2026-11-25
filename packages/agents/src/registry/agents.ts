@@ -22,6 +22,7 @@ import {
   type EventTypeSpec,
   GrantLimits,
   holdsProcess,
+  holdsStepModel,
   isExternalTool,
   type PermissionEntity,
   type PermissionMatrix,
@@ -399,14 +400,16 @@ export async function validateForPublish(
   // Review: a step that kept its id but changed its skill is new too.
   const existingSkills =
     previous && previous !== "none" ? processes.bundleStepSkills(previous) : undefined;
-  const validate = holdsProcess(bundle)
-    ? (b: unknown, c: Parameters<typeof validateBundle>[1]) =>
-        processes.validateAnyBundle(b, {
-          ...c,
-          ...(existing ? { existingStepIds: existing } : {}),
-          ...(existingSkills ? { existingStepSkills: existingSkills } : {}),
-        })
-    : validateBundle;
+  // Step model: a bundle of v5 workflows only is validated as one too (its publish checks).
+  const validate =
+    holdsProcess(bundle) || holdsStepModel(bundle)
+      ? (b: unknown, c: Parameters<typeof validateBundle>[1]) =>
+          processes.validateAnyBundle(b, {
+            ...c,
+            ...(existing ? { existingStepIds: existing } : {}),
+            ...(existingSkills ? { existingStepSkills: existingSkills } : {}),
+          })
+      : validateBundle;
   const result = validate(bundle, {
     skills: { ...used.skills, ...skills },
     // v0.14 W4-A: a client agent's shared ids (`whatsapp.send`) are checked against the connector

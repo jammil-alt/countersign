@@ -6,6 +6,7 @@
 // timezone writes the summary the portal's overview shows; and the portal never sees internals.
 
 import {
+  type AgentBundle,
   DIRECTORY_SUGGESTION_SUBJECT,
   FORBIDDEN_PORTAL_FIELD,
   validateBundle,
@@ -21,7 +22,8 @@ import {
   transaction,
   vendor,
 } from "@countersign/db";
-import { loadSeedTemplates } from "@countersign/db/seed";
+// Until the executor runs the step model: the agents as seeded before it (wave 4 deletes them).
+import { loadSeedTemplates, SEED_DIR_BEFORE_STEP_MODEL } from "@countersign/db/seed";
 import { FakeModel } from "@countersign/llm";
 import { and, eq, sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -107,11 +109,13 @@ describe.skipIf(!h)("the supervisor", () => {
 
   beforeAll(async () => {
     // The supervisor template, installed as the seed installs it.
-    const seeded = (await loadSeedTemplates()).find((t) => t.slug === "supervisor");
+    const seeded = (await loadSeedTemplates(SEED_DIR_BEFORE_STEP_MODEL)).find(
+      (t) => t.slug === "supervisor",
+    );
     if (!seeded) throw new Error("no supervisor seed");
     const tpl = await H.call(OPERATOR, "POST", "/api/ops/templates", {
       slug: "supervisor",
-      bundle: seeded.bundle,
+      bundle: seeded.bundle as AgentBundle,
     });
     expect(tpl.status, JSON.stringify(tpl.json)).toBe(200);
     const pub = await H.call(
@@ -151,15 +155,17 @@ describe.skipIf(!h)("the supervisor", () => {
   });
 
   it("the template validates against the platform, like every bundle", async () => {
-    const seeded = (await loadSeedTemplates()).find((t) => t.slug === "supervisor");
+    const seeded = (await loadSeedTemplates(SEED_DIR_BEFORE_STEP_MODEL)).find(
+      (t) => t.slug === "supervisor",
+    );
     if (!seeded) throw new Error("no supervisor seed");
-    const result = validateBundle(seeded.bundle, {
+    const result = validateBundle(seeded.bundle as AgentBundle, {
       skills: Object.fromEntries(H.platform.catalog.list().map((s) => [s.id, s])),
       tools: H.platform.tools.specs(),
       events: H.platform.events.byType(),
     });
     expect(result.errors).toEqual([]);
-    const def = seeded.bundle.definition;
+    const def = (seeded.bundle as AgentBundle).definition;
     expect(def.kind).toBe("platform");
     expect(def.permissions.mode).toBe("suggest_only");
     // It writes only internal records: none of its tools can write to a client's tool.
@@ -169,7 +175,7 @@ describe.skipIf(!h)("the supervisor", () => {
         expect(H.platform.tools.get(t)?.spec.sideEffect, t).not.toBe("external");
       }
     }
-    const triggers = seeded.bundle.workflows.map((w) => w.workflow.trigger.on);
+    const triggers = (seeded.bundle as AgentBundle).workflows.map((w) => w.workflow.trigger.on);
     expect(triggers).toEqual([
       { type: "event", event: "run.failed" },
       { type: "event", event: "connection.needs_attention" },

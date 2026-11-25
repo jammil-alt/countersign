@@ -16,7 +16,13 @@ import {
   QBO_TOOLS,
 } from "@countersign/connectors";
 import { FAKE_QBO_CLIENT, FAKE_QBO_REALM, fakeQbo } from "@countersign/connectors/testing";
-import { RECORD_INVOICE_TOOL, type Step, validateBundle, walkSteps } from "@countersign/core";
+import {
+  type AgentBundle,
+  RECORD_INVOICE_TOOL,
+  type Step,
+  validateBundle,
+  walkSteps,
+} from "@countersign/core";
 import {
   agent,
   docExtraction,
@@ -30,7 +36,12 @@ import {
   transaction,
   withTenant,
 } from "@countersign/db";
-import { loadSeedTemplates } from "@countersign/db/seed";
+// Until the executor runs the step model: the agents as seeded before it (wave 4 deletes them).
+import {
+  loadSeedTemplates,
+  loadSeedVersions,
+  SEED_DIR_BEFORE_STEP_MODEL,
+} from "@countersign/db/seed";
 import { extractDocument, storeDocument } from "@countersign/documents";
 import { createLlmClient, FakeModel } from "@countersign/llm";
 import { DEFAULT_FIXTURE_DIR } from "@countersign/llm/node";
@@ -253,28 +264,42 @@ describe.skipIf(!h)("the Bill clerk", () => {
     );
     expect((await txnOf("Bill:150"))?.total).toBe("9742.3500");
 
-    // The template, installed as the seed installs it, then forked into client A. R9: its live
-    // version is v2, the same workflow as a v4 process (v1, of v3 workflows, runs in e2e.test.ts).
-    const tpl = await H.call(OPERATOR, "POST", "/api/ops/platform-templates/bill-clerk/install", {
-      version: 2,
+    // The template as seeded before the step model, then forked into client A. R9: its v2, the
+    // same workflow as a v4 process (v1, of v3 workflows, runs in e2e.test.ts). Until the executor
+    // runs the step model, the seed's own v1 (v5) is checked in platform-agents.test.ts.
+    const v2 = (await loadSeedVersions(SEED_DIR_BEFORE_STEP_MODEL)).find(
+      (v) => v.slug === "bill-clerk" && v.version === 2,
+    );
+    if (!v2) throw new Error("no bill-clerk v2");
+    const tpl = await H.call(OPERATOR, "POST", "/api/ops/templates", {
+      slug: "bill-clerk",
+      bundle: v2.bundle,
     });
     expect(tpl.status, JSON.stringify(tpl.json)).toBe(200);
-    templateId = j(tpl.json).template.id;
+    const pub = await H.call(
+      OPERATOR,
+      "POST",
+      `/api/ops/agents/${j(tpl.json).agent.id}/versions/${j(tpl.json).version.id}/publish`,
+    );
+    expect(pub.status, JSON.stringify(pub.json)).toBe(200);
+    templateId = j(tpl.json).agent.id;
   });
 
   it("validates against the platform, with approval on every write", async () => {
-    const seeded = (await loadSeedTemplates()).find((t) => t.slug === "bill-clerk");
+    const seeded = (await loadSeedTemplates(SEED_DIR_BEFORE_STEP_MODEL)).find(
+      (t) => t.slug === "bill-clerk",
+    );
     if (!seeded) throw new Error("no bill-clerk seed");
-    const result = validateBundle(seeded.bundle, {
+    const result = validateBundle(seeded.bundle as AgentBundle, {
       skills: Object.fromEntries(H.platform.catalog.list().map((s) => [s.id, s])),
       tools: H.platform.tools.specs(),
       events: H.platform.events.byType(),
     });
     expect(result.errors).toEqual([]);
-    const def = seeded.bundle.definition;
+    const def = (seeded.bundle as AgentBundle).definition;
     expect(def.kind).toBe("platform");
     expect(def.permissions.mode).toBe("suggest_only");
-    const [wf] = seeded.bundle.workflows;
+    const [wf] = (seeded.bundle as AgentBundle).workflows;
     expect(wf?.workflow.trigger.on).toEqual({
       type: "event",
       event: "document.extracted",
