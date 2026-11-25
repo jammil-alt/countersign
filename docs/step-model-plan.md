@@ -78,6 +78,34 @@ Semantic match / Hybrid, Confidence threshold.
 A step that needs code that doesn't exist yet stays in place as "Not built yet" and can file a Dev
 queue request (today's `missing` step).
 
+**The eight kinds are stored as they are** (owner, 2026-11-25), not translated into today's fifteen
+stored kinds: with the purge nothing old has to keep running, and a hidden translation layer would be
+the next tech debt.
+
+**How a Do step runs.** Nine of today's kinds become Do. A Do step is stored once, with its **Done
+by** and its **Uses**, and those two pick the engine that runs it. Every engine already exists in the
+executor (`packages/workflows/src/executor.ts`); what changes is that one Do step chooses among them,
+instead of each being a kind of its own.
+
+| Done by | Uses | Runs as (today's kind and engine) | Checks it can carry |
+|---|---|---|---|
+| Rules | A Get tool | `read`: calls the tool | Confer, Review, Tell after |
+| Rules | A Save-to-records or Change tool | `write`: an external action, once, with its before state and the approval gate (invariant 8) | Approver (on by default for a Change), Confer, Review, Tell after |
+| Rules | A send tool (inbox, email, text) | `notify`: tells the client's team or ours | Tell after |
+| Rules | Rule rows or a data job written in the step, or a rules skill | `skill` (rules): evaluated in code | Confer, Review, Tell after |
+| AI | Instructions written in the step, or an AI skill | `skill` (task): one model call, its answer checked against the output fields | Confer, Review, Tell after |
+| Person | Nothing, or "Collect reports" | `person` (approve or ask, with a deadline), or `collect` (several people, follow-ups, escalation) | Tell after |
+| Outside contact | Nothing | `conversation`: a back-and-forth until the goal is met; each message an approved send | Tell after |
+| (the automation's own steps) | An automation | `process`: its steps run in place | Approvers set per inner write |
+| Not chosen yet | Nothing | `missing`: never runs; blocks publishing | None |
+
+Combinations not in the table can't be saved: an AI or a Person never uses a write tool (skills and
+models never write; the Rules step after them does), and only a Change to a client's tool carries an
+approver. Three things are keyed by kind today and move to Done by and Uses with the collapse: what
+a step's **outcome** can be (what a Fork routes on: done, empty, rejected, no answer...), the line the
+**client's timeline and SOP** print for it, and how **merges and diffs** name it. Step ids stay as
+they are.
+
 ## 5. The Do step (Agreed)
 
 What a person fills in:
@@ -105,8 +133,8 @@ settings, in three parts, top to bottom:
 1. **Coming in:** the data as the step before hands it over, shown as JSON.
 2. **What changes:** the translation on the incoming side, field by field (copied, renamed,
    converted, worked out), and what the step itself does with it (the rule that matched, the AI's
-   pick and reason, the person's answer). A field the AI suggested is marked until confirmed; a
-   field that doesn't fit is shown in red, with the reason.
+   pick and reason, the person's answer). A field the AI suggested is marked as suggested, so a
+   reader can see it was a guess; a field that doesn't fit is shown in red, with the reason.
 3. **Going out:** the step's output, shown as JSON.
 
 The values come from the step's last test run when there is one, otherwise from a sample made from
@@ -162,9 +190,10 @@ no model at run time, so the same data always translates the same way, and money
 uses Reshape's mapping and calculations as built (2026-11-11): matching by name, spelling, common
 synonyms and type first, and AI suggestions only for what is left.
 
-**Open:**
-1. A field the AI suggested (rather than matched by name and type) must be confirmed by a person
-   before the workflow goes live (proposed: yes; otherwise a wrong guess is a silent error).
+A field the AI suggested is not confirmed by anyone: it is marked in the Data tab so people can see
+what happened, and fixed later if it's wrong (owner, 2026-11-25: "this is just an audit, understand
+what is happening UX, not a validate. Lets not overvalidate things, assumptions are ok and tweaks
+will come after"). Only "doesn't fit" blocks going live.
 
 ## 7. Match (Agreed)
 
@@ -277,10 +306,7 @@ done when that works.
 | R9 | The packs' "superseded" map | Only exists for steps still using a replaced skill. |
 | R10 | Templates seeded in the old model | Rebuilt in the new builder; they join the acceptance tests. |
 
-**Open, raised by the purge:** with nothing to keep, the stored step kinds can match the eight kinds
-directly, instead of the builder translating its form into today's fifteen stored kinds (`read`,
-`skill`, `write`, `notify`, `person`, `conversation`, `collect`, `process`, `missing`, ...).
-Proposed: store the new model directly, so no translation layer becomes the next tech debt.
+The purge also lets the eight step kinds be stored directly, replacing today's fifteen (§4).
 
 ## 13. Build list (draft; reordered once §6, §9 and §12 are settled)
 
@@ -323,5 +349,8 @@ matcher, Build list, Release.
 - 2026-11-25 · A declared output that no End selects blocks publishing: no silent deaths.
 - 2026-11-25 · No named data shapes and no extra terms: each step defines the fields it needs.
 - 2026-11-25 · Every step has a Data tab: the data coming in, what changes, the data going out.
+- 2026-11-25 · AI-suggested translations are shown, not confirmed; only "doesn't fit" blocks.
+- 2026-11-25 · The eight kinds are stored directly; nine of today's kinds collapse into Do, run by
+  Done by and Uses.
 - 2026-11-25 · Translation between steps is automatic, on the receiving step's incoming side, worked
   out when building and run as code; steps whose data doesn't fit block going live.
