@@ -125,21 +125,14 @@ another agent, deadline, channel. The main form shows only the boxes above; if m
 onto it, we are back where we started.
 
 **The Data tab** (owner, 2026-11-25: "inside a step we should have a visual JSON of what the data
-that is coming in looks like and what the data that will go out will look like... a tab that lays
-out the data coming in, the modifications it does and then the data coming out. This will help
-humans understand the flow better"). Every step in a workflow has a **Data** tab, next to its
-settings, in three parts, top to bottom:
-
-1. **Coming in:** the data as the step before hands it over, shown as JSON.
-2. **What changes:** the translation on the incoming side, field by field (copied, renamed,
-   converted, worked out), and what the step itself does with it (the rule that matched, the AI's
-   pick and reason, the person's answer). A field the AI suggested is marked as suggested, so a
-   reader can see it was a guess; a field that doesn't fit is shown in red, with the reason.
-3. **Going out:** the step's output, shown as JSON.
-
-The values come from the step's last test run when there is one, otherwise from a sample made from
-the fields' types (the builder's sample data, plan §1.185, as built). It is in the back office only,
-like everything else about how an agent is built.
+that is coming in looks like and what the data that will go out will look like... This will help
+humans understand the flow better"; "this is simply to understand as we are managing it. Make it
+work, that is the priority"). Every step in a workflow has a **Data** tab next to its settings, in
+three parts: **Coming in** (the data as the step before hands it over, as JSON), **Changed** (what
+the incoming side translated and what the step did with it), and **Going out** (its output, as
+JSON). The values come from the step's last test run, otherwise from sample data made from the
+fields' types (plan §1.185, as built). It is for understanding, not a check, and it is in the back
+office only.
 
 **Rules and AI written in the step.** A deterministic Do is a tool call, rule rows (when these
 conditions hold, set or work out these fields), or a data job (reshape, filter and total, read or
@@ -190,10 +183,9 @@ no model at run time, so the same data always translates the same way, and money
 uses Reshape's mapping and calculations as built (2026-11-11): matching by name, spelling, common
 synonyms and type first, and AI suggestions only for what is left.
 
-A field the AI suggested is not confirmed by anyone: it is marked in the Data tab so people can see
-what happened, and fixed later if it's wrong (owner, 2026-11-25: "this is just an audit, understand
-what is happening UX, not a validate. Lets not overvalidate things, assumptions are ok and tweaks
-will come after"). Only "doesn't fit" blocks going live.
+Nothing the builder translates needs confirming or marking (owner, 2026-11-25: "lets not
+overvalidate things, assumptions are ok and tweaks will come after"). Only "doesn't fit" blocks
+going live.
 
 ## 7. Match (Agreed)
 
@@ -314,7 +306,7 @@ The purge also lets the eight step kinds be stored directly, replacing today's f
 |---|---|
 | 1 | The purge (R0) and the release items R1–R10. |
 | 2 | The step model: the eight kinds, the Do form, checks, More. |
-| 3 | Input picker; automatic translation on each step's incoming side (fits, translated, doesn't fit); "doesn't fit" blocks going live. The Data tab on every step: coming in, what changes, going out. |
+| 3 | Input picker; automatic translation on each step's incoming side (fits, translated, doesn't fit); "doesn't fit" blocks going live. The Data tab on every step: coming in, changed, going out. |
 | 4 | Rules and AI written in the step; Save as skill. |
 | 5 | Workflow outputs and End cards; the publish checks. |
 | 6 | Match step with profiles: match type, keys, confidence threshold, second opinion per line, shortlists; exact match on every profile. |
@@ -325,8 +317,8 @@ The purge also lets the eight step kinds be stored directly, replacing today's f
 
 ## 14. Where we are in the review
 
-Going tab by tab through the working spreadsheet: **Terms** agreed (no terms added for inputs,
-outputs or data shapes). Next: Step kinds, Forms, Skills, Tools, Where it's built, Invoice
+Going tab by tab through the working spreadsheet: **Terms** and **Step kinds**
+agreed. Next: Forms, Skills, Tools, Where it's built, Invoice
 matcher, Build list, Release.
 
 ## Decision log
@@ -348,8 +340,8 @@ matcher, Build list, Release.
   are required and added by the builder; one End may deliver several outputs.
 - 2026-11-25 · A declared output that no End selects blocks publishing: no silent deaths.
 - 2026-11-25 · No named data shapes and no extra terms: each step defines the fields it needs.
-- 2026-11-25 · Every step has a Data tab: the data coming in, what changes, the data going out.
-- 2026-11-25 · AI-suggested translations are shown, not confirmed; only "doesn't fit" blocks.
+- 2026-11-25 · Every step has a Data tab: coming in, changed, going out. For understanding, not a check.
+- 2026-11-25 · Translations are applied without confirming or marking; only "doesn't fit" blocks.
 - 2026-11-25 · The eight kinds are stored directly; nine of today's kinds collapse into Do, run by
   Done by and Uses.
 - 2026-11-25 · Translation between steps is automatic, on the receiving step's incoming side, worked
