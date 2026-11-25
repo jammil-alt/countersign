@@ -500,6 +500,49 @@ In order; each ends green, as the milestones always have.
 
 S = a day or less, M = a few days, L = a week or more.
 
+## 13a. Stored format (draft for review)
+
+What an agent version stores in the new model, as plain fields. Fields not named here stay as they
+are today. Everything is checked by one schema and one validator in `packages/core`, shared by the
+builder and the executor (invariant 4).
+
+**Agent version**
+- **Definition**, as today: name, role, mission, area, model, instructions, mode and default
+  approver, budgets, memory, the owner's settings, what the client sees, manual, setup checklist,
+  settings the client may adjust, and the skills it uses with its own values for each (the skill's
+  `settings` folded into `parameters`, R5).
+- **Workflows**, each: slug, name, on or off, **triggers** (as today), **outputs**, **steps**.
+
+**Workflow output:** id · name · kind (report, write to a connector, save to our records, hand
+off, nothing to do) · where it goes (people and channel; a connector action; an area action; an
+agent and workflow) · its fields · one line on what it is.
+
+**Every step:** id (permanent) · kind · goal (its name) · purpose (one sentence, optional) · client
+sees it (yes or no, label) · review (owner decides, always, off) · if it fails (stop, go on) ·
+**checks**: approver (who, when, in turn or any or all, deadline, if no answer), confer (AI or a
+person, focus, when), tell after (who, channel, message, when).
+
+**A field** (in an output, or a step's own input and output): name · type (text, number, money,
+date, yes/no, a list of fields, a link to a record of a kind) · required or not · one line on what
+it means.
+
+| Kind | Stores |
+|---|---|
+| **Do** | **done by** (rules, AI, person, outside contact) · **uses**: a connector action, an area action, a skill, an automation, "collect reports", or nothing yet (not built yet: what's needed) · **input**: each field's source (the trigger, an earlier step's field, a fixed value) and the incoming translation the builder worked out · **instructions** by done by: rules (rule rows and values), AI (text; model under More), person (who, approve or ask, the question, answers offered, deadline, channel), outside contact (who, channel, goal, may share, most turns, message approvals) · **output** fields (written in the step, or the action's or skill's) · **match** (when uses is a Match): match to (profile), match type, keys, confidence threshold, second opinion (from, by), below the floor, search floor, shortlists (model, person), no match means |
+| **Loop** | goal · input · output fields · the connectors and areas it may read · instructions · model · most turns · at the limit (stop, hand back what it has) |
+| **Fork** | what it looks at · paths (each: id, name, rules, when to take it in words) · decided by (rules, AI) · if the AI is unsure (otherwise, ask a person) · otherwise |
+| **For each** | the list · the steps inside · how many at once |
+| **Repeat** | the steps inside · until (rules, or a goal the AI judges) · most times · wait between · at the limit |
+| **Wait** | how long |
+| **Hand off** | to (agent or this agent's workflow, and step) · input |
+| **End** | the outputs it delivers (ids from the workflow's list), or nothing to do with its reason |
+
+**Checked at publish** (each a plain message on the step): every path that doesn't rejoin ends on an
+End; every End delivers at least one declared output; every declared output is delivered by an End;
+every required input field has a source ("doesn't fit" otherwise); no "not built yet" step; a Do's
+done by and uses are a combination the table in §4 allows; a Loop uses Get actions only; approvers
+are on by default for every Change to a client's tool, and never looser than the client allows.
+
 ## 14. Where we are in the review
 
 Agreed: terms, step kinds, forms, skills, connectors, areas. Being reviewed: the build list and the
