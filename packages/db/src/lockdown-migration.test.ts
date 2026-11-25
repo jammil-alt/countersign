@@ -194,6 +194,21 @@ describe.skipIf(!online)("0101 on a database the previous Worker used", () => {
     }
   });
 
+  it("audits a client the lockdown left out of the scope, and no other client", async () => {
+    const insertAudit = (asked: ClientFixture, row: ClientFixture) =>
+      errorCode(
+        asWorkerTx(async (tx) => {
+          await tx.execute(sql`select
+            set_config('app.tenant_ids', '{}', true),
+            set_config('app.locked_tenant_ids', ${`{${asked.tenantId}}`}, true)`);
+          await tx.execute(sql`insert into audit_event (tenant_id, actor_kind, action, outcome)
+            values (${row.tenantId}, 'anonymous', 'GET /api/inbox', 'refused')`);
+        }),
+      );
+    expect(await insertAudit(A, A)).toBeUndefined();
+    expect(await insertAudit(A, B)).toBe("42501");
+  });
+
   it("lets the runtime lock and unlock, but never rewrite a platform lock", async () => {
     const can = async (privilege: string) =>
       (
