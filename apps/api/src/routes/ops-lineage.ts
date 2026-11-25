@@ -24,7 +24,7 @@ import {
   SHARED_COPY_PREFIX,
   skillContext,
 } from "@countersign/agents";
-import { actionsOff, BUILTIN_CONNECTORS, builtInManifest } from "@countersign/connectors";
+import { BUILTIN_CONNECTORS } from "@countersign/connectors";
 import {
   type AgentBundle,
   AgentDefinition,
@@ -65,6 +65,7 @@ import {
 import { clientGovernance } from "@countersign/documents";
 import { and, desc, eq, inArray, isNotNull, isNull, or } from "drizzle-orm";
 import type { Hono } from "hono";
+import { offActionIds } from "../actions-off";
 import { returnAgentLine } from "../channels/agent-line";
 import { type AppEnv, type HandlerCtx, HttpError, mount, notFound } from "../http";
 import type { Platform } from "../platform";
@@ -465,22 +466,7 @@ export async function builderCatalogFor(
   };
 }
 
-/**
- * The actions (tool ids) switched off on their connector's page, or waiting there to be turned on:
- * every registered connector's and the built-in ones' (Web). Read in the back office's scope.
- */
-export async function offActionIds(tx: Tx, platform: Platform): Promise<Set<string>> {
-  const settings = await tx.select().from(connectorSetting);
-  const byConnector = new Map(settings.map((r) => [r.connector, r.actions]));
-  const off = new Set<string>();
-  for (const c of platform.connectors.list()) {
-    for (const id of actionsOff(c.manifest, byConnector.get(c.manifest.id))) off.add(id);
-  }
-  for (const b of BUILTIN_CONNECTORS) {
-    for (const id of actionsOff(builtInManifest(b), byConnector.get(b.id))) off.add(id);
-  }
-  return off;
-}
+export { offActionIds };
 
 /** The areas' names in the Uses picker (`shared` is the records every area builds on). */
 const AREA_NAMES: Readonly<Record<string, string>> = {

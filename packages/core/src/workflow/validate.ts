@@ -162,6 +162,12 @@ export interface ValidationContext extends TypingContext {
     // isn't passed isn't checked here, and the gate checks it at the call.
     grants?: Record<string, EntityGrant | null | undefined>;
     entities?: Record<string, readonly PermissionEntity[] | undefined>;
+    /**
+     * The step model (docs/step-model-plan.md §10c): the actions (tool ids) switched off on their
+     * connector's page, or waiting there to be turned on. Checked for v5 workflows only (the gate
+     * refuses them at the call in every model); absent: not checked.
+     */
+    actionsOff?: ReadonlySet<string>;
   };
   // v0.12 W2-G: the packs installed where the bundle runs (pack panels of the client view).
   packs?: readonly string[];

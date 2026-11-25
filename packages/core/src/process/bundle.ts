@@ -31,6 +31,7 @@ import { fromWorkflowV3 } from "./convert";
 import { copiedSteps, copiedStepsMessage } from "./copies";
 import { handoffWorkflows, selfHandoffLoops, selfHandoffSteps } from "./handoff";
 import { seatProblems } from "./seats";
+import { stepModelPublishErrors } from "./step-model-publish";
 import {
   type ProcessValidationCode,
   type ProcessValidationContext,
@@ -330,6 +331,10 @@ export function validateAnyBundle(
           workflow: w.slug,
           stepCode: issue.code,
         });
+      }
+      // At publish, its writes held to the client's connections (as `validateProcess` holds v4's).
+      for (const e of stepModelPublishErrors(w.workflow, ctx, bundle.definition)) {
+        errors.push({ ...e, workflow: w.slug });
       }
     } else if (w.workflow.schemaVersion === 4) {
       const r = validateProcess(w.workflow, {

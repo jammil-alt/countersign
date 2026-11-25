@@ -173,6 +173,8 @@ export type ProcessValidationCode =
   | ActionProblemCode
   // Reshape data (2026-11-11): a mapping that doesn't type-check, or doesn't fit the next step.
   | "reshape_mapping"
+  // The step model (publish checks): a Do's or an output's action switched off on its connector.
+  | "action_off"
   // Hand off (2026-11-11): the agent and step a hand-off starts (`checkHandoffStep`).
   | "handoff_same_agent"
   | "handoff_unknown_agent"
