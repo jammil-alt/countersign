@@ -96,6 +96,7 @@ export * from "./api/ledger";
 export * from "./api/library";
 // v0.12 W1-A: go-live stages and client controls
 export * from "./api/lifecycle";
+export * from "./api/lockdown";
 export * from "./api/manual";
 export * from "./api/match-rules";
 export * from "./api/messaging";

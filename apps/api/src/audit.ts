@@ -3,7 +3,7 @@
 // and per refused or failed request. Rows hold ids, never bodies or record content.
 
 import { AUDIT_REFRESH_HEADER, AUDIT_REFRESH_KEY, isUuid } from "@countersign/core";
-import { auditEvent, type Db, type Tx, withTenant } from "@countersign/db";
+import { auditEvent, type Db, type Tx, withTenants } from "@countersign/db";
 import { captureException } from "@sentry/cloudflare";
 import type { Context } from "hono";
 
@@ -44,6 +44,8 @@ export function auditTarget(c: Context, requestedClient: string | null): Record<
     if (typeof v === "string") out[k] = v.slice(0, MAX_TARGET_VALUE);
   }
   if (requestedClient) out.client = requestedClient.slice(0, MAX_TARGET_VALUE);
+  // §1.243: the security officer's investigation of locked clients, so its reads stand out.
+  if (c.req.method === "GET" && c.req.query("investigate") === "1") out.investigate = "1";
   // DECISION (S6.9): a read the app sent to refresh what is on screen (a page's 2-second poll)
   // keeps its row, tagged, so the log counts the person opening a page once per visit, not 182
   // times. Only reads are tagged: a write is never a refresh. The tag is the app's word for it;
@@ -93,7 +95,9 @@ export async function auditAlone(db: Db, c: Context | null, entry: AuditEntry): 
   try {
     const values = row(entry, c);
     if (entry.tenantId && isUuid(entry.tenantId)) {
-      await withTenant(db, entry.tenantId, (tx) => tx.insert(auditEvent).values(values));
+      // withTenants, not withTenant: a locked client's request is audited too (§1.243). Its scope
+      // leaves the client out but names it (`app.locked_tenant_ids`), which audit_write accepts.
+      await withTenants(db, [entry.tenantId], (tx) => tx.insert(auditEvent).values(values));
     } else {
       await db.insert(auditEvent).values({ ...values, tenantId: null });
     }

@@ -50,6 +50,7 @@ import { collectRoutes } from "./collect";
 // v0.12 W2-F: the command center, search and plain-words questions
 import { commandCenterRoutes } from "./command-center";
 import { complianceRoutes } from "./compliance";
+import { lockdownRoutes } from "./lockdown";
 // v0.12 W2-A: the connectors catalog
 import { connectorRoutes } from "./connectors";
 import { defineRoute } from "./contract";
@@ -2532,6 +2533,8 @@ export const routes = {
   ...portalRoutes,
   ...feedbackRoutes,
   ...complianceRoutes,
+  // docs/plan.md §1.243: lockdown
+  ...lockdownRoutes,
   ...exportRoutes,
   ...onboardingRoutes,
   // docs/plan.md §1.122: the back office's Users screen

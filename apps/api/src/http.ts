@@ -39,12 +39,15 @@ import {
   createDb,
   type Db,
   isClientLocked,
+  LockError,
   membership,
   ScopeError,
   type Tx,
+  withInvestigation,
   withOperator,
   withSession,
   withTenant,
+  withTenants,
 } from "@countersign/db";
 import type { LlmTransport, Transcriber } from "@countersign/llm";
 import { captureException } from "@sentry/cloudflare";
@@ -59,6 +62,7 @@ import type { BrowserDeps } from "./browser/services";
 import type { Bindings } from "./env";
 import type { ExportJobs } from "./exports/instances";
 import { noteLockedClients } from "./lockdown/inbound";
+import { isSecurityOfficer, provedRecently } from "./lockdown/officer";
 import type { McpDeps } from "./mcp/routes";
 import { PHONE_ENDED_MESSAGE, phoneEndedForPerson } from "./mobile/phone-session";
 import { reportHandled } from "./observability/report";
@@ -299,6 +303,14 @@ const AGENTS_STATUS: Record<AgentsError["code"], HttpError["status"]> = {
   run_ended: 409,
 };
 
+/** A lock or unlock refused before anything changed (§1.243). */
+const LOCK_ERROR_STATUS: Record<LockError["code"], HttpError["status"]> = {
+  invalid_input: 422,
+  no_such_client: 404,
+  not_in_scope: 403,
+  everything_locked: 409,
+};
+
 /** Postgres errors that mean the request, not the server, is at fault. */
 function pgStatus(error: unknown): HttpError | null {
   const code = (error as { code?: unknown } | null)?.code;
@@ -338,6 +350,10 @@ export function toHttpError(error: unknown): HttpError {
   }
   // Lockdown (§1.243): the client, or everything, is locked. Not a fault, so never a 500.
   if (isClientLocked(error)) return clientLocked();
+  if (error instanceof LockError) {
+    const status = LOCK_ERROR_STATUS[error.code];
+    return new HttpError(status, error.code, error.message);
+  }
   if (error instanceof ScopeError) return new HttpError(403, "forbidden", error.message);
   // HIPAA mode (§1.35): a call that would send a client's data to a vendor without a BAA.
   if (error instanceof ComplianceRefusal) return new HttpError(409, "hipaa", error.message);
@@ -565,15 +581,20 @@ export async function inScope<T>(
   c: AppContext,
   scope: Scope,
   work: (scoped: Scoped) => Promise<T>,
+  options: MountOptions = {},
 ): Promise<T> {
   checkScope(scope);
   const ids = scope.tenantIds;
   const services = c.get("req").services();
   const after: (() => Promise<unknown>)[] = [];
   const run = (tx: Tx) => work(scopedFor(c, scope, tx, after));
+  // §1.243: a route that must answer while its client is locked opens the portal's one client as
+  // a sweep does: left out of the scope (its rows unseen) but named, so unlockClient may admit it.
   const output = await (scope.operator
     ? withOperator(services.db, ids, run)
-    : withTenant(services.db, ids[0] as string, run));
+    : options.whileLocked
+      ? withTenants(services.db, ids, run)
+      : withTenant(services.db, ids[0] as string, run));
   await runAfterCommit(after);
   return output;
 }
@@ -628,8 +649,19 @@ export function mountLong<R extends RouteSpec>(
   app: Hono<AppEnv>,
   spec: R,
   handler: (ctx: LongHandlerCtx<R>) => Promise<Result<R>>,
+  options: MountOptions = {},
 ): void {
-  mountWith(app, spec, handler, respond, "long");
+  mountWith(app, spec, handler, respond, "long", options);
+}
+
+/** How a route's scope is opened. */
+export interface MountOptions {
+  /**
+   * Lockdown (§1.243): the portal route answers while its client is locked (the locked page's
+   * state, the client's own unlock). Its scope leaves a locked client's rows out until the handler
+   * unlocks it. Only for `mountLong`, so the sign-in half never opens the client's scope.
+   */
+  readonly whileLocked?: boolean;
 }
 
 /** A slow route's `inTx` for code that takes only the transaction. */
@@ -795,6 +827,7 @@ function mountWith<R extends RouteSpec>(
     | ((ctx: LongHandlerCtx<R>) => Promise<unknown>),
   send: (c: AppContext, spec: R, result: unknown) => Response | Promise<Response>,
   mode: "tx" | "long" = "tx",
+  options: MountOptions = {},
 ): void {
   if (spec.auth !== "session") throw new Error(`${spec.path} is public: use mountPublic`);
   const family = routeFamily(spec);
@@ -915,7 +948,60 @@ function mountWith<R extends RouteSpec>(
       };
 
       let output: unknown;
-      if (mode === "long") {
+      // Lockdown (§1.243): the security officer's investigation, a back-office read with
+      // `?investigate=1`. Locked clients stay in its scope, in a read-only transaction the
+      // database enforces; its audit row is written alone, after, as a slow route's is.
+      const investigating =
+        mode === "tx" &&
+        family === "ops" &&
+        spec.method === "GET" &&
+        c.req.query("investigate") === "1";
+      if (investigating) {
+        const directory = authDirectory(services.db);
+        const decided =
+          admitted ??
+          decide(
+            readAccount(
+              directory.account
+                ? await directory.account(userId)
+                : {
+                    user: await directory.user(userId),
+                    memberships: await directory.memberships(userId),
+                  },
+            ),
+          );
+        if (!decided.ok) return refused(decided);
+        const { session, scope } = decided;
+        if (!isSecurityOfficer(session, services.env)) {
+          throw new HttpError(
+            403,
+            "not_security_officer",
+            "only the security officer investigates",
+          );
+        }
+        if (!provedRecently(session, now)) {
+          throw new HttpError(
+            403,
+            "sign_in_again",
+            "sign in again (or pass the second step) to investigate: in the last 10 minutes",
+          );
+        }
+        checkScope(scope);
+        const input = await parseInput(c, spec);
+        const after: (() => Promise<unknown>)[] = [];
+        output = await withInvestigation(services.db, scope.tenantIds, (tx) =>
+          (handler as (ctx: HandlerCtx<R>) => Promise<unknown>)({
+            c,
+            session,
+            ...scopedFor(c, scope, tx, after),
+            agents: null,
+            accountChanged,
+            ...input,
+            services,
+          }),
+        );
+        await auditAlone(services.db, c, entry("ok", 200));
+      } else if (mode === "long") {
         // No transaction is held across a slow handler: the account in one of its own (withUser),
         // unless the cookie carries it, then the handler's short `inTx` transactions in the scope.
         const directory = authDirectory(services.db);
@@ -941,7 +1027,7 @@ function mountWith<R extends RouteSpec>(
           tenantIds: scope.tenantIds,
           operator: scope.operator,
           defer: (task) => c.get("req").deferred.push(task),
-          inTx: (work) => inScope(c, scope, work),
+          inTx: (work) => inScope(c, scope, work, options),
           // Filled in by withAgentScope before the handler runs.
           agents: null,
           accountChanged,

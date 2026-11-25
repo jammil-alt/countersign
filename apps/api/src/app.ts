@@ -118,6 +118,7 @@ import { ledgerRoutes } from "./routes/ledger";
 // R8: the Library's banks (docs/plan.md §1.86)
 import { libraryRoutes } from "./routes/library";
 import { lifecycleRoutes } from "./routes/lifecycle";
+import { lockdownRoutes } from "./routes/lockdown";
 // docs/builder-plan.md §5 (B3): the agent manual
 import { manualRouteHandlers } from "./routes/manual";
 import { matchRuleRoutes } from "./routes/match-rules";
@@ -478,6 +479,8 @@ export function createApp(deps: AppDeps = defaultDeps): Hono<AppEnv> {
   portalIssueRouteHandlers(app);
   todoRoutes(app);
   autopilotRoutes(app);
+  // §1.243: lockdown
+  lockdownRoutes(app);
   // The back office's MCP server (/mcp and its .well-known metadata), after every route it reads.
   mcpRoutes(app, deps);
   app.all("/api/*", (c) => c.json({ error: { code: "not_found", message: "no such route" } }, 404));
