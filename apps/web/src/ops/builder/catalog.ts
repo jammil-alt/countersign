@@ -1,7 +1,7 @@
 // What the builder knows besides the bundle: the skills, tools and event types it types steps with
 // (the same context the server validates with), the palette built from them, and a client
 // agent's bound connections.
-import { type AgentBundle, allSteps, type BrowserScriptTool, type BuilderCatalog, // P-4
+import { type AgentBundle, type BrowserScriptTool, type BuilderCatalog, // P-4
   CONVERSE_SKILL, type EventTypeSpec, isToolWrapper, lookupSkill, type OpsConnection, type PermissionMatrix, parseSkillRef, processes, type SkillDefinition, type SkillKind, skillKind, steps, type ToolSpec, type TriggerOn, type TypingContext, toolLookup, type ValidationError, validateBundle, writeStepLabel } from "@countersign/core";
 import type { z } from "zod";
 import {
@@ -78,49 +78,23 @@ export function typingContext(data: BuilderData): TypingContext {
   };
 }
 
-/**
- * The server's check, in the browser: core's validateBundle with the same context (and, for a
- * client agent's publish, its bound connections' matrices), plus the publish check's refusal of
- * agent skills it can't resolve. Shared by the builder and the merge view.
- */
-export function validateLikeServer(
-  bundle: AgentBundle,
-  ctx: TypingContext,
-  publish?: { matrices: Record<string, Partial<PermissionMatrix> | undefined> },
-): { valid: boolean; errors: ValidationError[] } {
-  const r = validateBundle(bundle, { ...ctx, ...(publish ? { publish } : {}) });
-  const missing: ValidationError[] = bundle.definition.skills
-    .filter((s) => !lookupSkill(s.skill, ctx))
-    .filter((s) => !r.errors.some((e) => e.code === "unknown_skill" && e.message.includes(s.skill)))
-    .map((s) => ({
-      stepId: null,
-      field: "definition.skills",
-      code: "unknown_skill",
-      message: `skill ${s.skill} not found`,
-    }));
-  const errors = [...r.errors, ...missing];
-  return { valid: errors.length === 0, errors };
-}
-
-/** A validation problem of a bundle that holds processes (v4 codes). */
+/** A validation problem of a bundle (core's whole-bundle check). */
 export type BuilderProblem = processes.BundleValidationError;
 
 /**
- * R8: the server's check of a bundle that holds processes, in the browser: core's
- * `validateBundle` with the same context, plus the refusal of agent skills it can't resolve.
- * Warnings are advice (a process that might be better split), never a reason to refuse.
- * `clientAgent` is always given, as the server's `validateForPublish` gives it (`row.kind ===
- * "client"`): a template's process step may not change an inner step's approval.
+ * The server's check of a bundle, in the browser: core's `validateBundle` with the same context,
+ * plus the refusal of agent skills it can't resolve. `clientAgent` is always given, as the
+ * server's `validateForPublish` gives it (`row.kind === "client"`).
  */
 export function validateProcessesLikeServer(
-  bundle: ProcessAgentBundle | AgentBundle,
+  bundle: AgentBundle,
   ctx: TypingContext,
   agent: {
     clientAgent: boolean;
     publish?: { matrices: Record<string, Partial<PermissionMatrix> | undefined> } | undefined;
     handoff?: BuilderData["handoff"];
   },
-): { valid: boolean; errors: BuilderProblem[]; warnings: processes.BundleWarning[] } {
+): { valid: boolean; errors: BuilderProblem[] } {
   const r = processes.validateBundle(bundle, {
     ...ctx,
     ...(agent.publish ? { publish: agent.publish } : {}),
@@ -138,7 +112,7 @@ export function validateProcessesLikeServer(
       message: `skill ${s.skill} not found`,
     }));
   const errors = [...r.errors, ...missing];
-  return { valid: errors.length === 0, errors, warnings: r.warnings };
+  return { valid: errors.length === 0, errors };
 }
 
 export function connectorName(data: BuilderData, id: string): string {
@@ -263,10 +237,10 @@ export function toolFeed(id: string, data: BuilderData): string | null {
 
 /**
  * The connectors a bundle already reaches: its skills', its extra tools' and its tool steps'
- * (v3 actions, v4 reads and writes).
+ * (a step-model workflow's, an automation's reads and writes).
  */
 export function bundleConnectors(
-  bundle: AgentBundle | AgentBundle | ProcessAgentBundle,
+  bundle: AgentBundle | ProcessAgentBundle,
   data: BuilderData,
 ): Set<string> {
   const out = new Set<string>();
@@ -289,18 +263,11 @@ export function bundleConnectors(
       }
       continue;
     }
-    if (w.workflow.schemaVersion === 4) {
-      for (const { step } of processes.allSteps(w.workflow)) {
-        if (step.kind === "skill") addSkill(step.skill);
-        if ((step.kind === "read" || step.kind === "write") && step.tool !== undefined) {
-          addTool(step.tool);
-        }
-      }
-      continue;
-    }
-    for (const { step } of allSteps(w.workflow)) {
+    for (const { step } of processes.allSteps(w.workflow)) {
       if (step.kind === "skill") addSkill(step.skill);
-      if (step.kind === "action") addTool(step.tool);
+      if ((step.kind === "read" || step.kind === "write") && step.tool !== undefined) {
+        addTool(step.tool);
+      }
     }
   }
   return out;
@@ -317,7 +284,7 @@ export function bundleConnectors(
 // skills and steps already reach, since a bundle has no separate list of them.
 export function paletteConnectors(input: {
   agent: { kind: "template" | "client"; testCopy: boolean };
-  bundle: AgentBundle | AgentBundle | ProcessAgentBundle;
+  bundle: AgentBundle | ProcessAgentBundle;
   data: BuilderData;
   connections: readonly { connector: string; status: string }[];
   sandbox: boolean;
@@ -352,10 +319,6 @@ function wrappedTools(data: BuilderData): Set<string> {
   const out = new Set<string>();
   for (const s of data.catalog.skills) {
     if (isToolWrapper(s.definition) && s.definition.handler) out.add(s.definition.handler);
-  }
-  for (const id of processes.STEP_ONLY_SKILLS) {
-    const s = data.catalog.skills.find((x) => parseSkillRef(x.ref).id === id);
-    if (s?.definition.handler) out.delete(s.definition.handler);
   }
   return out;
 }
