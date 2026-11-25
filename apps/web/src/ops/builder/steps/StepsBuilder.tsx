@@ -26,7 +26,7 @@ import { triggerTitle } from "../../workflow/describe";
 import type { Member, People } from "../people";
 import { triggerFields, useStepsCatalog } from "./catalog";
 import { type BoxWords, boxWords, displayProcess } from "./display";
-import type { StepFormEnv } from "./form-kit";
+import type { SaveAsSkill, StepFormEnv } from "./form-kit";
 import { canRedo, canUndo, commit, redo, startHistory, undo } from "./history";
 import { canPublish, issuesByStep, publishSummary, workflowIssues } from "./issues";
 import {
@@ -45,8 +45,9 @@ import {
 import { OutputsEditor } from "./OutputsEditor";
 import { StepEditor } from "./StepEditor";
 import { statusesFor, stepCounts } from "./status";
-import { guardedSuggestion, type SuggestFn, suggestBody } from "./suggest";
+import { guardedSuggestion, type SuggestFn, suggestBody, withStep } from "./suggest";
 import type { Step, StepKind, Workflow } from "./types";
+import { hasWrittenSteps } from "./written";
 
 export interface StepsBuilderProps {
   agent: AgentSummary;
@@ -199,6 +200,29 @@ function Body(
     },
     [agent.id, workflow],
   );
+  // Save as skill: a template's skills are shared (it is no client's); a client agent's may be
+  // its client's only or shared. The skill is in the library and the Uses picker at once.
+  const saveAsSkill = useMemo<SaveAsSkill>(
+    () => ({
+      scopes: agent.kind === "client" ? ["client", "shared"] : ["shared"],
+      run: async (request) => {
+        const res = await api.current.call(apiRoutes.opsStepSaveAsSkill, {
+          params: { id: agent.id },
+          body: {
+            workflow: withStep(workflow, request.step),
+            stepId: request.step.id,
+            name: request.name,
+            description: request.description,
+            scope: request.scope,
+          },
+        });
+        if (!res.ok) throw new Error(errorText(res.error));
+        catalog.reload();
+        return res.data.step as Step;
+      },
+    }),
+    [agent.id, agent.kind, workflow, catalog],
+  );
   const env = useMemo<StepFormEnv>(
     () => ({
       workflow,
@@ -208,8 +232,9 @@ function Body(
       suggest,
       models: catalog.models,
       agents: props.handoffAgents,
+      saveAsSkill,
     }),
-    [workflow, catalog, props.people, suggest, props.handoffAgents],
+    [workflow, catalog, props.people, suggest, props.handoffAgents, saveAsSkill],
   );
 
   const selected = selection ? (findStep(workflow, selection)?.step ?? null) : null;
@@ -256,6 +281,20 @@ function Body(
       canon: canonicalJson(snapshot),
     };
     setSaved(next);
+    // The rules and the AI written in steps are stored behind them, as the agent's skills, so the
+    // steps run as any skill step does. The version is saved either way; this says if they weren't.
+    if (hasWrittenSteps(snapshot)) {
+      const stored = await action.call(apiRoutes.opsStepSkillsStore, {
+        params: { id: agent.id },
+        body: { workflow: snapshot },
+      });
+      if (!stored.ok) {
+        setNotice({
+          tone: "warning",
+          body: `Saved, but the rules or AI written in a step weren't stored as skills: ${errorText(stored.error)} Save again to retry.`,
+        });
+      }
+    }
     props.onChanged();
     return next;
   };

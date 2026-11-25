@@ -57,6 +57,25 @@ function skillDef(slug: string, name: string) {
   };
 }
 
+const stepWorkflow = (steps: unknown[]) => ({
+  schemaVersion: 5,
+  triggers: [{ id: "t1", on: { type: "manual", input: { type: "object", properties: {} } } }],
+  outputs: [{ id: "o1", name: "Done", kind: "nothing" }],
+  steps: [...steps, { id: "e1", kind: "end", name: "Done", outputs: ["o1"], status: "succeeded" }],
+});
+const rulesStep = (id: string, over: Record<string, unknown> = {}) => ({
+  id,
+  kind: "do",
+  name: "Pick the account",
+  doneBy: "rules",
+  input: { vendor: "{{trigger.vendor}}" },
+  rules: {
+    rows: [{ id: "r1", when: { match: "all", rules: [] }, set: { account: "Materials" } }],
+  },
+  output: [{ name: "account", type: "text", required: true }],
+  ...over,
+});
+
 describe.skipIf(!h)("agent pages API", () => {
   const H = h as ApiHarness;
   let templateId = "";
@@ -279,35 +298,6 @@ describe.skipIf(!h)("agent pages API", () => {
       expect(ids.some((id) => id.startsWith("health."))).toBe(false);
     });
 
-    it("answers Suggest with the step as it is, and says it isn't switched on", async () => {
-      const workflow = {
-        schemaVersion: 5,
-        triggers: [{ id: "t1", on: { type: "manual", input: { type: "object", properties: {} } } }],
-        outputs: [{ id: "o1", name: "Done", kind: "nothing" }],
-        steps: [
-          { id: "s1", kind: "do", name: "Read it", input: {} },
-          { id: "e1", kind: "end", name: "Done", outputs: ["o1"], status: "succeeded" },
-        ],
-      };
-      const path = `/api/ops/agents/${agentA}/suggest`;
-      const ok = await H.call(OPERATOR, "POST", path, { workflow, stepId: "s1", how: "default" });
-      expect(ok.status, JSON.stringify(ok.json)).toBe(200);
-      expect(j(ok.json)).toMatchObject({ applied: false, step: { id: "s1", name: "Read it" } });
-      const missing = await H.call(OPERATOR, "POST", path, {
-        workflow,
-        stepId: "nope",
-        how: "tell",
-        text: "x",
-      });
-      expect(missing.status).toBe(404);
-      const bad = await H.call(OPERATOR, "POST", path, {
-        workflow: { schemaVersion: 4 },
-        stepId: "s1",
-        how: "resolve",
-      });
-      expect(bad.status).toBe(422);
-    });
-
     it("gives the builder every skill with its schemas, every tool and the connectors", async () => {
       const res = await H.call(OPERATOR, "GET", `/api/ops/agents/${agentA}/builder-catalog`);
       expect(res.status, JSON.stringify(res.json)).toBe(200);
@@ -407,6 +397,140 @@ describe.skipIf(!h)("agent pages API", () => {
       expect((await H.call(OPERATOR, "POST", `/api/ops/agents/${templateId}/retire`)).status).toBe(
         422,
       );
+    });
+  });
+
+  describe("steps written in themselves", () => {
+    // Stream F: Suggest's backend. The model is the Builder's (scripted in the package's own
+    // tests); here the route's own checks: nothing flagged needs no model call, a missing step is
+    // a 404 and a workflow that doesn't read is a 422.
+    it("answers Suggest on a step that isn't flagged without asking the model", async () => {
+      const workflow = stepWorkflow([rulesStep("s1")]);
+      const path = `/api/ops/agents/${agentA}/suggest`;
+      const ok = await H.call(OPERATOR, "POST", path, { workflow, stepId: "s1", how: "resolve" });
+      expect(ok.status, JSON.stringify(ok.json)).toBe(200);
+      expect(j(ok.json)).toMatchObject({
+        applied: false,
+        summary: "Nothing is flagged on this step.",
+        step: { id: "s1", name: "Pick the account" },
+      });
+      const missing = await H.call(OPERATOR, "POST", path, {
+        workflow,
+        stepId: "nope",
+        how: "tell",
+        text: "x",
+      });
+      expect(missing.status).toBe(404);
+      const bad = await H.call(OPERATOR, "POST", path, {
+        workflow: { schemaVersion: 4 },
+        stepId: "s1",
+        how: "resolve",
+      });
+      expect(bad.status).toBe(422);
+    });
+
+    it("stores the rules written in a step as the agent's own skill, kept out of the library", async () => {
+      const path = `/api/ops/agents/${agentA}/step-skills`;
+      const workflow = stepWorkflow([rulesStep("0190a1b2-c3d4")]);
+      const first = await H.call(OPERATOR, "POST", path, { workflow });
+      expect(first.status, JSON.stringify(first.json)).toBe(200);
+      expect(j(first.json).skills).toEqual([
+        { stepId: "0190a1b2-c3d4", ref: "custom:step-0190a1b2-c3d4", version: 1, changed: true },
+      ]);
+      const again = await H.call(OPERATOR, "POST", path, { workflow });
+      expect(j(again.json).skills[0]).toMatchObject({ version: 1, changed: false });
+
+      // It isn't a skill to pick: not in the library, not in the Uses picker's skills.
+      const library = await H.call(OPERATOR, "GET", "/api/ops/skills");
+      expect(JSON.stringify(j(library.json).skills)).not.toContain("step-0190a1b2-c3d4");
+      const catalog = await H.call(OPERATOR, "GET", `/api/ops/agents/${agentA}/builder-catalog`);
+      expect(JSON.stringify(j(catalog.json).skills)).not.toContain("step-0190a1b2-c3d4");
+      const uses = await H.call(OPERATOR, "GET", `/api/ops/agents/${agentA}/skills`);
+      expect(JSON.stringify(j(uses.json).skills)).not.toContain("step-0190a1b2-c3d4");
+    });
+
+    it("saves a step as a skill this client's or shared; the library and the picker list it", async () => {
+      const path = `/api/ops/agents/${agentA}/save-as-skill`;
+      const workflow = stepWorkflow([rulesStep("n2")]);
+      const body = {
+        workflow,
+        stepId: "n2",
+        name: "Pick the account",
+        description: "Sets the account from the vendor.",
+      };
+      const mine = await H.call(OPERATOR, "POST", path, { ...body, scope: "client" });
+      expect(mine.status, JSON.stringify(mine.json)).toBe(200);
+      expect(j(mine.json).skill).toMatchObject({
+        ref: "custom:pick-the-account",
+        scope: "client",
+      });
+      expect(j(mine.json).step).toMatchObject({
+        id: "n2",
+        uses: { type: "skill", skill: "custom:pick-the-account" },
+      });
+      expect(j(mine.json).step.rules).toBeUndefined();
+
+      const library = await H.call(OPERATOR, "GET", "/api/ops/skills");
+      expect(
+        j(library.json).skills.find((x: { ref: string }) => x.ref === "custom:pick-the-account"),
+      ).toMatchObject({ source: "client" });
+      const picker = await H.call(OPERATOR, "GET", `/api/ops/agents/${agentA}/builder-catalog`);
+      expect(
+        j(picker.json).skills.find((x: { ref: string }) => x.ref === "custom:pick-the-account"),
+      ).toBeDefined();
+
+      const shared = await H.call(OPERATOR, "POST", path, {
+        ...body,
+        name: "Pick the account, shared",
+        scope: "shared",
+      });
+      expect(j(shared.json).skill).toMatchObject({ scope: "shared" });
+
+      // Not a Do step by rules or AI, or nothing written: refused in words.
+      const person = await H.call(OPERATOR, "POST", path, {
+        ...body,
+        workflow: stepWorkflow([rulesStep("n2", { doneBy: "person" })]),
+        scope: "client",
+      });
+      expect(person.status).toBe(422);
+      expect(j(person.json).error?.message ?? JSON.stringify(person.json)).toMatch(
+        /rules or by AI/,
+      );
+    });
+
+    it("saves nothing as a client's skill from a template", async () => {
+      const path = `/api/ops/templates/${templateId}`;
+      expect(path).toBeTruthy();
+      const res = await H.call(OPERATOR, "POST", `/api/ops/agents/${templateId}/save-as-skill`, {
+        workflow: stepWorkflow([rulesStep("t1s")]),
+        stepId: "t1s",
+        name: "Template skill",
+        description: "From a template.",
+        scope: "client",
+      });
+      expect(res.status).toBe(422);
+    });
+
+    it("refuses client roles on all three", async () => {
+      const workflow = stepWorkflow([rulesStep("s1")]);
+      const calls: [string, unknown][] = [
+        [`/api/ops/agents/${agentA}/step-skills`, { workflow }],
+        [
+          `/api/ops/agents/${agentA}/save-as-skill`,
+          { workflow, stepId: "s1", name: "N", description: "D", scope: "client" },
+        ],
+        [`/api/ops/agents/${agentA}/suggest`, { workflow, stepId: "s1", how: "resolve" }],
+      ];
+      for (const [path, body] of calls) {
+        for (const who of [admin("a"), user("a")]) {
+          const res = await H.call(who, "POST", path, body, {
+            "x-countersign-client": H.A.tenantId,
+          });
+          expect(res.status, `${who} ${path}`).toBe(403);
+        }
+        const other = await H.call(OTHER_OPERATOR, "POST", path, body);
+        expect(other.status, `other operator ${path}`).toBe(404);
+      }
     });
   });
 
