@@ -139,10 +139,12 @@ export function ConnectorsScreen() {
             <Section title={t("requestAction.title")} testId="connectors-request-action">
               <RequestAction
                 as="client"
-                label={t("requestAction.label")}
-                hint={t("requestAction.hint")}
                 words={{
+                  open: t("requestAction.title"),
+                  label: t("requestAction.label"),
+                  hint: t("requestAction.hint"),
                   send: t("requestAction.send"),
+                  cancel: t("requestAction.cancel"),
                   thanks: t("requestAction.thanks"),
                   another: t("requestAction.another"),
                 }}

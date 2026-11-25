@@ -28,6 +28,7 @@ describe("RequestAction", () => {
       },
     });
     show(api, "operator");
+    await userEvent.click(screen.getByTestId("request-action-open"));
     await userEvent.type(screen.getByTestId("request-action-text"), "Attach a PDF to a bill.");
     await userEvent.click(screen.getByTestId("request-action-send"));
     expect(await screen.findByTestId("request-action-done")).toHaveTextContent(
@@ -47,6 +48,7 @@ describe("RequestAction", () => {
       },
     });
     show(api, "client");
+    await userEvent.click(screen.getByTestId("request-action-open"));
     const send = screen.getByTestId("request-action-send");
     expect(send).toBeDisabled();
     await userEvent.type(
@@ -58,5 +60,15 @@ describe("RequestAction", () => {
     expect(done).toHaveTextContent("We have it");
     expect(done.textContent).not.toMatch(/DQ-|connector|queue/i);
     await waitFor(() => expect(asks).toEqual([{ what: "Send me a text when a bill is late." }]));
+  });
+
+  it("closes without sending on Cancel", async () => {
+    const api = fakeApi({});
+    show(api, "client");
+    await userEvent.click(screen.getByTestId("request-action-open"));
+    await userEvent.type(screen.getByTestId("request-action-text"), "Something we need done.");
+    await userEvent.click(screen.getByTestId("request-action-cancel"));
+    expect(screen.queryByTestId("request-action-text")).toBeNull();
+    expect(screen.getByTestId("request-action-open")).toBeInTheDocument();
   });
 });

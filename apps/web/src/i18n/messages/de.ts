@@ -3973,13 +3973,14 @@ export const de: Messages = {
   "connectors.ask.send": "An Ihre Ansprechperson senden",
   "connectors.ask.sent": "Gesendet. Ihre Anfrage ansehen",
   "connectors.ask.subject": "Ein Konnektor für {tool}",
-  "requestAction.title": "Etwas Neues anfragen",
-  "requestAction.label": "Was sollen Ihre Agenten tun?",
-  "requestAction.hint":
-    "Sagen Sie es mit Ihren eigenen Worten. Wir sehen es uns an und melden uns, sobald es fertig ist.",
+  "requestAction.title": "Etwas anfragen",
+  "requestAction.label": "Was soll es tun?",
   "requestAction.send": "Senden",
+  "requestAction.cancel": "Abbrechen",
   "requestAction.thanks": "Danke. Wir haben es und melden uns, sobald es fertig ist.",
   "requestAction.another": "Etwas anderes anfragen",
+  "requestAction.hint":
+    "Sagen Sie es mit Ihren eigenen Worten. Wir sehen es uns an und melden uns, sobald es fertig ist.",
   "connectors.browse.title": "Durchsuchen",
   "connectors.browse.search": "Konnektoren suchen",
   "connectors.browse.recommended": "Für Sie empfohlen",

@@ -1,8 +1,9 @@
-// Request an action (docs/step-model-plan.md §10c; owner, 2026-11-25): whoever needs something an
-// agent can't do yet says what, in their own words, from a connector's page, an agent's page or the
-// client's account. It becomes a request to our developers with the reuse check, and we resolve it.
-// In the back office the answer names the request; for a client it says only that we have it: they
-// never meet the word "connector" or the queue.
+// Request an action (docs/step-model-plan.md §10c; screen as approved in docs/design/step-model.html,
+// section 4): a button that opens a small form, "What do you need it to do?", one text box, Cancel and
+// Send. Whoever needs something an agent can't do yet says what, from a connector's page, an agent's
+// page or the client's account. It becomes a request to our developers with the reuse check. In the
+// back office the answer names the request; for a client it says only that we have it: they never
+// meet the word "connector" or the queue. Existing components and tokens only.
 import { ACTION_REQUEST_MAX, actionRequestRoutes } from "@countersign/core";
 import { useState } from "react";
 import { Link } from "react-router-dom";
@@ -13,6 +14,26 @@ import { Button, ErrorNotice } from "./primitives";
 
 const MIN = 10;
 
+interface Words {
+  open: string;
+  label: string;
+  hint: string;
+  send: string;
+  cancel: string;
+  thanks: string;
+  another: string;
+}
+
+const ENGLISH: Words = {
+  open: "Request an action",
+  label: "What do you need it to do?",
+  hint: "We look at it, tell you if something already does it, and let you know when it's ready.",
+  send: "Send",
+  cancel: "Cancel",
+  thanks: "Thank you. We have it, and we will tell you when it is ready.",
+  another: "Ask for something else",
+};
+
 interface Props {
   /** Where it is asked from: the back office (names the request) or a client (says "we have it"). */
   as: "operator" | "client";
@@ -22,11 +43,9 @@ interface Props {
   agentId?: string | undefined;
   /** The client it is for. */
   clientId?: string | undefined;
-  label?: string;
-  hint?: string;
-  testId?: string;
   /** The words, for a client's screen (it reads them in its own language); English by default. */
-  words?: { send: string; thanks: string; another: string };
+  words?: Partial<Words>;
+  testId?: string;
 }
 
 export function RequestAction({
@@ -34,21 +53,23 @@ export function RequestAction({
   connector,
   agentId,
   clientId,
-  label = "What do you need?",
-  hint,
+  words: given,
   testId = "request-action",
-  words = {
-    send: "Send request",
-    thanks: "Thank you. We have it, and we will tell you when it is ready.",
-    another: "Ask for something else",
-  },
 }: Props) {
+  const words = { ...ENGLISH, ...given };
   const api = useApiClient();
+  const [open, setOpen] = useState(false);
   const [what, setWhat] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>(null);
   const [done, setDone] = useState<{ ref: string | null; again: boolean } | null>(null);
   const ready = what.trim().length >= MIN;
+
+  function close() {
+    setOpen(false);
+    setWhat("");
+    setError(null);
+  }
 
   async function send() {
     setBusy(true);
@@ -68,7 +89,7 @@ export function RequestAction({
         });
         setDone({ ref: out.ref ?? out.duplicate?.ref ?? null, again: out.ref === null });
       }
-      setWhat("");
+      close();
     } catch (e) {
       setError(e);
     } finally {
@@ -86,7 +107,7 @@ export function RequestAction({
               ? `Someone already asked for this: ${done.ref}.`
               : `Sent to the Dev queue as ${done.ref}.`}
         </p>
-        <div className="flex gap-2">
+        <div className="flex items-center gap-2">
           <Button size="sm" variant="ghost" onClick={() => setDone(null)}>
             {words.another}
           </Button>
@@ -99,21 +120,39 @@ export function RequestAction({
       </div>
     );
   }
+  if (!open) {
+    return (
+      <Button
+        size="sm"
+        variant="secondary"
+        className="self-start"
+        data-testid={`${testId}-open`}
+        onClick={() => setOpen(true)}
+      >
+        {words.open}
+      </Button>
+    );
+  }
   return (
     <div className="flex flex-col gap-2" data-testid={testId}>
-      <Field label={label} {...(hint ? { hint } : {})}>
+      <Field label={words.label} hint={words.hint}>
         <TextArea
-          aria-label={label}
+          aria-label={words.label}
           data-testid={`${testId}-text`}
-          rows={3}
+          rows={4}
           maxLength={ACTION_REQUEST_MAX}
           value={what}
           onChange={(e) => setWhat(e.target.value)}
         />
       </Field>
       {error ? <ErrorNotice error={error} /> : null}
-      <div>
+      <div className="flex justify-end gap-2">
+        <Button size="sm" variant="ghost" data-testid={`${testId}-cancel`} onClick={close}>
+          {words.cancel}
+        </Button>
         <Button
+          size="sm"
+          variant="primary"
           data-testid={`${testId}-send`}
           disabled={busy || !ready}
           onClick={() => void send()}

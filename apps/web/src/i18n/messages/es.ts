@@ -3893,13 +3893,14 @@ export const es: Messages = {
   "connectors.ask.send": "Enviar a su responsable",
   "connectors.ask.sent": "Enviado. Ver su solicitud",
   "connectors.ask.subject": "Un conector para {tool}",
-  "requestAction.title": "Pedir algo nuevo",
-  "requestAction.label": "¿Qué necesita que hagan sus agentes?",
-  "requestAction.hint":
-    "Dígalo con sus propias palabras. Lo revisaremos y le avisaremos cuando esté listo.",
+  "requestAction.title": "Pedir algo",
+  "requestAction.label": "¿Qué necesita que haga?",
   "requestAction.send": "Enviar",
+  "requestAction.cancel": "Cancelar",
   "requestAction.thanks": "Gracias. Lo tenemos y le avisaremos cuando esté listo.",
   "requestAction.another": "Pedir otra cosa",
+  "requestAction.hint":
+    "Dígalo con sus propias palabras. Lo revisaremos y le avisaremos cuando esté listo.",
   "connectors.browse.title": "Explorar",
   "connectors.browse.search": "Buscar conectores",
   "connectors.browse.recommended": "Recomendados para usted",

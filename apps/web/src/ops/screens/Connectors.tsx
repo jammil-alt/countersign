@@ -21,7 +21,7 @@ import { useApi, useApiClient } from "../../api/useApi";
 import { ConnectorMark } from "../../connections/ConnectorMark";
 import { MatrixTable } from "../../connections/MatrixTable";
 import { useSession } from "../../session/session";
-import { brief, saysMore } from "../../ui/brief";
+import { saysMore } from "../../ui/brief";
 import { KpiStrip, StatTile } from "../../ui/figures";
 import { Field, Select, TextInput } from "../../ui/forms";
 import { Page, Section } from "../../ui/page";
@@ -469,16 +469,7 @@ function ConnectorPanel({
           busy={busy}
           onSwitch={(id, on) => save({ actions: { [id]: on } })}
         />
-      </SheetSection>
-
-      <SheetSection label="Request an action">
-        <RequestAction
-          as="operator"
-          connector={c.id}
-          label="What should it be able to do?"
-          hint="Say it as you would to a colleague. We check what already does it before anyone builds."
-          testId="connector-request-action"
-        />
+        <RequestAction as="operator" connector={c.id} testId="connector-request-action" />
       </SheetSection>
 
       {c.builtIn ? null : (
@@ -532,12 +523,19 @@ function ConnectorPanel({
   );
 }
 
-const KIND_WORDS = { get: "Get", save: "Save", change: "Change", send: "Send" } as const;
+/** The kind as the screen reads it: a Change or a Send waits for approval unless a person says not. */
+const KIND_WORDS = {
+  get: "Get",
+  save: "Save",
+  change: "Change · approval",
+  send: "Send · approval",
+} as const;
 
 /**
- * A connector's actions with their kind and an on or off for agents (docs/step-model-plan.md §10c).
- * Off actions are left out of the catalog and refused when an agent calls them. Turning an action on
- * never loosens a client's access: their own settings and each step's approval still apply.
+ * A connector's actions with their kind and a switch for agents (docs/step-model-plan.md §10c; the
+ * approved screen, docs/design/step-model.html section 4). Off actions are left out of the catalog
+ * and refused when an agent calls them. Turning an action on never loosens a client's access: their
+ * own settings and each step's approval still apply.
  */
 function ActionList({
   connector: c,
@@ -550,28 +548,25 @@ function ActionList({
 }) {
   if (c.actions.length === 0) return <p className="text-sm text-ink-muted">None.</p>;
   return (
-    <ul className="flex flex-col gap-2" data-testid="connector-actions">
+    <ul className="flex flex-col" data-testid="connector-actions">
       {c.actions.map((a) => (
         <li
           key={a.id}
-          className="flex items-start justify-between gap-3"
+          className="grid grid-cols-[1fr_auto_auto] items-center gap-3 border-t border-line py-2 text-sm first:border-t-0"
           data-testid={`connector-action-${a.id}`}
         >
-          <span className="flex min-w-0 flex-col">
-            <span className="flex flex-wrap items-center gap-2 text-sm text-ink">
-              {toolName(a.id)}
-              <Tag>{KIND_WORDS[a.kind]}</Tag>
-              {a.isNew ? (
-                <Badge tone="warning" testId={`connector-action-${a.id}-new`}>
-                  New: waiting to be turned on
-                </Badge>
-              ) : null}
-            </span>
-            <span className="text-xs text-ink-muted">{brief(a.description)}</span>
+          <span className="flex min-w-0 flex-col text-ink">
+            {toolName(a.id)}
+            {a.isNew ? (
+              <span className="text-xs text-ink-muted" data-testid={`connector-action-${a.id}-new`}>
+                New: waiting to be turned on
+              </span>
+            ) : null}
           </span>
+          <span className="eyebrow text-ink-muted">{KIND_WORDS[a.kind]}</span>
           <button
             type="button"
-            className="ds-choice shrink-0 text-sm disabled:cursor-default disabled:opacity-60"
+            className="ds-choice shrink-0 disabled:cursor-default disabled:opacity-60"
             role="switch"
             aria-checked={a.on}
             aria-label={`${toolName(a.id)} for agents`}
@@ -580,7 +575,6 @@ function ActionList({
             onClick={() => onSwitch(a.id, !a.on)}
           >
             <span className="ds-switch" />
-            {a.on ? "On" : "Off"}
           </button>
         </li>
       ))}

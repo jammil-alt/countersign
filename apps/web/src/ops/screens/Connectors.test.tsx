@@ -269,7 +269,7 @@ describe("ops connectors catalog", () => {
     expect(within(panel).getByTestId("connector-panel-syncs")).toHaveTextContent("Bill");
     expect(within(panel).getByTestId("connector-panel-syncs")).toHaveTextContent("Invoice");
     const on = within(panel).getByTestId("connector-action-qbo.invoice.add_note");
-    expect(on).toHaveTextContent("Change");
+    expect(on).toHaveTextContent("Change · approval");
     const onSwitch = within(panel).getByTestId("connector-action-qbo.invoice.add_note-switch");
     expect(onSwitch).toHaveAttribute("aria-checked", "true");
     // A new action waits, off, to be turned on here.
@@ -295,6 +295,7 @@ describe("ops connectors catalog", () => {
     });
     renderAt(api);
     await userEvent.click(await screen.findByTestId("connector-qbo-open"));
+    await userEvent.click(screen.getByTestId("connector-request-action-open"));
     const send = screen.getByTestId("connector-request-action-send");
     expect(send).toBeDisabled();
     await userEvent.type(
