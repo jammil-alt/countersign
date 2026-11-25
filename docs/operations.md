@@ -1531,6 +1531,16 @@ workflow. Then, and only the security officer:
   configs and R2 buckets (§1). Safe to re-run; it rotates `cs_worker`'s passwords only when asked.
   Waits for the `production` environment's approval, as do **Add operator** and **Remove operator**
   when their target is production.
+- **`lockdown.yml`** (Lockdown at the edge, `docs/plan.md` §1.243): by hand only, per environment;
+  `status` reads, `on` blocks every request to the app's host (`app.mezonas.com` or
+  `staging.mezonas.com`) at Cloudflare but `/api/health`, `off` lets it through again. For when
+  the Worker or the database may itself be compromised; otherwise lock clients in the app (Security
+  → Lockdown). Webhooks fail meanwhile and providers retry; email still reaches the Worker, whose
+  lockdown covers it. Production's runs wait for the `production` environment's approval. Needs the
+  environment secret `CLOUDFLARE_LOCKDOWN_TOKEN` on `staging` and `production`: a Cloudflare API
+  token for the `mezonas.com` zone only, with Zone: Read and Zone WAF: Edit. Run `status` on staging
+  once it is set; the Cloudflare API calls it makes are unchecked until then
+  (`scripts/edge-lockdown.mjs`). It uses one of the zone's custom rules (the Free plan has five).
 - **`deploy.yml`**: on push to `main` (staging) or a `v*` tag (production): `checks.yml`, then the
   deploy job, which lives in **`deploy-app.yml`** (a reusable workflow, so `deploy.yml` and the
   quick deploy below share one copy of its steps and secrets): it migrates the target's Neon branch
