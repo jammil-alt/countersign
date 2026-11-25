@@ -463,6 +463,7 @@ export const es: Messages = {
   "desk.team.undoIs": "Margen para deshacer: {window}.",
   "desk.approvalSettings": "Ajustes de aprobación",
   "change.now": "Ahora",
+  "change.recordSave.why": "Por qué espera",
   "change.after": "Después del cambio",
   "change.createsIt": "Aún no existe: este cambio lo crea.",
   "change.nothingRecorded": "No hay nada registrado.",

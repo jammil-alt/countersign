@@ -236,6 +236,32 @@ export function accountChangeFacts(
   ];
 }
 
+/**
+ * Signed record saves (step model §10f): a save to our own records waiting for a signature, as why
+ * it waits and each field it sets (before → after; a new record's values alone), in the server's
+ * words. What the agent proposed is data, shown as text.
+ */
+export function recordSaveFacts(
+  payload: Record<string, unknown>,
+  { t }: Pick<I18n, "t">,
+): [string, string][] | null {
+  const s = payload.recordSave;
+  if (!isPlainObject(s)) return null;
+  const facts: [string, string][] = [];
+  if (typeof s.why === "string") facts.push([t("change.recordSave.why"), s.why]);
+  const changes = Array.isArray(s.changes) ? s.changes : [];
+  for (const c of changes) {
+    if (!isPlainObject(c) || typeof c.label !== "string") continue;
+    facts.push([
+      c.label,
+      s.action === "update"
+        ? `${formatValue(c.before)} → ${formatValue(c.after)}`
+        : formatValue(c.after),
+    ]);
+  }
+  return facts;
+}
+
 /** v0.12 W2-D: a change Sloan drafted is signed through its own route. */
 export function isAccountChangeItem(item: Pick<InboxCardItem, "payload">): boolean {
   return isPlainObject(item.payload.accountChange);
@@ -404,6 +430,8 @@ export function InboxCard({
       : (suggestionFacts(item.payload, i18n) ??
         // v0.12 W2-D: a change Sloan drafted, as its now and after lines.
         accountChangeFacts(item.payload, i18n) ??
+        // Signed record saves: why it waits and each field it sets.
+        recordSaveFacts(item.payload, i18n) ??
         payloadFacts(item.payload));
   const steps = findingSteps(item.payload);
   const sources = Array.isArray(item.payload.sources)

@@ -452,6 +452,7 @@ export const en = {
   "desk.team.undoIs": "Undo window: {window}.",
   "desk.approvalSettings": "Approval settings",
   "change.now": "Now",
+  "change.recordSave.why": "Why it waits",
   "change.after": "After this change",
   "change.createsIt": "Not there yet: this change creates it.",
   "change.nothingRecorded": "Nothing recorded.",

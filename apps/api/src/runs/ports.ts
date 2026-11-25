@@ -81,6 +81,7 @@ import { type NotifyDeps, sendQueued } from "../notify/outbox";
 import { queueUrgent } from "../notify/urgent";
 import { reportHandled } from "../observability/report";
 import { type ReachPort, reachOutState } from "../reach/service";
+import { signedRecordWrite } from "../records/port";
 import { leaseWaitDone, leaseWaitOf, leaseWaitOutcome, MAX_LEASE_WAITS } from "./lease-wait";
 import { boundWithActionOn, channelFallback, pickMerged } from "./merged-pick";
 import { keepStepSubjects } from "./subject-log";
@@ -221,7 +222,14 @@ export async function personAssignee(
 
 /** What a step waiting on approvals carries between durable steps. Small: ids only. */
 const PendingState = z.object({
-  actions: z.array(z.object({ actionId: z.string(), inboxItemId: z.string().nullable() })),
+  actions: z.array(
+    z.object({
+      actionId: z.string(),
+      inboxItemId: z.string().nullable(),
+      // Signed record saves: a save to our own records, signed on its card (no external action).
+      recordSave: z.boolean().optional(),
+    }),
+  ),
   output: z.unknown().optional(),
   // Audit 3.7: one of the step's changes was rejected though the run read a yes: the step ends
   // as declined once its other changes are settled.
@@ -392,7 +400,11 @@ export function agentPort(
           const state: PendingState = {
             actions: r.pendingActions
               .filter((p) => p.status === "awaiting_approval")
-              .map((p) => ({ actionId: p.actionId, inboxItemId: p.inboxItemId })),
+              .map((p) => ({
+                actionId: p.actionId,
+                inboxItemId: p.inboxItemId,
+                ...(p.recordSave ? { recordSave: true } : {}),
+              })),
             output: r.output,
           };
           return (
@@ -470,7 +482,13 @@ export function agentPort(
         case "awaiting_approval":
           return (
             firstWaiting({
-              actions: [{ actionId: o.actionId, inboxItemId: o.inboxItemId }],
+              actions: [
+                {
+                  actionId: o.actionId,
+                  inboxItemId: o.inboxItemId,
+                  ...(o.recordSave ? { recordSave: true } : {}),
+                },
+              ],
               output: null,
             }) ?? { kind: "failed", error: "a change waits with no approval card" }
           );
@@ -656,6 +674,36 @@ export function agentPort(
       const state = PendingState.parse(pending.state ?? { actions: [] });
       const index = state.actions.findIndex((a) => a.inboxItemId === pending.inboxItemId);
       const current = state.actions[index];
+      // Signed record saves: a yes makes the write once, under its key, as proposed on the card;
+      // a no (or nobody answering) writes nothing, and the step takes a no as declined.
+      if (current?.recordSave) {
+        if (resolution.approved === true && resolution.proceeded === true) {
+          // Nobody signed: a save that needed a signature never goes ahead unsigned (invariant 8).
+          return { kind: "failed", error: "nobody signed this save to our records in time" };
+        }
+        if (resolution.approved === true) {
+          const records = deps.ports.records;
+          if (!release || !records)
+            return { kind: "failed", error: "our records aren't reachable" };
+          try {
+            const written = await signedRecordWrite(
+              release.db,
+              records,
+              run.tenantId,
+              current.inboxItemId ?? current.actionId,
+            );
+            if (step.kind === "action") state.output = written;
+          } catch (error) {
+            return {
+              kind: "failed",
+              error: error instanceof Error ? error.message : String(error),
+            };
+          }
+        } else if (resolution.by !== null && resolution.withdrawn !== true) {
+          state.declined = true;
+        }
+        return afterExecuted(step, state, index, null, 0);
+      }
       if (current && resolution.approved === true && release) {
         // R3: the run's decision on a change several people (or, in time, nobody) were asked to
         // sign. Nobody answering goes ahead only where the gate, asked again now, would let the
@@ -754,6 +802,11 @@ export function agentPort(
     async askApprover(request) {
       const { run, pending, who } = request;
       if (!release) throw new Error("asking another approver needs the database");
+      // Signed record saves: one person signs a save's card (fails closed, as a message's).
+      const records = PendingState.safeParse(pending.state ?? { actions: [] });
+      if (records.success && records.data.actions.some((a) => a.recordSave)) {
+        throw new Error("a save to our records is signed by one person");
+      }
       if (converseState(pending.state) || reachOutState(pending.state)) {
         // DECISION: a conversation's or a reach-out's signature is one person's (its own card and
         // route); asking more people to sign it is refused, so the step fails closed.

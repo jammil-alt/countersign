@@ -25,8 +25,10 @@ import {
   type StoredRecord,
   visibleCustomFields,
 } from "@countersign/core";
-import { type Db, recordWrite, type Tx, withTenant } from "@countersign/db";
-import { and, eq } from "drizzle-orm";
+import { type Db, inboxItem, recordWrite, type Tx, withTenant } from "@countersign/db";
+import { and, desc, eq, sql } from "drizzle-orm";
+import { z } from "zod";
+import { toRunResolution } from "../inbox";
 import { customFieldsFor } from "./fields";
 import type { RecordCatalog } from "./registry";
 
@@ -248,5 +250,166 @@ export function dbRecordsPort(db: Db, catalog: RecordCatalog): RecordsPort {
         return presentRecord(after, custom);
       });
     },
+
+    // Signed record saves: checked now, so a person never signs a write the rules would refuse;
+    // one card per write key, found again by a retried step.
+    async propose(tenantId, req) {
+      const store = storeOf(catalog, req.recordType);
+      const type = store.type;
+      if (!type.operations[req.action] || !store[req.action]) {
+        throw new RecordRuleError(
+          `${type.plural.toLowerCase()} can't be ${req.action === "create" ? "created" : "changed"} here`,
+        );
+      }
+      return withTenant(db, tenantId, async (tx) => {
+        const custom = await visible(tx, tenantId, req.recordType);
+        const again = await earlier(tx, tenantId, store, req.meta.key, custom);
+        if (again) return { status: "done", record: again };
+        const [card] = await tx
+          .select()
+          .from(inboxItem)
+          .where(
+            and(
+              eq(inboxItem.tenantId, tenantId),
+              eq(inboxItem.subjectType, RECORD_SAVE_SUBJECT),
+              eq(inboxItem.runId, req.meta.runId),
+              sql`${inboxItem.payload} -> 'recordSave' ->> 'key' = ${req.meta.key}`,
+            ),
+          )
+          .orderBy(desc(inboxItem.createdAt))
+          .limit(1);
+        if (card) {
+          return card.status === "resolved" && toRunResolution(card).approved === false
+            ? { status: "rejected" }
+            : { status: "proposed", inboxItemId: card.id };
+        }
+        const before = req.id ? ((await store.get(tx, tenantId, [req.id]))[0] ?? null) : null;
+        if (req.action === "update" && !before) {
+          throw new RecordRuleError(`there is no ${type.name.toLowerCase()} ${req.id}`);
+        }
+        const write = splitWrite(type, custom, req.values, before);
+        const saved: RecordSave = {
+          recordType: type.id,
+          action: req.action,
+          ...(req.id ? { id: req.id } : {}),
+          values: req.values,
+          key: req.meta.key,
+          sources: req.meta.sources,
+          agentVersionId: req.meta.agentVersionId,
+          runId: req.meta.runId,
+          stepRunId: req.meta.stepRunId,
+          why: req.why,
+          changes: changesOf(custom, before, write),
+        };
+        const [row] = await tx
+          .insert(inboxItem)
+          .values({
+            tenantId,
+            kind: "approval",
+            title: `${req.action === "create" ? "Add" : "Change"} ${
+              before
+                ? `the ${type.name.toLowerCase()} ${recordName(before)}`
+                : `a ${type.name.toLowerCase()}`
+            } in our records`,
+            payload: { recordSave: saved, sources: req.meta.sources },
+            agentId: req.agentId,
+            runId: req.meta.runId,
+            subjectType: RECORD_SAVE_SUBJECT,
+            subjectId: req.id ?? null,
+            assigneeRole: req.assignee.assigneeRole,
+            assigneeUserId: req.assignee.assigneeUserId,
+          })
+          .returning({ id: inboxItem.id });
+        if (!row) throw new Error("the approval card wasn't saved");
+        return { status: "proposed", inboxItemId: row.id };
+      });
+    },
   };
+}
+
+/** The inbox card's subject for a record save waiting for a signature. */
+export const RECORD_SAVE_SUBJECT = "record_save";
+
+/** What a record save's card carries: the write as proposed, and its changes in words. */
+export const RecordSave = z.object({
+  recordType: z.string(),
+  action: z.enum(["create", "update"]),
+  id: z.string().optional(),
+  values: z.record(z.string(), z.unknown()),
+  key: z.string(),
+  sources: z.array(z.string()),
+  agentVersionId: z.string(),
+  runId: z.string(),
+  stepRunId: z.string(),
+  why: z.string(),
+  changes: z.array(
+    z.object({ field: z.string(), label: z.string(), before: z.unknown(), after: z.unknown() }),
+  ),
+});
+export type RecordSave = z.infer<typeof RecordSave>;
+
+/** A record's name for a card: its `name`, else its id. */
+function recordName(r: StoredRecord): string {
+  const name = r.values.name;
+  return typeof name === "string" && name.trim() ? name : r.id;
+}
+
+/** Each field a write sets, with its value before (none for a new record) and after. */
+function changesOf(
+  custom: readonly CustomFieldDef[],
+  before: StoredRecord | null,
+  write: { builtIn: Record<string, unknown>; custom: Record<string, unknown> },
+): RecordSave["changes"] {
+  const was = before ? customValuesOf(before.ext) : {};
+  const out: RecordSave["changes"] = [];
+  for (const [field, after] of Object.entries(write.builtIn)) {
+    out.push({ field, label: field, before: before?.values[field] ?? null, after });
+  }
+  for (const def of custom) {
+    const after = write.custom[def.name] ?? null;
+    const prior = was[def.name] ?? null;
+    if (JSON.stringify(after) !== JSON.stringify(prior)) {
+      out.push({ field: def.name, label: def.label, before: prior, after });
+    }
+  }
+  return out.slice(0, 50);
+}
+
+/**
+ * After a person signed a record save's card: the write as proposed, made once under its key by
+ * the agent version that proposed it (the signer is on the card). Read from the card in the
+ * client's own scope, never from what a browser sent; a card that isn't a signed record save is
+ * refused.
+ */
+export async function signedRecordWrite(
+  db: Db,
+  port: RecordsPort,
+  tenantId: string,
+  inboxItemId: string,
+): Promise<RecordValues> {
+  const card = await withTenant(db, tenantId, async (tx) => {
+    const [row] = await tx
+      .select()
+      .from(inboxItem)
+      .where(and(eq(inboxItem.tenantId, tenantId), eq(inboxItem.id, inboxItemId)));
+    return row ?? null;
+  });
+  if (!card || card.subjectType !== RECORD_SAVE_SUBJECT) {
+    throw new RecordRuleError("this card isn't a save to our records");
+  }
+  if (card.status !== "resolved" || toRunResolution(card).approved !== true) {
+    throw new RecordRuleError("this save wasn't signed");
+  }
+  const save = RecordSave.parse((card.payload as { recordSave?: unknown }).recordSave);
+  const meta: RecordWriteMeta = {
+    agentVersionId: save.agentVersionId,
+    runId: save.runId,
+    stepRunId: save.stepRunId,
+    key: save.key,
+    sources: save.sources,
+    mode: "live",
+  };
+  return save.action === "create"
+    ? port.create(tenantId, save.recordType, save.values, meta)
+    : port.update(tenantId, save.recordType, save.id ?? "", save.values, meta);
 }

@@ -170,6 +170,8 @@ export interface PendingAction {
   inboxItemId: string | null;
   /** `would_have_done`: a test run's write, recorded and never executed. */
   status: "awaiting_approval" | "would_have_done";
+  /** Signed record saves: a save to our own records, `actionId` its card's id. */
+  recordSave?: true;
 }
 
 interface ResultBase {
@@ -668,7 +670,12 @@ export async function runAgent(deps: RuntimeDeps, input: RunAgentInput): Promise
   const pending: PendingAction[] = [];
   const track = (o: ToolOutcome) => {
     if (o.status === "awaiting_approval") {
-      pending.push({ actionId: o.actionId, inboxItemId: o.inboxItemId, status: o.status });
+      pending.push({
+        actionId: o.actionId,
+        inboxItemId: o.inboxItemId,
+        status: o.status,
+        ...(o.recordSave ? { recordSave: true as const } : {}),
+      });
     }
     if (o.status === "would_have_done") {
       pending.push({ actionId: o.actionId, inboxItemId: null, status: o.status });
