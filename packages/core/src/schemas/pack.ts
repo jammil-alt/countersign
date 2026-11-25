@@ -2,6 +2,7 @@ import { z } from "zod";
 import { PROCESSORS } from "../compliance/processors";
 import { GuideSectionSource } from "../onboarding/guide";
 import { OwnerArea } from "../owners/areas";
+import { RecordType } from "../records/record-type";
 import { Role } from "../roles";
 import { MatchProfile } from "../steps/match-profile";
 import { LoopTests, loopsWithoutTests } from "../testbench/loop-tests";
@@ -126,6 +127,10 @@ export const PackManifest = z
     // step matches to ("Match to: Vendors"). The pack's code gives each one's store (how a key is
     // looked up, the shortlist, the never-the-same rules); core's Match engine runs them all.
     matchProfiles: z.array(MatchProfile).default([]),
+    // Step model §10f (stream N): the record types the area owns, each with its fields, keys,
+    // links and operations. The platform offers Find, Get by id, Create and Update on each (core
+    // `recordActionSpecs`); the pack's code gives each one's store (apps/api registers it).
+    recordTypes: z.array(RecordType).default([]),
     // Step model §10d, §10e (stream D): the pack's tools a match profile (or another action) does
     // for new steps: tool id → what does it now, in words. Stored v4 steps keep running them until
     // they are deleted with v4 (wave 4); the Uses picker leaves them out.
@@ -228,6 +233,15 @@ export const PackManifest = z
           code: "custom",
           message: `match profile ${m.id} is ${m.area}'s, but the pack is ${p.area}`,
           path: ["matchProfiles", i, "area"],
+        });
+      }
+    });
+    p.recordTypes.forEach((r, i) => {
+      if (r.area !== p.area && r.area !== "shared") {
+        ctx.addIssue({
+          code: "custom",
+          message: `record type ${r.id} is ${r.area}'s, but the pack is ${p.area}`,
+          path: ["recordTypes", i, "area"],
         });
       }
     });

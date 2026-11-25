@@ -10,6 +10,7 @@ import { OwnerArea } from "../owners/areas";
 // R1 (docs/plan.md §1.86): a bundle entry may hold a v4 process.
 import { Process } from "../process/schema";
 import { PersonRole } from "../reach/rules";
+import { AgentData } from "../records/grants";
 // docs/builder-plan.md §7 (B5): the settings a client may adjust, with their bounds.
 import { AdjustableSettings } from "../setup/adjustable";
 // docs/builder-plan.md §6: the setup checklist a client copy is set up by.
@@ -102,6 +103,10 @@ export const AgentDefinition = z
     // a skill parameter or a schedule with its bounds, marked by the operator. Optional with no
     // default, so bundles without it parse and hash as they were; a copy keeps its template's.
     adjustable: AdjustableSettings.optional(),
+    // Step model §10f (stream N): what the agent may read, create and update of our own records,
+    // per record type, and its data sets. Optional with no default, so bundles without it parse
+    // and hash as they were; absent grants nothing (the standard record actions are refused).
+    data: AgentData.optional(),
   })
   .meta({ id: "AgentDefinition" });
 export type AgentDefinition = z.infer<typeof AgentDefinition>;

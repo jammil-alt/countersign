@@ -31,10 +31,11 @@ import type { AccountPort } from "./account";
 import type { InboundPort } from "./inbound";
 // B3 (docs/builder-plan.md §8, tier 3)
 import type { ManualsPort } from "./manual";
+// §1.77
+import type { RecordsPort } from "./records";
 import type { ThreadsPort } from "./threads";
 // P-7
 import type { TranslationPort } from "./translate";
-// §1.77
 import type { WebResearchPort } from "./web";
 
 export type RunMode = "live" | "test";
@@ -92,6 +93,8 @@ export interface ToolInvocation {
   // §1.77: web research
   /** `web.search` and `web.fetch`; absent where research is off (they answer `off`). */
   web?: WebResearchPort | undefined;
+  /** Step model §10f: our own records by record type; absent where nothing provides them. */
+  records?: RecordsPort | undefined;
   /**
    * Asks another agent of the same client (`agents.ask`): set by the runtime for a skill's tool
    * calls, absent inside an ask (no asks within asks) and in action steps.

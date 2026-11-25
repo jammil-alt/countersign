@@ -4,7 +4,8 @@
 // by default, then the approver rules), People (its people and invites, and the emails its admin
 // chose), Business hours and Channels (R8, plan §1.86: the client's week and its people's hours,
 // read-only; the account's number and email, ours to bind), Billing, Compliance (HIPAA mode and
-// vendors), Run audit (wave 6: which finished runs we check by hand), Exports (it was a tab;
+// vendors), Run audit (wave 6: which finished runs we check by hand), Custom fields (step model
+// §10f: fields added to its records), Exports (it was a tab;
 // `/exports` redirects here) and Retire client. The tools it is
 // offered are on Setup, Connections.
 import type { ExternalApprover, OpsClientSettings } from "@countersign/core";
@@ -31,6 +32,7 @@ const ClientWorkStatement = lazy(() =>
 );
 
 import { ClientComplianceSetting, ClientRetireSetting } from "./ClientComplianceSetting";
+import { ClientCustomFieldsSection } from "./ClientCustomFields";
 import { ClientFeedbackSetting } from "./ClientFeedbackSetting";
 import { ClientChannelsSection, ClientHoursSection } from "./ClientHours";
 import { ClientLanguageSetting } from "./ClientLanguageSetting";
@@ -55,6 +57,8 @@ export const SETTINGS_SECTIONS = [
   ["compliance", "Compliance"],
   // Wave 6 (docs/plan.md §1.86 "Run audit (wave 6)"): which finished runs we check by hand.
   ["audit", "Run audit"],
+  // Step model §10f: fields added to this client's records (or every client's).
+  ["fields", "Custom fields"],
   ["exports", "Exports"],
   ["retire", "Retire client"],
 ] as const;
@@ -133,6 +137,8 @@ function SectionBody({ clientId, section }: { clientId: string; section: Setting
       );
     case "audit":
       return <ClientRunAuditSection clientId={clientId} />;
+    case "fields":
+      return <ClientCustomFieldsSection clientId={clientId} />;
     case "exports":
       return <ClientExportsSection clientId={clientId} />;
     case "retire":
