@@ -324,10 +324,9 @@ async function matchOne(
 
   // 3. Semantic: the shortlist, then the model.
   const searched = await store.shortlist(item, settings.shortlist.model);
-  const shortlist = await allowed([
-    ...ambiguous.map((r) => ({ ...r, score: 1 })),
-    ...searched.slice(0, settings.shortlist.model),
-  ]);
+  const shortlist = (
+    await allowed([...ambiguous.map((r) => ({ ...r, score: 1 })), ...searched])
+  ).slice(0, settings.shortlist.model);
   const shown = shortlist.map((c) => ({ record: c.id, confidence: pct(c.score) }));
   if (shortlist.length === 0) return noMatch("no_candidates");
   const best = Math.max(...shortlist.map((c) => c.score));
