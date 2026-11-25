@@ -7,6 +7,7 @@
 // and changes.
 // DECISION (v0.18): the data summary sits with What's left rather than in a panel of its own: the
 // side panel already has three tabs, and the two are read together before publishing.
+// A pack that is off has "Switch on" beside it (owner, 2026-11-24), as on the client's Areas tab.
 
 import type { ReactNode } from "react";
 import { Badge, Count } from "../../ui/primitives";
@@ -21,6 +22,10 @@ export function WhatsLeft(props: {
   summary: DataSummary;
   onSelect(item: Extract<LeftItem, { stepId: string }>): void;
   onTest(): void;
+  /**
+   * Beside an item, what fixes it here (owner, 2026-11-24): a pack that is off gets "Switch on".
+   */
+  action?: ((item: LeftItem) => ReactNode) | undefined;
 }) {
   const { items } = props;
   const total = items.length + props.problemCount;
@@ -57,7 +62,7 @@ export function WhatsLeft(props: {
           {items
             .filter((i) => i.kind !== "missing")
             .map((item) => (
-              <li key={item.key}>
+              <li key={item.key} className="flex items-center gap-2">
                 <LeftButton
                   item={item}
                   onClick={() => (item.kind === "test" ? props.onTest() : props.onSelect(item))}
@@ -66,6 +71,7 @@ export function WhatsLeft(props: {
                     {item.kind === "test" ? "Test" : "Needs"}
                   </Badge>
                 </LeftButton>
+                {props.action?.(item)}
               </li>
             ))}
         </ul>

@@ -627,6 +627,76 @@ async function decide(
   return inTx(async (tx) => reviewView(tx, services, await find(tx), who));
 }
 
+/**
+ * §1.230: the one install path, the same for every pack and taking only configuration: the
+ * configuration is checked and kept first (a bad one switches nothing on), then the pack is
+ * on for the client, its templates and Library skills installed once for the deployment.
+ * Installing again changes only the configuration.
+ */
+export async function installPack(
+  tx: Tx,
+  services: Services,
+  tenantId: string,
+  packId: string,
+  actorId: string,
+  config: Readonly<Record<string, unknown>>,
+) {
+  const pack = packOf(services, packId);
+  await saveConfig(tx, pack, tenantId, actorId, config);
+  await tx
+    .insert(tenantPack)
+    .values({ tenantId, pack: pack.manifest.id, version: pack.manifest.version })
+    .onConflictDoNothing();
+  const installed = await installTemplates(tx, services, pack, actorId);
+  await installLibrarySkills(tx, services, pack, actorId);
+  const packs = await opsClientPacks(tx, services, tenantId);
+  const view = packs.find((p) => p.id === pack.manifest.id);
+  if (!view) throw notFound("pack");
+  return { pack: view, installed };
+}
+
+/** What switching on a fork's packs did: on now, or left for the operator, with why. */
+export interface PacksSwitched {
+  switchedOn: string[];
+  needsSetup: { pack: string; reason: string }[];
+}
+
+/**
+ * A template forked into a client gets the packs its skills need (owner, 2026-11-24): each one
+ * that is off is switched on as the Areas tab's "Switch on" does (`installPack`, no settings, so
+ * every setting at its default). One that needs settings without a default, or that this
+ * deployment doesn't have, is left off and named, for the operator to set up; the fork goes ahead.
+ */
+// DECISION: on at the fork, not at activation: activation already refuses without it, and the
+// client test forks before it activates. Recorded in the fork's own audit row (its route).
+export async function switchOnPacks(
+  tx: Tx,
+  services: Services,
+  tenantId: string,
+  packIds: readonly string[],
+  actorId: string,
+): Promise<PacksSwitched> {
+  const out: PacksSwitched = { switchedOn: [], needsSetup: [] };
+  if (packIds.length === 0) return out;
+  const on = new Set((await enabledPacks(tx, tenantId)).map((r) => r.pack));
+  for (const id of packIds) {
+    if (on.has(id)) continue;
+    if (!services.platform.packs.some((p) => p.manifest.id === id)) {
+      out.needsSetup.push({ pack: id, reason: "this deployment doesn't have the pack" });
+      continue;
+    }
+    try {
+      await installPack(tx, services, tenantId, id, actorId, {});
+      out.switchedOn.push(id);
+    } catch (e) {
+      // saveConfig refuses before it writes, so the transaction goes on.
+      if (!(e instanceof HttpError)) throw e;
+      out.needsSetup.push({ pack: id, reason: e.message });
+    }
+  }
+  return out;
+}
+
 export function packRouteHandlers(app: Hono<AppEnv>): void {
   // ── Back office ────────────────────────────────────────────────────────────────────────────────
   mount(app, routes.opsPacks, async ({ tx, tenantIds, services }) => {
@@ -687,44 +757,16 @@ export function packRouteHandlers(app: Hono<AppEnv>): void {
     return { packs: await opsClientPacks(ctx.tx, ctx.services, ctx.params.id) };
   });
 
-  /**
-   * §1.230: the one install path, the same for every pack and taking only configuration: the
-   * configuration is checked and kept first (a bad one switches nothing on), then the pack is
-   * on for the client, its templates and Library skills installed once for the deployment.
-   * Installing again changes only the configuration.
-   */
-  async function install(
-    tx: Tx,
-    services: Services,
-    tenantId: string,
-    packId: string,
-    actorId: string,
-    config: Readonly<Record<string, unknown>>,
-  ) {
-    const pack = packOf(services, packId);
-    await saveConfig(tx, pack, tenantId, actorId, config);
-    await tx
-      .insert(tenantPack)
-      .values({ tenantId, pack: pack.manifest.id, version: pack.manifest.version })
-      .onConflictDoNothing();
-    const installed = await installTemplates(tx, services, pack, actorId);
-    await installLibrarySkills(tx, services, pack, actorId);
-    const packs = await opsClientPacks(tx, services, tenantId);
-    const view = packs.find((p) => p.id === pack.manifest.id);
-    if (!view) throw notFound("pack");
-    return { pack: view, installed };
-  }
-
   mount(app, routes.opsEnableClientPack, async (ctx) => {
     const { tx, params, services, session } = ctx;
     ensureClient(ctx, params.id);
-    return install(tx, services, params.id, params.pack, session.user.id, {});
+    return installPack(tx, services, params.id, params.pack, session.user.id, {});
   });
 
   mount(app, routes.opsInstallClientPack, async (ctx) => {
     const { tx, params, services, session, body } = ctx;
     ensureClient(ctx, params.id);
-    return install(tx, services, params.id, params.pack, session.user.id, body.config);
+    return installPack(tx, services, params.id, params.pack, session.user.id, body.config);
   });
 
   mount(app, routes.opsUpdatePackTemplates, async ({ tx, params, services, session }) => {

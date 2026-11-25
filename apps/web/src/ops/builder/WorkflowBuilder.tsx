@@ -90,6 +90,7 @@ import { kindDoes } from "../flow/does";
 import { FlowBar, type FlowView } from "../flow/FlowBar";
 import "../flow/flow.css";
 import { EN } from "../../i18n/i18n";
+import { EnableButton } from "../../packs/opsScreens";
 import {
   agentEnds,
   chartLabel,
@@ -2295,6 +2296,15 @@ function BuilderBody(
                     summary={dataSummary}
                     onSelect={selectLeft}
                     onTest={() => startTry()}
+                    action={(item) =>
+                      item.kind === "pack" && client ? (
+                        <EnableButton
+                          clientId={client}
+                          pack={item.key.slice("pack:".length)}
+                          onDone={() => clientPacks.reload()}
+                        />
+                      ) : null
+                    }
                   />
                   <Advice warnings={result.warnings.filter((w) => w.workflow === slug)} />
                 </div>
