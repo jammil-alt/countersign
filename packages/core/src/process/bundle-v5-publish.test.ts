@@ -36,7 +36,10 @@ const BILL_BILL = tool("billcom.bill.create", "external", "billcom");
 const SLACK = tool("slack.message.post", "external", "slack");
 const TEAMS = tool("teams.message.post", "external", "teams");
 const TOOLS = Object.fromEntries(
-  [READ, NOTE, SIGNED, SAVE, QBO_BILL, QBO_BILL_UPDATE, BILL_BILL, SLACK, TEAMS].map((t) => [t.id, t]),
+  [READ, NOTE, SIGNED, SAVE, QBO_BILL, QBO_BILL_UPDATE, BILL_BILL, SLACK, TEAMS].map((t) => [
+    t.id,
+    t,
+  ]),
 );
 
 const definition = (mode: "act" | "suggest_only" = "act") => ({
