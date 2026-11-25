@@ -55,6 +55,12 @@ export {
   runReconciliation,
 } from "./reconcile/store";
 export { bankPairKey, RECONCILE_TOOLS } from "./reconcile/tools";
+// Step model §10f: the area's record types and their stores.
+export {
+  BANK_TRANSACTION_RECORD_TYPE,
+  BOOKKEEPING_RECORD_STORES,
+  BOOKKEEPING_RECORD_TYPES,
+} from "./records";
 export * from "./schema";
 export * from "./splits";
 export { BOOKKEEPER_SLUG, BOOKKEEPER_TEMPLATE } from "./template";

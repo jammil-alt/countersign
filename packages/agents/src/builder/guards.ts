@@ -316,6 +316,15 @@ export function guardDefinition<D extends ProcessAgentBundle["definition"]>(
     }
     def.oversight = OversightSettings.parse(NEW_AGENT_OVERSIGHT);
   }
+  // Step model §10f: what an agent may read, create and change in our own records (its grants and
+  // data sets) is the operator's, as its mode is: a draft keeps the operator's version's exactly,
+  // and a new agent from the Builder is granted nothing (invariant 9).
+  const data = operatorSource?.definition.data;
+  if (JSON.stringify(def.data ?? null) !== JSON.stringify(data ?? null)) {
+    note("Its data sets stay as you set them: the Builder doesn't change what an agent may reach.");
+  }
+  if (data === undefined) delete def.data;
+  else def.data = structuredClone(data);
   return def;
 }
 

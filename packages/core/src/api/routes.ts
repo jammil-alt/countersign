@@ -104,6 +104,7 @@ import { qboRoutes } from "./qbo";
 import { reachRoutes } from "./reach";
 // §1.164: the builder's sample-file check for a Read table step.
 import { readTableRoutes } from "./read-table";
+import { recordTypeRoutes } from "./record-types";
 import { recordRoutes } from "./records";
 import { reggieRoutes } from "./reggie";
 import { requestRoutes } from "./requests";
@@ -2858,6 +2859,8 @@ export const routes = {
   ...readTableRoutes,
   // Collect reports (owner, 2026-11-24): a report's sample file.
   ...collectRoutes,
+  // Step model §10f: record types and custom fields.
+  ...recordTypeRoutes,
   // File and email intake (owner, 2026-11-22; docs/plan.md §1.213): report profiles.
   ...intakeReportRoutes,
   // docs/plan.md §1.124: back office work

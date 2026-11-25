@@ -69,6 +69,7 @@ import type { Hono } from "hono";
 import { returnAgentLine } from "../channels/agent-line";
 import { type AppEnv, type HandlerCtx, HttpError, mount, notFound } from "../http";
 import type { Platform } from "../platform";
+import { recordActionsFor } from "../records/catalog";
 import { zohoToolInputsFor } from "../zoho/fields";
 import { tenantLocale } from "./language";
 import { agentSummary, versionSummary } from "./mappers";
@@ -326,10 +327,19 @@ export async function actionCatalogFor(
       ? new Set<string>()
       : await hiddenTestConnectors(ctx.tx, row, read, platform);
   const settings = await ctx.tx.select().from(connectorSetting);
+  // Step model §10f: a record type's standard actions are typed with the client's custom fields
+  // (a template's with the shared ones), and offered as the agent's grants and data sets allow.
+  const records = await recordActionsFor(
+    ctx.tx,
+    platform.records,
+    row.tenantId,
+    read as Parameters<typeof recordActionsFor>[3],
+  );
   return actionCatalogOf(
     platform,
     Object.fromEntries(settings.map((r) => [r.connector, r.actions])),
     hidden,
+    records,
   );
 }
 
@@ -342,6 +352,8 @@ export function actionCatalogOf(
   platform: Platform,
   switches: Parameters<typeof catalogSpecs>[1],
   hidden: ReadonlySet<string> = new Set(),
+  /** The record types' standard actions this agent may use (`recordActionsFor`). */
+  records: readonly Parameters<typeof steps.buildActionCatalog>[0][number][] = [],
 ): steps.CatalogGroup[] {
   const connectors = platform.connectors.list().filter((c) => !hidden.has(c.manifest.id));
   const specs = catalogSpecs(platform.tools, switches);
@@ -351,7 +363,7 @@ export function actionCatalogOf(
   });
   // The merged Accounting actions take their write action's own fields, as runs map them.
   return withWriteActionFields(
-    steps.buildActionCatalog(shown, {
+    steps.buildActionCatalog([...shown.filter((spec) => !spec.record), ...records], {
       connectors: {
         ...Object.fromEntries(connectors.map((c) => [c.manifest.id, connectorTitle(c.manifest)])),
         ...Object.fromEntries(BUILTIN_CONNECTORS.map((b) => [b.id, b.name])),

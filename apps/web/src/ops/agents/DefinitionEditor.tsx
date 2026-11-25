@@ -3,6 +3,7 @@
 // budgets. Saving makes a new draft version from the version it was opened on; the workflows are
 // kept as they are (the builder edits them). The same editor serves templates and client agents.
 import {
+  type AgentData,
   type AnyAgentBundle,
   type OversightReview,
   OWNER_REVIEW_CHOICES,
@@ -17,6 +18,7 @@ import { Badge, Button, Card, SectionLabel, Tag } from "../../ui/primitives";
 import { ParameterValueInput, parameterText } from "../skills/parameters";
 import { canAdjust, ParameterAdjust, ScheduleAdjustCard } from "./AdjustableFields";
 import type { AdjustDraft } from "./adjustable-form";
+import { DataSetsCard } from "./DataSetsCard";
 import {
   APPROVER_ROLES,
   applyForm,
@@ -30,6 +32,18 @@ import {
   validateForm,
 } from "./definition-form";
 import { Field, isCode, Notice, Select, TextArea, TextInput, useAction } from "./ui";
+
+/** The bundle with the agent's data sets (left out when it grants nothing, so it hashes as before). */
+export function withData(next: AnyAgentBundle, data: AgentData | undefined): AnyAgentBundle {
+  const { data: _old, ...definition } = next.definition as typeof next.definition & {
+    data?: AgentData;
+  };
+  const empty = !data || (data.grants.length === 0 && data.sets.length === 0);
+  return {
+    ...next,
+    definition: (empty ? definition : { ...definition, data }) as typeof next.definition,
+  };
+}
 
 /** POST /api/ops/agents/:id/versions: the draft, and what would stop it from publishing. */
 export type SaveResult = ResponseOf<typeof apiRoutes.opsSaveVersion>;
@@ -52,6 +66,9 @@ export function DefinitionEditor({
   onNoChange(): void;
 }) {
   const [form, setForm] = useState<DefinitionForm>(() => formFromBundle(bundle));
+  // Step model §10f: the agent's data sets, saved with its version beside the form's fields.
+  const opened = (bundle.definition as { data?: AgentData }).data;
+  const [data, setData] = useState<AgentData | undefined>(opened);
   const [changeNote, setChangeNote] = useState("");
   const [releaseNote, setReleaseNote] = useState("");
   const [touched, setTouched] = useState(false);
@@ -66,7 +83,7 @@ export function DefinitionEditor({
   async function onSave() {
     setTouched(true);
     if (hasErrors) return;
-    const next = applyForm(bundle, form, skills);
+    const next = withData(applyForm(bundle, form, skills), data);
     if (checkBundle(next)) return;
     const res = await save.call(apiRoutes.opsSaveVersion, {
       params: { id: agent.id },
@@ -87,7 +104,8 @@ export function DefinitionEditor({
     }
   }
 
-  const bundleProblem = touched && !hasErrors ? checkBundle(applyForm(bundle, form, skills)) : null;
+  const bundleProblem =
+    touched && !hasErrors ? checkBundle(withData(applyForm(bundle, form, skills), data)) : null;
 
   return (
     <div className="flex flex-col gap-5" data-testid="agent-editor">
@@ -172,6 +190,13 @@ export function DefinitionEditor({
         drafts={form.adjustable ?? []}
         errors={shown}
         onChange={(next) => set("adjustable", next)}
+      />
+
+      <DataSetsCard
+        value={data}
+        opened={opened}
+        area={(bundle.definition as { area?: string }).area ?? form.role.trim().toLowerCase()}
+        onChange={setData}
       />
 
       <Card className="p-5">

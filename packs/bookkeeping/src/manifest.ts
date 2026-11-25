@@ -18,6 +18,7 @@ import { POSTING_TOOLS, postedTool, qboInputTool, readyTool } from "./posting";
 import { LEFTOVERS_LOOP_TESTS } from "./reconcile/loop-tests";
 import { RECONCILE_SKILLS } from "./reconcile/skills";
 import { RECONCILE_TOOLS } from "./reconcile/tools";
+import { BOOKKEEPING_RECORD_TYPES } from "./records";
 import { BOOKKEEPING_SPLIT_SKILLS } from "./splits";
 import { BOOKKEEPER_TEMPLATE } from "./template";
 import {
@@ -190,6 +191,8 @@ export const bookkeepingManifest: PackManifest = lazyParse(PackManifest, () => (
   // §1.230: none of its own; Plaid comes with the bank feed connector (compliance/processors.ts).
   processors: [],
   reports: Object.keys(BOOKKEEPING_REPORTS),
+  // Step model §10f (stream N): the area's record types; their stores are BOOKKEEPING_RECORD_STORES.
+  recordTypes: [...BOOKKEEPING_RECORD_TYPES],
   requiresConnectors: [],
   // §1.162: the connections the Bookkeeping area works through, for the client page's Areas tab.
   connections: [

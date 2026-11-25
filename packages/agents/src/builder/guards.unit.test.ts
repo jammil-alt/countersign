@@ -210,3 +210,52 @@ describe("guards: an approval the operator switched off does not follow a change
     expect(step?.checks?.approval).toEqual(DEFAULT_APPROVAL);
   });
 });
+
+// Step model §10f (review of #687): what an agent may read, create and change in our own records is
+// the operator's, as its mode is (invariant 9): a Builder draft keeps the operator's version's grants
+// and data sets exactly, and a new agent from the Builder is granted nothing.
+describe("guards: the Builder never changes an agent's record grants or data sets", () => {
+  const step = {
+    id: "s-email",
+    kind: "write",
+    name: "Email the vendor",
+    action: "send_email",
+    input: { to: "{{trigger.vendor}}", subject: "Thanks", body: "Thanks" },
+  };
+  const READ_VENDORS = {
+    grants: [],
+    sets: [
+      {
+        id: "vendors",
+        name: "Vendors",
+        on: true,
+        grants: [{ recordType: "vendor", read: true, create: false, update: false }],
+      },
+    ],
+  };
+  const withData = (b: ProcessAgentBundle, data: unknown): ProcessAgentBundle =>
+    ({ ...b, definition: { ...b.definition, data } }) as ProcessAgentBundle;
+
+  it("keeps the operator's data sets when a draft widens them, turns them on or adds grants", () => {
+    const origin = withData(bundleWith(step), READ_VENDORS);
+    const wider = withData(bundleWith(step), {
+      grants: [{ recordType: "bank_transaction", read: true, create: false, update: true }],
+      sets: [
+        {
+          ...READ_VENDORS.sets[0],
+          grants: [{ recordType: "vendor", read: true, create: false, update: true }],
+        },
+      ],
+    });
+    const out = guardBundle(wider, context(), { mode: "revise", source: origin, origin });
+    expect(out.bundle.definition.data).toEqual(READ_VENDORS);
+    // Dropped too: a draft that removes the operator's set gets it back.
+    expect(guarded(origin, bundleWith(step)).definition.data).toEqual(READ_VENDORS);
+  });
+
+  it("grants a new agent from the Builder nothing", () => {
+    const drafted = withData(bundleWith(step), READ_VENDORS);
+    const out = guardBundle(drafted, context(), { mode: "draft" });
+    expect(out.bundle.definition.data).toBeUndefined();
+  });
+});

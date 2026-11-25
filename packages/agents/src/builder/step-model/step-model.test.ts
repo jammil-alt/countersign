@@ -1048,6 +1048,47 @@ describe("guards", () => {
     });
   });
 
+  // Step model §10f (stream N): an agent's record grants and data sets are the operator's.
+  it("never adds or widens record grants: a revision keeps the operator's, a new agent gets none", () => {
+    const READ_VENDORS = {
+      grants: [],
+      sets: [
+        {
+          id: "vendors",
+          name: "Vendors",
+          on: true,
+          grants: [{ recordType: "vendor", read: true, create: false, update: false }],
+        },
+      ],
+    };
+    const WIDER = {
+      grants: [{ recordType: "bank_transaction", read: true, create: false, update: true }],
+      sets: [
+        {
+          ...READ_VENDORS.sets[0],
+          grants: [{ recordType: "vendor", read: true, create: false, update: true }],
+        },
+      ],
+    };
+    const withData = (b: StepAgentBundle, data: unknown) =>
+      parse({ ...b, definition: { ...b.definition, data } });
+    const origin = withData(source, READ_VENDORS);
+    const revised = guardStepBundle(withData(source, WIDER), context(client), {
+      mode: "revise",
+      source: origin,
+      origin,
+    });
+    expect(revised.bundle.definition.data).toEqual(READ_VENDORS);
+    expect(revised.notes).toEqual(
+      expect.arrayContaining([expect.stringContaining("Its data sets stay as you set them")]),
+    );
+    const drafted = guardStepBundle(withData(source, WIDER), context(client), {
+      mode: "draft",
+      newId: counter(),
+    });
+    expect(drafted.bundle.definition.data).toBeUndefined();
+  });
+
   it("a template holds nothing of one client (invariant 11)", () => {
     const g = guardStepBundle(
       parse(
