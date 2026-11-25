@@ -15,6 +15,7 @@
 // Allowed workspace dependencies: db core. See docs/plan.md §2.
 
 // P-3: attachments both ways (docs/plan.md §1.65)
+export * from "./actions";
 export * from "./attachments";
 // v0.14 W4-C
 export * from "./attempts";
@@ -25,6 +26,7 @@ export * from "./billcom/index";
 // M45: Bing Webmaster Tools, read only (docs/plan.md §1.75).
 export * from "./bing_webmaster/index";
 export * from "./browser/index";
+export * from "./builtin";
 // §1.114: calendars (Outlook Calendar and Google Calendar share the `calendar` tools).
 export * from "./calendar/index";
 export * from "./connector";

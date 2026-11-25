@@ -14,13 +14,16 @@ import {
   agent,
   agentVersion,
   connection,
+  connectorSetting,
   contact,
   type Db,
   membership,
   memoryNote,
+  readOperatorCatalogue,
   run,
   type Tx,
   tenant,
+  withOperator,
   withTenant,
 } from "@countersign/db";
 import { clientGovernance } from "@countersign/documents";
@@ -166,8 +169,29 @@ export function dbRuntimeStore(db: Db): RuntimeStore {
           .select()
           .from(connection)
           .where(and(eq(connection.id, connectionId), eq(connection.tenantId, tenantId)));
-        return row ? toConnectionRef(row) : null;
+        if (!row) return null;
+        // Step model E: the operator's switches for this connector's actions, read fresh with the
+        // connection like the matrix, so turning an action off applies at once, even mid-run.
+        const actions = await readOperatorCatalogue(tx, async (inner) => {
+          const [setting] = await inner
+            .select({ actions: connectorSetting.actions })
+            .from(connectorSetting)
+            .where(eq(connectorSetting.connector, row.connector));
+          return setting?.actions ?? null;
+        });
+        return { ...toConnectionRef(row), actionSwitches: actions };
       });
+    },
+
+    // Step model E: a built-in connector has no connection to carry its switches (Web).
+    actionSwitches(connectorId) {
+      return withOperator(db, [], (tx) =>
+        tx
+          .select({ actions: connectorSetting.actions })
+          .from(connectorSetting)
+          .where(eq(connectorSetting.connector, connectorId))
+          .then(([row]) => row?.actions ?? null),
+      );
     },
 
     grant(tenantId, agentId, connectionId) {

@@ -57,6 +57,7 @@ import { accessRoutes } from "./routes/access";
 // v0.12 W2-D: Sloan, the account agent
 import { accountRoutes } from "./routes/account";
 import { accountReportRouteHandlers } from "./routes/account-report";
+import { actionRequestApiRoutes } from "./routes/action-requests";
 import { agentReportRouteHandlers } from "./routes/agent-report";
 import { approverRuleRoutes } from "./routes/approver-rules";
 import { assistDraftRoutes } from "./routes/assist";
@@ -368,6 +369,7 @@ export function createApp(deps: AppDeps = defaultDeps): Hono<AppEnv> {
   buildTryRoutes(app);
   // docs/plan.md §1.125: the Dev queue
   opsCodeRequestRoutes(app);
+  actionRequestApiRoutes(app);
   // §1.124 back office work
   dealRoutes(app);
   // §1.149 onboarding v1: client files and starts, Invite and Sign up now, the intake, the welcome page

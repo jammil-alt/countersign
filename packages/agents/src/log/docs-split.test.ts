@@ -274,6 +274,10 @@ describe.skipIf(!harness)("Read document → Check totals → record the reading
   });
 
   it("Read a document, the one action, records a reading it is given and flags totals that don't add up", async () => {
+    type Read = {
+      readNow: boolean;
+      extraction: { id: string; totalsMatch: boolean; total: string; problems: string[] } | null;
+    };
     const documentId = documents.get("northline-20418") as string;
     const reading = { ...expectedOf("northline-20418"), total: "1.00" };
     const invocation = {
@@ -282,12 +286,12 @@ describe.skipIf(!harness)("Read document → Check totals → record the reading
       mode: "live",
       documents: ports.documents,
     } as unknown as ToolInvocation;
-    const out = await docsRead.run({ documentId, as: "invoice", reading }, invocation);
+    const out = (await docsRead.run({ documentId, as: "invoice", reading }, invocation)) as Read;
     expect(out.readNow).toBe(true);
     expect(out.extraction).toMatchObject({ totalsMatch: false, total: "1.0000" });
     expect(out.extraction?.problems.length).toBeGreaterThan(0);
     // Read once: asked again with no reading, it answers that one and reads nothing.
-    const again = await docsRead.run({ documentId, as: "invoice" }, invocation);
+    const again = (await docsRead.run({ documentId, as: "invoice" }, invocation)) as Read;
     expect(again.readNow).toBe(false);
     expect(again.extraction?.id).toBe(out.extraction?.id);
   });
