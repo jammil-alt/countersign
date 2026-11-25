@@ -15,6 +15,7 @@ import {
   parseAutomationRef,
   processes,
   type SkillDefinition,
+  steps,
   stepsToAutomation,
   useSteps,
   type ValidationError,
@@ -48,6 +49,8 @@ function bySchema(bundle: AnyAgentBundle): {
   const v3: AgentBundle["workflows"][number]["workflow"][] = [];
   const v4: processes.Process[] = [];
   for (const w of bundle.workflows) {
+    // The step model: a v5 Do pins its automation in `uses`, read with the v5 readers.
+    if (w.workflow.schemaVersion === 5) continue;
     if (w.workflow.schemaVersion === 4) v4.push(w.workflow);
     else v3.push(w.workflow);
   }
@@ -430,11 +433,17 @@ export function automationPublishErrors(
   for (const w of bundle.workflows) {
     // R8: a v4 process pins its processes on `process` steps.
     const pinned =
-      w.workflow.schemaVersion === 4
-        ? processes
-            .subProcessSteps([w.workflow])
-            .map((s) => ({ id: s.id, ref: s.process, field: "process" }))
-        : useSteps([w.workflow]).map((s) => ({ id: s.id, ref: s.automation, field: "automation" }));
+      w.workflow.schemaVersion === 5
+        ? stepModelPins(w.workflow)
+        : w.workflow.schemaVersion === 4
+          ? processes
+              .subProcessSteps([w.workflow])
+              .map((s) => ({ id: s.id, ref: s.process, field: "process" }))
+          : useSteps([w.workflow]).map((s) => ({
+              id: s.id,
+              ref: s.automation,
+              field: "automation",
+            }));
     for (const s of pinned) {
       if (!found.drafts.includes(s.ref)) continue;
       errors.push({
@@ -583,6 +592,15 @@ export async function bundleStepsToAutomation(
       message: "only steps at the top of a workflow can become an automation",
     };
   }
+  // DECISION (step model, wave 1): saving v5 steps as an automation comes with the builder's
+  // forms (stream B); until then it is refused, never converted.
+  if (holder.workflow.schemaVersion === 5) {
+    return {
+      ok: false,
+      code: "not_top_level",
+      message: "steps in the new step model can't become an automation yet",
+    };
+  }
   const asV3 = bundle as AgentBundle;
   const { skills } = await skillContext(tx, {
     tenantId: input.tenantId,
@@ -621,4 +639,15 @@ export async function bundleStepsToAutomation(
   const r = stepsToAutomation({ ...common, workflow: holder.workflow });
   if (!r.ok) return r;
   return { ok: true, automation: r.automation, bundle: replace(r.workflow) };
+}
+
+/** The step model: a v5 workflow's Do steps that use an automation, as pins. */
+function stepModelPins(workflow: steps.Workflow): { id: string; ref: string; field: string }[] {
+  const out: { id: string; ref: string; field: string }[] = [];
+  steps.eachStep(workflow.steps, ({ step }) => {
+    if (step.kind === "do" && step.uses?.type === "automation") {
+      out.push({ id: step.id, ref: step.uses.automation, field: "uses.automation" });
+    }
+  });
+  return out;
 }

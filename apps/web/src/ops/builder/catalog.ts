@@ -20,6 +20,7 @@ import {
   type SkillDefinition,
   type SkillKind,
   skillKind,
+  steps,
   type ToolSpec,
   type TriggerOn,
   type TypingContext,
@@ -306,6 +307,14 @@ export function bundleConnectors(
   for (const s of bundle.definition.skills) addSkill(s.skill);
   for (const id of bundle.definition.extraTools) addTool(id);
   for (const w of bundle.workflows) {
+    // The step model: a v5 workflow's skills and actions (a merged action names no one tool).
+    if (w.workflow.schemaVersion === 5) {
+      for (const ref of steps.stepModelSkills(w.workflow)) addSkill(ref);
+      for (const id of steps.stepModelActions(w.workflow)) {
+        if (!steps.mergedAction(id)) addTool(id);
+      }
+      continue;
+    }
     if (w.workflow.schemaVersion === 4) {
       for (const { step } of processes.allSteps(w.workflow)) {
         if (step.kind === "skill") addSkill(step.skill);

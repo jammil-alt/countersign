@@ -23,6 +23,7 @@ import {
   workflowStats,
 } from "../workflow/describe";
 import { optionFor } from "./definition-form";
+import { stepModelKindWord } from "./NewAgentParts";
 import { useConnectorNames } from "./OperationPanel";
 import { prefetchRun, useIntent } from "./prefetch";
 import { plural } from "./ui";
@@ -174,14 +175,21 @@ function StepChips({ workflow }: { workflow: AnyAgentBundle["workflows"][number]
   const w = workflow.workflow;
   const first = allTriggers(w)[0];
   const steps =
-    w.schemaVersion === 4
+    w.schemaVersion === 5
       ? w.steps.map((s) => ({
           id: s.id,
-          kind: s.kind,
-          label: PROCESS_KIND_LABEL[s.kind],
+          kind: s.kind as string,
+          label: stepModelKindWord(s.kind),
           name: s.name,
         }))
-      : w.steps.map((s) => ({ id: s.id, kind: s.kind, label: KIND_LABEL[s.kind], name: s.name }));
+      : w.schemaVersion === 4
+        ? w.steps.map((s) => ({
+            id: s.id,
+            kind: s.kind,
+            label: PROCESS_KIND_LABEL[s.kind],
+            name: s.name,
+          }))
+        : w.steps.map((s) => ({ id: s.id, kind: s.kind, label: KIND_LABEL[s.kind], name: s.name }));
   return (
     <div className="mb-3 last:mb-0" data-testid={`agent-chips-${workflow.slug}`}>
       <p className="mb-2 text-sm font-medium text-ink">

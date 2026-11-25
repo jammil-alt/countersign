@@ -5,6 +5,7 @@
 
 import { walkSteps as walkProcessSteps } from "../process/walk";
 import type { AnyAgentBundle } from "../schemas/agent";
+import { eachStep } from "../steps/walk";
 import type { ValidationError } from "../workflow/validate";
 import { walkSteps } from "../workflow/walk";
 import { KPI_RATIO_MAX_DEPTH, type Measure, plainMeasures, ratioDepth } from "./schema";
@@ -28,7 +29,9 @@ export interface ClientViewContext {
 function stepIds(bundle: Pick<AnyAgentBundle, "workflows">): Set<string> {
   const ids = new Set<string>();
   for (const w of bundle.workflows) {
-    if (w.workflow.schemaVersion === 4) {
+    if (w.workflow.schemaVersion === 5) {
+      eachStep(w.workflow.steps, ({ step }) => ids.add(step.id));
+    } else if (w.workflow.schemaVersion === 4) {
       walkProcessSteps(w.workflow, ({ step }) => ids.add(step.id));
     } else walkSteps(w.workflow, ({ step }) => ids.add(step.id));
   }

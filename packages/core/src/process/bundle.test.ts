@@ -172,7 +172,7 @@ describe("the agent's own models", () => {
       validateBundle(b, { ...CTX, models: MODELS }),
       validateAnyBundle(b, { ...CTX, models: MODELS }),
     ]
-      .flatMap((r) => r.errors)
+      .flatMap((r): { code: string; field: string }[] => r.errors)
       .filter((e) => e.code === "unknown_model")
       .map((e) => e.field);
 

@@ -30,6 +30,7 @@ import {
   REVOKED_GRANT,
   type SkillDefinition,
   skillTools,
+  steps,
   type ValidationError,
   validateBundle,
   walkSteps,
@@ -1059,10 +1060,13 @@ export function requiredConnectors(
   for (const w of bundle.workflows) {
     if (!w.enabled) continue;
     // Wave 3b: a v4 process pins its automations on `process` steps.
+    // The step model: a v5 Do pins its automation in `uses`.
     const refs =
-      w.workflow.schemaVersion === 4
-        ? processes.subProcessRefs([w.workflow])
-        : automationRefs([w.workflow]);
+      w.workflow.schemaVersion === 5
+        ? stepModelAutomations(w.workflow)
+        : w.workflow.schemaVersion === 4
+          ? processes.subProcessRefs([w.workflow])
+          : automationRefs([w.workflow]);
     for (const ref of refs) {
       for (const c of automations[ref]?.requires.connectors ?? []) out.add(c);
     }
@@ -1077,6 +1081,25 @@ export function requiredConnectors(
   for (const s of bundle.definition.skills) addSkill(s.skill);
   for (const w of bundle.workflows) {
     if (!w.enabled) continue;
+    // The step model: a Do's skill and action, a Loop's skill and reads; a merged action's tool is
+    // resolved from the bindings when it runs, as an action write step's is.
+    if (w.workflow.schemaVersion === 5) {
+      steps.eachStep(w.workflow.steps, ({ step }) => {
+        if (step.kind === "loop") {
+          if (step.skill) addSkill(step.skill);
+          for (const t of step.reads) toolIds.add(t);
+        }
+        if (step.kind !== "do") return;
+        if (step.uses?.type === "skill") addSkill(step.uses.skill);
+        if (step.uses?.type === "action" && !steps.mergedAction(step.uses.action)) {
+          toolIds.add(step.uses.action);
+        }
+      });
+      for (const o of w.workflow.outputs) {
+        if (o.action && !steps.mergedAction(o.action.action)) toolIds.add(o.action.action);
+      }
+      continue;
+    }
     // Wave 3b: a v4 process's read and write steps name their tool, as an action step does.
     if (w.workflow.schemaVersion === 4) {
       processes.walkSteps(w.workflow, ({ step }) => {
@@ -1394,4 +1417,13 @@ export async function restoreAgent(
   if (!updated) throw new Error("restore updated nothing");
   await insertAgentChange(tx, row, input.actorId, { kind: "restore" });
   return updated;
+}
+
+/** The step model: the automations a v5 workflow's Do steps use, by their pinned refs. */
+function stepModelAutomations(workflow: steps.Workflow): string[] {
+  const out: string[] = [];
+  steps.eachStep(workflow.steps, ({ step }) => {
+    if (step.kind === "do" && step.uses?.type === "automation") out.push(step.uses.automation);
+  });
+  return out;
 }

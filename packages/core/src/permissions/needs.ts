@@ -17,6 +17,9 @@ import {
 } from "../schemas/permissions";
 import { type SkillDefinition, skillTools } from "../schemas/skill";
 import { isAlwaysSigned, type ToolSpec } from "../schemas/tool";
+import { mergedAction } from "../steps/catalog";
+import { Workflow as StepWorkflow } from "../steps/schema";
+import { eachStep } from "../steps/walk";
 import { lookupSkill, type TypingContext } from "../template/typer";
 import { automationRequires as v3AutomationRequires } from "../workflow/automation";
 import { effectiveLevel, entityOfCall, readEntities } from "./entities";
@@ -287,6 +290,75 @@ function visitStep(w: WalkCtx, step: Step, from: NeedSource, override?: Step["ch
   }
 }
 
+/** A skill's needs, placed in a step (`autoStep`: it runs without approval where it may). */
+function addSkill(w: WalkCtx, ref: string, from: NeedSource, autoStep: boolean): void {
+  const def = lookupSkill(ref, w.ctx);
+  if (!def) return;
+  for (const item of skillNeeds(def, w.ctx)) {
+    const tool = item.tool ? w.ctx.tools?.[item.tool] : undefined;
+    const wantsAuto =
+      autoStep &&
+      w.mode === "act" &&
+      item.verb !== "read" &&
+      (tool === undefined || !isAlwaysSigned(tool));
+    w.set.add(item, from, { wantsAuto });
+  }
+}
+
+/**
+ * An action a v5 step or output names: a merged one (`email.send`, `accounting.bill.create`) needs
+ * one of its connectors, whichever the agent is bound to (one `anyOf` group, as an action write
+ * without `via`); any other is its tool.
+ */
+function addAction(
+  w: WalkCtx,
+  action: string,
+  from: NeedSource,
+  autoStep: boolean,
+  input?: unknown,
+): void {
+  const merged = mergedAction(action);
+  if (!merged) {
+    addTool(w, action, from, autoStep, undefined, input);
+    return;
+  }
+  const group = `${from.workflow}/${from.stepId}`;
+  for (const id of Object.values(merged.tools)) addTool(w, id, from, autoStep, group);
+}
+
+/** The step model (docs/step-model-plan.md §4): a v5 workflow's needs, step by step and output. */
+function visitStepModel(w: WalkCtx, workflow: StepWorkflow): void {
+  eachStep(workflow.steps, ({ step }) => {
+    const from = { workflow: w.workflow, stepId: step.id, stepName: step.name };
+    if (step.kind === "loop") {
+      if (step.skill) addSkill(w, step.skill, from, false);
+      for (const id of step.reads) addTool(w, id, from, false);
+      return;
+    }
+    if (step.kind !== "do") return;
+    const autoStep = step.checks?.approval?.required === "not_required";
+    const uses = step.uses;
+    if (uses?.type === "action") addAction(w, uses.action, from, autoStep, step.input);
+    else if (uses?.type === "skill") addSkill(w, uses.skill, from, autoStep);
+    else if (uses?.type === "automation") {
+      const def: AnyAutomationDefinition | undefined = w.ctx.automations?.[uses.automation];
+      if (def?.schemaVersion === 2) {
+        walkSteps({ steps: def.steps }, ({ step: inner }) => visitStep(w, inner, from));
+      } else if (def) {
+        for (const id of v3AutomationRequires(def, w.ctx, w.ctx.connectors).tools) {
+          addTool(w, id, from, false);
+        }
+      }
+    }
+  });
+  for (const o of workflow.outputs) {
+    if (!o.action) continue;
+    const from = { workflow: w.workflow, stepId: o.id, stepName: o.name };
+    const autoStep = o.checks?.approval?.required === "not_required";
+    addAction(w, o.action.action, from, autoStep, o.action.input);
+  }
+}
+
 /**
  * What an agent (a template or a client agent) needs of a client's connections, from every step of
  * every process it has, each need with the steps it comes from. Reads need `on`; writes need `ask`
@@ -301,9 +373,15 @@ export function agentNeeds(
 ): ConnectorNeed[] {
   const set = new NeedSet();
   for (const w of bundle.workflows) {
+    const walk: WalkCtx = { ctx, set, mode: bundle.definition.permissions.mode, workflow: w.slug };
+    // The step model: a v5 workflow, walked as it is.
+    if (w.workflow.schemaVersion === 5) {
+      const parsed = StepWorkflow.safeParse(w.workflow);
+      if (parsed.success) visitStepModel(walk, parsed.data);
+      continue;
+    }
     // Only v4 processes are walked: callers read stored v3 workflows with `toProcessBundle`.
     if (w.workflow.schemaVersion !== 4) continue;
-    const walk: WalkCtx = { ctx, set, mode: bundle.definition.permissions.mode, workflow: w.slug };
     walkSteps(w.workflow as { steps: Step[] }, ({ step }) =>
       visitStep(walk, step, { workflow: w.slug, stepId: step.id, stepName: step.name }),
     );

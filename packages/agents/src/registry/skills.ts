@@ -15,6 +15,7 @@ import {
   Slug,
   skillRuleProblems,
   skillTools,
+  steps,
   walkSteps,
 } from "@countersign/core";
 import { browserSite, skill, skillVersion, type Tx } from "@countersign/db";
@@ -488,6 +489,10 @@ export function bundleSkillRefs(bundle: AnyAgentBundle): string[] {
   const refs = new Set(bundle.definition.skills.map((s) => s.skill));
   // R8: a bundle the builder saved holds v4 processes.
   for (const w of bundle.workflows) {
+    if (w.workflow.schemaVersion === 5) {
+      for (const ref of steps.stepModelSkills(w.workflow)) refs.add(ref);
+      continue;
+    }
     if (w.workflow.schemaVersion === 4) {
       for (const { step } of processes.allSteps(w.workflow)) {
         if (step.kind === "skill") refs.add(step.skill);
