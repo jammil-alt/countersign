@@ -1,7 +1,7 @@
 # Lockdown: one switch that stops everything for a client, or for every client
 
 Owner, 2026-11-24: "a kill switch that locks down the account, stops all writes and reads."
-The entry in `docs/plan.md` is §1.243. K0 (the migration), K1 (the database layer), K2 (the API) and K3 (the screens) are built; K4 and K5 are not. Outside ARCHITECTURE v0.15's v1 scope by the
+The entry in `docs/plan.md` is §1.243. Every stream is built: K0 (the migration, #668), K1–K3 and K5 (#666), K4 (the edge rule, #705). Outside ARCHITECTURE v0.15's v1 scope by the
 owner's decision.
 
 ## 1. Why
@@ -162,8 +162,8 @@ Each ends green (`pnpm check`).
 | **K1** (built) | `packages/db`: every scope through `app_scope_tenant_ids` (`inScope`, `withSession`, `narrowToTenant`); `ClientLockedError` and `isClientLocked`; `withInvestigation` and a session's `investigate`; `admitTenant`; `lockClient`, `unlockClient`, `lockEverything`, `unlockEverything`, `lockState`, `countLockedInbound` (`src/lockdown.ts`); the one scope set outside `packages/db` (creating a client, `apps/api/src/routes/ops-clients.ts`) through `admitTenant`; DB tests | After K0 |
 | **K2** (built) | `apps/api`: 423 everywhere; Workflow steps end without retries (`stepUnlessLocked`); crons and sweeps leave locked clients out; providers' inbound answered as usual and counted, email dropped and counted; the lock and unlock routes (ops, everything, the client's own) with runs stopped and notices sent; the security officer (`SECURITY_OFFICER_EMAILS`) and recent sign-in; `?investigate=1`; audit rows for locked clients; the walk over every portal route | None (0101 amended before merge: the audit insert policy) |
 | **K3** (built) | `apps/web`: Security → Lockdown, a client's settings → Lockdown, the back office's banner; the portal's locked page (any 423 shows it) with the client's own unlock, and Settings → Lock our account, in six languages. Not built: the phone and desktop apps' own locked page (they show the 423's words as an error) | None |
-| **K4** | The break-glass edge rule: `lockdown.yml` and a Cloudflare API token scoped to WAF rules on `mezonas.com` (the owner creates it) | Own PR (workflow) |
-| **K5** | Docs: `docs/security.md`, the incident response policy's §5.2 (lock first), `docs/operations.md` (a runbook), the register (`INC-2`, `packages/core/src/compliance/controls.ts`) | None |
+| **K4** (built, PR #705) | The break-glass edge rule: `lockdown.yml` and `scripts/edge-lockdown.mjs`; the token `CLOUDFLARE_LOCKDOWN_TOKEN` (zone WAF edit only) is the owner's to make | Own PR (workflow) |
+| **K5** (built) | `docs/security.md` (Lockdown), the incident response policy (lock first; the drill), the register's INC-2 | None |
 
 ## 10. Questions for the owner
 

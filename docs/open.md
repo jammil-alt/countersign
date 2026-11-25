@@ -242,11 +242,12 @@ then one pass of its "To verify" list against the real service.
 
 ### Lockdown: a kill switch per client and for everything (owner, 2026-11-24; `docs/lockdown-plan.md`, `docs/plan.md` §1.243)
 
-K0–K3 built (the migration, the database layer, the API and the screens; PRs #668 and #666), K4 and K5 left (the edge rule, the register and the incident policy), and the phone and desktop apps' own locked page. One switch that stops every read and write of a client's data, its tools and
+Built in three PRs: #668 (the migration), #666 (the database layer, the API, the screens, the register and the policy) and #705 (the edge rule's workflow). Left: the phone and desktop apps' own locked page. One switch that stops every read and write of a client's data, its tools and
 its AI calls, ends runs in progress, and keeps its people out, until the security officer unlocks
 it; the same for every client at once; and a Cloudflare edge rule for when the app itself may be
 compromised. Enforced in the database on the path every query already takes (`inScope`). Owner: set
-`SECURITY_OFFICER_EMAILS` on staging and production (`docs/operations.md` §1.4).
+`SECURITY_OFFICER_EMAILS` on staging and production (`docs/operations.md` §1.4), make the
+edge rule's token `CLOUDFLARE_LOCKDOWN_TOKEN` and run `lockdown.yml` with `status` on staging (#705).
 
 ### Back office work: Sales, onboarding and Build (merged 2026-11-17; onboarding O1–O3 merged)
 

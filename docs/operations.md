@@ -1535,6 +1535,10 @@ hand. A write that was being made when the lock came stays `executing`: check it
 tool and settle it by hand. A client admin may lift a lock their own side made, from the locked
 page, never ours.
 
+**When the app itself may be compromised.** Lock at the edge: Actions → **Lockdown at the edge**
+(`lockdown.yml`, §2), `on` for the environment. Cloudflare then blocks every request to it but
+`/api/health`. Switch it `off` once the Worker and its keys are known good again.
+
 **Break-glass.** If the app can't be used (no security officer set, sign-in down), unlock as
 `cs_owner` (§1.3, "Break-glass database access") and record it the same day:
 `update tenant set locked_at = null, lock = null where id = '<client id>';` or
