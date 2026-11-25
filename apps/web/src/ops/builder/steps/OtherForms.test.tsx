@@ -1,5 +1,6 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { MemoryRouter } from "react-router-dom";
 import { describe, expect, it, vi } from "vitest";
 import type { StepFormEnv } from "./form-kit";
 import { newStep } from "./model";
@@ -67,7 +68,11 @@ describe("the other forms", () => {
     const user = userEvent.setup();
     const onChange = vi.fn();
     const loop = newStep("loop", id) as Extract<Step, { kind: "loop" }>;
-    render(<LoopForm step={loop} env={env()} issues={[]} onChange={onChange} />);
+    render(
+      <MemoryRouter>
+        <LoopForm step={loop} env={env()} issues={[]} onChange={onChange} />
+      </MemoryRouter>,
+    );
     expect(screen.getByLabelText("Find vendors")).toBeTruthy();
     expect(screen.queryByLabelText("Create bill")).toBeNull();
     await user.click(screen.getByLabelText("Find vendors"));

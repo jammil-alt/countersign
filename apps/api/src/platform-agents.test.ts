@@ -1,0 +1,240 @@
+// Step model, stream C (docs/step-model-plan.md §2, §9, §12 R0): the platform's own agents as the
+// seed holds them after the purge, one v1 each, their workflows in the step model. Checked against
+// the registries a deployment builds: they pass the publish checks (with each action's side effect
+// and required input), name only registered skills and actions (no skill that only wraps a tool,
+// R1), keep approval on every change to a client's tool (invariant 8), and keep every step and path
+// id of the version they replace, so the behaviour is the same step for step.
+//
+// Runs of these agents in the step model come with the executor's v5 engine (stream A); until then
+// the runtime tests run the versions seeded before it (`SEED_DIR_BEFORE_STEP_MODEL`).
+
+import {
+  type AnyAgentBundle,
+  isToolWrapper,
+  parseSkillRef,
+  processes,
+  steps,
+} from "@countersign/core";
+import {
+  loadSeedTemplates,
+  loadSeedVersions,
+  SEED_DIR_BEFORE_STEP_MODEL,
+} from "@countersign/db/seed";
+import { knownModelIds } from "@countersign/llm";
+import { describe, expect, it } from "vitest";
+import { createPlatform, deploymentConnectors } from "./platform";
+
+const platform = createPlatform({ connectors: deploymentConnectors({}, false) });
+const specs = platform.tools.specs();
+const ctx = {
+  skills: Object.fromEntries(platform.catalog.list().map((s) => [s.id, s])),
+  tools: specs,
+  events: platform.events.byType(),
+  models: knownModelIds(),
+};
+
+const seeds = await loadSeedTemplates();
+
+/** Each platform agent's latest version as seeded before the step model. */
+async function before(): Promise<Map<string, AnyAgentBundle>> {
+  const out = new Map<string, AnyAgentBundle>();
+  for (const t of await loadSeedTemplates(SEED_DIR_BEFORE_STEP_MODEL)) out.set(t.slug, t.bundle);
+  const later = await loadSeedVersions(SEED_DIR_BEFORE_STEP_MODEL);
+  for (const v of later) out.set(v.slug, v.bundle);
+  return out;
+}
+const previous = await before();
+
+const v5 = (b: AnyAgentBundle, slug: string) => {
+  const w = b.workflows.find((x) => x.slug === slug)?.workflow;
+  if (w?.schemaVersion !== 5) throw new Error(`${slug} isn't in the step model`);
+  return steps.Workflow.parse(w);
+};
+
+describe("the platform agents' seeds in the step model", () => {
+  it("are the five platform agents, one version each", async () => {
+    expect(seeds.map((t) => t.slug)).toEqual([
+      "bill-clerk",
+      "builder",
+      "coordinator",
+      "document-clerk",
+      "supervisor",
+    ]);
+    expect(await loadSeedVersions()).toEqual([]);
+  });
+
+  it.each(seeds)("$slug validates against the platform", (t) => {
+    const r = processes.validateAnyBundle(t.bundle, ctx);
+    expect(r.errors).toEqual([]);
+    expect(t.bundle.definition.kind).toBe("platform");
+    // Approval stays on by default (invariant 8).
+    expect(t.bundle.definition.permissions.mode).toBe("suggest_only");
+  });
+
+  it.each(seeds)("$slug passes the step model's publish checks with the registries", (t) => {
+    const context = processes.stepContext({ tools: specs });
+    for (const w of t.bundle.workflows) {
+      expect(steps.validateWorkflow(v5(t.bundle, w.slug), context), w.slug).toEqual([]);
+    }
+  });
+
+  it.each(seeds)("$slug names only registered skills and actions, none a tool wrapper", (t) => {
+    for (const s of t.bundle.definition.skills) {
+      const def = platform.catalog.get(parseSkillRef(s.skill).id);
+      expect(def, s.skill).toBeDefined();
+      expect(def && isToolWrapper(def), s.skill).toBe(false);
+    }
+    for (const tool of t.bundle.definition.extraTools) expect(specs[tool], tool).toBeDefined();
+    for (const w of t.bundle.workflows) {
+      const workflow = v5(t.bundle, w.slug);
+      for (const id of steps.stepModelSkills(workflow)) {
+        const def = platform.catalog.get(parseSkillRef(id).id);
+        expect(def && !isToolWrapper(def), id).toBe(true);
+        // A skill a step uses is the agent's own, with its values (§13a).
+        expect(
+          t.bundle.definition.skills.map((s) => s.skill),
+          id,
+        ).toContain(id);
+      }
+      for (const action of steps.stepModelActions(workflow)) {
+        const known = specs[action] ?? steps.mergedAction(action);
+        expect(known, action).toBeDefined();
+      }
+    }
+  });
+
+  it.each(seeds)("$slug keeps approval on every change to a client's tool", (t) => {
+    for (const w of t.bundle.workflows) {
+      steps.eachStep(v5(t.bundle, w.slug).steps, ({ step }) => {
+        if (step.kind !== "do" || step.uses?.type !== "action") return;
+        const action = step.uses.action;
+        const merged = steps.mergedAction(action);
+        const effect = specs[action]?.sideEffect ?? (merged ? "external" : undefined);
+        if (effect !== "external") return;
+        const approval = step.checks?.approval;
+        expect(approval?.required, step.id).toBe("required");
+        expect(processes.approvalLoosenings(approval, "checks.approval"), step.id).toEqual([]);
+      });
+    }
+  });
+
+  it.each(seeds)("$slug keeps every step and path id of the version it replaces", (t) => {
+    const old = previous.get(t.slug);
+    if (!old) throw new Error(`no earlier ${t.slug}`);
+    expect(t.bundle.definition.identity).toEqual(old.definition.identity);
+    expect(t.bundle.definition.model).toEqual(old.definition.model);
+    expect(t.bundle.definition.budgets).toEqual(old.definition.budgets);
+    expect(t.bundle.people).toEqual(old.people);
+    expect(t.bundle.workflows.map((w) => [w.slug, w.name])).toEqual(
+      old.workflows.map((w) => [w.slug, w.name]),
+    );
+    for (const w of old.workflows) {
+      if (w.workflow.schemaVersion !== 4) throw new Error(`${w.slug}: not v4`);
+      const now = v5(t.bundle, w.slug);
+      expect(now.triggers, w.slug).toEqual(
+        w.workflow.triggers.map((x) => steps.Workflow.shape.triggers.element.parse(x)),
+      );
+      const kept = new Set(steps.stepModelIds(now));
+      const lost = processes.nodeIds(w.workflow).filter((id) => !kept.has(id));
+      expect(lost, w.slug).toEqual([]);
+    }
+  });
+});
+
+// What each agent's workflow does, step for step (the PR's account of the rewrite).
+describe("the Bill clerk", () => {
+  const bill = seeds.find((t) => t.slug === "bill-clerk")?.bundle as AnyAgentBundle;
+  const w = v5(bill, "invoice-read");
+
+  it("ends every path: three reports to the admin, or a question left to a person", () => {
+    expect(w.outputs.map((o) => [o.id, o.kind, o.report?.to])).toEqual([
+      ["out-itemized", "report", ["client_admin"]],
+      ["out-already-done", "report", ["client_admin"]],
+      ["out-added", "report", ["client_admin"]],
+    ]);
+    const ends: [string, string[], string | undefined][] = [];
+    steps.eachStep(w.steps, ({ step }) => {
+      if (step.kind === "end") ends.push([step.id, step.outputs, step.nothingToDo]);
+    });
+    expect(ends.map(([id, outputs, nothing]) => [id, outputs, Boolean(nothing)])).toEqual([
+      ["done", ["out-itemized"], false],
+      ["nothing", ["out-already-done"], false],
+      ["end-asked-bill", [], true],
+      ["created", ["out-added"], false],
+      ["end-asked-new-bill", [], true],
+      ["end-asked-vendor", [], true],
+      ["end-asked-which", [], true],
+    ]);
+  });
+
+  it("creates a bill with the Accounting action, and checks it with Check bill's action", () => {
+    expect(steps.findStep(w.steps, "create")).toMatchObject({
+      kind: "do",
+      doneBy: "rules",
+      uses: { type: "action", action: "accounting.bill.create" },
+    });
+    expect(steps.findStep(w.steps, "check-bill")).toMatchObject({
+      kind: "do",
+      doneBy: "rules",
+      uses: { type: "action", action: "docs.bill.check" },
+    });
+    // The model only chooses (lines; a new bill's vendor and accounts); rules do the rest.
+    const ai: string[] = [];
+    steps.eachStep(w.steps, ({ step }) => {
+      if (step.kind === "do" && step.doneBy === "ai") ai.push(step.id);
+      expect(step.kind, step.id).not.toBe("loop");
+    });
+    expect(ai).toEqual(["map", "prepare"]);
+  });
+});
+
+describe("the Document clerk", () => {
+  const doc = seeds.find((t) => t.slug === "document-clerk")?.bundle as AnyAgentBundle;
+  const w = v5(doc, "read-again");
+
+  it("saves the reading as its End's delivery, after a person checks totals that don't add up", () => {
+    expect(w.outputs).toMatchObject([
+      {
+        id: "out-reading",
+        kind: "save",
+        action: {
+          action: "docs.reading.record",
+          input: {
+            documentId: "{{trigger.documentId}}",
+            reading: "{{steps.totals.output.reading}}",
+          },
+        },
+      },
+    ]);
+    expect(w.steps.map((s) => [s.id, s.kind])).toEqual([
+      ["read", "do"],
+      ["totals", "do"],
+      ["totals-off", "fork"],
+      ["save-reading", "end"],
+    ]);
+    expect(steps.findStep(w.steps, "totals")).toMatchObject({
+      doneBy: "rules",
+      uses: { type: "action", action: "docs.totals.check" },
+    });
+    expect(steps.findStep(w.steps, "totals-person")).toMatchObject({
+      doneBy: "person",
+      person: { mode: "approve", who: "client_admin", onReject: "stop" },
+    });
+  });
+});
+
+describe("Sloan", () => {
+  const sloan = seeds.find((t) => t.slug === "supervisor")?.bundle as AnyAgentBundle;
+
+  // DECISION (stream C): Sloan's answer is a Do done by AI with its own skill, not a Loop: a Loop
+  // only reads (§8), and Sloan's answer writes the platform's own records for the person asking
+  // (the reply, a pause, a draft for the admin; invariant 11).
+  it("answers with its own skill, as one Do step, and ends", () => {
+    const w = v5(sloan, "chat");
+    expect(w.steps.map((s) => [s.id, s.kind])).toEqual([
+      ["answer", "do"],
+      ["answered", "end"],
+    ]);
+    expect(w.outputs).toMatchObject([{ id: "out-answered", kind: "nothing" }]);
+  });
+});

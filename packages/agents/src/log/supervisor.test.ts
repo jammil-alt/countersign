@@ -26,7 +26,8 @@ import {
   tenant,
   toolCall,
 } from "@countersign/db";
-import { loadSeedTemplates } from "@countersign/db/seed";
+// Until the executor runs the step model: the agents as seeded before it (wave 4 deletes them).
+import { loadSeedTemplates, SEED_DIR_BEFORE_STEP_MODEL } from "@countersign/db/seed";
 import { FakeModel } from "@countersign/llm";
 import { emit } from "@countersign/senses";
 import { and, eq, sql } from "drizzle-orm";
@@ -71,7 +72,9 @@ describe.skipIf(!harness)("supervisor", () => {
   const ids = new Map<string, Ids>();
 
   beforeAll(async () => {
-    const seeded = (await loadSeedTemplates()).find((t) => t.slug === "supervisor");
+    const seeded = (await loadSeedTemplates(SEED_DIR_BEFORE_STEP_MODEL)).find(
+      (t) => t.slug === "supervisor",
+    );
     if (!seeded) throw new Error("no supervisor seed");
     const templates = await h.ops(async (tx) => {
       const w = await createTemplate(tx, { slug: "worker", bundle: makeBundle() });

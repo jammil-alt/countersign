@@ -1,5 +1,6 @@
 // Installing seeded platform templates from the back office (src/account/templates.ts): the newest
-// seeded version when none is named, and never an older seeded version over a newer one.
+// seeded version when none is named, once; never an older seeded version over a newer one (one
+// seeded version per platform agent since the step model, so none is older today).
 
 import { agent, agentVersion } from "@countersign/db";
 import { and, eq, isNull } from "drizzle-orm";
@@ -30,21 +31,6 @@ describe.skipIf(!h)("platform template install", () => {
     return { liveVersionId: tpl?.liveVersionId, count: versions.length };
   }
 
-  it("installs newer seeded versions in order", async () => {
-    expect((await install("supervisor", { version: 2 })).status).toBe(200);
-    const v3 = await install("supervisor", { version: 3 });
-    expect(v3.status, JSON.stringify(v3.json)).toBe(200);
-    expect(j(v3.json)).toMatchObject({ version: { status: "live" }, installed: true });
-  });
-
-  it("refuses going back to a seeded version in its history", async () => {
-    const before = await live("supervisor");
-    const res = await install("supervisor", { version: 2 });
-    expect(res.status, JSON.stringify(res.json)).toBe(409);
-    expect(j(res.json).error.code).toBe("older_version");
-    expect(await live("supervisor")).toEqual(before);
-  });
-
   it("installs the newest seeded version when none is named, and again is a no-op", async () => {
     const res = await install("supervisor", {});
     expect(res.status, JSON.stringify(res.json)).toBe(200);
@@ -56,14 +42,11 @@ describe.skipIf(!h)("platform template install", () => {
     expect(j(named.json)).toMatchObject({ version: j(res.json).version, installed: false });
   });
 
-  it("refuses a seeded version older than the newest it holds, and leaves the live one", async () => {
+  // Step model (docs/step-model-plan.md §12, R0): one seeded version per platform agent.
+  it("answers 404 for a version the seed doesn't have, and leaves the live one", async () => {
     const before = await live("supervisor");
-    // v4 and v5 were never installed here; v3 was. All are older than the newest held.
-    for (const version of [1, 3, 4, 5]) {
-      const res = await install("supervisor", { version });
-      expect(res.status, `v${version}: ${JSON.stringify(res.json)}`).toBe(409);
-      expect(j(res.json).error.code).toBe("older_version");
-    }
+    const res = await install("supervisor", { version: 2 });
+    expect(res.status, JSON.stringify(res.json)).toBe(404);
     expect(await live("supervisor")).toEqual(before);
   });
 

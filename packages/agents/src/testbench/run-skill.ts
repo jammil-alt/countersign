@@ -13,10 +13,12 @@ import {
   type AgentBundle,
   type Fixture,
   fixtureFor,
+  loopReads,
   type SkillDefinition,
   type ToolSpec,
+  toolLookup,
 } from "@countersign/core";
-import { DEFAULT_MODELS, type LlmTransport } from "@countersign/llm";
+import { DEFAULT_MODELS, type LlmMessage, type LlmTransport } from "@countersign/llm";
 import { z } from "zod";
 import { SkillCatalog } from "../registry/skills";
 import { type RegisteredTool, ToolRegistry } from "../registry/tools";
@@ -28,7 +30,7 @@ import type {
   RuntimeStore,
   ToolCallStatus,
 } from "../runtime/ports";
-import { runAgent } from "../runtime/run-agent";
+import { runAgent, toolName } from "../runtime/run-agent";
 import type { DocumentFile, DocumentsPort, InternalTool, PlatformStore } from "../tools/types";
 
 /** A uuid that names no row: the bench's agent, version and run ids. */
@@ -76,6 +78,34 @@ export interface BenchToolCall {
   status: ToolCallStatus;
   /** Why it was refused or failed; null when it answered. */
   reason: string | null;
+  /** What the model asked with, and what came back (long ones cut): the Loop test's turns. */
+  input?: unknown;
+  output?: unknown;
+}
+
+/**
+ * One turn of a Loop on the bench (step model §8): what the model said, the tools it called with
+ * what came back, and whether it finished. The next turn is what it decided from this one.
+ */
+export interface BenchTurn {
+  n: number;
+  /** The model's own words that turn (its reasoning in the open), null when it said none. */
+  said: string | null;
+  calls: BenchToolCall[];
+  /** The model ended the Loop this turn, with its answer. */
+  finished: boolean;
+  /** The calls it asked for as the model named them, before any was allowed. */
+  asked?: { name: string; input: unknown }[];
+}
+
+const CLIP = 4000;
+
+/** A value kept for the turn view: as is when short, else its first characters as text. */
+function clip(value: unknown): unknown {
+  if (value === undefined) return undefined;
+  const text = JSON.stringify(value);
+  if (text === undefined || text.length <= CLIP) return value;
+  return `${text.slice(0, CLIP)}…`;
 }
 
 export interface SkillCaseRun {
@@ -88,6 +118,8 @@ export interface SkillCaseRun {
   tokensOut: number;
   modelCalls: number;
   toolCalls: BenchToolCall[];
+  /** A Loop skill's turns, in order (empty for every other skill). */
+  turns: BenchTurn[];
 }
 
 /** Every tool answers from the fixtures; a pure handler runs as itself. */
@@ -136,6 +168,8 @@ function fixtureTool(spec: ToolSpec, fixtures: readonly Fixture[]): InternalTool
 
 /** The bench's agent: neutral words, the platform's model, no memory, no bindings. */
 function benchAgent(def: SkillDefinition, model: { id: string; maxTokens?: number }): AgentBundle {
+  // A Loop's turns are its own limit; the bench's agent allows at least as many.
+  const maxSteps = Math.max(12, def.loop?.maxTurns ?? 0);
   return {
     schemaVersion: 1,
     definition: {
@@ -152,7 +186,7 @@ function benchAgent(def: SkillDefinition, model: { id: string; maxTokens?: numbe
       extraTools: [],
       canCommand: [],
       permissions: { mode: "suggest_only" },
-      budgets: { maxSteps: 12, maxCostUsd: "0.50" },
+      budgets: { maxSteps, maxCostUsd: "0.50" },
       memory: { enabled: false },
     },
     workflows: [],
@@ -204,6 +238,7 @@ export async function runSkillCase(
   const def = input.definition;
   const tenantId = input.tenantId ?? BENCH_ID;
   const calls: BenchToolCall[] = [];
+  const turns: BenchTurn[] = [];
   const empty = (): SkillCaseRun => ({
     status: "failed",
     output: null,
@@ -213,6 +248,7 @@ export async function runSkillCase(
     tokensOut: 0,
     modelCalls: 0,
     toolCalls: calls,
+    turns,
   });
 
   // DECISION: a tool-mode skill runs on the bench only when its handler is marked `pure` (reads
@@ -272,7 +308,14 @@ export async function runSkillCase(
       seq += 1;
       const id = `call-${seq}`;
       toolCalls.set(id, calls.length);
-      calls.push({ tool: call.tool, status: "running", reason: null });
+      const entry: BenchToolCall = {
+        tool: call.tool,
+        status: "running",
+        reason: null,
+        input: clip(call.input),
+      };
+      calls.push(entry);
+      turns.at(-1)?.calls.push(entry);
       return id;
     },
     async finishToolCall(_tenant, id, result) {
@@ -283,6 +326,7 @@ export async function runSkillCase(
       const out = result.output as { refused?: unknown; error?: unknown } | null | undefined;
       const why = out?.refused ?? out?.error;
       entry.reason = typeof why === "string" ? why.slice(0, 300) : null;
+      entry.output = clip(result.output);
     },
   };
   const actions: ExternalActionStore = {
@@ -312,7 +356,7 @@ export async function runSkillCase(
     tools,
     // Every skill reference resolves through `store` to the version under test, built-ins too.
     catalog: new SkillCatalog([]),
-    transport: deps.transport,
+    transport: loopTranscript(deps.transport, turns),
     ...(deps.now ? { now: deps.now } : {}),
     policy: {
       refuseTool: ({ toolId }) =>
@@ -329,13 +373,27 @@ export async function runSkillCase(
       runId: BENCH_ID,
       stepId: "test-case",
       mode: "test",
+      // A Loop skill runs as a Loop step would: its own goal, its Get actions, its turns.
+      ...(def.loop
+        ? {
+            loop: {
+              goal: def.loop.goal,
+              instructions: "",
+              reads: loopReads(def, toolLookup(deps.tools.specs())),
+              maxTurns: def.loop.maxTurns,
+              atLimit: def.loop.atLimit,
+            },
+          }
+        : {}),
     });
+    refusedAsks(turns);
     const base = {
       costUsd: result.costUsd,
       tokensIn: result.tokensIn,
       tokensOut: result.tokensOut,
       modelCalls: result.modelCalls,
       toolCalls: calls,
+      turns,
     };
     if (result.status === "succeeded" || result.status === "awaiting_approval") {
       return { ...base, status: "succeeded", output: result.output ?? null, error: null };
@@ -348,6 +406,53 @@ export async function runSkillCase(
           : `stopped: ${result.status}`;
     return { ...base, status: "failed", output: null, error };
   } catch (error) {
+    refusedAsks(turns);
     return { ...empty(), error: error instanceof Error ? error.message : String(error) };
+  }
+}
+
+/** Counts each model answer as a turn: its words, and whether it ended the Loop (`finish`). */
+function loopTranscript(base: LlmTransport, turns: BenchTurn[]): LlmTransport {
+  return {
+    ...base,
+    async create(request, options) {
+      const message: LlmMessage = await base.create(request, options);
+      const said = message.content
+        .flatMap((b) => (b.type === "text" ? [b.text.trim()] : []))
+        .filter(Boolean)
+        .join("\n");
+      turns.push({
+        n: turns.length + 1,
+        said: said ? said.slice(0, 2000) : null,
+        calls: [],
+        finished: message.content.some((b) => b.type === "tool_use" && b.name === "finish"),
+        asked: message.content.flatMap((b) =>
+          b.type === "tool_use" && b.name !== "finish"
+            ? [{ name: b.name, input: clip(b.input) }]
+            : [],
+        ),
+      });
+      return message;
+    },
+  };
+}
+
+/**
+ * A call the model asked for that the runtime never ran (a tool the Loop was not offered, such as
+ * a write) has no tool-call row: it is added to its turn as refused, so the view shows it.
+ */
+function refusedAsks(turns: BenchTurn[]): void {
+  for (const turn of turns) {
+    const ran = new Set(turn.calls.map((c) => toolName(c.tool)));
+    for (const ask of turn.asked ?? []) {
+      if (ran.delete(ask.name)) continue;
+      turn.calls.push({
+        tool: ask.name.replaceAll("__", "."),
+        status: "refused",
+        reason: "not an action this Loop may use",
+        input: ask.input,
+      });
+    }
+    delete turn.asked;
   }
 }

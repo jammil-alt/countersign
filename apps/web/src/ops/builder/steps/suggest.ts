@@ -1,7 +1,6 @@
 // Suggest's call shape (docs/step-model-plan.md §5): the AI icon at the top of a step's form and
 // beside each field opens a pop-up with three choices. This file fixes what the pop-up asks and
-// what it gets back; the answer itself is wave 2 (stream F), so today the server returns the step
-// unchanged and says so (`POST /api/ops/agents/:id/suggest`).
+// what it gets back; the answer is the Builder's AI (`POST /api/ops/agents/:id/suggest`, stream F).
 
 import type { StepSuggestion as Answer, StepSuggestRequest as Ask } from "@countersign/core";
 import type { Step, Workflow } from "./types";
@@ -33,11 +32,11 @@ export interface Suggestion {
 /** Asks for a suggestion; the host knows the workflow around the step and the agent it is in. */
 export type SuggestFn = (request: SuggestRequest) => Promise<Suggestion>;
 
-/** What goes over the wire: the workflow as drawn, with the step the form holds in its place. */
-export function suggestBody(workflow: Workflow, request: SuggestRequest): Ask {
+/** The workflow as drawn, with the step the form holds in its place. */
+export function withStep(workflow: Workflow, step: Step): Workflow {
   const swap = (list: Step[]): Step[] =>
     list.map((s) => {
-      if (s.id === request.step.id) return request.step;
+      if (s.id === step.id) return step;
       if (s.kind === "fork") {
         return {
           ...s,
@@ -48,8 +47,13 @@ export function suggestBody(workflow: Workflow, request: SuggestRequest): Ask {
       if (s.kind === "for_each" || s.kind === "repeat") return { ...s, steps: swap(s.steps) };
       return s;
     });
+  return { ...workflow, steps: swap(workflow.steps) };
+}
+
+/** What goes over the wire: the workflow as drawn, with the step the form holds in its place. */
+export function suggestBody(workflow: Workflow, request: SuggestRequest): Ask {
   return {
-    workflow: { ...workflow, steps: swap(workflow.steps) },
+    workflow: withStep(workflow, request.step),
     stepId: request.step.id,
     how: request.how,
     ...(request.field ? { field: request.field } : {}),

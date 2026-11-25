@@ -24,7 +24,8 @@ const lookup: steps.V5ConvertLookup = {
   },
 };
 
-const seeds = join(__dirname, "../../../packages/db/seed/agents");
+// The platform agents as seeded before the step model (stream C rewrote the seeds in it by hand).
+const seeds = join(__dirname, "../../../fixtures/platform-agents-v4");
 
 describe("the one-off converter, on every seeded agent", () => {
   for (const file of readdirSync(seeds).filter((f) => f.endsWith(".json"))) {

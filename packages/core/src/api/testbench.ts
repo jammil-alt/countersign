@@ -2,6 +2,7 @@ import { z } from "zod";
 import { isUuid } from "../ids";
 import {
   Fixture,
+  Fixtures,
   Matcher,
   TestCaseFields,
   TestCaseSource,
@@ -197,6 +198,42 @@ export const LabResponse = z.object({
 });
 export type LabResponse = z.infer<typeof LabResponse>;
 
+/** One call a Loop made in a turn of its test: the action, what it asked, what came back. */
+export const LoopCallView = z.object({
+  tool: z.string(),
+  status: z.string(),
+  reason: z.string().nullable(),
+  input: z.unknown().optional(),
+  output: z.unknown().optional(),
+});
+/** One turn of a Loop's test (step model §8): what the model said, the calls, whether it ended. */
+export const LoopTurnView = z.object({
+  n: z.number().int(),
+  said: z.string().nullable(),
+  calls: z.array(LoopCallView),
+  finished: z.boolean(),
+});
+export type LoopTurnView = z.infer<typeof LoopTurnView>;
+
+export const LoopTryBody = z.strictObject({
+  versionId: Id,
+  /** What the Loop is given: its input fields as JSON. */
+  input: z.unknown(),
+  /** What its read actions answer, by action and (a subset of) the input; nothing else answers. */
+  fixtures: Fixtures.default([]),
+});
+
+export const LoopTryView = z.object({
+  status: z.enum(["succeeded", "failed"]),
+  output: z.unknown(),
+  error: z.string().nullable(),
+  /** USD (operator only: this route is the back office's). */
+  costUsd: z.string(),
+  modelCalls: z.number().int(),
+  turns: z.array(LoopTurnView),
+});
+export type LoopTryView = z.infer<typeof LoopTryView>;
+
 export const testbenchRoutes = {
   opsTests: defineRoute({
     method: "GET",
@@ -264,6 +301,17 @@ export const testbenchRoutes = {
     summary: "A suite run with each case's result: what it got and how it differed",
     params: IdParams,
     response: z.object({ suiteRun: SuiteRunView, results: z.array(CaseResultView) }),
+  }),
+  opsLoopTry: defineRoute({
+    method: "POST",
+    path: "/api/ops/skills/:id/try-loop",
+    auth: "session",
+    roles: OPS,
+    summary:
+      "Try a Loop skill's saved version once on the test bench: every turn (the action, what came back, what it decided), nothing written",
+    params: IdParams,
+    body: LoopTryBody,
+    response: LoopTryView,
   }),
   opsSkillRequireTests: defineRoute({
     method: "PUT",

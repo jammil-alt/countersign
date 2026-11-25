@@ -83,6 +83,10 @@ export type ValidationCode =
   | "invalid_cron"
   | "invalid_timezone"
   | "unknown_skill"
+  // Step model §8: a Loop step publishes only as a saved, tested Loop skill.
+  | "loop_unsaved"
+  | "loop_not_a_loop"
+  | "loop_untested"
   | "skill_not_allowed"
   | "agent_not_commandable"
   // PLATFORM_QA CONS-1: a skill step runs as the agent that owns the workflow.

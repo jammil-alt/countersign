@@ -1119,6 +1119,52 @@ export const StepSuggestion = z.object({
 });
 export type StepSuggestion = z.infer<typeof StepSuggestion>;
 
+/**
+ * Rules and AI written in a step are stored behind it as the agent's own skill, as a draft, when
+ * the workflow is saved (docs/step-model-plan.md §5, §10): the workflow as drawn goes in, and each
+ * step written in itself comes back with the skill version that backs it. The saved agent version
+ * pins each one in its skills; publishing that version makes them live.
+ */
+export const StepSkillsStoreRequest = z.strictObject({ workflow: z.unknown() });
+export const StepSkillsStored = z.object({
+  skills: z.array(
+    z.object({
+      stepId: z.string(),
+      /** The skill behind the step (`custom:step-<agent id>-<step id>`). */
+      ref: z.string(),
+      /** The draft version holding what the step wrote now. */
+      version: z.number().int(),
+      /** What the agent version pins in its skills: `<ref>@<version>`. */
+      pin: z.string(),
+      /** False when what the step wrote is what was already stored. */
+      changed: z.boolean(),
+    }),
+  ),
+});
+export type StepSkillsStored = z.infer<typeof StepSkillsStored>;
+
+/** Save as skill: a Do step's rules or AI, named, in the library, this client's or shared. */
+export const StepSaveAsSkillRequest = z.strictObject({
+  workflow: z.unknown(),
+  stepId: z.string().min(1),
+  name: z.string().trim().min(1).max(120),
+  description: z.string().trim().min(1).max(500),
+  /** `client`: this client's only (a client agent's); `shared`: every client's. */
+  scope: z.enum(["client", "shared"]),
+});
+export type StepSaveAsSkillRequest = z.infer<typeof StepSaveAsSkillRequest>;
+export const StepSavedAsSkill = z.object({
+  /** The step as it is now: it uses the skill. */
+  step: z.unknown(),
+  skill: z.object({
+    ref: z.string(),
+    name: z.string(),
+    description: z.string(),
+    scope: z.enum(["client", "shared"]),
+  }),
+});
+export type StepSavedAsSkill = z.infer<typeof StepSavedAsSkill>;
+
 // ── Skills library and the Builder (ARCHITECTURE §9.2, §9.6) ─────────────────────────────────────
 
 /** A row of the skills library: built-in (code) or operator-written (rows, shared or one client's). */
@@ -2007,6 +2053,28 @@ export const opsRoutes = {
     params: IdParams,
     body: StepSuggestRequest,
     response: StepSuggestion,
+  }),
+  // Step model, stream F (docs/step-model-plan.md §5): rules and AI written in a step are stored
+  // behind it as the agent's skill when the workflow is saved; Save as skill names them.
+  opsStepSkillsStore: defineRoute({
+    method: "POST",
+    path: "/api/ops/agents/:id/step-skills",
+    auth: "session",
+    roles: OPS,
+    summary: "Store the rules and the AI written in a workflow's steps behind them, as skills",
+    params: IdParams,
+    body: StepSkillsStoreRequest,
+    response: StepSkillsStored,
+  }),
+  opsStepSaveAsSkill: defineRoute({
+    method: "POST",
+    path: "/api/ops/agents/:id/save-as-skill",
+    auth: "session",
+    roles: OPS,
+    summary: "Save a step's rules or AI as a skill in the library; the step then uses it",
+    params: IdParams,
+    body: StepSaveAsSkillRequest,
+    response: StepSavedAsSkill,
   }),
   // The builder on one screen, F7 (docs/plan.md §1.170): an automation opens in the same builder.
   opsAutomationBuilderCatalog: defineRoute({

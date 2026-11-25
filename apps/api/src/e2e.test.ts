@@ -47,7 +47,8 @@ import {
   stepRun,
   transaction,
 } from "@countersign/db";
-import { loadSeedTemplates } from "@countersign/db/seed";
+// Until the executor runs the step model: the agents as seeded before it (wave 4 deletes them).
+import { loadSeedTemplates, SEED_DIR_BEFORE_STEP_MODEL } from "@countersign/db/seed";
 import { FakeModel } from "@countersign/llm";
 import { DEFAULT_FIXTURE_DIR } from "@countersign/llm/node";
 import { and, eq, isNull, sql } from "drizzle-orm";
@@ -325,7 +326,9 @@ describe.skipIf(!h)("end to end: the managed service, through the API", () => {
   });
 
   it("the operator installs the seeded Bill clerk template and forks it into the client", async () => {
-    const seeded = (await loadSeedTemplates()).find((t) => t.slug === "bill-clerk");
+    const seeded = (await loadSeedTemplates(SEED_DIR_BEFORE_STEP_MODEL)).find(
+      (t) => t.slug === "bill-clerk",
+    );
     if (!seeded) throw new Error("no bill-clerk seed");
     instructions = seeded.bundle.definition.instructions;
     const tpl = await ok(OPERATOR, "POST", "/api/ops/templates", {

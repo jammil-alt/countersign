@@ -30,7 +30,6 @@ import {
 } from "@countersign/connectors/testing";
 import {
   type AnyAgentBundle,
-  cloneJson,
   isToolWrapper,
   parseSkillRef,
   processes,
@@ -39,7 +38,11 @@ import {
   toolLookup,
 } from "@countersign/core";
 import { agent, agentVersion, connection, withOperator } from "@countersign/db";
-import { loadSeedTemplates, loadSeedVersions } from "@countersign/db/seed";
+import {
+  loadSeedTemplates,
+  loadSeedVersions,
+  SEED_DIR_BEFORE_STEP_MODEL,
+} from "@countersign/db/seed";
 import { DEFAULT_MODELS, knownModelIds } from "@countersign/llm";
 import { bookkeepingManifest } from "@countersign/pack-bookkeeping";
 import { marketingManifest } from "@countersign/pack-marketing";
@@ -81,9 +84,12 @@ interface Built {
   bundle: AnyAgentBundle;
 }
 
-/** The skill-model versions: the seeds' latest, and each pack template's latest. */
+/**
+ * The skill-model versions: the seeds' (as seeded before the step model, which wave 4 deletes),
+ * and each pack template's latest.
+ */
 async function built(): Promise<Built[]> {
-  const later = await loadSeedVersions();
+  const later = await loadSeedVersions(SEED_DIR_BEFORE_STEP_MODEL);
   const seed = (slug: string, version: number) => {
     const v = later.find((x) => x.slug === slug && x.version === version);
     if (!v) throw new Error(`no seed ${slug} v${version}`);
@@ -383,120 +389,55 @@ describe.skipIf(!h)("installing, offering and publishing the skill model's versi
     conn.hackernews = await connect("hackernews");
   });
 
-  it("loads the seeded versions with the seed's files, each after the one it extends", async () => {
-    const later = await loadSeedVersions();
-    const latest = (slug: string) =>
-      Math.max(...later.filter((v) => v.slug === slug).map((v) => v.version));
-    // Setup-plan §4.1: the Bill clerk's v4 names seats; overnight S3.4: v5 attaches new bills.
-    expect(latest("bill-clerk")).toBe(5);
-    expect(latest("document-clerk")).toBe(2);
-    // v0.19: Sloan's v6 is the chat only (ARCHITECTURE §10.15).
-    // Overnight S2.4: Sloan's v7 answers on Claude Sonnet 5.5.
-    expect(latest("supervisor")).toBe(7);
-    expect(latestSeededVersion("bill-clerk")).toBe(5);
-    expect(latestSeededVersion("document-clerk")).toBe(2);
-    expect(latestSeededVersion("supervisor")).toBe(7);
-    // The v1s are as they were (stored history is never edited).
+  // Step model (docs/step-model-plan.md §12, R0): each platform agent is seeded once, as v1.
+  it("loads one seeded version of each platform agent, its v1", async () => {
+    expect(await loadSeedVersions()).toEqual([]);
     const v1 = (await loadSeedTemplates()).map((t) => t.slug);
     expect(v1).toEqual(["bill-clerk", "builder", "coordinator", "document-clerk", "supervisor"]);
+    for (const slug of v1) expect(latestSeededVersion(slug), slug).toBe(1);
   });
 
-  it("installs the Bill clerk's v3 over v2 and offers it to a fork of v2, which doesn't move", async () => {
-    const install = (version: number) =>
-      H.call(OPERATOR, "POST", "/api/ops/platform-templates/bill-clerk/install", { version });
-    expect((await install(2)).status).toBe(200);
-    const before = await templateOf("bill-clerk");
-    const fork = await forkAndPublish(before.tpl.id, "bill-clerk-v2", { qbo: conn.qbo });
-    expect(fork.pub.status, JSON.stringify(fork.pub.json)).toBe(200);
-
-    const res = await install(3);
+  it("installs the Bill clerk and publishes a fork for a client with QuickBooks bound", async () => {
+    const res = await H.call(OPERATOR, "POST", "/api/ops/platform-templates/bill-clerk/install", {
+      version: 1,
+    });
     expect(res.status, JSON.stringify(res.json)).toBe(200);
-    expect(j(res.json)).toMatchObject({ version: { status: "live" }, installed: true });
-    const seeded = (await loadSeedVersions()).find(
-      (v) => v.slug === "bill-clerk" && v.version === 3,
-    );
     const { tpl, versions } = await templateOf("bill-clerk");
-    expect(versions.find((v) => v.id === tpl.liveVersionId)?.bundleHash).toBe(seeded?.hash);
-    expect(j((await install(3)).json).installed).toBe(false);
-
-    const usedBy = await H.call(OPERATOR, "GET", `/api/ops/templates/${tpl.id}/used-by`);
-    expect(usedBy.status, JSON.stringify(usedBy.json)).toBe(200);
-    const entry = j(usedBy.json).agents.find(
-      (x: { agent: { id: string } }) => x.agent.id === fork.id,
-    );
-    expect(entry).toMatchObject({ baseVersion: 2, behind: 1 });
+    expect(versions.map((v) => [v.version, v.status])).toEqual([[1, "live"]]);
+    const fork = await forkAndPublish(tpl.id, "bill-clerk-qbo", { qbo: conn.qbo });
+    expect(fork.pub.status, JSON.stringify(fork.pub.json)).toBe(200);
+    // The fork is the template's v1, step for step, in the step model.
     const [mine] = await H.t.db
       .select()
       .from(agentVersion)
-      .where(eq(agentVersion.agentId, fork.id));
-    expect(JSON.stringify(mine?.bundle)).toContain("qbo.map-invoice-lines");
+      .where(eq(agentVersion.id, fork.version));
+    expect(mine?.bundle.workflows[0]?.workflow.schemaVersion).toBe(5);
   });
 
-  it("publishes a fork of the Bill clerk's v3 for a client with QuickBooks bound", async () => {
-    const { tpl } = await templateOf("bill-clerk");
-    const fork = await forkAndPublish(tpl.id, "bill-clerk-qbo", { qbo: conn.qbo });
-    expect(fork.pub.status, JSON.stringify(fork.pub.json)).toBe(200);
-  });
-
-  it("asks which system Create bill uses when BILL is bound too, and publishes once it says", async () => {
-    const { tpl } = await templateOf("bill-clerk");
-    const both = { qbo: conn.qbo, billcom: conn.billcom };
-    const fork = await forkAndPublish(tpl.id, "bill-clerk-bill", both);
-    expect(fork.pub.status).toBe(422);
-    expect(JSON.stringify(fork.pub.json)).toContain("action_needs_via");
-    // The operator says BILL on the Create bill step, as a new version of the client's agent.
-    const [row] = await H.t.db.select().from(agentVersion).where(eq(agentVersion.id, fork.version));
-    const bundle = cloneJson(row?.bundle) as unknown as AnyAgentBundle;
-    const w = bundle.workflows[0]?.workflow;
-    if (w?.schemaVersion !== 4) throw new Error("v4 expected");
-    const create = processes.findStep(w, "create")?.step;
-    if (create?.kind !== "write") throw new Error("no create step");
-    create.via = "billcom";
-    const saved = await H.call(OPERATOR, "POST", `/api/ops/agents/${fork.id}/versions`, {
-      bundle,
-      parentVersionId: fork.version,
-    });
-    expect(saved.status, JSON.stringify(saved.json)).toBe(200);
-    expect(j(saved.json).errors).toEqual([]);
-    const id = j(saved.json).version.id as string;
-    const pub = await H.call(OPERATOR, "POST", `/api/ops/agents/${fork.id}/versions/${id}/publish`);
-    expect(pub.status, JSON.stringify(pub.json)).toBe(200);
-  });
-
-  it("installs the Document clerk's v2 and publishes a fork of it", async () => {
+  it("installs the Document clerk and publishes a fork of it", async () => {
     const res = await H.call(
       OPERATOR,
       "POST",
       "/api/ops/platform-templates/document-clerk/install",
-      {
-        version: 2,
-      },
+      { version: 1 },
     );
     expect(res.status, JSON.stringify(res.json)).toBe(200);
     const { tpl, versions } = await templateOf("document-clerk");
-    expect(versions.map((v) => [v.version, v.status])).toEqual([
-      [1, "retired"],
-      [2, "live"],
-    ]);
+    expect(versions.map((v) => [v.version, v.status])).toEqual([[1, "live"]]);
     const fork = await forkAndPublish(tpl.id, "document-clerk-a", { qbo: conn.qbo });
     expect(fork.pub.status, JSON.stringify(fork.pub.json)).toBe(200);
   });
 
-  it("installs Sloan's v5 and publishes the client's account agent from it", async () => {
+  it("installs Sloan and publishes the client's account agent from it", async () => {
     const res = await H.call(OPERATOR, "POST", "/api/ops/platform-templates/supervisor/install", {
-      version: 5,
+      version: 1,
     });
     expect(res.status, JSON.stringify(res.json)).toBe(200);
     const { tpl, versions } = await templateOf("supervisor");
     const live = versions.find((v) => v.id === tpl.liveVersionId);
-    expect(live?.version).toBe(versions.at(-1)?.version);
-    // Sloan keeps its four processes (the owner's exception to one agent, one process).
-    expect(live?.bundle.workflows.map((w) => w.slug)).toEqual([
-      "run-failed",
-      "connection-needs-attention",
-      "daily-check",
-      "chat",
-    ]);
+    expect(live?.version).toBe(1);
+    // v0.19: Sloan is the chat alone (ARCHITECTURE §10.15).
+    expect(live?.bundle.workflows.map((w) => w.slug)).toEqual(["chat"]);
     const added = await H.call(OPERATOR, "POST", `/api/ops/clients/${H.A.tenantId}/supervisor`, {});
     expect(added.status, JSON.stringify(added.json)).toBe(200);
     const [sloan] = await H.t.db
@@ -504,7 +445,7 @@ describe.skipIf(!h)("installing, offering and publishing the skill model's versi
       .from(agent)
       .where(and(eq(agent.tenantId, H.A.tenantId), eq(agent.slug, "supervisor")));
     if (!sloan) throw new Error("no account agent");
-    // Adding the account agent publishes it (publishing's checks passed), from v5.
+    // Adding the account agent publishes it (publishing's checks passed), from v1.
     const [version] = await H.t.db
       .select()
       .from(agentVersion)
@@ -512,7 +453,7 @@ describe.skipIf(!h)("installing, offering and publishing the skill model's versi
     expect(version?.status).toBe("live");
     expect(sloan.liveVersionId).toBe(version?.id);
     expect(version?.basedOnTemplateVersionId).toBe(live?.id);
-    expect(JSON.stringify(version?.bundle)).toContain("supervisor.explain");
+    expect(JSON.stringify(version?.bundle)).toContain("account.chat");
   });
 
   it("gives the Bookkeeper its v3 to v7 by Update templates over v2, offered to a fork of v2", async () => {

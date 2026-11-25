@@ -9,7 +9,13 @@ import { apiRoutes } from "../../../api/routes";
 import { useApi } from "../../../api/useApi";
 import { toolLabel } from "../../workflow/labels";
 import type { StepFormEnv } from "./form-kit";
-import { type AutomationChoice, indexCatalog, type SkillChoice, type UsesContext } from "./options";
+import {
+  type AutomationChoice,
+  indexCatalog,
+  type LoopChoice,
+  type SkillChoice,
+  type UsesContext,
+} from "./options";
 import type { Field, MatchProfile, Workflow } from "./types";
 
 export function usesContextFrom(input: {
@@ -28,6 +34,26 @@ export function usesContextFrom(input: {
       input: steps.fieldsFromSchema(s.definition.input),
       output: steps.fieldsFromSchema(s.definition.output),
     }));
+  // Step model §8: the saved Loops (agent-mode skills with a loop block) are picked by a Loop step,
+  // never by a Do step, so the palette's list above leaves them out.
+  const loops: LoopChoice[] = input.catalog.skills.flatMap((s) => {
+    const loop = s.definition.loop;
+    if (!loop) return [];
+    return [
+      {
+        ref: s.ref,
+        name: s.definition.name,
+        description: s.definition.description,
+        goal: loop.goal,
+        reads: [...(s.definition.reads ?? [])],
+        maxTurns: loop.maxTurns,
+        atLimit: loop.atLimit,
+        output: steps.fieldsFromSchema(s.definition.output),
+        conferFocus: loop.confer?.focus,
+        review: loop.review,
+      },
+    ];
+  });
   const automations: AutomationChoice[] = input.catalog.automations.map((a) => ({
     ref: a.ref,
     name: a.name,
@@ -41,6 +67,7 @@ export function usesContextFrom(input: {
     skills,
     automations,
     profiles: input.profiles ?? [],
+    loops,
   };
 }
 

@@ -1,7 +1,8 @@
 // R8 (docs/plan.md §1.86, §9; ARCHITECTURE §10.14 "The Library and the client's settings"): the
 // Library's read-only banks for the back office (contract: packages/core/src/api/library.ts).
 // Processes are the templates and their versions, each workflow read as a v4 process: a stored v3
-// workflow through `processes.fromWorkflowV3`, never rewritten (invariant 3). Tools and record
+// workflow through `processes.fromWorkflowV3`, never rewritten (invariant 3); one in the step model
+// (v5) is read as it is. Tools and record
 // types come from the registries; condition sets are derived from the processes, since nothing
 // stores named ones yet. Every handler runs inside withOperator (the clients served), and only
 // operators reach /api/ops (invariant 11).
@@ -19,6 +20,7 @@ import {
   RECORD_KINDS,
   routes,
   sha256Hex,
+  steps,
   type Workflow,
 } from "@countersign/core";
 import { agent, agentVersion, automation, automationVersion, skill } from "@countersign/db";
@@ -36,22 +38,36 @@ interface ReadProcess {
   slug: string;
   name: string;
   version: number;
-  workflows: { slug: string | null; process: Pick<processes.Process, "triggers" | "steps"> }[];
+  /** Each workflow's conditions, where they are used. */
+  workflows: { slug: string | null; uses: processes.ConditionUse[] }[];
 }
 
-/** A stored bundle's workflows, each read as a v4 process; one that doesn't read is left out. */
-function readWorkflows(
-  bundle: unknown,
-  lookup: processes.ConvertLookup,
-): (Omit<LibraryProcessWorkflow, "triggers" | "steps" | "kinds" | "checks"> & {
-  process: processes.Process;
-})[] {
+type ReadWorkflow = LibraryProcessWorkflow & { uses: processes.ConditionUse[] };
+
+/**
+ * A stored bundle's workflows, each read as a v4 process, or in the step model as it is; one that
+ * doesn't read is left out.
+ */
+function readWorkflows(bundle: unknown, lookup: processes.ConvertLookup): ReadWorkflow[] {
   const list = (bundle as { workflows?: unknown } | null)?.workflows;
   if (!Array.isArray(list)) return [];
-  return list.flatMap((entry) => {
+  return list.flatMap((entry): ReadWorkflow[] => {
     const w = entry as { slug: string; name: string; enabled?: boolean; workflow: unknown };
     const stored = w.workflow as { schemaVersion?: number } | undefined;
     try {
+      if (stored?.schemaVersion === 5) {
+        const workflow = steps.Workflow.parse(stored);
+        return [
+          {
+            slug: w.slug,
+            name: w.name,
+            enabled: w.enabled !== false,
+            schemaVersion: 5 as const,
+            ...stepModelFacts(workflow),
+            uses: processes.stepModelConditionUses(workflow),
+          },
+        ];
+      }
       const process =
         stored?.schemaVersion === 4
           ? (stored as processes.Process)
@@ -62,7 +78,8 @@ function readWorkflows(
           name: w.name,
           enabled: w.enabled !== false,
           schemaVersion: stored?.schemaVersion === 4 ? (4 as const) : (3 as const),
-          process,
+          ...workflowFacts(process),
+          uses: processes.conditionUses(process),
         },
       ];
     } catch {
@@ -97,12 +114,38 @@ function workflowFacts(
   };
 }
 
-function storedSchemaVersion(bundle: unknown): 3 | 4 {
+/** The same for a workflow in the step model: its steps by the step model's kinds (`do`, `fork`). */
+function stepModelFacts(
+  workflow: steps.Workflow,
+): Pick<LibraryProcessWorkflow, "triggers" | "steps" | "kinds" | "checks"> {
+  const kinds: Record<string, number> = {};
+  const checks = { confer: 0, approval: 0, notify: 0 };
+  let count = 0;
+  steps.eachStep(workflow.steps, ({ step }) => {
+    count += 1;
+    kinds[step.kind] = (kinds[step.kind] ?? 0) + 1;
+    if (step.checks?.confer) checks.confer += 1;
+    if (step.checks?.approval) checks.approval += 1;
+    if (step.checks?.notify?.length) checks.notify += 1;
+  });
+  return {
+    triggers: workflow.triggers.map((t) => ({
+      id: t.id,
+      kind: t.on.type,
+      event: t.on.type === "event" ? t.on.event : null,
+    })),
+    steps: count,
+    kinds,
+    checks,
+  };
+}
+
+function storedSchemaVersion(bundle: unknown): 3 | 4 | 5 {
   const list = (bundle as { workflows?: unknown } | null)?.workflows;
-  return Array.isArray(list) &&
-    list.some((w) => (w as { workflow?: { schemaVersion?: number } }).workflow?.schemaVersion === 4)
-    ? 4
-    : 3;
+  const versions = Array.isArray(list)
+    ? list.map((w) => (w as { workflow?: { schemaVersion?: number } }).workflow?.schemaVersion)
+    : [];
+  return versions.includes(5) ? 5 : versions.includes(4) ? 4 : 3;
 }
 
 /** The templates with their versions (newest first) and the client agents forked from them. */
@@ -159,7 +202,7 @@ async function templateProcesses(
       liveVersion: live?.version ?? null,
       latestVersion: mine[0]?.version ?? null,
       shownVersion: shown?.version ?? null,
-      workflows: workflows.map(({ process, ...w }) => ({ ...w, ...workflowFacts(process) })),
+      workflows: workflows.map(({ uses, ...w }) => w),
       versions: mine.map((v) => ({
         id: v.id,
         version: v.version,
@@ -177,7 +220,7 @@ async function templateProcesses(
         slug: t.slug,
         name: t.name,
         version: shown.version,
-        workflows: workflows.map((w) => ({ slug: w.slug, process: w.process })),
+        workflows: workflows.map((w) => ({ slug: w.slug, uses: w.uses })),
       });
     }
   }
@@ -240,7 +283,7 @@ async function automationProcesses(ctx: Scope, platform: Platform): Promise<Read
           slug: r.slug,
           name: r.name,
           version: shown.version,
-          workflows: [{ slug: null, process: { triggers: [], steps } }],
+          workflows: [{ slug: null, uses: processes.conditionUses({ triggers: [], steps }) }],
         },
       ];
     } catch {
@@ -256,7 +299,7 @@ async function conditionSets(read: readonly ReadProcess[]): Promise<LibraryCondi
   const byKey = new Map<string, LibraryConditionSet & { canonical: string }>();
   for (const p of read) {
     for (const w of p.workflows) {
-      for (const use of processes.conditionUses(w.process)) {
+      for (const use of w.uses) {
         const canonical = processes.conditionKey(use.when);
         const entry: LibraryConditionUse = {
           processKind: p.kind,

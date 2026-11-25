@@ -1,7 +1,7 @@
 // The seed: the operator, two clients, memberships and the platform templates as live v1 rows whose
 // bundles pass core's validation; running it twice changes nothing. And the seeded rows are where
-// RLS says they are: templates for operator sessions only. R9: each template's latest seeded
-// version holds v4 processes read from its v3 one by core's converter, every id kept.
+// RLS says they are: templates for operator sessions only. Step model (docs/step-model-plan.md §12,
+// R0): each platform template is one seeded version, its workflows in the step model.
 
 import {
   type AgentBundle,
@@ -9,6 +9,7 @@ import {
   holdsProcess,
   nodeIds,
   processes,
+  steps,
   type Step as V3Step,
   validateBundle,
   type Workflow,
@@ -48,18 +49,25 @@ import { asWorker, createTestDatabase, databaseAvailable, type TestDatabase } fr
 
 const online = await databaseAvailable();
 
-/** A seeded version that holds v3 workflows only, typed as one (they were all written v3). */
-function v3Bundle(v: SeedTemplateVersion | undefined): { bundle: AgentBundle } | undefined {
-  if (!v) return undefined;
-  if (holdsProcess(v.bundle)) throw new Error(`${v.slug} v${v.version} holds v4 processes`);
-  return { bundle: v.bundle as AgentBundle };
-}
-
 /** Every step of a v4 process, nested ones included. */
 const stepsOf = (p: processes.Process) => processes.allSteps(p).map((l) => l.step);
 
+/** Every step of a step-model workflow, nested ones included. */
+function v5Steps(list: readonly steps.Step[]): steps.Step[] {
+  return list.flatMap((s) => [
+    s,
+    ...(s.kind === "fork"
+      ? [...s.paths.flatMap((p) => v5Steps(p.steps)), ...v5Steps(s.otherwise.steps)]
+      : s.kind === "for_each" || s.kind === "repeat"
+        ? v5Steps(s.steps)
+        : []),
+  ]);
+}
+
+// Step model (docs/step-model-plan.md §12, R0): after the purge each platform agent is seeded once,
+// as v1, its workflows in the step model (`schemaVersion: 5`).
 describe("seed files", () => {
-  it("hold the five platform templates, each a valid bundle", async () => {
+  it("hold the five platform templates, each one valid version in the step model", async () => {
     const templates = await loadSeedTemplates();
     expect(templates.map((t) => t.slug)).toEqual([
       "bill-clerk",
@@ -68,82 +76,80 @@ describe("seed files", () => {
       "document-clerk",
       "supervisor",
     ]);
+    expect(await loadSeedVersions()).toEqual([]);
     for (const t of templates) {
-      expect(validateBundle(t.bundle).valid, t.slug).toBe(true);
+      expect(processes.validateAnyBundle(t.bundle).errors, t.slug).toEqual([]);
       expect(t.bundle.definition.kind).toBe("platform");
       // Approval stays on by default (CLAUDE.md invariant 8).
       expect(t.bundle.definition.permissions.mode).toBe("suggest_only");
       expect(t.hash).toBe(await bundleHash(t.bundle));
+      for (const w of t.bundle.workflows) {
+        if (w.workflow.schemaVersion !== 5) throw new Error(`${t.slug} ${w.slug} isn't v5`);
+        const parsed = steps.Workflow.parse(w.workflow);
+        expect(steps.validateWorkflow(parsed), `${t.slug} ${w.slug}`).toEqual([]);
+      }
+      // One agent, one process (ARCHITECTURE §10.14).
+      expect(t.bundle.workflows.length, t.slug).toBeLessThanOrEqual(1);
     }
   });
 
-  // v0.12 W2-D: the supervisor's v2 is Sloan (docs/plan.md §1.47).
-  it("hold the supervisor's v2, Sloan: the three watch workflows unchanged plus chat", async () => {
-    const [v1] = (await loadSeedTemplates()).filter((t) => t.slug === "supervisor");
-    const later = await loadSeedVersions();
-    // R9: each template's latest version holds v4 processes (or drops unregistered skills).
-    expect(later.map((v) => `${v.slug}.v${v.version}`)).toEqual([
-      "bill-clerk.v2",
-      // Skill model (2026-11-10): the Bill clerk's v3, the Document clerk's v2 and Sloan's v5.
-      "bill-clerk.v3",
-      // Setup-plan §4.1: the Bill clerk's v4 names seats for who approves and who answers.
-      "bill-clerk.v4",
-      // Overnight S3.4: v5 attaches the invoice after creating a bill.
-      "bill-clerk.v5",
-      "builder.v2",
-      "coordinator.v2",
-      "document-clerk.v2",
-      "supervisor.v2",
-      "supervisor.v3",
-      "supervisor.v4",
-      "supervisor.v5",
-      // v0.19: Sloan is the chat; its watches moved into platform code.
-      "supervisor.v6",
-      // Overnight S2.4 (owner, D1): the chat's answer step on Claude Sonnet 5.5.
-      "supervisor.v7",
+  it("keep the Builder and the Coordinator without workflows or skills", async () => {
+    const templates = await loadSeedTemplates();
+    for (const slug of ["builder", "coordinator"]) {
+      const t = templates.find((x) => x.slug === slug);
+      expect(t?.bundle.workflows, slug).toEqual([]);
+      expect(t?.bundle.definition.skills, slug).toEqual([]);
+    }
+  });
+
+  it("ask the Bill clerk's approver for every change to the accounting system", async () => {
+    const bill = (await loadSeedTemplates()).find((t) => t.slug === "bill-clerk");
+    const w = bill?.bundle.workflows[0]?.workflow;
+    if (w?.schemaVersion !== 5) throw new Error("no v5 Bill clerk");
+    const changes = new Set([
+      "qbo.bill.update_lines",
+      "qbo.attachable.upload",
+      "qbo.bill.update_memo",
+      "accounting.bill.create",
     ]);
-    const v2 = v3Bundle(later.find((v) => v.slug === "supervisor" && v.version === 2));
-    if (!v1 || !v2) throw new Error("no supervisor seed");
-    expect(v2.bundle.definition.identity.name).toBe("Sloan");
-    expect(v2.bundle.definition.permissions.mode).toBe("suggest_only");
-    expect(v2.bundle.definition.budgets).toEqual({ maxSteps: 8, maxCostUsd: "0.30" });
-    for (const w of v1.bundle.workflows) {
-      expect(v2.bundle.workflows.find((x) => x.slug === w.slug)?.workflow).toEqual(w.workflow);
-    }
-    const chat = v2.bundle.workflows.find((w) => w.slug === "chat")?.workflow;
-    expect(chat?.trigger.on).toMatchObject({ type: "event", event: "thread.message_posted" });
-    expect(chat?.steps).toMatchObject([{ kind: "skill", skill: "account.chat" }]);
+    const writes = v5Steps(steps.Workflow.parse(w).steps).flatMap((s) =>
+      s.kind === "do" && s.uses?.type === "action" && changes.has(s.uses.action)
+        ? [[s.id, s.uses.action, s.checks?.approval]]
+        : [],
+    );
+    const approval = {
+      required: "required",
+      mode: "in_turn",
+      ifNoAnswer: "stop",
+      approvers: [{ who: "seat:bill-approver" }],
+    };
+    expect(writes).toMatchObject([
+      ["itemize", "qbo.bill.update_lines", approval],
+      ["attach", "qbo.attachable.upload", approval],
+      ["memo", "qbo.bill.update_memo", approval],
+      ["create", "accounting.bill.create", approval],
+      ["attach-new", "qbo.attachable.upload", approval],
+    ]);
   });
 
-  // ARCHITECTURE §10.11, docs/plan.md §1.54 "Sloan".
-  it("hold the supervisor's v3: a failed run's own diagnosis is reported without a triage", async () => {
-    const later = await loadSeedVersions();
-    const v2 = v3Bundle(later.find((v) => v.slug === "supervisor" && v.version === 2));
-    const v3 = v3Bundle(later.find((v) => v.slug === "supervisor" && v.version === 3));
-    if (!v2 || !v3) throw new Error("no supervisor seed");
-    // Only the failed-run workflow changes.
-    expect(v3.bundle.definition).toEqual(v2.bundle.definition);
-    for (const w of v2.bundle.workflows.filter((x) => x.slug !== "run-failed")) {
-      expect(v3.bundle.workflows.find((x) => x.slug === w.slug)).toEqual(w);
-    }
-    const before = v2.bundle.workflows.find((w) => w.slug === "run-failed")?.workflow;
-    const after = v3.bundle.workflows.find((w) => w.slug === "run-failed")?.workflow;
-    expect(after?.trigger).toEqual(before?.trigger);
-    const [fork] = after?.steps ?? [];
-    if (fork?.kind !== "fork") throw new Error("no fork");
-    expect(fork.paths).toMatchObject([
+  it("hold Sloan's chat: one answer on Claude Sonnet 5.5, under its $0.30 cap", async () => {
+    const sloan = (await loadSeedTemplates()).find((t) => t.slug === "supervisor");
+    expect(sloan?.bundle.definition.identity.name).toBe("Sloan");
+    expect(sloan?.bundle.definition.budgets).toEqual({ maxSteps: 8, maxCostUsd: "0.30" });
+    expect(sloan?.bundle.workflows.map((w) => w.slug)).toEqual(["chat"]);
+    const w = sloan?.bundle.workflows[0]?.workflow;
+    if (w?.schemaVersion !== 5) throw new Error("no v5 chat");
+    expect(w.triggers[0]?.on).toMatchObject({ type: "event", event: "thread.message_posted" });
+    expect(w.steps).toMatchObject([
       {
-        when: { match: "all", rules: [{ field: "{{trigger.diagnosis}}", op: "exists" }] },
-        steps: [
-          {
-            skill: "supervisor.report",
-            input: { event: "run.failed", facts: "{{trigger}}", note: "{{trigger.diagnosis}}" },
-          },
-        ],
+        id: "answer",
+        kind: "do",
+        doneBy: "ai",
+        uses: { type: "skill", skill: "account.chat" },
+        ai: { model: { id: "claude-sonnet-5-5", maxTokens: 2048 } },
       },
+      { id: "answered", kind: "end", outputs: ["out-answered"] },
     ]);
-    // Without a diagnosis, v2's two steps run as they were, same ids.
-    expect(fork.otherwise.steps).toEqual(before?.steps);
   });
 });
 
@@ -221,57 +227,6 @@ describe("seed files, R9", () => {
     expect(() => seedVersionBundle(files, 9)).toThrow(/no version 9/);
   });
 
-  it("hold the Bill clerk's v2 and the supervisor's v4 as v4 processes of their v3 workflows", async () => {
-    const [billV1] = (await loadSeedTemplates()).filter((t) => t.slug === "bill-clerk");
-    const later = await loadSeedVersions();
-    const at = (slug: string, version: number) =>
-      later.find((v) => v.slug === slug && v.version === version);
-    const billV2 = at("bill-clerk", 2);
-    const supV3 = v3Bundle(at("supervisor", 3));
-    const supV4 = at("supervisor", 4);
-    if (!billV1 || !billV2 || !supV3 || !supV4) throw new Error("no seed");
-    expectV4Of(billV2, billV1.bundle);
-    expectV4Of(supV4, supV3.bundle);
-    // The bill's three writes to QuickBooks keep their approval.
-    const writes = (v: SeedTemplateVersion) =>
-      v.bundle.workflows.flatMap((w) =>
-        w.workflow.schemaVersion === 4
-          ? stepsOf(w.workflow)
-              .filter((s) => s.kind === "write")
-              .map((s) => [s.id, s.kind === "write" ? s.tool : ""])
-          : [],
-      );
-    expect(writes(billV2)).toEqual([
-      ["itemize", "qbo.bill.update_lines"],
-      ["attach", "qbo.attachable.upload"],
-      ["memo", "qbo.bill.update_memo"],
-    ]);
-    // Sloan's reports and daily check are platform records it writes, as v3's tool skills did.
-    expect(writes(supV4).map(([, tool]) => tool)).toEqual([
-      "supervisor.report",
-      "supervisor.report",
-      "supervisor.report",
-      "supervisor.check",
-    ]);
-  });
-
-  // R2: the four skill names nothing registers are dropped from the Builder's and Coordinator's
-  // new versions (the Builder runs its own model calls; the Coordinator's two are not built).
-  it("drop the Builder's and Coordinator's unregistered skills, and nothing else", async () => {
-    const v1s = await loadSeedTemplates();
-    const later = await loadSeedVersions();
-    for (const slug of ["builder", "coordinator"]) {
-      const v1 = v1s.find((t) => t.slug === slug);
-      const v2 = later.find((v) => v.slug === slug && v.version === 2);
-      if (!v1 || !v2) throw new Error(`no ${slug} seed`);
-      expect(v1.bundle.definition.skills.length, slug).toBe(2);
-      expect(v2.bundle).toEqual({
-        ...v1.bundle,
-        definition: { ...v1.bundle.definition, skills: [] },
-      });
-    }
-  });
-
   it("hold the Demo client agent's v2: its one write as a v4 write step, approval on", async () => {
     const v1 = await loadDemoAgent();
     const later = await loadDemoAgentVersions();
@@ -290,46 +245,6 @@ describe("seed files, R9", () => {
         checks: { approval: { required: "required" } },
       },
     ]);
-  });
-
-  // Overnight S2.4 (owner, D1): Sloan's v7 answers on Claude Sonnet 5.5 (Opus with a $0.30 cap
-  // stopped on ordinary questions). Its cap, skills and step ids are v6's, so the reviewed update
-  // merge into a client's Sloan changes only the answer step's model.
-  it("hold the supervisor's v7: v6's chat with the answer step on Claude Sonnet 5.5", async () => {
-    const later = await loadSeedVersions();
-    const at = (n: number) => later.find((v) => v.slug === "supervisor" && v.version === n);
-    const v6 = at(6)?.bundle as unknown as {
-      definition: Record<string, unknown>;
-      workflows: {
-        slug: string;
-        workflow: { triggers: unknown[]; steps: Record<string, unknown>[] };
-      }[];
-    };
-    const v7 = at(7)?.bundle as unknown as typeof v6;
-    if (!v6 || !v7) throw new Error("no supervisor v6 or v7");
-    expect(v7.definition).toEqual(v6.definition);
-    expect(v7.definition.budgets).toEqual({ maxSteps: 8, maxCostUsd: "0.30" });
-    expect(v7.workflows.map((w) => w.slug)).toEqual(["chat"]);
-    const [chat6, chat7] = [v6.workflows[0], v7.workflows[0]];
-    expect(chat7?.workflow.triggers).toEqual(chat6?.workflow.triggers);
-    expect(chat7?.workflow.steps.map((x) => x.id)).toEqual(["answer"]);
-    const { model, ...rest } = chat7?.workflow.steps[0] ?? {};
-    expect(rest).toEqual(chat6?.workflow.steps[0]);
-    expect(model).toEqual({ id: "claude-sonnet-5-5", maxTokens: 2048 });
-    expect(processes.validateAnyBundle(v7 as never).valid).toBe(true);
-  });
-
-  // One agent, one process (ARCHITECTURE §10.14). The supervisor kept four workflows up to its v5;
-  // v0.19's v6 keeps the chat alone (its watches are the platform's, §10.15).
-  it("keep one process per agent in every latest seed", async () => {
-    const latest = new Map<string, SeedTemplateVersion["bundle"]>();
-    for (const t of await loadSeedTemplates()) latest.set(t.slug, t.bundle);
-    for (const v of await loadSeedVersions()) latest.set(v.slug, v.bundle);
-    const refused = [...latest].flatMap(([slug, b]) =>
-      processes.oneProcessProblems(b).errors.map((e) => `${slug} ${e.field}`),
-    );
-    // v0.19: Sloan's v6 is the chat alone, so no seed keeps more than one (§10.15).
-    expect(refused).toEqual([]);
   });
 });
 
@@ -359,10 +274,9 @@ describe.skipIf(!online)("seed", () => {
   it("inserts the operator, two clients and five live templates; twice is the same as once", async () => {
     const first = await seed(t.db);
     const afterFirst = await counts();
-    // Five templates: five v1s, the supervisor's v2 to v7, the Bill clerk's v2 to v5, and the
-    // Builder's, Coordinator's and Document clerk's v2; and the Demo client's Sloan, its v1 forked
-    // from the supervisor's live version (§1.47 "On by default").
-    expect(afterFirst).toEqual({ tenants: 2, users: 2, memberships: 3, agents: 6, versions: 19 });
+    // Five templates, each its one seeded v1; and the Demo client's Sloan, its v1 forked from the
+    // supervisor's live version (§1.47 "On by default").
+    expect(afterFirst).toEqual({ tenants: 2, users: 2, memberships: 3, agents: 6, versions: 6 });
     expect(first.demoDesk).toBeNull();
 
     const second = await seed(t.db);
@@ -388,39 +302,14 @@ describe.skipIf(!online)("seed", () => {
       "supervisor",
     ]);
     const versions = await t.db.select().from(agentVersion);
-    const supervisor = first.templates.supervisor;
-    // Each template's live version is its last seeded one: the supervisor's v7 (the chat alone,
-    // v0.19, answering on Claude Sonnet 5.5), whose parent is v6, v6's v5, v5's v4, v4's v3 and v3's v2; the Bill clerk's v3 (its parent v2); the Builder's,
-    // Coordinator's and Document clerk's v2. The others are retired.
-    const lastSeeded: Record<string, number> = {
-      "bill-clerk": 5,
-      builder: 2,
-      coordinator: 2,
-      "document-clerk": 2,
-      supervisor: 7,
-    };
+    // Each template's live version is its v1, with no parent.
     for (const r of templates) {
       expect(r.kind).toBe("template");
       expect(r.tenantId).toBeNull();
       const live = versions.find((v) => v.id === r.live);
-      expect(live?.version, r.slug).toBe(lastSeeded[r.slug]);
-      if (r.slug === "supervisor") {
-        const at = (n: number) => versions.find((v) => v.agentId === r.id && v.version === n);
-        expect(at(2)?.parentVersionId).toBe(supervisor?.versionId);
-        expect(at(3)?.parentVersionId).toBe(at(2)?.id);
-        expect(at(4)?.parentVersionId).toBe(at(3)?.id);
-        expect(at(5)?.parentVersionId).toBe(at(4)?.id);
-        expect(at(6)?.parentVersionId).toBe(at(5)?.id);
-        expect(live?.parentVersionId).toBe(at(6)?.id);
-      } else if (r.slug === "bill-clerk") {
-        const at = (n: number) => versions.find((v) => v.agentId === r.id && v.version === n);
-        expect(at(2)?.parentVersionId).toBe(first.templates[r.slug]?.versionId);
-        expect(at(3)?.parentVersionId).toBe(at(2)?.id);
-        expect(at(4)?.parentVersionId).toBe(at(3)?.id);
-        expect(live?.parentVersionId).toBe(at(4)?.id);
-      } else if (lastSeeded[r.slug] === 2) {
-        expect(live?.parentVersionId).toBe(first.templates[r.slug]?.versionId);
-      }
+      expect(live?.version, r.slug).toBe(1);
+      expect(live?.id).toBe(first.templates[r.slug]?.versionId);
+      expect(live?.parentVersionId).toBeNull();
     }
 
     // The templates' live versions, and the Demo client's Sloan's v1 (live too).

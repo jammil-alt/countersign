@@ -32,6 +32,7 @@ import {
   type SkillDefinition,
   skillTools,
   steps,
+  type ValidationCode,
   type ValidationError,
   validateBundle,
   walkSteps,
@@ -60,7 +61,12 @@ import { handoffAgents, holdsHandoff } from "./handoff";
 // lineage imports this module too; only functions cross, so the cycle is safe at load time.
 import { type PromotionProblem, refuseProblems, stripForPromotion } from "./lineage";
 import { missingRoles } from "./people";
-import { type SkillCatalog, skillContext, snapshotSharedSkills } from "./skills";
+import {
+  type SkillCatalog,
+  skillContext,
+  snapshotSharedSkills,
+  untestedLoopReason,
+} from "./skills";
 import type { ToolRegistry } from "./tools";
 
 export type AgentRow = typeof agent.$inferSelect;
@@ -375,7 +381,11 @@ export async function validateForPublish(
   // doesn't have is new, and a new step may not use a retired kind of skill (`rules_then_ai`, agent
   // mode) or a skill that writes. `"none"`: a first version made here, every step is new. Null or
   // left out: no step is new (a stored version, checked as it is).
-  options: { previous?: ExistingSteps | null } = {},
+  options: {
+    previous?: ExistingSteps | null;
+    /** A version installed from code (the platform's own agents): its Loops are the platform's. */
+    installed?: boolean;
+  } = {},
 ): Promise<ValidationError[]> {
   const { skills, missing } = await skillContext(tx, {
     tenantId: row.tenantId,
@@ -478,6 +488,9 @@ export async function validateForPublish(
       automations: used.automations,
     }),
   );
+  if (!options.installed) {
+    errors.push(...(await loopPublishErrors(tx, row, bundle, ctx, { ...used.skills, ...skills })));
+  }
   for (const ref of missing) {
     // Workflow steps are reported by validateBundle; the agent's own skill list is checked here.
     if (!errors.some((e) => e.code === "unknown_skill" && e.message.includes(ref))) {
@@ -487,6 +500,46 @@ export async function validateForPublish(
         code: "unknown_skill",
         message: `skill ${ref} not found`,
       });
+    }
+  }
+  return errors;
+}
+
+/**
+ * Step model §8: a Loop is built and tested in the lab and saved as a skill, and what publishes is
+ * a Loop that passed its test set. So an agent is refused a Loop step written in the step (it may
+ * be drafted), one that names a skill that isn't a Loop, and one pinned to a Loop version that was
+ * never published (`custom:slug@N` still a draft). A built-in or pack Loop ships with its tests.
+ */
+async function loopPublishErrors(
+  tx: Tx,
+  row: Pick<AgentRow, "tenantId">,
+  bundle: AnyAgentBundle,
+  ctx: RegistryContext,
+  skills: Record<string, SkillDefinition>,
+): Promise<ValidationError[]> {
+  const errors: ValidationError[] = [];
+  for (const w of bundle.workflows) {
+    if (w.workflow.schemaVersion !== 5) continue;
+    const loops: Extract<steps.Step, { kind: "loop" }>[] = [];
+    steps.eachStep(w.workflow.steps, ({ step }) => {
+      if (step.kind === "loop") loops.push(step);
+    });
+    for (const step of loops) {
+      const issue = (code: ValidationCode, message: string) =>
+        errors.push({ stepId: step.id, field: "skill", code, message });
+      if (!step.skill) {
+        issue("loop_unsaved", "Save this Loop as a skill and pass its tests before publishing.");
+        continue;
+      }
+      const def = skills[step.skill];
+      if (def && def.loop === undefined) {
+        issue("loop_not_a_loop", `${step.skill} isn't a Loop: pick a saved Loop.`);
+        continue;
+      }
+      if (ctx.catalog.get(parseSkillRef(step.skill).id)) continue;
+      const untested = await untestedLoopReason(tx, { tenantId: row.tenantId, ref: step.skill });
+      if (untested) issue("loop_untested", untested);
     }
   }
   return errors;
@@ -589,6 +642,7 @@ export async function publish(
     }
   }
   const errors = await validateForPublish(tx, row, v.bundle, input.ctx, {
+    ...(input.installed ? { installed: true } : {}),
     previous: input.installed
       ? parseVersionBundle(v.bundle)
       : (input.existingFrom ?? (await existingBundle(tx, v))),
