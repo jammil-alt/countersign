@@ -378,6 +378,43 @@ Two different things watch an agent, and both stay:
   nothing added until the rebuilt agents work (owner, 2026-11-25: "lets get this working and we can
   enhance later").
 
+## 10d. Areas: Purchasing (Agreed)
+
+Of Purchasing's 54 actions, 41 stay as they are (with "QuickBooks" in their words made "the
+accounting system"), and 13 change (owner, 2026-11-25):
+
+| Action today | Becomes |
+|---|---|
+| Match the vendor | Match profile **Vendors** (accounting id, tax id, email domain, name) |
+| Look up by SKU in the vendor's catalog | Match profile **Vendor items**: exact match on SKU only |
+| Find master item candidates | Match profile **Master items**: hybrid (the vendors' names and key attributes first, then semantic) |
+| Match descriptions to the catalog | Match profile **Master items** (also for purchase requests) |
+| Match a request's lines again | A Match step with the **Master items** profile |
+| Check the model's answers | Folded into the Match step as its hard rules |
+| Make search embeddings | Folded into Register lines and the other saves that add items |
+| Record prices | Dropped: Register lines already records each line's price in the price history |
+| Find the vendor's closest items | Dropped (vendor items are SKU or nothing) |
+| Look up lines in the catalog (older) | Dropped |
+| Match one line (older) | Dropped |
+| Match every line (older) | Dropped |
+| Record checked line decisions (older) | Dropped; **Register lines** is the one save for a document's decided lines (vendor item, master item, price, the vendor's wording) |
+
+"Becomes a profile" means the code is reused as the profile's engine; it stops being an action in
+the picker. Found in checking the list:
+
+- **A person's answer is learned.** Whatever a person decides on a Match (this line is that item) is
+  saved where the profile keeps its learned names, so the same wording is an exact hit next time.
+  Register lines does this for documents today, and a request's re-match did it for requests; it
+  becomes part of every match profile.
+- **Vendor items no longer need embeddings** (nothing searches them by meaning); master items still
+  do.
+- **Backfill from bills** stays, rebuilt on the profiles, reading the accounting system's bills.
+- **The two price actions stay as built:** Compare to historicals (Get: the alerts the six price rules
+  would raise, with evidence and dollar impact; saves nothing) and Check prices (Save: raises them,
+  one open alert per kind, item and vendor).
+- **Later, for a vendor agent:** our records have no "add a vendor" action of their own (a vendor is
+  added by the sync or when an invoice makes its purchase).
+
 ## 11. The Invoice item matcher (acceptance test)
 
 The matcher is not a build of its own: it is rebuilt by hand in the new builder, and the build is
@@ -467,6 +504,8 @@ matcher, Build list, Release.
   unchanged.
 - 2026-11-25 · Areas and templates are tool-neutral: outside ids per connector; Accounting actions
   run on whichever accounting tool the client has.
+- 2026-11-25 · Purchasing: 13 matching and price actions replaced by three match profiles and Register
+  lines; a person's answer on any match is learned.
 - 2026-11-25 · Forms agreed. Suggest (AI icon) on every step and every field: tell it what you need,
   use the default, or resolve; applied at once, with Undo.
 - 2026-11-25 · The eight kinds are stored directly; nine of today's kinds collapse into Do, run by
