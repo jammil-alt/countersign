@@ -59,6 +59,29 @@ describe("what the forms read from the server", () => {
     expect(ctx.skills[0]?.input).toEqual([{ name: "documentId", type: "text", required: true }]);
   });
 
+  it("leaves Reshape data out: it is the engine behind translation, not a step to pick", () => {
+    const skill = (ref: string, name: string) => ({
+      ref,
+      source: "builtin",
+      version: null,
+      kind: "rules",
+      palette: true,
+      definition: { name, description: "", input: {}, output: {} },
+    });
+    const ctx = usesContextFrom({
+      actions: [],
+      catalog: {
+        automations: [],
+        skills: [
+          skill("data.reshape", "Reshape data"),
+          skill("data.reshape@2", "Reshape data"),
+          skill("data.filter", "Filter, group and total"),
+        ],
+      } as never,
+    });
+    expect(ctx.skills.map((s) => s.ref)).toEqual(["data.filter"]);
+  });
+
   it("reads the trigger's fields from a manual start's input or an event's payload", () => {
     const events = [
       {
