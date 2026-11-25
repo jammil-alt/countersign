@@ -400,6 +400,41 @@ describe("the Library", () => {
     expect(screen.getByTestId("process-collector")).toBeInTheDocument();
   });
 
+  // Step model: a template in the step model shows its steps by the step model's kinds.
+  it("lists a template in the step model with its steps by Do, Fork and End", async () => {
+    const clerk = {
+      ...COLLECTOR,
+      id: "00000000-0000-4000-8000-00000000d103",
+      slug: "document-clerk",
+      name: "Document clerk",
+      description: "Make sure every transaction has its supporting document",
+      liveVersion: 1,
+      workflows: [
+        {
+          slug: "read-again",
+          name: "When a document couldn't be read",
+          enabled: true,
+          schemaVersion: 5,
+          triggers: [{ id: "t1", kind: "event", event: "document.extraction_failed" }],
+          steps: 5,
+          kinds: { do: 3, fork: 1, end: 1 },
+          checks: { confer: 0, approval: 0, notify: 0 },
+        },
+      ],
+      versions: [{ ...BILL_KEEPER.versions[1], schemaVersion: 5 }],
+    };
+    renderAt("/ops/library/processes", {
+      "GET /api/ops/library/processes": () => ({ processes: [clerk] }),
+      "GET /api/ops/automations": () => ({ automations: [] }),
+    });
+    const row = await screen.findByTestId("process-document-clerk-workflow-read-again");
+    expect(row).toHaveTextContent("5 steps");
+    expect(within(row).getByText("Do 3")).toBeInTheDocument();
+    expect(within(row).getByText("Fork 1")).toBeInTheDocument();
+    expect(within(row).getByText("End 1")).toBeInTheDocument();
+    expect(row).not.toHaveTextContent("Stored as a v3 workflow");
+  });
+
   // Skill model (2026-11-10): two kinds only, each card labelled, the list filtered by kind;
   // tool wrappers are not listed at all.
   it("says each skill's kind, reads and browsing, filters by kind, and lists no tool wrapper", async () => {

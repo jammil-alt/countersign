@@ -299,4 +299,40 @@ describe.skipIf(!h)("the Library", () => {
     const theirs = j(other.json).banks.find((b: { bank: string }) => b.bank === "processes");
     expect(theirs.count).toBe(1);
   });
+  // Step model: a template seeded in the step model (v5) is read as it is, not as v3 or v4.
+  it("reads a template in the step model as it is: its kinds, checks and conditions", async () => {
+    const installed = await H.call(
+      OPERATOR,
+      "POST",
+      "/api/ops/platform-templates/document-clerk/install",
+      { version: 1 },
+    );
+    expect(installed.status, JSON.stringify(installed.json)).toBe(200);
+    const res = await H.call(OPERATOR, "GET", "/api/ops/library/processes");
+    expect(res.status, JSON.stringify(res.json)).toBe(200);
+    const clerk = j(res.json).processes.find((p: { slug: string }) => p.slug === "document-clerk");
+    expect(clerk.versions.map((v: { schemaVersion: number }) => v.schemaVersion)).toEqual([5]);
+    expect(clerk.workflows).toMatchObject([
+      {
+        slug: "read-again",
+        schemaVersion: 5,
+        triggers: [
+          { kind: "event", event: "document.extraction_failed" },
+          { kind: "manual", event: null },
+        ],
+        // Read, check the totals, ask a person; the Fork; the End that saves the reading.
+        steps: 5,
+        kinds: { do: 3, fork: 1, end: 1 },
+        checks: { approval: 0, confer: 0, notify: 0 },
+      },
+    ]);
+    const conditions = await H.call(OPERATOR, "GET", "/api/ops/library/conditions");
+    expect(conditions.status, JSON.stringify(conditions.json)).toBe(200);
+    const uses = j(conditions.json).sets.flatMap(
+      (set: { uses: { processSlug: string; place: string; stepId: string | null }[] }) =>
+        set.uses.filter((u) => u.processSlug === "document-clerk"),
+    );
+    expect(uses).toMatchObject([{ place: "if_path", stepId: "totals-off" }]);
+    expect((await H.call(OPERATOR, "GET", "/api/ops/library")).status).toBe(200);
+  });
 });
