@@ -373,7 +373,8 @@ Two different things watch an agent, and both stay:
   accounting connection the client has, as the four built today do (send email, send text, create
   bill, create vendor, resolving to QuickBooks or BILL; `process/actions.ts`). What only one tool
   has stays under that connector ("QuickBooks › Itemize a bill's lines"). Templates use Accounting
-  actions wherever one exists.
+  actions wherever one exists. Only the Accounting actions the rebuilt agents need are added now; the
+  rest come with Xero or the next accounting tool (owner, 2026-11-25).
 - **QuickBooks stays as it is**: 34 actions, one per QuickBooks operation, nothing merged and
   nothing added until the rebuilt agents work (owner, 2026-11-25: "lets get this working and we can
   enhance later").
@@ -412,6 +413,12 @@ the picker. Found in checking the list:
 - **The two price actions stay as built:** Compare to historicals (Get: the alerts the six price rules
   would raise, with evidence and dollar impact; saves nothing) and Check prices (Save: raises them,
   one open alert per kind, item and vendor).
+- **Price tolerances, as built, kept** (owner, 2026-11-25). Three exist: each vendor item's tolerance
+  on its agreed price (an amount or a percent, set in the vendor catalog or from an imported price
+  list), used by the contract check; the price rules' thresholds (a jump or a rise over the 90-day
+  average above 5%, a vendor spread above 10%, creep above 8%), which are values in the Instructions
+  of a Compare or Check prices step; and AP's tolerance of a bill's price over its purchase order
+  (2%), a setting of the AP area.
 - **Later, for a vendor agent:** our records have no "add a vendor" action of their own (a vendor is
   added by the sync or when an invoice makes its purchase).
 
@@ -506,6 +513,8 @@ matcher, Build list, Release.
   run on whichever accounting tool the client has.
 - 2026-11-25 · Purchasing: 13 matching and price actions replaced by three match profiles and Register
   lines; a person's answer on any match is learned.
+- 2026-11-25 · Both price actions and the three price tolerances kept as built; Accounting actions
+  added only as the rebuilt agents need them.
 - 2026-11-25 · Forms agreed. Suggest (AI icon) on every step and every field: tell it what you need,
   use the default, or resolve; applied at once, with Undo.
 - 2026-11-25 · The eight kinds are stored directly; nine of today's kinds collapse into Do, run by
