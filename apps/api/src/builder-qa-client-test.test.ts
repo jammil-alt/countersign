@@ -8,6 +8,7 @@ import { FakeModel } from "@countersign/llm";
 import { desc, eq } from "drizzle-orm";
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { createApiHarness, OPERATOR } from "./api.test-helper";
+import { stepModelAnswer } from "./builder-v5.test-helper";
 
 for (const level of process.env.SHOW_LOGS ? [] : (["warn", "error"] as const)) {
   vi.spyOn(console, level).mockImplementation(() => {});
@@ -32,7 +33,7 @@ const BRIEF = {
 const ROW = { id: "update", need: "Update the record", verdict: "native", how: "Testkit update" };
 
 function draftAnswer(slug: string) {
-  return {
+  return stepModelAnswer({
     toolUse: {
       name: "submit_draft",
       input: {
@@ -74,7 +75,7 @@ function draftAnswer(slug: string) {
         },
       },
     },
-  };
+  });
 }
 
 describe.skipIf(!h)("a template build's client test after a fix", () => {
@@ -197,17 +198,21 @@ describe.skipIf(!h)("a template build's client test after a fix", () => {
       });
       expect(bound.status, JSON.stringify(bound.json)).toBe(200);
       const [first] = await H.t.db
-        .select({ id: agentVersion.id })
+        .select({ id: agentVersion.id, status: agentVersion.status })
         .from(agentVersion)
         .where(eq(agentVersion.agentId, copy))
         .orderBy(desc(agentVersion.version))
         .limit(1);
-      const pub = await H.call(
-        OPERATOR,
-        "POST",
-        `/api/ops/agents/${copy}/versions/${first?.id}/publish`,
-      );
-      expect(pub.status, JSON.stringify(pub.json)).toBe(200);
+      // The step model (the Builder drafts v5): its publish checks don't check a client's
+      // bindings yet, so the copy may already be live from the move (stream I, Not done).
+      if (first?.status !== "live") {
+        const pub = await H.call(
+          OPERATOR,
+          "POST",
+          `/api/ops/agents/${copy}/versions/${first?.id}/publish`,
+        );
+        expect(pub.status, JSON.stringify(pub.json)).toBe(200);
+      }
     }
 
     // The trial shows the amount is wrong: back to the draft, fix the template, test it again.

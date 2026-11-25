@@ -241,6 +241,20 @@ export function partsOf(bundle: { workflows: readonly { workflow: unknown }[] })
       if ((step.kind === "read" || step.kind === "write") && typeof step.tool === "string") {
         tools.add(step.tool);
       }
+      // The step model: a Do's action or skill, a Loop's saved Loop and its reads.
+      const uses = step.uses as { type?: unknown; action?: unknown; skill?: unknown } | undefined;
+      if (step.kind === "do" && uses?.type === "action" && typeof uses.action === "string") {
+        tools.add(uses.action);
+      }
+      if (step.kind === "do" && uses?.type === "skill" && typeof uses.skill === "string") {
+        skills.add(uses.skill.split("@")[0] ?? uses.skill);
+      }
+      if (step.kind === "loop") {
+        if (typeof step.skill === "string") skills.add(step.skill.split("@")[0] ?? step.skill);
+        if (Array.isArray(step.reads)) {
+          for (const r of step.reads) if (typeof r === "string") tools.add(r);
+        }
+      }
       visit(step.steps);
       if (Array.isArray(step.paths))
         for (const p of step.paths) visit((p as { steps?: unknown }).steps);

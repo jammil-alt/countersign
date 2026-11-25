@@ -11,6 +11,7 @@
 import {
   type AnyAgentBundle,
   flattenBundle,
+  holdsStepModel,
   parseCommand,
   parseSkillRef,
   resolveSkillCommand,
@@ -44,13 +45,27 @@ function isSpace(code: number): boolean {
   return code === 32 || (code >= 9 && code <= 13) || code === 160;
 }
 
+/**
+ * The skill a step runs, as stored: a v4 skill step's `skill`, a v5 Do's `uses.skill`, a v5 Loop's
+ * saved Loop (`skill`). Null for any other step.
+ */
+function stepSkillRef(content: Record<string, unknown>): string | null {
+  if ((content.kind === "skill" || content.kind === "loop") && typeof content.skill === "string") {
+    return content.skill;
+  }
+  const uses = content.uses as { type?: unknown; skill?: unknown } | undefined;
+  if (content.kind === "do" && uses?.type === "skill" && typeof uses.skill === "string") {
+    return uses.skill;
+  }
+  return null;
+}
+
 /** The skill ids an agent draft uses (listed or run by a step). */
 export function draftSkillIds(bundle: AnyAgentBundle): string[] {
   const ids = new Set(bundle.definition.skills.map((s) => parseSkillRef(s.skill).id));
   for (const e of flattenBundle(bundle).entities.values()) {
-    if (e.kind === "step" && e.content.kind === "skill" && typeof e.content.skill === "string") {
-      ids.add(parseSkillRef(e.content.skill).id);
-    }
+    const ref = e.kind === "step" ? stepSkillRef(e.content) : null;
+    if (ref) ids.add(parseSkillRef(ref).id);
   }
   return [...ids].sort();
 }
@@ -109,7 +124,9 @@ export function readCommand(
         name: "automation",
         ref: found.ref,
         args: parsed.args,
-        instruction: `Place the automation ${found.ref} ("${found.name}") as one process step (kind "process", process "${found.ref}", an input that matches its input schema) where it fits${rest ? `, as the operator says below` : ""}. Change nothing else.`,
+        instruction: holdsStepModel(input.bundle)
+          ? `Place the automation ${found.ref} ("${found.name}") as one Do step ("uses": {"type": "automation", "automation": "${found.ref}"}, no "doneBy", an input that matches its input) where it fits${rest ? `, as the operator says below` : ""}. Change nothing else.`
+          : `Place the automation ${found.ref} ("${found.name}") as one process step (kind "process", process "${found.ref}", an input that matches its input schema) where it fits${rest ? `, as the operator says below` : ""}. Change nothing else.`,
       },
     };
   }
@@ -156,14 +173,8 @@ export function commandScope(
   const steps = new Set<string>();
   for (const b of [before, after]) {
     for (const e of flattenBundle(b).entities.values()) {
-      if (
-        e.kind === "step" &&
-        e.content.kind === "skill" &&
-        typeof e.content.skill === "string" &&
-        parseSkillRef(e.content.skill).id === skillId
-      ) {
-        steps.add(e.key);
-      }
+      const ref = e.kind === "step" ? stepSkillRef(e.content) : null;
+      if (ref && parseSkillRef(ref).id === skillId) steps.add(e.key);
     }
   }
   return (id) => id === `skill:${skillId}` || steps.has(id);

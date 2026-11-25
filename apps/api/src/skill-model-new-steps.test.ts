@@ -14,6 +14,7 @@ import { FakeModel, type LlmRequest } from "@countersign/llm";
 import { and, eq, isNull } from "drizzle-orm";
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import { type ApiHarness, createApiHarness, OPERATOR } from "./api.test-helper";
+import { stepModelAnswer } from "./builder-v5.test-helper";
 
 // biome-ignore lint/suspicious/noExplicitAny: response bodies are read loosely in tests.
 const j = (v: unknown) => v as any;
@@ -87,7 +88,16 @@ function catalogOf(req: LlmRequest | undefined): {
   const text = JSON.stringify(req ?? {});
   const start = text.indexOf("<catalog>\\n") + "<catalog>\\n".length;
   const end = text.indexOf("\\n</catalog>");
-  return JSON.parse(JSON.parse(`"${text.slice(start, end)}"`));
+  const catalog = JSON.parse(JSON.parse(`"${text.slice(start, end)}"`)) as {
+    skills: { id: string }[];
+    tools?: { id: string }[];
+    actions?: { actions: { id: string }[] }[];
+  };
+  // The step model (build item 9): the actions the Uses picker offers stand for the tools.
+  return {
+    skills: catalog.skills,
+    tools: catalog.tools ?? (catalog.actions ?? []).flatMap((g) => g.actions),
+  };
 }
 
 describe.skipIf(!h)("new steps in a first version", () => {
@@ -201,30 +211,32 @@ describe.skipIf(!h)("new steps in a first version", () => {
   });
 
   it("leaves skills that write and the splits' hidden AI out of what the Builder is offered", async () => {
-    model.push({
-      toolUse: {
-        name: "submit_draft",
-        input: {
-          summary: "It reads a vendor's quote and extracts the document.",
-          gaps: [],
-          slug: "builder-reader",
-          startFromTemplate: null,
-          bundle: bundleOf(
-            [
-              READ_QUOTE_STEP,
-              {
-                id: "extract",
-                kind: "write",
-                name: "Extract the quote document",
-                tool: "docs.extract",
-                input: { documentId: "{{trigger.documentId}}" },
-              },
-            ],
-            ["materials.read-quote"],
-          ),
+    model.push(
+      stepModelAnswer({
+        toolUse: {
+          name: "submit_draft",
+          input: {
+            summary: "It reads a vendor's quote and extracts the document.",
+            gaps: [],
+            slug: "builder-reader",
+            startFromTemplate: null,
+            bundle: bundleOf(
+              [
+                READ_QUOTE_STEP,
+                {
+                  id: "extract",
+                  kind: "write",
+                  name: "Extract the quote document",
+                  tool: "docs.extract",
+                  input: { documentId: "{{trigger.documentId}}" },
+                },
+              ],
+              ["materials.read-quote"],
+            ),
+          },
         },
-      },
-    });
+      }),
+    );
     const res = await H.call(OPERATOR, "POST", "/api/ops/agents/draft", {
       description: "Read vendors' quotes",
       clientId: H.A.tenantId,
@@ -244,11 +256,15 @@ describe.skipIf(!h)("new steps in a first version", () => {
     }
     expect(tools.some((t) => t.startsWith("account."))).toBe(false);
     const out = j(res.json);
-    const steps = out.bundle.workflows[0].workflow.steps as { skill?: string; tool?: string }[];
-    expect(steps.some((s) => s.skill === "materials.read-quote")).toBe(false);
-    expect(steps.some((s) => s.tool === "docs.extract")).toBe(false);
-    // v0.18: each is held as a missing step in its place, saying what was asked for.
-    const holes = JSON.stringify(steps.filter((s) => (s as { kind?: string }).kind === "missing"));
+    // The step model (build item 9): a Do's skill or action is in its Uses.
+    const steps = out.bundle.workflows[0].workflow.steps as {
+      uses?: { type: string; skill?: string; action?: string };
+    }[];
+    expect(steps.some((s) => s.uses?.skill === "materials.read-quote")).toBe(false);
+    expect(steps.some((s) => s.uses?.action === "docs.extract")).toBe(false);
+    // v0.18: each is held as a missing step in its place ("Not built yet"), saying what was asked
+    // for.
+    const holes = JSON.stringify(steps.filter((s) => s.uses?.type === "missing"));
     expect(holes).toContain("materials.read-quote");
     expect(holes).toContain("docs.extract");
   });

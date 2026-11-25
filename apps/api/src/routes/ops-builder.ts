@@ -9,12 +9,13 @@
 
 import {
   type AgentRow,
+  agentStepSkillPrefix,
   agentTurn,
   type BuilderContext,
   BuilderError,
   type BuilderSkill,
   type BuilderTemplate,
-  blankAgentDraft,
+  blankStepAgentDraft,
   builderSlug,
   bundleSkillRefs,
   bundleStepsToAutomation,
@@ -27,7 +28,7 @@ import {
   createVersion,
   customSlug,
   documentInputFields,
-  draftAgent,
+  draftStepAgent,
   EMPTY_SKILL_DRAFT,
   type ExistingSteps,
   entryKey,
@@ -35,20 +36,29 @@ import {
   getAgent,
   getVersion,
   guardBundle,
+  guardStepBundle,
+  type LoopOffer,
   labelledChanges,
   latestVersion,
   listClientAgents,
   listTemplates,
   readCommand,
   reviseAgent,
+  reviseStepAgent,
   runSkillCase,
+  type SaveAsSkillSuggestion,
   SkillDraft,
+  StepAgentBundle,
   skillChanges,
   skillTurn,
+  stepAgentTurn,
+  storeStepSkills,
   undoChange,
   undoneEntries,
   undoSkillChange,
   validateForPublish,
+  type WrittenElsewhere,
+  writtenSteps,
 } from "@countersign/agents";
 import {
   type AgentBundle,
@@ -60,6 +70,7 @@ import {
   closestBundles,
   connectorTitle,
   diffBundles,
+  holdsStepModel,
   isToolWrapper,
   newStepSkillReason,
   type ProcessAgentBundle,
@@ -71,6 +82,7 @@ import {
   SkillDefinition as SkillDefinitionSchema,
   type SkillTryView,
   skillTools,
+  steps,
   type ToolSpec,
   TRY_ROWS_MAX,
   toolLookup,
@@ -117,6 +129,8 @@ import { agentSummary, versionSummary } from "./mappers";
 import { builderAutomations } from "./ops-automations";
 import {
   ACCOUNT_TOOL_PREFIX,
+  actionCatalogFor,
+  actionCatalogOf,
   bundleLabels,
   bundleStepTools,
   operatorSkills,
@@ -150,13 +164,81 @@ function asProcesses(ctx: Pick<Ctx, "services">, raw: unknown): ProcessAgentBund
 }
 
 /** A v4 bundle where the registry's (v3-typed) readers take a stored bundle: they read either. */
-const stored = (bundle: ProcessAgentBundle): AgentBundle => bundle as unknown as AgentBundle;
+const stored = (bundle: Draft): AgentBundle => bundle as unknown as AgentBundle;
+
+/** A conversation's draft: v4 processes, or (the step model) v5 workflows. */
+type Draft = ProcessAgentBundle | StepAgentBundle;
+
+/**
+ * Stream F (docs/step-model-plan.md §5): the rules and AI written in a v5 draft's steps, stored
+ * behind them as the agent's own step skills (a new draft version only when the text changed) and
+ * pinned in its skills, as the workflow builder saves them: the executor runs a written step only
+ * through its pin. Any other draft is returned as it is.
+ */
+// DECISION (step model, build item 9): the Builder's saves pin as the workflow builder's do, so a
+// draft it made runs (a test, the POC) without a save by hand first; its older pins for this agent
+// are replaced by these.
+async function pinWrittenSteps<B extends Draft>(
+  ctx: Pick<Ctx, "tx" | "services">,
+  agent: { id: string; tenantId: string | null },
+  bundle: B,
+  authorId: string | null,
+): Promise<B> {
+  if (!isStepDraft(bundle)) return bundle;
+  const pins: string[] = [];
+  for (const w of bundle.workflows) {
+    const stored = await storeStepSkills(ctx.tx, {
+      agentId: agent.id,
+      tenantId: agent.tenantId,
+      workflow: w.workflow,
+      authorId,
+      tools: ctx.services.platform.tools,
+    });
+    pins.push(...stored.map((p) => p.pin));
+  }
+  const own = `custom:${agentStepSkillPrefix(agent.id)}`;
+  const kept = bundle.definition.skills.filter((x) => !x.skill.startsWith(own));
+  if (pins.length === 0 && kept.length === bundle.definition.skills.length) return bundle;
+  return {
+    ...bundle,
+    definition: {
+      ...bundle.definition,
+      skills: [...kept, ...pins.map((skill) => ({ skill, settings: {} }))],
+    },
+  } as B;
+}
+
+/** A draft in the step model: it has workflows, all of them v5. */
+function isStepDraft(bundle: Draft): bundle is StepAgentBundle {
+  return (
+    bundle.workflows.length > 0 && bundle.workflows.every((w) => w.workflow.schemaVersion === 5)
+  );
+}
+
+/**
+ * Step model (build item 9): a stored bundle as the Builder edits it. One whose workflows are all
+ * v5 is a v5 draft; anything else is read as v4 processes (`asProcesses`), as before.
+ */
+// DECISION: a v5 draft is never read as v4 (there is no v5-to-v4 reading, core's
+// `StepModelBundleError`); a bundle mixing v5 with older workflows is refused as before.
+function asDraft(ctx: Pick<Ctx, "services">, raw: unknown): Draft {
+  const parsed = AnyAgentBundle.parse(raw);
+  if (parsed.workflows.length > 0 && holdsStepModel(parsed)) {
+    const step = StepAgentBundle.safeParse(parsed);
+    if (step.success) return step.data;
+  }
+  return asProcesses(ctx, raw);
+}
 
 /** v0.18: the working draft's step by id, as a turn's focus (its id and its name now). */
-function focusedStep(
-  working: ProcessAgentBundle,
-  stepId: string,
-): { stepId: string; name: string } | null {
+function focusedStep(working: Draft, stepId: string): { stepId: string; name: string } | null {
+  if (isStepDraft(working)) {
+    for (const w of working.workflows) {
+      const step = steps.findStep(w.workflow.steps, stepId);
+      if (step) return { stepId, name: step.name };
+    }
+    return null;
+  }
   for (const w of working.workflows) {
     const loc = processes.findStep(w.workflow, stepId);
     if (loc) return { stepId, name: loc.step.name };
@@ -211,9 +293,15 @@ export async function builderContext(
     for (const t of [...skillTools(s.definition), ...(s.definition.reads ?? [])]) usedTools.add(t);
   }
   const templates: BuilderTemplate[] = [];
+  // Step model (build item 9): what other agents write in their steps, for Save as skill.
+  const written: WrittenElsewhere[] = [];
+  const writtenIn = (agent: WrittenElsewhere["agent"], bundle: AnyAgentBundle) => {
+    for (const w of writtenSteps(bundle)) written.push({ agent, ...w });
+  };
   for (const t of await listTemplates(tx)) {
     if (!t.liveVersionId || t.id === self?.id) continue;
     const b = (await getVersion(tx, t.liveVersionId)).bundle;
+    writtenIn({ slug: t.slug, name: t.name, template: true }, b);
     templates.push({
       slug: t.slug,
       name: t.name,
@@ -237,12 +325,27 @@ export async function builderContext(
       .from(tenantPack)
       .where(eq(tenantPack.tenantId, clientId));
     client = { id: row.id, name: row.name, connections: conns, packs: packs.map((p) => p.pack) };
-    agentSlugs = (await listClientAgents(tx, clientId))
-      .filter((a) => !a.testCopy && a.id !== self?.id && a.runStatus !== "retired")
-      .map((a) => a.slug);
+    const others = (await listClientAgents(tx, clientId)).filter(
+      (a) => !a.testCopy && a.id !== self?.id && a.runStatus !== "retired",
+    );
+    agentSlugs = others.map((a) => a.slug);
+    for (const a of others) {
+      const latest = await latestVersion(tx, a.id);
+      if (latest) writtenIn({ slug: a.slug, name: a.name, template: false }, latest.bundle);
+    }
   } else {
     agentSlugs = templates.map((t) => t.slug);
   }
+  // Saved Loops: the built-in ones and the operator's live ones (a Loop step's, never a Do's).
+  const loops: BuilderSkill[] = [
+    ...platform.catalog
+      .list()
+      .filter((def) => def.loop !== undefined)
+      .map((definition) => ({ ref: definition.id, definition, source: "builtin" as const })),
+    ...(await operatorSkills(ctx, clientId))
+      .filter((s) => s.def.loop !== undefined)
+      .map((s) => ({ ref: s.def.id, definition: s.def, source: s.source })),
+  ];
   return {
     ...base.context,
     tools: builderTools(platform, usedTools),
@@ -250,6 +353,20 @@ export async function builderContext(
     templates,
     client,
     agentSlugs,
+    stepModel: {
+      // DECISION (step model, build item 9): the Builder's catalog is the Uses picker's, with the
+      // actions the operator turned off left out, but a test-only connector stays offered, as the
+      // v4 Builder's tools offered it (`builderTools`).
+      actions: await actionCatalogFor(
+        ctx,
+        { tenantId: clientId, testCopy: self?.testCopy ?? false },
+        from,
+        { testConnectors: "shown" },
+      ),
+      profiles: platform.packs.flatMap((p) => p.manifest.matchProfiles),
+      loops,
+      written,
+    },
   };
 }
 
@@ -330,6 +447,17 @@ export function platformBuilderContext(
       templates: [],
       client: null,
       agentSlugs: [],
+      // Step model (build item 9): the Uses picker's catalog with no connector's switches read
+      // (`builderContext` reads them), the areas' match profiles and the built-in Loops.
+      stepModel: {
+        actions: actionCatalogOf(platform, {}),
+        profiles: platform.packs.flatMap((p) => p.manifest.matchProfiles),
+        loops: platform.catalog
+          .list()
+          .filter((def) => def.loop !== undefined)
+          .map((definition) => ({ ref: definition.id, definition, source: "builtin" as const })),
+        written: [],
+      },
     },
   };
 }
@@ -430,7 +558,8 @@ export function opsBuilderRoutes(app: Hono<AppEnv>): void {
       kind: clientId ? "client" : "template",
       bindings: {},
     } as const;
-    const result = await draftAgent(
+    // Step model (build item 9): every new draft is a v5 agent; nothing new is drafted as v4.
+    const result = await draftStepAgent(
       {
         description: body.description,
         ...(body.name ? { name: body.name } : {}),
@@ -447,14 +576,14 @@ export function opsBuilderRoutes(app: Hono<AppEnv>): void {
         // Review: a new agent from the Builder is a first version: every step is new.
         shortlist: services.env.BUILDER_SHORTLIST !== "off",
         validate: (bundle) =>
-          validateForPublish(tx, pseudo, stored(bundle), services.platform.ctx, {
+          validateForPublish(tx, pseudo, bundle, services.platform.ctx, {
             previous: "none",
           }),
       },
     ).catch(builderHttpError);
 
     // The operator's name and area win over the model's.
-    const bundle: ProcessAgentBundle = structuredClone(result.bundle);
+    const bundle: StepAgentBundle = structuredClone(result.bundle);
     if (body.name?.trim()) bundle.definition.identity.name = body.name.trim();
     if (body.role?.trim()) bundle.definition.identity.role = body.role.trim();
     const slug = await freeSlug(
@@ -465,11 +594,20 @@ export function opsBuilderRoutes(app: Hono<AppEnv>): void {
         : (result.slug ?? slugify(bundle.definition.identity.name)),
     );
     const changeNote = "Drafted by the Builder";
+    // The agent's id first, so its written steps are stored under it and v1 pins them.
+    const agentId = uuidv7();
+    const pinned = await pinWrittenSteps(
+      ctx,
+      { id: agentId, tenantId: clientId },
+      bundle,
+      session.user.id,
+    );
     const created = clientId
       ? await createClientAgent(tx, {
+          id: agentId,
           tenantId: clientId,
           slug,
-          bundle,
+          bundle: pinned,
           authorType: "builder",
           authorId: session.user.id,
           changeNote,
@@ -477,8 +615,9 @@ export function opsBuilderRoutes(app: Hono<AppEnv>): void {
           ...(result.serviceDescription ? { serviceDescription: result.serviceDescription } : {}),
         })
       : await createTemplate(tx, {
+          id: agentId,
           slug,
-          bundle,
+          bundle: pinned,
           authorType: "builder",
           authorId: session.user.id,
           changeNote,
@@ -508,6 +647,8 @@ export function opsBuilderRoutes(app: Hono<AppEnv>): void {
         : null,
       decisions: result.decisions,
       gapSteps: result.gapSteps,
+      saveAsSkill: result.saveAsSkill,
+      loops: result.loops,
     };
   });
 
@@ -534,28 +675,54 @@ export function opsBuilderRoutes(app: Hono<AppEnv>): void {
     const bctx = await builderContext(ctx, row.tenantId, row, from.bundle);
     const previous = await existingUnder(tx, from.id);
     const lookup = convertLookup(services.platform.catalog, services.platform.tools);
-    const result = await reviseAgent(
-      {
-        source: asProcesses(ctx, from.bundle),
-        ...(body.instruction ? { instruction: body.instruction } : {}),
-        ...(request ? { request } : {}),
-        ctx: bctx,
-      },
-      {
-        // §1.210: the revision's calls are ours, recorded whether or not it is saved.
-        llm: meteredLlm(
-          { db: services.db, defer: ctx.defer },
-          { transport: transport(ctx, row.tenantId), tenantId: row.tenantId, source: "builder" },
-        ).llm,
-        shortlist: services.env.BUILDER_SHORTLIST !== "off",
-        validate: (bundle) =>
-          validateForPublish(tx, row, stored(bundle), services.platform.ctx, { previous }),
-      },
-    ).catch(builderHttpError);
+    const options = {
+      // §1.210: the revision's calls are ours, recorded whether or not it is saved.
+      llm: meteredLlm(
+        { db: services.db, defer: ctx.defer },
+        { transport: transport(ctx, row.tenantId), tenantId: row.tenantId, source: "builder" },
+      ).llm,
+      shortlist: services.env.BUILDER_SHORTLIST !== "off",
+    };
+    const instruction = {
+      ...(body.instruction ? { instruction: body.instruction } : {}),
+      ...(request ? { request } : {}),
+      ctx: bctx,
+    };
+    // Step model (build item 9): a v5 version is revised in the step model. A v3 or v4 version is
+    // revised as before, until wave 4 deletes them (nothing new is drafted as v4).
+    const anyBundle = AnyAgentBundle.parse(from.bundle);
+    const stepSource = StepAgentBundle.safeParse(anyBundle);
+    const result: {
+      bundle: AnyAgentBundle;
+      summary: string;
+      gaps: string[];
+      notes: string[];
+      errors: ValidationError[];
+      costUsd: string | null;
+      changeNote: string;
+      saveAsSkill?: SaveAsSkillSuggestion[];
+      loops?: LoopOffer[];
+    } = stepSource.success
+      ? await reviseStepAgent(
+          { source: stepSource.data, ...instruction },
+          {
+            ...options,
+            validate: (bundle) =>
+              validateForPublish(tx, row, bundle, services.platform.ctx, { previous }),
+          },
+        ).catch(builderHttpError)
+      : await reviseAgent(
+          { source: asProcesses(ctx, from.bundle), ...instruction },
+          {
+            ...options,
+            validate: (bundle) =>
+              validateForPublish(tx, row, stored(bundle), services.platform.ctx, { previous }),
+          },
+        ).catch(builderHttpError);
 
     const v = await createVersion(tx, {
       agentId: row.id,
-      bundle: result.bundle,
+      bundle: await pinWrittenSteps(ctx, row, result.bundle as Draft, session.user.id),
       parentVersionId: from.id,
       authorType: "builder",
       authorId: session.user.id,
@@ -577,6 +744,8 @@ export function opsBuilderRoutes(app: Hono<AppEnv>): void {
       // v0.19 (§10.15): what the draft would do, by code: a process change to approve, or one
       // that loosens or widens (an owner never drafts those; the operator decides).
       changeClass: classifyChange(from.bundle, v.bundle, { lookup }),
+      ...(result.saveAsSkill ? { saveAsSkill: result.saveAsSkill } : {}),
+      ...(result.loops ? { loops: result.loops } : {}),
     };
   });
 }
@@ -594,7 +763,7 @@ type SessionCtx = Pick<Ctx, "tx" | "tenantIds" | "services" | "session">;
 async function conversationContext(
   ctx: SessionCtx,
   clientId: string | null,
-  working: ProcessAgentBundle | null,
+  working: Draft | null,
   self?: AgentRow,
 ): Promise<BuilderContext> {
   const base = await builderContext(ctx, clientId, self);
@@ -671,9 +840,9 @@ async function sessionExisting(
 }
 
 /** The operator's version the conversation started from (its rules hold across turns). */
-async function originOf(ctx: SessionCtx, s: SessionRow): Promise<ProcessAgentBundle | null> {
+async function originOf(ctx: SessionCtx, s: SessionRow): Promise<Draft | null> {
   return s.kind === "agent" && s.baseVersionId
-    ? asProcesses(ctx, (await getVersion(ctx.tx, s.baseVersionId)).bundle)
+    ? asDraft(ctx, (await getVersion(ctx.tx, s.baseVersionId)).bundle)
     : null;
 }
 
@@ -712,7 +881,7 @@ async function sessionDetail(ctx: SessionCtx, s: SessionRow) {
   let closest: ClosestTemplate[] = [];
   let shown: unknown = s.bundle;
   if (s.kind === "agent") {
-    const bundle = asProcesses(ctx, s.bundle);
+    const bundle = asDraft(ctx, s.bundle);
     // Wave 3b: the draft as the Builder edits it (a session saved before v4 holds a v3 draft).
     shown = bundle;
     const { validateAs } = await sessionAgent(ctx, s);
@@ -810,11 +979,13 @@ function builderSessionRoutes(app: Hono<AppEnv>): void {
         tenantId = row.tenantId;
         agentId = row.id;
         baseVersionId = from.id;
-        // Wave 3b: a v3 version starts the conversation read as processes, every id kept.
-        bundle = asProcesses(ctx, from.bundle);
+        // Wave 3b: a v3 version starts the conversation read as processes, every id kept; a v5
+        // version (the step model) as it is.
+        bundle = asDraft(ctx, from.bundle);
         text = `Started from ${row.name} v${from.version}.`;
       } else {
-        bundle = blankAgentDraft({
+        // Step model (build item 9): a new agent starts as a v5 draft.
+        bundle = blankStepAgentDraft({
           name: body.name ?? "New agent",
           ...(body.role ? { role: body.role } : {}),
         });
@@ -952,7 +1123,7 @@ function builderSessionRoutes(app: Hono<AppEnv>): void {
     if (body.sample) {
       throw new HttpError(422, "invalid_request", "a sample file goes with a skill conversation");
     }
-    const working = asProcesses(ctx, s.bundle);
+    const working = asDraft(ctx, s.bundle);
     const { row, validateAs } = await sessionAgent(ctx, s);
     const bctx = await conversationContext(ctx, s.tenantId, working, row ?? undefined);
     const previous = await sessionExisting(ctx, s, turns);
@@ -969,25 +1140,41 @@ function builderSessionRoutes(app: Hono<AppEnv>): void {
         .reverse()
         .map((t) => BuilderTurnMeta.parse(t.meta ?? {}).shortlist)
         .find(Boolean) ?? null;
-    const result = await agentTurn(
-      {
-        shortlist: madeBefore,
-        working,
-        origin: await originOf(ctx, s),
-        history,
-        message: body.text,
-        command,
-        ...(request ? { request } : {}),
-        // v0.18 (docs/plan.md §1.105): the step the operator has open, when the turn is about one.
-        ...(focus ? { focusStepId: focus.stepId } : {}),
-        ctx: bctx,
-      },
-      {
-        llm,
-        shortlist: services.env.BUILDER_SHORTLIST !== "off",
-        validate: (bundle) =>
-          validateForPublish(tx, validateAs, stored(bundle), services.platform.ctx, { previous }),
-      },
+    const origin = await originOf(ctx, s);
+    const turnInput = {
+      shortlist: madeBefore,
+      history,
+      message: body.text,
+      command,
+      ...(request ? { request } : {}),
+      // v0.18 (docs/plan.md §1.105): the step the operator has open, when the turn is about one.
+      ...(focus ? { focusStepId: focus.stepId } : {}),
+      ctx: bctx,
+    };
+    const turnOptions = {
+      llm,
+      shortlist: services.env.BUILDER_SHORTLIST !== "off",
+      validate: (bundle: Draft) =>
+        validateForPublish(tx, validateAs, stored(bundle), services.platform.ctx, { previous }),
+    };
+    // Step model (build item 9): a v5 draft's turn is the step model's; a v4 draft's as before.
+    const result = await (isStepDraft(working)
+      ? stepAgentTurn(
+          {
+            ...turnInput,
+            working,
+            origin: origin && isStepDraft(origin) ? origin : null,
+          },
+          turnOptions,
+        )
+      : agentTurn(
+          {
+            ...turnInput,
+            working,
+            origin: origin && !isStepDraft(origin) ? origin : null,
+          },
+          turnOptions,
+        )
     ).catch(builderHttpError);
     // A shortlist this turn made is kept on its operator turn, for the turns after it.
     const madeNow = !madeBefore && result.shortlist ? { shortlist: result.shortlist } : {};
@@ -1203,23 +1390,30 @@ function builderSessionRoutes(app: Hono<AppEnv>): void {
     if (s.kind === "agent") {
       // Wave 3b: each side read as processes (a turn saved before v4 holds a v3 draft), ids kept.
       const r = undoChange({
-        before: asProcesses(ctx, bundleBefore(turns, target.seq)),
-        after: asProcesses(ctx, target.bundle),
-        working: asProcesses(ctx, s.bundle),
+        before: asDraft(ctx, bundleBefore(turns, target.seq)),
+        after: asDraft(ctx, target.bundle),
+        working: asDraft(ctx, s.bundle),
         changeId: entry.id,
       });
       if (!r.ok) {
         throw new HttpError(409, "undo_conflict", UNDO_CONFLICT, { conflicts: r.conflicts });
       }
-      const undone = asProcesses(ctx, r.bundle);
+      const undone = asDraft(ctx, r.bundle);
       // The guards hold after an undo too (approvals, mode), keeping every id the merge brought.
       const { row } = await sessionAgent(ctx, s);
       const bctx = await conversationContext(ctx, s.tenantId, undone, row ?? undefined);
-      next = guardBundle(undone, bctx, {
-        mode: "revise",
-        source: undone,
-        origin: await originOf(ctx, s),
-      }).bundle;
+      const origin = await originOf(ctx, s);
+      next = isStepDraft(undone)
+        ? guardStepBundle(undone, bctx, {
+            mode: "revise",
+            source: undone,
+            origin: origin && isStepDraft(origin) ? origin : null,
+          }).bundle
+        : guardBundle(undone, bctx, {
+            mode: "revise",
+            source: undone,
+            origin: origin && !isStepDraft(origin) ? origin : null,
+          }).bundle;
     } else {
       const r = undoSkillChange(SkillDraft.parse(s.bundle), entry);
       if (!r.ok) {
@@ -1265,7 +1459,17 @@ function builderSessionRoutes(app: Hono<AppEnv>): void {
     }
     // Wave 3b: the draft is a v4 process bundle, so the steps become a v4 automation (process
     // steps) and a process step takes their place.
-    const working = asProcesses(ctx, s.bundle);
+    const draft = asDraft(ctx, s.bundle);
+    // DECISION (step model, build item 9): steps become an automation in the v4 format only; a
+    // v5 draft's steps are saved as an automation once automations are in the step model.
+    if (isStepDraft(draft)) {
+      throw new HttpError(
+        422,
+        "not_in_step_model",
+        "Saving steps as an automation isn't in the new step model yet.",
+      );
+    }
+    const working = draft;
     const result = await bundleStepsToAutomation(tx, {
       tenantId: s.tenantId,
       bundle: working,
@@ -1323,7 +1527,16 @@ function builderSessionRoutes(app: Hono<AppEnv>): void {
     const casesOut: { id: string; name: string; clientId: string | null }[] = [];
 
     if (s.kind === "agent") {
-      const bundle = asProcesses(ctx, s.bundle);
+      const draft = asDraft(ctx, s.bundle);
+      // The agent's id first (a new one's made here), so a v5 draft's written steps are stored
+      // under it and the version pins them.
+      const agentId = s.agentId ?? uuidv7();
+      const bundle = await pinWrittenSteps(
+        ctx,
+        { id: agentId, tenantId: s.tenantId },
+        draft,
+        session.user.id,
+      );
       let row: AgentRow;
       let saved: Parameters<typeof existingBundle>[1];
       if (!s.agentId) {
@@ -1334,6 +1547,7 @@ function builderSessionRoutes(app: Hono<AppEnv>): void {
         );
         const created = s.tenantId
           ? await createClientAgent(tx, {
+              id: agentId,
               tenantId: s.tenantId,
               slug,
               bundle,
@@ -1342,6 +1556,7 @@ function builderSessionRoutes(app: Hono<AppEnv>): void {
               changeNote,
             })
           : await createTemplate(tx, {
+              id: agentId,
               slug,
               bundle,
               authorType: "builder",

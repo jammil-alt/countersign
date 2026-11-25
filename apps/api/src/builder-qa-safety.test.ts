@@ -105,6 +105,7 @@ describe.skipIf(!h)("builder safety", () => {
       const content = req.messages[0]?.content as string;
       const start = content.indexOf("<current_bundle>") + "<current_bundle>".length;
       const bundle = JSON.parse(content.slice(start, content.indexOf("</current_bundle>")));
+      // A v3 test bundle is revised as v4: the answer is the draft as it was shown.
       return {
         toolUse: {
           name: "submit_revision",

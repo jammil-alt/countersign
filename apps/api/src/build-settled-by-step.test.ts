@@ -10,6 +10,7 @@ import { FakeModel, type LlmRequest } from "@countersign/llm";
 import { eq } from "drizzle-orm";
 import { afterAll, describe, expect, it, vi } from "vitest";
 import { createApiHarness, OPERATOR } from "./api.test-helper";
+import { stepModelAnswer } from "./builder-v5.test-helper";
 import { finishSuite } from "./testbench/suite";
 
 for (const level of process.env.SHOW_LOGS ? [] : (["warn", "error"] as const)) {
@@ -30,7 +31,7 @@ const update = {
 };
 
 function draftAnswer(gaps: string[]) {
-  return {
+  return stepModelAnswer({
     toolUse: {
       name: "submit_draft",
       input: {
@@ -62,7 +63,7 @@ function draftAnswer(gaps: string[]) {
         },
       },
     },
-  };
+  });
 }
 
 const turnAnswer = (input: Record<string, unknown>) => ({
@@ -79,7 +80,9 @@ function setsAmount(amount: string) {
     const d = JSON.parse(content.slice(start, content.indexOf("</current_bundle>"))) as Draft;
     const step = d.workflows[0]?.workflow.steps[0] as { input: { amount: string } } | undefined;
     if (step) step.input.amount = amount;
-    return { toolUse: { name: "submit_turn", input: { text: `Set it to ${amount}.`, bundle: d } } };
+    return stepModelAnswer({
+      toolUse: { name: "submit_turn", input: { text: `Set it to ${amount}.`, bundle: d } },
+    });
   };
 }
 
