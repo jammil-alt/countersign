@@ -368,6 +368,8 @@ export function agentPort(
         stepId: request.keyNode ?? nodeId,
         stepRunId,
         approval,
+        // Signed record saves: the step's own approval check, not the filled-in default.
+        ...(request.ownApproval ? { ownApproval: true } : {}),
         mode: run.mode,
         language: run.language,
         // Owner, 2026-11-11: rule skills read "today" in the client's time zone.
@@ -430,6 +432,7 @@ export function agentPort(
       stepRunId,
       input,
       approval,
+      ownApproval,
       keyNode,
       binding,
       afterUnwritten,
@@ -438,6 +441,8 @@ export function agentPort(
       const ctx: StepContext = {
         // v0.13 W2-I: an oversight retry with a corrected input keys its own write.
         ...base,
+        // Signed record saves: the step's own approval check, not the filled-in default.
+        ...(ownApproval ? { ownApproval: true } : {}),
         // Skill model: an action's channel connection is the agent's binding for this call (the
         // account's channel is the agent's when it has none of its own, §10.14); the gate reads
         // that connection's matrix, the agent's grant and its mode as for any binding.
@@ -685,6 +690,16 @@ export function agentPort(
           const records = deps.ports.records;
           if (!release || !records)
             return { kind: "failed", error: "our records aren't reachable" };
+          // Review of #696: the safety hold as a backstop, as executeAction's. Approving a held
+          // agent's card is refused, so a save reaches here held only when the hold came between
+          // its signature and its write: it fails closed, never written (invariant 8).
+          if (
+            run.mode !== "test" &&
+            deps.ports.store.agentHold &&
+            (await deps.ports.store.agentHold(run.tenantId, run.agentId))
+          ) {
+            return { kind: "failed", error: "the agent is on a safety hold: the save wasn't made" };
+          }
           try {
             const written = await signedRecordWrite(
               release.db,

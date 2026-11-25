@@ -327,6 +327,11 @@ interface AttemptRetry {
 // R3: what a v4 work step adds to an attempt.
 interface WorkOptions {
   /**
+   * Signed record saves: the step carries its own approval check (an approver the operator
+   * added, or a v4 step's own), not the default filled in for a step with none.
+   */
+  ownApproval?: boolean;
+  /**
    * A native v4 approval check on the writes the step proposes, its approvers (who is away
    * already known): its mode, deadlines and `ifNoAnswer`. Absent (a converted v3 step), the gate's
    * approval is decided exactly as v3 decided it.
@@ -1542,6 +1547,7 @@ class Executor {
       // Any write the step proposes is signed in the native check's mode (a read-like skill's too,
       // should it propose one after all).
       ...(plan ? { plan } : {}),
+      ...(check ? { ownApproval: true } : {}),
       ...(step.kind === "skill" && step.customize ? { customize: step.customize } : {}),
       ...(step.kind === "skill" && step.reshape ? { reshape: step.reshape } : {}),
       // The step model: a Loop's reads (Get actions only) and limits, for the runtime's loop.
@@ -2015,6 +2021,8 @@ class Executor {
           stepRunId,
           input,
           approval,
+          // Signed record saves: whether `approval` is the step's own or the filled-in default.
+          ...(opts.ownApproval ? { ownApproval: true } : {}),
           // v0.12 W2-B: an automation's step runs as the using agent, with the automation's skills.
           ...(frame.automation ? { automation: frame.automation } : {}),
           // v0.13 W2-I

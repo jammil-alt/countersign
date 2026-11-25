@@ -23,7 +23,7 @@ const j = (v: unknown) => v as any;
 const h = await createApiHarness();
 afterAll(() => h?.close());
 
-const bundleFor = (vendorId: string) => ({
+const bundleFor = (vendorId: string, checks?: Record<string, unknown>) => ({
   schemaVersion: 1,
   definition: {
     schemaVersion: 2,
@@ -66,6 +66,7 @@ const bundleFor = (vendorId: string) => ({
               action: "records.vendor.update",
               input: { id: vendorId, region: "West", sources: [vendorId] },
             },
+            ...(checks ? { checks } : {}),
           },
         ],
         steps: [{ id: "s_end", kind: "end", name: "Saved", outputs: ["o_save"] }],
@@ -80,7 +81,7 @@ describe.skipIf(!h)("signed saves to our records", () => {
   let agentId = "";
 
   /** Answers the run's approval card as the client admin: yes or no. */
-  const signer = (decision: "approve" | "reject") =>
+  const signer = (decision: "approve" | "reject", afterSigning?: () => Promise<void>) =>
     new FakeWorkflowStep(async (_name, type) => {
       const res = await H.call(admin("a"), "GET", "/api/inbox");
       const item = j(res.json).items.find(
@@ -89,11 +90,44 @@ describe.skipIf(!h)("signed saves to our records", () => {
       if (!item) throw new Error(`no open item for ${type}`);
       const done = await H.call(admin("a"), "POST", `/api/inbox/${item.id}/resolve`, { decision });
       expect(done.status, JSON.stringify(done.json)).toBe(200);
+      await afterSigning?.();
       return H.instances.events.find((e) => e.event.type === type)?.event.payload;
     });
 
-  const run = async (decision: "approve" | "reject") => {
-    const res = await H.call(OPERATOR, "POST", `/api/ops/agents/${agentId}/run`, {
+  /** A client agent with the vendor tagging workflow, published and switched on at `stage`. */
+  const newAgent = async (
+    slug: string,
+    stage: "trial" | "live",
+    checks?: Record<string, unknown>,
+  ) => {
+    const created = await H.call(OPERATOR, "POST", `/api/ops/clients/${H.A.tenantId}/agents`, {
+      slug,
+      bundle: bundleFor(vendorId, checks),
+    });
+    expect(created.status, JSON.stringify(created.json)).toBe(200);
+    const id = j(created.json).agent.id as string;
+    const pub = await H.call(
+      OPERATOR,
+      "POST",
+      `/api/ops/agents/${id}/versions/${j(created.json).version.id}/publish`,
+    );
+    expect(pub.status, JSON.stringify(pub.json)).toBe(200);
+    await H.t.db.update(agent).set({ runStatus: "active", stage }).where(eq(agent.id, id));
+    return id;
+  };
+
+  const cardsOf = (runId: string) =>
+    H.t.db
+      .select()
+      .from(inboxItem)
+      .where(and(eq(inboxItem.runId, runId), eq(inboxItem.subjectType, "record_save")));
+
+  const run = async (
+    decision: "approve" | "reject",
+    who = agentId,
+    afterSigning?: () => Promise<void>,
+  ) => {
+    const res = await H.call(OPERATOR, "POST", `/api/ops/agents/${who}/run`, {
       workflow: "main",
     });
     expect(res.status, JSON.stringify(res.json)).toBe(200);
@@ -105,7 +139,11 @@ describe.skipIf(!h)("signed saves to our records", () => {
       transport: new FakeModel(),
       instances: H.instances,
     };
-    const result = await executeRun(deps, params, cloudflareStepRunner(signer(decision)));
+    const result = await executeRun(
+      deps,
+      params,
+      cloudflareStepRunner(signer(decision, afterSigning)),
+    );
     return { params, deps, result };
   };
 
@@ -130,22 +168,7 @@ describe.skipIf(!h)("signed saves to our records", () => {
       label: "Region",
       type: "text",
     });
-    const created = await H.call(OPERATOR, "POST", `/api/ops/clients/${H.A.tenantId}/agents`, {
-      slug: "vendor-tagger",
-      bundle: bundleFor(vendorId),
-    });
-    expect(created.status, JSON.stringify(created.json)).toBe(200);
-    agentId = j(created.json).agent.id;
-    const pub = await H.call(
-      OPERATOR,
-      "POST",
-      `/api/ops/agents/${agentId}/versions/${j(created.json).version.id}/publish`,
-    );
-    expect(pub.status, JSON.stringify(pub.json)).toBe(200);
-    await H.t.db
-      .update(agent)
-      .set({ runStatus: "active", stage: "trial" })
-      .where(eq(agent.id, agentId));
+    agentId = await newAgent("vendor-tagger", "trial");
   });
 
   it("waits for a signature, then writes the save once", async () => {
@@ -197,6 +220,48 @@ describe.skipIf(!h)("signed saves to our records", () => {
     expect(await writesOf(params.runId)).toEqual([]);
     const [v] = await H.t.db.select().from(vendor).where(eq(vendor.id, vendorId));
     expect(v?.ext).toEqual({ domains: ["acme.example"] });
+  });
+
+  it("saves at once, with no card, for an agent that acts and is live on a step with no approver", async () => {
+    const live = await newAgent("vendor-tagger-live", "live");
+    const { params, result } = await run("approve", live);
+    expect(result).toMatchObject({ status: "succeeded" });
+    expect(await cardsOf(params.runId)).toEqual([]);
+    expect(await writesOf(params.runId)).toHaveLength(1);
+  });
+
+  it("waits for a card when the step adds its own approver, live and acting", async () => {
+    const asks = await newAgent("vendor-tagger-asks", "live", {
+      approval: { required: "required" },
+    });
+    const { params, result } = await run("approve", asks);
+    expect(result).toMatchObject({ status: "succeeded" });
+    const [card] = await cardsOf(params.runId);
+    expect(card).toMatchObject({ status: "resolved", resolvedBy: H.A.admin });
+    expect(j(card?.payload).recordSave.why).toBe("This step asks for an approval before it saves.");
+    expect(await writesOf(params.runId)).toHaveLength(1);
+  });
+
+  it("writes nothing when a safety hold lands between the signature and the write", async () => {
+    const held = await newAgent("vendor-tagger-held", "trial");
+    const { params, result } = await run("approve", held, async () => {
+      await H.t.db
+        .update(agent)
+        .set({
+          hold: {
+            issueId: "",
+            by: "operator",
+            userId: null,
+            at: new Date().toISOString(),
+            reason: "checking",
+          },
+        })
+        .where(eq(agent.id, held));
+    });
+    expect(result.status).not.toBe("succeeded");
+    const [card] = await cardsOf(params.runId);
+    expect(card).toMatchObject({ status: "resolved" });
+    expect(await writesOf(params.runId)).toEqual([]);
   });
 
   it("never shows another client the card", async () => {

@@ -93,6 +93,8 @@ export interface RunAgentInput {
   stepRunId?: string;
   /** The step's approval setting (absent: required). */
   approval?: Approval;
+  /** Signed record saves: `approval` is the step's own check (StepContext `ownApproval`). */
+  ownApproval?: boolean;
   threadId?: string;
   /** Defaults to the run's mode. */
   mode?: RunMode;
@@ -635,6 +637,7 @@ export async function runAgent(deps: RuntimeDeps, input: RunAgentInput): Promise
     stepId: input.stepId,
     mode,
     approval: input.approval,
+    ...(input.ownApproval ? { ownApproval: true } : {}),
     threadId: input.threadId,
     // P-1: the skill's resolved settings, for its tools (a pack's thresholds). Skill model
     // (2026-11-10): a built-in code skill's handler reads its parameter values here too.

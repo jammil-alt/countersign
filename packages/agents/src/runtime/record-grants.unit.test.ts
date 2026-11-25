@@ -114,6 +114,8 @@ function setUp(
     run?: "live" | "test";
     /** The step's own approval (an approver the operator added). */
     approval?: { required: "required" | "not_required"; onReject: "stop" };
+    /** The approval is the step's own check, not the executor's filled-in default. */
+    ownApproval?: boolean;
     clientDefault?: string;
   } = {},
 ) {
@@ -153,6 +155,7 @@ function setUp(
     mode: opts.run ?? "live",
     readOnly: opts.readOnly,
     ...(opts.approval ? { approval: opts.approval } : {}),
+    ...(opts.ownApproval ? { ownApproval: true } : {}),
     agent: {
       agentId: "a1",
       agentVersionId: "v1",
@@ -323,6 +326,7 @@ describe("the gate on record types", () => {
   it("asks when the step adds an approver, routed to the step's approver", async () => {
     const t = setUp(MARGIN_SET, {
       approval: { required: "required", onReject: "stop" },
+      ownApproval: true,
       clientDefault: "operator",
     });
     expect(
@@ -339,6 +343,13 @@ describe("the gate on record types", () => {
       await off.call("records.job_margin.create", { job: "Barn", margin: "5.00" }),
     ).toMatchObject({ status: "done" });
     expect(off.proposals).toEqual([]);
+    // Review of #696: the executor's filled-in default (`required`, no check of the step's own)
+    // never asks: an agent that acts and is live saves at once.
+    const filledIn = setUp(MARGIN_SET, { approval: { required: "required", onReject: "stop" } });
+    expect(
+      await filledIn.call("records.job_margin.create", { job: "Barn", margin: "5.00" }),
+    ).toMatchObject({ status: "done" });
+    expect(filledIn.proposals).toEqual([]);
   });
 
   it("takes an earlier try's answer: the signed write's record, or a person's no", async () => {

@@ -1083,9 +1083,10 @@ async function signedRecordSave(
 ): Promise<ToolOutcome | null> {
   const stage = await deps.ports.store.agentStage(step.tenantId, step.agent.agentId);
   const acts = effectiveMode(step.agent.bundle.definition, stage) === "act";
-  // A write step's own approval check (an approver the operator added); a step with none passes
-  // no approval here, so a save signs only where someone asked for it.
-  const stepAsks = step.approval?.required === "required";
+  // DECISION (review of #696): a step asks only through its own approval check (an approver the
+  // operator added), carried from the stored step as `ownApproval`; never the default the executor
+  // fills in for a step with none (every skill step's, and a Save output's with no checks).
+  const stepAsks = step.ownApproval === true && step.approval?.required === "required";
   if (acts && !stepAsks && step.signAllWrites !== true) return null;
   const why = !acts
     ? stage === "live"
