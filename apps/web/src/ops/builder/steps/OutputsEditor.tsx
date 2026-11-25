@@ -65,6 +65,7 @@ export function OutputsEditor({ workflow, env, issues, onChange }: OutputsEditor
             issues={mine}
             onChange={(edit) => onChange(updateOutput(workflow, o.id, edit))}
             onRemove={() => onChange(removeOutput(workflow, o.id))}
+            last={workflow.outputs.length <= 1}
           />
         );
       })}
@@ -86,7 +87,9 @@ function OutputCard({
   issues,
   onChange,
   onRemove,
+  last,
 }: {
+  last: boolean;
   output: WorkflowOutput;
   env: StepFormEnv;
   deliveredBy: string[];
@@ -118,7 +121,13 @@ function OutputCard({
           )}
           {o.kind === "write" ? <Badge tone="accent">Needs approval</Badge> : null}
         </div>
-        <Button size="sm" aria-label={`Remove ${label}`} onClick={onRemove}>
+        <Button
+          size="sm"
+          aria-label={`Remove ${label}`}
+          disabled={last}
+          title={last ? "A workflow keeps at least one output." : undefined}
+          onClick={onRemove}
+        >
           Remove
         </Button>
       </div>

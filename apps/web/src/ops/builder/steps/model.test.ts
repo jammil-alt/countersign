@@ -90,6 +90,7 @@ describe("the step model's edits", () => {
   it("takes a removed output out of every End that picked it", () => {
     let w = ensureEnd(base([newStep("do", id)]), id);
     const end = w.steps.at(-1);
+    w = addOutput(w, { ...newOutput("Second", id), id: "o2" });
     w = setEndOutputs(w, end?.id ?? "", { outputs: ["o1", "o2"] });
     w = removeOutput(w, "o1");
     expect((w.steps.at(-1) as steps.EndStep).outputs).toEqual(["o2"]);
@@ -97,7 +98,7 @@ describe("the step model's edits", () => {
     const last = w.steps.at(-1) as steps.EndStep;
     expect(last.outputs).toEqual([]);
     expect(last.nothingToDo).toBe("no bill");
-    expect(addOutput(w, newOutput("Exceptions", id)).outputs).toHaveLength(1);
+    expect(addOutput(w, newOutput("Exceptions", id)).outputs).toHaveLength(2);
   });
 
   it("offers an Input the steps before it on the way in, not another path's", () => {

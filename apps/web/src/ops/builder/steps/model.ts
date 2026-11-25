@@ -310,6 +310,8 @@ export function updateOutput(
 
 /** Takes an output off the list and out of every End that picked it. */
 export function removeOutput(workflow: Workflow, id: string): Workflow {
+  // A workflow declares at least one output (the stored format), so the last one stays.
+  if (workflow.outputs.length <= 1) return workflow;
   const cleaned = (list: Step[]): Step[] =>
     list.map((s) => {
       const inner = withChildren(s, (_c, l) => cleaned(l));

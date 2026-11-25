@@ -17,7 +17,9 @@ export type BuilderIssueCode =
   | "fork_path_unnamed"
   | "for_each_list_missing"
   | "repeat_goal_missing"
-  | "handoff_target_missing";
+  | "handoff_target_missing"
+  | "output_unnamed"
+  | "output_incomplete";
 
 export interface BuilderIssue extends Omit<StepIssue, "code"> {
   code: BuilderIssueCode;
@@ -38,6 +40,26 @@ export function stepContext(ctx: UsesContext): steps.StepContext {
 
 export function workflowIssues(workflow: Workflow, ctx: UsesContext): BuilderIssue[] {
   const issues: BuilderIssue[] = [...steps.validateWorkflow(workflow, stepContext(ctx))];
+  for (const o of workflow.outputs) {
+    if (!o.name.trim()) {
+      issues.push({ at: o.id, code: "output_unnamed", message: "Name this output." });
+    }
+    const incomplete =
+      o.kind === "report"
+        ? !o.report || o.report.to.length === 0
+          ? "Say who gets this report."
+          : null
+        : o.kind === "write" || o.kind === "save"
+          ? !o.action?.action
+            ? `Pick what it ${o.kind === "write" ? "writes" : "saves"}.`
+            : null
+          : o.kind === "handoff"
+            ? !o.handoff?.step
+              ? "Pick where it hands off to."
+              : null
+            : null;
+    if (incomplete) issues.push({ at: o.id, code: "output_incomplete", message: incomplete });
+  }
   for (const { step } of walk(workflow)) {
     const at = step.id;
     switch (step.kind) {

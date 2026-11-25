@@ -89,4 +89,28 @@ describe("what stops publishing", () => {
     expect(after.map((i) => i.code)).toEqual(["input_missing"]);
     expect(after[0]?.message).toContain("vendorId");
   });
+
+  it("says what an output still needs", () => {
+    let w = wf();
+    w = {
+      ...w,
+      outputs: [
+        {
+          ...w.outputs[0],
+          kind: "report",
+          report: { to: [], channel: "inbox", message: "" },
+        } as never,
+      ],
+    };
+    expect(workflowIssues(w, ctx).find((i) => i.code === "output_incomplete")?.message).toBe(
+      "Say who gets this report.",
+    );
+    w = {
+      ...w,
+      outputs: [{ ...w.outputs[0], kind: "write", action: { action: "", input: {} } } as never],
+    };
+    expect(workflowIssues(w, ctx).find((i) => i.code === "output_incomplete")?.message).toBe(
+      "Pick what it writes.",
+    );
+  });
 });
