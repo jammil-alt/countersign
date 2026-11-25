@@ -305,6 +305,46 @@ suggests **Save as skill** when the same instructions turn up in a second agent;
 yet" step and a Dev queue request where code is missing; and drafts Loops with a goal, read tools and
 a limit. Reuse first and "Not built yet" work today.
 
+## 10a. Skills rebuilt after the purge (Agreed)
+
+Of the 164 skills registered today, the 117 that are tools under a second name go. Of the rest, by
+area (owner, 2026-11-25, agreeing the list as suggested):
+
+- **Documents:** Read document (AI), with Check totals folded in as its rules; Prepare bill (AI),
+  with Check bill folded in, using Choose account.
+- **Data jobs:** Filter, group and total; Read table; Write table. Reshape stays as the engine behind
+  the automatic translation, not a step to pick.
+- **Writing and forms:** Draft in their voice (one AI answer, no longer agent mode); Draft a form.
+- **Purchasing:** Read a request to buy; Read a vendor's quote (the "with the document" copy merged
+  in); Read a vendor contract; Compare to historicals; Review notes for AP; Choose items to merge.
+  Match vendor, Match by SKU and Master item manager become the match profiles Vendors, Vendor items
+  (exact match only) and Master items. Dropped: Semantic match (vendor), Look up existing, Match the
+  unmatched, Find duplicate catalog items. Check matches folds into the Match step.
+- **QuickBooks and AP:** Choose items and accounts (the agent-mode twin dropped).
+- **Bookkeeping:** Read a statement (the "document" copy merged in); Suggest matches for what's
+  left; and **the leftovers investigation rebuilt as the first Loop**.
+- **One "Choose account"** replaces Suggest accounts (AP), Propose accounts (Bookkeeping) and the
+  account choice inside Prepare bill; Categorize bank transactions (its agent-mode twin) is dropped.
+- **Marketing:** Write the weekly report, Write titles and descriptions, Write an article, Write a
+  forum reply, Write a LinkedIn post; the five agent-mode twins dropped.
+- **The platform's own, not in the library:** Look into a problem (a Loop), Explain a problem, and
+  Sloan's account conversation.
+
+## 10b. The owner and the supervisor (as built; unchanged)
+
+Two different things watch an agent, and both stay:
+
+- **The owner** (one per business area per client; ARCHITECTURE §10.11, §10.14, §10.15) watches every
+  step of a run. A cheap check (no model) looks at every step's result; a model looks only at a step
+  that failed, a result that looks off, or a step whose output feeds a write. It may let it go on,
+  retry, retry with a corrected input (the gate decides any write again), ask the lead, or stop. It
+  never changes the plan, an approval or a permission (invariant 9). New agents start with failures
+  reviewed and writes verified; at most 2 reviews a step, 3 a run, $0.25 a run by default. A step's
+  **Review** setting (owner decides, always, off) is this.
+- **The supervisor** (Sloan's side for us, one per client) works at the level of the account: a daily
+  health check, and **Look into a problem** (a Loop) and **Explain a problem** when a run failed that
+  the owner couldn't fix, or a connection needs a person.
+
 ## 11. The Invoice item matcher (acceptance test)
 
 The matcher is not a build of its own: it is rebuilt by hand in the new builder, and the build is
@@ -358,7 +398,7 @@ The purge also lets the eight step kinds be stored directly, replacing today's f
 ## 14. Where we are in the review
 
 Going tab by tab through the working spreadsheet: **Terms**, **Step kinds** and
-**Forms** agreed. Next: Skills, Tools, Where it's built, Invoice
+**Forms** and **Skills** agreed. Next: Tools, Where it's built, Invoice
 matcher, Build list, Release.
 
 ## Decision log
@@ -384,6 +424,8 @@ matcher, Build list, Release.
 - 2026-11-25 · Translations are applied without confirming or marking; only "doesn't fit" blocks.
 - 2026-11-25 · Matching is always against our synced records (raw copies with a key index, or an
   area's own table); outside ids are fields on our records; without a sync it's a lookup by id.
+- 2026-11-25 · Skills list agreed by area; the leftovers investigation becomes the first Loop; one
+  Choose account replaces three.
 - 2026-11-25 · Forms agreed. Suggest (AI icon) on every step and every field: tell it what you need,
   use the default, or resolve; applied at once, with Undo.
 - 2026-11-25 · The eight kinds are stored directly; nine of today's kinds collapse into Do, run by
