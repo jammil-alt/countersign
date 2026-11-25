@@ -26,8 +26,8 @@ Last updated 2026-11-25.
 
 ## 2. Principles (Agreed)
 
-1. **Purge and start from scratch.** No agent is live. Every agent, version, run and build is
-   deleted once, and the templates are rebuilt in the new model. Nothing is kept only because
+1. **Purge and start from scratch.** No agent is live. Every agent, version, run, build and template
+   is deleted once; templates are then built again one by one, by hand, not as part of this work. Nothing is kept only because
    something uses it today (owner, 2026-11-25: "Now is the time to release what will become tech
    debt"). See §12.
 2. **The builders stay.** Both the Builder (the AI that drafts agents with you) and the workflow
@@ -36,6 +36,10 @@ Last updated 2026-11-25.
 3. **Use the words everyone uses**, except where ours are already clear (§3).
 4. **Deterministic first, model second, person last** (invariant 7), visible on every step.
 5. **Triggers stay as they are today.** They work and are well thought out.
+6. **Same product, new structure underneath** (owner, 2026-11-25: "Keep the build and manage as it
+   is today, don't change flows or UI except where needed to adjust to forms and groupings. This is
+   not a new tool"). Screens, navigation and flows stay; only the step forms, the groupings in the
+   pickers and what the new structure needs (End cards, workflow outputs, the Data tab, Suggest) change.
 
 ## 3. Terms (Agreed)
 
@@ -257,10 +261,12 @@ otherwise we need the ID to do a lookup"):
 **Vendor items** (owner, 2026-11-25): a SKU match or nothing. "I don't want it finding a near match
 and then calling it the same. In some cases a near match is not a match."
 
-**Open:** who adds a profile (proposed: developers, because it touches where records live; the
-person sets keys and thresholds on the step). Whether a vendor's exact past wording (a line confirmed
-before, word for word) counts as a key next to SKU: it is exact, not near, and without it a vendor
-whose invoices print no SKU makes a new vendor item every time.
+**SKU is the vendor item's unique id** (owner, 2026-11-25). The vendor's past wording is not a key
+for vendor items.
+
+**New kinds of record to match** (a match profile for, say, projects) are added by developers, because
+a profile names where those records are kept and which of their fields are keys; the operator sets
+the rest on each Match step.
 
 ## 8. Loop (Agreed)
 
@@ -422,7 +428,7 @@ the picker. Found in checking the list:
 - **Later, for a vendor agent:** our records have no "add a vendor" action of their own (a vendor is
   added by the sync or when an invoice makes its purchase).
 
-## 10e. The other areas and Shared (proposed)
+## 10e. The other areas and Shared (Agreed)
 
 Only what changes; everything not named stays as built. Throughout, "QuickBooks" in an area's
 words becomes "the accounting system".
@@ -453,61 +459,51 @@ words becomes "the accounting system".
   order): each decides what kind of entry to write, which is more than the automatic translation
   does.
 
-## 11. The Invoice item matcher (acceptance test)
+## 11. The Invoice item matcher
 
-The matcher is not a build of its own: it is rebuilt by hand in the new builder, and the build is
-done when that works.
+Not part of this work (owner, 2026-11-25): it is built once these changes are made, as the first
+agent in the new model.
 
-- **Trigger 1:** a document is read.
-- **Trigger 2:** every day at 7:00; find the last 7 days of bills; get each bill's invoice; for
-  each, hand off to the main line.
-- **Main line:** Read the invoice (AI, OCR) · Match vendor (Match to vendors, hybrid) · Fork: vendor
-  not found → End (Vendor not found) · Match lines to the vendor's items (Match to vendor items,
-  exact match on SKU) · Match new lines to master items (Match to master items, hybrid, Confer on) ·
-  Fork: unsure lines → Do (Person: client admin decides) · End (Purchase saved; Exception report).
-- **Declared outputs:** Purchase saved (records; Purchasing report), Exception report (email to
-  AP), Vendor not found (email to bill-questions), Nothing to do.
-- "Already reviewed?" comes back as a rules Fork once a tool answers whether a document has been
-  through this agent (Dev queue).
-
-## 12. Release: what the purge removes (to review item by item)
+## 12. Release: what the purge removes (to review)
 
 | # | What goes | Why |
 |---|---|---|
-| R0 | Every agent, version, run, build and test copy on staging and production; templates re-seeded in the new model | Approved by the owner, 2026-11-25. Invariants 3 and 14 say versions and audit events are never deleted; this one reset is recorded in `docs/plan.md` and run as a dated step. |
-| R1 | The 117 tool-only skills, the code that makes them (`connectorReadSkills`) and the code that hides them (`isToolWrapper`) | A tool is a step on its own. |
+| R0 | Every agent, version, run, build, test copy and template, on staging and production | Approved by the owner, 2026-11-25. Invariants 3 and 14 say versions and audit events are never deleted; this one reset is recorded in `docs/plan.md` and run as a dated step. Templates are built again one by one, later. |
+| R1 | The 117 tool-only skills, the code that makes them (`connectorReadSkills`) and the code that hides them (`isToolWrapper`) | An action is used directly. |
 | R2 | Version 3 workflows, the v3-to-v4 converter (`process/convert.ts`), version 1 automations and `use_automation` | Only the new model is built. |
-| R3 | The skill's `mode` field (tool, task, agent) | Replaced by Rules, AI, Loop. |
-| R4 | "Rules then AI" as a skill method | Replaced by chained Do steps and Hybrid match. |
+| R3 | Today's fifteen stored step kinds | Replaced by the eight, stored directly (§4). |
+| R4 | The skill's `mode` field (tool, task, agent) and "rules then AI" | Replaced by Rules, AI and Loop. |
 | R5 | Two places for one setting (settings and parameters; settings and `customize.settings`; `model` and `customize.model`) | One of each. |
-| R6 | Twin skills (agent-mode copies; "with the document" readers) | One skill per job. |
-| R7 | Overlapping Materials matchers (`match-unmatched`, `lookup-existing`, `vendor_items.similar`, `semantic-match-vendor`) | One Match step with profiles; vendor items exact only. |
-| R8 | Check skills as their own steps (`docs.check-totals`, `docs.check-bill`, `materials.check-matches`) | They become the rules part of the step they check. |
+| R6 | Dropped and merged skills (§10a): agent-mode twins, "with the document" readers, Purchasing's dropped matchers, check skills as their own skills | One skill per job; checks are the rules of the step they check. |
+| R7 | Purchasing's 13 matching and price actions (§10d); Sales' matcher and key refresh; the three document readers; the three chart-of-accounts lists (§10e) | Match profiles, Register lines, one Read a document, one chart. |
+| R8 | Working out how a workflow ends from its steps (2026-11-23) | Declared workflow outputs and End cards (§9). |
 | R9 | The packs' "superseded" map | Only exists for steps still using a replaced skill. |
-| R10 | Templates seeded in the old model | Rebuilt in the new builder; they join the acceptance tests. |
+| R10 | Search embeddings for vendor items | Nothing searches them by meaning (master items keep theirs). |
 
-The purge also lets the eight step kinds be stored directly, replacing today's fifteen (§4).
+## 13. Build list (to review)
 
-## 13. Build list (draft; reordered once §6, §9 and §12 are settled)
+In order; each ends green, as the milestones always have.
 
-| # | What |
-|---|---|
-| 1 | The purge (R0) and the release items R1–R10. |
-| 2 | The step model: the eight kinds, the Do form, checks, More. |
-| 3 | Input picker; automatic translation on each step's incoming side (fits, translated, doesn't fit); "doesn't fit" blocks going live. The Data tab on every step: coming in, changed, going out. |
-| 4 | Rules and AI written in the step; Save as skill; Suggest on every step and every field. |
-| 5 | Workflow outputs and End cards; the publish checks. |
-| 6 | Match step with profiles: match type, keys, confidence threshold, second opinion per line, shortlists; exact match on every profile. |
-| 7 | Loop designer in the Agent lab, with the turn-by-turn test and the test-set gate. |
-| 8 | Builder: write in the step, suggest Save as skill, draft Loops. |
-| 9 | Dev queue: a tool that says whether a document has been through an agent. |
-| — | Acceptance: the Invoice item matcher and the rebuilt templates, built by hand. |
+| # | What | Size |
+|---|---|---|
+| 1 | **Purge and release** (R0–R10). | M |
+| 2 | **Stored format.** The eight kinds; Do with Done by and Uses; workflow outputs and End; the validator; the executor choosing the engine for a Do; outcomes, timeline and SOP lines, merges and diffs keyed by Done by and Uses. | L |
+| 3 | **Builder, adjusted to the forms and groupings** (same screens and flows). The palette's eight kinds; the Uses picker (connector › action, area › action, skill, automation); the Do form, Checks and More; End cards added by the builder; workflow outputs next to the triggers; Suggest on every form and field; the Data tab. | L |
+| 4 | **Automatic translation** on each step's incoming side; "doesn't fit" blocks going live. | M |
+| 5 | **Rules and AI written in the step; Save as skill.** | M |
+| 6 | **Match step and profiles** (Vendors, Vendor items, Master items, CRM records): match type, keys, confidence threshold, second opinion per line, shortlists, learned answers; exact match on every profile. | L |
+| 7 | **Connectors and areas.** Actions on or off on the connector's page; Request an action from a connector, an agent or the account; Email, Team chat and Spreadsheets merged; tool-neutral wording; Register lines; one chart of accounts; one Read a document. | M |
+| 8 | **Loop designer** in the Agent lab: read-only agent-mode skills again, the turn-by-turn test, the test-set gate; the leftovers investigation as the first Loop. | L |
+| 9 | **The Builder (AI)** drafts in the new model: writes in the step, suggests Save as skill, drafts Loops. | M |
+| 10 | **Measure** the shortlist size and the thresholds on the matching goldens; set the defaults. | S |
+| 11 | **Rules documents.** A new ARCHITECTURE version for this model; CLAUDE.md: the one-off purge under invariants 3 and 14, the Loop under invariant 9. | S |
+
+S = a day or less, M = a few days, L = a week or more.
 
 ## 14. Where we are in the review
 
-Going tab by tab through the working spreadsheet: **Terms**, **Step kinds** and
-**Forms** and **Skills** agreed. Next: Tools, Where it's built, Invoice
-matcher, Build list, Release.
+Agreed: terms, step kinds, forms, skills, connectors, areas. Being reviewed: the build list and the
+release (§12, §13). Then: the stored format, drafted as plain fields for review.
 
 ## Decision log
 
@@ -546,6 +542,11 @@ matcher, Build list, Release.
   lines; a person's answer on any match is learned.
 - 2026-11-25 · Both price actions and the three price tolerances kept as built; Accounting actions
   added only as the rebuilt agents need them.
+- 2026-11-25 · The other areas and Shared agreed. SKU is the vendor item's unique id (past wording
+  is not a key). Developers add match profiles.
+- 2026-11-25 · Same product, new structure underneath: screens and flows stay; only forms, groupings
+  and what the structure needs change. No templates rebuilt as part of this; the invoice matcher is
+  built after.
 - 2026-11-25 · Forms agreed. Suggest (AI icon) on every step and every field: tell it what you need,
   use the default, or resolve; applied at once, with Undo.
 - 2026-11-25 · The eight kinds are stored directly; nine of today's kinds collapse into Do, run by
