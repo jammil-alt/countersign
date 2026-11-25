@@ -92,11 +92,23 @@ export async function anyVendorAlias(
   return items.size === 1 ? ([...items.values()][0] ?? null) : null;
 }
 
+const LEADING = new Set(["(", '"', "'", "#", ":", "."]);
+const TRAILING = new Set([")", '"', "'", ".", ":"]);
+
+/** A word without the punctuation around it, in one pass (a regex here is slow on long runs). */
+function trimPunctuation(raw: string): string {
+  let start = 0;
+  let end = raw.length;
+  while (start < end && LEADING.has(raw[start] as string)) start++;
+  while (end > start && TRAILING.has(raw[end - 1] as string)) end--;
+  return raw.slice(start, end);
+}
+
 /** The codes in a description that could be SKUs: each word with a digit (`identifyingSku`). */
 export function skuTokens(description: string): string[] {
   const out = new Set<string>();
   for (const raw of description.split(/[\s,;]+/)) {
-    const word = raw.replace(/^[("'#:.]+|[)"'.:]+$/g, "");
+    const word = trimPunctuation(raw);
     const sku = /\d/.test(word) ? identifyingSku(word) : null;
     if (sku) out.add(sku);
   }
