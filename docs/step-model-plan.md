@@ -128,14 +128,28 @@ one before. Prefer to decide first and save once.
   data. No extra "works on" setting (owner, 2026-11-25: "only if we need it, I don't want to
   convolute").
 
+**Agreed: translation is part of the step's incoming side** (owner, 2026-11-25: "if a step requires
+input in a certain shape and the previous step has a different shape, then we would automatically
+modify it as part of the step... as part of the incoming part of the step"). There is no separate
+step for it. Every connection into a step is in one of three states:
+
+| State | What it means | What happens |
+|---|---|---|
+| **Fits** | The step before hands on the shape this step needs, or every field it needs. | Nothing to do. |
+| **Translated** | The shapes differ, but every field this step needs can be filled from what came before: copied, renamed, converted or worked out. | The builder writes the translation automatically into the step's incoming side, where it can be seen and changed. |
+| **Doesn't fit** | The data just isn't the same: a field this step requires has no source. | Flagged as an issue. The workflow can't go live until it's resolved. |
+
+The translation is worked out when the workflow is built, saved with the step, and runs as code:
+no model at run time, so the same data always translates the same way, and money stays decimal. It
+uses Reshape's mapping and calculations as built (2026-11-11): matching by name, spelling, common
+synonyms and type first, and AI suggestions only for what is left.
+
 **Open:**
 1. Data shapes defined now, not later, starting with Purchasing (proposed: yes, since we are
    starting from scratch).
-2. Mapping lives in the receiving step's Input box; a separate Reshape step only when the result is
-   used by several later steps or delivered at an End. Reshape's mapping, its proposal by name and
-   type, and its calculations stay as built (2026-11-11).
-3. An unmapped required field blocks publishing (proposed: yes).
-4. A few fields written in a step for small things (a yes/no, a count), or named shapes always?
+2. A field the AI suggested (rather than matched by name and type) must be confirmed by a person
+   before the workflow goes live (proposed: yes; otherwise a wrong guess is a silent error).
+3. A few fields written in a step for small things (a yes/no, a count), or named shapes always?
    (Proposed: a few fields allowed; anything passed further, saved or delivered is a named shape.)
 
 ## 7. Match (Agreed)
@@ -203,10 +217,10 @@ End can deliver several outputs, such as writing the matches to QuickBooks (appr
 an exception report to AP when there are exceptions, and saving the purchase. A run that fails on an
 error ends as Failed by itself and goes to the supervisor; End cards are for the outcomes planned.
 
-Publishing is refused when an End selects no output, or delivers something not on the list. This
-replaces the 2026-11-23 decision to work the ending out from the steps.
-
-**Open:** an output declared but never selected by any End: block publishing (proposed) or warn?
+Publishing is refused when an End selects no output, when it delivers something not on the list,
+or when a declared output is never selected by any End (owner, 2026-11-25: "Block publishing, lets
+make sure we don't have silent deaths"). This replaces the 2026-11-23 decision to work the ending
+out from the steps.
 
 ## 10. The Builder and skills (Agreed in outline)
 
@@ -261,7 +275,7 @@ Proposed: store the new model directly, so no translation layer becomes the next
 | 1 | The purge (R0) and the release items R1–R10. |
 | 2 | Data shapes, starting with Purchasing. |
 | 3 | The step model: the eight kinds, the Do form, checks, More. |
-| 4 | Input picker and mapping in the Input box. |
+| 4 | Input picker; automatic translation on each step's incoming side (fits, translated, doesn't fit); "doesn't fit" blocks going live. |
 | 5 | Rules and AI written in the step; Save as skill. |
 | 6 | Workflow outputs and End cards; the publish checks. |
 | 7 | Match step with profiles: match type, keys, confidence threshold, second opinion per line, shortlists; exact match on every profile. |
@@ -293,3 +307,6 @@ matcher, Build list, Release.
 - 2026-11-25 · Reused skills name their fields for the job; no "works on" setting.
 - 2026-11-25 · Workflows declare their outputs; every End delivers one or more of them; End cards
   are required and added by the builder; one End may deliver several outputs.
+- 2026-11-25 · A declared output that no End selects blocks publishing: no silent deaths.
+- 2026-11-25 · Translation between steps is automatic, on the receiving step's incoming side, worked
+  out when building and run as code; steps whose data doesn't fit block going live.
