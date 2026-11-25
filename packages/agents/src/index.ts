@@ -23,6 +23,7 @@ export * from "./builder/guards";
 export * from "./builder/reshape";
 export * from "./builder/shortlist";
 export * from "./builder/skill-draft";
+export * from "./builder/translate";
 export * from "./errors";
 // docs/plan.md §1.217: the process interview
 export * from "./interview/interviewer";
