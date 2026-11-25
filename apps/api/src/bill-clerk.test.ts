@@ -228,8 +228,13 @@ describe.skipIf(!h)("the Bill clerk", () => {
     return [...H.instances.started.values()].slice(before).filter((p) => p.agentId === clerkId);
   }
 
+  // In the order they were proposed: the rows have no order of their own.
   const actionsOf = (runId: string) =>
-    H.t.db.select().from(externalAction).where(eq(externalAction.runId, runId));
+    H.t.db
+      .select()
+      .from(externalAction)
+      .where(eq(externalAction.runId, runId))
+      .orderBy(externalAction.createdAt);
   const itemsOf = (runId: string) =>
     H.t.db.select().from(inboxItem).where(eq(inboxItem.runId, runId));
   const txnOf = async (externalId: string) =>
