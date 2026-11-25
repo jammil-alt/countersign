@@ -62,7 +62,7 @@ Other docs: `docs/open.md` (everything still open, in priority order), `docs/loc
 | `fixtures/` | Invoices + expected JSON, QBO payloads, matching pairs, recorded LLM responses. |
 | `scripts/check-deps.mjs` | Enforces package layering (`docs/plan.md` §2). |
 | `scripts/setup-postgres.sh` | Gives a plain Postgres Neon's roles (CI and local). |
-| `.github/workflows/` | `ci.yml` (non-draft PRs) → `checks.yml`; `draft-pr.yml` (a draft PR for any pushed branch without one); `deploy.yml` (main → staging, `v*` tag → production) → `deploy-app.yml`; `quick-deploy.yml` (run from a branch, by hand or by a session: that branch → staging in about 2 minutes, no tests, no new migrations); `bootstrap.yml` (by hand: Neon project, roles, Hyperdrive, R2); `add-operator.yml`, `remove-operator.yml` and `purge-client.yml` (by hand). |
+| `.github/workflows/` | `ci.yml` (non-draft PRs) → `checks.yml`; `draft-pr.yml` (a draft PR for any pushed branch without one); `deploy.yml` (main → staging, `v*` tag → production) → `deploy-app.yml`; `quick-deploy.yml` (run from a branch, by hand or by a session: that branch → staging in about 2 minutes, no tests, no new migrations); `bootstrap.yml` (by hand: Neon project, roles, Hyperdrive, R2); `add-operator.yml`, `remove-operator.yml`, `purge-client.yml` and `purge-agents.yml` (by hand; the last is the step model's one-off release). |
 
 ## Commands
 
