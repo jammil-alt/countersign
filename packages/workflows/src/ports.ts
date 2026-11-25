@@ -322,6 +322,13 @@ export interface AgentPort {
    * Ports without it fail such steps (nothing is written).
    */
   resolveMerged?(request: ResolveMergedRequest): Promise<ResolvedAction>;
+  /**
+   * A merged action's input in the words of the connector's tool it resolved to (the merge's
+   * mappings: Google Chat's `space` for Team chat's `channel`). Pure. Absent: passed as it is.
+   */
+  mergedInput?(action: string, connector: string, input: unknown): unknown;
+  /** The tool's output back in the merged action's words. Pure. Absent: as the tool gave it. */
+  mergedOutput?(action: string, connector: string, output: unknown): unknown;
 }
 
 /** A merged action to resolve for the run's agent (`AgentPort.resolveMerged`). */

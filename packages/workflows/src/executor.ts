@@ -769,6 +769,9 @@ class Executor {
   /** The step model: what the End that ended the run passed on (`RunResult.passedOn`). */
   passedOn: { output: unknown; sources: string[] } | undefined;
 
+  /** The step model: a merged action's step, resolved, by the concrete step that runs it. */
+  readonly mergedCalls = new WeakMap<object, { action: string; connector: string }>();
+
   /** The step model: the client's date a translation reads as "today", fixed for the run. */
   today: string | undefined;
 
@@ -1418,13 +1421,21 @@ class Executor {
       step.tool !== undefined &&
       this.stepModel?.merged.has(step)
     ) {
-      const resolved = await this.resolveMerged(name, step.tool);
+      const action = step.tool;
+      const resolved = await this.resolveMerged(name, action);
       const concrete = { ...step, tool: resolved.tool } as WorkStep;
+      this.mergedCalls.set(concrete, { action, connector: resolved.connector });
+      const port = this.ctx.agent;
+      // The action's input in the words of the tool it resolved to (the merge's mappings).
+      const toTool = (input: unknown) => {
+        const own = mapInput ? mapInput(input) : input;
+        return port.mergedInput ? port.mergedInput(action, resolved.connector, own) : own;
+      };
       return this.workStep(
         concrete,
         name,
         frame,
-        mapInput,
+        toTool,
         resolved.connectionId
           ? { connector: resolved.connector, connectionId: resolved.connectionId }
           : binding,
@@ -1610,6 +1621,11 @@ class Executor {
       return;
     }
     output = shape(output);
+    // The step model: a merged action's output back in the action's words, whichever tool ran.
+    const merged = this.mergedCalls.get(step);
+    if (merged && this.ctx.agent.mergedOutput) {
+      output = this.ctx.agent.mergedOutput(merged.action, merged.connector, output);
+    }
 
     if (step.kind !== "write" && checks?.confer) await conferOutput(output);
     // The sign-off: a read's, or a skill's that proposed no write (a proposed write was signed

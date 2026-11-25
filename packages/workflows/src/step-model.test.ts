@@ -170,6 +170,33 @@ describe("a v5 workflow's Do steps", () => {
     expect(runner.names()).toEqual(["s_rows:action", "s_rows", "s_end"]);
   });
 
+  it("maps a merged action's input to its tool's words, and the output back", async () => {
+    const h = new Harness();
+    h.agent.resolveMerged = async () => ({ tool: "excel.rows.append", connector: "excel" });
+    h.agent.mergedInput = (_a, connector, input) => ({ ...(input as object), to: connector });
+    h.agent.mergedOutput = (_a, _c, output) => ({ mapped: output });
+    h.handlers.s_rows = () => ({ kind: "done", output: { workbookId: "w1" } });
+    const append = {
+      id: "s_rows",
+      kind: "do",
+      name: "Add the rows",
+      doneBy: "rules",
+      uses: { type: "action", action: "spreadsheet.rows.append" },
+      input: { spreadsheetId: "w1" },
+    };
+    const after = {
+      id: "s_tell",
+      kind: "do",
+      name: "Tell",
+      doneBy: "rules",
+      uses: { type: "tell" },
+      tell: { to: ["client_admin"], message: "Added to {{steps.s_rows.output.mapped.workbookId}}" },
+    };
+    await run(h, wf([append, after, end()]));
+    expect(h.agentCalls[0]?.input).toEqual({ spreadsheetId: "w1", to: "excel" });
+    expect(h.sent[0]).toMatchObject({ text: expect.stringContaining("Added to w1") });
+  });
+
   it("refuses a merged action that resolves to a tool outside the merge", async () => {
     const h = new Harness();
     h.agent.resolveMerged = async () => ({ tool: "testkit.thing.update", connector: "testkit" });
