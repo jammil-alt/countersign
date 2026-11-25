@@ -37,7 +37,7 @@ Last updated 2026-11-25.
 4. **Deterministic first, model second, person last** (invariant 7), visible on every step.
 5. **Triggers stay as they are today.** They work and are well thought out.
 
-## 3. Terms (Agreed, with three additions to confirm)
+## 3. Terms (Agreed)
 
 | Term | Meaning |
 |---|---|
@@ -56,9 +56,6 @@ Last updated 2026-11-25.
 | **Match** | Exact match, Semantic match, or Hybrid (exact first, then semantic). |
 | **Confidence threshold** | The confidence at or above which a semantic match is accepted. |
 | **Match profile** | What one kind of record is matched on (§7). |
-| **Input** *(to confirm)* | The fields a step needs; each is filled from the trigger, an earlier step's output, or a fixed value. |
-| **Output** *(to confirm)* | The fields a step hands on. |
-| **Data shape** *(to confirm)* | A named, shared definition of a thing (Invoice, Invoice line, Vendor match, Purchase): its fields, each with a type, a meaning and whether it is required. Owned by a business area. |
 | **Workflow output** | A declared result of a workflow: a report, a write to a tool, a record saved, a hand off, or "Nothing to do" (§9). |
 
 Kept from ours (owner, 2026-11-25: "I generally like ours"): Do, Loop, Fork, End, Automation,
@@ -90,7 +87,7 @@ What a person fills in:
 | **Goal** | What it does, one sentence. |
 | **Done by** | Rules, AI, or a Person (or an outside contact). |
 | **Uses** (optional) | A tool, a skill, or an automation. |
-| **Input** | Picked as "step name › field"; mapped when shapes differ (§6). |
+| **Input** | Picked as "step name › field"; translated automatically when the fields differ (§6). |
 | **Instructions** | Rule rows and values; or prose; or the question and the answers offered. |
 | **Output** | The fields it hands on. |
 | **Checks** (optional) | Approver (on by default for every change to a client's tool, invariant 8), Confer, Review, Tell after. |
@@ -112,12 +109,16 @@ twice. A model, a Loop or a person decides; the save step after it writes. Sever
 by one tool that writes them together, or by a chain of saves where each picks up the ids of the
 one before. Prefer to decide first and save once.
 
-## 6. Data: inputs, outputs and shapes
+## 6. Data: inputs and outputs
 
 **Agreed:**
 - Inside a workflow, everything moving between steps is structured data (JSON underneath, never
   seen). Format (CSV, XLSX, PDF, email) matters only at the edges: a file comes in as a Document and
-  a reader turns it into a shape; a writer turns a shape into a file going out.
+  a reader turns it into fields; a writer turns fields into a file going out.
+- **Each step defines what it needs** (owner, 2026-11-25: "Steps can define what they need, we
+  should not have the concept of a named field unless there is a strong benefit"). There are no
+  named, shared data shapes and no extra terms for inputs and outputs. A step's fields are its own:
+  a name, a type and whether it is required.
 - A step's input and output fields always come from one of three places, never from a model at run
   time: the tool or skill it uses; the setting that picks a profile or record type (Match to, Save
   to); or what the person writes in the step (rules, instructions, Read table's columns, a
@@ -135,8 +136,8 @@ step for it. Every connection into a step is in one of three states:
 
 | State | What it means | What happens |
 |---|---|---|
-| **Fits** | The step before hands on the shape this step needs, or every field it needs. | Nothing to do. |
-| **Translated** | The shapes differ, but every field this step needs can be filled from what came before: copied, renamed, converted or worked out. | The builder writes the translation automatically into the step's incoming side, where it can be seen and changed. |
+| **Fits** | The step before hands on every field this step needs. | Nothing to do. |
+| **Translated** | The fields differ, but every field this step needs can be filled from what came before: copied, renamed, converted or worked out. | The builder writes the translation automatically into the step's incoming side, where it can be seen and changed. |
 | **Doesn't fit** | The data just isn't the same: a field this step requires has no source. | Flagged as an issue. The workflow can't go live until it's resolved. |
 
 The translation is worked out when the workflow is built, saved with the step, and runs as code:
@@ -145,12 +146,8 @@ uses Reshape's mapping and calculations as built (2026-11-11): matching by name,
 synonyms and type first, and AI suggestions only for what is left.
 
 **Open:**
-1. Data shapes defined now, not later, starting with Purchasing (proposed: yes, since we are
-   starting from scratch).
-2. A field the AI suggested (rather than matched by name and type) must be confirmed by a person
+1. A field the AI suggested (rather than matched by name and type) must be confirmed by a person
    before the workflow goes live (proposed: yes; otherwise a wrong guess is a silent error).
-3. A few fields written in a step for small things (a yes/no, a count), or named shapes always?
-   (Proposed: a few fields allowed; anything passed further, saved or delivered is a named shape.)
 
 ## 7. Match (Agreed)
 
@@ -207,7 +204,7 @@ writes; a Loop reads only, which answers that reason.
 
 A workflow declares its outputs, next to its triggers: triggers are the declared ways in, outputs
 the declared ways out. Each output has a name, a kind (report, write to a tool, save to records,
-hand off, or Nothing to do with a reason), where it goes, and its shape. The list is what the
+hand off, or Nothing to do with a reason), where it goes, and its fields. The list is what the
 workflow promises, so it belongs in the agent's description and the client's view.
 
 Every path that doesn't rejoin the main line finishes on an **End** card, which the builder adds
@@ -261,7 +258,7 @@ done when that works.
 | R7 | Overlapping Materials matchers (`match-unmatched`, `lookup-existing`, `vendor_items.similar`, `semantic-match-vendor`) | One Match step with profiles; vendor items exact only. |
 | R8 | Check skills as their own steps (`docs.check-totals`, `docs.check-bill`, `materials.check-matches`) | They become the rules part of the step they check. |
 | R9 | The packs' "superseded" map | Only exists for steps still using a replaced skill. |
-| R10 | Templates seeded in the old shape | Rebuilt in the new builder; they join the acceptance tests. |
+| R10 | Templates seeded in the old model | Rebuilt in the new builder; they join the acceptance tests. |
 
 **Open, raised by the purge:** with nothing to keep, the stored step kinds can match the eight kinds
 directly, instead of the builder translating its form into today's fifteen stored kinds (`read`,
@@ -273,21 +270,20 @@ Proposed: store the new model directly, so no translation layer becomes the next
 | # | What |
 |---|---|
 | 1 | The purge (R0) and the release items R1–R10. |
-| 2 | Data shapes, starting with Purchasing. |
-| 3 | The step model: the eight kinds, the Do form, checks, More. |
-| 4 | Input picker; automatic translation on each step's incoming side (fits, translated, doesn't fit); "doesn't fit" blocks going live. |
-| 5 | Rules and AI written in the step; Save as skill. |
-| 6 | Workflow outputs and End cards; the publish checks. |
-| 7 | Match step with profiles: match type, keys, confidence threshold, second opinion per line, shortlists; exact match on every profile. |
-| 8 | Loop designer in the Agent lab, with the turn-by-turn test and the test-set gate. |
-| 9 | Builder: write in the step, suggest Save as skill, draft Loops. |
-| 10 | Dev queue: a tool that says whether a document has been through an agent. |
+| 2 | The step model: the eight kinds, the Do form, checks, More. |
+| 3 | Input picker; automatic translation on each step's incoming side (fits, translated, doesn't fit); "doesn't fit" blocks going live. |
+| 4 | Rules and AI written in the step; Save as skill. |
+| 5 | Workflow outputs and End cards; the publish checks. |
+| 6 | Match step with profiles: match type, keys, confidence threshold, second opinion per line, shortlists; exact match on every profile. |
+| 7 | Loop designer in the Agent lab, with the turn-by-turn test and the test-set gate. |
+| 8 | Builder: write in the step, suggest Save as skill, draft Loops. |
+| 9 | Dev queue: a tool that says whether a document has been through an agent. |
 | — | Acceptance: the Invoice item matcher and the rebuilt templates, built by hand. |
 
 ## 14. Where we are in the review
 
-Going tab by tab through the working spreadsheet: **Terms** reviewed (three additions to confirm:
-Input, Output, Data shape). Next: Step kinds, Forms, Skills, Tools, Where it's built, Invoice
+Going tab by tab through the working spreadsheet: **Terms** agreed (no terms added for inputs,
+outputs or data shapes). Next: Step kinds, Forms, Skills, Tools, Where it's built, Invoice
 matcher, Build list, Release.
 
 ## Decision log
@@ -308,5 +304,6 @@ matcher, Build list, Release.
 - 2026-11-25 · Workflows declare their outputs; every End delivers one or more of them; End cards
   are required and added by the builder; one End may deliver several outputs.
 - 2026-11-25 · A declared output that no End selects blocks publishing: no silent deaths.
+- 2026-11-25 · No named data shapes and no extra terms: each step defines the fields it needs.
 - 2026-11-25 · Translation between steps is automatic, on the receiving step's incoming side, worked
   out when building and run as code; steps whose data doesn't fit block going live.
