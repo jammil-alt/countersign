@@ -1,4 +1,4 @@
-// The resend connector against the fake: email.send checks the contact in code before Resend is
+// The resend connector against the fake: resend.send checks the contact in code before Resend is
 // called, sends from the connection's address with a tagged reply-to, once per idempotency key;
 // provisioning makes a domain with DNS records and a sending key restricted to it; replies are
 // parsed to their own words.

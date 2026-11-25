@@ -23,6 +23,7 @@ export * from "./builder/guards";
 export * from "./builder/reshape";
 export * from "./builder/shortlist";
 export * from "./builder/skill-draft";
+export * from "./builder/translate";
 export * from "./errors";
 // docs/plan.md §1.217: the process interview
 export * from "./interview/interviewer";
@@ -60,6 +61,7 @@ export * from "./registry/grants";
 // Hand off (owner, 2026-11-11): the client's agents a hand-off step can start.
 export * from "./registry/handoff";
 export * from "./registry/lineage";
+export * from "./registry/offered";
 export * from "./registry/people";
 export * from "./registry/runtime-store";
 export * from "./registry/skills";

@@ -66,6 +66,11 @@ export interface SkillCaseDeps {
   now?: () => Date;
   /** The bench agent's model for agent-mode skills; default the platform's reasoning model. */
   model?: { id: string; maxTokens?: number };
+  /**
+   * The operator's switches for a built-in connector's actions (Web), so a test run obeys them as a
+   * live run does; without it none is switched off.
+   */
+  actionSwitches?: (connectorId: string) => Promise<Record<string, boolean> | null>;
 }
 
 export interface BenchToolCall {
@@ -279,6 +284,7 @@ export async function runSkillCase(
     }),
     memoryNotes: async () => [],
     connection: async () => null,
+    ...(deps.actionSwitches ? { actionSwitches: deps.actionSwitches } : {}),
     grant: async () => null,
     agentStage: async () => null,
     approvalRouting: async () => ({

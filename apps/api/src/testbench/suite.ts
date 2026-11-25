@@ -13,6 +13,7 @@ import {
   type AgentRow,
   AgentsError,
   createVersion,
+  dbActionSwitches,
   requiredConnectors,
   runSkillCase,
   skillContext,
@@ -191,7 +192,13 @@ async function runSkill(deps: RunDeps, params: SuiteParams, c: CaseRow): Promise
   // A client's case is held to the client's HIPAA mode like its runs (docs/plan.md §1.35).
   const transport = (c.tenantId ? forClient(deps, c.tenantId) : deps).transport;
   const result = await runSkillCase(
-    { tools: deps.platform.tools, transport, ...(deps.now ? { now: deps.now } : {}) },
+    {
+      tools: deps.platform.tools,
+      transport,
+      // Web's switches, as a live run reads them.
+      actionSwitches: dbActionSwitches(deps.db),
+      ...(deps.now ? { now: deps.now } : {}),
+    },
     {
       definition: params.skill,
       tenantId: c.tenantId,

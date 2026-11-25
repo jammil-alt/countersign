@@ -3,6 +3,7 @@ import { PROCESSORS } from "../compliance/processors";
 import { GuideSectionSource } from "../onboarding/guide";
 import { OwnerArea } from "../owners/areas";
 import { Role } from "../roles";
+import { MatchProfile } from "../steps/match-profile";
 import { LoopTests, loopsWithoutTests } from "../testbench/loop-tests";
 import { AgentBundle, AnyAgentBundle } from "./agent";
 import { Slug } from "./common";
@@ -62,7 +63,8 @@ export type AreaConnection = z.infer<typeof AreaConnection>;
  *  - `screens`: its routes, `/reports/<id>/<report>` in the portal and back office.
  *  - `reports`: the names of the reports it registers (`/api/reports/<id>/<name>`); `apps/api`
  *    holds them equal to the handlers it registers.
- *  - `intakeSection`, `librarySkills`, `superseded`: optional, as their comments say.
+ *  - `matchProfiles`: the kinds of record the area's records are matched as (step model §7).
+ *  - `intakeSection`, `librarySkills`, `superseded`, `retiredTools`: optional, as their comments say.
  */
 export const PackManifest = z
   .object({
@@ -120,6 +122,16 @@ export const PackManifest = z
     // (invariant 3); the palette and the Builder offer the replacement instead (core's
     // `newStepSkillReason`).
     superseded: z.record(z.string(), z.string()).optional(),
+    // Step model §7 (stream D): the match profiles the area declares, one per kind of record a Match
+    // step matches to ("Match to: Vendors"). The pack's code gives each one's store (how a key is
+    // looked up, the shortlist, the never-the-same rules); core's Match engine runs them all.
+    matchProfiles: z.array(MatchProfile).default([]),
+    // Step model §10d, §10e (stream D): the pack's tools a match profile (or another action) does
+    // for new steps: tool id → what does it now, in words. Stored v4 steps keep running them until
+    // they are deleted with v4 (wave 4); the Uses picker leaves them out.
+    // DECISION: data on the manifest, not a field on the tool's spec, so the frozen action catalog
+    // stays as it is and the picker's route filters by this list.
+    retiredTools: z.record(z.string(), z.string().min(1).max(200)).optional(),
     // docs/plan.md §1.149.2 (cases-plan §4.2 step 2): the questions an intake asks about the
     // pack's business area, as data (kind `area`, its area named). The platform reads them from
     // the manifest; an area without a pack gets core's generic questions.
@@ -201,6 +213,33 @@ export const PackManifest = z
         });
       }
     });
+    const profileIds = new Set<string>();
+    p.matchProfiles.forEach((m, i) => {
+      if (profileIds.has(m.id)) {
+        ctx.addIssue({
+          code: "custom",
+          message: `match profile ${m.id} is declared twice`,
+          path: ["matchProfiles", i, "id"],
+        });
+      }
+      profileIds.add(m.id);
+      if (m.area !== p.area && m.area !== "shared") {
+        ctx.addIssue({
+          code: "custom",
+          message: `match profile ${m.id} is ${m.area}'s, but the pack is ${p.area}`,
+          path: ["matchProfiles", i, "area"],
+        });
+      }
+    });
+    for (const id of Object.keys(p.retiredTools ?? {})) {
+      if (!p.tools.some((t) => t.id === id)) {
+        ctx.addIssue({
+          code: "custom",
+          message: `retiredTools names ${id}, which isn't one of the pack's tools`,
+          path: ["retiredTools", id],
+        });
+      }
+    }
     p.events.forEach((e, i) => {
       if (!e.type.startsWith(`${p.id}.`)) {
         ctx.addIssue({

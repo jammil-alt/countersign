@@ -341,7 +341,7 @@ describe.skipIf(!h)("the Bookkeeper reconciles a month", () => {
     expect(asked).toHaveLength(1);
     // The card leads with the numbers: the bank as of October 31st, QuickBooks, the difference.
     expect(asked[0].title).toBe(
-      "Business Checking …0000 $10,380.00, QuickBooks $10,630.00, difference −$250.00: 1 item left: QuickBooks $250.00 on 2026-10-31 (timing).",
+      "Business Checking …0000 $10,380.00, Accounting system $10,630.00, difference −$250.00: 1 item left: Accounting system $250.00 on 2026-10-31 (timing).",
     );
     expect(asked[0].card).toMatchObject({
       outcome: "explained",

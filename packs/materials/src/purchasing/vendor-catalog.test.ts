@@ -37,6 +37,13 @@ describe("skuTokens", () => {
     // Too short, a fraction, or no digit: none.
     expect(skuTokens("12 sheets of 3/4 birch")).toEqual([]);
   });
+
+  it("strips the punctuation around a code, and stays fast on a long run of it", () => {
+    expect(skuTokens(`"#KB-3455." 'SCR-8114':`)).toEqual(["KB-3455", "SCR-8114"]);
+    const started = Date.now();
+    expect(skuTokens(`x${'"'.repeat(50_000)}1`)).toEqual([]);
+    expect(Date.now() - started).toBeLessThan(200);
+  });
 });
 
 describe("the preferred vendor in a comparison", () => {

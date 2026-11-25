@@ -163,6 +163,8 @@ describe.skipIf(!h)("the connectors catalog", () => {
       "linkedin",
       "testkit",
       "upload",
+      // Built into Mezonas: search the web, read a page (docs/step-model-plan.md §10e).
+      "web",
       "webhook",
       "website",
     ]);

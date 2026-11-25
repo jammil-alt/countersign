@@ -97,7 +97,7 @@ describe("undo on connector writes", () => {
     for (const id of [
       "gmail.send",
       "outlook.send",
-      "email.send",
+      "resend.send",
       "sms.send",
       "whatsapp.send",
       "call.place",

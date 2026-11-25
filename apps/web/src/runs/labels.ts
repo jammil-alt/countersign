@@ -105,6 +105,8 @@ const TOOLS: Record<string, string> = {
   "call.answer": "Answer calls",
   "gmail.send": "Send an email",
   "outlook.send": "Send an email",
+  "resend.send": "Send an email",
+  // Rows written before the rename (2026-11-25).
   "email.send": "Send an email",
   "drive.file.upload": "File a document in Drive",
   "sheets.rows.append": "Add rows to a sheet",

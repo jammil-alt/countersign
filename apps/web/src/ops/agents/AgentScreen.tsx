@@ -38,6 +38,7 @@ import {
   SectionLabel,
   Tabs,
 } from "../../ui/primitives";
+import { RequestAction } from "../../ui/RequestAction";
 import { Skeleton, SkeletonBlock, SkeletonCard, SkeletonLine } from "../../ui/skeleton";
 import { StatusChip } from "../../ui/status";
 import type { Member } from "../builder/Inspector";
@@ -868,6 +869,16 @@ function AgentActions({
           </Button>
         ) : null}
       </span>
+      <div className="w-full max-w-md text-left">
+        <RequestAction
+          as="operator"
+          // A template has no client; its request carries only the words.
+          {...(view.kind === "client" && view.tenantId
+            ? { agentId: view.id, clientId: view.tenantId }
+            : {})}
+          testId="agent-request-action"
+        />
+      </div>
       {published !== null ? (
         <Notice tone="positive" testId="agent-publish-done">
           v{published} is live.

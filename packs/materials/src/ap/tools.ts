@@ -152,31 +152,6 @@ export const getTool = defineApTool({
     }),
 });
 
-export const accountsTool = defineApTool({
-  id: "ap.accounts.list",
-  description:
-    "The client's accounts a bill's line may be coded to (costs, expenses, assets and other liabilities), with their numbers and descriptions from the accounting tool.",
-  sideEffect: "none",
-  input: z.object({}),
-  output: z.object({
-    count: z.number().int(),
-    accounts: z.array(
-      z.object({
-        id: Id,
-        name: z.string(),
-        number: z.string().nullable(),
-        kind: z.string(),
-        description: z.string().nullable(),
-      }),
-    ),
-  }),
-  run: (_input, ctx) =>
-    withTenant(ctx.db, ctx.tenantId, async (tx) => {
-      const accounts = await codableAccounts(tx, ctx.tenantId);
-      return { count: accounts.length, accounts };
-    }),
-});
-
 export const proposeCodingTool = defineApTool({
   id: "ap.bill.suggest_accounts",
   description:
@@ -326,7 +301,6 @@ export const payListGetTool = defineApTool({
 export const AP_TOOLS: readonly PackTool[] = [
   prepareTool,
   getTool,
-  accountsTool,
   proposeCodingTool,
   receiptTool,
   payListTool,

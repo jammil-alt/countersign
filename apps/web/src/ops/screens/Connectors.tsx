@@ -36,6 +36,7 @@ import {
   PageHeader,
   Tag,
 } from "../../ui/primitives";
+import { RequestAction } from "../../ui/RequestAction";
 import { SheetSection, SideSheet } from "../../ui/sheet";
 import { type ChipState, StatusChip } from "../../ui/status";
 import { BankSearch } from "../library/LibraryFrame";
@@ -47,6 +48,7 @@ type Connector = ResponseOf<typeof apiRoutes.opsConnectors>["connectors"][number
 type SetBody = {
   status?: ConnectorStatus;
   note?: string;
+  actions?: Record<string, boolean>;
   defaultPermissions?: Connector["defaultAccess"]["matrix"] | null;
 };
 
@@ -320,7 +322,7 @@ export function OpsConnectorsScreen() {
               editor="operator"
               note="It applies when a client's connection is first made, and starts no looser than approval for changes."
               rows={all
-                .filter((c) => c.tools.length > 0)
+                .filter((c) => c.tools.length > 0 && !c.builtIn)
                 .map((c) => ({
                   id: c.id,
                   name: c.name,
@@ -346,8 +348,6 @@ const LEVEL_WORDS = {
   off: ["Off", "neutral"],
 } as const;
 
-const TOOLS_SHOWN = 9;
-
 function ConnectorPanel({
   connector: c,
   onSave,
@@ -355,14 +355,13 @@ function ConnectorPanel({
   onClose,
 }: {
   connector: Connector;
-  onSave: (body: { status?: ConnectorStatus; note?: string }) => Promise<void>;
+  onSave: (body: SetBody) => Promise<void>;
   onOffered(): void;
   onClose(): void;
 }) {
   const [note, setNote] = useState(c.note);
   const [busy, setBusy] = useState(false);
-  const [allTools, setAllTools] = useState(false);
-  async function save(body: { status?: ConnectorStatus; note?: string }) {
+  async function save(body: SetBody) {
     setBusy(true);
     try {
       await onSave(body);
@@ -372,7 +371,6 @@ function ConnectorPanel({
       setBusy(false);
     }
   }
-  const tools = allTools ? c.tools : c.tools.slice(0, TOOLS_SHOWN);
   const m = c.defaultAccess.matrix;
   return (
     <SideSheet
@@ -451,43 +449,51 @@ function ConnectorPanel({
         </div>
       </Field>
 
-      <SheetSection label="Tools it gives agents">
-        {c.tools.length === 0 ? (
-          <p className="text-sm text-ink-muted">None.</p>
+      <SheetSection label="What it syncs">
+        {c.syncs.length === 0 ? (
+          <p className="text-sm text-ink-muted" data-testid="connector-panel-syncs">
+            Nothing: agents read it as they work.
+          </p>
         ) : (
-          <div className="flex flex-wrap gap-1.5" data-testid="connector-panel-tools">
-            {tools.map((t) => (
-              <Tag key={t.id}>{toolName(t.id)}</Tag>
+          <div className="flex flex-wrap gap-1.5" data-testid="connector-panel-syncs">
+            {c.syncs.map((s) => (
+              <Tag key={s}>{s}</Tag>
             ))}
-            {c.tools.length > TOOLS_SHOWN ? (
-              <Button size="sm" variant="link" onClick={() => setAllTools((v) => !v)}>
-                {allTools ? "Fewer" : `+${c.tools.length - TOOLS_SHOWN}`}
-              </Button>
-            ) : null}
           </div>
         )}
       </SheetSection>
 
-      <SheetSection label="Default access for new clients">
-        <dl className="flex flex-col gap-2 text-sm">
-          {(
-            [
-              ["Read", m.read],
-              ["Create", m.create],
-              ["Update", m.update],
-              ["Delete", m.delete],
-            ] as const
-          ).map(([label, level]) => (
-            <div key={label} className="flex items-center justify-between gap-3">
-              <dt className="text-ink">{label}</dt>
-              <dd>
-                <Badge tone={LEVEL_WORDS[level][1]}>{LEVEL_WORDS[level][0]}</Badge>
-              </dd>
-            </div>
-          ))}
-        </dl>
-        <p className="text-sm text-ink-muted">{SOURCE_LABEL[c.defaultAccess.source]}</p>
+      <SheetSection label="Actions for agents">
+        <ActionList
+          connector={c}
+          busy={busy}
+          onSwitch={(id, on) => save({ actions: { [id]: on } })}
+        />
+        <RequestAction as="operator" connector={c.id} testId="connector-request-action" />
       </SheetSection>
+
+      {c.builtIn ? null : (
+        <SheetSection label="Default access for new clients">
+          <dl className="flex flex-col gap-2 text-sm">
+            {(
+              [
+                ["Read", m.read],
+                ["Create", m.create],
+                ["Update", m.update],
+                ["Delete", m.delete],
+              ] as const
+            ).map(([label, level]) => (
+              <div key={label} className="flex items-center justify-between gap-3">
+                <dt className="text-ink">{label}</dt>
+                <dd>
+                  <Badge tone={LEVEL_WORDS[level][1]}>{LEVEL_WORDS[level][0]}</Badge>
+                </dd>
+              </div>
+            ))}
+          </dl>
+          <p className="text-sm text-ink-muted">{SOURCE_LABEL[c.defaultAccess.source]}</p>
+        </SheetSection>
+      )}
 
       <SheetSection label="Waiting to connect">
         {c.waiting.length === 0 ? (
@@ -514,6 +520,65 @@ function ConnectorPanel({
         <OfferControl connector={c} onChanged={onOffered} />
       </SheetSection>
     </SideSheet>
+  );
+}
+
+/** The kind as the screen reads it: a Change or a Send waits for approval unless a person says not. */
+const KIND_WORDS = {
+  get: "Get",
+  save: "Save",
+  change: "Change · approval",
+  send: "Send · approval",
+} as const;
+
+/**
+ * A connector's actions with their kind and a switch for agents (docs/step-model-plan.md §10c; the
+ * approved screen, docs/design/step-model.html section 4). Off actions are left out of the catalog
+ * and refused when an agent calls them. Turning an action on never loosens a client's access: their
+ * own settings and each step's approval still apply.
+ */
+function ActionList({
+  connector: c,
+  busy,
+  onSwitch,
+}: {
+  connector: Connector;
+  busy: boolean;
+  onSwitch(id: string, on: boolean): void;
+}) {
+  if (c.actions.length === 0) return <p className="text-sm text-ink-muted">None.</p>;
+  return (
+    <ul className="flex flex-col" data-testid="connector-actions">
+      {c.actions.map((a) => (
+        <li
+          key={a.id}
+          className="grid grid-cols-[1fr_auto_auto] items-center gap-3 border-t border-line py-2 text-sm first:border-t-0"
+          data-testid={`connector-action-${a.id}`}
+        >
+          <span className="flex min-w-0 flex-col text-ink">
+            {toolName(a.id)}
+            {a.isNew ? (
+              <span className="text-xs text-ink-muted" data-testid={`connector-action-${a.id}-new`}>
+                New: waiting to be turned on
+              </span>
+            ) : null}
+          </span>
+          <span className="eyebrow text-ink-muted">{KIND_WORDS[a.kind]}</span>
+          <button
+            type="button"
+            className="ds-choice shrink-0 disabled:cursor-default disabled:opacity-60"
+            role="switch"
+            aria-checked={a.on}
+            aria-label={`${toolName(a.id)} for agents`}
+            disabled={busy}
+            data-testid={`connector-action-${a.id}-switch`}
+            onClick={() => onSwitch(a.id, !a.on)}
+          >
+            <span className="ds-switch" />
+          </button>
+        </li>
+      ))}
+    </ul>
   );
 }
 
