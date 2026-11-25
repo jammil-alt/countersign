@@ -41,12 +41,14 @@ import {
   releaseOf,
   releaseSettingProblem,
   routeApproval,
+  type ToolSpec,
   thresholdReached,
   undiscussedFor,
   verifiesWrites,
   type WriteVerification,
 } from "@countersign/core";
 import type { RegisteredTool } from "../registry/tools";
+import { recordWriteKey, recordWriteParts } from "../tools/records";
 import { executeAction } from "./actions";
 import { noteReconnect } from "./attention";
 import { carryApproval } from "./carry";
@@ -84,6 +86,8 @@ export type ToolOutcome =
       inboxItemId: string | null;
       before: unknown;
       recorded?: RecordedChange;
+      /** A save to our own records waiting for a signature: `actionId` is its card's id. */
+      recordSave?: true;
     }
   /**
    * Test runs: the write was recorded as proposed and will never run. `standIn`: what the tool
@@ -299,7 +303,11 @@ export async function callTool(
         : { status: "failed", error: errorText(error) };
   }
   call.scope?.observe?.(call.toolId, input, outcome);
-  const actionId = "actionId" in outcome ? outcome.actionId : undefined;
+  // A record save's card names no external action (its id is the card's).
+  const actionId =
+    "actionId" in outcome && !(outcome.status === "awaiting_approval" && outcome.recordSave)
+      ? outcome.actionId
+      : undefined;
   await log.finishToolCall(step.tenantId, toolCallId, {
     status: LOG_STATUS[outcome.status],
     output:
@@ -378,27 +386,20 @@ async function dispatch(
     // grant is read from the pinned version only: nothing in a run widens it (invariant 9).
     const ungranted = recordGrantRefusal(step.agent, tool.spec, parsed.data);
     if (ungranted) return { status: "refused", reason: ungranted };
-    // Review of #687 (coordinator's decision): a live run's record write needs no client approval
-    // only from an agent that acts and is live. In `suggest_only`, or in its trial or sign-off stage
-    // (read fresh, as for a write to a client's tool), a person signs every write (invariant 8).
-    // DECISION (option a): a signed save to our own records isn't built yet, so such a write is
-    // refused with that reason; it only tightens. A test run goes on: it checks and saves nothing.
+    // Signed record saves (follow-up to #687, invariant 8): a live run's record write runs on its
+    // own only for an agent that acts and is live, on a step that adds no approver. Otherwise it
+    // waits for a person's signature: the records port checks it against the record type's rules
+    // now and puts one approval card per write key; the run resumes on the answer and the write is
+    // made once, under its key (apps/api `runs/ports.ts`). A test run goes on: it checks and saves
+    // nothing.
     const record = tool.spec.record;
     if (
       record &&
       (record.action === "create" || record.action === "update") &&
       step.mode !== "test"
     ) {
-      const stage = await deps.ports.store.agentStage(step.tenantId, step.agent.agentId);
-      if (effectiveMode(step.agent.bundle.definition, stage) !== "act") {
-        return {
-          status: "refused",
-          reason:
-            stage === "live"
-              ? `this agent suggests only, so a save to our records waits for a person, which isn't built yet (${tool.spec.id})`
-              : `in its ${stage ?? "bench"} stage every save waits for a person, which isn't built yet for our records (${tool.spec.id})`,
-        };
-      }
+      const signed = await signedRecordSave(deps, step, tool.spec, record.action, parsed.data);
+      if (signed) return signed;
     }
     const raw = await tool.tool.run(parsed.data, {
       tenantId: step.tenantId,
@@ -1067,4 +1068,75 @@ export async function keepBrowseHelp(
   const saved = await writeScopeNote(deps, step, BROWSE_NOTE_SCOPE, note);
   if (!saved) throw new Error("the note wasn't saved");
   return saved;
+}
+
+/**
+ * Signed record saves: whether a live record write waits for a person, and if so its card (or
+ * what an earlier try of the same write came to). Null: the write runs now, unsigned.
+ */
+async function signedRecordSave(
+  deps: RuntimeDeps,
+  step: StepContext,
+  spec: ToolSpec,
+  action: "create" | "update",
+  input: unknown,
+): Promise<ToolOutcome | null> {
+  const stage = await deps.ports.store.agentStage(step.tenantId, step.agent.agentId);
+  const acts = effectiveMode(step.agent.bundle.definition, stage) === "act";
+  // DECISION (review of #696): a step asks only through its own approval check (an approver the
+  // operator added), carried from the stored step as `ownApproval`; never the default the executor
+  // fills in for a step with none (every skill step's, and a Save output's with no checks).
+  const stepAsks = step.ownApproval === true && step.approval?.required === "required";
+  if (acts && !stepAsks && step.signAllWrites !== true) return null;
+  const why = !acts
+    ? stage === "live"
+      ? "This agent suggests only: its saves to our records wait for you."
+      : `This agent is in its ${stage ?? "bench"} stage: every save waits for you.`
+    : "This step asks for an approval before it saves.";
+  const records = deps.ports.records;
+  if (!records?.propose) {
+    return {
+      status: "refused",
+      reason: `${spec.id} waits for a person, and nothing here can ask one`,
+    };
+  }
+  const parts = recordWriteParts(action, input);
+  const key = await recordWriteKey(step, spec.id, input);
+  const routing = await deps.ports.store.approvalRouting(step.tenantId);
+  const route = routeApproval({
+    rules: routing.rules,
+    facts: changeFacts({ spec, connector: "records", agentId: step.agent.agentId, input }),
+    step: step.approval?.approver,
+    agent: [step.agent.bundle.definition.permissions.approver, step.agent.approver],
+    client: routing.clientDefault,
+    members: routing.members,
+  });
+  const out = await records.propose(step.tenantId, {
+    recordType: spec.record?.type ?? "",
+    action,
+    ...(parts.id ? { id: parts.id } : {}),
+    values: parts.values,
+    meta: {
+      agentVersionId: step.agent.agentVersionId,
+      runId: step.runId,
+      stepRunId: step.stepRunId,
+      key,
+      sources: parts.sources,
+      mode: step.mode,
+    },
+    agentId: step.agent.agentId,
+    why,
+    assignee: route.assignee,
+  });
+  if (out.status === "done") return { status: "done", output: out.record };
+  if (out.status === "rejected") {
+    return { status: "refused", reason: `a person turned this save down (${spec.id})` };
+  }
+  return {
+    status: "awaiting_approval",
+    actionId: out.inboxItemId,
+    inboxItemId: out.inboxItemId,
+    before: null,
+    recordSave: true,
+  };
 }

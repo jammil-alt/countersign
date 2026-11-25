@@ -7,6 +7,8 @@ import { type AgentData, RecordType } from "@countersign/core";
 import { describe, expect, it } from "vitest";
 import { ToolRegistry } from "../registry/tools";
 import {
+  type RecordProposal,
+  type RecordProposalOutcome,
   type RecordsPort,
   type RecordValues,
   type RecordWriteMeta,
@@ -92,7 +94,14 @@ function memoryRecords() {
       return { ...found, ...values };
     },
   };
-  return { port, calls, writes };
+  const proposals: RecordProposal[] = [];
+  /** What the next proposal answers (a card by default). */
+  const answer: { next: RecordProposalOutcome | null } = { next: null };
+  port.propose = async (_t, req) => {
+    proposals.push(req);
+    return answer.next ?? { status: "proposed", inboxItemId: `card-${proposals.length}` };
+  };
+  return { port, calls, writes, proposals, answer };
 }
 
 function setUp(
@@ -103,6 +112,11 @@ function setUp(
     mode?: "act" | "suggest_only";
     stage?: string | null;
     run?: "live" | "test";
+    /** The step's own approval (an approver the operator added). */
+    approval?: { required: "required" | "not_required"; onReject: "stop" };
+    /** The approval is the step's own check, not the executor's filled-in default. */
+    ownApproval?: boolean;
+    clientDefault?: string;
   } = {},
 ) {
   const records = memoryRecords();
@@ -120,7 +134,15 @@ function setUp(
           logged.push(done);
         },
       },
-      store: { agentStage: async () => (opts.stage === undefined ? "live" : opts.stage) },
+      store: {
+        agentStage: async () => (opts.stage === undefined ? "live" : opts.stage),
+        approvalRouting: async () => ({
+          rules: [],
+          revision: 0,
+          clientDefault: opts.clientDefault ?? null,
+          members: new Set<string>(),
+        }),
+      },
       platform: {},
       records: records.port,
     },
@@ -132,6 +154,8 @@ function setUp(
     stepId: "margin",
     mode: opts.run ?? "live",
     readOnly: opts.readOnly,
+    ...(opts.approval ? { approval: opts.approval } : {}),
+    ...(opts.ownApproval ? { ownApproval: true } : {}),
     agent: {
       agentId: "a1",
       agentVersionId: "v1",
@@ -260,29 +284,102 @@ describe("the gate on record types", () => {
     expect(again?.meta.key).toBe(first?.meta.key);
   });
 
-  it("writes without a person only for an agent that acts and is live; reads go on", async () => {
-    const write = { id: J1, margin: "1.00" };
-    for (const [opts, words] of [
+  it("asks a person to sign a save when the agent suggests only or isn't live; reads go on", async () => {
+    const write = { id: J1, margin: "1.00", sources: [J1] };
+    for (const [opts, why] of [
       [{ mode: "suggest_only" as const }, /suggests only/],
-      [{ stage: "trial" }, /in its trial stage/],
-      [{ stage: "signoff" }, /in its signoff stage/],
-      [{ stage: null }, /in its bench stage/],
+      [{ stage: "trial" }, /trial stage/],
+      [{ stage: "signoff" }, /signoff stage/],
+      [{ stage: null }, /bench stage/],
     ] as const) {
       const t = setUp(MARGIN_SET, opts);
       expect(await t.call("records.job_margin.update", write), JSON.stringify(opts)).toMatchObject({
-        status: "refused",
-        reason: expect.stringMatching(words),
+        status: "awaiting_approval",
+        actionId: "card-1",
+        inboxItemId: "card-1",
+        recordSave: true,
       });
+      // Nothing written; the card holds the write as proposed, keyed as the write would be.
       expect(t.writes).toEqual([]);
+      expect(t.proposals[0]).toMatchObject({
+        recordType: "job_margin",
+        action: "update",
+        id: J1,
+        values: { margin: "1.00" },
+        meta: {
+          agentVersionId: "v1",
+          runId: "r1",
+          stepRunId: "s1",
+          sources: [J1],
+          key: expect.stringMatching(/^rec:r1:margin:records\.job_margin\.update:/),
+        },
+        agentId: "a1",
+        why: expect.stringMatching(why),
+        assignee: { assigneeRole: "client_admin", assigneeUserId: null },
+      });
+      // The tool call names no external action for a record save's card.
+      expect(t.logged.at(-1)).toMatchObject({ status: "awaiting_approval" });
       expect(await t.call("records.job_margin.find", {})).toMatchObject({ status: "done" });
     }
-    // A test run in its trial checks the write (the port saves nothing in a test run).
-    const tried = setUp(MARGIN_SET, { stage: "trial", run: "test" });
-    expect(await tried.call("records.job_margin.update", write)).toMatchObject({ status: "done" });
-    expect(tried.writes[0]?.meta.mode).toBe("test");
-    // Acting and live: no person needed.
+  });
+
+  it("asks when the step adds an approver, routed to the step's approver", async () => {
+    const t = setUp(MARGIN_SET, {
+      approval: { required: "required", onReject: "stop" },
+      ownApproval: true,
+      clientDefault: "operator",
+    });
+    expect(
+      await t.call("records.job_margin.create", { job: "Barn", margin: "5.00" }),
+    ).toMatchObject({ status: "awaiting_approval", recordSave: true });
+    expect(t.proposals[0]).toMatchObject({
+      action: "create",
+      why: expect.stringMatching(/asks for an approval/),
+      assignee: { assigneeRole: "operator" },
+    });
+    // A step whose approval is off, on an agent that acts and is live: written, unsigned.
+    const off = setUp(MARGIN_SET, { approval: { required: "not_required", onReject: "stop" } });
+    expect(
+      await off.call("records.job_margin.create", { job: "Barn", margin: "5.00" }),
+    ).toMatchObject({ status: "done" });
+    expect(off.proposals).toEqual([]);
+    // Review of #696: the executor's filled-in default (`required`, no check of the step's own)
+    // never asks: an agent that acts and is live saves at once.
+    const filledIn = setUp(MARGIN_SET, { approval: { required: "required", onReject: "stop" } });
+    expect(
+      await filledIn.call("records.job_margin.create", { job: "Barn", margin: "5.00" }),
+    ).toMatchObject({ status: "done" });
+    expect(filledIn.proposals).toEqual([]);
+  });
+
+  it("takes an earlier try's answer: the signed write's record, or a person's no", async () => {
+    const done = setUp(MARGIN_SET, { stage: "trial" });
+    done.answer.next = { status: "done", record: { id: J1, margin: "1.00" } };
+    expect(await done.call("records.job_margin.update", { id: J1, margin: "1.00" })).toEqual({
+      status: "done",
+      output: { id: J1, margin: "1.00" },
+    });
+    const no = setUp(MARGIN_SET, { stage: "trial" });
+    no.answer.next = { status: "rejected" };
+    expect(await no.call("records.job_margin.update", { id: J1, margin: "1.00" })).toMatchObject({
+      status: "refused",
+      reason: expect.stringMatching(/turned this save down/),
+    });
+    expect([...done.writes, ...no.writes]).toEqual([]);
+  });
+
+  it("writes on its own for an agent that acts and is live, and checks in a test run", async () => {
     const live = setUp(MARGIN_SET);
-    expect(await live.call("records.job_margin.update", write)).toMatchObject({ status: "done" });
+    expect(await live.call("records.job_margin.update", { id: J1, margin: "1.00" })).toMatchObject({
+      status: "done",
+    });
+    expect(live.proposals).toEqual([]);
+    const tried = setUp(MARGIN_SET, { stage: "trial", run: "test" });
+    expect(await tried.call("records.job_margin.update", { id: J1, margin: "1.00" })).toMatchObject(
+      { status: "done" },
+    );
+    expect(tried.proposals).toEqual([]);
+    expect(tried.writes[0]?.meta.mode).toBe("test");
   });
 
   it("lets an asked agent read only, whatever it is granted", async () => {

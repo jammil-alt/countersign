@@ -495,6 +495,7 @@ export const de: Messages = {
   "desk.team.undoIs": "Zeit zum Rückgängigmachen: {window}.",
   "desk.approvalSettings": "Freigabe-Einstellungen",
   "change.now": "Jetzt",
+  "change.recordSave.why": "Warum es wartet",
   "change.after": "Nach der Änderung",
   "change.createsIt": "Noch nicht vorhanden: Diese Änderung legt es an.",
   "change.nothingRecorded": "Nichts erfasst.",
