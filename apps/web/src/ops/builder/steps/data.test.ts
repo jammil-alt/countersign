@@ -93,3 +93,14 @@ describe("a step's data", () => {
     expect(changed(second, uses).translated).toEqual([]);
   });
 });
+
+describe("when the test run was", () => {
+  it("says how long ago, or nothing when it is not known", async () => {
+    const { ago } = await import("./data");
+    const now = new Date("2026-11-25T12:00:00Z");
+    expect(ago("2026-11-25T11:58:00Z", now)).toBe("2 minutes ago");
+    expect(ago("2026-11-25T11:00:00Z", now)).toBe("1 hour ago");
+    expect(ago("2026-11-22T12:00:00Z", now)).toBe("3 days ago");
+    expect(ago(undefined, now)).toBe("");
+  });
+});

@@ -25,7 +25,12 @@ export interface OutputsEditorProps {
 const RULE_OPS = ["=", "!=", ">", ">=", "<", "<=", "contains", "exists"] as const;
 
 /** An output as its kind needs it: the part that says how, empty, and none of the other kinds'. */
-export function withKind(o: WorkflowOutput, kind: OutputKind): WorkflowOutput {
+export function withKind(
+  o: WorkflowOutput,
+  kind: OutputKind,
+  /** The step a new hand-off starts at: the stored format needs one (the workflow's first). */
+  firstStep = "start",
+): WorkflowOutput {
   const { report: _r, action: _a, handoff: _h, passOn: _p, ...rest } = o;
   const base = { ...rest, kind } as WorkflowOutput;
   switch (kind) {
@@ -33,9 +38,10 @@ export function withKind(o: WorkflowOutput, kind: OutputKind): WorkflowOutput {
       return { ...base, report: { to: [], channel: "inbox", message: "" } };
     case "write":
     case "save":
-      return { ...base, action: { action: "", input: {} } };
+      // The action is set once picked: an empty id isn't one (the validator says it is missing).
+      return base;
     case "handoff":
-      return { ...base, handoff: { agent: "@self", step: "", input: {} } };
+      return { ...base, handoff: { agent: "@self", step: firstStep, input: {} } };
     case "pass_on":
       return { ...base, passOn: { output: "" } };
     case "nothing":
@@ -65,7 +71,6 @@ export function OutputsEditor({ workflow, env, issues, onChange }: OutputsEditor
             issues={mine}
             onChange={(edit) => onChange(updateOutput(workflow, o.id, edit))}
             onRemove={() => onChange(removeOutput(workflow, o.id))}
-            last={workflow.outputs.length <= 1}
           />
         );
       })}
@@ -87,9 +92,7 @@ function OutputCard({
   issues,
   onChange,
   onRemove,
-  last,
 }: {
-  last: boolean;
   output: WorkflowOutput;
   env: StepFormEnv;
   deliveredBy: string[];
@@ -121,13 +124,7 @@ function OutputCard({
           )}
           {o.kind === "write" ? <Badge tone="accent">Needs approval</Badge> : null}
         </div>
-        <Button
-          size="sm"
-          aria-label={`Remove ${label}`}
-          disabled={last}
-          title={last ? "A workflow keeps at least one output." : undefined}
-          onClick={onRemove}
-        >
+        <Button size="sm" aria-label={`Remove ${label}`} onClick={onRemove}>
           Remove
         </Button>
       </div>
@@ -152,7 +149,9 @@ function OutputCard({
         <SmallSelect
           aria-label={`Kind of ${label}`}
           value={o.kind}
-          onChange={(e) => onChange((x) => withKind(x, e.target.value as OutputKind))}
+          onChange={(e) =>
+            onChange((x) => withKind(x, e.target.value as OutputKind, env.workflow.steps[0]?.id))
+          }
         >
           {steps.OUTPUT_KINDS.map((k) => (
             <option key={k} value={k}>
@@ -209,7 +208,7 @@ function OutputCard({
         </div>
       ) : null}
 
-      {(o.kind === "write" || o.kind === "save") && o.action ? (
+      {o.kind === "write" || o.kind === "save" ? (
         <div className="flex flex-col gap-2">
           <div className="flex flex-col gap-1 text-sm">
             <span className="text-ink">
@@ -217,9 +216,14 @@ function OutputCard({
             </span>
             <SmallSelect
               aria-label={`Action of ${label}`}
-              value={o.action.action}
+              value={o.action?.action ?? ""}
               onChange={(e) =>
-                onChange((x) => ({ ...x, action: { action: e.target.value, input: {} } }))
+                onChange((x) => {
+                  const { action: _drop, ...rest } = x;
+                  return e.target.value
+                    ? { ...rest, action: { action: e.target.value, input: {} } }
+                    : rest;
+                })
               }
             >
               <option value="">Pick one</option>

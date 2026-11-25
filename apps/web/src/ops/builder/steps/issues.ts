@@ -1,7 +1,9 @@
 // What stops a workflow being published, each on the step it is about, in plain words (§13a,
 // "Checked at publish"): core's `validateWorkflow`, with the parts the builder knows (the action
-// catalog, the skills, the match profiles) put in, plus what the form itself leaves open: a step with
-// no goal, an End that delivers nothing, a Loop with no goal. Pure.
+// catalog, the skills, the match profiles) put in, plus a few the form itself leaves open (a Fork's
+// unnamed path, a For each with no list). A missing goal, an End with nothing picked, an empty For
+// each and an output still being set up are core's own (the schema parses a draft; publishing holds
+// the rest). Pure.
 
 import { steps } from "@countersign/core";
 import { walk } from "./model";
@@ -11,15 +13,10 @@ import type { StepIssue, Workflow } from "./types";
 /** The builder's own codes, beside core's. */
 export type BuilderIssueCode =
   | steps.StepIssueCode
-  | "goal_missing"
-  | "end_empty"
-  | "end_reason_missing"
   | "fork_path_unnamed"
   | "for_each_list_missing"
   | "repeat_goal_missing"
-  | "handoff_target_missing"
-  | "output_unnamed"
-  | "output_incomplete";
+  | "handoff_target_missing";
 
 export interface BuilderIssue extends Omit<StepIssue, "code"> {
   code: BuilderIssueCode;
@@ -40,59 +37,9 @@ export function stepContext(ctx: UsesContext): steps.StepContext {
 
 export function workflowIssues(workflow: Workflow, ctx: UsesContext): BuilderIssue[] {
   const issues: BuilderIssue[] = [...steps.validateWorkflow(workflow, stepContext(ctx))];
-  for (const o of workflow.outputs) {
-    if (!o.name.trim()) {
-      issues.push({ at: o.id, code: "output_unnamed", message: "Name this output." });
-    }
-    const incomplete =
-      o.kind === "report"
-        ? !o.report || o.report.to.length === 0
-          ? "Say who gets this report."
-          : null
-        : o.kind === "write" || o.kind === "save"
-          ? !o.action?.action
-            ? `Pick what it ${o.kind === "write" ? "writes" : "saves"}.`
-            : null
-          : o.kind === "handoff"
-            ? !o.handoff?.step
-              ? "Pick where it hands off to."
-              : null
-            : null;
-    if (incomplete) issues.push({ at: o.id, code: "output_incomplete", message: incomplete });
-  }
   for (const { step } of walk(workflow)) {
     const at = step.id;
     switch (step.kind) {
-      case "do":
-        // A step with nothing chosen yet says so once, on "Who does it", not here too.
-        if (!step.name.trim() && step.uses?.type !== "missing") {
-          issues.push({ at, code: "goal_missing", message: "Say what this step does: its goal." });
-        }
-        break;
-      case "loop":
-        if (!step.goal.trim()) {
-          issues.push({
-            at,
-            code: "goal_missing",
-            message: "Say what the Loop is working toward.",
-          });
-        }
-        break;
-      case "end":
-        if (step.outputs.length === 0 && step.nothingToDo === undefined) {
-          issues.push({
-            at,
-            code: "end_empty",
-            message: "Pick what this End delivers, or say why there is nothing to do.",
-          });
-        } else if (step.nothingToDo !== undefined && !step.nothingToDo.trim()) {
-          issues.push({
-            at,
-            code: "end_reason_missing",
-            message: "Say why there is nothing to do.",
-          });
-        }
-        break;
       case "fork":
         for (const p of step.paths) {
           if (!p.name.trim()) {

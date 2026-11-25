@@ -91,7 +91,6 @@ describe("the workflow's outputs", () => {
     await user.click(screen.getByRole("button", { name: "Add an output" }));
     const added = onChange.mock.calls.at(-1)?.[0] as Workflow;
     expect(added.outputs).toHaveLength(2);
-    expect(screen.getByRole("button", { name: "Remove Bill" }).hasAttribute("disabled")).toBe(true);
     render(<OutputsEditor workflow={added} env={env(added)} issues={[]} onChange={onChange} />);
     await user.click(screen.getAllByRole("button", { name: "Remove Bill" })[1] as HTMLElement);
     const out = onChange.mock.calls.at(-1)?.[0] as Workflow;

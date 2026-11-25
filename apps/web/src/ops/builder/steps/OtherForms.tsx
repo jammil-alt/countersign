@@ -368,7 +368,7 @@ export function RepeatForm(props: StepFormProps<Of<"repeat">>) {
               until:
                 e.target.value === "rules"
                   ? { rules: { match: "all", rules: [] } }
-                  : { agent: { goal: "" } },
+                  : { agent: { goal: "It is done" } },
             })
           }
         >

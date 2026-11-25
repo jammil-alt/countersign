@@ -11,6 +11,21 @@ import type { Field, Step, Workflow } from "./types";
 export interface LastRun {
   input?: unknown;
   output?: unknown;
+  /** When the test run was (ISO time), for "last test run, 2 minutes ago". */
+  at?: string;
+}
+
+/** "2 minutes ago", "an hour ago", "3 days ago"; empty when the time isn't known. */
+export function ago(at: string | undefined, now: Date = new Date()): string {
+  const t = at ? Date.parse(at) : Number.NaN;
+  if (Number.isNaN(t)) return "";
+  const minutes = Math.max(0, Math.round((now.getTime() - t) / 60_000));
+  if (minutes < 1) return "just now";
+  const plural = (n: number, w: string) => `${n} ${w}${n === 1 ? "" : "s"} ago`;
+  if (minutes < 60) return plural(minutes, "minute");
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return plural(hours, "hour");
+  return plural(Math.round(hours / 24), "day");
 }
 
 export type Runs = Readonly<Record<string, LastRun>>;

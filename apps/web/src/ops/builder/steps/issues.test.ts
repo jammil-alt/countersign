@@ -107,10 +107,10 @@ describe("what stops publishing", () => {
     );
     w = {
       ...w,
-      outputs: [{ ...w.outputs[0], kind: "write", action: { action: "", input: {} } } as never],
+      outputs: [{ ...w.outputs[0], kind: "write" } as never],
     };
     expect(workflowIssues(w, ctx).find((i) => i.code === "output_incomplete")?.message).toBe(
-      "Pick what it writes.",
+      "Pick the action that delivers this output.",
     );
   });
 });

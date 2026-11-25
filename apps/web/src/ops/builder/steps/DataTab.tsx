@@ -3,7 +3,7 @@
 // what the step did) and Going out (its output). From the step's last test run, otherwise sample data
 // made from the fields' types. For understanding only: nothing here is checked.
 
-import { changed, comingIn, goingOut, type LastRun } from "./data";
+import { ago, changed, comingIn, goingOut, type LastRun, type Runs } from "./data";
 import type { StepFormEnv } from "./form-kit";
 import type { Step } from "./types";
 
@@ -43,6 +43,12 @@ function Block({
   );
 }
 
+/** "From the last test run, 2 minutes ago" (the time left off when the run didn't say). */
+function ran(lastRun: LastRun | undefined, runs: Runs | undefined, id: string): string {
+  const when = ago((lastRun ?? runs?.[id])?.at);
+  return when ? `${RAN}, ${when}` : RAN;
+}
+
 const json = (value: unknown) => JSON.stringify(value, null, 2);
 
 export function DataTab({ step, env, lastRun, runs }: DataTabProps) {
@@ -52,7 +58,11 @@ export function DataTab({ step, env, lastRun, runs }: DataTabProps) {
   return (
     <div className="flex flex-col gap-4" data-testid="data-tab">
       <p className="text-xs text-ink-muted">For understanding only: nothing here is checked.</p>
-      <Block title="Coming in" source={incoming.sample ? SAMPLE : RAN} testId="data-in">
+      <Block
+        title="Coming in"
+        source={incoming.sample ? SAMPLE : ran(lastRun, runs, step.id)}
+        testId="data-in"
+      >
         <pre className="overflow-x-auto border border-line bg-surface-subtle p-2 font-mono text-xs text-ink">
           {json(incoming.value)}
         </pre>
@@ -69,7 +79,11 @@ export function DataTab({ step, env, lastRun, runs }: DataTabProps) {
         )}
         <p className="text-sm text-ink">{did.did}</p>
       </Block>
-      <Block title="Going out" source={outgoing.sample ? SAMPLE : RAN} testId="data-out">
+      <Block
+        title="Going out"
+        source={outgoing.sample ? SAMPLE : ran(lastRun, runs, step.id)}
+        testId="data-out"
+      >
         <pre className="overflow-x-auto border border-line bg-surface-subtle p-2 font-mono text-xs text-ink">
           {json(outgoing.value)}
         </pre>

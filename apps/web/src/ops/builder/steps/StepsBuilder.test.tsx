@@ -11,7 +11,6 @@ import { ApiProvider } from "../../../api/useApi";
 import { rootOrder } from "../../../test/chart";
 import { fakeApi } from "../../../test/fixtures";
 import WorkflowBuilder from "../WorkflowBuilder";
-import { UNFILLED } from "./draft";
 
 const AGENT_ID = "00000000-0000-4000-8000-00000000d501";
 const V1 = "00000000-0000-4000-8000-0000000f0d51";
@@ -79,7 +78,7 @@ const workflow = (over: Record<string, unknown> = {}) => ({
       kind: "end",
       name: "Done",
       outputs: [],
-      nothingToDo: UNFILLED,
+
       status: "succeeded",
     },
   ],

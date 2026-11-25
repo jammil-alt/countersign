@@ -26,7 +26,6 @@ import { triggerTitle } from "../../workflow/describe";
 import type { Member, People } from "../people";
 import { triggerFields, useStepsCatalog } from "./catalog";
 import { type BoxWords, boxWords, displayProcess } from "./display";
-import { fromStored, toStored } from "./draft";
 import type { StepFormEnv } from "./form-kit";
 import { canRedo, canUndo, commit, redo, startHistory, undo } from "./history";
 import { canPublish, issuesByStep, publishSummary, workflowIssues } from "./issues";
@@ -153,7 +152,7 @@ function Body(
 ) {
   const { agent, from, catalog } = props;
   const action = useAction();
-  const [history, setHistory] = useState(() => startHistory(fromStored(props.start)));
+  const [history, setHistory] = useState(() => startHistory(props.start));
   const workflow = history.present;
   const edit = useCallback((next: Workflow) => setHistory((h) => commit(h, next)), []);
   const [saved, setSaved] = useState({
@@ -162,7 +161,7 @@ function Body(
     status: from.status,
     canon: canonicalJson(props.start),
   });
-  const dirty = canonicalJson(toStored(workflow)) !== saved.canon;
+  const dirty = canonicalJson(workflow) !== saved.canon;
   const [selection, setSelection] = useState<string | null>(null);
   const [addAt, setAddAt] = useState<InsertPoint | null>(null);
   const [folded, setFolded] = useState<ReadonlySet<string>>(new Set());
@@ -244,7 +243,7 @@ function Body(
     const res = await action.call(apiRoutes.opsSaveVersion, {
       params: { id: agent.id },
       body: {
-        bundle: withWorkflow(props.bundle, props.workflow, toStored(snapshot)) as never,
+        bundle: withWorkflow(props.bundle, props.workflow, snapshot) as never,
         parentVersionId: saved.id,
         changeNote: "Edited in the workflow builder",
       },
@@ -254,7 +253,7 @@ function Body(
       id: res.data.version.id,
       version: res.data.version.version,
       status: res.data.version.status,
-      canon: canonicalJson(toStored(snapshot)),
+      canon: canonicalJson(snapshot),
     };
     setSaved(next);
     props.onChanged();
@@ -425,7 +424,7 @@ function Body(
         ) : selected ? (
           <StepPanel
             stepId={selected.id}
-            kind={kindLabel(selected.kind)}
+            kind={`Step ${walk(workflow).findIndex((l) => l.step.id === selected.id) + 1} · ${kindLabel(selected.kind)}`}
             title={selected.name}
             onRename={(name) => edit(updateStep(workflow, selected.id, (s) => ({ ...s, name })))}
             status={statuses.get(selected.id)}

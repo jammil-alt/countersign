@@ -1,4 +1,4 @@
-import type { steps } from "@countersign/core";
+import { steps } from "@countersign/core";
 import { describe, expect, it } from "vitest";
 import {
   addOutput,
@@ -24,7 +24,9 @@ const id = () => `n${++n}`;
 
 const base = (list: Workflow["steps"] = []): Workflow => ({
   schemaVersion: 5,
-  triggers: [{ id: "t1", on: { type: "manual" } } as never],
+  triggers: [
+    { id: "t1", on: { type: "manual", input: { type: "object", properties: {} } } } as never,
+  ],
   outputs: [{ id: "o1", name: "Report", kind: "nothing", fields: [] } as never],
   steps: list,
 });
@@ -114,5 +116,22 @@ describe("the step model's edits", () => {
     expect(stepsBefore(w, right.id).map((s) => s.id)).toEqual([first.id, fork.id]);
     expect(stepsBefore(w, after.id).map((s) => s.id)).toEqual([first.id, fork.id]);
     expect(stepsBefore(w, left.id).map((s) => s.id)).toEqual([first.id, fork.id]);
+  });
+
+  it("only adds what the schema parses, so a draft can always be saved", () => {
+    for (const kind of [
+      "do",
+      "loop",
+      "fork",
+      "for_each",
+      "repeat",
+      "wait",
+      "handoff",
+      "end",
+    ] as const) {
+      const w = ensureEnd(insertStep(base(), { container: ROOT, index: 0 }, newStep(kind, id)), id);
+      const parsed = steps.Workflow.safeParse(w);
+      expect(parsed.success, `${kind}: ${JSON.stringify(parsed.error?.issues)}`).toBe(true);
+    }
   });
 });

@@ -1,6 +1,6 @@
 // More (§5): what most steps never touch, folded. Model (AI), if it fails, whether the client sees
 // it. Deadline and channel live with a person's or a contact's instructions, where they are said.
-// DECISION: "run by another agent" is not on the v5 Do step, so it isn't here.
+// "Run by another agent" is the step's `agent` (a slug of the client's other agents).
 
 import { SmallInput, SmallSelect } from "../fields";
 import type { StepFormEnv } from "./form-kit";
@@ -43,6 +43,24 @@ export function MoreSection({
             </SmallSelect>
           </div>
         ) : null}
+        <div className="flex flex-col gap-1 text-sm text-ink">
+          Run by another agent
+          <SmallSelect
+            aria-label="Run by another agent"
+            value={step.agent ?? ""}
+            onChange={(e) => {
+              const { agent: _a, ...rest } = step;
+              onChange(e.target.value ? { ...rest, agent: e.target.value } : rest);
+            }}
+          >
+            <option value="">This agent</option>
+            {(env.agents ?? []).map((a) => (
+              <option key={a.slug} value={a.slug}>
+                {a.name}
+              </option>
+            ))}
+          </SmallSelect>
+        </div>
         <div className="flex flex-col gap-1 text-sm text-ink">
           If it fails
           <SmallSelect
