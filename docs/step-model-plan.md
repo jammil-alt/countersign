@@ -550,6 +550,8 @@ never two streams in the same files (the stored format, the API contract, the ex
 streams at once; each its own branch and PR; workers don't edit this page (the coordinator does, per
 wave, as CLAUDE.md asks).
 
+**When a stream is done:** once its PR is merged, its session is archived (owner, 2026-11-25).
+
 **Rule for the model:** Opus where a mistake is silent or breaks an invariant: the runtime and its
 approvals (8, 9), matching precision (7), translation of money and data, the platform's own agents,
 the Builder's prompts, and the rules documents. Sonnet where the spec is exact and the work follows a
