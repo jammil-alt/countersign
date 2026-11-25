@@ -5,9 +5,10 @@
 // client never reaching another's records (invariant 1).
 
 import { readFileSync } from "node:fs";
-import { createMatchPort, type ProfileChooser, steps } from "@countersign/core";
+import { ComplianceRefusal, createMatchPort, type ProfileChooser, steps } from "@countersign/core";
 import { withTenant } from "@countersign/db";
 import { createTestDatabase, databaseAvailable, type TestDatabase } from "@countersign/db/testing";
+import { createLlmClient, type EmbedRequest, type LlmRequest } from "@countersign/llm";
 import { and, eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { PackToolContext } from "../pack";
@@ -159,5 +160,31 @@ describe.skipIf(!online)("the CRM records profile", () => {
         by,
       }),
     ).rejects.toThrow(/email/);
+  });
+
+  it("matches by name when the client's compliance refuses embeddings: nothing fails", async () => {
+    const jane = await keyId(A, "L01");
+    const calls: string[][] = [];
+    const llm = createLlmClient({
+      transport: {
+        create: (_: LlmRequest) => Promise.reject(new Error("no messages here")),
+        embed: async (request: EmbedRequest) => {
+          calls.push([...request.input]);
+          throw new ComplianceRefusal("Embedding with openai isn't covered for this client");
+        },
+      },
+    });
+    const r = await port.match({
+      ctx: { ...ctx(A), llm },
+      settings: steps.MatchSettings.parse({ to: "crm-records", type: "hybrid" }),
+      items: [{ name: "Jane Doe", company: "Blue Ridge Millwork", module: "Leads" }],
+      choose: async (q) => ({
+        record_id: q.candidates[0]?.id ?? null,
+        confidence: 0.95,
+        reason: "same",
+      }),
+    });
+    expect(calls).toHaveLength(1);
+    expect(r.output.items[0]).toMatchObject({ matched: jane, how: "semantic" });
   });
 });

@@ -4,16 +4,18 @@
 // learned as an exact hit, a test run learning nothing, and one client never reaching another's
 // records (invariant 1).
 
-import { createMatchPort, type ProfileChooser, steps } from "@countersign/core";
+import { ComplianceRefusal, createMatchPort, type ProfileChooser, steps } from "@countersign/core";
 import { type Db, vendor } from "@countersign/db";
 import { createTestDatabase, databaseAvailable, type TestDatabase } from "@countersign/db/testing";
-import { eq } from "drizzle-orm";
+import type { EmbedRequest, LlmRequest, LlmTransport } from "@countersign/llm";
+import { and, eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { parseLine } from "../catalog/keys";
 import { catalogItem, vendorItem } from "../schema";
 import { insertShop, type ShopFixture } from "../testing.test-helper";
 import { type PackToolContext, packToolContext } from "../tools";
 import { MATERIALS_MATCHERS } from "./matchers";
+import { vendorItemsRegister } from "./tools";
 
 const online = await databaseAvailable();
 
@@ -305,5 +307,94 @@ describe.skipIf(!online)("the Purchasing area's match profiles", () => {
     ).toMatchObject({
       matched: null,
     });
+  });
+
+  /** An embedding transport: one direction for every text, or a compliance refusal (HIPAA mode). */
+  const embedding = (refuse: boolean, calls: string[][] = []): LlmTransport => ({
+    create: (_: LlmRequest) => Promise.reject(new Error("no messages here")),
+    embed: async (request: EmbedRequest) => {
+      calls.push([...request.input]);
+      if (refuse)
+        throw new ComplianceRefusal("Embedding with openai isn't covered for this client");
+      return {
+        model: "text-embedding-3-large",
+        embeddings: request.input.map(() =>
+          Array.from({ length: request.dimensions }, (_, j) => (j === 0 ? 1 : 0)),
+        ),
+        usage: { inputTokens: request.input.length },
+      };
+    },
+  });
+  const withModel = (transport: LlmTransport) =>
+    packToolContext({
+      tenantId: A.tenantId,
+      agentVersionId: A.agentVersionId,
+      mode: "live",
+      db: t.db,
+      transport,
+    });
+
+  it("shortlists by name when the client's compliance refuses embeddings: nothing fails", async () => {
+    const calls: string[][] = [];
+    const r = await port.match({
+      ctx: withModel(embedding(true, calls)),
+      settings: settings({ to: "master-items", type: "hybrid" }),
+      items: [{ description: "walnut boards" }],
+      choose: async () => ({ record_id: walnut, confidence: 0.95, reason: "walnut" }),
+    });
+    expect(calls).toHaveLength(1);
+    expect(r.output.items[0]).toMatchObject({ matched: walnut, how: "semantic" });
+  });
+
+  it("Register lines makes its new master items searchable, never its vendor items, and a refusal fails nothing", async () => {
+    const register = async (line: string, transport: LlmTransport) => {
+      const { documentId, lineIds } = await A.invoiceDoc(cedar, [
+        { description: line, qty: "2", uom: "BF", unitPrice: "9.50" },
+      ]);
+      const parsed = parseLine(line);
+      return (await vendorItemsRegister.run(
+        vendorItemsRegister.input.parse({
+          documentId,
+          vendorId: cedar,
+          lines: [
+            {
+              docLineId: lineIds[0],
+              lineNo: 1,
+              decision: "new_item",
+              catalogItemId: null,
+              confidence: 0.9,
+              method: "rules",
+              hingeAttribute: null,
+              needsReview: false,
+              vetoed: null,
+              category: parsed.category,
+              attributes: parsed.attributes,
+              candidates: [],
+            },
+          ],
+        }),
+        withModel(transport),
+      )) as {
+        newMasterItems: number;
+        catalogItemIds: string[];
+        vendorItemIds: string[];
+        embedded: number;
+      };
+    };
+    const refused = await register("CHERRY 4/4 FAS", embedding(true));
+    expect(refused).toMatchObject({ newMasterItems: 1, embedded: 0 });
+    const made = await register("MAPLE 8/4 FAS", embedding(false));
+    expect(made).toMatchObject({ newMasterItems: 1, embedded: 1 });
+    const [item] = await t.db
+      .select({ embedding: catalogItem.embedding })
+      .from(catalogItem)
+      .where(eq(catalogItem.id, made.catalogItemIds[0] ?? ""));
+    expect(item?.embedding).toHaveLength(1024);
+    const vendorItems = await t.db
+      .select({ embedding: vendorItem.embedding })
+      .from(vendorItem)
+      .where(and(eq(vendorItem.tenantId, A.tenantId), eq(vendorItem.vendorId, cedar)));
+    expect(vendorItems.length).toBeGreaterThan(0);
+    expect(vendorItems.every((v) => v.embedding === null)).toBe(true);
   });
 });
