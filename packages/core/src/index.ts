@@ -384,6 +384,8 @@ export * from "./setup/view";
 export * from "./skills/index";
 // docs/sop-plan.md: the agent's SOP, made by code from its setup, and its revisions
 export * from "./sop/index";
+// The step model (docs/step-model-plan.md), workflow schemaVersion 5, as the `steps` namespace.
+export * as steps from "./steps";
 export * from "./supervisor/health";
 // §1.164: reading and writing table files, outside `processes` (kept out of the web first load).
 export * as tableFiles from "./tables";
