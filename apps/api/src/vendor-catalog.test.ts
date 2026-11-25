@@ -642,8 +642,10 @@ describe.skipIf(!h)("the vendor catalog's pattern, end to end", () => {
     expect(out("o-m-register-answer")).toMatchObject({ registered: 1, newVendorItems: 1 });
     expect(out("o-m-embed-answer")).toMatchObject({ embedded: 1, vendorItems: 1 });
     // Two AI calls (Semantic match, Master item manager); embeddings for the five lines not known,
-    // the three lines new to the vendor, the new items, and the person's.
-    expect(calls).toEqual({ create: 2, embed: 4 });
+    // the three lines new to the vendor, the new items, and the person's; and Register lines'
+    // own embedding of the master item it made (step model §10d), which the hand-written replay
+    // holds no answer for, so Make search embeddings, the stored step after it, makes it instead.
+    expect(calls).toEqual({ create: 2, embed: 5 });
 
     // What was saved: every decided line by this agent version, the person's by the person.
     const matches = await H.t.db.select().from(itemMatch).where(eq(itemMatch.tenantId, tenantId()));

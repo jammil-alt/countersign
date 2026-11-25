@@ -74,7 +74,7 @@ async function vendorAbbreviations(
  * With no vendor, the description aliases every vendor has for this text. DECISION: they settle it
  * only when all of them name one live item; two vendors meaning different items is unsure.
  */
-async function anyVendorAlias(
+export async function anyVendorAlias(
   tx: Tx,
   tenantId: string,
   hash: string,
@@ -111,7 +111,7 @@ export function skuTokens(description: string): string[] {
  */
 // DECISION (§1.189): a SKU never outvotes the description's own words (as §1.144 for invoices);
 // two vendor items naming two master items is unsure, never guessed.
-async function vendorCatalogHit(
+export async function vendorCatalogHit(
   tx: Tx,
   tenantId: string,
   input: MatchTextInput,
