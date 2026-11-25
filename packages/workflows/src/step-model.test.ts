@@ -571,6 +571,21 @@ describe("a v5 workflow that names seats", () => {
     expect(JSON.stringify(h.sent[0])).toContain("luis");
     expect(JSON.stringify(h.sent[0])).not.toContain("seat:");
   });
+
+  it("words a delivered output's line with its name quoted, in a live and a test run", async () => {
+    const named = { ...report, name: "The bill, itemized" };
+    const wfn = wf([append, end(["o_report"])], [named]);
+    const live = new Harness();
+    live.agent.resolveMerged = async () => ({ tool: "excel.rows.append", connector: "excel" });
+    await run(live, wfn, undefined, { seats: SEATS });
+    expect(live.row("s_end:out:o_report")?.summary).toBe("Sent “The bill, itemized”");
+    const test = new Harness({ ...RUN, mode: "test" });
+    test.agent.resolveMerged = async () => ({ tool: "excel.rows.append", connector: "excel" });
+    await run(test, wfn, undefined, { seats: SEATS });
+    expect(test.row("s_end:out:o_report")?.summary).toBe(
+      "Would send “The bill, itemized” (test run, not sent)",
+    );
+  });
 });
 
 describe("a v5 Match and Loop", () => {

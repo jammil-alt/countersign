@@ -20,6 +20,7 @@ import {
   clientLabel,
   collectRefs,
   DEFAULT_APPROVAL,
+  type DeliveredKind,
   type Duration,
   evaluateRules,
   // Collect reports (owner, 2026-11-24): each link is a "Request info" step.
@@ -1300,6 +1301,8 @@ class Executor {
     afterUnwritten = false,
   ): string {
     if (rejected) return `${stepStateLabel(step, false)}: ${this.words.notApproved}`;
+    const delivered = this.delivering.get(step);
+    if (delivered) return this.words.delivered(delivered.kind, delivered.name, notWritten);
     // A read or skill a test run couldn't try on what an unmade write would have returned.
     if (notWritten && afterUnwritten && !this.writes(step)) {
       return this.words.wouldAfterUnwritten(step.name);
@@ -2771,6 +2774,7 @@ class Executor {
     // Wave 5: a notify step with `onError: continue`: a send that fails is recorded as failed in
     // the durable step's result (so a replay doesn't send again) and the run goes on.
     continues = false,
+    delivered?: { kind: DeliveredKind; name: string },
   ): Promise<{ outcome: "sent" | "skipped" | "not_seen" | "failed"; error?: string }> {
     const { run, log, notify } = this.ctx;
     const sent: {
@@ -2799,7 +2803,9 @@ class Executor {
           await log.update(id, {
             status: "succeeded",
             output: { sent: false },
-            summary: this.words.wouldSend(label),
+            summary: delivered
+              ? this.words.delivered(delivered.kind, delivered.name, true)
+              : this.words.wouldSend(label),
           });
           return { sent: false, ack: null, urgent: null };
         }
@@ -2869,7 +2875,12 @@ class Executor {
       await this.runner.do(
         `${nodeName}:logged`,
         async () => {
-          await log.update(logId, { status: "succeeded", summary: `${label}: ${this.words.sent}` });
+          await log.update(logId, {
+            status: "succeeded",
+            summary: delivered
+              ? this.words.delivered(delivered.kind, delivered.name, false)
+              : `${label}: ${this.words.sent}`,
+          });
           return null;
         },
         NOTICE_STEP_CONFIG,
@@ -4276,6 +4287,7 @@ class Executor {
       frame.scope,
       step.name,
       this.continues(step),
+      this.delivering.get(step),
     );
     // Wave 5: sent, skipped (its `when`), not seen in time (urgent, the run went on), or failed.
     this.record(frame, step, null, {
@@ -4295,6 +4307,7 @@ class Executor {
   async handoff(step: processes.HandoffStep, name: string, frame: Frame): Promise<void> {
     const { run, log } = this.ctx;
     const port = this.ctx.handoff;
+    const delivered = this.delivering.get(step);
     const ended = await this.runner.do(name, async () => {
       const input = resolveTemplate(step.input, frame.scope);
       const id = await log.start({ runId: run.id, nodeId: name, nodeType: "handoff", input });
@@ -4305,7 +4318,9 @@ class Executor {
         await log.update(id, {
           status: "succeeded",
           output,
-          summary: this.words.wouldHandOff(names.name, names.at),
+          summary: delivered
+            ? this.words.delivered("handoff", delivered.name, true)
+            : this.words.wouldHandOff(names.name, names.at),
         });
         return { output };
       }
@@ -4327,7 +4342,9 @@ class Executor {
       await log.update(id, {
         status: "succeeded",
         output,
-        summary: this.words.handedOff(r.name, shortRunId(r.runId)),
+        summary: delivered
+          ? this.words.delivered("handoff", delivered.name, false)
+          : this.words.handedOff(r.name, shortRunId(r.runId)),
       });
       return { output };
     });
@@ -5075,6 +5092,12 @@ class Executor {
     return processes.fillSeats(one, this.ctx.seats ?? {}).steps[0] as processes.Step;
   }
 
+  /**
+   * The steps an End built for a delivered output, with what the output is: their timeline lines
+   * quote the output's name (`this.words.delivered`) instead of reading the name as a sentence.
+   */
+  readonly delivering = new WeakMap<object, { kind: DeliveredKind; name: string }>();
+
   async deliver(o: steps.WorkflowOutput, endName: string, frame: Frame): Promise<void> {
     const out: Frame = { ...frame, prefix: `${endName}:out:`, top: false };
     const name = `${out.prefix}${o.id}`;
@@ -5100,10 +5123,9 @@ class Executor {
           message: r.message,
           ...(r.sources ? { sources: r.sources } : {}),
         };
-        return this.runStep(
-          this.seated({ ...base, kind: "notify", notify } as processes.Step),
-          out,
-        );
+        const sent = this.seated({ ...base, kind: "notify", notify } as processes.Step);
+        this.delivering.set(sent, { kind: "report", name: o.name });
+        return this.runStep(sent, out);
       }
       case "write":
       case "save": {
@@ -5126,6 +5148,7 @@ class Executor {
         ) as processes.Step;
         if (checks) write.checks = checks;
         const seated = this.seated(write);
+        if (o.kind === "save") this.delivering.set(seated, { kind: "save", name: o.name });
         if (!action && steps.mergedAction(a.action)) this.stepModel?.merged.add(seated);
         return this.runStep(seated, out);
       }
@@ -5137,7 +5160,9 @@ class Executor {
           step: h.step,
           ...(h.workflow ? { workflow: h.workflow } : {}),
         };
-        return this.runStep({ ...base, kind: "handoff", to, input: h.input }, out);
+        const handed = { ...base, kind: "handoff", to, input: h.input } as processes.Step;
+        this.delivering.set(handed, { kind: "handoff", name: o.name });
+        return this.runStep(handed, out);
       }
       case "pass_on": {
         const p = o.passOn;
@@ -5163,7 +5188,7 @@ class Executor {
           await log.update(id, {
             status: "succeeded",
             output: { output, sources },
-            summary: `${o.name}: ${this.words.done}`,
+            summary: this.words.delivered("pass_on", o.name, this.testRun),
           });
           return { output, sources };
         });
