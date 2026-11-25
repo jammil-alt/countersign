@@ -126,6 +126,7 @@ import {
 import { inboxEventType, isWaitTimeout, type StepConfig, type StepRunner } from "./runner";
 // The step model (docs/step-model-plan.md): a v5 workflow's steps on today's engines.
 import {
+  carryStepModel,
   catalogKindOf,
   incomingTranslation,
   loadStepModel,
@@ -621,7 +622,10 @@ export async function executeWorkflow(
     // the engine and the ports see plain user ids. Pure over the run's snapshot, so a replay reads
     // the same people. A converted v3 workflow names no seat.
     if (loaded.v3 === null && processes.namesSeats(loaded.process)) {
-      loaded = { ...loaded, process: processes.fillSeats(loaded.process, ctx.seats ?? {}) };
+      const filled = processes.fillSeats(loaded.process, ctx.seats ?? {});
+      // The step model: what it knows of each engine step moves to the filled copy.
+      if (stepModel) carryStepModel(stepModel, loaded.process, filled);
+      loaded = { ...loaded, process: filled };
     }
   } catch (error) {
     if (!(error instanceof ProcessLoadError)) throw error;
@@ -5023,6 +5027,16 @@ class Executor {
    * Its durable name is `${endName}:out:${outputId}`; its record (`steps.<outputId>`) has its
    * outcome. An output with `when` is delivered only when its rules hold (else `skipped`).
    */
+  /**
+   * A step an End builds for an output, with the seats it names (a report's people, a write's
+   * approvers) filled as the workflow's own steps were at load (`processes.fillSeats`).
+   */
+  seated(step: processes.Step): processes.Step {
+    const one = { steps: [step] };
+    if (!processes.namesSeats(one)) return step;
+    return processes.fillSeats(one, this.ctx.seats ?? {}).steps[0] as processes.Step;
+  }
+
   async deliver(o: steps.WorkflowOutput, endName: string, frame: Frame): Promise<void> {
     const out: Frame = { ...frame, prefix: `${endName}:out:`, top: false };
     const name = `${out.prefix}${o.id}`;
@@ -5048,7 +5062,10 @@ class Executor {
           message: r.message,
           ...(r.sources ? { sources: r.sources } : {}),
         };
-        return this.runStep({ ...base, kind: "notify", notify } as processes.Step, out);
+        return this.runStep(
+          this.seated({ ...base, kind: "notify", notify } as processes.Step),
+          out,
+        );
       }
       case "write":
       case "save": {
@@ -5070,8 +5087,9 @@ class Executor {
             : { ...base, kind: "write", tool: a.action, input: a.input }
         ) as processes.Step;
         if (checks) write.checks = checks;
-        if (!action && steps.mergedAction(a.action)) this.stepModel?.merged.add(write);
-        return this.runStep(write, out);
+        const seated = this.seated(write);
+        if (!action && steps.mergedAction(a.action)) this.stepModel?.merged.add(seated);
+        return this.runStep(seated, out);
       }
       case "handoff": {
         const h = o.handoff;
