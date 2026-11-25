@@ -242,11 +242,11 @@ then one pass of its "To verify" list against the real service.
 
 ### Lockdown: a kill switch per client and for everything (owner, 2026-11-24; `docs/lockdown-plan.md`, `docs/plan.md` §1.243)
 
-Planned, not built. One switch that stops every read and write of a client's data, its tools and
+K0–K2 built (the migration, the database layer and the API; PRs #668 and #666), K3–K5 left (the screens, the edge rule, docs and the register). One switch that stops every read and write of a client's data, its tools and
 its AI calls, ends runs in progress, and keeps its people out, until the security officer unlocks
 it; the same for every client at once; and a Cloudflare edge rule for when the app itself may be
-compromised. Enforced in the database on the path every query already takes (`inScope`). Streams
-K0 (migration, own PR) to K5. Owner: the five questions in the plan's §10.
+compromised. Enforced in the database on the path every query already takes (`inScope`). Owner: set
+`SECURITY_OFFICER_EMAILS` on staging and production (`docs/operations.md` §1.4).
 
 ### Back office work: Sales, onboarding and Build (merged 2026-11-17; onboarding O1–O3 merged)
 

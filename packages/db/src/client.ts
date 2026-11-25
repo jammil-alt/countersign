@@ -68,6 +68,27 @@ function asLocked(error: unknown, tenantIds: readonly string[]): unknown {
 type ScopeMode = "one" | "some" | "investigate";
 
 /**
+ * Waits for the scope and `fn`, which run together (the scope first on the connection). When both
+ * fail, the scope's error is the one thrown: `fn` may fail first (its input checks run before the
+ * scope's answer arrives), and a locked client must be answered as locked whatever `fn` threw.
+ */
+async function scopeFirst<T>(
+  readOnly: Promise<void> | undefined,
+  scoped: Promise<void>,
+  work: Promise<T>,
+): Promise<T> {
+  const scope = Promise.all([readOnly, scoped]);
+  try {
+    const [, out] = await Promise.all([scope, work]);
+    return out;
+  } catch (error) {
+    // Rethrows the scope's own failure if it failed (it settles at once: it was sent first).
+    await scope;
+    throw error;
+  }
+}
+
+/**
  * The statement that sets a transaction's scope, through the lockdown check. It also keeps, in
  * `app.locked_tenant_ids`, the clients asked for and left out, so `narrowToTenant` can tell a
  * locked client from one outside the scope.
@@ -197,8 +218,7 @@ async function inScope<T>(db: Db, scope: Scope, fn: (tx: Tx) => Promise<T>): Pro
         .execute(scopeStatement(ids, scope.mode, scope.operator, scope.userId ?? ""))
         .then(() => undefined);
       // An async wrapper, so a `fn` that throws before its first await rejects instead.
-      const [, , out] = await Promise.all([readOnly, scoped, (async () => fn(tx))()]);
-      return out;
+      return scopeFirst(readOnly, scoped, (async () => fn(tx))());
     })
     .catch((error: unknown) => {
       throw asLocked(error, scope.tenantIds);
@@ -420,11 +440,7 @@ export async function withSession<D, R, T>(
       const scoped = tx
         .execute(scopeStatement(ids, mode, decided.scope.operator, ""))
         .then(() => undefined);
-      const [, , out] = await Promise.all([
-        readOnly,
-        scoped,
-        (async () => fn(tx, decided.value))(),
-      ]);
+      const out = await scopeFirst(readOnly, scoped, (async () => fn(tx, decided.value))());
       return { ok: true as const, value: out };
     })
     .catch((error: unknown) => {

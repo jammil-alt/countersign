@@ -1019,7 +1019,13 @@ function mountWith<R extends RouteSpec>(
           );
         if (!decided.ok) return refused(decided);
         const { session, scope } = decided;
-        const input = await parseInput(c, spec);
+        // §1.243: input that doesn't parse is checked against the client's lock before it is
+        // answered 400, so a locked client is always answered 423 (a valid request meets the lock
+        // in the handler's first transaction).
+        const input = await parseInput(c, spec).catch(async (error: unknown) => {
+          await inScope(c, scope, async () => undefined, options);
+          throw error;
+        });
         output = await (handler as (ctx: LongHandlerCtx<R>) => Promise<unknown>)({
           c,
           session,
@@ -1070,14 +1076,17 @@ function mountWith<R extends RouteSpec>(
             const decided = decide(readAccount(await accountInTx(tx, userId)));
             if (!decided.ok) return { ok: false as const, refusal: decided };
             checkScope(decided.scope);
-            const input = await parseInput(c, spec);
             return {
               ok: true as const,
               scope: decided.scope,
-              value: { session: decided.session, scope: decided.scope, input },
+              value: { session: decided.session, scope: decided.scope },
             };
           },
-          async (tx, { session, scope, input }) => {
+          async (tx, { session, scope }) => {
+            // Parsed in the scoped half (§1.243): a locked client's scope fails with it, and its
+            // 423 wins over a 400 (withSession's scopeFirst). Roles and scope are still checked
+            // before any input is.
+            const input = await parseInput(c, spec);
             const out = await (handler as (ctx: HandlerCtx<R>) => Promise<unknown>)({
               c,
               session,

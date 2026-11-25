@@ -3,6 +3,7 @@
 // as usual and counted, never refused; forwarded email for it is dropped and counted, never
 // bounced; other clients carry on.
 
+import { allRoutes, buildPath, type RouteSpec, routeFamily } from "@countersign/core";
 import { agent, agentVersion, run } from "@countersign/db";
 import { eq } from "drizzle-orm";
 import { afterAll, afterEach, describe, expect, it } from "vitest";
@@ -14,6 +15,7 @@ import {
   testBundle,
   user,
 } from "./api.test-helper";
+import { clientItemTag } from "./backoffice/outbound-email";
 import { handleEmail } from "./email";
 import { defaultDeps } from "./http";
 
@@ -118,6 +120,37 @@ describe.skipIf(!h)("a locked client, through the app", () => {
     );
     expect(out).toBeNull();
     expect(await inbound()).toEqual({ email: 1 });
+  });
+
+  it("drops back-office mail about a locked client, counted, without a to-do for it", async () => {
+    await lockA();
+    const to = `support+${clientItemTag(A.tenantId)}@${DOMAIN}`;
+    const raw = new TextEncoder().encode(
+      [
+        "Authentication-Results: mx.cloudflare.net; spf=pass smtp.mailfrom=sam@vendor.example",
+        "From: sam@vendor.example",
+        `To: ${to}`,
+        "Subject: About my account",
+        "",
+        "Hello.",
+      ].join("\r\n"),
+    );
+    const out = await handleEmail(
+      {
+        from: "sam@vendor.example",
+        to,
+        raw: new Response(raw).body as ReadableStream<Uint8Array>,
+        rawSize: raw.length,
+      },
+      harness.env,
+      () => {},
+      { ...defaultDeps, openDb: () => ({ db: harness.db, close: async () => {} }) },
+    );
+    expect(out).toBeNull();
+    expect(await inbound()).toEqual({ email: 1 });
+    const [todos] = await harness.t.db.$client<{ n: number }[]>`
+      select count(*)::int as n from todo where client_id = ${A.tenantId} and title like 'Sort this:%'`;
+    expect(todos?.n).toBe(0);
   });
 
   describe("the lock and unlock routes", () => {
@@ -303,5 +336,33 @@ describe.skipIf(!h)("a locked client, through the app", () => {
       expect(refused.status).toBe(403);
       expect((refused.json as J).error.code).toBe("locked_by_us");
     });
+  });
+
+  describe("every route", () => {
+    const filled = (path: string) =>
+      buildPath(path, new Proxy({}, { get: () => crypto.randomUUID() }));
+    /**
+     * The locked page's own routes, which answer while locked (whileLocked); the session (the
+     * person's own sign-in, no client's data); and the welcome page's sign-in, whose unknown token
+     * is answered 404 before any client is named.
+     */
+    const WHILE_LOCKED = new Set(["accountLock", "accountUnlock", "session", "welcomeSignedIn"]);
+
+    it("answers every portal route of a locked client 423, but the locked page's own", async () => {
+      await lockA();
+      const answered: string[] = [];
+      for (const [name, r] of Object.entries(allRoutes) as [string, RouteSpec][]) {
+        if (routeFamily(r) !== "portal" || r.auth !== "session" || WHILE_LOCKED.has(name)) continue;
+        const who = r.roles.includes("client_admin")
+          ? admin("a")
+          : r.roles.includes("client_user")
+            ? user("a")
+            : null;
+        if (!who) continue;
+        const res = await harness.call(who, r.method, filled(r.path), r.body ? {} : undefined);
+        if (res.status !== 423) answered.push(`${name} ${r.method} ${r.path} ${res.status}`);
+      }
+      expect(answered).toEqual([]);
+    }, 120_000);
   });
 });
