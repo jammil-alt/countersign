@@ -30,12 +30,11 @@ agent, §1.214).
 - Almost everything below is **a setup step, a key or a decision for the owner**, not code. Where
   code is still needed, it says so.
 - **The step model** (2026-11-25, `docs/plan.md` §1.244, `docs/step-model-plan.md` §13d): waves 1
-  and 2 are merged. Open, in order: #682 (the executor wired end to end); Data (§10f); the Builder
-  drafting in v5; ARCHITECTURE v0.20 and the CLAUDE.md edits (owner's sign-off); then deleting v3
-  and v4 and running `db:purge-agents` and `db:seed` on staging, and production with the owner's
-  approval. For the owner: the Bill clerk's vendor lookup (stays a QuickBooks search until Data's
-  Get by id, recommended); an Anthropic API key in the cloud environment to measure the matching
-  thresholds (stream K) and record the Builder's model answers.
+  to 3 are merged and staging runs it, purged and seeded again in v5. Open: the release (#707,
+  deleting v3, v4 and the converters), then production: the purge's dry run and the real one (the
+  owner approves each), the deploy, the templates' install and each client's Sloan. For the owner:
+  the matching defaults (shortlist 10 instead of 20) and whether two agreeing models must both reach
+  the second opinion's level; a native read of the timeline's output wording in five languages.
 
 ## 0. Enterprise readiness (2026-11-15)
 
