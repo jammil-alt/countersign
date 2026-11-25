@@ -422,6 +422,37 @@ the picker. Found in checking the list:
 - **Later, for a vendor agent:** our records have no "add a vendor" action of their own (a vendor is
   added by the sync or when an invoice makes its purchase).
 
+## 10e. The other areas and Shared (proposed)
+
+Only what changes; everything not named stays as built. Throughout, "QuickBooks" in an area's
+words becomes "the accounting system".
+
+- **One chart of accounts.** Three actions list the client's accounts today (Bookkeeping, AP, and
+  Shared's ledger). They become one: **Shared › Chart of accounts › Get accounts**, with filters for
+  the account types an area wants and the notes on what each is for.
+- **Bookkeeping (16):** unchanged apart from the wording. Its proposals (a booking, a reconciliation
+  match) stay Saves that record what the AI skill decided, for the review card.
+- **Month-end close (4):** unchanged apart from the wording.
+- **AP (7):** its accounts list joins the one chart. Its "Suggest accounts" save records what Choose
+  account decided. To check when the Bill clerk and AP templates are rebuilt: AP's "Prepare the bill"
+  (our bill record, with its purchase order and the pay list) and Documents' bill-making actions
+  overlap.
+- **Sales (4):** "Match to CRM records" becomes the match profile **CRM records** (email, phone,
+  website, then names and meaning). "Refresh the record keys" becomes part of the sync, which keeps
+  every profile's key index up to date. "Look up records" and "Confirmed matches" stay.
+- **Marketing (14):** unchanged.
+- **Shared, Documents:** "Read and record a document", "Read a document once" and "Record a reading"
+  become one **Read a document** (reads once, records the reading); its totals check and the bill
+  check fold into the skills that use them.
+- **Shared, the rest:** directory, knowledge, inbox and threads, memory, and data jobs stay as
+  actions. Reach out, talk until a goal is met, request a form and ask a person become the engines
+  behind a Do done by a Person or an Outside contact, not actions in the picker. Web search and
+  reading a web page become the **Web** connector. The supervisor's, Sloan's and the agents' own
+  actions (health, account, ask another agent, read an SOP) stay hidden: the platform's own.
+- **Three "lay out for the accounting system" actions stay** (a booking, a journal entry, a purchase
+  order): each decides what kind of entry to write, which is more than the automatic translation
+  does.
+
 ## 11. The Invoice item matcher (acceptance test)
 
 The matcher is not a build of its own: it is rebuilt by hand in the new builder, and the build is
