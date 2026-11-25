@@ -816,7 +816,8 @@ async function duplicateFlags(
         flags.push({
           kind: "duplicate",
           severity: "block",
-          message: "The accounting system already has a bill from this vendor with this invoice number.",
+          message:
+            "The accounting system already has a bill from this vendor with this invoice number.",
           sources: [s.id],
         });
       }

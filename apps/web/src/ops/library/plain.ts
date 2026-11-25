@@ -152,7 +152,7 @@ export const TOOL_TITLES: Record<string, string> = {
   "materials.quote.document": "Make a quote request PDF",
   "materials.quote.chosen": "Read the chosen vendor",
   "materials.po.document": "Make a purchase order PDF",
-  "materials.po.qbo-lines": "Prepare a purchase order for the accounting system",
+  "materials.po.qbo-lines": "Prepare a purchase order",
   // Marketing
   "marketing.site.figures": "Read the week's site figures",
   "marketing.site.page": "Read one page's figures",
@@ -177,7 +177,7 @@ export const TOOL_TITLES: Record<string, string> = {
   "bookkeeping.accounts.unclear": "List unclear accounts",
   "bookkeeping.account.note": "Note what an account is for",
   "bookkeeping.booking.propose": "Propose a booking",
-  "bookkeeping.booking.qbo-input": "Prepare a booking for the accounting system",
+  "bookkeeping.booking.qbo-input": "Prepare a booking",
   "bookkeeping.booking.write-check": "Check no other copy is written",
   "bookkeeping.booking.posted": "Record a posted booking",
   "bookkeeping.bookings.ready": "List bookings ready to post",
