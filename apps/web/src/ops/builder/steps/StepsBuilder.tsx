@@ -24,7 +24,7 @@ import { StepPanel } from "../../flow/StepPanel";
 import { StepTable } from "../../flow/StepTable";
 import type { FlowEnds, InsertPoint } from "../../flow/types";
 import { triggerTitle } from "../../workflow/describe";
-import { addWorkflow, readProcessBundle, stepModelWorkflows } from "../model";
+import { addWorkflow } from "../model";
 import type { Member, People } from "../people";
 import { AddWorkflowForm, WorkflowSwitcher } from "../workflow-switcher";
 import { triggerFields, useStepsCatalog } from "./catalog";
@@ -162,14 +162,10 @@ function Body(
   const navigate = useNavigate();
   // The agent's workflows to switch to, and "+ Workflow" (the v4 builder's, `../workflow-switcher`).
   const [adding, setAdding] = useState(false);
-  const processBundle = useMemo(() => {
-    try {
-      return readProcessBundle(props.bundle as AgentBundle, {});
-    } catch {
-      return { workflows: [] };
-    }
-  }, [props.bundle]);
-  const stepModel = useMemo(() => stepModelWorkflows(props.bundle), [props.bundle]);
+  const workflows = useMemo(
+    () => (props.bundle as { workflows: { slug: string; name: string; enabled?: boolean }[] }).workflows,
+    [props.bundle],
+  );
   // Stream G: every Do step's incoming side worked out on load, opened or not; what changes shows
   // as unsaved, as an edit would.
   const [history, setHistory] = useState(() =>
@@ -392,8 +388,7 @@ function Body(
         <FlowBar
           lead={
             <WorkflowSwitcher
-              bundle={processBundle}
-              stepModel={stepModel}
+              workflows={workflows}
               current={props.workflow}
               base={props.base}
               adding={adding}
@@ -434,7 +429,7 @@ function Body(
         />
         {adding ? (
           <AddWorkflowForm
-            bundle={{ workflows: [...processBundle.workflows, ...stepModel] }}
+            bundle={{ workflows }}
             events={catalog.events.map((e) => e.type)}
             onCancel={() => setAdding(false)}
             onCreate={async (input) => {

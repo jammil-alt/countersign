@@ -13,10 +13,9 @@
 
 import {
   type AgentBundle,
-  allSteps,
   classifyChange,
   isUuid,
-  processes,
+  steps,
   type RouteSpec,
   routes,
 } from "@countersign/core";
@@ -60,7 +59,7 @@ interface Located {
   pointer: (string | number)[];
 }
 
-/** Every step of every workflow in the bundle, v3 workflows and v4 processes alike, in run order. */
+/** Every step of every workflow in the bundle, in run order. */
 export function stepsOf(bundle: unknown): Located[] {
   const out: Located[] = [];
   const workflows = isObj(bundle) && Array.isArray(bundle.workflows) ? bundle.workflows : [];
@@ -69,10 +68,7 @@ export function stepsOf(bundle: unknown): Located[] {
     const wf = w.workflow as { schemaVersion?: number; steps?: unknown };
     if (!Array.isArray(wf.steps)) return;
     const meta = { index, slug: String(w.slug ?? ""), name: String(w.name ?? w.slug ?? "") };
-    const locs =
-      wf.schemaVersion === 4
-        ? processes.allSteps(wf as Parameters<typeof processes.allSteps>[0])
-        : allSteps(wf as Parameters<typeof allSteps>[0]);
+    const locs = steps.stepsWithPointers(wf as Pick<steps.Workflow, "steps">);
     for (const l of locs) out.push({ workflow: meta, step: l.step as Json, pointer: l.pointer });
   });
   return out;

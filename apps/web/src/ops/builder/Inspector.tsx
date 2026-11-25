@@ -11,7 +11,6 @@ import {
   CONVERSE_SKILL,
   lookupSkill,
   type PathOption,
-  type ProcessAgentBundle,
   parseSkillRef,
   pathOptions,
   processes,
@@ -70,6 +69,7 @@ import {
   type Process,
   processClientVisible,
   type Step,
+  type ProcessAgentBundle,
 } from "./model";
 import {
   labelPaths,

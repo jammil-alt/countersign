@@ -4,8 +4,11 @@
 // Loops, automations. Pure: the API gathers `ctx.stepModel`; this shapes it for the prompt.
 
 import {
+  CONVERSE_SKILL,
+  FORMS_REQUEST_SKILL,
   processes,
   promptJson,
+  REACH_OUT_SKILL,
   type SkillDefinition,
   skillKind,
   steps,
@@ -25,13 +28,20 @@ export function skillDoneBy(
 const NOT_OFFERED_CATEGORIES = new Set(["in-a-step"]);
 
 /**
+ * Built-in skills that run only as a step of their own (apps/api carries them out), never as a
+ * tool: reach out to a contact, ask someone through a form and wait for the answers, hold a
+ * conversation. They were core's `STEP_ONLY_SKILLS`.
+ */
+export const STEP_ONLY_SKILLS: readonly string[] = [CONVERSE_SKILL, REACH_OUT_SKILL, FORMS_REQUEST_SKILL];
+
+/**
  * The library skills a Do step may use: not a Loop (a Loop step's), not a step's own text, not a
  * skill that only stands for its tool (the API leaves those out), not one of the engines behind a
  * person's or a contact's Do (Request info, Reach out, Converse: §10e).
  */
 export function doSkills(ctx: Pick<BuilderContext, "skills">): BuilderSkill[] {
   // The API offers no skill that only wraps its tool (`isToolWrapper`): its action is offered.
-  const engines = new Set(processes.STEP_ONLY_SKILLS);
+  const engines = new Set(STEP_ONLY_SKILLS);
   return ctx.skills.filter(
     (s) =>
       s.definition.loop === undefined &&

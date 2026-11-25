@@ -3,9 +3,8 @@
 // replay and retry semantics (a durable `do` that throws is tried again up to its retry limit).
 import type { processes } from "@countersign/core";
 import { describe, expect, it } from "vitest";
-import { executeWorkflow } from "./executor";
 import { FakeStepRunner } from "./fake-runner";
-import { Harness, WRITE_TOOL } from "./fakes.test-helper";
+import { executeProcess, Harness, WRITE_TOOL } from "./fakes.test-helper";
 import type { AskApproverRequest } from "./ports";
 
 const MANUAL = { id: "t", on: { type: "manual", input: {} } };
@@ -36,7 +35,7 @@ describe("STATE: approval groups", () => {
       if (amyEntry) amyEntry.resolution = { approved: true, by: "amy" };
       runner.deliver(type, { approved: false, by: "ben" });
     };
-    const result = await executeWorkflow(
+    const result = await executeProcess(
       runner,
       h.context(),
       proc([
@@ -90,7 +89,7 @@ describe("STATE: platform retries of a notice", () => {
         return update(id, u);
       },
     };
-    const result = await executeWorkflow(
+    const result = await executeProcess(
       new FakeStepRunner(),
       h.context({ notify, log }),
       proc([

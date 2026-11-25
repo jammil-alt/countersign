@@ -201,14 +201,16 @@ function bundle(over: {
         slug: "fix",
         name: "Fix",
         workflow: {
-          schemaVersion: 3,
-          trigger: { id: "trg", on: { type: "manual", input: {} } },
+          schemaVersion: 5,
+          triggers: [{ id: "trg", on: { type: "manual", input: {} } }],
+          outputs: [],
           steps: [
             {
               id: "write",
               name: "Write",
-              kind: "action",
-              tool: "testkit.record.update",
+              kind: "do",
+              doneBy: "rules",
+              uses: { type: "action", action: "testkit.record.update" },
               input: {},
             },
           ],
@@ -227,16 +229,16 @@ describe("the account agent's publish guard", () => {
       {
         id: "use",
         name: "Use",
-        kind: "use_automation",
-        automation: "fix-it@1",
+        kind: "do",
+        uses: { type: "automation", automation: "fix-it@1" },
         input: {},
-      } as never,
+      },
     ];
     const automation = AutomationDefinition.parse({
-      schemaVersion: 1,
+      schemaVersion: 2,
       slug: "fix-it",
       name: "Fix it",
-      steps: [{ id: "write", name: "Write", kind: "action", tool: "testkit.record.update" }],
+      steps: [{ id: "write", name: "Write", kind: "write", tool: "testkit.record.update" }],
     });
     const errors = accountAgentProblems({
       slug: "supervisor",
@@ -246,7 +248,7 @@ describe("the account agent's publish guard", () => {
       automations: { "fix-it@1": automation },
     });
     expect(errors.map((e) => [e.stepId, e.field, e.code])).toEqual([
-      ["use", "automation", "tool_not_allowed"],
+      ["use", "uses.automation", "tool_not_allowed"],
     ]);
   });
 
@@ -261,7 +263,7 @@ describe("the account agent's publish guard", () => {
     expect(errors.map((e) => [e.field, e.code])).toEqual([
       ["definition.extraTools.0", "tool_not_allowed"],
       ["definition.skills.0.skill", "tool_not_allowed"],
-      ["tool", "tool_not_allowed"],
+      ["uses.action", "tool_not_allowed"],
       ["bindings", "tool_not_allowed"],
     ]);
     expect(errors[2]?.stepId).toBe("write");
@@ -283,34 +285,49 @@ describe("the account agent's publish guard", () => {
     ).toEqual([]);
   });
 
-  // R9: the supervisor's v4 version holds processes; their read and write steps count, nested too.
-  it("refuses a v4 process's read and write steps on a client's tool, inside an if", () => {
+  // The supervisor's version holds a Do's actions; they count, nested in a fork too.
+  it("refuses a Do's read and write actions on a client's tool, inside a fork", () => {
     const b = bundle({});
     const w = b.workflows[0];
     if (!w) throw new Error("no workflow");
     w.workflow = {
-      schemaVersion: 4,
+      schemaVersion: 5,
       triggers: [{ id: "trg", on: { type: "manual", input: {} } }],
+      outputs: [],
       steps: [
-        { id: "look", name: "Look", kind: "read", tool: "testkit.record.get", input: {} },
+        {
+          id: "look",
+          name: "Look",
+          kind: "do",
+          doneBy: "rules",
+          uses: { type: "action", action: "testkit.record.get" },
+          input: {},
+        },
         {
           id: "when",
           name: "When",
-          kind: "if",
+          kind: "fork",
           paths: [
             {
               id: "yes",
               name: "Yes",
               when: { match: "all", rules: [] },
               steps: [
-                { id: "fix", name: "Fix", kind: "write", tool: "testkit.record.update", input: {} },
+                {
+                  id: "fix",
+                  name: "Fix",
+                  kind: "do",
+                  doneBy: "rules",
+                  uses: { type: "action", action: "testkit.record.update" },
+                  input: {},
+                },
               ],
             },
           ],
           otherwise: { id: "no", steps: [] },
         },
       ],
-    } as never;
+    };
     const errors = accountAgentProblems({
       slug: "supervisor",
       bundle: b,
@@ -318,37 +335,48 @@ describe("the account agent's publish guard", () => {
       tools: TOOLS,
     });
     expect(errors.map((e) => [e.stepId, e.field, e.code])).toEqual([
-      ["look", "tool", "tool_not_allowed"],
-      ["fix", "tool", "tool_not_allowed"],
+      ["look", "uses.action", "tool_not_allowed"],
+      ["fix", "uses.action", "tool_not_allowed"],
     ]);
   });
-  // Wave 3b: a v4 `process` step pins an automation as `use_automation` does; its steps are the
-  // step's own, so Sloan can't reach a client's tool through a sub-process.
-  it("opens the automation a v4 process step pins, and refuses a conversation", () => {
+  // A Do that uses an automation: its steps are the step's own, so Sloan can't reach a client's
+  // tool through it; an outside contact is refused.
+  it("opens the automation a Do step uses, and refuses an outside contact", () => {
     const b = bundle({});
     const w = b.workflows[0];
     if (!w) throw new Error("no workflow");
     w.workflow = {
-      schemaVersion: 4,
+      schemaVersion: 5,
       triggers: [{ id: "trg", on: { type: "manual", input: {} } }],
+      outputs: [],
       steps: [
-        { id: "sub", name: "Sub", kind: "process", process: "fix-it@1", input: {} },
+        {
+          id: "sub",
+          name: "Sub",
+          kind: "do",
+          uses: { type: "automation", automation: "fix-it@1" },
+          input: {},
+        },
         {
           id: "talk",
           name: "Talk",
-          kind: "conversation",
-          with: "{{trigger.vendor}}",
-          channel: "email",
-          goal: "Ask",
-          deadline: { after: "P1D", hours: "clock", ifNoAnswer: "stop" },
+          kind: "do",
+          doneBy: "contact",
+          contact: {
+            with: "{{trigger.vendor}}",
+            channel: "email",
+            goal: "Ask",
+            deadline: { after: "1 day", ifNoAnswer: "stop" },
+          },
+          input: {},
         },
       ],
-    } as never;
+    };
     const automation = AutomationDefinition.parse({
-      schemaVersion: 1,
+      schemaVersion: 2,
       slug: "fix-it",
       name: "Fix it",
-      steps: [{ id: "write", name: "Write", kind: "action", tool: "testkit.record.update" }],
+      steps: [{ id: "write", name: "Write", kind: "write", tool: "testkit.record.update" }],
     });
     const errors = accountAgentProblems({
       slug: "supervisor",
@@ -358,8 +386,8 @@ describe("the account agent's publish guard", () => {
       automations: { "fix-it@1": automation },
     });
     expect(errors.map((e) => [e.stepId, e.field, e.code])).toEqual([
-      ["sub", "process", "tool_not_allowed"],
-      ["talk", "channel", "tool_not_allowed"],
+      ["sub", "uses.automation", "tool_not_allowed"],
+      ["talk", "doneBy", "tool_not_allowed"],
     ]);
   });
 });
@@ -389,41 +417,54 @@ describe("the words", () => {
     }
   });
 
-  // Wave 3b: a v4 process step's automation counts as the step's own, v3 or v4 steps alike.
-  it("refuses a v4 process step whose automation (v3 or v4) writes to a client's tool", () => {
+  // An automation a Do uses counts as the step's own, and so does one it pins through a process step.
+  it("refuses a Do whose automation writes to a client's tool, even through a pinned one", () => {
     const b = bundle({});
     const w = b.workflows[0];
     if (!w) throw new Error("no workflow");
     w.workflow = {
-      schemaVersion: 4,
+      schemaVersion: 5,
       triggers: [{ id: "trg", on: { type: "manual", input: {} } }],
+      outputs: [],
       steps: [
-        { id: "p3", name: "Old", kind: "process", process: "fix-it@1", input: {} },
-        { id: "p4", name: "New", kind: "process", process: "fix-it@2", input: {} },
+        {
+          id: "p3",
+          name: "Direct",
+          kind: "do",
+          uses: { type: "automation", automation: "fix-it@1" },
+          input: {},
+        },
+        {
+          id: "p4",
+          name: "Nested",
+          kind: "do",
+          uses: { type: "automation", automation: "outer@1" },
+          input: {},
+        },
       ],
-    } as never;
-    const v3 = AutomationDefinition.parse({
-      schemaVersion: 1,
-      slug: "fix-it",
-      name: "Fix it",
-      steps: [{ id: "write", name: "Write", kind: "action", tool: "testkit.record.update" }],
-    });
-    const v4 = AutomationDefinition.parse({
+    };
+    const inner = AutomationDefinition.parse({
       schemaVersion: 2,
       slug: "fix-it",
       name: "Fix it",
       steps: [{ id: "write", name: "Write", kind: "write", tool: "testkit.record.update" }],
+    });
+    const outer = AutomationDefinition.parse({
+      schemaVersion: 2,
+      slug: "outer",
+      name: "Outer",
+      steps: [{ id: "sub", name: "Sub", kind: "process", process: "fix-it@1", input: {} }],
     });
     const errors = accountAgentProblems({
       slug: "supervisor",
       bundle: b,
       skills: SKILLS,
       tools: TOOLS,
-      automations: { "fix-it@1": v3, "fix-it@2": v4 },
+      automations: { "fix-it@1": inner, "outer@1": outer },
     });
     expect(errors.map((e) => [e.stepId, e.field, e.code])).toEqual([
-      ["p3", "process", "tool_not_allowed"],
-      ["p4", "process", "tool_not_allowed"],
+      ["p3", "uses.automation", "tool_not_allowed"],
+      ["p4", "uses.automation", "tool_not_allowed"],
     ]);
   });
 });

@@ -22,10 +22,9 @@ import {
 import { PALETTE, kindLabel as stepKindLabel } from "../builder/steps/model";
 import type { AgentLinkState } from "../screens/AgentPage";
 import { AutomationsCard } from "../skills/SkillsLibrary";
-import { PROCESS_KIND_LABEL, TRIGGER_KIND_LABEL } from "../workflow/describe";
+import { TRIGGER_KIND_LABEL } from "../workflow/describe";
 import { BankSearch, LibraryFrame } from "./LibraryFrame";
 import { counted, matches } from "./paths";
-import { kindLabel } from "./words";
 
 const templatePath = (slug: string) => `/ops/templates/${slug}`;
 /** The builder, open on one of the template's workflows. */
@@ -165,10 +164,8 @@ function WorkflowRow({
   workflow: LibraryProcessWorkflow;
 }) {
   // A workflow in the step model counts its steps by the step model's kinds (Do, Fork, End).
-  const order =
-    w.schemaVersion === 5 ? PALETTE.map((p) => p.kind as string) : Object.keys(PROCESS_KIND_LABEL);
-  const label = (k: string) =>
-    w.schemaVersion === 5 ? stepKindLabel(k as steps.StepKind) : kindLabel(k);
+  const order = PALETTE.map((p) => p.kind as string);
+  const label = (k: string) => stepKindLabel(k as steps.StepKind);
   const kinds = order.filter((k) => (w.kinds[k] ?? 0) > 0);
   const checks = checksText(w);
   return (
@@ -189,14 +186,6 @@ function WorkflowRow({
               .join(" · ")}
           </span>
           {w.enabled ? null : <Tag>Off</Tag>}
-          {w.schemaVersion === 3 ? (
-            <span
-              className="text-xs text-ink-muted"
-              title="Stored in the older format; read as the new one"
-            >
-              Stored as a v3 workflow
-            </span>
-          ) : null}
         </p>
         <div className="flex flex-wrap items-center gap-1.5 text-sm">
           <span className="text-ink figures">{counted(w.steps, "step")}</span>

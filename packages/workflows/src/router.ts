@@ -8,9 +8,9 @@
 import {
   type AccountRequestPassedPayload,
   type AgentBundle,
-  type BundleWorkflow,
   addressedTo,
   allTriggers,
+  type BundleWorkflow,
   evaluateRules,
   eventRunId,
   type HandoffRunPayload,
@@ -47,7 +47,7 @@ export interface RoutableAgent {
   runStatus: string | null;
   liveVersionId: string | null;
   /** The bundle of `liveVersionId`. */
-  /** R3: its workflows may be v3 workflows or v4 processes. */
+  /** Its workflows' triggers and steps. */
   liveBundle: AgentBundle | null;
 }
 
@@ -532,7 +532,7 @@ export async function handoffRunRequest(
   }
   if (!isRunnable(target)) return { refused: "not_started" };
   // DECISION: a hand-off starts the live version's first enabled workflow (an agent owns one
-  // process; a stored v3 agent may hold more), as packages/agents' `handoffAgents` lists it.
+  // process), as packages/agents' `handoffAgents` lists it.
   const wf = target.liveBundle.workflows.find((w) => w.enabled);
   if (!wf?.workflow.steps.some((s) => s.id === ask.to.step)) {
     return { refused: "unknown_step" };
@@ -822,9 +822,9 @@ export function requestRun(input: {
   };
 }
 
-// ── R3: v4 processes (docs/plan.md §1.86, §9) ───────────────────────────────────────────────────
+// ── Triggers of a workflow ──────────────────────────────────────────────────────────────────
 
-/** Every trigger of a workflow: a v3 workflow's `trigger` and `moreTriggers`, a process's list (core). */
+/** Every trigger of a workflow (core). */
 export function triggersOfWorkflow(workflow: BundleWorkflow["workflow"]): Trigger[] {
   return allTriggers(workflow);
 }
@@ -843,7 +843,7 @@ export function handTrigger(workflow: BundleWorkflow["workflow"]): Trigger {
 
 /** The workflow's first trigger (a process has at least one). */
 function firstTrigger(workflow: BundleWorkflow["workflow"]): Trigger {
-  const first = workflow.schemaVersion === 3 ? workflow.trigger : workflow.triggers[0];
+  const first = workflow.triggers[0];
   if (!first) throw new Error("a process needs a trigger");
   return first;
 }

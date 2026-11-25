@@ -162,8 +162,8 @@ export function takesTrigger(workflow: AnyWorkflow): boolean {
 type AnyWorkflow = AgentBundle["workflows"][number]["workflow"];
 
 /**
- * The bundle with a trigger added to one workflow: a v3 workflow's `moreTriggers`, a v4 process's
- * `triggers` (R8). Every id it had is kept (invariant 3).
+ * The bundle with a trigger added to one workflow's `triggers`. Every id it had is kept
+ * (invariant 3).
  */
 export function addTrigger<B extends AgentBundle>(
   bundle: B,
@@ -175,16 +175,13 @@ export function addTrigger<B extends AgentBundle>(
     workflows: bundle.workflows.map((w) => {
       if (w.slug !== workflow) return w;
       const wf = w.workflow;
-      return wf.schemaVersion === 3
-        ? { ...w, workflow: { ...wf, moreTriggers: [...(wf.moreTriggers ?? []), trigger] } }
-        : { ...w, workflow: { ...wf, triggers: [...wf.triggers, trigger] } };
+      return { ...w, workflow: { ...wf, triggers: [...wf.triggers, trigger] } };
     }),
   };
 }
 
 /**
  * Removes one of a workflow's later triggers; its first trigger stays (every workflow has one).
- * A v4 process's are in `triggers`, the first included.
  */
 export function removeTrigger<B extends AgentBundle>(
   bundle: B,
@@ -196,14 +193,9 @@ export function removeTrigger<B extends AgentBundle>(
     workflows: bundle.workflows.map((w) => {
       if (w.slug !== workflow) return w;
       const wf = w.workflow;
-      if (wf.schemaVersion !== 3) {
-        const [first, ...more] = wf.triggers;
-        if (!first || first.id === id) return w;
-        return { ...w, workflow: { ...wf, triggers: [first, ...more.filter((t) => t.id !== id)] } };
-      }
-      const more = (wf.moreTriggers ?? []).filter((t) => t.id !== id);
-      const { moreTriggers: _more, ...rest } = wf;
-      return { ...w, workflow: more.length > 0 ? { ...rest, moreTriggers: more } : rest };
+      const [first, ...more] = wf.triggers;
+      if (!first || first.id === id) return w;
+      return { ...w, workflow: { ...wf, triggers: [first, ...more.filter((t) => t.id !== id)] } };
     }),
   };
 }

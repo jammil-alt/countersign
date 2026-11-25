@@ -3,9 +3,8 @@
 // its input mapped to the tool's, the gate's approval on by default.
 import { processes } from "@countersign/core";
 import { describe, expect, it } from "vitest";
-import { executeWorkflow } from "./executor";
 import { FakeStepRunner } from "./fake-runner";
-import { Harness } from "./fakes.test-helper";
+import { executeProcess, Harness } from "./fakes.test-helper";
 import type { ResolveActionRequest, ResolvedAction } from "./ports";
 
 const MANUAL = { id: "t", on: { type: "manual", input: {} } };
@@ -49,7 +48,7 @@ describe("action write steps", () => {
     const asked = resolving(h, () => ({ tool: "qbo.bill.create", connector: "qbo" }));
     h.handlers.bill = (req) => ({ kind: "done", output: { billId: "9", input: req.input } });
     const runner = new FakeStepRunner();
-    const result = await executeWorkflow(runner, h.context(), proc([bill()]), TRIGGER);
+    const result = await executeProcess(runner, h.context(), proc([bill()]), TRIGGER);
     expect(result.status).toBe("succeeded");
     expect(asked).toEqual([{ run: h.run, nodeId: "bill", action: "create_bill" }]);
     const call = h.agentCalls[0];
@@ -77,7 +76,7 @@ describe("action write steps", () => {
   it("runs the same tool for BILL, with BILL's input", async () => {
     const h = new Harness();
     resolving(h, () => ({ tool: "billcom.bill.create", connector: "billcom" }));
-    await executeWorkflow(
+    await executeProcess(
       new FakeStepRunner(),
       h.context(),
       proc([bill({ via: "billcom" })]),
@@ -103,14 +102,14 @@ describe("action write steps", () => {
     const runner = new FakeStepRunner();
     const ctx = h.context();
     const process = proc([bill({ via: "qbo" })]);
-    const once = await executeWorkflow(runner, ctx, process, TRIGGER);
+    const once = await executeProcess(runner, ctx, process, TRIGGER);
     expect(once.status).toBe("succeeded");
     expect(asked.map((a) => a.via)).toEqual(["qbo"]);
     expect(h.resumeCalls[0]?.step).toMatchObject({ tool: "qbo.bill.create" });
     // The bindings change before the replay: the stored resolution stands.
     next = { tool: "billcom.bill.create", connector: "billcom" };
     runner.replay();
-    const again = await executeWorkflow(runner, ctx, process, TRIGGER);
+    const again = await executeProcess(runner, ctx, process, TRIGGER);
     expect(again).toEqual(once);
     expect(asked).toHaveLength(1);
     expect(h.agentCalls).toHaveLength(1);
@@ -120,12 +119,7 @@ describe("action write steps", () => {
   it("an action that doesn't resolve fails the step before anything is proposed", async () => {
     const h = new Harness();
     resolving(h, () => ({ refused: "Create bill needs an accounting connection" }));
-    const result = await executeWorkflow(
-      new FakeStepRunner(),
-      h.context(),
-      proc([bill()]),
-      TRIGGER,
-    );
+    const result = await executeProcess(new FakeStepRunner(), h.context(), proc([bill()]), TRIGGER);
     expect(result.status).toBe("failed");
     expect(result.reason).toBe("refused: Create bill needs an accounting connection");
     expect(h.agentCalls).toHaveLength(0);
@@ -134,10 +128,10 @@ describe("action write steps", () => {
   it("refuses a resolution to a tool the action doesn't run with, and a port that can't resolve", async () => {
     const h = new Harness();
     resolving(h, () => ({ tool: "gmail.send", connector: "qbo" }));
-    const bad = await executeWorkflow(new FakeStepRunner(), h.context(), proc([bill()]), TRIGGER);
+    const bad = await executeProcess(new FakeStepRunner(), h.context(), proc([bill()]), TRIGGER);
     expect(bad.reason).toMatch(/doesn't run with gmail.send/);
     const none = new Harness();
-    const r = await executeWorkflow(new FakeStepRunner(), none.context(), proc([bill()]), TRIGGER);
+    const r = await executeProcess(new FakeStepRunner(), none.context(), proc([bill()]), TRIGGER);
     expect(r.status).toBe("failed");
     expect(r.reason).toMatch(/nothing resolves it/);
     expect(none.agentCalls).toHaveLength(0);
@@ -148,7 +142,7 @@ describe("action write steps", () => {
     resolving(h, () => ({ tool: "billcom.bill.create", connector: "billcom" }));
     const noDue = bill();
     delete (noDue.input as Record<string, unknown>).dueDate;
-    const result = await executeWorkflow(new FakeStepRunner(), h.context(), proc([noDue]), TRIGGER);
+    const result = await executeProcess(new FakeStepRunner(), h.context(), proc([noDue]), TRIGGER);
     expect(result.status).toBe("failed");
     expect(result.reason).toBe("refused: Create bill: BILL needs a due date");
     expect(h.agentCalls).toHaveLength(0);
@@ -159,7 +153,7 @@ describe("action write steps", () => {
     const h = new Harness();
     const asked = resolving(h, () => ({ tool: "resend.send", connector: "resend" }));
     const runner = new FakeStepRunner();
-    const result = await executeWorkflow(
+    const result = await executeProcess(
       runner,
       h.context(),
       proc([
@@ -206,7 +200,7 @@ describe("action write steps", () => {
       bindings.push(req.binding);
       return { kind: "done", output: { sent: true } };
     };
-    const result = await executeWorkflow(
+    const result = await executeProcess(
       new FakeStepRunner(),
       h.context(),
       proc([
@@ -229,7 +223,7 @@ describe("action write steps", () => {
     const h = new Harness();
     const asked = resolving(h, () => ({ refused: "no" }));
     const runner = new FakeStepRunner();
-    const result = await executeWorkflow(
+    const result = await executeProcess(
       runner,
       h.context(),
       proc([{ id: "w", kind: "write", name: "W", tool: "testkit.thing.update", input: {} }]),

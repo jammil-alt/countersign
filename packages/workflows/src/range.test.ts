@@ -3,9 +3,9 @@
 // picked steps, and it ends after the last, succeeded.
 import type { processes } from "@countersign/core";
 import { describe, expect, it } from "vitest";
-import { executeWorkflow, type RunRange } from "./executor";
+import type { RunRange } from "./executor";
 import { FakeStepRunner } from "./fake-runner";
-import { Harness } from "./fakes.test-helper";
+import { executeProcess, Harness } from "./fakes.test-helper";
 
 const MANUAL = { id: "t", on: { type: "manual", input: {} } };
 const skill = (id: string, input: Record<string, unknown> = {}) => ({
@@ -32,7 +32,7 @@ async function run(range: RunRange | undefined) {
       output: { value: `${id}:${JSON.stringify(req.input)}` },
     });
   }
-  const result = await executeWorkflow(
+  const result = await executeProcess(
     new FakeStepRunner(),
     h.context(range ? { range } : {}),
     proc(),

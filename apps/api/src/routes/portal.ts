@@ -33,7 +33,6 @@ import {
   portalRunFilter,
   type Role,
   routes,
-  type Step,
   shownOnTimeline,
   stepNodeOf,
   stepStateLabel,
@@ -88,7 +87,7 @@ import { dispatchEvents } from "../runs/dispatch";
 // Hand off (2026-11-11): where a handed-off run came from.
 import { handedOffFrom } from "../runs/handoff";
 import { payloadSources, runSubjects, sourceNames } from "../runs/subject";
-import { actionTimelineWrite, timelineWrite } from "../skill-facts";
+import { actionTimelineWrite } from "../skill-facts";
 import { steppedInOf } from "../step-in/service";
 import { clientDescription } from "../weekly/stats";
 import { lastActivityOf, sourceActivity, usedByWith } from "./built-in-sources";
@@ -606,7 +605,7 @@ export async function portalRunView(
 
   // v0.12 W1-C: a lead check's label carries the lead's first name ("Ana: Check new matches").
   const isLeadCheck = (step: TimelineStepDef) =>
-    step.kind === "person" && step.assignee === LEAD_ASSIGNEE;
+    step.kind === "do" && step.doneBy === "person" && step.person?.who === LEAD_ASSIGNEE;
   const wantsLead = steps.some((s) => {
     const step = stepOfRow(lookup, s.nodeId);
     return !!step && isLeadCheck(step);
@@ -661,7 +660,7 @@ export async function portalRunView(
     ) {
       return [];
     }
-    const labelled = step as Step;
+    const labelled = step;
     // A step reads by its state: "Itemize the bill" until it has run, then "Itemized the bill".
     const label = stepStateLabel(labelled, s.status === "succeeded" || !!check?.confer);
     return [
@@ -695,13 +694,8 @@ export async function portalRunView(
           : {}),
         // Skill model (2026-11-10), wave A: a write reads "Saved" or "Changed in QuickBooks";
         // a confer's row is the check's, not the write's.
-        ...(!check?.confer && (step.kind === "write" || step.kind === "action")
-          ? {
-              write:
-                step.kind === "write" && step.action !== undefined
-                  ? actionTimelineWrite(platform, step.via)
-                  : timelineWrite(platform, step.tool as string),
-            }
+        ...(!check?.confer && step.kind === "do" && step.uses?.type === "action"
+          ? { write: actionTimelineWrite(platform, step.uses.action) ?? undefined }
           : {}),
         // Agent motion (§1.106): the loop a running step shows; a confer's row rechecks.
         ...(s.status === "running"
@@ -711,7 +705,10 @@ export async function portalRunView(
                   ? { kind: "confer" }
                   : {
                       kind: labelled.kind,
-                      skill: labelled.kind === "skill" ? labelled.skill : null,
+                      skill:
+                        labelled.kind === "do" && labelled.uses?.type === "skill"
+                          ? labelled.uses.skill
+                          : null,
                     },
               ),
             }

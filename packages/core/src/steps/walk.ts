@@ -73,3 +73,28 @@ export function stepModelSkills(workflow: Pick<Workflow, "steps">): string[] {
   });
   return out;
 }
+
+/** A step and where it sits: its pointer from the workflow root, e.g. ["steps", 2, "paths", 0, "steps", 1]. */
+export interface StepAt {
+  step: Step;
+  pointer: (string | number)[];
+}
+
+/** Every step of a workflow with its pointer, depth first in run order. */
+export function stepsWithPointers(workflow: Pick<Workflow, "steps">): StepAt[] {
+  const out: StepAt[] = [];
+  const walk = (list: readonly Step[], pointer: (string | number)[]) => {
+    list.forEach((step, i) => {
+      const here = [...pointer, i];
+      out.push({ step, pointer: here });
+      if (step.kind === "fork") {
+        step.paths.forEach((p, pi) => walk(p.steps, [...here, "paths", pi, "steps"]));
+        walk(step.otherwise.steps, [...here, "otherwise", "steps"]);
+      } else if (step.kind === "for_each" || step.kind === "repeat") {
+        walk(step.steps, [...here, "steps"]);
+      }
+    });
+  };
+  walk(workflow.steps, ["steps"]);
+  return out;
+}

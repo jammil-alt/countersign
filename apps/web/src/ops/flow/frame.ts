@@ -9,7 +9,6 @@ import {
   stepCodeStatus,
   type TypingContext,
 } from "@countersign/core";
-import type { LeftItem } from "../builder/data-use";
 import {
   type ApprovalEnv,
   approvalOption,
@@ -220,26 +219,6 @@ export function chartLabel(labels: StepLabels, env: ApprovalEnv): NonNullable<Ch
 }
 
 // ── Statuses the builder adds ────────────────────────────────────────────────────────────────────
-
-/**
- * What the client still lacks for a step (a connection, a pack that is off): a question on the
- * first step that needs it, as "What's left" lists it.
- */
-export function setupItems(left: readonly LeftItem[], workflow: string): SettleEntry[] {
-  return left.flatMap((item): SettleEntry[] =>
-    (item.kind === "connection" || item.kind === "pack") && item.workflow === workflow
-      ? [
-          {
-            key: `setup:${item.key}`,
-            stepId: item.stepId,
-            level: "question",
-            title: item.text,
-            source: "problem",
-          },
-        ]
-      : [],
-  );
-}
 
 export { devQueuePath } from "../devQueue";
 

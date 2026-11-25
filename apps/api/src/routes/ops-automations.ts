@@ -26,7 +26,6 @@ import {
   type AutomationHealth,
   type AutomationListItem,
   type AutomationUse,
-  automationOutputSchema,
   automationRef,
   type BuilderAutomation,
   parseAutomationRef,
@@ -418,7 +417,7 @@ export function opsAutomationRoutes(app: Hono<AppEnv>): void {
       .orderBy(desc(automationVersion.version))
       .limit(1);
     const def = latest?.definition ?? null;
-    const requires = def ? processes.anyAutomationRequires(def, {}) : null;
+    const requires = def ? processes.automationRequires(def, {}) : null;
     return builderCatalogFor(ctx, {
       tenantId: row.tenantId,
       testCopy: false,
@@ -511,11 +510,7 @@ export async function builderAutomations(
       source: row.tenantId === null ? "shared" : "client",
       status: v.status,
       definition: def,
-      // Wave 3b: typed from v3 steps or v4 process steps.
-      outputSchema:
-        def.schemaVersion === 2
-          ? processes.processAutomationOutputSchema(def, typing)
-          : automationOutputSchema(def, typing),
+      outputSchema: processes.processAutomationOutputSchema(def, typing),
     });
   };
   const rows = await tx

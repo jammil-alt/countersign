@@ -1,16 +1,14 @@
 // The agent's workflows in the builder's bar: the others to switch to and "+ Workflow", and the
-// form a new one starts from. Shared by the v4 builder (`WorkflowBuilder`) and the steps builder
-// (`steps/StepsBuilder`), so an agent's workflows switch and add the same way in both.
+// form a new one starts from (`steps/StepsBuilder`).
 
-import { type ProcessAgentBundle, processes, Slug, type TriggerOn } from "@countersign/core";
-import { useMemo, useState } from "react";
+import { Slug, type TriggerOn } from "@countersign/core";
+import { useState } from "react";
 import { Link } from "react-router-dom";
 import { Icon } from "../../ui/icons";
 import { Button, buttonClass, cx } from "../../ui/primitives";
 import { slugify } from "../agents/definition-form";
 import { Field } from "../agents/ui";
 import type { FlowView } from "../flow/FlowBar";
-import { RoleChip } from "../flow/Ways";
 import { SchedulePicker, type ScheduleValue } from "../triggers/SchedulePicker";
 import { EventOptions, SmallInput, SmallSelect } from "./fields";
 
@@ -19,33 +17,27 @@ import { EventOptions, SmallInput, SmallSelect } from "./fields";
  * has several), and "+ Workflow".
  */
 export function WorkflowSwitcher({
-  bundle,
-  stepModel = [],
+  workflows,
   current,
   base,
   adding,
   onAdd,
   view,
 }: {
-  bundle: Pick<ProcessAgentBundle, "workflows">;
-  /** The agent's v5 workflows (they open in the steps builder). */
-  stepModel?: readonly { slug: string; name: string; enabled?: boolean | undefined }[];
+  workflows: readonly { slug: string; name: string; enabled?: boolean | undefined }[];
   current: string;
   base: string;
   adding: boolean;
   onAdd(): void;
   view: FlowView;
 }) {
-  // Triggers and outputs (2026-11-23): a tab says what its workflow is, after its name.
-  const roles = useMemo(() => processes.workflowRoles(bundle.workflows), [bundle]);
   return (
     <nav
       aria-label="Workflows"
       className="inline-flex max-w-full flex-wrap items-center gap-1 rounded-md border border-line bg-surface p-1"
     >
-      {bundle.workflows.length + stepModel.length > 1
-        ? [...bundle.workflows, ...stepModel].map((w) => {
-            const r = roles.get(w.slug)?.role;
+      {workflows.length > 1
+        ? workflows.map((w) => {
             return (
               <Link
                 key={w.slug}
@@ -61,9 +53,6 @@ export function WorkflowSwitcher({
               >
                 {w.name}
                 {w.enabled !== false ? "" : " · off"}
-                {r === "trigger" || r === "output" ? (
-                  <RoleChip role={r} className="ml-1.5" />
-                ) : null}
               </Link>
             );
           })

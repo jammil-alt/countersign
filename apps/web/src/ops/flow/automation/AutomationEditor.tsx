@@ -246,7 +246,7 @@ function Editor(props: {
     // Core's validator for an automation, as the server runs it on a save; named for the draft's
     // one process, so its words name the steps.
     const errors = processes
-      .validateAnyAutomation(definition, ctx)
+      .validateAutomation(definition, ctx)
       .errors.map((e) => ({ ...e, workflow: definition.slug }));
     return readableErrors(errors, draft);
   }, [definition, ctx, draft]);

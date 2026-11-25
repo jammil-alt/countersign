@@ -16,7 +16,6 @@ import {
   skillRuleProblems,
   skillTools,
   steps,
-  walkSteps,
 } from "@countersign/core";
 import { browserSite, skill, skillVersion, type Tx } from "@countersign/db";
 import { knownModelIds } from "@countersign/llm";
@@ -91,26 +90,6 @@ export function readProblems(
     }
   }
   return problems;
-}
-
-/**
- * What `processes.fromWorkflowV3` needs from the registries: the tool a tool-wrapper skill wraps
- * (built-ins only; operator skills are never `tool` mode) and each tool's side effect. Unknown ids
- * answer null, which the converter treats as a skill step or an external write (the safe side).
- */
-export function convertLookup(
-  skills: Pick<SkillCatalog, "get">,
-  tools: Pick<ToolRegistry, "get">,
-): processes.ConvertLookup {
-  return {
-    wrappedTool(skillId) {
-      const def = skills.get(skillId);
-      return def && isToolWrapper(def) ? (def.handler ?? null) : null;
-    },
-    sideEffect(toolId) {
-      return tools.get(toolId)?.spec.sideEffect ?? null;
-    },
-  };
 }
 
 // ── v0.16: browsing skills' sites (docs/plan.md §1.86) ──────────────────────────────────────────
@@ -529,21 +508,8 @@ export async function untestedLoopReason(
 /** Every skill reference in a bundle: the agent's skills and every skill step. */
 export function bundleSkillRefs(bundle: AgentBundle): string[] {
   const refs = new Set(bundle.definition.skills.map((s) => s.skill));
-  // R8: a bundle the builder saved holds v4 processes.
   for (const w of bundle.workflows) {
-    if (w.workflow.schemaVersion === 5) {
-      for (const ref of steps.stepModelSkills(w.workflow)) refs.add(ref);
-      continue;
-    }
-    if (w.workflow.schemaVersion === 4) {
-      for (const { step } of processes.allSteps(w.workflow)) {
-        if (step.kind === "skill") refs.add(step.skill);
-      }
-      continue;
-    }
-    walkSteps(w.workflow, ({ step }) => {
-      if (step.kind === "skill") refs.add(step.skill);
-    });
+    for (const ref of steps.stepModelSkills(w.workflow)) refs.add(ref);
   }
   return [...refs];
 }

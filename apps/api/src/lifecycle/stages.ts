@@ -18,7 +18,6 @@ import {
   type AgentBundle,
   type AutomationDefinition,
   clientLanguage,
-  eachBundleStep,
   GO_LIVE_SUBJECT,
   type GoLive,
   GoLivePayload,
@@ -26,6 +25,7 @@ import {
   isExternalTool,
   NO_WRITES_REASON,
   processes,
+  steps,
   readPause,
   readStageState,
   type SignoffSummary,
@@ -37,7 +37,6 @@ import {
   stagesPassed,
   startTrial,
   trialProgress,
-  walkSteps,
 } from "@countersign/core";
 import {
   type AgentStageState,
@@ -153,46 +152,35 @@ export function bundleWritesWith(
     for (const t of skillTools(def)) toolIds.add(t);
   };
   for (const s of bundle.definition.skills) addSkill(s.skill);
-  eachBundleStep(
-    bundle,
-    (step) => {
-      if (step.kind === "skill") addSkill(step.skill);
-      // Skill model (2026-11-10): an action write step always writes (every action is external).
-      if (step.kind === "write" && step.tool === undefined) reaches = true;
-      else if (step.kind === "action" || step.kind === "read" || step.kind === "write") {
-        toolIds.add(step.tool as string);
-      }
-      if (step.kind === "conversation") reaches = true;
-    },
-    { enabledOnly: true },
-  );
+  for (const w of bundle.workflows) {
+    if (!w.enabled) continue;
+    for (const action of steps.stepModelActions(w.workflow)) {
+      // A merged action (Email, Accounting) writes through whichever of its tools the agent has.
+      const merged = steps.mergedAction(action);
+      for (const t of merged ? Object.values(merged.tools) : [action]) toolIds.add(t);
+    }
+    for (const ref of steps.stepModelSkills(w.workflow)) addSkill(ref);
+    steps.eachStep(w.workflow.steps, ({ step }) => {
+      if (step.kind !== "do") return;
+      if (step.uses?.type === "collect" || step.doneBy === "contact") reaches = true;
+    });
+  }
   // v0.12 W2-B: the steps of the automations this bundle's enabled workflows use.
   const mine = new Set(
     bundleAutomationRefs({ ...bundle, workflows: bundle.workflows.filter((w) => w.enabled) }),
   );
   for (const [ref, def] of Object.entries(used.automations)) {
     if (!mine.has(ref)) continue;
-    // Wave 3b: a v4 automation's process steps (its reads, writes, skills and conversations).
-    if (def.schemaVersion === 2) {
-      processes.walkSteps(def, ({ step }) => {
-        if (step.kind === "skill") {
-          const inner = used.skills[step.skill] ?? skills[step.skill];
-          if (inner?.reachesPeople) reaches = true;
-          for (const t of inner ? skillTools(inner) : []) toolIds.add(t);
-        }
-        if (step.kind === "conversation") reaches = true;
-        if (step.kind === "write" && step.tool === undefined) reaches = true;
-        else if (step.kind === "write" || step.kind === "read") toolIds.add(step.tool as string);
-      });
-      continue;
-    }
-    walkSteps(def, ({ step }) => {
+    // An automation's process steps (its reads, writes, skills and conversations).
+    processes.walkSteps(def, ({ step }) => {
       if (step.kind === "skill") {
         const inner = used.skills[step.skill] ?? skills[step.skill];
         if (inner?.reachesPeople) reaches = true;
         for (const t of inner ? skillTools(inner) : []) toolIds.add(t);
       }
-      if (step.kind === "action") toolIds.add(step.tool);
+      if (step.kind === "conversation") reaches = true;
+      if (step.kind === "write" && step.tool === undefined) reaches = true;
+      else if (step.kind === "write" || step.kind === "read") toolIds.add(step.tool as string);
     });
   }
   if (reaches) return true;

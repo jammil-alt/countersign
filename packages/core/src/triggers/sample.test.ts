@@ -3,7 +3,6 @@
 
 import { describe, expect, it } from "vitest";
 import { mergeBundles } from "../bundle/merge";
-import { toProcessBundle } from "../bundle/normalize";
 import { RESHAPE_SKILL } from "../process/reshape";
 import { proposeReshape, reshapeContext } from "../process/reshape-propose";
 import { Process } from "../process/schema";
@@ -330,15 +329,14 @@ describe("typing a webhook trigger from its sample", () => {
 // ── Versioned and merged with the agent ──────────────────────────────────────────────────────
 
 describe("merging a sample", () => {
-  const lookup = { wrappedTool: () => null, sideEffect: () => null };
-  const base = edit(toProcessBundle(bundle(), lookup), (d) => {
+  const base = edit(bundle(), (d) => {
     const w = d.workflows[0]?.workflow;
-    if (w?.schemaVersion !== 4) throw new Error("not v4");
+    if (!w) throw new Error("no workflow");
     w.triggers.push({ id: "hook", on: { type: "webhook", hookId: HOOK } });
   });
   const hookOn = (b: AgentBundle) => {
     const w = b.workflows[0]?.workflow;
-    if (w?.schemaVersion !== 4) throw new Error("not v4");
+    if (!w) throw new Error("no workflow");
     return w.triggers.find((t) => t.id === "hook")?.on;
   };
   const withShape = (b: AgentBundle, sample: unknown) =>

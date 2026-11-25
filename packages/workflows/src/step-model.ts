@@ -8,10 +8,9 @@
 //
 // DECISION (wave 1): a load, not a stored translation. Nothing stored is rewritten (invariant 3)
 // and the v5 workflow is what the version holds; what an engine takes is built from it for one
-// run, as a v3 workflow is read as v4 today (`./process`). Every step keeps its id, so durable
+// run. Every step keeps its id, so durable
 // names, step rows, idempotency keys, retries and hand-offs are the same as a v4 step's, and its
-// outcome is recorded in its engine's words (`steps.ENGINE_OUTCOMES`). When v3 and v4 go (wave 4),
-// the engines take these shapes under the step model's names and this load goes with them.
+// outcome is recorded in its engine's words (`steps.ENGINE_OUTCOMES`).
 
 import type { JsonSchema, ToolSpec } from "@countersign/core";
 import { processes, steps } from "@countersign/core";
@@ -161,8 +160,6 @@ export function loadStepModel(
   } as processes.Process;
   return {
     process,
-    origins: new WeakMap(),
-    v3: null,
     stepModel: {
       sources,
       byId: new Map(allSteps(wf.steps).map((s) => [s.id, s])),

@@ -9,26 +9,10 @@ import {
   processes,
   steps,
   type ToolSpec,
-  toProcessBundle,
 } from "@countersign/core";
 import { agent, agentVersion, type Tx } from "@countersign/db";
 import { and, eq } from "drizzle-orm";
 import type { RegistryContext } from "./agents";
-import { convertLookup, skillContext } from "./skills";
-
-/**
- * Whether a bundle has a hand-off step to another agent (only those versions need the client's
- * agents; a hand-off to this agent's own workflow is checked against the bundle alone).
- */
-export function holdsHandoff(bundle: AgentBundle): boolean {
-  return bundle.workflows.some(
-    (w) =>
-      w.workflow.schemaVersion === 4 &&
-      processes
-        .allSteps(w.workflow)
-        .some((l) => l.step.kind === "handoff" && !processes.isSelfHandoff(l.step)),
-  );
-}
 
 /**
  * A client's client agents as hand-off targets: each with the first enabled process of its live
@@ -40,7 +24,7 @@ export function holdsHandoff(bundle: AgentBundle): boolean {
 export async function handoffAgents(
   tx: Tx,
   tenantId: string,
-  ctx: Pick<RegistryContext, "tools" | "catalog">,
+  ctx: Pick<RegistryContext, "tools">,
 ): Promise<processes.HandoffAgent[]> {
   const rows = await tx
     .select({ a: agent, bundle: agentVersion.bundle })
@@ -51,7 +35,6 @@ export async function handoffAgents(
     )
     .where(and(eq(agent.tenantId, tenantId), eq(agent.kind, "client"), eq(agent.testCopy, false)))
     .orderBy(agent.name);
-  const lookup = convertLookup(ctx.catalog, ctx.tools);
   const out: processes.HandoffAgent[] = [];
   for (const { a, bundle } of rows) {
     if (a.runStatus === "retired") continue;
@@ -61,24 +44,11 @@ export async function handoffAgents(
       out.push({ slug: a.slug, name, workflow: null, steps: [] });
       continue;
     }
-    if (wf.workflow.schemaVersion === 5) {
-      out.push({
-        slug: a.slug,
-        name,
-        workflow: wf.slug,
-        steps: stepModelTargets(wf.workflow, ctx.tools.specs(a.bindings)),
-      });
-      continue;
-    }
-    const { skills } = await skillContext(tx, { tenantId, bundle, catalog: ctx.catalog });
-    const process = toProcessBundle({ ...bundle, workflows: [wf] }, lookup).workflows[0]?.workflow;
     out.push({
       slug: a.slug,
       name,
       workflow: wf.slug,
-      steps: process
-        ? processes.handoffTargetSteps(process, { skills, tools: ctx.tools.specs(a.bindings) })
-        : [],
+      steps: stepModelTargets(wf.workflow, ctx.tools.specs(a.bindings)),
     });
   }
   return out;

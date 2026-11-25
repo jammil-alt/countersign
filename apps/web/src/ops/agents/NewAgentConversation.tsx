@@ -4,13 +4,13 @@
 // for. Each change the Builder makes can be undone on its own. Nothing is an agent until the
 // operator saves the draft (POST /api/ops/builder/sessions/:id/save), which opens it in the
 // workflow builder. The conversation's id rides in `?session=` so a reload picks it up again.
-// Wave 3b: the Builder's draft is a v4 process bundle (docs/plan.md §1.86).
+// The Builder's draft is a step-model bundle (docs/step-model-plan.md).
 import {
-  type ProcessAgentBundle as AgentBundle,
+  AgentBundle as AgentBundleSchema,
+  type AgentBundle,
   type BuilderSessionView,
   type BuilderTurnView,
-  ProcessAgentBundle as ProcessAgentBundleSchema,
-  type processes,
+  steps,
 } from "@countersign/core";
 import { type ReactNode, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
@@ -32,14 +32,11 @@ import {
 import { StatusChip } from "../../ui/status";
 import { BuilderMark, Composer, Turns } from "../builder/chat";
 import {
-  PROCESS_KIND_LABEL as KIND_LABEL,
-  processStepDetail,
+  KIND_LABEL,
   TRIGGER_KIND_LABEL,
   triggerDetail,
   triggerTitle,
 } from "../workflow/describe";
-
-type Step = processes.Step;
 
 import { Stepper } from "./NewAgentParts";
 import { detailMessages, errorText, isCode, Notice, notifyAgentsChanged, useAction } from "./ui";
@@ -49,8 +46,8 @@ type Connection = ResponseOf<typeof apiRoutes.opsClient>["connections"][number];
 
 function bundleOf(session: BuilderSessionView | undefined): AgentBundle | null {
   if (!session) return null;
-  const parsed = ProcessAgentBundleSchema.safeParse(session.bundle);
-  return parsed.success ? (parsed.data as AgentBundle) : null;
+  const parsed = AgentBundleSchema.safeParse(session.bundle);
+  return parsed.success ? parsed.data : null;
 }
 
 /** Whether the Builder has drafted anything yet: a workflow, or a change to the blank start. */
@@ -393,14 +390,14 @@ function Plan({ bundle }: { bundle: AgentBundle }) {
   );
 }
 
-function PlanStep({ n, step }: { n: number; step: Step }) {
+function PlanStep({ n, step }: { n: number; step: steps.Step }) {
   return (
     <PlanRow
       n={n}
       kind={step.kind}
       title={step.name || KIND_LABEL[step.kind]}
-      detail={processStepDetail(step)}
-      person={step.kind === "person"}
+      detail={null}
+      person={step.kind === "do" && step.doneBy === "person"}
     />
   );
 }
@@ -454,18 +451,7 @@ function Access({
   };
   for (const tool of bundle.definition.extraTools) add(tool);
   for (const w of bundle.workflows) {
-    const walk = (steps: readonly Step[]) => {
-      for (const s of steps) {
-        // An action write step's tool is resolved when it runs.
-        if (s.kind === "write" && s.tool !== undefined) add(s.tool);
-        if (s.kind === "if") {
-          for (const p of s.paths) walk(p.steps);
-          walk(s.otherwise.steps);
-        }
-        if (s.kind === "for_each" || s.kind === "repeat") walk(s.steps);
-      }
-    };
-    walk(w.workflow.steps);
+    for (const action of steps.stepModelActions(w.workflow)) add(action);
   }
   const rows = [...byConnector.entries()].sort(([a], [b]) => a.localeCompare(b));
   return (

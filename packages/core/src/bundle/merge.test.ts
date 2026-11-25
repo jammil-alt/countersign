@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { bundleHash } from "../canonical";
 import { type AgentBundle, AgentBundle as AgentBundleSchema } from "../schemas/agent";
-import type { ForkStep, Step, Workflow } from "../schemas/workflow";
+import { validateBundle } from "../process/bundle";
+import type { ForkStep, Step, Workflow } from "../steps/schema";
+import { stepModelIds } from "../steps/walk";
 import { bundle, ctx, edit } from "../testing/fixtures";
-import { validateBundle } from "../workflow/validate";
-import { nodeIds } from "../workflow/walk";
 import { stripClientSpecificSettings } from "./client-specific";
 import { diffBundles } from "./diff";
 import { applyResolutions, mergeBundles } from "./merge";
@@ -20,8 +20,9 @@ const wait = (id: string, f = "1 hour"): Step => ({
 function base(): AgentBundle {
   const b = bundle();
   const main: Workflow = {
-    schemaVersion: 3,
-    trigger: { id: "tm", on: { type: "manual", input: { type: "object" } } },
+    schemaVersion: 5,
+    triggers: [{ id: "tm", on: { type: "manual", input: { type: "object" } } }],
+    outputs: [],
     steps: [
       wait("a"),
       {
@@ -157,16 +158,16 @@ describe("mergeBundles golden cases", () => {
   it("takes a step's model from one side, and conflicts when both sides set different ones", () => {
     const setModel = (id: string) =>
       change((b) => {
-        (step(b, "s6") as { model?: { id: string } }).model = { id };
+        (step(b, "s6") as { ai?: { model?: { id: string } } }).ai = { model: { id } };
       });
     const one = mergeBundles(base(), setModel("claude-haiku-5-5"), base());
     expect(one.conflicts).toEqual([]);
-    expect((step(one.bundle, "s6") as { model?: { id: string } }).model).toEqual({
+    expect((step(one.bundle, "s6") as { ai?: { model?: { id: string } } }).ai?.model).toEqual({
       id: "claude-haiku-5-5",
     });
     const both = mergeBundles(base(), setModel("claude-haiku-5-5"), setModel("claude-opus-5-5"));
     expect(both.conflicts.length).toBeGreaterThan(0);
-    expect(both.conflicts.every((c) => c.path.startsWith("step:s6#/model"))).toBe(true);
+    expect(both.conflicts.every((c) => c.path.startsWith("step:s6#/ai/model"))).toBe(true);
     const same = mergeBundles(base(), setModel("claude-opus-5-5"), setModel("claude-opus-5-5"));
     expect(same.conflicts).toEqual([]);
   });
@@ -262,8 +263,9 @@ describe("mergeBundles golden cases", () => {
           name,
           enabled: true,
           workflow: {
-            schemaVersion: 3,
-            trigger: { id: "tw", on: { type: "schedule", cron: "0 7 * * 1" } },
+            schemaVersion: 5,
+            triggers: [{ id: "tw", on: { type: "schedule", cron: "0 7 * * 1" } }],
+            outputs: [],
             steps: [wait("w1"), ...extra],
           },
         });
@@ -424,11 +426,18 @@ describe("mergeBundles golden cases", () => {
     const r = mergeBundles(base(), ours, theirs);
     expect(r.clean).toBe(true);
     const all = new Set(
-      [base(), ours, theirs].flatMap((b) => b.workflows.flatMap((w) => nodeIds(w.workflow))),
+      [base(), ours, theirs].flatMap((b) => b.workflows.flatMap((w) => stepModelIds(w.workflow))),
     );
-    for (const id of r.bundle.workflows.flatMap((w) => nodeIds(w.workflow)))
+    for (const id of r.bundle.workflows.flatMap((w) => stepModelIds(w.workflow)))
       expect(all.has(id)).toBe(true);
-    expect(validateBundle(r.bundle, ctx).errors).toEqual([]);
+    // The fixtures' workflows are not complete for publishing (no output, no End); a merge adds no
+    // other problem.
+    const unfinished = ["no_outputs", "no_end"];
+    expect(
+      validateBundle(r.bundle, ctx).errors.filter(
+        (e) => !("stepCode" in e && unfinished.includes(e.stepCode as string)),
+      ),
+    ).toEqual([]);
     expect(AgentBundleSchema.parse(r.bundle)).toEqual(r.bundle);
     expect(await bundleHash(r.bundle)).toMatch(/^[0-9a-f]{64}$/);
   });
@@ -471,15 +480,16 @@ describe("stripClientSpecificSettings", () => {
       main(d).steps.push({
         id: "it",
         name: "Itemize",
-        kind: "skill",
-        skill: "test.itemize",
+        kind: "do",
+        doneBy: "ai",
+        uses: { type: "skill", skill: "test.itemize" },
         input: {},
-        settings: { vendors: "Acme", threshold: 3 },
+        ai: { values: { vendors: "Acme", threshold: 3 } },
       });
     });
     const out = stripClientSpecificSettings(b, ctx.skills ?? {});
     expect(out.definition.skills[1]?.settings).toEqual({ threshold: 7 });
-    expect((step(out, "it") as { settings: unknown }).settings).toEqual({ threshold: 3 });
+    expect((step(out, "it") as { ai: { values: unknown } }).ai.values).toEqual({ threshold: 3 });
     expect((b.definition.skills[1] as { settings: Record<string, unknown> }).settings.vendors).toBe(
       "Acme",
     );

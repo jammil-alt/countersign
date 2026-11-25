@@ -1622,18 +1622,10 @@ async function draftGapSteps(
   const latest = agentId ? await latestVersion(tx, agentId) : null;
   const parsed = latest ? AgentBundle.safeParse(latest.bundle) : null;
   if (!parsed?.success) return gaps.map(() => null);
-  const drafted = parsed.data.workflows.flatMap((w) =>
-    w.workflow.schemaVersion === 4 ? [w.workflow] : [],
-  );
-  // Step model (build item 9): a v5 draft's steps stand for its gaps the same way.
-  const stepModel = parsed.data.workflows.flatMap((w) =>
-    w.workflow.schemaVersion === 5 ? [w.workflow] : [],
-  );
-  const ids = new Set([
-    ...drafted.flatMap((p) => processes.allSteps(p).map(({ step }) => step.id)),
-    ...stepModel.flatMap((w) => steps.stepModelIds(w)),
-  ]);
-  const matched = gapSteps(gaps, [...drafted, ...stepModel]);
+  // A draft's steps stand for its gaps the same way.
+  const drafted = parsed.data.workflows.map((w) => w.workflow);
+  const ids = new Set(drafted.flatMap((w) => steps.stepModelIds(w)));
+  const matched = gapSteps(gaps, drafted);
   return gaps.map((_, i) => {
     const said = named[i];
     return said && ids.has(said) ? said : (matched[i] ?? null);

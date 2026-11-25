@@ -4,7 +4,7 @@
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import { SkillDefinition } from "../schemas/skill";
-import { validateWorkflow } from "../workflow/validate";
+import { validateAutomation } from "../process/automation";
 import {
   CONVERSE_FIXED_INPUTS,
   CONVERSE_SKILL,
@@ -61,29 +61,20 @@ const SKILL = SkillDefinition.parse({
   resultFromInput: "result",
 });
 
+/** An automation: the conversation, then a step that reads its result. */
 function wf(stepInput: Record<string, unknown>, after: string) {
   return {
-    schemaVersion: 3,
-    trigger: {
-      id: "t",
-      on: {
-        type: "manual",
-        input: {
-          type: "object",
-          properties: { contactId: { type: "string" } },
-          required: ["contactId"],
-        },
-      },
+    schemaVersion: 2,
+    slug: "clarify",
+    name: "Clarify",
+    input: {
+      type: "object",
+      properties: { contactId: { type: "string" } },
+      required: ["contactId"],
     },
     steps: [
       { id: "talk", name: "Clarify", kind: "skill", skill: CONVERSE_SKILL, input: stepInput },
-      {
-        id: "tell",
-        name: "Tell",
-        kind: "notify",
-        channel: "thread",
-        message: after,
-      },
+      { id: "tell", name: "Tell", kind: "notify", notify: { to: ["lead"], message: after } },
     ],
   };
 }
@@ -127,15 +118,15 @@ describe("validation and typing", () => {
   const ctx = { skills: { [CONVERSE_SKILL]: SKILL } };
 
   it("a valid step passes, and a later step reads the result typed", () => {
-    const r = validateWorkflow(wf(input(), "First item: {{steps.talk.output.result.items}}"), ctx);
+    const r = validateAutomation(wf(input({ to: { contactId: "{{input.contactId}}" } }), "First item: {{steps.talk.output.result.items}}"), ctx);
     expect(r.errors).toEqual([]);
-    const bad = validateWorkflow(wf(input(), "{{steps.talk.output.result.colour}}"), ctx);
+    const bad = validateAutomation(wf(input({ to: { contactId: "{{input.contactId}}" } }), "{{steps.talk.output.result.colour}}"), ctx);
     expect(bad.errors.map((e) => [e.stepId, e.code])).toEqual([["tell", "template_path"]]);
   });
 
   it("refuses a templated goal, result or opening (they become instructions)", () => {
     for (const f of CONVERSE_FIXED_INPUTS) {
-      const r = validateWorkflow(wf(input({ [f]: "{{trigger.contactId}}" }), "x"), ctx);
+      const r = validateAutomation(wf(input({ [f]: "{{input.contactId}}" }), "x"), ctx);
       expect(r.errors.some((e) => e.code === "input_not_fixed" && e.field === `input.${f}`)).toBe(
         true,
       );
@@ -143,7 +134,7 @@ describe("validation and typing", () => {
   });
 
   it("reports converse problems on the step's field", () => {
-    const r = validateWorkflow(wf(input({ channel: "portal" }), "x"), ctx);
+    const r = validateAutomation(wf(input({ to: { contactId: "{{input.contactId}}" }, channel: "portal" }), "x"), ctx);
     expect(r.errors).toContainEqual(
       expect.objectContaining({ stepId: "talk", field: "input.channel", code: "converse_invalid" }),
     );

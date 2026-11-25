@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { AgentBundle } from "../schemas/agent";
-import type { Step } from "../schemas/workflow";
+import type { Step } from "../steps/schema";
 import { bundle, edit } from "../testing/fixtures";
 import {
   bundleFeatures,
@@ -17,9 +17,17 @@ describe("bundleSimilarity", () => {
   it("reads skills, tools, trigger kinds and the step-kind sequence", () => {
     expect(bundleFeatures(bundle())).toEqual({
       skills: ["docs.extract", "test.itemize", "test.summarize"],
-      tools: ["qbo.attachable.upload"],
+      tools: ["docs.extract", "qbo.attachable.upload"],
       triggers: ["event"],
-      steps: ["skill", "fork", "person", "notify", "for_each", "skill", "action"],
+      steps: [
+        "do:rules:action",
+        "fork",
+        "do:person:-",
+        "wait",
+        "for_each",
+        "do:ai:skill",
+        "do:rules:action",
+      ],
     });
   });
 
@@ -43,10 +51,8 @@ describe("bundleSimilarity", () => {
       const list = steps(d);
       const loop = list[2] as Extract<Step, { kind: "for_each" }>;
       loop.steps = [];
-      (d.workflows[0] as AgentBundle["workflows"][number]).workflow.trigger.on = {
-        type: "schedule",
-        cron: "0 9 * * 1",
-      };
+      const trigger = (d.workflows[0] as AgentBundle["workflows"][number]).workflow.triggers[0];
+      if (trigger) trigger.on = { type: "schedule", cron: "0 9 * * 1" };
     });
     const s = bundleSimilarity(a, b);
     expect(s.skills).toBeCloseTo(2 / 3, 4);

@@ -3,8 +3,8 @@
 // a template over its input and its top-level steps), as rows a person edits, and back. Also the
 // automation as the builder's own editing model reads it: one process with no trigger, kept in a
 // bundle so `../../builder/model`'s edits and History apply unchanged. Pure; no React.
-import { type AutomationDefinition, isPlainObject, type JsonSchema, type PathOption, type ProcessAgentBundle, pathOptions, processes, type TypingContext } from "@countersign/core";
-import type { Process } from "../../builder/model";
+import { type AutomationDefinition, isPlainObject, type JsonSchema, type PathOption, pathOptions, processes, type TypingContext } from "@countersign/core";
+import type { Process, ProcessAgentBundle } from "../../builder/model";
 import { type Namer, referenceLabel } from "../../builder/problems";
 import type { FlowEnds } from "../types";
 

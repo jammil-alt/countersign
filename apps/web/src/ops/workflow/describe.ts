@@ -1,33 +1,28 @@
 // Plain labels for workflow parts, shared by the step list and the agent overview's chips.
 import {
   type AgentBundle,
-  allSteps,
   processes,
   type Rule,
   type Rules,
   SKILL_KIND_LABEL,
   type SkillKind,
-  type Step,
-  type StepKind,
   scheduleText,
   steps as stepModel,
   type Trigger,
-  type Workflow,
 } from "@countersign/core";
 import { roleLabel, toolLabel, whenEvent } from "./labels";
 
-export const KIND_LABEL: Record<StepKind | "trigger", string> = {
+/** A step-model step's kind in a word, and the trigger's. */
+export const KIND_LABEL: Record<stepModel.StepKind | "trigger", string> = {
   trigger: "Trigger",
-  skill: "Skill",
-  action: "Action",
-  person: "Person",
+  do: "Do",
+  loop: "Loop",
   fork: "Fork",
   for_each: "For each",
+  repeat: "Repeat",
   wait: "Wait",
-  notify: "Notify",
-  stop: "Stop",
-  // v0.12 W2-B
-  use_automation: "Automation",
+  handoff: "Hand off",
+  end: "End",
 };
 
 /** A trigger's kind in a word, as the triggers list and the plan show it (prototype `#O7-Triggers`). */
@@ -215,57 +210,8 @@ export function stepSkillKindLabel(step: processes.Step, labels: StepLabels = {}
   return kind ? SKILL_KIND_LABEL[kind] : null;
 }
 
-/** The second line under a step's name: what it does in words, never its ids. */
-export function stepDetail(step: Step, labels: StepLabels = {}): string | null {
-  switch (step.kind) {
-    case "skill": {
-      const name = labels.skill?.(step.skill);
-      const what = name && name !== step.name ? name : null;
-      return [what, step.agent ? `by ${step.agent}` : null].filter(Boolean).join(" · ") || null;
-    }
-    case "action":
-      return [
-        labels.connector?.(step.tool),
-        toolLabel(step.tool),
-        step.approval.required === "required" ? "needs approval" : "on its own",
-      ]
-        .filter(Boolean)
-        .join(" · ");
-    case "person":
-      return `${step.mode === "approve" ? "Approve" : "Ask"} · ${
-        labels.person?.(step.assignee) ?? roleLabel(step.assignee)
-      } · ${step.timeout}`;
-    case "fork":
-      return `${step.paths.length} ${step.paths.length === 1 ? "path" : "paths"}`;
-    case "for_each":
-      return `over ${fieldText(step.over)}`;
-    case "wait":
-      return `for ${step.for}`;
-    case "notify":
-      return [CHANNEL_LABEL[step.channel] ?? step.channel, step.to ? fieldText(step.to) : null]
-        .filter(Boolean)
-        .join(" · ");
-    case "stop":
-      return STOP_LABEL[step.status] ?? step.status;
-    // v0.12 W2-B: the pinned automation by name and version, e.g. "Polite follow-up · v2".
-    case "use_automation": {
-      const [slug = step.automation, v] = step.automation.split("@");
-      const name = labels.automation?.(step.automation) ?? slug.replace(/[-_]+/g, " ");
-      return v ? `${name} · v${v}` : name;
-    }
-  }
-}
-
 /** Step names by id, so a rule reads "Review the record · needsFix" rather than `steps.<uuid>…`. */
 export type StepNames = ReadonlyMap<string, string>;
-
-export function stepNames(workflow: Workflow): StepNames {
-  const names = new Map<string, string>();
-  // S5.6: a trigger is named too, so its id ("trg-invoice-read") never shows.
-  for (const t of [workflow.trigger, ...(workflow.moreTriggers ?? [])]) names.set(t.id, "Trigger");
-  for (const { step } of allSteps(workflow)) names.set(step.id, step.name || KIND_LABEL[step.kind]);
-  return names;
-}
 
 /** "totalsValid" → "totals valid", "line_count" → "line count": a field path's words. */
 function pathWords(path: string): string {
@@ -459,10 +405,7 @@ export function processStepNames(
   return names;
 }
 
-/**
- * "6 steps, 2 forks": counted across nested paths and loops. A v4 process's `if` counts as a
- * fork (it is laid out as one).
- */
+/** "6 steps, 2 forks": counted across nested paths and loops. */
 export function workflowStats(bundle: Pick<AgentBundle, "workflows">): {
   steps: number;
   forks: number;
@@ -473,14 +416,10 @@ export function workflowStats(bundle: Pick<AgentBundle, "workflows">): {
   let forks = 0;
   for (const w of bundle.workflows) {
     const kinds: string[] = [];
-    if (w.workflow.schemaVersion === 5) {
-      stepModel.eachStep(w.workflow.steps, ({ step }) => kinds.push(step.kind));
-    } else if (w.workflow.schemaVersion === 4) {
-      kinds.push(...processes.allSteps(w.workflow).map((l) => l.step.kind as string));
-    } else kinds.push(...allSteps(w.workflow).map((l) => l.step.kind as string));
+    stepModel.eachStep(w.workflow.steps, ({ step }) => kinds.push(step.kind));
     for (const kind of kinds) {
       steps += 1;
-      if (kind === "fork" || kind === "if") forks += 1;
+      if (kind === "fork") forks += 1;
     }
   }
   return { steps, forks, workflows: bundle.workflows.length };

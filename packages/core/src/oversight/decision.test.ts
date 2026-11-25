@@ -8,7 +8,7 @@ import { LOCALES } from "../i18n/locale";
 import { OVERSIGHT_WORDS, oversightLine } from "../i18n/oversight";
 import { isPlainObject } from "../json";
 import { AgentDefinition } from "../schemas/agent";
-import { ActionStep, SkillStep } from "../schemas/workflow";
+import { Step } from "../process/schema";
 import {
   changedFields,
   fieldLabel,
@@ -126,8 +126,8 @@ describe("oversight settings", () => {
     expect(OversightSettings.safeParse({ review: "all", approval: "off" }).success).toBe(false);
   });
 
-  it("lets a skill or action step say off or always, and follows the agent otherwise", () => {
-    const skill = SkillStep.parse({
+  it("lets a skill or write step say off or always, and follows the agent otherwise", () => {
+    const skill = Step.parse({
       id: "s",
       kind: "skill",
       name: "S",
@@ -136,8 +136,7 @@ describe("oversight settings", () => {
     });
     expect(skill.review).toBe("always");
     expect(
-      ActionStep.safeParse({ id: "a", kind: "action", name: "A", tool: "x.y", review: "never" })
-        .success,
+      Step.safeParse({ id: "a", kind: "write", name: "A", tool: "x.y", review: "never" }).success,
     ).toBe(false);
     const failures = OversightSettings.parse({ review: "failures" });
     const off = OversightSettings.parse({ review: "off" });

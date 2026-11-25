@@ -65,7 +65,7 @@ type Connection = ResponseOf<typeof apiRoutes.opsClient>["connections"][number];
 export type AgentDetail = ResponseOf<typeof apiRoutes.opsAgent>;
 
 // The builder (with drag and drop) is its own chunk inside /ops, fetched when a workflow opens.
-const WorkflowBuilder = lazy(() => import("../builder/WorkflowBuilder"));
+const StepsBuilder = lazy(() => import("../builder/steps/StepsBuilder"));
 // F6: an older version's workflow as the chart, read only (with the builder's drag-and-drop code,
 // so fetched only when one is opened).
 const ReadOnlyFlow = lazy(() => import("../flow/ReadOnlyFlow"));
@@ -428,7 +428,7 @@ export function AgentScreen({
           </div>
         }
       >
-        <WorkflowBuilder
+        <StepsBuilder
           // A trigger added above the builder is a new draft the builder didn't make: once the
           // agent has reloaded with it, the builder moves onto it with its unsaved edits carried
           // over (FLOW-6, QA 2026-11-19: it used to open afresh on it, and they were gone).
@@ -452,15 +452,9 @@ export function AgentScreen({
               />
             </div>
           }
-          connections={connections}
           members={members}
           onChanged={reload}
           view={stepsTab ? "steps" : "canvas"}
-          // F6: the line under the builder's bar (whose agent this is, what it owes its template),
-          // and the open build's issues on their steps.
-          detail={data}
-          templateDetail={template.data ?? null}
-          buildId={openBuild?.id ?? null}
         />
       </Suspense>
     );
@@ -522,7 +516,7 @@ export function AgentScreen({
               blocked ??
               (requested && bundle && shown ? (
                 // An older version is read, not edited: the builder always opens the latest.
-                <WorkflowTab bundle={bundle} version={shown} />
+                <WorkflowTab agentId={view.id} bundle={bundle} version={shown} />
               ) : (
                 <Navigate to={`${base}/workflows/${builderStart}`} replace />
               ))
@@ -901,7 +895,15 @@ function AgentActions({
   );
 }
 
-function WorkflowTab({ bundle, version }: { bundle: AgentBundle; version: VersionDetail }) {
+function WorkflowTab({
+  agentId,
+  bundle,
+  version,
+}: {
+  agentId: string;
+  bundle: AgentBundle;
+  version: VersionDetail;
+}) {
   if (bundle.workflows.length === 0) {
     return <EmptyState>v{version.version} has no workflows.</EmptyState>;
   }
@@ -925,7 +927,7 @@ function WorkflowTab({ bundle, version }: { bundle: AgentBundle; version: Versio
               </Skeleton>
             }
           >
-            <ReadOnlyFlow workflow={w} />
+            <ReadOnlyFlow agentId={agentId} workflow={w} />
           </Suspense>
         </section>
       ))}

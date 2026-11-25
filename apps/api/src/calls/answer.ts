@@ -38,9 +38,8 @@ import {
   type InboundDecision,
   openingLine,
   type PermissionMatrix,
-  type processes,
   readHold,
-  type Step,
+  type steps,
   trimTrailingSlashes,
 } from "@countersign/core";
 import { agent, agentVersion, type Tx } from "@countersign/db";
@@ -186,7 +185,7 @@ export interface AnsweringStep {
   agentSlug: string;
   agentVersionId: string;
   bundle: AgentBundle;
-  /** The answering step: a v3 action's or a v4 write's id, input and approval. */
+  /** The answering step's id, input and approval. */
   step: {
     id: string;
     input: Record<string, unknown>;
@@ -254,30 +253,25 @@ export async function answeringStep(
 }
 
 /**
- * A workflow's top-level step that answers calls: a v3 `call.answer` action, or a v4 write of it.
- * A v4 write's approval is its `checks.approval`, and absent is required (invariant 8).
+ * A workflow's top-level step that answers calls: a Do that uses the `call.answer` action. Its
+ * approval is its `checks.approval`, and absent is required (invariant 8).
  */
-// DECISION (wave 3b): a v4 write whose approval holds a `when` counts as required here: a call
+// DECISION (wave 3b): a write whose approval holds a `when` counts as required here: a call
 // ringing in has no run data to test the condition against, so the strictest reading applies.
 function answerStepOf(
   workflow: AgentBundle["workflows"][number]["workflow"],
 ): AnsweringStep["step"] | null {
-  if (workflow.schemaVersion === 4) {
-    const w = workflow.steps.find(
-      (s): s is processes.WriteStep => s.kind === "write" && s.tool === CALL_ANSWER_TOOL,
-    );
-    if (!w) return null;
-    const check = w.checks?.approval;
-    return {
-      id: w.id,
-      input: w.input,
-      approval: { required: check && !check.when ? check.required : "required" },
-    };
-  }
-  const step = workflow.steps.find(
-    (s): s is Step & { kind: "action" } => s.kind === "action" && s.tool === CALL_ANSWER_TOOL,
+  const w = workflow.steps.find(
+    (s): s is steps.DoStep =>
+      s.kind === "do" && s.uses?.type === "action" && s.uses.action === CALL_ANSWER_TOOL,
   );
-  return step ? { id: step.id, input: step.input, approval: step.approval } : null;
+  if (!w) return null;
+  const check = w.checks?.approval;
+  return {
+    id: w.id,
+    input: w.input,
+    approval: { required: check && !check.when ? check.required : "required" },
+  };
 }
 
 export interface InboundPlan {

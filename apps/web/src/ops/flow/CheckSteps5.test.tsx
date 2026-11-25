@@ -30,7 +30,12 @@ const WORDS =
 
 function Landed() {
   const location = useLocation();
-  return <p data-testid="landed">{location.pathname}</p>;
+  return (
+    <p data-testid="landed" data-state={JSON.stringify(location.state ?? null)}>
+      {location.pathname}
+      {location.search}
+    </p>
+  );
 }
 
 function ids() {
@@ -38,14 +43,14 @@ function ids() {
   return () => `n-${++n}`;
 }
 
-function renderCheck(api: ReturnType<typeof fakeApi>) {
+function renderCheck(api: ReturnType<typeof fakeApi>, words: string = WORDS) {
   render(
     <MemoryRouter initialEntries={[`/ops/lab/check/${BUILD_ID}`]}>
       <ApiProvider client={api.client}>
         <Routes>
           <Route
             path="/ops/lab/check/:id"
-            element={<CheckSteps buildId={BUILD_ID} words={WORDS} newId={ids()} />}
+            element={<CheckSteps buildId={BUILD_ID} words={words} newId={ids()} />}
           />
           <Route path="*" element={<Landed />} />
         </Routes>
@@ -233,5 +238,62 @@ describe("Check the steps over a v5 draft", () => {
     expect(
       within(screen.getByTestId("flow-check-outputs")).getByTestId("workflow-outputs"),
     ).toBeInTheDocument();
+  });
+  it("drafts a build with no draft from the lines' words", async () => {
+    const asked: unknown[] = [];
+    const api = fakeApi({
+      [`GET /api/ops/builds/${BUILD_ID}`]: () => buildDetail(),
+      [`POST /api/ops/builds/${BUILD_ID}/draft-now`]: ({ init }: { init: RequestInit }) => {
+        asked.push(JSON.parse(String(init.body)));
+        return buildDetail({ agentId: DRAFT_AGENT_ID });
+      },
+      ...stepsCatalog(),
+    } as never);
+    const user = renderCheck(api, "");
+    await screen.findByTestId("flow-check");
+    expect(screen.getByTestId("flow-check-summary")).toHaveTextContent(
+      "Say how it starts, then list what happens",
+    );
+    expect(screen.queryByTestId("flow-check-quote")).toBeNull();
+    // Nothing typed yet: nothing to build.
+    expect(screen.getByTestId("flow-check-build")).toBeDisabled();
+    // A document arrives, instead of a person starting it.
+    await user.click(screen.getByTestId("flow-check-start-document"));
+    await user.click(screen.getByTestId("flow-check-start-person"));
+    await user.type(screen.getByTestId("flow-check-line-input"), "Read the invoice{Enter}");
+    await user.type(
+      screen.getAllByTestId("flow-check-line-input").at(-1) as HTMLElement,
+      "Create the bill",
+    );
+    await user.click(screen.getByTestId("flow-check-build"));
+    expect(await screen.findByTestId("landed")).toHaveTextContent(
+      `/ops/agents/${DRAFT_AGENT_ID}/workflow`,
+    );
+    expect(asked).toEqual([
+      {
+        description: "It starts: When a document arrives. 1. Read the invoice. 2. Create the bill.",
+      },
+    ]);
+  });
+
+  it("goes back to the description with the words", async () => {
+    const { api } = routes();
+    const user = renderCheck(api);
+    await screen.findByTestId("flow-check");
+    await user.click(screen.getByTestId("flow-check-back"));
+    const landed = await screen.findByTestId("landed");
+    expect(landed).toHaveTextContent("/ops/lab?tab=drafts&new=template");
+    expect(JSON.parse(landed.getAttribute("data-state") ?? "null")).toEqual({
+      describe: { name: "Invoice intake", words: WORDS, kind: "template" },
+    });
+  });
+
+  it("opens the workflow as it is on Start with a blank canvas", async () => {
+    const { api } = routes();
+    const user = renderCheck(api);
+    await screen.findByTestId("flow-check");
+    await user.click(screen.getByTestId("flow-check-blank"));
+    expect(await screen.findByTestId("landed")).toHaveTextContent(/\/workflows\//);
+    await waitFor(() => expect(api.calls.some((c) => c.startsWith("POST"))).toBe(false));
   });
 });

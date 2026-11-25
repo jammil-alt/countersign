@@ -4,7 +4,7 @@
 // a version identical to its parent is refused by hash, and publishing a client agent copies the
 // shared automations it uses into that client as `shared:<slug>` (runs see one client only).
 
-import { type AgentBundle, type AutomationDefinition, AutomationDefinition as AutomationSchema, automationRef, automationRefs, hashJson, parseAutomationRef, processes, type SkillDefinition, steps, stepsToAutomation, useSteps, type ValidationError } from "@countersign/core";
+import { type AgentBundle, type AutomationDefinition, AutomationDefinition as AutomationSchema, automationRef, hashJson, parseAutomationRef, processes, type SkillDefinition, steps, type ValidationError } from "@countersign/core";
 import { automation, automationVersion, type Tx } from "@countersign/db";
 import { knownModelIds } from "@countersign/llm";
 import { and, desc, eq, isNull, sql } from "drizzle-orm";
@@ -26,26 +26,9 @@ export interface ResolvedAutomation {
   status: AutomationVersionRow["status"];
 }
 
-/** A bundle's workflows split by schema. R8: the builder saves v4 processes. */
-function bySchema(bundle: AgentBundle): {
-  v3: AgentBundle["workflows"][number]["workflow"][];
-  v4: processes.Process[];
-} {
-  const v3: AgentBundle["workflows"][number]["workflow"][] = [];
-  const v4: processes.Process[] = [];
-  for (const w of bundle.workflows) {
-    // The step model: a v5 Do pins its automation in `uses`, read with the v5 readers.
-    if (w.workflow.schemaVersion === 5) continue;
-    if (w.workflow.schemaVersion === 4) v4.push(w.workflow);
-    else v3.push(w.workflow);
-  }
-  return { v3, v4 };
-}
-
-/** The automation versions a bundle's use steps (v4: process steps) pin, each once. */
+/** The automation versions a bundle's Do steps pin, each once. */
 export function bundleAutomationRefs(bundle: AgentBundle): string[] {
-  const { v3, v4 } = bySchema(bundle);
-  return [...new Set([...automationRefs(v3), ...processes.subProcessRefs(v4)])];
+  return [...new Set(bundle.workflows.flatMap((w) => stepModelPins(w.workflow).map((p) => p.ref)))];
 }
 
 /**
@@ -68,7 +51,7 @@ async function innerSkills(
 ): Promise<{ skills: Record<string, SkillDefinition>; missing: string[] }> {
   const refs = new Set<string>();
   for (const d of defs) {
-    for (const s of processes.anyAutomationRequires(d, {}).skills) refs.add(s);
+    for (const s of processes.automationRequires(d, {}).skills) refs.add(s);
   }
   if (refs.size === 0) return { skills: {}, missing: [] };
   return skillContext(tx, { tenantId, bundle: refsBundle([...refs]), catalog: ctx.catalog });
@@ -91,9 +74,9 @@ export async function prepareAutomation(
   const connectorIds = new Set(input.ctx.tools.connectors.list().map((c) => c.manifest.id));
   const definition: AutomationDefinition = {
     ...parsed.data,
-    requires: processes.anyAutomationRequires(parsed.data, typing, connectorIds),
+    requires: processes.automationRequires(parsed.data, typing, connectorIds),
   };
-  return { definition, errors: processes.validateAnyAutomation(definition, typing).errors };
+  return { definition, errors: processes.validateAutomation(definition, typing).errors };
 }
 
 function tenantIs(tenantId: string | null) {
@@ -251,7 +234,7 @@ export async function publishAutomation(
   if (!v || v.automationId !== row.id) throw notFound(`automation version ${input.versionId}`);
   if (v.status === "live") throw new AgentsError("invalid_state", "that version is already live");
   const { skills, missing } = await innerSkills(tx, row.tenantId, [v.definition], input.ctx);
-  const result = processes.validateAnyAutomation(v.definition, {
+  const result = processes.validateAutomation(v.definition, {
     skills,
     tools: input.ctx.tools.specs(),
     // v0.13 W2-H: an inner step's model is one the platform prices.
@@ -416,19 +399,7 @@ export function automationPublishErrors(
 ): ValidationError[] {
   const errors: ValidationError[] = [];
   for (const w of bundle.workflows) {
-    // R8: a v4 process pins its processes on `process` steps.
-    const pinned =
-      w.workflow.schemaVersion === 5
-        ? stepModelPins(w.workflow)
-        : w.workflow.schemaVersion === 4
-          ? processes
-              .subProcessSteps([w.workflow])
-              .map((s) => ({ id: s.id, ref: s.process, field: "process" }))
-          : useSteps([w.workflow]).map((s) => ({
-              id: s.id,
-              ref: s.automation,
-              field: "automation",
-            }));
+    const pinned = stepModelPins(w.workflow);
     for (const s of pinned) {
       if (!found.drafts.includes(s.ref)) continue;
       errors.push({
@@ -521,7 +492,7 @@ export async function snapshotSharedAutomations(
   // The shared skills the automations' steps name reach the client as the agent's own do.
   const skillRefs = new Set<string>();
   for (const d of copiedDefs)
-    for (const s of processes.anyAutomationRequires(d, {}).skills) skillRefs.add(s);
+    for (const s of processes.automationRequires(d, {}).skills) skillRefs.add(s);
   if (skillRefs.size > 0) {
     await snapshotSharedSkills(tx, {
       tenantId: input.tenantId,
@@ -530,100 +501,6 @@ export async function snapshotSharedAutomations(
     });
   }
   return made;
-}
-
-// ── Save as automation (docs/plan.md §1.45; wave 3b, §1.86) ────────────────────────────────────
-
-export type BundleStepsToAutomation =
-  | {
-      ok: true;
-      /** The new automation's v1 definition (v3 steps from a v3 workflow, v4 from a process). */
-      automation: AutomationDefinition;
-      /** The bundle with the selection replaced by the step that uses the automation. */
-      bundle: AgentBundle;
-    }
-  | { ok: false; code: string; message: string };
-
-/**
- * "Save as automation" on a bundle: the selected top-level steps of one of its workflows become a
- * new automation, used in their place. A v3 workflow gives a v3 automation and a use step (core's
- * `stepsToAutomation`, as always); a v4 process gives a v4 automation and a process step
- * (`processes.stepsToProcessAutomation`). Shared by the workflow builder's route and the Builder's
- * conversation; nothing is saved here.
- */
-export async function bundleStepsToAutomation(
-  tx: Tx,
-  input: {
-    tenantId: string | null;
-    bundle: AgentBundle;
-    stepIds: readonly string[];
-    slug: string;
-    name: string;
-    description?: string | undefined;
-    clientAgent: boolean;
-    newId: () => string;
-    ctx: RegistryContext;
-  },
-): Promise<BundleStepsToAutomation> {
-  const { bundle, ctx } = input;
-  const first = input.stepIds[0];
-  const holder = bundle.workflows.find((w) =>
-    (w.workflow.steps as { id: string }[]).some((s) => s.id === first),
-  );
-  if (!holder) {
-    return {
-      ok: false,
-      code: "not_top_level",
-      message: "only steps at the top of a workflow can become an automation",
-    };
-  }
-  // DECISION (step model, wave 1): saving v5 steps as an automation comes with the builder's
-  // forms (stream B); until then it is refused, never converted.
-  if (holder.workflow.schemaVersion === 5) {
-    return {
-      ok: false,
-      code: "not_top_level",
-      message: "steps in the new step model can't become an automation yet",
-    };
-  }
-  const asV3 = bundle as AgentBundle;
-  const { skills } = await skillContext(tx, {
-    tenantId: input.tenantId,
-    bundle: asV3,
-    catalog: ctx.catalog,
-  });
-  const used = await automationContext(tx, {
-    tenantId: input.tenantId,
-    bundle: asV3,
-    catalog: ctx.catalog,
-  });
-  const typing = {
-    skills: { ...used.skills, ...skills },
-    tools: ctx.tools.specs(),
-    ...(ctx.events ? { events: ctx.events } : {}),
-    automations: used.automations,
-  };
-  const common = {
-    stepIds: input.stepIds,
-    slug: input.slug,
-    name: input.name,
-    ...(input.description !== undefined ? { description: input.description } : {}),
-    newId: input.newId,
-    ctx: typing,
-    clientAgent: input.clientAgent,
-  };
-  const replace = (workflow: AgentBundle["workflows"][number]["workflow"]): AgentBundle => ({
-    ...bundle,
-    workflows: bundle.workflows.map((w) => (w.slug === holder.slug ? { ...w, workflow } : w)),
-  });
-  if (holder.workflow.schemaVersion === 4) {
-    const r = processes.stepsToProcessAutomation({ ...common, process: holder.workflow });
-    if (!r.ok) return r;
-    return { ok: true, automation: r.automation, bundle: replace(r.process) };
-  }
-  const r = stepsToAutomation({ ...common, workflow: holder.workflow });
-  if (!r.ok) return r;
-  return { ok: true, automation: r.automation, bundle: replace(r.workflow) };
 }
 
 /** The step model: a v5 workflow's Do steps that use an automation, as pins. */

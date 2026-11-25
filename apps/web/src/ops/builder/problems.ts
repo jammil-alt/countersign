@@ -6,10 +6,10 @@
 // keep the exact references, which they need to fix a draft; only the screen changes.
 // On v4 processes (merge of main, 2026-11-11): the builder edits processes, so a step is found in
 // a process, a trigger is one of its triggers, and a path's owner is its `if`.
-import { type ProcessAgentBundle, problemGroupKey } from "@countersign/core";
+import { problemGroupKey } from "@countersign/core";
 import { connectorLabel, toolLabel } from "../../runs/labels";
 import type { BuilderProblem } from "./catalog";
-import { ifOfBranch, locate, type Process, type Step } from "./model";
+import { ifOfBranch, locate, type Process, type ProcessAgentBundle, type Step } from "./model";
 
 type ValidationError = BuilderProblem;
 type AgentBundle = ProcessAgentBundle;

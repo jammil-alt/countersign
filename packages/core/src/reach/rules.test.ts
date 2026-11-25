@@ -4,7 +4,7 @@ import { mergeBundles } from "../bundle/merge";
 import { bundleHash } from "../canonical";
 import { AgentBundle } from "../schemas/agent";
 import { bundle, edit } from "../testing/fixtures";
-import { validateBundle } from "../workflow/validate";
+import { validateBundle } from "../process/bundle";
 import {
   nextEscalation,
   type PlanInput,

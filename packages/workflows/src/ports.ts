@@ -4,24 +4,20 @@
 // database and no model.
 
 import {
-  type ActionStep,
   type AnomalySignal,
   type Approval,
   type Duration,
   type Locale,
   type ModelChoice,
-  type NotifyStep,
   type OwnerCheckEntry,
   type OwnerWatchedStep,
-  type PersonStep,
   processes,
   type SkillDefinition,
-  type SkillStep,
-  type StepKind,
   type steps,
   type ToolSpec,
 } from "@countersign/core";
 import { z } from "zod";
+import type { ActionStep, NotifyStep, PersonStep, SkillStep } from "./process";
 import type { StepLoop } from "./step-model";
 
 export type RunMode = "live" | "test";
@@ -575,11 +571,8 @@ export interface V4Notice {
 export interface StepRunStart {
   runId: string;
   nodeId: string;
-  /**
-   * A v3 step's kind (a converted step keeps its stored kind); R3: a v4 step's kind, or `confer`
-   * for one reviewer's check of a step (`${step}:confer:<n>`).
-   */
-  nodeType: StepKind | processes.StepKind | "confer";
+  /** The step's kind, or `confer` for one reviewer's check of a step (`${step}:confer:<n>`). */
+  nodeType: processes.StepKind | "confer";
   skillRef?: string;
   input?: unknown;
   // v0.13 W2-I
@@ -630,10 +623,7 @@ export interface StepCatalog {
 /** A step for the run's own agent (its owner, R6) to review. */
 export interface OversightRequest {
   run: RunInfo;
-  /**
-   * The step as stored: a v3 skill or action (a converted step's stored v3 step, as before), or
-   * R6: a native v4 read, skill, write or conversation step.
-   */
+  /** The step as the owner watches it: a read, skill, write or conversation step. */
   step: OwnerWatchedStep;
   /** The step's durable name. */
   nodeId: string;

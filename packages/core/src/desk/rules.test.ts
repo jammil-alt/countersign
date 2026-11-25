@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { ToolDisplay } from "../schemas/tool-display";
-import { PersonStep } from "../schemas/workflow";
+import { PersonInstructions } from "../steps/schema";
 import {
   batchKeyOf,
   choiceProblem,
@@ -143,20 +143,16 @@ describe("quick answers", () => {
 
   it("a person step takes 1 to 6 choices", () => {
     const step = {
-      id: "ask",
-      name: "Ask",
-      kind: "person",
       mode: "ask",
-      assignee: "client_admin",
-      title: "Pay now?",
-      timeout: "1 day",
-      onTimeout: "stop",
+      who: "client_admin",
+      question: "Pay now?",
+      deadline: { after: "1 day", ifNoAnswer: "stop" },
     };
     const choice = (v: string) => ({ value: v, label: { en: v } });
-    expect(PersonStep.safeParse({ ...step, choices: [choice("yes")] }).success).toBe(true);
-    expect(PersonStep.safeParse({ ...step, choices: [] }).success).toBe(false);
+    expect(PersonInstructions.safeParse({ ...step, choices: [choice("yes")] }).success).toBe(true);
+    expect(PersonInstructions.safeParse({ ...step, choices: [] }).success).toBe(false);
     expect(
-      PersonStep.safeParse({ ...step, choices: ["a", "b", "c", "d", "e", "f", "g"].map(choice) })
+      PersonInstructions.safeParse({ ...step, choices: ["a", "b", "c", "d", "e", "f", "g"].map(choice) })
         .success,
     ).toBe(false);
   });

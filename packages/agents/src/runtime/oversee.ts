@@ -274,13 +274,13 @@ const CHECKPOINT_NO_RETRY = ["continue", "ask", "stop"] as const;
 const none = (reason: string): OverseeVerdict => ({ action: "none", reason });
 
 /**
- * Whether the step can write to a client's tool or reach a person: an action's or a v4 write's
- * tool, its skill's tools, or a conversation (which sends). A v4 read whose tool is external is
+ * Whether the step can write to a client's tool or reach a person: a write's or read's
+ * tool, its skill's tools, or a conversation (which sends). A read whose tool is external is
  * treated as a write too (the validator refuses it; the safe side here).
  */
 function writes(deps: RuntimeDeps, step: OwnerWatchedStep, def: SkillDefinition | null) {
   const external = (toolId: string) => deps.tools.get(toolId)?.spec.sideEffect === "external";
-  if (step.kind === "action" || step.kind === "write" || step.kind === "read") {
+  if (step.kind === "write" || step.kind === "read") {
     // Skill model: an action not yet resolved to its tool is external (every action is).
     return step.tool === undefined || external(step.tool);
   }

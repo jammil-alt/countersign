@@ -32,7 +32,6 @@ import {
   processes,
   type Rules,
   SETUP_TRIES_MAX,
-  type Step,
   type StoredTry,
   shownOnTimeline,
   stepStateLabel,
@@ -434,11 +433,14 @@ async function namer(tx: Tx, tenantId: string, r: RunRow) {
 }
 
 /** Who a step would ask: a person step's assignee, or a write's approvers. */
-function askedOf(step: TimelineStepDef, defaultApprover: string | null): string[] | null {
-  const s = step as Record<string, unknown> & { kind: string };
-  if (s.kind === "person" && typeof s.assignee === "string") return [s.assignee];
-  if (s.kind === "write" || s.kind === "action") {
-    const checks = s.checks as { approval?: { approvers?: { who?: string }[] } } | undefined;
+function askedOf(
+  step: TimelineStepDef,
+  nodeType: string,
+  defaultApprover: string | null,
+): string[] | null {
+  if (nodeType === "person" && step.kind === "do" && step.person) return [step.person.who];
+  if (nodeType === "write") {
+    const checks = step.checks as { approval?: { approvers?: { who?: string }[] } } | undefined;
     const named = (checks?.approval?.approvers ?? [])
       .map((a) => a.who)
       .filter((w): w is string => typeof w === "string");
@@ -527,13 +529,14 @@ export async function runStepsOf(
     if (s.nodeType === "trigger" || checkKindOf(s.nodeId)) continue;
     const step = stepOfRow(find, s.nodeId);
     if (!step || !shownOnTimeline(step)) continue;
-    const labelled = step as Step;
-    const writes = step.kind === "write" || step.kind === "action";
+    const labelled = step;
+    // The engine kind the step ran as: a Do that changes something or asks a person.
+    const writes = s.nodeType === "write";
     const state = STEP_STATE[s.status] ?? "running";
-    const asked = askedOf(step, names.approver);
+    const asked = askedOf(step, s.nodeType, names.approver);
     const who = asked ? [...new Set(asked.map(names.name))].join(" and ") : null;
     let summary = summaryAfterLabel(s.summary, [clientLabel(labelled), step.name]);
-    if (step.kind === "person" && who) {
+    if (s.nodeType === "person" && who) {
       summary =
         state === "waiting" || state === "running"
           ? `Would ask ${who}. Nobody was asked: this is ${what}.`

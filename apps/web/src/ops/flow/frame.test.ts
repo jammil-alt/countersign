@@ -3,7 +3,6 @@
 // adds: what the client lacks, and a Dev queue request on a step that requires code (§1.125).
 import type { StepCodeRequest, ToolSpec } from "@countersign/core";
 import { describe, expect, it } from "vitest";
-import type { LeftItem } from "../builder/data-use";
 import type { ApprovalEnv, Process, Step } from "../builder/model";
 import {
   agentEnds,
@@ -13,7 +12,6 @@ import {
   loopEnds,
   loopProcess,
   placeWords,
-  setupItems,
   withCodeRequests,
 } from "./frame";
 import { buildStatuses } from "./status";
@@ -216,24 +214,6 @@ describe("a step's words on the chart", () => {
 });
 
 describe("the statuses the builder adds", () => {
-  it("puts what the client lacks on the first step that needs it, as a question", () => {
-    const left: LeftItem[] = [
-      { kind: "missing", key: "missing:m1", workflow: "main", stepId: "m1", text: "Missing" },
-      { kind: "pack", key: "pack:materials", workflow: "main", stepId: "read", text: "Turn on" },
-      { kind: "connection", key: "connection:qbo", workflow: "other", stepId: "x", text: "Else" },
-      { kind: "test", key: "test", text: "Test-run it" },
-    ];
-    expect(setupItems(left, "main")).toEqual([
-      {
-        key: "setup:pack:materials",
-        stepId: "read",
-        level: "question",
-        title: "Turn on",
-        source: "problem",
-      },
-    ]);
-  });
-
   const request = (over: Partial<StepCodeRequest["request"]>): StepCodeRequest => ({
     buildId: "b1",
     workflowId: "monthly",

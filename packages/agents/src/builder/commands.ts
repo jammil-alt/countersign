@@ -5,13 +5,12 @@
 //
 // - `/skill <id> <instruction>`: that skill's steps and this agent's settings for it. The skill's
 //   own definition and defaults never change from here (they are the skill's versions).
-// - `/automation <slug>[@version] [where]`: place an automation as a process step (wave 3b: v4).
+// - `/automation <slug>[@version] [where]`: place an automation as a Do step.
 // - `/trigger <kind> <details>`: add or change a trigger.
 
 import {
   type AgentBundle,
   flattenBundle,
-  holdsStepModel,
   parseCommand,
   parseSkillRef,
   resolveSkillCommand,
@@ -124,9 +123,7 @@ export function readCommand(
         name: "automation",
         ref: found.ref,
         args: parsed.args,
-        instruction: holdsStepModel(input.bundle)
-          ? `Place the automation ${found.ref} ("${found.name}") as one Do step ("uses": {"type": "automation", "automation": "${found.ref}"}, no "doneBy", an input that matches its input) where it fits${rest ? `, as the operator says below` : ""}. Change nothing else.`
-          : `Place the automation ${found.ref} ("${found.name}") as one process step (kind "process", process "${found.ref}", an input that matches its input schema) where it fits${rest ? `, as the operator says below` : ""}. Change nothing else.`,
+        instruction: `Place the automation ${found.ref} ("${found.name}") as one Do step ("uses": {"type": "automation", "automation": "${found.ref}"}, no "doneBy", an input that matches its input) where it fits${rest ? `, as the operator says below` : ""}. Change nothing else.`,
       },
     };
   }

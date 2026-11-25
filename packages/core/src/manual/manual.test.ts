@@ -30,7 +30,7 @@ import {
 const decision = (over: Partial<Decision> & { id: string; what: string }): Decision =>
   Decision.parse({ kind: "assumption", ...over });
 
-/** A v4 bundle: read, an if with a write inside, a person step, a write with approval off. */
+/** A v5 bundle: read, a fork with a write inside, a person step, a write with approval off. */
 function processBundle(): AgentBundle {
   return AgentBundle.parse({
     schemaVersion: 1,
@@ -47,13 +47,20 @@ function processBundle(): AgentBundle {
         slug: "main",
         name: "Read an invoice",
         workflow: {
-          schemaVersion: 4,
+          schemaVersion: 5,
           triggers: [{ id: "t", on: { type: "manual", input: {} } }],
+          outputs: [],
           steps: [
-            { id: "read", kind: "read", name: "Read the invoice", tool: "testkit.record.get" },
+            {
+              id: "read",
+              kind: "do",
+              doneBy: "rules",
+              name: "Read the invoice",
+              uses: { type: "action", action: "testkit.record.get" },
+            },
             {
               id: "big",
-              kind: "if",
+              kind: "fork",
               name: "Is it large?",
               paths: [
                 {
@@ -63,9 +70,11 @@ function processBundle(): AgentBundle {
                   steps: [
                     {
                       id: "post",
-                      kind: "write",
+                      kind: "do",
+                      doneBy: "rules",
                       name: "Post the bill",
-                      tool: "testkit.record.update",
+                      uses: { type: "action", action: "testkit.record.update" },
+                      checks: { approval: { required: "required" } },
                     },
                   ],
                 },
@@ -74,18 +83,22 @@ function processBundle(): AgentBundle {
             },
             {
               id: "ask",
-              kind: "person",
+              kind: "do",
+              doneBy: "person",
               name: "Check the vendor",
-              mode: "ask",
-              assignee: "client_admin",
-              title: "Is this vendor right?",
-              deadline: { after: "2 days", hours: "business" },
+              person: {
+                mode: "ask",
+                who: "client_admin",
+                question: "Is this vendor right?",
+                deadline: { after: "2 days", hours: "business" },
+              },
             },
             {
               id: "note",
-              kind: "write",
+              kind: "do",
+              doneBy: "rules",
               name: "Add a note",
-              tool: "testkit.record.update",
+              uses: { type: "action", action: "testkit.record.update" },
               checks: { approval: { required: "not_required" } },
             },
           ],
@@ -172,7 +185,7 @@ describe("the manual on the definition", () => {
 describe("how it works", () => {
   it("lists the steps in run order, by name and kind in words, nested ones deeper", () => {
     expect(howItWorks(processBundle()).map((l) => [l.stepId, l.depth, l.name, l.words])).toEqual([
-      ["read", 0, "Read the invoice", "Reads from your tools"],
+      ["read", 0, "Read the invoice", "Uses your tools"],
       ["big", 0, "Is it large?", "Chooses a path"],
       ["post", 1, "Post the bill", "Updates your tools, after a person approves"],
       ["ask", 0, "Check the vendor", "A person answers"],
@@ -184,22 +197,8 @@ describe("how it works", () => {
     expect(JSON.stringify(howItWorks(processBundle()))).not.toContain("SECRET");
   });
 
-  it("reads a stored v3 workflow too, and leaves a switched-off one out", () => {
-    const b = edit(bundle(), (d) => {
-      d.workflows.push({
-        slug: "v3",
-        name: "Old",
-        enabled: true,
-        workflow: {
-          schemaVersion: 3,
-          trigger: { id: "t3", on: { type: "manual", input: { type: "object" } } },
-          steps: [{ id: "w", name: "Wait a bit", kind: "wait", for: "1 hour" }],
-        },
-      });
-    });
-    const lines = howItWorks(b);
-    expect(lines.find((l) => l.stepId === "w")).toMatchObject({ words: "Waits 1 hour" });
-    const off = edit(b, (d) => {
+  it("leaves a switched-off workflow out", () => {
+    const off = edit(processBundle(), (d) => {
       for (const w of d.workflows) w.enabled = false;
     });
     expect(howItWorks(off)).toEqual([]);

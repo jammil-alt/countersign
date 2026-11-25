@@ -2,7 +2,7 @@
 // (the same context the server validates with), the palette built from them, and a client
 // agent's bound connections.
 import { type AgentBundle, allSteps, type BrowserScriptTool, type BuilderCatalog, // P-4
-  CONVERSE_SKILL, type EventTypeSpec, isToolWrapper, lookupSkill, type OpsConnection, type PermissionMatrix, type ProcessAgentBundle, parseSkillRef, processes, type SkillDefinition, type SkillKind, skillKind, steps, type ToolSpec, type TriggerOn, type TypingContext, toolLookup, type ValidationError, validateBundle, writeStepLabel } from "@countersign/core";
+  CONVERSE_SKILL, type EventTypeSpec, isToolWrapper, lookupSkill, type OpsConnection, type PermissionMatrix, parseSkillRef, processes, type SkillDefinition, type SkillKind, skillKind, steps, type ToolSpec, type TriggerOn, type TypingContext, toolLookup, type ValidationError, validateBundle, writeStepLabel } from "@countersign/core";
 import type { z } from "zod";
 import {
   connectorLabel,
@@ -12,7 +12,7 @@ import {
   toolLabel,
   whenEvent,
 } from "../workflow/labels";
-import { actionItem, type LogicKind, type PaletteItem } from "./model";
+import { actionItem, type LogicKind, type PaletteItem, type ProcessAgentBundle } from "./model";
 import { scriptPaletteItems } from "./scripts";
 
 export interface CatalogEvent {

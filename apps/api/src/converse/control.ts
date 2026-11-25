@@ -89,7 +89,7 @@ async function stepOf(
   // Inside a for_each the node is `<step>:<index>:<child>`: findNodeStep reads its last part.
   const step = wf && s ? findNodeStep(wf, s.nodeId) : undefined;
   const approval =
-    step && ownerWatches(step) ? ownerStepApproval(step as OwnerWatchedStep) : undefined;
+    step && ownerWatches(step) ? ownerStepApproval(step as unknown as OwnerWatchedStep) : undefined;
   return { approval, nodeId: s?.nodeId ?? null };
 }
 

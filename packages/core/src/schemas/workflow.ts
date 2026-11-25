@@ -154,3 +154,29 @@ export const WorkflowHandoff = z.object({
   sources: z.union([TemplateString, z.array(TemplateString).max(50)]).optional(),
 });
 export type WorkflowHandoff = z.infer<typeof WorkflowHandoff>;
+
+/** A step's words for the client: its client label, else its name. */
+export function clientLabel(step: { client?: { label?: string | undefined } | undefined; name: string }): string {
+  return step.client?.label ?? step.name;
+}
+
+/**
+ * A step's name for people that follows its state. The client label says what was done
+ * ("Itemized the bill"), so it is used once the step has run; until then (waiting for approval,
+ * turned down, failed) the step's own name says what it does ("Itemize the bill"). A person step
+ * asks someone, so it keeps its label in every state.
+ */
+// DECISION: the step's operator-written name stands for "not done yet" rather than a generated
+// tense: names are imperative by convention ("Find the bill"), and test runs already show it
+// ("Would itemize the bill").
+export function stepStateLabel(
+  step: {
+    client?: { label?: string | undefined } | undefined;
+    name: string;
+    kind: string;
+    doneBy?: string | undefined;
+  },
+  ran: boolean,
+): string {
+  return ran || step.kind === "person" || step.doneBy === "person" ? clientLabel(step) : step.name;
+}

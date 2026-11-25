@@ -4,52 +4,23 @@
 // and validation with these on every change, and the server runs them again on save.
 import {
   type AgentBundle,
-  type BuilderCatalog,
   type BundleChange,
   diffBundles,
   fromPointer,
-  isToolWrapper,
   type MergeConflict,
   parseSkillRef,
-  type processes,
   type Resolution,
+  steps,
 } from "@countersign/core";
 import { describeChange, entityName, listName, showValue } from "../agents/changes";
 import { checkValueWords } from "../workflow/checks";
 import { triggerTitle } from "../workflow/describe";
 
-/** R8: a bundle the merge view reads: v3 workflows, v4 processes, or both (ARCHITECTURE §10.14). */
-type AgentBundle = AgentBundle;
-
-/** The trigger order of a v4 process, as diff and merge key it (core's `TRIGGER_ORDER`). */
+/** The trigger order of a workflow, as diff and merge key it (core's `TRIGGER_ORDER`). */
 const TRIGGER_ORDER = "#/workflow/triggerOrder";
 
 export function isTriggerOrder(path: string): boolean {
   return path.endsWith(TRIGGER_ORDER);
-}
-
-/**
- * R8: how the merge view reads stored v3 workflows as v4 when the sides mix them, from the builder
- * catalog the screen already loads: a tool-mode skill that only wraps one tool, and each tool's
- * side effect (core's `ConvertLookup`, as packages/agents builds it from the registries).
- */
-// DECISION: the browser builds the lookup from the builder catalog (skills with their definitions,
-// tools with their specs) rather than a new route: the catalog is the registries' view for this
-// agent, the same the server's convertLookup reads. Unknown ids answer null, the safe side.
-export function catalogLookup(
-  catalog: Pick<BuilderCatalog, "skills" | "tools">,
-): processes.ConvertLookup {
-  return {
-    wrappedTool(skillId) {
-      const s = catalog.skills.find(
-        (x) => x.ref === skillId || parseSkillRef(x.ref).id === skillId,
-      );
-      return s && isToolWrapper(s.definition) ? (s.definition.handler ?? null) : null;
-    },
-    sideEffect(toolId) {
-      return catalog.tools.find((t) => t.id === toolId)?.sideEffect ?? null;
-    },
-  };
 }
 
 /** Each trigger's name by `trigger:<id>`, from every side, for the change and conflict lines. */
@@ -57,11 +28,7 @@ export function triggerLabels(...bundles: AgentBundle[]): Record<string, string>
   const out: Record<string, string> = {};
   for (const b of bundles) {
     for (const w of b.workflows) {
-      const triggers =
-        w.workflow.schemaVersion === 3
-          ? [w.workflow.trigger, ...(w.workflow.moreTriggers ?? [])]
-          : w.workflow.triggers;
-      for (const t of triggers) out[`trigger:${t.id}`] = triggerTitle(t);
+      for (const t of w.workflow.triggers) out[`trigger:${t.id}`] = triggerTitle(t);
     }
   }
   return out;
@@ -82,10 +49,10 @@ const RANK: Record<Mark, number> = { added: 4, removed: 3, changed: 2, moved: 1 
 
 /**
  * What a change marks on the step list: a step or path, or (for trigger edits) the trigger. R8: a
- * v4 trigger by its id (`#/workflow/triggers/<id>/…`); a trigger reorder marks each trigger whose
+ * trigger by its id (`#/workflow/triggers/<id>/…`); a trigger reorder marks each trigger whose
  * place changed as moved.
  */
-function markedIds(change: BundleChange, bundle: AgentBundle): [string, Mark][] {
+function markedIds(change: BundleChange): [string, Mark][] {
   const colon = change.entity.indexOf(":");
   const kind = change.entity.slice(0, colon);
   const key = change.entity.slice(colon + 1);
@@ -102,21 +69,17 @@ function markedIds(change: BundleChange, bundle: AgentBundle): [string, Mark][] 
       .filter((id, i) => typeof id === "string" && before.includes(id) && before[i] !== id)
       .map((id) => [String(id), "moved"]);
   }
-  const v4 = /#\/workflow\/triggers\/([^/]+)/.exec(change.path);
-  if (v4?.[1]) return [[v4[1], mark]];
-  if (change.path.includes("#/workflow/trigger")) {
-    const w = bundle.workflows.find((x) => x.slug === key)?.workflow;
-    return w?.schemaVersion === 3 ? [[w.trigger.id, mark]] : [];
-  }
+  const trigger = /#\/workflow\/triggers\/([^/]+)/.exec(change.path);
+  if (trigger?.[1]) return [[trigger[1], mark]];
   return [];
 }
 
 /** What one side did to each step, fork path and trigger, the strongest change winning. */
-export function sideMarks(changes: readonly BundleChange[], after: AgentBundle): Map<string, Mark> {
+export function sideMarks(changes: readonly BundleChange[]): Map<string, Mark> {
   const out = new Map<string, Mark>();
   for (const c of changes) {
     if (c.kind === "reordered") continue;
-    for (const [id, mark] of markedIds(c, after)) {
+    for (const [id, mark] of markedIds(c)) {
       const had = out.get(id);
       if (!had || RANK[mark] > RANK[had]) out.set(id, mark);
     }
@@ -306,35 +269,19 @@ export function fieldRows(input: {
   });
 }
 
-/** Steps and fork paths a side removed that the merged bundle no longer has. */
+/** Steps and Fork paths a side removed that the merged bundle no longer has. */
 export function removedSteps(
   changes: readonly BundleChange[],
   merged: AgentBundle,
   labels: Record<string, string>,
 ): { key: string; name: string }[] {
   const present = new Set<string>();
-  type Node = {
-    id: string;
-    kind: string;
-    steps?: Node[];
-    paths?: { id: string; steps: Node[] }[];
-    otherwise?: { steps: Node[] };
-  };
-  const visit = (steps: readonly Node[]) => {
-    for (const s of steps) {
-      present.add(`step:${s.id}`);
-      // A v3 fork or a v4 if.
-      if ((s.kind === "fork" || s.kind === "if") && s.paths && s.otherwise) {
-        for (const p of s.paths) {
-          present.add(`path:${p.id}`);
-          visit(p.steps);
-        }
-        visit(s.otherwise.steps);
-      }
-      if ((s.kind === "for_each" || s.kind === "repeat") && s.steps) visit(s.steps);
-    }
-  };
-  for (const w of merged.workflows) visit(w.workflow.steps as unknown as Node[]);
+  for (const w of merged.workflows) {
+    steps.eachStep(w.workflow.steps, ({ step }) => {
+      present.add(`step:${step.id}`);
+      if (step.kind === "fork") for (const p of step.paths) present.add(`path:${p.id}`);
+    });
+  }
   return changes
     .filter(
       (c) => c.kind === "removed" && (c.entity.startsWith("step:") || c.entity.startsWith("path:")),

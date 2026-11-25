@@ -238,13 +238,13 @@ export const SPLIT_MODEL_TOOLS: ReadonlySet<string> = new Set([
 /** The account agent's (Sloan's) handlers: steps of its own processes, never general tools. */
 export const ACCOUNT_TOOL_PREFIX = "account.";
 
-/** The tools an agent's processes call as read or write steps (core's `processTools`). */
+/** The tools (actions) an agent's workflows call. */
 export function bundleStepTools(bundle: AgentBundle | null | undefined): Set<string> {
-  if (!bundle) return new Set();
-  const v4 = bundle.workflows
-    .map((w) => w.workflow)
-    .filter((w): w is processes.Process => w.schemaVersion === 4);
-  return new Set(processes.processTools(v4));
+  const out = new Set<string>();
+  for (const w of bundle?.workflows ?? []) {
+    for (const action of steps.stepModelActions(w.workflow)) out.add(action);
+  }
+  return out;
 }
 
 function skillOption(

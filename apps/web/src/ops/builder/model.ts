@@ -7,7 +7,7 @@
 // New step and path ids are generated once (core's uuidv7) and never regenerated, so merges can
 // line them up (CLAUDE.md invariant 3).
 
-import { type AgentBundle, canonicalJson, defaultWriteApproval, isToolWrapper, type JsonObject, levelFor, type PermissionMatrix, type ProcessAgentBundle, type ProcessBundleWorkflow, parseSkillRef, processes, readConverted, type SkillDefinition, type SkillKind, skillTools, type steps, type ToolSpec, type Trigger, type TriggerOn, type TypingContext, uuidv7, type Verb } from "@countersign/core";
+import { type AgentBundle, canonicalJson, defaultWriteApproval, isToolWrapper, type JsonObject, levelFor, type PermissionMatrix, parseSkillRef, processes, type SkillDefinition, type SkillKind, skillTools, type steps, type ToolSpec, type Trigger, type TriggerOn, type TypingContext, uuidv7, type Verb } from "@countersign/core";
 import { slugify } from "../agents/definition-form";
 import { toolLabel } from "../workflow/labels";
 import { newStepWorkflow } from "./steps/model";
@@ -24,99 +24,17 @@ export const ROOT: ContainerId = "root";
 
 export type NewId = () => string;
 
-// ── Reading a stored version ─────────────────────────────────────────────────────────────────────
+// ── The bundle the v4 editing layer works on ──────────────────────────────────────────────────────
 
-/** What converting a v3 workflow needs from the catalog (core's `processes.ConvertLookup`). */
-export function convertLookup(ctx: TypingContext): processes.ConvertLookup {
-  return {
-    wrappedTool(skillId) {
-      const def =
-        ctx.skills?.[skillId] ??
-        Object.values(ctx.skills ?? {}).find((d) => parseSkillRef(d.id).id === skillId);
-      return def && isToolWrapper(def) ? (def.handler ?? null) : null;
-    },
-    sideEffect: (toolId) => ctx.tools?.[toolId]?.sideEffect ?? null,
-  };
-}
+/** A workflow entry read as a v4 process: what an automation's editor holds (`./steps` is v5). */
+export type ProcessBundleWorkflow = Omit<AgentBundle["workflows"][number], "workflow"> & {
+  workflow: Process;
+};
 
-/**
- * A stored bundle as the builder edits it: every v3 workflow read as a v4 process with
- * `fromWorkflowV3` and `readConverted` (every step, path and trigger id kept; nothing stored
- * changes), every v4 process as it is.
- */
-// DECISION: the conversion is the builder's starting point, not an edit: opening a v3 version shows
-// it converted with nothing unsaved, and publishing it unchanged publishes the stored version as
-// it is. The first save after an edit writes the whole bundle as v4, a new version.
-// The step model (coordinator, 2026-11-25): every new workflow starts as v5, so an agent of v3 or v4
-// workflows can hold v5 ones beside them. This builder has no v5 reading: each v5 workflow is set
-// aside here (it opens in the steps builder) and put back where it was when this builder saves
-// (`withStepModelWorkflows`), never dropped.
-export function readProcessBundle(
-  bundle: AgentBundle | AgentBundle,
-  ctx: TypingContext,
-): ProcessAgentBundle {
-  const lookup = convertLookup(ctx);
-  return {
-    ...bundle,
-    workflows: bundle.workflows.flatMap((w): ProcessBundleWorkflow[] =>
-      w.workflow.schemaVersion === 5
-        ? []
-        : [
-            {
-              ...w,
-              workflow:
-                w.workflow.schemaVersion === 4
-                  ? w.workflow
-                  : readConverted(processes.fromWorkflowV3(w.workflow, lookup)),
-            },
-          ],
-    ),
-  };
-}
-
-/** The stored bundle's v5 workflows (set aside by `readProcessBundle`), by slug. */
-export function stepModelWorkflows(stored: unknown): AgentBundle["workflows"] {
-  const list = (stored as { workflows?: AgentBundle["workflows"] } | null)?.workflows ?? [];
-  return list.filter((w) => w.workflow.schemaVersion === 5);
-}
-
-/**
- * What this builder saves: its processes, with the stored bundle's v5 workflows put back where they
- * were (one this builder's edits removed or renamed over is left as stored; a new process goes last).
- */
-export function withStepModelWorkflows(
-  edited: ProcessAgentBundle,
-  stored: unknown,
-  added: AgentBundle["workflows"] = [],
-): AgentBundle {
-  const aside = [...stepModelWorkflows(stored), ...added];
-  if (aside.length === 0) return edited as AgentBundle;
-  const order = ((stored as { workflows?: { slug: string }[] } | null)?.workflows ?? []).map(
-    (w) => w.slug,
-  );
-  const byEdit = new Map(edited.workflows.map((w) => [w.slug, w] as const));
-  const out: AgentBundle["workflows"] = [];
-  const used = new Set<string>();
-  for (const slug of order) {
-    const v5 = aside.find((w) => w.slug === slug);
-    const mine = byEdit.get(slug);
-    if (mine) out.push(mine);
-    else if (v5) out.push(v5);
-    else continue;
-    used.add(slug);
-  }
-  for (const w of [...edited.workflows, ...aside]) {
-    if (used.has(w.slug)) continue;
-    used.add(w.slug);
-    out.push(w);
-  }
-  return { ...edited, workflows: out } as AgentBundle;
-}
-
-/** Whether any workflow of the stored bundle is still v3 (it opens converted). */
-export function holdsV3(bundle: AgentBundle | AgentBundle): boolean {
-  return bundle.workflows.some((w) => w.workflow.schemaVersion === 3);
-}
+/** A bundle shape whose workflows are v4 processes; the automation editor's draft is one. */
+export type ProcessAgentBundle = Omit<AgentBundle, "workflows"> & {
+  workflows: ProcessBundleWorkflow[];
+};
 
 // ── Containers ───────────────────────────────────────────────────────────────────────────────────
 

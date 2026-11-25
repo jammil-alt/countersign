@@ -1,13 +1,11 @@
 // R8 (docs/plan.md §1.86, §9; ARCHITECTURE §10.14 "The Library and the client's settings"): the
 // Library's read-only banks for the back office (contract: packages/core/src/api/library.ts).
-// Processes are the templates and their versions, each workflow read as a v4 process: a stored v3
-// workflow through `processes.fromWorkflowV3`, never rewritten (invariant 3); one in the step model
-// (v5) is read as it is. Tools and record
-// types come from the registries; condition sets are derived from the processes, since nothing
+// Processes are the templates and their versions, each workflow read in the step model as it is.
+// Tools and record types come from the registries; condition sets are derived from the processes, since nothing
 // stores named ones yet. Every handler runs inside withOperator (the clients served), and only
 // operators reach /api/ops (invariant 11).
 
-import { convertLookup, listTemplates, SHARED_COPY_PREFIX } from "@countersign/agents";
+import { listTemplates, SHARED_COPY_PREFIX } from "@countersign/agents";
 import {
   isToolWrapper,
   type LibraryConditionSet,
@@ -21,7 +19,6 @@ import {
   routes,
   sha256Hex,
   steps,
-  type Workflow,
 } from "@countersign/core";
 import { agent, agentVersion, automation, automationVersion, skill } from "@countersign/db";
 import { and, desc, eq, inArray, isNull, or } from "drizzle-orm";
@@ -44,42 +41,23 @@ interface ReadProcess {
 
 type ReadWorkflow = LibraryProcessWorkflow & { uses: processes.ConditionUse[] };
 
-/**
- * A stored bundle's workflows, each read as a v4 process, or in the step model as it is; one that
- * doesn't read is left out.
- */
-function readWorkflows(bundle: unknown, lookup: processes.ConvertLookup): ReadWorkflow[] {
+/** A stored bundle's workflows, in the step model as they are; one that doesn't read is left out. */
+function readWorkflows(bundle: unknown): ReadWorkflow[] {
   const list = (bundle as { workflows?: unknown } | null)?.workflows;
   if (!Array.isArray(list)) return [];
   return list.flatMap((entry): ReadWorkflow[] => {
     const w = entry as { slug: string; name: string; enabled?: boolean; workflow: unknown };
     const stored = w.workflow as { schemaVersion?: number } | undefined;
     try {
-      if (stored?.schemaVersion === 5) {
-        const workflow = steps.Workflow.parse(stored);
-        return [
-          {
-            slug: w.slug,
-            name: w.name,
-            enabled: w.enabled !== false,
-            schemaVersion: 5 as const,
-            ...stepModelFacts(workflow),
-            uses: processes.stepModelConditionUses(workflow),
-          },
-        ];
-      }
-      const process =
-        stored?.schemaVersion === 4
-          ? (stored as processes.Process)
-          : processes.fromWorkflowV3(stored as Workflow, lookup);
+      const workflow = steps.Workflow.parse(stored);
       return [
         {
           slug: w.slug,
           name: w.name,
           enabled: w.enabled !== false,
-          schemaVersion: stored?.schemaVersion === 4 ? (4 as const) : (3 as const),
-          ...workflowFacts(process),
-          uses: processes.conditionUses(process),
+          schemaVersion: 5 as const,
+          ...stepModelFacts(workflow),
+          uses: processes.stepModelConditionUses(workflow),
         },
       ];
     } catch {
@@ -87,31 +65,6 @@ function readWorkflows(bundle: unknown, lookup: processes.ConvertLookup): ReadWo
       return [];
     }
   });
-}
-
-/** A process's triggers, step counts by kind and the checks its steps carry. */
-function workflowFacts(
-  process: processes.Process,
-): Pick<LibraryProcessWorkflow, "triggers" | "steps" | "kinds" | "checks"> {
-  const kinds: Record<string, number> = {};
-  const checks = { confer: 0, approval: 0, notify: 0 };
-  const steps = processes.allSteps(process);
-  for (const { step } of steps) {
-    kinds[step.kind] = (kinds[step.kind] ?? 0) + 1;
-    if (step.checks?.confer) checks.confer += 1;
-    if (step.checks?.approval) checks.approval += 1;
-    if (step.checks?.notify?.length) checks.notify += 1;
-  }
-  return {
-    triggers: process.triggers.map((t) => ({
-      id: t.id,
-      kind: t.on.type,
-      event: t.on.type === "event" ? t.on.event : null,
-    })),
-    steps: steps.length,
-    kinds,
-    checks,
-  };
 }
 
 /** The same for a workflow in the step model: its steps by the step model's kinds (`do`, `fork`). */
@@ -140,18 +93,9 @@ function stepModelFacts(
   };
 }
 
-function storedSchemaVersion(bundle: unknown): 3 | 4 | 5 {
-  const list = (bundle as { workflows?: unknown } | null)?.workflows;
-  const versions = Array.isArray(list)
-    ? list.map((w) => (w as { workflow?: { schemaVersion?: number } }).workflow?.schemaVersion)
-    : [];
-  return versions.includes(5) ? 5 : versions.includes(4) ? 4 : 3;
-}
-
 /** The templates with their versions (newest first) and the client agents forked from them. */
 async function templateProcesses(
   ctx: Scope,
-  platform: Platform,
 ): Promise<{ items: LibraryProcess[]; read: ReadProcess[] }> {
   const templates = await listTemplates(ctx.tx);
   if (templates.length === 0) return { items: [], read: [] };
@@ -184,14 +128,13 @@ async function templateProcesses(
             ),
           )
       : [];
-  const lookup = convertLookup(platform.catalog, platform.tools);
   const items: LibraryProcess[] = [];
   const read: ReadProcess[] = [];
   for (const t of templates) {
     const mine = versions.filter((v) => v.agentId === t.id);
     const live = mine.find((v) => v.id === t.liveVersionId) ?? null;
     const shown = live ?? mine[0] ?? null;
-    const workflows = shown ? readWorkflows(shown.bundle, lookup) : [];
+    const workflows = shown ? readWorkflows(shown.bundle) : [];
     const mission = (shown?.bundle as { definition?: { identity?: { mission?: unknown } } } | null)
       ?.definition?.identity?.mission;
     items.push({
@@ -209,7 +152,7 @@ async function templateProcesses(
         status: v.status,
         changeNote: v.changeNote,
         createdAt: iso(v.createdAt) as string,
-        schemaVersion: storedSchemaVersion(v.bundle),
+        schemaVersion: 5 as const,
       })),
       usedBy: forks.filter((f) => f.templateId === t.id).length,
     });
@@ -243,7 +186,7 @@ async function automationRows(ctx: Scope) {
 }
 
 /** Each automation's live, else latest, version, its steps read as v4. */
-async function automationProcesses(ctx: Scope, platform: Platform): Promise<ReadProcess[]> {
+async function automationProcesses(ctx: Scope): Promise<ReadProcess[]> {
   const rows = await automationRows(ctx);
   if (rows.length === 0) return [];
   const versions = await ctx.tx
@@ -261,21 +204,12 @@ async function automationProcesses(ctx: Scope, platform: Platform): Promise<Read
       ),
     )
     .orderBy(desc(automationVersion.version));
-  const lookup = convertLookup(platform.catalog, platform.tools);
   return rows.flatMap((r) => {
     const mine = versions.filter((v) => v.automationId === r.id);
     const shown = mine.find((v) => v.id === r.liveVersionId) ?? mine[0];
     if (!shown) return [];
     try {
-      // An automation has no trigger of its own: a placeholder lets the converter read its steps.
-      const steps = processes.fromWorkflowV3(
-        {
-          schemaVersion: 3,
-          trigger: { id: "automation", on: { type: "manual", input: {} } },
-          steps: shown.definition.steps,
-        } as Workflow,
-        lookup,
-      ).steps;
+      const steps = shown.definition.steps;
       return [
         {
           kind: "automation" as const,
@@ -440,8 +374,8 @@ async function operatorSkillCount(ctx: Scope): Promise<number> {
 export function libraryRoutes(app: Hono<AppEnv>): void {
   mount(app, routes.opsLibrary, async (ctx) => {
     const { platform } = ctx.services;
-    const templates = await templateProcesses(ctx, platform);
-    const automations = await automationProcesses(ctx, platform);
+    const templates = await templateProcesses(ctx);
+    const automations = await automationProcesses(ctx);
     const builtins = platform.catalog.list();
     const retired = builtins.filter((d) => isToolWrapper(d)).length;
     const sets = await conditionSets([...templates.read, ...automations]);
@@ -467,7 +401,7 @@ export function libraryRoutes(app: Hono<AppEnv>): void {
   });
 
   mount(app, routes.opsLibraryProcesses, async (ctx) => ({
-    processes: (await templateProcesses(ctx, ctx.services.platform)).items,
+    processes: (await templateProcesses(ctx)).items,
   }));
 
   mount(app, routes.opsLibraryTools, async ({ services }) => ({
@@ -480,8 +414,8 @@ export function libraryRoutes(app: Hono<AppEnv>): void {
 
   mount(app, routes.opsLibraryConditions, async (ctx) => {
     const { platform } = ctx.services;
-    const templates = await templateProcesses(ctx, platform);
-    const automations = await automationProcesses(ctx, platform);
+    const templates = await templateProcesses(ctx);
+    const automations = await automationProcesses(ctx);
     return {
       source: "derived" as const,
       sets: await conditionSets([...templates.read, ...automations]),
