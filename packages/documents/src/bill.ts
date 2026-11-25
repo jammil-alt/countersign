@@ -6,7 +6,7 @@
 
 import { type Decimal, dec, type ExtractedHeader, toNumeric } from "@countersign/core";
 import { document, rawRecord, type Tx, transaction } from "@countersign/db";
-import { and, eq, gte, lte } from "drizzle-orm";
+import { and, eq, gte, lte, sql } from "drizzle-orm";
 import { LINK_WINDOW_DAYS, latestExtraction, shiftDate, vendorForDocument } from "./link";
 import { DocumentError } from "./store";
 
@@ -48,6 +48,11 @@ export interface MatchBillResult {
   bill: MatchedBill | null;
   /** Transaction ids: the bills that fit (ambiguous), or the vendor's bills in the window (none). */
   candidates: string[];
+  /**
+   * With no bill (none): the vendor's bills, of any date, with the invoice's number, which don't
+   * match it. A new bill with that number would be a duplicate in the tool, so a person decides.
+   */
+  sameNumber: string[];
   sources: string[];
 }
 
@@ -141,6 +146,7 @@ export async function matchBill(
       invoice,
       bill: null,
       candidates: [],
+      sameNumber: [],
       sources: base,
     };
   }
@@ -180,13 +186,18 @@ export async function matchBill(
   const window = `between ${from} and ${to}`;
   if (fits.length === 0) {
     const candidates = near.map((t) => t.id);
+    const sameNumber = await sameNumberBills(tx, tenantId, input.connector, v.id, header);
+    const numbered = sameNumber.length
+      ? ` ${sameNumber.length === 1 ? "A bill" : `${sameNumber.length} bills`} from them already ${sameNumber.length === 1 ? "has" : "have"} the number ${header.invoiceNumber}.`
+      : "";
     return {
       status: "none",
-      reason: `No bill from ${v.name} for ${x.currency} ${dec(total).toFixed(2)} dated ${window}${near.length ? `; ${near.length} other bill${near.length === 1 ? "" : "s"} from them in that time` : ""}.`,
+      reason: `No bill from ${v.name} for ${x.currency} ${dec(total).toFixed(2)} dated ${window}${near.length ? `; ${near.length} other bill${near.length === 1 ? "" : "s"} from them in that time` : ""}.${numbered}`,
       invoice,
       bill: null,
       candidates,
-      sources: [...base, ...candidates],
+      sameNumber,
+      sources: [...new Set([...base, ...candidates, ...sameNumber])],
     };
   }
   if (fits.length > 1) {
@@ -197,6 +208,7 @@ export async function matchBill(
       invoice,
       bill: null,
       candidates,
+      sameNumber: [],
       sources: [...base, ...candidates],
     };
   }
@@ -215,8 +227,44 @@ export async function matchBill(
       memo: t.memo,
     },
     candidates: [t.id],
+    sameNumber: [],
     sources: [...base, t.id],
   };
+}
+
+/**
+ * The vendor's bills in the connector, of any date and not deleted, whose document number is the
+ * invoice's: a bill the invoice didn't match, under the number a new bill would take.
+ */
+// DECISION: "the same number" is the same letters and digits (`docKey`), not `docNumbersAgree`'s
+// prefix rule, which over every date would catch short numbers ("1" in "CR-7731"); and any date,
+// since the accounting system refuses a second bill with a vendor's number whatever its date.
+async function sameNumberBills(
+  tx: Tx,
+  tenantId: string,
+  connector: string,
+  vendorId: string,
+  header: ExtractedHeader,
+): Promise<string[]> {
+  const key = docKey(header.invoiceNumber);
+  if (!key) return [];
+  const rows = await tx
+    .select()
+    .from(transaction)
+    .where(
+      and(
+        eq(transaction.tenantId, tenantId),
+        eq(transaction.connector, connector),
+        eq(transaction.kind, "bill"),
+        eq(transaction.vendorId, vendorId),
+        sql`${transaction.ext} -> ${connector} ->> 'docNumber' is not null`,
+      ),
+    )
+    .orderBy(transaction.txnDate, transaction.id)
+    .limit(500);
+  return rows
+    .filter((t) => !connectorExt(t).deleted && docKey(connectorExt(t).docNumber ?? "") === key)
+    .map((t) => t.id);
 }
 
 // ── The bill as its tool has it now ─────────────────────────────────────────────────────────────

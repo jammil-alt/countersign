@@ -32,7 +32,7 @@
       "qbo.bill.query",
       "docs.plan_bill",
       "docs.bill_lines",
-      "qbo.vendor.query",
+      "records.vendor.get",
       "qbo.account.query",
       "docs.bill.check",
       "qbo.bill.update_lines",
@@ -42,6 +42,14 @@
     "canCommand": [],
     "permissions": {
       "mode": "suggest_only"
+    },
+    "data": {
+      "grants": [
+        {
+          "recordType": "vendor",
+          "read": true
+        }
+      ]
     },
     "budgets": {
       "maxSteps": 8,
@@ -532,277 +540,437 @@
                 },
                 "steps": [
                   {
-                    "id": "vendor",
-                    "name": "Find the vendor in QuickBooks",
-                    "client": {
-                      "visible": false
-                    },
-                    "kind": "do",
-                    "doneBy": "rules",
-                    "uses": {
-                      "type": "action",
-                      "action": "qbo.vendor.query"
-                    },
-                    "input": {
-                      "name": "{{steps.match.output.invoice.vendorName}}"
-                    }
-                  },
-                  {
-                    "id": "vendor-found",
-                    "name": "Vendor found?",
+                    "id": "same-number",
+                    "name": "A bill has this number?",
                     "client": {
                       "visible": false
                     },
                     "kind": "fork",
                     "paths": [
                       {
-                        "id": "path-vendor-found",
-                        "name": "Found",
+                        "id": "path-same-number",
+                        "name": "A bill with this number doesn't match",
                         "when": {
                           "match": "all",
                           "rules": [
                             {
-                              "field": "{{steps.vendor.output.vendors.0.id}}",
+                              "field": "{{steps.match.output.sameNumber.0}}",
                               "op": "exists"
                             }
                           ]
                         },
                         "steps": [
                           {
-                            "id": "accounts",
-                            "name": "Read the expense accounts",
+                            "id": "same-number-ask",
+                            "name": "Ask about the bill with this number",
                             "client": {
-                              "visible": false
+                              "visible": true,
+                              "label": "Asked you about a bill with the same number"
                             },
                             "kind": "do",
-                            "doneBy": "rules",
-                            "uses": {
-                              "type": "action",
-                              "action": "qbo.account.query"
-                            },
-                            "input": {
-                              "types": ["Expense", "Cost of Goods Sold"]
+                            "doneBy": "person",
+                            "person": {
+                              "mode": "ask",
+                              "who": "seat:bill-questions",
+                              "question": "A bill from {{steps.match.output.invoice.vendorName}} already has the number {{steps.match.output.invoice.number}}, but it doesn't match the invoice, so we didn't add another",
+                              "show": {
+                                "reason": "{{steps.match.output.reason}}",
+                                "bills": "{{steps.match.output.sameNumber}}",
+                                "sources": "{{steps.match.output.sources}}"
+                              },
+                              "deadline": {
+                                "after": "7 days",
+                                "hours": "clock",
+                                "ifNoAnswer": "proceed"
+                              },
+                              "channel": "inbox"
                             }
                           },
                           {
-                            "id": "prepare",
-                            "name": "Prepare bill",
+                            "id": "end-asked-same-number",
+                            "name": "Left to a person",
                             "client": {
                               "visible": false
                             },
-                            "kind": "do",
-                            "doneBy": "ai",
-                            "uses": {
-                              "type": "skill",
-                              "skill": "docs.prepare-bill"
-                            },
-                            "input": {
-                              "invoice": "{{steps.invoice.output.extraction}}",
-                              "vendors": "{{steps.vendor.output.vendors}}",
-                              "accounts": "{{steps.accounts.output.accounts}}",
-                              "documentId": "{{trigger.documentId}}"
-                            }
-                          },
-                          {
-                            "id": "check-bill",
-                            "name": "Check bill",
-                            "client": {
-                              "visible": false
-                            },
-                            "kind": "do",
-                            "doneBy": "rules",
-                            "uses": {
-                              "type": "action",
-                              "action": "docs.bill.check"
-                            },
-                            "input": {
-                              "bill": "{{steps.prepare.output}}",
-                              "invoice": "{{steps.invoice.output.extraction}}",
-                              "vendors": "{{steps.vendor.output.vendors}}",
-                              "accounts": "{{steps.accounts.output.accounts}}"
-                            }
-                          },
-                          {
-                            "id": "bill-checked",
-                            "name": "Bill matches the invoice?",
-                            "client": {
-                              "visible": false
-                            },
-                            "kind": "fork",
-                            "paths": [
-                              {
-                                "id": "path-bill-ok",
-                                "name": "It matches",
-                                "when": {
-                                  "match": "all",
-                                  "rules": [
-                                    {
-                                      "field": "{{steps.check-bill.output.ok}}",
-                                      "op": "is",
-                                      "value": true
-                                    }
-                                  ]
-                                },
-                                "steps": [
-                                  {
-                                    "id": "create",
-                                    "name": "Create bill",
-                                    "client": {
-                                      "visible": true,
-                                      "label": "Added the bill"
-                                    },
-                                    "checks": {
-                                      "approval": {
-                                        "required": "required",
-                                        "mode": "in_turn",
-                                        "ifNoAnswer": "stop",
-                                        "approvers": [
-                                          {
-                                            "who": "seat:bill-approver"
-                                          }
-                                        ]
-                                      }
-                                    },
-                                    "kind": "do",
-                                    "doneBy": "rules",
-                                    "uses": {
-                                      "type": "action",
-                                      "action": "accounting.bill.create"
-                                    },
-                                    "input": {
-                                      "vendorId": "{{steps.prepare.output.vendorId}}",
-                                      "invoiceNumber": "{{steps.prepare.output.invoiceNumber}}",
-                                      "date": "{{steps.prepare.output.date}}",
-                                      "dueDate": "{{steps.prepare.output.dueDate}}",
-                                      "lines": "{{steps.prepare.output.lines}}",
-                                      "total": "{{steps.prepare.output.total}}",
-                                      "currency": "{{steps.prepare.output.currency}}",
-                                      "memo": "{{steps.prepare.output.memo}}"
-                                    }
-                                  },
-                                  {
-                                    "id": "attach-new",
-                                    "name": "Attach the invoice",
-                                    "client": {
-                                      "visible": true,
-                                      "label": "Attached the invoice"
-                                    },
-                                    "checks": {
-                                      "approval": {
-                                        "required": "required",
-                                        "mode": "in_turn",
-                                        "ifNoAnswer": "stop",
-                                        "approvers": [
-                                          {
-                                            "who": "seat:bill-approver"
-                                          }
-                                        ]
-                                      }
-                                    },
-                                    "kind": "do",
-                                    "doneBy": "rules",
-                                    "uses": {
-                                      "type": "action",
-                                      "action": "qbo.attachable.upload"
-                                    },
-                                    "input": {
-                                      "documentId": "{{trigger.documentId}}",
-                                      "entity": "Bill",
-                                      "entityId": "{{steps.create.output.id}}"
-                                    }
-                                  },
-                                  {
-                                    "id": "created",
-                                    "name": "Say the bill was added",
-                                    "client": {
-                                      "visible": true,
-                                      "label": "Told you about the new bill"
-                                    },
-                                    "kind": "end",
-                                    "outputs": ["out-added"]
-                                  }
-                                ]
-                              }
-                            ],
-                            "otherwise": {
-                              "id": "path-bill-differs",
-                              "steps": [
-                                {
-                                  "id": "bill-differs",
-                                  "name": "Ask about the bill we prepared",
-                                  "client": {
-                                    "visible": true,
-                                    "label": "Asked you about the new bill"
-                                  },
-                                  "kind": "do",
-                                  "doneBy": "person",
-                                  "person": {
-                                    "mode": "ask",
-                                    "who": "seat:bill-questions",
-                                    "question": "The bill we prepared for invoice {{steps.match.output.invoice.number}} from {{steps.match.output.invoice.vendorName}} doesn't match the invoice, so we didn't add it",
-                                    "show": {
-                                      "problems": "{{steps.check-bill.output.problems}}",
-                                      "sources": "{{steps.check-bill.output.sources}}"
-                                    },
-                                    "deadline": {
-                                      "after": "7 days",
-                                      "hours": "clock",
-                                      "ifNoAnswer": "proceed"
-                                    },
-                                    "channel": "inbox"
-                                  }
-                                },
-                                {
-                                  "id": "end-asked-new-bill",
-                                  "name": "Left to a person",
-                                  "client": {
-                                    "visible": false
-                                  },
-                                  "kind": "end",
-                                  "nothingToDo": "Left to the person who answers questions about bills: the bill we prepared differs from the invoice, so we didn't add it."
-                                }
-                              ]
-                            }
+                            "kind": "end",
+                            "nothingToDo": "Left to the person who answers questions about bills: a bill with the invoice's number doesn't match it, so we didn't add another."
                           }
                         ]
                       }
                     ],
                     "otherwise": {
-                      "id": "path-no-vendor",
+                      "id": "path-other-number",
                       "steps": [
                         {
-                          "id": "no-vendor",
-                          "name": "Ask about the vendor",
-                          "client": {
-                            "visible": true,
-                            "label": "Asked you about the vendor"
-                          },
-                          "kind": "do",
-                          "doneBy": "person",
-                          "person": {
-                            "mode": "ask",
-                            "who": "seat:bill-questions",
-                            "question": "We found no bill and no vendor named {{steps.match.output.invoice.vendorName}} in QuickBooks for invoice {{steps.match.output.invoice.number}}",
-                            "show": {
-                              "reason": "{{steps.match.output.reason}}",
-                              "sources": "{{steps.match.output.sources}}"
-                            },
-                            "deadline": {
-                              "after": "7 days",
-                              "hours": "clock",
-                              "ifNoAnswer": "proceed"
-                            },
-                            "channel": "inbox"
-                          }
-                        },
-                        {
-                          "id": "end-asked-vendor",
-                          "name": "Left to a person",
+                          "id": "vendor",
+                          "name": "Find the vendor",
                           "client": {
                             "visible": false
                           },
-                          "kind": "end",
-                          "nothingToDo": "Left to the person who answers questions about bills: no bill and no vendor in QuickBooks."
+                          "kind": "do",
+                          "doneBy": "rules",
+                          "uses": {
+                            "type": "match",
+                            "match": {
+                              "to": "vendors",
+                              "type": "hybrid",
+                              "keys": ["name"],
+                              "belowFloor": "no_match"
+                            }
+                          },
+                          "input": {
+                            "name": "{{steps.match.output.invoice.vendorName}}"
+                          }
+                        },
+                        {
+                          "id": "vendor-found",
+                          "name": "Vendor found?",
+                          "client": {
+                            "visible": false
+                          },
+                          "kind": "fork",
+                          "paths": [
+                            {
+                              "id": "path-vendor-found",
+                              "name": "Found",
+                              "when": {
+                                "match": "all",
+                                "rules": [
+                                  {
+                                    "field": "{{steps.vendor.output.items.0.matched}}",
+                                    "op": "exists"
+                                  }
+                                ]
+                              },
+                              "steps": [
+                                {
+                                  "id": "vendor-record",
+                                  "name": "Read the vendor",
+                                  "client": {
+                                    "visible": false
+                                  },
+                                  "kind": "do",
+                                  "doneBy": "rules",
+                                  "uses": {
+                                    "type": "action",
+                                    "action": "records.vendor.get"
+                                  },
+                                  "input": {
+                                    "id": "{{steps.vendor.output.items.0.matched}}"
+                                  }
+                                },
+                                {
+                                  "id": "vendor-in-books",
+                                  "name": "Vendor in QuickBooks?",
+                                  "client": {
+                                    "visible": false
+                                  },
+                                  "kind": "fork",
+                                  "paths": [
+                                    {
+                                      "id": "path-vendor-in-books",
+                                      "name": "In QuickBooks",
+                                      "when": {
+                                        "match": "all",
+                                        "rules": [
+                                          {
+                                            "field": "{{steps.vendor-record.output.externalRefs.qbo}}",
+                                            "op": "exists"
+                                          }
+                                        ]
+                                      },
+                                      "steps": [
+                                        {
+                                          "id": "accounts",
+                                          "name": "Read the expense accounts",
+                                          "client": {
+                                            "visible": false
+                                          },
+                                          "kind": "do",
+                                          "doneBy": "rules",
+                                          "uses": {
+                                            "type": "action",
+                                            "action": "qbo.account.query"
+                                          },
+                                          "input": {
+                                            "types": ["Expense", "Cost of Goods Sold"]
+                                          }
+                                        },
+                                        {
+                                          "id": "prepare",
+                                          "name": "Prepare bill",
+                                          "client": {
+                                            "visible": false
+                                          },
+                                          "kind": "do",
+                                          "doneBy": "ai",
+                                          "uses": {
+                                            "type": "skill",
+                                            "skill": "docs.prepare-bill"
+                                          },
+                                          "input": {
+                                            "invoice": "{{steps.invoice.output.extraction}}",
+                                            "vendors": [
+                                              {
+                                                "id": "{{steps.vendor-record.output.externalRefs.qbo}}",
+                                                "name": "{{steps.vendor-record.output.name}}"
+                                              }
+                                            ],
+                                            "accounts": "{{steps.accounts.output.accounts}}",
+                                            "documentId": "{{trigger.documentId}}"
+                                          }
+                                        },
+                                        {
+                                          "id": "check-bill",
+                                          "name": "Check bill",
+                                          "client": {
+                                            "visible": false
+                                          },
+                                          "kind": "do",
+                                          "doneBy": "rules",
+                                          "uses": {
+                                            "type": "action",
+                                            "action": "docs.bill.check"
+                                          },
+                                          "input": {
+                                            "bill": "{{steps.prepare.output}}",
+                                            "invoice": "{{steps.invoice.output.extraction}}",
+                                            "vendors": [
+                                              {
+                                                "id": "{{steps.vendor-record.output.externalRefs.qbo}}",
+                                                "name": "{{steps.vendor-record.output.name}}"
+                                              }
+                                            ],
+                                            "accounts": "{{steps.accounts.output.accounts}}"
+                                          }
+                                        },
+                                        {
+                                          "id": "bill-checked",
+                                          "name": "Bill matches the invoice?",
+                                          "client": {
+                                            "visible": false
+                                          },
+                                          "kind": "fork",
+                                          "paths": [
+                                            {
+                                              "id": "path-bill-ok",
+                                              "name": "It matches",
+                                              "when": {
+                                                "match": "all",
+                                                "rules": [
+                                                  {
+                                                    "field": "{{steps.check-bill.output.ok}}",
+                                                    "op": "is",
+                                                    "value": true
+                                                  }
+                                                ]
+                                              },
+                                              "steps": [
+                                                {
+                                                  "id": "create",
+                                                  "name": "Create bill",
+                                                  "client": {
+                                                    "visible": true,
+                                                    "label": "Added the bill"
+                                                  },
+                                                  "checks": {
+                                                    "approval": {
+                                                      "required": "required",
+                                                      "mode": "in_turn",
+                                                      "ifNoAnswer": "stop",
+                                                      "approvers": [
+                                                        {
+                                                          "who": "seat:bill-approver"
+                                                        }
+                                                      ]
+                                                    }
+                                                  },
+                                                  "kind": "do",
+                                                  "doneBy": "rules",
+                                                  "uses": {
+                                                    "type": "action",
+                                                    "action": "accounting.bill.create"
+                                                  },
+                                                  "input": {
+                                                    "vendorId": "{{steps.prepare.output.vendorId}}",
+                                                    "invoiceNumber": "{{steps.prepare.output.invoiceNumber}}",
+                                                    "date": "{{steps.prepare.output.date}}",
+                                                    "dueDate": "{{steps.prepare.output.dueDate}}",
+                                                    "lines": "{{steps.prepare.output.lines}}",
+                                                    "total": "{{steps.prepare.output.total}}",
+                                                    "currency": "{{steps.prepare.output.currency}}",
+                                                    "memo": "{{steps.prepare.output.memo}}"
+                                                  }
+                                                },
+                                                {
+                                                  "id": "attach-new",
+                                                  "name": "Attach the invoice",
+                                                  "client": {
+                                                    "visible": true,
+                                                    "label": "Attached the invoice"
+                                                  },
+                                                  "checks": {
+                                                    "approval": {
+                                                      "required": "required",
+                                                      "mode": "in_turn",
+                                                      "ifNoAnswer": "stop",
+                                                      "approvers": [
+                                                        {
+                                                          "who": "seat:bill-approver"
+                                                        }
+                                                      ]
+                                                    }
+                                                  },
+                                                  "kind": "do",
+                                                  "doneBy": "rules",
+                                                  "uses": {
+                                                    "type": "action",
+                                                    "action": "qbo.attachable.upload"
+                                                  },
+                                                  "input": {
+                                                    "documentId": "{{trigger.documentId}}",
+                                                    "entity": "Bill",
+                                                    "entityId": "{{steps.create.output.id}}"
+                                                  }
+                                                },
+                                                {
+                                                  "id": "created",
+                                                  "name": "Say the bill was added",
+                                                  "client": {
+                                                    "visible": true,
+                                                    "label": "Told you about the new bill"
+                                                  },
+                                                  "kind": "end",
+                                                  "outputs": ["out-added"]
+                                                }
+                                              ]
+                                            }
+                                          ],
+                                          "otherwise": {
+                                            "id": "path-bill-differs",
+                                            "steps": [
+                                              {
+                                                "id": "bill-differs",
+                                                "name": "Ask about the bill we prepared",
+                                                "client": {
+                                                  "visible": true,
+                                                  "label": "Asked you about the new bill"
+                                                },
+                                                "kind": "do",
+                                                "doneBy": "person",
+                                                "person": {
+                                                  "mode": "ask",
+                                                  "who": "seat:bill-questions",
+                                                  "question": "The bill we prepared for invoice {{steps.match.output.invoice.number}} from {{steps.match.output.invoice.vendorName}} doesn't match the invoice, so we didn't add it",
+                                                  "show": {
+                                                    "problems": "{{steps.check-bill.output.problems}}",
+                                                    "sources": "{{steps.check-bill.output.sources}}"
+                                                  },
+                                                  "deadline": {
+                                                    "after": "7 days",
+                                                    "hours": "clock",
+                                                    "ifNoAnswer": "proceed"
+                                                  },
+                                                  "channel": "inbox"
+                                                }
+                                              },
+                                              {
+                                                "id": "end-asked-new-bill",
+                                                "name": "Left to a person",
+                                                "client": {
+                                                  "visible": false
+                                                },
+                                                "kind": "end",
+                                                "nothingToDo": "Left to the person who answers questions about bills: the bill we prepared differs from the invoice, so we didn't add it."
+                                              }
+                                            ]
+                                          }
+                                        }
+                                      ]
+                                    }
+                                  ],
+                                  "otherwise": {
+                                    "id": "path-vendor-not-in-books",
+                                    "steps": [
+                                      {
+                                        "id": "vendor-not-in-books",
+                                        "name": "Ask about the vendor in QuickBooks",
+                                        "client": {
+                                          "visible": true,
+                                          "label": "Asked you about the vendor"
+                                        },
+                                        "kind": "do",
+                                        "doneBy": "person",
+                                        "person": {
+                                          "mode": "ask",
+                                          "who": "seat:bill-questions",
+                                          "question": "We found no bill for invoice {{steps.match.output.invoice.number}}, and {{steps.vendor-record.output.name}} isn't a vendor in QuickBooks yet",
+                                          "show": {
+                                            "reason": "{{steps.match.output.reason}}",
+                                            "sources": "{{steps.match.output.sources}}"
+                                          },
+                                          "deadline": {
+                                            "after": "7 days",
+                                            "hours": "clock",
+                                            "ifNoAnswer": "proceed"
+                                          },
+                                          "channel": "inbox"
+                                        }
+                                      },
+                                      {
+                                        "id": "end-asked-vendor-books",
+                                        "name": "Left to a person",
+                                        "client": {
+                                          "visible": false
+                                        },
+                                        "kind": "end",
+                                        "nothingToDo": "Left to the person who answers questions about bills: no bill, and the vendor isn't in QuickBooks."
+                                      }
+                                    ]
+                                  }
+                                }
+                              ]
+                            }
+                          ],
+                          "otherwise": {
+                            "id": "path-no-vendor",
+                            "steps": [
+                              {
+                                "id": "no-vendor",
+                                "name": "Ask about the vendor",
+                                "client": {
+                                  "visible": true,
+                                  "label": "Asked you about the vendor"
+                                },
+                                "kind": "do",
+                                "doneBy": "person",
+                                "person": {
+                                  "mode": "ask",
+                                  "who": "seat:bill-questions",
+                                  "question": "We found no bill for invoice {{steps.match.output.invoice.number}}, and no vendor we could be sure is {{steps.match.output.invoice.vendorName}}",
+                                  "show": {
+                                    "reason": "{{steps.match.output.reason}}",
+                                    "sources": "{{steps.match.output.sources}}"
+                                  },
+                                  "deadline": {
+                                    "after": "7 days",
+                                    "hours": "clock",
+                                    "ifNoAnswer": "proceed"
+                                  },
+                                  "channel": "inbox"
+                                }
+                              },
+                              {
+                                "id": "end-asked-vendor",
+                                "name": "Left to a person",
+                                "client": {
+                                  "visible": false
+                                },
+                                "kind": "end",
+                                "nothingToDo": "Left to the person who answers questions about bills: no bill, and no vendor we could be sure of."
+                              }
+                            ]
+                          }
                         }
                       ]
                     }
