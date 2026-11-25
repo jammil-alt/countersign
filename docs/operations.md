@@ -1535,6 +1535,14 @@ hand. A write that was being made when the lock came stays `executing`: check it
 tool and settle it by hand. A client admin may lift a lock their own side made, from the locked
 page, never ours.
 
+**Unusual activity alerts** (`docs/plan.md` §1.245). Every 5 minutes the audit log's last hour is
+checked: a person past 1,000 reads of a client in an hour, 150 document reads, or 3 exports in a
+day raises a to-do ("Unusual activity: …") for the operators who serve the client, an email to the
+security officer and a Sentry warning, once an hour at most. Open Security → Audit log for that
+person. If it isn't expected, lock the client down (above) and remove the person's access (§1.3 for
+an operator; the client's admin, or Team, for one of theirs). Nothing is locked for you. The limits
+are `VOLUME_LIMITS` in `apps/api/src/lockdown/volume.ts`.
+
 **When the app itself may be compromised.** Lock at the edge: Actions → **Lockdown at the edge**
 (`lockdown.yml`, §2), `on` for the environment. Cloudflare then blocks every request to it but
 `/api/health`. Switch it `off` once the Worker and its keys are known good again.

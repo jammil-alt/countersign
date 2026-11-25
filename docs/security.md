@@ -69,6 +69,12 @@ How to use it: `docs/operations.md` §1.4. The design: `docs/lockdown-plan.md`.
   left out. Each lock and unlock is also in the client's change log, with its reason or note.
 - **If the app itself may be compromised,** the Cloudflare edge rule (`lockdown.yml`, being
   added) blocks every request to the app but its health check.
+- **Unusual read volume** (`docs/plan.md` §1.245): every 5 minutes the audit log's last hour is
+  checked per person and client; past 1,000 reads in an hour, 150 document reads or 3 exports in a
+  day, the operators who serve the client get a to-do, the security officer an email and Sentry a
+  warning, at most hourly. Polls and the officer's investigation aren't counted. It locks nothing:
+  a person decides, and locks the client down if it isn't expected
+  (`apps/api/src/lockdown/volume.ts`, `apps/api/src/volume.test.ts`).
 - Tests: `packages/db/src/lockdown.test.ts`, `apps/api/src/lockdown.test.ts` (every portal route
   answers 423 for a locked client), `apps/web/src/ops/security/Lockdown.test.tsx`,
   `apps/web/src/portal/screens/Locked.test.tsx`.

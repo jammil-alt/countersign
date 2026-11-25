@@ -6383,6 +6383,21 @@ action, not just mark it... if it is an issue, just because I say it is closed d
 | Not built | The client as an owner: no step yet sends an item to the client and closes it by their answer (the requirements request asks the intake form's fields, not an item). Until there is one, "Client" is only set by the fit-gap's preconditions. |
 | Checked | `apps/api/src/build-settled-by-step.test.ts` (done by hand refused, a drop, a note done, the Builder's close left out; a put-off gap given to engineering then the Builder, closed by its change and opened by its undo; a test closed by a full passing run and not by a failing or partial one), `apps/web/src/ops/builds/closeout.test.tsx` and `builds.test.tsx` (no selects; Put off, Drop it, Reopen; Take it up on a put-off gap). The skill build's go-live closing has no test of its own. |
 
+### 1.245 Unusual read volume: an alert on mass downloads (owner, 2026-11-25; no migration)
+
+The owner asked whether anything guards against mass downloading. Every read is audited (§1.35),
+but nothing watched the log. This pass does, and points at the lockdown (§1.243) as the response.
+
+| Topic | Decision |
+|---|---|
+| What counts | Audit rows of signed-in people that succeeded and read (`GET`, the Ops MCP connector's `mcp GET`), per person and per client (the back office's cross-client reads as one more "client"). Not counted: reads the app tags as a refresh (polls) and the security officer's `?investigate=1`. // DECISION |
+| Limits | Over 1,000 reads in an hour, over 150 of them of documents, or over 3 exports in a day (`VOLUME_LIMITS`, `apps/api/src/lockdown/volume.ts`). Fixed, well above a busy person's use; to tune once production shows its spread. // DECISION |
+| When | The minute cron, every 5 minutes, over the last hour (a day for exports). // DECISION |
+| The alert | A to-do for the operators who serve the client ("Unusual activity: …", `source: system`), an email to the security officer (`SECURITY_OFFICER_EMAILS`) and a Sentry warning (`unusual read volume`), at most once per person, client, kind and clock hour (the to-do's dedupe key). Counts, the person's address and the client's name only; never what was read. // DECISION |
+| No lock by itself | The alert says to check the audit log and, if it isn't expected, lock the client down and remove the person's access. A lock it made on its own could shut a client out on a false alarm; that is the owner's call to add later. // DECISION |
+| Not built | A per-person baseline (limits learned from each person's own use); counting the public document links' downloads (the link's issuing read is counted); a register entry. |
+| Checked | `apps/api/src/volume.test.ts`: one alert past the limit and none again that hour, nothing locked, only on the 5-minute beat; polls, investigation, older and refused reads not counted; documents and exports by their own limits. |
+
 ### 1.243 Lockdown: a kill switch per client and for everything (owner, 2026-11-24; migration 0101; K0 to K5 built)
 
 The owner: "a kill switch that locks down the account, stops all writes and reads." The plan is
