@@ -23,8 +23,8 @@ import {
   readConverted,
   type SkillDefinition,
   type SkillKind,
-  StepModelBundleError,
   skillTools,
+  type steps,
   type ToolSpec,
   type Trigger,
   type TriggerOn,
@@ -34,6 +34,7 @@ import {
 } from "@countersign/core";
 import { slugify } from "../agents/definition-form";
 import { toolLabel } from "../workflow/labels";
+import { newStepWorkflow } from "./steps/model";
 
 export type Step = processes.Step;
 export type Process = processes.Process;
@@ -70,10 +71,10 @@ export function convertLookup(ctx: TypingContext): processes.ConvertLookup {
 // DECISION: the conversion is the builder's starting point, not an edit: opening a v3 version shows
 // it converted with nothing unsaved, and publishing it unchanged publishes the stored version as
 // it is. The first save after an edit writes the whole bundle as v4, a new version.
-function refuseStepModel(slug: string): never {
-  throw new StepModelBundleError(slug);
-}
-
+// The step model (coordinator, 2026-11-25): every new workflow starts as v5, so an agent of v3 or v4
+// workflows can hold v5 ones beside them. This builder has no v5 reading: each v5 workflow is set
+// aside here (it opens in the steps builder) and put back where it was when this builder saves
+// (`withStepModelWorkflows`), never dropped.
 export function readProcessBundle(
   bundle: AnyAgentBundle | AgentBundle,
   ctx: TypingContext,
@@ -81,25 +82,64 @@ export function readProcessBundle(
   const lookup = convertLookup(ctx);
   return {
     ...bundle,
-    workflows: bundle.workflows.map(
-      (w): ProcessBundleWorkflow => ({
-        ...w,
-        workflow:
-          // The step model: a v5 workflow has no v4 reading; the builder's forms for it are
-          // stream B's (docs/step-model-plan.md §13c), so it is refused, never dropped.
-          w.workflow.schemaVersion === 5
-            ? refuseStepModel(w.slug)
-            : w.workflow.schemaVersion === 4
-              ? w.workflow
-              : readConverted(processes.fromWorkflowV3(w.workflow, lookup)),
-      }),
+    workflows: bundle.workflows.flatMap((w): ProcessBundleWorkflow[] =>
+      w.workflow.schemaVersion === 5
+        ? []
+        : [
+            {
+              ...w,
+              workflow:
+                w.workflow.schemaVersion === 4
+                  ? w.workflow
+                  : readConverted(processes.fromWorkflowV3(w.workflow, lookup)),
+            },
+          ],
     ),
   };
 }
 
+/** The stored bundle's v5 workflows (set aside by `readProcessBundle`), by slug. */
+export function stepModelWorkflows(stored: unknown): AnyAgentBundle["workflows"] {
+  const list = (stored as { workflows?: AnyAgentBundle["workflows"] } | null)?.workflows ?? [];
+  return list.filter((w) => w.workflow.schemaVersion === 5);
+}
+
+/**
+ * What this builder saves: its processes, with the stored bundle's v5 workflows put back where they
+ * were (one this builder's edits removed or renamed over is left as stored; a new process goes last).
+ */
+export function withStepModelWorkflows(
+  edited: ProcessAgentBundle,
+  stored: unknown,
+  added: AnyAgentBundle["workflows"] = [],
+): AnyAgentBundle {
+  const aside = [...stepModelWorkflows(stored), ...added];
+  if (aside.length === 0) return edited as AnyAgentBundle;
+  const order = ((stored as { workflows?: { slug: string }[] } | null)?.workflows ?? []).map(
+    (w) => w.slug,
+  );
+  const byEdit = new Map(edited.workflows.map((w) => [w.slug, w] as const));
+  const out: AnyAgentBundle["workflows"] = [];
+  const used = new Set<string>();
+  for (const slug of order) {
+    const v5 = aside.find((w) => w.slug === slug);
+    const mine = byEdit.get(slug);
+    if (mine) out.push(mine);
+    else if (v5) out.push(v5);
+    else continue;
+    used.add(slug);
+  }
+  for (const w of [...edited.workflows, ...aside]) {
+    if (used.has(w.slug)) continue;
+    used.add(w.slug);
+    out.push(w);
+  }
+  return { ...edited, workflows: out } as AnyAgentBundle;
+}
+
 /** Whether any workflow of the stored bundle is still v3 (it opens converted). */
 export function holdsV3(bundle: AnyAgentBundle | AgentBundle): boolean {
-  return bundle.workflows.some((w) => w.workflow.schemaVersion !== 4);
+  return bundle.workflows.some((w) => w.workflow.schemaVersion === 3);
 }
 
 // ── Containers ───────────────────────────────────────────────────────────────────────────────────
@@ -312,18 +352,21 @@ export function removeTrigger(process: Process, id: string): Process {
   return { ...process, triggers: process.triggers.filter((t) => t.id !== id) };
 }
 
+/**
+ * A new workflow for "+ Workflow": in the step model (coordinator, 2026-11-25), with the chosen
+ * trigger, a "Nothing to do" output and the End that delivers it (`newStepWorkflow`). This builder
+ * saves it beside its processes (`withStepModelWorkflows`) and it opens in the steps builder.
+ */
 export function addWorkflow(
-  bundle: ProcessAgentBundle,
   input: { slug: string; name: string; on: TriggerOn },
   newId: NewId = uuidv7,
-): ProcessAgentBundle {
-  const entry: ProcessBundleWorkflow = {
+): AnyAgentBundle["workflows"][number] {
+  return {
     slug: input.slug,
     name: input.name,
     enabled: true,
-    workflow: { schemaVersion: 4, triggers: [{ id: newId(), on: input.on }], steps: [] },
-  };
-  return { ...bundle, workflows: [...bundle.workflows, entry] };
+    workflow: newStepWorkflow(input.on as steps.Workflow["triggers"][number]["on"], newId),
+  } as AnyAgentBundle["workflows"][number];
 }
 
 /** A start on the main workflow with nothing to it until it gets one: started by hand. */
@@ -345,36 +388,49 @@ export function startToWorkflow(
   triggerId: string,
   name: string,
   newId: NewId = uuidv7,
-): { bundle: ProcessAgentBundle; slug: string } | null {
+  /** Slugs taken outside `bundle` (the agent's v5 workflows, set aside by this builder). */
+  taken: readonly string[] = [],
+): {
+  bundle: ProcessAgentBundle;
+  slug: string;
+  /** The new workflow, in the step model: saved beside the processes (`withStepModelWorkflows`). */
+  added: AnyAgentBundle["workflows"][number];
+} | null {
   const entry = bundle.workflows.find((w) => w.slug === main);
   const trigger = entry?.workflow.triggers.find((t) => t.id === triggerId);
   if (!entry || !trigger) return null;
   const base = slugify(name).replace(/-+$/, "") || "trigger";
+  const used = (s: string) => bundle.workflows.some((w) => w.slug === s) || taken.includes(s);
   let slug = base;
-  for (let n = 2; bundle.workflows.some((w) => w.slug === slug); n++) slug = `${base}-${n}`;
-  const steps = entry.workflow.steps;
-  const at = steps.find((s) => processes.HANDOFF_ENTRY_KINDS.has(s.kind));
-  const handIn: Step = {
+  for (let n = 2; used(slug); n++) slug = `${base}-${n}`;
+  const steps_ = entry.workflow.steps;
+  const at = steps_.find((s) => processes.HANDOFF_ENTRY_KINDS.has(s.kind));
+  const handIn: steps.Step = {
     id: newId(),
     kind: "handoff",
     name: at
-      ? `Hand off to ${entry.name} at ${processes.handoffStepLabel(steps, at.id)}`
+      ? `Hand off to ${entry.name} at ${processes.handoffStepLabel(steps_, at.id)}`
       : `Hand off to ${entry.name}`,
     to: { agent: processes.SELF_AGENT, workflow: main, step: at?.id ?? "" },
     input: at && "input" in at && at.input ? { ...at.input } : {},
-  } as Step;
+  } as steps.Step;
   const rest = entry.workflow.triggers.filter((t) => t.id !== triggerId);
-  const moved: ProcessBundleWorkflow = {
+  const moved = newStepWorkflow(trigger.on as steps.Workflow["triggers"][number]["on"], newId, [
+    handIn,
+  ]);
+  // The start keeps its id (its runs' history and its hooks are the same start's).
+  moved.triggers = [trigger as steps.Workflow["triggers"][number]];
+  const added = {
     slug,
     name,
     enabled: true,
-    workflow: { schemaVersion: 4, triggers: [trigger], steps: [handIn] },
-  };
+    workflow: moved,
+  } as AnyAgentBundle["workflows"][number];
   const out = editWorkflow(bundle, main, (w) => ({
     ...w,
     triggers: rest.length ? rest : [{ id: newId(), on: BY_HAND }],
   }));
-  return { bundle: { ...out, workflows: [...out.workflows, moved] }, slug };
+  return { bundle: out, slug, added };
 }
 
 // ── New steps ────────────────────────────────────────────────────────────────────────────────────

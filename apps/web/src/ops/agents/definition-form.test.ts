@@ -1,4 +1,4 @@
-import { type SkillOption, validateBundle } from "@countersign/core";
+import { processes, type SkillOption, steps } from "@countersign/core";
 import { describe, expect, it } from "vitest";
 import { FORK_BUNDLE } from "../../test/fixtures";
 import { describeChanges } from "./changes";
@@ -165,7 +165,8 @@ describe("definition form", () => {
     expect(checkBundle(bundle)).toBeNull();
   });
 
-  it("makes a blank bundle: suggest only, one manual workflow with no steps, a fresh trigger id", () => {
+  it("makes a blank bundle: suggest only, one manual v5 workflow with only its End, fresh ids", () => {
+    let n = 0;
     const bundle = blankBundle(
       {
         name: "Card receipts",
@@ -174,7 +175,7 @@ describe("definition form", () => {
         instructions: "",
         modelId: "",
       },
-      () => "0190a1b2-0000-7000-8000-000000000001",
+      () => `0190a1b2-0000-7000-8000-00000000000${++n}`,
     );
     expect(bundle.definition.permissions.mode).toBe("suggest_only");
     // v0.13 W2-I: a new agent reviews its failed steps; round 4 D (§1.211): and checks its writes.
@@ -186,9 +187,18 @@ describe("definition form", () => {
     });
     expect(bundle.definition.model.id).toBe("claude-opus-5-5");
     expect(bundle.workflows).toHaveLength(1);
-    expect(bundle.workflows[0]?.workflow.trigger.id).toBe("0190a1b2-0000-7000-8000-000000000001");
-    expect(bundle.workflows[0]?.workflow.steps).toEqual([]);
-    expect(validateBundle(bundle, {}).errors).toEqual([]);
+    // Every new workflow starts in the step model: its trigger, "Nothing to do", and its End.
+    const workflow = bundle.workflows[0]?.workflow;
+    expect(workflow).toMatchObject({
+      schemaVersion: 5,
+      triggers: [{ id: "0190a1b2-0000-7000-8000-000000000001", on: { type: "manual" } }],
+      outputs: [
+        { id: "0190a1b2-0000-7000-8000-000000000002", name: "Nothing to do", kind: "nothing" },
+      ],
+      steps: [{ kind: "end", outputs: ["0190a1b2-0000-7000-8000-000000000002"] }],
+    });
+    expect(steps.validateWorkflow(workflow as steps.Workflow)).toEqual([]);
+    expect(processes.validateAnyBundle(bundle, {}).errors).toEqual([]);
     expect(slugify("Card receipts — Q4!")).toBe("card-receipts-q4");
   });
 });

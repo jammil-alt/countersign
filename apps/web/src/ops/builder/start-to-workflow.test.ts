@@ -1,7 +1,7 @@
 // "Add steps" on a start (owner, 2026-11-24): the main workflow's start moves to a workflow of its
 // own, keeping its id, that hands each run into the main workflow at its first step that takes an
 // input, with that step's input; the main workflow keeps a start (by hand when it had only one).
-import { type ProcessAgentBundle, processes } from "@countersign/core";
+import { type ProcessAgentBundle, processes, steps } from "@countersign/core";
 import { describe, expect, it } from "vitest";
 import { startToWorkflow } from "./model";
 
@@ -42,7 +42,7 @@ const ids = () => {
 };
 
 describe("startToWorkflow", () => {
-  it("moves a start to a workflow that hands into the main one, keeping the other starts", () => {
+  it("moves a start to a v5 workflow that hands into the main one, keeping the other starts", () => {
     const made = startToWorkflow(
       bundle([DOC, DAILY]),
       "match-invoice",
@@ -51,33 +51,43 @@ describe("startToWorkflow", () => {
       ids(),
     );
     expect(made?.slug).toBe("when-a-document-has-been-read");
-    const [main, moved] = made?.bundle.workflows ?? [];
+    const [main] = made?.bundle.workflows ?? [];
     expect(main?.workflow.triggers).toEqual([DAILY]);
+    // The new workflow is in the step model, saved beside the processes.
+    const moved = made?.added;
+    expect(made?.bundle.workflows).toHaveLength(1);
+    expect(moved?.slug).toBe("when-a-document-has-been-read");
     expect(moved?.name).toBe("When a document has been read");
     expect(moved?.enabled).toBe(true);
-    // The start keeps its id; its one step hands in at the first step that takes an input.
-    expect(moved?.workflow.triggers).toEqual([DOC]);
-    expect(moved?.workflow.steps).toEqual([
-      {
-        id: "id-1",
-        kind: "handoff",
-        name: "Hand off to Match an invoice's lines at 2 · Get the document",
-        to: { agent: processes.SELF_AGENT, workflow: "match-invoice", step: "get" },
-        input: { id: "{{trigger.document.id}}" },
-      },
-    ]);
+    // The start keeps its id; its first step hands in at the first step that takes an input, and
+    // its End delivers "Nothing to do".
+    expect(moved?.workflow).toMatchObject({
+      schemaVersion: 5,
+      triggers: [DOC],
+      outputs: [{ name: "Nothing to do", kind: "nothing" }],
+    });
+    const [handIn, end] = (moved?.workflow as steps.Workflow | undefined)?.steps ?? [];
+    expect(handIn).toEqual({
+      id: "id-1",
+      kind: "handoff",
+      name: "Hand off to Match an invoice's lines at 2 · Get the document",
+      to: { agent: processes.SELF_AGENT, workflow: "match-invoice", step: "get" },
+      input: { id: "{{trigger.document.id}}" },
+    });
+    expect(end).toMatchObject({ kind: "end" });
+    expect(steps.Workflow.safeParse(moved?.workflow).success).toBe(true);
   });
 
   it("leaves the main workflow started by hand when its only start moves", () => {
     const made = startToWorkflow(bundle([DOC]), "match-invoice", "t-doc", "Docs", ids());
     const main = made?.bundle.workflows[0];
     expect(main?.workflow.triggers).toEqual([
-      { id: "id-2", on: { type: "manual", input: { type: "object", properties: {} } } },
+      { id: "id-5", on: { type: "manual", input: { type: "object", properties: {} } } },
     ]);
-    expect(made?.bundle.workflows[1]?.workflow.triggers).toEqual([DOC]);
+    expect((made?.added.workflow as steps.Workflow | undefined)?.triggers).toEqual([DOC]);
   });
 
-  it("finds a free slug, and does nothing for a start it doesn't have", () => {
+  it("finds a free slug, its v5 workflows' included, and does nothing for a start it doesn't have", () => {
     const first = startToWorkflow(bundle([DOC, DAILY]), "match-invoice", "t-doc", "Docs", ids());
     const again = startToWorkflow(
       first?.bundle as ProcessAgentBundle,
@@ -85,6 +95,7 @@ describe("startToWorkflow", () => {
       "t-daily",
       "Docs",
       ids(),
+      [first?.slug ?? ""],
     );
     expect(again?.slug).toBe("docs-2");
     expect(startToWorkflow(bundle([DOC]), "match-invoice", "nope", "Docs")).toBeNull();

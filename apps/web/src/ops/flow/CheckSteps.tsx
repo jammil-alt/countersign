@@ -38,7 +38,14 @@ import { Field, Select, TextInput } from "../../ui/forms";
 import { Icon } from "../../ui/icons";
 import { Page } from "../../ui/page";
 import { Badge, Button, cx, Loading, StepKindTag } from "../../ui/primitives";
-import { editWorkflow, locate, type NewId, ROOT, readProcessBundle } from "../builder/model";
+import {
+  editWorkflow,
+  locate,
+  type NewId,
+  ROOT,
+  readProcessBundle,
+  withStepModelWorkflows,
+} from "../builder/model";
 import { OPS_PATHS } from "../paths";
 import { opsAgentHref } from "../screens/AgentRedirect";
 import { processKindLabel, triggerTitle } from "../workflow/describe";
@@ -263,7 +270,12 @@ function CheckBody({
       if (canonicalJson(next) !== canonicalJson(loaded.bundle)) {
         const saved = await api.call(apiRoutes.opsSaveVersion, {
           params: { id: agent.agent.id },
-          body: { bundle: next, parentVersionId: from, changeNote: "Checked the steps" },
+          body: {
+            // The agent's v5 workflows (set aside when read) are saved back as they were.
+            bundle: withStepModelWorkflows(next, agent.latest.bundle),
+            parentVersionId: from,
+            changeNote: "Checked the steps",
+          },
         });
         from = saved.version.id;
       }
