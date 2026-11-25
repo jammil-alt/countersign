@@ -22,6 +22,8 @@ import { ProcessLoadError } from "./process";
 export interface StepModelRun {
   /** Engine step (by object) → the v5 step it runs. */
   sources: WeakMap<object, steps.Step>;
+  /** The v5 steps by id (a loop's copies share theirs), for what the ports see of a step. */
+  byId: ReadonlyMap<string, steps.Step>;
   /** The workflow's declared outputs, by id. */
   outputs: ReadonlyMap<string, steps.WorkflowOutput>;
   /**
@@ -159,7 +161,12 @@ export function loadStepModel(
     process,
     origins: new WeakMap(),
     v3: null,
-    stepModel: { sources, outputs: new Map(wf.outputs.map((o) => [o.id, o])), merged },
+    stepModel: {
+      sources,
+      byId: new Map(allSteps(wf.steps).map((s) => [s.id, s])),
+      outputs: new Map(wf.outputs.map((o) => [o.id, o])),
+      merged,
+    },
   };
 }
 
@@ -354,15 +361,26 @@ export function writtenInStep(step: steps.Step): boolean {
   );
 }
 
-/** A Do step's incoming translation that no engine runs yet (stream G's, wave 2). */
-export function unrunTranslation(step: steps.Step): boolean {
-  if (step.kind !== "do" && step.kind !== "loop") return false;
-  if (!step.translation) return false;
+/**
+ * Whether a Do step's `translation` is its incoming translation (stream G, run on its resolved
+ * input), rather than a Reshape skill's own mapping (the one-off converter's reading of v4).
+ */
+export function incomingTranslation(step: steps.Step): boolean {
+  if (step.kind !== "do" || !step.translation) return false;
   return !(
-    step.kind === "do" &&
-    step.uses?.type === "skill" &&
-    step.uses.skill.split("@")[0] === processes.RESHAPE_SKILL
+    step.uses?.type === "skill" && step.uses.skill.split("@")[0] === processes.RESHAPE_SKILL
   );
+}
+
+/** Whether any Do step of the workflow translates what comes in. */
+export function translates(workflow: Pick<steps.Workflow, "steps">): boolean {
+  return allSteps(workflow.steps).some(incomingTranslation);
+}
+
+function allSteps(list: readonly steps.Step[]): steps.Step[] {
+  const out: steps.Step[] = [];
+  steps.eachStep(list, ({ step }) => out.push(step));
+  return out;
 }
 
 /** A Loop's limits and reads, as the runtime takes them (`SkillStepRequest.loop`). */

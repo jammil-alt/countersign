@@ -260,6 +260,70 @@ describe("a v5 workflow's Do steps", () => {
   });
 });
 
+describe("a v5 Do step's incoming side (stream G)", () => {
+  const needs = [
+    { name: "vendorName", type: "text" as const, required: true },
+    { name: "total", type: "money" as const, required: true },
+  ];
+  const source = {
+    ref: "steps.s_read.output",
+    label: "Read the thing",
+    fields: [
+      {
+        name: "header",
+        type: "group" as const,
+        required: true,
+        of: [
+          { name: "supplier", type: "text" as const, required: true },
+          { name: "total", type: "money" as const, required: true },
+        ],
+      },
+    ],
+  };
+  const translated = () => {
+    const w = steps.workOutTranslation({ needs, sources: [source] });
+    return {
+      id: "s_change",
+      kind: "do",
+      name: "Update the thing",
+      doneBy: "rules",
+      uses: { type: "action", action: "testkit.thing.update" },
+      input: w.input,
+      translation: w.translation,
+    };
+  };
+
+  it("translates the resolved input in code before the engine runs, sources dropped", async () => {
+    const h = new Harness();
+    h.handlers.s_read = () => ({
+      kind: "done",
+      output: { header: { supplier: "Acme", total: "12.50" } },
+    });
+    const { result, runner } = await run(h, wf([read, translated(), end()]));
+    expect(result.status).toBe("succeeded");
+    // A field that fits is wired straight; a translated one is worked out from the source key.
+    expect(h.agentCalls[1]?.input).toEqual({ vendorName: "Acme", total: "12.50" });
+    expect(runner.names()[0]).toBe("run:today");
+  });
+
+  it("fails the step in plain words when a field can't be filled", async () => {
+    const h = new Harness();
+    h.handlers.s_read = () => ({ kind: "done", output: { header: {} } });
+    const { result } = await run(h, wf([read, translated(), end()]));
+    expect(result.status).toBe("failed");
+    expect(result.nodeId).toBe("s_change");
+    expect(result.reason).toContain(`what comes into "Update the thing" can't be translated`);
+    expect(h.agentCalls).toHaveLength(1);
+  });
+
+  it("never hands a source key to an engine, with or without a translation", async () => {
+    const h = new Harness();
+    const plain = { ...read, id: "s_two", input: { id: "1", _s_read: "{{trigger}}" } };
+    await run(h, wf([plain, end()]));
+    expect(h.agentCalls[0]?.input).toEqual({ id: "1" });
+  });
+});
+
 describe("a v5 Fork, For each and outcomes", () => {
   it("records each Do's outcome in its engine's words, and a Fork routes on it", async () => {
     const h = new Harness();

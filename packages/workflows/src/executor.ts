@@ -24,6 +24,7 @@ import {
   evaluateRules,
   // Collect reports (owner, 2026-11-24): each link is a "Request info" step.
   FORMS_REQUEST_SKILL,
+  isoToday,
   isPlainObject,
   LEAD_ASSIGNEE,
   lookupSkill,
@@ -126,13 +127,14 @@ import { inboxEventType, isWaitTimeout, type StepConfig, type StepRunner } from 
 // The step model (docs/step-model-plan.md): a v5 workflow's steps on today's engines.
 import {
   catalogKindOf,
+  incomingTranslation,
   loadStepModel,
   loopRequest,
   MATCH_SKILL,
   STEP_MODEL_WRITE_ACTIONS,
   type StepLoop,
   type StepModelRun,
-  unrunTranslation,
+  translates,
   writtenInStep,
 } from "./step-model";
 
@@ -663,6 +665,11 @@ export async function executeWorkflow(
     return { status: "failed", reason, errorKey: runErrorKey({ tool: null, kind: "run" }, reason) };
   }
   const ex = new Executor(runner, ctx, expansions, loaded.origins, overrides, stepModel);
+  // The step model: a run whose steps translate what comes in reads one "today", the client's
+  // date when it started, in a durable step, so a replay translates the same way.
+  if (workflow.schemaVersion === 5 && translates(workflow)) {
+    ex.today = await runner.do("run:today", async () => isoToday(new Date(), ctx.run.timeZone));
+  }
   // DECISION (wave 5): outcomes are recorded for native v4 processes only; a converted v3 workflow's
   // scope stays `{ output }` (its conditions can't name an outcome, and nothing it reads changes).
   ex.records = loaded.v3 === null;
@@ -761,6 +768,9 @@ class Executor {
 
   /** The step model: what the End that ended the run passed on (`RunResult.passedOn`). */
   passedOn: { output: unknown; sources: string[] } | undefined;
+
+  /** The step model: the client's date a translation reads as "today", fixed for the run. */
+  today: string | undefined;
 
   /** The step model: the v5 step an engine step runs, if the run is a v5 workflow's. */
   source(step: processes.Step): steps.Step | undefined {
@@ -984,11 +994,6 @@ class Executor {
         if (writtenInStep(v5)) {
           throw new Error(
             `the step "${v5.name}" is written in the step, which can't run yet: pick a skill for it`,
-          );
-        }
-        if (unrunTranslation(v5)) {
-          throw new Error(
-            `the step "${v5.name}" translates what comes in, which can't run yet: map its input instead`,
           );
         }
       }
@@ -1717,7 +1722,24 @@ class Executor {
   inputOf(step: { id: string; input: unknown }, frame: Frame): unknown {
     const start = this.ctx.start;
     if (start && frame.prefix === "" && step.id === start.at) return start.input;
-    return resolveTemplate(step.input, frame.scope);
+    const resolved = resolveTemplate(step.input, frame.scope);
+    // The step model: a Do step's incoming side (stream G). Its translation runs on the resolved
+    // input, in code, and the `_` source keys that bring whole earlier outputs in never reach the
+    // engine. A field the translation can't fill fails the step in plain words.
+    const v5 = this.stepModel?.byId.get(step.id);
+    if (v5?.kind !== "do" || !isPlainObject(resolved)) return resolved;
+    const t = steps.applyTranslation(
+      incomingTranslation(v5) ? v5 : {},
+      resolved as Record<string, unknown>,
+      { today: this.today ?? "" },
+    );
+    const problem = t.problems[0];
+    if (problem) {
+      throw new Error(
+        `what comes into "${v5.name}" can't be translated: ${problem.field}: ${problem.message}`,
+      );
+    }
+    return t.input;
   }
 
   /** A work step's input for an attempt: resolved, and as an action's tool takes it. */

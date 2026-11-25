@@ -25,6 +25,7 @@ import type { FlowEnds, InsertPoint } from "../../flow/types";
 import { triggerTitle } from "../../workflow/describe";
 import type { Member, People } from "../people";
 import { triggerFields, useStepsCatalog } from "./catalog";
+import { translateAll } from "./data";
 import { type BoxWords, boxWords, displayProcess } from "./display";
 import type { StepFormEnv } from "./form-kit";
 import { canRedo, canUndo, commit, redo, startHistory, undo } from "./history";
@@ -152,7 +153,13 @@ function Body(
 ) {
   const { agent, from, catalog } = props;
   const action = useAction();
-  const [history, setHistory] = useState(() => startHistory(props.start));
+  // Stream G: every Do step's incoming side worked out on load, opened or not; what changes shows
+  // as unsaved, as an edit would.
+  const [history, setHistory] = useState(() =>
+    startHistory(
+      translateAll(props.start, catalog.uses, triggerFields(props.start, catalog.events)),
+    ),
+  );
   const workflow = history.present;
   const edit = useCallback((next: Workflow) => setHistory((h) => commit(h, next)), []);
   const [saved, setSaved] = useState({
