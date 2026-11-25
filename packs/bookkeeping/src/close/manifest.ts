@@ -54,13 +54,15 @@ export const CLOSE_SKILLS: readonly SkillDefinition[] = lazyObjects([
   toolSkill(readyTool, {
     id: "close.entries-to-record",
     name: "Journal entries to record",
-    description: "The month's proposed journal entries, each as the entry in the accounting system it becomes.",
+    description:
+      "The month's proposed journal entries, each as the entry in the accounting system it becomes.",
     summary: "{{count}} journal entries to record",
   }),
   toolSkill(writtenTool, {
     id: "close.record-written",
     name: "Record a written entry",
-    description: "Records the journal entry an entry became in the accounting system, or what a person decided.",
+    description:
+      "Records the journal entry an entry became in the accounting system, or what a person decided.",
     summary: "Recorded the entry as {{status}}",
   }),
   toolSkill(proposeTool, {

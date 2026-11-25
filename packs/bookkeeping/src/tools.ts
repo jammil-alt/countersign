@@ -207,7 +207,6 @@ function openItemView(t: Parameters<typeof openItemOf>[0]) {
   return { kind, docNumber, name, date, balance, confirmed: item.confirmed === true };
 }
 
-
 // One chart of accounts (docs/step-model-plan.md §10e): the list of accounts is Shared's
 // `ledger.accounts.list`; what only Bookkeeping knows, the payees its bookings put on each account,
 // is this read, for the accounts the caller names.

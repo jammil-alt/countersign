@@ -20,7 +20,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createTemplate, fork, publish } from "../registry/agents";
 import { SkillCatalog } from "../registry/skills";
 import { FINISH_TOOL, runAgent } from "../runtime/run-agent";
-import { DOCS_SKILLS } from "../tools/docs";
+import { DOCS_SKILLS, docsRead } from "../tools/docs";
 import {
   CHECK_TOTALS_SKILL,
   DOCS_SPLIT_SKILLS,
@@ -271,6 +271,25 @@ describe.skipIf(!harness)("Read document → Check totals → record the reading
     });
     // The process routes it (an If step, then a person); recording raises no inbox item itself.
     expect(saved).toMatchObject({ status: "needs_review", totalsMatch: false });
+  });
+
+  it("Read a document, the one action, records a reading it is given and flags totals that don't add up", async () => {
+    const documentId = documents.get("northline-20418") as string;
+    const reading = { ...expectedOf("northline-20418"), total: "1.00" };
+    const invocation = {
+      tenantId: h.A.tenantId,
+      agentVersionId: versionId,
+      mode: "live",
+      documents: ports.documents,
+    } as unknown as ToolInvocation;
+    const out = await docsRead.run({ documentId, as: "invoice", reading }, invocation);
+    expect(out.readNow).toBe(true);
+    expect(out.extraction).toMatchObject({ totalsMatch: false, total: "1.0000" });
+    expect(out.extraction?.problems.length).toBeGreaterThan(0);
+    // Read once: asked again with no reading, it answers that one and reads nothing.
+    const again = await docsRead.run({ documentId, as: "invoice" }, invocation);
+    expect(again.readNow).toBe(false);
+    expect(again.extraction?.id).toBe(out.extraction?.id);
   });
 
   it("another client's document can't be attached", async () => {

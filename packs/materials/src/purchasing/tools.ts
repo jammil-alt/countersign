@@ -1204,7 +1204,8 @@ export const poQboLinesTool = defineTool({
     "Turns a purchase request and its chosen quote (or a split's share of the lines) into qbo.purchaseorder.create's input as `order`: the vendor's id in the accounting system (materials.vendor.qbo first), one line per quoted line, an item line when its catalog item is tied to an item in the accounting system (materials.item.qbo) and otherwise an account line on the client's expense account for purchase orders, each amount rounded to cents, the total, the reference as its number and needed-by as its date. `untied` lists the order's items with no item in the accounting system. Writes nothing.",
   sideEffect: "none",
   entity: "purchase_request",
-  summary: "Laid out {{order.lines.length}} lines for {{vendorName}}'s order in the accounting system",
+  summary:
+    "Laid out {{order.lines.length}} lines for {{vendorName}}'s order in the accounting system",
   input: z.object({
     requestId: z.uuid(),
     quoteRequestId: z.uuid(),

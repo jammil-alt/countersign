@@ -410,7 +410,10 @@ const BOOKKEEPER_V1 = lazyObject({
                     asOf: "{{steps.pairs.output.asOf}}",
                     pairKey: "{{item.pairKey}}",
                   },
-                  client: { visible: true, label: "Reconciled a bank account with the accounting system" },
+                  client: {
+                    visible: true,
+                    label: "Reconciled a bank account with the accounting system",
+                  },
                 },
                 askAboutLeftovers("month", "rec"),
               ],
@@ -890,7 +893,10 @@ const bookkeeperV2Input = () =>
                     asOf: "{{steps.pairs.output.asOf}}",
                     pairKey: "{{item.pairKey}}",
                   },
-                  client: { visible: true, label: "Reconciled a bank account with the accounting system" },
+                  client: {
+                    visible: true,
+                    label: "Reconciled a bank account with the accounting system",
+                  },
                 },
                 askAboutLeftoversV2("month", "rec"),
               ],
