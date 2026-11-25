@@ -24,8 +24,9 @@ import type { ToolRegistry } from "./tools";
 // model's pickers too, and the list is deleted with the tools.
 export const SUPERSEDED_ACTIONS: ReadonlySet<string> = new Set([
   // One "Read a document": `docs.read` reads once, records the reading and checks its totals.
+  // (`docs.reading.record` stays offered: it is the Save that follows the AI skill Read document,
+  // and the only way a reading another step made is recorded; no model-driven skill gets it.)
   "docs.extract",
-  "docs.reading.record",
   "docs.totals.check",
   // The bill check is the rules of the Prepare bill skill.
   "docs.bill.check",

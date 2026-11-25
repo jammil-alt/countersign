@@ -870,7 +870,14 @@ function AgentActions({
         ) : null}
       </span>
       <div className="w-full max-w-md text-left">
-        <RequestAction as="operator" agentId={view.id} testId="agent-request-action" />
+        <RequestAction
+          as="operator"
+          // A template has no client; its request carries only the words.
+          {...(view.kind === "client" && view.tenantId
+            ? { agentId: view.id, clientId: view.tenantId }
+            : {})}
+          testId="agent-request-action"
+        />
       </div>
       {published !== null ? (
         <Notice tone="positive" testId="agent-publish-done">

@@ -25,7 +25,7 @@ export function actionIsOn(
 
 /** The ids of the manifest's tools that are off. */
 export function actionsOff(
-  manifest: Pick<ConnectorManifest, "offByDefault" | "tools">,
+  manifest: Pick<ConnectorManifest, "offByDefault"> & { tools: readonly { id: string }[] },
   switches: ActionSwitches,
 ): Set<string> {
   return new Set(

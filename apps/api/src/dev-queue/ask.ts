@@ -10,8 +10,8 @@
 
 import type { ActionRequestAnswer, NewActionRequest } from "@countersign/core";
 import { agent, tenant, withOperator } from "@countersign/db";
-import { eq } from "drizzle-orm";
-import type { Services } from "../http";
+import { and, eq, inArray } from "drizzle-orm";
+import { HttpError, type Services } from "../http";
 import { type DqCtx, fileRequest } from "./service";
 
 export interface Asker {
@@ -20,6 +20,11 @@ export interface Asker {
   from: "operator" | "client";
   /** The client the need is for. */
   clientId?: string | undefined;
+  /**
+   * The clients the asker may name: those the operator serves, or the client's own. An agent or a
+   * client outside it is not found, and a request is never filed for one.
+   */
+  tenantIds: readonly string[];
 }
 
 const TITLE_MAX = 120;
@@ -53,7 +58,7 @@ function operatorTx(services: Services): DqCtx["inTx"] {
 export async function requestAction(
   services: Services,
   asker: Asker,
-  input: Pick<NewActionRequest, "what" | "connector" | "agentId">,
+  input: Pick<NewActionRequest, "what" | "connector" | "agentId" | "clientId">,
   ctx?: DqCtx,
 ): Promise<ActionRequestAnswer> {
   const dq: DqCtx = ctx ?? {
@@ -63,15 +68,21 @@ export async function requestAction(
     actor: "operator",
     now: () => new Date(),
   };
-  // Who it is for and where it was asked, read in an operator-scoped transaction of its own.
-  const facts = await withOperator(services.db, [], async (tx) => {
+  // Who it is for and where it was asked, read in the asker's own scope: client agents are hidden
+  // from an operator scope with no clients (row security), so the lookup is over the clients the
+  // asker may name, and the reuse check's judge is held to that client's HIPAA mode.
+  if (input.clientId && !asker.tenantIds.includes(input.clientId)) {
+    throw new HttpError(404, "not_found", "no such client");
+  }
+  const facts = await withOperator(services.db, [...asker.tenantIds], async (tx) => {
     const [a] = input.agentId
       ? await tx
           .select({ name: agent.name, tenantId: agent.tenantId })
           .from(agent)
-          .where(eq(agent.id, input.agentId))
+          .where(and(eq(agent.id, input.agentId), inArray(agent.tenantId, [...asker.tenantIds])))
       : [];
-    const clientId = a?.tenantId ?? asker.clientId;
+    if (input.agentId && !a) throw new HttpError(404, "not_found", "no such agent");
+    const clientId = a?.tenantId ?? input.clientId ?? asker.clientId;
     const [t] = clientId
       ? await tx.select({ name: tenant.name }).from(tenant).where(eq(tenant.id, clientId))
       : [];

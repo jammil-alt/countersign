@@ -273,27 +273,11 @@ describe.skipIf(!harness)("Read document → Check totals → record the reading
     expect(saved).toMatchObject({ status: "needs_review", totalsMatch: false });
   });
 
-  it("Read a document, the one action, records a reading it is given and flags totals that don't add up", async () => {
-    type Read = {
-      readNow: boolean;
-      extraction: { id: string; totalsMatch: boolean; total: string; problems: string[] } | null;
-    };
-    const documentId = documents.get("northline-20418") as string;
-    const reading = { ...expectedOf("northline-20418"), total: "1.00" };
-    const invocation = {
-      tenantId: h.A.tenantId,
-      agentVersionId: versionId,
-      mode: "live",
-      documents: ports.documents,
-    } as unknown as ToolInvocation;
-    const out = (await docsRead.run({ documentId, as: "invoice", reading }, invocation)) as Read;
-    expect(out.readNow).toBe(true);
-    expect(out.extraction).toMatchObject({ totalsMatch: false, total: "1.0000" });
-    expect(out.extraction?.problems.length).toBeGreaterThan(0);
-    // Read once: asked again with no reading, it answers that one and reads nothing.
-    const again = (await docsRead.run({ documentId, as: "invoice" }, invocation)) as Read;
-    expect(again.readNow).toBe(false);
-    expect(again.extraction?.id).toBe(out.extraction?.id);
+  it("Read a document takes no reading from its caller: it only records what it read itself", () => {
+    const keys = Object.keys(
+      (docsRead.spec.input as { properties: Record<string, unknown> }).properties,
+    );
+    expect(keys.sort()).toEqual(["as", "documentId"]);
   });
 
   it("another client's document can't be attached", async () => {

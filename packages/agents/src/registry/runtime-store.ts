@@ -39,6 +39,20 @@ import { MEMORY_TEST_SCOPE_PREFIX } from "../tools/platform";
 import { grantOf } from "./grants";
 import { resolveCustomSkill } from "./skills";
 
+/** The operator's switches for a built-in connector's actions (`connector_setting.actions`). */
+export function dbActionSwitches(
+  db: Db,
+): (connectorId: string) => Promise<Record<string, boolean> | null> {
+  return (connectorId) =>
+    withOperator(db, [], (tx) =>
+      tx
+        .select({ actions: connectorSetting.actions })
+        .from(connectorSetting)
+        .where(eq(connectorSetting.connector, connectorId))
+        .then(([row]) => row?.actions ?? null),
+    );
+}
+
 export function toConnectionRef(row: typeof connection.$inferSelect): ConnectionRef {
   return {
     id: row.id,
@@ -184,15 +198,7 @@ export function dbRuntimeStore(db: Db): RuntimeStore {
     },
 
     // Step model E: a built-in connector has no connection to carry its switches (Web).
-    actionSwitches(connectorId) {
-      return withOperator(db, [], (tx) =>
-        tx
-          .select({ actions: connectorSetting.actions })
-          .from(connectorSetting)
-          .where(eq(connectorSetting.connector, connectorId))
-          .then(([row]) => row?.actions ?? null),
-      );
-    },
+    actionSwitches: dbActionSwitches(db),
 
     grant(tenantId, agentId, connectionId) {
       return withTenant(

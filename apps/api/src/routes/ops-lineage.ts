@@ -22,6 +22,7 @@ import {
   SHARED_COPY_PREFIX,
   skillContext,
 } from "@countersign/agents";
+import { actionsOff, BUILTIN_CONNECTORS, builtInManifest } from "@countersign/connectors";
 import {
   type AgentBundle,
   AgentDefinition,
@@ -50,6 +51,7 @@ import {
 import {
   agent,
   connection,
+  connectorSetting,
   memoryNote,
   run,
   skill,
@@ -417,8 +419,12 @@ export async function builderCatalogFor(
   // Test-only connectors (the testkit) and their tools only for the Sandbox and test copies, or
   // where the agent or its client already uses them (core's connectorShown).
   const hidden = await hiddenTestConnectors(tx, subject, subject.latest, platform);
+  // Step model E: an action the operator turned off on its connector's page is left out of the
+  // pickers (an agent already using it keeps it, so its steps still type; the gate refuses the call).
+  const off = await offActionIds(tx, platform);
   const toolHidden = (id: string) => {
     const owner = platform.connectors.findTool(id)?.connector.manifest.id;
+    if (off.has(id) && !subject.stepTools.has(id)) return true;
     return owner !== undefined && hidden.has(owner);
   };
   return {
@@ -452,6 +458,23 @@ export async function builderCatalogFor(
     // docs/plan.md §1.164: a client agent's Zoho writes typed from its client's own fields.
     ...(await builderToolInputs(tx, platform, subject)),
   };
+}
+
+/**
+ * The actions (tool ids) switched off on their connector's page, or waiting there to be turned on:
+ * every registered connector's and the built-in ones' (Web). Read in the back office's scope.
+ */
+export async function offActionIds(tx: Tx, platform: Platform): Promise<Set<string>> {
+  const settings = await tx.select().from(connectorSetting);
+  const byConnector = new Map(settings.map((r) => [r.connector, r.actions]));
+  const off = new Set<string>();
+  for (const c of platform.connectors.list()) {
+    for (const id of actionsOff(c.manifest, byConnector.get(c.manifest.id))) off.add(id);
+  }
+  for (const b of BUILTIN_CONNECTORS) {
+    for (const id of actionsOff(builtInManifest(b), byConnector.get(b.id))) off.add(id);
+  }
+  return off;
 }
 
 export function opsLineageRoutes(app: Hono<AppEnv>): void {

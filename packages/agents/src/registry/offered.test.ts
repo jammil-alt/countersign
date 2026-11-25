@@ -15,6 +15,7 @@ describe("offered actions", () => {
   it("leaves out what the step model folded into another action", () => {
     expect(offeredSpecs(specs).map((s) => s.id)).toEqual([
       "docs.read",
+      "docs.reading.record",
       "ledger.accounts.list",
       "qbo.bill.create",
     ]);
@@ -24,6 +25,7 @@ describe("offered actions", () => {
   it("leaves out what the operator turned off on the connector's page", () => {
     expect(offeredSpecs(specs, new Set(["qbo.bill.create"])).map((s) => s.id)).toEqual([
       "docs.read",
+      "docs.reading.record",
       "ledger.accounts.list",
     ]);
   });

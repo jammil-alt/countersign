@@ -18,7 +18,7 @@ export function actionRequestApiRoutes(app: Hono<AppEnv>): void {
     };
     return requestAction(
       ctx.services,
-      { userId: ctx.session.user.id, from: "operator", clientId: ctx.body.clientId },
+      { userId: ctx.session.user.id, from: "operator", tenantIds: ctx.tenantIds },
       ctx.body,
       dq,
     );
@@ -28,7 +28,12 @@ export function actionRequestApiRoutes(app: Hono<AppEnv>): void {
   mountLong(app, actionRequestRoutes.portalRequestAction, async (ctx) => {
     await requestAction(
       ctx.services,
-      { userId: ctx.session.user.id, from: "client", clientId: ctx.tenantIds[0] },
+      {
+        userId: ctx.session.user.id,
+        from: "client",
+        clientId: ctx.tenantIds[0],
+        tenantIds: ctx.tenantIds,
+      },
       { what: ctx.body.what },
     );
     return { received: true as const };

@@ -7,8 +7,17 @@ import {
   CatalogConnector,
   PortalActionRequestAnswer,
 } from "@countersign/core";
+import { agent } from "@countersign/db";
 import { afterAll, describe, expect, it } from "vitest";
-import { type ApiHarness, admin, createApiHarness, OPERATOR, user } from "./api.test-helper";
+import {
+  type ApiHarness,
+  admin,
+  createApiHarness,
+  OPERATOR,
+  OTHER_OPERATOR,
+  testBundle,
+  user,
+} from "./api.test-helper";
 
 // biome-ignore lint/suspicious/noExplicitAny: response bodies are read loosely in tests.
 const j = (v: unknown) => v as any;
@@ -16,7 +25,8 @@ const j = (v: unknown) => v as any;
 const h = await createApiHarness();
 afterAll(() => h?.close());
 
-const find = (list: { id: string }[], id: string) => list.find((c) => c.id === id);
+// biome-ignore lint/suspicious/noExplicitAny: response bodies are read loosely in tests.
+const find = (list: any[], id: string) => list.find((c) => c.id === id);
 
 describe.skipIf(!h)("a connector's actions", () => {
   const H = h as ApiHarness;
@@ -161,5 +171,66 @@ describe.skipIf(!h)("Request an action", () => {
       what: "Do something new with the accounting tool.",
     });
     expect(out.status).toBe(401);
+  });
+
+  it("from an agent's page finds the client's agent within the operator's own clients, and says whose it is", async () => {
+    const [a] = await H.t.db
+      .insert(agent)
+      .values({ tenantId: H.A.tenantId, kind: "client", slug: "asks-a", name: "Asking agent" })
+      .returning({ id: agent.id });
+    const [b] = await H.t.db
+      .insert(agent)
+      .values({ tenantId: H.B.tenantId, kind: "client", slug: "asks-b", name: "Other's agent" })
+      .returning({ id: agent.id });
+    const what = "Read a customer's balance from the accounting system before it writes.";
+    const ok = await H.call(OPERATOR, "POST", "/api/ops/action-requests", {
+      what,
+      agentId: a?.id,
+    });
+    expect(ok.status, JSON.stringify(ok.json)).toBe(200);
+    const ref = j(ok.json).ref ?? j(ok.json).duplicate?.ref;
+    const detail = await H.call(OPERATOR, "GET", `/api/ops/code-requests/${ref}`);
+    // The agent and the client it belongs to are named: the lookup saw them.
+    expect(j(detail.json).spec.summary).toContain("Asking agent");
+    expect(j(detail.json).spec.summary).toContain("for Client A");
+
+    // An agent of a client this operator doesn't serve is not found, and nothing is filed.
+    const before = j((await H.call(OPERATOR, "GET", "/api/ops/code-requests?status=all")).json)
+      .requests.length;
+    const other = await H.call(OTHER_OPERATOR, "POST", "/api/ops/action-requests", {
+      what: "Do something with another client's agent.",
+      agentId: b?.id,
+    });
+    expect(other.status).toBe(404);
+    const after = j((await H.call(OPERATOR, "GET", "/api/ops/code-requests?status=all")).json)
+      .requests.length;
+    expect(after).toBe(before);
+  });
+
+  it("is refused for a client the operator doesn't serve", async () => {
+    const res = await H.call(OTHER_OPERATOR, "POST", "/api/ops/action-requests", {
+      what: "Do something for a client I do not serve.",
+      clientId: H.B.tenantId,
+    });
+    expect(res.status).toBe(404);
+  });
+
+  it("leaves a switched-off action out of the builder's pickers, unless the agent already uses it", async () => {
+    const made = await H.call(OPERATOR, "POST", "/api/ops/templates", {
+      slug: "pickers-clerk",
+      bundle: testBundle("Pickers clerk"),
+    });
+    expect(made.status, JSON.stringify(made.json)).toBe(200);
+    const id = j(made.json).agent.id;
+    const names = async () =>
+      j((await H.call(OPERATOR, "GET", `/api/ops/agents/${id}/builder-catalog`)).json).tools.map(
+        (t: { id: string }) => t.id,
+      );
+    expect(await names()).toContain("web.search");
+    await H.call(OPERATOR, "PUT", "/api/ops/connectors/web", { actions: { "web.search": false } });
+    expect(await names()).not.toContain("web.search");
+    expect(await names()).toContain("web.fetch");
+    await H.call(OPERATOR, "PUT", "/api/ops/connectors/web", { actions: { "web.search": true } });
+    expect(await names()).toContain("web.search");
   });
 });
