@@ -360,6 +360,11 @@ Two different things watch an agent, and both stay:
 - **"Request an action"** can be made from a connector, an agent or the account (owner,
   2026-11-25). Whoever asks only describes what they need; a client never has to know it is a
   connector action. It becomes a Dev queue request, with the reuse check, and we resolve it.
+- **Three merges, so a template works for any client** (owner, 2026-11-25): **Email** (Gmail,
+  Outlook and our own email), **Team chat** (Slack, Teams, Google Chat) and **Spreadsheets** (Google
+  Sheets, Excel). One action each ("Email › Send"), sent through whichever of them the client has
+  connected; the code already lets one action stand for several connectors. Every other connector
+  stays as it is.
 - **QuickBooks stays as it is**: 34 actions, one per QuickBooks operation, nothing merged and
   nothing added until the rebuilt agents work (owner, 2026-11-25: "lets get this working and we can
   enhance later").
@@ -449,6 +454,8 @@ matcher, Build list, Release.
   (actions: Get, Change, Send); an area is our own records (actions: Get, Save).
 - 2026-11-25 · Capabilities come in on the connector's page; Request an action from a connector, an
   agent or the account; QuickBooks unchanged for now.
+- 2026-11-25 · Email, Team chat and Spreadsheets merged into one connector each; other connectors
+  unchanged.
 - 2026-11-25 · Forms agreed. Suggest (AI icon) on every step and every field: tell it what you need,
   use the default, or resolve; applied at once, with Undo.
 - 2026-11-25 · The eight kinds are stored directly; nine of today's kinds collapse into Do, run by
