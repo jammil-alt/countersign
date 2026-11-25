@@ -15,6 +15,7 @@ import {
 } from "@countersign/core";
 import { PACK_ID } from "./ids";
 import { SALES_INTAKE_SECTION } from "./intake";
+import { CRM_RECORDS_PROFILE, SALES_RETIRED_TOOLS } from "./match/profile";
 import { MATCH_THRESHOLD } from "./match/score";
 import type { PackTool } from "./pack";
 import { SPREADSHEET_TO_ZOHO_TEMPLATE } from "./template";
@@ -134,6 +135,9 @@ export const salesManifest: PackManifest = lazyParse(PackManifest, () => ({
   tools: SALES_TOOLS.map((t) => t.spec),
   skills: SALES_SKILLS,
   templates: [SPREADSHEET_TO_ZOHO_TEMPLATE],
+  // Step model §7, §10e (stream D): the CRM records profile, and the tools it replaces.
+  matchProfiles: [CRM_RECORDS_PROFILE],
+  retiredTools: SALES_RETIRED_TOOLS,
   // §1.149.2: the area's questions for a client's intake (Getting started's card).
   intakeSection: SALES_INTAKE_SECTION,
   screens: [],

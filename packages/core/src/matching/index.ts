@@ -4,4 +4,5 @@ export * from "./engine";
 export * from "./fields";
 export * from "./model";
 export * from "./normalize";
+export * from "./profile";
 export * from "./rules";

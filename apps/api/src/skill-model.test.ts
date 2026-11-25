@@ -52,7 +52,8 @@ describe("kinds of the built-in skills", () => {
     // (the attribute fallback and the close-match adjudication) are the packs' hidden AI.
     // Splits (2026-11-10): `match_lines` matches each line as `match_line` does, so it says so too.
     // §1.88: the vendor catalog's searches by meaning, the embedding write and the upsert (which
-    // embeds a vendor item when it is saved) embed text.
+    // embeds a vendor item when it is saved) embed text; step model §10d: Register lines embeds
+    // the master items it makes.
     expect(declared.sort()).toEqual([
       "materials.catalog.create_item",
       "materials.embeddings.write",
@@ -60,6 +61,7 @@ describe("kinds of the built-in skills", () => {
       "materials.match_line",
       "materials.match_lines",
       "materials.vendor_item.upsert",
+      "materials.vendor_items.register",
       "materials.vendor_items.similar",
     ]);
   });
