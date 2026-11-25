@@ -48,6 +48,11 @@ export {
   thresholdFrom,
 } from "./match/match";
 export { chooseRecord, MODEL_CANDIDATES, RecordChoice } from "./match/model";
+/**
+ * After a sync page committed (apps/api's sync): the connectors whose records the Sales area keys,
+ * and the pass that builds them for a client with the area on.
+ */
+export * from "./match/profile";
 export {
   decideByRules,
   KEY_FIELDS,
@@ -96,10 +101,6 @@ export {
   refreshRecordKeys,
   salesOn,
 } from "./store";
-/**
- * After a sync page committed (apps/api's sync): the connectors whose records the Sales area keys,
- * and the pass that builds them for a client with the area on.
- */
 export { SALES_SYNCED } from "./synced";
 export {
   MATCH_KEYS,
