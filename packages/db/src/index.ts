@@ -35,6 +35,8 @@ export {
   userMemberships,
   userWithMemberships,
 } from "./queries";
+// Step model §10f: a record type's store over one table.
+export * from "./records";
 export * from "./schema";
 // R9: seeded version files that name an earlier version (the seed and the install route).
 export { isSeedVersionPatch, type SeedVersionPatch, seedVersionBundle } from "./seed-files";

@@ -61,6 +61,7 @@ import {
 } from "./context";
 import { recordModelCall } from "./model-call";
 import type { ExternalActionRecord, ToolCallStatus } from "./ports";
+import { recordGrantRefusal } from "./record-grants";
 import { verifyWrite } from "./verify";
 
 export type ToolOutcome =
@@ -372,6 +373,33 @@ async function dispatch(
     const parsed = tool.tool.input.safeParse(input);
     if (!parsed.success)
       return { status: "failed", error: `invalid input: ${parsed.error.message}` };
+    // Step model §10f: a record type's standard action runs only within the agent version's
+    // grant on that record type, and a Find within its grant on each record type it follows. The
+    // grant is read from the pinned version only: nothing in a run widens it (invariant 9).
+    const ungranted = recordGrantRefusal(step.agent, tool.spec, parsed.data);
+    if (ungranted) return { status: "refused", reason: ungranted };
+    // Review of #687 (coordinator's decision): a live run's record write needs no client approval
+    // only from an agent that acts and is live. In `suggest_only`, or in its trial or sign-off stage
+    // (read fresh, as for a write to a client's tool), a person signs every write (invariant 8).
+    // DECISION (option a): a signed save to our own records isn't built yet, so such a write is
+    // refused with that reason; it only tightens. A test run goes on: it checks and saves nothing.
+    const record = tool.spec.record;
+    if (
+      record &&
+      (record.action === "create" || record.action === "update") &&
+      step.mode !== "test"
+    ) {
+      const stage = await deps.ports.store.agentStage(step.tenantId, step.agent.agentId);
+      if (effectiveMode(step.agent.bundle.definition, stage) !== "act") {
+        return {
+          status: "refused",
+          reason:
+            stage === "live"
+              ? `this agent suggests only, so a save to our records waits for a person, which isn't built yet (${tool.spec.id})`
+              : `in its ${stage ?? "bench"} stage every save waits for a person, which isn't built yet for our records (${tool.spec.id})`,
+        };
+      }
+    }
     const raw = await tool.tool.run(parsed.data, {
       tenantId: step.tenantId,
       agentId: step.agent.agentId,
@@ -403,6 +431,8 @@ async function dispatch(
       translation: deps.ports.translation,
       // §1.77: web research
       web: deps.ports.web,
+      // Step model §10f: the standard record actions.
+      records: deps.ports.records,
       ask: step.ask,
       language: step.language,
       now: deps.now,
