@@ -139,6 +139,7 @@ import { createRunRow, dispatchEvents, dispatchingRunner, senseEmitter } from ".
 // Hand off (owner, 2026-11-11): hand-off steps, and a handed-off run's entry step.
 import { handoffPort, handoffStart } from "./handoff";
 import type { RunInstances, RunParams } from "./instances";
+import { runMatchPort } from "./match";
 import { agentPort, dbInboxPort, dbStepLog, threadNotifyPort } from "./ports";
 import { clientShowsNode, subjectTools } from "./subject-log";
 
@@ -809,6 +810,13 @@ export async function executeRun(
     choice: choicePort(runtime, db, info, loaded.oversight),
     // Hand off (owner, 2026-11-11): other agents' runs started at a step, and this run's own start.
     handoff: handoffPort({ db, instances: deps.instances }, params),
+    // The step model §7: Match steps on every area's profiles, on the client's guarded transport.
+    match: runMatchPort({
+      db,
+      transport: runtime.transport ?? null,
+      runtime,
+      info,
+    }),
     ...handoffStart(params),
   };
 

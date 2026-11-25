@@ -8,7 +8,7 @@ import { describe, expect, it } from "vitest";
 import { executeWorkflow } from "./executor";
 import { FakeMatchPort } from "./fake-match";
 import { FakeStepRunner } from "./fake-runner";
-import { Harness } from "./fakes.test-helper";
+import { Harness, RUN } from "./fakes.test-helper";
 import type { ResolveActionRequest, ResolveMergedRequest, SkillStepRequest } from "./ports";
 import { LOOP_SKILL, loadStepModel } from "./step-model";
 
@@ -409,6 +409,102 @@ describe("a v5 Match and Loop", () => {
       status: "succeeded",
       output: { matched: 1 },
     });
+  });
+
+  it("records the records its matches rest on as the step's sources (invariant 10)", async () => {
+    const h = new Harness();
+    const port = new FakeMatchPort({ "SKU-1": "vi-1" });
+    await run(h, wf([match, end()]), { lines: [{ sku: "SKU-1" }] }, { match: port });
+    expect(h.row("s_match")?.output).toMatchObject({ sources: ["raw-SKU-1", "vi-1"] });
+  });
+
+  const unsure = () =>
+    new FakeMatchPort({ "SKU-1": "vi-1" }, undefined, {
+      "SKU-7": { "vi-7": "Bolt 6mm", "vi-8": "Bolt 8mm" },
+    });
+  const answering = (answer: unknown, mode: "live" | "test" = "live") => {
+    const h = new Harness({ ...RUN, mode });
+    const runner = new FakeStepRunner({ onWait: "block" });
+    runner.onWaitStarted = (_n, type) => runner.deliver(type, { answer, by: "u-5" });
+    return { h, runner };
+  };
+
+  it("asks a person about an unsure item, and learns their answer", async () => {
+    const port = unsure();
+    const { h, runner } = answering("vi-8");
+    const result = await executeWorkflow(
+      runner,
+      h.context({ catalog: CATALOG, match: port }),
+      wf([match, end()]),
+      { lines: [{ sku: "SKU-1" }, { sku: "SKU-7" }] },
+    );
+    expect(result.status).toBe("succeeded");
+    const asked = [...h.items.values()][0]?.item;
+    expect(asked).toMatchObject({
+      nodeId: "s_match:ask:1",
+      kind: "request",
+      title: 'Vendor items: which one is "SKU-7"?',
+    });
+    expect(h.row("s_match")).toMatchObject({
+      status: "succeeded",
+      output: { matched: 2, unsure: 0, anyUnsure: false },
+    });
+    const output = h.row("s_match")?.output as
+      | { items: { matched: string; how: string }[] }
+      | undefined;
+    const items = output?.items ?? [];
+    expect(items[1]).toMatchObject({ matched: "vi-8", how: "person" });
+    expect(port.learned).toEqual([
+      {
+        run: h.run,
+        nodeId: "s_match:ask:1",
+        profile: "vendor-items",
+        item: { sku: "SKU-7" },
+        recordId: "vi-8",
+        personId: "u-5",
+      },
+    ]);
+  });
+
+  it("learns nothing in a test run, and nothing from a record it didn't offer", async () => {
+    const test = unsure();
+    const a = answering("vi-8", "test");
+    await executeWorkflow(
+      a.runner,
+      a.h.context({ catalog: CATALOG, match: test }),
+      wf([match, end()]),
+      {
+        lines: [{ sku: "SKU-7" }],
+      },
+    );
+    expect(test.learned).toEqual([]);
+
+    const live = unsure();
+    const b = answering("vi-999");
+    await executeWorkflow(
+      b.runner,
+      b.h.context({ catalog: CATALOG, match: live }),
+      wf([match, end()]),
+      {
+        lines: [{ sku: "SKU-7" }],
+      },
+    );
+    expect(live.learned).toEqual([]);
+    expect(b.h.row("s_match")?.output).toMatchObject({ anyUnsure: true });
+  });
+
+  it("leaves an item unsure when nobody answers in time", async () => {
+    const h = new Harness();
+    const port = unsure();
+    const { result } = await run(
+      h,
+      wf([match, end()]),
+      { lines: [{ sku: "SKU-7" }] },
+      { match: port },
+    );
+    expect(result.status).toBe("succeeded");
+    expect(h.row("s_match")?.output).toMatchObject({ unsure: 1, anyUnsure: true });
+    expect(port.learned).toEqual([]);
   });
 
   it("fails without a Match port, matching nothing", async () => {

@@ -79,6 +79,8 @@ export * from "./runtime/converse";
 export { documentInputFields } from "./runtime/documents";
 export * from "./runtime/json-schema";
 export * from "./runtime/model";
+// The step model: the Match port records its model calls at its step, as the runtime does.
+export { recordModelCall } from "./runtime/model-call";
 // v0.13 W2-I
 export * from "./runtime/oversee";
 export * from "./runtime/planned";
