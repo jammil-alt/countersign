@@ -523,6 +523,47 @@ describe("the person's own test email", () => {
   });
 });
 
+describe("a sandbox run's email sent to the person who asked (docs/plan.md §1.243)", () => {
+  const PREVIEW = {
+    to: "sam@client.test",
+    subject: "[Sandbox] Your order",
+    text: "Would have gone to orders@vendor.test.",
+    key: "p1",
+  };
+
+  async function setup(connection: ConnectionRef = CONN) {
+    const { connector, grant, google } = await signIn();
+    const ctx = {
+      tenantId: CONN.tenantId,
+      connection,
+      credentials: memoryCredentials(grant.credentials),
+      logger: noopLogger,
+      now: () => NOW,
+    };
+    return { connector, google, ctx };
+  }
+
+  it("is not a tool, and sends one plain email from the mailbox to the address given", async () => {
+    const { connector, google, ctx } = await setup();
+    expect(connector.manifest.tools.map((t) => t.id)).toEqual([GMAIL_SEND_TOOL]);
+    const out = await connector.sendPreview?.(ctx, PREVIEW);
+    expect(out).toEqual({ id: google.sent[0]?.id, from: "pat.lee@gmail.test" });
+    expect(google.sent).toHaveLength(1);
+    const parsed = await PostalMime.parse(utf8(google.sent[0]?.message ?? ""));
+    expect(parsed.from?.address).toBe("pat.lee@gmail.test");
+    expect((parsed.to ?? []).map((a) => a.address)).toEqual(["sam@client.test"]);
+    expect(parsed.subject).toBe(PREVIEW.subject);
+    expect(parsed.text?.trim()).toBe(PREVIEW.text);
+    expect(parsed.messageId).toBe("<preview.p1.mezonas@gmail.test>");
+  });
+
+  it("refuses a connection whose tokens aren't the stored mailbox's", async () => {
+    const { connector, google, ctx } = await setup({ ...CONN, externalAccountId: "x@else.test" });
+    await expect(connector.sendPreview?.(ctx, PREVIEW)).rejects.toBeInstanceOf(GmailNoAddressError);
+    expect(google.sent).toHaveLength(0);
+  });
+});
+
 describe("the message", () => {
   it("encodes non-ASCII headers as encoded words of at most 75 characters, never splitting a character", () => {
     const long = "Pedido nº 1042 — confirmación de entrega 🙏 ".repeat(4);

@@ -85,6 +85,11 @@ export const SopStepLine = z.object({
   onErrorSay: SopSay.optional(),
   /** A person step's or a deadline's: by when. */
   byWhen: z.string().nullable(),
+  /**
+   * A Collect reports step's reports in order: each one's name and who sends it. Absent for
+   * every other step, and in a revision made before it.
+   */
+  reports: z.array(z.object({ name: z.string(), owner: SopParty })).optional(),
 });
 export type SopStepLine = z.infer<typeof SopStepLine>;
 
@@ -121,6 +126,8 @@ export const SOP_CHART_KINDS = [
   "if",
   "for_each",
   "repeat",
+  // Collect reports (2026-11-24). A revision made before it stored such a step as "conversation".
+  "collect",
 ] as const;
 export const SopChartKind = z.enum(SOP_CHART_KINDS);
 export type SopChartKind = z.infer<typeof SopChartKind>;

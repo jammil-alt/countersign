@@ -154,6 +154,7 @@ export function turnView(row: TurnRow, undone: ReadonlySet<string>): BuilderTurn
     undoneAt: iso(row.undoneAt),
     createdAt: iso(row.createdAt) as string,
     ...(meta.focus ? { focus: meta.focus } : {}),
+    ...(meta.sample ? { sample: meta.sample } : {}),
   };
 }
 

@@ -29,7 +29,7 @@ import type {
   ToolCallStatus,
 } from "../runtime/ports";
 import { runAgent } from "../runtime/run-agent";
-import type { InternalTool, PlatformStore } from "../tools/types";
+import type { DocumentFile, DocumentsPort, InternalTool, PlatformStore } from "../tools/types";
 
 /** A uuid that names no row: the bench's agent, version and run ids. */
 const BENCH_ID = "00000000-0000-4000-8000-00000000be0c";
@@ -50,6 +50,11 @@ export interface SkillCaseInput {
   tenantId: string | null;
   input: unknown;
   fixtures: readonly Fixture[];
+  /**
+   * Files the input names by id, held in memory (a skill tried on a sample PDF or image, owner
+   * 2026-11-24): an AI skill's `x-document` input reads them. Nothing else reaches a document.
+   */
+  files?: readonly DocumentFile[];
 }
 
 export interface SkillCaseDeps {
@@ -150,6 +155,41 @@ function benchAgent(def: SkillDefinition, model: { id: string; maxTokens?: numbe
 }
 
 const refuse = (what: string) => () => Promise.reject(new BenchNeverWritesError(what));
+
+const notOnBench = (what: string) => () =>
+  Promise.reject(new Error(`${what} isn't available on the test bench`));
+
+/**
+ * The bench's documents: only the files the case brought, read from memory. A PDF or an image is a
+ * model's (`file`), a table file Read table's (`table`), as the real port splits them.
+ */
+function benchDocuments(files: readonly DocumentFile[]): DocumentsPort {
+  const find = (id: string) => {
+    const f = files.find((x) => x.documentId === id);
+    if (!f) throw new Error(`document ${id} isn't one this try brought`);
+    return f;
+  };
+  const isTable = (mime: string) =>
+    mime === "text/csv" ||
+    mime === "application/json" ||
+    mime === "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+  return {
+    get: async () => null,
+    extract: notOnBench("reading a stored document"),
+    findSupport: notOnBench("finding a document"),
+    matchBill: notOnBench("matching a bill"),
+    async file(_tenant, id) {
+      const f = find(id);
+      if (isTable(f.mimeType)) throw new Error(`${f.filename} is a table: Read table reads it`);
+      return f;
+    },
+    async table(_tenant, id) {
+      const f = find(id);
+      if (!isTable(f.mimeType)) throw new Error(`${f.filename} isn't a table`);
+      return f;
+    },
+  };
+}
 
 /** Runs one skill case. Never throws for the skill's own failures: they come back as `failed`. */
 export async function runSkillCase(
@@ -256,7 +296,13 @@ export async function runSkillCase(
   };
   const tools = new FixtureToolRegistry(deps.tools, input.fixtures);
   const runtime: RuntimeDeps = {
-    ports: { store, log, actions, platform },
+    ports: {
+      store,
+      log,
+      actions,
+      platform,
+      ...(input.files?.length ? { documents: benchDocuments(input.files) } : {}),
+    },
     tools,
     // Every skill reference resolves through `store` to the version under test, built-ins too.
     catalog: new SkillCatalog([]),

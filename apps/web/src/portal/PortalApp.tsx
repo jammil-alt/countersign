@@ -1,9 +1,9 @@
 // The client portal (`/`, client roles): the client's own frame, with no switcher and no building
 // (ARCHITECTURE §15). Every screen reads in the session's language (docs/plan.md §1.18). The
-// sidebar lists places only: Home, Inbox, Runs, Accounts and Contacts (Review 1, approved by the
-// owner). The agents are on Home and the agent switcher on an agent's page; Settings and the lead
-// are in the avatar menu (Settings also at the sidebar's foot); Sloan is Ask Sloan in the top bar
-// and in the search box. The routes live in ./routes.tsx.
+// sidebar lists places only: Home, Inbox, Runs, Sandbox (§1.243), Accounts and Contacts (Review 1,
+// approved by the owner). The agents are on Home and the agent switcher on an agent's page;
+// Settings and the lead are in the avatar menu (Settings also at the sidebar's foot); Sloan is Ask
+// Sloan in the top bar and in the search box. The routes live in ./routes.tsx.
 import { type ReactNode, useCallback, useEffect, useRef } from "react";
 import { Link, Route, Routes, useLocation, useMatch } from "react-router-dom";
 import { apiRoutes } from "../api/routes";
@@ -139,6 +139,13 @@ export function PortalLayout({ children }: { children: ReactNode }) {
               icon="report"
               label={t("nav.runs")}
               testId="portal-nav-runs"
+            />
+            {/* docs/plan.md §1.243: run an agent on your own data; nothing is written. */}
+            <SidebarLink
+              to={PORTAL_PATHS.sandbox}
+              icon="worksheet"
+              label={t("nav.sandbox")}
+              testId="portal-nav-sandbox"
             />
             {limited ? null : (
               <>

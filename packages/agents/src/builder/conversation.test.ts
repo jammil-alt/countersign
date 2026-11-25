@@ -24,8 +24,9 @@ import { PLATFORM_TOOLS } from "../tools/platform";
 import { aliasBundle, unaliasBundle } from "./aliases";
 import { entryKey, undoChange, undoneEntries } from "./changes";
 import { readCommand } from "./commands";
-import type { BuilderContext } from "./context";
+import { type BuilderContext, catalogForPrompt } from "./context";
 import { agentTurn, blankAgentDraft, TURN_TOOL } from "./conversation";
+import { SHORTLIST_TOOL, unseenPartsBlock } from "./shortlist";
 import {
   EMPTY_SKILL_DRAFT,
   SKILL_TOOL,
@@ -675,5 +676,182 @@ describe("untrusted text between the prompt's tags stays data", () => {
     const start = prompt.indexOf("<examples>\n") + "<examples>\n".length;
     const examples = JSON.parse(prompt.slice(start, prompt.indexOf("\n</examples>")));
     expect(examples[0].input.note).toBe(forged);
+  });
+});
+
+// Owner (2026-11-24): a skill described with a sample file of what it gets.
+describe("draft-skill from a sample file", () => {
+  const count = (text: string, tag: string) => text.split(tag).length - 1;
+  const definition = {
+    slug: "filter-ucc-filings",
+    name: "Filter UCC filings",
+    description: "Keeps the filings that matter and says why the rest were taken out",
+    category: "data",
+    mode: "task",
+    model: { id: "claude-haiku-5-5" },
+    instructions: "Remove amendments and refinances.",
+    tools: [],
+    input: { type: "object", properties: { rows: { type: "array" } } },
+    output: {
+      type: "object",
+      properties: { kept: { type: "array" }, removed: { type: "array" } },
+    },
+    settings: [],
+    producesAlerts: false,
+  };
+  const answer = (cases: unknown[]) =>
+    new FakeModel([
+      { toolUse: { name: SKILL_TOOL, input: { text: "Drafted.", gaps: [], definition, cases } } },
+    ]);
+
+  it("shows a spreadsheet's columns and first rows as data, and makes them a test case", async () => {
+    const rows = [
+      { buyer: "Acme Paving", county: "Harris", filing_type: "Original" },
+      { buyer: "Acme Paving", county: "Harris", filing_type: "Amendment" },
+    ];
+    const model = answer([
+      { example: 1, expected: { kept: [rows[0]], removed: [{ ...rows[1], reason: "amendment" }] } },
+    ]);
+    const r = await skillTurn(
+      {
+        current: EMPTY_SKILL_DRAFT,
+        history: [],
+        message: "What it gets: the UCC filings. What it gives back: kept and removed.",
+        examples: [],
+        ctx: context(),
+        sample: {
+          filename: "ucc-october.xlsx",
+          table: {
+            sheet: "Filings",
+            columns: [{ field: "buyer", headers: ["Buyer"], type: "text" }],
+            rows,
+            rowCount: 412,
+          },
+        },
+      },
+      { llm: createLlmClient({ transport: model }), validate: async () => [] },
+    );
+    const prompt = model.requests[0]?.messages[0]?.content as string;
+    expect(count(prompt, "</sample_file>")).toBe(1);
+    const start = prompt.indexOf("<sample_file>\n") + "<sample_file>\n".length;
+    const seen = JSON.parse(prompt.slice(start, prompt.indexOf("\n</sample_file>")));
+    expect(seen).toMatchObject({ filename: "ucc-october.xlsx", sheet: "Filings", rowCount: 412 });
+    expect(seen.firstRows).toEqual(rows);
+    // The sample's rows are the skill's input as Read table gives them: one test case.
+    expect(r.draft.cases).toHaveLength(1);
+    expect(r.draft.cases[0]).toMatchObject({
+      name: "First rows of ucc-october.xlsx",
+      input: { rows },
+    });
+    // The rules say a spreadsheet is never read by a model.
+    expect(JSON.stringify(model.requests[0]?.system)).toContain(
+      "A spreadsheet, CSV or JSON file is never read",
+    );
+  });
+
+  it("attaches a PDF or an image before the words, as data", async () => {
+    const model = answer([]);
+    const block = {
+      type: "document" as const,
+      source: { type: "base64" as const, media_type: "application/pdf" as const, data: "JVBERi0=" },
+    };
+    await skillTurn(
+      {
+        current: EMPTY_SKILL_DRAFT,
+        history: [],
+        message: "What it gets: a lien filing notice. What it gives back: the debtor and the date.",
+        examples: [],
+        ctx: context(),
+        sample: { filename: "notice.pdf", attach: block },
+      },
+      { llm: createLlmClient({ transport: model }), validate: async () => [] },
+    );
+    const content = model.requests[0]?.messages[0]?.content as unknown[];
+    expect(Array.isArray(content)).toBe(true);
+    expect(content[0]).toEqual(block);
+    const text = (content[1] as { text: string }).text;
+    expect(text).toContain("document, attached above");
+    expect(text).toContain("notice.pdf");
+  });
+});
+
+// Two rounds in a conversation (owner, 2026-11-24): the first turn makes a shortlist from the
+// catalog in short; later turns show it in full without asking again.
+describe("a conversation's turns in two rounds", () => {
+  const start = blankAgentDraft({ name: "Remy", role: "Card receipts" }, () => "trig-1");
+  const options = (model: FakeModel) => ({
+    llm: createLlmClient({ transport: model }),
+    validate,
+    newId,
+    shortlist: true,
+  });
+  const addMatch = editing((b) => {
+    b.definition.skills = [{ skill: matchSkill.id }];
+    (b.workflows[0] as Draft["workflows"][number]).workflow.steps = [matchStep("s1")];
+  });
+
+  it("shortlists on the first turn and reuses the shortlist on the next", async () => {
+    const m1 = new FakeModel([
+      {
+        toolUse: {
+          name: SHORTLIST_TOOL,
+          input: { skills: [matchSkill.id], tools: [], automations: [], events: [] },
+        },
+      },
+      addMatch as never,
+    ]);
+    const t1 = await agentTurn(
+      {
+        working: start,
+        origin: null,
+        history: [],
+        message: "Match each card receipt.",
+        command: null,
+        ctx: context(),
+      },
+      options(m1),
+    );
+    expect(m1.requests[0]?.tools?.[0]).toMatchObject({ name: SHORTLIST_TOOL });
+    expect(t1.shortlist?.skills).toEqual([matchSkill.id]);
+    expect(t1.calls).toHaveLength(2);
+
+    const m2 = new FakeModel([
+      editing((b) => {
+        (b.workflows[0] as Draft["workflows"][number]).workflow.steps.push(
+          noteStep("s2", "s1") as never,
+        );
+      }) as never,
+    ]);
+    const t2 = await agentTurn(
+      {
+        working: t1.bundle,
+        origin: null,
+        history: [],
+        message: "Then note it on the record.",
+        command: null,
+        ctx: context(),
+        shortlist: t1.shortlist,
+      },
+      options(m2),
+    );
+    // One call: the stored shortlist, the draft's own skill in full, the rest by id.
+    expect(m2.requests).toHaveLength(1);
+    const prompt = m2.requests[0]?.messages[0]?.content as string;
+    expect(prompt).toContain("<other_parts>");
+    const catalog = prompt.slice(prompt.indexOf("<catalog>"), prompt.indexOf("</catalog>"));
+    expect(catalog).toContain(matchSkill.id);
+    expect(catalog).not.toContain(TESTKIT_UPDATE_TOOL);
+    // The note step uses the update tool from the ids-only list; the guards accept it.
+    expect(stepsOf(t2.bundle).map((s) => s.kind)).toEqual(["skill", "write"]);
+  });
+
+  it("shows a part used from the ids-only list in full for a repair round", () => {
+    const b = structuredClone(start);
+    b.workflows[0]?.workflow.steps.push(noteStep("s2", "s1") as unknown as Step);
+    const shown = new Set([matchSkill.id]);
+    const block = unseenPartsBlock(b, context(), shown, catalogForPrompt);
+    expect(block).toContain("The parts you used from the ids-only list, in full");
+    expect(block).toContain(TESTKIT_UPDATE_TOOL);
+    expect(unseenPartsBlock(b, context(), null, catalogForPrompt)).toBe("");
   });
 });

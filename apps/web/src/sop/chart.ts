@@ -93,6 +93,7 @@ const KIND_WORD: Record<string, MessageKey> = {
   if: "workflow.kind.decision",
   for_each: "workflow.kind.forEach",
   repeat: "workflow.kind.repeat",
+  collect: "workflow.kind.collect",
 };
 
 /** A verb's level in the client's words, as the SOP says it ("Read: on its own"). */
@@ -138,6 +139,11 @@ export function boxWords(view: SopView, t: Translate): (step: Step) => Words {
 }
 
 function detailOf(line: SopStepLine, t: Translate): string | null {
+  // A Collect reports step: how many reports, and who sends them ("2 reports · Tom Guerra, Priya Shah").
+  if (line.reports && line.reports.length > 0) {
+    const owners = [...new Set(line.reports.map((r) => r.owner.name))];
+    return `${t("workflow.reports", { count: line.reports.length })} · ${owners.join(", ")}`;
+  }
   const sys = line.systems[0];
   if (sys) return `${sys.name} · ${levelWords(t, sys.verb, sys.level)}`;
   if (line.who && line.byWhen) return `${line.who.name} · ${line.byWhen}`;

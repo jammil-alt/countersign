@@ -201,7 +201,7 @@ async function payloadFor(
 }
 
 /** The first start that takes this document, with its payload. */
-async function startFor(tx: Tx, doc: DocRow, starts: readonly DocumentStart[]) {
+export async function startFor(tx: Tx, doc: DocRow, starts: readonly DocumentStart[]) {
   const reading = await latestReading(tx, doc);
   for (const start of starts) {
     const payload = await payloadFor(tx, doc, start, reading);
@@ -211,7 +211,7 @@ async function startFor(tx: Tx, doc: DocRow, starts: readonly DocumentStart[]) {
 }
 
 /** "Northside Lumber · $4,812.50" when the document was read, else its own name. */
-function titleOf(doc: DocRow, reading: Reading | null): string {
+export function titleOf(doc: DocRow, reading: Reading | null): string {
   const header = (reading?.header ?? null) as { vendorName?: unknown } | null;
   const vendor = typeof header?.vendorName === "string" ? header.vendorName.trim() : "";
   const amount = reading ? moneyWords(reading.total, reading.currency) : "";
@@ -225,7 +225,7 @@ function fromOf(doc: DocRow): string | null {
   return typeof email?.from === "string" && email.from.trim() ? email.from.trim() : null;
 }
 
-async function sees(
+export async function sees(
   tx: Tx,
   input: Pick<SeeInput, "tenantId" | "sees">,
   documentId: string,
@@ -254,8 +254,10 @@ export async function tryCandidates(
   tx: Tx,
   row: AgentRow,
   input: Pick<SeeInput, "tenantId" | "sees">,
+  /** The version's bundle to read the starts from (a sandbox run's); default the latest. */
+  bundle?: AnyAgentBundle,
 ): Promise<TryCandidate[]> {
-  const v = await versionToTry(tx, row);
+  const v = bundle ? { bundle } : await versionToTry(tx, row);
   const starts = v ? documentStarts(v.bundle as AnyAgentBundle) : [];
   if (starts.length === 0) return [];
   const docs = await tx
@@ -469,6 +471,37 @@ const STEP_STATE: Record<string, TryStep["state"]> = {
 // is queued or running is running, and only that holds the next try.
 async function viewOf(tx: Tx, row: AgentRow, t: StoredTry, r: RunRow | null): Promise<TryView> {
   if (!r || r.agentId !== row.id) throw notFound("try");
+  const steps: TryStep[] = (await runStepsOf(tx, r)).map((s) => {
+    const verdict = t.verdicts?.[s.id];
+    return { ...s, verdict: verdict ? (verdict.right ? "right" : "not_right") : null };
+  });
+  return {
+    runId: r.id,
+    title: t.title,
+    status: testRunStatus(r),
+    startedAt: (r.startedAt ?? r.createdAt).toISOString(),
+    steps,
+  };
+}
+
+/** A test run's status as a try or a sandbox run reads it. */
+export function testRunStatus(r: Pick<RunRow, "status">): TryView["status"] {
+  return r.status === "queued" || r.status === "running"
+    ? "running"
+    : r.status === "failed" || r.status === "cancelled"
+      ? "failed"
+      : "done";
+}
+
+/**
+ * A test run's steps as the client reads them (a try, or a sandbox run, docs/plan.md §1.243): each
+ * step the timeline shows, in the order it ran, in the timeline's words.
+ */
+export async function runStepsOf(
+  tx: Tx,
+  r: RunRow,
+  what = "a try",
+): Promise<Omit<TryStep, "verdict">[]> {
   const [v] = await tx
     .select({ bundle: agentVersion.bundle })
     .from(agentVersion)
@@ -489,7 +522,7 @@ async function viewOf(tx: Tx, row: AgentRow, t: StoredTry, r: RunRow | null): Pr
     .where(and(eq(stepRun.runId, r.id), eq(stepRun.tenantId, r.tenantId)))
     .orderBy(stepRun.startedAt, stepRun.id);
   const names = await namer(tx, r.tenantId, r);
-  const steps: TryStep[] = [];
+  const steps: Omit<TryStep, "verdict">[] = [];
   for (const s of rows) {
     if (s.nodeType === "trigger" || checkKindOf(s.nodeId)) continue;
     const step = stepOfRow(find, s.nodeId);
@@ -503,13 +536,12 @@ async function viewOf(tx: Tx, row: AgentRow, t: StoredTry, r: RunRow | null): Pr
     if (step.kind === "person" && who) {
       summary =
         state === "waiting" || state === "running"
-          ? `Would ask ${who}. Nobody was asked: this is a try.`
+          ? `Would ask ${who}. Nobody was asked: this is ${what}.`
           : `Would ask ${who}.`;
     } else if (writes && who && state === "done") {
       const line = (summary ?? `Would ${step.name}`).replace(/[.\s]*$/, ".");
       summary = `${line} Would ask ${who} first.`;
     }
-    const verdict = t.verdicts?.[s.nodeId];
     steps.push({
       id: s.nodeId,
       // A write in a try was never made: its own name ("Create bill"), not the done label.
@@ -517,22 +549,9 @@ async function viewOf(tx: Tx, row: AgentRow, t: StoredTry, r: RunRow | null): Pr
       state,
       summary,
       person: asked !== null,
-      verdict: verdict ? (verdict.right ? "right" : "not_right") : null,
     });
   }
-  const status: TryView["status"] =
-    r.status === "queued" || r.status === "running"
-      ? "running"
-      : r.status === "failed" || r.status === "cancelled"
-        ? "failed"
-        : "done";
-  return {
-    runId: r.id,
-    title: t.title,
-    status,
-    startedAt: (r.startedAt ?? r.createdAt).toISOString(),
-    steps,
-  };
+  return steps;
 }
 
 /** Every try recorded for the agent, newest first, each as the client reads it. */

@@ -505,12 +505,36 @@ describe.skipIf(!h)("draft it now", () => {
     });
   });
 
-  it("is for agent builds", async () => {
+  // Owner (2026-11-24, "the skill process uses the old flow"): a skill build is drafted at once
+  // too, in its own Builder conversation (build-skill-draft-now.test.ts has the rest).
+  it("drafts a skill build in its own conversation", async () => {
     const started = await ok("POST", "/api/ops/builds", { kind: "skill", title: "Group rows" });
-    const res = await call("POST", `/api/ops/builds/${started.build.id}/draft-now`, {
+    model.push({
+      toolUse: {
+        name: "submit_skill",
+        input: {
+          text: "Drafted.",
+          gaps: [],
+          definition: {
+            name: "Group rows",
+            description: "Groups invoice rows by customer",
+            category: "data",
+            mode: "task",
+            model: { id: "claude-haiku-5-5" },
+            instructions: "Group the rows by customer.",
+            tools: [],
+            input: { type: "object", properties: { rows: { type: "array" } } },
+            output: { type: "object", properties: { groups: { type: "array" } } },
+          },
+          cases: [],
+        },
+      },
+    });
+    const drafted = await ok("POST", `/api/ops/builds/${started.build.id}/draft-now`, {
       description: "Group invoice rows by customer.",
     });
-    expect(res.status).toBe(422);
-    expect(errorOf(res.json)).toBe("not_an_agent");
+    expect(drafted.build.phase).toBe("draft");
+    expect(drafted.draft?.sessionId).toBeTruthy();
+    expect(drafted.build.agentId).toBeNull();
   });
 });

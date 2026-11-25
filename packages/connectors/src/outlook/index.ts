@@ -23,6 +23,7 @@ import {
   type Connector,
   defineConnector,
   defineWriteTool,
+  type PreviewEmail,
   type ToolContext,
   UnconfirmedWriteError,
   writeNotMade,
@@ -257,7 +258,21 @@ export function createOutlookConnector(options: OutlookOptions = {}): Connector 
     throw sendRefusedStatus(res.status) ? Object.assign(error, { notWritten: true }) : error;
   }
 
-  return defineConnector({
+  /**
+   * docs/plan.md §1.243: a sandbox run's email, from the connected mailbox to the person who asked
+   * to see it. The address is the platform's (their sign-in email), never an input of a tool.
+   */
+  async function sendPreview(ctx: ConnectionContext, email: PreviewEmail) {
+    const from = await senderOf(ctx);
+    const ref = await outlookRef(`preview:${email.key}`);
+    await send(
+      ctx,
+      graphMessage({ to: email.to, replyTo: null, subject: email.subject, text: email.text, ref }),
+    );
+    return { id: ref, from };
+  }
+
+  const connector = defineConnector({
     id: OUTLOOK_CONNECTOR_ID,
     // Connectors C2 (docs/connectors-plan.md §5.1): writes a new connection starts asking first.
     askFirst: [{ verb: "create", entity: "message" }],
@@ -426,4 +441,5 @@ export function createOutlookConnector(options: OutlookOptions = {}): Connector 
       }),
     ],
   });
+  return Object.assign(connector, { sendPreview });
 }

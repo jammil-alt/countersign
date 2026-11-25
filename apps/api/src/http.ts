@@ -557,6 +557,10 @@ export async function inScope<T>(
 type AnyHandler = (ctx: HandlerCtx<any>) => Promise<unknown>;
 /** Each app's mounted handlers by route spec, so the MCP server runs the same code as /api. */
 const mounted = new WeakMap<object, Map<RouteSpec, AnyHandler>>();
+// biome-ignore lint/suspicious/noExplicitAny: one registry holds the handlers of every route spec.
+type AnyLongHandler = (ctx: LongHandlerCtx<any>) => Promise<unknown>;
+/** The slow routes' handlers (`mountLong`), apart: invokeRoute runs them with no transaction. */
+const mountedLong = new WeakMap<object, Map<RouteSpec, AnyLongHandler>>();
 
 /**
  * A session route: sign-in, the route's roles, the client scope, then the handler inside
@@ -588,8 +592,8 @@ export interface LongHandlerCtx<R extends RouteSpec>
  * pooled connection (`openDb`), so a handler that opens transactions of its own (the vault, the
  * browser's services, the runtime) must never run inside the request's: it would wait on itself.
  * The handler reads and writes in short `inTx` transactions; the ok audit row is written alone once
- * it returns (auditAlone), and a refusal or failure is audited as `mount` audits it. Not reachable
- * through `invokeRoute`.
+ * it returns (auditAlone), and a refusal or failure is audited as `mount` audits it. Reachable
+ * through `invokeRoute` the same way: short `inTx` transactions and the ok row alone.
  */
 // DECISION: a variant of `mount`, not routes with session code of their own: sign-in, roles, scope
 // and the audit row stay in one place (invariant 14). The ok row is written after the handler's
@@ -777,8 +781,16 @@ function mountWith<R extends RouteSpec>(
     handlers = new Map();
     mounted.set(app, handlers);
   }
-  // A slow route's handler takes no transaction: invokeRoute (the MCP server) never runs one.
+  // A slow route's handler takes no transaction: invokeRoute runs it with short ones of its own.
   if (mode === "tx") handlers.set(spec, handler as AnyHandler);
+  else {
+    let long = mountedLong.get(app);
+    if (!long) {
+      long = new Map();
+      mountedLong.set(app, long);
+    }
+    long.set(spec, handler as AnyLongHandler);
+  }
   app.on(spec.method, spec.path, async (c) => {
     let setCookies: readonly string[] = [];
     // The audit row (docs/plan.md §1.35): who, once known, and the client acted in.
@@ -1059,7 +1071,8 @@ export async function invokeRoute<R extends RouteSpec>(
   via: "mcp" | "reggie" | "build" | "deal" | "todo" = "mcp",
 ): Promise<z.output<R["response"]>> {
   const handler = mounted.get(app)?.get(spec);
-  if (!handler) throw new Error(`${spec.method} ${spec.path} is not mounted`);
+  const longHandler = handler ? undefined : mountedLong.get(app)?.get(spec);
+  if (!handler && !longHandler) throw new Error(`${spec.method} ${spec.path} is not mounted`);
   const scope = scopeOf(session, spec.roles, routeFamily(spec));
   if (!scope.ok) throw new HttpError(scope.status, scope.code, scope.message);
   const input = {
@@ -1082,10 +1095,31 @@ export async function invokeRoute<R extends RouteSpec>(
       ...(raw.query?.client ? { client: raw.query.client.slice(0, 200) } : {}),
     },
   });
+  // No cookie here: the MCP server reads the account on each call (docs/plan.md §1.90).
+  const accountChanged = () => undefined;
   try {
+    if (longHandler) {
+      // DECISION (docs/plan.md §1.34, builds through the MCP): a slow route (a Builder turn, a
+      // try, a test run) runs as `mountLong` runs it: no transaction held across the handler, its
+      // own short `inTx` ones in the scope, and the ok audit row alone once it returns.
+      const output = await longHandler({
+        c,
+        session,
+        role: scope.role,
+        tenantIds: scope.tenantIds,
+        operator: scope.operator,
+        defer: (task: () => Promise<unknown>) => c.get("req").deferred.push(task),
+        inTx: <T>(work: (scoped: Scoped) => Promise<T>) => inScope(c, scope, work),
+        agents: null,
+        accountChanged,
+        ...input,
+        services,
+      } as LongHandlerCtx<R>);
+      await auditAlone(services.db, c, entry("ok", 200));
+      return spec.response.parse(output) as z.output<R["response"]>;
+    }
+    if (!handler) throw new Error(`${spec.method} ${spec.path} is not mounted`);
     const output = await inScope(c, scope, async (scoped) => {
-      // No cookie here: the MCP server reads the account on each call (docs/plan.md §1.90).
-      const accountChanged = () => undefined;
       const out = await handler({
         c,
         session,

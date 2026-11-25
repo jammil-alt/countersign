@@ -139,6 +139,14 @@ const OpsClientBooksHealthScreen = lazy(() =>
 // docs/plan.md §1.217: a client's process interviews load with their route.
 const InterviewsScreen = lazy(() => import("./interviews/InterviewsScreen"));
 
+// docs/plan.md §1.243: a client's sandbox and one sandbox run load when opened.
+const OpsClientSandboxScreen = lazy(() =>
+  import("./client/ClientSandbox").then((m) => ({ default: m.OpsClientSandboxScreen })),
+);
+const OpsClientSandboxRunScreen = lazy(() =>
+  import("./client/ClientSandbox").then((m) => ({ default: m.OpsClientSandboxRunScreen })),
+);
+
 // Plan entry §1.233: a client's Bills to pay (the AP pack) loads when opened.
 const OpsClientBillsToPayScreen = lazy(() =>
   import("../packs/ap/OpsBillsToPay").then((m) => ({ default: m.OpsClientBillsToPayScreen })),
@@ -237,6 +245,23 @@ export const opsRoutes = (
         }
       />
       <Route path="clients/:clientId/agents" element={<ClientAgentsScreen />} />
+      {/* docs/plan.md §1.243: the Agents tab's Sandbox, and one sandbox run */}
+      <Route
+        path="clients/:clientId/sandbox"
+        element={
+          <Suspense fallback={<Loading />}>
+            <OpsClientSandboxScreen />
+          </Suspense>
+        }
+      />
+      <Route
+        path="clients/:clientId/sandbox/:runId"
+        element={
+          <Suspense fallback={<Loading />}>
+            <OpsClientSandboxRunScreen />
+          </Suspense>
+        }
+      />
       {/* §1.162: Areas, the client's business areas with the connections each needs (was
           Packs); its reports below. The connections themselves are Setup's Connectors. */}
       <Route path="clients/:clientId/areas" element={<OpsClientAreasScreen />} />

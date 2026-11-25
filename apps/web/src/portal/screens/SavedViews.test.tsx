@@ -98,7 +98,7 @@ describe("the portal's saved views", () => {
   });
 
   it("saves a filtered list under a name, shared with the team by an admin", async () => {
-    const { saved } = setup("/runs?statuses=failed,cancelled&agents=" + SVC);
+    const { saved } = setup(`/runs?statuses=failed,cancelled&agents=${SVC}`);
     await userEvent.click(await screen.findByTestId("portal-views-save"));
     await userEvent.type(screen.getByTestId("portal-views-name"), "Pia not finished");
     await userEvent.click(screen.getByTestId("portal-views-share"));

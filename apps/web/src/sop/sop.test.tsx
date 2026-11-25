@@ -509,6 +509,68 @@ describe("the portal's Workflow tab (docs/sop-plan.md §6a)", () => {
     expect(await screen.findByTestId("workflow-card")).toHaveTextContent("Cara Lin");
   });
 
+  it("draws a Collect reports step as itself, with its reports and who sends them", async () => {
+    const TOM = { key: "tom", kind: "person" as const, name: "Tom Guerra" };
+    const PRIYA = { key: "priya", kind: "person" as const, name: "Priya Shah" };
+    const view: SopView = {
+      ...VIEW,
+      procedure: [
+        step({
+          id: "reports",
+          number: "1",
+          name: "Collect the month's reports",
+          kindWords: "Waits for 3 reports and checks each",
+          purpose: "Waits until every report is in and checked.",
+          reports: [
+            { name: "Bank statement", owner: TOM },
+            { name: "Sales report", owner: PRIYA },
+            { name: "Card statement", owner: TOM },
+          ],
+        }),
+        ...VIEW.procedure,
+      ],
+      outline: [
+        {
+          id: "reports",
+          number: "1",
+          workflow: null,
+          kind: "collect",
+          container: "root",
+          depth: 0,
+          paths: null,
+        },
+        ...VIEW.outline,
+      ],
+    };
+    portal(`/agents/${SVC}/flow`, view);
+    const box = await screen.findByTestId("flow-box-reports");
+    // Its own kind, never "Conversation" or the "Automation" fallback, and drawn without its items.
+    expect(box).toHaveAccessibleName("1 Collect the month's reports: Collects reports");
+    expect(box).toHaveTextContent("3 reports · Tom Guerra, Priya Shah");
+    expect(box).not.toHaveTextContent("Conversation");
+    expect(box).not.toHaveTextContent("Automation");
+  });
+
+  it("lists a Collect reports step's reports and owners in the SOP", async () => {
+    const TOM = { key: "tom", kind: "person" as const, name: "Tom Guerra" };
+    const view: SopView = {
+      ...VIEW,
+      procedure: [
+        step({
+          id: "reports",
+          number: "1",
+          name: "Collect the month's reports",
+          reports: [{ name: "Bank statement", owner: TOM }],
+        }),
+        ...VIEW.procedure,
+      ],
+    };
+    portal(`/agents/${SVC}/sop`, view);
+    expect(await screen.findByTestId("sop-reports")).toHaveTextContent(
+      "Reports Bank statement: Tom Guerra",
+    );
+  });
+
   it("says the chart's own words in the reader's language (SOP-W)", async () => {
     portal(`/agents/${SVC}/flow`, VIEW, "de");
     await screen.findByTestId("workflow-chart");

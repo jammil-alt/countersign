@@ -167,6 +167,7 @@ import { requestRouteHandlers } from "./routes/requests";
 import { resendHookRoutes } from "./routes/resend-hooks";
 import { runAuditRouteHandlers } from "./routes/run-audit";
 import { runControlRoutes } from "./routes/run-controls";
+import { sandboxRoutesFor } from "./routes/sandbox";
 import {
   claudeConnectionRoutes,
   secondFactorRoutes,
@@ -174,6 +175,7 @@ import {
 } from "./routes/second-factor";
 import { sessionRoutes } from "./routes/session";
 import { signInApprovalRoutes } from "./routes/sign-in-approvals";
+import { opsSkillSampleRoutes } from "./routes/skill-sample";
 // v0.14 W4-C: the Slack channel picker
 import { slackRoutes } from "./routes/slack";
 // §1.150: Sloan by email and text
@@ -298,6 +300,7 @@ export function createApp(deps: AppDeps = defaultDeps): Hono<AppEnv> {
   opsReadTableRoutes(app);
   // Collect reports (owner, 2026-11-24): a report's sample file.
   opsCollectRoutes(app);
+  opsSkillSampleRoutes(app);
   opsIntakeReportRoutes(app);
   opsMergeRoutes(app);
   opsEventRoutes(app);
@@ -405,6 +408,8 @@ export function createApp(deps: AppDeps = defaultDeps): Hono<AppEnv> {
   lifecycleRoutes(app);
   // docs/setup-plan.md (§1.206): Getting started's chapters and the Setup tab.
   gettingStartedRoutes(app);
+  // docs/plan.md §1.243: a client's sandbox
+  sandboxRoutesFor(app);
   exportRoutes(app);
   // v0.12 W1-B: notifications, the Table and the Weekly Table
   notifyRouteHandlers(app);

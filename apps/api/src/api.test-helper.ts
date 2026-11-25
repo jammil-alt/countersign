@@ -248,6 +248,9 @@ export async function createApiHarness(options: HarnessOptions = {}): Promise<Ap
   const env = {
     ENVIRONMENT: "development",
     AUTH_PROVIDER: "dev",
+    // Scripted model answers are in order: the Builder's two rounds would take the first one. A
+    // test of the two rounds turns them on (build-shortlist.test.ts).
+    BUILDER_SHORTLIST: "off",
     ...options.env,
   } as unknown as Bindings;
   /** The fingerprint of an item as the portal shows it now (`shownFingerprint`). */
@@ -457,6 +460,17 @@ export async function allowForAgent(
     throw new Error(`allowing what the agent needs failed: ${JSON.stringify(res.json)}`);
   }
   return res.json;
+}
+
+/**
+ * A signed or sealed token with one character changed, for "a tampered token is refused" tests.
+ * It changes the first character after the last ".", the signature or ciphertext, never the end:
+ * base64url's last character carries bits that decoding drops, so changing it can leave the bytes
+ * as they were and the token still good.
+ */
+export function tamper(token: string): string {
+  const at = token.lastIndexOf(".") + 1;
+  return `${token.slice(0, at)}${token[at] === "A" ? "B" : "A"}${token.slice(at + 1)}`;
 }
 
 export const admin = (c: "a" | "b" | "c") => `admin@${c}.example.com`;

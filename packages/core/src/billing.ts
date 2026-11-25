@@ -533,6 +533,8 @@ export const METER_SOURCES = [
   "summaries",
   "dictation",
   "background_read",
+  // docs/plan.md §1.243: a sandbox run's message sent to the person who asked (the client's own).
+  "sandbox_preview",
 ] as const;
 export type MeterSource = (typeof METER_SOURCES)[number];
 

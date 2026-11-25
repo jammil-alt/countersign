@@ -21,6 +21,7 @@ import {
   type BriefFieldKey,
   type BuildAction,
   type BuildDetail,
+  type BuilderSampleFile,
   type BuildIssue,
   BuildItemState,
   type BuildPhase,
@@ -1558,7 +1559,8 @@ async function makeDraft(
   ctx: LongCtx,
   row: BuildRow,
   // docs/plan.md §1.165: draft it now gives its own description and asks for a draft that runs.
-  atOnce: { description: string } | null = null,
+  // A skill's may come with a sample file of what it gets (owner, 2026-11-24), never stored.
+  atOnce: { description: string; sample?: BuilderSampleFile } | null = null,
 ): Promise<{
   set: Partial<BuildRow>;
   decisions: DecisionDraft[];
@@ -1599,7 +1601,7 @@ async function makeDraft(
   // doesn't point at it); the next try starts a new one from the brief and the fit-gap.
   await call(ctx, routes.opsBuilderTurn, {
     params: { id: started.session.id },
-    body: { text: description },
+    body: { text: description, ...(atOnce?.sample ? { sample: atOnce.sample } : {}) },
   });
   return { set: { sessionId: started.session.id }, decisions: [], kept: false };
 }
@@ -1780,7 +1782,15 @@ export function nowDescription(
   if (!given) return draftDescription(row, brief, fitgap);
   // The operator's own words stand in for the goal; anything else the brief holds follows them.
   const { goal: _goal, ...rest } = brief;
-  const more = draftDescription(row, rest, fitgap).split("\n").slice(1).join("\n").trim();
+  // DECISION (owner, 2026-11-24, "the steps don't match"): with new words, the fit-gap's normal
+  // case (an earlier list of what it does) is left out: it was handed to the Builder as "the
+  // normal case" beside the words and drafted over them. Known risks, what is out of scope and the
+  // decisions made still go with them.
+  const kept = {
+    ...fitgap,
+    rows: fitgap.rows.filter((r) => r.dropped || r.later || r.verdict === "not_possible"),
+  };
+  const more = draftDescription(row, rest, kept).split("\n").slice(1).join("\n").trim();
   const text = [`${row.title}.`, given, more].filter(Boolean).join("\n\n");
   return text.length > 4000 ? `${sliceWhole(text, 3990)}…` : text;
 }
@@ -1831,6 +1841,96 @@ export function draftedNowText(o: {
 // The phases stay (a build can still go back to its intake or fit-gap with a reason); this is the
 // way past them. Agent builds only: a skill is drafted in its own Builder conversation.
 /** Draft it now (§1.165); the process interview drafts its build through it too (§1.217). */
+/**
+ * A skill described at once (owner, 2026-11-24: "the skill process uses the old flow"): the words
+ * (what it gets, what it gives back, what it does) and a sample file go to the skill's Builder
+ * conversation, without the intake questions or the fit-gap, and the build lands in its draft.
+ */
+// DECISION: the skill's draft is its Builder conversation, as a skill build's move into the draft
+// makes one (`makeDraft`); this only skips the questions and passes the sample on. A draft that
+// fails puts the build back where it was, with the words kept in its conversation.
+export async function draftSkillNow(
+  ctx: LongCtx,
+  id: string,
+  given: string | null,
+  sample: BuilderSampleFile | null,
+): Promise<void> {
+  const userId = ctx.session.user.id;
+  const row = await ctx.inTx(async (scoped) => {
+    const r = await readBuild(scoped.tx, id, true);
+    refuseClosed(r);
+    if (r.phase !== "intake" && r.phase !== "fitgap") {
+      throw new HttpError(409, "same_phase", "this build already has its draft");
+    }
+    if (r.sessionId) {
+      throw new HttpError(409, "has_draft", "this build already has a draft: move on to it");
+    }
+    const brief = readBrief(r.brief);
+    if (!given && !brief.goal?.text.trim()) {
+      throw new HttpError(400, "nothing_to_draft", "say what it should do first");
+    }
+    const next: Brief =
+      given && !brief.goal?.text.trim()
+        ? { ...brief, goal: { text: sliceWhole(given, 1000), state: "assumed" } }
+        : brief;
+    if (given) {
+      const [last] = await scoped.tx
+        .select({ role: buildMessage.role, text: buildMessage.text })
+        .from(buildMessage)
+        .where(eq(buildMessage.buildId, r.id))
+        .orderBy(desc(buildMessage.createdAt), desc(buildMessage.id))
+        .limit(1);
+      if (last?.role !== "operator" || last.text !== given) {
+        await addMessage(scoped.tx, r, { role: "operator", text: given });
+      }
+    }
+    await scoped.tx.update(build).set({ brief: next, phase: "draft" }).where(eq(build.id, r.id));
+    return { ...r, brief: next };
+  });
+  const from = row.phase;
+  const putBack = async (tx: Tx) => {
+    const r = await readBuild(tx, id, true);
+    if (r.phase === "draft" && !r.sessionId) {
+      await tx.update(build).set({ phase: from }).where(eq(build.id, id));
+    }
+  };
+  // Only the operator's words: a skill described here has no brief or fit-gap of its own yet.
+  const description = given
+    ? sliceWhole([`${row.title}.`, given].join("\n\n"), 4000)
+    : draftDescription(row, readBrief(row.brief), readFitGap(row.fitgap));
+  let made: Awaited<ReturnType<typeof makeDraft>>;
+  try {
+    made = await makeDraft(ctx, row, { description, ...(sample ? { sample } : {}) });
+  } catch (error) {
+    await ctx.inTx(async (scoped) => putBack(scoped.tx));
+    throw error;
+  }
+  await ctx.inTx(async (scoped) => {
+    const r = await readBuild(scoped.tx, id, true);
+    if (r.status !== "open" || r.phase !== "draft" || r.sessionId) {
+      await putBack(scoped.tx);
+      throw new HttpError(409, "moved", "the build moved while this ran: look at it again");
+    }
+    await scoped.tx
+      .update(build)
+      .set({ ...made.set, phase: "draft", phaseAt: now() })
+      .where(eq(build.id, id));
+    await addEvent(scoped.tx, r, {
+      kind: "phase",
+      from,
+      to: "draft",
+      reason: "Drafted at once from the description, without the questions or the fit-gap.",
+      userId,
+    });
+    await addMessage(scoped.tx, r, {
+      role: "builder",
+      text: sample
+        ? `I drafted the skill from your description and ${sample.filename}. Check what it gets and what it gives back, then run its tests.`
+        : "I drafted the skill from your description. Check what it gets and what it gives back, then run its tests.",
+    });
+  });
+}
+
 export async function draftNow(ctx: LongCtx, id: string, given: string | null): Promise<void> {
   const userId = ctx.session.user.id;
   // 1. The build is an open agent build with no draft yet, and there is something to draft from.
@@ -2708,11 +2808,16 @@ export function opsBuildRoutes(app: Hono<AppEnv>): void {
   });
 
   mountLong(app, routes.opsDraftBuildNow, async (ctx) => {
-    await draftNow(
-      long(ctx.c, ctx.session, ctx.services, ctx.inTx),
-      ctx.params.id,
-      ctx.body.description ?? null,
-    );
+    const lc = long(ctx.c, ctx.session, ctx.services, ctx.inTx);
+    const kind = await ctx.inTx(async (scoped) => (await readBuild(scoped.tx, ctx.params.id)).kind);
+    if (kind === "skill") {
+      await draftSkillNow(lc, ctx.params.id, ctx.body.description ?? null, ctx.body.sample ?? null);
+    } else {
+      if (ctx.body.sample) {
+        throw new HttpError(422, "invalid_request", "a sample file goes with a skill build");
+      }
+      await draftNow(lc, ctx.params.id, ctx.body.description ?? null);
+    }
     return detailOf(ctx, ctx.params.id);
   });
 

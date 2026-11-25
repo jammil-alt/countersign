@@ -63,6 +63,7 @@ import { afterActivate } from "../lifecycle/stages";
 import { createRunRow } from "../runs/dispatch";
 import type { RunParams } from "../runs/instances";
 import { startAfterCommit } from "../runs/reconcile";
+import { ensureSandboxRoom, markSandbox } from "../sandbox/sandbox";
 import { agentSummary, versionDetail, versionSummary } from "./mappers";
 
 /** The agent, if it is visible to this request (templates, or a client agent of a served client). */
@@ -621,9 +622,28 @@ export function opsAgentRoutes(app: Hono<AppEnv>): void {
           ...(range.given ? { given: range.given } : {}),
         }
       : null;
-    const params: RunParams = kept ? { ...req, range: kept } : req;
+    let params: RunParams = kept ? { ...req, range: kept } : req;
+    // docs/plan.md §1.243: a test run marked sandbox is listed in the client's sandbox on both
+    // sides. Only a client's own agent (never a template's test copy), within the day's limits.
+    if (ctx.body.sandbox) {
+      if (target.agent.kind !== "client" || target.agent.testCopy) {
+        throw new HttpError(
+          422,
+          "invalid_request",
+          "a sandbox run is of a client's own agent; turn the template on at the client first",
+        );
+      }
+      await ensureSandboxRoom(ctx.tx, target.agent.tenantId as string, target.agent.id);
+      const wf = target.version.bundle.workflows.find((w) => w.slug === ctx.body.workflow);
+      params = markSandbox(params, {
+        by: ctx.session.user.id,
+        side: "ops",
+        title: (wf?.name ?? ctx.body.workflow).slice(0, 300),
+      });
+    }
     await createRunRow(ctx.tx, params);
-    ctx.afterCommit(() => startAfterCommit(ctx.services, params));
+    const started = params;
+    ctx.afterCommit(() => startAfterCommit(ctx.services, started));
     return { runId: req.runId, agentId: target.agent.id, versionId: target.version.id };
   });
 

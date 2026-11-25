@@ -470,4 +470,77 @@ describe("Check the steps", () => {
     );
     await waitFor(() => expect(api.calls.some((c) => c.startsWith("POST"))).toBe(false));
   });
+
+  // Owner (2026-11-24): a For each's own steps and Collect reports' reports were hidden.
+  it("shows what a For each does for each item, edits it in place, and Collect reports' reports", async () => {
+    const process = {
+      schemaVersion: 4 as const,
+      triggers: [{ id: "t-mail", on: { type: "event" as const, event: "document.received" } }],
+      steps: [
+        {
+          id: "s-read",
+          kind: "skill" as const,
+          name: "Read the UCC file",
+          skill: "data.read-table",
+          input: {},
+        },
+        {
+          id: "s-each",
+          kind: "for_each" as const,
+          name: "For each sales manager",
+          over: "{{steps.s-read.output.rows}}",
+          concurrency: 10,
+          steps: [
+            {
+              id: "s-form",
+              kind: "skill" as const,
+              name: "Send the manager's form",
+              skill: "forms.request",
+              input: {},
+            },
+          ],
+        },
+        {
+          id: "s-collect",
+          kind: "collect" as const,
+          name: "Collect the sales reports",
+          ifMissing: "stop" as const,
+          items: [
+            {
+              id: "r-houston",
+              name: "Houston sales report",
+              owner: "seat:houston-manager",
+              required: true,
+              frequency: "monthly" as const,
+              formats: ["spreadsheet" as const],
+              due: "2 days",
+              hours: "business" as const,
+              followUp: { after: "1 day", every: "2 days", max: 2 },
+            },
+          ],
+        },
+      ],
+    };
+    const user = renderCheck(
+      fakeApi({
+        [`GET /api/ops/builds/${BUILD_ID}`]: () =>
+          buildDetail({ agentId: DRAFT_AGENT_ID, words: WORDS }),
+        [`GET /api/ops/agents/${DRAFT_AGENT_ID}`]: () => agentDetail(draftBundle(process as never)),
+      }),
+    );
+    const loop = await screen.findByTestId("flow-check-loop");
+    expect(loop).toHaveTextContent("For each item, it does:");
+    const inner = within(screen.getByTestId("flow-check-loop-lines"));
+    expect(inner.getByText("2.1")).toBeInTheDocument();
+    expect(inner.getByLabelText("Step 2.1")).toHaveValue("Send the manager's form");
+    await user.type(inner.getByLabelText("Step 2.1"), " with their filings");
+    expect(inner.getByLabelText("Step 2.1")).toHaveValue(
+      "Send the manager's form with their filings",
+    );
+    await user.click(screen.getByTestId("flow-check-loop-add-step"));
+    expect(screen.getByLabelText("Step 2.2")).toHaveFocus();
+    expect(screen.getByTestId("flow-check-collect")).toHaveTextContent(
+      "Houston sales report, from houston manager, due 2 days",
+    );
+  });
 });

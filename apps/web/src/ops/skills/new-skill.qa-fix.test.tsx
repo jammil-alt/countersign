@@ -1,11 +1,13 @@
-// New skill keeps the first message and says why when the Builder's first turn fails (FLOW-4,
-// BUILDER_QA.md, the flow lens of 2026-11-19).
+// New skill keeps the first words and says why when the Builder's first draft fails (FLOW-4,
+// BUILDER_QA.md, the flow lens of 2026-11-19; on Describe the skill since 2026-11-24).
+import type { BuildDetail } from "@countersign/core";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, useLocation } from "react-router-dom";
 import { describe, expect, it } from "vitest";
 import { AppProviders, AppRoutes } from "../../App";
 import { fakeApi, OPERATOR_SESSION, Reply } from "../../test/fixtures";
+import { BUILD_ID, buildDetail } from "../flow/checkFixtures";
 
 await import("../OpsApp");
 
@@ -63,19 +65,39 @@ function renderAt(path: string, routes: Parameters<typeof fakeApi>[0]) {
   return { api, user: userEvent.setup() };
 }
 
+function skillBuild(drafted: boolean): BuildDetail {
+  const d = buildDetail();
+  return {
+    ...d,
+    build: { ...d.build, kind: "skill", phase: drafted ? "draft" : "intake" },
+    draft: drafted
+      ? {
+          agentId: null,
+          skillId: null,
+          sessionId: SESSION_ID,
+          versionId: null,
+          version: null,
+          live: false,
+          problems: [],
+          steps: [],
+        }
+      : null,
+  };
+}
+
 describe("New skill's first message", () => {
-  // FLOW-4: StartConversation went to `?session=` whatever the first turn's answer. A failed skill
-  // turn saves nothing on the API (the operator's turn is added only with the Builder's answer),
-  // so the conversation page was empty: no words, no examples, no error.
-  it("keeps the first message and says the Builder failed when the first skill turn fails", async () => {
-    const words = "Match each card charge to its receipt by amount and date";
-    const examples = '[{ "name": "One charge", "input": { "amount": "12.50" } }]';
-    let turns = 0;
+  // FLOW-4: a failed first draft left an empty conversation, without the words or the error.
+  // Describe the skill (owner, 2026-11-24) keeps the same promise: the words stay on the form with
+  // the error, and drafting again drafts the same build.
+  it("keeps the words and says the Builder failed when the first draft fails", async () => {
+    const gets = "Card charges from the bank feed";
+    const gives = "Each charge with the receipt it belongs to";
+    let drafts = 0;
     const { api, user } = renderAt("/ops/skills/new", {
-      "POST /api/ops/builder/sessions": () => ({ session, turns: [] }),
-      [`POST /api/ops/builder/sessions/${SESSION_ID}/turns`]: () => {
-        turns += 1;
-        if (turns === 1) {
+      "POST /api/ops/builds": () => skillBuild(false),
+      [`POST /api/ops/builds/${BUILD_ID}/draft-now`]: () => {
+        drafts += 1;
+        if (drafts === 1) {
           return new Reply(502, {
             error: {
               code: "builder_unavailable",
@@ -83,30 +105,28 @@ describe("New skill's first message", () => {
             },
           });
         }
-        return { session, turns: [turn], turn };
+        return skillBuild(true);
       },
-      [`GET /api/ops/builder/sessions/${SESSION_ID}`]: () => ({ session, turns: [] }),
+      [`GET /api/ops/builder/sessions/${SESSION_ID}`]: () => ({ session, turns: [turn] }),
     });
-    await user.type(await screen.findByTestId("builder-input"), words);
-    await user.click(screen.getByTestId("builder-attach"));
-    await user.click(screen.getByTestId("builder-examples"));
-    await user.paste(examples);
-    await user.click(screen.getByTestId("builder-send"));
-    await waitFor(() => expect(turns).toBe(1));
+    await user.type(await screen.findByTestId("skill-describe-name"), "Match card charges");
+    await user.type(screen.getByTestId("skill-describe-gets"), gets);
+    await user.type(screen.getByTestId("skill-describe-gives"), gives);
+    await user.click(screen.getByTestId("skill-describe-draft"));
+    await waitFor(() => expect(drafts).toBe(1));
 
-    // The failure is said, on the form, and the words and examples typed are still there.
-    expect(await screen.findByTestId("new-skill-error")).toHaveTextContent(
-      "The Builder can't reach its model right now.",
-    );
+    expect(
+      await screen.findByText("The Builder can't reach its model right now.", { exact: false }),
+    ).toBeInTheDocument();
     expect(screen.getByTestId("location")).not.toHaveTextContent("session=");
-    expect(screen.getByTestId("builder-input")).toHaveValue(words);
-    expect(screen.getByTestId("builder-examples")).toHaveValue(examples);
+    expect(screen.getByTestId("skill-describe-gets")).toHaveValue(gets);
+    expect(screen.getByTestId("skill-describe-gives")).toHaveValue(gives);
 
-    // Sending again uses the conversation already started, then opens it.
-    await user.click(screen.getByTestId("builder-send"));
+    // Drafting again uses the build already started, then opens its conversation.
+    await user.click(screen.getByTestId("skill-describe-draft"));
     await waitFor(() =>
       expect(screen.getByTestId("location")).toHaveTextContent(`session=${SESSION_ID}`),
     );
-    expect(api.calls.filter((c) => c === "POST /api/ops/builder/sessions")).toHaveLength(1);
+    expect(api.calls.filter((c) => c === "POST /api/ops/builds")).toHaveLength(1);
   });
 });

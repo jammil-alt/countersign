@@ -21,6 +21,8 @@ export * from "./customize";
 export * from "./data-use";
 // How it ends (owner, 2026-11-23): the steps a run can finish on, and whether each reports out.
 export * from "./ending";
+// The Builder's guide to step kinds (owner, 2026-11-24).
+export * from "./guide";
 // Hand off (owner, 2026-11-11): what a hand-off step knows of the agent it hands off to.
 export * from "./handoff";
 export * from "./hours";
