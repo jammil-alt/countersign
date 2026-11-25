@@ -108,7 +108,7 @@ describe("processors", () => {
       "twilio",
     ]);
     expect(processorsForTool("call.place", "twilio").sort()).toEqual(["elevenlabs", "twilio"]);
-    expect(processorsForTool("email.send", "resend")).toEqual(["resend"]);
+    expect(processorsForTool("resend.send", "resend")).toEqual(["resend"]);
     // The client's own tools are not processors of ours.
     for (const c of [
       "qbo",

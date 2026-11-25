@@ -58,6 +58,7 @@ export * from "./invoke";
 // §1.77 (M49): LinkedIn company page posts, always signed.
 export * from "./linkedin/index";
 export * from "./logger";
+export * from "./merged";
 export * from "./messaging/services";
 export * from "./messaging/spec";
 // §1.114: the Microsoft connectors' shared sign-in.

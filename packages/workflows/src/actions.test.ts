@@ -157,7 +157,7 @@ describe("action write steps", () => {
 
   it("sends an email on the channel the port resolves, inside a loop once per item", async () => {
     const h = new Harness();
-    const asked = resolving(h, () => ({ tool: "email.send", connector: "resend" }));
+    const asked = resolving(h, () => ({ tool: "resend.send", connector: "resend" }));
     const runner = new FakeStepRunner();
     const result = await executeWorkflow(
       runner,
@@ -186,8 +186,8 @@ describe("action write steps", () => {
     expect(
       h.agentCalls.map((c) => [c.step.kind, (c.step as { tool: string }).tool, c.input]),
     ).toEqual([
-      ["action", "email.send", { to: "a@b.co", subject: "Hello", text: "Your order shipped" }],
-      ["action", "email.send", { to: "c@d.co", subject: "Hello", text: "Your order shipped" }],
+      ["action", "resend.send", { to: "a@b.co", subject: "Hello", text: "Your order shipped" }],
+      ["action", "resend.send", { to: "c@d.co", subject: "Hello", text: "Your order shipped" }],
     ]);
     expect(h.row("each:0:mail")?.summary).toBe("Send email · through our sending: done");
   });

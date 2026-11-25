@@ -76,7 +76,7 @@ describe("what a new connection starts with", () => {
         "qbo: qbo.attachable.upload (approval)",
         "qbo: qbo.invoice.add_note (approval)",
         "ramp: ramp.receipt.upload (approval)",
-        "resend: email.send (approval)",
+        "resend: resend.send (approval)",
         "slack: slack.message.post (approval)",
         "teams: teams.message.post (approval)",
         "testkit: testkit.record.update (approval)",

@@ -6,8 +6,11 @@
 // to the reach-out that asked. Each connection holds a sending-only API key restricted to the domain
 // it sends from; Mezonas' full key (RESEND_API_KEY) only makes domains and those keys.
 //
-// `email.send` is the provider-neutral email channel tool. Gmail (M10) sends with `gmail.send`, which
-// takes the same input. Facts about Resend we couldn't check are in NOTES.md.
+// `resend.send` is this connector's own send tool. The provider-neutral one is the merged Email
+// action `email.send` (packages/core `steps.MERGED_CONNECTORS`), which runs on this tool, Gmail's
+// `gmail.send` or Outlook's `outlook.send`, whichever the client has connected; they take the same
+// input. Until 2026-11-25 this tool was itself called `email.send`; rows written then keep that id
+// (`LEGACY_TOOL_IDS` in packages/core `reach/rules.ts`). Facts about Resend we couldn't check are in NOTES.md.
 
 import { AttachmentSummary, EMAIL_SENDABLE_TYPES, OutboundAttachments } from "@countersign/core";
 import { z } from "zod";
@@ -21,7 +24,7 @@ import { reachReplyTo } from "../upload/forwarding";
 
 export const RESEND_CONNECTOR_ID = "resend";
 export const RESEND_API = "https://api.resend.com";
-export const EMAIL_SEND_TOOL = "email.send";
+export const EMAIL_SEND_TOOL = "resend.send";
 /** Namespaces the email channel's tools share. */
 export const EMAIL_NAMESPACES = ["email"] as const;
 
