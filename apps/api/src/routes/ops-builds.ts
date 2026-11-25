@@ -70,6 +70,7 @@ import {
   settledByStep,
   settleFits,
   sliceWhole,
+  steps,
   testCaseProblems,
   withNote,
 } from "@countersign/core";
@@ -1624,8 +1625,15 @@ async function draftGapSteps(
   const drafted = parsed.data.workflows.flatMap((w) =>
     w.workflow.schemaVersion === 4 ? [w.workflow] : [],
   );
-  const ids = new Set(drafted.flatMap((p) => processes.allSteps(p).map(({ step }) => step.id)));
-  const matched = gapSteps(gaps, drafted);
+  // Step model (build item 9): a v5 draft's steps stand for its gaps the same way.
+  const stepModel = parsed.data.workflows.flatMap((w) =>
+    w.workflow.schemaVersion === 5 ? [w.workflow] : [],
+  );
+  const ids = new Set([
+    ...drafted.flatMap((p) => processes.allSteps(p).map(({ step }) => step.id)),
+    ...stepModel.flatMap((w) => steps.stepModelIds(w)),
+  ]);
+  const matched = gapSteps(gaps, [...drafted, ...stepModel]);
   return gaps.map((_, i) => {
     const said = named[i];
     return said && ids.has(said) ? said : (matched[i] ?? null);

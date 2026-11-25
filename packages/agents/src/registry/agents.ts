@@ -756,6 +756,12 @@ export async function rollback(
 // ── Templates and client agents ──────────────────────────────────────────────────────────────────
 
 export interface NewAgentInput {
+  /**
+   * The agent's id, made by the caller (uuid v7) when something keyed by it is stored first: the
+   * Builder stores a v5 draft's written steps as the agent's step skills before its first version
+   * pins them (step model, build item 9). Absent: the database makes one.
+   */
+  id?: string;
   slug: string;
   name?: string;
   role?: string | null;
@@ -774,6 +780,7 @@ export async function createTemplate(
   const [row] = await tx
     .insert(agent)
     .values({
+      ...(input.id ? { id: input.id } : {}),
       tenantId: null,
       kind: "template",
       slug: input.slug,
@@ -807,12 +814,14 @@ async function insertClientAgent(
     role: string | null;
     templateId: string | null;
     testCopy?: boolean;
+    id?: string | undefined;
   },
   bundle: AnyAgentBundle,
 ): Promise<AgentRow> {
   const [row] = await tx
     .insert(agent)
     .values({
+      ...(fields.id ? { id: fields.id } : {}),
       tenantId: fields.tenantId,
       kind: "client",
       slug: fields.slug,

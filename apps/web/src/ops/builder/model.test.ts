@@ -4,11 +4,13 @@
 import {
   AgentBundle,
   type AgentBundleInput,
+  type AnyAgentBundle,
   canonicalJson,
   nodeIds,
   type ProcessAgentBundle,
   processes,
   type SkillDefinition,
+  steps,
   type ToolSpec,
   type TypingContext,
 } from "@countersign/core";
@@ -41,6 +43,7 @@ import {
   toolTitle,
   undo,
   updateStep,
+  withStepModelWorkflows,
   workflowCounts,
 } from "./model";
 
@@ -319,17 +322,43 @@ describe("builder model", () => {
     expect(removeTrigger(two, "t1").triggers.map((t) => t.id)).toEqual(["t9"]);
     // The last trigger stays: a process starts somehow.
     expect(removeTrigger(w, "t1")).toBe(w);
-    const b = addWorkflow(
-      BUNDLE,
+    // A new workflow starts in the step model: its trigger, "Nothing to do", and its End.
+    let n = 0;
+    const added = addWorkflow(
       { slug: "weekly", name: "Weekly", on: { type: "command", command: "go" } },
-      () => "t2",
+      () => `id-${++n}`,
     );
-    expect(b.workflows.map((x) => x.slug)).toEqual(["main", "weekly"]);
-    expect(b.workflows[1]?.workflow).toEqual({
-      schemaVersion: 4,
-      triggers: [{ id: "t2", on: { type: "command", command: "go" } }],
-      steps: [],
+    expect(added).toEqual({
+      slug: "weekly",
+      name: "Weekly",
+      enabled: true,
+      workflow: {
+        schemaVersion: 5,
+        triggers: [{ id: "id-1", on: { type: "command", command: "go" } }],
+        outputs: [{ id: "id-2", name: "Nothing to do", kind: "nothing", fields: [] }],
+        steps: [{ id: "id-3", kind: "end", name: "End", outputs: ["id-2"], status: "succeeded" }],
+      },
     });
+    expect(steps.validateWorkflow(steps.Workflow.parse(added.workflow))).toEqual([]);
+  });
+
+  it("sets an agent's v5 workflows aside when read, and saves them back where they were", () => {
+    const v5 = addWorkflow({ slug: "weekly", name: "Weekly", on: { type: "manual", input: {} } });
+    const stored = { ...BUNDLE, workflows: [v5, ...BUNDLE.workflows] } as AnyAgentBundle;
+    const read = readProcessBundle(stored, CTX);
+    expect(read.workflows.map((w) => w.slug)).toEqual(["main"]);
+    expect(holdsV3(stored)).toBe(false);
+    const saved = withStepModelWorkflows(read, stored);
+    expect(saved.workflows.map((w) => w.slug)).toEqual(["weekly", "main"]);
+    expect(saved.workflows[0]).toBe(v5);
+    // A new one goes last; without any, the processes are saved as they are.
+    const more = addWorkflow({ slug: "daily", name: "Daily", on: { type: "manual", input: {} } });
+    expect(withStepModelWorkflows(read, stored, [more]).workflows.map((w) => w.slug)).toEqual([
+      "weekly",
+      "main",
+      "daily",
+    ]);
+    expect(withStepModelWorkflows(read, BUNDLE)).toBe(read);
   });
 
   describe("approval", () => {

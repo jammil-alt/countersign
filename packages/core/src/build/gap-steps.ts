@@ -6,6 +6,8 @@
 
 import type { Process, Step } from "../process/schema";
 import { allSteps } from "../process/walk";
+import type { Step as StepModelStep, Workflow as StepWorkflow } from "../steps/schema";
+import { eachStep } from "../steps/walk";
 
 // DECISION (docs/plan.md §1.170): a gap is matched to a stand-in step (a missing step, or a person
 // step that asks) by the words they share: most of the step's own words in the gap's sentence, at
@@ -39,16 +41,36 @@ function standIn(step: Step): string | null {
 }
 
 /**
+ * The step model's stand-ins (docs/step-model-plan.md §4): a "Not built yet" Do, or a Do done by
+ * a person that asks.
+ */
+function standInV5(step: StepModelStep): string | null {
+  if (step.kind !== "do") return null;
+  if (step.uses?.type === "missing") return `${step.name} ${step.uses.need}`;
+  if (step.doneBy === "person" && step.person?.mode === "ask") {
+    return `${step.name} ${step.person.question}`;
+  }
+  return null;
+}
+
+/**
  * For each gap, in order, the id of the stand-in step it is about, or null when no one step
- * clearly is.
+ * clearly is. Workflows may be v4 processes or (the step model) v5 workflows.
  */
 export function gapSteps(
   gaps: readonly string[],
-  processes: readonly Pick<Process, "steps">[],
+  processes: readonly (Pick<Process, "steps"> | Pick<StepWorkflow, "schemaVersion" | "steps">)[],
 ): (string | null)[] {
   const steps: { id: string; words: Set<string> }[] = [];
   for (const p of processes) {
-    for (const { step } of allSteps(p)) {
+    if ("schemaVersion" in p && p.schemaVersion === 5) {
+      eachStep(p.steps, ({ step }) => {
+        const text = standInV5(step);
+        if (text !== null) steps.push({ id: step.id, words: words(text) });
+      });
+      continue;
+    }
+    for (const { step } of allSteps(p as Pick<Process, "steps">)) {
       const text = standIn(step);
       if (text !== null) steps.push({ id: step.id, words: words(text) });
     }

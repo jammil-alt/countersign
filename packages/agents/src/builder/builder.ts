@@ -289,7 +289,7 @@ function describeErrors(errors: readonly ValidationError[]): string {
   return errors
     .map(
       (e) =>
-        `- ${[e.workflow, e.stepId, e.field].filter(Boolean).join(" / ") || "bundle"}: ${e.message} (${e.code})`,
+        `- ${[e.workflow, e.stepId, e.field].filter(Boolean).join(" / ") || "bundle"}: ${e.message} (${(e as { stepCode?: string }).stepCode ?? e.code})`,
     )
     .join("\n");
 }
@@ -303,7 +303,12 @@ export function totalCost(calls: readonly LlmCallRecord[]): string | null {
   return sum.toFixed(6);
 }
 
-export async function ask<T extends { bundle: ProcessAgentBundle; gaps: string[] }>(
+// DECISION (step model, build item 9): one ask-and-repair loop for both models, generic over the
+// bundle it answers; a v5 draft passes its own validation and catalog (`./step-model/draft`).
+export async function ask<
+  T extends { bundle: B; gaps: string[] },
+  B extends { workflows: readonly { workflow: unknown }[] } = ProcessAgentBundle,
+>(
   input: {
     schema: z.ZodType<T>;
     toolName: string;
@@ -312,7 +317,7 @@ export async function ask<T extends { bundle: ProcessAgentBundle; gaps: string[]
     ctx: BuilderContext;
     first: string;
     guard: (answer: T) => {
-      bundle: ProcessAgentBundle;
+      bundle: B;
       gaps: string[];
       notes: string[];
       /** What the repair round should fix besides validation errors (`GuardResult.fix`). */
@@ -321,7 +326,7 @@ export async function ask<T extends { bundle: ProcessAgentBundle; gaps: string[]
     // v0.12 W3-A: a conversation's own system prompt, and how a guarded bundle and the errors are
     // shown back to the model in a repair round (aliases, never the ids it could regenerate).
     system?: string;
-    present?: (bundle: ProcessAgentBundle) => ProcessAgentBundle;
+    present?: (bundle: B) => B;
     presentText?: (text: string) => string;
     /** Errors the draft had before this answer (keys from `errorKey`): not the model's to repair. */
     known?: ReadonlySet<string>;
@@ -329,13 +334,19 @@ export async function ask<T extends { bundle: ProcessAgentBundle; gaps: string[]
     shorter?: string;
     /** Error codes left out of a repair round (default `OPERATOR_FIXES`). */
     operatorFixes?: ReadonlySet<string>;
+    /** Errors left out of a repair round besides those codes (a v5 "Not built yet" step). */
+    operatorFix?: (e: ValidationError) => boolean;
     /** Two rounds: the parts shown in full; a repair round shows the others it used in full. */
     shown?: ReadonlySet<string> | null;
+    /** Validation of a guarded bundle (default `options.validate`, which reads v4). */
+    validate?: (bundle: B) => Promise<ValidationError[]>;
+    /** The catalog in full, for the parts a repair round shows (default `catalogForPrompt`). */
+    full?: (ctx: BuilderContext) => Record<string, unknown>;
   },
   options: BuilderOptions,
 ): Promise<{
   answer: T;
-  bundle: ProcessAgentBundle;
+  bundle: B;
   gaps: string[];
   notes: string[];
   errors: ValidationError[];
@@ -413,10 +424,15 @@ export async function ask<T extends { bundle: ProcessAgentBundle; gaps: string[]
       throw modelUnavailable(error);
     }
     const guarded = input.guard(answer);
-    const errors = await options.validate(guarded.bundle);
+    const validate =
+      input.validate ?? (options.validate as unknown as (b: B) => Promise<ValidationError[]>);
+    const errors = await validate(guarded.bundle);
     const notRepaired = input.operatorFixes ?? OPERATOR_FIXES;
     const fixable = errors.filter(
-      (e) => !notRepaired.has(e.code) && !(input.known?.has(errorKey(e)) ?? false),
+      (e) =>
+        !notRepaired.has(e.code) &&
+        !(input.operatorFix?.(e) ?? false) &&
+        !(input.known?.has(errorKey(e)) ?? false),
     );
     const asked = guarded.fix ?? [];
     if ((fixable.length > 0 || asked.length > 0) && repairs > 0) {
@@ -447,7 +463,7 @@ export async function ask<T extends { bundle: ProcessAgentBundle; gaps: string[]
         },
         {
           role: "user",
-          content: `That bundle (after the server's rules were applied, so ids may have changed) ${problems}\n\nAnswer again with the whole corrected answer. Keep the ids it has now.${unseenPartsBlock(guarded.bundle, input.ctx, input.shown, catalogForPrompt)}`,
+          content: `That bundle (after the server's rules were applied, so ids may have changed) ${problems}\n\nAnswer again with the whole corrected answer. Keep the ids it has now.${unseenPartsBlock(guarded.bundle, input.ctx, input.shown, input.full ?? catalogForPrompt)}`,
         },
       );
       continue;

@@ -37,6 +37,7 @@ function edits(text: string, fn: (b: Draft) => void) {
   return (req: LlmRequest) => {
     const b = structuredClone(shown(req));
     fn(b);
+    // The draft is a v3 test bundle read as v4 processes: the turn answers v4.
     return { toolUse: { name: "submit_turn", input: { text, bundle: b } } };
   };
 }

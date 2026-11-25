@@ -10,6 +10,7 @@ import { inboxItem, memoryNote, run } from "@countersign/db";
 import { FakeModel } from "@countersign/llm";
 import { afterAll, describe, expect, it, vi } from "vitest";
 import { admin, createApiHarness, forbiddenKeys, OPERATOR, user } from "./api.test-helper";
+import { stepModelAnswer } from "./builder-v5.test-helper";
 
 for (const level of process.env.SHOW_LOGS ? [] : (["warn", "error"] as const)) {
   vi.spyOn(console, level).mockImplementation(() => {});
@@ -27,7 +28,7 @@ const turnAnswer = (input: Record<string, unknown>) => ({
 const reviewed = () => ({ toolUse: { name: "submit_review", input: { concerns: [] } } });
 
 function draftAnswer() {
-  return {
+  return stepModelAnswer({
     toolUse: {
       name: "submit_draft",
       input: {
@@ -78,7 +79,7 @@ function draftAnswer() {
         },
       },
     },
-  };
+  });
 }
 
 describe.skipIf(!h)("the agent manual", () => {
@@ -224,6 +225,8 @@ describe.skipIf(!h)("the agent manual", () => {
         name: "Update the record",
         words: "Updates your tools, after a person approves",
       }),
+      // The step model: the End the draft finishes on.
+      expect.objectContaining({ kind: "end", words: "Finishes here" }),
     ]);
     expect(view.decisions.find((d) => d.id === "post")).toMatchObject({
       step: "Update the record",

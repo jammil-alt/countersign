@@ -11,6 +11,7 @@ import { desc, eq } from "drizzle-orm";
 import { afterAll, describe, expect, it, vi } from "vitest";
 import { admin, createApiHarness, OPERATOR } from "./api.test-helper";
 import { draftWritingSteps } from "./build/store";
+import { stepModelAnswer } from "./builder-v5.test-helper";
 
 for (const level of process.env.SHOW_LOGS ? [] : (["warn", "error"] as const)) {
   vi.spyOn(console, level).mockImplementation(() => {});
@@ -26,7 +27,7 @@ const turnAnswer = (input: Record<string, unknown>) => ({
 const reviewed = () => ({ toolUse: { name: "submit_review", input: { concerns: [] } } });
 
 function draftAnswer() {
-  return {
+  return stepModelAnswer({
     toolUse: {
       name: "submit_draft",
       input: {
@@ -78,7 +79,7 @@ function draftAnswer() {
         },
       },
     },
-  };
+  });
 }
 
 describe.skipIf(!h)("decisions on a build", () => {

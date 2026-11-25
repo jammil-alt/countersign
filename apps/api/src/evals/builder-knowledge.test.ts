@@ -14,6 +14,7 @@ import {
   catalogBriefForPrompt,
   catalogForPrompt,
   draftAgent,
+  draftStepAgent,
   narrowContext,
   shortlistCatalogBlock,
 } from "@countersign/agents";
@@ -22,6 +23,7 @@ import {
   newStepSkillReason,
   PLATFORM_EVENT_TYPES,
   processes,
+  steps,
   toolLookup,
 } from "@countersign/core";
 import { createLlmClient, FakeModel, type LlmRequest } from "@countersign/llm";
@@ -195,5 +197,78 @@ describe("what the Builder knows", async () => {
       system,
     ];
     writeFileSync(out, lines.join("\n"));
+  });
+});
+
+// Step model (build item 9): the Builder drafts v5. What it is told and offered, as above: every
+// kind of step, way in and check in its rules; every connector and event; the Uses picker's
+// actions, the areas' match profiles and the built-in Loops in its catalog.
+async function firstStepRequest(): Promise<LlmRequest> {
+  let seen: LlmRequest | undefined;
+  const model = new FakeModel([
+    (req: LlmRequest) => {
+      seen = req;
+      return { refusal: true };
+    },
+  ]);
+  await draftStepAgent(
+    { description: "When the UCC file arrives by email, read it.", worksFirst: true, ctx },
+    { llm: createLlmClient({ transport: model }), validate: async () => [] },
+  ).catch(() => null);
+  if (!seen) throw new Error("the Builder asked nothing");
+  return seen;
+}
+
+describe("what the Builder knows in the step model", async () => {
+  const req = await firstStepRequest();
+  const system = text(req.system);
+  const first = text(req.messages[0]?.content);
+  const catalog = JSON.parse(
+    first.slice(first.indexOf("<catalog>") + 9, first.indexOf("</catalog>")),
+  ) as {
+    actions: { actions: { id: string; kind: string }[] }[];
+    matchProfiles: { id: string }[];
+    skills: { id: string }[];
+    loops: { id: string }[];
+    connectors: { id: string }[];
+    events: { type: string }[];
+  };
+
+  it("is told every kind of step, way in and check", () => {
+    for (const kind of steps.STEP_KINDS) expect(system, kind).toContain(`- ${kind}:`);
+    for (const kind of Object.keys(processes.TRIGGER_GUIDE)) {
+      expect(system, kind).toContain(`- ${kind}: `);
+    }
+    for (const kind of Object.keys(processes.CHECK_GUIDE)) {
+      expect(system, kind).toContain(`- ${kind}: `);
+    }
+  });
+
+  it("sees every connector, every platform event, the areas' profiles and the built-in Loops", () => {
+    const connectors = new Set(catalog.connectors.map((c) => c.id));
+    for (const c of platform.connectors.list()) {
+      expect(connectors.has(c.manifest.id), c.manifest.id).toBe(true);
+    }
+    const events = new Set(catalog.events.map((e) => e.type));
+    for (const e of PLATFORM_EVENT_TYPES) expect(events.has(e), e).toBe(true);
+    const profiles = new Set(catalog.matchProfiles.map((p) => p.id));
+    for (const p of platform.packs.flatMap((x) => x.manifest.matchProfiles)) {
+      expect(profiles.has(p.id), p.id).toBe(true);
+    }
+    const loops = new Set(catalog.loops.map((l) => l.id));
+    for (const def of platform.catalog.list().filter((d) => d.loop !== undefined)) {
+      expect(loops.has(def.id), def.id).toBe(true);
+    }
+  });
+
+  it("is offered the Uses picker's actions, merged ones included, never an engine's", () => {
+    const actions = new Set(catalog.actions.flatMap((g) => g.actions.map((a) => a.id)));
+    expect(actions.has("accounting.bill.create")).toBe(true);
+    for (const id of ["forms.request", "comms.reach_out", "comms.converse"]) {
+      expect(actions.has(id), id).toBe(false);
+    }
+    // Request info, Reach out and Converse are a person's or a contact's Do, not skills to pick.
+    const skills = new Set(catalog.skills.map((s) => s.id));
+    for (const id of processes.STEP_ONLY_SKILLS) expect(skills.has(id), id).toBe(false);
   });
 });

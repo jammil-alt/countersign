@@ -16,6 +16,7 @@ import { FakeModel } from "@countersign/llm";
 import { count, desc, eq, like } from "drizzle-orm";
 import { afterAll, describe, expect, it, vi } from "vitest";
 import { createApiHarness, OPERATOR, testBundle, user } from "./api.test-helper";
+import { stepModelAnswer } from "./builder-v5.test-helper";
 
 for (const level of process.env.SHOW_LOGS ? [] : (["warn", "error"] as const)) {
   vi.spyOn(console, level).mockImplementation(() => {});
@@ -249,48 +250,50 @@ describe.skipIf(!h)("turn on", () => {
       clientId: A().tenantId,
     });
     const id = started.build.id as string;
-    model.push({
-      toolUse: {
-        name: "submit_draft",
-        input: {
-          summary: "It fixes the record's amount and asks the client first.",
-          gaps: [],
-          startFromTemplate: null,
-          bundle: {
-            schemaVersion: 1,
-            definition: {
-              schemaVersion: 2,
-              identity: { name: "Build clerk", role: "Records", mission: "Keep records right" },
-              kind: "functional",
-              model: { id: "claude-sonnet-5-5" },
-              instructions: "Fix records when asked.",
-              skills: [],
-              permissions: { mode: "suggest_only" },
-            },
-            workflows: [
-              {
-                slug: "main",
-                name: "Fix a record",
-                workflow: {
-                  schemaVersion: 4,
-                  triggers: [{ id: "t", on: { type: "manual", input: {} } }],
-                  steps: [
-                    {
-                      id: "update",
-                      kind: "write",
-                      name: "Update the record",
-                      tool: TESTKIT_UPDATE_TOOL,
-                      input: { id: "r1", amount: "12.00" },
-                      checks: { approval: { required: "required" } },
-                    },
-                  ],
-                },
+    model.push(
+      stepModelAnswer({
+        toolUse: {
+          name: "submit_draft",
+          input: {
+            summary: "It fixes the record's amount and asks the client first.",
+            gaps: [],
+            startFromTemplate: null,
+            bundle: {
+              schemaVersion: 1,
+              definition: {
+                schemaVersion: 2,
+                identity: { name: "Build clerk", role: "Records", mission: "Keep records right" },
+                kind: "functional",
+                model: { id: "claude-sonnet-5-5" },
+                instructions: "Fix records when asked.",
+                skills: [],
+                permissions: { mode: "suggest_only" },
               },
-            ],
+              workflows: [
+                {
+                  slug: "main",
+                  name: "Fix a record",
+                  workflow: {
+                    schemaVersion: 4,
+                    triggers: [{ id: "t", on: { type: "manual", input: {} } }],
+                    steps: [
+                      {
+                        id: "update",
+                        kind: "write",
+                        name: "Update the record",
+                        tool: TESTKIT_UPDATE_TOOL,
+                        input: { id: "r1", amount: "12.00" },
+                        checks: { approval: { required: "required" } },
+                      },
+                    ],
+                  },
+                },
+              ],
+            },
           },
         },
-      },
-    });
+      }),
+    );
     const drafted = (await ok("POST", `/api/ops/builds/${id}/draft-now`, {
       description: "Fix the amount on the record when asked. The client approves each change.",
     })) as BuildDetail;

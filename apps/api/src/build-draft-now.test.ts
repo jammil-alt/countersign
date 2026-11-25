@@ -10,6 +10,7 @@ import { FakeModel, type LlmRequest } from "@countersign/llm";
 import { desc, eq } from "drizzle-orm";
 import { afterAll, describe, expect, it, vi } from "vitest";
 import { createApiHarness, OPERATOR } from "./api.test-helper";
+import { stepModelAnswer } from "./builder-v5.test-helper";
 
 for (const level of process.env.SHOW_LOGS ? [] : (["warn", "error"] as const)) {
   vi.spyOn(console, level).mockImplementation(() => {});
@@ -34,7 +35,7 @@ const update: StepDraft = {
 };
 
 function draftAnswer(steps: StepDraft[] = [update], more: Record<string, unknown> = {}) {
-  return {
+  return stepModelAnswer({
     toolUse: {
       name: "submit_draft",
       input: {
@@ -67,7 +68,7 @@ function draftAnswer(steps: StepDraft[] = [update], more: Record<string, unknown
         ...more,
       },
     },
-  };
+  });
 }
 
 const turnAnswer = (input: Record<string, unknown>) => ({
@@ -84,7 +85,7 @@ function setsAmount(text: string, amount: string) {
     const d = JSON.parse(content.slice(start, content.indexOf("</current_bundle>"))) as Draft;
     const step = d.workflows[0]?.workflow.steps[0] as { input: { amount: string } } | undefined;
     if (step) step.input.amount = amount;
-    return { toolUse: { name: "submit_turn", input: { text, bundle: d } } };
+    return stepModelAnswer({ toolUse: { name: "submit_turn", input: { text, bundle: d } } });
   };
 }
 
@@ -205,16 +206,18 @@ describe.skipIf(!h)("draft it now", () => {
     expect(b.items[0]).toMatchObject({ kind: "gap", state: "deferred" });
     expect(b.items[0]?.title).toContain("No connector reads the vendor's portal");
 
-    // The flow as drafted is on the build: its steps in order, in plain words.
+    // The flow as drafted is on the build: its steps in order, in plain words (the step model:
+    // a Do that changes your tools, and the End that finishes it).
     expect(b.draft?.steps).toEqual([
       {
         workflow: "Fix a record",
         stepId: expect.any(String),
         depth: 0,
-        kind: "write",
+        kind: "do",
         name: "Update the record",
         words: "Updates your tools, after a person approves",
       },
+      expect.objectContaining({ kind: "end", words: "Finishes here" }),
     ]);
 
     // Asked again, it is refused: the build has its draft.
@@ -262,7 +265,7 @@ describe.skipIf(!h)("draft it now", () => {
     const b = await ok("POST", `/api/ops/builds/${id}/draft-now`, { description: DESCRIPTION });
     // The missing step went back to the Builder as something to repair, and the draft runs.
     expect(model.requests.length - before).toBe(2);
-    expect(JSON.stringify(model.requests.at(-1)?.messages)).toContain("missing_step");
+    expect(JSON.stringify(model.requests.at(-1)?.messages)).toContain("not_built_yet");
     expect(b.build.phase).toBe("draft");
     expect(b.draft?.problems).toEqual([]);
     expect(b.gate.reasons).toEqual([]);

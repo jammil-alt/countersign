@@ -10,6 +10,7 @@ import { and, eq, like } from "drizzle-orm";
 import { createLocalJWKSet, exportJWK, generateKeyPair, SignJWT } from "jose";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { type ApiHarness, admin, createApiHarness, OPERATOR, testBundle } from "./api.test-helper";
+import { stepModelAnswer } from "./builder-v5.test-helper";
 import { memoryRateLimiter } from "./mcp/limits";
 
 for (const level of process.env.SHOW_LOGS ? [] : (["warn", "error"] as const)) {
@@ -77,50 +78,51 @@ const update = {
   checks: { approval: { required: "required" } },
 };
 
-const draftAnswer = () => ({
-  toolUse: {
-    name: "submit_draft",
-    input: {
-      summary: "It fixes the record's amount and asks the client first.",
-      gaps: [],
-      startFromTemplate: null,
-      decisions: [
-        {
-          id: "approve-each",
-          what: "The client approves each change to a record.",
-          why: "The description says so.",
-          kind: "assumption",
-          risk: "high",
-          category: "writes",
-          stepId: "update",
-        },
-      ],
-      bundle: {
-        schemaVersion: 1,
-        definition: {
-          schemaVersion: 2,
-          identity: { name: "Record fixer", role: "Records", mission: "Keep records right" },
-          kind: "functional",
-          model: { id: "claude-sonnet-5-5" },
-          instructions: "Fix records when asked.",
-          skills: [],
-          permissions: { mode: "suggest_only" },
-        },
-        workflows: [
+const draftAnswer = () =>
+  stepModelAnswer({
+    toolUse: {
+      name: "submit_draft",
+      input: {
+        summary: "It fixes the record's amount and asks the client first.",
+        gaps: [],
+        startFromTemplate: null,
+        decisions: [
           {
-            slug: "main",
-            name: "Fix a record",
-            workflow: {
-              schemaVersion: 4,
-              triggers: [{ id: "t", on: { type: "manual", input: {} } }],
-              steps: [update],
-            },
+            id: "approve-each",
+            what: "The client approves each change to a record.",
+            why: "The description says so.",
+            kind: "assumption",
+            risk: "high",
+            category: "writes",
+            stepId: "update",
           },
         ],
+        bundle: {
+          schemaVersion: 1,
+          definition: {
+            schemaVersion: 2,
+            identity: { name: "Record fixer", role: "Records", mission: "Keep records right" },
+            kind: "functional",
+            model: { id: "claude-sonnet-5-5" },
+            instructions: "Fix records when asked.",
+            skills: [],
+            permissions: { mode: "suggest_only" },
+          },
+          workflows: [
+            {
+              slug: "main",
+              name: "Fix a record",
+              workflow: {
+                schemaVersion: 4,
+                triggers: [{ id: "t", on: { type: "manual", input: {} } }],
+                steps: [update],
+              },
+            },
+          ],
+        },
       },
     },
-  },
-});
+  });
 
 const editProposal = (amount: string) => ({
   toolUse: {
@@ -148,7 +150,9 @@ function setsAmount(amount: string) {
     const d = JSON.parse(content.slice(start, content.indexOf("</current_bundle>"))) as Draft;
     const step = d.workflows[0]?.workflow.steps[0] as { input: { amount: string } } | undefined;
     if (step) step.input.amount = amount;
-    return { toolUse: { name: "submit_turn", input: { text: `Set it to ${amount}.`, bundle: d } } };
+    return stepModelAnswer({
+      toolUse: { name: "submit_turn", input: { text: `Set it to ${amount}.`, bundle: d } },
+    });
   };
 }
 
@@ -326,13 +330,14 @@ describe.skipIf(!h)("MCP builds and step settings", () => {
       "agreed",
     );
 
-    // The draft is an agent: its steps and their settings, v4 checks included.
+    // The draft is an agent: its steps and their settings, checks included (a v5 Do, the step
+    // model the Builder drafts in).
     r = await ok("agent_steps", { agent: b.draft.agentId });
     const steps = r.data();
     expect(steps.version.live).toBe(false);
     expect(steps.workflows[0].steps[0].settings).toMatchObject({
       name: "Update the record",
-      kind: "write",
+      kind: "do",
       input: { amount: "20.00" },
       checks: { approval: { required: "required" } },
     });

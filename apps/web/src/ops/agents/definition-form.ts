@@ -3,8 +3,6 @@
 // workflows untouched. Pure, so the checks are tested without rendering.
 import {
   type AgentBundle,
-  type AgentBundleInput,
-  AgentBundle as AgentBundleSchema,
   type AnyAgentBundle,
   AnyAgentBundle as AnyAgentBundleSchema,
   DECIMAL_RE,
@@ -21,6 +19,7 @@ import {
   uuidv7,
 } from "@countersign/core";
 
+import { newStepWorkflow } from "../builder/steps/model";
 import { type AdjustDraft, draftProblems, draftsFrom, withAdjustable } from "./adjustable-form";
 
 export type SettingValue = string | boolean;
@@ -289,12 +288,13 @@ export interface NewAgentFields {
 
 /**
  * A new agent's v1 from scratch: the definition with the schema's defaults (suggest only, so every
- * write waits for a person), and one blank workflow started by hand that the builder fills in.
+ * write waits for a person), and one workflow started by hand that the builder fills in, in the step
+ * model (`newStepWorkflow`: its trigger, a "Nothing to do" output and the End that delivers it).
  */
-// DECISION: "blank workflow" is one workflow, `main`, with a manual trigger and no steps. Its
-// trigger id is a fresh uuid v7, generated once and never regenerated (CLAUDE.md invariant 3).
+// DECISION: "blank workflow" is one workflow, `main`, with a manual trigger and only its End. Its
+// ids are fresh uuid v7s, generated once and never regenerated (CLAUDE.md invariant 3).
 export function blankBundle(fields: NewAgentFields, newId: () => string = () => uuidv7()) {
-  const input: AgentBundleInput = {
+  const input = {
     schemaVersion: 1,
     definition: {
       schemaVersion: 2,
@@ -315,15 +315,11 @@ export function blankBundle(fields: NewAgentFields, newId: () => string = () => 
       {
         slug: "main",
         name: "Main",
-        workflow: {
-          schemaVersion: 3,
-          trigger: { id: newId(), on: { type: "manual", input: { type: "object" } } },
-          steps: [],
-        },
+        workflow: newStepWorkflow({ type: "manual", input: { type: "object" } }, newId),
       },
     ],
   };
-  return AgentBundleSchema.parse(input);
+  return AnyAgentBundleSchema.parse(input);
 }
 
 /** `Material costs` → `material-costs` (the slug schema: lowercase letters, digits, dashes). */

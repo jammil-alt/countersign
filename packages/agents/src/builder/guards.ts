@@ -251,7 +251,10 @@ export const DEFAULT_APPROVAL: ApprovalCheck = {
  * switched-off approval, a `when`, going ahead when nobody answers (the approval's own or an
  * approver's deadline). What the operator had, on that same step, stays.
  */
-function holdApproval(answer: ApprovalCheck, prior: ApprovalCheck | undefined): ApprovalCheck {
+export function holdApproval(
+  answer: ApprovalCheck,
+  prior: ApprovalCheck | undefined,
+): ApprovalCheck {
   const tight = processes.tightenedApproval(answer);
   const out: ApprovalCheck = { ...answer };
   if (answer.required === "not_required" && prior?.required !== "not_required") {
@@ -265,6 +268,64 @@ function holdApproval(answer: ApprovalCheck, prior: ApprovalCheck | undefined): 
     );
   }
   return out;
+}
+
+/** The bundle-level rules a revision's or a draft's source decides (`guardDefinition`). */
+type DefinitionSource = { definition: ProcessAgentBundle["definition"] } | null | undefined;
+
+/**
+ * The agent's own rules, whatever the model answered (shared by the v4 and step-model guards):
+ * functional kind; the mode of the operator's version (`suggest_only` for a new agent); budgets and
+ * memory as the operator set them; oversight as the operator set it, or on failures for a new
+ * agent. Returns a copy.
+ */
+export function guardDefinition<D extends ProcessAgentBundle["definition"]>(
+  input: D,
+  sources: { operatorSource: DefinitionSource; source: DefinitionSource },
+  note: (text: string) => void,
+): D {
+  const { operatorSource, source } = sources;
+  const def = structuredClone(input);
+  if (def.kind !== "functional") {
+    def.kind = "functional";
+    note("The Builder makes functional agents; platform agents are seeded.");
+  }
+  const mode = operatorSource ? operatorSource.definition.permissions.mode : "suggest_only";
+  if (def.permissions.mode !== mode) {
+    note(
+      mode === "suggest_only"
+        ? "It suggests only: every change it wants to make waits for a person. Only you can change that."
+        : "Its mode stays as it was: the Builder doesn't change what an agent may do.",
+    );
+    def.permissions = { ...def.permissions, mode };
+  }
+  const budgetSource = operatorSource ?? source;
+  if (budgetSource) {
+    // What an agent may spend and remember is the operator's to set.
+    def.budgets = budgetSource.definition.budgets;
+    def.memory = budgetSource.definition.memory;
+  }
+  // v0.13 W2-I / v0.12 W3-A: oversight is the operator's on an existing agent; a new agent from
+  // the Builder reviews its failed steps at least (ARCHITECTURE §10.11).
+  if (operatorSource) {
+    if (operatorSource.definition.oversight === undefined) delete def.oversight;
+    else def.oversight = operatorSource.definition.oversight;
+  } else if (def.oversight === undefined || def.oversight.review === "off") {
+    if (def.oversight?.review === "off") {
+      note("It reviews its failed steps: new agents start with oversight on failures.");
+    }
+    def.oversight = OversightSettings.parse(NEW_AGENT_OVERSIGHT);
+  }
+  // Step model §10f: what an agent may read, create and change in our own records (its grants and
+  // data sets) is the operator's, as its mode is: a draft keeps the operator's version's exactly,
+  // and a new agent from the Builder is granted nothing (invariant 9).
+  const data = operatorSource?.definition.data;
+  if (JSON.stringify(def.data ?? null) !== JSON.stringify(data ?? null)) {
+    note("Its data sets stay as you set them: the Builder doesn't change what an agent may reach.");
+  }
+  if (data === undefined) delete def.data;
+  else def.data = structuredClone(data);
+  return def;
 }
 
 /** Applies every guard to the model's bundle (already through Zod). */
@@ -302,49 +363,10 @@ export function guardBundle(
   const normalRef = (ref: string) => (sourceRefs.has(ref) ? ref : parseSkillRef(ref).id);
 
   // ── Definition ────────────────────────────────────────────────────────────────────────────────
-  const def = structuredClone(input.definition);
-  if (def.kind !== "functional") {
-    def.kind = "functional";
-    note("The Builder makes functional agents; platform agents are seeded.");
-  }
   // v0.12 W3-A: in a conversation the operator's rules follow the version it started from (none for
   // a new agent), whatever earlier turns made of the working draft.
   const operatorSource = options.origin !== undefined ? options.origin : source;
-  const mode = operatorSource ? operatorSource.definition.permissions.mode : "suggest_only";
-  if (def.permissions.mode !== mode) {
-    note(
-      mode === "suggest_only"
-        ? "It suggests only: every change it wants to make waits for a person. Only you can change that."
-        : "Its mode stays as it was: the Builder doesn't change what an agent may do.",
-    );
-    def.permissions = { ...def.permissions, mode };
-  }
-  const budgetSource = operatorSource ?? source;
-  if (budgetSource) {
-    // What an agent may spend and remember is the operator's to set.
-    def.budgets = budgetSource.definition.budgets;
-    def.memory = budgetSource.definition.memory;
-  }
-  // v0.13 W2-I / v0.12 W3-A: oversight is the operator's on an existing agent; a new agent from
-  // the Builder reviews its failed steps at least (ARCHITECTURE §10.11).
-  if (operatorSource) {
-    if (operatorSource.definition.oversight === undefined) delete def.oversight;
-    else def.oversight = operatorSource.definition.oversight;
-  } else if (def.oversight === undefined || def.oversight.review === "off") {
-    if (def.oversight?.review === "off") {
-      note("It reviews its failed steps: new agents start with oversight on failures.");
-    }
-    def.oversight = OversightSettings.parse(NEW_AGENT_OVERSIGHT);
-  }
-  // Step model §10f: what an agent may read, create and change in our own records (its grants and
-  // data sets) is the operator's, as its mode is: a draft keeps the operator's version's exactly,
-  // and a new agent from the Builder is granted nothing (invariant 9).
-  const data = operatorSource?.definition.data;
-  if (JSON.stringify(def.data ?? null) !== JSON.stringify(data ?? null)) {
-    note("Its data sets stay as you set them: the Builder doesn't change what an agent may reach.");
-  }
-  if (data === undefined) delete def.data;
-  else def.data = structuredClone(data);
+  const def = guardDefinition(input.definition, { operatorSource, source }, note);
 
   const skillList: ProcessAgentBundle["definition"]["skills"] = [];
   // Unknown skills a step also asks for are reported once, by the step (below).

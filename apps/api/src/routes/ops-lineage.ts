@@ -23,6 +23,7 @@ import {
   retire,
   SHARED_COPY_PREFIX,
   skillContext,
+  withWriteActionFields,
 } from "@countersign/agents";
 import { BUILTIN_CONNECTORS } from "@countersign/connectors";
 import {
@@ -302,6 +303,78 @@ function skillOption(
 }
 
 /**
+ * The action catalog the Uses picker offers for an agent (or, for the Builder, an agent not yet
+ * saved: its client and no bundle): by connector and by area, from the registered tools. A
+ * test-only connector's actions are held back as in the builder's catalog.
+ */
+// Step model E: what the operator turned off on a connector's page, and what the new model folded
+// into another action, is left out; Web's actions sit under the Web connector.
+export async function actionCatalogFor(
+  ctx: Pick<HandlerCtx<never>, "tx" | "services">,
+  row: Pick<AgentRow, "tenantId" | "testCopy"> & { id?: string },
+  /** The bundle a test-only connector may be in use in; absent: the agent's latest version's. */
+  bundle?: unknown,
+  options: { testConnectors?: "hidden" | "shown" } = {},
+): Promise<steps.CatalogGroup[]> {
+  const { platform } = ctx.services;
+  const read =
+    bundle !== undefined
+      ? bundle
+      : row.id
+        ? ((await latestVersion(ctx.tx, row.id))?.bundle ?? null)
+        : null;
+  const hidden =
+    options.testConnectors === "shown"
+      ? new Set<string>()
+      : await hiddenTestConnectors(ctx.tx, row, read, platform);
+  const settings = await ctx.tx.select().from(connectorSetting);
+  // Step model §10f: a record type's standard actions are typed with the client's custom fields
+  // (a template's with the shared ones), and offered as the agent's grants and data sets allow.
+  const records = await recordActionsFor(
+    ctx.tx,
+    platform.records,
+    row.tenantId,
+    read as Parameters<typeof recordActionsFor>[3],
+  );
+  return actionCatalogOf(
+    platform,
+    Object.fromEntries(settings.map((r) => [r.connector, r.actions])),
+    hidden,
+    records,
+  );
+}
+
+/**
+ * The action catalog from the platform alone: `switches` is each connector's action switches
+ * (`connector_setting.actions`), `hidden` the connectors held back. What the Builder's evals read
+ * with no database; `actionCatalogFor` reads the switches and the test-only connectors first.
+ */
+export function actionCatalogOf(
+  platform: Platform,
+  switches: Parameters<typeof catalogSpecs>[1],
+  hidden: ReadonlySet<string> = new Set(),
+  /** The record types' standard actions this agent may use (`recordActionsFor`). */
+  records: readonly Parameters<typeof steps.buildActionCatalog>[0][number][] = [],
+): steps.CatalogGroup[] {
+  const connectors = platform.connectors.list().filter((c) => !hidden.has(c.manifest.id));
+  const specs = catalogSpecs(platform.tools, switches);
+  const shown = specs.filter((spec) => {
+    const owner = platform.connectors.findTool(spec.id)?.connector.manifest.id;
+    return owner === undefined || !hidden.has(owner);
+  });
+  // The merged Accounting actions take their write action's own fields, as runs map them.
+  return withWriteActionFields(
+    steps.buildActionCatalog([...shown.filter((spec) => !spec.record), ...records], {
+      connectors: {
+        ...Object.fromEntries(connectors.map((c) => [c.manifest.id, connectorTitle(c.manifest)])),
+        ...Object.fromEntries(BUILTIN_CONNECTORS.map((b) => [b.id, b.name])),
+      },
+      areas: AREA_NAMES,
+    }),
+  );
+}
+
+/**
  * The test-only connectors (the testkit) an agent's builder doesn't offer: all of them, unless the
  * agent is in the Sandbox client or a template's test copy, or its client has a connection to it,
  * or its latest version already names one of its tools.
@@ -478,44 +551,6 @@ const AREA_NAMES: Readonly<Record<string, string>> = {
   receivables: "Receivables",
   shared: "Shared",
 };
-
-/**
- * The actions a step can use, by connector and by area, from the registered tools (stream B's
- * Uses picker; Suggest's catalog). A test-only connector's actions are held back as in the
- * builder's catalog.
- */
-// DECISION: area names are the owner areas' words, and `shared` is "Shared"; an area a pack
-// names that isn't listed shows its id with a capital.
-export async function actionCatalogFor(
-  ctx: Pick<HandlerCtx<never>, "tx" | "services">,
-  row: AgentRow,
-) {
-  const latest = await latestVersion(ctx.tx, row.id);
-  const { platform } = ctx.services;
-  const hidden = await hiddenTestConnectors(ctx.tx, row, latest?.bundle ?? null, platform);
-  const connectors = platform.connectors.list().filter((c) => !hidden.has(c.manifest.id));
-  // Step model E: what the operator turned off on a connector's page, and what the new model folded
-  // into another action, is left out; Web's actions sit under the Web connector.
-  const settings = await ctx.tx.select().from(connectorSetting);
-  const specs = catalogSpecs(
-    platform.tools,
-    Object.fromEntries(settings.map((r) => [r.connector, r.actions])),
-  );
-  const shown = specs.filter((spec) => {
-    const owner = platform.connectors.findTool(spec.id)?.connector.manifest.id;
-    return owner === undefined || !hidden.has(owner);
-  });
-  // Step model §10f: a record type's standard actions are typed with the client's custom fields
-  // (a template's with the shared ones), and offered as the agent's grants and data sets allow.
-  const records = await recordActionsFor(ctx.tx, platform.records, row.tenantId, latest?.bundle);
-  return steps.buildActionCatalog([...shown.filter((spec) => !spec.record), ...records], {
-    connectors: {
-      ...Object.fromEntries(connectors.map((c) => [c.manifest.id, connectorTitle(c.manifest)])),
-      ...Object.fromEntries(BUILTIN_CONNECTORS.map((b) => [b.id, b.name])),
-    },
-    areas: AREA_NAMES,
-  });
-}
 
 export function opsLineageRoutes(app: Hono<AppEnv>): void {
   mount(app, routes.opsRetire, async (ctx) => {

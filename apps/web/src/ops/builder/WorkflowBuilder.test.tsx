@@ -1181,8 +1181,8 @@ describe("WorkflowBuilder", () => {
     expect(await within(source).findByText("No transaction.created events yet")).toBeDisabled();
   });
 
-  it("adds a workflow and switches to it, keeping the other's edits", async () => {
-    setup();
+  it("adds a workflow as v5, saving it at once with the other's edits", async () => {
+    const { sent } = setup();
     await ready();
     const user = userEvent.setup();
     await user.click(screen.getByTestId("flow-box-read"));
@@ -1192,15 +1192,24 @@ describe("WorkflowBuilder", () => {
     expect(screen.getByTestId("builder-workflow-slug")).toHaveValue("weekly-digest");
     await user.selectOptions(screen.getByTestId("builder-workflow-trigger"), "schedule");
     await user.click(screen.getByTestId("builder-workflow-create"));
-    expect(await screen.findByTestId("builder-workflow-weekly-digest-select")).toHaveAttribute(
-      "aria-current",
-      "page",
-    );
-    expect(screen.getByTestId("flow-start")).toHaveTextContent("On a schedule");
-    expect(rootOrder()).toEqual([]);
-
-    await user.click(screen.getByTestId("builder-workflow-new-bill-select"));
-    await waitFor(() => expect(rootOrder()).toEqual(["find", "confidence", "update"]));
+    // A new workflow is in the step model, which opens from a saved version: saved at once, with
+    // the unsaved edit to the other workflow (the removed step) in the same version.
+    await waitFor(() => expect(sent.filter((s) => s.path === "save")).toHaveLength(1));
+    const body = sent.find((s) => s.path === "save")?.body as {
+      bundle: {
+        workflows: { slug: string; workflow: { schemaVersion: number; steps: { id: string }[] } }[];
+      };
+    };
+    const [main, added] = body.bundle.workflows;
+    expect(main?.slug).toBe("new-bill");
+    expect(main?.workflow.steps.map((x) => x.id)).toEqual(["find", "confidence", "update"]);
+    expect(added?.slug).toBe("weekly-digest");
+    expect(added?.workflow).toMatchObject({
+      schemaVersion: 5,
+      triggers: [{ on: { type: "schedule" } }],
+      outputs: [{ name: "Nothing to do", kind: "nothing" }],
+      steps: [{ kind: "end" }],
+    });
   });
 
   it("keeps the session's rolling draft on this device and restores it", async () => {

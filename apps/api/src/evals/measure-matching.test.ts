@@ -63,6 +63,22 @@ describe("measuring the Match settings", () => {
     expect(new Decimal(r.cost).gt(0)).toBe(true);
   });
 
+  it("judges an exact-only run on the Master items goldens without a wrong match", async () => {
+    // The key-attributes tier alone: the goldens' unlabelled equals are unjudged, never wrong.
+    const set = materialsSet();
+    const never: ProfileChooser = async () => {
+      throw new Error("no model here");
+    };
+    const r = await runSetting(set, { shortlist: 5, threshold: 90, floor: null }, () => ({
+      choose: never,
+      second: never,
+    }));
+    expect(r.matched).toBeGreaterThan(0);
+    expect(r.wrong).toBe(0);
+    expect(r.precision).toBe(1);
+    expect(r.details.some((d) => d.outcome === "unjudged")).toBe(true);
+  });
+
   it("recommends the most recall among settings at the precision target", () => {
     const base = {
       profile: "p",
@@ -71,6 +87,8 @@ describe("measuring the Match settings", () => {
       matched: 10,
       right: 10,
       wrong: 0,
+      unjudged: 0,
+      details: [],
       byModel: 0,
       rightByModel: 0,
       toPerson: 0,

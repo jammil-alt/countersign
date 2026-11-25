@@ -14,6 +14,7 @@ import type { AnyAgentBundle, ProcessAgentBundle } from "../schemas/agent";
 import { parseSkillRef } from "../schemas/common";
 import type { SkillDefinition } from "../schemas/skill";
 import type { ToolSpec } from "../schemas/tool";
+import { eachStep } from "../steps/walk";
 import type { TypingContext } from "../template/typer";
 import {
   SETUP_ITEMS_MAX,
@@ -111,6 +112,53 @@ export function draftWriteUses(
         if (t.sideEffect === "external") add(toolUse(t));
       }
     }
+  }
+  return [...out.values()];
+}
+
+/** The merged write actions of the step model, as the write action each stands for. */
+const STEP_MODEL_ACTIONS: Readonly<Record<string, WriteAction>> = {
+  "email.send": "send_email",
+  "sms.send": "send_text",
+  "accounting.bill.create": "create_bill",
+  "accounting.vendor.create": "create_vendor",
+};
+
+/**
+ * Step model (build item 9): where a v5 draft writes and what, as `draftWriteUses` says it for v4:
+ * each Do that uses an action that changes or sends, and each write output's action. A merged
+ * action (Accounting, Email) is one not resolved yet; any other is its tool's.
+ */
+export function stepModelWriteUses(
+  bundle: Pick<AnyAgentBundle, "workflows">,
+  tools: Readonly<Record<string, ToolSpec>>,
+): WriteUse[] {
+  const out = new Map<string, WriteUse>();
+  const add = (action: string) => {
+    const merged = STEP_MODEL_ACTIONS[action];
+    let u: WriteUse | null = null;
+    if (merged) {
+      const spec = ACTION_SPECS[merged];
+      const channel = "channel" in spec.from ? spec.from.channel : null;
+      u = {
+        connector: channel ?? "accounting",
+        known: false,
+        key: merged.replace(/_/g, "-"),
+        what: ACTION_WHAT[merged],
+        send: channel !== null,
+      };
+    } else {
+      const t = Object.hasOwn(tools, action) ? tools[action] : undefined;
+      if (t?.sideEffect === "external") u = toolUse(t);
+    }
+    if (u && !out.has(`${u.connector}|${u.key}`)) out.set(`${u.connector}|${u.key}`, u);
+  };
+  for (const w of bundle.workflows) {
+    if (w.workflow.schemaVersion !== 5) continue;
+    eachStep(w.workflow.steps, ({ step }) => {
+      if (step.kind === "do" && step.uses?.type === "action") add(step.uses.action);
+    });
+    for (const o of w.workflow.outputs) if (o.action) add(o.action.action);
   }
   return [...out.values()];
 }

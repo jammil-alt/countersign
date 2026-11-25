@@ -916,6 +916,9 @@ describe.skipIf(!h)("notifications, the Table and the Weekly Table", () => {
       ];
       expect(sent.length).toBeGreaterThan(10);
       for (const body of sent) {
+        // The words, not the links: a link carries a random id, and "4471" is a run of hex digits
+        // that an id holds now and then (CI, 2026-11-25: ...ec944713). Links are checked below.
+        const words = body.replace(/https?:\/\/[^\s"<]+/g, "");
         for (const field of [
           VENDOR,
           "Acme",
@@ -926,7 +929,7 @@ describe.skipIf(!h)("notifications, the Table and the Weekly Table", () => {
           NOTE,
           "Switch supplier",
         ]) {
-          expect(body, body).not.toContain(field);
+          expect(words, body).not.toContain(field);
         }
         // One link, to this app.
         const links = body.match(/https?:\/\/[^\s"<]+/g) ?? [];
