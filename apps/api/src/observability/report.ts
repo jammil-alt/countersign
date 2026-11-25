@@ -29,7 +29,10 @@ export function reportHandled(what: string, error: unknown, tags: ReportTags = {
  * but not an error, so one drop pages no one (`isDatabaseDrop`, Sentry MEZONAS-API-3, -A, -B).
  */
 export function reportDrop(what: string, error: unknown, tags: ReportTags = {}): void {
-  if (isClientLocked(error)) return reportHandled(what, error, tags);
+  if (isClientLocked(error)) {
+    reportHandled(what, error, tags);
+    return;
+  }
   console.warn(what, error);
   captureException(error, {
     level: "warning",

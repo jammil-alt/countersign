@@ -50,7 +50,6 @@ import { collectRoutes } from "./collect";
 // v0.12 W2-F: the command center, search and plain-words questions
 import { commandCenterRoutes } from "./command-center";
 import { complianceRoutes } from "./compliance";
-import { lockdownRoutes } from "./lockdown";
 // v0.12 W2-A: the connectors catalog
 import { connectorRoutes } from "./connectors";
 import { defineRoute } from "./contract";
@@ -83,6 +82,7 @@ import { ledgerRoutes } from "./ledger";
 // R8: the Library's banks
 import { libraryRoutes } from "./library";
 import { GoLive, lifecycleRoutes } from "./lifecycle";
+import { lockdownRoutes } from "./lockdown";
 import { matchRuleRoutes } from "./match-rules";
 import { messagingRoutes } from "./messaging";
 // §1.116: the phone app
