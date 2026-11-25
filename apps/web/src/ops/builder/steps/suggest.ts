@@ -65,3 +65,31 @@ export function readSuggestion(answer: Answer, fallback: Step): Suggestion {
     applied: answer.applied,
   };
 }
+
+/**
+ * Why a suggestion can't be applied, in plain words, or null when it can. Suggest is held to the
+ * same rules as a person (§5): it never changes a step's id or kind, and never loosens an approval
+ * (invariant 8): an approver that was on stays on, as `required`, with no condition that skips it.
+ */
+export function refuseSuggestion(before: Step, after: Step): string | null {
+  if (before.id !== after.id || before.kind !== after.kind) {
+    return "That suggestion would change which step this is, so it wasn't applied.";
+  }
+  const was = before.checks?.approval;
+  const now = after.checks?.approval;
+  if (was && (!now || now.required !== "required" || now.when !== undefined)) {
+    return "That suggestion would loosen an approval, so it wasn't applied.";
+  }
+  if (!was && now && (now.required !== "required" || now.when !== undefined)) {
+    return "That suggestion would add an approval that doesn't always ask, so it wasn't applied.";
+  }
+  return null;
+}
+
+/** The server's answer, unless it breaks a rule: then nothing is applied and the pop-up says why. */
+export function guardedSuggestion(answer: Answer, before: Step): Suggestion {
+  const read = readSuggestion(answer, before);
+  if (!read.applied) return read;
+  const refused = refuseSuggestion(before, read.step);
+  return refused ? { step: before, summary: refused, applied: false } : read;
+}

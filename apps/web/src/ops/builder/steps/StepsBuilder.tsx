@@ -46,7 +46,7 @@ import {
 import { OutputsEditor } from "./OutputsEditor";
 import { StepEditor } from "./StepEditor";
 import { statusesFor, stepCounts } from "./status";
-import { readSuggestion, type SuggestFn, suggestBody } from "./suggest";
+import { guardedSuggestion, type SuggestFn, suggestBody } from "./suggest";
 import type { Step, StepKind, Workflow } from "./types";
 
 export interface StepsBuilderProps {
@@ -196,7 +196,7 @@ function Body(
         body: suggestBody(workflow, request),
       });
       if (!res.ok) throw new Error("suggest failed");
-      return readSuggestion(res.data, request.step);
+      return guardedSuggestion(res.data, request.step);
     },
     [agent.id, workflow],
   );
