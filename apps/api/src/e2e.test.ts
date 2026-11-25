@@ -47,8 +47,7 @@ import {
   stepRun,
   transaction,
 } from "@countersign/db";
-// Until the executor runs the step model: the agents as seeded before it (wave 4 deletes them).
-import { loadSeedTemplates, SEED_DIR_BEFORE_STEP_MODEL } from "@countersign/db/seed";
+import { loadSeedTemplates } from "@countersign/db/seed";
 import { FakeModel } from "@countersign/llm";
 import { DEFAULT_FIXTURE_DIR } from "@countersign/llm/node";
 import { and, eq, isNull, sql } from "drizzle-orm";
@@ -326,9 +325,7 @@ describe.skipIf(!h)("end to end: the managed service, through the API", () => {
   });
 
   it("the operator installs the seeded Bill clerk template and forks it into the client", async () => {
-    const seeded = (await loadSeedTemplates(SEED_DIR_BEFORE_STEP_MODEL)).find(
-      (t) => t.slug === "bill-clerk",
-    );
+    const seeded = (await loadSeedTemplates()).find((t) => t.slug === "bill-clerk");
     if (!seeded) throw new Error("no bill-clerk seed");
     instructions = seeded.bundle.definition.instructions;
     const tpl = await ok(OPERATOR, "POST", "/api/ops/templates", {
@@ -477,7 +474,7 @@ describe.skipIf(!h)("end to end: the managed service, through the API", () => {
     );
     expect(e).toBeDefined();
     const { runId, result } = await testRun(ids.clerkV1, e.payload);
-    expect(result).toEqual({ status: "succeeded" });
+    expect(result).toMatchObject({ status: "succeeded" });
     const run = await ok(OPERATOR, "GET", `/api/ops/runs/${runId}`);
     expect(run.run.mode).toBe("test");
     expect(run.actions).toEqual([]);
@@ -572,7 +569,7 @@ describe.skipIf(!h)("end to end: the managed service, through the API", () => {
     });
     expect(
       await executeRun(runDeps(mapModel(ids.document)), params, cloudflareStepRunner(step)),
-    ).toEqual({ status: "succeeded" });
+    ).toMatchObject({ status: "succeeded" });
 
     // Three cards, each named as the client knows the record, with the tool's display.
     expect(cards.map((c) => c.item.payload.tool)).toEqual([
@@ -837,7 +834,7 @@ describe.skipIf(!h)("end to end: the managed service, through the API", () => {
     );
     const { runId, result } = await testRun(merged.version.id, e.payload);
     // The bill is already done: the run says so, proposes nothing, and calls no model.
-    expect(result).toEqual({ status: "succeeded" });
+    expect(result).toMatchObject({ status: "succeeded" });
     const run = await ok(OPERATOR, "GET", `/api/ops/runs/${runId}`);
     expect(run.actions).toEqual([]);
     expect(run.steps.map((s: { nodeId: string }) => s.nodeId)).toContain("nothing");
@@ -906,7 +903,7 @@ describe.skipIf(!h)("end to end: the managed service, through the API", () => {
       await ok(OWNER, "POST", `/api/inbox/${item.id}/resolve`, { decision: "approve" });
       return H.instances.events.find((x) => x.event.type === type)?.event.payload;
     });
-    expect(await executeRun(runDeps(), params, cloudflareStepRunner(step))).toEqual({
+    expect(await executeRun(runDeps(), params, cloudflareStepRunner(step))).toMatchObject({
       status: "succeeded",
     });
     expect(asked.length).toBeGreaterThan(0);
@@ -947,7 +944,8 @@ describe.skipIf(!h)("end to end: the managed service, through the API", () => {
         },
         steps: [
           {
-            id: "vendor",
+            // Not "vendor": the Bill clerk's own vendor Match has that id, and ids are the bundle's.
+            id: "vendor-lookup",
             kind: "skill",
             name: "Find the vendor",
             skill: FIND_VENDOR.id,
@@ -991,14 +989,14 @@ describe.skipIf(!h)("end to end: the managed service, through the API", () => {
     ]);
     expect(
       await executeRun(runDeps(model), params, cloudflareStepRunner(new FakeWorkflowStep())),
-    ).toEqual({ status: "succeeded" });
+    ).toMatchObject({ status: "succeeded" });
     expect(model.remaining).toBe(0);
 
     // One decision, in the back office with its note, input change, model and cost.
     const run = await ok(OPERATOR, "GET", `/api/ops/runs/${ids.vendorRun}`);
     expect(run.oversight).toEqual([
       expect.objectContaining({
-        nodeId: "vendor",
+        nodeId: "vendor-lookup",
         seq: 1,
         cause: "failed",
         action: "retry_with",

@@ -342,12 +342,26 @@ describe.skipIf(!h)("the Bill clerk", () => {
     expect(fork.status, JSON.stringify(fork.json)).toBe(200);
     clerkId = j(fork.json).agent.id;
     clerkVersion = j(fork.json).version.id;
-    // TODO(#690): before QuickBooks is bound (connection_missing), and while its bill updates are
-    // off (entity_off), publishing is refused; those checks come back when #690 is on main.
+    // Without QuickBooks bound, the writes have no connection: it can't publish.
+    const early = await H.call(
+      OPERATOR,
+      "POST",
+      `/api/ops/agents/${clerkId}/versions/${clerkVersion}/publish`,
+    );
+    expect(early.status).toBe(422);
+    expect(JSON.stringify(early.json)).toContain("connection_missing");
     const bound = await H.call(OPERATOR, "PATCH", `/api/ops/agents/${clerkId}/operation`, {
       bindings: { qbo: connectionId },
     });
     expect(bound.status, JSON.stringify(bound.json)).toBe(200);
+    // Bound, but QuickBooks started low risk: its bill updates are off until the client allows.
+    const held = await H.call(
+      OPERATOR,
+      "POST",
+      `/api/ops/agents/${clerkId}/versions/${clerkVersion}/publish`,
+    );
+    expect(held.status).toBe(422);
+    expect(JSON.stringify(held.json)).toContain("entity_off");
     // Connectors C4: the client admin allows what the clerk needs, asking first.
     await allowForAgent(H, admin("a"), connectionId, clerkId);
     const pub = await H.call(
