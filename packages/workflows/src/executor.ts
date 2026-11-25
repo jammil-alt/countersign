@@ -423,6 +423,27 @@ function verdictsOf(entries: readonly ConferEntry[] | undefined): processes.Conf
 /** Who an approver without a `who` is: the client's admin, as the gate's default asks. */
 const DEFAULT_APPROVER = "client_admin";
 
+/** A Match's unsure question with nobody named: the client admin, seven days, then left unsure. */
+const MATCH_ASK_DEADLINE: processes.Deadline = {
+  after: "7 days",
+  hours: "clock",
+  ifNoAnswer: "skip",
+};
+
+/**
+ * Who a Match step's unsure items are asked of, and by when: the first person its confer names
+ * (seats already filled), else the client admin (`Executor.matchAsk`).
+ */
+function matchAsker(step: Pick<processes.Step, "checks">): {
+  who: string;
+  deadline: processes.Deadline;
+} {
+  for (const c of step.checks?.confer?.with ?? []) {
+    if ("person" in c) return { who: c.person, deadline: c.deadline };
+  }
+  return { who: DEFAULT_APPROVER, deadline: MATCH_ASK_DEADLINE };
+}
+
 /** Asks one more person (an approver, an escalation): creates the item, says how long to wait. */
 type Asker = (
   base: string,
@@ -4841,7 +4862,8 @@ class Executor {
    * Tell after checks are sent as any step's.
    */
   // DECISION (wave 1): no confer or owner review on a Match: its second opinion is the profile's
-  // own (`secondOpinion`), which the engine asks per item.
+  // own (`secondOpinion`), which the engine asks per item. Stream P: the person a confer names is
+  // who that second look's unsure items are asked of (`matchAsk`).
   async match(
     v5: steps.DoStep,
     settings: steps.MatchSettings,
@@ -4899,7 +4921,7 @@ class Executor {
     }
     let output: MatchResult = ended.output;
     if (output.items.some((i) => i.unsure)) {
-      output = await this.matchAsk(v5, settings, ended, name, frame);
+      output = await this.matchAsk(v5, settings, ended, step, name, frame);
       const final = withSources(output, ended.notes);
       await this.runner.do(`${name}:done`, async () => {
         await log.update(ended.stepRunId, {
@@ -4925,16 +4947,24 @@ class Executor {
    * shortlist it is, or none of them. An answer naming a record matches the item (`how: person`)
    * and is learned; "none" leaves it unmatched; no answer in time leaves it unsure.
    */
-  // DECISION (wave 1): the client's admin is asked (a Match names no person), with seven days to
-  // answer and the item left unsure when nobody does; at most five records are offered, with
-  // "None of these", whatever the person shortlist says beyond that.
+  // DECISION (wave 1): with no one named, the client's admin is asked, with seven days to answer
+  // and the item left unsure when nobody does; at most five records are offered, with "None of
+  // these", whatever the person shortlist says beyond that.
+  // DECISION (stream P): who is asked is the first person the Match step's confer names
+  // (`checks.confer.with[].person`, a person or a `seat:<role>`), with that reviewer's deadline: a
+  // Match's second look by a person is its unsure question, so the frozen v5 format needs no new
+  // field. The seat is validated as one that answers and filled by `fillSeats` (an empty seat falls
+  // back to the client admin) before the run, so `step` (the engine's, filled) is read, not `v5`.
+  // The confer's and the reviewer's `when` aren't read here: an unsure item is always asked.
   async matchAsk(
     v5: steps.DoStep,
     settings: steps.MatchSettings,
     ended: { output: MatchResult; notes?: MatchNote[] | undefined; profileName?: string },
+    step: processes.Step,
     name: string,
     frame: Frame,
   ): Promise<MatchResult> {
+    const asker = matchAsker(step);
     const items = ended.output.items.map((i) => ({ ...i }));
     for (const [index, item] of items.entries()) {
       if (!item.unsure) continue;
@@ -4949,10 +4979,10 @@ class Executor {
         name: v5.name,
         kind: "person",
         mode: "ask",
-        assignee: DEFAULT_APPROVER,
+        assignee: asker.who,
         title: `${ended.profileName ?? v5.name}: which one is ${itemText(item.item)}?`,
         payload: { item: item.item, candidates: choices.slice(0, -1) },
-        deadline: { after: "7 days", hours: "clock", ifNoAnswer: "skip" },
+        deadline: asker.deadline,
         channel: "inbox",
         onReject: "continue",
         choices,
