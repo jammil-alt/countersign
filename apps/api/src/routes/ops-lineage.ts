@@ -297,6 +297,39 @@ function skillOption(
 }
 
 /**
+ * The action catalog the Uses picker offers for an agent (or, for the Builder, an agent not yet
+ * saved: its client and no bundle): by connector and by area, from the registered tools. A
+ * test-only connector's actions are held back as in the builder's catalog.
+ */
+// Step model E: what the operator turned off on a connector's page, and what the new model folded
+// into another action, is left out; Web's actions sit under the Web connector.
+export async function actionCatalogFor(
+  ctx: Pick<HandlerCtx<never>, "tx" | "services">,
+  row: Pick<AgentRow, "tenantId" | "testCopy">,
+  bundle: unknown,
+): Promise<steps.CatalogGroup[]> {
+  const { platform } = ctx.services;
+  const hidden = await hiddenTestConnectors(ctx.tx, row, bundle, platform);
+  const connectors = platform.connectors.list().filter((c) => !hidden.has(c.manifest.id));
+  const settings = await ctx.tx.select().from(connectorSetting);
+  const specs = catalogSpecs(
+    platform.tools,
+    Object.fromEntries(settings.map((r) => [r.connector, r.actions])),
+  );
+  const shown = specs.filter((spec) => {
+    const owner = platform.connectors.findTool(spec.id)?.connector.manifest.id;
+    return owner === undefined || !hidden.has(owner);
+  });
+  return steps.buildActionCatalog(shown, {
+    connectors: {
+      ...Object.fromEntries(connectors.map((c) => [c.manifest.id, connectorTitle(c.manifest)])),
+      ...Object.fromEntries(BUILTIN_CONNECTORS.map((b) => [b.id, b.name])),
+    },
+    areas: AREA_NAMES,
+  });
+}
+
+/**
  * The test-only connectors (the testkit) an agent's builder doesn't offer: all of them, unless the
  * agent is in the Sandbox client or a template's test copy, or its client has a connection to it,
  * or its latest version already names one of its tools.
@@ -613,29 +646,7 @@ export function opsLineageRoutes(app: Hono<AppEnv>): void {
   mount(app, routes.opsActionCatalog, async (ctx) => {
     const row = await agentInScope(ctx, ctx.params.id);
     const latest = await latestVersion(ctx.tx, row.id);
-    const { platform } = ctx.services;
-    const hidden = await hiddenTestConnectors(ctx.tx, row, latest?.bundle ?? null, platform);
-    const connectors = platform.connectors.list().filter((c) => !hidden.has(c.manifest.id));
-    // Step model E: what the operator turned off on a connector's page, and what the new model folded
-    // into another action, is left out; Web's actions sit under the Web connector.
-    const settings = await ctx.tx.select().from(connectorSetting);
-    const specs = catalogSpecs(
-      platform.tools,
-      Object.fromEntries(settings.map((r) => [r.connector, r.actions])),
-    );
-    const shown = specs.filter((spec) => {
-      const owner = platform.connectors.findTool(spec.id)?.connector.manifest.id;
-      return owner === undefined || !hidden.has(owner);
-    });
-    return {
-      groups: steps.buildActionCatalog(shown, {
-        connectors: {
-          ...Object.fromEntries(connectors.map((c) => [c.manifest.id, connectorTitle(c.manifest)])),
-          ...Object.fromEntries(BUILTIN_CONNECTORS.map((b) => [b.id, b.name])),
-        },
-        areas: AREA_NAMES,
-      }),
-    };
+    return { groups: await actionCatalogFor(ctx, row, latest?.bundle ?? null) };
   });
 
   // Step model (docs/step-model-plan.md §5, "Suggest"): the call's shape is fixed in wave 1 and

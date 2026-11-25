@@ -14,6 +14,7 @@ import { FakeModel, type LlmRequest } from "@countersign/llm";
 import { and, eq, isNull } from "drizzle-orm";
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import { type ApiHarness, createApiHarness, OPERATOR } from "./api.test-helper";
+import { stepModelAnswer } from "./builder-v5.test-helper";
 
 // biome-ignore lint/suspicious/noExplicitAny: response bodies are read loosely in tests.
 const j = (v: unknown) => v as any;
@@ -201,30 +202,32 @@ describe.skipIf(!h)("new steps in a first version", () => {
   });
 
   it("leaves skills that write and the splits' hidden AI out of what the Builder is offered", async () => {
-    model.push({
-      toolUse: {
-        name: "submit_draft",
-        input: {
-          summary: "It reads a vendor's quote and extracts the document.",
-          gaps: [],
-          slug: "builder-reader",
-          startFromTemplate: null,
-          bundle: bundleOf(
-            [
-              READ_QUOTE_STEP,
-              {
-                id: "extract",
-                kind: "write",
-                name: "Extract the quote document",
-                tool: "docs.extract",
-                input: { documentId: "{{trigger.documentId}}" },
-              },
-            ],
-            ["materials.read-quote"],
-          ),
+    model.push(
+      stepModelAnswer({
+        toolUse: {
+          name: "submit_draft",
+          input: {
+            summary: "It reads a vendor's quote and extracts the document.",
+            gaps: [],
+            slug: "builder-reader",
+            startFromTemplate: null,
+            bundle: bundleOf(
+              [
+                READ_QUOTE_STEP,
+                {
+                  id: "extract",
+                  kind: "write",
+                  name: "Extract the quote document",
+                  tool: "docs.extract",
+                  input: { documentId: "{{trigger.documentId}}" },
+                },
+              ],
+              ["materials.read-quote"],
+            ),
+          },
         },
-      },
-    });
+      }),
+    );
     const res = await H.call(OPERATOR, "POST", "/api/ops/agents/draft", {
       description: "Read vendors' quotes",
       clientId: H.A.tenantId,

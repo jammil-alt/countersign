@@ -1216,6 +1216,43 @@ const BuilderOutcome = z.object({
   costUsd: z.string().nullable(),
 });
 
+/**
+ * Step model (build item 9): what the Builder offers beside a v5 draft, never does by itself:
+ * Save as skill where another agent of the client (or a template) writes the same instructions,
+ * and the Loop designer for each Loop written in the step (it is tested there before publishing).
+ */
+const BuilderOffers = {
+  saveAsSkill: z
+    .array(
+      z.object({
+        workflow: z.string(),
+        stepId: z.string(),
+        stepName: z.string(),
+        doneBy: z.enum(["rules", "ai"]),
+        alsoIn: z.array(
+          z.object({
+            agent: z.object({ slug: z.string(), name: z.string(), template: z.boolean() }),
+            stepId: z.string(),
+            stepName: z.string(),
+          }),
+        ),
+        text: z.string(),
+      }),
+    )
+    .optional(),
+  /** Each Loop's form as the Loop designer takes it (`location.state.loop`). */
+  loops: z
+    .array(
+      z.object({
+        workflow: z.string(),
+        stepId: z.string(),
+        loop: z.record(z.string(), z.unknown()),
+        text: z.string(),
+      }),
+    )
+    .optional(),
+};
+
 // ── Routes ───────────────────────────────────────────────────────────────────────────────────────
 
 const OPS = ["operator"] as const;
@@ -2229,6 +2266,7 @@ export const opsRoutes = {
        * Builder said stands for it, or null.
        */
       gapSteps: z.array(z.string().nullable()).optional(),
+      ...BuilderOffers,
     }),
   }),
   opsReviseAgent: defineRoute({
@@ -2256,6 +2294,7 @@ export const opsRoutes = {
       changeClass: z
         .object({ class: z.enum(["none", "process", "never"]), reasons: z.array(z.string()) })
         .optional(),
+      ...BuilderOffers,
     }),
   }),
   opsDiscardAgent: defineRoute({

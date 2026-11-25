@@ -334,6 +334,8 @@ export async function ask<
     shorter?: string;
     /** Error codes left out of a repair round (default `OPERATOR_FIXES`). */
     operatorFixes?: ReadonlySet<string>;
+    /** Errors left out of a repair round besides those codes (a v5 "Not built yet" step). */
+    operatorFix?: (e: ValidationError) => boolean;
     /** Two rounds: the parts shown in full; a repair round shows the others it used in full. */
     shown?: ReadonlySet<string> | null;
     /** Validation of a guarded bundle (default `options.validate`, which reads v4). */
@@ -427,7 +429,10 @@ export async function ask<
     const errors = await validate(guarded.bundle);
     const notRepaired = input.operatorFixes ?? OPERATOR_FIXES;
     const fixable = errors.filter(
-      (e) => !notRepaired.has(e.code) && !(input.known?.has(errorKey(e)) ?? false),
+      (e) =>
+        !notRepaired.has(e.code) &&
+        !(input.operatorFix?.(e) ?? false) &&
+        !(input.known?.has(errorKey(e)) ?? false),
     );
     const asked = guarded.fix ?? [];
     if ((fixable.length > 0 || asked.length > 0) && repairs > 0) {

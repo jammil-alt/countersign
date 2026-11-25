@@ -14,6 +14,7 @@ import { FakeModel, type LlmRequest } from "@countersign/llm";
 import { eq } from "drizzle-orm";
 import { afterAll, describe, expect, it } from "vitest";
 import { createApiHarness, OPERATOR, OTHER_OPERATOR, testBundle } from "./api.test-helper";
+import { stepModelAnswer } from "./builder-v5.test-helper";
 
 const model = new FakeModel();
 const h = await createApiHarness({ llm: model });
@@ -56,7 +57,7 @@ function edits(text: string, fn: (b: Draft) => void) {
   return (req: LlmRequest) => {
     const b = structuredClone(shown(req)) as unknown as Draft;
     fn(b);
-    return { toolUse: { name: "submit_turn", input: { text, bundle: b } } };
+    return stepModelAnswer({ toolUse: { name: "submit_turn", input: { text, bundle: b } } });
   };
 }
 

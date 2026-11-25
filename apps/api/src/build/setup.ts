@@ -16,6 +16,8 @@ import {
   type SetupItem,
   type SkillDefinition,
   settingForDecision,
+  stepModelWriteUses,
+  steps,
   toProcessBundle,
 } from "@countersign/core";
 import type { Services } from "../http";
@@ -32,9 +34,11 @@ export function draftSetupItems(
   const { platform } = services;
   let bundle: ReturnType<typeof toProcessBundle>;
   try {
+    // Step model (build item 9): v5 workflows are read apart (`stepModelWriteUses`).
     bundle = toProcessBundle(
       AnyAgentBundle.parse(stored),
       convertLookup(platform.catalog, platform.tools),
+      { stepModel: "skip" },
     );
   } catch {
     return null;
@@ -47,6 +51,11 @@ export function draftSetupItems(
     if (def) skills[ref] = def;
   };
   for (const s of bundle.definition.skills) addSkill(s.skill);
+  for (const ref of AnyAgentBundle.parse(stored).workflows.flatMap((w) =>
+    w.workflow.schemaVersion === 5 ? steps.stepModelSkills(w.workflow) : [],
+  )) {
+    addSkill(ref);
+  }
   for (const w of bundle.workflows) {
     for (const { step } of processes.allSteps(w.workflow)) {
       if (step.kind === "skill") addSkill(step.skill);
@@ -56,7 +65,10 @@ export function draftSetupItems(
   return buildSetupItems({
     form: fitgap.setup,
     decisions: fitgap.decisions,
-    writes: draftWriteUses(bundle, { tools, skills }),
+    writes: [
+      ...draftWriteUses(bundle, { tools, skills }),
+      ...stepModelWriteUses(AnyAgentBundle.parse(stored), tools),
+    ],
     connectors: platform.connectors.list().map((c) => ({
       id: c.manifest.id,
       name: c.manifest.name,

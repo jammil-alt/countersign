@@ -11,6 +11,7 @@ import { FakeModel, type LlmRequest } from "@countersign/llm";
 import { eq } from "drizzle-orm";
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import { createApiHarness, OPERATOR, OTHER_OPERATOR, testBundle } from "./api.test-helper";
+import { stepModelAnswer } from "./builder-v5.test-helper";
 
 const model = new FakeModel();
 const h = await createApiHarness({ llm: model });
@@ -298,7 +299,7 @@ describe.skipIf(!h)("the Builder", () => {
   });
 
   it("drafts a template for card charges, with gaps and approval on", async () => {
-    model.push({ toolUse: { name: "submit_draft", input: cardChargesAnswer() } });
+    model.push(stepModelAnswer({ toolUse: { name: "submit_draft", input: cardChargesAnswer() } }));
     const res = await H.call(OPERATOR, "POST", "/api/ops/agents/draft", {
       description: "Flag card charges over $500 missing receipts",
     });
@@ -338,7 +339,7 @@ describe.skipIf(!h)("the Builder", () => {
   });
 
   it("drafts a client agent with what that client has connected", async () => {
-    model.push({ toolUse: { name: "submit_draft", input: cardChargesAnswer() } });
+    model.push(stepModelAnswer({ toolUse: { name: "submit_draft", input: cardChargesAnswer() } }));
     const res = await H.call(OPERATOR, "POST", "/api/ops/agents/draft", {
       description: "Flag card charges over $500 missing receipts",
       clientId: H.A.tenantId,
@@ -434,7 +435,7 @@ describe.skipIf(!h)("the Builder", () => {
         },
         ...wf.steps.slice(1),
       ];
-      return {
+      return stepModelAnswer({
         toolUse: {
           name: "submit_revision",
           input: {
@@ -444,7 +445,7 @@ describe.skipIf(!h)("the Builder", () => {
             bundle: revised,
           },
         },
-      };
+      });
     });
     const res = await H.call(OPERATOR, "POST", `/api/ops/agents/${agentId}/revise`, {
       instruction: "For this client, skip the approval for invoices under $200",
@@ -501,7 +502,7 @@ describe.skipIf(!h)("the Builder", () => {
       const changed = structuredClone(shownSource(req));
       const note = changed.workflows[0]?.workflow.steps[2];
       if (note?.kind === "notify") note.notify.message = "Record checked";
-      return {
+      return stepModelAnswer({
         toolUse: {
           name: "submit_revision",
           input: {
@@ -511,7 +512,7 @@ describe.skipIf(!h)("the Builder", () => {
             bundle: changed,
           },
         },
-      };
+      });
     });
     const res = await H.call(OPERATOR, "POST", `/api/ops/agents/${agentId}/revise`, {
       requestId: item?.id,
@@ -530,7 +531,7 @@ describe.skipIf(!h)("discarding drafts", () => {
   const H = h as NonNullable<typeof h>;
 
   it("discards an unwanted Builder draft, keeps it out of lists, and restores it", async () => {
-    model.push({ toolUse: { name: "submit_draft", input: cardChargesAnswer() } });
+    model.push(stepModelAnswer({ toolUse: { name: "submit_draft", input: cardChargesAnswer() } }));
     const drafted = await H.call(OPERATOR, "POST", "/api/ops/agents/draft", {
       description: "Flag card charges over $500 missing receipts",
       name: "Unwanted draft",
@@ -559,7 +560,7 @@ describe.skipIf(!h)("discarding drafts", () => {
       versions: [{ id: version.id }],
     });
     // The slug stays taken: the next draft of the same name gets another.
-    model.push({ toolUse: { name: "submit_draft", input: cardChargesAnswer() } });
+    model.push(stepModelAnswer({ toolUse: { name: "submit_draft", input: cardChargesAnswer() } }));
     const again = await H.call(OPERATOR, "POST", "/api/ops/agents/draft", {
       description: "x",
       name: "Unwanted draft",

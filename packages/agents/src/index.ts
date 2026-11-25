@@ -25,6 +25,7 @@ export * from "./builder/shortlist";
 export * from "./builder/skill-draft";
 export * from "./builder/step-model/answer";
 export * from "./builder/step-model/catalog";
+export * from "./builder/step-model/conversation";
 export * from "./builder/step-model/draft";
 export * from "./builder/step-model/guards";
 export * from "./builder/step-model/rules";
