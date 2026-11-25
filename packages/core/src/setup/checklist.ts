@@ -12,7 +12,6 @@ import { parseSkillRef } from "../schemas/common";
 import type { SkillDefinition } from "../schemas/skill";
 import type { ToolSpec } from "../schemas/tool";
 import { eachStep } from "../steps/walk";
-import type { TypingContext } from "../template/typer";
 import {
   SETUP_ITEMS_MAX,
   SETUP_SETTING_TYPES,

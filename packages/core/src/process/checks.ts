@@ -1,31 +1,17 @@
-import type { z } from "zod";
 import { modelProvider } from "../api/models";
 // P-4
-import { CONVERSE_SKILL, converseProblems } from "../converse";
+import { CONVERSE_SKILL } from "../converse";
 import { localizedVersions } from "../i18n/locale";
-import { isUuid } from "../ids";
 import { isPlainObject } from "../json";
-// v0.12 W2-G
-import { validateClientView } from "../kpi/validate";
-import { levelFor } from "../permissions/decide";
 // v0.14 W4-B
 import { type EntityGrant, entityOffBy, publishEntity } from "../permissions/entities";
 import { compileRule, RuleCompileError } from "../rules/compile";
-import {
-  type AgentBundle,
-  AgentBundle as AgentBundleSchema,
-  type AgentDefinition,
-} from "../schemas/agent";
-import {
-  type AutomationDefinition,
-  AutomationDefinition as AutomationDefinitionSchema,
-} from "../schemas/automation";
+import type { AgentDefinition } from "../schemas/agent";
 import type { JsonSchema } from "../schemas/common";
-import { parseSkillRef } from "../schemas/common";
 import type { PermissionEntity, PermissionMatrix, Verb } from "../schemas/permissions";
 import type { Rules } from "../schemas/rules";
 import { type SkillDefinition, skillTools } from "../schemas/skill";
-import { isAlwaysSigned, type ToolSpec } from "../schemas/tool";
+import type { ToolSpec } from "../schemas/tool";
 import type { Trigger } from "../schemas/workflow";
 // Skill model (2026-11-10): parameters and models per agent per skill.
 import { parameterValueProblems } from "../skills/parameters";
@@ -36,11 +22,8 @@ import {
   type PathType,
   schemaTypes,
   type TypingContext,
-  triggerOnSchema,
   typesCompatible,
 } from "../template/typer";
-import { allTriggers } from "../triggers/kinds";
-import { walkSteps } from "./walk";
 
 /**
  * Workflow validation (ARCHITECTURE §10.2), shared by the builder (in the browser, on every

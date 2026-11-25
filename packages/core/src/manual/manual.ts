@@ -21,7 +21,6 @@ import {
   DecisionStatus,
 } from "../build/build";
 import { type Step as ProcessStep, SELF_AGENT } from "../process/schema";
-import { walkSteps } from "../process/walk";
 import type { Step as StepModelStep } from "../steps/schema";
 import { eachStep } from "../steps/walk";
 

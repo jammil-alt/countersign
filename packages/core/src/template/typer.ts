@@ -1,6 +1,5 @@
 // P-4
 
-import { typedResultOutput } from "../converse";
 import { isPlainObject } from "../json";
 import { REPORT_TRIGGER_SCHEMA } from "../process/collect";
 import type { AutomationDefinition } from "../schemas/automation";
@@ -10,9 +9,8 @@ import type { EventTypeSpec } from "../schemas/event";
 import type { SkillDefinition } from "../schemas/skill";
 import type { ToolInputVariants, ToolSpec } from "../schemas/tool";
 import type { TriggerOn } from "../schemas/workflow";
-import { allTriggers, HANDOFF_PAYLOAD, MESSAGE_PAYLOAD } from "../triggers/kinds";
+import { HANDOFF_PAYLOAD, MESSAGE_PAYLOAD } from "../triggers/kinds";
 import { webhookPayloadWithData } from "../triggers/sample";
-import { mergeTriggerSchemas } from "../triggers/typing";
 import { singleRef } from "./template";
 
 /**

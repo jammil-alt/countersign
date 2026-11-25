@@ -1,23 +1,10 @@
 import { z } from "zod";
-import { Duration } from "../duration";
 import { LocalizedString, localizedText } from "../i18n/locale";
-// v0.13 W2-I
-import { StepReview } from "../oversight/decision";
 // v0.12 W2-E: who may start a message trigger.
 import { PeopleFilter } from "../triggers/people";
 import { WebhookDataSchema } from "../triggers/sample";
-import { Approval } from "./approval";
-import {
-  JsonSchema,
-  NodeId,
-  SkillRef,
-  Slug,
-  TemplateObject,
-  TemplateString,
-  ToolId,
-} from "./common";
+import { JsonSchema, NodeId, Slug, TemplateObject, TemplateString } from "./common";
 import { Rules } from "./rules";
-import { ModelChoice } from "./skill";
 
 /** Where a step shows in the client's run timeline (ARCHITECTURE §10.6). */
 export const ClientVisibility = z.object({

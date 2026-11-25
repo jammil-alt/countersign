@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 import { AgentBundle, type AgentBundleInput } from "../schemas/agent";
 import type { ToolSpec } from "../schemas/tool";
 import type { TypingContext } from "../template/typer";
-import { validateBundle } from "./bundle";
 import { validateBundle } from "./checks";
 import { processPathsAt } from "./paths";
 
