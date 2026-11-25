@@ -30,7 +30,13 @@ import {
 } from "@countersign/core";
 import { holdsClientLiteral } from "../../registry/lineage";
 import type { BuilderContext } from "../context";
-import { DEFAULT_APPROVAL, guardDefinition, holdApproval, rewriteRefs } from "../guards";
+import {
+  DEFAULT_APPROVAL,
+  guardDefinition,
+  holdApproval,
+  replaceTemplates,
+  rewriteRefs,
+} from "../guards";
 import { StepAgentBundle } from "./answer";
 import { actionKinds, doSkills, offeredActions, skillDoneBy } from "./catalog";
 
@@ -250,7 +256,8 @@ const canonical = (v: unknown) => JSON.stringify(v ?? null);
 
 // ── Untrusted text stays data (invariant 9) ────────────────────────────────────────────────────
 
-const REF_IN_TEXT = /\{\{\s*([^{}]+?)\s*\}\}/g;
+/** Whether text holds a `{{reference}}` (`replaceTemplates` finds each, in linear time). */
+const holdsRef = (text: string) => text.includes("{{");
 
 /**
  * Text with its `{{references}}` moved into `input`: each becomes an input field (one that already
@@ -262,7 +269,11 @@ export function refsToInput(
 ): { text: string; input: Record<string, unknown>; moved: number } {
   let moved = 0;
   const next = { ...input };
-  const out = text.replace(REF_IN_TEXT, (_m, inner: string) => {
+  // DECISION (CodeQL js/polynomial-redos): `replaceTemplates`, the v4 guards' linear scan, not a
+  // regular expression over model text; the reference is trimmed here.
+  const out = replaceTemplates(text, (raw: string) => {
+    const inner = raw.trim();
+    if (!inner || inner.includes("{")) return `{{${raw}}}`;
     const ref = `{{${inner}}}`;
     // A Loop's or AI's own input is named as it is.
     if (inner.startsWith("input.")) return `the "${inner.slice(6)}" input`;
@@ -285,7 +296,20 @@ export function refsToInput(
 // ── A template holds nothing of one client (invariant 11) ──────────────────────────────────────
 
 const UUID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi;
-const EMAIL = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g;
+/**
+ * Text with every word that is an email address taken out: a word holding "@" with a dot after
+ * it. A word at a time, in linear time (CodeQL js/polynomial-redos: no open-ended regex over model
+ * text).
+ */
+function withoutEmails(text: string): string {
+  return text
+    .split(" ")
+    .filter((word) => {
+      const at = word.indexOf("@");
+      return !(at > 0 && word.indexOf(".", at + 2) > at);
+    })
+    .join(" ");
+}
 // The phone numbers `holdsClientLiteral` counts: E.164, (555) 123-4567 and 1-555-123-4567; a bare
 // 555-123-4567 is a part or account number as often as a phone number.
 const PHONE =
@@ -300,7 +324,7 @@ function scrubText(text: string): string | null {
     .map((part) =>
       part.startsWith("{{")
         ? part
-        : part.replace(UUID, "").replace(EMAIL, "").replace(PHONE, "").replace(/ {2,}/g, " "),
+        : withoutEmails(part.replace(UUID, "")).replace(PHONE, "").replace(/ {2,}/g, " "),
     );
   let out = parts.join("").trim();
   if (holdsClientLiteral(out)) out = "";
@@ -514,13 +538,11 @@ export function guardStepBundle(
       step = { ...step, uses: { type: "match", match } };
     }
     // Invariant 9: AI instructions read the input by name; earlier steps' text comes in there.
-    if (step.ai?.text && REF_IN_TEXT.test(step.ai.text)) {
-      REF_IN_TEXT.lastIndex = 0;
+    if (step.ai?.text && holdsRef(step.ai.text)) {
       const r = refsToInput(step.ai.text, step.input);
       movedRefs += r.moved;
       step = { ...step, ai: { ...step.ai, text: r.text }, input: r.input };
     }
-    REF_IN_TEXT.lastIndex = 0;
     if (step.ai?.model && models !== null && !models.has(step.ai.model.id)) {
       modelsDropped += 1;
       const { model: _m, ...ai } = step.ai;
@@ -553,14 +575,12 @@ export function guardStepBundle(
     step = { ...step, reads };
     let input = step.input;
     for (const key of ["goal", "instructions"] as const) {
-      if (!REF_IN_TEXT.test(step[key])) continue;
-      REF_IN_TEXT.lastIndex = 0;
+      if (!holdsRef(step[key])) continue;
       const r = refsToInput(step[key], input);
       movedRefs += r.moved;
       input = r.input;
       step = { ...step, [key]: r.text };
     }
-    REF_IN_TEXT.lastIndex = 0;
     step = { ...step, input };
     if (step.model && models !== null && !models.has(step.model.id)) {
       modelsDropped += 1;

@@ -145,14 +145,27 @@ function row(field: steps.Field): LoopFieldRow {
   };
 }
 
-function slugOf(name: string): string {
-  const slug = name
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 60)
-    .replace(/-+$/g, "");
-  return slug || "loop";
+/**
+ * A slug from a name: lowercase letters and digits, one dash between runs, at most 60 characters.
+ */
+// DECISION (CodeQL js/polynomial-redos): a character loop, not regular expressions over the
+// model's step name.
+export function slugOf(name: string): string {
+  let out = "";
+  let dash = false;
+  for (const ch of name.toLowerCase()) {
+    if (out.length >= 60) break;
+    const ok = (ch >= "a" && ch <= "z") || (ch >= "0" && ch <= "9");
+    if (ok) {
+      out += ch;
+      dash = false;
+    } else if (!dash && out.length > 0) {
+      out += "-";
+      dash = true;
+    }
+  }
+  while (out.endsWith("-")) out = out.slice(0, -1);
+  return out || "loop";
 }
 
 /**

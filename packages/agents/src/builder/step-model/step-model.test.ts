@@ -23,7 +23,7 @@ import { stepCatalogForPrompt } from "./catalog";
 import { draftStepAgent, reviseStepAgent } from "./draft";
 import { guardStepBundle, refsToInput } from "./guards";
 import { OUTPUT_EXAMPLES, STEP_EXAMPLES, STEP_RULES } from "./rules";
-import { writtenKey } from "./suggestions";
+import { slugOf, writtenKey } from "./suggestions";
 
 type Step = steps.Step;
 
@@ -589,6 +589,19 @@ describe("reuse and steps written in the step", () => {
     expect(g.notes).toEqual(
       expect.arrayContaining([expect.stringContaining("never inside its instructions")]),
     );
+  });
+
+  // CodeQL js/polynomial-redos: model text is scanned in linear time.
+  it("reads references and slugs in linear time on hostile text", () => {
+    const braces = `{{{{${" ".repeat(100_000)}`;
+    const t0 = performance.now();
+    expect(refsToInput(braces, {}).moved).toBe(0);
+    expect(slugOf(`a${"-".repeat(100_000)}!`)).toBe("a");
+    expect(performance.now() - t0).toBeLessThan(500);
+    expect(refsToInput("{{  steps.a.output.b  }}", {}).input).toEqual({
+      b: "{{steps.a.output.b}}",
+    });
+    expect(slugOf("  Find out -- why!  ")).toBe("find-out-why");
   });
 
   it("names a field for each reference, once", () => {
