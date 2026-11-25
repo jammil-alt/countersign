@@ -1,47 +1,32 @@
 // Check the steps (docs/builder-plan.md §12.5 F5, docs/plan.md §1.170 "Check the steps"; design:
 // docs/design/builder.html `stepsHTML`, `rowsHTML`, `pathHTML`): a new build's draft as a list of
 // lines before the chart. The draft is made as today ("Draft it now", saved); this list is shown
-// over that saved version and edits it with ./checkModel (ids made once, never regenerated). How
-// it starts maps onto the first trigger; each top-level step is a line; a decision is a block with
-// its paths. Build it saves the edited bundle as a new version and asks the Builder once to fill
-// the lines typed by hand, then opens the agent's workflow. A build with no draft yet (List the
-// steps myself) is drafted from the lines' words on Build it.
+// over that saved version and edits it (ids made once, never regenerated). How it starts maps onto
+// the triggers; each top-level step is a line; a decision is a block with its paths. Build it saves
+// the edited bundle as a new version and asks the Builder once to fill the lines typed by hand,
+// then opens the agent's workflow. A build with no draft yet (List the steps myself) is drafted
+// from the lines' words on Build it.
+//
+// The step model (docs/step-model-plan.md; stream Q): an agent whose workflow is v5, and a build
+// with no draft yet, are checked in the step model (./CheckSteps5, ./checkModel5). An agent whose
+// workflow is still v4 keeps the v4 body below (./checkModel) until wave 4 deletes it. Both render
+// the same parts (./checkParts): only the model underneath differs.
 
-import {
-  type AgentSummary,
-  AnyAgentBundle,
-  type BuildDetail,
-  canonicalJson,
-  type ProcessAgentBundle,
-} from "@countersign/core";
-import {
-  DndContext,
-  type DragEndEvent,
-  KeyboardSensor,
-  PointerSensor,
-  useSensor,
-  useSensors,
-} from "@dnd-kit/core";
-import {
-  SortableContext,
-  sortableKeyboardCoordinates,
-  useSortable,
-  verticalListSortingStrategy,
-} from "@dnd-kit/sortable";
-import { CSS } from "@dnd-kit/utilities";
-import { type ReactNode, useEffect, useState } from "react";
+import { AnyAgentBundle, canonicalJson, type ProcessAgentBundle } from "@countersign/core";
+import { DndContext, type DragEndEvent } from "@dnd-kit/core";
+import { SortableContext, verticalListSortingStrategy } from "@dnd-kit/sortable";
+import { useState } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { apiRoutes } from "../../api/routes";
 import { useApi, useApiClient } from "../../api/useApi";
 import { ErrorNotice } from "../../ui/ErrorState";
-import { Field, Select, TextInput } from "../../ui/forms";
-import { Icon } from "../../ui/icons";
 import { Page } from "../../ui/page";
-import { Badge, Button, cx, Loading, StepKindTag } from "../../ui/primitives";
+import { Loading } from "../../ui/primitives";
 import { editWorkflow, locate, type NewId, ROOT, readProcessBundle } from "../builder/model";
 import { OPS_PATHS } from "../paths";
 import { opsAgentHref } from "../screens/AgentRedirect";
-import { processKindLabel, triggerTitle } from "../workflow/describe";
+import { processKindLabel } from "../workflow/describe";
+import { CheckBody5, isStepModelBundle } from "./CheckSteps5";
 import {
   addDecision,
   addEnding,
@@ -51,8 +36,6 @@ import {
   blankProcess,
   countLines,
   decisionPaths,
-  END_KINDS,
-  ENDS,
   type EndKind,
   endingOf,
   fillRequest,
@@ -67,26 +50,35 @@ import {
   removeLine,
   removePath,
   renameLine,
-  START_KINDS,
-  STARTS,
-  type StartKind,
   setAfterPaths,
   setCondition,
   setPathEnd,
-  startKindOf,
-  startKinds,
-  startTitle,
   startWordsAll,
-  TRIGGERS_MAX,
-  toggleStart,
   wayOutWords,
 } from "./checkModel";
 import {
-  type CheckStepsState,
-  type DescribeAgainState,
-  type DescribeKind,
-  FlowStepper,
-} from "./DescribeScreen";
+  AddButtons,
+  type AgentData,
+  askBuilderToFill,
+  type CheckBodyProps,
+  CheckFoot,
+  CheckHeader,
+  DecisionBlock,
+  describeAgain,
+  EndCards,
+  type LineEvents,
+  LineInput,
+  LinesHelp,
+  type LineView,
+  LoopBlock,
+  type PathView,
+  quoted,
+  TopLine,
+  useCheckSensors,
+  useFocusLine,
+  useStart,
+} from "./checkParts";
+import type { CheckStepsState } from "./DescribeScreen";
 import type { Process, Step } from "./types";
 
 /** The route's screen: `/ops/lab/check/:id`, with the words Describe passed in its state. */
@@ -109,7 +101,7 @@ export interface CheckStepsProps {
   newId?: NewId | undefined;
 }
 
-/** Loads the build and its draft's latest version, then the list over it. */
+/** Loads the build and its draft's latest version, then the list over it, v4 or v5. */
 export function CheckSteps({ buildId, words, newId }: CheckStepsProps) {
   const build = useApi(apiRoutes.opsBuild, { params: { id: buildId } });
   const agentId = build.data?.build.agentId ?? null;
@@ -124,21 +116,21 @@ export function CheckSteps({ buildId, words, newId }: CheckStepsProps) {
     detail.messages.find((m) => m.role === "operator")?.text ??
     detail.build.brief.goal?.text ??
     "";
+  const data = agent.data ?? null;
+  // DECISION (stream Q): no draft yet, or a draft whose workflow is v5, is checked in the step
+  // model (the Builder drafts v5, and every new workflow starts as v5); a v4 draft keeps v4.
+  const v5 = !data?.latest || isStepModelBundle(data.latest.bundle);
+  const Body = v5 ? CheckBody5 : CheckBody;
   return (
-    <CheckBody
+    <Body
       // Read once: a refresh after Build it saves must not reset the lines under way.
       key={agentId ?? "none"}
       detail={detail}
-      agent={agent.data ?? null}
+      agent={data}
       words={said}
       newId={newId}
     />
   );
-}
-
-interface AgentData {
-  agent: AgentSummary;
-  latest: { id: string; bundle: unknown } | null;
 }
 
 interface Loaded {
@@ -160,17 +152,43 @@ function load(agent: AgentData | null, newId: NewId | undefined): Loaded {
   };
 }
 
-function CheckBody({
-  detail,
-  agent,
-  words,
-  newId,
-}: {
-  detail: BuildDetail;
-  agent: AgentData | null;
-  words: string;
-  newId: NewId | undefined;
-}) {
+// ── The v4 body ──────────────────────────────────────────────────────────────────────────────────
+
+/** A v4 step as a line. */
+function lineOf(step: Step): LineView {
+  return {
+    id: step.id,
+    name: step.name,
+    typed: step.kind === "missing",
+    tag: step.kind === "missing" ? null : { kind: step.kind, label: processKindLabel(step) },
+    reports:
+      step.kind === "collect"
+        ? step.items.map(
+            (it) =>
+              `${it.name}, from ${it.owner.replace(/^seat:/, "").replaceAll("-", " ")}, due ${it.due}`,
+          )
+        : undefined,
+  };
+}
+
+/** A v4 decision's paths as the block shows them; a path's Stop at its end is "ends here". */
+function pathsOf(step: IfStep): PathView[] {
+  return decisionPaths(step).map((p, i) => {
+    const ends = pathEnds(p.steps);
+    const path = p.otherwise ? null : step.paths[i];
+    return {
+      key: p.key,
+      container: p.container,
+      pathId: path?.id ?? null,
+      condition: path?.name ?? "",
+      otherwise: p.otherwise,
+      lines: (ends ? p.steps.slice(0, -1) : p.steps).map(lineOf),
+      ends,
+    };
+  });
+}
+
+function CheckBody({ detail, agent, words, newId }: CheckBodyProps) {
   const api = useApiClient();
   const navigate = useNavigate();
   const [loaded] = useState(() => load(agent, newId));
@@ -181,21 +199,12 @@ function CheckBody({
       ? addLine(loaded.process, ROOT, 0, "", newId).process
       : loaded.process,
   );
-  const trigger = process.triggers[0];
-  const startNow = trigger ? startKindOf(trigger.on) : null;
-  const startsOn = startKinds(process);
-  const [startWords, setStartWords] = useState(() =>
-    trigger ? (mine ? "" : triggerTitle(trigger)) : "",
-  );
-  const [startEdited, setStartEdited] = useState(false);
-  // Why a card didn't change, in words, until the next one does.
-  const [startRefused, setStartRefused] = useState<"last" | "full" | null>(null);
-  const [focus, setFocus] = useState<string | null>(null);
+  const start = useStart(process, setProcess, mine, newId);
+  const [, setFocus] = useFocusLine();
   // The way out picked for a line added under How it ends, until the Builder fills that line.
   const [endChosen, setEndChosen] = useState<Record<string, EndKind>>({});
   const [busy, setBusy] = useState<"build" | "fill" | null>(null);
   const [error, setError] = useState<unknown>(null);
-  const kind: DescribeKind = detail.build.client ? "client" : "template";
   const counts = countLines(loaded.process);
   const lines = finishLines(process);
   const empty = lines.steps.length === 0;
@@ -203,15 +212,6 @@ function CheckBody({
   // A run that can end with nothing reported is a dead end: it isn't built until it has a way out.
   const deadEnd = ending.dead.length > 0;
   const workflows = loaded.bundle?.workflows ?? [];
-
-  useEffect(() => {
-    if (!focus) return;
-    const el = document.querySelector<HTMLInputElement>(`[data-line="${CSS_ESCAPE(focus)}"]`);
-    if (el) {
-      el.focus();
-      setFocus(null);
-    }
-  }, [focus]);
 
   const edit = (fn: (p: Process) => Process) => setProcess((p) => fn(p));
   const add = (container: string, index: number, words = "") => {
@@ -223,18 +223,8 @@ function CheckBody({
     agent && loaded.slug ? `${opsAgentHref(agent.agent)}/workflows/${loaded.slug}` : null;
 
   function backToDescription() {
-    navigate(OPS_PATHS.labNew(kind), {
-      state: {
-        describe: {
-          name: detail.build.title,
-          words,
-          kind,
-          clientId: detail.build.client?.id,
-          // A build with no draft yet is drafted in place; one with a draft can't be again.
-          buildId: mine ? detail.build.id : undefined,
-        },
-      } satisfies DescribeAgainState,
-    });
+    const back = describeAgain(detail, words, mine);
+    navigate(back.to, { state: back.state });
   }
 
   async function buildIt() {
@@ -245,12 +235,7 @@ function CheckBody({
         // List the steps myself: the build has no draft, so it is drafted from the list's words.
         const out = await api.call(apiRoutes.opsDraftBuildNow, {
           params: { id: detail.build.id },
-          body: {
-            description: listWords(
-              lines,
-              startWords.trim() || (startNow ? startTitle(startNow) : ""),
-            ),
-          },
+          body: { description: listWords(lines, start.said) },
         });
         const made = out.draft?.agentId ?? out.build.agentId;
         navigate(made ? `/ops/agents/${made}/workflow` : OPS_PATHS.build(detail.build.id));
@@ -273,26 +258,14 @@ function CheckBody({
         workflowName: loaded.workflowName,
         added: handAdded(loaded.process, lines),
         starts:
-          startEdited || waysInChanged
-            ? startWordsAll(lines.triggers, startEdited ? startWords : null)
+          start.edited || waysInChanged
+            ? startWordsAll(lines.triggers, start.edited ? start.words : null)
             : null,
       });
       if (text) {
         // Asked once; when it fails, the lines stay missing steps and show on the chart.
         setBusy("fill");
-        try {
-          const started = await api.call(apiRoutes.opsStartBuilderSession, {
-            body: { kind: "agent", agentId: agent.agent.id, fromVersionId: from },
-          });
-          const session = started.session.id;
-          await api.call(apiRoutes.opsBuilderTurn, { params: { id: session }, body: { text } });
-          await api.call(apiRoutes.opsBuilderSave, {
-            params: { id: session },
-            body: { changeNote: "Filled the steps added by hand" },
-          });
-        } catch {
-          // Carry on to the chart: the missing steps are its issues.
-        }
+        await askBuilderToFill(api, agent.agent.id, from, text);
       }
       navigate(workflowHref() ?? OPS_PATHS.build(detail.build.id));
     } catch (e) {
@@ -301,10 +274,7 @@ function CheckBody({
     }
   }
 
-  const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
-    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
-  );
+  const sensors = useCheckSensors();
   const onDragEnd = (e: DragEndEvent) => {
     const to = e.over ? process.steps.findIndex((s) => s.id === e.over?.id) : -1;
     if (to < 0 || e.active.id === e.over?.id) return;
@@ -327,113 +297,11 @@ function CheckBody({
 
   return (
     <div className="flex flex-col gap-6" data-testid="flow-check">
-      <FlowStepper at={2} />
-      <div className="flex max-w-[62ch] flex-col gap-2">
-        <h1 className="text-2xl font-medium text-ink">Check the steps</h1>
-        <p className="text-base text-ink-muted" data-testid="flow-check-summary">
-          {mine
-            ? "Say how it starts, then list what happens, a line a step. Nothing runs until you turn it on."
-            : `The Builder read your description as ${plural(counts.steps, "step")}${counts.decisions ? ` and ${plural(counts.decisions, "decision")}` : ""}. Change, add, drag or remove any line. Nothing runs until you turn it on.`}
-        </p>
-      </div>
-      {words.trim() ? (
-        <div
-          className="flex flex-wrap items-start justify-between gap-3 border-l-2 border-line-strong pl-3"
-          data-testid="flow-check-quote"
-        >
-          <span className="min-w-0 flex-1 text-sm text-ink-muted">
-            “{words.length > 190 ? `${words.slice(0, 190).trim()}…` : words}”
-          </span>
-          <Button
-            variant="link"
-            size="sm"
-            onClick={backToDescription}
-            data-testid="flow-check-edit"
-          >
-            Edit the description
-          </Button>
-        </div>
-      ) : null}
+      <CheckHeader mine={mine} counts={counts} words={words} onEdit={backToDescription} />
+      {start.section}
 
       <section className="flex flex-col gap-3 rounded-md border border-line bg-surface p-5">
-        <h2 className="text-lg font-medium text-ink">How it starts</h2>
-        <p className="ds-help text-sm">
-          Pick every way it can start. Each one you turn on is a trigger of its own.
-        </p>
-        <fieldset className="grid grid-cols-2 gap-2 sm:grid-cols-5" aria-label="How it starts">
-          {START_KINDS.map((k) => {
-            const on = startsOn.includes(k);
-            return (
-              <button
-                key={k}
-                type="button"
-                aria-pressed={on}
-                data-testid={`flow-check-start-${k}`}
-                onClick={() => {
-                  const out = toggleStart(process, k, newId);
-                  setStartRefused(out.refused ?? null);
-                  if (out.refused) return;
-                  setProcess(out.process);
-                  // In your words follows the first way in, until the operator writes their own.
-                  const first = out.process.triggers[0];
-                  const kindNow = first ? startKindOf(first.on) : null;
-                  if (!startEdited && first?.id !== trigger?.id) {
-                    setStartWords(kindNow ? startTitle(kindNow) : first ? triggerTitle(first) : "");
-                  }
-                }}
-                className={cx(
-                  "flex flex-col gap-1 rounded-md border px-3 py-2 text-left text-sm",
-                  on
-                    ? "border-slate bg-slate-tint text-ink"
-                    : "border-line text-ink hover:border-line-strong",
-                )}
-              >
-                <span className="flex items-center justify-between gap-2 font-medium">
-                  {STARTS[k].title}
-                  {on ? <Icon name="check" size={14} className="shrink-0 text-slate" /> : null}
-                </span>
-                <span className="text-xs text-ink-muted">{STARTS[k].hint}</span>
-              </button>
-            );
-          })}
-        </fieldset>
-        {startRefused ? (
-          <p
-            className="text-sm text-ink-muted"
-            role="status"
-            data-testid="flow-check-start-refused"
-          >
-            {startRefused === "last"
-              ? "It needs at least one way to start, so the last one stays on."
-              : `A workflow starts at most ${TRIGGERS_MAX} ways. Turn one off first.`}
-          </p>
-        ) : null}
-        {process.triggers.length > 1 ? (
-          <p className="text-sm text-ink-muted" data-testid="flow-check-starts">
-            It starts {process.triggers.length} ways: {startWordsAll(process.triggers).join("; ")}.
-          </p>
-        ) : null}
-        <Field label={process.triggers.length > 1 ? "The first, in your words" : "In your words"}>
-          <TextInput
-            value={startWords}
-            onChange={(e) => {
-              setStartWords(e.target.value);
-              setStartEdited(true);
-            }}
-            placeholder="When a vendor invoice arrives by email"
-            maxLength={300}
-            data-testid="flow-check-start-words"
-          />
-        </Field>
-      </section>
-
-      <section className="flex flex-col gap-3 rounded-md border border-line bg-surface p-5">
-        <h2 className="text-lg font-medium text-ink">Then what happens</h2>
-        <p className="ds-help text-sm">
-          One step a line, in order. Enter adds the next one. Start a line with "If" and it becomes
-          a decision. Each path has its own steps. Paths can come back together, or go separate ways
-          and never meet.
-        </p>
+        <LinesHelp />
         <DndContext sensors={sensors} onDragEnd={onDragEnd}>
           <SortableContext
             items={process.steps.map((s) => s.id)}
@@ -441,10 +309,11 @@ function CheckBody({
           >
             <ol className="flex flex-col gap-2" data-testid="flow-check-lines">
               {process.steps.map((s, i) => (
-                <TopLine key={s.id} step={s} number={i + 1}>
+                <TopLine key={s.id} id={s.id} name={s.name} number={i + 1}>
                   {s.kind === "if" ? (
                     <DecisionBlock
-                      step={s}
+                      paths={pathsOf(s)}
+                      after={afterPaths(s)}
                       below={process.steps.slice(i + 1).length}
                       events={lineProps}
                       onRemove={() => edit((p) => removeLine(p, s.id))}
@@ -462,52 +331,37 @@ function CheckBody({
                     />
                   ) : s.kind === "for_each" || s.kind === "repeat" ? (
                     <LoopBlock
-                      step={s}
+                      line={lineOf(s)}
+                      each={s.kind === "for_each"}
+                      inner={s.steps.map(lineOf)}
                       number={i + 1}
                       index={i}
                       events={lineProps}
                       onAddStep={(container, index) => add(container, index)}
                     />
                   ) : (
-                    <>
-                      <LineInput
-                        step={s}
-                        container={ROOT}
-                        index={i}
-                        label={`Step ${i + 1}`}
-                        events={lineProps}
-                      />
-                      {s.kind === "collect" ? <CollectReports step={s} /> : null}
-                    </>
+                    <LineInput
+                      line={lineOf(s)}
+                      container={ROOT}
+                      index={i}
+                      label={`Step ${i + 1}`}
+                      events={lineProps}
+                    />
                   )}
                 </TopLine>
               ))}
             </ol>
           </SortableContext>
         </DndContext>
-        <div className="flex flex-wrap gap-2">
-          <Button
-            size="sm"
-            onClick={() => add(ROOT, process.steps.length)}
-            data-testid="flow-check-add-step"
-          >
-            <Icon name="add" size={14} />
-            Step
-          </Button>
-          <Button
-            size="sm"
-            onClick={() => {
-              const out = addDecision(process, ROOT, process.steps.length, "", newId);
-              setProcess(out.process);
-              const made = out.process.steps.find((x) => x.id === out.stepId);
-              if (made?.kind === "if" && made.paths[0]) setFocus(`cond:${made.paths[0].id}`);
-            }}
-            data-testid="flow-check-add-decision"
-          >
-            <Icon name="add" size={14} />
-            Decision
-          </Button>
-        </div>
+        <AddButtons
+          onStep={() => add(ROOT, process.steps.length)}
+          onDecision={() => {
+            const out = addDecision(process, ROOT, process.steps.length, "", newId);
+            setProcess(out.process);
+            const made = out.process.steps.find((x) => x.id === out.stepId);
+            if (made?.kind === "if" && made.paths[0]) setFocus(`cond:${made.paths[0].id}`);
+          }}
+        />
       </section>
 
       <section
@@ -519,35 +373,15 @@ function CheckBody({
           Where the result goes. Every run ends by changing a tool, handing off to another agent or
           reaching a person, so nothing it finds is left with nowhere to go.
         </p>
-        <fieldset className="grid grid-cols-2 gap-2 sm:grid-cols-4" aria-label="How it ends">
-          {END_KINDS.map((k) => {
-            const on = ending.kinds.includes(k);
-            return (
-              <button
-                key={k}
-                type="button"
-                aria-pressed={on}
-                data-testid={`flow-check-end-${k}`}
-                onClick={() => {
-                  if (on) return;
-                  const out = addEnding(process, k, newId);
-                  setProcess(out.process);
-                  setEndChosen((was) => ({ ...was, [out.stepId]: k }));
-                  setFocus(out.stepId);
-                }}
-                className={cx(
-                  "flex flex-col gap-1 rounded-md border px-3 py-2 text-left text-sm",
-                  on
-                    ? "border-slate bg-slate-tint text-ink"
-                    : "border-line text-ink hover:border-line-strong",
-                )}
-              >
-                <span className="font-medium">{ENDS[k].title}</span>
-                <span className="text-xs text-ink-muted">{ENDS[k].hint}</span>
-              </button>
-            );
-          })}
-        </fieldset>
+        <EndCards
+          on={ending.kinds}
+          onPick={(k) => {
+            const out = addEnding(process, k, newId);
+            setProcess(out.process);
+            setEndChosen((was) => ({ ...was, [out.stepId]: k }));
+            setFocus(out.stepId);
+          }}
+        />
         {deadEnd ? (
           <p className="text-sm text-signal-ink" data-testid="flow-check-dead-end">
             Waiting on you: a run can end on {quoted(ending.dead.map((s) => s.name))} with nothing
@@ -574,55 +408,18 @@ function CheckBody({
       </section>
 
       {error ? <ErrorNotice error={error} /> : null}
-      <div className="flex flex-wrap items-center gap-2">
-        {busy ? (
-          <span className="text-sm text-ink-muted" role="status" data-testid="flow-check-building">
-            {busy === "fill" ? "Filling the steps you added" : "Building it"}
-          </span>
-        ) : (
-          <>
-            <Button
-              variant="primary"
-              disabled={(mine && empty) || deadEnd}
-              onClick={() => void buildIt()}
-              data-testid="flow-check-build"
-            >
-              Build it
-            </Button>
-            <Button variant="ghost" onClick={backToDescription} data-testid="flow-check-back">
-              Back to the description
-            </Button>
-            {mine ? (
-              // DECISION (F5): with no draft yet there is no canvas to open, and making an agent
-              // apart from the build would leave the build without its draft: today's build page
-              // (its questions) is the other way in.
-              <Button
-                variant="ghost"
-                onClick={() => navigate(OPS_PATHS.build(detail.build.id))}
-                data-testid="flow-check-questions"
-              >
-                Start with the Builder's questions
-              </Button>
-            ) : (
-              <Button
-                variant="ghost"
-                onClick={() => navigate(workflowHref() ?? OPS_PATHS.build(detail.build.id))}
-                data-testid="flow-check-blank"
-              >
-                Start with a blank canvas
-              </Button>
-            )}
-          </>
-        )}
-      </div>
+      <CheckFoot
+        busy={busy}
+        disabled={(mine && empty) || deadEnd}
+        mine={mine}
+        onBuild={() => void buildIt()}
+        onBack={backToDescription}
+        onQuestions={() => navigate(OPS_PATHS.build(detail.build.id))}
+        onBlank={() => navigate(workflowHref() ?? OPS_PATHS.build(detail.build.id))}
+      />
     </div>
   );
 }
-
-// ── Lines ────────────────────────────────────────────────────────────────────────────────────────
-
-const CSS_ESCAPE = (s: string) =>
-  typeof globalThis.CSS?.escape === "function" ? globalThis.CSS.escape(s) : s;
 
 function hadStep(process: Process, id: string): boolean {
   let found = false;
@@ -638,410 +435,4 @@ function hadStep(process: Process, id: string): boolean {
   };
   visit(process.steps);
   return found;
-}
-
-/** “A”, “A” and “B”, or “A”, “B” and 2 more: step names in a sentence. */
-function quoted(names: readonly string[]): string {
-  const q = names.slice(0, 2).map((n) => `“${n.trim() || "a step with no name"}”`);
-  if (names.length > 2) return `${q.join(", ")} and ${names.length - 2} more`;
-  return q.join(" and ");
-}
-
-function plural(n: number, word: string): string {
-  return `${n} ${word}${n === 1 ? "" : "s"}`;
-}
-
-interface LineEvents {
-  rename(id: string, words: string): void;
-  /** Leaving a line typed with "If …": it becomes a decision. */
-  commit(id: string): void;
-  remove(id: string): void;
-  /** Enter: a line typed with "If …" becomes a decision; any other adds the next line. */
-  enter(id: string, container: string, index: number): void;
-  /** Added here, not drafted. */
-  isNew(id: string): boolean;
-}
-
-/** One top-level line: its handle to drag, its number, then the line or the decision. */
-function TopLine({ step, number, children }: { step: Step; number: number; children: ReactNode }) {
-  const {
-    attributes,
-    listeners,
-    setNodeRef,
-    setActivatorNodeRef,
-    transform,
-    transition,
-    isDragging,
-  } = useSortable({ id: step.id });
-  return (
-    <li
-      ref={setNodeRef}
-      style={{ transform: CSS.Translate.toString(transform), transition }}
-      className={cx("flex items-start gap-2", isDragging && "opacity-60")}
-      data-testid="flow-check-line"
-      data-step-id={step.id}
-    >
-      <button
-        type="button"
-        ref={setActivatorNodeRef}
-        {...attributes}
-        {...listeners}
-        aria-label={`Move ${step.name || `step ${number}`}`}
-        data-testid="flow-check-line-handle"
-        className="mt-2.5 flex w-4 shrink-0 cursor-grab touch-none justify-center text-ink-muted hover:text-ink"
-      >
-        <Icon name="more" size={14} className="rotate-90" />
-      </button>
-      <span className="mt-2.5 w-5 shrink-0 text-right text-xs text-ink-muted figures">
-        {number}
-      </span>
-      <div className="min-w-0 flex-1">{children}</div>
-    </li>
-  );
-}
-
-/** A step's line: its words, its kind as a tag, and remove. */
-function LineInput({
-  step,
-  container,
-  index,
-  label,
-  events,
-}: {
-  step: Step;
-  container: string;
-  index: number;
-  label: string;
-  events: LineEvents;
-}) {
-  const typed = step.kind === "missing";
-  return (
-    <div className="flex items-center gap-2">
-      <TextInput
-        value={step.name}
-        aria-label={label}
-        placeholder="What happens next"
-        data-line={step.id}
-        data-testid="flow-check-line-input"
-        className="min-w-0 flex-1"
-        onChange={(e) => events.rename(step.id, e.target.value)}
-        onBlur={() => {
-          if (typed) events.commit(step.id);
-        }}
-        onKeyDown={(e) => {
-          if (e.key !== "Enter" || e.nativeEvent.isComposing) return;
-          e.preventDefault();
-          events.enter(step.id, container, index);
-        }}
-      />
-      <span data-testid="flow-check-line-kind" className="shrink-0">
-        {typed ? (
-          <Badge tone="warning">{events.isNew(step.id) ? "The Builder fills it" : "Missing"}</Badge>
-        ) : (
-          <StepKindTag kind={step.kind} label={processKindLabel(step)} />
-        )}
-      </span>
-      <Button
-        variant="ghost"
-        size="sm"
-        className="ds-btn--icon shrink-0"
-        aria-label={`Remove ${step.name || "this step"}`}
-        onClick={() => events.remove(step.id)}
-        data-testid="flow-check-line-remove"
-      >
-        <Icon name="close" size={14} />
-      </Button>
-    </div>
-  );
-}
-
-// Owner (2026-11-24, "they really don't match"): a For each's or a repeat's own steps were not on
-// this list, so the work it does per item couldn't be checked. They show under it, numbered 8.1,
-// 8.2…, each editable, with a step added inside; a step nested deeper shows by name.
-/** A loop (For each, repeat): its own line, then the steps it runs for each item or pass. */
-function LoopBlock({
-  step,
-  number,
-  index,
-  events,
-  onAddStep,
-}: {
-  step: Extract<Step, { kind: "for_each" | "repeat" }>;
-  number: number;
-  index: number;
-  events: LineEvents;
-  onAddStep(container: string, index: number): void;
-}) {
-  const container = `loop:${step.id}`;
-  return (
-    <div className="flex flex-col gap-2" data-testid="flow-check-loop">
-      <LineInput
-        step={step}
-        container={ROOT}
-        index={index}
-        label={`Step ${number}`}
-        events={events}
-      />
-      <div className="ml-2 flex flex-col gap-2 border-l border-line pl-4">
-        <span className="text-xs text-ink-muted">
-          {step.kind === "for_each" ? "For each item, it does:" : "Each time round, it does:"}
-        </span>
-        {step.steps.length > 0 ? (
-          <ol className="flex flex-col gap-2" data-testid="flow-check-loop-lines">
-            {step.steps.map((s, j) => (
-              <li key={s.id} className="flex items-center gap-2">
-                <span className="w-8 shrink-0 text-right text-xs text-ink-muted figures">
-                  {number}.{j + 1}
-                </span>
-                <div className="min-w-0 flex-1">
-                  <LineInput
-                    step={s}
-                    container={container}
-                    index={j}
-                    label={`Step ${number}.${j + 1}`}
-                    events={events}
-                  />
-                </div>
-              </li>
-            ))}
-          </ol>
-        ) : null}
-        <div>
-          <Button
-            variant="link"
-            size="sm"
-            onClick={() => onAddStep(container, step.steps.length)}
-            data-testid="flow-check-loop-add-step"
-          >
-            + Step inside
-          </Button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-/** Collect reports: the reports it waits for and who sends each, under its line. */
-function CollectReports({ step }: { step: Extract<Step, { kind: "collect" }> }) {
-  return (
-    <ul
-      className="mt-2 ml-2 flex flex-col gap-1 border-l border-line pl-4 text-sm text-ink-muted"
-      data-testid="flow-check-collect"
-    >
-      {step.items.map((it) => (
-        <li key={it.id}>
-          {it.name}, from {it.owner.replace(/^seat:/, "").replaceAll("-", " ")}, due {it.due}
-        </li>
-      ))}
-    </ul>
-  );
-}
-
-const letter = (i: number) => String.fromCharCode(65 + (i % 26));
-
-/** A decision: If / Or if / Otherwise, each path's lines, how each path ends, and after them. */
-function DecisionBlock({
-  step,
-  below,
-  events,
-  onRemove,
-  onCondition,
-  onAddPath,
-  onRemovePath,
-  onAddStep,
-  onEnd,
-  onAfter,
-  onMoveBelow,
-}: {
-  step: IfStep;
-  /** Lines below the decision, which never run when every path ends. */
-  below: number;
-  events: LineEvents;
-  onRemove(): void;
-  onCondition(pathId: string, words: string): void;
-  onAddPath(): void;
-  onRemovePath(pathId: string): void;
-  onAddStep(container: string, index: number): void;
-  onEnd(container: string, end: "stop" | "on"): void;
-  onAfter(how: "together" | "apart"): void;
-  /** The path's steps become the lines right after the decision. */
-  onMoveBelow(container: string): void;
-}) {
-  const paths = decisionPaths(step);
-  const after = afterPaths(step);
-  return (
-    <div
-      className="flex flex-col gap-3 rounded-md border border-line-strong bg-surface-subtle p-3"
-      data-testid="flow-check-decision"
-    >
-      <div className="flex items-center justify-between gap-2">
-        <span className="flex flex-wrap items-baseline gap-2">
-          <span className="text-sm font-medium text-ink">Decision</span>
-          <span className="text-xs text-ink-muted">
-            The first path that fits runs. Add as many paths as it needs.
-          </span>
-        </span>
-        <Button
-          variant="ghost"
-          size="sm"
-          className="ds-btn--icon"
-          aria-label="Remove this decision"
-          onClick={onRemove}
-          data-testid="flow-check-decision-remove"
-        >
-          <Icon name="close" size={14} />
-        </Button>
-      </div>
-      {paths.map((p, i) => {
-        const path = p.otherwise ? null : step.paths[i];
-        const tag = p.otherwise ? "" : letter(i);
-        // A path's Stop at its end is "ends here", not a line.
-        const shown = pathEnds(p.steps) ? p.steps.slice(0, -1) : p.steps;
-        const ends = pathEnds(p.steps);
-        return (
-          <div
-            key={p.key}
-            className="flex flex-col gap-2 border-l-2 border-line pl-3"
-            data-testid="flow-check-path"
-          >
-            {p.otherwise ? (
-              <div className="flex items-baseline gap-2">
-                <span className="text-sm font-medium text-ink">Otherwise</span>
-                <span className="text-xs text-ink-muted">
-                  {shown.length || ends
-                    ? "none of the above"
-                    : "none of the above: it goes on to the next step"}
-                </span>
-              </div>
-            ) : (
-              <div className="flex items-center gap-2">
-                <span className="ds-pill ds-pill--accent shrink-0">{tag}</span>
-                <span className="w-12 shrink-0 text-sm font-medium text-ink">
-                  {i === 0 ? "If" : "Or if"}
-                </span>
-                <TextInput
-                  value={path?.name ?? ""}
-                  aria-label="Condition"
-                  placeholder={i === 0 ? "a line doesn't match" : "another case"}
-                  data-line={`cond:${path?.id ?? ""}`}
-                  data-testid="flow-check-condition"
-                  className="min-w-0 flex-1"
-                  onChange={(e) => path && onCondition(path.id, e.target.value)}
-                />
-                {step.paths.length > 1 && path ? (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="ds-btn--icon shrink-0"
-                    aria-label="Remove this path"
-                    onClick={() => onRemovePath(path.id)}
-                    data-testid="flow-check-path-remove"
-                  >
-                    <Icon name="close" size={14} />
-                  </Button>
-                ) : null}
-              </div>
-            )}
-            {shown.length > 0 ? (
-              <ol className="flex flex-col gap-2">
-                {shown.map((s, j) => (
-                  <li key={s.id} className="flex items-center gap-2">
-                    <span className="w-6 shrink-0 text-right text-xs text-ink-muted figures">
-                      {tag}
-                      {j + 1}
-                    </span>
-                    <div className="min-w-0 flex-1">
-                      <LineInput
-                        step={s}
-                        container={p.container}
-                        index={j}
-                        label={`Step ${tag}${j + 1}`}
-                        events={events}
-                      />
-                    </div>
-                  </li>
-                ))}
-              </ol>
-            ) : null}
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <span className="flex flex-wrap items-center gap-x-4 gap-y-1">
-                <Button
-                  variant="link"
-                  size="sm"
-                  onClick={() => onAddStep(p.container, shown.length)}
-                  data-testid="flow-check-path-add-step"
-                >
-                  + Step on this path
-                </Button>
-                {/* The rest of the process drafted into the otherwise: out of the decision in one move. */}
-                {p.otherwise && !ends && shown.length > 0 ? (
-                  <Button
-                    variant="link"
-                    size="sm"
-                    title="They run after the decision, whichever path was taken."
-                    onClick={() => onMoveBelow(p.container)}
-                    data-testid="flow-check-path-move-below"
-                  >
-                    Move these below the decision
-                  </Button>
-                ) : null}
-              </span>
-              <span className="flex items-center gap-2 text-xs text-ink-muted">
-                then it
-                <Select
-                  value={ends ? "stop" : "on"}
-                  aria-label="After this path"
-                  className="w-48"
-                  data-testid="flow-check-path-end"
-                  onChange={(e) => onEnd(p.container, e.target.value === "stop" ? "stop" : "on")}
-                >
-                  <option value="on">rejoins the steps below</option>
-                  <option value="stop">ends here</option>
-                </Select>
-              </span>
-            </div>
-            {p.otherwise ? null : i === step.paths.length - 1 ? (
-              <Button
-                size="sm"
-                className="self-start"
-                onClick={onAddPath}
-                data-testid="flow-check-add-path"
-              >
-                <Icon name="add" size={14} />
-                Add a path <span className="text-ink-muted">Or if …</span>
-              </Button>
-            ) : null}
-          </div>
-        );
-      })}
-      <div className="flex flex-wrap items-center justify-end gap-2 text-xs text-ink-muted">
-        After the paths
-        <fieldset className="ds-seg" aria-label="After the paths">
-          <button
-            type="button"
-            aria-pressed={after === "together"}
-            onClick={() => onAfter("together")}
-            data-testid="flow-check-after-together"
-          >
-            they come back together
-          </button>
-          <button
-            type="button"
-            aria-pressed={after === "apart"}
-            onClick={() => onAfter("apart")}
-            data-testid="flow-check-after-apart"
-          >
-            they go separate ways
-          </button>
-        </fieldset>
-      </div>
-      {after === "apart" && below > 0 ? (
-        <p className="text-sm text-signal-ink" data-testid="flow-check-never-runs">
-          Every path here ends, so{" "}
-          {below === 1 ? "the line below never runs" : `the ${below} lines below never run`}. Move{" "}
-          {below === 1 ? "it" : "them"} onto a path, or let a path come back.
-        </p>
-      ) : null}
-    </div>
-  );
 }

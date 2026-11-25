@@ -91,12 +91,15 @@ export function startOn(kind: StartKind): TriggerOn {
   }
 }
 
-/** Sets the first trigger to a kind (its id kept). A trigger already of that kind is kept as is. */
-export function setStart(process: Process, kind: StartKind): Process {
+/**
+ * Sets the first trigger to a kind (its id kept). A trigger already of that kind is kept as is.
+ * Triggers are the same in a v4 process and a v5 workflow, so Check the steps uses this for both.
+ */
+export function setStart<P extends Pick<Process, "triggers">>(process: P, kind: StartKind): P {
   const first = process.triggers[0];
   if (!first) return process;
   if (startKindOf(first.on) === kind) return process;
-  return setTrigger(process, startOn(kind), first.id);
+  return setTrigger(process as unknown as Process, startOn(kind), first.id) as unknown as P;
 }
 
 /** The most ways in a process has (core's `Process.triggers`). */
@@ -116,18 +119,25 @@ export function startKinds(process: Pick<Process, "triggers">): StartKind[] {
 // DECISION (owner, 2026-11-23: "multiple ways in if needed"): the cards are toggles, one trigger
 // a card. Off takes every trigger of the kind (two schedules are one card), since a card can't
 // say which; the chart's trigger panel is where one of two goes.
-export function toggleStart(
-  process: Process,
+export function toggleStart<P extends Pick<Process, "triggers">>(
+  process: P,
   kind: StartKind,
   newId: NewId = uuidv7,
-): { process: Process; refused?: "last" | "full" } {
+): { process: P; refused?: "last" | "full" } {
   const mine = process.triggers.filter((t) => startKindOf(t.on) === kind);
   if (mine.length === 0) {
     if (process.triggers.length >= TRIGGERS_MAX) return { process, refused: "full" };
-    return { process: addTrigger(process, startOn(kind), newId) };
+    return {
+      process: addTrigger(process as unknown as Process, startOn(kind), newId) as unknown as P,
+    };
   }
   if (mine.length >= process.triggers.length) return { process, refused: "last" };
-  return { process: mine.reduce((p, t) => removeTrigger(p, t.id), process) };
+  return {
+    process: mine.reduce(
+      (p, t) => removeTrigger(p as unknown as Process, t.id) as unknown as P,
+      process,
+    ),
+  };
 }
 
 /** A way in, in words: "When a document arrives", "On a schedule", else the trigger's title. */
@@ -147,7 +157,7 @@ export function startWordsAll(triggers: readonly Trigger[], first?: string | nul
 }
 
 /** "It starts: …." for one way in, "It starts 2 ways: …; …." for more. */
-function startsSentence(starts: readonly string[]): string {
+export function startsSentence(starts: readonly string[]): string {
   const said = starts.map(tidy).filter(Boolean);
   if (said.length === 0) return "";
   if (said.length === 1) return `It starts: ${said[0]}.`;
@@ -161,7 +171,7 @@ export function blankProcess(newId: NewId = uuidv7): Process {
 
 // ── Lines ────────────────────────────────────────────────────────────────────────────────────────
 
-const tidy = (words: string) => words.replace(/\s+/g, " ").trim();
+export const tidy = (words: string) => words.replace(/\s+/g, " ").trim();
 
 /** A line typed by hand: a missing step whose name and need are its words. */
 export function newLine(words: string, newId: NewId = uuidv7): MissingStep {
@@ -589,7 +599,7 @@ export function handAdded(
 }
 
 const quote = (w: string) => `"${tidy(w)}"`;
-const conditionOf = (s: IfStep) =>
+const conditionOf = (s: { paths: readonly { name: string }[] }) =>
   s.paths
     .map((p) => tidy(p.name))
     .filter(Boolean)
@@ -603,7 +613,11 @@ const conditionOf = (s: IfStep) =>
  */
 export function fillRequest(input: {
   workflowName: string;
-  added: ReturnType<typeof handAdded>;
+  /** What was added by hand: a v4 process's (`handAdded`) or a v5 workflow's, by their words. */
+  added: {
+    lines: readonly { need: string }[];
+    decisions: readonly { paths: readonly { name: string }[] }[];
+  };
   /**
    * Every way in, in words (`startWordsAll`), when the operator changed how it starts: its words
    * or its ways in. Null or absent when they didn't.
