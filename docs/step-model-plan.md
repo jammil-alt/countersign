@@ -677,12 +677,45 @@ The stored format is **approved and frozen** (owner, 2026-11-25), Tell and the g
 | C · Platform agents | `claude/step-model-c-platform-agents` | Opus | #671 (merges A's branch as it lands) | The platform's own agents in the seed, in the new format; the seed script |
 | G · Automatic translation | `claude/step-model-g-translation` | Opus | B's branch (#672) | A new core module for Fits, Translated, Doesn't fit; the executor's translation hook; the Input box and the Data tab's "Changed" |
 | F · Written in the step | `claude/step-model-f-in-step` | Sonnet | B's branch (#672) | Rules and AI written in the step, stored behind it as a skill; Save as skill; Suggest's backend; the Instructions box |
-| H · Loop designer | not started | Sonnet | after A's Loop runtime | The Loop designer in the Agent lab |
+| H · Loop designer | `claude/step-model-h-loop-designer` | Sonnet | A's branch (#676) | The Loop designer in the Agent lab |
+
+## 13d. Where the build stands (2026-11-25, evening)
+
+**Merged to `main`** (and so on staging), with what each review found and fixed:
+
+| PR | Stream | What it brought | Found in review or CI, fixed before merge |
+|---|---|---|---|
+| #671 | Wave 0 | This plan, `db:purge-agents`, the stored format and its publish checks | A flaky portal test (waited for the charter) |
+| #672 | B · Builder screens | The eight kinds, the Do form, the Uses picker, outputs, End cards, the Data tab, Suggest buttons, in today's builder | — |
+| #676 | A · Executor | v5 runs end to end: Do by engine, Loop, Fork and the containers, End delivering outputs; publishable versions only | — |
+| #673 | D · Match | The Match engine; Vendors, Vendor items (SKU only), Master items, CRM records; second opinion; learned names | A slow regex on long quote runs (CodeQL); model calls missing from the HIPAA inventory |
+| #678 | G · Translation | Fits, Translated, Doesn't fit, worked out when building and run as code | — |
+| #674, #675 | E · Connectors and areas | Action switches (migration 0101), merged Email, Team chat, Spreadsheets, Accounting; Request an action; tool-neutral wording; one chart of accounts; one Read a document | `docs.read` could record a reading a model made up (invariant 9); Request an action lost the client, so HIPAA mode didn't hold (invariant 14); off actions still in the pickers |
+| #681 | H · Loop designer | Loop skills (read-only at save and at run time), the designer, turn-by-turn tests, the test-set gate; the leftovers investigation as the first Loop | A pinned draft Loop version could run untested; an inline Loop had no gate; built-in Loops shipped without tests |
+| #679 | C · Platform agents | The Builder, Sloan, the Coordinator, the Document clerk and the Bill clerk seeded as v5 | A client's people carried into a template on promotion (invariant 11); the Library answered 500 on a v5 template |
+| #677 | F · Written in the step | Rules and AI written in the step, kept as the agent's own skill; Save as skill; Suggest | Suggest could loosen approvals the Builder guards (contact messages, an approver's deadline, all to any); step skills were shared between agents and changed the live agent on a draft save; a shared skill could carry a client's ids, people and values |
+
+**Open:**
+
+| Stream | PR | State |
+|---|---|---|
+| A · Wiring | #682 | The real Match port (HIPAA-guarded model, learned answers), Sloan's chat with its own tools, translation at run time, merged connectors from the agent's bindings and switches, the builder frame. Last: steps written in the step run through their pinned skill. Then a v5 agent runs end to end. |
+| N · Data | — | §10f, on Opus; its gate changes get an Opus review |
+| I · Builder (AI) | — | Item 9, on Opus |
+| L · Rules documents | — | ARCHITECTURE v0.20 and the CLAUDE.md edits, for the owner's sign-off |
+| C · follow-up | — | The Bill clerk's and Sloan's run tests move to the v5 seeds, after #682 |
+| K · Measure | — | Needs an Anthropic API key in the cloud environment; until then a shortlist of 20 and a threshold of 90 |
+| J, M · Release and ship | — | After I merges: delete v3, v4, the converters and the tool-only skills; then purge and seed on staging, and production with the owner's approval |
+
+**For the owner:** the Bill clerk's vendor lookup stays a QuickBooks name search for now; it
+becomes a Match on Vendors once N's Get by id gives a vendor's accounting id (recommended), unless
+the owner picks one of the other two ways (the Match result carries the accounting ids; a shared
+"vendor's accounting id" action).
 
 ## 14. Where we are in the review
 
-Agreed: terms, step kinds, forms, skills, connectors, areas. Being reviewed: the build list and the
-release (§12, §13). Then: the stored format, drafted as plain fields for review.
+Agreed and built: everything through §10f. Being built: N, I, L and A's wiring (§13d). Then
+release (§12) and ship.
 
 ## Decision log
 
@@ -736,6 +769,21 @@ release (§12, §13). Then: the stored format, drafted as plain fields for revie
   id, Create and Update; agents are granted per record type; data sets group them across areas as
   back-office settings; custom fields are mapped in the back office and stored in `ext`, not added
   to the schema. Built in wave 3 (stream N).
+- 2026-11-25 · Waves 1 and 2 merged (§13d). Each Sonnet stream that touched approvals or the gate
+  had an Opus review; every finding was fixed before merge.
+- 2026-11-25 · A Loop is published only as a saved Loop skill whose test set passes: a Loop written
+  in a step may be drafted, but publishing the agent asks to save and test it first; a pinned
+  draft version never runs; built-in and pack Loops ship with their test sets, run in CI.
+- 2026-11-25 · Suggest never loosens an approval: it uses the Builder's own loosening checks. A
+  Do moved to a Change or Send gets approval by default; a Save to our own records gets none.
+- 2026-11-25 · Rules and AI written in a step are kept per agent and step
+  (`custom:step-<agent id>-<step id>`), saved as drafts, and pinned in the agent version when it is
+  published, so a decision's `agent_version_id` holds the text that ran. A skill shared with every
+  client may not hold one client's ids, people or values.
+- 2026-11-25 · Opening a step whose input doesn't fit asks the AI for what's left once, without
+  confirming; it writes nothing until Save, so the screen walkthroughs allow it.
+- 2026-11-25 · The Bill clerk's vendor lookup stays a QuickBooks Get until §10f's Get by id
+  (recommended to the owner; not yet decided).
 - 2026-11-25 · Forms agreed. Suggest (AI icon) on every step and every field: tell it what you need,
   use the default, or resolve; applied at once, with Undo.
 - 2026-11-25 · The eight kinds are stored directly; nine of today's kinds collapse into Do, run by
