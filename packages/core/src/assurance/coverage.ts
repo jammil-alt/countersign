@@ -36,6 +36,7 @@ export const INHERITED_CONTROLS: readonly string[] = [
   "CHG-7",
   "CHG-8",
   "INC-1",
+  "INC-2",
   "BCK-1",
   "BCK-2",
   "VEN-2",

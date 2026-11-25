@@ -48,6 +48,14 @@ The security officer sets the severity and changes it as facts come in.
 1. **Report.** Tell the security officer at once, by phone or text for severity 1 or 2, with what
    you saw and when. Don't delete anything.
 2. **Contain.** Stop it getting worse, in this order as it applies:
+   - **lock down** the affected client, or every client if more than one may be affected or you
+     can't yet tell (`docs/operations.md` §1.4). From the back office: the client's settings →
+     Lockdown, or Security → Lockdown for every client. Nothing then reads or changes the client's
+     data, its tools or its AI calls, its runs stop and its people see a locked page. Any operator
+     may lock; only the security officer unlocks, once the cause is fixed. The security officer can
+     still read a locked client, read only, to investigate. If the app itself may be compromised
+     (the Worker, its keys or the database), also switch on the Cloudflare edge rule with
+     Actions → Lockdown (`lockdown.yml`, being added), which blocks every request to the app;
    - revoke or rotate the key, token or secret (Cloudflare secrets, Neon roles, WorkOS, providers);
    - disconnect the affected client connection, or retire the client's agents;
    - block the account or the address (WorkOS, Cloudflare);
@@ -83,6 +91,9 @@ kept six years in any case.
 
 Once a year, walk through a likely incident against this policy (the incident drill routine,
 `ROUTINES` in `packages/core/src/compliance/controls.ts`), write down what to change and change it.
+The drill includes a lockdown on staging: lock the Sandbox client while one of its runs is going,
+check that the run stops and the portal shows the locked page, note how long it took, then unlock
+it.
 
 ## 9. Review and exceptions
 
