@@ -206,16 +206,18 @@ describe.skipIf(!h)("draft it now", () => {
     expect(b.items[0]).toMatchObject({ kind: "gap", state: "deferred" });
     expect(b.items[0]?.title).toContain("No connector reads the vendor's portal");
 
-    // The flow as drafted is on the build: its steps in order, in plain words.
+    // The flow as drafted is on the build: its steps in order, in plain words (the step model:
+    // a Do that changes your tools, and the End that finishes it).
     expect(b.draft?.steps).toEqual([
       {
         workflow: "Fix a record",
         stepId: expect.any(String),
         depth: 0,
-        kind: "write",
+        kind: "do",
         name: "Update the record",
         words: "Updates your tools, after a person approves",
       },
+      expect.objectContaining({ kind: "end", words: "Finishes here" }),
     ]);
 
     // Asked again, it is refused: the build has its draft.
@@ -263,7 +265,7 @@ describe.skipIf(!h)("draft it now", () => {
     const b = await ok("POST", `/api/ops/builds/${id}/draft-now`, { description: DESCRIPTION });
     // The missing step went back to the Builder as something to repair, and the draft runs.
     expect(model.requests.length - before).toBe(2);
-    expect(JSON.stringify(model.requests.at(-1)?.messages)).toContain("missing_step");
+    expect(JSON.stringify(model.requests.at(-1)?.messages)).toContain("not_built_yet");
     expect(b.build.phase).toBe("draft");
     expect(b.draft?.problems).toEqual([]);
     expect(b.gate.reasons).toEqual([]);

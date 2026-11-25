@@ -8,7 +8,6 @@ import { FakeModel, type LlmRequest } from "@countersign/llm";
 import { desc, eq } from "drizzle-orm";
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { createApiHarness, OPERATOR, testBundle } from "./api.test-helper";
-import { stepModelAnswer } from "./builder-v5.test-helper";
 
 for (const level of process.env.SHOW_LOGS ? [] : (["warn", "error"] as const)) {
   vi.spyOn(console, level).mockImplementation(() => {});
@@ -38,7 +37,8 @@ function edits(text: string, fn: (b: Draft) => void) {
   return (req: LlmRequest) => {
     const b = structuredClone(shown(req));
     fn(b);
-    return stepModelAnswer({ toolUse: { name: "submit_turn", input: { text, bundle: b } } });
+    // The draft is a v3 test bundle read as v4 processes: the turn answers v4.
+    return { toolUse: { name: "submit_turn", input: { text, bundle: b } } };
   };
 }
 

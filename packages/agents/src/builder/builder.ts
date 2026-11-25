@@ -289,7 +289,7 @@ function describeErrors(errors: readonly ValidationError[]): string {
   return errors
     .map(
       (e) =>
-        `- ${[e.workflow, e.stepId, e.field].filter(Boolean).join(" / ") || "bundle"}: ${e.message} (${e.code})`,
+        `- ${[e.workflow, e.stepId, e.field].filter(Boolean).join(" / ") || "bundle"}: ${e.message} (${(e as { stepCode?: string }).stepCode ?? e.code})`,
     )
     .join("\n");
 }

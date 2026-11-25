@@ -312,10 +312,14 @@ export async function builderContext(
     client,
     agentSlugs,
     stepModel: {
+      // DECISION (step model, build item 9): the Builder's catalog is the Uses picker's, with the
+      // actions the operator turned off left out, but a test-only connector stays offered, as the
+      // v4 Builder's tools offered it (`builderTools`).
       actions: await actionCatalogFor(
         ctx,
         { tenantId: clientId, testCopy: self?.testCopy ?? false },
         from,
+        { testConnectors: "shown" },
       ),
       profiles: platform.packs.flatMap((p) => p.manifest.matchProfiles),
       loops,

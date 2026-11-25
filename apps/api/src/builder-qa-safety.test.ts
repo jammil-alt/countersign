@@ -7,7 +7,6 @@ import { DEFAULT_MODELS, FakeModel, type LlmRequest } from "@countersign/llm";
 import { eq } from "drizzle-orm";
 import { afterAll, describe, expect, it, vi } from "vitest";
 import { createApiHarness, OPERATOR, testBundle } from "./api.test-helper";
-import { stepModelAnswer } from "./builder-v5.test-helper";
 
 for (const level of process.env.SHOW_LOGS ? [] : (["warn", "error"] as const)) {
   vi.spyOn(console, level).mockImplementation(() => {});
@@ -106,12 +105,13 @@ describe.skipIf(!h)("builder safety", () => {
       const content = req.messages[0]?.content as string;
       const start = content.indexOf("<current_bundle>") + "<current_bundle>".length;
       const bundle = JSON.parse(content.slice(start, content.indexOf("</current_bundle>")));
-      return stepModelAnswer({
+      // A v3 test bundle is revised as v4: the answer is the draft as it was shown.
+      return {
         toolUse: {
           name: "submit_revision",
           input: { summary: "Nothing changed.", gaps: [], changeNote: "None", bundle },
         },
-      });
+      };
     };
     const created = await H.call(OPERATOR, "POST", `/api/ops/clients/${H.A.tenantId}/agents`, {
       slug: "clerk-a",

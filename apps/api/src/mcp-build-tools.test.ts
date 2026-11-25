@@ -330,13 +330,14 @@ describe.skipIf(!h)("MCP builds and step settings", () => {
       "agreed",
     );
 
-    // The draft is an agent: its steps and their settings, v4 checks included.
+    // The draft is an agent: its steps and their settings, checks included (a v5 Do, the step
+    // model the Builder drafts in).
     r = await ok("agent_steps", { agent: b.draft.agentId });
     const steps = r.data();
     expect(steps.version.live).toBe(false);
     expect(steps.workflows[0].steps[0].settings).toMatchObject({
       name: "Update the record",
-      kind: "write",
+      kind: "do",
       input: { amount: "20.00" },
       checks: { approval: { required: "required" } },
     });

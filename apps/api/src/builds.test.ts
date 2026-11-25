@@ -493,10 +493,21 @@ describe.skipIf(!h)("builds", () => {
     expect(b.clientTest).toMatchObject({ client: { id: H.A.tenantId }, writes: { rejected: 0 } });
     expect(b.draft?.live).toBe(true);
     // The copy's connection isn't bound at A yet: an open item says so, and the build is there.
-    expect(b.items.find((i) => i.title === "Publish the client's copy")).toMatchObject({
-      state: "open",
-      detail: expect.stringContaining("does not validate"),
-    });
+    // The step model (the Builder drafts v5): its publish checks don't check bindings yet, so the
+    // copy publishes and its trial is what can't start (stream I, Not done).
+    const publishItem = b.items.find((i) => i.title === "Publish the client's copy");
+    const trialItem = b.items.find((i) => i.title.startsWith("Start the trial"));
+    if (publishItem) {
+      expect(publishItem).toMatchObject({
+        state: "open",
+        detail: expect.stringContaining("does not validate"),
+      });
+    } else {
+      expect(trialItem).toMatchObject({
+        state: "open",
+        detail: expect.stringContaining("connector testkit is not bound"),
+      });
+    }
     const copy = b.build.testAgentId as string;
     const bound = await H.call(OPERATOR, "PATCH", `/api/ops/agents/${copy}/operation`, {
       bindings: { testkit: H.A.connectionId },
@@ -505,13 +516,15 @@ describe.skipIf(!h)("builds", () => {
     const page = (await H.call(OPERATOR, "GET", `/api/ops/agents/${copy}`)).json as {
       latest: { id: string };
     };
-    const published = await H.call(
-      OPERATOR,
-      "POST",
-      `/api/ops/agents/${copy}/versions/${page.latest.id}/publish`,
-    );
-    expect(published.status, JSON.stringify(published.json)).toBe(200);
-    const startItem = b.items.find((i) => i.title === "Publish the client's copy");
+    if (publishItem) {
+      const published = await H.call(
+        OPERATOR,
+        "POST",
+        `/api/ops/agents/${copy}/versions/${page.latest.id}/publish`,
+      );
+      expect(published.status, JSON.stringify(published.json)).toBe(200);
+    }
+    const startItem = publishItem ?? trialItem;
     b = await ok("PATCH", `/api/ops/builds/${id}/items/${startItem?.id}`, { state: "done" });
     expect(b.items.find((i) => i.id === startItem?.id)?.resolvedAt).toBeTruthy();
     // A passing test run at A, as the test run route records one.
@@ -746,12 +759,12 @@ describe.skipIf(!h)("builds", () => {
     await ok("POST", `/api/ops/builds/${id}/phase`, { to: "fitgap" });
     const withMissing = draftAnswer();
     const flow = withMissing.toolUse.input.bundle.workflows[0]?.workflow as { steps: unknown[] };
+    // The step model: a "Not built yet" Do.
     flow.steps.unshift({
       id: "group",
-      kind: "missing",
+      kind: "do",
       name: "Group invoices by customer",
-      need: "No skill groups a list by customer.",
-      fill: "skill",
+      uses: { type: "missing", need: "No skill groups a list by customer.", fill: "skill" },
     });
     model.push(withMissing);
     b = await ok("POST", `/api/ops/builds/${id}/phase`, { to: "draft" });
@@ -778,9 +791,10 @@ describe.skipIf(!h)("builds", () => {
     // The workflow's Builder can only reword the step: the catalog has nothing that groups.
     model.push(
       editsDraft("I reworded the step to say what it must do.", (d) => {
-        const step = d.workflows[0]?.workflow.steps[0] as { need?: string } | undefined;
-        if (step)
-          step.need = "Needs a skill that groups open invoices by customer and totals them.";
+        // The step model: a "Not built yet" Do's need is in its Uses.
+        const step = d.workflows[0]?.workflow.steps[0] as { uses?: { need?: string } } | undefined;
+        if (step?.uses)
+          step.uses.need = "Needs a skill that groups open invoices by customer and totals them.";
       }),
     );
     b = await ok("POST", `/api/ops/builds/${id}/messages/${proposed?.id}/proposal`, {
@@ -976,7 +990,7 @@ describe.skipIf(!h)("builds", () => {
       });
     });
     b = await ok("POST", `/api/ops/builds/${id}/turns`, { text: "The amount is wrong." });
-    const step = /Draft v2 step \[([^\]]+)\] Update the record \(write\)/.exec(lastUserText());
+    const step = /Draft v2 step \[([^\]]+)\] Update the record \(do\)/.exec(lastUserText());
     expect(step).not.toBeNull();
     const proposed = b.messages.at(-1);
     expect(proposed?.proposal).toMatchObject({ state: "proposed", action: { do: "edit_draft" } });

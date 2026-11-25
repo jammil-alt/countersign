@@ -255,6 +255,8 @@ export const ValidationErrorSchema = z.object({
   message: z.string(),
   code: z.string(),
   workflow: z.string().optional(),
+  /** The step model's own check (`steps.StepIssueCode`) when `code` is `step_model`. */
+  stepCode: z.string().optional(),
 });
 
 // v0.12 W1-E: RunStatusSchema lives with RunFilter (./runs-filter.ts).

@@ -515,15 +515,21 @@ export function problemPlace(
 // with the same key adds the reference it is about, then a number, so the keys of problems already
 // talked about stay as they were.
 export function draftProblems(
-  errors: readonly {
+  raw: readonly {
     workflow?: string;
     stepId: string | null;
     field: string;
     code: string;
     message: string;
+    stepCode?: string | undefined;
   }[],
   bundle: DraftFacts["bundle"],
 ): DraftProblem[] {
+  // DECISION (step model, build item 9): a v5 draft's "Not built yet" step is the build's missing
+  // step (its badge, its words, what holds the gate), so the build's screens read it as before.
+  const errors = raw.map((e) =>
+    e.stepCode === "not_built_yet" ? { ...e, code: "missing_step" } : e,
+  );
   const seen = new Set<string>();
   return groupProblems(errors).flatMap((group) => {
     const e = group[0];

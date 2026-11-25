@@ -32,7 +32,7 @@ import { holdsClientLiteral } from "../../registry/lineage";
 import type { BuilderContext } from "../context";
 import { DEFAULT_APPROVAL, guardDefinition, holdApproval, rewriteRefs } from "../guards";
 import { StepAgentBundle } from "./answer";
-import { actionKinds, doSkills, skillDoneBy } from "./catalog";
+import { actionKinds, doSkills, offeredActions, skillDoneBy } from "./catalog";
 
 type Step = steps.Step;
 type DoStep = steps.DoStep;
@@ -384,7 +384,8 @@ export function guardStepBundle(
   const knownLoop = (ref: string) => sourceRefs.has(ref) || loopsById.has(parseSkillRef(ref).id);
   /** New references name the skill, not a version: pins come from the operator. */
   const normalRef = (ref: string) => (sourceRefs.has(ref) ? ref : parseSkillRef(ref).id);
-  const knownAction = (id: string) => kinds.has(id) || sourceActions.has(id);
+  const offered = offeredActions(ctx);
+  const knownAction = (id: string) => offered.has(id) || sourceActions.has(id);
   const kindOf = (id: string): steps.ActionKind => kinds.get(id) ?? "change";
 
   // ── Definition ──────────────────────────────────────────────────────────────────────────────

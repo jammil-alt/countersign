@@ -307,9 +307,13 @@ export async function actionCatalogFor(
   ctx: Pick<HandlerCtx<never>, "tx" | "services">,
   row: Pick<AgentRow, "tenantId" | "testCopy">,
   bundle: unknown,
+  options: { testConnectors?: "hidden" | "shown" } = {},
 ): Promise<steps.CatalogGroup[]> {
   const { platform } = ctx.services;
-  const hidden = await hiddenTestConnectors(ctx.tx, row, bundle, platform);
+  const hidden =
+    options.testConnectors === "shown"
+      ? new Set<string>()
+      : await hiddenTestConnectors(ctx.tx, row, bundle, platform);
   const connectors = platform.connectors.list().filter((c) => !hidden.has(c.manifest.id));
   const settings = await ctx.tx.select().from(connectorSetting);
   const specs = catalogSpecs(

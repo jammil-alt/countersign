@@ -49,6 +49,19 @@ export function actionGroups(ctx: Pick<BuilderContext, "tools" | "stepModel" | "
   });
 }
 
+/**
+ * The action ids a draft may use: the catalog's (the Uses picker's, without what the operator
+ * turned off on a connector's page); every registered tool when the context has no catalog.
+ */
+export function offeredActions(
+  ctx: Pick<BuilderContext, "tools" | "stepModel" | "connectors">,
+): Set<string> {
+  const out = new Set<string>();
+  for (const g of actionGroups(ctx)) for (const a of g.actions) out.add(a.id);
+  if (!ctx.stepModel) for (const t of ctx.tools) out.add(t.id);
+  return out;
+}
+
 /** Every action id the catalog offers, merged ones included, with its kind. */
 export function actionKinds(
   ctx: Pick<BuilderContext, "tools" | "stepModel" | "connectors">,

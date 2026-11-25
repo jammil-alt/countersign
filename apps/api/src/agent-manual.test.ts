@@ -225,6 +225,8 @@ describe.skipIf(!h)("the agent manual", () => {
         name: "Update the record",
         words: "Updates your tools, after a person approves",
       }),
+      // The step model: the End the draft finishes on.
+      expect.objectContaining({ kind: "end", words: "Finishes here" }),
     ]);
     expect(view.decisions.find((d) => d.id === "post")).toMatchObject({
       step: "Update the record",

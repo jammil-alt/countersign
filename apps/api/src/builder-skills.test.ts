@@ -5,7 +5,7 @@
 // v3 version it revises is read through the converter, every id kept (docs/plan.md §1.86).
 
 import { TESTKIT_UPDATE_TOOL } from "@countersign/connectors";
-import { type ProcessAgentBundle as AgentBundle, processes } from "@countersign/core";
+import { type ProcessAgentBundle as AgentBundle, processes, steps } from "@countersign/core";
 import { agentVersion, inboxItem } from "@countersign/db";
 import { FakeModel, type LlmRequest } from "@countersign/llm";
 import { eq } from "drizzle-orm";
@@ -50,6 +50,18 @@ const stepsOf = (b: AgentBundle) => {
   for (const w of b.workflows) processes.walkSteps(w.workflow, ({ step }) => out.push(step));
   return out;
 };
+
+/** A v5 draft's steps (the step model: the Builder drafts in it, build item 9). */
+const v5StepsOf = (b: { workflows: { workflow: unknown }[] }) => {
+  const out: steps.Step[] = [];
+  for (const w of b.workflows) {
+    steps.eachStep((w.workflow as steps.Workflow).steps, ({ step }) => out.push(step));
+  }
+  return out;
+};
+
+/** An error's code, the step model's own where it has one. */
+const codeOf = (e: Json) => (e.stepCode ?? e.code) as string;
 
 /** The bundle a revise request showed the model (real ids: a revision keeps them). */
 function shownSource(req: LlmRequest): AgentBundle {
@@ -313,8 +325,8 @@ describe.skipIf(!h)("the Builder", () => {
       errors: unknown[];
     };
     // v0.18: the step on a skill that doesn't exist is a missing step in its place, which only
-    // stops a publish (docs/plan.md §1.103).
-    expect((out.errors as Json[]).map((e) => e.code)).toEqual(["missing_step"]);
+    // stops a publish (docs/plan.md §1.103); in the step model, "Not built yet".
+    expect((out.errors as Json[]).map(codeOf)).toEqual(["not_built_yet"]);
     expect(out.agent).toMatchObject({
       kind: "template",
       slug: "card-receipts",
@@ -325,14 +337,16 @@ describe.skipIf(!h)("the Builder", () => {
     expect(out.gaps).toEqual(
       expect.arrayContaining(["There is no card feed connector, so it can't read card charges."]),
     );
-    expect(stepsOf(out.bundle).find((s) => s.kind === "missing")).toMatchObject({
-      need: expect.stringContaining("custom:find-card-charges"),
-      fill: "skill",
+    const drafted = v5StepsOf(out.bundle);
+    expect(drafted.find((s) => s.kind === "do" && s.uses?.type === "missing")).toMatchObject({
+      uses: { need: expect.stringContaining("custom:find-card-charges"), fill: "skill" },
     });
-    expect(out.bundle.workflows[0]?.workflow.schemaVersion).toBe(4);
-    const write = stepsOf(out.bundle).find((s) => s.kind === "write");
+    expect(out.bundle.workflows[0]?.workflow.schemaVersion).toBe(5);
+    const write = drafted.find(
+      (s) => s.kind === "do" && s.uses?.type === "action" && s.uses.action === TESTKIT_UPDATE_TOOL,
+    );
     expect(write?.checks?.approval?.required).toBe("required");
-    expect(stepsOf(out.bundle).every((s) => /^[0-9a-f-]{36}$/.test(s.id))).toBe(true);
+    expect(drafted.every((s) => /^[0-9a-f-]{36}$/.test(s.id))).toBe(true);
     // It is saved: the agent page opens it.
     const page = await H.call(OPERATOR, "GET", `/api/ops/agents/${out.agent.id}`);
     expect(page.json).toMatchObject({ latest: { status: "draft" } });
@@ -351,12 +365,9 @@ describe.skipIf(!h)("the Builder", () => {
     });
     const prompt = JSON.stringify(model.requests[0]?.messages);
     expect(prompt).toContain("Client A");
-    // A client's draft is checked against its (absent) bindings: the operator binds, not the model.
-    // v0.18: the step on a skill that doesn't exist is held as a missing step.
-    expect((res.json as { errors: Json[] }).errors.map((e) => e.code as string).sort()).toEqual([
-      "connection_missing",
-      "missing_step",
-    ]);
+    // v0.18: the step on a skill that doesn't exist is held as a missing step ("Not built yet" in
+    // the step model). The step model's publish checks don't check bindings yet (stream I, Not done).
+    expect((res.json as { errors: Json[] }).errors.map(codeOf).sort()).toEqual(["not_built_yet"]);
     expect(
       (
         await H.call(OTHER_OPERATOR, "POST", "/api/ops/agents/draft", {
@@ -435,7 +446,7 @@ describe.skipIf(!h)("the Builder", () => {
         },
         ...wf.steps.slice(1),
       ];
-      return stepModelAnswer({
+      return {
         toolUse: {
           name: "submit_revision",
           input: {
@@ -445,7 +456,7 @@ describe.skipIf(!h)("the Builder", () => {
             bundle: revised,
           },
         },
-      });
+      };
     });
     const res = await H.call(OPERATOR, "POST", `/api/ops/agents/${agentId}/revise`, {
       instruction: "For this client, skip the approval for invoices under $200",
@@ -502,7 +513,7 @@ describe.skipIf(!h)("the Builder", () => {
       const changed = structuredClone(shownSource(req));
       const note = changed.workflows[0]?.workflow.steps[2];
       if (note?.kind === "notify") note.notify.message = "Record checked";
-      return stepModelAnswer({
+      return {
         toolUse: {
           name: "submit_revision",
           input: {
@@ -512,7 +523,7 @@ describe.skipIf(!h)("the Builder", () => {
             bundle: changed,
           },
         },
-      });
+      };
     });
     const res = await H.call(OPERATOR, "POST", `/api/ops/agents/${agentId}/revise`, {
       requestId: item?.id,

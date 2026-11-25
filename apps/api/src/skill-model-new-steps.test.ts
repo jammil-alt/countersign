@@ -88,7 +88,16 @@ function catalogOf(req: LlmRequest | undefined): {
   const text = JSON.stringify(req ?? {});
   const start = text.indexOf("<catalog>\\n") + "<catalog>\\n".length;
   const end = text.indexOf("\\n</catalog>");
-  return JSON.parse(JSON.parse(`"${text.slice(start, end)}"`));
+  const catalog = JSON.parse(JSON.parse(`"${text.slice(start, end)}"`)) as {
+    skills: { id: string }[];
+    tools?: { id: string }[];
+    actions?: { actions: { id: string }[] }[];
+  };
+  // The step model (build item 9): the actions the Uses picker offers stand for the tools.
+  return {
+    skills: catalog.skills,
+    tools: catalog.tools ?? (catalog.actions ?? []).flatMap((g) => g.actions),
+  };
 }
 
 describe.skipIf(!h)("new steps in a first version", () => {
@@ -247,11 +256,15 @@ describe.skipIf(!h)("new steps in a first version", () => {
     }
     expect(tools.some((t) => t.startsWith("account."))).toBe(false);
     const out = j(res.json);
-    const steps = out.bundle.workflows[0].workflow.steps as { skill?: string; tool?: string }[];
-    expect(steps.some((s) => s.skill === "materials.read-quote")).toBe(false);
-    expect(steps.some((s) => s.tool === "docs.extract")).toBe(false);
-    // v0.18: each is held as a missing step in its place, saying what was asked for.
-    const holes = JSON.stringify(steps.filter((s) => (s as { kind?: string }).kind === "missing"));
+    // The step model (build item 9): a Do's skill or action is in its Uses.
+    const steps = out.bundle.workflows[0].workflow.steps as {
+      uses?: { type: string; skill?: string; action?: string };
+    }[];
+    expect(steps.some((s) => s.uses?.skill === "materials.read-quote")).toBe(false);
+    expect(steps.some((s) => s.uses?.action === "docs.extract")).toBe(false);
+    // v0.18: each is held as a missing step in its place ("Not built yet"), saying what was asked
+    // for.
+    const holes = JSON.stringify(steps.filter((s) => s.uses?.type === "missing"));
     expect(holes).toContain("materials.read-quote");
     expect(holes).toContain("docs.extract");
   });

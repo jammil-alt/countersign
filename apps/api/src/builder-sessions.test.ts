@@ -8,7 +8,7 @@
 // version edits it as it is, and "Save as automation" saves a v4 automation (docs/plan.md §1.86).
 
 import { TESTKIT_QUERY_TOOL, TESTKIT_UPDATE_TOOL } from "@countersign/connectors";
-import { type ProcessAgentBundle as AgentBundle, processes } from "@countersign/core";
+import { type ProcessAgentBundle as AgentBundle, processes, steps } from "@countersign/core";
 import { agentVersion, automationVersion, builderTurn, testCase } from "@countersign/db";
 import { FakeModel, type LlmRequest } from "@countersign/llm";
 import { eq } from "drizzle-orm";
@@ -52,14 +52,33 @@ type Draft = {
   workflows: { workflow: { steps: Json[] } }[];
 };
 
-/** A model turn that edits the draft it was shown. */
+/** Whether the draft the model was shown is in the step model (a new agent's is). */
+function shownV5(req: LlmRequest): boolean {
+  const wf = (shown(req) as unknown as Draft).workflows[0]?.workflow as Json | undefined;
+  return wf?.schemaVersion === 5;
+}
+
+/**
+ * A model turn that edits the draft it was shown: in the step model when it was shown one (its
+ * edits written in v4 are converted), else as v4.
+ */
 function edits(text: string, fn: (b: Draft) => void) {
   return (req: LlmRequest) => {
     const b = structuredClone(shown(req)) as unknown as Draft;
     fn(b);
-    return stepModelAnswer({ toolUse: { name: "submit_turn", input: { text, bundle: b } } });
+    const answer = { toolUse: { name: "submit_turn", input: { text, bundle: b } } };
+    return shownV5(req) ? stepModelAnswer(answer) : answer;
   };
 }
+
+/** A v5 draft's steps in run order. */
+const v5StepsOf = (b: { workflows: { workflow: unknown }[] }) => {
+  const out: steps.Step[] = [];
+  for (const w of b.workflows) {
+    steps.eachStep((w.workflow as steps.Workflow).steps, ({ step }) => out.push(step));
+  }
+  return out;
+};
 
 const SKILL = "custom:match-receipt";
 
@@ -72,7 +91,7 @@ describe.skipIf(!h)("the Builder as a conversation", () => {
     return res.json as Detail & Json;
   };
 
-  it("drafts Remy in three turns, undoes one change alone, and saves two steps as an automation", async () => {
+  it("drafts Remy in three turns in the step model, undoes one change alone, and saves it", async () => {
     // A published shared skill the agent can use.
     const created = await ok(OPERATOR, "POST", "/api/ops/skills", {
       definition: {
@@ -95,7 +114,7 @@ describe.skipIf(!h)("the Builder as a conversation", () => {
     const version = created.version as Json;
     await ok(OPERATOR, "POST", `/api/ops/skills/${skill.id}/versions/${version.id}/publish`);
 
-    // Start: a new client agent for A.
+    // Start: a new client agent for A, a v5 draft (the step model, build item 9).
     const start = await ok(OPERATOR, "POST", "/api/ops/builder/sessions", {
       kind: "agent",
       clientId: H.A.tenantId,
@@ -104,44 +123,63 @@ describe.skipIf(!h)("the Builder as a conversation", () => {
     });
     const id = start.session.id as string;
     const triggerId = start.session.bundle.workflows[0]?.workflow.triggers[0]?.id as string;
-    expect(start.session.bundle.workflows[0]?.workflow.schemaVersion).toBe(4);
+    expect(start.session.bundle.workflows[0]?.workflow.schemaVersion).toBe(5);
     expect(start.session).toMatchObject({ kind: "agent", clientId: H.A.tenantId, status: "open" });
     expect(start.turns.map((t) => t.command)).toEqual(["/start"]);
 
-    // Turn 1: the draft. The model tries to act alone, skip an approval and switch oversight off.
-    model.push(
-      edits("Remy matches each receipt, notes it, waits a day and tells the lead.", (b) => {
-        b.definition.permissions = { mode: "act" };
-        b.definition.oversight = { review: "off" };
-        b.definition.skills = [{ skill: SKILL }];
-        b.definition.instructions = "Match card receipts to their records.";
-        (b.workflows[0] as Draft["workflows"][number]).workflow.steps = [
-          {
-            id: "s1",
-            kind: "skill",
-            name: "Match the receipt",
-            skill: SKILL,
-            input: { text: "{{trigger.text}}" },
-            model: { id: "claude-haiku-5-5" },
+    // Turn 1: the draft, in the step model. The model tries to act alone, skip an approval and
+    // switch oversight off.
+    model.push((req: LlmRequest) => {
+      expect(shownV5(req)).toBe(true);
+      const b = structuredClone(shown(req)) as unknown as Draft & {
+        workflows: { workflow: Json }[];
+      };
+      b.definition.permissions = { mode: "act" };
+      b.definition.oversight = { review: "off" };
+      b.definition.skills = [{ skill: SKILL }];
+      b.definition.instructions = "Match card receipts to their records.";
+      const wf = b.workflows[0]?.workflow as Json;
+      wf.outputs = [{ id: "r1", name: "Receipt noted", kind: "nothing" }];
+      wf.steps = [
+        {
+          id: "s1",
+          kind: "do",
+          name: "Match the receipt",
+          doneBy: "ai",
+          uses: { type: "skill", skill: SKILL },
+          input: { text: "{{trigger.text}}" },
+          ai: { model: { id: "claude-haiku-5-5" } },
+        },
+        {
+          id: "s2",
+          kind: "do",
+          name: "Note it on the record",
+          doneBy: "rules",
+          uses: { type: "action", action: TESTKIT_UPDATE_TOOL },
+          input: { id: "{{steps.s1.output.recordId}}", name: "Receipt matched" },
+          checks: { approval: { required: "not_required" } },
+        },
+        { id: "s3", kind: "wait", name: "Wait a day", for: "1 day" },
+        {
+          id: "s4",
+          kind: "do",
+          name: "Tell the lead",
+          doneBy: "rules",
+          uses: { type: "tell" },
+          tell: { to: ["lead"], message: "Done" },
+        },
+        { id: "s5", kind: "end", name: "Done", outputs: ["r1"] },
+      ];
+      return {
+        toolUse: {
+          name: "submit_turn",
+          input: {
+            text: "Remy matches each receipt, notes it, waits a day and tells the lead.",
+            bundle: b,
           },
-          {
-            id: "s2",
-            kind: "write",
-            name: "Note it on the record",
-            tool: TESTKIT_UPDATE_TOOL,
-            input: { id: "{{steps.s1.output.recordId}}", name: "Receipt matched" },
-            checks: { approval: { required: "not_required" } },
-          },
-          { id: "s3", kind: "wait", name: "Wait a day", for: "1 day" },
-          {
-            id: "s4",
-            kind: "notify",
-            name: "Tell the lead",
-            notify: { to: ["lead"], message: "Done" },
-          },
-        ];
-      }),
-    );
+        },
+      };
+    });
     const t1 = await ok(OPERATOR, "POST", `/api/ops/builder/sessions/${id}/turns`, {
       text: "Draft Remy: match each card receipt to its record and note it there.",
     });
@@ -151,32 +189,40 @@ describe.skipIf(!h)("the Builder as a conversation", () => {
     expect(request).not.toContain(id);
     const b1 = t1.session.bundle;
     expect(b1.workflows[0]?.workflow.triggers[0]?.id).toBe(triggerId);
-    const [match, note, wait, notify] = stepsOf(b1);
-    for (const s of [match, note, wait, notify]) expect(s?.id).toMatch(/^[0-9a-f-]{36}$/);
+    const [match, note, wait, notify, end] = v5StepsOf(b1);
+    for (const s of [match, note, wait, notify, end]) expect(s?.id).toMatch(/^[0-9a-f-]{36}$/);
     expect(b1.definition.permissions.mode).toBe("suggest_only");
     expect(b1.definition.oversight).toMatchObject({ review: "failures" });
     expect(note?.checks?.approval?.required).toBe("required");
-    // A step model the platform prices stays.
-    expect(match?.kind === "skill" ? match.model : null).toEqual({ id: "claude-haiku-5-5" });
+    // A step's model the platform prices stays.
+    expect(match?.kind === "do" ? match.ai?.model : null).toEqual({ id: "claude-haiku-5-5" });
+    // The End follows its output's new id.
+    const flow = b1.workflows[0]?.workflow as unknown as steps.Workflow | undefined;
+    expect(end?.kind === "end" ? end.outputs : null).toEqual([flow?.outputs[0]?.id]);
     const turn1 = t1.turn as Turn;
     expect(turn1.role).toBe("builder");
     expect(turn1.changes.map((c) => c.label)).toEqual(
       expect.arrayContaining([
-        "+1 skill, step 1 · Match the receipt",
-        "+1 write, step 2 · Note it on the record",
+        "+1 do, step 1 · Match the receipt",
+        "+1 do, step 2 · Note it on the record",
         "+1 wait, step 3 · Wait a day",
-        "+1 notify, step 4 · Tell the lead",
+        "+1 do, step 4 · Tell the lead",
       ]),
     );
     expect(turn1.notes.join(" ")).toContain("Approval stays on");
 
-    // Undo one change alone: the notify step goes, the rest of the turn stays.
+    // Undo one change alone: the Tell step goes, the rest of the turn stays.
     const notifyChange = turn1.changes.find((c) => c.id === `step:${notify?.id}`);
     const u1 = await ok(OPERATOR, "POST", `/api/ops/builder/sessions/${id}/undo`, {
       turnId: turn1.id,
       changeId: notifyChange?.id,
     });
-    expect(stepsOf(u1.session.bundle).map((s) => s.id)).toEqual([match?.id, note?.id, wait?.id]);
+    expect(v5StepsOf(u1.session.bundle).map((s) => s.id)).toEqual([
+      match?.id,
+      note?.id,
+      wait?.id,
+      end?.id,
+    ]);
     expect(u1.session.bundle.definition.instructions).toBe("Match card receipts to their records.");
     const after = u1.turns.find((t) => t.id === turn1.id);
     expect(after?.changes.find((c) => c.id === notifyChange?.id)?.undone).toBe(true);
@@ -211,14 +257,14 @@ describe.skipIf(!h)("the Builder as a conversation", () => {
     // Turn 3: rename the note step. Then undoing turn 1's note step conflicts with it.
     model.push(
       edits("Renamed it.", (b) => {
-        const steps = (b.workflows[0] as Draft["workflows"][number]).workflow.steps;
-        (steps[1] as Json).name = "Note the match";
+        const list = (b.workflows[0] as Draft["workflows"][number]).workflow.steps;
+        (list[1] as Json).name = "Note the match";
       }),
     );
     const t3 = await ok(OPERATOR, "POST", `/api/ops/builder/sessions/${id}/turns`, {
       text: "Call the note step 'Note the match'.",
     });
-    expect(stepsOf(t3.session.bundle)[1]?.name).toBe("Note the match");
+    expect(v5StepsOf(t3.session.bundle)[1]?.name).toBe("Note the match");
     const conflict = await H.call(OPERATOR, "POST", `/api/ops/builder/sessions/${id}/undo`, {
       turnId: turn1.id,
       changeId: `step:${note?.id}`,
@@ -226,37 +272,17 @@ describe.skipIf(!h)("the Builder as a conversation", () => {
     expect(conflict.status).toBe(409);
     expect(conflict.json).toMatchObject({ error: { code: "undo_conflict" } });
 
-    // Save the note and wait steps as an automation; one process step takes their place, and the
-    // automation holds them as v4 process steps (wave 3b).
-    const auto = await ok(OPERATOR, "POST", `/api/ops/builder/sessions/${id}/automation`, {
+    // Saving steps as an automation isn't in the step model yet (stream I, Not done).
+    const auto = await H.call(OPERATOR, "POST", `/api/ops/builder/sessions/${id}/automation`, {
       stepIds: [note?.id, wait?.id],
       slug: "note-and-wait",
       name: "Note and wait",
     });
-    expect(auto.automation).toMatchObject({ slug: "note-and-wait", ref: "note-and-wait@1" });
-    const steps = stepsOf(auto.session.bundle);
-    expect(steps.map((s) => s.kind)).toEqual(["skill", "process"]);
-    expect(steps[1]).toMatchObject({ process: "note-and-wait@1" });
-    expect(steps[0]?.id).toBe(match?.id);
-    const [stored] = await H.t.db
-      .select()
-      .from(automationVersion)
-      .where(eq(automationVersion.id, (auto.automationVersion as Json).id as string));
-    expect(stored?.definition.schemaVersion).toBe(2);
-    expect(stored?.definition.steps.map((s) => s.kind)).toEqual(["write", "wait"]);
-    // The copy starts with approval on (invariant 8).
-    expect(stored?.definition.steps[0]).toMatchObject({
-      checks: { approval: { required: "required" } },
-    });
-    expect((auto.turn as Turn).command).toBe("/save-automation");
-    const listed = await ok(OPERATOR, "GET", `/api/ops/automations?client=${H.A.tenantId}`);
-    expect((listed.automations as Json[]).find((a) => a.slug === "note-and-wait")).toMatchObject({
-      source: "client",
-      clientId: H.A.tenantId,
-      latestStatus: "draft",
-    });
+    expect(auto.status).toBe(422);
+    expect(auto.json).toMatchObject({ error: { code: "not_in_step_model" } });
 
-    // Save: a client agent with a v1 draft written by the Builder; nothing is published.
+    // Save: a client agent with a v1 draft written by the Builder, in the step model; nothing is
+    // published.
     const saved = await ok(OPERATOR, "POST", `/api/ops/builder/sessions/${id}/save`, {});
     expect(saved.session.status).toBe("saved");
     const v = saved.version as { id: string; version: number };
@@ -265,7 +291,7 @@ describe.skipIf(!h)("the Builder as a conversation", () => {
     expect(row).toMatchObject({ status: "draft", authorType: "builder", tenantId: H.A.tenantId });
     expect(row?.bundle.definition.permissions.mode).toBe("suggest_only");
     const savedBundle = row?.bundle as unknown as AgentBundle | undefined;
-    expect(savedBundle?.workflows[0]?.workflow.schemaVersion).toBe(4);
+    expect(savedBundle?.workflows[0]?.workflow.schemaVersion).toBe(5);
     expect(row?.bundle.definition.oversight).toMatchObject({ review: "failures" });
 
     // Turns are history: the model's cost is on its turns, and a turn can't be rewritten.
@@ -283,7 +309,6 @@ describe.skipIf(!h)("the Builder as a conversation", () => {
       null,
       null,
       null,
-      "/save-automation",
       "/save",
     ]);
     expect(turns.find((t) => t.id === turn1.id)?.costUsd).not.toBe("0.0000");
