@@ -20,6 +20,7 @@ import { PLATFORM_TOOLS } from "../../tools/platform";
 import type { BuilderContext } from "../context";
 import { type StepAgentBundle, StepAgentBundle as StepAgentBundleSchema } from "./answer";
 import { stepCatalogForPrompt } from "./catalog";
+import { blankStepAgentDraft } from "./conversation";
 import { draftStepAgent, reviseStepAgent } from "./draft";
 import { guardStepBundle, refsToInput } from "./guards";
 import { OUTPUT_EXAMPLES, STEP_EXAMPLES, STEP_RULES } from "./rules";
@@ -1146,6 +1147,22 @@ describe("guards", () => {
       { mode: "draft", newId: counter() },
     );
     expect(g.bundle.workflows[0]?.workflow.outputs[0]?.report?.to).toEqual(["jane@acme.com"]);
+  });
+});
+
+// ── A new conversation ──────────────────────────────────────────────────────────────────────────
+
+describe("blankStepAgentDraft", () => {
+  it("starts a v5 workflow with its trigger, a Nothing to do output and the End, which publishes", async () => {
+    const b = blankStepAgentDraft({ name: "Remy" }, counter("id"));
+    expect(b.workflows[0]?.workflow).toMatchObject({
+      schemaVersion: 5,
+      triggers: [{ id: "id1", on: { type: "manual" } }],
+      outputs: [{ id: "id2", name: "Nothing to do", kind: "nothing" }],
+      steps: [{ id: "id3", kind: "end", outputs: ["id2"] }],
+    });
+    expect(b.definition.permissions.mode).toBe("suggest_only");
+    expect(await validateWith(context())(b)).toEqual([]);
   });
 });
 
