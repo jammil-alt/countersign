@@ -3,6 +3,7 @@
 // in the step. The usesContext builds the choices from the builder's catalog.
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { MemoryRouter } from "react-router-dom";
 import { describe, expect, it, vi } from "vitest";
 import { usesContextFrom } from "../../builder/steps/catalog";
 import type { StepFormEnv } from "../../builder/steps/form-kit";
@@ -10,7 +11,7 @@ import { newStep } from "../../builder/steps/model";
 import { LoopForm } from "../../builder/steps/OtherForms";
 import { indexCatalog, type LoopChoice, NO_USES_CONTEXT } from "../../builder/steps/options";
 import type { Step, Workflow } from "../../builder/steps/types";
-import { fromSavedLoop, writeInStep } from "./use-loop";
+import { formFromStep, fromSavedLoop, writeInStep } from "./use-loop";
 
 type LoopStep = Extract<Step, { kind: "loop" }>;
 let n = 0;
@@ -91,7 +92,11 @@ describe("a Loop step and a saved Loop", () => {
     const user = userEvent.setup();
     const onChange = vi.fn();
     const step = fromSavedLoop(newStep("loop", id) as LoopStep, SAVED);
-    render(<LoopForm step={step} env={env([SAVED])} issues={[]} onChange={onChange} />);
+    render(
+      <MemoryRouter>
+        <LoopForm step={step} env={env([SAVED])} issues={[]} onChange={onChange} />
+      </MemoryRouter>,
+    );
     expect(screen.getByLabelText("Find vendors")).toBeTruthy();
     // A Get the Loop doesn't read, and a change, are not offered.
     expect(screen.queryByLabelText("Find bills")).toBeNull();
@@ -107,12 +112,14 @@ describe("a Loop step and a saved Loop", () => {
     const user = userEvent.setup();
     const onChange = vi.fn();
     render(
-      <LoopForm
-        step={newStep("loop", id) as LoopStep}
-        env={env([SAVED])}
-        issues={[]}
-        onChange={onChange}
-      />,
+      <MemoryRouter>
+        <LoopForm
+          step={newStep("loop", id) as LoopStep}
+          env={env([SAVED])}
+          issues={[]}
+          onChange={onChange}
+        />
+      </MemoryRouter>,
     );
     await user.selectOptions(screen.getByLabelText("Saved Loop"), "custom:find-why");
     expect(onChange).toHaveBeenCalledWith(
@@ -120,14 +127,42 @@ describe("a Loop step and a saved Loop", () => {
     );
   });
 
+  it("carries a Loop written in the step to the designer as a form", () => {
+    const step = {
+      ...(newStep("loop", id) as LoopStep),
+      name: "Look into the leftovers",
+      goal: "Find why.",
+      reads: ["qbo.vendor.query"],
+      maxTurns: 7,
+      output: [{ name: "why", type: "text" as const, required: true }],
+    };
+    expect(formFromStep(step)).toMatchObject({
+      name: "Look into the leftovers",
+      slug: "look-into-the-leftovers",
+      goal: "Find why.",
+      reads: ["qbo.vendor.query"],
+      maxTurns: 7,
+      output: [{ key: "why", type: "string", required: true }],
+    });
+    // A Loop written in the step offers Save as Loop; a saved one doesn't.
+    render(
+      <MemoryRouter>
+        <LoopForm step={step} env={env([])} issues={[]} onChange={vi.fn()} />
+      </MemoryRouter>,
+    );
+    expect(screen.getByRole("button", { name: "Save as Loop" })).toBeTruthy();
+  });
+
   it("shows no picker when there is no saved Loop", () => {
     render(
-      <LoopForm
-        step={newStep("loop", id) as LoopStep}
-        env={env([])}
-        issues={[]}
-        onChange={vi.fn()}
-      />,
+      <MemoryRouter>
+        <LoopForm
+          step={newStep("loop", id) as LoopStep}
+          env={env([])}
+          issues={[]}
+          onChange={vi.fn()}
+        />
+      </MemoryRouter>,
     );
     expect(screen.queryByLabelText("Saved Loop")).toBeNull();
   });

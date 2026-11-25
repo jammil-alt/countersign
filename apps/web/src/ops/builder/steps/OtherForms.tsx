@@ -4,8 +4,10 @@
 
 import { uuidv7 } from "@countersign/core";
 import type { ReactNode } from "react";
+import { useNavigate } from "react-router-dom";
 import { Button } from "../../../ui/primitives";
-import { fromSavedLoop, readableFor, writeInStep } from "../../lab/loops/use-loop";
+import { NEW_LOOP_PATH } from "../../lab/loops/paths";
+import { formFromStep, fromSavedLoop, readableFor, writeInStep } from "../../lab/loops/use-loop";
 import { DurationPicker } from "../duration";
 import { NO_ERRORS, Row, SmallInput, SmallSelect } from "../fields";
 import { RulesEditor } from "../rules";
@@ -115,6 +117,7 @@ export function LoopForm(props: StepFormProps<Of<"loop">>) {
   // Step model §8: a saved Loop (from the Agent lab's Loop designer) or one written in the step.
   const saved = env.uses.loops ?? [];
   const chosen = saved.find((l) => l.ref === step.skill);
+  const navigate = useNavigate();
   const canRead = readableFor(chosen);
   const gets = env.uses.actions.groups
     .map((g) => ({
@@ -151,6 +154,19 @@ export function LoopForm(props: StepFormProps<Of<"loop">>) {
               </option>
             ))}
           </SmallSelect>
+        </Row>
+      ) : null}
+      {!step.skill ? (
+        <Row
+          label="Save as Loop"
+          hint="A Loop written here can be drafted, but an agent publishes only a saved Loop that passed its tests."
+        >
+          <Button
+            size="sm"
+            onClick={() => navigate(NEW_LOOP_PATH, { state: { loop: formFromStep(step) } })}
+          >
+            Save as Loop
+          </Button>
         </Row>
       ) : null}
       <Field

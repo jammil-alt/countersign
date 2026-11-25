@@ -392,6 +392,7 @@ export * as tableFiles from "./tables";
 export * from "./template/template";
 export * from "./template/typer";
 export * from "./testbench/case";
+export * from "./testbench/loop-tests";
 export * from "./testbench/match";
 export * from "./testbench/suite";
 // BUILDER_QA INPUT-1, INPUT-3: text Postgres can store, and cutting it on whole characters

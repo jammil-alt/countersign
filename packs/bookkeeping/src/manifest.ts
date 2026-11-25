@@ -15,6 +15,7 @@ import { PACK_ID } from "./ids";
 import { BOOKKEEPING_INTAKE_SECTION } from "./intake";
 import type { PackTool } from "./pack";
 import { POSTING_TOOLS, postedTool, qboInputTool, readyTool } from "./posting";
+import { LEFTOVERS_LOOP_TESTS } from "./reconcile/loop-tests";
 import { RECONCILE_SKILLS } from "./reconcile/skills";
 import { RECONCILE_TOOLS } from "./reconcile/tools";
 import { BOOKKEEPING_SPLIT_SKILLS } from "./splits";
@@ -195,6 +196,8 @@ export const bookkeepingManifest: PackManifest = lazyParse(PackManifest, () => (
   events: [],
   tools: ALL_TOOLS.map((t) => t.spec),
   skills: BOOKKEEPING_SKILLS,
+  // Step model §8: the Loop it ships carries its test set (CI replays it).
+  loopTests: LEFTOVERS_LOOP_TESTS,
   templates: [BOOKKEEPER_TEMPLATE],
   // §1.149.2: the area's questions for a client's intake (Getting started's card).
   intakeSection: BOOKKEEPING_INTAKE_SECTION,

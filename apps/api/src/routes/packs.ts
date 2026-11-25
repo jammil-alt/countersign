@@ -41,6 +41,7 @@ import {
   tenant,
   tenantChange,
   tenantPack,
+  testCase,
 } from "@countersign/db";
 import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 import type { Hono } from "hono";
@@ -338,6 +339,15 @@ export async function installLibrarySkills(
   const installed: { ref: string; skillId: string }[] = [];
   for (const def of defs) {
     if (have.has(customSlug(def.id))) continue;
+    // Step model §8: a Loop is never published untested, so a pack's Loop comes with its test set.
+    const cases = pack.manifest.loopTests?.[def.id] ?? [];
+    if (def.loop !== undefined && cases.length === 0) {
+      throw new HttpError(
+        422,
+        "loop_without_tests",
+        `${def.id} is a Loop and the ${pack.manifest.name} pack ships it without a test set`,
+      );
+    }
     const made = await createSkill(tx, {
       tenantId: null,
       definition: def,
@@ -346,6 +356,22 @@ export async function installLibrarySkills(
       tools: services.platform.tools,
     });
     await publishSkill(tx, { skillId: made.skill.id, versionId: made.version.id });
+    // Its cases are kept with it, so the lab shows and runs them (shared, synthetic data).
+    for (const c of cases) {
+      await tx.insert(testCase).values({
+        tenantId: null,
+        targetKind: "skill",
+        targetId: made.skill.id,
+        name: c.name,
+        input: c.input ?? null,
+        fixtures: c.fixtures,
+        expected: c.expected ?? null,
+        matcher: c.matcher,
+        required: true,
+        source: "manual",
+        createdBy: actorId,
+      });
+    }
     installed.push({ ref: def.id, skillId: made.skill.id });
   }
   return installed;

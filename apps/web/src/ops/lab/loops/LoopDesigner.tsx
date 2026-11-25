@@ -7,7 +7,7 @@
 // whole test set passes on that version. A Loop never writes: a step after it saves what it decides.
 import { isUuid, type SkillDefinition, type ToolSpec } from "@countersign/core";
 import { useState } from "react";
-import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
+import { Link, useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import type { ResponseOf } from "../../../api/client";
 import { apiRoutes } from "../../../api/routes";
 import { type ApiState, useApi } from "../../../api/useApi";
@@ -66,7 +66,9 @@ export function NewLoopScreen() {
   const library = useApi(apiRoutes.opsSkills);
   const navigate = useNavigate();
   const session = useSession();
-  const [form, setForm] = useState<LoopForm>(EMPTY_LOOP);
+  // Save as Loop (a Loop written in a step): the step's Loop arrives as the form's start.
+  const start = (useLocation().state as { loop?: LoopForm } | null)?.loop;
+  const [form, setForm] = useState<LoopForm>(start ?? EMPTY_LOOP);
   const [clientId, setClientId] = useState("");
   const [touched, setTouched] = useState(false);
   const action = useAction();

@@ -4,6 +4,8 @@
 // for more (the runtime narrows to the skill's reads, whatever the step lists).
 import type { steps } from "@countersign/core";
 import type { LoopChoice } from "../../builder/steps/options";
+import { type FieldRow, slugify } from "../../skills/skill-form";
+import { EMPTY_LOOP, type LoopForm } from "./loop-form";
 
 type LoopStep = Extract<steps.Step, { kind: "loop" }>;
 
@@ -44,4 +46,40 @@ export function readableFor(
   if (!loop) return null;
   const own = new Set(loop.reads);
   return (id) => own.has(id);
+}
+
+const FIELD_TYPE: Record<string, FieldRow["type"]> = {
+  text: "string",
+  number: "number",
+  money: "string",
+  date: "string",
+  yes_no: "boolean",
+  list: "array",
+  group: "object",
+  record: "string",
+};
+
+/**
+ * A Loop written in a step, as the designer's form to save it as a skill (Save as Loop): its goal,
+ * reads, turns, limit and output come across; the person names it, says what it gets and saves.
+ */
+export function formFromStep(step: LoopStep): LoopForm {
+  return {
+    ...EMPTY_LOOP,
+    name: step.name,
+    slug: slugify(step.name),
+    goal: step.goal,
+    instructions: step.instructions,
+    reads: [...step.reads],
+    maxTurns: step.maxTurns,
+    atLimit: step.atLimit,
+    review: step.review ?? "auto",
+    output: step.output.map((f) => ({
+      key: f.name,
+      type: FIELD_TYPE[f.type] ?? "string",
+      description: f.about ?? "",
+      required: f.required,
+      extra: {},
+    })),
+  };
 }

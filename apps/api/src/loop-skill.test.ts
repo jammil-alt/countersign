@@ -3,12 +3,21 @@
 // case and every case passing on that exact version), has no one-step rollback, and keeps its turns
 // with each case's result. Against a real database as cs_worker, with the FakeModel.
 
-import { runSkillCase } from "@countersign/agents";
-import { newSkillVersionProblems, toolLookup } from "@countersign/core";
-import { FakeModel } from "@countersign/llm";
+import { resolveCustomSkill, runSkillCase } from "@countersign/agents";
+import {
+  type LoopTestCase,
+  matchOutput,
+  newSkillVersionProblems,
+  type SkillDefinition,
+  toolLookup,
+} from "@countersign/core";
+import { skillVersion, testCase, withOperator } from "@countersign/db";
+import { FakeModel, type FakeTurn } from "@countersign/llm";
 import { RECONCILE_SKILLS } from "@countersign/pack-bookkeeping";
+import { and, eq } from "drizzle-orm";
 import { afterAll, describe, expect, it } from "vitest";
 import { type ApiHarness, createApiHarness, OPERATOR } from "./api.test-helper";
+import { installLibrarySkills } from "./routes/packs";
 import { MemoryTestSuiteJobs } from "./testbench/instances";
 import { executeSuite, type SuiteParams } from "./testbench/suite";
 
@@ -296,6 +305,197 @@ describe.skipIf(!h)("Loop skills (step model §8)", () => {
         expect.arrayContaining(["bookkeeping__reconcile__open", "bookkeeping__transactions__open"]),
       );
       expect(offered).not.toContain("bookkeeping__reconcile__propose");
+    });
+  });
+
+  // Review of #681: the test-set gate has no side doors.
+  describe("a Loop that never passed its tests can't be used", () => {
+    const REF = "custom:find-why";
+    const bundleWith = (slug: string, step: Record<string, unknown>, skillRef?: string) => ({
+      schemaVersion: 1,
+      definition: {
+        schemaVersion: 2,
+        identity: { name: "Investigator", role: "looks into things", mission: "Find out why." },
+        kind: "functional",
+        model: { id: "claude-opus-5-5", maxTokens: 1024 },
+        instructions: "Only do what the workflow says.",
+        skills: skillRef ? [{ skill: skillRef, settings: {} }] : [],
+        extraTools: [],
+        canCommand: [],
+        permissions: { mode: "suggest_only" },
+        budgets: { maxSteps: 12, maxCostUsd: "0.50" },
+        memory: { enabled: false },
+      },
+      workflows: [
+        {
+          slug,
+          name: "Look into it",
+          workflow: {
+            schemaVersion: 5,
+            triggers: [{ id: "trg", on: { type: "manual", input: {} } }],
+            outputs: [
+              {
+                id: "o_report",
+                name: "What it found",
+                kind: "report",
+                report: { to: ["client_admin"], message: "{{steps.s_loop.output.why}}" },
+              },
+            ],
+            steps: [
+              {
+                id: "s_loop",
+                kind: "loop",
+                name: "Find why",
+                goal: "Say why the record is off.",
+                reads: ["testkit.record.query"],
+                output: [{ name: "why", type: "text", required: true }],
+                ...step,
+              },
+              { id: "s_end", kind: "end", name: "Report it", outputs: ["o_report"] },
+            ],
+          },
+        },
+      ],
+    });
+    const publishTemplate = async (slug: string, bundle: unknown) => {
+      const made = await H.call(OPERATOR, "POST", "/api/ops/templates", { slug, bundle });
+      expect(made.status, JSON.stringify(made.json)).toBe(200);
+      return H.call(
+        OPERATOR,
+        "POST",
+        `/api/ops/agents/${j(made.json).agent.id}/versions/${j(made.json).version.id}/publish`,
+      );
+    };
+
+    it("refuses an agent whose Loop is written in the step", async () => {
+      const res = await publishTemplate("loop-inline", bundleWith("main", {}));
+      expect(res.status).toBe(422);
+      expect(JSON.stringify(res.json)).toContain(
+        "Save this Loop as a skill and pass its tests before publishing.",
+      );
+    });
+
+    it("refuses a pinned version that is still a draft, and a run can't resolve it", async () => {
+      // v1 is live (above); v2 is a draft whose tests never passed.
+      const [v2] = await H.t.db
+        .select()
+        .from(skillVersion)
+        .where(and(eq(skillVersion.skillId, skillId), eq(skillVersion.version, 2)));
+      expect(v2?.status).toBe("draft");
+      const res = await publishTemplate(
+        "loop-draft",
+        bundleWith("main", { skill: `${REF}@2` }, `${REF}@2`),
+      );
+      expect(res.status).toBe(422);
+      expect(JSON.stringify(res.json)).toContain("is a draft");
+      await withOperator(H.db, [], async (tx) => {
+        expect(await resolveCustomSkill(tx, { tenantId: null, ref: `${REF}@2` })).toBeNull();
+        // The live one resolves, pinned or not; the designer's own newest lookup still sees the draft.
+        expect(await resolveCustomSkill(tx, { tenantId: null, ref: `${REF}@1` })).toMatchObject({
+          version: 1,
+        });
+        expect(await resolveCustomSkill(tx, { tenantId: null, ref: REF })).toMatchObject({
+          version: 1,
+        });
+        expect(
+          await resolveCustomSkill(tx, { tenantId: null, ref: REF, newest: true }),
+        ).toMatchObject({ version: 2 });
+      });
+    });
+
+    it("publishes an agent whose Loop is the saved, published one", async () => {
+      const res = await publishTemplate(
+        "loop-saved",
+        bundleWith("main", { skill: `${REF}@1` }, `${REF}@1`),
+      );
+      expect(res.status, JSON.stringify(res.json)).toBe(200);
+    });
+
+    it("refuses a step that names a skill that isn't a Loop", async () => {
+      const res = await publishTemplate(
+        "loop-not",
+        bundleWith("main", { skill: "docs.extract" }, "docs.extract"),
+      );
+      expect(res.status).toBe(422);
+      expect(JSON.stringify(res.json)).toContain("isn't a Loop");
+    });
+
+    it("won't install a pack's Loop without its test set, and keeps its cases when it has one", async () => {
+      const def = {
+        ...loopDef({ id: "custom:pack-loop", name: "Pack Loop" }),
+      } as unknown as SkillDefinition;
+      const services = { platform: H.platform } as never;
+      const pack = (loopTests: unknown) =>
+        ({
+          manifest: { name: "Test", version: "1", librarySkills: [def], loopTests },
+          handlers: {},
+        }) as never;
+      await expect(
+        withOperator(H.db, [], (tx) =>
+          installLibrarySkills(tx, services, pack(undefined), H.A.admin),
+        ),
+      ).rejects.toThrow(/ships it without a test set/);
+      const cases: LoopTestCase[] = [
+        {
+          name: "r1",
+          input: { id: "r1" },
+          fixtures: [],
+          replay: [{ call: { tool: "finish", input: { why: "x" } } }],
+          expected: { why: "x" },
+          matcher: { kind: "subset", tolerances: {} },
+        },
+      ];
+      const made = await withOperator(H.db, [], (tx) =>
+        installLibrarySkills(tx, services, pack({ "custom:pack-loop": cases }), H.A.admin),
+      );
+      expect(made).toHaveLength(1);
+      const kept = await H.t.db
+        .select()
+        .from(testCase)
+        .where(eq(testCase.targetId, made[0]?.skillId ?? ""));
+      expect(kept.map((c) => c.name)).toEqual(["r1"]);
+    });
+  });
+
+  // Every Loop a pack or the platform ships carries its test set, and CI replays it.
+  describe("shipped Loops", () => {
+    const turns = (c: LoopTestCase): FakeTurn[] =>
+      c.replay.map((t) => ({
+        ...(t.said ? { text: t.said } : {}),
+        toolUse: { name: t.call.tool.replaceAll(".", "__"), input: t.call.input },
+      }));
+
+    it("has a test set for every built-in Loop", () => {
+      const shipped = new Set(
+        H.platform.packs.flatMap((p) => Object.keys(p.manifest.loopTests ?? {})),
+      );
+      for (const def of H.platform.catalog.list()) {
+        if (def.loop) expect(shipped.has(def.id), `${def.id} ships without a test set`).toBe(true);
+      }
+    });
+
+    it("passes every shipped test set in replay", async () => {
+      let ran = 0;
+      for (const pack of H.platform.packs) {
+        const defs = [...pack.manifest.skills, ...(pack.manifest.librarySkills ?? [])];
+        for (const [id, cases] of Object.entries(pack.manifest.loopTests ?? {})) {
+          const def = defs.find((d) => d.id === id);
+          if (!def) throw new Error(`${id} has a test set but no skill`);
+          for (const c of cases) {
+            const run = await runSkillCase(
+              { tools: H.platform.tools, transport: new FakeModel(turns(c)) },
+              { definition: def, tenantId: null, input: c.input, fixtures: c.fixtures },
+            );
+            expect(run.status, `${id} / ${c.name}: ${run.error}`).toBe("succeeded");
+            const match = matchOutput(c.matcher, c.expected, run.output);
+            expect(match.pass, `${id} / ${c.name}: ${JSON.stringify(match.diff)}`).toBe(true);
+            // A replay never writes: every call it made was a read the fixtures answered.
+            expect(run.toolCalls.every((t) => t.status === "succeeded")).toBe(true);
+            ran += 1;
+          }
+        }
+      }
+      expect(ran).toBeGreaterThan(0);
     });
   });
 });

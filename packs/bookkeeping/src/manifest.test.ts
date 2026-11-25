@@ -64,6 +64,24 @@ describe("the Bookkeeping manifest", () => {
     expect(loop?.reads).not.toContain("bookkeeping.reconcile.propose");
   });
 
+  it("ships its Loop with a test set, and isn't a manifest without one", () => {
+    expect(Object.keys(bookkeepingManifest.loopTests ?? {})).toEqual([
+      "bookkeeping.investigate-leftovers",
+    ]);
+    const without = PackManifest.safeParse({ ...bookkeepingManifest, loopTests: undefined });
+    expect(without.success).toBe(false);
+    expect(JSON.stringify(without.error?.issues)).toContain("ships without a test set");
+    const stray = PackManifest.safeParse({
+      ...bookkeepingManifest,
+      loopTests: {
+        ...bookkeepingManifest.loopTests,
+        "bookkeeping.read-statement":
+          bookkeepingManifest.loopTests?.["bookkeeping.investigate-leftovers"],
+      },
+    });
+    expect(stray.success).toBe(false);
+  });
+
   it("ships the Bookkeeper with approval on for every write, in suggest-only mode", () => {
     const [template] = bookkeepingManifest.templates;
     expect(template?.slug).toBe("bookkeeper");
