@@ -400,7 +400,6 @@ export async function validateForPublish(
   // Review: a step that kept its id but changed its skill is new too.
   const existingSkills =
     previous && previous !== "none" ? processes.bundleStepSkills(previous) : undefined;
-  // Step model: a bundle of v5 workflows only is validated as one too (its publish checks).
   const validate =
     holdsProcess(bundle) || holdsStepModel(bundle)
       ? (b: unknown, c: Parameters<typeof validateBundle>[1]) =>

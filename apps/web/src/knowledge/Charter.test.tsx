@@ -130,7 +130,8 @@ describe("the charter in the portal", () => {
     expect(how).toHaveTextContent("How Mezonas agents work");
     expect(how).toHaveTextContent("You approve changes");
     expect(within(how).queryByRole("button")).toBeNull();
-    expect(screen.getByTestId("portal-knowledge-charter-none")).toHaveTextContent(
+    // The rail shows at once; the charter waits for the knowledge list.
+    expect(await screen.findByTestId("portal-knowledge-charter-none")).toHaveTextContent(
       "We'll draft your charter from what you told us during onboarding",
     );
   });

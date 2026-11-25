@@ -14,7 +14,12 @@ import {
   OversightSettings,
   ownerWatches,
 } from "../oversight/decision";
-import { type AgentDefinition, type AnyAgentBundle, holdsProcess } from "../schemas/agent";
+import {
+  type AgentDefinition,
+  type AnyAgentBundle,
+  holdsProcess,
+  holdsStepModel,
+} from "../schemas/agent";
 import type { AgentMode } from "../schemas/permissions";
 import { collectRefs } from "../template/template";
 import { lookupSkill, type TypingContext } from "../template/typer";
@@ -104,7 +109,10 @@ export function ownerOf(definition: OwnerDefinition, options: { process: boolean
 
 /** The owner of the agent a bundle stores. */
 export function ownerOfBundle(bundle: Pick<AnyAgentBundle, "definition" | "workflows">): Owner {
-  return ownerOf(bundle.definition, { process: holdsProcess(bundle) });
+  // The step model: a v5 workflow is native too, so its owner watches as a v4 process's does.
+  return ownerOf(bundle.definition, {
+    process: holdsProcess(bundle) || holdsStepModel(bundle),
+  });
 }
 
 // ── What the owner may and may never do ──────────────────────────────────────────────────────

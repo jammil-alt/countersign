@@ -3,7 +3,14 @@
 // server validates hand-off steps with it at publish, and the builder gets the same list, so both
 // say the same thing (invariant 4: one validator).
 
-import { type AnyAgentBundle, processes, toProcessBundle } from "@countersign/core";
+import {
+  type AnyAgentBundle,
+  collectRefs,
+  processes,
+  steps,
+  type ToolSpec,
+  toProcessBundle,
+} from "@countersign/core";
 import { agent, agentVersion, type Tx } from "@countersign/db";
 import { and, eq } from "drizzle-orm";
 import type { RegistryContext } from "./agents";
@@ -54,6 +61,15 @@ export async function handoffAgents(
       out.push({ slug: a.slug, name, workflow: null, steps: [] });
       continue;
     }
+    if (wf.workflow.schemaVersion === 5) {
+      out.push({
+        slug: a.slug,
+        name,
+        workflow: wf.slug,
+        steps: stepModelTargets(wf.workflow, ctx.tools.specs(a.bindings)),
+      });
+      continue;
+    }
     const { skills } = await skillContext(tx, { tenantId, bundle, catalog: ctx.catalog });
     const process = toProcessBundle({ ...bundle, workflows: [wf] }, lookup).workflows[0]?.workflow;
     out.push({
@@ -66,4 +82,51 @@ export async function handoffAgents(
     });
   }
   return out;
+}
+
+/**
+ * The step model: a v5 workflow's top-level steps as hand-off targets, each named by the engine
+ * that runs it (`steps.ENGINE_OUTCOMES`: a Do on a Get action is a `read`), so the hand-off
+ * picker offers the same work steps as for a v4 process. Their input schemas come with the
+ * builder's forms (stream B); until then none is given.
+ */
+function stepModelTargets(
+  workflow: steps.Workflow,
+  tools: Readonly<Record<string, ToolSpec>>,
+): processes.HandoffTargetStep[] {
+  const kindOf = (action: string): steps.ActionKind | undefined => {
+    const own = tools[action];
+    if (own) return steps.actionKind(own);
+    const first = Object.values(steps.mergedAction(action)?.tools ?? {})
+      .map((t) => tools[t])
+      .find((t) => t !== undefined);
+    return first ? steps.actionKind(first) : undefined;
+  };
+  const kindOfStep = (step: steps.Step): processes.HandoffTargetStep["kind"] => {
+    switch (step.kind) {
+      case "do":
+        try {
+          return steps.ENGINE_OUTCOMES[steps.doEngine(step, kindOf).engine] as never;
+        } catch {
+          return "missing";
+        }
+      case "loop":
+        return "skill";
+      case "fork":
+        return "if";
+      case "end":
+        return "stop";
+      default:
+        return step.kind;
+    }
+  };
+  return workflow.steps.map((step) => {
+    const reads = new Set<string>();
+    for (const ref of collectRefs(step).refs) {
+      if (ref.path[0] === "steps" && typeof ref.path[1] === "string") reads.add(ref.path[1]);
+    }
+    const ids: string[] = [];
+    steps.eachStep([step], ({ step: s }) => ids.push(s.id));
+    return { id: step.id, name: step.name, kind: kindOfStep(step), reads: [...reads], ids };
+  });
 }

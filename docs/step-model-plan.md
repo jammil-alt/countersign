@@ -459,6 +459,69 @@ words becomes "the accounting system".
   order): each decides what kind of entry to write, which is more than the automatic translation
   does.
 
+## 10f. Data: record types, custom fields, data sets (Agreed)
+
+Work crosses areas, and reads and writes where it needs to (margin and sales ROI: Sales and
+Bookkeeping figures, a result saved somewhere of its own). The database is still not a tool: agents
+never map to tables, and no model or person writes queries. Four parts give the flexibility instead,
+each typed so steps wire and check themselves.
+
+**1. Record type (the unit).** A kind of record: vendor, transaction, deal, invoice line, catalog
+item, or a new "margin by job". Each is defined once, in code, by the area that owns it:
+- its fields and keys, and its links to other record types (a transaction to its vendor, a deal to
+  its customer);
+- the operations it allows: get, create, update. Delete stays off;
+- its own rules, run on every write wherever it comes from: the checks, keeping clients apart,
+  recording which agent version wrote it, never saving twice.
+
+A new record type, meaning a new table, is added by a developer (Request an action), one migration
+each, under the usual migration rules.
+
+**2. Standard actions on every record type.** Offered under the area, beside its own actions:
+- **Find:** typed filters, grouping and totals, following declared links across record types and
+  areas. Read only, one client's records. It works like today's "filter, group and total": plain
+  words become a typed filter, never SQL.
+- **Get by id.**
+- **Create** and **Update:** typed, and through the record type's own rules.
+
+Bespoke actions stay where the work is more than one save (Register lines writes several record
+types together).
+
+**3. Grants, the same model as connectors.** An agent's grant lists, per record type, what it may
+read, create and update. Writing into another area is explicit, shown on the agent and reviewable;
+an agent never widens it (invariant 9). Writes to our own records need no client approval and are
+always logged with their evidence (invariant 10).
+
+**4. Data set.** A named group of record types for one use case, granted together, across areas.
+Example: **Margin and ROI** = Sales deals (read), Bookkeeping transactions (read), margin by job
+(create, update). Data sets are back-office settings, no code: created, changed, and turned on or
+off for an agent, saved with the agent's version and published like any change. They are what the
+builder's pickers offer. A data set can't invent a field or a table.
+
+**Custom fields: mapping, not schema changes** (owner, 2026-11-25: "as unique usecases come in, we
+are mapping and adding custom fields as opposed to redefining the schema").
+- **Defined in the back office:** record type, name, type (text, number, money, date, yes/no, list,
+  group, link to a record), required or not, one line on what it means.
+- **Two scopes:** this client only, or shared (offered to every client, as templates are).
+- **Stored on the record** in its existing `ext` column, under the field's name; money as a decimal
+  string. Tables with `ext` today: vendor and transaction (0004), receivable (0024), materials (0032),
+  purchasing (0033), bookkeeping (0039), vendor catalog (0047), vendor contracts (0051). A record type
+  without one gets it by migration when it first needs a custom field.
+- **Checked on every write** by the record type's rules: a wrong type or a missing required value is
+  refused wherever the write came from.
+- **Used like built-in fields:** the Input picker and automatic translation (a client's extra
+  spreadsheet column maps straight into one), the Data tab, Find, grants and data sets, reports;
+  Match keys later.
+- **Guardrails:** a field's type never changes once it holds data (add a new field instead);
+  removing a field hides it and keeps its data; about 50 per record type per client; each client's
+  fields are its own; card numbers never stored (invariant 14); counted as client data under HIPAA
+  mode. A field searched heavily gets an index from a developer.
+- **Promotion:** a custom field common across clients becomes a real column, same name, data copied
+  across; steps using it keep working.
+
+**Later, only when a use case needs it:** custom record types (a new kind of record defined in the
+back office, kept in one shared table, with the same checks, grants and data sets).
+
 ## 11. The Invoice item matcher
 
 Not part of this work (owner, 2026-11-25): it is built once these changes are made, as the first
@@ -497,6 +560,7 @@ In order; each ends green, as the milestones always have.
 | 9 | **The Builder (AI)** drafts in the new model: writes in the step, suggests Save as skill, drafts Loops. | M |
 | 10 | **Measure** the shortlist size and the thresholds on the matching goldens; set the defaults. | S |
 | 11 | **Rules documents.** A new ARCHITECTURE version for this model; CLAUDE.md: the one-off purge under invariants 3 and 14, the Loop under invariant 9. | S |
+| 12 | **Data** (§10f): record types declared by areas; Find, Get by id, Create, Update on each; grants per record type; data sets in the back office; custom fields in `ext`, checked on every write. | L |
 
 S = a day or less, M = a few days, L = a week or more.
 
@@ -550,6 +614,8 @@ never two streams in the same files (the stored format, the API contract, the ex
 streams at once; each its own branch and PR; workers don't edit this page (the coordinator does, per
 wave, as CLAUDE.md asks).
 
+**When a stream is done:** once its PR is merged, its session is archived (owner, 2026-11-25).
+
 **Rule for the model:** Opus where a mistake is silent or breaks an invariant: the runtime and its
 approvals (8, 9), matching precision (7), translation of money and data, the platform's own agents,
 the Builder's prompts, and the rules documents. Sonnet where the spec is exact and the work follows a
@@ -570,6 +636,7 @@ executor or a pack's records gets an Opus review before merge.
 | 2 | H · Loop designer | The designer and its turn-by-turn test, on A's Loop runtime; the test-set gate | A, B | Sonnet (Opus review of the read-only rule) |
 | 3 | I · Builder (AI) | Drafts in the new model: writes in the step, suggests Save as skill, drafts Loops; its guards and evals | A, C | Opus |
 | 3 | K · Measure | Shortlist size and thresholds on the matching goldens; set the defaults | D | Sonnet |
+| 3 | N · Data | §10f: record types and their standard actions, grants per record type (the gate), data sets, custom fields; a migration of its own for the definitions | A, B, E | Opus (core, gate), Sonnet (screens) |
 | 4 (sequential) | J · Release | Delete v3, v4, the converters, the tool-only skills and the rest of §12, the compiler finding every use | A, B, C, I | Sonnet (Opus review) |
 | 4 | L · Rules documents | A new ARCHITECTURE version; CLAUDE.md (the one-off purge, the Loop) | J | Opus |
 | 4 | M · Ship | Deploy, `db:purge-agents` (dry run, then real) and `db:seed`, staging then production with the owner's approval | J, L | By hand |
@@ -602,6 +669,15 @@ The stored format is **approved and frozen** (owner, 2026-11-25), Tell and the g
 | B · Builder screens | `claude/step-model-b-builder` | Sonnet | `apps/web/src/ops/flow`, `apps/web/src/ops/builder`, the builder's API routes that serve the catalog |
 | D · Match | `claude/step-model-d-match` | Opus | Match profiles and their engine: `packs/materials/src/vendor`, the catalog matching in `packs/materials`, `packs/sales/src/match`, `packages/core/src/matching` |
 | E · Connectors and areas | `claude/step-model-e-connectors` | Sonnet | `packages/connectors`, the connector page (`apps/web/src/ops/screens/Connectors.tsx`), Request an action, tool-neutral wording outside what D owns, one chart of accounts, one Read a document |
+
+**Wave 2 streams** (started 2026-11-25 while wave 1 merges; H waits for A's Loop runtime):
+
+| Stream | Branch | Model | Starts from | Owns |
+|---|---|---|---|---|
+| C · Platform agents | `claude/step-model-c-platform-agents` | Opus | #671 (merges A's branch as it lands) | The platform's own agents in the seed, in the new format; the seed script |
+| G · Automatic translation | `claude/step-model-g-translation` | Opus | B's branch (#672) | A new core module for Fits, Translated, Doesn't fit; the executor's translation hook; the Input box and the Data tab's "Changed" |
+| F · Written in the step | `claude/step-model-f-in-step` | Sonnet | B's branch (#672) | Rules and AI written in the step, stored behind it as a skill; Save as skill; Suggest's backend; the Instructions box |
+| H · Loop designer | not started | Sonnet | after A's Loop runtime | The Loop designer in the Agent lab |
 
 ## 14. Where we are in the review
 
@@ -654,7 +730,12 @@ release (§12, §13). Then: the stored format, drafted as plain fields for revie
 - 2026-11-25 · Wave 0 contracts built (§13c); Tell added to the Do step, and the group field type.
 - 2026-11-25 · Stored format approved and frozen; wave 1 started (four sessions, §13c).
 - 2026-11-25 · Screen changes approved (mock-up `docs/design/step-model.html`), with stream B's two choices: the rail stays as today and the eight kinds open from the chart's +; workflow outputs sit in a section above the chart.
+- 2026-11-25 · Wave 2 started: C, G and F; H waits for stream A's Loop runtime.
 - 2026-11-25 · Drafts parse as they are being built (a step with no goal yet, an End not filled in, an empty For each); the publish checks refuse them. A Do step may be run by another agent of the client (More). Stream B's PR #672 keeps 10 of its 12 differences from the mock-up (today's controls, editable Match settings, an input picker per field) and closes 2 (the sheet's eyebrow, the test run's time).
+- 2026-11-25 · Data (§10f): the database is not a tool. Areas declare record types with Find, Get by
+  id, Create and Update; agents are granted per record type; data sets group them across areas as
+  back-office settings; custom fields are mapped in the back office and stored in `ext`, not added
+  to the schema. Built in wave 3 (stream N).
 - 2026-11-25 · Forms agreed. Suggest (AI icon) on every step and every field: tell it what you need,
   use the default, or resolve; applied at once, with Undo.
 - 2026-11-25 · The eight kinds are stored directly; nine of today's kinds collapse into Do, run by

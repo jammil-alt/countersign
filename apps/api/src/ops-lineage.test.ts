@@ -256,6 +256,58 @@ describe.skipIf(!h)("agent pages API", () => {
       ]);
     });
 
+    it("serves the Uses picker's actions by connector and by area, with each one's kind", async () => {
+      const res = await H.call(OPERATOR, "GET", `/api/ops/agents/${agentA}/action-catalog`);
+      expect(res.status, JSON.stringify(res.json)).toBe(200);
+      const groups = j(res.json).groups as {
+        type: string;
+        id: string;
+        name: string;
+        actions: { id: string; kind: string }[];
+      }[];
+      // Connectors first, then areas.
+      const types = groups.map((g) => g.type);
+      expect(types).toEqual([...types].sort((a, b) => (a === b ? 0 : a === "connector" ? -1 : 1)));
+      const testkit = groups.find((g) => g.id === "testkit");
+      expect(testkit?.type).toBe("connector");
+      expect(testkit?.actions.find((a) => a.id === "testkit.record.update")?.kind).toBe("change");
+      expect(testkit?.actions.find((a) => a.id === "testkit.record.query")?.kind).toBe("get");
+      // Our own records sit under an area; the platform's own and the engines are not offered.
+      expect(groups.find((g) => g.type === "area")).toBeDefined();
+      const ids = groups.flatMap((g) => g.actions.map((a) => a.id));
+      expect(ids).not.toContain("comms.reach_out");
+      expect(ids.some((id) => id.startsWith("health."))).toBe(false);
+    });
+
+    it("answers Suggest with the step as it is, and says it isn't switched on", async () => {
+      const workflow = {
+        schemaVersion: 5,
+        triggers: [{ id: "t1", on: { type: "manual", input: { type: "object", properties: {} } } }],
+        outputs: [{ id: "o1", name: "Done", kind: "nothing" }],
+        steps: [
+          { id: "s1", kind: "do", name: "Read it", input: {} },
+          { id: "e1", kind: "end", name: "Done", outputs: ["o1"], status: "succeeded" },
+        ],
+      };
+      const path = `/api/ops/agents/${agentA}/suggest`;
+      const ok = await H.call(OPERATOR, "POST", path, { workflow, stepId: "s1", how: "default" });
+      expect(ok.status, JSON.stringify(ok.json)).toBe(200);
+      expect(j(ok.json)).toMatchObject({ applied: false, step: { id: "s1", name: "Read it" } });
+      const missing = await H.call(OPERATOR, "POST", path, {
+        workflow,
+        stepId: "nope",
+        how: "tell",
+        text: "x",
+      });
+      expect(missing.status).toBe(404);
+      const bad = await H.call(OPERATOR, "POST", path, {
+        workflow: { schemaVersion: 4 },
+        stepId: "s1",
+        how: "resolve",
+      });
+      expect(bad.status).toBe(422);
+    });
+
     it("gives the builder every skill with its schemas, every tool and the connectors", async () => {
       const res = await H.call(OPERATOR, "GET", `/api/ops/agents/${agentA}/builder-catalog`);
       expect(res.status, JSON.stringify(res.json)).toBe(200);
@@ -365,6 +417,7 @@ describe.skipIf(!h)("agent pages API", () => {
         ["GET", `/api/ops/agents/${agentA}/activation`],
         ["GET", `/api/ops/agents/${agentA}/skills`],
         ["GET", `/api/ops/agents/${agentA}/builder-catalog`],
+        ["GET", `/api/ops/agents/${agentA}/action-catalog`],
         ["GET", `/api/ops/agents/${agentA}/versions/${agentAv2}/diff`],
         ["GET", `/api/ops/agents/${agentA}/customizations`],
         ["GET", `/api/ops/templates/${templateId}/used-by`],
