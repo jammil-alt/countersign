@@ -426,8 +426,13 @@ describe("triggers and outputs in the builder", () => {
       ["weekly-digest", 5],
     ]);
     // It opens on the new workflow, and the switcher goes back and forth.
-    const weekly = await screen.findByTestId("builder-workflow-weekly-digest-select");
-    expect(weekly).toHaveAttribute("aria-current", "page");
+    // The tab shows when the saved version reloads, a moment before the switch to it lands.
+    await waitFor(() =>
+      expect(screen.getByTestId("builder-workflow-weekly-digest-select")).toHaveAttribute(
+        "aria-current",
+        "page",
+      ),
+    );
     await addWaitAndSave(user);
     await waitFor(() => expect(sent).toHaveLength(2));
     const saved = sent[1]?.bundle.workflows ?? [];
