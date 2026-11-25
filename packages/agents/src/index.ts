@@ -23,6 +23,12 @@ export * from "./builder/guards";
 export * from "./builder/reshape";
 export * from "./builder/shortlist";
 export * from "./builder/skill-draft";
+export * from "./builder/step-model/answer";
+export * from "./builder/step-model/catalog";
+export * from "./builder/step-model/draft";
+export * from "./builder/step-model/guards";
+export * from "./builder/step-model/rules";
+export * from "./builder/step-model/suggestions";
 export * from "./builder/translate";
 export * from "./errors";
 // docs/plan.md §1.217: the process interview
