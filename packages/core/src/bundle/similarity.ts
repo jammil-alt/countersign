@@ -7,6 +7,7 @@
 
 import type { AnyAgentBundle } from "../schemas/agent";
 import { parseSkillRef } from "../schemas/common";
+import { eachStep } from "../steps/walk";
 import { walkSteps } from "../workflow/walk";
 import { lcs } from "./diff";
 import { eachProcessStep } from "./normalize";
@@ -43,6 +44,25 @@ export function bundleFeatures(bundle: AnyAgentBundle): BundleFeatures {
   for (const s of bundle.definition.skills) skills.add(parseSkillRef(s.skill).id);
   for (const t of bundle.definition.extraTools) tools.add(t);
   for (const w of bundle.workflows) {
+    if (w.workflow.schemaVersion === 5) {
+      // The step model: a Do counts by its engine's word (its done by and uses), its action as a
+      // tool and its skill as a skill; a Loop's reads as tools.
+      for (const t of w.workflow.triggers) triggers.add(t.on.type);
+      eachStep(w.workflow.steps, ({ step }) => {
+        if (step.kind !== "do") {
+          steps.push(step.kind);
+          if (step.kind === "loop") {
+            if (step.skill) skills.add(parseSkillRef(step.skill).id);
+            for (const t of step.reads) tools.add(t);
+          }
+          return;
+        }
+        steps.push(`do:${step.doneBy ?? "-"}:${step.uses?.type ?? "-"}`);
+        if (step.uses?.type === "skill") skills.add(parseSkillRef(step.uses.skill).id);
+        if (step.uses?.type === "action") tools.add(step.uses.action);
+      });
+      continue;
+    }
     if (w.workflow.schemaVersion === 4) {
       // R1: a v4 process, as it is. DECISION: its read and write steps count as tools (each calls
       // one); step kinds are its own, so a v3 bundle and its v4 reading score below 1 on steps.

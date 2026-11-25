@@ -143,6 +143,9 @@ import { isLogic, stepCount, walkSteps } from "./walk";
 /** v3's codes (same meaning, same names) plus what v4 adds. */
 export type ProcessValidationCode =
   | ValidationCode
+  // The step model (docs/step-model-plan.md §13a): a v5 workflow's publish check, its own code in
+  // the bundle error's `stepCode`.
+  | "step_model"
   // Setup-plan §4.1: a seat the bundle doesn't declare, or one whose kind can't do what is asked.
   | "unknown_seat"
   | "seat_kind"

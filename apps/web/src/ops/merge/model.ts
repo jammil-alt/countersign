@@ -58,9 +58,9 @@ export function triggerLabels(...bundles: AgentBundle[]): Record<string, string>
   for (const b of bundles) {
     for (const w of b.workflows) {
       const triggers =
-        w.workflow.schemaVersion === 4
-          ? w.workflow.triggers
-          : [w.workflow.trigger, ...(w.workflow.moreTriggers ?? [])];
+        w.workflow.schemaVersion === 3
+          ? [w.workflow.trigger, ...(w.workflow.moreTriggers ?? [])]
+          : w.workflow.triggers;
       for (const t of triggers) out[`trigger:${t.id}`] = triggerTitle(t);
     }
   }
@@ -106,7 +106,7 @@ function markedIds(change: BundleChange, bundle: AgentBundle): [string, Mark][] 
   if (v4?.[1]) return [[v4[1], mark]];
   if (change.path.includes("#/workflow/trigger")) {
     const w = bundle.workflows.find((x) => x.slug === key)?.workflow;
-    return w && w.schemaVersion !== 4 ? [[w.trigger.id, mark]] : [];
+    return w?.schemaVersion === 3 ? [[w.trigger.id, mark]] : [];
   }
   return [];
 }

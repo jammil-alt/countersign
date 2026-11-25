@@ -408,6 +408,9 @@ function walk(bundle: AnyAgentBundle): {
   const enabled = bundle.workflows.filter((w) => w.enabled !== false);
   const many = enabled.length > 1;
   for (const w of enabled) {
+    // DECISION (step model, wave 1): a v5 workflow's lines come with its own words (build item 2),
+    // not from the v3 reading below; until then it is left out.
+    if (w.workflow.schemaVersion === 5) continue;
     const v4 = (w.workflow as { schemaVersion: number }).schemaVersion === 4;
     const workflow = many ? w.name : null;
     // One step, then what it holds, at any depth: an `if`'s paths, lettered A, B… then Otherwise,
@@ -1382,7 +1385,7 @@ export function sopView(input: SopInput): SopView {
       moreTriggers?: { on: Record<string, unknown> & { type: string } }[];
     };
     const list =
-      wf.schemaVersion === 4
+      wf.schemaVersion === 4 || wf.schemaVersion === 5
         ? (wf.triggers ?? [])
         : [wf.trigger, ...(wf.moreTriggers ?? [])].filter((t) => t !== undefined);
     for (const t of list) {

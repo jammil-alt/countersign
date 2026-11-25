@@ -23,6 +23,7 @@ import {
   readConverted,
   type SkillDefinition,
   type SkillKind,
+  StepModelBundleError,
   skillTools,
   type ToolSpec,
   type Trigger,
@@ -69,6 +70,10 @@ export function convertLookup(ctx: TypingContext): processes.ConvertLookup {
 // DECISION: the conversion is the builder's starting point, not an edit: opening a v3 version shows
 // it converted with nothing unsaved, and publishing it unchanged publishes the stored version as
 // it is. The first save after an edit writes the whole bundle as v4, a new version.
+function refuseStepModel(slug: string): never {
+  throw new StepModelBundleError(slug);
+}
+
 export function readProcessBundle(
   bundle: AnyAgentBundle | AgentBundle,
   ctx: TypingContext,
@@ -80,9 +85,13 @@ export function readProcessBundle(
       (w): ProcessBundleWorkflow => ({
         ...w,
         workflow:
-          w.workflow.schemaVersion === 4
-            ? w.workflow
-            : readConverted(processes.fromWorkflowV3(w.workflow, lookup)),
+          // The step model: a v5 workflow has no v4 reading; the builder's forms for it are
+          // stream B's (docs/step-model-plan.md §13c), so it is refused, never dropped.
+          w.workflow.schemaVersion === 5
+            ? refuseStepModel(w.slug)
+            : w.workflow.schemaVersion === 4
+              ? w.workflow
+              : readConverted(processes.fromWorkflowV3(w.workflow, lookup)),
       }),
     ),
   };
