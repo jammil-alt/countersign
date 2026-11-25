@@ -525,6 +525,54 @@ describe("a v5 End delivers the workflow's outputs", () => {
   });
 });
 
+describe("a v5 workflow that names seats", () => {
+  const SEATS = {
+    "bill-approver": { userIds: ["luis"], backupUserIds: [], contactIds: [] },
+  };
+  const append = {
+    id: "s_rows",
+    kind: "do",
+    name: "Add the rows",
+    doneBy: "rules",
+    uses: { type: "action", action: "spreadsheet.rows.append" },
+    input: { rows: [] },
+    checks: { approval: { approvers: [{ who: "seat:bill-approver" }] } },
+  };
+  const report = {
+    id: "o_report",
+    name: "Rows added",
+    kind: "report",
+    report: { to: ["seat:bill-approver"], message: "Rows added" },
+  };
+
+  it("keeps each step's v5 meaning once its seats are filled: merged actions and End outputs", async () => {
+    const h = new Harness();
+    const asked: ResolveMergedRequest[] = [];
+    h.agent.resolveMerged = async (req) => {
+      asked.push(req);
+      return { tool: "excel.rows.append", connector: "excel" };
+    };
+    const { result, runner } = await run(h, wf([append, end(["o_report"])], [report]), undefined, {
+      seats: SEATS,
+    });
+    expect(result.status).toBe("succeeded");
+    // The merged action resolved for the agent before the gate.
+    expect(asked).toHaveLength(1);
+    expect(h.agentCalls[0]?.step).toMatchObject({ kind: "action", tool: "excel.rows.append" });
+    // The End delivered its report (to the seat's person), then ended the run.
+    expect(runner.names()).toEqual([
+      "s_rows:action",
+      "s_rows",
+      "s_end:out:o_report",
+      "s_end:out:o_report:logged",
+      "s_end",
+    ]);
+    expect(h.sent).toHaveLength(1);
+    expect(JSON.stringify(h.sent[0])).toContain("luis");
+    expect(JSON.stringify(h.sent[0])).not.toContain("seat:");
+  });
+});
+
 describe("a v5 Match and Loop", () => {
   const match = {
     id: "s_match",

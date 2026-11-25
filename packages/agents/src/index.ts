@@ -116,6 +116,8 @@ export * from "./tools/knowledge";
 export * from "./tools/ledger";
 export * from "./tools/platform";
 export * from "./tools/reach";
+// Step model §10f: the standard record actions and the port they reach records through.
+export * from "./tools/records";
 export * from "./tools/reshape";
 export * from "./tools/supervisor";
 // §1.164: Read table and Write table.

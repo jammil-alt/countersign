@@ -120,6 +120,8 @@ export * from "./api/prompt-preview";
 export * from "./api/qbo";
 export * from "./api/reach";
 export * from "./api/read-table";
+// Step model §10f: record types and custom fields in the back office.
+export * from "./api/record-types";
 export * from "./api/records";
 export * from "./api/reggie";
 export * from "./api/requests";
@@ -342,6 +344,8 @@ export { THINKING_STATES, type ThinkingState, thinkingOf } from "./process/think
 // Invariant 9: what a prompt puts between its tags can't close them.
 export * from "./prompt-data";
 export * from "./reach/rules";
+// Step model §10f: record types, their standard actions, grants, data sets and custom fields.
+export * from "./records/index";
 export * from "./roles";
 export * from "./rules/compile";
 export * from "./run-audit/sampling";

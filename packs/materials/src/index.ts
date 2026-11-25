@@ -16,6 +16,7 @@ export {
   ReviewError,
 } from "./api";
 export * from "./catalog/keys";
+export { parseLine } from "./catalog/keys";
 export {
   decideLine,
   type HumanDecisionInput,
@@ -62,6 +63,13 @@ export { compareOffers, compareQuotes, SPLIT_MIN_SAVING_PCT } from "./purchasing
 export { renderPurchaseOrder } from "./purchasing/po";
 export { PURCHASING_SKILLS } from "./purchasing/skills";
 export { PURCHASING_TOOLS } from "./purchasing/tools";
+// Step model §10f: the area's record types and their stores.
+export {
+  MASTER_ITEM_RECORD_TYPE,
+  MATERIALS_RECORD_STORES,
+  MATERIALS_RECORD_TYPES,
+  VENDOR_ITEM_RECORD_TYPE,
+} from "./records";
 export * from "./reports";
 export * from "./schema";
 export * from "./split";

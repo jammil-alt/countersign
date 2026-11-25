@@ -1,0 +1,249 @@
+name: Model runs
+
+# Runs that need the real model, by hand only (docs/step-model-plan.md §13 item 10). This cloud
+# session and CI have no model key and tests never call the live model (LLM_MODE=replay), so the two
+# jobs the step model needs a key for run here, as builder-evals.yml does:
+#
+#   measure-matching  The Match engine over the matching goldens (fixtures/matching, 160 pairs, and
+#                     fixtures/matching/crm, 65 rows) with the real model as `choose` and `second`,
+#                     for every shortlist size, confidence threshold and second-opinion floor:
+#                     precision on "same", recall, the share sent to a person, tokens and cost, and
+#                     a recommended default. apps/api/src/evals/measure-matching.eval.ts.
+#   record-fixtures   The named test files with LLM_MODE=record: the answers they ask for are saved
+#                     under fixtures/llm/ and uploaded as an artifact, for a person to commit.
+#
+# It runs in the "staging" environment with that environment's ANTHROPIC_EVALS_API_KEY, a key of its
+# own (owner, 2026-11-22), so this spend is billed apart from staging's and never mixed into the
+# app's own usage figures. It reports in the job summary and uploads its results as an artifact. It
+# never commits or pushes: the token reads the repository only.
+#
+# Only made-up data reaches the model (docs/plan.md §1.35, invariant 14). The goldens and the
+# recorded tests' inputs are fixtures in the repository; the runner holds no client data and no
+# other secret: the key is the only one given to a step, and the database is the job's own empty
+# Postgres (never Neon). Inputs are checked before anything runs: a test file must be a *.test.ts in
+# this repository's apps, packages or packs, and the model a plain model id. Inputs reach the shell
+# only as environment variables, never in the script text.
+
+on:
+  workflow_dispatch:
+    inputs:
+      job:
+        description: "measure-matching, or record-fixtures"
+        type: choice
+        required: true
+        options:
+          - measure-matching
+          - record-fixtures
+      files:
+        description: "record-fixtures: test files to record, comma-separated, from the repository root (e.g. apps/api/src/bill-clerk.test.ts)"
+        required: false
+        default: ""
+      model:
+        description: "measure-matching: the model id (blank: the default, as a step runs it). Not used by record-fixtures: a recorded test names its own models"
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+concurrency:
+  group: model-runs
+  cancel-in-progress: false
+
+jobs:
+  measure-matching:
+    if: github.event.inputs.job == 'measure-matching'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    environment: staging
+    steps:
+      - name: Check the inputs
+        env:
+          MODEL: ${{ github.event.inputs.model }}
+        run: |
+          set -euo pipefail
+          if [ -n "$MODEL" ] && ! printf '%s' "$MODEL" | grep -Eq '^[A-Za-z0-9:._-]{1,80}$'; then
+            echo "::error::The model must be a plain model id."; exit 1
+          fi
+
+      - uses: actions/checkout@v7
+
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1 (third-party: pinned to a commit)
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Measure the Match settings
+        working-directory: apps/api
+        env:
+          LLM_MODE: live
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_EVALS_API_KEY }}
+          MATCH_MEASURE_MODEL: ${{ github.event.inputs.model }}
+          MATCH_MEASURE_REPORT: ${{ runner.temp }}/match-measurement.md
+        run: pnpm exec vitest run --config vitest.eval.config.ts src/evals/measure-matching.eval.ts
+
+      - name: Report
+        if: always()
+        run: |
+          if [ -f "$RUNNER_TEMP/match-measurement.md" ]; then
+            cat "$RUNNER_TEMP/match-measurement.md" >> "$GITHUB_STEP_SUMMARY"
+            mkdir -p "$RUNNER_TEMP/out"
+            cp "$RUNNER_TEMP"/match-measurement.md* "$RUNNER_TEMP/out/"
+          else
+            echo "No report was written." | tee -a "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: match-measurement
+          path: ${{ runner.temp }}/out
+          if-no-files-found: ignore
+
+  record-fixtures:
+    if: github.event.inputs.job == 'record-fixtures'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    environment: staging
+    # The recorded tests may use the database; this is the job's own, empty and local (the same
+    # image as checks.yml), set up with Neon's roles by scripts/setup-postgres.sh.
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_PASSWORD: ci
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 2s
+          --health-timeout 5s
+          --health-retries 30
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Check the inputs
+        id: files
+        env:
+          FILES: ${{ github.event.inputs.files }}
+        run: |
+          set -euo pipefail
+          if [ -z "${FILES// /}" ]; then
+            echo "::error::Name the test files to record."; exit 1
+          fi
+          list=""
+          IFS=',' read -ra items <<< "$FILES"
+          for f in "${items[@]}"; do
+            f=$(echo "$f" | xargs)
+            [ -n "$f" ] || continue
+            # A test in this repository's own code: no ../, no absolute path, a *.test.ts.
+            if ! printf '%s' "$f" | grep -Eq '^(apps|packages|packs)/[A-Za-z0-9_./-]+\.test\.ts$' \
+              || printf '%s' "$f" | grep -q '\.\.'; then
+              echo "::error::$f is not a test file under apps, packages or packs."; exit 1
+            fi
+            if [ ! -f "$f" ]; then
+              echo "::error::$f is not in this branch."; exit 1
+            fi
+            list="$list $f"
+          done
+          [ -n "$list" ] || { echo "::error::Name the test files to record."; exit 1; }
+          echo "list=${list# }" >> "$GITHUB_OUTPUT"
+
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1 (third-party: pinned to a commit)
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: A local Postgres with Neon's roles
+        env:
+          PGHOST: localhost
+          PGPORT: "5432"
+          PGUSER: postgres
+          PGPASSWORD: ci
+        run: |
+          set -euo pipefail
+          url=$(scripts/setup-postgres.sh)
+          echo "::add-mask::$url"
+          echo "DIRECT_DATABASE_URL=$url" >> "$GITHUB_ENV"
+          echo "TEST_ADMIN_DATABASE_URL=postgres://postgres:ci@localhost:5432/postgres" >> "$GITHUB_ENV"
+
+      # Each file runs from its own package (the package's vitest config applies), one at a time. A
+      # failing file doesn't stop the others: what it recorded before it failed is kept, and the
+      # summary says which failed. `ANTHROPIC_API_KEY` is the only secret a step gets.
+      - name: Record
+        id: record
+        env:
+          LLM_MODE: record
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_EVALS_API_KEY }}
+          LIST: ${{ steps.files.outputs.list }}
+        run: |
+          set -uo pipefail
+          : > "$RUNNER_TEMP/record.log"
+          failed=""
+          for f in $LIST; do
+            root=$(echo "$f" | cut -d/ -f1-2)
+            rel=${f#"$root"/}
+            echo "::group::$f"
+            if ! (cd "$root" && pnpm exec vitest run "$rel") 2>&1 | tee -a "$RUNNER_TEMP/record.log"; then
+              failed="$failed $f"
+            fi
+            echo "::endgroup::"
+          done
+          if [ -n "$failed" ]; then
+            echo "Failed:$failed" | tee -a "$RUNNER_TEMP/record.log"
+            echo "::error::These files failed:$failed"
+            exit 1
+          fi
+
+      - name: Collect what was recorded
+        if: always()
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/recorded"
+          # New and changed files under fixtures/llm/, kept at their paths; nothing else leaves.
+          { git ls-files --others --exclude-standard -- fixtures/llm; git diff --name-only -- fixtures/llm; } \
+            | sort -u > "$RUNNER_TEMP/recorded.txt"
+          n=$(grep -c . "$RUNNER_TEMP/recorded.txt" || true)
+          if [ "$n" -gt 0 ]; then
+            while IFS= read -r f; do
+              mkdir -p "$RUNNER_TEMP/recorded/$(dirname "$f")"
+              cp "$f" "$RUNNER_TEMP/recorded/$f"
+            done < "$RUNNER_TEMP/recorded.txt"
+          fi
+          # Anything changed outside fixtures/llm is a test writing where it shouldn't: say so.
+          other=$(git status --porcelain | grep -v ' fixtures/llm/' || true)
+          {
+            echo "## Recorded fixtures"
+            echo
+            echo "Files: ${FILES_LIST}"
+            echo
+            echo "$n new or changed files under fixtures/llm/. Download the \`recorded-fixtures\` artifact and commit them."
+            if [ -n "$other" ]; then
+              echo
+              echo "Changed outside fixtures/llm (not uploaded):"
+              echo '```'
+              echo "$other"
+              echo '```'
+            fi
+            echo
+            echo "Test output (tail):"
+            echo '```'
+            tail -n 60 "$RUNNER_TEMP/record.log" 2>/dev/null || true
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+        env:
+          FILES_LIST: ${{ steps.files.outputs.list }}
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: recorded-fixtures
+          path: ${{ runner.temp }}/recorded
+          if-no-files-found: ignore

@@ -314,6 +314,19 @@ export async function insertClient(db: Db, name: string): Promise<ClientFixture>
       insert into metered_usage (tenant_id, agent_id, run_id, measure, source, key)
       values (${tenantId}, ${a.id}, ${r.id}, 'emails', 'run', ${`fixture:${tenantId}`})`;
   }
+  // Step model §10f (0102): a custom field on vendors and a standard write, where they exist.
+  const [records] = await db.$client<{ ok: boolean }[]>`
+    select to_regclass('public.record_write') is not null as ok`;
+  if (records?.ok) {
+    await db.$client`
+      insert into custom_field (tenant_id, record_type, name, label, type)
+      values (${tenantId}, 'vendor', 'region', 'Region', 'text')`;
+    await db.$client`
+      insert into record_write (tenant_id, record_type, record_id, op, key, agent_version_id,
+                                run_id, after)
+      values (${tenantId}, 'vendor', ${a.id}, 'update', ${`fixture:${tenantId}`}, ${av.id},
+              ${r.id}, '{}'::jsonb)`;
+  }
   await db.insert(threadRead).values({ tenantId, threadId: th.id, userId: u.id });
   // 0055: its columns named, not drizzle's whole list (which has `action`), so a client seeded on
   // a database migrated only to an earlier migration gets this row too.
@@ -1221,6 +1234,14 @@ export async function insertOperatorRows(db: Db): Promise<{
     await db.$client`
       insert into metered_usage (measure, source, ours, key)
       values ('verifications', 'sign_in_code', true, ${`fixture:op:${bt.id}`})`;
+  }
+  // Step model §10f (0102): a shared custom field (no client), where the table exists.
+  const [records] = await db.$client<{ ok: boolean }[]>`
+    select to_regclass('public.custom_field') is not null as ok`;
+  if (records?.ok) {
+    await db.$client`
+      insert into custom_field (record_type, name, label, type)
+      values ('vendor', ${`shared${bt.id.replaceAll("-", "").slice(0, 8)}`}, 'Shared', 'text')`;
   }
   return {
     agentVersionId: av?.id ?? "",
