@@ -26,13 +26,7 @@ import type { PermissionEntity, PermissionMatrix, Verb } from "../schemas/permis
 import type { Rules } from "../schemas/rules";
 import { type SkillDefinition, skillTools } from "../schemas/skill";
 import { isAlwaysSigned, type ToolSpec } from "../schemas/tool";
-import {
-  type Step,
-  type Trigger,
-  type UseAutomationStep,
-  type Workflow,
-  Workflow as WorkflowSchema,
-} from "../schemas/workflow";
+import type { Trigger } from "../schemas/workflow";
 // Skill model (2026-11-10): parameters and models per agent per skill.
 import { parameterValueProblems } from "../skills/parameters";
 import { collectRefs, hasTemplate, singleRef } from "../template/template";
@@ -40,12 +34,10 @@ import {
   jsonTypeOf,
   lookupSkill,
   type PathType,
-  type Scope,
   schemaTypes,
   type TypingContext,
   triggerOnSchema,
   typesCompatible,
-  typeTemplatePath,
 } from "../template/typer";
 import { allTriggers } from "../triggers/kinds";
 import { walkSteps } from "./walk";
@@ -393,17 +385,6 @@ export function checkChoices(
   if (step.choices && new Set(step.choices.map((ch) => ch.value)).size < step.choices.length) {
     c.add(step.id, "choices", "duplicate_choice", "each quick answer needs its own value");
   }
-}
-
-/** The external tools a step can call: what makes it a "write step" needing approval. */
-export function stepWrites(step: Step, ctx: TypingContext): ToolSpec[] | undefined {
-  if (step.kind === "action") {
-    const tool = ctx.tools?.[step.tool];
-    if (!tool) return undefined;
-    return tool.sideEffect === "external" ? [tool] : [];
-  }
-  if (step.kind === "skill") return skillWrites(step.skill, ctx);
-  return [];
 }
 
 /** The external tools a skill (by reference) may call; undefined when the registries don't know. */

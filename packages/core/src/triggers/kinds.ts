@@ -5,31 +5,17 @@
 import { z } from "zod";
 import { RUN_ID_NAMESPACE, uuidv5 } from "../ids";
 import type { JsonSchema } from "../schemas/common";
-import type {
-  MessageChannel,
-  Trigger,
-  TriggerOn,
-  TriggerRateLimit,
-  Workflow,
-} from "../schemas/workflow";
+import type { MessageChannel, Trigger, TriggerOn, TriggerRateLimit } from "../schemas/workflow";
 import { matchesPeople, type SenderFacts } from "./people";
 
 const Id = z.uuid();
 
-/** What holds triggers: a v3 workflow (`trigger`, `moreTriggers`) or a v4 process (`triggers`). */
-export type TriggerHolder =
-  | Pick<Workflow, "trigger" | "moreTriggers">
-  | { readonly triggers: readonly Trigger[] };
+/** What holds triggers: a workflow. */
+export type TriggerHolder = { readonly triggers: readonly Trigger[] };
 
-/**
- * Every trigger of a workflow: its first, then `moreTriggers`, each with its own id. R9: a v4
- * process's `triggers` as they are, so a reader of a bundle typed v3 that holds a process (a
- * template's v4 version, or its fork) lists them instead of failing on a missing `trigger`.
- */
+/** Every trigger of a workflow, each with its own id. */
 export function allTriggers(workflow: TriggerHolder): Trigger[] {
-  if ("triggers" in workflow && Array.isArray(workflow.triggers)) return [...workflow.triggers];
-  const v3 = workflow as Pick<Workflow, "trigger" | "moreTriggers">;
-  return [v3.trigger, ...(v3.moreTriggers ?? [])];
+  return [...workflow.triggers];
 }
 
 // ── Events ───────────────────────────────────────────────────────────────────────────────────────

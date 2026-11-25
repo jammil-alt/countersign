@@ -22,10 +22,8 @@ import {
 } from "../build/build";
 import { type Step as ProcessStep, SELF_AGENT } from "../process/schema";
 import { walkSteps } from "../process/walk";
-import type { Step as WorkflowStep } from "../schemas/workflow";
 import type { Step as StepModelStep } from "../steps/schema";
 import { eachStep } from "../steps/walk";
-import { walkSteps as walkV3Steps } from "../workflow/walk";
 
 export const MANUAL_WHAT_MAX = 2000;
 export const MANUAL_RISKS_MAX = 40;
@@ -196,32 +194,6 @@ export function stepModelWords(step: StepModelStep): string {
   }
 }
 
-/** A stored v3 step's kind in plain words. */
-function workflowStepWords(step: WorkflowStep): string {
-  switch (step.kind) {
-    case "skill":
-      return "Works it out";
-    case "action":
-      return "Uses one of your tools";
-    case "person":
-      return step.mode === "approve" ? "A person approves" : "A person answers";
-    case "wait":
-      return `Waits ${step.for}`;
-    case "notify":
-      return "Tells your team";
-    case "stop":
-      return "Stops here";
-    case "fork":
-      return "Chooses a path";
-    case "for_each":
-      return "Does the steps below for each item";
-    case "use_automation":
-      return "Runs a shared process";
-    default:
-      return "A step";
-  }
-}
-
 /**
  * The agent's steps in run order, each with its name and kind in words: what "How it works" shows.
  * Made by code from the process, never from prompts or instructions. Switched-off workflows are
@@ -232,42 +204,16 @@ export function howItWorks(bundle: ManualWorkflows): HowLine[] {
   for (const w of bundle.workflows) {
     if (w.enabled === false) continue;
     // Step model (build item 9): a v5 workflow in its own words (`stepModelWords`).
-    if (w.workflow.schemaVersion === 5) {
-      eachStep(w.workflow.steps as StepModelStep[], ({ step, parents }) => {
-        out.push({
-          workflow: w.name,
-          stepId: step.id,
-          depth: parents.length,
-          kind: step.kind,
-          name: step.name,
-          words: stepModelWords(step),
-        });
+    eachStep(w.workflow.steps as StepModelStep[], ({ step, parents }) => {
+      out.push({
+        workflow: w.name,
+        stepId: step.id,
+        depth: parents.length,
+        kind: step.kind,
+        name: step.name,
+        words: stepModelWords(step),
       });
-      continue;
-    }
-    if (w.workflow.schemaVersion === 4) {
-      walkSteps({ steps: w.workflow.steps as ProcessStep[] }, ({ step, depth }) => {
-        out.push({
-          workflow: w.name,
-          stepId: step.id,
-          depth,
-          kind: step.kind,
-          name: step.name,
-          words: processStepWords(step),
-        });
-      });
-    } else {
-      walkV3Steps({ steps: w.workflow.steps as WorkflowStep[] }, ({ step, loops, forks }) => {
-        out.push({
-          workflow: w.name,
-          stepId: step.id,
-          depth: loops.length + forks.length,
-          kind: step.kind,
-          name: step.name,
-          words: workflowStepWords(step),
-        });
-      });
-    }
+    });
   }
   return out;
 }
@@ -302,68 +248,29 @@ export function decisionPointsOf(
     if (w.enabled === false) continue;
     // Step model (build item 9): a Do done by a person, and a change to a client's tool that
     // waits for an approval.
-    if (w.workflow.schemaVersion === 5) {
-      eachStep(w.workflow.steps as StepModelStep[], ({ step }) => {
-        if (step.kind !== "do") return;
-        if (step.doneBy === "person" && step.person) {
-          covered.add(step.id);
-          out.push({
-            stepId: step.id,
-            what: step.name,
-            who: step.person.who,
-            byWhen: deadlineWords(step.person.deadline),
-            decisionId: pointOn(step.id),
-          });
-        } else if (step.uses?.type === "action" && step.checks?.approval && approvalOn(step)) {
-          covered.add(step.id);
-          const first = step.checks.approval.approvers?.[0];
-          out.push({
-            stepId: step.id,
-            what: `Approve: ${step.name}`,
-            who: first?.who ?? null,
-            byWhen: deadlineWords(first?.deadline),
-            decisionId: pointOn(step.id),
-          });
-        }
-      });
-      continue;
-    }
-    if (w.workflow.schemaVersion === 4) {
-      walkSteps({ steps: w.workflow.steps as ProcessStep[] }, ({ step }) => {
-        if (step.kind === "person") {
-          covered.add(step.id);
-          out.push({
-            stepId: step.id,
-            what: step.name,
-            who: step.assignee,
-            byWhen: deadlineWords(step.deadline),
-            decisionId: pointOn(step.id),
-          });
-        } else if (step.kind === "write" && approvalOn(step)) {
-          covered.add(step.id);
-          const first = step.checks?.approval?.approvers?.[0];
-          out.push({
-            stepId: step.id,
-            what: `Approve: ${step.name}`,
-            who: first?.who ?? null,
-            byWhen: deadlineWords(first?.deadline),
-            decisionId: pointOn(step.id),
-          });
-        }
-      });
-    } else {
-      walkV3Steps({ steps: w.workflow.steps as WorkflowStep[] }, ({ step }) => {
-        if (step.kind !== "person") return;
+    eachStep(w.workflow.steps as StepModelStep[], ({ step }) => {
+      if (step.kind !== "do") return;
+      if (step.doneBy === "person" && step.person) {
         covered.add(step.id);
         out.push({
           stepId: step.id,
           what: step.name,
-          who: step.assignee,
-          byWhen: step.timeout,
+          who: step.person.who,
+          byWhen: deadlineWords(step.person.deadline),
           decisionId: pointOn(step.id),
         });
-      });
-    }
+      } else if (step.uses?.type === "action" && step.checks?.approval && approvalOn(step)) {
+        covered.add(step.id);
+        const first = step.checks.approval.approvers?.[0];
+        out.push({
+          stepId: step.id,
+          what: `Approve: ${step.name}`,
+          who: first?.who ?? null,
+          byWhen: deadlineWords(first?.deadline),
+          decisionId: pointOn(step.id),
+        });
+      }
+    });
   }
   for (const d of points) {
     if (d.stepId && covered.has(d.stepId)) continue;

@@ -9,11 +9,10 @@ import { parseSkillRef } from "../schemas/common";
 import type { EventTypeSpec } from "../schemas/event";
 import type { SkillDefinition } from "../schemas/skill";
 import type { ToolInputVariants, ToolSpec } from "../schemas/tool";
-import type { Step, TriggerOn, Workflow } from "../schemas/workflow";
+import type { TriggerOn } from "../schemas/workflow";
 import { allTriggers, HANDOFF_PAYLOAD, MESSAGE_PAYLOAD } from "../triggers/kinds";
 import { webhookPayloadWithData } from "../triggers/sample";
 import { mergeTriggerSchemas } from "../triggers/typing";
-import { type StepLocation, walkSteps } from "../workflow/walk";
 import { singleRef } from "./template";
 
 /**
@@ -197,80 +196,6 @@ export function schemaAtPath(
     return { ok: false, message: `no field "${seg}"` };
   }
   return { ok: false, message: `"${seg}" is not a field of a ${ts.join("/")}` };
-}
-
-/** What references are in scope at a step. */
-export interface Scope {
-  trigger: JsonSchema | undefined;
-  // v0.12 W2-B
-  /** Inside an automation: its input schema. There is no trigger there; `{{input...}}` instead. */
-  input?: { schema: JsonSchema | undefined };
-  /** Upstream steps visible here, by id, with their output schemas. */
-  steps: Record<string, { step: Step; output: JsonSchema | undefined }>;
-  /** Inside a for_each: the item schema (undefined when unknown). */
-  loop?: { item: JsonSchema | undefined; step: Step };
-}
-
-function itemSchemaOf(over: string, scope: Omit<Scope, "loop"> & { loop?: Scope["loop"] }) {
-  let path: string[] | null;
-  try {
-    path = singleRef(over);
-  } catch {
-    return undefined;
-  }
-  if (!path) return undefined;
-  const t = typeTemplatePath(scope as Scope, path);
-  if (!t.ok || !t.schema) return undefined;
-  const items = t.schema.items;
-  return isPlainObject(items) ? (items as JsonSchema) : undefined;
-}
-
-/** The type of a workflow reference (`trigger...`, `steps.<id>.output...`, `item...`, `index`). */
-export function typeTemplatePath(scope: Scope, path: readonly string[]): PathType {
-  const [root, ...rest] = path;
-  switch (root) {
-    case "trigger":
-      // v0.12 W2-B
-      if (scope.input) {
-        return { ok: false, message: "an automation has no trigger: use {{input.<field>}}" };
-      }
-      return schemaAtPath(scope.trigger, rest);
-    // v0.12 W2-B
-    case "input":
-      if (!scope.input) {
-        return { ok: false, message: "{{input}} is only available inside an automation" };
-      }
-      return schemaAtPath(scope.input.schema, rest);
-    case "steps": {
-      const [id, output, ...tail] = rest;
-      if (id === undefined) return { ok: false, message: "steps.<id>.output... needs a step id" };
-      const s = scope.steps[id];
-      if (!s) {
-        return {
-          ok: false,
-          message: `step "${id}" does not run before this one on its path`,
-        };
-      }
-      if (output !== "output") {
-        return { ok: false, message: `use steps.${id}.output.<field>` };
-      }
-      return schemaAtPath(s.output, tail);
-    }
-    case "item":
-      if (!scope.loop)
-        return { ok: false, message: "{{item}} is only available inside a for_each" };
-      return schemaAtPath(scope.loop.item, rest);
-    case "index":
-      if (!scope.loop)
-        return { ok: false, message: "{{index}} is only available inside a for_each" };
-      if (rest.length > 0) return { ok: false, message: "{{index}} is a number" };
-      return { ok: true, schema: { type: "integer" } };
-    default:
-      return {
-        ok: false,
-        message: `unknown reference "${root}": use trigger, steps, item or index`,
-      };
-  }
 }
 
 export interface PathOption {

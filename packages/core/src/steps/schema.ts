@@ -463,6 +463,6 @@ export const Workflow = z
     outputs: z.array(WorkflowOutput).max(20),
     steps: z.array(Step),
   })
-  .meta({ id: "WorkflowV5" });
+  .meta({ id: "Workflow" });
 export type Workflow = z.infer<typeof Workflow>;
 export type WorkflowInput = z.input<typeof Workflow>;
