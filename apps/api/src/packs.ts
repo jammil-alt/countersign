@@ -6,7 +6,15 @@
 import type { InternalTool, PackToolSource } from "@countersign/agents";
 import type { ContentStore } from "@countersign/connectors";
 import type { PackReviewDecision } from "@countersign/core";
-import { lazy, lazyObjects, type PackManifest, type ToolSpec } from "@countersign/core";
+import {
+  createMatchPort,
+  lazy,
+  lazyObjects,
+  type MatchPort,
+  type PackManifest,
+  type ProfileMatcher,
+  type ToolSpec,
+} from "@countersign/core";
 import type { Db, Tx } from "@countersign/db";
 import type { LlmTransport } from "@countersign/llm";
 import {
@@ -36,13 +44,16 @@ import {
   apManifest,
   MATERIALS_ACTIONS,
   MATERIALS_HANDLERS,
+  MATERIALS_MATCHERS,
   MATERIALS_REPORTS,
   MATERIALS_REVIEWS,
   materialsManifest,
   type PackTool,
+  type PackToolContext,
   packToolContext,
 } from "@countersign/pack-materials";
 import {
+  CRM_RECORDS_MATCHER,
   SALES_HANDLERS,
   SALES_REVIEWS,
   SALES_SYNCED,
@@ -170,6 +181,11 @@ export interface RegisteredPack {
    * each item a checked fragment `{ title, description, html, path, domain }`.
    */
   previews?: readonly string[];
+  /**
+   * Step model §7 (stream D): how the Match engine reaches the records of each match profile its
+   * manifest declares (`matchProfiles`), one matcher per profile; `matchPort` gathers them all.
+   */
+  matchers?: readonly ProfileMatcher<PackToolContext>[];
 }
 
 /** What the inbound route hands a pack: the body (capped at `maxBytes`) and the request's facts. */
@@ -231,6 +247,8 @@ export const DEPLOYMENT_PACKS: readonly RegisteredPack[] = lazyObjects([
     // DECISION (§1.88 web): the client sees its vendor catalog read only (it is their data); the
     // preferred and discontinue actions stay the operator's (`/api/ops/…/actions`).
     portalReports: lazy(() => [...screenReports(materialsManifest), "master-vendors"]),
+    // Step model §7: Vendors, Vendor items and Master items.
+    matchers: MATERIALS_MATCHERS,
   },
   // Plan entry §1.233: the AP pack, extending the Purchasing area: bills prepared from invoices,
   // matched to their purchase orders, coded and flagged, and the week's approve-to-pay list (its
@@ -288,8 +306,26 @@ export const DEPLOYMENT_PACKS: readonly RegisteredPack[] = lazyObjects([
     handlers: SALES_HANDLERS,
     reviews: SALES_REVIEWS,
     synced: SALES_SYNCED,
+    // Step model §7: CRM records.
+    matchers: [CRM_RECORDS_MATCHER],
   },
 ]);
+
+let port: MatchPort<PackToolContext> | null = null;
+
+/**
+ * Step model §7 (stream D): the Match engine behind a Match step, with every registered pack's
+ * profiles. The executor calls `match` with the call's pack tool context (`packToolContext`, as
+ * `adapt` builds it), the step's Match settings, the items, and its model chooser; and `learn`
+ * with a person's answer. A pack's profile is reached whether or not the client has the pack on:
+ * the publish checks and the area's own records decide what a client's step can match.
+ */
+// DECISION: one port for the deployment, built on first use; the platform names no pack here
+// beyond registering it, as for tools and reports (invariant 2).
+export function matchPort(): MatchPort<PackToolContext> {
+  port ??= createMatchPort(DEPLOYMENT_PACKS.flatMap((p) => p.matchers ?? []));
+  return port;
+}
 
 /**
  * The model transport a pack tool's call gets: the run's, only for a tool that declares
