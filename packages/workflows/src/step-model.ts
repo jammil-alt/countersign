@@ -172,6 +172,35 @@ export function loadStepModel(
   };
 }
 
+/**
+ * After the process's seats are filled (`processes.fillSeats` rebuilds every step), the engine
+ * steps the run holds are new objects: what the step model knows of each (its v5 step, whether its
+ * tool is a merged action) is carried from the old object to the new. Both walks visit the same
+ * shape in the same order, as `fillSeats` keeps ids and order.
+ */
+export function carryStepModel(
+  stepModel: StepModelRun,
+  before: Pick<processes.Process, "steps">,
+  after: Pick<processes.Process, "steps">,
+): void {
+  const olds: processes.Step[] = [];
+  const news: processes.Step[] = [];
+  processes.walkSteps(before, ({ step }) => olds.push(step));
+  processes.walkSteps(after, ({ step }) => news.push(step));
+  if (olds.length !== news.length) {
+    throw new ProcessLoadError("the workflow's steps changed shape when its seats were filled");
+  }
+  olds.forEach((old, i) => {
+    const now = news[i] as processes.Step;
+    if (now.id !== old.id) {
+      throw new ProcessLoadError("the workflow's steps changed order when its seats were filled");
+    }
+    const source = stepModel.sources.get(old);
+    if (source) stepModel.sources.set(now, source);
+    if (stepModel.merged.has(old)) stepModel.merged.add(now);
+  });
+}
+
 function loadOne(
   step: steps.Step,
   kindOf: (action: string) => steps.ActionKind | undefined,
