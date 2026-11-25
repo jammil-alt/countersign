@@ -13,7 +13,7 @@ import {
 } from "../oversight/decision";
 import { type Owner, ownerOfBundle } from "../process/owner";
 import type { AnyAgentBundle } from "../schemas/agent";
-import { holdsProcess } from "../schemas/agent";
+import { holdsProcess, holdsStepModel } from "../schemas/agent";
 import { ModelChoice } from "../schemas/skill";
 import type { OwnerArea } from "./areas";
 
@@ -94,7 +94,9 @@ export function runOwnerOf(
   };
   const areaDefaults = owner.definition.oversight;
   const fromOwner = !saved && areaDefaults;
-  const fallback = !saved && !areaDefaults && holdsProcess(bundle) ? NEW_AGENT_OVERSIGHT : null;
+  // The step model: a v5 workflow is native, as a v4 process is.
+  const native = holdsProcess(bundle) || holdsStepModel(bundle);
+  const fallback = !saved && !areaDefaults && native ? NEW_AGENT_OVERSIGHT : null;
   const settings: OversightSettings | undefined = saved
     ? OversightSettings.parse({ ...saved, model: saved.model ?? model })
     : fromOwner
@@ -110,7 +112,7 @@ export function runOwnerOf(
     settings,
     maxPerRun: settings?.maxPerRun ?? base.maxPerRun,
     maxCostUsd: settings?.maxCostUsd ?? base.maxCostUsd,
-    watch: holdsProcess(bundle) && review !== "off",
+    watch: native && review !== "off",
     area: {
       ownerId: owner.ownerId,
       versionId: owner.versionId,

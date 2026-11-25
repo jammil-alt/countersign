@@ -138,6 +138,26 @@ export interface RunAgentInput {
    * its handler runs on the input. Ignored for any other skill.
    */
   reshape?: processes.ReshapeMapping | undefined;
+  // The step model (docs/step-model-plan.md §8)
+  /**
+   * A Loop: the model works toward `goal` with only the Get tools in `reads`, for at most
+   * `maxTurns` model calls (and never more than the agent's own budget). It never writes: the step
+   * is read-only, so every tool that writes is refused whatever it lists. At the limit it stops
+   * (the step fails) or hands back what it has (one more call, which must finish). With `skill`,
+   * the saved Loop's skill (its instructions, its output); without, the step's own.
+   */
+  loop?: StepLoopInput | undefined;
+}
+
+/** A Loop's goal, reads and limits (`RunAgentInput.loop`), as the executor sends them. */
+export interface StepLoopInput {
+  goal: string;
+  instructions: string;
+  reads: string[];
+  maxTurns: number;
+  atLimit: "stop" | "hand_back";
+  /** Its output fields as a schema; absent: an answer with its sources. */
+  output?: JsonSchema | undefined;
 }
 
 export interface AskBudget {
@@ -305,6 +325,48 @@ function taskSkill(task: string): SkillDefinition {
     requiresPacks: [],
     producesAlerts: false,
   };
+}
+
+/**
+ * The step model (§8): a Loop written in the step, as an agent-mode skill: its goal and
+ * instructions, its reads, and its output (an answer with sources when it names none).
+ */
+function loopSkill(loop: StepLoopInput): SkillDefinition {
+  return {
+    schemaVersion: 1,
+    id: "steps.loop",
+    name: "Loop",
+    description: loop.goal,
+    category: "loop",
+    mode: "agent",
+    instructions: loopInstructions(null, loop),
+    tools: loop.reads,
+    input: {},
+    output: loop.output ?? {
+      type: "object",
+      properties: {
+        answer: { type: "string" },
+        sources: { type: "array", items: { type: "string" } },
+      },
+      required: ["answer", "sources"],
+    },
+    settings: [],
+    requiresConnectors: [],
+    requiresPacks: [],
+    producesAlerts: false,
+  };
+}
+
+/** A Loop's instructions: the saved skill's (if any), its goal, the step's own, the read-only rule. */
+function loopInstructions(own: string | null | undefined, loop: StepLoopInput): string {
+  return [
+    own?.trim() || null,
+    `Your goal: ${loop.goal}`,
+    loop.instructions.trim() || null,
+    "You can only read: every tool that writes is refused. Finish when the goal is met.",
+  ]
+    .filter((x): x is string => x !== null)
+    .join("\n\n");
 }
 
 /**
@@ -523,6 +585,18 @@ export async function runAgent(deps: RuntimeDeps, input: RunAgentInput): Promise
       if (!customized.ok) return fail(customized.error);
       def = customized.def;
     }
+    // The step model (§8): a saved Loop runs as an agent loop, with the step's goal and reads.
+    if (input.loop) {
+      def = {
+        ...def,
+        mode: "agent",
+        instructions: loopInstructions(def.instructions, input.loop),
+        tools: input.loop.reads,
+        ...(input.loop.output ? { output: input.loop.output } : {}),
+      };
+    }
+  } else if (input.loop) {
+    def = loopSkill(input.loop);
   } else if (input.asked) {
     def = askSkill(input.asked.tools);
   } else if (input.task !== undefined) {
@@ -552,24 +626,29 @@ export async function runAgent(deps: RuntimeDeps, input: RunAgentInput): Promise
     settings: { ...settings, ...parameters },
     externalIndex: { next: 0 },
     language: input.language,
-    readOnly: asked !== undefined,
+    // The step model (§8): a Loop never writes, whatever it lists.
+    readOnly: asked !== undefined || input.loop !== undefined,
     ...(input.retryOf ? { retryOf: input.retryOf } : {}),
     // No asks within an ask: the asked agent can't start a chain.
-    ask: asked
-      ? undefined
-      : (q) =>
-          askAgent(deps, {
-            tenantId: input.tenantId,
-            agentId: agent.agentId,
-            runId: input.runId,
-            language: input.language,
-            ask: q,
-          }),
+    ask:
+      asked || input.loop
+        ? undefined
+        : (q) =>
+            askAgent(deps, {
+              tenantId: input.tenantId,
+              agentId: agent.agentId,
+              runId: input.runId,
+              language: input.language,
+              ask: q,
+            }),
   };
   const allowed = new Set(
     asked
       ? skillTools(def).filter((t) => deps.tools.get(t)?.spec.sideEffect === "none")
-      : stepToolIds(def, agent.bundle.definition.extraTools, deps.tools),
+      : input.loop
+        ? // The step model (§8): its reads only, and only those that read.
+          input.loop.reads.filter((t) => deps.tools.get(t)?.spec.sideEffect === "none")
+        : stepToolIds(def, agent.bundle.definition.extraTools, deps.tools),
   );
   const pending: PendingAction[] = [];
   const track = (o: ToolOutcome) => {
@@ -731,7 +810,10 @@ export async function runAgent(deps: RuntimeDeps, input: RunAgentInput): Promise
   // An ask's budget is the smaller of the ask's and the agent's own.
   const maxSteps = asked
     ? Math.min(definition.budgets.maxSteps, asked.budget.maxSteps)
-    : definition.budgets.maxSteps;
+    : input.loop
+      ? // The step model (§8): a Loop's most turns, within the agent's own budget.
+        Math.min(definition.budgets.maxSteps, input.loop.maxTurns)
+      : definition.budgets.maxSteps;
   const agentMaxCost = asked
     ? Decimal.min(definition.budgets.maxCostUsd, asked.budget.maxCostUsd)
     : new Decimal(definition.budgets.maxCostUsd);
@@ -987,11 +1069,52 @@ export async function runAgent(deps: RuntimeDeps, input: RunAgentInput): Promise
     );
   };
 
+  // The step model (§8): at a Loop's limit, `stop` fails the step; `hand_back` asks once more, for
+  // its finish only, and that answer is what it hands back.
+  // DECISION: the hand-back is one call past `maxTurns`, still within the cost budget, offered the
+  // finish tool alone; a hand-back that doesn't finish with a valid result fails the step as
+  // `stop` would.
+  const atLoopLimit = async (limit: StepLoopInput): Promise<AgentResult> => {
+    const reached = `the Loop reached its limit of ${limit.maxTurns} turns`;
+    if (limit.atLimit === "stop" || stepCost().gt(maxCost)) return fail(reached);
+    messages.push({
+      role: "user",
+      content: `You have reached your limit. Call \`${FINISH_TOOL}\` now with what you have.`,
+    });
+    let response: LlmMessage;
+    try {
+      ({ message: response } = await llm.message(
+        {
+          model: model.id,
+          max_tokens: model.maxTokens,
+          system,
+          messages,
+          // Only its finish is offered: a forced tool choice is refused by models that think.
+          tools: tools.filter((t) => t.name === FINISH_TOOL),
+          tool_choice: { type: "auto" },
+        },
+        { label: `${input.stepId}:${def.id}:hand_back` },
+      ));
+    } catch (error) {
+      return fail(`model call failed: ${error instanceof Error ? error.message : String(error)}`);
+    }
+    const done = response.content.find(
+      (b): b is ToolUse => b.type === "tool_use" && b.name === FINISH_TOOL,
+    );
+    const out = done ? checkOutput(def, done.input) : null;
+    if (!out?.ok) return fail(`${reached}, and what it handed back isn't valid`);
+    return succeed(out.value);
+  };
+
   const loop = async (): Promise<AgentResult> => {
     for (;;) {
       const limit = scope?.overLimit();
       if (scope && limit) return helpNeeded(scope.needsHelp());
-      if (stepCalls() >= maxSteps) return overBudget("max_steps");
+      if (stepCalls() >= maxSteps) {
+        // The step model (§8): a Loop at its most turns stops, or hands back what it has.
+        if (input.loop) return atLoopLimit(input.loop);
+        return overBudget("max_steps");
+      }
       if (stepCost().gt(maxCost)) return overBudget("max_cost");
       if (overMonthly()) return escalate("max_monthly_cost");
       let response: LlmMessage;

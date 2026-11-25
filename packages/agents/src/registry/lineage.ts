@@ -15,6 +15,7 @@ import {
   cloneJson,
   eachBundleStep,
   holdsProcess,
+  holdsStepModel,
   isPlainObject,
   type MergeResult,
   mergeBundles,
@@ -185,7 +186,10 @@ async function requireMergeable(
   });
   // R9: a merge with a template's v4 version is all v4, validated as such (an all-v3 one exactly
   // as before).
-  const validate = holdsProcess(result.bundle) ? processes.validateAnyBundle : validateBundle;
+  const validate =
+    holdsProcess(result.bundle) || holdsStepModel(result.bundle)
+      ? processes.validateAnyBundle
+      : validateBundle;
   const valid = validate(result.bundle, {
     skills,
     tools: ctx.tools.specs(),
