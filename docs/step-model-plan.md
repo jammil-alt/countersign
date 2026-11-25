@@ -603,6 +603,15 @@ The stored format is **approved and frozen** (owner, 2026-11-25), Tell and the g
 | D · Match | `claude/step-model-d-match` | Opus | Match profiles and their engine: `packs/materials/src/vendor`, the catalog matching in `packs/materials`, `packs/sales/src/match`, `packages/core/src/matching` |
 | E · Connectors and areas | `claude/step-model-e-connectors` | Sonnet | `packages/connectors`, the connector page (`apps/web/src/ops/screens/Connectors.tsx`), Request an action, tool-neutral wording outside what D owns, one chart of accounts, one Read a document |
 
+**Wave 2 streams** (started 2026-11-25 while wave 1 merges; H waits for A's Loop runtime):
+
+| Stream | Branch | Model | Starts from | Owns |
+|---|---|---|---|---|
+| C · Platform agents | `claude/step-model-c-platform-agents` | Opus | #671 (merges A's branch as it lands) | The platform's own agents in the seed, in the new format; the seed script |
+| G · Automatic translation | `claude/step-model-g-translation` | Opus | B's branch (#672) | A new core module for Fits, Translated, Doesn't fit; the executor's translation hook; the Input box and the Data tab's "Changed" |
+| F · Written in the step | `claude/step-model-f-in-step` | Sonnet | B's branch (#672) | Rules and AI written in the step, stored behind it as a skill; Save as skill; Suggest's backend; the Instructions box |
+| H · Loop designer | not started | Sonnet | after A's Loop runtime | The Loop designer in the Agent lab |
+
 ## 14. Where we are in the review
 
 Agreed: terms, step kinds, forms, skills, connectors, areas. Being reviewed: the build list and the
@@ -654,6 +663,7 @@ release (§12, §13). Then: the stored format, drafted as plain fields for revie
 - 2026-11-25 · Wave 0 contracts built (§13c); Tell added to the Do step, and the group field type.
 - 2026-11-25 · Stored format approved and frozen; wave 1 started (four sessions, §13c).
 - 2026-11-25 · Screen changes approved (mock-up `docs/design/step-model.html`), with stream B's two choices: the rail stays as today and the eight kinds open from the chart's +; workflow outputs sit in a section above the chart.
+- 2026-11-25 · Wave 2 started: C, G and F; H waits for stream A's Loop runtime.
 - 2026-11-25 · Drafts parse as they are being built (a step with no goal yet, an End not filled in, an empty For each); the publish checks refuse them. A Do step may be run by another agent of the client (More). Stream B's PR #672 keeps 10 of its 12 differences from the mock-up (today's controls, editable Match settings, an input picker per field) and closes 2 (the sheet's eyebrow, the test run's time).
 - 2026-11-25 · Forms agreed. Suggest (AI icon) on every step and every field: tell it what you need,
   use the default, or resolve; applied at once, with Undo.
