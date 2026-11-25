@@ -6383,6 +6383,22 @@ action, not just mark it... if it is an issue, just because I say it is closed d
 | Not built | The client as an owner: no step yet sends an item to the client and closes it by their answer (the requirements request asks the intake form's fields, not an item). Until there is one, "Client" is only set by the fit-gap's preconditions. |
 | Checked | `apps/api/src/build-settled-by-step.test.ts` (done by hand refused, a drop, a note done, the Builder's close left out; a put-off gap given to engineering then the Builder, closed by its change and opened by its undo; a test closed by a full passing run and not by a failing or partial one), `apps/web/src/ops/builds/closeout.test.tsx` and `builds.test.tsx` (no selects; Put off, Drop it, Reopen; Take it up on a put-off gap). The skill build's go-live closing has no test of its own. |
 
+### 1.244 The step model: a step is what it does, its input and its output (owner, 2026-11-25; migration 0101)
+
+The owner could not build an agent by hand (the Invoice item matcher had 28 steps wired by ids), so
+the workflow format was redesigned with the owner item by item and rebuilt in parallel streams.
+The plan of record, with every decision dated, is `docs/step-model-plan.md`; where it stands is its
+§13d.
+
+| | |
+|---|---|
+| What changed | Workflows are `schemaVersion: 5` (`packages/core/src/steps`): eight step kinds (Do, Loop, Fork, For each, Repeat, Wait, Hand off, End); a Do says who does it (rules, AI, a person, an outside contact) and what it uses (an action, a skill, an automation, a Match, Collect reports, Tell, or "not built yet"); declared workflow outputs delivered by End cards, so nothing ends silently. Data between steps is translated automatically when building and run as code; only "doesn't fit" blocks publishing. |
+| Same product | Screens and flows stay; only forms and groupings changed (`docs/design/step-model.html`). Triggers unchanged. |
+| Built (merged 2026-11-25) | #671 (plan, `db:purge-agents`, the stored format), #672 (builder screens), #676 (executor), #673 (Match profiles), #678 (translation), #674 and #675 (connector action switches, merged Email, Team chat, Spreadsheets and Accounting, Request an action; migration 0101), #681 (Loop designer and the test-set gate), #679 (platform agents seeded as v5), #677 (rules and AI written in the step, Save as skill, Suggest). |
+| Being built | #682 (the executor wired to Match, translation, merged connectors and step skills), Data (§10f: record types, grants, data sets, custom fields), the Builder drafting in v5, ARCHITECTURE v0.20. |
+| Then | Delete v3, v4, the converters and the 117 tool-only skills; `db:purge-agents` (dry run, then real) and `db:seed` on staging; production with the owner's approval. The Invoice item matcher is built after, in the new model. |
+| Invariants | No live agents are kept (owner, 2026-11-25): the one-off purge is the single exception to invariants 3 and 14, by hand, audited, confirmed by the database's name. Every Sonnet stream touching approvals or the gate had an Opus review; findings are in §13d. |
+
 ### 1.242 Collect reports: wait for several reports, each from its own owner, checked before they count (owner, 2026-11-24; no migration)
 
 The owner: "a trigger that waits for multiple reports to come in from different sources… once all

@@ -23,6 +23,7 @@ export * from "./builder/guards";
 export * from "./builder/reshape";
 export * from "./builder/shortlist";
 export * from "./builder/skill-draft";
+export * from "./builder/suggest";
 export * from "./builder/translate";
 export * from "./errors";
 // docs/plan.md §1.217: the process interview
@@ -65,6 +66,7 @@ export * from "./registry/offered";
 export * from "./registry/people";
 export * from "./registry/runtime-store";
 export * from "./registry/skills";
+export * from "./registry/step-skills";
 export * from "./registry/tools";
 export * from "./runtime/actions";
 export * from "./runtime/attention";

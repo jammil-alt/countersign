@@ -150,6 +150,7 @@ import { opsOversightRoutes } from "./routes/ops-oversight";
 import { opsReadTableRoutes } from "./routes/ops-read-table";
 import { opsReshapeRoutes } from "./routes/ops-reshape";
 import { opsSkillRoutes } from "./routes/ops-skills";
+import { opsStepSkillRoutes } from "./routes/ops-step-skills";
 import { ownerRoutes } from "./routes/owners";
 import { packInboundRoutes } from "./routes/pack-inbound";
 // M46
@@ -295,6 +296,7 @@ export function createApp(deps: AppDeps = defaultDeps): Hono<AppEnv> {
   opsAgentRoutes(app);
   opsLineageRoutes(app);
   opsSkillRoutes(app);
+  opsStepSkillRoutes(app);
   opsBuilderRoutes(app);
   // Reshape data (2026-11-11): propose a Reshape step's mapping, and its sample values.
   opsReshapeRoutes(app);
