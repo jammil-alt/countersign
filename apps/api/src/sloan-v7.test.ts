@@ -7,6 +7,7 @@ import { agentVersion } from "@countersign/db";
 import { eq } from "drizzle-orm";
 import { afterAll, describe, expect, it } from "vitest";
 import { type ApiHarness, createApiHarness, OPERATOR } from "./api.test-helper";
+import { installBeforeStepModel } from "./before-step-model.test-helper";
 
 // biome-ignore lint/suspicious/noExplicitAny: response bodies are read loosely in tests.
 const j = (v: unknown) => v as any;
@@ -18,8 +19,8 @@ describe.skipIf(!h)("Sloan's v7", () => {
   const H = h as ApiHarness;
 
   it("reaches a client's Sloan only by the reviewed update merge", async () => {
-    const install = (version: number) =>
-      H.call(OPERATOR, "POST", "/api/ops/platform-templates/supervisor/install", { version });
+    // Sloan's v6 and v7 as seeded before the step model (the seed now holds one version).
+    const install = (version: number) => installBeforeStepModel(H, "supervisor", version);
     expect((await install(6)).status).toBe(200);
     const fork = await H.call(OPERATOR, "POST", `/api/ops/clients/${H.A.tenantId}/supervisor`, {});
     expect(fork.status, JSON.stringify(fork.json)).toBe(200);

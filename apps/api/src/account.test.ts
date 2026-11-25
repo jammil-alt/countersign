@@ -35,6 +35,7 @@ import {
   testBundle,
   user,
 } from "./api.test-helper";
+import { installBeforeStepModel } from "./before-step-model.test-helper";
 import { executeRun } from "./runs/execute";
 import type { RunParams } from "./runs/instances";
 import { cloudflareStepRunner } from "./runs/step-runner";
@@ -140,18 +141,14 @@ describe.skipIf(!h)("Sloan, the account agent", () => {
   });
 
   it("is installed as the supervisor's v2 from the back office, once", async () => {
-    const res = await H.call(OPERATOR, "POST", "/api/ops/platform-templates/supervisor/install", {
-      version: 2,
-    });
+    const res = await installBeforeStepModel(H, "supervisor", 2);
     expect(res.status, JSON.stringify(res.json)).toBe(200);
     expect(j(res.json)).toMatchObject({
       template: { slug: "supervisor" },
       version: { version: 2, status: "live" },
       installed: true,
     });
-    const again = await H.call(OPERATOR, "POST", "/api/ops/platform-templates/supervisor/install", {
-      version: 2,
-    });
+    const again = await installBeforeStepModel(H, "supervisor", 2);
     expect(j(again.json)).toMatchObject({ version: j(res.json).version, installed: false });
     // Operators only; an unknown version or slug is not found.
     expect(

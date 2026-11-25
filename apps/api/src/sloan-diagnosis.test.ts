@@ -16,6 +16,7 @@ import { emit } from "@countersign/senses";
 import { and, eq, sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { type ApiHarness, createApiHarness, FakeWorkflowStep, OPERATOR } from "./api.test-helper";
+import { installBeforeStepModel } from "./before-step-model.test-helper";
 import { dispatchEvents } from "./runs/dispatch";
 import { executeRun } from "./runs/execute";
 import type { RunParams } from "./runs/instances";
@@ -90,9 +91,7 @@ describe.skipIf(!h)("Sloan reads the failing agent's own diagnosis", () => {
 
   beforeAll(async () => {
     // Sloan as clients have it today: the supervisor's v2, forked into the client.
-    const v2 = await H.call(OPERATOR, "POST", "/api/ops/platform-templates/supervisor/install", {
-      version: 2,
-    });
+    const v2 = await installBeforeStepModel(H, "supervisor", 2);
     expect(v2.status, JSON.stringify(v2.json)).toBe(200);
     const fork = await H.call(OPERATOR, "POST", `/api/ops/clients/${H.A.tenantId}/supervisor`, {});
     expect(fork.status, JSON.stringify(fork.json)).toBe(200);
@@ -104,9 +103,7 @@ describe.skipIf(!h)("Sloan reads the failing agent's own diagnosis", () => {
   });
 
   it("moves a client's Sloan from v2 to v3 by a clean update merge, step ids kept", async () => {
-    const v3 = await H.call(OPERATOR, "POST", "/api/ops/platform-templates/supervisor/install", {
-      version: 3,
-    });
+    const v3 = await installBeforeStepModel(H, "supervisor", 3);
     expect(v3.status, JSON.stringify(v3.json)).toBe(200);
     expect(j(v3.json)).toMatchObject({ version: { version: 3, status: "live" }, installed: true });
 
@@ -171,9 +168,7 @@ describe.skipIf(!h)("Sloan reads the failing agent's own diagnosis", () => {
       .from(agentVersion)
       .innerJoin(agent, eq(agent.liveVersionId, agentVersion.id))
       .where(eq(agent.id, sloanId));
-    const v4 = await H.call(OPERATOR, "POST", "/api/ops/platform-templates/supervisor/install", {
-      version: 4,
-    });
+    const v4 = await installBeforeStepModel(H, "supervisor", 4);
     expect(v4.status, JSON.stringify(v4.json)).toBe(200);
     expect(j(v4.json)).toMatchObject({ version: { version: 4, status: "live" }, installed: true });
 
