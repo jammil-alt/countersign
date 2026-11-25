@@ -40,13 +40,44 @@ export function doSkills(ctx: Pick<BuilderContext, "skills">): BuilderSkill[] {
   );
 }
 
+/**
+ * The merged Accounting actions stand for a write action (`processes.ACTION_SPECS`): a run maps
+ * from that action's own input (`processes.actionInputSchema`), translated to each accounting
+ * tool's, so its fields are those, not its first tool's (QuickBooks').
+ */
+const MERGED_WRITE_ACTIONS: Readonly<Record<string, processes.WriteAction>> = {
+  "accounting.bill.create": "create_bill",
+  "accounting.vendor.create": "create_vendor",
+};
+
+/**
+ * The catalog with each merged Accounting action's input read from its own write action, as runs
+ * and the publish checks read it (`stepContext.requiredInput`).
+ */
+// DECISION (coordinator, from stream A's #682): fixed where the catalog is built for the route
+// and the Builder, not in the frozen `steps/catalog.ts`, which takes a merged action's fields from
+// its first tool.
+export function withWriteActionFields(groups: readonly steps.CatalogGroup[]): steps.CatalogGroup[] {
+  return groups.map((g) => ({
+    ...g,
+    actions: g.actions.map((a) => {
+      const write = MERGED_WRITE_ACTIONS[a.id];
+      return write
+        ? { ...a, input: steps.fieldsFromSchema(processes.actionInputSchema(write)) }
+        : a;
+    }),
+  }));
+}
+
 /** The action catalog for this context: the API's, else made from the tools it has. */
 export function actionGroups(ctx: Pick<BuilderContext, "tools" | "stepModel" | "connectors">) {
   if (ctx.stepModel) return ctx.stepModel.actions;
-  return steps.buildActionCatalog(ctx.tools, {
-    connectors: Object.fromEntries(ctx.connectors.map((c) => [c.id, c.name])),
-    areas: {},
-  });
+  return withWriteActionFields(
+    steps.buildActionCatalog(ctx.tools, {
+      connectors: Object.fromEntries(ctx.connectors.map((c) => [c.id, c.name])),
+      areas: {},
+    }),
+  );
 }
 
 /**

@@ -5,7 +5,8 @@
 // model is scripted (FakeModel), in the step model.
 
 import { agentStepSkillPrefix } from "@countersign/agents";
-import { TESTKIT_QUERY_TOOL } from "@countersign/connectors";
+import { createQboConnector, TESTKIT_QUERY_TOOL } from "@countersign/connectors";
+import { FAKE_QBO_CLIENT, fakeQbo } from "@countersign/connectors/testing";
 import { skill, skillVersion } from "@countersign/db";
 import { FakeModel } from "@countersign/llm";
 import { eq } from "drizzle-orm";
@@ -13,7 +14,19 @@ import { afterAll, describe, expect, it } from "vitest";
 import { createApiHarness, OPERATOR } from "./api.test-helper";
 
 const model = new FakeModel();
-const h = await createApiHarness({ llm: model });
+// QuickBooks over a fake, so the merged Accounting actions are offered.
+const qbo = fakeQbo();
+const h = await createApiHarness({
+  llm: model,
+  connectors: () => [
+    createQboConnector({
+      ...FAKE_QBO_CLIENT,
+      environment: "sandbox",
+      fetch: qbo.fetch,
+      sleep: async () => {},
+    }),
+  ],
+});
 afterAll(() => h?.close());
 
 type Json = Record<string, unknown>;
@@ -160,5 +173,86 @@ describe.skipIf(!h)("the Builder in the step model", () => {
     });
     expect(b.status, JSON.stringify(b.json)).toBe(200);
     expect((b.json as { saveAsSkill: unknown[] }).saveAsSkill).toEqual([]);
+  });
+  // The merged Accounting actions show their write action's own fields (coordinator, from #682):
+  // a run maps from those, and the publish checks require them.
+  it("drafts Create bill with the Accounting action's own fields, which pass the publish checks", async () => {
+    const bill = (input: Record<string, unknown>) => {
+      const b = bundle("Bill maker") as unknown as {
+        workflows: { workflow: { outputs: Json[]; steps: Json[] } }[];
+      };
+      const wf = b.workflows[0]?.workflow as { outputs: Json[]; steps: Json[] };
+      wf.steps = [
+        {
+          id: "create",
+          kind: "do",
+          name: "Create the bill",
+          doneBy: "rules",
+          uses: { type: "action", action: "accounting.bill.create" },
+          input,
+        },
+        { id: "done", kind: "end", name: "Done", outputs: ["r1"] },
+      ];
+      return {
+        toolUse: {
+          name: "submit_draft",
+          input: { summary: "It creates the bill.", gaps: [], startFromTemplate: null, bundle: b },
+        },
+      };
+    };
+    const own = {
+      vendorName: "{{trigger.vendor}}",
+      invoiceNumber: "{{trigger.number}}",
+      date: "{{trigger.date}}",
+      lines: "{{trigger.lines}}",
+      total: "{{trigger.total}}",
+      currency: "{{trigger.currency}}",
+    };
+    const before = model.requests.length;
+    model.push(bill(own));
+    const res = await H.call(OPERATOR, "POST", "/api/ops/agents/draft", {
+      description: "Create the bill",
+    });
+    expect(res.status, JSON.stringify(res.json)).toBe(200);
+    // What the Builder was shown for Accounting > Create bill: the action's own required fields.
+    const content = model.requests[before]?.messages[0]?.content as string;
+    const catalog = JSON.parse(
+      content.slice(content.indexOf("<catalog>") + 9, content.indexOf("</catalog>")),
+    ) as { actions: { actions: { id: string; input: string[] }[] }[] };
+    const create = catalog.actions
+      .flatMap((g) => g.actions)
+      .find((a) => a.id === "accounting.bill.create");
+    expect(create?.input).toEqual(
+      expect.arrayContaining([
+        "invoiceNumber: text",
+        expect.stringMatching(/^date: /),
+        expect.stringMatching(/^lines: list/),
+        expect.stringMatching(/^total: /),
+        expect.stringMatching(/^currency: /),
+      ]),
+    );
+    expect(create?.input.join(" ")).not.toContain("VendorRef");
+    const out = res.json as {
+      errors: Json[];
+      bundle: { workflows: { workflow: { steps: Json[] } }[] };
+    };
+    expect(out.errors.filter((e) => e.stepCode === "input_missing")).toEqual([]);
+    expect(out.bundle.workflows[0]?.workflow.steps[0]).toMatchObject({
+      checks: { approval: { required: "required" } },
+    });
+
+    // QuickBooks' own field names don't fit: the publish checks name what is missing.
+    model.push(
+      bill({ VendorRef: "{{trigger.vendor}}", Line: "{{trigger.lines}}" }),
+      bill({ VendorRef: "{{trigger.vendor}}", Line: "{{trigger.lines}}" }),
+    );
+    const wrong = await H.call(OPERATOR, "POST", "/api/ops/agents/draft", {
+      description: "Create the bill",
+    });
+    expect(wrong.status, JSON.stringify(wrong.json)).toBe(200);
+    const missing = (wrong.json as { errors: Json[] }).errors.filter(
+      (e) => e.stepCode === "input_missing",
+    );
+    expect(missing.map((e) => e.message).join(" ")).toContain("invoiceNumber");
   });
 });

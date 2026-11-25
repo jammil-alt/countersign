@@ -23,6 +23,7 @@ import {
   retire,
   SHARED_COPY_PREFIX,
   skillContext,
+  withWriteActionFields,
 } from "@countersign/agents";
 import { actionsOff, BUILTIN_CONNECTORS, builtInManifest } from "@countersign/connectors";
 import {
@@ -348,13 +349,16 @@ export function actionCatalogOf(
     const owner = platform.connectors.findTool(spec.id)?.connector.manifest.id;
     return owner === undefined || !hidden.has(owner);
   });
-  return steps.buildActionCatalog(shown, {
-    connectors: {
-      ...Object.fromEntries(connectors.map((c) => [c.manifest.id, connectorTitle(c.manifest)])),
-      ...Object.fromEntries(BUILTIN_CONNECTORS.map((b) => [b.id, b.name])),
-    },
-    areas: AREA_NAMES,
-  });
+  // The merged Accounting actions take their write action's own fields, as runs map them.
+  return withWriteActionFields(
+    steps.buildActionCatalog(shown, {
+      connectors: {
+        ...Object.fromEntries(connectors.map((c) => [c.manifest.id, connectorTitle(c.manifest)])),
+        ...Object.fromEntries(BUILTIN_CONNECTORS.map((b) => [b.id, b.name])),
+      },
+      areas: AREA_NAMES,
+    }),
+  );
 }
 
 /**
