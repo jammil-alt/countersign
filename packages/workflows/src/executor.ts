@@ -24,6 +24,7 @@ import {
   evaluateRules,
   // Collect reports (owner, 2026-11-24): each link is a "Request info" step.
   FORMS_REQUEST_SKILL,
+  isoToday,
   isPlainObject,
   LEAD_ASSIGNEE,
   lookupSkill,
@@ -89,7 +90,9 @@ import {
   type HoursPort,
   type InboxPort,
   InboxResolution,
+  type MatchNote,
   type MatchPort,
+  type MatchResult,
   NeedsHelp,
   type NotifyPort,
   // v0.13 W2-I
@@ -124,13 +127,15 @@ import { inboxEventType, isWaitTimeout, type StepConfig, type StepRunner } from 
 // The step model (docs/step-model-plan.md): a v5 workflow's steps on today's engines.
 import {
   catalogKindOf,
+  incomingTranslation,
   loadStepModel,
   loopRequest,
   MATCH_SKILL,
   STEP_MODEL_WRITE_ACTIONS,
   type StepLoop,
   type StepModelRun,
-  unrunTranslation,
+  translates,
+  WRITTEN_SKILL,
   writtenInStep,
 } from "./step-model";
 
@@ -197,6 +202,12 @@ export interface ExecutorContext {
   // The step model (docs/step-model-plan.md §7)
   /** Match steps (stream D's engine); absent: a Match step fails, nothing matched or saved. */
   match?: MatchPort;
+  /**
+   * The step model (stream F): the step skill the run's agent version pins for a step written in
+   * the step (`custom:step-<agent>-<step>@N` in its `definition.skills`), by step id; undefined:
+   * none pinned, and the step fails. Read from the pinned version, so a replay resolves the same.
+   */
+  stepSkill?: (stepId: string) => string | undefined;
 }
 
 /**
@@ -598,7 +609,11 @@ export async function executeWorkflow(
   try {
     if (workflow.schemaVersion === 5) {
       // The step model: each step on the engine its kind, done by and uses pick (`./step-model`).
-      const v5 = loadStepModel(workflow, catalogKindOf(ctx.catalog?.tools));
+      const v5 = loadStepModel(
+        workflow,
+        catalogKindOf(ctx.catalog?.tools),
+        ctx.stepSkill ?? (() => undefined),
+      );
       stepModel = v5.stepModel;
       loaded = v5;
     } else loaded = loadProcess(workflow, ctx.lookup ?? NO_LOOKUP);
@@ -661,6 +676,11 @@ export async function executeWorkflow(
     return { status: "failed", reason, errorKey: runErrorKey({ tool: null, kind: "run" }, reason) };
   }
   const ex = new Executor(runner, ctx, expansions, loaded.origins, overrides, stepModel);
+  // The step model: a run whose steps translate what comes in reads one "today", the client's
+  // date when it started, in a durable step, so a replay translates the same way.
+  if (workflow.schemaVersion === 5 && translates(workflow)) {
+    ex.today = await runner.do("run:today", async () => isoToday(new Date(), ctx.run.timeZone));
+  }
   // DECISION (wave 5): outcomes are recorded for native v4 processes only; a converted v3 workflow's
   // scope stays `{ output }` (its conditions can't name an outcome, and nothing it reads changes).
   ex.records = loaded.v3 === null;
@@ -759,6 +779,12 @@ class Executor {
 
   /** The step model: what the End that ended the run passed on (`RunResult.passedOn`). */
   passedOn: { output: unknown; sources: string[] } | undefined;
+
+  /** The step model: a merged action's step, resolved, by the concrete step that runs it. */
+  readonly mergedCalls = new WeakMap<object, { action: string; connector: string }>();
+
+  /** The step model: the client's date a translation reads as "today", fixed for the run. */
+  today: string | undefined;
 
   /** The step model: the v5 step an engine step runs, if the run is a v5 workflow's. */
   source(step: processes.Step): steps.Step | undefined {
@@ -979,14 +1005,9 @@ class Executor {
         if (v5.kind === "do" && v5.uses?.type === "match") {
           return await this.match(v5, v5.uses.match, step, name, frame);
         }
-        if (writtenInStep(v5)) {
+        if (writtenInStep(v5) && step.kind === "skill" && step.skill === WRITTEN_SKILL) {
           throw new Error(
-            `the step "${v5.name}" is written in the step, which can't run yet: pick a skill for it`,
-          );
-        }
-        if (unrunTranslation(v5)) {
-          throw new Error(
-            `the step "${v5.name}" translates what comes in, which can't run yet: map its input instead`,
+            `the step "${v5.name}" has no saved version of what is written in it: save the workflow and publish it again`,
           );
         }
       }
@@ -1411,13 +1432,21 @@ class Executor {
       step.tool !== undefined &&
       this.stepModel?.merged.has(step)
     ) {
-      const resolved = await this.resolveMerged(name, step.tool);
+      const action = step.tool;
+      const resolved = await this.resolveMerged(name, action);
       const concrete = { ...step, tool: resolved.tool } as WorkStep;
+      this.mergedCalls.set(concrete, { action, connector: resolved.connector });
+      const port = this.ctx.agent;
+      // The action's input in the words of the tool it resolved to (the merge's mappings).
+      const toTool = (input: unknown) => {
+        const own = mapInput ? mapInput(input) : input;
+        return port.mergedInput ? port.mergedInput(action, resolved.connector, own) : own;
+      };
       return this.workStep(
         concrete,
         name,
         frame,
-        mapInput,
+        toTool,
         resolved.connectionId
           ? { connector: resolved.connector, connectionId: resolved.connectionId }
           : binding,
@@ -1603,6 +1632,11 @@ class Executor {
       return;
     }
     output = shape(output);
+    // The step model: a merged action's output back in the action's words, whichever tool ran.
+    const merged = this.mergedCalls.get(step);
+    if (merged && this.ctx.agent.mergedOutput) {
+      output = this.ctx.agent.mergedOutput(merged.action, merged.connector, output);
+    }
 
     if (step.kind !== "write" && checks?.confer) await conferOutput(output);
     // The sign-off: a read's, or a skill's that proposed no write (a proposed write was signed
@@ -1715,7 +1749,24 @@ class Executor {
   inputOf(step: { id: string; input: unknown }, frame: Frame): unknown {
     const start = this.ctx.start;
     if (start && frame.prefix === "" && step.id === start.at) return start.input;
-    return resolveTemplate(step.input, frame.scope);
+    const resolved = resolveTemplate(step.input, frame.scope);
+    // The step model: a Do step's incoming side (stream G). Its translation runs on the resolved
+    // input, in code, and the `_` source keys that bring whole earlier outputs in never reach the
+    // engine. A field the translation can't fill fails the step in plain words.
+    const v5 = this.stepModel?.byId.get(step.id);
+    if (v5?.kind !== "do" || !isPlainObject(resolved)) return resolved;
+    const t = steps.applyTranslation(
+      incomingTranslation(v5) ? v5 : {},
+      resolved as Record<string, unknown>,
+      { today: this.today ?? "" },
+    );
+    const problem = t.problems[0];
+    if (problem) {
+      throw new Error(
+        `what comes into "${v5.name}" can't be translated: ${problem.field}: ${problem.message}`,
+      );
+    }
+    return t.input;
   }
 
   /** A work step's input for an attempt: resolved, and as an action's tool takes it. */
@@ -4778,12 +4829,15 @@ class Executor {
 
   /**
    * A Match step (§7): its input matched on its profile through stream D's port, in one durable
-   * step with its row (a skill row, as `steps.ENGINE_OUTCOMES.match` says), its outcome `done`, or
-   * `failed` with `onError: continue`. Its Tell after checks are sent as any step's.
+   * step with its row (a skill row, as `steps.ENGINE_OUTCOMES.match` says). Each item the engine
+   * leaves unsure is a person's call: they are asked which of its shortlist it is (or none), and
+   * their answer is saved as a learned name (`MatchPort.learn`, never in a test run), so the same
+   * item is an exact hit next time. The step's output carries the records its matches rest on
+   * (`sources`, invariant 10). Its outcome is `done`, or `failed` with `onError: continue`; its
+   * Tell after checks are sent as any step's.
    */
-  // DECISION (wave 1): no confer or owner review on a Match yet: its second opinion is the
-  // profile's own (`secondOpinion`), which the engine asks per line; a step's Confer and Review
-  // on it come with stream D's engine.
+  // DECISION (wave 1): no confer or owner review on a Match: its second opinion is the profile's
+  // own (`secondOpinion`), which the engine asks per item.
   async match(
     v5: steps.DoStep,
     settings: steps.MatchSettings,
@@ -4795,6 +4849,8 @@ class Executor {
     if (!port) throw new Error(`refused: "${v5.name}" matches records, which can't run here yet`);
     const { run, log } = this.ctx;
     const input = this.inputOf(v5, frame);
+    const label = clientLabel(asLabelled(step));
+    const summaryOf = (o: MatchResult) => `${label}: ${o.matched} of ${o.items.length} matched`;
     const ended = await this.runner.do(name, async () => {
       const id = await log.start({
         runId: run.id,
@@ -4805,12 +4861,13 @@ class Executor {
       });
       const r = await port.match({ run, nodeId: name, stepRunId: id, match: settings, input });
       if (r.kind === "done") {
+        const asking = r.output.items.some((i) => i.unsure);
         await log.update(id, {
-          status: "succeeded",
-          output: r.output,
-          summary:
-            r.summary ??
-            `${clientLabel(asLabelled(step))}: ${r.output.matched} of ${r.output.items.length} matched`,
+          status: asking ? "waiting" : "succeeded",
+          output: withSources(r.output, r.notes),
+          summary: asking
+            ? `${label}: ${this.words.waitingForAnswer}`
+            : (r.summary ?? summaryOf(r.output)),
         });
       } else {
         await log.update(id, {
@@ -4819,7 +4876,7 @@ class Executor {
           summary: `${stepStateLabel(asLabelled(step), false)}: ${this.words.failed}`,
         });
       }
-      return r;
+      return { ...r, stepRunId: id };
     });
     if (ended.kind === "failed") {
       if (this.continues(step)) {
@@ -4836,13 +4893,107 @@ class Executor {
         errorKey: this.errorKeyOf(step, ended.error),
       });
     }
+    let output: MatchResult = ended.output;
+    if (output.items.some((i) => i.unsure)) {
+      output = await this.matchAsk(v5, settings, ended, name, frame);
+      const final = withSources(output, ended.notes);
+      await this.runner.do(`${name}:done`, async () => {
+        await log.update(ended.stepRunId, {
+          status: "succeeded",
+          output: final,
+          summary: summaryOf(output),
+        });
+        return null;
+      });
+    }
+    const recorded = withSources(output, ended.notes);
     if (v5.checks?.notify?.length) {
-      const scope = checkScope(frame.scope, { id: step.id, output: ended.output }, undefined);
+      const scope = checkScope(frame.scope, { id: step.id, output: recorded }, undefined);
       for (const [i, n] of v5.checks.notify.entries()) {
-        await this.notice(n, `${name}:notify:${i}`, scope, clientLabel(asLabelled(step)));
+        await this.notice(n, `${name}:notify:${i}`, scope, label);
       }
     }
-    this.record(frame, step, ended.output, { outcome: "done" });
+    this.record(frame, step, recorded, { outcome: "done" });
+  }
+
+  /**
+   * The items a Match left unsure, each asked of a person in turn (`${name}:ask:<i>`): which of the
+   * shortlist it is, or none of them. An answer naming a record matches the item (`how: person`)
+   * and is learned; "none" leaves it unmatched; no answer in time leaves it unsure.
+   */
+  // DECISION (wave 1): the client's admin is asked (a Match names no person), with seven days to
+  // answer and the item left unsure when nobody does; at most five records are offered, with
+  // "None of these", whatever the person shortlist says beyond that.
+  async matchAsk(
+    v5: steps.DoStep,
+    settings: steps.MatchSettings,
+    ended: { output: MatchResult; notes?: MatchNote[] | undefined; profileName?: string },
+    name: string,
+    frame: Frame,
+  ): Promise<MatchResult> {
+    const items = ended.output.items.map((i) => ({ ...i }));
+    for (const [index, item] of items.entries()) {
+      if (!item.unsure) continue;
+      const labels = ended.notes?.[index]?.labels ?? {};
+      const offered = item.candidates.slice(0, Math.min(settings.shortlist.person, 5));
+      const choices = [
+        ...offered.map((c) => ({ value: c.record, label: labels[c.record] ?? c.record })),
+        { value: NONE_OF_THESE, label: "None of these" },
+      ];
+      const ask = {
+        id: `ask${index}`,
+        name: v5.name,
+        kind: "person",
+        mode: "ask",
+        assignee: DEFAULT_APPROVER,
+        title: `${ended.profileName ?? v5.name}: which one is ${itemText(item.item)}?`,
+        payload: { item: item.item, candidates: choices.slice(0, -1) },
+        deadline: { after: "7 days", hours: "clock", ifNoAnswer: "skip" },
+        channel: "inbox",
+        onReject: "continue",
+        choices,
+      } as processes.PersonStep;
+      // Its own scope: the ask's record is the Match's to read, not a step's for the run.
+      const asked: Frame = {
+        ...frame,
+        prefix: `${name}:ask:`,
+        top: false,
+        scope: { ...frame.scope, steps: {} },
+      };
+      await this.person(ask, `${name}:ask:${index}`, asked);
+      const answer = asked.scope.steps[ask.id] as
+        | { output?: { answer?: unknown; by?: string | null } }
+        | undefined;
+      const chosen = answer?.output?.answer;
+      if (typeof chosen !== "string") continue;
+      if (chosen === NONE_OF_THESE) {
+        items[index] = { ...item, unsure: false, isNew: settings.noMatch === "new" };
+        continue;
+      }
+      if (!offered.some((c) => c.record === chosen)) continue;
+      items[index] = { ...item, matched: chosen, how: "person", confidence: 100, unsure: false };
+      const by = answer?.output?.by;
+      const learn = this.ctx.match?.learn;
+      if (learn && by && !this.testRun) {
+        await this.runner.do(`${name}:learn:${index}`, () =>
+          learn.call(this.ctx.match, {
+            run: this.ctx.run,
+            nodeId: `${name}:ask:${index}`,
+            profile: settings.to,
+            item: item.item,
+            recordId: chosen,
+            personId: by,
+          }),
+        );
+      }
+    }
+    const unsure = items.filter((i) => i.unsure).length;
+    return {
+      items,
+      matched: items.filter((i) => i.matched !== null).length,
+      unsure,
+      anyUnsure: unsure > 0,
+    };
   }
 
   /**
@@ -5199,4 +5350,30 @@ function handoffOutput(step: processes.HandoffStep): Record<string, string> {
       ? { workflow: step.to.workflow }
       : {}),
   };
+}
+
+/** A person's "none of these" on a Match item (never a record id). */
+const NONE_OF_THESE = "none";
+
+/** A Match result with the records its matches rest on (invariant 10), from the engine's notes. */
+function withSources(
+  output: MatchResult,
+  notes: readonly MatchNote[] | undefined,
+): MatchResult & { sources: string[] } {
+  const sources = new Set<string>();
+  for (const n of notes ?? []) for (const s of n.sources) sources.add(s);
+  for (const i of output.items) if (i.matched) sources.add(i.matched);
+  return { ...output, sources: [...sources] };
+}
+
+/** An item as a person reads it in a question: its values, in quotes, briefly. */
+function itemText(item: unknown): string {
+  const values =
+    item !== null && typeof item === "object"
+      ? Object.values(item as Record<string, unknown>).filter(
+          (v) => typeof v === "string" || typeof v === "number",
+        )
+      : [item];
+  const text = values.map(String).join(", ").slice(0, 120);
+  return text ? `"${text}"` : "this item";
 }

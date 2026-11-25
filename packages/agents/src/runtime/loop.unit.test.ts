@@ -162,3 +162,48 @@ describe("a Loop in a run", () => {
     expect((model.requests[2]?.tools ?? []).map((t) => t.name)).toEqual(["finish"]);
   });
 });
+
+// The step model (wave 1 wiring): a Do done by AI with an agent-mode skill (Sloan's `account.chat`)
+// reaches the runtime as a skill step with no `loop`: the skill's own tools, its own loop.
+describe("an AI Do with an agent-mode skill", () => {
+  it("runs the skill's own loop with its own tools, not one model call", async () => {
+    const skill = {
+      schemaVersion: 1,
+      id: "testkit.chat",
+      name: "Chat",
+      description: "Answer a message",
+      category: "test",
+      mode: "agent",
+      instructions: "Look it up, then answer.",
+      tools: ["testkit.look"],
+      input: { type: "object" },
+      output: { type: "object", properties: { why: { type: "string" } }, required: ["why"] },
+      settings: [],
+      requiresConnectors: [],
+      requiresPacks: [],
+      producesAlerts: false,
+    } as const;
+    const model = new FakeModel([
+      call("testkit__look", { line: "Bolt 6mm" }),
+      call("finish", { why: "found it" }),
+    ]);
+    const d = deps(model);
+    const pinned = await d.ports.store.loadAgentVersion(TENANT, "v1");
+    (pinned.bundle.definition.skills as unknown[]).push({ skill: skill.id, settings: {} });
+    (d.ports.store as { resolveCustomSkill?: unknown }).resolveCustomSkill = async (
+      _t: string,
+      ref: string,
+    ) => ({ ref, definition: skill, source: "client", versionId: null, version: null });
+    const result = await runAgent(d, {
+      tenantId: TENANT,
+      agentVersionId: "v1",
+      skill: skill.id,
+      input: { threadId: "t1" },
+      runId: "r1",
+      stepId: "s_chat",
+    });
+    expect(result).toMatchObject({ status: "succeeded", output: { why: "found it" } });
+    expect(model.requests).toHaveLength(2);
+    expect((model.requests[0]?.tools ?? []).map((t) => t.name)).toContain("testkit__look");
+  });
+});

@@ -8,7 +8,7 @@ import { describe, expect, it } from "vitest";
 import { executeWorkflow } from "./executor";
 import { FakeMatchPort } from "./fake-match";
 import { FakeStepRunner } from "./fake-runner";
-import { Harness } from "./fakes.test-helper";
+import { Harness, RUN } from "./fakes.test-helper";
 import type { ResolveActionRequest, ResolveMergedRequest, SkillStepRequest } from "./ports";
 import { LOOP_SKILL, loadStepModel } from "./step-model";
 
@@ -170,6 +170,33 @@ describe("a v5 workflow's Do steps", () => {
     expect(runner.names()).toEqual(["s_rows:action", "s_rows", "s_end"]);
   });
 
+  it("maps a merged action's input to its tool's words, and the output back", async () => {
+    const h = new Harness();
+    h.agent.resolveMerged = async () => ({ tool: "excel.rows.append", connector: "excel" });
+    h.agent.mergedInput = (_a, connector, input) => ({ ...(input as object), to: connector });
+    h.agent.mergedOutput = (_a, _c, output) => ({ mapped: output });
+    h.handlers.s_rows = () => ({ kind: "done", output: { workbookId: "w1" } });
+    const append = {
+      id: "s_rows",
+      kind: "do",
+      name: "Add the rows",
+      doneBy: "rules",
+      uses: { type: "action", action: "spreadsheet.rows.append" },
+      input: { spreadsheetId: "w1" },
+    };
+    const after = {
+      id: "s_tell",
+      kind: "do",
+      name: "Tell",
+      doneBy: "rules",
+      uses: { type: "tell" },
+      tell: { to: ["client_admin"], message: "Added to {{steps.s_rows.output.mapped.workbookId}}" },
+    };
+    await run(h, wf([append, after, end()]));
+    expect(h.agentCalls[0]?.input).toEqual({ spreadsheetId: "w1", to: "excel" });
+    expect(h.sent[0]).toMatchObject({ text: expect.stringContaining("Added to w1") });
+  });
+
   it("refuses a merged action that resolves to a tool outside the merge", async () => {
     const h = new Harness();
     h.agent.resolveMerged = async () => ({ tool: "testkit.thing.update", connector: "testkit" });
@@ -209,10 +236,59 @@ describe("a v5 workflow's Do steps", () => {
     expect(h.row("s_ai")?.nodeType).toBe("skill");
   });
 
-  it("refuses rules or AI written in the step, which can't run yet", async () => {
+  it("runs AI written in the step on the step skill its version pins, on the step's model", async () => {
+    const h = new Harness();
+    const written = {
+      id: "s_ai",
+      kind: "do",
+      name: "Work it out",
+      doneBy: "ai",
+      ai: { text: "Decide.", model: { id: "claude-haiku-5-5" } },
+    };
+    const pinned = "custom:step-agent-1-s-ai@3";
+    const asked: string[] = [];
+    const { result } = await run(
+      h,
+      wf([written, end()]),
+      { id: "7" },
+      {
+        stepSkill: (id: string) => {
+          asked.push(id);
+          return id === "s_ai" ? pinned : undefined;
+        },
+      },
+    );
+    expect(result.status).toBe("succeeded");
+    expect(asked).toEqual(["s_ai"]);
+    expect(h.agentCalls[0]?.step).toMatchObject({
+      kind: "skill",
+      skill: pinned,
+      model: { id: "claude-haiku-5-5" },
+    });
+    // The text is the pinned skill's: nothing of the step's is layered on it.
+    expect((h.agentCalls[0] as SkillStepRequest).customize).toBeUndefined();
+  });
+
+  it("runs rules written in the step as their pinned skill", async () => {
     const h = new Harness();
     const written = {
       id: "s_rules",
+      kind: "do",
+      name: "Sort it",
+      doneBy: "rules",
+      rules: { rows: [{ id: "r1", when: { match: "all", rules: [] }, set: { ok: true } }] },
+    };
+    await run(h, wf([written, end()]), { id: "7" }, { stepSkill: () => "custom:step-a-s-rules@1" });
+    expect(h.agentCalls[0]?.step).toMatchObject({
+      kind: "skill",
+      skill: "custom:step-a-s-rules@1",
+    });
+  });
+
+  it("fails a step written in the step with no pinned version, in plain words", async () => {
+    const h = new Harness();
+    const written = {
+      id: "s_ai",
       kind: "do",
       name: "Work it out",
       doneBy: "ai",
@@ -220,7 +296,9 @@ describe("a v5 workflow's Do steps", () => {
     };
     const { result } = await run(h, wf([written, end()]));
     expect(result.status).toBe("failed");
-    expect(result.reason).toContain("written in the step");
+    expect(result.reason).toBe(
+      `the step "Work it out" has no saved version of what is written in it: save the workflow and publish it again`,
+    );
     expect(h.agentCalls).toEqual([]);
   });
 
@@ -257,6 +335,70 @@ describe("a v5 workflow's Do steps", () => {
     expect([...h.items.values()][0]?.item).toMatchObject({ nodeId: "s_ask", kind: "approval" });
     // Nobody answered in time: the deadline's `stop`.
     expect(result.status).toBe("failed");
+  });
+});
+
+describe("a v5 Do step's incoming side (stream G)", () => {
+  const needs = [
+    { name: "vendorName", type: "text" as const, required: true },
+    { name: "total", type: "money" as const, required: true },
+  ];
+  const source = {
+    ref: "steps.s_read.output",
+    label: "Read the thing",
+    fields: [
+      {
+        name: "header",
+        type: "group" as const,
+        required: true,
+        of: [
+          { name: "supplier", type: "text" as const, required: true },
+          { name: "total", type: "money" as const, required: true },
+        ],
+      },
+    ],
+  };
+  const translated = () => {
+    const w = steps.workOutTranslation({ needs, sources: [source] });
+    return {
+      id: "s_change",
+      kind: "do",
+      name: "Update the thing",
+      doneBy: "rules",
+      uses: { type: "action", action: "testkit.thing.update" },
+      input: w.input,
+      translation: w.translation,
+    };
+  };
+
+  it("translates the resolved input in code before the engine runs, sources dropped", async () => {
+    const h = new Harness();
+    h.handlers.s_read = () => ({
+      kind: "done",
+      output: { header: { supplier: "Acme", total: "12.50" } },
+    });
+    const { result, runner } = await run(h, wf([read, translated(), end()]));
+    expect(result.status).toBe("succeeded");
+    // A field that fits is wired straight; a translated one is worked out from the source key.
+    expect(h.agentCalls[1]?.input).toEqual({ vendorName: "Acme", total: "12.50" });
+    expect(runner.names()[0]).toBe("run:today");
+  });
+
+  it("fails the step in plain words when a field can't be filled", async () => {
+    const h = new Harness();
+    h.handlers.s_read = () => ({ kind: "done", output: { header: {} } });
+    const { result } = await run(h, wf([read, translated(), end()]));
+    expect(result.status).toBe("failed");
+    expect(result.nodeId).toBe("s_change");
+    expect(result.reason).toContain(`what comes into "Update the thing" can't be translated`);
+    expect(h.agentCalls).toHaveLength(1);
+  });
+
+  it("never hands a source key to an engine, with or without a translation", async () => {
+    const h = new Harness();
+    const plain = { ...read, id: "s_two", input: { id: "1", _s_read: "{{trigger}}" } };
+    await run(h, wf([plain, end()]));
+    expect(h.agentCalls[0]?.input).toEqual({ id: "1" });
   });
 });
 
@@ -409,6 +551,102 @@ describe("a v5 Match and Loop", () => {
       status: "succeeded",
       output: { matched: 1 },
     });
+  });
+
+  it("records the records its matches rest on as the step's sources (invariant 10)", async () => {
+    const h = new Harness();
+    const port = new FakeMatchPort({ "SKU-1": "vi-1" });
+    await run(h, wf([match, end()]), { lines: [{ sku: "SKU-1" }] }, { match: port });
+    expect(h.row("s_match")?.output).toMatchObject({ sources: ["raw-SKU-1", "vi-1"] });
+  });
+
+  const unsure = () =>
+    new FakeMatchPort({ "SKU-1": "vi-1" }, undefined, {
+      "SKU-7": { "vi-7": "Bolt 6mm", "vi-8": "Bolt 8mm" },
+    });
+  const answering = (answer: unknown, mode: "live" | "test" = "live") => {
+    const h = new Harness({ ...RUN, mode });
+    const runner = new FakeStepRunner({ onWait: "block" });
+    runner.onWaitStarted = (_n, type) => runner.deliver(type, { answer, by: "u-5" });
+    return { h, runner };
+  };
+
+  it("asks a person about an unsure item, and learns their answer", async () => {
+    const port = unsure();
+    const { h, runner } = answering("vi-8");
+    const result = await executeWorkflow(
+      runner,
+      h.context({ catalog: CATALOG, match: port }),
+      wf([match, end()]),
+      { lines: [{ sku: "SKU-1" }, { sku: "SKU-7" }] },
+    );
+    expect(result.status).toBe("succeeded");
+    const asked = [...h.items.values()][0]?.item;
+    expect(asked).toMatchObject({
+      nodeId: "s_match:ask:1",
+      kind: "request",
+      title: 'Vendor items: which one is "SKU-7"?',
+    });
+    expect(h.row("s_match")).toMatchObject({
+      status: "succeeded",
+      output: { matched: 2, unsure: 0, anyUnsure: false },
+    });
+    const output = h.row("s_match")?.output as
+      | { items: { matched: string; how: string }[] }
+      | undefined;
+    const items = output?.items ?? [];
+    expect(items[1]).toMatchObject({ matched: "vi-8", how: "person" });
+    expect(port.learned).toEqual([
+      {
+        run: h.run,
+        nodeId: "s_match:ask:1",
+        profile: "vendor-items",
+        item: { sku: "SKU-7" },
+        recordId: "vi-8",
+        personId: "u-5",
+      },
+    ]);
+  });
+
+  it("learns nothing in a test run, and nothing from a record it didn't offer", async () => {
+    const test = unsure();
+    const a = answering("vi-8", "test");
+    await executeWorkflow(
+      a.runner,
+      a.h.context({ catalog: CATALOG, match: test }),
+      wf([match, end()]),
+      {
+        lines: [{ sku: "SKU-7" }],
+      },
+    );
+    expect(test.learned).toEqual([]);
+
+    const live = unsure();
+    const b = answering("vi-999");
+    await executeWorkflow(
+      b.runner,
+      b.h.context({ catalog: CATALOG, match: live }),
+      wf([match, end()]),
+      {
+        lines: [{ sku: "SKU-7" }],
+      },
+    );
+    expect(live.learned).toEqual([]);
+    expect(b.h.row("s_match")?.output).toMatchObject({ anyUnsure: true });
+  });
+
+  it("leaves an item unsure when nobody answers in time", async () => {
+    const h = new Harness();
+    const port = unsure();
+    const { result } = await run(
+      h,
+      wf([match, end()]),
+      { lines: [{ sku: "SKU-7" }] },
+      { match: port },
+    );
+    expect(result.status).toBe("succeeded");
+    expect(h.row("s_match")?.output).toMatchObject({ unsure: 1, anyUnsure: true });
+    expect(port.learned).toEqual([]);
   });
 
   it("fails without a Match port, matching nothing", async () => {

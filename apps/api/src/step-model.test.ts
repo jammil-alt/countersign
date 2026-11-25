@@ -6,7 +6,8 @@
 
 import { createQboConnector, generateEncryptionKey } from "@countersign/connectors";
 import { FAKE_QBO_CLIENT, FAKE_QBO_REALM, fakeQbo } from "@countersign/connectors/testing";
-import { agent, externalAction, stepRun } from "@countersign/db";
+import { steps } from "@countersign/core";
+import { agent, externalAction, stepRun, vendor } from "@countersign/db";
 import { FakeModel } from "@countersign/llm";
 import { and, eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -204,6 +205,135 @@ describe.skipIf(!h)("a v5 workflow through the API", () => {
     );
     // Retried from the start: the action's key makes it once.
     await executeRun(deps, params, cloudflareStepRunner(approver()));
+    expect(posts()).toBe(before + 1);
+  });
+
+  // The whole step model at once (wave 1 wiring): a Match on our records, an AI step written in
+  // the step and stored behind it (its pinned version runs), its input translated from the trigger
+  // in code, and an End that writes the bill to QuickBooks once the client approves.
+  it("runs a Match, a translated input and a step written in the step, approvals on", async () => {
+    const [vendorRow] = await H.t.db
+      .insert(vendor)
+      .values({ tenantId: H.A.tenantId, name: "Acme Lumber", normalizedName: "acme lumber" })
+      .returning();
+    const translated = steps.workOutTranslation({
+      needs: [{ name: "vendorName", type: "text", required: true }],
+      sources: [
+        {
+          ref: "trigger",
+          label: "Trigger",
+          fields: [{ name: "supplier", type: "text", required: true }],
+        },
+      ],
+    });
+    expect(translated.state).not.toBe("doesnt_fit");
+    const workflow = {
+      schemaVersion: 5,
+      triggers: [{ id: "trg-manual", on: { type: "manual", input: {} } }],
+      // The first test's bill, under its own invoice number (QuickBooks refuses a duplicate).
+      outputs: JSON.parse(
+        JSON.stringify(
+          (bundle.workflows[0]?.workflow as { outputs: unknown[] } | undefined)?.outputs.slice(
+            0,
+            1,
+          ),
+        ).replace("INV-51001", "INV-51002"),
+      ),
+      steps: [
+        {
+          id: "s_match",
+          kind: "do",
+          name: "Find the vendor",
+          doneBy: "rules",
+          uses: { type: "match", match: { to: "vendors", type: "exact" } },
+          input: { items: [{ name: "{{trigger.supplier}}" }] },
+        },
+        {
+          id: "s_check",
+          kind: "do",
+          name: "Check the invoice",
+          doneBy: "ai",
+          input: translated.input,
+          ...(translated.translation ? { translation: translated.translation } : {}),
+          ai: { text: "Say whether this invoice should be entered." },
+          output: [{ name: "enter", type: "yes_no", required: true }],
+        },
+        { id: "s_end", kind: "end", name: "Entered", outputs: ["o_bill"] },
+      ],
+    };
+    const v5 = {
+      ...bundle,
+      workflows: [{ slug: "main", name: "Main", workflow }],
+    };
+    const created = await H.call(OPERATOR, "POST", `/api/ops/clients/${H.A.tenantId}/agents`, {
+      slug: "v5-whole",
+      bundle: v5,
+    });
+    expect(created.status, JSON.stringify(created.json)).toBe(200);
+    const id = j(created.json).agent.id as string;
+    const first = j(created.json).version.id as string;
+    // The builder's save: the step's text stored behind it, then pinned in the version it saves.
+    const stored = await H.call(OPERATOR, "POST", `/api/ops/agents/${id}/step-skills`, {
+      workflow,
+    });
+    expect(stored.status, JSON.stringify(stored.json)).toBe(200);
+    const pins = (j(stored.json).skills as { pin: string }[]).map((s) => s.pin);
+    expect(pins).toHaveLength(1);
+    const pinned = {
+      ...v5,
+      definition: {
+        ...v5.definition,
+        skills: [...v5.definition.skills, ...pins.map((skill) => ({ skill, settings: {} }))],
+      },
+    };
+    const saved = await H.call(OPERATOR, "POST", `/api/ops/agents/${id}/versions`, {
+      bundle: pinned,
+      parentVersionId: first,
+      changeNote: "Pinned its step skill",
+    });
+    expect(saved.status, JSON.stringify(saved.json)).toBe(200);
+    const version = j(saved.json).version.id as string;
+    await H.call(OPERATOR, "PATCH", `/api/ops/agents/${id}/operation`, { bindings: { qbo: qboA } });
+    await allowForAgent(H, admin("a"), qboA, id);
+    const pub = await H.call(OPERATOR, "POST", `/api/ops/agents/${id}/versions/${version}/publish`);
+    expect(pub.status, JSON.stringify(pub.json)).toBe(200);
+
+    await H.t.db.update(agent).set({ runStatus: "active" }).where(eq(agent.id, id));
+    const res = await H.call(OPERATOR, "POST", `/api/ops/agents/${id}/run`, {
+      workflow: "main",
+      input: { supplier: "Acme Lumber" },
+    });
+    expect(res.status, JSON.stringify(res.json)).toBe(200);
+    const params = H.instances.started.get(j(res.json).runId);
+    if (!params) throw new Error("not started");
+    const model = new FakeModel([{ toolUse: { name: "finish", input: { enter: true } } }]);
+    const posts = () => qbo.apiCalls("POST", "bill").length;
+    const before = posts();
+    const result = await executeRun(
+      {
+        db: H.db,
+        platform: H.platform,
+        transport: model,
+        instances: H.instances,
+        credentials: credentialsFor(H.db, { current: ENCRYPTION_KEY }),
+      },
+      params,
+      cloudflareStepRunner(approver()),
+    );
+    expect(result, JSON.stringify(result)).toMatchObject({ status: "succeeded", nodeId: "s_end" });
+    // The Match found our record; the AI step ran its pinned skill on the translated input.
+    const rows = await H.t.db.select().from(stepRun).where(eq(stepRun.runId, params.runId));
+    const row = (node: string) => rows.find((r) => r.nodeId === node);
+    expect((row("s_match")?.output as { items: unknown[] } | undefined)?.items[0]).toMatchObject({
+      matched: vendorRow?.id,
+      how: "exact",
+    });
+    expect(row("s_check")).toMatchObject({ status: "succeeded", skillRef: pins[0] });
+    expect(row("s_check")?.output).toMatchObject({ enter: true });
+    const sent = JSON.stringify(model.requests[0]?.messages);
+    // The task's input reaches the model as data (invariant 9), the translated field in it.
+    expect(sent, sent.slice(0, 1500)).toContain('\\"vendorName\\": \\"Acme Lumber\\"');
+    // The write waited for the client's approval and was made once.
     expect(posts()).toBe(before + 1);
   });
 });
