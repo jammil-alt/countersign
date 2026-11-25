@@ -3,7 +3,8 @@
 // otherwise sample data made from the fields' types. For understanding only: nothing here is a check.
 // Pure.
 
-import { findStep } from "./model";
+import { steps } from "@countersign/core";
+import { findStep, stepsBefore } from "./model";
 import { actionPath, inputFields, outputFields, type UsesContext, usesLabel } from "./options";
 import type { Field, Step, Workflow } from "./types";
 
@@ -128,16 +129,61 @@ export function comingIn(
   return { value, sample };
 }
 
-/** What the incoming side did and what the step then did with it, in plain lines. */
-export function changed(step: Step, uses: UsesContext): { translated: string[]; did: string } {
+/**
+ * What a step's incoming side can read (stream G, §6): the trigger's fields, then each earlier step's
+ * output, as the translation names them (`trigger`, `steps.<id>.output`).
+ */
+export function incomingSources(
+  workflow: Pick<Workflow, "steps">,
+  stepId: string,
+  uses: UsesContext,
+  trigger: readonly Field[] = [],
+): steps.TranslateSource[] {
+  const out: steps.TranslateSource[] = [];
+  if (trigger.length > 0) out.push({ ref: "trigger", label: "Trigger", fields: trigger });
+  for (const before of stepsBefore(workflow, stepId)) {
+    const fields = outputFields(before, uses);
+    if (fields.length === 0) continue;
+    out.push({
+      ref: `steps.${before.id}.output`,
+      label: before.name.trim() || "An earlier step",
+      fields,
+    });
+  }
+  return out;
+}
+
+/**
+ * What the incoming side did and what the step then did with it, in plain lines: each translated
+ * field and where it comes from ("vendorName ← Read the invoice › header › supplier").
+ */
+export function changed(
+  step: Step,
+  uses: UsesContext,
+  sources: readonly steps.TranslateSource[] = [],
+): { translated: string[]; did: string } {
   const translated: string[] = [];
   if (step.kind === "do" && step.translation) {
     for (const f of step.translation.fields) {
-      const from = f.from === undefined ? "nothing mapped yet" : brief(f.from);
-      translated.push(`${f.name} ← ${from}`);
+      const from =
+        f.from === undefined ? "nothing mapped yet" : steps.describeExpr(f.from, sources);
+      translated.push(`${f.name} ← ${brief(from)}`);
     }
   }
   return { translated, did: didWords(step, uses) };
+}
+
+/**
+ * The step's input after its translation ran on what came in (the same code the run uses), or
+ * undefined when it translates nothing. Problems are left out: the Data tab doesn't check.
+ */
+export function afterTranslation(step: Step, incoming: unknown, today: string): unknown {
+  if (step.kind !== "do" || !step.translation || step.translation.fields.length === 0) {
+    return undefined;
+  }
+  if (incoming === null || typeof incoming !== "object" || Array.isArray(incoming))
+    return undefined;
+  return steps.applyTranslation(step, incoming as Record<string, unknown>, { today }).input;
 }
 
 function brief(value: unknown): string {
