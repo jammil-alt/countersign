@@ -29,6 +29,13 @@ agent, §1.214).
   (2026-11-09, migrations through 0041) but has had no `v*` tag; its next release is an upgrade.
 - Almost everything below is **a setup step, a key or a decision for the owner**, not code. Where
   code is still needed, it says so.
+- **The step model** (2026-11-25, `docs/plan.md` §1.244, `docs/step-model-plan.md` §13d): waves 1
+  and 2 are merged. Open, in order: #682 (the executor wired end to end); Data (§10f); the Builder
+  drafting in v5; ARCHITECTURE v0.20 and the CLAUDE.md edits (owner's sign-off); then deleting v3
+  and v4 and running `db:purge-agents` and `db:seed` on staging, and production with the owner's
+  approval. For the owner: the Bill clerk's vendor lookup (stays a QuickBooks search until Data's
+  Get by id, recommended); an Anthropic API key in the cloud environment to measure the matching
+  thresholds (stream K) and record the Builder's model answers.
 
 ## 0. Enterprise readiness (2026-11-15)
 
