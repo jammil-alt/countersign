@@ -20,6 +20,8 @@ export interface StepFormEnv {
   suggest: SuggestFn;
   /** The models a step may run on, as `{ id, label }`. */
   models: readonly { id: string; label: string }[];
+  /** The client's other agents a Hand off may go to, by slug and name. */
+  agents?: readonly { slug: string; name: string }[] | undefined;
 }
 
 export interface StepFormProps<S extends Step = Step> {
