@@ -19,7 +19,7 @@ export function opsAgentHref(agent: {
     : `/ops/clients/${agent.tenantId}/agents/${agent.slug}`;
 }
 
-export function OpsAgentRedirect({ tab }: { tab?: "workflow" } = {}) {
+export function OpsAgentRedirect({ tab }: { tab?: "workflow" | "steps" } = {}) {
   const { id = "" } = useParams();
   const { data, error, reload } = useApi(apiRoutes.opsAgent, { params: { id } });
   const base = `/ops/agents/${id}`;

@@ -324,8 +324,10 @@ describe("Builds", () => {
         { description: "Text each field person at 4 pm and ask about their tasks." },
       ]),
     );
-    // Then Check the steps, over the saved draft.
-    expect(await screen.findByTestId("flow-check")).toBeInTheDocument();
+    // Then the draft's workflow opens in the builder as its list of steps (owner, 2026-11-26: no
+    // Check the steps in between): the agent is looked up to find its page.
+    await waitFor(() => expect(api.calls).toContain(`GET /api/ops/agents/${DRAFT_AGENT}`));
+    expect(screen.queryByTestId("flow-check")).toBeNull();
   });
 
   it("lets a build in intake skip the questions once it says what it should do", async () => {

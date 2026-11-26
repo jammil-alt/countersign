@@ -178,6 +178,8 @@ export const opsRoutes = (
     <Route path="templates/:slug/*" element={<TemplatePage />} />
     <Route path="agents/:id" element={<OpsAgentRedirect />} />
     <Route path="agents/:id/workflow" element={<OpsAgentRedirect tab="workflow" />} />
+    {/* A new agent's first workflow as a list of steps, to edit (owner, 2026-11-26). */}
+    <Route path="agents/:id/steps" element={<OpsAgentRedirect tab="steps" />} />
     <Route path="agents/:id/merge" element={<MergeScreen />} />
     {/* O5 New agent, by conversation with the Builder (UI-2c) */}
     {/* Owner (2026-11-17): a new template starts as a build, from the Agent lab's New. */}

@@ -1,9 +1,11 @@
 // A new build's first screen (docs/builder-plan.md §12.5 F5, docs/plan.md §1.170; design:
 // docs/design/builder.html `describeHTML`): "What should it do?", its name and the operator's own
-// words. Draft the steps starts the build as the lab's New did (`opsStartBuild`, an agent build for
-// everyone or one client) and drafts it at once from the words (`opsDraftBuildNow`, §1.165), then
-// opens Check the steps over that saved draft. List the steps myself starts the build with no
-// draft (draft-now needs words) and opens Check the steps with an empty list. Builds already open
+// words. Draft the workflow starts the build as the lab's New did (`opsStartBuild`, an agent build
+// for everyone or one client) and drafts it at once from the words (`opsDraftBuildNow`, §1.165),
+// then opens the draft's workflow in the builder as its list of steps, to edit there (owner,
+// 2026-11-26: "if it goes from prompt to building the workflow, the verify step is redundant").
+// List the steps myself starts the build with no draft (draft-now needs words) and opens Check the
+// steps with an empty list to type into. Builds already open
 // keep today's page (owner, 2026-11-21).
 //
 // The name may be left empty (owner, 2026-11-21: "let's create the name of the template with AI
@@ -70,9 +72,9 @@ export function readDescribeAgain(state: unknown): DescribeAgainState["describe"
   return d && typeof d.name === "string" && typeof d.words === "string" ? d : null;
 }
 
-const STEPS = ["Describe it", "Check the steps", "Build and try"] as const;
+const STEPS = ["Describe it", "Edit the steps", "Try and publish"] as const;
 
-/** Where a new build is: 1 Describe it, 2 Check the steps, 3 Build and try (ds-step, in a row). */
+/** Where a new build is: 1 Describe it, 2 Edit the steps, 3 Try and publish (ds-step, in a row). */
 export function FlowStepper({ at }: { at: 1 | 2 | 3 }) {
   return (
     <ol
@@ -263,11 +265,12 @@ export function DescribeScreen({
     setError(null);
     try {
       const id = await ensureBuild();
-      await api.call(apiRoutes.opsDraftBuildNow, {
+      const out = await api.call(apiRoutes.opsDraftBuildNow, {
         params: { id },
         body: { description: said },
       });
-      navigate(OPS_PATHS.buildCheck(id), { state: { words: said } satisfies CheckStepsState });
+      const agentId = out.draft?.agentId ?? out.build.agentId;
+      navigate(agentId ? OPS_PATHS.agentSteps(agentId) : OPS_PATHS.build(id));
     } catch (e) {
       setError(e);
       setBusy(null);
@@ -293,7 +296,8 @@ export function DescribeScreen({
         <h2 className="text-2xl font-medium text-ink">What should it do?</h2>
         <p className="text-base text-ink-muted">
           Tell it the way you would tell a new hire: how it starts, what happens in order, and where
-          someone has to decide. The Builder turns it into steps you check before anything is built.
+          someone has to decide. The Builder drafts the workflow from it and opens its steps, ready
+          to edit.
         </p>
       </div>
       <form
@@ -368,7 +372,7 @@ export function DescribeScreen({
                 disabled={!canStart || !said || !(title || canName)}
                 data-testid="flow-describe-draft"
               >
-                Draft the steps
+                Draft the workflow
               </Button>
               <Button
                 variant="ghost"

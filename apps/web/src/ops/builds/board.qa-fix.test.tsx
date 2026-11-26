@@ -154,9 +154,7 @@ describe("where a card on the Drafts board opens", () => {
   });
 
   it("a build started on Describe it opens in the builder once it has a draft", () => {
-    expect(hrefOf({ ...summary, flow: "describe" })).toBe(
-      `/ops/agents/${summary.agentId}/workflow`,
-    );
+    expect(hrefOf({ ...summary, flow: "describe" })).toBe(`/ops/agents/${summary.agentId}/steps`);
   });
 
   it("and on Check the steps until it has one", () => {
