@@ -831,6 +831,7 @@ class Executor {
   ) {
     const entry: RunContext["steps"][string] = { output };
     for (const [k, v] of Object.entries(rec)) {
+      if (k === "__proto__" || k === "constructor" || k === "prototype") continue;
       if (v !== undefined) (entry as unknown as Record<string, unknown>)[k] = v;
     }
     if (unwritten && this.testRun) this.unwritten.add(entry);

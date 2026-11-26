@@ -66,6 +66,9 @@ export interface FlatBundle {
 
 export const ROOT = "bundle";
 
+/** Ids that must never be used as a key of a plain object (prototype pollution). */
+const UNSAFE_KEYS: ReadonlySet<string> = new Set(["__proto__", "constructor", "prototype"]);
+
 export function listOwner(listKey: string): string {
   return listKey.slice(0, listKey.lastIndexOf(">"));
 }
@@ -143,7 +146,7 @@ export function flattenBundle(bundle: AgentBundle): FlatBundle {
     const { steps: inner, triggers, ...wf } = w.workflow;
     const byId: Record<string, Trigger> = {};
     for (const t of triggers) {
-      if (Object.hasOwn(byId, t.id)) {
+      if (Object.hasOwn(byId, t.id) || UNSAFE_KEYS.has(t.id)) {
         throw new Error(`duplicate trigger ${t.id} in ${key} (validate first)`);
       }
       byId[t.id] = t;
