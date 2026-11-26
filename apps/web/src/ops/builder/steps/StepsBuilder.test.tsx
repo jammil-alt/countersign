@@ -212,6 +212,26 @@ describe("the step-model builder", () => {
     expect(within(issues).getByText(/vendorId/)).toBeTruthy();
     await user.click(screen.getByTestId("steps-publish"));
     expect(sent).toHaveLength(0);
+    // Each line says whether it is a step or an output, and opens it (feedback, 2026-11-26).
+    expect(within(issues).getByText(/Output “Bill entered”:/)).toBeTruthy();
+    const show = within(issues)
+      .getAllByTestId("publish-issue-show")
+      .find((b) => b.textContent === "Show me in Outputs");
+    expect(show).toBeTruthy();
+    await user.click(show as HTMLElement);
+    expect(screen.getByTestId("steps-outputs")).toHaveAttribute("open");
+    // Try it waits on them too: a test run is checked as a publish is.
+    expect(screen.getByTestId("flow-bar-try")).toBeDisabled();
+    expect(screen.getByTestId("flow-bar-builder")).toBeEnabled();
+  });
+
+  it("opens a step's settings in the side drawer, and Escape closes it", async () => {
+    const { user } = setup(workflow());
+    await user.click(await screen.findByTestId("flow-box-end"));
+    const drawer = await screen.findByTestId("steps-drawer");
+    expect(within(drawer).getByTestId("flow-panel")).toBeTruthy();
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByTestId("steps-drawer")).toBeNull());
   });
 
   it("fills an End from the outputs, and the issue goes", async () => {

@@ -769,8 +769,16 @@ export function describeAgain(detail: BuildDetail, words: string, mine: boolean)
   };
 }
 
-/** The four ways out as cards; a card that is on stays as it is. */
-export function EndCards({ on, onPick }: { on: readonly EndKind[]; onPick(kind: EndKind): void }) {
+/** The four ways out as cards; clicking one that is on takes it back. */
+export function EndCards({
+  on,
+  onPick,
+  onRemove,
+}: {
+  on: readonly EndKind[];
+  onPick(kind: EndKind): void;
+  onRemove(kind: EndKind): void;
+}) {
   return (
     <fieldset className="grid grid-cols-2 gap-2 sm:grid-cols-4" aria-label="How it ends">
       {END_KINDS.map((k) => {
@@ -781,9 +789,8 @@ export function EndCards({ on, onPick }: { on: readonly EndKind[]; onPick(kind: 
             type="button"
             aria-pressed={pressed}
             data-testid={`flow-check-end-${k}`}
-            onClick={() => {
-              if (!pressed) onPick(k);
-            }}
+            title={pressed ? "Click again to take it back" : undefined}
+            onClick={() => (pressed ? onRemove(k) : onPick(k))}
             className={cx(
               "flex flex-col gap-1 rounded-md border px-3 py-2 text-left text-sm",
               pressed

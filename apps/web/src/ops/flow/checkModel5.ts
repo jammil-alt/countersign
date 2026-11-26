@@ -532,6 +532,43 @@ export function addEnding(
   return { workflow: w, stepId: end.id };
 }
 
+/**
+ * Takes a way out back (feedback, 2026-11-26: "once you click this, you cannot unclick"). The
+ * card's outputs go, and the Ends stop delivering them; "A person finishes it" takes back the
+ * blank lines it added. When nothing is left to deliver, the workflow is back on the "Nothing to
+ * do" every new workflow starts with. A step that does it (a hand-off, a person's step, a Tell)
+ * stays: the card is on for as long as it is there (`endingOf`).
+ */
+export function removeEnding(
+  workflow: Workflow,
+  kind: EndKind,
+  chosen: Readonly<Record<string, EndKind>> = {},
+  newId: NewId = uuidv7,
+): Workflow {
+  let w = workflow;
+  if (kind === "person") {
+    const added = walk(w)
+      .map((l) => l.step)
+      .filter(
+        (s) =>
+          isHandLine(s) &&
+          (chosen[s.id] === "person" || tidy(s.uses.need) === tidy(ENDS.person.words)),
+      )
+      .map((s) => s.id);
+    return added.reduce((acc, id) => removeStep(acc, id), w);
+  }
+  for (const o of w.outputs) {
+    if (endKindOfOutput(o.kind) === kind) w = removeOutput(w, o.id);
+  }
+  if (w.outputs.length === 0) {
+    const starter = newOutput(NOTHING_TO_DO_OUTPUT, newId);
+    w = { ...ensureEnd(w, newId), outputs: [starter] };
+    const end = mainEnd(w);
+    if (end) w = setEndOutputs(w, end.id, { outputs: [starter.id] });
+  }
+  return w;
+}
+
 /** An End's outputs, one turned on or off ("Nothing to do" and its reason give way to it). */
 export function toggleEndOutput(workflow: Workflow, endId: string, outputId: string): Workflow {
   const loc = findStep(workflow, endId);

@@ -1093,3 +1093,65 @@
     }
   }
 }
+
+/* The step builder's side drawer (builder/steps/Drawer.tsx; feedback, 2026-11-26): the window's
+ * full height, sliding out from the right. Over a scrim for a step's settings; beside the page,
+ * with no scrim, for Try it and the Builder. */
+@layer components {
+  .flow-drawer-layer {
+    position: fixed;
+    inset: 0;
+    z-index: 50;
+    pointer-events: none;
+  }
+  .flow-drawer-layer.is-modal {
+    pointer-events: auto;
+  }
+  .flow-drawer {
+    position: absolute;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    display: flex;
+    flex-direction: column;
+    width: min(680px, 92vw);
+    min-height: 0;
+    background: var(--surface);
+    border-left: 1px solid var(--line);
+    pointer-events: auto;
+    animation: flow-drawer-in 180ms ease-out;
+  }
+  .flow-drawer--narrow {
+    width: min(360px, 92vw);
+  }
+  /* What fills it takes its height: a step's panel, the palette, a try, the Builder. */
+  .flow-drawer > * {
+    flex: 1;
+    min-height: 0;
+  }
+  @keyframes flow-drawer-in {
+    from {
+      transform: translateX(24px);
+      opacity: 0;
+    }
+    to {
+      transform: none;
+      opacity: 1;
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .flow-drawer {
+      animation: none;
+    }
+  }
+  @media (max-width: 767.98px) {
+    .flow-drawer {
+      width: 100%;
+    }
+  }
+  /* An output an issue pointed to, for a moment (PublishIssues → Show me). */
+  .flow-output-flash {
+    outline: 2px solid var(--slate);
+    outline-offset: 2px;
+  }
+}

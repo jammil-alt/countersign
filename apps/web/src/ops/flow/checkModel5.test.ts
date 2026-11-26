@@ -28,6 +28,7 @@ import {
   moveLine,
   movePathBelow,
   readWorkflow,
+  removeEnding,
   removeLine,
   renameLine,
   setAfterPaths,
@@ -266,6 +267,17 @@ describe("Check the steps in the step model", () => {
       "notify",
       "person",
     ]);
+    // Feedback, 2026-11-26: a card that is on can be taken back.
+    const unperson = removeEnding(person.workflow, "person", { [person.stepId ?? ""]: "person" });
+    expect(unperson.steps.map((s) => s.kind)).toEqual(["end"]);
+    const unwrote = removeEnding(unperson, "write");
+    expect(unwrote.outputs.map((o) => o.kind)).toEqual(["report"]);
+    expect(mainEnd(unwrote)?.outputs).toEqual(["n-4"]);
+    // The last one taken back leaves the "Nothing to do" a new workflow starts with.
+    const none = removeEnding(unwrote, "notify", {}, newId);
+    expect(none.outputs.map((o) => [o.kind, o.name])).toEqual([["nothing", "Nothing to do"]]);
+    expect(mainEnd(none)?.outputs).toEqual([none.outputs[0]?.id]);
+    expect(endingOf(none).kinds).toEqual([]);
   });
 
   it("drops blank lines, counts lines and decisions, and asks the Builder about what was typed", () => {

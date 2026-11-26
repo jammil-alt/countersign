@@ -5,8 +5,10 @@
 // tab, the palette of eight kinds, the workflow's outputs next to the triggers, and Publish, which
 // shows `validateWorkflow`'s issues on their steps and refuses while any remain.
 //
-// Not here yet (wave 1 stops at the forms): Try it and the Builder chat on a v5 draft need stream A's
-// executor and bundle, and the List shows the same boxes as the chart.
+// Feedback, 2026-11-26: a step's settings open in a full-height side drawer over the page; the
+// chart scrolls inside a frame the window's height under the bar; the outputs come after the chart;
+// an issue on an output opens it; Try it and the Builder are back in the bar (both had gone with
+// the v4 builder in #707), each in the same drawer beside the page.
 
 import { type AgentBundle, canonicalJson, steps, uuidv7 } from "@countersign/core";
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -19,15 +21,17 @@ import { detailMessages, errorText, Notice, useAction } from "../../agents/ui";
 import { Chart } from "../../flow/Chart";
 import { FlowBar, type FlowView } from "../../flow/FlowBar";
 import "../../flow/flow.css";
-import { FLOW_START_ID } from "../../flow/layout";
+import { samplePayload, type Triggered } from "../../agents/TestPayload";
 import { StepPanel } from "../../flow/StepPanel";
 import { StepTable } from "../../flow/StepTable";
-import type { FlowEnds, InsertPoint } from "../../flow/types";
+import type { FlowEnds, InsertPoint, StatusMap, TryMark } from "../../flow/types";
 import { triggerTitle } from "../../workflow/describe";
 import { addWorkflow } from "../model";
 import type { Member, People } from "../people";
 import { AddWorkflowForm, WorkflowSwitcher } from "../workflow-switcher";
+import { BuilderChat, useBuilderSession } from "./BuilderChat";
 import { triggerFields, useStepsCatalog } from "./catalog";
+import { Drawer } from "./Drawer";
 import { translateAll } from "./data";
 import { type BoxWords, boxWords, displayProcess } from "./display";
 import type { SaveAsSkill, StepFormEnv } from "./form-kit";
@@ -50,6 +54,7 @@ import { OutputsEditor } from "./OutputsEditor";
 import { StepEditor } from "./StepEditor";
 import { statusesFor, stepCounts } from "./status";
 import { guardedSuggestion, type SuggestFn, suggestBody, withStep } from "./suggest";
+import { TryPanel } from "./TryPanel";
 import type { Step, StepKind, Workflow } from "./types";
 import { hasWrittenSteps, withStepSkillPins } from "./written";
 
@@ -184,12 +189,32 @@ function Body(
   const [view, setView] = useState<FlowView>(props.view === "steps" ? "list" : "chart");
   const [notice, setNotice] = useState<{ tone: "positive" | "warning"; body: string } | null>(null);
   const [showIssues, setShowIssues] = useState(false);
+  // The drawer's other two uses: Try it and the Builder (a step's settings and the palette are
+  // `selection` and `addAt`). One drawer at a time.
+  const [tool, setTool] = useState<"try" | "builder" | null>(null);
+  const [tried, setTried] = useState<TryMark[]>([]);
+  const [outputsOpen, setOutputsOpen] = useState(true);
   const api = useRef(action);
   api.current = action;
 
   const issues = useMemo(() => workflowIssues(workflow, catalog.uses), [workflow, catalog.uses]);
   const byStep = useMemo(() => issuesByStep(issues), [issues]);
   const statuses = useMemo(() => statusesFor(issues), [issues]);
+  // What the chart and the list show: the issues, and the last try's result on each step.
+  const shown = useMemo<StatusMap>(() => {
+    if (tried.length === 0) return statuses;
+    const out = new Map(statuses);
+    for (const t of tried) {
+      const s = out.get(t.stepId);
+      out.set(
+        t.stepId,
+        s
+          ? { ...s, tried: t }
+          : { stepId: t.stepId, level: "ok", items: [], decided: [], tried: t },
+      );
+    }
+    return out;
+  }, [statuses, tried]);
   const counts = useMemo(() => stepCounts(workflow, catalog.uses), [workflow, catalog.uses]);
   const process = useMemo(() => displayProcess(workflow, catalog.uses), [workflow, catalog.uses]);
   const label = useCallback(
@@ -253,6 +278,33 @@ function Body(
   );
 
   const selected = selection ? (findStep(workflow, selection)?.step ?? null) : null;
+  // A step opens in the drawer in place of Try it or the Builder.
+  const select = useCallback((id: string | null) => {
+    setSelection(id);
+    if (id) {
+      setTool(null);
+      setAddAt(null);
+    }
+  }, []);
+  const openTool = (t: "try" | "builder") => {
+    setSelection(null);
+    setAddAt(null);
+    setTool((was) => (was === t ? null : t));
+  };
+  // "Show me" on an output's issue: the outputs open, and that output comes into view.
+  const showOutput = (id: string) => {
+    setOutputsOpen(true);
+    requestAnimationFrame(() => {
+      const el = document.getElementById(`output-${id}`);
+      if (!el) return;
+      el.scrollIntoView?.({ block: "center", behavior: "smooth" });
+      el.classList.add("flow-output-flash");
+      el.querySelector<HTMLElement>("select, input, textarea, button")?.focus({
+        preventScroll: true,
+      });
+      setTimeout(() => el.classList.remove("flow-output-flash"), 1600);
+    });
+  };
 
   // ── The chart's events ──
   const add = (kind: StepKind) => {
@@ -260,7 +312,7 @@ function Body(
     const step = newStep(kind);
     edit(insertStep(workflow, at, step));
     setAddAt(null);
-    setSelection(step.id);
+    select(step.id);
   };
   const addPath = (forkId: string) =>
     edit(
@@ -366,11 +418,30 @@ function Body(
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
+  // The Builder's conversation about this agent; its draft of this workflow comes back as an edit.
+  const builder = useBuilderSession({
+    agent,
+    slug: props.workflow,
+    workflow,
+    ensureSaved: async () => {
+      const v = dirty ? await save() : saved;
+      return v ? { id: v.id } : null;
+    },
+    onDraft: edit,
+  });
+  const sample = useMemo(
+    () => samplePayload(workflow as unknown as Triggered, catalog.events as never),
+    [workflow, catalog.events],
+  );
+  const tryBlocked = canPublish(issues)
+    ? null
+    : `Settle what stops Publish first: a test run is checked as a publish is. ${publishSummary(issues)}`;
+
   const stepName = (id: string) => findStep(workflow, id)?.step.name.trim() || "A step";
   const open = { issues: statuses.size, questions: 0 };
   const nextOpen = () => {
     const first = walk(workflow).find((l) => statuses.has(l.step.id));
-    if (first) setSelection(first.step.id);
+    if (first) select(first.step.id);
   };
 
   return props.frame(
@@ -381,48 +452,54 @@ function Body(
       data-testid="builder-frame"
     >
       <div className="contents" data-testid="steps-builder">
-        <FlowBar
-          lead={
-            <WorkflowSwitcher
-              workflows={workflows}
-              current={props.workflow}
-              base={props.base}
-              adding={adding}
-              onAdd={() => setAdding((a) => !a)}
-              view={view}
-            />
-          }
-          name={agent.serviceName ?? agent.name}
-          version={
-            dirty
-              ? { state: "unsaved", version: saved.version }
-              : { state: saved.status === "live" ? "live" : "draft", version: saved.version }
-          }
-          counts={{ ...counts }}
-          open={open}
-          onNextOpen={nextOpen}
-          view={view}
-          onView={setView}
-          canUndo={canUndo(history)}
-          canRedo={canRedo(history)}
-          onUndo={() => setHistory(undo)}
-          onRedo={() => setHistory(redo)}
-          onSave={() => void save()}
-          saving={action.busy}
-          saved={!dirty}
-          primary={
-            <Button
-              variant="primary"
-              size="sm"
-              data-testid="steps-publish"
-              disabled={action.busy || (!dirty && saved.status === "live")}
-              title={canPublish(issues) ? undefined : publishSummary(issues)}
-              onClick={() => void publish()}
-            >
-              Publish
-            </Button>
-          }
-        />
+        {/* The bar stays in view while the page scrolls to the chart and the outputs. */}
+        <div className="sticky top-[var(--header-h)] z-10">
+          <FlowBar
+            lead={
+              <WorkflowSwitcher
+                workflows={workflows}
+                current={props.workflow}
+                base={props.base}
+                adding={adding}
+                onAdd={() => setAdding((a) => !a)}
+                view={view}
+              />
+            }
+            name={agent.serviceName ?? agent.name}
+            version={
+              dirty
+                ? { state: "unsaved", version: saved.version }
+                : { state: saved.status === "live" ? "live" : "draft", version: saved.version }
+            }
+            counts={{ ...counts }}
+            open={open}
+            onNextOpen={nextOpen}
+            view={view}
+            onView={setView}
+            canUndo={canUndo(history)}
+            canRedo={canRedo(history)}
+            onUndo={() => setHistory(undo)}
+            onRedo={() => setHistory(redo)}
+            onAskBuilder={() => openTool("builder")}
+            onTry={() => openTool("try")}
+            tryBlocked={tryBlocked}
+            onSave={() => void save()}
+            saving={action.busy}
+            saved={!dirty}
+            primary={
+              <Button
+                variant="primary"
+                size="sm"
+                data-testid="steps-publish"
+                disabled={action.busy || (!dirty && saved.status === "live")}
+                title={canPublish(issues) ? undefined : publishSummary(issues)}
+                onClick={() => void publish()}
+              >
+                Publish
+              </Button>
+            }
+          />
+        </div>
         {adding ? (
           <AddWorkflowForm
             bundle={{ workflows }}
@@ -459,11 +536,68 @@ function Body(
             outputName={(id) => workflow.outputs.find((o) => o.id === id)?.name ?? id}
             onToggle={() => setShowIssues((s) => !s)}
             onPick={(id) => {
-              if (findStep(workflow, id)) setSelection(id);
+              if (findStep(workflow, id)) select(id);
+              else if (workflow.outputs.some((o) => o.id === id)) showOutput(id);
             }}
           />
         ) : null}
-        <details open data-testid="steps-outputs" className="border border-line bg-surface">
+        {/* Feedback, 2026-11-26: the chart scrolls inside a frame as tall as the window under the
+            bar; it had no height of its own, so it never scrolled. */}
+        <div
+          className="h-[calc(100vh-var(--header-h)-88px)] min-h-[420px] shrink-0 border border-line bg-surface"
+          data-testid="steps-canvas"
+        >
+          {view === "chart" ? (
+            <Chart
+              process={process}
+              ends={ends}
+              statuses={shown}
+              selected={selection}
+              folded={folded}
+              onFold={(id, fold) =>
+                setFolded((f) => {
+                  const next = new Set(f);
+                  if (fold) next.add(id);
+                  else next.delete(id);
+                  return next;
+                })
+              }
+              label={label as never}
+              onSelect={select}
+              onInsert={(at) => {
+                setSelection(null);
+                setTool(null);
+                setAddAt(at);
+              }}
+              onMove={(id, to) => edit(moveStep(workflow, id, to))}
+              onConnect={() => {}}
+              onAddPath={addPath}
+            />
+          ) : (
+            <div className="h-full overflow-auto p-4">
+              <StepTable
+                process={process}
+                statuses={shown}
+                selected={selection}
+                onSelect={select}
+                label={label as never}
+                onAdd={() => {
+                  setSelection(null);
+                  setTool(null);
+                  setAddAt({ container: ROOT, index: Math.max(0, workflow.steps.length - 1) });
+                }}
+              />
+            </div>
+          )}
+        </div>
+        {/* Feedback, 2026-11-26: "the output should be at the bottom": what the workflow delivers
+            comes after its steps. */}
+        <details
+          open={outputsOpen}
+          onToggle={(e) => setOutputsOpen((e.currentTarget as HTMLDetailsElement).open)}
+          data-testid="steps-outputs"
+          className="border border-line bg-surface"
+        >
           <summary className="cursor-pointer px-4 py-2 text-sm font-medium text-ink">
             Outputs · {workflow.outputs.length}
             <span className="ml-2 text-xs font-normal text-ink-muted">
@@ -481,73 +615,59 @@ function Body(
             />
           </div>
         </details>
-        <div className="flex flex-1 gap-3">
-          <div className="min-w-0 flex-1 border border-line bg-surface" data-testid="steps-canvas">
-            {view === "chart" ? (
-              <Chart
-                process={process}
-                ends={ends}
-                statuses={statuses}
-                selected={selection}
-                folded={folded}
-                onFold={(id, fold) =>
-                  setFolded((f) => {
-                    const next = new Set(f);
-                    if (fold) next.add(id);
-                    else next.delete(id);
-                    return next;
-                  })
-                }
-                label={label as never}
-                onSelect={setSelection}
-                onInsert={(at) => setAddAt(at)}
-                onMove={(id, to) => edit(moveStep(workflow, id, to))}
-                onConnect={() => {}}
-                onAddPath={addPath}
-              />
-            ) : (
-              <StepTable
-                process={process}
-                statuses={statuses}
-                selected={selection}
-                onSelect={setSelection}
-                label={label as never}
-                onAdd={() =>
-                  setAddAt({ container: ROOT, index: Math.max(0, workflow.steps.length - 1) })
-                }
-              />
-            )}
-          </div>
-          {addAt ? (
-            <Palette onPick={add} onClose={() => setAddAt(null)} />
-          ) : selected ? (
-            <StepPanel
-              stepId={selected.id}
-              kind={`Step ${walk(workflow).findIndex((l) => l.step.id === selected.id) + 1} · ${kindLabel(selected.kind)}`}
-              title={selected.name}
-              onRename={(name) => edit(updateStep(workflow, selected.id, (s) => ({ ...s, name })))}
-              status={statuses.get(selected.id)}
-              onClose={() => setSelection(null)}
-              onRemove={
-                canRemove(workflow, selected.id)
-                  ? () => {
-                      edit(removeStep(workflow, selected.id));
-                      setSelection(null);
-                    }
-                  : undefined
-              }
-            >
-              <StepEditor
-                key={selected.id}
-                step={selected}
-                env={env}
-                issues={byStep.get(selected.id) ?? []}
-                onChange={(next: Step) => edit(updateStep(workflow, selected.id, () => next))}
-              />
-            </StepPanel>
-          ) : selection === FLOW_START_ID ? null : null}
-        </div>
       </div>
+      {addAt ? (
+        <Drawer label="Add a step" testId="steps-drawer" narrow onClose={() => setAddAt(null)}>
+          <Palette onPick={add} onClose={() => setAddAt(null)} />
+        </Drawer>
+      ) : selected ? (
+        <Drawer label="Step settings" testId="steps-drawer" onClose={() => setSelection(null)}>
+          <StepPanel
+            stepId={selected.id}
+            kind={`Step ${walk(workflow).findIndex((l) => l.step.id === selected.id) + 1} · ${kindLabel(selected.kind)}`}
+            title={selected.name}
+            onRename={(name) => edit(updateStep(workflow, selected.id, (s) => ({ ...s, name })))}
+            status={shown.get(selected.id)}
+            onClose={() => setSelection(null)}
+            onRemove={
+              canRemove(workflow, selected.id)
+                ? () => {
+                    edit(removeStep(workflow, selected.id));
+                    setSelection(null);
+                  }
+                : undefined
+            }
+          >
+            <StepEditor
+              key={selected.id}
+              step={selected}
+              env={env}
+              issues={byStep.get(selected.id) ?? []}
+              onChange={(next: Step) => edit(updateStep(workflow, selected.id, () => next))}
+            />
+          </StepPanel>
+        </Drawer>
+      ) : tool === "try" ? (
+        <Drawer label="Try it" testId="steps-drawer" modal={false} onClose={() => setTool(null)}>
+          <TryPanel
+            agent={{ id: agent.id, kind: agent.kind, tenantId: agent.tenantId ?? null }}
+            workflow={workflow}
+            slug={props.workflow}
+            sample={sample}
+            prepare={async () => {
+              const v = dirty ? await save(undefined, "Saved to try it") : saved;
+              return v?.id ?? null;
+            }}
+            onMarks={setTried}
+            onSelect={select}
+            onClose={() => setTool(null)}
+          />
+        </Drawer>
+      ) : tool === "builder" ? (
+        <Drawer label="Builder" testId="steps-drawer" modal={false} onClose={() => setTool(null)}>
+          <BuilderChat session={builder} onClose={() => setTool(null)} />
+        </Drawer>
+      ) : null}
     </div>,
   );
 }
@@ -558,7 +678,7 @@ function Palette({ onPick, onClose }: { onPick(kind: StepKind): void; onClose():
     <aside
       aria-label="Add a step"
       data-testid="steps-palette"
-      className="flex w-72 shrink-0 flex-col gap-2 border border-line bg-surface p-3"
+      className="flex h-full min-h-0 flex-col gap-2 overflow-y-auto bg-surface p-4"
     >
       <div className="flex items-center justify-between">
         <h3 className="eyebrow text-ink-muted">Add a step</h3>
@@ -605,23 +725,33 @@ export function PublishIssues(props: {
         <span className="text-risk-ink">{publishSummary(issues)}</span>
       </div>
       <ul className="flex flex-col gap-1">
-        {issues.map((i, n) => (
-          // biome-ignore lint/suspicious/noArrayIndexKey: issues have no ids; their order is their identity.
-          <li key={n} className="flex gap-2">
-            {i.at ? (
-              <button
-                type="button"
-                className="text-left font-medium text-ink underline"
-                onClick={() => props.onPick(i.at ?? "")}
-              >
-                {props.name(i.at) === "A step" ? props.outputName(i.at) : props.name(i.at)}
-              </button>
-            ) : (
-              <span className="font-medium text-ink">This workflow</span>
-            )}
-            <span className="text-ink">{i.message}</span>
-          </li>
-        ))}
+        {issues.map((i, n) => {
+          // Feedback, 2026-11-26: "it tells me there is an issue, but I don't know what it is or
+          // how to fix it". Each line says whether it is a step or an output, and Show me opens it.
+          const output = !!i.at && props.name(i.at) === "A step" && props.outputName(i.at) !== i.at;
+          const what = !i.at
+            ? "This workflow"
+            : output
+              ? `Output “${props.outputName(i.at)}”`
+              : `Step “${props.name(i.at)}”`;
+          return (
+            // biome-ignore lint/suspicious/noArrayIndexKey: issues have no ids; their order is their identity.
+            <li key={n} className="flex flex-wrap items-baseline gap-x-2">
+              <span className="font-medium text-ink">{what}:</span>
+              <span className="text-ink">{i.message}</span>
+              {i.at ? (
+                <button
+                  type="button"
+                  className="text-slate underline"
+                  data-testid="publish-issue-show"
+                  onClick={() => props.onPick(i.at ?? "")}
+                >
+                  {output ? "Show me in Outputs" : "Open the step"}
+                </button>
+              ) : null}
+            </li>
+          );
+        })}
       </ul>
     </section>
   );
