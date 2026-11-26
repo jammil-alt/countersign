@@ -73,6 +73,9 @@ describe("guards: a step's purpose stays plain and within the limit", () => {
     const started = Date.now();
     plainPurpose(`${"{{".repeat(20_000)} x`);
     expect(Date.now() - started).toBeLessThan(1000);
+    const spaced = Date.now();
+    expect(plainPurpose(`${" ".repeat(20_000)}x`)).toBe("x");
+    expect(Date.now() - spaced).toBeLessThan(1000);
   });
 
   it("cuts a long one at its last sentence, else its last word, within 200", () => {

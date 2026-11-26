@@ -166,9 +166,10 @@ export function guardDefinition<D extends AgentBundle["definition"]>(
 // it in the step panel, and a repair round would cost the turn a second model call.
 export function plainPurpose(text: string): string | null {
   const plain = replaceTemplates(text, () => "")
-    .replace(/\s+([,.;:)])/g, "$1")
-    .replace(/\(\s*\)/g, "")
-    .replace(/\s{2,}/g, " ")
+    .replace(/\s+/g, " ")
+    .replace(/ ([,.;:)])/g, "$1")
+    .replace(/\( ?\)/g, "")
+    .replace(/ {2,}/g, " ")
     .trim();
   if (!plain) return null;
   if (plain.length <= STEP_PURPOSE_MAX) return plain;
