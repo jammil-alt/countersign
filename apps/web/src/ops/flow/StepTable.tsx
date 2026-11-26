@@ -252,7 +252,7 @@ function StepRow({
     <tr
       data-testid={`flow-list-row-${row.id}`}
       data-level={status?.level ?? "ok"}
-      className={cx("cursor-pointer align-top", selected && "[&>td]:bg-slate-tint")}
+      className={cx("cursor-pointer align-middle", selected && "[&>td]:bg-slate-tint")}
       onClick={() => onSelect(row.id)}
     >
       <td className="figures text-ink-muted">{row.number}</td>

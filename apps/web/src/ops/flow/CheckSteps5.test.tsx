@@ -234,6 +234,13 @@ describe("Check the steps over a v5 draft", () => {
     expect(screen.getByTestId("flow-check-way-out")).toHaveTextContent(
       "Ends on the main line: The bill in QuickBooks, Hand off to another agent",
     );
+    // Clicking it again takes it back (feedback, 2026-11-26).
+    await user.click(screen.getByTestId("flow-check-end-handoff"));
+    expect(screen.getByTestId("flow-check-end-handoff")).toHaveAttribute("aria-pressed", "false");
+    expect(screen.getByTestId("flow-check-way-out")).toHaveTextContent(
+      "Ends on the main line: The bill in QuickBooks",
+    );
+    await user.click(screen.getByTestId("flow-check-end-handoff"));
     // The outputs editor is the steps builder's own.
     expect(
       within(screen.getByTestId("flow-check-outputs")).getByTestId("workflow-outputs"),

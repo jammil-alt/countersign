@@ -13,6 +13,7 @@ import {
 } from "@countersign/core";
 import { useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
+import { apiRoutes } from "../../api/routes";
 import { useApi, useApiClient } from "../../api/useApi";
 import { ErrorNotice } from "../../ui/ErrorState";
 import { Field, Select, TextInput } from "../../ui/forms";
@@ -215,7 +216,12 @@ function InterviewDetail({ clientId, id }: { clientId: string; id: string }) {
     setError(null);
     try {
       const out = await api.call(interviewRoutes.opsDraftInterview, { params: { clientId, id } });
-      if (out.buildId) navigate(OPS_PATHS.buildCheck(out.buildId));
+      // The draft opens in the builder as its list of steps (owner, 2026-11-26: no check first).
+      if (out.buildId) {
+        const built = await api.call(apiRoutes.opsBuild, { params: { id: out.buildId } });
+        const agentId = built.draft?.agentId ?? built.build.agentId;
+        navigate(agentId ? OPS_PATHS.agentSteps(agentId) : OPS_PATHS.build(out.buildId));
+      }
     } catch (err) {
       setError(err);
       view.reload();
@@ -263,7 +269,7 @@ function InterviewDetail({ clientId, id }: { clientId: string; id: string }) {
               </Button>
             ) : null}
             {v.buildId ? (
-              <Link className="ds-btn ds-btn--secondary" to={OPS_PATHS.buildCheck(v.buildId)}>
+              <Link className="ds-btn ds-btn--secondary" to={OPS_PATHS.build(v.buildId)}>
                 Open the build
               </Link>
             ) : null}

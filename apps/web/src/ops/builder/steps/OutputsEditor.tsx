@@ -113,7 +113,11 @@ function OutputCard({
   );
   const chosen = o.action ? env.uses.actions.get(o.action.action) : undefined;
   return (
-    <div className="flex flex-col gap-3 border border-line p-3" data-testid={`output-${o.id}`}>
+    <div
+      className="flex flex-col gap-3 border border-line p-3"
+      id={`output-${o.id}`}
+      data-testid={`output-${o.id}`}
+    >
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-2">
           <Badge>{OUTPUT_KIND_WORDS[o.kind]}</Badge>

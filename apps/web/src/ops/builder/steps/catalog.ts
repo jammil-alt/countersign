@@ -100,7 +100,8 @@ export interface StepsCatalog {
   error: unknown;
   uses: UsesContext;
   models: StepFormEnv["models"];
-  events: readonly { type: string; payload: unknown }[];
+  /** Event types a trigger can name: the payload's schema and a sample (Try it starts from it). */
+  events: readonly { type: string; payload: unknown; sample?: unknown }[];
   reload(): void;
 }
 
