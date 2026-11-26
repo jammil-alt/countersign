@@ -5,7 +5,7 @@
 import { describe, expect, it } from "vitest";
 import type { PermissionMatrix } from "../schemas/permissions";
 import type { ToolSpec } from "../schemas/tool";
-import { validateAnyBundle } from "./bundle";
+import { validateBundle } from "./bundle";
 
 const tool = (
   id: string,
@@ -91,9 +91,9 @@ const validate = (
     actionsOff?: ReadonlySet<string>;
   },
   mode: "act" | "suggest_only" = "act",
-  actions?: NonNullable<Parameters<typeof validateAnyBundle>[1]>["actions"],
+  actions?: NonNullable<Parameters<typeof validateBundle>[1]>["actions"],
 ) =>
-  validateAnyBundle(
+  validateBundle(
     {
       schemaVersion: 1,
       definition: definition(mode),

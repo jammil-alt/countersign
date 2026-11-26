@@ -412,7 +412,7 @@ export async function validateForPublish(
           actions: {
             bound: Object.keys(row.bindings),
             ...(ctx.actionChannels && row.tenantId
-              ? { channels: await ctx.actionChannels(tx, row.tenantId, row.id ?? null) }
+              ? { channels: (await ctx.actionChannels(tx, row.tenantId, row.id ?? null)) ?? {} }
               : {}),
           },
         }

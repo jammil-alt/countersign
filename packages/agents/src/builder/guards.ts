@@ -10,6 +10,7 @@ import {
   NEW_AGENT_OVERSIGHT,
   OversightSettings,
   processes,
+  STEP_PURPOSE_MAX,
 } from "@countersign/core";
 
 type ApprovalCheck = processes.ApprovalCheck;

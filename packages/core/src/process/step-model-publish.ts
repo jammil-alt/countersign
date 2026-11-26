@@ -17,12 +17,6 @@ import { mergedAction } from "../steps/catalog";
 import type { Workflow as StepWorkflow } from "../steps/schema";
 import { eachStep } from "../steps/walk";
 import {
-  type CheckSink,
-  checkEntityOff,
-  type ValidationContext,
-  VERB_NOUN,
-} from "../workflow/validate";
-import {
   ACCOUNTING_CONNECTORS,
   type ActionBindings,
   actionBindingsFromMatrices,
@@ -30,6 +24,7 @@ import {
   resolveActionConnector,
   type WriteAction,
 } from "./actions";
+import { type CheckSink, checkEntityOff, type ValidationContext, VERB_NOUN } from "./checks";
 import type { ProcessValidationCode, ProcessValidationContext } from "./validate";
 import { approvalLoosenings, type Loosening } from "./validate";
 
