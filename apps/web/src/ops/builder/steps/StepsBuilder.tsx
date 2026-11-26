@@ -31,7 +31,7 @@ import type { Member, People } from "../people";
 import { AddWorkflowForm, WorkflowSwitcher } from "../workflow-switcher";
 import { BuilderChat, useBuilderSession } from "./BuilderChat";
 import { triggerFields, useStepsCatalog } from "./catalog";
-import { Drawer } from "./Drawer";
+import { Drawer, DrawerTab } from "./Drawer";
 import { translateAll } from "./data";
 import { type BoxWords, boxWords, displayProcess } from "./display";
 import type { SaveAsSkill, StepFormEnv } from "./form-kit";
@@ -192,6 +192,9 @@ function Body(
   // The drawer's other two uses: Try it and the Builder (a step's settings and the palette are
   // `selection` and `addAt`). One drawer at a time.
   const [tool, setTool] = useState<"try" | "builder" | null>(null);
+  // Folded to a tab at the window's edge (a click outside, or a step opened): the conversation
+  // and the try stay as they were, to open again.
+  const [toolFolded, setToolFolded] = useState(false);
   const [tried, setTried] = useState<TryMark[]>([]);
   const [outputsOpen, setOutputsOpen] = useState(true);
   const api = useRef(action);
@@ -282,14 +285,15 @@ function Body(
   const select = useCallback((id: string | null) => {
     setSelection(id);
     if (id) {
-      setTool(null);
+      setToolFolded(true);
       setAddAt(null);
     }
   }, []);
   const openTool = (t: "try" | "builder") => {
     setSelection(null);
     setAddAt(null);
-    setTool((was) => (was === t ? null : t));
+    setTool(t);
+    setToolFolded(false);
   };
   // "Show me" on an output's issue: the outputs open, and that output comes into view.
   const showOutput = (id: string) => {
@@ -566,7 +570,7 @@ function Body(
               onSelect={select}
               onInsert={(at) => {
                 setSelection(null);
-                setTool(null);
+                setToolFolded(true);
                 setAddAt(at);
               }}
               onMove={(id, to) => edit(moveStep(workflow, id, to))}
@@ -583,7 +587,7 @@ function Body(
                 label={label as never}
                 onAdd={() => {
                   setSelection(null);
-                  setTool(null);
+                  setToolFolded(true);
                   setAddAt({ container: ROOT, index: Math.max(0, workflow.steps.length - 1) });
                 }}
               />
@@ -647,8 +651,25 @@ function Body(
             />
           </StepPanel>
         </Drawer>
-      ) : tool === "try" ? (
-        <Drawer label="Try it" testId="steps-drawer" modal={false} onClose={() => setTool(null)}>
+      ) : null}
+      {/* Try it and the Builder stay mounted while folded or under a step, so a message being
+          typed and a try under way are kept; a tab at the edge opens them again. */}
+      {tool && toolFolded && !selected && !addAt ? (
+        <DrawerTab
+          label={tool === "try" ? "Try it" : "Builder"}
+          testId="steps-drawer-tab"
+          onOpen={() => setToolFolded(false)}
+        />
+      ) : null}
+      {tool === "try" ? (
+        <Drawer
+          label="Try it"
+          testId="steps-tool-drawer"
+          modal={false}
+          hidden={toolFolded || !!selected || !!addAt}
+          onCollapse={() => setToolFolded(true)}
+          onClose={() => setTool(null)}
+        >
           <TryPanel
             agent={{ id: agent.id, kind: agent.kind, tenantId: agent.tenantId ?? null }}
             workflow={workflow}
@@ -664,7 +685,14 @@ function Body(
           />
         </Drawer>
       ) : tool === "builder" ? (
-        <Drawer label="Builder" testId="steps-drawer" modal={false} onClose={() => setTool(null)}>
+        <Drawer
+          label="Builder"
+          testId="steps-tool-drawer"
+          modal={false}
+          hidden={toolFolded || !!selected || !!addAt}
+          onCollapse={() => setToolFolded(true)}
+          onClose={() => setTool(null)}
+        >
           <BuilderChat session={builder} onClose={() => setTool(null)} />
         </Drawer>
       ) : null}

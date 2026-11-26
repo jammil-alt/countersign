@@ -1155,3 +1155,30 @@
     outline-offset: 2px;
   }
 }
+
+/* A folded drawer (Try it, the Builder): a tab on the window's right edge that opens it again. */
+@layer components {
+  .flow-drawer-tab {
+    position: fixed;
+    top: 50%;
+    right: 0;
+    z-index: 45;
+    padding: 12px 8px;
+    writing-mode: vertical-rl;
+    transform: translateY(-50%) rotate(180deg);
+    border: 1px solid var(--line);
+    border-right: 0;
+    border-radius: var(--radius-sm) 0 0 var(--radius-sm);
+    background: var(--surface);
+    color: var(--slate);
+    font: 500 13px / 1 var(--font-sans);
+    cursor: pointer;
+  }
+  .flow-drawer-tab:hover {
+    background: var(--slate-tint);
+  }
+  .flow-drawer-tab:focus-visible {
+    outline: 2px solid var(--slate);
+    outline-offset: 2px;
+  }
+}

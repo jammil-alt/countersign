@@ -225,12 +225,42 @@ describe("the step-model builder", () => {
     expect(screen.getByTestId("flow-bar-builder")).toBeEnabled();
   });
 
+  it("folds the Builder to a tab on a click outside, and opens it again from the tab", async () => {
+    const { user } = setup(workflow());
+    await screen.findByTestId("flow-chart");
+    await user.click(screen.getByTestId("flow-bar-builder"));
+    expect(await screen.findByTestId("builder-chat")).toBeTruthy();
+    await user.type(
+      within(screen.getByTestId("builder-chat")).getAllByRole("textbox")[0] as HTMLElement,
+      "Half a thought",
+    );
+    // A click outside it folds it; nothing is lost.
+    await user.click(screen.getByTestId("flow-bar-counts"));
+    await waitFor(() => expect(screen.getByTestId("builder-chat")).not.toBeVisible());
+    await user.click(screen.getByTestId("steps-drawer-tab"));
+    expect(screen.getByTestId("builder-chat")).toBeVisible();
+    // What was being typed is still there.
+    expect(
+      within(screen.getByTestId("builder-chat")).getAllByRole("textbox")[0] as HTMLElement,
+    ).toHaveValue("Half a thought");
+    // A step opens over it, and the Builder is a tab again once the step is closed.
+    await user.click(screen.getByTestId("flow-box-end"));
+    expect(await screen.findByTestId("flow-panel")).toBeTruthy();
+    await user.click(screen.getByTestId("steps-drawer-scrim"));
+    expect(await screen.findByTestId("steps-drawer-tab")).toHaveTextContent("Builder");
+  });
+
   it("opens a step's settings in the side drawer, and Escape closes it", async () => {
     const { user } = setup(workflow());
     await user.click(await screen.findByTestId("flow-box-end"));
     const drawer = await screen.findByTestId("steps-drawer");
     expect(within(drawer).getByTestId("flow-panel")).toBeTruthy();
     await user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByTestId("steps-drawer")).toBeNull());
+    // A click outside it closes it too.
+    await user.click(await screen.findByTestId("flow-box-end"));
+    await screen.findByTestId("steps-drawer");
+    await user.click(screen.getByTestId("steps-drawer-scrim"));
     await waitFor(() => expect(screen.queryByTestId("steps-drawer")).toBeNull());
   });
 
