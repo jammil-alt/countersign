@@ -679,7 +679,7 @@ The stored format is **approved and frozen** (owner, 2026-11-25), Tell and the g
 | F · Written in the step | `claude/step-model-f-in-step` | Sonnet | B's branch (#672) | Rules and AI written in the step, stored behind it as a skill; Save as skill; Suggest's backend; the Instructions box |
 | H · Loop designer | `claude/step-model-h-loop-designer` | Sonnet | A's branch (#676) | The Loop designer in the Agent lab |
 
-## 13d. Where the build stands (2026-11-25, evening)
+## 13d. Where the build stands (2026-11-25, night)
 
 **Merged to `main`** (and so on staging), with what each review found and fixed:
 
@@ -694,28 +694,60 @@ The stored format is **approved and frozen** (owner, 2026-11-25), Tell and the g
 | #681 | H · Loop designer | Loop skills (read-only at save and at run time), the designer, turn-by-turn tests, the test-set gate; the leftovers investigation as the first Loop | A pinned draft Loop version could run untested; an inline Loop had no gate; built-in Loops shipped without tests |
 | #679 | C · Platform agents | The Builder, Sloan, the Coordinator, the Document clerk and the Bill clerk seeded as v5 | A client's people carried into a template on promotion (invariant 11); the Library answered 500 on a v5 template |
 | #677 | F · Written in the step | Rules and AI written in the step, kept as the agent's own skill; Save as skill; Suggest | Suggest could loosen approvals the Builder guards (contact messages, an approver's deadline, all to any); step skills were shared between agents and changed the live agent on a draft save; a shared skill could carry a client's ids, people and values |
+| #682 | A · Wiring | The real Match port (HIPAA-guarded, learned answers), Sloan's chat with its own tools, translation at run time, merged connectors from the agent's bindings and switches; steps written in the step run through their pinned skill | — |
+| #686, #693 | L · Rules documents | ARCHITECTURE v0.24 with §10.0's data; CLAUDE.md invariants 3, 8, 9, 13 and 14 (owner approved) | — |
+| #683, #687 | N · Data | Record types, Find, Get by id, Create and Update, grants, data sets, custom fields in `ext.custom`; `record_write` (migration 0102) | — |
+| #696 | N · Signed saves | A record save from an agent that suggests, is in trial or sign-off, or whose step names an approver waits for a signature, then writes once | Every live act-mode save asked (the filled-in default read as the step's own approver); a safety hold set after the signature didn't stop the write |
+| #692 | A · Seats | `fillSeats` keeps the step model's sources | Found by C: seats lost the v5 workflow |
+| #685, #699 | I · Builder (AI) | The Builder drafts in v5; a new conversation starts with its trigger, a "Nothing to do" output and the End | Two slow regexes (CodeQL) |
+| #689, #695, #703, #706 | C · Platform agents | Run tests on the v5 seeds; the Bill clerk finds a vendor by Match on Vendors and Get by id for its accounting id, and asks the `bill-questions` seat when unsure; publish refusals and the end-to-end run on the v5 seed | A test read a run's actions in no set order |
+| #691, #694 | K · Measure | `model-runs.yml` and the matching measurement on recorded model answers (§13d, "For the owner") | Unlabelled pairs were scored as wrong (78% became 94.9%) |
+| #690, #704 | A · Publish checks | A v5 client agent's writes are held to the client's connections at publish: connection missing, verb or record type off, action switched off, a loosened approval needing `auto` and act mode (invariant 8) | Found by I: the v5 branch ran only the step model's own checks |
+| #697 | A · New workflows | Every new workflow starts as v5 (new agent, "+ Workflow", "Add steps" on a start); the steps builder switches and adds workflows | A test read the selected tab before the switch landed |
+| #701 | P · Match asks a seat | A Match's unsure items go to the first person or seat its `checks.confer` names, with that deadline; with none, the client admin for 7 days | — |
+| #700 | R · Output wording | Delivered outputs read "Sent “X”" or "Would send “X” (test run, not sent)" on the timeline, in six languages | The five non-English translations need a native read |
+| #702 | Q · Check the steps | Check the steps reads and writes v5: typed lines are Do steps "not built yet", decisions are Forks ending on Ends, the checks are core's | — |
+
+**Staging** was purged (2,602 rows) and seeded again on 2026-11-25 at 21:43 UTC: the Sandbox and Demo
+clients, and the platform templates in v5. The Bill clerk's v2 with the `bill-questions` seat goes on
+with its install route (`POST /api/ops/platform-templates/bill-clerk/install`).
+
+**Merged on 2026-11-26:** #707, stream J, the release. It deletes what only v3 and v4 used: v3
+workflows, the v4 stored format and its readers, both converters, version 1 automations and
+`use_automation`, the old builder screens and fixtures, and every pack's agent templates. Workflows
+are now stored as v5 only. It also ports v4's publish checks to v5: step references (a step's
+`checks.notify` may read its own output; its approval and confer may not), seats, hand-off loops
+and entries, `input_not_fixed` (including a contact's goal), and cron and time zone. The Opus review
+found three gaps in those ports, and they were fixed before merge. CodeQL found two slow regexes in
+the Builder's purpose cleanup (from #670), and they were fixed. Production still runs the code from
+before #707: it may reach production only after production's purge.
 
 **Open:**
 
 | Stream | PR | State |
 |---|---|---|
-| A · Wiring | #682 | The real Match port (HIPAA-guarded model, learned answers), Sloan's chat with its own tools, translation at run time, merged connectors from the agent's bindings and switches, the builder frame. Last: steps written in the step run through their pinned skill. Then a v5 agent runs end to end. |
-| N · Data | — | §10f, on Opus; its gate changes get an Opus review |
-| I · Builder (AI) | — | Item 9, on Opus |
-| L · Rules documents | — | ARCHITECTURE v0.20 and the CLAUDE.md edits, for the owner's sign-off |
-| C · follow-up | — | The Bill clerk's and Sloan's run tests move to the v5 seeds, after #682 |
-| K · Measure | — | Needs an Anthropic API key in the cloud environment; until then a shortlist of 20 and a threshold of 90 |
-| J, M · Release and ship | — | After I merges: delete v3, v4, the converters and the tool-only skills; then purge and seed on staging, and production with the owner's approval |
+| M · Production | — | The purge (148 rows in the dry run) and the deploy of `a9792aba` wait for the owner's approval in Actions; then the platform templates' install and each client's Sloan. #707 goes to production with a later deploy, after the purge. |
 
-**For the owner:** the Bill clerk's vendor lookup stays a QuickBooks name search for now; it
-becomes a Match on Vendors once N's Get by id gives a vendor's accounting id (recommended), unless
-the owner picks one of the other two ways (the Match result carries the accounting ids; a shared
-"vendor's accounting id" action).
+**Follow-ups, after the release:**
+- **Promotion scrubs for v5 (invariant 11).** A loosened `contact.messages`, `rules.values`, `ai.values` and `rules.rows` with record literals are not scrubbed when a client agent is promoted to a template. A loosened `contact.messages` is not yet held to act mode at publish; the gate still checks each send at run time.
+- **Coverage to rebuild on v5 agents.** Bookkeeping write-once, close, reconcile, `expand` and the Builder suite: their subjects were the pack templates and v4 agents that #707 deleted.
+- **"Test some of the steps".** It refuses every workflow; it was v4-only.
+- **The skill's `mode` (§12 R4).** v5 Loop skills still rely on it, so removing it is a rework.
+- **§12 R1 and R5 to R10.** The tool-only skills, duplicate settings, dropped skills, replaced pack actions, the old "how a workflow ends" code, the packs' superseded map and the vendor-item embeddings (that column by its own migration).
+- **The engine taking the v5 shapes directly.** Today `step-model.ts` loads each v5 step as an engine step; §12 R3 holds for what is stored.
+- **v5 automations.** They are still version 2.
+- **Pack templates.** They are rebuilt one by one in the step model: the Bookkeeper, the Materials vendor-contracts template and the Marketing set.
+
+**Decided by the owner (2026-11-25), on K's measurement (run 45700654719):** one default serves both
+profiles: shortlist 10, threshold 90, second opinion from 70 (#709; the shortlist was 20). CRM: 100%
+precision, 96.2% recall, nobody asked. Master items: 94.9% judged precision (the two wrong are fuel
+and freight lines the goldens call "not an item"), 62.7% recall, 9% to a person. We go back to 20 if
+a client's records need it. Two models agreeing still match at the lower of their two confidences.
 
 ## 14. Where we are in the review
 
-Agreed and built: everything through §10f. Being built: N, I, L and A's wiring (§13d). Then
-release (§12) and ship.
+Agreed and built: everything through §10f and the release (§12, #707), on `main` and on staging
+(§13d). Then production, and the follow-ups in §13d.
 
 ## Decision log
 
@@ -771,6 +803,16 @@ release (§12) and ship.
   to the schema. Built in wave 3 (stream N).
 - 2026-11-25 · Waves 1 and 2 merged (§13d). Each Sonnet stream that touched approvals or the gate
   had an Opus review; every finding was fixed before merge.
+- 2026-11-25 · Wave 3 merged (§13d): wiring, Data and signed saves, the Builder in v5, the rules
+  documents (ARCHITECTURE v0.24; invariants 3, 8, 9, 13, 14 approved by the owner), publish checks
+  holding v5 writes to the client's connections, new workflows and Check the steps in v5, a Match
+  asking a named seat. Every stream that touched approvals or the gate had an Opus review.
+- 2026-11-25 · The Bill clerk finds a vendor by Match on Vendors, Get by id gives its accounting
+  id, and an unsure vendor is asked of the `bill-questions` seat (owner: "do it right").
+- 2026-11-25 · Staging purged and seeded again in v5 (21:43 UTC). The release keeps the engine's
+  internal step shapes and v2 automations; moving them to v5 is a follow-up, not part of the purge.
+- 2026-11-25 · Match defaults: a model shortlist of 10 (was 20), threshold 90, second opinion from
+  70; two agreeing models match at the lower of their confidences, as built (owner, on K's numbers).
 - 2026-11-25 · A Loop is published only as a saved Loop skill whose test set passes: a Loop written
   in a step may be drafted, but publishing the agent asks to save and test it first; a pinned
   draft version never runs; built-in and pack Loops ship with their test sets, run in CI.
