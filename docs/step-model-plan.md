@@ -712,16 +712,31 @@ The stored format is **approved and frozen** (owner, 2026-11-25), Tell and the g
 clients, and the platform templates in v5. The Bill clerk's v2 with the `bill-questions` seat goes on
 with its install route (`POST /api/ops/platform-templates/bill-clerk/install`).
 
+**Merged on 2026-11-26:** #707, stream J, the release. It deletes what only v3 and v4 used: v3
+workflows, the v4 stored format and its readers, both converters, version 1 automations and
+`use_automation`, the old builder screens and fixtures, and every pack's agent templates. Workflows
+are now stored as v5 only. It also ports v4's publish checks to v5: step references (a step's
+`checks.notify` may read its own output; its approval and confer may not), seats, hand-off loops
+and entries, `input_not_fixed` (including a contact's goal), and cron and time zone. The Opus review
+found three gaps in those ports, and they were fixed before merge. CodeQL found two slow regexes in
+the Builder's purpose cleanup (from #670), and they were fixed. Production still runs the code from
+before #707: it may reach production only after production's purge.
+
 **Open:**
 
 | Stream | PR | State |
 |---|---|---|
-| J · Release | #707 | Deletes what only v3 and v4 used (§12 R1, R2, R4 to R10): v3 workflows, the v4 stored format and its readers, both converters, version 1 automations, the tool-only skills, the skill `mode`, the old screens and fixtures. Opus review before merge. |
-| M · Production | — | After J: the purge's dry run, then the real one (each approved by the owner in Actions), the deploy, the platform templates' install, then each client's Sloan |
+| M · Production | — | The purge (148 rows in the dry run) and the deploy of `a9792aba` wait for the owner's approval in Actions; then the platform templates' install and each client's Sloan. #707 goes to production with a later deploy, after the purge. |
 
-**Follow-ups, after the release:** the engine takes the v5 shapes directly (today `step-model.ts` loads
-each v5 step as an engine step, and the executor runs those: §12 R3 holds for what is stored); v5
-automations (they are still version 2); the vendor-item embeddings' column, by its own migration.
+**Follow-ups, after the release:**
+- **Promotion scrubs for v5 (invariant 11).** A loosened `contact.messages`, `rules.values`, `ai.values` and `rules.rows` with record literals are not scrubbed when a client agent is promoted to a template. A loosened `contact.messages` is not yet held to act mode at publish; the gate still checks each send at run time.
+- **Coverage to rebuild on v5 agents.** Bookkeeping write-once, close, reconcile, `expand` and the Builder suite: their subjects were the pack templates and v4 agents that #707 deleted.
+- **"Test some of the steps".** It refuses every workflow; it was v4-only.
+- **The skill's `mode` (§12 R4).** v5 Loop skills still rely on it, so removing it is a rework.
+- **§12 R1 and R5 to R10.** The tool-only skills, duplicate settings, dropped skills, replaced pack actions, the old "how a workflow ends" code, the packs' superseded map and the vendor-item embeddings (that column by its own migration).
+- **The engine taking the v5 shapes directly.** Today `step-model.ts` loads each v5 step as an engine step; §12 R3 holds for what is stored.
+- **v5 automations.** They are still version 2.
+- **Pack templates.** They are rebuilt one by one in the step model: the Bookkeeper, the Materials vendor-contracts template and the Marketing set.
 
 **Decided by the owner (2026-11-25), on K's measurement (run 45700654719):** one default serves both
 profiles: shortlist 10, threshold 90, second opinion from 70 (#709; the shortlist was 20). CRM: 100%
@@ -731,8 +746,8 @@ a client's records need it. Two models agreeing still match at the lower of thei
 
 ## 14. Where we are in the review
 
-Agreed and built: everything through §10f, on `main` and on staging (§13d). Being built: the release
-(§12, stream J). Then production.
+Agreed and built: everything through §10f and the release (§12, #707), on `main` and on staging
+(§13d). Then production, and the follow-ups in §13d.
 
 ## Decision log
 
