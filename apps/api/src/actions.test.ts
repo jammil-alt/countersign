@@ -465,7 +465,7 @@ describe.skipIf(!h)("action write steps through the API", () => {
     expect(action?.input).toMatchObject({ invoiceNumber: "INV-41002", invoiceDate: "2026-11-05" });
   });
 
-  it("publish refuses an action with no accounting connection, or two without via", async () => {
+  it("publish refuses an action with no accounting connection, or with two", async () => {
     const none = await agentWith(H.A.tenantId, "no-books", [createBill(QBO_VENDOR, "X-1")], {});
     expect(none.pub.status).toBe(422);
     expect(JSON.stringify(none.pub.json)).toContain("connection_missing");
@@ -475,13 +475,8 @@ describe.skipIf(!h)("action write steps through the API", () => {
     });
     expect(two.pub.status).toBe(422);
     expect(JSON.stringify(two.pub.json)).toContain("action_needs_via");
-    const via = await agentWith(
-      H.A.tenantId,
-      "via-books",
-      [createBill(QBO_VENDOR, "X-3", { via: "qbo" })],
-      { qbo: conn.qboA, billcom: conn.billA },
-    );
-    expect(via.pub.status, JSON.stringify(via.pub.json)).toBe(200);
+    // `via` (naming one of two accounting connections) was an option of the old action write step;
+    // a v5 Do has no such field yet, so there is no publish that succeeds with two connections.
   });
 
   it("send_email with no channel of the agent's own goes out on the account's, approved", async () => {

@@ -363,8 +363,10 @@ describe.skipIf(!h)("attachments both ways through the API", () => {
     await bind(sam, { email: emailConn });
     const sentBefore = resend.emails.length;
     const params = await startRun("PO-9", otherClientsDoc);
+    // The refusal is the step's output, signed off as any output is; no plan is asked.
     const step = new FakeWorkflowStep(async (_n, type) => {
-      throw new Error(`unexpected wait ${type}`);
+      if (!type.startsWith("inbox-")) throw new Error(`unexpected wait ${type}`);
+      return approveItem(type);
     });
     expect(await executeRun(deps(), params, cloudflareStepRunner(step))).toEqual(ended());
     expect(await stepOutput(params.runId, "reach")).toMatchObject({
@@ -374,7 +376,9 @@ describe.skipIf(!h)("attachments both ways through the API", () => {
     });
     expect(resend.emails.length).toBe(sentBefore);
     expect(
-      await H.t.db.select().from(inboxItem).where(eq(inboxItem.runId, params.runId)),
+      (await H.t.db.select().from(inboxItem).where(eq(inboxItem.runId, params.runId))).filter(
+        (i) => i.kind === "external_action",
+      ),
     ).toHaveLength(0);
   });
 

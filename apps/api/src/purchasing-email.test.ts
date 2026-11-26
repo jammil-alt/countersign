@@ -558,6 +558,8 @@ function buyer(): AgentBundle {
               input: {
                 requestId: "{{steps.open.output.request.id}}",
                 quoteRequestId: "{{steps.chosen.output.quoteRequestId}}",
+                // The expense account purchase orders book to (the skill's setting before).
+                accountId: "81",
               },
             },
             {

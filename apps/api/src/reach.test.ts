@@ -120,7 +120,7 @@ const ROLES = [
   },
 ];
 
-function reachStep(_input: Record<string, unknown> = {}) {
+function reachStep(input: Record<string, unknown> = {}) {
   return {
     id: "reach",
     name: "Ask the purchaser",
@@ -142,6 +142,7 @@ function reachStep(_input: Record<string, unknown> = {}) {
       urgency: "normal",
       expectReply: true,
       timeout: "2 days",
+      ...input,
     },
   };
 }
@@ -505,6 +506,24 @@ describe.skipIf(!h)("reach out through the API", () => {
     await H.t.db.update(agent).set({ runStatus: "active" }).where(eq(agent.id, agentId));
   });
 
+  /** Answers each item a run asks for: as the operator (a test run's), or the client's admin. */
+  const signing = (runId: string, who: "operator" | "admin" = "operator") =>
+    new FakeWorkflowStep(async (_name, type) => {
+      const items = await H.t.db.select().from(inboxItem).where(eq(inboxItem.runId, runId));
+      const item = items.find((i) => `inbox-${i.id.replace(/-/g, "")}` === type);
+      if (!item) throw new Error(`no item for ${type}`);
+      const done =
+        who === "operator"
+          ? await H.call(OPERATOR, "POST", `/api/ops/inbox/${item.id}/resolve`, {
+              decision: "approve",
+            })
+          : await H.call(admin("a"), "POST", `/api/inbox/${item.id}/resolve`, {
+              decision: "approve",
+            });
+      expect(done.status, JSON.stringify(done.json)).toBe(200);
+      return H.instances.events.find((e) => e.event.type === type)?.event.payload;
+    });
+
   it("never sends from a test run", async () => {
     const res = await H.call(
       OPERATOR,
@@ -515,8 +534,11 @@ describe.skipIf(!h)("reach out through the API", () => {
     expect(res.status, JSON.stringify(res.json)).toBe(200);
     const params = H.instances.started.get(j(res.json).runId);
     if (!params) throw new Error("no test run");
-    const result = await executeRun(deps(), params, cloudflareStepRunner(new FakeWorkflowStep()));
-    expect(result.status).toBe("succeeded");
+    // The step asks for its sign-off as in a live run; what a person approves in a test run is
+    // never sent.
+    const step = signing(params.runId);
+    const result = await executeRun(deps(), params, cloudflareStepRunner(step));
+    expect(result, JSON.stringify(result)).toMatchObject({ status: "succeeded" });
     expect(await stepOutput(params.runId, "reach")).toMatchObject({
       testRun: true,
       plan: ["sms", "voice"],
@@ -864,8 +886,9 @@ describe.skipIf(!h)("reach out through the API", () => {
 
     // The same subject while the first is open: not allowed, nothing sent.
     const dup = await startRun("PO-2001");
+    // The refusal is the step's output: it is signed off as any output is, and nothing is sent.
     expect(
-      (await executeRun(deps(), dup, cloudflareStepRunner(new FakeWorkflowStep()))).status,
+      (await executeRun(deps(), dup, cloudflareStepRunner(signing(dup.runId, "admin")))).status,
     ).toBe("succeeded");
     expect(await stepOutput(dup.runId, "reach")).toMatchObject({
       outcome: "not_allowed",
@@ -883,18 +906,21 @@ describe.skipIf(!h)("reach out through the API", () => {
     expect(twilio.placed()).toHaveLength(placed);
     expect(textsTo(PAT)).toHaveLength(textsBefore);
 
-    // A new reach-out to an opted-out contact: refused in code, nothing sent, no approval asked.
+    // A new reach-out to an opted-out contact: refused in code, nothing sent, no plan to approve.
+    // (The step's output, the refusal, is signed off as any output is; that is all it asks.)
     const later = await startRun("PO-3003");
     expect(
-      (await executeRun(deps(), later, cloudflareStepRunner(new FakeWorkflowStep()))).status,
+      (await executeRun(deps(), later, cloudflareStepRunner(signing(later.runId, "admin")))).status,
     ).toBe("succeeded");
     expect(await stepOutput(later.runId, "reach")).toMatchObject({
       outcome: "opted_out",
       attempts: 0,
     });
-    expect(await H.t.db.select().from(inboxItem).where(eq(inboxItem.runId, later.runId))).toEqual(
-      [],
-    );
+    expect(
+      (await H.t.db.select().from(inboxItem).where(eq(inboxItem.runId, later.runId))).filter(
+        (i) => i.kind === "external_action",
+      ),
+    ).toEqual([]);
     expect(textsTo(PAT)).toHaveLength(textsBefore);
   });
 

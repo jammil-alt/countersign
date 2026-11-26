@@ -16,7 +16,15 @@ import {
 } from "@countersign/connectors";
 import { FAKE_GOOGLE, fakeGoogle, readSentEmail } from "@countersign/connectors/testing";
 import { AgentBundle, type AgentBundleInput } from "@countersign/core";
-import { agent, connection, externalAction, rawRecord, reachOut, stepRun } from "@countersign/db";
+import {
+  agent,
+  connection,
+  externalAction,
+  inboxItem,
+  rawRecord,
+  reachOut,
+  stepRun,
+} from "@countersign/db";
 import { FakeModel } from "@countersign/llm";
 import { and, eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -374,7 +382,16 @@ describe.skipIf(!h)("Gmail, send only, through the API", () => {
     const params = await startRun("PO-T1", "test");
     // The step asks for its sign-off as in a live run; what a person approves in a test run is
     // never sent.
-    const step = new FakeWorkflowStep(async (_name, type) => approveItem(type));
+    const step = new FakeWorkflowStep(async (_name, type) => {
+      const items = await H.t.db.select().from(inboxItem).where(eq(inboxItem.runId, params.runId));
+      const item = items.find((i) => `inbox-${i.id.replace(/-/g, "")}` === type);
+      if (!item) throw new Error(`no item for ${type}`);
+      const done = await call(OPERATOR, "POST", `/api/ops/inbox/${item.id}/resolve`, {
+        decision: "approve",
+      });
+      expect(done.status, JSON.stringify(done.json)).toBe(200);
+      return H.instances.events.find((e) => e.event.type === type)?.event.payload;
+    });
     const result = await executeRun(deps(), params, cloudflareStepRunner(step));
     expect(result, JSON.stringify(result)).toMatchObject({ status: "succeeded" });
     expect(await stepOutput(params.runId)).toMatchObject({

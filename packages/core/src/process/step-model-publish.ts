@@ -16,6 +16,7 @@ import { isAlwaysSigned, type ToolSpec } from "../schemas/tool";
 import { mergedAction } from "../steps/catalog";
 import type { Workflow as StepWorkflow } from "../steps/schema";
 import { eachStep } from "../steps/walk";
+import { lookupSkill } from "../template/typer";
 import {
   ACCOUNTING_CONNECTORS,
   type ActionBindings,
@@ -176,7 +177,7 @@ export function stepModelPublishErrors(
  */
 export function stepModelFixedInputErrors(
   workflow: StepWorkflow,
-  ctx: Pick<ValidationContext, "tools">,
+  ctx: Pick<ValidationContext, "tools" | "skills">,
 ): StepModelPublishError[] {
   const errors: StepModelPublishError[] = [];
   const sink: CheckSink = {
@@ -184,8 +185,12 @@ export function stepModelFixedInputErrors(
       errors.push({ stepId: stepId ?? "", field, code: code as ProcessValidationCode, message }),
   };
   eachStep(workflow.steps, ({ step }) => {
-    if (step.kind !== "do" || step.uses?.type !== "action") return;
-    checkFixed(sink, step.id, step.input, ctx.tools?.[step.uses.action]?.fixedInputs);
+    if (step.kind !== "do") return;
+    if (step.uses?.type === "action") {
+      checkFixed(sink, step.id, step.input, ctx.tools?.[step.uses.action]?.fixedInputs);
+    } else if (step.uses?.type === "skill") {
+      checkFixed(sink, step.id, step.input, lookupSkill(step.uses.skill, ctx)?.fixedInputs);
+    }
   });
   return errors;
 }

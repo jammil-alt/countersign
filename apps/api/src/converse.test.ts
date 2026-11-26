@@ -322,6 +322,16 @@ describe.skipIf(!h)("conversations through the API", () => {
     return H.instances.events.find((e) => e.event.type === type)?.event.payload;
   }
 
+  /**
+   * A run that is refused before anything is planned (no consent, no window, another client's
+   * contact) still has its output, the refusal, signed off by a person as any step's output is.
+   */
+  const signsOff = () =>
+    new FakeWorkflowStep(async (_name, type) => {
+      if (!type.startsWith("inbox-")) throw new Error(`unexpected wait ${type}`);
+      return resolveItem(type);
+    });
+
   const stepOutput = async (runId: string, nodeId: string) => {
     const [row] = await H.t.db
       .select()
@@ -554,7 +564,11 @@ describe.skipIf(!h)("conversations through the API", () => {
     expect(res.status, JSON.stringify(res.json)).toBe(200);
     const params = H.instances.started.get(j(res.json).runId);
     if (!params) throw new Error("no test run");
-    const result = await executeRun(deps(), params, cloudflareStepRunner(new FakeWorkflowStep()));
+    // The first message is shown on the card the operator signs; it is never sent.
+    const signed = new FakeWorkflowStep(async (_name, type) =>
+      resolveItem(type, { decision: "approve" }, OPERATOR),
+    );
+    const result = await executeRun(deps(), params, cloudflareStepRunner(signed));
     expect(result, JSON.stringify(result)).toMatchObject({ status: "succeeded" });
     expect(await stepOutput(params.runId, "talk")).toMatchObject({
       outcome: "not_sent",
@@ -672,7 +686,7 @@ describe.skipIf(!h)("conversations through the API", () => {
       if (type.startsWith("reachout-")) {
         // A second conversation to Dana while this one is open is refused.
         const second = await startRun(agentId, dana, "REQ-10");
-        const r2 = await executeRun(deps(), second, cloudflareStepRunner(new FakeWorkflowStep()));
+        const r2 = await executeRun(deps(), second, cloudflareStepRunner(signsOff()));
         expect(r2.status).toBe("succeeded");
         expect(await stepOutput(second.runId, "talk")).toMatchObject({
           outcome: "not_allowed",
@@ -725,14 +739,14 @@ describe.skipIf(!h)("conversations through the API", () => {
     // No consent: nothing is planned, nothing sent, no model call.
     model = new FakeModel([]);
     const none = await startRun(agentId, noConsent, "REQ-11");
-    await executeRun(deps(), none, cloudflareStepRunner(new FakeWorkflowStep()));
+    await executeRun(deps(), none, cloudflareStepRunner(signsOff()));
     expect(await stepOutput(none.runId, "talk")).toMatchObject({ outcome: "not_allowed" });
     expect((await stepOutput(none.runId, "talk")).reason).toContain("no consent");
     expect(sentTo(NOCONSENT)).toHaveLength(0);
 
     // Outside the window with no template: nothing is sent.
     const cold = await startRun(agentId, quiet, "REQ-12");
-    await executeRun(deps(), cold, cloudflareStepRunner(new FakeWorkflowStep()));
+    await executeRun(deps(), cold, cloudflareStepRunner(signsOff()));
     expect(await stepOutput(cold.runId, "talk")).toMatchObject({
       outcome: "not_allowed",
       reason: "outside WhatsApp's 24-hour window and no approved template for the first message",
@@ -1238,7 +1252,7 @@ describe.skipIf(!h)("conversations through the API", () => {
       return woke.event.payload;
     });
     const result = await executeRun(deps(), params, cloudflareStepRunner(step));
-    expect(ended).toBe(true);
+    expect(finished).toBe(true);
     // Nothing went: the first message waited for its signature, and ending it turned the step
     // down (its onReject: stop).
     expect(sentTo(IVY)).toHaveLength(0);
@@ -1253,7 +1267,7 @@ describe.skipIf(!h)("conversations through the API", () => {
     const { agentId } = await makeAgent("purchasing-iso");
     model = new FakeModel([]);
     const params = await startRun(agentId, bContact, "REQ-17");
-    await executeRun(deps(), params, cloudflareStepRunner(new FakeWorkflowStep()));
+    await executeRun(deps(), params, cloudflareStepRunner(signsOff()));
     expect(await stepOutput(params.runId, "talk")).toMatchObject({
       outcome: "not_allowed",
       reason: "that contact is not one of this client's",

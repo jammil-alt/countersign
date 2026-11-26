@@ -88,8 +88,11 @@ async function stepOf(
   const wf = v?.bundle.workflows.find((w) => w.slug === r.workflowSlug)?.workflow;
   // Inside a for_each the node is `<step>:<index>:<child>`: findNodeStep reads its last part.
   const step = wf && s ? findNodeStep(wf, s.nodeId) : undefined;
+  // A v5 Do step carries its approval in `checks` as the engine steps the owner watches do.
   const approval =
-    step && ownerWatches(step) ? ownerStepApproval(step as unknown as OwnerWatchedStep) : undefined;
+    step && (ownerWatches(step) || step.kind === "do")
+      ? ownerStepApproval(step as unknown as OwnerWatchedStep)
+      : undefined;
   return { approval, nodeId: s?.nodeId ?? null };
 }
 
