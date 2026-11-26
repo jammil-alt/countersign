@@ -3,7 +3,7 @@
 // with a fork out per unread invoice into step 1 of "Check an invoice", instead of a copy of it.
 import { describe, expect, it } from "vitest";
 import type { SkillDefinition } from "../schemas/skill";
-import { handoffWorkflows, isSelfHandoff, selfHandoffLoops, selfHandoffSteps } from "./handoff";
+import { handoffTargetSteps, isSelfHandoff, selfHandoffSteps } from "./handoff";
 import { Process as ProcessSchema, SELF_AGENT } from "./schema";
 import { validateProcess } from "./validate";
 
@@ -82,10 +82,12 @@ const self = (workflow?: string, step = "chk-read") => ({
 
 /** What each workflow's hand-offs are told: the validator of one workflow, given its siblings. */
 function problems(b: ReturnType<typeof bundle>) {
-  const workflows = handoffWorkflows(
-    b.map((w) => ({ ...w, workflow: ProcessSchema.parse(w.workflow) })),
-    typing,
-  );
+  const workflows = b.map((w) => ({
+    slug: w.slug,
+    name: w.name,
+    enabled: w.enabled ?? true,
+    steps: handoffTargetSteps(ProcessSchema.parse(w.workflow), typing),
+  }));
   return b.map((w) => ({
     slug: w.slug,
     errors: validateProcess(w.workflow, {
@@ -197,47 +199,5 @@ describe("a hand-off to this agent's own workflow", () => {
       .filter((e) => e.stepId === "scan-hand");
     expect(errors.length).toBeGreaterThan(0);
     expect(errors.every((e) => e.field.startsWith("input"))).toBe(true);
-  });
-
-  it("finds longer loops once, and none in a chain", () => {
-    const hop = (to: string) => ({
-      schemaVersion: 4,
-      triggers: [],
-      steps: [{ id: `h-${to}`, name: "Hand off", kind: "handoff", to: self(to, "x"), input: {} }],
-    });
-    expect(
-      selfHandoffLoops([
-        { slug: "a", workflow: hop("b") },
-        { slug: "b", workflow: hop("c") },
-        { slug: "c", workflow: hop("a") },
-      ]),
-    ).toEqual([["a", "b", "c", "a"]]);
-    expect(
-      selfHandoffLoops([
-        { slug: "a", workflow: hop("b") },
-        { slug: "b", workflow: hop("c") },
-        { slug: "c", workflow: { schemaVersion: 4, triggers: [], steps: [] } },
-      ]),
-    ).toEqual([]);
-  });
-
-  it("lists a bundle's v4 workflows with their top-level steps", () => {
-    const list = handoffWorkflows(
-      [
-        { slug: "check", name: "Check an invoice", workflow: ProcessSchema.parse(check) },
-        {
-          slug: "scan",
-          name: "Scan",
-          enabled: false,
-          workflow: ProcessSchema.parse(scan(self("check"))),
-        },
-      ],
-      typing,
-    );
-    expect(list.map((w) => [w.slug, w.enabled, w.steps.map((s) => s.id)])).toEqual([
-      ["check", true, ["chk-read", "chk-stop"]],
-      ["scan", false, ["scan-each"]],
-    ]);
-    expect(list[0]?.steps[0]?.input).toEqual(readInvoice.input);
   });
 });

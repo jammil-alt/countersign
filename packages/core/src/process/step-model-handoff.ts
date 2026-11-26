@@ -3,6 +3,7 @@
 // agent's own other workflows, and the loops such hand-offs make between workflows.
 
 import type { AgentBundle } from "../schemas/agent";
+import { doEngine, ENGINE_OUTCOMES } from "../steps/engine";
 import type { HandoffStep, Step } from "../steps/schema";
 import { eachStep } from "../steps/walk";
 import { HANDOFF_ENTRY_KINDS, type HandoffAgent, handoffTargetOf, isSelfHandoff } from "./handoff";
@@ -32,8 +33,22 @@ function handoffSteps(steps: readonly Step[]): HandoffStep[] {
   return out;
 }
 
-/** Kinds of a v5 step a hand-off to this agent's own workflow can start at: work steps. */
-const SELF_ENTRY_KINDS: ReadonlySet<Step["kind"]> = new Set(["do", "loop"]);
+/**
+ * Whether a v5 step is one a hand-off can start at: the engine it runs as is a read, skill or write
+ * (a Do done by a person, a Tell, a Contact or a Collect would ignore the hand-off's input).
+ */
+function startsHandoff(step: Step): boolean {
+  if (step.kind === "loop") return true;
+  if (step.kind !== "do") return false;
+  try {
+    // An action the catalog doesn't tell is a Change, as the engine reads it.
+    return HANDOFF_ENTRY_KINDS.has(
+      ENGINE_OUTCOMES[doEngine(step, () => undefined).engine] as never,
+    );
+  } catch {
+    return false;
+  }
+}
 
 /**
  * The errors on every hand-off step of a bundle. With the client's agents known (`known`) a hand-off
@@ -154,7 +169,7 @@ function selfHandoffErrors(
       "handoff_unknown_step",
       `"${target.name}" has no step "${step.to.step}" at its top level`,
     );
-  } else if (!SELF_ENTRY_KINDS.has(entry.kind)) {
+  } else if (!startsHandoff(entry)) {
     add("to.step", "handoff_entry_kind", "a hand-off starts at a read, skill or write step");
   }
 }

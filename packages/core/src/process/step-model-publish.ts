@@ -16,6 +16,7 @@ import { isAlwaysSigned, type ToolSpec } from "../schemas/tool";
 import { mergedAction } from "../steps/catalog";
 import type { Workflow as StepWorkflow } from "../steps/schema";
 import { eachStep } from "../steps/walk";
+import { hasTemplate } from "../template/template";
 import { lookupSkill } from "../template/typer";
 import {
   ACCOUNTING_CONNECTORS,
@@ -186,6 +187,15 @@ export function stepModelFixedInputErrors(
   };
   eachStep(workflow.steps, ({ step }) => {
     if (step.kind !== "do") return;
+    // A contact's goal is the model's instruction: written in the step, never filled from a template.
+    if (step.contact && hasTemplate(step.contact.goal)) {
+      sink.add(
+        step.id,
+        "contact.goal",
+        "input_not_fixed",
+        "write goal in the step: it becomes instructions, so it can't come from a template",
+      );
+    }
     if (step.uses?.type === "action") {
       checkFixed(sink, step.id, step.input, ctx.tools?.[step.uses.action]?.fixedInputs);
     } else if (step.uses?.type === "skill") {

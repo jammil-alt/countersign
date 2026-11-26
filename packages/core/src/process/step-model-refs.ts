@@ -63,7 +63,11 @@ export function stepModelRefErrors(workflow: { steps: Step[] }): StepRefError[] 
   const visit = (list: readonly Step[], before: ReadonlySet<string>) => {
     const ran = new Set(before);
     for (const step of list) {
-      check(step, ownConfig(step), ran);
+      // A step's checks run after it, so they may read its own output (a notice saying how many
+      // it saved, an approval condition on what it made, as v4's checks did).
+      const { checks, ...config } = ownConfig(step) as { checks?: unknown };
+      check(step, config, ran);
+      if (checks !== undefined) check(step, { checks }, new Set([...ran, step.id]));
       if (step.kind === "fork") {
         for (const p of step.paths) visit(p.steps, ran);
         visit(step.otherwise.steps, ran);
