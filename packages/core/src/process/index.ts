@@ -1,3 +1,5 @@
+// ENGINE-INTERNAL (wave 4): the engine steps a v5 workflow is loaded into to run, and the helpers
+// v5 and automations reach. Not a stored format: bundles hold v5 workflows only.
 // R1 (docs/plan.md §1.86): processes, workflow `schemaVersion: 4`. Exported from core as the
 // `processes` namespace, so its step names don't collide with the v3 workflow schema's.
 // R8: a whole bundle that may hold processes, and the builder's field picker.
