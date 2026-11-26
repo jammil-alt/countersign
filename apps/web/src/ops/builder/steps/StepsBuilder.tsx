@@ -17,8 +17,17 @@ import {
   triggerOnSchema,
   uuidv7,
   wantsDocument,
+  wantsMessage,
 } from "@countersign/core";
-import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  type CSSProperties,
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { useNavigate } from "react-router-dom";
 import { type AgentSummary, apiRoutes, type VersionDetail } from "../../../api/routes";
 import { useApi } from "../../../api/useApi";
@@ -224,6 +233,18 @@ function Body(
   // The drawer's other two uses: Try it and the Builder (a step's settings and the palette are
   // `selection` and `addAt`). One drawer at a time.
   const [tool, setTool] = useState<"try" | "builder" | null>(null);
+  // The sticky bar's height, measured: one row on a wide window, two or more when it wraps.
+  const barRef = useRef<HTMLDivElement>(null);
+  const [barHeight, setBarHeight] = useState(76);
+  useEffect(() => {
+    const el = barRef.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const measure = () => setBarHeight(Math.ceil(el.getBoundingClientRect().height));
+    measure();
+    const watch = new ResizeObserver(measure);
+    watch.observe(el);
+    return () => watch.disconnect();
+  }, []);
   // Folded to a tab at the window's edge (a click outside, or a step opened): the conversation
   // and the try stay as they were, to open again.
   const [toolFolded, setToolFolded] = useState(false);
@@ -495,11 +516,12 @@ function Body(
     () => samplePayload(workflow as unknown as Triggered, catalog.events as never),
     [workflow, catalog.events],
   );
-  // The trigger carries a stored document: Try it makes up a document rather than JSON.
-  const documentTrigger = useMemo(() => {
+  // What the trigger carries: Try it makes up a document, a whole email, or JSON.
+  const triggerKind = useMemo<"json" | "document" | "message">(() => {
     const on = workflow.triggers[0]?.on;
     const events = Object.fromEntries(catalog.events.map((e) => [e.type, e]));
-    return on ? wantsDocument(triggerOnSchema(on as never, { events: events as never })) : false;
+    const schema = on ? triggerOnSchema(on as never, { events: events as never }) : undefined;
+    return wantsDocument(schema) ? "document" : wantsMessage(schema) ? "message" : "json";
   }, [workflow.triggers, catalog.events]);
   const tryBlocked = canPublish(issues)
     ? null
@@ -534,7 +556,7 @@ function Body(
       <div className="contents" data-testid="steps-builder">
         {/* The bar stays in view while the page scrolls to the chart and the outputs. */}
         {/* On a phone the bar wraps to several rows: it scrolls with the page there. */}
-        <div className="md:sticky md:top-[var(--header-h)] md:z-10">
+        <div ref={barRef} className="md:sticky md:top-[var(--header-h)] md:z-10">
           <FlowBar
             lead={
               <WorkflowSwitcher
@@ -668,7 +690,11 @@ function Body(
         {/* Feedback, 2026-11-26: the chart scrolls inside a frame as tall as the window under the
             bar; it had no height of its own, so it never scrolled. */}
         <div
-          className="h-[70vh] min-h-[420px] shrink-0 border border-line bg-surface md:h-[calc(100vh-var(--header-h)-88px)]"
+          // Owner, 2026-11-26 ("the scroll does not go all the way to the bottom"): the frame is the
+          // window's height under the bar as the bar really is (it wraps to two rows on a narrower
+          // window), so the chart's last box is never below the window.
+          style={{ "--flow-bar-h": `${barHeight}px` } as CSSProperties}
+          className="h-[70vh] min-h-[420px] shrink-0 border border-line bg-surface md:h-[calc(100vh-var(--header-h)-var(--flow-bar-h)-12px)]"
           data-testid="steps-canvas"
         >
           {view === "chart" ? (
@@ -823,7 +849,7 @@ function Body(
             slug={props.workflow}
             sample={sample}
             name={workflows.find((w) => w.slug === props.workflow)?.name ?? props.workflow}
-            documentTrigger={documentTrigger}
+            triggerKind={triggerKind}
             prepare={async () => {
               const v = dirty ? await save(undefined, "Saved to try it") : saved;
               return v?.id ?? null;

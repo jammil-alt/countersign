@@ -62,6 +62,33 @@ export const TestDocument = z.object({
 });
 export type TestDocument = z.infer<typeof TestDocument>;
 
+export const TEST_MESSAGE_TOOL = {
+  name: "make_test_message",
+  description: "The made-up message: who sent it, its subject and words, and what is attached.",
+} as const;
+
+/** The most documents a made-up message carries. */
+export const TEST_MESSAGE_ATTACHMENTS_MAX = 5;
+
+/** A made-up email to the agent: its sender, words and attachments (each drawn as a PDF). */
+export const TestMessage = z.object({
+  from: z.object({ name: Text(120).min(1), email: Text(200).min(3) }),
+  subject: Text(300).min(1),
+  /** What the sender wrote. */
+  text: Text(4000).min(1),
+  attachments: z.array(TestDocument).max(TEST_MESSAGE_ATTACHMENTS_MAX).default([]),
+});
+export type TestMessage = z.infer<typeof TestMessage>;
+
+/**
+ * The trigger's data points at a stored message (a message trigger: its words are a stored record,
+ * its attachments documents): a whole message is made up, not ids that point at nothing.
+ */
+export function wantsMessage(schema: JsonSchema | undefined): boolean {
+  const props = (schema as { properties?: Record<string, unknown> } | undefined)?.properties;
+  return !!props && "rawRecordId" in props && "documents" in props;
+}
+
 /** The most the operator's line about the data may hold. */
 export const TEST_DATA_NOTES_MAX = 1000;
 
@@ -105,6 +132,20 @@ export const TEST_DATA_SYSTEM = [
   ...SHARED_RULES,
   "",
   `Answer by calling the \`${TEST_DATA_TOOL.name}\` tool exactly once.`,
+].join("\n");
+
+export const TEST_MESSAGE_SYSTEM = [
+  "You make up an email sent to a back-office workflow in Mezonas, with the documents attached to it (receipts, invoices, bills, quotes), so the person building it can try it before any real message exists.",
+  "",
+  "You are given the workflow's steps and, perhaps, what the person wants the message to be.",
+  "",
+  "Rules:",
+  "- Write what a real sender would: a short email in plain words, from an invented person at an invented company, about what is attached.",
+  "- Attach what the steps expect: receipts for expenses, vendor invoices or bills for payables. One or two documents unless the person asks for more; none only if they ask for none.",
+  "- Each document has what a real one has: who issued it, a number, a date, line items with quantities and prices, a total that is the sum of the lines plus tax.",
+  ...SHARED_RULES,
+  "",
+  `Answer by calling the \`${TEST_MESSAGE_TOOL.name}\` tool exactly once.`,
 ].join("\n");
 
 export const TEST_DOCUMENT_SYSTEM = [

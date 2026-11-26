@@ -3,7 +3,9 @@
 // approval: a Change starts with its approver on, and switching it off is the Checks section's,
 // held to what the client's connection allows (invariant 8).
 
-import { TextInput } from "../../agents/ui";
+import { STEP_PURPOSE_MAX } from "@countersign/core";
+import { useId } from "react";
+import { TextArea } from "../../../ui/forms";
 import { SmallInput } from "../fields";
 import { ChecksSection } from "./ChecksSection";
 import { FieldsEditor } from "./FieldsEditor";
@@ -92,6 +94,7 @@ function Box({
 
 export function DoForm(props: StepFormProps<DoStep>) {
   const { step, env, onChange } = props;
+  const purposeField = useId();
   const at = (box: string) => props.issues.filter((i) => BOX[i.code] === box);
   const top = props.issues.filter((i) => BOX[i.code] === undefined);
   const suggestFor = (label: string, field?: string) => (
@@ -131,17 +134,32 @@ export function DoForm(props: StepFormProps<DoStep>) {
           value={step.name}
           onChange={(e) => onChange({ ...step, name: e.target.value })}
         />
-        <TextInput
-          aria-label="Purpose"
-          className="h-9 text-sm"
-          maxLength={200}
-          placeholder="Why it is there (optional)"
-          value={step.purpose ?? ""}
-          onChange={(e) => {
-            const { purpose: _p, ...rest } = step;
-            onChange(e.target.value ? { ...rest, purpose: e.target.value } : rest);
-          }}
-        />
+        {/* Owner, 2026-11-26 ("this format does not make sense"): the why is its own labelled
+            sentence, shown whole (it wraps), not a second unlabelled line that cut it off. */}
+        <div className="flex flex-col gap-1">
+          <label htmlFor={purposeField} className="text-sm text-ink">
+            Why it is there <span className="text-ink-muted">(optional)</span>
+          </label>
+          <TextArea
+            id={purposeField}
+            aria-label="Purpose"
+            data-testid="do-purpose"
+            autoSize
+            rows={2}
+            maxLength={STEP_PURPOSE_MAX}
+            className="text-sm"
+            placeholder="Looks the vendor up in QuickBooks so the bill goes to the right vendor"
+            value={step.purpose ?? ""}
+            onChange={(e) => {
+              const { purpose: _p, ...rest } = step;
+              onChange(e.target.value ? { ...rest, purpose: e.target.value } : rest);
+            }}
+          />
+          <span className="text-xs text-ink-muted">
+            One sentence the client reads in this agent's procedure. {(step.purpose ?? "").length}/
+            {STEP_PURPOSE_MAX}
+          </span>
+        </div>
       </Box>
 
       <Box title="Done by" suggest={suggestFor("Done by", "doneBy")} issues={at("doneBy")}>

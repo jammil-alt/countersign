@@ -14,6 +14,7 @@ import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import type { ResponseOf } from "../../../api/client";
 import { apiRoutes } from "../../../api/routes";
+import { sandboxUploadPath, uploadFiles } from "../../../api/upload";
 import { useApiClient } from "../../../api/useApi";
 import { ErrorNotice } from "../../../ui/ErrorState";
 import { Select, TextArea, TextInput } from "../../../ui/forms";
@@ -145,8 +146,11 @@ export interface TryPanelProps {
   sample: unknown;
   /** The workflow's name, for making up data. */
   name: string;
-  /** The trigger carries a stored document: making up data makes up a document. */
-  documentTrigger: boolean;
+  /**
+   * What the trigger carries: values (made up as JSON), a stored document (made up as a PDF, or
+   * one of yours), or a stored message and its attachments (an email made up, with PDFs or yours).
+   */
+  triggerKind: "json" | "document" | "message";
   /** Saves unsaved changes as a draft; answers the version to run, or null when saving failed. */
   prepare(): Promise<string | null>;
   /** Each step's result, for the chart and the list; [] clears them. */
@@ -181,8 +185,15 @@ export function TryPanel(props: TryPanelProps) {
   const [made, setMade] = useState<
     | { kind: "json"; missing: boolean }
     | { kind: "document"; filename: string; clientId: string }
+    | { kind: "message"; subject: string; from: string; files: string[] }
     | null
   >(null);
+  // Files of yours for the try (owner, 2026-11-26: "allow me to upload a document too"), kept in
+  // the Sandbox quietly as a try's upload is: the document the trigger names, or a message's files.
+  const [mine, setMine] = useState<{ id: string; filename: string }[]>([]);
+  const [uploading, setUploading] = useState(false);
+  const fileField = useId();
+  const kind = props.triggerKind;
   const notesField = useId();
   // ── Which steps (owner, 2026-11-26: "the whole flow, or from step x to y") ──
   const top = props.workflow.steps.filter((s) => s.kind !== "end");
@@ -203,7 +214,56 @@ export function TryPanel(props: TryPanelProps) {
   const fromField = useId();
   const toField = useId();
   // A made-up document is kept in the Sandbox only (the API refuses one for a client's agent).
-  const canMake = !(props.documentTrigger && props.agent.kind === "client");
+  const canMake = !(kind !== "json" && props.agent.kind === "client");
+  async function upload(files: File[]) {
+    if (!sandbox || files.length === 0) return;
+    setUploading(true);
+    setMakeError(null);
+    try {
+      const out = await uploadFiles(files, undefined, `${sandboxUploadPath(sandbox)}?for=try`);
+      const docs = out.results.flatMap((r) =>
+        r.kind === "document" && r.document
+          ? [
+              {
+                id: r.document.id,
+                filename: r.document.filename,
+                source: r.document.source,
+                mimeType: r.document.mimeType,
+              },
+            ]
+          : [],
+      );
+      const refused = out.results.find((r) => r.kind !== "document" || !r.document);
+      if (refused)
+        setMakeError(
+          new Error(refused.error ?? "That file can't be tried: use a PDF or an image."),
+        );
+      setClientId(sandbox);
+      if (kind === "document") {
+        const d = docs[0];
+        if (!d) return;
+        setMine([{ id: d.id, filename: d.filename }]);
+        // The payload `document.received` carries, as a try's upload sends it.
+        setText(
+          JSON.stringify(
+            { documentId: d.id, source: d.source, filename: d.filename, mimeType: d.mimeType },
+            null,
+            2,
+          ),
+        );
+        setMade(null);
+      } else {
+        setMine((was) =>
+          [...was, ...docs.map((d) => ({ id: d.id, filename: d.filename }))].slice(0, 5),
+        );
+        setMade(null);
+      }
+    } catch (e) {
+      setMakeError(e);
+    } finally {
+      setUploading(false);
+    }
+  }
   async function makeUp() {
     setMaking(true);
     setMakeError(null);
@@ -214,10 +274,20 @@ export function TryPanel(props: TryPanelProps) {
           workflow: props.workflow,
           name: props.name,
           ...(notes.trim() ? { notes: notes.trim() } : {}),
+          ...(kind === "message" && mine.length > 0 ? { attach: mine.map((m) => m.id) } : {}),
         },
       });
       setText(JSON.stringify(out.trigger, null, 2));
-      if (out.document) {
+      if (out.message) {
+        // The email and its files are in the Sandbox: the try runs there.
+        setClientId(out.message.clientId);
+        setMade({
+          kind: "message",
+          subject: out.message.subject,
+          from: out.message.from,
+          files: out.message.attachments.map((a) => a.filename),
+        });
+      } else if (out.document) {
         // The document is in the Sandbox: the try runs there.
         setClientId(out.document.clientId);
         setMade({
@@ -458,39 +528,94 @@ export function TryPanel(props: TryPanelProps) {
           {canMake ? (
             <>
               <label htmlFor={notesField} className="text-xs text-ink-muted">
-                {props.documentTrigger
-                  ? "We make up a document for it to read (a receipt, an invoice), kept in the Sandbox as a PDF. Say what it should be, or leave it to us."
-                  : "We make up what starts it from the trigger's shape. Say what it should look like, or leave it to us."}
+                {kind === "message"
+                  ? "We make up the email that starts it, with receipts or invoices attached as PDFs, kept in the Sandbox. Say what it should be, or attach your own files."
+                  : kind === "document"
+                    ? "We make up a document for it to read (a receipt, an invoice), kept in the Sandbox as a PDF. Say what it should be, or use your own file."
+                    : "We make up what starts it from the trigger's shape. Say what it should look like, or leave it to us."}
               </label>
               <TextInput
                 id={notesField}
                 data-testid="steps-try-notes"
                 maxLength={TEST_DATA_NOTES_MAX}
                 placeholder={
-                  props.documentTrigger
-                    ? "A $236 lumber receipt from a hardware store"
-                    : "A $640 lumber bill, over the approval limit"
+                  kind === "message"
+                    ? "An employee sends two receipts from a site visit"
+                    : kind === "document"
+                      ? "A $236 lumber receipt from a hardware store"
+                      : "A $640 lumber bill, over the approval limit"
                 }
                 value={notes}
                 onChange={(e) => setNotes(e.target.value)}
               />
+              {kind !== "json" && sandbox ? (
+                <div className="flex flex-col gap-1 text-xs text-ink-muted">
+                  <label htmlFor={fileField}>
+                    {kind === "message"
+                      ? "Or attach your own files (PDF or image, up to 5): we write the email around them."
+                      : "Or use your own file (a PDF or an image)."}
+                  </label>
+                  <input
+                    id={fileField}
+                    type="file"
+                    data-testid="steps-try-file"
+                    accept="application/pdf,image/*"
+                    multiple={kind === "message"}
+                    disabled={uploading || making || busy}
+                    className="text-xs text-ink"
+                    onChange={(e) => {
+                      const files = [...(e.target.files ?? [])];
+                      e.target.value = "";
+                      void upload(files);
+                    }}
+                  />
+                  {mine.length > 0 ? (
+                    <span data-testid="steps-try-mine">
+                      {kind === "document" ? "Using " : "Attached: "}
+                      {mine.map((m) => m.filename).join(", ")}
+                      {kind === "message" ? (
+                        <>
+                          {" "}
+                          <button type="button" className="underline" onClick={() => setMine([])}>
+                            Clear
+                          </button>
+                        </>
+                      ) : null}
+                    </span>
+                  ) : null}
+                </div>
+              ) : null}
               <div className="flex flex-wrap items-center gap-2">
                 <Button
                   size="sm"
                   data-testid="steps-try-make-up"
-                  working={making}
-                  disabled={making || busy}
+                  working={making || uploading}
+                  disabled={making || uploading || busy}
                   onClick={() => void makeUp()}
                 >
-                  {props.documentTrigger
-                    ? made
-                      ? "Make up another document"
-                      : "Make up a document"
-                    : made
-                      ? "Make up other data"
-                      : "Make up data"}
+                  {kind === "message"
+                    ? mine.length > 0
+                      ? "Write the email around them"
+                      : made
+                        ? "Make up another email"
+                        : "Make up an email"
+                    : kind === "document"
+                      ? made
+                        ? "Make up another document"
+                        : "Make up a document"
+                      : made
+                        ? "Make up other data"
+                        : "Make up data"}
                 </Button>
-                {made?.kind === "document" ? (
+                {made?.kind === "message" ? (
+                  <span className="text-xs text-ink-muted" data-testid="steps-try-made">
+                    Made “{made.subject}” from {made.from}
+                    {made.files.length > 0
+                      ? `, with ${made.files.join(", ")}`
+                      : ", with nothing attached"}
+                    , in the Sandbox. Run the test to read it.
+                  </span>
+                ) : made?.kind === "document" ? (
                   <span className="text-xs text-ink-muted" data-testid="steps-try-made">
                     Made {made.filename}, in the Sandbox. Run the test to read it.
                   </span>
@@ -506,8 +631,8 @@ export function TryPanel(props: TryPanelProps) {
             </>
           ) : (
             <p className="text-xs text-ink-muted">
-              A made-up document is kept in the Sandbox only. Try the template there, or run this on
-              a document the client sent.
+              A made-up document or email is kept in the Sandbox only. Try the template there, or
+              run this on what the client sent.
             </p>
           )}
         </section>

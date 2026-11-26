@@ -1,5 +1,5 @@
 import { getAgent } from "@countersign/agents";
-import { ContentStore, ensureUploadConnection } from "@countersign/connectors";
+import { ContentStore, ensureUploadConnection, UPLOAD_CONNECTOR_ID } from "@countersign/connectors";
 import {
   ASSIST_FIELDS,
   ASSIST_TOOL,
@@ -18,6 +18,8 @@ import {
   DRAFT_ASSIST_FEATURE,
   FIT_WORDS,
   fitToLength,
+  INBOUND_MESSAGE_ENTITY,
+  inboundText,
   isUuid,
   LOCALE_ENGLISH_NAMES,
   parseCoveredProcessors,
@@ -31,19 +33,26 @@ import {
   TEST_DATA_TOOL,
   TEST_DOCUMENT_SYSTEM,
   TEST_DOCUMENT_TOOL,
+  TEST_MESSAGE_SYSTEM,
+  TEST_MESSAGE_TOOL,
   TestDataAnswer,
   TestDocument,
+  TestMessage,
   testDataUserMessage,
   testDocumentFilename,
   triggerOnSchema,
   triggerReads,
+  uuidv7,
   wantsDocument,
+  wantsMessage,
 } from "@countersign/core";
 import {
   buildItem,
   clientFact,
   dealPerson,
+  document as documentTable,
   narrowToTenant,
+  rawRecord,
   type Tx,
   tenant,
 } from "@countersign/db";
@@ -300,7 +309,11 @@ export function assistDraftRoutes(app: Hono<AppEnv>): void {
     const events = Object.fromEntries(services.platform.events.list().map((e) => [e.type, e]));
     const schema = on ? triggerOnSchema(on as never, { events }) : undefined;
     const document = wantsDocument(schema);
-    if (document && row.kind === "client") {
+    // A message trigger (owner, 2026-11-26: "we were supposed to be able to fabricate attachments
+    // too, like PDFs of a receipt or invoice"): its data is ids of a stored message and its
+    // documents, so a whole email is made up and stored, attachments and all.
+    const message = !document && wantsMessage(schema);
+    if ((document || message) && row.kind === "client") {
       throw new HttpError(
         422,
         "sandbox_only",
@@ -342,10 +355,136 @@ export function assistDraftRoutes(app: Hono<AppEnv>): void {
     const ask = {
       workflow: body.name,
       steps: stepNames.slice(0, 60),
-      ...(document ? {} : { schema, reads: triggerReads(wf.steps) }),
+      ...(document || message ? {} : { schema, reads: triggerReads(wf.steps) }),
       notes: body.notes,
     };
     try {
+      const content = new ContentStore(services.deps.objects(services.env));
+      /** Draws each made-up document as a PDF and keeps it quietly in the Sandbox. */
+      const keep = async (docs: readonly TestDocument[]) => {
+        const files = await Promise.all(
+          docs.map(async (d) => ({
+            bytes: await renderTestDocument(d),
+            filename: testDocumentFilename(d),
+          })),
+        );
+        return ctx.inTx(async (scoped) => {
+          const sandbox = await sandboxClient(scoped);
+          return narrowToTenant(scoped.tx, sandbox, async (tx) => {
+            const conn = await ensureUploadConnection(tx, sandbox);
+            const stored = [];
+            for (const f of files) {
+              const doc = await storeDocument(tx, content, {
+                tenantId: sandbox,
+                source: "upload",
+                connectionId: conn.id,
+                bytes: f.bytes,
+                filename: f.filename,
+                mimeType: "application/pdf",
+                meta: { uploadedBy: ctx.session.user.id, via: "try", madeUp: true },
+                announce: false,
+              });
+              stored.push(doc);
+            }
+            return { sandbox, connectionId: conn.id, stored };
+          });
+        });
+      };
+      if (message) {
+        // Files the operator uploaded for this try: attached as they are, the email written about them.
+        const given = body.attach?.length
+          ? await ctx.inTx(async (scoped) => {
+              const sandbox = await sandboxClient(scoped);
+              return narrowToTenant(scoped.tx, sandbox, (tx) =>
+                tx
+                  .select()
+                  .from(documentTable)
+                  .where(
+                    and(
+                      eq(documentTable.tenantId, sandbox),
+                      inArray(documentTable.id, body.attach ?? []),
+                    ),
+                  ),
+              );
+            })
+          : [];
+        if (body.attach?.length && given.length !== body.attach.length) {
+          throw new HttpError(
+            422,
+            "invalid_request",
+            "an attached file isn't one of the Sandbox's",
+          );
+        }
+        const words = given.length
+          ? `${ask.notes ? `${ask.notes}. ` : ""}These files are attached already (attach nothing more): ${given
+              .map((d) => d.filename)
+              .join(", ")}.`
+          : ask.notes;
+        const out = await llm.callTool({
+          model: DEFAULT_MODELS.assist,
+          system: TEST_MESSAGE_SYSTEM,
+          messages: [{ role: "user", content: testDataUserMessage({ ...ask, notes: words }) }],
+          tool: { ...TEST_MESSAGE_TOOL, schema: TestMessage },
+          maxTokens: 8000,
+          label: "assist.test_message",
+        });
+        const made = out.value;
+        const kept = await keep(given.length ? [] : made.attachments);
+        const docs = given.length ? given : kept.stored.map((d) => d.document);
+        const ids = docs.map((d) => d.id);
+        const fresh = kept.stored.filter((d) => d.created).map((d) => d.document.id);
+        if (fresh.length > 0) ctx.defer(() => extractInBackground(services, kept.sandbox, fresh));
+        // The email is kept as an inbound one (`InboundMessage`), so the workflow's first step reads
+        // its words with `inbound.get` as it would a real one's. Marked as made up for a test.
+        const [rec] = await ctx.inTx((scoped) =>
+          narrowToTenant(scoped.tx, kept.sandbox, (tx) =>
+            tx
+              .insert(rawRecord)
+              .values({
+                tenantId: kept.sandbox,
+                connectionId: kept.connectionId,
+                connector: UPLOAD_CONNECTOR_ID,
+                entityType: INBOUND_MESSAGE_ENTITY,
+                externalId: `test-${uuidv7()}`,
+                externalVersion: null,
+                payload: {
+                  agentId: ctx.params.id,
+                  channel: "email",
+                  from: made.from.email,
+                  contactId: null,
+                  authenticated: false,
+                  subject: made.subject,
+                  date: new Date().toUTCString(),
+                  messageId: null,
+                  text: inboundText(made.text),
+                  documents: ids,
+                  madeUp: true,
+                },
+              })
+              .returning({ id: rawRecord.id }),
+          ),
+        );
+        if (!rec) throw new Error("the made-up message wasn't stored");
+        return {
+          trigger: {
+            channel: "email",
+            contactId: null,
+            userId: null,
+            rawRecordId: rec.id,
+            threadId: null,
+            messageId: null,
+            documents: ids,
+          },
+          missing: false,
+          document: null,
+          message: {
+            subject: made.subject,
+            from: `${made.from.name} <${made.from.email}>`,
+            attachments: docs.map((d) => ({ id: d.id, filename: d.filename })),
+            clientId: kept.sandbox,
+          },
+        };
+      }
       if (!document) {
         const out = await llm.callTool({
           model: DEFAULT_MODELS.assist,
@@ -365,30 +504,10 @@ export function assistDraftRoutes(app: Hono<AppEnv>): void {
         maxTokens: 4000,
         label: "assist.test_document",
       });
-      const made = out.value;
-      const bytes = await renderTestDocument(made);
-      const filename = testDocumentFilename(made);
-      const stored = await ctx.inTx(async (scoped) => {
-        const sandbox = await sandboxClient(scoped);
-        return narrowToTenant(scoped.tx, sandbox, async (tx) => {
-          const conn = await ensureUploadConnection(tx, sandbox);
-          const doc = await storeDocument(
-            tx,
-            new ContentStore(services.deps.objects(services.env)),
-            {
-              tenantId: sandbox,
-              source: "upload",
-              connectionId: conn.id,
-              bytes,
-              filename,
-              mimeType: "application/pdf",
-              meta: { uploadedBy: ctx.session.user.id, via: "try", madeUp: true },
-              announce: false,
-            },
-          );
-          return { sandbox, doc: doc.document, created: doc.created };
-        });
-      });
+      const kept = await keep([out.value]);
+      const one = kept.stored[0];
+      if (!one) throw new Error("the made-up document wasn't stored");
+      const stored = { sandbox: kept.sandbox, doc: one.document, created: one.created };
       if (stored.created) {
         ctx.defer(() => extractInBackground(services, stored.sandbox, [stored.doc.id]));
       }

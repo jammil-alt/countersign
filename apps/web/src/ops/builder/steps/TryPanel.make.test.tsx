@@ -6,6 +6,7 @@ import { MemoryRouter } from "react-router-dom";
 import { describe, expect, it } from "vitest";
 import { ApiProvider } from "../../../api/useApi";
 import { fakeApi } from "../../../test/fixtures";
+import { OpsClientsProvider } from "../../OpsLayout";
 import { TryPanel, type TryPanelProps } from "./TryPanel";
 import type { Workflow } from "./types";
 
@@ -24,13 +25,41 @@ function open(api: ReturnType<typeof fakeApi>, props: Partial<TryPanelProps> = {
           slug="bills"
           sample={{}}
           name="Bills"
-          documentTrigger={false}
+          triggerKind="json"
           prepare={async () => null}
           onMarks={() => {}}
           onSelect={() => {}}
           onClose={() => {}}
           {...props}
         />
+      </ApiProvider>
+    </MemoryRouter>,
+  );
+  return userEvent.setup();
+}
+
+const SANDBOX = "00000000-0000-4000-8000-0000000000e1";
+
+/** The panel with the operator's clients known: a Sandbox to keep made-up and uploaded files in. */
+function openWithSandbox(api: ReturnType<typeof fakeApi>, props: Partial<TryPanelProps> = {}) {
+  render(
+    <MemoryRouter>
+      <ApiProvider client={api.client}>
+        <OpsClientsProvider value={[{ id: SANDBOX, name: "Sandbox", sandbox: true } as never]}>
+          <TryPanel
+            agent={{ id: AGENT, kind: "template", tenantId: null }}
+            workflow={workflow}
+            slug="receipts"
+            sample={{}}
+            name="Receipts"
+            triggerKind="json"
+            prepare={async () => null}
+            onMarks={() => {}}
+            onSelect={() => {}}
+            onClose={() => {}}
+            {...props}
+          />
+        </OpsClientsProvider>
       </ApiProvider>
     </MemoryRouter>,
   );
@@ -70,7 +99,7 @@ describe("Make up data", () => {
         document: { id: "d1", filename: "receipt-hartwell-supply-1042.pdf", clientId: "c1" },
       }),
     });
-    const user = open(api, { documentTrigger: true });
+    const user = open(api, { triggerKind: "document" });
     expect(screen.getByTestId("steps-try-make-up")).toHaveTextContent("Make up a document");
     await user.click(screen.getByTestId("steps-try-make-up"));
     expect(await screen.findByTestId("steps-try-made")).toHaveTextContent(
@@ -81,10 +110,84 @@ describe("Make up data", () => {
     );
   });
 
+  it("makes up an email around files of yours for a message trigger", async () => {
+    const sent: unknown[] = [];
+    const DOC = "00000000-0000-4000-8000-0000000000d1";
+    const api = fakeApi({
+      [`POST /api/ops/agents/${AGENT}/test-data`]: ({ init }) => {
+        sent.push(JSON.parse(String(init.body)));
+        return {
+          trigger: { channel: "email", rawRecordId: "r1", documents: [DOC] },
+          missing: false,
+          document: null,
+          message: {
+            subject: "My receipt",
+            from: "Priya Shah <priya@example.com>",
+            attachments: [{ id: DOC, filename: "my-receipt.pdf" }],
+            clientId: SANDBOX,
+          },
+        };
+      },
+    });
+    const uploads: unknown[] = [];
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input).includes(`/api/ops/clients/${SANDBOX}/uploads`)) {
+        uploads.push(String(input));
+        return new Response(
+          JSON.stringify({
+            results: [
+              {
+                filename: "my-receipt.pdf",
+                kind: "document",
+                document: {
+                  id: DOC,
+                  filename: "my-receipt.pdf",
+                  mimeType: "application/pdf",
+                  sizeBytes: 4,
+                  source: "upload",
+                  status: "stored",
+                  receivedAt: "2026-11-26T10:00:00.000Z",
+                  pageCount: null,
+                  transactionId: null,
+                  vendorName: null,
+                  invoiceNumber: null,
+                  total: null,
+                },
+                created: true,
+                purchases: null,
+                error: null,
+              },
+            ],
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+      return realFetch(input, init);
+    }) as typeof fetch;
+    try {
+      const user = openWithSandbox(api, { triggerKind: "message" });
+      expect(screen.getByTestId("steps-try-make-up")).toHaveTextContent("Make up an email");
+      await user.upload(
+        screen.getByTestId("steps-try-file"),
+        new File(["%PDF"], "my-receipt.pdf", { type: "application/pdf" }),
+      );
+      expect(await screen.findByTestId("steps-try-mine")).toHaveTextContent("my-receipt.pdf");
+      expect(uploads[0]).toContain("?for=try");
+      await user.click(screen.getByTestId("steps-try-make-up"));
+      expect(await screen.findByTestId("steps-try-made")).toHaveTextContent(
+        "Made “My receipt” from Priya Shah <priya@example.com>, with my-receipt.pdf",
+      );
+      expect(sent[0]).toMatchObject({ attach: [DOC] });
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+  });
+
   it("offers a client's own agent no made-up document", () => {
     open(fakeApi({}), {
       agent: { id: AGENT, kind: "client", tenantId: "c2" },
-      documentTrigger: true,
+      triggerKind: "document",
     });
     expect(screen.queryByTestId("steps-try-make-up")).toBeNull();
     expect(screen.getByTestId("steps-try-make")).toHaveTextContent("kept in the Sandbox only");
