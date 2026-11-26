@@ -65,9 +65,11 @@ import {
   admin,
   allowForAgent,
   createApiHarness,
+  ended,
   FakeWorkflowStep,
   forbiddenKeys,
   OPERATOR,
+  publishStored,
 } from "./api.test-helper";
 import { handleEmail } from "./email";
 import { defaultDeps } from "./http";
@@ -119,7 +121,7 @@ const h = await createApiHarness({
 });
 afterAll(() => h?.close());
 
-const req = "{{steps.open.output.request.id}}";
+const _req = "{{steps.open.output.request.id}}";
 
 /** The buyer: platform and Materials parts only, every write behind approval. */
 function buyer(): AgentBundle {
@@ -168,37 +170,44 @@ function buyer(): AgentBundle {
         slug: "buy",
         name: "Buy what was asked by email",
         workflow: {
-          schemaVersion: 3,
-          trigger: {
-            id: "trg-email",
-            on: { type: "message", channels: ["email"], from: { tags: ["purchaser"] } },
-          },
+          schemaVersion: 5,
+          triggers: [
+            {
+              id: "trg-email",
+              on: { type: "message", channels: ["email"], from: { tags: ["purchaser"] } },
+            },
+          ],
+          outputs: [{ id: "out-done", name: "Done", kind: "nothing" }],
           steps: [
             {
               id: "msg",
               name: "Read the message",
-              kind: "skill",
-              skill: "comms.read-message",
-              input: {},
               client: { visible: false },
+              kind: "do",
+              doneBy: "rules",
+              uses: { type: "action", action: "inbound.get" },
+              input: {},
             },
             {
               id: "read",
               name: "Read the request",
-              kind: "skill",
-              skill: "materials.read-request",
+              client: { visible: true, label: "Read your request" },
+              kind: "do",
+              doneBy: "ai",
+              uses: { type: "skill", skill: "materials.read-request" },
               input: {
                 text: "{{steps.msg.output.text}}",
                 receivedAt: "{{steps.msg.output.receivedAt}}",
                 sourceId: "{{steps.msg.output.sources.0}}",
               },
-              client: { visible: true, label: "Read your request" },
             },
             {
               id: "open",
               name: "Open the request",
-              kind: "skill",
-              skill: "materials.open-request",
+              client: { visible: true, label: "Opened your request" },
+              kind: "do",
+              doneBy: "rules",
+              uses: { type: "action", action: "materials.request.create" },
               input: {
                 channel: "{{steps.msg.output.channel}}",
                 requestedByContactId: "{{steps.msg.output.from.contactId}}",
@@ -209,7 +218,6 @@ function buyer(): AgentBundle {
                 notes: "{{steps.read.output.notes}}",
                 lines: "{{steps.read.output.lines}}",
               },
-              client: { visible: true, label: "Opened your request" },
             },
             {
               id: "unsure",
@@ -227,14 +235,26 @@ function buyer(): AgentBundle {
                     {
                       id: "check",
                       name: "Check the lines",
-                      kind: "person",
-                      mode: "ask",
-                      assignee: "client_admin",
-                      title: "Which items are these, and how many?",
-                      payload: { review: "materials.request-lines", requestId: req },
-                      timeout: "3 days",
-                      onTimeout: "notify_operator",
                       client: { visible: true, label: "Asked you about lines we weren't sure of" },
+                      kind: "do",
+                      doneBy: "person",
+                      person: {
+                        mode: "ask",
+                        who: "client_admin",
+                        question: "Which items are these, and how many?",
+                        show: {
+                          review: "materials.request-lines",
+                          requestId: "{{steps.open.output.request.id}}",
+                        },
+                        deadline: {
+                          after: "3 days",
+                          hours: "clock",
+                          ifNoAnswer: "stop",
+                          tell: ["operator"],
+                        },
+                        channel: "inbox",
+                        onReject: "stop",
+                      },
                     },
                   ],
                 },
@@ -244,38 +264,42 @@ function buyer(): AgentBundle {
             {
               id: "lines",
               name: "Match the lines again",
-              kind: "skill",
-              skill: "materials.match-request",
-              input: { requestId: req },
               client: { visible: false },
+              kind: "do",
+              doneBy: "rules",
+              uses: { type: "action", action: "materials.request.match-lines" },
+              input: { requestId: "{{steps.open.output.request.id}}" },
             },
             {
               id: "vendors",
               name: "Find who sold these",
-              kind: "skill",
-              skill: "materials.find-vendors",
-              input: { catalogItemIds: "{{steps.lines.output.catalogItemIds}}", days: 1825 },
               client: { visible: true, label: "Found who sold these before" },
+              kind: "do",
+              doneBy: "rules",
+              uses: { type: "action", action: "materials.vendors-for-items" },
+              input: { catalogItemIds: "{{steps.lines.output.catalogItemIds}}", days: 1825 },
             },
             {
               id: "contacts",
               name: "Who to email",
-              kind: "skill",
-              skill: "materials.vendor-contacts",
-              input: { vendorIds: "{{steps.vendors.output.vendorIds}}" },
               client: { visible: false },
+              kind: "do",
+              doneBy: "rules",
+              uses: { type: "action", action: "materials.vendor-contacts" },
+              input: { vendorIds: "{{steps.vendors.output.vendorIds}}" },
             },
             {
               id: "rfq",
               name: "Draft the requests for quotes",
-              kind: "skill",
-              skill: "materials.request-quotes",
+              client: { visible: false },
+              kind: "do",
+              doneBy: "rules",
+              uses: { type: "action", action: "materials.quote.create" },
               input: {
-                requestId: req,
+                requestId: "{{steps.open.output.request.id}}",
                 vendorIds: "{{steps.contacts.output.vendorIds}}",
                 withDocument: true,
               },
-              client: { visible: false },
             },
             {
               id: "ask",
@@ -287,16 +311,20 @@ function buyer(): AgentBundle {
                 {
                   id: "pdf",
                   name: "Make the RFQ PDF",
-                  kind: "skill",
-                  skill: "materials.quote-document",
-                  input: { quoteRequestId: "{{item.id}}" },
                   client: { visible: false },
+                  kind: "do",
+                  doneBy: "rules",
+                  uses: { type: "action", action: "materials.quote.document" },
+                  input: { quoteRequestId: "{{item.id}}" },
                 },
                 {
                   id: "send",
                   name: "Email the RFQ",
-                  kind: "skill",
-                  skill: "comms.reach-out",
+                  client: { visible: true, label: "Asked a vendor for a quote" },
+                  checks: { approval: { required: "required" } },
+                  kind: "do",
+                  doneBy: "rules",
+                  uses: { type: "skill", skill: "comms.reach-out" },
                   input: {
                     to: { contactId: "{{item.contactId}}" },
                     about: ["{{item.id}}"],
@@ -308,16 +336,15 @@ function buyer(): AgentBundle {
                     timeout: "2 days",
                     attachments: ["{{steps.pdf.output.documentId}}"],
                   },
-                  approval: { required: "required" },
-                  client: { visible: true, label: "Asked a vendor for a quote" },
                 },
                 {
                   id: "sent",
                   name: "Record how it went",
-                  kind: "skill",
-                  skill: "materials.mark-quote-sent",
-                  input: { quoteRequestId: "{{item.id}}", reachOut: "{{steps.send.output}}" },
                   client: { visible: false },
+                  kind: "do",
+                  doneBy: "rules",
+                  uses: { type: "action", action: "materials.quote.mark-sent" },
+                  input: { quoteRequestId: "{{item.id}}", reachOut: "{{steps.send.output}}" },
                 },
                 {
                   id: "answered",
@@ -335,21 +362,24 @@ function buyer(): AgentBundle {
                         {
                           id: "readq",
                           name: "Read the quote",
-                          kind: "skill",
-                          skill: "materials.read-quote",
+                          client: { visible: false },
+                          kind: "do",
+                          doneBy: "ai",
+                          uses: { type: "skill", skill: "materials.read-quote" },
                           input: {
                             quoteRequestId: "{{item.id}}",
                             text: "{{steps.sent.output.reply.text}}",
                             documentId: "{{steps.sent.output.reply.documentId}}",
                             sourceId: "{{steps.sent.output.reply.rawRecordId}}",
                           },
-                          client: { visible: false },
                         },
                         {
                           id: "record",
                           name: "Record the quote",
-                          kind: "skill",
-                          skill: "materials.record-quote",
+                          client: { visible: true, label: "Recorded a vendor's quote" },
+                          kind: "do",
+                          doneBy: "rules",
+                          uses: { type: "action", action: "materials.quote.record" },
                           input: {
                             quoteRequestId: "{{item.id}}",
                             declined: "{{steps.readq.output.declined}}",
@@ -359,7 +389,6 @@ function buyer(): AgentBundle {
                             notes: "{{steps.readq.output.notes}}",
                             lines: "{{steps.readq.output.lines}}",
                           },
-                          client: { visible: true, label: "Recorded a vendor's quote" },
                         },
                       ],
                     },
@@ -371,46 +400,65 @@ function buyer(): AgentBundle {
             {
               id: "compare",
               name: "Compare the quotes",
-              kind: "skill",
-              skill: "materials.compare-quotes",
-              input: { requestId: req },
               client: { visible: true, label: "Compared the quotes" },
+              kind: "do",
+              doneBy: "rules",
+              uses: { type: "action", action: "materials.quote.compare" },
+              input: { requestId: "{{steps.open.output.request.id}}" },
             },
             {
               id: "choose",
               name: "Pick the vendor",
-              kind: "person",
-              mode: "ask",
-              assignee: "client_admin",
-              title: "Which vendor should we order from?",
-              payload: { review: "materials.vendor-choice", requestId: req },
-              timeout: "3 days",
-              onTimeout: "notify_operator",
               client: { visible: true, label: "Asked you which vendor to order from" },
+              kind: "do",
+              doneBy: "person",
+              person: {
+                mode: "ask",
+                who: "client_admin",
+                question: "Which vendor should we order from?",
+                show: {
+                  review: "materials.vendor-choice",
+                  requestId: "{{steps.open.output.request.id}}",
+                },
+                deadline: {
+                  after: "3 days",
+                  hours: "clock",
+                  ifNoAnswer: "stop",
+                  tell: ["operator"],
+                },
+                channel: "inbox",
+                onReject: "stop",
+              },
             },
             {
               id: "chosen",
               name: "The vendor picked",
-              kind: "skill",
-              skill: "materials.chosen-vendor",
-              input: { requestId: req },
               client: { visible: false },
+              kind: "do",
+              doneBy: "rules",
+              uses: { type: "action", action: "materials.quote.chosen" },
+              input: { requestId: "{{steps.open.output.request.id}}" },
             },
             {
               id: "po",
               name: "Make the purchase order",
-              kind: "skill",
-              skill: "materials.purchase-order",
-              input: { requestId: req, quoteRequestId: "{{steps.chosen.output.quoteRequestId}}" },
               client: { visible: true, label: "Made the purchase order" },
+              kind: "do",
+              doneBy: "rules",
+              uses: { type: "action", action: "materials.po.document" },
+              input: {
+                requestId: "{{steps.open.output.request.id}}",
+                quoteRequestId: "{{steps.chosen.output.quoteRequestId}}",
+              },
             },
             {
               id: "qv",
               name: "The vendor in QuickBooks",
-              kind: "skill",
-              skill: "materials.qbo-vendor",
-              input: { vendorId: "{{steps.po.output.vendorId}}" },
               client: { visible: false },
+              kind: "do",
+              doneBy: "rules",
+              uses: { type: "action", action: "materials.vendor.qbo" },
+              input: { vendorId: "{{steps.po.output.vendorId}}" },
             },
             {
               id: "qv-missing",
@@ -428,21 +476,23 @@ function buyer(): AgentBundle {
                     {
                       id: "qv-search",
                       name: "Look for it in QuickBooks",
-                      kind: "skill",
-                      skill: "qbo.vendor.query",
-                      input: { name: "{{steps.qv.output.searchName}}" },
                       client: { visible: false },
+                      kind: "do",
+                      doneBy: "rules",
+                      uses: { type: "action", action: "qbo.vendor.query" },
+                      input: { name: "{{steps.qv.output.searchName}}" },
                     },
                     {
                       id: "qv-match",
                       name: "Tie it by name",
-                      kind: "skill",
-                      skill: "materials.qbo-vendor",
+                      client: { visible: false },
+                      kind: "do",
+                      doneBy: "rules",
+                      uses: { type: "action", action: "materials.vendor.qbo" },
                       input: {
                         vendorId: "{{steps.po.output.vendorId}}",
                         qboVendors: "{{steps.qv-search.output.vendors}}",
                       },
-                      client: { visible: false },
                     },
                     {
                       id: "qv-none",
@@ -466,25 +516,27 @@ function buyer(): AgentBundle {
                             {
                               id: "qv-create",
                               name: "Add the vendor to QuickBooks",
-                              kind: "action",
-                              tool: QBO_TOOLS.vendorCreate,
+                              client: { visible: true, label: "Added the vendor to QuickBooks" },
+                              checks: { approval: { required: "required" } },
+                              kind: "do",
+                              doneBy: "rules",
+                              uses: { type: "action", action: QBO_TOOLS.vendorCreate },
                               input: {
                                 displayName: "{{steps.qv-match.output.create.displayName}}",
                                 email: "{{steps.qv-match.output.create.email}}",
                               },
-                              approval: { required: "required" },
-                              client: { visible: true, label: "Added the vendor to QuickBooks" },
                             },
                             {
                               id: "qv-keep",
                               name: "Keep its id",
-                              kind: "skill",
-                              skill: "materials.qbo-vendor",
+                              client: { visible: false },
+                              kind: "do",
+                              doneBy: "rules",
+                              uses: { type: "action", action: "materials.vendor.qbo" },
                               input: {
                                 vendorId: "{{steps.po.output.vendorId}}",
                                 qboVendorId: "{{steps.qv-create.output.id}}",
                               },
-                              client: { visible: false },
                             },
                           ],
                         },
@@ -499,16 +551,25 @@ function buyer(): AgentBundle {
             {
               id: "qlines",
               name: "Lay out the QuickBooks order",
-              kind: "skill",
-              skill: "materials.qbo-order-lines",
-              input: { requestId: req, quoteRequestId: "{{steps.chosen.output.quoteRequestId}}" },
               client: { visible: false },
+              kind: "do",
+              doneBy: "rules",
+              uses: { type: "action", action: "materials.po.qbo-lines" },
+              input: {
+                requestId: "{{steps.open.output.request.id}}",
+                quoteRequestId: "{{steps.chosen.output.quoteRequestId}}",
+                // The expense account purchase orders book to (the skill's setting before).
+                accountId: "81",
+              },
             },
             {
               id: "qpo",
               name: "Create the purchase order in QuickBooks",
-              kind: "action",
-              tool: QBO_TOOLS.purchaseOrderCreate,
+              client: { visible: true, label: "Created the purchase order in QuickBooks" },
+              checks: { approval: { required: "required" } },
+              kind: "do",
+              doneBy: "rules",
+              uses: { type: "action", action: QBO_TOOLS.purchaseOrderCreate },
               input: {
                 vendorId: "{{steps.qlines.output.order.vendorId}}",
                 docNumber: "{{steps.qlines.output.order.docNumber}}",
@@ -519,22 +580,24 @@ function buyer(): AgentBundle {
                 memo: "{{steps.qlines.output.order.memo}}",
                 lines: "{{steps.qlines.output.order.lines}}",
               },
-              approval: { required: "required" },
-              client: { visible: true, label: "Created the purchase order in QuickBooks" },
             },
             {
               id: "pocontact",
               name: "Who gets the order",
-              kind: "skill",
-              skill: "materials.vendor-contacts",
-              input: { vendorIds: ["{{steps.po.output.vendorId}}"] },
               client: { visible: false },
+              kind: "do",
+              doneBy: "rules",
+              uses: { type: "action", action: "materials.vendor-contacts" },
+              input: { vendorIds: ["{{steps.po.output.vendorId}}"] },
             },
             {
               id: "sendpo",
               name: "Email the purchase order",
-              kind: "skill",
-              skill: "comms.reach-out",
+              client: { visible: true, label: "Emailed the purchase order" },
+              checks: { approval: { required: "required" } },
+              kind: "do",
+              doneBy: "rules",
+              uses: { type: "skill", skill: "comms.reach-out" },
               input: {
                 to: { contactId: "{{steps.pocontact.output.vendors.0.contactId}}" },
                 about: ["{{steps.po.output.documentId}}"],
@@ -550,24 +613,24 @@ function buyer(): AgentBundle {
                 timeout: "1 day",
                 attachments: ["{{steps.po.output.documentId}}"],
               },
-              approval: { required: "required" },
-              client: { visible: true, label: "Emailed the purchase order" },
             },
             {
               id: "ordered",
               name: "Mark it ordered",
-              kind: "skill",
-              skill: "materials.update-request",
+              client: { visible: true, label: "Ordered" },
+              kind: "do",
+              doneBy: "rules",
+              uses: { type: "action", action: "materials.request.update" },
               input: {
-                requestId: req,
+                requestId: "{{steps.open.output.request.id}}",
                 order: {
                   connector: "qbo",
                   externalId: "{{steps.qpo.output.id}}",
                   quoteRequestId: "{{steps.chosen.output.quoteRequestId}}",
                 },
               },
-              client: { visible: true, label: "Ordered" },
             },
+            { id: "end", kind: "end", name: "Done", outputs: ["out-done"] },
           ],
         },
       },
@@ -959,11 +1022,7 @@ describe.skipIf(!h)("a buyer that works by email, end to end", () => {
     expect(bound.status, JSON.stringify(bound.json)).toBe(200);
     // Connectors C4: QuickBooks started low risk; the client admin allows what the buyer needs.
     await allowForAgent(H, admin("a"), ids.qbo, agentId);
-    const pub = await H.call(
-      OPERATOR,
-      "POST",
-      `/api/ops/agents/${agentId}/versions/${j(created.json).version.id}/publish`,
-    );
+    const pub = await publishStored(H, H.A.tenantId, agentId, j(created.json).version.id);
     expect(pub.status, JSON.stringify(pub.json)).toBe(200);
     const people = await H.call(admin("a"), "PUT", `/api/people/${agentId}`, {
       people: {
@@ -1032,9 +1091,9 @@ describe.skipIf(!h)("a buyer that works by email, end to end", () => {
     );
     const steps = await H.t.db.select().from(stepRun).where(eq(stepRun.runId, runId));
     const out = (node: string) => j(steps.find((s) => s.nodeId === node)?.output);
-    expect(result, JSON.stringify(steps.map((s) => [s.nodeId, s.status, s.output]))).toEqual({
-      status: "succeeded",
-    });
+    expect(result, JSON.stringify(steps.map((s) => [s.nodeId, s.status, s.output]))).toEqual(
+      ended(),
+    );
 
     // Read the request as data: the injected words never reach a system prompt.
     for (const r of model.requests) expect(JSON.stringify(r.system)).not.toContain(INJECTED);

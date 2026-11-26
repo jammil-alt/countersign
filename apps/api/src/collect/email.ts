@@ -4,9 +4,17 @@
 // uploaded on its page, so the step checks them as it checks any upload, asks again when they
 // don't pass, and stops following up when they do. Mail to a step never starts a run.
 
-import { acceptsFile, type FormDefinition, processes } from "@countersign/core";
+import { acceptsFile, type FormDefinition, processes, steps } from "@countersign/core";
 import { formRequest, run, type Tx } from "@countersign/db";
 import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
+
+/** A v5 workflow's Do step that collects reports, as the collect step the engine runs. */
+function collectStepOf(step: steps.Step): processes.CollectStep | null {
+  if (step.kind !== "do" || step.doneBy !== "person" || step.uses?.type !== "collect") return null;
+  const c = step.collect;
+  if (!c) return null;
+  return { id: step.id, name: step.name, kind: "collect", ...c } as processes.CollectStep;
+}
 
 /** The tags of the collect steps in an agent's enabled workflows (`stepTag` of each id). */
 export function collectStepTags(bundle: {
@@ -15,11 +23,11 @@ export function collectStepTags(bundle: {
   const out = new Set<string>();
   for (const wf of bundle.workflows) {
     if (!wf.enabled) continue;
-    const parsed = processes.Process.safeParse(wf.workflow);
+    const parsed = steps.Workflow.safeParse(wf.workflow);
     if (!parsed.success) continue;
-    for (const { step } of processes.allSteps(parsed.data)) {
-      if (step.kind === "collect") out.add(step.id.toLowerCase());
-    }
+    steps.eachStep(parsed.data.steps, ({ step }) => {
+      if (collectStepOf(step)) out.add(step.id.toLowerCase());
+    });
   }
   return out;
 }
@@ -157,14 +165,15 @@ export function reportStartOf(
 ): ReportStart | null {
   for (const wf of bundle.workflows) {
     if (!wf.enabled) continue;
-    const parsed = processes.Process.safeParse(wf.workflow);
+    const parsed = steps.Workflow.safeParse(wf.workflow);
     if (!parsed.success) continue;
     const first = parsed.data.steps[0];
-    if (first?.kind !== "collect" || first.id.toLowerCase() !== tag) continue;
+    const collect = first ? collectStepOf(first) : null;
+    if (!first || !collect || first.id.toLowerCase() !== tag) continue;
     const trigger = parsed.data.triggers.find(
       (t) => t.on.type === "report" && t.on.step === first.id,
     );
-    if (trigger) return { workflowSlug: wf.slug, triggerId: trigger.id, step: first };
+    if (trigger) return { workflowSlug: wf.slug, triggerId: trigger.id, step: collect };
   }
   return null;
 }

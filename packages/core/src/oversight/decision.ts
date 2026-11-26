@@ -17,7 +17,6 @@ import type {
 } from "../process/schema";
 import { type Approval, DEFAULT_APPROVAL } from "../schemas/approval";
 import { ModelChoice } from "../schemas/skill";
-import type { ActionStep, SkillStep } from "../schemas/workflow";
 import { VerifyMode } from "./verify";
 import type { AnomalySignal } from "./watch";
 
@@ -288,14 +287,8 @@ export function oversightFinishSchema(
 export const OWNER_WATCHED_KINDS = ["skill", "action", "read", "write", "conversation"] as const;
 export type OwnerWatchedKind = (typeof OWNER_WATCHED_KINDS)[number];
 
-/** A step the owner watches, v3 or v4. */
-export type OwnerWatchedStep =
-  | SkillStep
-  | ActionStep
-  | ReadStep
-  | ProcessSkillStep
-  | WriteStep
-  | ConversationStep;
+/** A step the owner watches. */
+export type OwnerWatchedStep = ReadStep | ProcessSkillStep | WriteStep | ConversationStep;
 
 export function ownerWatches(step: { kind: string }): boolean {
   return (OWNER_WATCHED_KINDS as readonly string[]).includes(step.kind);
@@ -348,14 +341,12 @@ export function ownerAllowedActions(
 }
 
 /**
- * The approval an owner's `ask` follows: who is asked, how long they have, what a "no" does. A
- * v3 step's own `approval`; a v4 step's `checks.approval`, by its first approver.
+ * The approval an owner's `ask` follows: who is asked, how long they have, what a "no" does. The
+ * step's `checks.approval`, by its first approver.
  */
 // DECISION: an ask is one question, so it goes to the first approver and waits on that approver's
 // deadline (clock time); `in_turn`, `any` and `all` belong to the step's own approval.
 export function ownerStepApproval(step: OwnerWatchedStep): Approval {
-  if (step.kind === "action") return step.approval;
-  if ("approval" in step && step.approval) return step.approval;
   const check = "checks" in step ? step.checks?.approval : undefined;
   const first = check?.approvers?.[0];
   return {

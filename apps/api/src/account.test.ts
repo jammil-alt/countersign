@@ -492,12 +492,19 @@ describe.skipIf(!h)("Sloan, the account agent", () => {
           slug: "take-request",
           name: "Take a request",
           workflow: {
-            schemaVersion: 3,
-            trigger: {
-              id: "trg-sloan",
-              on: { type: "message", channels: ["sloan"], from: { clientRoles: ["client_admin"] } },
-            },
-            steps: [],
+            schemaVersion: 5,
+            triggers: [
+              {
+                id: "trg-sloan",
+                on: {
+                  type: "message",
+                  channels: ["sloan"],
+                  from: { clientRoles: ["client_admin"] },
+                },
+              },
+            ],
+            outputs: [{ id: "out-done", name: "Done", kind: "nothing" }],
+            steps: [{ id: "end", kind: "end", name: "Done", outputs: ["out-done"] }],
           },
         },
       ],

@@ -10,7 +10,6 @@ import { and, eq, like } from "drizzle-orm";
 import { createLocalJWKSet, exportJWK, generateKeyPair, SignJWT } from "jose";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { type ApiHarness, admin, createApiHarness, OPERATOR, testBundle } from "./api.test-helper";
-import { stepModelAnswer } from "./builder-v5.test-helper";
 import { memoryRateLimiter } from "./mcp/limits";
 
 for (const level of process.env.SHOW_LOGS ? [] : (["warn", "error"] as const)) {
@@ -69,60 +68,72 @@ afterAll(() => h?.close());
 const DESCRIPTION =
   "When someone asks, fix the amount on the record in the testkit. The client approves each change.";
 
-const update = {
+const _update = {
   id: "update",
-  kind: "write",
   name: "Update the record",
-  tool: TESTKIT_UPDATE_TOOL,
-  input: { id: "r1", amount: "12.00" },
   checks: { approval: { required: "required" } },
+  kind: "do",
+  doneBy: "rules",
+  uses: { type: "action", action: TESTKIT_UPDATE_TOOL },
+  input: { id: "r1", amount: "12.00" },
 };
 
-const draftAnswer = () =>
-  stepModelAnswer({
-    toolUse: {
-      name: "submit_draft",
-      input: {
-        summary: "It fixes the record's amount and asks the client first.",
-        gaps: [],
-        startFromTemplate: null,
-        decisions: [
+const draftAnswer = () => ({
+  toolUse: {
+    name: "submit_draft",
+    input: {
+      summary: "It fixes the record's amount and asks the client first.",
+      gaps: [],
+      startFromTemplate: null,
+      decisions: [
+        {
+          id: "approve-each",
+          what: "The client approves each change to a record.",
+          why: "The description says so.",
+          kind: "assumption",
+          risk: "high",
+          category: "writes",
+          stepId: "update",
+        },
+      ],
+      bundle: {
+        schemaVersion: 1,
+        definition: {
+          schemaVersion: 2,
+          identity: { name: "Record fixer", role: "Records", mission: "Keep records right" },
+          kind: "functional",
+          model: { id: "claude-sonnet-5-5" },
+          instructions: "Fix records when asked.",
+          skills: [],
+          permissions: { mode: "suggest_only" },
+        },
+        workflows: [
           {
-            id: "approve-each",
-            what: "The client approves each change to a record.",
-            why: "The description says so.",
-            kind: "assumption",
-            risk: "high",
-            category: "writes",
-            stepId: "update",
+            slug: "main",
+            name: "Fix a record",
+            workflow: {
+              schemaVersion: 5,
+              triggers: [{ id: "t", on: { type: "manual", input: {} } }],
+              outputs: [{ id: "out-done", name: "Done", kind: "nothing" }],
+              steps: [
+                {
+                  id: "update",
+                  name: "Update the record",
+                  checks: { approval: { required: "required" } },
+                  kind: "do",
+                  doneBy: "rules",
+                  uses: { type: "action", action: TESTKIT_UPDATE_TOOL },
+                  input: { id: "r1", amount: "12.00" },
+                },
+                { id: "end", kind: "end", name: "Done", outputs: ["out-done"] },
+              ],
+            },
           },
         ],
-        bundle: {
-          schemaVersion: 1,
-          definition: {
-            schemaVersion: 2,
-            identity: { name: "Record fixer", role: "Records", mission: "Keep records right" },
-            kind: "functional",
-            model: { id: "claude-sonnet-5-5" },
-            instructions: "Fix records when asked.",
-            skills: [],
-            permissions: { mode: "suggest_only" },
-          },
-          workflows: [
-            {
-              slug: "main",
-              name: "Fix a record",
-              workflow: {
-                schemaVersion: 4,
-                triggers: [{ id: "t", on: { type: "manual", input: {} } }],
-                steps: [update],
-              },
-            },
-          ],
-        },
       },
     },
-  });
+  },
+});
 
 const editProposal = (amount: string) => ({
   toolUse: {
@@ -150,9 +161,9 @@ function setsAmount(amount: string) {
     const d = JSON.parse(content.slice(start, content.indexOf("</current_bundle>"))) as Draft;
     const step = d.workflows[0]?.workflow.steps[0] as { input: { amount: string } } | undefined;
     if (step) step.input.amount = amount;
-    return stepModelAnswer({
+    return {
       toolUse: { name: "submit_turn", input: { text: `Set it to ${amount}.`, bundle: d } },
-    });
+    };
   };
 }
 
@@ -369,9 +380,10 @@ describe.skipIf(!h)("MCP builds and step settings", () => {
 
     r = await ok("agent_steps", { agent: clientAgent, step: "update" });
     expect(r.data().steps[0].settings).toMatchObject({
-      kind: "action",
+      kind: "do",
+      uses: { type: "action" },
       input: { id: "r1", amount: "12.00" },
-      approval: { required: "required" },
+      checks: { approval: { required: "required" } },
     });
 
     // The structure and turning approval off are the back office's.
@@ -384,7 +396,7 @@ describe.skipIf(!h)("MCP builds and step settings", () => {
     r = await tool("agent_step_update", {
       agent: clientAgent,
       step: "update",
-      set: { "approval.required": "not_required" },
+      set: { "checks.approval.required": "not_required" },
     });
     expect(r.text).toContain("back_office_only");
 
@@ -392,13 +404,13 @@ describe.skipIf(!h)("MCP builds and step settings", () => {
     r = await ok("agent_step_update", {
       agent: clientAgent,
       step: "update",
-      set: { "input.amount": "14.50", "approval.approver": "client_admin" },
+      set: { "input.amount": "14.50", "checks.approval.approvers": [{ who: "client_admin" }] },
     });
     const saved = r.data();
     expect(saved.errors).toEqual([]);
     expect(saved.step.settings).toMatchObject({
       input: { amount: "14.50" },
-      approval: { required: "required", approver: "client_admin" },
+      checks: { approval: { required: "required", approvers: [{ who: "client_admin" }] } },
     });
     const live = await asDev(OPERATOR, "GET", `/api/ops/agents/${clientAgent}`);
     expect(j(live.json).agent.liveVersionId).not.toBe(saved.version.id);
@@ -447,8 +459,10 @@ describe.skipIf(!h)("MCP builds and step settings", () => {
     expect(r.text).toContain("confirm_mismatch");
 
     const bundle = testBundle();
-    const step = bundle.workflows[0]?.workflow.steps[0] as { approval: { required: string } };
-    step.approval.required = "not_required";
+    const step = bundle.workflows[0]?.workflow.steps[0] as unknown as {
+      checks: { approval: { required: string } };
+    };
+    step.checks.approval.required = "not_required";
     const loose = await asDev(OPERATOR, "POST", `/api/ops/agents/${clientAgent}/versions`, {
       bundle,
     });

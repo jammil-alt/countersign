@@ -9,7 +9,6 @@ import {
   TESTKIT_UPDATE_TOOL,
 } from "@countersign/connectors";
 import {
-  ActionStep,
   type AnomalySignal,
   OversightSettings,
   type OwnerWatchedStep,
@@ -271,20 +270,13 @@ describe("the owner reviews v4 steps", () => {
     expect(finishEnum(sent)).toEqual(["continue", "retry_with", "ask", "stop"]);
   });
 
-  it("reviews a v3 checkpoint as v0.13 did: its words, no signals in the data", async () => {
-    const step = ActionStep.parse({
-      id: "upd",
-      kind: "action",
-      name: "Update it",
-      tool: TESTKIT_UPDATE_TOOL,
-      input: { id: "{{trigger.id}}", amount: "1.00" },
-    });
+  it("reviews a checkpoint without signals in its own words, with no signals in the data", async () => {
     const model = new FakeModel([finish({ action: "continue", note: "Right.", sources: [] })]);
     const { s } = store();
     await overseeStep(
       deps(model),
       s,
-      request(step, { cause: "checkpoint", error: "", errorKey: "", output: { ok: true } }),
+      request(fix, { cause: "checkpoint", error: "", errorKey: "", output: { ok: true } }),
     );
     const sent = model.requests[0];
     expect(String(sent?.system)).toContain(CHECKPOINT_PREAMBLE);

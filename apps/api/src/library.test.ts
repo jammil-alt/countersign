@@ -32,7 +32,8 @@ function libraryBundle(): AgentBundle {
   const input = JSON.parse(JSON.stringify(base)) as AgentBundleInput;
   const w = input.workflows[0];
   if (!w) throw new Error("no workflow");
-  w.workflow.steps.push({
+  // Before the End step, so the workflow still ends.
+  w.workflow.steps.splice(-1, 0, {
     id: "size",
     name: "How big",
     kind: "fork",
@@ -45,9 +46,10 @@ function libraryBundle(): AgentBundle {
           {
             id: "tell",
             name: "Tell the lead",
-            kind: "notify",
-            channel: "thread",
-            message: "A big one",
+            kind: "do",
+            doneBy: "rules",
+            uses: { type: "tell" },
+            tell: { to: ["client_admin"], channel: "inbox", message: "A big one" },
           },
         ],
       },
@@ -96,7 +98,7 @@ describe.skipIf(!h)("the Library", () => {
     const auto = await H.call(OPERATOR, "POST", "/api/ops/automations", {
       clientId: H.A.tenantId,
       definition: {
-        schemaVersion: 1,
+        schemaVersion: 2,
         slug: "a-big-check",
         name: "A's big check",
         input: { type: "object", properties: { amount: { type: "number" } } },
@@ -104,7 +106,7 @@ describe.skipIf(!h)("the Library", () => {
           {
             id: "check",
             name: "Check the size",
-            kind: "fork",
+            kind: "if",
             paths: [
               {
                 id: "over",
@@ -138,7 +140,7 @@ describe.skipIf(!h)("the Library", () => {
     }
   });
 
-  it("lists templates with their versions, each workflow read as a v4 process", async () => {
+  it("lists templates with their versions, each workflow read in the step model", async () => {
     const before = await H.t.db.select().from(agentVersion).where(eq(agentVersion.id, v1));
     const res = await H.call(OPERATOR, "GET", "/api/ops/library/processes");
     expect(res.status, JSON.stringify(res.json)).toBe(200);
@@ -151,16 +153,16 @@ describe.skipIf(!h)("the Library", () => {
       latestVersion: 1,
       shownVersion: 1,
       usedBy: 2,
-      versions: [{ id: v1, version: 1, status: "live", schemaVersion: 3 }],
+      versions: [{ id: v1, version: 1, status: "live", schemaVersion: 5 }],
     });
     const [w] = p.workflows;
     expect(w).toMatchObject({
       slug: "fix-record",
-      schemaVersion: 3,
+      schemaVersion: 5,
       triggers: [{ id: "trg-manual", kind: "manual", event: null }],
-      // update, confirm, internal, size, and the notify inside the big path.
-      steps: 5,
-      kinds: { write: 1, person: 1, notify: 2, if: 1 },
+      // update, confirm, internal, size, the tell inside the big path, and the End.
+      steps: 6,
+      kinds: { do: 4, fork: 1, end: 1 },
       checks: { confer: 0, approval: 1, notify: 0 },
     });
     // Reading never rewrites the stored version (invariant 3).

@@ -19,7 +19,7 @@ import {
   validateForPublish,
 } from "@countersign/agents";
 import {
-  type AnyAgentBundle,
+  type AgentBundle,
   allTriggers,
   checkKindOf,
   clientLabel,
@@ -32,7 +32,6 @@ import {
   processes,
   type Rules,
   SETUP_TRIES_MAX,
-  type Step,
   type StoredTry,
   shownOnTimeline,
   stepStateLabel,
@@ -75,7 +74,7 @@ import type { SeeInput } from "./walkthrough";
 
 type DocRow = typeof document.$inferSelect;
 type RunRow = typeof run.$inferSelect;
-type AnyWorkflow = AnyAgentBundle["workflows"][number];
+type AnyWorkflow = AgentBundle["workflows"][number];
 
 /** Candidates shown, newest first. */
 const CANDIDATES_MAX = 5;
@@ -101,7 +100,7 @@ interface DocumentStart {
 // property; the try gives it that id and, where the schema has them, the document's filename,
 // type, source and sha256. Any other manual input has no document to fill it from, so an agent
 // that starts only that way has no candidates.
-export function documentStarts(bundle: Pick<AnyAgentBundle, "workflows">): DocumentStart[] {
+export function documentStarts(bundle: Pick<AgentBundle, "workflows">): DocumentStart[] {
   const out: DocumentStart[] = [];
   for (const w of bundle.workflows as AnyWorkflow[]) {
     if (w.enabled === false) continue;
@@ -255,10 +254,10 @@ export async function tryCandidates(
   row: AgentRow,
   input: Pick<SeeInput, "tenantId" | "sees">,
   /** The version's bundle to read the starts from (a sandbox run's); default the latest. */
-  bundle?: AnyAgentBundle,
+  bundle?: AgentBundle,
 ): Promise<TryCandidate[]> {
   const v = bundle ? { bundle } : await versionToTry(tx, row);
-  const starts = v ? documentStarts(v.bundle as AnyAgentBundle) : [];
+  const starts = v ? documentStarts(v.bundle as AgentBundle) : [];
   if (starts.length === 0) return [];
   const docs = await tx
     .select()
@@ -339,7 +338,7 @@ export async function startTry(
 
   const v = await versionToTry(tx, row);
   if (!v) throw new HttpError(409, "not_ready", "This agent isn't ready to try yet.");
-  const bundle = v.bundle as AnyAgentBundle;
+  const bundle = v.bundle as AgentBundle;
   const found = await startFor(tx, doc, documentStarts(bundle));
   if (!found) {
     throw new HttpError(422, "cannot_try", "This agent doesn't start on that document.");
@@ -434,11 +433,14 @@ async function namer(tx: Tx, tenantId: string, r: RunRow) {
 }
 
 /** Who a step would ask: a person step's assignee, or a write's approvers. */
-function askedOf(step: TimelineStepDef, defaultApprover: string | null): string[] | null {
-  const s = step as Record<string, unknown> & { kind: string };
-  if (s.kind === "person" && typeof s.assignee === "string") return [s.assignee];
-  if (s.kind === "write" || s.kind === "action") {
-    const checks = s.checks as { approval?: { approvers?: { who?: string }[] } } | undefined;
+function askedOf(
+  step: TimelineStepDef,
+  nodeType: string,
+  defaultApprover: string | null,
+): string[] | null {
+  if (nodeType === "person" && step.kind === "do" && step.person) return [step.person.who];
+  if (nodeType === "write") {
+    const checks = step.checks as { approval?: { approvers?: { who?: string }[] } } | undefined;
     const named = (checks?.approval?.approvers ?? [])
       .map((a) => a.who)
       .filter((w): w is string => typeof w === "string");
@@ -506,7 +508,7 @@ export async function runStepsOf(
     .select({ bundle: agentVersion.bundle })
     .from(agentVersion)
     .where(and(eq(agentVersion.id, r.agentVersionId), eq(agentVersion.tenantId, r.tenantId)));
-  const wf = (v?.bundle as AnyAgentBundle | undefined)?.workflows.find(
+  const wf = (v?.bundle as AgentBundle | undefined)?.workflows.find(
     (w) => w.slug === r.workflowSlug,
   );
   const find = stepFinder(wf?.workflow as Parameters<typeof stepFinder>[0]);
@@ -527,13 +529,14 @@ export async function runStepsOf(
     if (s.nodeType === "trigger" || checkKindOf(s.nodeId)) continue;
     const step = stepOfRow(find, s.nodeId);
     if (!step || !shownOnTimeline(step)) continue;
-    const labelled = step as Step;
-    const writes = step.kind === "write" || step.kind === "action";
+    const labelled = step;
+    // The engine kind the step ran as: a Do that changes something or asks a person.
+    const writes = s.nodeType === "write";
     const state = STEP_STATE[s.status] ?? "running";
-    const asked = askedOf(step, names.approver);
+    const asked = askedOf(step, s.nodeType, names.approver);
     const who = asked ? [...new Set(asked.map(names.name))].join(" and ") : null;
     let summary = summaryAfterLabel(s.summary, [clientLabel(labelled), step.name]);
-    if (step.kind === "person" && who) {
+    if (s.nodeType === "person" && who) {
       summary =
         state === "waiting" || state === "running"
           ? `Would ask ${who}. Nobody was asked: this is ${what}.`

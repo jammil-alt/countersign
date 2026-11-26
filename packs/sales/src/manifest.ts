@@ -1,9 +1,8 @@
 // The Sales pack's manifest (docs/plan.md §1.164; ARCHITECTURE §12.0, the Sales area's first
 // version): the record keys built from the client's synced CRM, the match and the look-up, the
-// Confirm matches card (`./review`), the confirmed matches the updates read, and the template
-// "Spreadsheet to Zoho" (`./template`).
+// Confirm matches card (`./review`) and the confirmed matches the updates read.
 // DECISION: core's `AREA_OF_PACK` names this pack as the Sales area's, so onboarding seeds a Sales
-// start and asks the area's own questions (`./intake`); the template declares `area: "sales"` too.
+// start and asks the area's own questions (`./intake`).
 
 import {
   lazy,
@@ -18,7 +17,6 @@ import { SALES_INTAKE_SECTION } from "./intake";
 import { CRM_RECORDS_PROFILE, SALES_RETIRED_TOOLS } from "./match/profile";
 import { MATCH_THRESHOLD } from "./match/score";
 import type { PackTool } from "./pack";
-import { SPREADSHEET_TO_ZOHO_TEMPLATE } from "./template";
 import {
   confirmedMatchesTool,
   keysRefreshTool,
@@ -134,7 +132,9 @@ export const salesManifest: PackManifest = lazyParse(PackManifest, () => ({
   events: [],
   tools: SALES_TOOLS.map((t) => t.spec),
   skills: SALES_SKILLS,
-  templates: [SPREADSHEET_TO_ZOHO_TEMPLATE],
+  // No agent template until Spreadsheet to Zoho is built again in the step model
+  // (docs/step-model-plan.md §12 R0: templates are built again one by one, later).
+  templates: [],
   // Step model §7, §10e (stream D): the CRM records profile, and the tools it replaces.
   matchProfiles: [CRM_RECORDS_PROFILE],
   retiredTools: SALES_RETIRED_TOOLS,

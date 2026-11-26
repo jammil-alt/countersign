@@ -3,12 +3,10 @@
 // workflows untouched. Pure, so the checks are tested without rendering.
 import {
   type AgentBundle,
-  type AnyAgentBundle,
-  AnyAgentBundle as AnyAgentBundleSchema,
+  AgentBundle as AnyAgentBundleSchema,
   DECIMAL_RE,
   MODEL_PROVIDER_NAMES,
-  modelProvider,
-  // v0.13 W2-I
+  modelProvider, // v0.13 W2-I
   NEW_AGENT_OVERSIGHT,
   type OversightReview,
   OversightSettings,
@@ -88,7 +86,7 @@ export const DEFAULT_MODEL = "claude-opus-5-5";
 /** Approvers the editor offers besides a user id. */
 export const APPROVER_ROLES = ["client_admin", "operator"] as const;
 
-export function formFromBundle(bundle: Pick<AnyAgentBundle, "definition">): DefinitionForm {
+export function formFromBundle(bundle: Pick<AgentBundle, "definition">): DefinitionForm {
   const d = bundle.definition;
   return {
     name: d.identity.name,
@@ -121,9 +119,9 @@ export function formFromBundle(bundle: Pick<AnyAgentBundle, "definition">): Defi
  * or the schema's defaults when it had none.
  */
 export function oversightWith(
-  current: AnyAgentBundle["definition"]["oversight"],
+  current: AgentBundle["definition"]["oversight"],
   review: OversightReview,
-): AnyAgentBundle["definition"]["oversight"] {
+): AgentBundle["definition"]["oversight"] {
   if (review === (current?.review ?? "off")) return current;
   return current ? { ...current, review } : OversightSettings.parse({ review });
 }
@@ -209,7 +207,7 @@ function settingValue(
  * (extra tools, agents it may ask, avatar) are kept as they were. Overrides left empty are
  * dropped, so the skill's default applies.
  */
-export function applyForm<B extends AnyAgentBundle>(
+export function applyForm<B extends AgentBundle>(
   bundle: B,
   form: DefinitionForm,
   options: readonly SkillOption[],
@@ -271,7 +269,7 @@ export function applyForm<B extends AnyAgentBundle>(
 }
 
 /** The applied bundle checked against core's schema (the last guard before saving). */
-export function checkBundle(bundle: AnyAgentBundle): string | null {
+export function checkBundle(bundle: AgentBundle): string | null {
   const parsed = AnyAgentBundleSchema.safeParse(bundle);
   if (parsed.success) return null;
   const first = parsed.error.issues[0];

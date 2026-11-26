@@ -1,9 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { type AgentBundleInput, AnyAgentBundle } from "../schemas/agent";
+import { AgentBundle, type AgentBundleInput } from "../schemas/agent";
 import type { ToolSpec } from "../schemas/tool";
 import type { TypingContext } from "../template/typer";
-import { validateBundle } from "../workflow/validate";
-import { validateAnyBundle } from "./bundle";
+import { validateBundle } from "./bundle";
 import { processPathsAt } from "./paths";
 
 const UPDATE: ToolSpec = {
@@ -39,22 +38,51 @@ const definition = {
   permissions: { mode: "act" as const },
 };
 
-const v3: AgentBundleInput = {
+/** A v5 workflow with one trigger, the steps and nothing to deliver: complete enough to publish. */
+const workflow = (trigger: string, steps: unknown[], end = "end") => ({
+  schemaVersion: 5 as const,
+  triggers: [{ id: trigger, on: { type: "manual", input: {} } }],
+  outputs: [{ id: `${end}-o`, name: "Nothing to deliver", kind: "nothing" }],
+  steps: [...steps, { id: end, kind: "end", name: "Done", outputs: [`${end}-o`] }],
+});
+
+const base: AgentBundleInput = {
   schemaVersion: 1,
   definition,
   workflows: [
     {
       slug: "old",
       name: "Old",
-      workflow: {
-        schemaVersion: 3,
-        trigger: { id: "t1", on: { type: "manual", input: {} } },
-        steps: [{ id: "w1", kind: "wait", name: "Wait", for: "1 day" }],
-      },
+      workflow: workflow(
+        "t1",
+        [{ id: "w1", kind: "wait", name: "Wait", for: "1 day" }],
+        "e1",
+      ) as never,
     },
   ],
 };
 
+const read = {
+  id: "q",
+  kind: "do",
+  doneBy: "rules",
+  name: "Read",
+  uses: { type: "action", action: QUERY.id },
+};
+const update = {
+  id: "u",
+  kind: "do",
+  doneBy: "rules",
+  name: "Update",
+  uses: { type: "action", action: UPDATE.id },
+  input: { id: "1" },
+  checks: {
+    confer: { with: [{ ai: { focus: "Do the lines add up?" } }] },
+    approval: { approvers: [{ who: "client_admin", deadline: { after: "1 day" } }] },
+  },
+};
+
+/** A v4 process, as the field picker reads an engine process. */
 const process = {
   schemaVersion: 4,
   triggers: [{ id: "t2", on: { type: "manual", input: {} } }],
@@ -74,68 +102,70 @@ const process = {
   ],
 };
 
-describe("validateAnyBundle", () => {
-  it("validates an all-v3 bundle exactly as validateBundle does", () => {
-    expect(validateAnyBundle(v3, CTX)).toEqual({ ...validateBundle(v3, CTX), warnings: [] });
-  });
-
-  it("validates v3 workflows and v4 processes side by side, naming the workflow", () => {
-    const mixed = {
-      ...v3,
-      workflows: [...(v3.workflows ?? []), { slug: "new", name: "New", workflow: process }],
+describe("validateBundle", () => {
+  it("validates two workflows side by side, naming the workflow", () => {
+    const two = {
+      ...base,
+      workflows: [
+        ...(base.workflows ?? []),
+        { slug: "new", name: "New", workflow: workflow("t2", [read, update]) },
+      ],
     };
-    const ok = validateAnyBundle(mixed, CTX);
+    const ok = validateBundle(two, CTX);
     expect(ok.errors).toEqual([]);
     expect(ok.valid).toBe(true);
-    expect(AnyAgentBundle.safeParse(ok.value).success).toBe(true);
+    expect(AgentBundle.safeParse(ok.value).success).toBe(true);
 
     const bad = {
-      ...mixed,
+      ...two,
       workflows: [
-        ...(v3.workflows ?? []),
+        ...(base.workflows ?? []),
         {
           slug: "new",
           name: "New",
-          workflow: {
-            ...process,
-            // The v3 workflow's id again, and an update with no id.
-            triggers: [{ id: "t1", on: { type: "manual", input: {} } }],
-            steps: [{ ...process.steps[1], input: {} }],
-          },
+          // The first workflow's trigger id again, and an update with no id.
+          workflow: workflow("t1", [read, { ...update, input: {} }]),
         },
       ],
     };
-    const r = validateAnyBundle(bad, CTX);
+    const r = validateBundle(bad, CTX);
     expect(r.valid).toBe(false);
     expect(r.errors).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ workflow: "new", stepId: "t1", code: "duplicate_id" }),
-        expect.objectContaining({ workflow: "new", stepId: "u", field: "input.id" }),
+        expect.objectContaining({ workflow: "new", stepId: "u", stepCode: "input_missing" }),
       ]),
     );
   });
 
-  it("reports a process's schema errors on its step and field", () => {
-    const r = validateAnyBundle(
+  it("reports a workflow's schema errors on its step and field", () => {
+    const r = validateBundle(
       {
-        ...v3,
+        ...base,
         workflows: [
           {
             slug: "new",
             name: "New",
-            workflow: {
-              ...process,
-              steps: [
-                { id: "p", kind: "person", name: "Ask", mode: "ask", assignee: "lead", title: "?" },
-              ],
-            },
+            workflow: workflow("t2", [
+              {
+                id: "p",
+                kind: "do",
+                doneBy: "person",
+                name: "Ask",
+                person: { mode: "ask", who: "lead", question: "?" },
+              },
+            ]),
           },
         ],
       },
       CTX,
     );
     expect(r.errors).toEqual([
-      expect.objectContaining({ workflow: "new", stepId: "p", code: "deadline_missing" }),
+      expect.objectContaining({
+        workflow: "new",
+        code: "schema",
+        field: "steps.0.person.deadline",
+      }),
     ]);
   });
 });
@@ -158,7 +188,7 @@ describe("processPathsAt", () => {
 describe("the agent's own models", () => {
   const MODELS = ["claude-opus-5-5", "openai:gpt-5.5", "xai:grok-4.7", "google:gemini-3.1-pro"];
   const withModels = (model: string, oversight?: string): AgentBundleInput => ({
-    ...v3,
+    ...base,
     definition: {
       ...definition,
       model: { id: model },
@@ -168,10 +198,7 @@ describe("the agent's own models", () => {
     },
   });
   const unknown = (b: AgentBundleInput) =>
-    [
-      validateBundle(b, { ...CTX, models: MODELS }),
-      validateAnyBundle(b, { ...CTX, models: MODELS }),
-    ]
+    [validateBundle(b, { ...CTX, models: MODELS }), validateBundle(b, { ...CTX, models: MODELS })]
       .flatMap((r): { code: string; field: string }[] => r.errors)
       .filter((e) => e.code === "unknown_model")
       .map((e) => e.field);
@@ -199,53 +226,5 @@ describe("the agent's own models", () => {
     expect(unknown(withModels("xai:grok-4.7", "google:gemini-3.1-pro"))).toEqual([]);
     expect(unknown(withModels("m"))).toEqual([]);
     expect(validateBundle(withModels("xai:grok-9"), CTX).errors).toEqual([]);
-  });
-});
-
-// Ways in, ways out (owner, 2026-11-23): a workflow that repeats another's steps is advice.
-describe("copied steps across workflows", () => {
-  const copy = {
-    ...process,
-    triggers: [{ id: "t3", on: { type: "manual", input: {} } }],
-    steps: [
-      { ...process.steps[0], id: "q2" },
-      { ...process.steps[0], id: "q3" },
-      { ...process.steps[1], id: "u2" },
-    ],
-  };
-  const main = { ...process, steps: [{ ...process.steps[0], id: "q0" }, ...process.steps] };
-
-  it("warns on the workflow that repeats the steps, whatever else it says", () => {
-    const r = validateAnyBundle(
-      {
-        ...v3,
-        workflows: [
-          { slug: "main", name: "Main", workflow: main },
-          { slug: "again", name: "Again", workflow: copy },
-        ],
-      },
-      CTX,
-    );
-    expect(r.warnings.filter((w) => w.code === "copied_steps")).toEqual([
-      {
-        stepId: "q2",
-        field: "",
-        code: "copied_steps",
-        workflow: "again",
-        message: expect.stringContaining('"again" repeats 3 steps of "main"'),
-      },
-    ]);
-    // A copy that is turned off is no copy.
-    const off = validateAnyBundle(
-      {
-        ...v3,
-        workflows: [
-          { slug: "main", name: "Main", workflow: main },
-          { slug: "again", name: "Again", workflow: copy, enabled: false },
-        ],
-      },
-      CTX,
-    );
-    expect(off.warnings.filter((w) => w.code === "copied_steps")).toEqual([]);
   });
 });

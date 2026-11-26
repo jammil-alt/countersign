@@ -10,7 +10,6 @@ import { FakeModel, type LlmRequest } from "@countersign/llm";
 import { eq } from "drizzle-orm";
 import { afterAll, describe, expect, it, vi } from "vitest";
 import { createApiHarness, OPERATOR } from "./api.test-helper";
-import { stepModelAnswer } from "./builder-v5.test-helper";
 import { finishSuite } from "./testbench/suite";
 
 for (const level of process.env.SHOW_LOGS ? [] : (["warn", "error"] as const)) {
@@ -21,17 +20,18 @@ const model = new FakeModel();
 const h = await createApiHarness({ llm: model });
 afterAll(() => h?.close());
 
-const update = {
+const _update = {
   id: "update",
-  kind: "write",
   name: "Update the record",
-  tool: TESTKIT_UPDATE_TOOL,
-  input: { id: "r1", amount: "12.00" },
   checks: { approval: { required: "required" } },
+  kind: "do",
+  doneBy: "rules",
+  uses: { type: "action", action: TESTKIT_UPDATE_TOOL },
+  input: { id: "r1", amount: "12.00" },
 };
 
 function draftAnswer(gaps: string[]) {
-  return stepModelAnswer({
+  return {
     toolUse: {
       name: "submit_draft",
       input: {
@@ -54,16 +54,28 @@ function draftAnswer(gaps: string[]) {
               slug: "main",
               name: "Fix a record",
               workflow: {
-                schemaVersion: 4,
+                schemaVersion: 5,
                 triggers: [{ id: "t", on: { type: "manual", input: {} } }],
-                steps: [update],
+                outputs: [{ id: "out-done", name: "Done", kind: "nothing" }],
+                steps: [
+                  {
+                    id: "update",
+                    name: "Update the record",
+                    checks: { approval: { required: "required" } },
+                    kind: "do",
+                    doneBy: "rules",
+                    uses: { type: "action", action: TESTKIT_UPDATE_TOOL },
+                    input: { id: "r1", amount: "12.00" },
+                  },
+                  { id: "end", kind: "end", name: "Done", outputs: ["out-done"] },
+                ],
               },
             },
           ],
         },
       },
     },
-  });
+  };
 }
 
 const turnAnswer = (input: Record<string, unknown>) => ({
@@ -80,9 +92,9 @@ function setsAmount(amount: string) {
     const d = JSON.parse(content.slice(start, content.indexOf("</current_bundle>"))) as Draft;
     const step = d.workflows[0]?.workflow.steps[0] as { input: { amount: string } } | undefined;
     if (step) step.input.amount = amount;
-    return stepModelAnswer({
+    return {
       toolUse: { name: "submit_turn", input: { text: `Set it to ${amount}.`, bundle: d } },
-    });
+    };
   };
 }
 

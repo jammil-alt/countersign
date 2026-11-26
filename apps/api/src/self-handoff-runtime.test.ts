@@ -13,9 +13,11 @@ import {
   type ApiHarness,
   admin,
   createApiHarness,
+  ended,
   FakeWorkflowStep,
   OPERATOR,
   testBundle,
+  v5Workflow,
 } from "./api.test-helper";
 import { executeRun } from "./runs/execute";
 import type { RunParams } from "./runs/instances";
@@ -30,47 +32,69 @@ afterAll(() => h?.close());
 const read = (id: string, name: string, input: Record<string, unknown> = {}) => ({
   id,
   name,
-  kind: "read",
-  tool: TESTKIT_QUERY_TOOL,
+  kind: "do",
+  doneBy: "rules",
+  uses: { type: "action", action: TESTKIT_QUERY_TOOL },
   input,
 });
 
 /** Check an invoice: find the document, read the invoice, save what it found. */
 const CHECK = {
-  schemaVersion: 4,
+  schemaVersion: 5,
   triggers: [{ id: "chk-manual", on: { type: "manual", input: {} } }],
+  outputs: [{ id: "out-done", name: "Done", kind: "nothing" }],
   steps: [
-    read("chk-find", "Find the document"),
-    read("chk-read", "Read the invoice", { nameContains: "{{trigger.vendor}}" }),
-    read("chk-save", "Save it", {
-      nameContains: "{{steps.chk-read.output.records.length}} found",
-    }),
+    {
+      id: "chk-find",
+      name: "Find the document",
+      kind: "do",
+      doneBy: "rules",
+      uses: { type: "action", action: TESTKIT_QUERY_TOOL },
+      input: {},
+    },
+    {
+      id: "chk-read",
+      name: "Read the invoice",
+      kind: "do",
+      doneBy: "rules",
+      uses: { type: "action", action: TESTKIT_QUERY_TOOL },
+      input: { nameContains: "{{trigger.vendor}}" },
+    },
+    {
+      id: "chk-save",
+      name: "Save it",
+      kind: "do",
+      doneBy: "rules",
+      uses: { type: "action", action: TESTKIT_QUERY_TOOL },
+      input: { nameContains: "{{steps.chk-read.output.records.length}} found" },
+    },
+    { id: "end", kind: "end", name: "Done", outputs: ["out-done"] },
   ],
 };
 
 /** Scan QuickBooks bills: for each bill, hand off to Check an invoice at step 2. */
-const scan = (to: Record<string, unknown>) => ({
-  schemaVersion: 4,
-  triggers: [{ id: "scan-manual", on: { type: "manual", input: {} } }],
-  steps: [
-    read("scan-find", "Find last week's bills"),
-    {
-      id: "scan-each",
-      name: "For each bill",
-      kind: "for_each",
-      over: "{{trigger.bills}}",
-      steps: [
-        {
-          id: "scan-hand",
-          name: "Hand off",
-          kind: "handoff",
-          to,
-          input: { nameContains: "{{item.vendor}}" },
-        },
-      ],
-    },
-  ],
-});
+const scan = (to: Record<string, unknown>) =>
+  v5Workflow(
+    [
+      read("scan-find", "Find last week's bills"),
+      {
+        id: "scan-each",
+        name: "For each bill",
+        kind: "for_each",
+        over: "{{trigger.bills}}",
+        steps: [
+          {
+            id: "scan-hand",
+            name: "Hand off",
+            kind: "handoff",
+            to,
+            input: { nameContains: "{{item.vendor}}" },
+          },
+        ],
+      },
+    ],
+    { triggers: [{ id: "scan-manual", on: { type: "manual", input: {} } }] },
+  );
 
 const TO_CHECK = { agent: "@self", step: "chk-read", workflow: "check" };
 
@@ -161,7 +185,7 @@ describe.skipIf(!h)("hand-offs to the agent's own workflow in apps/api", () => {
 
   it("starts one run per bill, of the same agent and version, at Check an invoice's step 2", async () => {
     const p = params();
-    expect(await go(p)).toEqual({ status: "succeeded" });
+    expect(await go(p)).toEqual(ended());
     // The items run side by side: in the order of their node ids.
     const fromStep = (s: RunParams) => (s.trigger.type === "handoff" ? s.trigger.fromStep : "");
     const started = startedFrom(p.runId).sort((a, b) =>
@@ -205,9 +229,9 @@ describe.skipIf(!h)("hand-offs to the agent's own workflow in apps/api", () => {
     if (!first) throw new Error("nothing was handed off");
     const [row] = await H.t.db.select().from(run).where(eq(run.id, first.runId));
     expect(row).toMatchObject({ agentId: ids.agent, agentVersionId: ids.older });
-    expect(await go(first)).toEqual({ status: "succeeded" });
+    expect(await go(first)).toEqual(ended());
     const checkRows = await rowsOf(first.runId);
-    expect(checkRows.map((r) => r.nodeId).sort()).toEqual(["chk-read", "chk-save"]);
+    expect(checkRows.map((r) => r.nodeId).sort()).toEqual(["chk-read", "chk-save", "end"]);
     expect(checkRows.find((r) => r.nodeId === "chk-read")?.input).toEqual({
       nameContains: "Acme",
     });
@@ -227,7 +251,7 @@ describe.skipIf(!h)("hand-offs to the agent's own workflow in apps/api", () => {
 
   it("a test run starts nothing and names the workflow it would have handed off to", async () => {
     const p = params({ mode: "test" });
-    expect(await go(p)).toEqual({ status: "succeeded" });
+    expect(await go(p)).toEqual(ended());
     expect(startedFrom(p.runId)).toEqual([]);
     const hand = (await rowsOf(p.runId)).find((r) => r.nodeId === "scan-each:0:scan-hand");
     expect(hand?.summary).toBe(
@@ -268,7 +292,7 @@ describe.skipIf(!h)("hand-offs to the agent's own workflow in apps/api", () => {
     const back = {
       ...CHECK,
       steps: [
-        ...CHECK.steps,
+        ...CHECK.steps.slice(0, -1),
         {
           id: "chk-hand",
           name: "Hand back",
@@ -276,6 +300,7 @@ describe.skipIf(!h)("hand-offs to the agent's own workflow in apps/api", () => {
           to: { agent: "@self", step: "scan-find", workflow: "scan" },
           input: {},
         },
+        ...CHECK.steps.slice(-1),
       ],
     };
     expect(await save(scan(TO_CHECK), back)).toEqual(["handoff_loop", "handoff_loop"]);

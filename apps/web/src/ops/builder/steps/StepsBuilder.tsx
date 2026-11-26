@@ -8,7 +8,7 @@
 // Not here yet (wave 1 stops at the forms): Try it and the Builder chat on a v5 draft need stream A's
 // executor and bundle, and the List shows the same boxes as the chart.
 
-import { type AnyAgentBundle, canonicalJson, steps, uuidv7 } from "@countersign/core";
+import { type AgentBundle, canonicalJson, steps, uuidv7 } from "@countersign/core";
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { type AgentSummary, apiRoutes, type VersionDetail } from "../../../api/routes";
@@ -24,7 +24,7 @@ import { StepPanel } from "../../flow/StepPanel";
 import { StepTable } from "../../flow/StepTable";
 import type { FlowEnds, InsertPoint } from "../../flow/types";
 import { triggerTitle } from "../../workflow/describe";
-import { addWorkflow, readProcessBundle, stepModelWorkflows } from "../model";
+import { addWorkflow } from "../model";
 import type { Member, People } from "../people";
 import { AddWorkflowForm, WorkflowSwitcher } from "../workflow-switcher";
 import { triggerFields, useStepsCatalog } from "./catalog";
@@ -72,12 +72,6 @@ export interface StepsBuilderProps {
 interface StoredBundle {
   workflows: { slug: string; workflow: unknown; [k: string]: unknown }[];
   [k: string]: unknown;
-}
-
-/** Whether a stored workflow is in the step model (`schemaVersion: 5`). */
-export function isStepModelWorkflow(bundle: unknown, slug: string): boolean {
-  const entry = (bundle as StoredBundle | null)?.workflows?.find((w) => w.slug === slug);
-  return (entry?.workflow as { schemaVersion?: unknown } | undefined)?.schemaVersion === 5;
 }
 
 /** The bundle with one workflow replaced; the rest as stored. */
@@ -162,14 +156,12 @@ function Body(
   const navigate = useNavigate();
   // The agent's workflows to switch to, and "+ Workflow" (the v4 builder's, `../workflow-switcher`).
   const [adding, setAdding] = useState(false);
-  const processBundle = useMemo(() => {
-    try {
-      return readProcessBundle(props.bundle as AnyAgentBundle, {});
-    } catch {
-      return { workflows: [] };
-    }
-  }, [props.bundle]);
-  const stepModel = useMemo(() => stepModelWorkflows(props.bundle), [props.bundle]);
+  const workflows = useMemo(
+    () =>
+      (props.bundle as { workflows: { slug: string; name: string; enabled?: boolean }[] })
+        .workflows,
+    [props.bundle],
+  );
   // Stream G: every Do step's incoming side worked out on load, opened or not; what changes shows
   // as unsaved, as an edit would.
   const [history, setHistory] = useState(() =>
@@ -286,7 +278,7 @@ function Body(
     );
 
   // ── Save and publish ──
-  const save = async (added: AnyAgentBundle["workflows"] = [], note?: string) => {
+  const save = async (added: AgentBundle["workflows"] = [], note?: string) => {
     const snapshot = workflow;
     let bundle = withWorkflow(props.bundle, props.workflow, snapshot);
     if (added.length > 0) {
@@ -392,8 +384,7 @@ function Body(
         <FlowBar
           lead={
             <WorkflowSwitcher
-              bundle={processBundle}
-              stepModel={stepModel}
+              workflows={workflows}
               current={props.workflow}
               base={props.base}
               adding={adding}
@@ -434,7 +425,7 @@ function Body(
         />
         {adding ? (
           <AddWorkflowForm
-            bundle={{ workflows: [...processBundle.workflows, ...stepModel] }}
+            bundle={{ workflows }}
             events={catalog.events.map((e) => e.type)}
             onCancel={() => setAdding(false)}
             onCreate={async (input) => {

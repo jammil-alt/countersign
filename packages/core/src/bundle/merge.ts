@@ -1,5 +1,5 @@
 import { deepEqual, isPlainObject, toPointer } from "../json";
-import type { AgentBundle, AnyAgentBundle } from "../schemas/agent";
+import type { AgentBundle } from "../schemas/agent";
 import {
   ancestors,
   buildEntity,
@@ -14,7 +14,6 @@ import {
   triggerOrderOf,
   unflattenBundle,
 } from "./flatten";
-import { type BundleReadOptions, readBundles } from "./normalize";
 
 /**
  * Three-way merge of agent bundles (ARCHITECTURE §9.3, docs/plan.md §1.2): template updates merge
@@ -57,7 +56,7 @@ export type Resolution =
   | { path: string; choice: "value"; value: unknown };
 
 /** The merged bundle: a v3 `AgentBundle` when every input was v3 (the default type). */
-export interface MergeResult<B extends AnyAgentBundle = AgentBundle> {
+export interface MergeResult<B extends AgentBundle = AgentBundle> {
   bundle: B;
   conflicts: MergeConflict[];
   /** True when nothing is left to resolve. */
@@ -413,38 +412,17 @@ function mergeFlat(
 }
 
 /**
- * Three-way merge; `resolutions` (from the merge view) settle conflicts by path. Three v3 bundles
- * merge as v3. When any side holds a v4 process, every side is read as v4 first and the result is
- * v4; `options.lookup` reads the v3 sides (required when the sides mix v3 and v4).
+ * Three-way merge; `resolutions` (from the merge view) settle conflicts by path.
  */
 export function mergeBundles(
   base: AgentBundle,
   ours: AgentBundle,
   theirs: AgentBundle,
-  resolutions?: readonly Resolution[],
-): MergeResult;
-export function mergeBundles(
-  base: AnyAgentBundle,
-  ours: AnyAgentBundle,
-  theirs: AnyAgentBundle,
-  resolutions?: readonly Resolution[],
-  options?: BundleReadOptions,
-): MergeResult<AnyAgentBundle>;
-export function mergeBundles(
-  base: AnyAgentBundle,
-  ours: AnyAgentBundle,
-  theirs: AnyAgentBundle,
   resolutions: readonly Resolution[] = [],
-  options: BundleReadOptions = {},
-): MergeResult<AnyAgentBundle> {
-  const [b, o, t] = readBundles([base, ours, theirs], options).bundles as [
-    AnyAgentBundle,
-    AnyAgentBundle,
-    AnyAgentBundle,
-  ];
-  const r = mergeFlat(flattenBundle(b), flattenBundle(o), flattenBundle(t), resolutions);
+): MergeResult<AgentBundle> {
+  const r = mergeFlat(flattenBundle(base), flattenBundle(ours), flattenBundle(theirs), resolutions);
   return {
-    bundle: unflattenBundle<AnyAgentBundle>(r.flat),
+    bundle: unflattenBundle<AgentBundle>(r.flat),
     conflicts: r.conflicts,
     clean: r.conflicts.length === 0,
     unusedResolutions: r.unused,
@@ -458,16 +436,10 @@ export function mergeBundles(
 export function applyResolutions(
   inputs: { base: AgentBundle; ours: AgentBundle; theirs: AgentBundle },
   resolutions: readonly Resolution[],
-): MergeResult;
+): MergeResult<AgentBundle>;
 export function applyResolutions(
-  inputs: { base: AnyAgentBundle; ours: AnyAgentBundle; theirs: AnyAgentBundle },
+  inputs: { base: AgentBundle; ours: AgentBundle; theirs: AgentBundle },
   resolutions: readonly Resolution[],
-  options?: BundleReadOptions,
-): MergeResult<AnyAgentBundle>;
-export function applyResolutions(
-  inputs: { base: AnyAgentBundle; ours: AnyAgentBundle; theirs: AnyAgentBundle },
-  resolutions: readonly Resolution[],
-  options: BundleReadOptions = {},
-): MergeResult<AnyAgentBundle> {
-  return mergeBundles(inputs.base, inputs.ours, inputs.theirs, resolutions, options);
+): MergeResult<AgentBundle> {
+  return mergeBundles(inputs.base, inputs.ours, inputs.theirs, resolutions);
 }

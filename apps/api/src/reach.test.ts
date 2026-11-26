@@ -24,13 +24,7 @@ import {
   fakeResend,
   fakeTwilio,
 } from "@countersign/connectors/testing";
-import {
-  AgentBundle,
-  type AgentBundleInput,
-  bundleHash,
-  optOutLine,
-  type SkillStep,
-} from "@countersign/core";
+import { AgentBundle, type AgentBundleInput, bundleHash, optOutLine } from "@countersign/core";
 import {
   agent,
   agentChange,
@@ -46,19 +40,23 @@ import {
   stepRun,
 } from "@countersign/db";
 import { FakeModel } from "@countersign/llm";
+import type { SkillStep } from "@countersign/workflows";
 import { and, eq, sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   type ApiHarness,
   admin,
   createApiHarness,
+  ended,
   FakeWorkflowStep,
   OPERATOR,
   OTHER_OPERATOR,
   optOutOf,
+  publishStored,
   signatureOf,
   unsigned,
   user,
+  v5Workflow,
 } from "./api.test-helper";
 import { handleEmail } from "./email";
 import { defaultDeps } from "./http";
@@ -126,12 +124,15 @@ function reachStep(input: Record<string, unknown> = {}) {
   return {
     id: "reach",
     name: "Ask the purchaser",
-    kind: "skill",
-    skill: "comms.reach-out",
+    client: { visible: true, label: "Asked the purchaser" },
+    checks: { approval: { required: "required" } },
+    kind: "do",
+    doneBy: "rules",
+    uses: { type: "skill", skill: "comms.reach-out" },
     input: {
       to: { role: "purchaser" },
       about: ["{{trigger.order}}"],
-      purpose: PURPOSE,
+      purpose: "Confirm Friday's delivery of the oak order",
       message: {
         template: {
           en: "Can you confirm Friday's delivery? Reply YES or NO.",
@@ -143,22 +144,12 @@ function reachStep(input: Record<string, unknown> = {}) {
       timeout: "2 days",
       ...input,
     },
-    approval: { required: "required" },
-    client: { visible: true, label: "Asked the purchaser" },
   };
 }
 
 function workflow(step = reachStep()) {
-  return {
-    schemaVersion: 3,
-    trigger: {
-      id: "trg",
-      on: {
-        type: "manual",
-        input: { type: "object", properties: { order: { type: "string" } }, required: ["order"] },
-      },
-    },
-    steps: [
+  return v5Workflow(
+    [
       step,
       {
         id: "after",
@@ -178,7 +169,22 @@ function workflow(step = reachStep()) {
         otherwise: { id: "p-else", steps: [] },
       },
     ],
-  };
+    {
+      triggers: [
+        {
+          id: "trg",
+          on: {
+            type: "manual",
+            input: {
+              type: "object",
+              properties: { order: { type: "string" } },
+              required: ["order"],
+            },
+          },
+        },
+      ],
+    },
+  );
 }
 
 function bundle(wf: unknown = workflow()): AgentBundle {
@@ -421,11 +427,7 @@ describe.skipIf(!h)("reach out through the API", () => {
     expect(j(created.json).errors ?? []).toEqual([]);
     agentId = j(created.json).agent.id;
     versionId = j(created.json).version.id;
-    const pub = await H.call(
-      OPERATOR,
-      "POST",
-      `/api/ops/agents/${agentId}/versions/${versionId}/publish`,
-    );
+    const pub = await publishStored(H, H.A.tenantId, agentId, versionId);
     expect(pub.status, JSON.stringify(pub.json)).toBe(200);
 
     const people = await H.call(OPERATOR, "GET", `/api/ops/agents/${agentId}/people`);
@@ -504,6 +506,24 @@ describe.skipIf(!h)("reach out through the API", () => {
     await H.t.db.update(agent).set({ runStatus: "active" }).where(eq(agent.id, agentId));
   });
 
+  /** Answers each item a run asks for: as the operator (a test run's), or the client's admin. */
+  const signing = (runId: string, who: "operator" | "admin" = "operator") =>
+    new FakeWorkflowStep(async (_name, type) => {
+      const items = await H.t.db.select().from(inboxItem).where(eq(inboxItem.runId, runId));
+      const item = items.find((i) => `inbox-${i.id.replace(/-/g, "")}` === type);
+      if (!item) throw new Error(`no item for ${type}`);
+      const done =
+        who === "operator"
+          ? await H.call(OPERATOR, "POST", `/api/ops/inbox/${item.id}/resolve`, {
+              decision: "approve",
+            })
+          : await H.call(admin("a"), "POST", `/api/inbox/${item.id}/resolve`, {
+              decision: "approve",
+            });
+      expect(done.status, JSON.stringify(done.json)).toBe(200);
+      return H.instances.events.find((e) => e.event.type === type)?.event.payload;
+    });
+
   it("never sends from a test run", async () => {
     const res = await H.call(
       OPERATOR,
@@ -514,8 +534,11 @@ describe.skipIf(!h)("reach out through the API", () => {
     expect(res.status, JSON.stringify(res.json)).toBe(200);
     const params = H.instances.started.get(j(res.json).runId);
     if (!params) throw new Error("no test run");
-    const result = await executeRun(deps(), params, cloudflareStepRunner(new FakeWorkflowStep()));
-    expect(result.status).toBe("succeeded");
+    // The step asks for its sign-off as in a live run; what a person approves in a test run is
+    // never sent.
+    const step = signing(params.runId);
+    const result = await executeRun(deps(), params, cloudflareStepRunner(step));
+    expect(result, JSON.stringify(result)).toMatchObject({ status: "succeeded" });
     expect(await stepOutput(params.runId, "reach")).toMatchObject({
       testRun: true,
       plan: ["sms", "voice"],
@@ -575,7 +598,7 @@ describe.skipIf(!h)("reach out through the API", () => {
       throw new Error(`unexpected wait ${type}`);
     });
     const result = await executeRun(deps(), params, cloudflareStepRunner(step));
-    expect(result).toEqual({ status: "succeeded" });
+    expect(result).toEqual(ended());
     expect(reachEvent).not.toBe("");
 
     const out = await stepOutput(params.runId, "reach");
@@ -672,9 +695,7 @@ describe.skipIf(!h)("reach out through the API", () => {
       }
       throw new Error(`unexpected wait ${type}`);
     });
-    expect(await executeRun(deps(), params, cloudflareStepRunner(step))).toEqual({
-      status: "succeeded",
-    });
+    expect(await executeRun(deps(), params, cloudflareStepRunner(step))).toEqual(ended());
     // Pat is the purchaser again for the tests below.
     expect((await bind(pat)).status).toBe(200);
   });
@@ -715,9 +736,7 @@ describe.skipIf(!h)("reach out through the API", () => {
       }
       throw new Error(`unexpected wait ${type}`);
     });
-    expect(await executeRun(deps(), params, cloudflareStepRunner(step))).toEqual({
-      status: "succeeded",
-    });
+    expect(await executeRun(deps(), params, cloudflareStepRunner(step))).toEqual(ended());
     expect(await stepOutput(params.runId, "reach")).toMatchObject({ outcome: "replied" });
 
     const cleared = await H.call(OPERATOR, "PUT", rulesPath, {
@@ -867,8 +886,9 @@ describe.skipIf(!h)("reach out through the API", () => {
 
     // The same subject while the first is open: not allowed, nothing sent.
     const dup = await startRun("PO-2001");
+    // The refusal is the step's output: it is signed off as any output is, and nothing is sent.
     expect(
-      (await executeRun(deps(), dup, cloudflareStepRunner(new FakeWorkflowStep()))).status,
+      (await executeRun(deps(), dup, cloudflareStepRunner(signing(dup.runId, "admin")))).status,
     ).toBe("succeeded");
     expect(await stepOutput(dup.runId, "reach")).toMatchObject({
       outcome: "not_allowed",
@@ -878,7 +898,7 @@ describe.skipIf(!h)("reach out through the API", () => {
 
     // STOP ends the open reach-out as opted_out; the cron escalates nothing after it.
     await textIn(PAT, "STOP");
-    expect(await firstDone).toEqual({ status: "succeeded" });
+    expect(await firstDone).toEqual(ended());
     expect(reachType).not.toBe("");
     expect(await stepOutput(first.runId, "reach")).toMatchObject({ outcome: "opted_out" });
     const placed = twilio.placed().length;
@@ -886,18 +906,21 @@ describe.skipIf(!h)("reach out through the API", () => {
     expect(twilio.placed()).toHaveLength(placed);
     expect(textsTo(PAT)).toHaveLength(textsBefore);
 
-    // A new reach-out to an opted-out contact: refused in code, nothing sent, no approval asked.
+    // A new reach-out to an opted-out contact: refused in code, nothing sent, no plan to approve.
+    // (The step's output, the refusal, is signed off as any output is; that is all it asks.)
     const later = await startRun("PO-3003");
     expect(
-      (await executeRun(deps(), later, cloudflareStepRunner(new FakeWorkflowStep()))).status,
+      (await executeRun(deps(), later, cloudflareStepRunner(signing(later.runId, "admin")))).status,
     ).toBe("succeeded");
     expect(await stepOutput(later.runId, "reach")).toMatchObject({
       outcome: "opted_out",
       attempts: 0,
     });
-    expect(await H.t.db.select().from(inboxItem).where(eq(inboxItem.runId, later.runId))).toEqual(
-      [],
-    );
+    expect(
+      (await H.t.db.select().from(inboxItem).where(eq(inboxItem.runId, later.runId))).filter(
+        (i) => i.kind === "external_action",
+      ),
+    ).toEqual([]);
     expect(textsTo(PAT)).toHaveLength(textsBefore);
   });
 
@@ -1301,7 +1324,7 @@ describe.skipIf(!h)("reach out through the API", () => {
       return H.instances.events.find((e) => e.event.type === type)?.event.payload;
     });
     const result = await executeRun(deps(), run, cloudflareStepRunner(step));
-    expect(result).toEqual({ status: "succeeded" });
+    expect(result).toEqual(ended());
     expect(await stepOutput(run.runId, "reach")).toMatchObject({
       outcome: "replied",
       channel: "email",

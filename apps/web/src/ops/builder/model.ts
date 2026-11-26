@@ -9,18 +9,13 @@
 
 import {
   type AgentBundle,
-  type AnyAgentBundle,
   canonicalJson,
   defaultWriteApproval,
-  isToolWrapper,
   type JsonObject,
   levelFor,
   type PermissionMatrix,
-  type ProcessAgentBundle,
-  type ProcessBundleWorkflow,
   parseSkillRef,
   processes,
-  readConverted,
   type SkillDefinition,
   type SkillKind,
   skillTools,
@@ -32,7 +27,6 @@ import {
   uuidv7,
   type Verb,
 } from "@countersign/core";
-import { slugify } from "../agents/definition-form";
 import { toolLabel } from "../workflow/labels";
 import { newStepWorkflow } from "./steps/model";
 
@@ -48,99 +42,17 @@ export const ROOT: ContainerId = "root";
 
 export type NewId = () => string;
 
-// ── Reading a stored version ─────────────────────────────────────────────────────────────────────
+// ── The bundle the v4 editing layer works on ──────────────────────────────────────────────────────
 
-/** What converting a v3 workflow needs from the catalog (core's `processes.ConvertLookup`). */
-export function convertLookup(ctx: TypingContext): processes.ConvertLookup {
-  return {
-    wrappedTool(skillId) {
-      const def =
-        ctx.skills?.[skillId] ??
-        Object.values(ctx.skills ?? {}).find((d) => parseSkillRef(d.id).id === skillId);
-      return def && isToolWrapper(def) ? (def.handler ?? null) : null;
-    },
-    sideEffect: (toolId) => ctx.tools?.[toolId]?.sideEffect ?? null,
-  };
-}
+/** A workflow entry read as a v4 process: what an automation's editor holds (`./steps` is v5). */
+export type ProcessBundleWorkflow = Omit<AgentBundle["workflows"][number], "workflow"> & {
+  workflow: Process;
+};
 
-/**
- * A stored bundle as the builder edits it: every v3 workflow read as a v4 process with
- * `fromWorkflowV3` and `readConverted` (every step, path and trigger id kept; nothing stored
- * changes), every v4 process as it is.
- */
-// DECISION: the conversion is the builder's starting point, not an edit: opening a v3 version shows
-// it converted with nothing unsaved, and publishing it unchanged publishes the stored version as
-// it is. The first save after an edit writes the whole bundle as v4, a new version.
-// The step model (coordinator, 2026-11-25): every new workflow starts as v5, so an agent of v3 or v4
-// workflows can hold v5 ones beside them. This builder has no v5 reading: each v5 workflow is set
-// aside here (it opens in the steps builder) and put back where it was when this builder saves
-// (`withStepModelWorkflows`), never dropped.
-export function readProcessBundle(
-  bundle: AnyAgentBundle | AgentBundle,
-  ctx: TypingContext,
-): ProcessAgentBundle {
-  const lookup = convertLookup(ctx);
-  return {
-    ...bundle,
-    workflows: bundle.workflows.flatMap((w): ProcessBundleWorkflow[] =>
-      w.workflow.schemaVersion === 5
-        ? []
-        : [
-            {
-              ...w,
-              workflow:
-                w.workflow.schemaVersion === 4
-                  ? w.workflow
-                  : readConverted(processes.fromWorkflowV3(w.workflow, lookup)),
-            },
-          ],
-    ),
-  };
-}
-
-/** The stored bundle's v5 workflows (set aside by `readProcessBundle`), by slug. */
-export function stepModelWorkflows(stored: unknown): AnyAgentBundle["workflows"] {
-  const list = (stored as { workflows?: AnyAgentBundle["workflows"] } | null)?.workflows ?? [];
-  return list.filter((w) => w.workflow.schemaVersion === 5);
-}
-
-/**
- * What this builder saves: its processes, with the stored bundle's v5 workflows put back where they
- * were (one this builder's edits removed or renamed over is left as stored; a new process goes last).
- */
-export function withStepModelWorkflows(
-  edited: ProcessAgentBundle,
-  stored: unknown,
-  added: AnyAgentBundle["workflows"] = [],
-): AnyAgentBundle {
-  const aside = [...stepModelWorkflows(stored), ...added];
-  if (aside.length === 0) return edited as AnyAgentBundle;
-  const order = ((stored as { workflows?: { slug: string }[] } | null)?.workflows ?? []).map(
-    (w) => w.slug,
-  );
-  const byEdit = new Map(edited.workflows.map((w) => [w.slug, w] as const));
-  const out: AnyAgentBundle["workflows"] = [];
-  const used = new Set<string>();
-  for (const slug of order) {
-    const v5 = aside.find((w) => w.slug === slug);
-    const mine = byEdit.get(slug);
-    if (mine) out.push(mine);
-    else if (v5) out.push(v5);
-    else continue;
-    used.add(slug);
-  }
-  for (const w of [...edited.workflows, ...aside]) {
-    if (used.has(w.slug)) continue;
-    used.add(w.slug);
-    out.push(w);
-  }
-  return { ...edited, workflows: out } as AnyAgentBundle;
-}
-
-/** Whether any workflow of the stored bundle is still v3 (it opens converted). */
-export function holdsV3(bundle: AnyAgentBundle | AgentBundle): boolean {
-  return bundle.workflows.some((w) => w.workflow.schemaVersion === 3);
-}
+/** A bundle shape whose workflows are v4 processes; the automation editor's draft is one. */
+export type ProcessAgentBundle = Omit<AgentBundle, "workflows"> & {
+  workflows: ProcessBundleWorkflow[];
+};
 
 // ── Containers ───────────────────────────────────────────────────────────────────────────────────
 
@@ -275,22 +187,6 @@ export function removeStep(process: Process, id: string): Process {
 }
 
 /**
- * v0.18: a missing step replaced by a step from the palette, in its place. The new step takes the
- * missing step's id, so later steps' references to it follow (and the validator says if the new
- * step's output lacks what they read).
- */
-// DECISION (v0.18): the replacement keeps the missing step's id rather than a new one: a missing
-// step never ran or published, so no history depends on its id, and the hole and what fills it are
-// one step to the steps after it (and to a merge, which follows ids).
-export function replaceStep(process: Process, id: string, step: Step): Process {
-  const loc = locate(process, id);
-  if (!loc) return process;
-  return updateContainer(process, loc.container, (steps) =>
-    steps.map((s) => (s.id === id ? ({ ...step, id } as Step) : s)),
-  );
-}
-
-/**
  * Moves a step (with whatever it holds) to `index` of `container`, the index counted after the
  * step has left its place: the same rule as arrayMove within one list. A step can't move into
  * itself; that move changes nothing.
@@ -360,78 +256,17 @@ export function removeTrigger(process: Process, id: string): Process {
 export function addWorkflow(
   input: { slug: string; name: string; on: TriggerOn },
   newId: NewId = uuidv7,
-): AnyAgentBundle["workflows"][number] {
+): AgentBundle["workflows"][number] {
   return {
     slug: input.slug,
     name: input.name,
     enabled: true,
     workflow: newStepWorkflow(input.on as steps.Workflow["triggers"][number]["on"], newId),
-  } as AnyAgentBundle["workflows"][number];
+  } as AgentBundle["workflows"][number];
 }
 
 /** A start on the main workflow with nothing to it until it gets one: started by hand. */
 export const BY_HAND: TriggerOn = { type: "manual", input: { type: "object", properties: {} } };
-
-/**
- * "Add steps" on one of the main workflow's starts (owner, 2026-11-24): the start moves to a
- * workflow of its own (`name`, a free slug from it), keeping its id, whose one step hands each run
- * into the main workflow at its first step that takes an input, with that step's input. The same
- * trigger fills the same references, so the main workflow runs as before; steps added before the
- * hand-in are the start's own lead-in (§1.240). Null when there is nothing to move.
- */
-// DECISION: the main workflow keeps at least one start (the schema's minimum). When the moved start
-// was its only one, it starts by hand instead: that starts nothing on its own.
-// DECISION: the new workflow goes last, as "+ Workflow" puts one; its tab chip says it's a trigger.
-export function startToWorkflow(
-  bundle: ProcessAgentBundle,
-  main: string,
-  triggerId: string,
-  name: string,
-  newId: NewId = uuidv7,
-  /** Slugs taken outside `bundle` (the agent's v5 workflows, set aside by this builder). */
-  taken: readonly string[] = [],
-): {
-  bundle: ProcessAgentBundle;
-  slug: string;
-  /** The new workflow, in the step model: saved beside the processes (`withStepModelWorkflows`). */
-  added: AnyAgentBundle["workflows"][number];
-} | null {
-  const entry = bundle.workflows.find((w) => w.slug === main);
-  const trigger = entry?.workflow.triggers.find((t) => t.id === triggerId);
-  if (!entry || !trigger) return null;
-  const base = slugify(name).replace(/-+$/, "") || "trigger";
-  const used = (s: string) => bundle.workflows.some((w) => w.slug === s) || taken.includes(s);
-  let slug = base;
-  for (let n = 2; used(slug); n++) slug = `${base}-${n}`;
-  const steps_ = entry.workflow.steps;
-  const at = steps_.find((s) => processes.HANDOFF_ENTRY_KINDS.has(s.kind));
-  const handIn: steps.Step = {
-    id: newId(),
-    kind: "handoff",
-    name: at
-      ? `Hand off to ${entry.name} at ${processes.handoffStepLabel(steps_, at.id)}`
-      : `Hand off to ${entry.name}`,
-    to: { agent: processes.SELF_AGENT, workflow: main, step: at?.id ?? "" },
-    input: at && "input" in at && at.input ? { ...at.input } : {},
-  } as steps.Step;
-  const rest = entry.workflow.triggers.filter((t) => t.id !== triggerId);
-  const moved = newStepWorkflow(trigger.on as steps.Workflow["triggers"][number]["on"], newId, [
-    handIn,
-  ]);
-  // The start keeps its id (its runs' history and its hooks are the same start's).
-  moved.triggers = [trigger as steps.Workflow["triggers"][number]];
-  const added = {
-    slug,
-    name,
-    enabled: true,
-    workflow: moved,
-  } as AnyAgentBundle["workflows"][number];
-  const out = editWorkflow(bundle, main, (w) => ({
-    ...w,
-    triggers: rest.length ? rest : [{ id: newId(), on: BY_HAND }],
-  }));
-  return { bundle: out, slug, added };
-}
 
 // ── New steps ────────────────────────────────────────────────────────────────────────────────────
 
@@ -681,7 +516,7 @@ export function createStep(item: PaletteItem, ctx: TypingContext, newId: NewId =
 
 /** The tools the agent may use: its extra tools and every tool its skills bring. */
 export function allowedTools(
-  bundle: Pick<AnyAgentBundle, "definition">,
+  bundle: Pick<AgentBundle, "definition">,
   ctx: TypingContext,
 ): Set<string> {
   const ids = new Set(bundle.definition.extraTools);
@@ -690,37 +525,6 @@ export function allowedTools(
     if (def) for (const t of skillTools(def)) ids.add(t);
   }
   return ids;
-}
-
-/**
- * The definition changes a new step needs to be allowed: a library skill joins the agent's skills,
- * a read or write step's tool its extra tools.
- */
-// DECISION: placing a library skill or a tool the agent can't use yet adds it to the agent's
-// skills or extra tools in the same edit (one undo), instead of leaving an error to fix elsewhere.
-export function allowStep(
-  bundle: ProcessAgentBundle,
-  step: Step,
-  ctx: TypingContext,
-): ProcessAgentBundle {
-  const def = bundle.definition;
-  if (step.kind === "skill" && step.agent === undefined) {
-    const id = parseSkillRef(step.skill).id;
-    if (def.skills.some((s) => parseSkillRef(s.skill).id === id)) return bundle;
-    return {
-      ...bundle,
-      definition: { ...def, skills: [...def.skills, { skill: step.skill, settings: {} }] },
-    };
-  }
-  // An action write step names no tool: it brings its resolved tool in when it runs.
-  if (
-    (step.kind === "read" || step.kind === "write") &&
-    step.tool !== undefined &&
-    !allowedTools(bundle, ctx).has(step.tool)
-  ) {
-    return { ...bundle, definition: { ...def, extraTools: [...def.extraTools, step.tool] } };
-  }
-  return bundle;
 }
 
 // ── Actions (skill model, 2026-11-10) ────────────────────────────────────────────────────────────
@@ -785,23 +589,6 @@ export function actionTarget(
   };
 }
 
-/**
- * Puts an action write step right after `stepId` (the builder's offer after a skill whose output
- * fits), its input pre-mapped from that step's output. Null when the step isn't in the process.
- */
-export function addActionAfter(
-  process: Process,
-  stepId: string,
-  fit: processes.ActionFit,
-  ctx: TypingContext,
-  newId: NewId = uuidv7,
-): { process: Process; stepId: string } | null {
-  const loc = locate(process, stepId);
-  if (!loc) return null;
-  const step = createStep(actionItem(fit.action, fit.input), ctx, newId);
-  return { process: insertStep(process, loc.container, loc.index + 1, step), stepId: step.id };
-}
-
 // ── Approvals ────────────────────────────────────────────────────────────────────────────────────
 
 const VERB_NOUN: Record<Verb, string> = {
@@ -860,11 +647,6 @@ export function looseningBlocked(writes: readonly ToolSpec[], env: ApprovalEnv):
     return "The agent's mode is suggest only, so every change waits for a person. Switch it to act in Settings.";
   }
   return null;
-}
-
-/** Whether the approval lets a write through without a person's yes on some runs. */
-export function isLoosened(approval: ApprovalCheck | undefined): boolean {
-  return processes.approvalLoosenings(approval, "a").length > 0;
 }
 
 /**

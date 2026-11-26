@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { isUuid } from "../ids";
-import { JsonSchema, NodeId, Slug } from "../schemas/common";
+import { JsonSchema, Slug } from "../schemas/common";
 import { TableColumn } from "../schemas/table";
 import { defineRoute } from "./contract";
 
@@ -353,25 +353,6 @@ export const builderRoutes = {
     params: IdParams,
     body: z.strictObject({ turnId: Id, changeId: z.string().min(1).max(500) }),
     response: SessionDetail.extend({ turn: BuilderTurnView }),
-  }),
-  opsBuilderSaveAutomation: defineRoute({
-    method: "POST",
-    path: "/api/ops/builder/sessions/:id/automation",
-    auth: "session",
-    roles: OPS,
-    summary: "Save selected steps of the draft as an automation draft, used in their place",
-    params: IdParams,
-    body: z.strictObject({
-      stepIds: z.array(NodeId).min(1).max(100),
-      slug: Slug,
-      name: z.string().trim().min(1).max(120),
-      description: z.string().max(2000).optional(),
-    }),
-    response: SessionDetail.extend({
-      turn: BuilderTurnView,
-      automation: z.object({ id: z.string(), slug: z.string(), ref: z.string() }),
-      automationVersion: z.object({ id: z.string(), version: z.number().int() }),
-    }),
   }),
   opsBuilderSave: defineRoute({
     method: "POST",

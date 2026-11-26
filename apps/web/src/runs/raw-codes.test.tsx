@@ -7,7 +7,7 @@ import { MemoryRouter } from "react-router-dom";
 import { describe, expect, it } from "vitest";
 import { connectorName } from "../inbox/change";
 import { readableProblem } from "../ops/builder/problems";
-import { fieldText, stepNames } from "../ops/workflow/describe";
+import { fieldText } from "../ops/workflow/describe";
 import { payloadRows } from "../records/RecordDetail";
 import { refLabel, SourceLinks } from "../records/SourceLinks";
 import { cost } from "../usage/format";
@@ -47,13 +47,7 @@ describe("raw codes in words", () => {
     expect(screen.queryByText("vendor:59")).toBeNull();
   });
 
-  it("names a trigger and a trigger's field", () => {
-    const names = stepNames({
-      schemaVersion: 3,
-      trigger: { id: "trg-invoice-read", on: { type: "manual" } },
-      steps: [],
-    } as unknown as Parameters<typeof stepNames>[0]);
-    expect(names.get("trg-invoice-read")).toBe("Trigger");
+  it("names a trigger's field", () => {
     expect(fieldText("{{trigger.totalsValid}}")).toBe("trigger · totals valid");
   });
 

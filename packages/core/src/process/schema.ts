@@ -1,3 +1,9 @@
+// ENGINE-INTERNAL (wave 4): these are the steps the executor runs, not a stored format. Nothing
+// stores a v4 process or a v3 workflow any more: a bundle holds v5 workflows (`steps/schema.ts`),
+// and `packages/workflows/src/step-model.ts` loads each v5 step as one of the steps below for a run.
+// Automations (`schemaVersion: 2`) still hold them. Moving the engines to the v5 shapes is a
+// follow-up (docs/step-model-plan.md §12).
+
 // R1 (docs/plan.md §1.86, §9): the process schema, workflow `schemaVersion: 4`.
 // Six kinds of work (read, skill, write, person, conversation, notify) plus logic (if, for_each,
 // wait, stop, process), and checks on any step (confer, approval, notify) with conditions and one

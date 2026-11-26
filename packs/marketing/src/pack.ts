@@ -12,7 +12,6 @@
 
 import {
   type AgentBundle,
-  type AnyAgentBundle,
   type EventTypeSpec,
   lazy,
   lazyObject,
@@ -197,7 +196,7 @@ export class PackRefusal extends Error {
 export interface PackTemplate {
   slug: string;
   bundle: AgentBundle;
-  versions?: readonly AnyAgentBundle[];
+  versions?: readonly AgentBundle[];
 }
 
 /** A portal screen (M50); the back office's screens are apps/web's own routes. */

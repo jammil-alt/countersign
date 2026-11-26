@@ -8,9 +8,8 @@ import {
   OversightSettings,
 } from "@countersign/core";
 import { describe, expect, it } from "vitest";
-import { executeWorkflow } from "./executor";
 import { FakeStepRunner } from "./fake-runner";
-import { Harness, SKILL, WRITE_TOOL, wf } from "./fakes.test-helper";
+import { executeProcess, Harness, SKILL, WRITE_TOOL, wf } from "./fakes.test-helper";
 import type { OversightPort, OversightRequest, OversightVerdict } from "./ports";
 import { inboxEventType } from "./runner";
 
@@ -42,7 +41,7 @@ const steps = (readOver: Record<string, unknown> = {}) => [
   },
   {
     id: "bill",
-    kind: "action",
+    kind: "write",
     name: "Create the bill",
     tool: WRITE_TOOL.id,
     input: { total: "{{steps.read.output.total}}" },
@@ -63,7 +62,7 @@ describe("checkpoint reviews", () => {
     const h = new Harness();
     reads(h);
     const o = port();
-    const result = await executeWorkflow(
+    const result = await executeProcess(
       new FakeStepRunner(),
       h.context({ catalog: CATALOG, oversight: { port: o.port, settings: settings("failures") } }),
       wf(steps()),
@@ -78,7 +77,7 @@ describe("checkpoint reviews", () => {
     reads(h);
     const o = port({ action: "continue", note: "The total matches the lines." });
     const runner = new FakeStepRunner();
-    const result = await executeWorkflow(
+    const result = await executeProcess(
       runner,
       h.context({
         catalog: CATALOG,
@@ -114,7 +113,7 @@ describe("checkpoint reviews", () => {
       },
       { action: "continue", note: "Now it matches." },
     );
-    const result = await executeWorkflow(
+    const result = await executeProcess(
       new FakeStepRunner(),
       h.context({
         catalog: CATALOG,
@@ -153,7 +152,7 @@ describe("checkpoint reviews", () => {
       expect(h.agentCalls.map((c) => c.nodeId)).toEqual(["read"]);
       runner.deliver(type, { approved: true, by: "u-1" });
     };
-    const result = await executeWorkflow(
+    const result = await executeProcess(
       runner,
       h.context({
         catalog: CATALOG,
@@ -172,7 +171,7 @@ describe("checkpoint reviews", () => {
     reads(h);
     const item = h.approvalItem({ approved: false, by: "u-1" });
     const o = port({ action: "ask", inboxItemId: item, note: "Ask." });
-    const result = await executeWorkflow(
+    const result = await executeProcess(
       new FakeStepRunner(),
       h.context({
         catalog: CATALOG,
@@ -194,7 +193,7 @@ describe("checkpoint reviews", () => {
     const h = new Harness();
     reads(h);
     const o = port({ action: "stop", note: "This isn't an invoice." });
-    const result = await executeWorkflow(
+    const result = await executeProcess(
       new FakeStepRunner(),
       h.context({
         catalog: CATALOG,
@@ -220,7 +219,7 @@ describe("checkpoint reviews", () => {
       { action: "continue", note: "b" },
       { action: "continue", note: "c" },
     );
-    const result = await executeWorkflow(
+    const result = await executeProcess(
       new FakeStepRunner(),
       h.context({
         catalog: CATALOG,
@@ -235,7 +234,7 @@ describe("checkpoint reviews", () => {
 
   it("finds checkpoints in a fork, in a loop and inside an automation", async () => {
     const auto: AutomationDefinition = AutomationSchema.parse({
-      schemaVersion: 1,
+      schemaVersion: 2,
       slug: "bill-it",
       name: "Bill it",
       input: { type: "object", properties: { doc: { type: "string" } } },
@@ -247,7 +246,7 @@ describe("checkpoint reviews", () => {
     const o = port(
       ...Array.from({ length: 6 }, () => ({ action: "continue", note: "ok" }) as const),
     );
-    const result = await executeWorkflow(
+    const result = await executeProcess(
       new FakeStepRunner(),
       h.context({
         catalog: CATALOG,
@@ -257,7 +256,7 @@ describe("checkpoint reviews", () => {
       wf([
         {
           id: "split",
-          kind: "fork",
+          kind: "if",
           name: "Split",
           paths: [
             {
@@ -289,7 +288,7 @@ describe("checkpoint reviews", () => {
             },
           ],
         },
-        { id: "use", kind: "use_automation", name: "Bill it", automation: "bill-it@1", input: {} },
+        { id: "use", kind: "process", name: "Bill it", process: "bill-it@1", input: {} },
       ]),
       { doc: "d-1", docs: ["a", "b"] },
     );

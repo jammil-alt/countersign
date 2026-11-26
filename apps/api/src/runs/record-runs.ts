@@ -6,7 +6,7 @@
 // the one client as well as relying on RLS (invariant 1).
 
 import { RECORD_RUNS_LIMIT, type RecordRun, type RecordRunRole } from "@countersign/core";
-import { agent, run, runSubject, stepRun, type Tx, vendor } from "@countersign/db";
+import { agent, run, runSubject, stepRun, type Tx } from "@countersign/db";
 import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { agentWhere } from "../assigned";
 import { iso } from "../http";

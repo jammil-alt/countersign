@@ -13,7 +13,7 @@
 // Idempotent: fixed ids, and a row already there is left as it is.
 
 import {
-  AnyAgentBundle,
+  AgentBundle,
   type BriefFieldKey,
   type BuildPhase,
   bundleHash,
@@ -311,49 +311,60 @@ const STATEMENT: DraftBuild = {
         slug: "monthly-statement",
         name: "When a statement arrives",
         workflow: {
-          schemaVersion: 4,
+          schemaVersion: 5,
           triggers: [manualDocument("trg-statement")],
+          outputs: [],
           steps: [
             {
               id: "read",
-              kind: "skill",
+              kind: "do",
+              doneBy: "ai",
+              uses: { type: "skill", skill: "docs.read-document" },
               name: "Read the statement",
-              skill: "docs.read-document",
               input: { documentId: "{{trigger.documentId}}" },
               client: { visible: true, label: "Read the vendor's statement" },
             },
             {
               id: "compare",
-              kind: "missing",
+              kind: "do",
+              uses: {
+                type: "missing",
+                need: "No skill pairs a statement's lines with the vendor's open bills yet.",
+                fill: "skill",
+              },
               name: "Match statement lines to bills",
-              need: "No skill pairs a statement's lines with the vendor's open bills yet.",
-              fill: "skill",
               client: { visible: true, label: "Matched the statement to your bills" },
             },
             {
               id: "ask-vendor",
-              kind: "missing",
+              kind: "do",
+              uses: {
+                type: "missing",
+                need: "Sending a vendor an email from the client's mailbox isn't in the catalog yet.",
+                fill: "tool",
+              },
               name: "Ask the vendor for a missing invoice",
-              need: "Sending a vendor an email from the client's mailbox isn't in the catalog yet.",
-              fill: "tool",
               client: { visible: true, label: "Asked the vendor for a missing invoice" },
             },
             {
               id: "review",
-              kind: "person",
-              mode: "approve",
+              kind: "do",
+              doneBy: "person",
               name: "Review the differences",
-              title: "Check the differences on a vendor statement",
-              assignee: "client_admin",
-              channel: "inbox",
-              payload: { documentId: "{{trigger.documentId}}" },
-              deadline: {
-                after: "3 days",
-                hours: "business",
-                remind: ["1 day"],
-                ifNoAnswer: "stop",
+              person: {
+                mode: "approve",
+                who: "client_admin",
+                question: "Check the differences on a vendor statement",
+                show: { documentId: "{{trigger.documentId}}" },
+                deadline: {
+                  after: "3 days",
+                  hours: "business",
+                  remind: ["1 day"],
+                  ifNoAnswer: "stop",
+                },
+                channel: "inbox",
+                onReject: "stop",
               },
-              onReject: "stop",
               client: { visible: true, label: "Asked you to check the differences" },
             },
           ],
@@ -490,30 +501,37 @@ function deliveryTickets(clientId: string): DraftBuild {
           slug: "ticket-arrives",
           name: "When a delivery ticket arrives",
           workflow: {
-            schemaVersion: 4,
+            schemaVersion: 5,
             triggers: [manualDocument("trg-ticket")],
+            outputs: [],
             steps: [
               {
                 id: "read",
-                kind: "skill",
+                kind: "do",
+                doneBy: "ai",
+                uses: { type: "skill", skill: "docs.read-document" },
                 name: "Read the delivery ticket",
-                skill: "docs.read-document",
                 input: { documentId: "{{trigger.documentId}}" },
                 client: { visible: true, label: "Read the delivery ticket" },
               },
               {
                 id: "match-po",
-                kind: "missing",
+                kind: "do",
+                uses: {
+                  type: "missing",
+                  need: "No skill pairs a delivery ticket's lines with a purchase order yet.",
+                  fill: "skill",
+                },
                 name: "Match the ticket to its purchase order",
-                need: "No skill pairs a delivery ticket's lines with a purchase order yet.",
-                fill: "skill",
                 client: { visible: true, label: "Checked the delivery against the order" },
               },
               {
                 id: "tell",
-                kind: "notify",
+                kind: "do",
+                doneBy: "rules",
+                uses: { type: "tell" },
                 name: "Say what was different",
-                notify: {
+                tell: {
                   to: ["client_admin"],
                   channel: "inbox",
                   message: "A delivery ticket was checked against its order.",
@@ -616,20 +634,22 @@ function receiptChaser(clientId: string): DraftBuild {
           slug: "card-purchase",
           name: "When a card purchase arrives",
           workflow: {
-            schemaVersion: 4,
+            schemaVersion: 5,
             triggers: [{ id: "trg-purchase", on: { type: "event", event: "transaction.created" } }],
+            outputs: [],
             steps: [
               {
                 id: "find",
-                kind: "write",
+                kind: "do",
+                doneBy: "rules",
+                uses: { type: "action", action: "docs.find_support" },
                 name: "Find and link the receipt",
-                tool: "docs.find_support",
                 input: { transactionId: "{{trigger.transactionId}}" },
                 client: { visible: true, label: "Looked for the receipt" },
               },
               {
                 id: "none",
-                kind: "if",
+                kind: "fork",
                 name: "No receipt yet?",
                 paths: [
                   {
@@ -642,20 +662,23 @@ function receiptChaser(clientId: string): DraftBuild {
                     steps: [
                       {
                         id: "ask",
-                        kind: "person",
-                        mode: "approve",
+                        kind: "do",
+                        doneBy: "person",
                         name: "Ask for the receipt",
-                        title: "Upload the receipt for a card purchase",
-                        assignee: "client_user",
-                        channel: "inbox",
-                        payload: { transactionId: "{{trigger.transactionId}}" },
-                        deadline: {
-                          after: "3 days",
-                          hours: "business",
-                          remind: ["1 day"],
-                          ifNoAnswer: "stop",
+                        person: {
+                          mode: "approve",
+                          who: "client_user",
+                          question: "Upload the receipt for a card purchase",
+                          show: { transactionId: "{{trigger.transactionId}}" },
+                          deadline: {
+                            after: "3 days",
+                            hours: "business",
+                            remind: ["1 day"],
+                            ifNoAnswer: "stop",
+                          },
+                          channel: "inbox",
+                          onReject: "stop",
                         },
-                        onReject: "stop",
                         client: { visible: true, label: "Asked for the receipt" },
                       },
                     ],
@@ -704,7 +727,7 @@ async function seedOne(tx: Tx, spec: DraftBuild, operator: string, now: Date): P
   const draftAt = at(spec.startedHoursAgo * 0.7);
 
   // The draft agent: what the Builder's draft makes, one draft version and no live one.
-  const bundle = AnyAgentBundle.parse(spec.bundle);
+  const bundle = AgentBundle.parse(spec.bundle);
   const agentId = await id("agent");
   await tx
     .insert(agent)

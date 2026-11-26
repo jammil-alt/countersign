@@ -1,9 +1,8 @@
 // Setup-plan §4.1: a run's seats become the people the run started with, before anything runs.
 import type { processes } from "@countersign/core";
 import { describe, expect, it } from "vitest";
-import { executeWorkflow } from "./executor";
 import { FakeStepRunner } from "./fake-runner";
-import { Harness, WRITE_TOOL } from "./fakes.test-helper";
+import { executeProcess, Harness, WRITE_TOOL } from "./fakes.test-helper";
 
 const MANUAL = { id: "t", on: { type: "manual", input: {} } };
 const READ_TOOL = { ...WRITE_TOOL, id: "testkit.thing.get", sideEffect: "none" as const };
@@ -39,7 +38,7 @@ async function run(seats: processes.Seats | undefined) {
   h.handlers.get = () => ({ kind: "done", output: { total: 9000 } });
   const runner = new FakeStepRunner({ onWait: "block" });
   runner.onWaitStarted = (_name, type) => runner.deliver(type, { approved: true, by: "x" });
-  const result = await executeWorkflow(
+  const result = await executeProcess(
     runner,
     h.context(seats ? { seats } : {}),
     proc([signed, ask]),

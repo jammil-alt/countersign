@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { BuildDetail } from "../api/build";
-import type { ProcessAgentBundle } from "../schemas/agent";
+import type { AgentBundle } from "../schemas/agent";
 import {
   changeDecisionWords,
   clampDecisions,
@@ -196,19 +196,44 @@ describe("decisions: risk by code", () => {
       workflows: [
         {
           workflow: {
-            schemaVersion: 4,
+            schemaVersion: 5,
             triggers: [],
+            outputs: [],
             steps: [
-              { id: "read-invoice", kind: "read", name: "Read", tool: "qbo.bill.list" },
-              { id: "post-bill", kind: "write", name: "Post", tool: "qbo.bill.create" },
-              { id: "save-note", kind: "write", name: "Note", tool: "platform.note" },
-              { id: "ask-vendor", kind: "conversation", name: "Ask the vendor" },
-              { id: "tell", kind: "notify", name: "Tell the team" },
+              {
+                id: "read-invoice",
+                kind: "do",
+                doneBy: "rules",
+                name: "Read",
+                uses: { type: "action", action: "qbo.bill.list" },
+              },
+              {
+                id: "post-bill",
+                kind: "do",
+                doneBy: "rules",
+                name: "Post",
+                uses: { type: "action", action: "qbo.bill.create" },
+              },
+              {
+                id: "save-note",
+                kind: "do",
+                doneBy: "rules",
+                name: "Note",
+                uses: { type: "action", action: "platform.note" },
+              },
+              { id: "ask-vendor", kind: "do", doneBy: "contact", name: "Ask the vendor" },
+              {
+                id: "tell",
+                kind: "do",
+                doneBy: "rules",
+                name: "Tell the team",
+                uses: { type: "tell" },
+              },
             ],
           },
         },
       ],
-    } as unknown as ProcessAgentBundle;
+    } as unknown as AgentBundle;
     const ids = writingStepIds(bundle, {
       tools: {
         "qbo.bill.list": { id: "qbo.bill.list", sideEffect: "none" },
@@ -221,13 +246,20 @@ describe("decisions: risk by code", () => {
 
   // BUILDER_QA CONS-4: as the validator (`outputBeforeChecks`) and the executor count it.
   it("counts a skill step on a skill it doesn't know as writing, the safe side", () => {
-    const skill = (id: string, ref: string) => ({ id, kind: "skill", name: id, skill: ref });
+    const skill = (id: string, ref: string) => ({
+      id,
+      kind: "do",
+      doneBy: "ai",
+      name: id,
+      uses: { type: "skill", skill: ref },
+    });
     const bundle = {
       workflows: [
         {
           workflow: {
-            schemaVersion: 4,
+            schemaVersion: 5,
             triggers: [],
+            outputs: [],
             steps: [
               skill("post-bill", "custom:post-bill"),
               skill("read-it", "custom:read-it"),
@@ -236,7 +268,7 @@ describe("decisions: risk by code", () => {
           },
         },
       ],
-    } as unknown as ProcessAgentBundle;
+    } as unknown as AgentBundle;
     const base = {
       description: "",
       tools: [],

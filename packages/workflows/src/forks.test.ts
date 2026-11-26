@@ -5,9 +5,8 @@
 // workflow runs exactly as before.
 import { outcomeOfStepRow, type processes } from "@countersign/core";
 import { describe, expect, it } from "vitest";
-import { executeWorkflow } from "./executor";
 import { FakeStepRunner } from "./fake-runner";
-import { Harness, WRITE_TOOL, wf } from "./fakes.test-helper";
+import { executeProcess, Harness, WRITE_TOOL } from "./fakes.test-helper";
 import type { ConversationResult, InboxResolution } from "./ports";
 import { conversationEventType } from "./ports";
 
@@ -76,7 +75,7 @@ async function run(
   runner = new FakeStepRunner(),
   extra: Parameters<Harness["context"]>[0] = {},
 ) {
-  const result = await executeWorkflow(runner, h.context(extra), proc(steps), {});
+  const result = await executeProcess(runner, h.context(extra), proc(steps), {});
   return { h, runner, result };
 }
 
@@ -273,7 +272,7 @@ describe("each kind's outcome routes an if", () => {
       (req.input as { i: number }).i === 1
         ? { kind: "failed", error: "not found" }
         : { kind: "done", output: { ok: true } };
-    const { result } = await executeWorkflow(
+    const { result } = await executeProcess(
       new FakeStepRunner(),
       h.context(),
       proc([
@@ -443,7 +442,7 @@ describe("onError: continue", () => {
       },
       routeOn("steps.tell.outcome", "failed", "=", "x"),
     ];
-    const first = await executeWorkflow(runner, h.context(), proc(steps), {});
+    const first = await executeProcess(runner, h.context(), proc(steps), {});
     expect(first.status).toBe("succeeded");
     expect(h.row("tell")?.status).toBe("failed");
     expect(pathOf(h)).toBe("yes");
@@ -451,7 +450,7 @@ describe("onError: continue", () => {
     // the step's result.
     expect(tries).toBe(4);
     runner.replay();
-    await executeWorkflow(runner, h.context(), proc(steps), {});
+    await executeProcess(runner, h.context(), proc(steps), {});
     expect(tries).toBe(4);
   });
 
@@ -472,7 +471,7 @@ describe("onError: continue", () => {
       },
       routeOn("steps.tell.outcome", "sent", "=", "x"),
     ];
-    const result = await executeWorkflow(new FakeStepRunner(), h.context(), proc(steps), {});
+    const result = await executeProcess(new FakeStepRunner(), h.context(), proc(steps), {});
     expect(result.status).toBe("succeeded");
     expect(tries).toBe(2);
     expect(h.row("tell")?.status).toBe("succeeded");
@@ -543,7 +542,7 @@ describe("onError: continue", () => {
       h.actions.push({ nodeId: req.nodeId, status: "executing" });
       return { kind: "failed", error: "the worker restarted mid-write" };
     };
-    const result = await executeWorkflow(
+    const result = await executeProcess(
       new FakeStepRunner(),
       h.context(),
       proc([
@@ -663,11 +662,11 @@ describe("routing on a bad outcome", () => {
       return runner;
     };
     const no = new Harness();
-    const r1 = await executeWorkflow(answered(false), no.context(), proc(steps), {});
+    const r1 = await executeProcess(answered(false), no.context(), proc(steps), {});
     expect(r1).toMatchObject({ status: "cancelled" });
     expect(no.agentCalls.map((c) => c.step.id)).toEqual([]);
     const yes = new Harness();
-    const r2 = await executeWorkflow(answered(true), yes.context(), proc(steps), {});
+    const r2 = await executeProcess(answered(true), yes.context(), proc(steps), {});
     expect(r2.status).toBe("succeeded");
     expect(yes.agentCalls.map((c) => c.step.id)).toEqual(["pay"]);
   });
@@ -692,7 +691,7 @@ describe("replay", () => {
       routeOn("steps.save.outcome", "rejected"),
     ];
     const runner = new CrashingRunner();
-    await executeWorkflow(runner, h.context(), proc(steps), {});
+    await executeProcess(runner, h.context(), proc(steps), {});
     expect(h.row("route")?.output).toBeUndefined();
     const asked = h.agentCalls.length;
     const resumed = h.resumeCalls.length;
@@ -702,7 +701,7 @@ describe("replay", () => {
     if (entry) entry.resolution = { approved: true, by: "u-2" };
     runner.crash = false;
     runner.replay();
-    const result = await executeWorkflow(runner, h.context(), proc(steps), {});
+    const result = await executeProcess(runner, h.context(), proc(steps), {});
     expect(result.status).toBe("succeeded");
     expect(h.agentCalls).toHaveLength(asked);
     expect(h.resumeCalls).toHaveLength(resumed);
@@ -713,59 +712,5 @@ describe("replay", () => {
       // PLATFORM_QA STATE-3: a notice's row is marked sent in its own durable step.
       "fix:logged",
     ]);
-  });
-});
-
-describe("converted v3 workflows", () => {
-  it("record nothing new: a v3 fork naming an outcome reads nothing, as before", async () => {
-    const steps = (kind: "v3" | "v4") => [
-      kind === "v3"
-        ? {
-            id: "save",
-            kind: "action",
-            name: "Save",
-            tool: WRITE_TOOL.id,
-            input: { name: "x" },
-            approval: { required: "required", onReject: "continue" },
-          }
-        : write({ checks: { approval: { onReject: "continue" } } }),
-      {
-        id: "route",
-        kind: kind === "v3" ? "fork" : "if",
-        name: "Route",
-        paths: [
-          {
-            id: "yes",
-            name: "Recover",
-            when: {
-              match: "all",
-              rules: [{ field: "{{steps.save.outcome}}", op: "=", value: "rejected" }],
-            },
-            steps: [],
-          },
-        ],
-        otherwise: { id: "no", steps: [] },
-      },
-    ];
-    const v3 = new Harness();
-    approvalWrite(v3, { approved: false, by: "u-1" });
-    const runner = new FakeStepRunner();
-    const r3 = await executeWorkflow(runner, v3.context(), wf(steps("v3")), {});
-    expect(r3.status).toBe("succeeded");
-    expect(pathOf(v3)).toBe("no");
-    // Same durable names, same rows as a v3 run always had.
-    expect(runner.names()).toEqual([
-      "save",
-      "save:approval:1:check",
-      "save:approval:1:received",
-      "save:approval:1:resume",
-      "route",
-    ]);
-    expect(v3.row("save")).toMatchObject({ nodeType: "action", status: "skipped" });
-
-    const v4 = new Harness();
-    approvalWrite(v4, { approved: false, by: "u-1" });
-    await executeWorkflow(new FakeStepRunner(), v4.context(), proc(steps("v4")), {});
-    expect(pathOf(v4)).toBe("yes");
   });
 });

@@ -1,13 +1,9 @@
-// The builder's model: a stored v3 workflow read as a v4 process with every id kept, edits that
-// keep every id, moves into and out of if paths and loops, new steps with approval on, the
+// The builder's model (the automation editor's): edits that keep every id, moves into and out of if paths and loops, new steps with approval on, the
 // approval control's rules, customizations against the template, and undo/redo.
 import {
   AgentBundle,
   type AgentBundleInput,
-  type AnyAgentBundle,
   canonicalJson,
-  nodeIds,
-  type ProcessAgentBundle,
   processes,
   type SkillDefinition,
   steps,
@@ -19,21 +15,18 @@ import {
   type ApprovalEnv,
   addTrigger,
   addWorkflow,
-  allowStep,
   approvalOption,
   commit,
   createStep,
   customizedSteps,
   editWorkflow,
   getContainer,
-  holdsV3,
   insertStep,
-  isLoosened,
   locate,
   moveStep,
   type Process,
+  type ProcessAgentBundle,
   ROOT,
-  readProcessBundle,
   redo,
   removeStep,
   removeTrigger,
@@ -43,7 +36,6 @@ import {
   toolTitle,
   undo,
   updateStep,
-  withStepModelWorkflows,
   workflowCounts,
 } from "./model";
 
@@ -89,30 +81,34 @@ const CTX: TypingContext = {
   skills: { [WRAPPER.id]: WRAPPER },
 };
 
-const INPUT: AgentBundleInput = {
-  schemaVersion: 1,
-  definition: {
-    schemaVersion: 2,
-    identity: { name: "Clerk", role: "Records", mission: "Keep records right" },
-    kind: "functional",
-    model: { id: "m" },
-    instructions: "Work carefully.",
-    skills: [],
-    extraTools: ["testkit.record.update"],
-    permissions: { mode: "act" },
-  },
+const BUNDLE: ProcessAgentBundle = {
+  ...AgentBundle.parse({
+    schemaVersion: 1,
+    definition: {
+      schemaVersion: 2,
+      identity: { name: "Clerk", role: "Records", mission: "Keep records right" },
+      kind: "functional",
+      model: { id: "m" },
+      instructions: "Work carefully.",
+      skills: [],
+      extraTools: ["testkit.record.update"],
+      permissions: { mode: "act" },
+    },
+    workflows: [],
+  } satisfies AgentBundleInput),
   workflows: [
     {
       slug: "main",
       name: "Main",
+      enabled: true,
       workflow: {
-        schemaVersion: 3,
-        trigger: { id: "t1", on: { type: "manual", input: {} } },
+        schemaVersion: 4,
+        triggers: [{ id: "t1", on: { type: "manual", input: {} } }],
         steps: [
           { id: "a", kind: "wait", name: "A", for: "1 day" },
           {
             id: "f",
-            kind: "fork",
+            kind: "if",
             name: "Fork",
             paths: [
               {
@@ -134,63 +130,22 @@ const INPUT: AgentBundleInput = {
           },
           {
             id: "u",
-            kind: "action",
+            kind: "write",
             name: "Update",
             tool: "testkit.record.update",
             input: { id: "1" },
+            checks: { approval: { required: "required", mode: "in_turn", ifNoAnswer: "stop" } },
           },
         ],
       },
     },
   ],
-};
-const STORED = AgentBundle.parse(INPUT);
-const BUNDLE: ProcessAgentBundle = readProcessBundle(STORED, CTX);
+} as unknown as ProcessAgentBundle;
 const WF = BUNDLE.workflows[0]?.workflow as Process;
 
 const ids = (steps: Step[] | null) => (steps ?? []).map((s) => s.id);
 
 describe("builder model", () => {
-  it("reads a stored v3 workflow as a v4 process, keeping every id; v4 stays as it is", () => {
-    const v3 = STORED.workflows[0]?.workflow;
-    if (!v3) throw new Error("no workflow");
-    expect(holdsV3(STORED)).toBe(true);
-    expect(WF.schemaVersion).toBe(4);
-    expect(processes.nodeIds(WF)).toEqual(nodeIds(v3));
-    expect(locate(WF, "f")?.step.kind).toBe("if");
-    // v3's action is a write with its approval as a check (on, as invariant 8 keeps it).
-    expect(locate(WF, "u")?.step).toMatchObject({
-      kind: "write",
-      checks: { approval: { required: "required", mode: "in_turn", ifNoAnswer: "stop" } },
-    });
-    // A v4 bundle reads back unchanged, and nothing in it is v3.
-    expect(readProcessBundle(BUNDLE, CTX)).toEqual(BUNDLE);
-    expect(holdsV3(BUNDLE)).toBe(false);
-    // A skill that only wraps a read tool becomes a read step on that tool.
-    const wrapped = readProcessBundle(
-      AgentBundle.parse({
-        ...INPUT,
-        workflows: [
-          {
-            slug: "main",
-            name: "Main",
-            workflow: {
-              schemaVersion: 3,
-              trigger: { id: "t1", on: { type: "manual", input: {} } },
-              steps: [{ id: "q", kind: "skill", name: "Query", skill: "testkit.query" }],
-            },
-          },
-        ],
-      }),
-      CTX,
-    );
-    expect(wrapped.workflows[0]?.workflow.steps[0]).toMatchObject({
-      id: "q",
-      kind: "read",
-      tool: QUERY.id,
-    });
-  });
-
   it("keeps every id through edits, and the process exactly as it was when they are undone", () => {
     const h = startHistory(BUNDLE);
     expect(canonicalJson(h.present)).toBe(canonicalJson(BUNDLE));
@@ -273,13 +228,6 @@ describe("builder model", () => {
     // Every new step validates as a v4 step.
     for (const s of [write, read, ifStep]) expect(processes.Step.safeParse(s).success).toBe(true);
 
-    const noTools = { ...BUNDLE, definition: { ...BUNDLE.definition, extraTools: [] } };
-    expect(allowStep(noTools, write, CTX).definition.extraTools).toEqual([UPDATE.id]);
-    expect(allowStep(BUNDLE, read, CTX).definition.extraTools).toEqual([UPDATE.id, QUERY.id]);
-    const skill: Step = { id: "s", kind: "skill", name: "S", skill: "docs.extract", input: {} };
-    expect(allowStep(BUNDLE, skill, CTX).definition.skills).toEqual([
-      { skill: "docs.extract", settings: {} },
-    ]);
     expect(toolTitle(UPDATE)).toBe("Update a record");
   });
 
@@ -342,25 +290,6 @@ describe("builder model", () => {
     expect(steps.validateWorkflow(steps.Workflow.parse(added.workflow))).toEqual([]);
   });
 
-  it("sets an agent's v5 workflows aside when read, and saves them back where they were", () => {
-    const v5 = addWorkflow({ slug: "weekly", name: "Weekly", on: { type: "manual", input: {} } });
-    const stored = { ...BUNDLE, workflows: [v5, ...BUNDLE.workflows] } as AnyAgentBundle;
-    const read = readProcessBundle(stored, CTX);
-    expect(read.workflows.map((w) => w.slug)).toEqual(["main"]);
-    expect(holdsV3(stored)).toBe(false);
-    const saved = withStepModelWorkflows(read, stored);
-    expect(saved.workflows.map((w) => w.slug)).toEqual(["weekly", "main"]);
-    expect(saved.workflows[0]).toBe(v5);
-    // A new one goes last; without any, the processes are saved as they are.
-    const more = addWorkflow({ slug: "daily", name: "Daily", on: { type: "manual", input: {} } });
-    expect(withStepModelWorkflows(read, stored, [more]).workflows.map((w) => w.slug)).toEqual([
-      "weekly",
-      "main",
-      "daily",
-    ]);
-    expect(withStepModelWorkflows(read, BUNDLE)).toBe(read);
-  });
-
   describe("approval", () => {
     const env = (over: Partial<ApprovalEnv> = {}): ApprovalEnv => ({
       ctx: CTX,
@@ -410,20 +339,6 @@ describe("builder model", () => {
         canSkip: false,
         automatic: false,
       });
-    });
-
-    it("counts going ahead with no answer and some runs only as loosening", () => {
-      expect(isLoosened(approval)).toBe(false);
-      expect(isLoosened({ ...approval, ifNoAnswer: "proceed" })).toBe(true);
-      expect(isLoosened({ ...approval, when: { match: "all", rules: [] } })).toBe(true);
-      expect(
-        isLoosened({
-          ...approval,
-          approvers: [
-            { who: "lead", deadline: { after: "1 day", hours: "clock", ifNoAnswer: "proceed" } },
-          ],
-        }),
-      ).toBe(true);
     });
 
     it("has no approval for steps that change no client tool, and counts the ones that wait", () => {

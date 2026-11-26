@@ -29,10 +29,4 @@ describe("a test run's payload", () => {
     expect(testTrigger({ triggers: [] })).toBeUndefined();
     expect(samplePayload({ triggers: [] }, events)).toBeUndefined();
   });
-
-  it("reads a v3 workflow's trigger and its more triggers alike", () => {
-    const workflow = { trigger: manual, moreTriggers: [event] };
-    expect(triggerEventType(workflow)).toBe("bill.created");
-    expect(samplePayload(workflow, events)).toEqual({ billId: "B-1" });
-  });
 });

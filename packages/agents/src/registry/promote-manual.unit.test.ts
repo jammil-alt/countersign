@@ -2,7 +2,7 @@
 // into the copy's manual (who, when, the value). A promotion or a copy to another client never
 // carries them: each such row goes back to the base template's, or is left out.
 
-import type { AgentManualInput, AnyAgentBundle, Decision } from "@countersign/core";
+import type { AgentBundle, AgentManualInput, Decision } from "@countersign/core";
 import { AgentManual, cloneJson } from "@countersign/core";
 import { describe, expect, it } from "vitest";
 import { makeBundle } from "../log/harness.test-helper";
@@ -20,13 +20,13 @@ const BUILD_ROW: Decision = {
   at: null,
 };
 
-function withManual(bundle: AnyAgentBundle, manual: AgentManualInput): AnyAgentBundle {
+function withManual(bundle: AgentBundle, manual: AgentManualInput): AgentBundle {
   const out = cloneJson(bundle);
   (out.definition as { manual?: unknown }).manual = AgentManual.parse(manual);
   return out;
 }
 
-function decisionsOf(bundle: AnyAgentBundle) {
+function decisionsOf(bundle: AgentBundle) {
   return AgentManual.parse((bundle.definition as { manual?: unknown }).manual).decisions;
 }
 

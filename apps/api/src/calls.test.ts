@@ -48,6 +48,7 @@ import {
   admin,
   allowForAgent,
   createApiHarness,
+  ended,
   FakeWorkflowStep,
   OPERATOR,
   OTHER_OPERATOR,
@@ -116,74 +117,84 @@ const PURPOSE = "Confirm the delivery window for Friday's order";
 
 // Texting "call me" asks for a call back: the call waits for approval.
 const CALL_BACK = {
-  schemaVersion: 3,
-  trigger: { id: "trg", on: { type: "event", event: "message.received" } },
+  schemaVersion: 5,
+  triggers: [{ id: "trg", on: { type: "event", event: "message.received" } }],
+  outputs: [{ id: "out-done", name: "Done", kind: "nothing" }],
   steps: [
     {
       id: "call",
       name: "Call them back",
-      kind: "action",
-      tool: CALL_PLACE_TOOL,
+      client: { visible: true, label: "Called back" },
+      checks: { approval: { required: "required" } },
+      kind: "do",
+      doneBy: "rules",
+      uses: { type: "action", action: CALL_PLACE_TOOL },
       input: {
         to: "{{trigger.from}}",
-        purpose: PURPOSE,
+        purpose: "Confirm the delivery window for Friday's order",
         firstMessage: "I'm calling about your order.",
-        // A write listed here is still refused on the call.
         tools: [MESSAGES_SEARCH_TOOL, SMS_SEND_TOOL],
         maxMinutes: 5,
       },
-      approval: { required: "required" },
-      client: { visible: true, label: "Called back" },
     },
+    { id: "end", kind: "end", name: "Done", outputs: ["out-done"] },
   ],
 };
 
 /** Calls the number it is given, without approval (the connection allows `create` on auto). */
 const CALL_NOW = {
-  schemaVersion: 3,
-  trigger: {
-    id: "trg-manual",
-    on: {
-      type: "manual",
-      input: { type: "object", properties: { to: { type: "string" } }, required: ["to"] },
+  schemaVersion: 5,
+  triggers: [
+    {
+      id: "trg-manual",
+      on: {
+        type: "manual",
+        input: { type: "object", properties: { to: { type: "string" } }, required: ["to"] },
+      },
     },
-  },
+  ],
+  outputs: [{ id: "out-done", name: "Done", kind: "nothing" }],
   steps: [
     {
       id: "call",
       name: "Call the customer",
-      kind: "action",
-      tool: CALL_PLACE_TOOL,
+      client: { visible: true, label: "Called the customer" },
+      checks: { approval: { required: "not_required" } },
+      kind: "do",
+      doneBy: "rules",
+      uses: { type: "action", action: CALL_PLACE_TOOL },
       input: {
         to: "{{trigger.to}}",
-        purpose: PURPOSE,
+        purpose: "Confirm the delivery window for Friday's order",
         firstMessage: "I'm calling about your order.",
         tools: [MESSAGES_SEARCH_TOOL],
         maxMinutes: 5,
       },
-      approval: { required: "not_required" },
-      client: { visible: true, label: "Called the customer" },
     },
+    { id: "end", kind: "end", name: "Done", outputs: ["out-done"] },
   ],
 };
 
 const ANSWER = {
-  schemaVersion: 3,
-  trigger: { id: "trg", on: { type: "event", event: "call.received" } },
+  schemaVersion: 5,
+  triggers: [{ id: "trg", on: { type: "event", event: "call.received" } }],
+  outputs: [{ id: "out-done", name: "Done", kind: "nothing" }],
   steps: [
     {
       id: "answer",
       name: "Answer the call",
-      kind: "action",
-      tool: CALL_ANSWER_TOOL,
+      client: { visible: true, label: "Answered a call" },
+      checks: { approval: { required: "not_required" } },
+      kind: "do",
+      doneBy: "rules",
+      uses: { type: "action", action: CALL_ANSWER_TOOL },
       input: {
         callSid: "{{trigger.callSid}}",
         purpose: "Answer questions about orders and opening hours",
         tools: [MESSAGES_SEARCH_TOOL],
       },
-      approval: { required: "not_required" },
-      client: { visible: true, label: "Answered a call" },
     },
+    { id: "end", kind: "end", name: "Done", outputs: ["out-done"] },
   ],
 };
 
@@ -462,7 +473,7 @@ describe.skipIf(!h)("calls through the API", () => {
           }),
         ),
       );
-      expect(result).toEqual({ status: "succeeded" });
+      expect(result).toEqual(ended());
       expect(twilio.placed()).toHaveLength(1);
       const form = twilio.placed()[0]?.form ?? {};
       expect(form).toMatchObject({ To: PAT, From: number, TimeLimit: "300" });
@@ -722,7 +733,10 @@ describe.skipIf(!h)("calls through the API", () => {
           "Front desk",
           {
             ...CALL_BACK,
-            steps: [{ ...CALL_BACK.steps[0], input: { ...CALL_BACK.steps[0]?.input, ...input } }],
+            steps: [
+              { ...CALL_BACK.steps[0], input: { ...CALL_BACK.steps[0]?.input, ...input } },
+              ...CALL_BACK.steps.slice(1),
+            ],
           },
           { extraTools: [CALL_PLACE_TOOL, MESSAGES_SEARCH_TOOL, SMS_SEND_TOOL] },
         );
@@ -873,9 +887,9 @@ describe.skipIf(!h)("calls through the API", () => {
       // The run on call.received records the answer once, automatically.
       if (!answeredRun) throw new Error("no run");
       expect(answeredRun.agentId).toBe(reception);
-      expect(await executeRun(deps(), answeredRun, cloudflareStepRunner(approver()))).toEqual({
-        status: "succeeded",
-      });
+      expect(await executeRun(deps(), answeredRun, cloudflareStepRunner(approver()))).toEqual(
+        ended(),
+      );
       const [answer] = await H.t.db
         .select()
         .from(externalAction)
@@ -949,7 +963,7 @@ describe.skipIf(!h)("calls through the API", () => {
         .select({ live: agent.liveVersionId })
         .from(agent)
         .where(eq(agent.id, reception));
-      const step = { ...ANSWER.steps[0] };
+      const step = { ...ANSWER.steps[0] } as { input: Record<string, unknown> };
       const saved = await H.call(OPERATOR, "POST", `/api/ops/agents/${reception}/versions`, {
         bundle: bundle(
           "Reception",
@@ -1102,7 +1116,7 @@ describe.skipIf(!h)("calls through the API", () => {
     it("resumes when retried: an opt-out since the call doesn't fail it, and nothing is placed twice", async () => {
       const params = await started();
       const placed = twilio.placed().length;
-      expect(await runIt(params)).toEqual({ status: "succeeded" });
+      expect(await runIt(params)).toEqual(ended());
       expect(twilio.placed()).toHaveLength(placed + 1);
       const action = await actionOf(params.runId);
       expect(action).toMatchObject({ status: "done", approvedBy: null });
@@ -1110,7 +1124,7 @@ describe.skipIf(!h)("calls through the API", () => {
 
       await leftExecuting(action?.id ?? "");
       await optOut(true);
-      expect(await runIt(params)).toEqual({ status: "succeeded" });
+      expect(await runIt(params)).toEqual(ended());
       expect(twilio.placed()).toHaveLength(placed + 1);
       const again = await actionOf(params.runId);
       expect(again).toMatchObject({ status: "done", error: null });
@@ -1144,7 +1158,7 @@ describe.skipIf(!h)("calls through the API", () => {
 
       await leftExecuting(action?.id ?? "");
       await optOut(true);
-      expect(await runIt(params)).toEqual({ status: "succeeded" });
+      expect(await runIt(params)).toEqual(ended());
       expect(twilio.placed()).toHaveLength(placed + 1);
       const done = await actionOf(params.runId);
       expect(done).toMatchObject({ status: "done" });
@@ -1185,10 +1199,18 @@ describe.skipIf(!h)("calls through the API", () => {
         expect(twilio.placed()).toHaveLength(placed + (reachTwilio ? 1 : 0));
         const failed = await actionOf(params.runId);
         expect(failed?.status).toBe("failed");
+        // The step's owner also stops the run at a change that reached the tool (its own review
+        // item); this one is the action's, which only the operator checks.
         const items = await H.t.db
           .select()
           .from(inboxItem)
-          .where(and(eq(inboxItem.runId, params.runId), eq(inboxItem.kind, "review")));
+          .where(
+            and(
+              eq(inboxItem.runId, params.runId),
+              eq(inboxItem.kind, "review"),
+              eq(inboxItem.subjectType, "external_action"),
+            ),
+          );
         expect(items).toHaveLength(1);
         expect(items[0]).toMatchObject({
           assigneeRole: "operator",
@@ -1210,7 +1232,13 @@ describe.skipIf(!h)("calls through the API", () => {
           await H.t.db
             .select()
             .from(inboxItem)
-            .where(and(eq(inboxItem.runId, params.runId), eq(inboxItem.kind, "review"))),
+            .where(
+              and(
+                eq(inboxItem.runId, params.runId),
+                eq(inboxItem.kind, "review"),
+                eq(inboxItem.subjectType, "external_action"),
+              ),
+            ),
         ).toHaveLength(1);
       }
     });

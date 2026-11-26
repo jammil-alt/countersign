@@ -1,11 +1,9 @@
 // Plan entry §1.233: the AP pack's manifest is core's one pack shape, extends the Purchasing area,
 // has a handler for every tool and no external tool, its skills use tools that exist, and its
-// template is suggest-only in the Purchasing area with writes verified, writes nothing to a
-// client's tool, and pays nothing.
+// pack ships no agent template for now.
 
-import { PackManifest, processArea, processes, SkillDefinition } from "@countersign/core";
+import { PackManifest, processArea, SkillDefinition } from "@countersign/core";
 import { describe, expect, it } from "vitest";
-import { MATERIALS_SKILLS } from "../manifest";
 import { AP_CONFIG_DEFAULTS, apConfigOf } from "./config";
 import { AP_HANDLERS, AP_SKILLS, apManifest } from "./manifest";
 
@@ -52,59 +50,9 @@ describe("the AP manifest", () => {
 });
 
 describe("the Bills to pay template", () => {
-  const [t] = apManifest.templates;
-  const latest = t?.versions?.at(-1);
-
-  it("is suggest only, in the Purchasing area, with every write verified", () => {
-    expect(apManifest.templates.map((x) => x.slug)).toEqual(["bills-to-pay"]);
-    expect(latest?.definition).toMatchObject({
-      area: "purchasing",
-      permissions: { mode: "suggest_only" },
-      oversight: { verify: "writes" },
-    });
-  });
-
-  it("writes only records of ours: nothing to a client's tool, and no payment", () => {
-    const writes: string[] = [];
-    const skills = new Set([...AP_SKILLS, ...MATERIALS_SKILLS].map((s) => s.id));
-    for (const w of latest?.workflows ?? []) {
-      if (w.workflow.schemaVersion !== 4) continue;
-      for (const { step } of processes.allSteps(w.workflow)) {
-        if (step.kind === "write") writes.push(step.action ?? step.tool ?? "");
-        if (step.kind === "skill") expect(skills.has(step.skill), step.skill).toBe(true);
-      }
-    }
-    // Our records only: the reading, the purchase, the matches and prices, the bill, the list.
-    expect([...new Set(writes)].sort()).toEqual([
-      "ap.bill.prepare",
-      "ap.pay_list.build",
-      "docs.read",
-      "docs.record_purchase",
-      "materials.matches.record",
-      "materials.prices.check",
-      "materials.prices.record",
-    ]);
-    expect(JSON.stringify(latest)).not.toMatch(/"action":/);
-  });
-
-  it("keeps Vendor contracts' invoice step ids, so the two read alike", () => {
-    const bills = latest?.workflows.find((w) => w.slug === "bill-in")?.workflow;
-    if (bills?.schemaVersion !== 4) throw new Error("no process");
-    const ids = processes.allSteps(bills).map((l) => l.step.id);
-    for (const id of [
-      "invoice",
-      "purchase",
-      "no-purchase",
-      "lookup",
-      "compare",
-      "prepare",
-      "suggest",
-    ]) {
-      expect(ids, id).toContain(id);
-    }
-    const weekly = latest?.workflows.find((w) => w.slug === "pay-list")?.workflow;
-    if (weekly?.schemaVersion !== 4) throw new Error("no weekly process");
-    const person = processes.allSteps(weekly).find((l) => l.step.id === "approve")?.step;
-    expect(person).toMatchObject({ kind: "person", assignee: "client_admin" });
+  // Since the step model's purge the pack ships no agent template: Bills to pay is built again
+  // later (docs/step-model-plan.md §12 R0).
+  it("is not shipped for now", () => {
+    expect(apManifest.templates).toEqual([]);
   });
 });

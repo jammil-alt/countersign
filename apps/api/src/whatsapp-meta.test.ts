@@ -47,6 +47,7 @@ import {
   type ApiHarness,
   admin,
   createApiHarness,
+  ended,
   FakeWorkflowStep,
   forbiddenKeys,
   OPERATOR,
@@ -136,16 +137,20 @@ function sendBundle(name: string, to = PAT): AgentBundle {
         slug: "main",
         name: "Main",
         workflow: {
-          schemaVersion: 3,
-          trigger: { id: "trg-manual", on: { type: "manual", input: {} } },
+          schemaVersion: 5,
+          triggers: [{ id: "trg-manual", on: { type: "manual", input: {} } }],
+          outputs: [{ id: "out-done", name: "Done", kind: "nothing" }],
           steps: [
             {
               id: "tell",
               name: "Tell them",
-              kind: "action",
-              tool: "whatsapp.send",
-              input: { to, text: "Your order is ready" },
+              checks: { approval: { required: "required" } },
+              kind: "do",
+              doneBy: "rules",
+              uses: { type: "action", action: "whatsapp.send" },
+              input: { to: to, text: "Your order is ready" },
             },
+            { id: "end", kind: "end", name: "Done", outputs: ["out-done"] },
           ],
         },
       },
@@ -575,16 +580,12 @@ describe.skipIf(!h)("WhatsApp through Meta through the API", () => {
 
     const twilioBefore = twilio.sends().length;
     const p1 = await run(viaTwilio);
-    expect(await executeRun(deps(), p1, cloudflareStepRunner(approver()))).toEqual({
-      status: "succeeded",
-    });
+    expect(await executeRun(deps(), p1, cloudflareStepRunner(approver()))).toEqual(ended());
     expect(twilio.sends()).toHaveLength(twilioBefore + 1);
     expect(meta.sent).toHaveLength(0);
 
     const p2 = await run(viaMeta);
-    expect(await executeRun(deps(), p2, cloudflareStepRunner(approver()))).toEqual({
-      status: "succeeded",
-    });
+    expect(await executeRun(deps(), p2, cloudflareStepRunner(approver()))).toEqual(ended());
     expect(twilio.sends()).toHaveLength(twilioBefore + 1);
     expect(meta.sent).toHaveLength(1);
     expect(meta.sent[0]?.body).toMatchObject({

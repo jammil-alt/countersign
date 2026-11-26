@@ -44,26 +44,6 @@ export function pathQuestion(name: string): string {
   return n ? `When does a run take “${n}”?` : "When does a run take this path?";
 }
 
-/**
- * The suggested fix for the problems an operator meets most, by the validator's code: what to do
- * about it, in a line under the issue. The others get the general line (the Builder drafts a fix).
- */
-// DECISION (owner, 2026-11-21: "say on top what the issue(s) are and provide suggested fixes"):
-// a short list by hand, each checked against the validator's own message; it is words only, and
-// the button under it is still the one that makes the change.
-export const FIX_HINT: Readonly<Record<string, string>> = {
-  deadline_missing:
-    "Suggested: give it a time limit under Waits up to, and say what happens if nobody answers.",
-  urgent_needs_ack: "Suggested: say how soon an urgent notice must be seen.",
-  if_no_paths: "Suggested: add a path to the decision, and say when a run takes it.",
-  for_each_empty: "Suggested: add the step it does for each item.",
-  repeat_empty: "Suggested: add the step it repeats.",
-  choice_describe_missing: "Suggested: say in a line when the agent should take this path.",
-  approval_needs_act:
-    "Suggested: keep approval on for this step, or set the agent to act on its own first.",
-  invalid_cron: "Suggested: pick when it runs under Repeats.",
-};
-
 /** A decision's path by its id. */
 function pathOf(process: Process, pathId: string) {
   const owner = ifOfBranch(process, pathId);

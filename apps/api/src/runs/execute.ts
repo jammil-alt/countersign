@@ -8,7 +8,6 @@ import {
   conferAi,
   conversationRunner,
   // R3: v3 workflows read as v4 with the registries' view (docs/plan.md §1.86).
-  convertLookup,
   createDbPorts,
   dbModelCalls,
   // R6: the owner's watch reads the agent's earlier totals.
@@ -37,10 +36,9 @@ import {
 } from "@countersign/connectors";
 import {
   // R6
-  type AnyAgentBundle,
-  type AnyAutomationDefinition,
-  type AnyBundleWorkflow,
-  automationRefs,
+  type AgentBundle,
+  type AutomationDefinition,
+  type BundleWorkflow,
   // v0.12 W2-E
   HANDOFF_OUTPUT_MAX_BYTES,
   HANDOFF_SOURCES_MAX,
@@ -57,7 +55,6 @@ import {
   processes,
   RUN_SUCCEEDED_EVENT,
   type RunSucceededPayload,
-  resolveTemplate,
   reusedStepOf,
   runErrorKey,
   runOwnerOf,
@@ -87,6 +84,7 @@ import {
 } from "@countersign/llm";
 import { type EventRow, emit } from "@countersign/senses";
 import {
+  catalogKindOf,
   type ExecutorContext,
   executeWorkflow,
   type RunInfo,
@@ -94,7 +92,7 @@ import {
   type RunResume,
   type StepRunner,
 } from "@countersign/workflows";
-import { and, asc, eq, inArray } from "drizzle-orm";
+import { and, asc, eq } from "drizzle-orm";
 import { dbReleasePort, type ReleaseDeps, releaseDepsFromEnv } from "../access/release";
 // §1.150: Sloan by email and text
 import { deliveringThreads, deliverSloanAnswer, type SloanAnswerDeps } from "../account/answer";
@@ -324,24 +322,24 @@ const STEP_CONFIG = {
   timeout: "15 minutes",
 } as const;
 
-/** A stored workflow entry: a v3 workflow or (R3) a v4 process. */
-type StoredWorkflow = AnyBundleWorkflow["workflow"];
+/** A stored workflow entry: a step model (v5) workflow. */
+type StoredWorkflow = BundleWorkflow["workflow"];
 
 type Loaded =
   | {
       ok: true;
-      // R3: stored as it is in the version; the executor reads a v3 one as v4 (ids kept).
+      // Stored as it is in the version.
       workflow: StoredWorkflow;
       language: Locale;
       // R3: the client's zone, for business-hours deadlines without stored hours.
       timeZone?: string;
       resume: RunResume | null;
       // v0.12 W2-B: the automation versions its use steps pin.
-      automations?: Record<string, AnyAutomationDefinition>;
+      automations?: Record<string, AutomationDefinition>;
       // v0.13 W2-I: the agent's oversight settings, as pinned (absent: off). R6: its owner's
-      // (`processes.ownerOfBundle`): a v3 agent's are exactly its stored ones.
+      // (`processes.ownerOfBundle`).
       oversight?: OversightSettings;
-      // R6: the owner's cheap watch on every step's result (v4 processes only).
+      // R6: the owner's cheap watch on every step's result.
       watch?: boolean;
       // v0.19: the area owner pinned at the run's start (ARCHITECTURE §10.15).
       owner?: RunAreaOwner;
@@ -376,15 +374,9 @@ async function automationsOf(
   tx: Tx,
   tenantId: string,
   workflow: StoredWorkflow,
-): Promise<Record<string, AnyAutomationDefinition>> {
-  const out: Record<string, AnyAutomationDefinition> = {};
-  const refs =
-    workflow.schemaVersion === 5
-      ? stepModelAutomationRefs(workflow)
-      : workflow.schemaVersion === 4
-        ? processes.subProcessRefs([workflow])
-        : automationRefs([workflow]);
-  for (const ref of refs) {
+): Promise<Record<string, AutomationDefinition>> {
+  const out: Record<string, AutomationDefinition> = {};
+  for (const ref of stepModelAutomationRefs(workflow)) {
     const found = await resolveAutomation(tx, { tenantId, ref });
     if (found) out[ref] = found.definition;
   }
@@ -582,14 +574,14 @@ export async function executeRun(
         .where(
           and(eq(agentVersion.id, info.agentVersionId), eq(agentVersion.tenantId, info.tenantId)),
         );
-      // R3: a version's entries may be v3 workflows or v4 processes (AnyAgentBundle).
-      const workflows = (v?.bundle.workflows ?? []) as AnyBundleWorkflow[];
+      // R3: a version's entries may be v3 workflows or v4 processes (AgentBundle).
+      const workflows = (v?.bundle.workflows ?? []) as BundleWorkflow[];
       const wf = workflows.find((w) => w.slug === info.workflowSlug);
       if (!wf) return { ok: false, reason: `no workflow ${info.workflowSlug} in that version` };
       // v0.19 (ARCHITECTURE §10.15): the process's area owner, created the first time a process
       // in its area runs, pinned on the run so a replay is watched by the same version.
       const owned = v?.bundle
-        ? await pinOwner(tx, info, v.bundle as AnyAgentBundle, deps.platform.catalog)
+        ? await pinOwner(tx, info, v.bundle as AgentBundle, deps.platform.catalog)
         : null;
       const [client] = await tx
         .select({ timeZone: tenant.timezone })
@@ -602,7 +594,7 @@ export async function executeRun(
         workflow: wf.workflow,
         language: await tenantLocale(tx, info.tenantId),
         ...(client?.timeZone ? { timeZone: client.timeZone } : {}),
-        resume: await resumeOf(tx, params, wf.workflow),
+        resume: await resumeOf(tx, params, wf.workflow, deps.platform.tools.specs()),
         // v0.12 W2-B
         automations: await automationsOf(tx, info.tenantId, wf.workflow),
         // v0.13 W2-I; R6: the owner's settings and watch, from the version as pinned. v0.19:
@@ -611,9 +603,9 @@ export async function executeRun(
         seats: seatsOfConfig(state?.config),
         ...(wf.workflow.schemaVersion === 5
           ? {
-              pinnedSkills: (
-                (v?.bundle as AnyAgentBundle | undefined)?.definition.skills ?? []
-              ).map((s) => s.skill),
+              pinnedSkills: ((v?.bundle as AgentBundle | undefined)?.definition.skills ?? []).map(
+                (s) => s.skill,
+              ),
             }
           : {}),
       };
@@ -688,7 +680,7 @@ export async function executeRun(
               type: RUN_SUCCEEDED_EVENT,
               subjectType: "run",
               subjectId: info.id,
-              payload: await runSucceededPayload(tx, params, loaded.workflow, result.passedOn),
+              payload: await runSucceededPayload(tx, params, result.passedOn),
             },
             { registry: deps.platform.events },
           );
@@ -789,9 +781,6 @@ export async function executeRun(
     ...(params.range && params.mode === "test" ? { range: params.range } : {}),
     // v0.12 W2-B
     ...(loaded.automations ? { automations: loaded.automations } : {}),
-    // R3 (docs/plan.md §1.86): v3 workflows are read as v4 with the registries' view, the
-    // converter `toProcessBundle` uses; each converted step still runs as its stored v3 step.
-    lookup: convertLookup(deps.platform.catalog, deps.platform.tools),
     // v0.13 W2-I: run oversight; the executor asks only for steps whose failures are reviewed.
     // R6: the agent's owner, with its watch on a v4 process.
     oversight: {
@@ -875,7 +864,7 @@ function ownerSettingsOf(
   pinned: PinnedAreaOwner | null,
 ): { oversight?: OversightSettings; watch?: boolean; owner?: RunAreaOwner } {
   if (!bundle) return {};
-  const owner = runOwnerOf(bundle as AnyAgentBundle, pinned ?? undefined);
+  const owner = runOwnerOf(bundle as AgentBundle, pinned ?? undefined);
   return {
     ...(owner.settings ? { oversight: owner.settings } : {}),
     ...(owner.watch ? { watch: true } : {}),
@@ -891,7 +880,7 @@ function ownerSettingsOf(
 async function pinOwner(
   tx: Tx,
   info: RunInfo,
-  bundle: AnyAgentBundle,
+  bundle: AgentBundle,
   catalog: { get(id: string): { requiresPacks: string[] } | undefined },
 ): Promise<PinnedAreaOwner> {
   const area = await areaOfAgent(tx, info.tenantId, info.agentId, bundle.definition, (id) =>
@@ -908,15 +897,13 @@ async function pinOwner(
 // ── v0.12 W2-E: what a successful run hands off (ARCHITECTURE §10.8; docs/plan.md §1.48) ───────
 
 /**
- * `run.succeeded`'s payload: the workflow's `handoff.output` and `sources` evaluated over the run's
- * trigger and its top-level steps' outputs (≤ 16 KB, else left out), and the depth: the run's own
- * handoff depth + 1.
+ * `run.succeeded`'s payload: what the End that ended the run passed on (a `pass_on` output, at most
+ * 16 KB, else left out), and the depth: the run's own handoff depth + 1.
  */
 async function runSucceededPayload(
   tx: Tx,
   params: RunParams,
-  workflow: StoredWorkflow,
-  // The step model: what the End that ended the run passed on (`RunResult.passedOn`).
+  // What the End that ended the run passed on (`RunResult.passedOn`).
   passedOn?: { output: unknown; sources: string[] },
 ): Promise<RunSucceededPayload> {
   const [a] = await tx
@@ -927,9 +914,9 @@ async function runSucceededPayload(
   let output: unknown = null;
   let outputTooLarge = false;
   let sources: string[] = [];
-  if (workflow.schemaVersion === 5 && passedOn) {
-    // DECISION (step model): the same limits as a v4 hand-off output: at most 16 KB (else left
-    // out, flagged) and only record ids among the sources, at most `HANDOFF_SOURCES_MAX`.
+  if (passedOn) {
+    // DECISION (step model): at most 16 KB (else left out, flagged) and only record ids among the
+    // sources, at most `HANDOFF_SOURCES_MAX`.
     output = passedOn.output ?? null;
     if (
       new TextEncoder().encode(JSON.stringify(output) ?? "null").length > HANDOFF_OUTPUT_MAX_BYTES
@@ -938,54 +925,6 @@ async function runSucceededPayload(
       outputTooLarge = true;
     }
     sources = passedOn.sources.filter((s) => isUuid(s)).slice(0, HANDOFF_SOURCES_MAX);
-  }
-  // The step model: a v5 workflow passes on what its End delivers (a `pass_on` output).
-  const handoff = workflow.schemaVersion === 5 ? undefined : workflow.handoff;
-  if (handoff) {
-    const ids = workflow.steps.map((s) => s.id);
-    const rows =
-      ids.length === 0
-        ? []
-        : await tx
-            .select({ nodeId: stepRun.nodeId, output: stepRun.output, status: stepRun.status })
-            .from(stepRun)
-            .where(
-              and(
-                eq(stepRun.runId, params.runId),
-                eq(stepRun.tenantId, params.tenantId),
-                inArray(stepRun.nodeId, ids),
-              ),
-            );
-    const steps: Record<string, { output: unknown }> = {};
-    for (const r of rows) {
-      if (r.status === "succeeded" || r.status === "skipped") {
-        steps[r.nodeId] = { output: r.output ?? null };
-      }
-    }
-    const context = { trigger: params.payload, steps };
-    try {
-      output = resolveTemplate(handoff.output, context) ?? null;
-    } catch (error) {
-      console.warn(`handoff output of run ${params.runId} could not be evaluated`, String(error));
-      output = null;
-    }
-    if (
-      new TextEncoder().encode(JSON.stringify(output) ?? "null").length > HANDOFF_OUTPUT_MAX_BYTES
-    ) {
-      output = null;
-      outputTooLarge = true;
-    }
-    if (handoff.sources !== undefined) {
-      let resolved: unknown;
-      try {
-        resolved = resolveTemplate(handoff.sources, context);
-      } catch {
-        resolved = [];
-      }
-      const flat = (Array.isArray(resolved) ? resolved : [resolved]).flat(2);
-      sources = [...new Set(flat.filter((v): v is string => typeof v === "string" && isUuid(v)))];
-      sources = sources.slice(0, HANDOFF_SOURCES_MAX);
-    }
   }
   return {
     runId: params.runId,
@@ -1014,6 +953,7 @@ async function resumeOf(
   tx: Tx,
   params: RunParams,
   workflow: StoredWorkflow,
+  tools: Parameters<typeof catalogKindOf>[0],
 ): Promise<RunResume | null> {
   if (!params.retryOf || !params.resumeFrom) return null;
   const index = workflow.steps.findIndex((s) => s.id === params.resumeFrom);
@@ -1050,10 +990,53 @@ async function resumeOf(
   for (const step of before) {
     const row = rows.find((r) => r.nodeId === step.id);
     if (!row) continue;
-    const found = reusedStepOf(step as unknown as StoredStepLike, row, rows, items);
+    const found = reusedStepOf(storedStepLike(step, catalogKindOf(tools)), row, rows, items);
     if (found) reused[step.id] = found;
   }
   return { from: params.resumeFrom, of: shortRunId(params.retryOf), reused };
+}
+
+/**
+ * What a retry reads of a v5 step to rebuild its record: the engine step kind it ran as (a Do step
+ * runs on one: an action as a read or a write, rules or AI as a skill, a person's question as a
+ * person step, and so on), its error rule, its approval and its quick answers.
+ */
+function storedStepLike(
+  step: steps.Step,
+  kindOf: (action: string) => steps.ActionKind | undefined,
+): StoredStepLike {
+  const own = {
+    ...(step.onError ? { onError: step.onError } : {}),
+    ...(step.checks?.approval ? { checks: { approval: { mode: step.checks.approval.mode } } } : {}),
+  };
+  switch (step.kind) {
+    case "do": {
+      const engine = steps.doEngine(step, kindOf).engine;
+      const kind =
+        engine === "rules" || engine === "ai" || engine === "match"
+          ? "skill"
+          : engine === "tell"
+            ? "notify"
+            : engine === "contact"
+              ? "conversation"
+              : engine === "automation"
+                ? "process"
+                : engine;
+      return {
+        kind,
+        ...own,
+        ...(step.person?.choices ? { choices: step.person.choices } : {}),
+      };
+    }
+    case "loop":
+      return { kind: "skill", ...own };
+    case "fork":
+      return { kind: "if", ...own };
+    case "end":
+      return { kind: "stop", ...own };
+    default:
+      return { kind: step.kind, ...own };
+  }
 }
 
 /** The step model: the automations a v5 workflow's Do steps use, by their pinned refs. */

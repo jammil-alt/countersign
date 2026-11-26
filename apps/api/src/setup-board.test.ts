@@ -64,17 +64,22 @@ function bundle(name: string): unknown {
         slug: "main",
         name: "Main",
         workflow: {
-          schemaVersion: 4,
+          schemaVersion: 5,
           triggers: [{ id: "t", on: { type: "manual", input: {} } }],
+          outputs: [{ id: "out-done", name: "Done", kind: "nothing" }],
           steps: [
             {
               id: "update",
-              kind: "write",
               name: "Update the record",
-              tool: TESTKIT_UPDATE_TOOL,
+              checks: {
+                approval: { required: "required", approvers: [{ who: "seat:bill-approver" }] },
+              },
+              kind: "do",
+              doneBy: "rules",
+              uses: { type: "action", action: TESTKIT_UPDATE_TOOL },
               input: { id: "r1", amount: "12.00" },
-              checks: { approval: { approvers: [{ who: "seat:bill-approver" }] } },
             },
+            { id: "end", kind: "end", name: "Done", outputs: ["out-done"] },
           ],
         },
       },

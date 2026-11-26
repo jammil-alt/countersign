@@ -2,7 +2,6 @@
 
 import { describe, expect, it } from "vitest";
 import { Process } from "../process/schema";
-import { ActionStep, SkillStep } from "../schemas/workflow";
 import {
   OVERSIGHT_ALLOWED,
   OVERSIGHT_REVIEWS,
@@ -144,8 +143,6 @@ describe("the cheap watch's signals", () => {
 
 // ── Which steps the owner watches ────────────────────────────────────────────────────────────
 
-const v3Skill = SkillStep.parse({ id: "s", kind: "skill", name: "Find", skill: "x.find" });
-const v3Action = ActionStep.parse({ id: "a", kind: "action", name: "Write", tool: "x.write" });
 const process = Process.parse({
   schemaVersion: 4,
   triggers: [{ id: "t", on: { type: "manual", input: { type: "object" } } }],
@@ -197,18 +194,18 @@ const [read, skill, write, conversation, person, notify] = process.steps as [
 ];
 
 describe("the steps the owner watches", () => {
-  it("watches v3 skill and action steps and v4 read, skill, write and conversation steps", () => {
-    for (const s of [v3Skill, v3Action, read, skill, write, conversation]) {
+  it("watches read, skill, write and conversation steps", () => {
+    for (const s of [read, skill, write, conversation]) {
       expect(ownerWatches(s as { kind: string })).toBe(true);
     }
     for (const s of [person, notify]) expect(ownerWatches(s as { kind: string })).toBe(false);
   });
 
-  it("is v0.13's rule exactly for v3 steps (the regression guard)", () => {
+  it("is v0.13's rule exactly for skill and write steps (the regression guard)", () => {
     for (const review of OVERSIGHT_REVIEWS) {
       const settings = OversightSettings.parse({ review });
       for (const stepReview of [undefined, ...STEP_REVIEWS]) {
-        for (const base of [v3Skill, v3Action]) {
+        for (const base of [skill, write]) {
           const step = stepReview ? { ...base, review: stepReview } : base;
           expect(ownerReviewsFailure(settings, step)).toBe(reviewsFailures(settings, step));
           for (const checkpoint of [false, true]) {
@@ -219,7 +216,7 @@ describe("the steps the owner watches", () => {
         }
       }
     }
-    expect(ownerReviewsFailure(undefined, v3Skill)).toBe(false);
+    expect(ownerReviewsFailure(undefined, skill)).toBe(false);
   });
 
   it("never reviews a person, notify or logic step, whatever its review says", () => {
@@ -250,12 +247,11 @@ describe("the steps the owner watches", () => {
     expect(ownerAllowedActions(conversation, "failed")).toEqual(["retry", "ask", "stop"]);
     expect(ownerAllowedActions(conversation, "checkpoint")).toEqual(["continue", "ask", "stop"]);
     expect(ownerAllowedActions(write, "failed")).toBe(OVERSIGHT_ALLOWED.failed);
-    expect(ownerAllowedActions(v3Skill, "checkpoint")).toBe(OVERSIGHT_ALLOWED.checkpoint);
+    expect(ownerAllowedActions(skill, "checkpoint")).toBe(OVERSIGHT_ALLOWED.checkpoint);
   });
 
-  it("asks the v3 step's approver, or the v4 step's first approver on its deadline", () => {
-    expect(ownerStepApproval(v3Skill)).toEqual({ required: "required", onReject: "stop" });
-    expect(ownerStepApproval(v3Action)).toBe(v3Action.approval);
+  it("asks the step's first approver on its deadline", () => {
+    expect(ownerStepApproval(skill as never)).toEqual({ required: "required", onReject: "stop" });
     expect(ownerStepApproval(write as never)).toEqual({
       required: "required",
       approver: "lead",

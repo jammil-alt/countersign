@@ -7,7 +7,6 @@ import type { BuildDetail } from "@countersign/core";
 import { FakeModel, type LlmRequest } from "@countersign/llm";
 import { afterAll, describe, expect, it, vi } from "vitest";
 import { createApiHarness, OPERATOR } from "./api.test-helper";
-import { stepModelAnswer } from "./builder-v5.test-helper";
 
 for (const level of process.env.SHOW_LOGS ? [] : (["warn", "error"] as const)) {
   vi.spyOn(console, level).mockImplementation(() => {});
@@ -17,7 +16,7 @@ const model = new FakeModel();
 const h = await createApiHarness({ llm: model, env: { BUILDER_SHORTLIST: "on" } });
 afterAll(() => h?.close());
 
-const draft = stepModelAnswer({
+const draft = {
   toolUse: {
     name: "submit_draft",
     input: {
@@ -40,17 +39,20 @@ const draft = stepModelAnswer({
             slug: "main",
             name: "Fix a record",
             workflow: {
-              schemaVersion: 4,
+              schemaVersion: 5,
               triggers: [{ id: "t", on: { type: "manual", input: {} } }],
+              outputs: [{ id: "out-done", name: "Done", kind: "nothing" }],
               steps: [
                 {
                   id: "update",
-                  kind: "write",
                   name: "Update the record",
-                  tool: TESTKIT_UPDATE_TOOL,
-                  input: { id: "r1", amount: "12.00" },
                   checks: { approval: { required: "required" } },
+                  kind: "do",
+                  doneBy: "rules",
+                  uses: { type: "action", action: TESTKIT_UPDATE_TOOL },
+                  input: { id: "r1", amount: "12.00" },
                 },
+                { id: "end", kind: "end", name: "Done", outputs: ["out-done"] },
               ],
             },
           },
@@ -58,7 +60,7 @@ const draft = stepModelAnswer({
       },
     },
   },
-});
+};
 
 const text = (req: LlmRequest | undefined) => JSON.stringify(req?.messages ?? []);
 
@@ -112,9 +114,9 @@ describe.skipIf(!h)("the Builder's two rounds", () => {
       const content = req.messages[0]?.content as string;
       const from = content.indexOf("<current_bundle>") + "<current_bundle>".length;
       const bundle = JSON.parse(content.slice(from, content.indexOf("</current_bundle>")));
-      return stepModelAnswer({
+      return {
         toolUse: { name: "submit_turn", input: { text: "Noted.", bundle } },
-      });
+      };
     };
     const from = model.requests.length;
     model.push(

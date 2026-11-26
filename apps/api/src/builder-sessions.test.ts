@@ -8,13 +8,12 @@
 // version edits it as it is, and "Save as automation" saves a v4 automation (docs/plan.md §1.86).
 
 import { TESTKIT_QUERY_TOOL, TESTKIT_UPDATE_TOOL } from "@countersign/connectors";
-import { type ProcessAgentBundle as AgentBundle, processes, steps } from "@countersign/core";
-import { agentVersion, automationVersion, builderTurn, testCase } from "@countersign/db";
+import { type AgentBundle, steps } from "@countersign/core";
+import { agentVersion, builderTurn, testCase } from "@countersign/db";
 import { FakeModel, type LlmRequest } from "@countersign/llm";
 import { eq } from "drizzle-orm";
 import { afterAll, describe, expect, it } from "vitest";
 import { createApiHarness, OPERATOR, OTHER_OPERATOR, testBundle } from "./api.test-helper";
-import { stepModelAnswer } from "./builder-v5.test-helper";
 
 const model = new FakeModel();
 const h = await createApiHarness({ llm: model });
@@ -32,13 +31,6 @@ type Turn = {
   costUsd: string;
 };
 type Detail = { session: Json & { bundle: AgentBundle }; turns: Turn[]; turn?: Turn };
-
-type Step = processes.Step;
-const stepsOf = (b: AgentBundle) => {
-  const out: Step[] = [];
-  for (const w of b.workflows) processes.walkSteps(w.workflow, ({ step }) => out.push(step));
-  return out;
-};
 
 /** The aliased draft the model was shown. */
 function shown(req: LlmRequest): Json {
@@ -67,7 +59,7 @@ function edits(text: string, fn: (b: Draft) => void) {
     const b = structuredClone(shown(req)) as unknown as Draft;
     fn(b);
     const answer = { toolUse: { name: "submit_turn", input: { text, bundle: b } } };
-    return shownV5(req) ? stepModelAnswer(answer) : answer;
+    return shownV5(req) ? answer : answer;
   };
 }
 
@@ -273,15 +265,6 @@ describe.skipIf(!h)("the Builder as a conversation", () => {
     expect(conflict.status).toBe(409);
     expect(conflict.json).toMatchObject({ error: { code: "undo_conflict" } });
 
-    // Saving steps as an automation isn't in the step model yet (stream I, Not done).
-    const auto = await H.call(OPERATOR, "POST", `/api/ops/builder/sessions/${id}/automation`, {
-      stepIds: [note?.id, wait?.id],
-      slug: "note-and-wait",
-      name: "Note and wait",
-    });
-    expect(auto.status).toBe(422);
-    expect(auto.json).toMatchObject({ error: { code: "not_in_step_model" } });
-
     // Save: a client agent with a v1 draft written by the Builder, in the step model; nothing is
     // published.
     const saved = await ok(OPERATOR, "POST", `/api/ops/builder/sessions/${id}/save`, {});
@@ -406,57 +389,6 @@ describe.skipIf(!h)("the Builder as a conversation", () => {
 
   // Wave 3b (docs/plan.md §1.86): a stored v3 version opens read as processes, every id kept; the
   // stored version never changes, and what the conversation saves is v4.
-  it("starts from a v3 version read as processes, and saves a v4 version", async () => {
-    const created = await ok(OPERATOR, "POST", `/api/ops/clients/${H.B.tenantId}/agents`, {
-      slug: "clerk-v3",
-      bundle: testBundle("Clerk"),
-    });
-    const agentId = (created.agent as Json).id as string;
-    const v1 = created.version as { id: string };
-    const start = await ok(OPERATOR, "POST", "/api/ops/builder/sessions", {
-      kind: "agent",
-      agentId,
-      fromVersionId: v1.id,
-    });
-    const id = start.session.id as string;
-    const process = start.session.bundle.workflows[0]?.workflow;
-    expect(process?.schemaVersion).toBe(4);
-    expect(process?.triggers.map((t) => t.id)).toEqual(["trg-manual"]);
-    expect(stepsOf(start.session.bundle).map((s) => [s.id, s.kind])).toEqual([
-      ["update", "write"],
-      ["confirm", "person"],
-      ["internal", "notify"],
-    ]);
-
-    // A turn on it: the model sees the converted draft (aliases), renames a step and tries to
-    // switch the write's approval off; the ids and the approval hold.
-    model.push(
-      edits("Renamed it.", (b) => {
-        const steps = (b.workflows[0] as Draft["workflows"][number]).workflow.steps;
-        expect(steps[0]).toMatchObject({ id: "s1", kind: "write" });
-        (steps[0] as Json).name = "Correct the record";
-        (steps[0] as Json).checks = { approval: { required: "not_required" } };
-      }),
-    );
-    const t = await ok(OPERATOR, "POST", `/api/ops/builder/sessions/${id}/turns`, {
-      text: "Call the first step 'Correct the record'.",
-    });
-    const [update] = stepsOf(t.session.bundle);
-    expect(update).toMatchObject({ id: "update", name: "Correct the record" });
-    expect(update?.checks?.approval?.required).toBe("required");
-    expect((t.turn as Turn).changes.map((c) => c.id)).toEqual(["step:update"]);
-
-    const saved = await ok(OPERATOR, "POST", `/api/ops/builder/sessions/${id}/save`, {});
-    const v2 = saved.version as { id: string; version: number };
-    expect(v2.version).toBe(2);
-    const rows = await H.t.db.select().from(agentVersion).where(eq(agentVersion.agentId, agentId));
-    const byVersion = new Map(rows.map((r) => [r.version, r.bundle as unknown as AgentBundle]));
-    // The stored v3 version is as it was (invariant 3); v2 is the v4 process.
-    expect(byVersion.get(1)?.workflows[0]?.workflow.schemaVersion).toBe(3);
-    expect(byVersion.get(2)?.workflows[0]?.workflow.schemaVersion).toBe(4);
-    expect(rows.find((r) => r.version === 2)?.parentVersionId).toBe(v1.id);
-  });
-
   // v0.18 (docs/plan.md §1.105): a turn about the step the operator has open.
   it("tells the Builder which step a turn is about, and keeps it on the turn", async () => {
     const created = await ok(OPERATOR, "POST", `/api/ops/clients/${H.B.tenantId}/agents`, {
@@ -503,100 +435,6 @@ describe.skipIf(!h)("the Builder as a conversation", () => {
 
   // Wave 3b: the review's case: the workflow builder saved a v4 version, then the Builder panel
   // starts a conversation from it (it used to fail with a 500), and saves steps as an automation.
-  it("starts from a v4 version and saves its steps as a v4 automation", async () => {
-    const converted = structuredClone(testBundle("Clerk four")) as unknown as Json;
-    const v4 = {
-      ...converted,
-      workflows: [
-        {
-          slug: "fix-record",
-          name: "Fix a record",
-          workflow: {
-            schemaVersion: 4,
-            triggers: [{ id: "trg-four", on: { type: "manual", input: {} } }],
-            steps: [
-              {
-                id: "fix",
-                name: "Update the record",
-                kind: "write",
-                tool: TESTKIT_UPDATE_TOOL,
-                input: { id: "r1", amount: "12.00" },
-                checks: { approval: { required: "required" } },
-              },
-              { id: "pause", name: "Wait an hour", kind: "wait", for: "1 hour" },
-              {
-                id: "tell",
-                name: "Tell the lead",
-                kind: "notify",
-                notify: { to: ["lead"], message: "Done: {{steps.fix.output.record.id}}" },
-              },
-            ],
-          },
-        },
-      ],
-    };
-    const created = await ok(OPERATOR, "POST", `/api/ops/clients/${H.B.tenantId}/agents`, {
-      slug: "clerk-v4",
-      bundle: testBundle("Clerk four"),
-    });
-    const agentId = (created.agent as Json).id as string;
-    const v2 = await ok(OPERATOR, "POST", `/api/ops/agents/${agentId}/versions`, {
-      bundle: v4,
-      parentVersionId: (created.version as Json).id,
-    });
-    const fromVersionId = (v2.version as Json).id as string;
-    const start = await ok(OPERATOR, "POST", "/api/ops/builder/sessions", {
-      kind: "agent",
-      agentId,
-      fromVersionId,
-    });
-    const id = start.session.id as string;
-    expect(stepsOf(start.session.bundle).map((s) => s.id)).toEqual(["fix", "pause", "tell"]);
-
-    model.push(
-      edits("Now it waits two hours.", (b) => {
-        const steps = (b.workflows[0] as Draft["workflows"][number]).workflow.steps;
-        (steps[1] as Json).for = "2 hours";
-      }),
-    );
-    const t = await ok(OPERATOR, "POST", `/api/ops/builder/sessions/${id}/turns`, {
-      text: "Wait two hours instead.",
-    });
-    expect(stepsOf(t.session.bundle)[1]).toMatchObject({ id: "pause", for: "2 hours" });
-
-    const auto = await ok(OPERATOR, "POST", `/api/ops/builder/sessions/${id}/automation`, {
-      stepIds: ["fix", "pause"],
-      slug: "fix-and-pause",
-      name: "Fix and pause",
-    });
-    const steps = stepsOf(auto.session.bundle);
-    expect(steps.map((s) => s.kind)).toEqual(["process", "notify"]);
-    const use = steps[0] as Step & { id: string };
-    expect(use).toMatchObject({ kind: "process", process: "fix-and-pause@1" });
-    // The later step now reads the fix through the process step's output.
-    expect(steps[1]).toMatchObject({
-      notify: { message: `Done: {{steps.${use.id}.output.update_the_record.record.id}}` },
-    });
-    const automationId = (auto.automation as Json).id as string;
-    const automationVersionId = (auto.automationVersion as Json).id as string;
-    const [stored] = await H.t.db
-      .select()
-      .from(automationVersion)
-      .where(eq(automationVersion.id, automationVersionId));
-    expect(stored?.definition).toMatchObject({
-      schemaVersion: 2,
-      requires: { tools: [TESTKIT_UPDATE_TOOL], connectors: ["testkit"] },
-    });
-    // A v4 automation publishes, and the agent's draft validates with it pinned.
-    await ok(
-      OPERATOR,
-      "POST",
-      `/api/ops/automations/${automationId}/versions/${automationVersionId}/publish`,
-    );
-    const saved = await ok(OPERATOR, "POST", `/api/ops/builder/sessions/${id}/save`, {});
-    expect((saved.errors as Json[]).filter((e) => e.code !== "connection_missing")).toEqual([]);
-  });
-
   it("refuses a /command it doesn't know and a closed conversation", async () => {
     const start = await ok(OPERATOR, "POST", "/api/ops/builder/sessions", {
       kind: "agent",

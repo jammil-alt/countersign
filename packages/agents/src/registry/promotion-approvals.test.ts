@@ -1,38 +1,37 @@
 // PLATFORM_QA TOOL-1 (invariant 8, docs/plan.md "approval stays on"): a promotion or a copy into
 // another client never carries the client's mode or a loosened approval. stripForPromotion puts
-// them back to the base template's, or turns approval on. The API test covers the v3 path end to
-// end (apps/api/src/platform-qa-lineage.test.ts); these are the v4 shapes.
+// them back to the base template's, or turns approval on. The API test covers it end to end
+// (apps/api/src/platform-qa-lineage.test.ts); these are the step shapes.
 
-import {
-  type AnyAgentBundle,
-  type ProcessAgentBundle,
-  processes,
-  toProcessBundle,
-} from "@countersign/core";
+import { type AgentBundle, cloneJson, processes, steps } from "@countersign/core";
 import { afterAll, describe, expect, it } from "vitest";
-import { createHarness, type Harness, makeBundle, UPDATE_STEP } from "../log/harness.test-helper";
+import { createHarness, makeBundle, UPDATE_STEP } from "../log/harness.test-helper";
 import { stripForPromotion } from "./lineage";
-import { convertLookup } from "./skills";
 
 const harness = await createHarness();
 afterAll(() => harness?.close());
 
-function writeOf(b: AnyAgentBundle): processes.WriteStep {
+function writeOf(b: AgentBundle): steps.DoStep {
   const w = b.workflows[0]?.workflow;
-  if (w?.schemaVersion !== 4) throw new Error("fixture: expected a process");
-  const s = processes.findStep(w, UPDATE_STEP)?.step;
-  if (s?.kind !== "write") throw new Error("fixture: expected the write step");
+  const s = w ? steps.findStep(w.steps, UPDATE_STEP) : undefined;
+  if (s?.kind !== "do") throw new Error("fixture: expected the write step");
   return s;
 }
 
+const REQUIRED = {
+  required: "required",
+  mode: "in_turn",
+  ifNoAnswer: "stop",
+  onReject: "stop",
+} as const;
+
 describe.skipIf(!harness)("(PLATFORM_QA TOOL-1) promotion keeps approval on", () => {
-  const h = harness as Harness;
-  const v4 = (edit?: (b: ProcessAgentBundle) => void): ProcessAgentBundle => {
-    const b = toProcessBundle(makeBundle(), convertLookup(h.catalog, h.tools));
+  const bundle = (edit?: (b: AgentBundle) => void): AgentBundle => {
+    const b = cloneJson(makeBundle()) as AgentBundle;
     edit?.(b);
     return b;
   };
-  const loosen = (b: ProcessAgentBundle) => {
+  const loosen = (b: AgentBundle) => {
     b.definition.permissions.mode = "act";
     const w = writeOf(b);
     w.checks = {
@@ -45,30 +44,34 @@ describe.skipIf(!harness)("(PLATFORM_QA TOOL-1) promotion keeps approval on", ()
       },
     };
   };
+  const withApproval = (b: AgentBundle) => {
+    const w = writeOf(b);
+    w.checks = { ...w.checks, approval: { ...REQUIRED } };
+  };
 
-  it("(PLATFORM_QA TOOL-1) turns a v4 write's loosened approval back on when the base is v3, and resets the mode", () => {
-    const out = stripForPromotion(v4(loosen), makeBundle(), {});
+  it("(PLATFORM_QA TOOL-1) turns a write's loosened approval back on when the base has none, and resets the mode", () => {
+    const out = stripForPromotion(bundle(loosen), bundle(), {});
     expect(out.definition.permissions.mode).toBe("suggest_only");
     const approval = writeOf(out).checks?.approval;
     expect(approval?.required).toBe("required");
     expect(processes.approvalLoosenings(approval, "a")).toEqual([]);
   });
 
-  it("(PLATFORM_QA TOOL-1) puts a v4 write's loosened approval back to the base's", () => {
-    const base = v4();
-    const out = stripForPromotion(v4(loosen), base, {});
+  it("(PLATFORM_QA TOOL-1) puts a write's loosened approval back to the base's", () => {
+    const base = bundle(withApproval);
+    const out = stripForPromotion(bundle(loosen), base, {});
     expect(writeOf(out).checks?.approval).toEqual(writeOf(base).checks?.approval);
   });
 
   it("(PLATFORM_QA TOOL-1) keeps what the base template itself already had", () => {
-    const base = v4(loosen);
-    const out = stripForPromotion(v4(loosen), base, {});
+    const base = bundle(loosen);
+    const out = stripForPromotion(bundle(loosen), base, {});
     expect(writeOf(out).checks?.approval).toEqual(writeOf(base).checks?.approval);
     expect(out.definition.permissions.mode).toBe("act");
   });
 
   it("(PLATFORM_QA TOOL-1) suggests only and turns approval on when there is no base", () => {
-    const out = stripForPromotion(v4(loosen), null, {});
+    const out = stripForPromotion(bundle(loosen), null, {});
     expect(out.definition.permissions.mode).toBe("suggest_only");
     expect(processes.approvalLoosenings(writeOf(out).checks?.approval, "a")).toEqual([]);
   });

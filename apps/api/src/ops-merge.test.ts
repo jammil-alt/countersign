@@ -13,6 +13,7 @@ import {
   type ApiHarness,
   admin,
   createApiHarness,
+  doTell,
   OPERATOR,
   OTHER_OPERATOR,
   testBundle,
@@ -143,7 +144,7 @@ describe.skipIf(!h)("lineage API: updates, promotion, rollback, detach", () => {
             { skill: SKILL, settings: { threshold_pct: 7, vendors: "Acme, Bolt" } },
           ];
           const update = stepOf(b, "update");
-          if (update.kind === "action") update.input = { id: recordId, amount: "12.00" };
+          if (update.kind === "do") update.input = { id: recordId, amount: "12.00" };
         }),
         "B's way",
       ),
@@ -153,13 +154,8 @@ describe.skipIf(!h)("lineage API: updates, promotion, rollback, detach", () => {
     const v2 = await ok("POST", `/api/ops/agents/${templateId}/versions`, {
       bundle: edit(templateBundle(), (b) => {
         b.definition.instructions = "The template's v2 way.";
-        b.workflows[0]?.workflow.steps.push({
-          id: NEW_STEP,
-          name: "Tell the team",
-          kind: "notify",
-          channel: "thread",
-          message: "Done",
-        });
+        // Before the End.
+        b.workflows[0]?.workflow.steps.splice(-1, 0, doTell(NEW_STEP, "Tell the team", "Done"));
       }),
       changeNote: "v2",
       releaseNote: "A closing note to the team",

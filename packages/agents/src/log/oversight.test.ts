@@ -4,7 +4,7 @@
 // a recorded decision make no model call; the step's data stays in a tool result.
 
 import { TESTKIT_UPDATE_TOOL } from "@countersign/connectors";
-import { ActionStep, OversightSettings, SkillStep } from "@countersign/core";
+import { OversightSettings, processes } from "@countersign/core";
 import {
   agent,
   externalAction,
@@ -25,16 +25,16 @@ import { createRun, dbRunLog } from "./run-log";
 const harness = await createHarness();
 afterAll(() => harness?.close());
 
-const READ_STEP = SkillStep.parse({
+const READ_STEP = processes.SkillStep.parse({
   id: "step-read",
   kind: "skill",
   name: "Read the note",
   skill: "test.read",
   input: { note: "{{trigger.note}}" },
 });
-const WRITE_STEP = ActionStep.parse({
+const WRITE_STEP = processes.WriteStep.parse({
   id: "step-update",
-  kind: "action",
+  kind: "write",
   name: "Update it",
   tool: TESTKIT_UPDATE_TOOL,
   input: { id: "{{trigger.id}}", amount: "1.00" },
@@ -76,7 +76,7 @@ describe.skipIf(!harness)("run oversight: the review and its record", () => {
 
   /** A run of the agent with one step row, failed. */
   async function failedStep(
-    step: SkillStep | ActionStep,
+    step: processes.SkillStep | processes.WriteStep,
     input: unknown,
     mode: "live" | "test" = "live",
   ) {
@@ -95,7 +95,7 @@ describe.skipIf(!harness)("run oversight: the review and its record", () => {
   }
 
   function request(
-    step: SkillStep | ActionStep,
+    step: processes.SkillStep | processes.WriteStep,
     ids: { runId: string; stepRunId: string },
     over: Partial<OverseeRequest> = {},
   ): OverseeRequest {
@@ -415,9 +415,9 @@ describe.skipIf(!harness)("run oversight: the review and its record", () => {
   });
 
   it("asks the step's approver when it names one", async () => {
-    const step = SkillStep.parse({
+    const step = processes.SkillStep.parse({
       ...READ_STEP,
-      approval: { required: "required", approver: "client_admin" },
+      checks: { approval: { required: "required", approvers: [{ who: "client_admin" }] } },
     });
     const ids = await failedStep(step, { note: "x" });
     const verdict = await overseeStep(

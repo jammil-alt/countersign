@@ -3,9 +3,9 @@ import { clientViewRoutes, ServiceView } from "../api/client-view";
 import { checkRouteContract, forbiddenPortalFields } from "../api/contract";
 import { mergeBundles } from "../bundle/merge";
 import { bundleHash } from "../canonical";
+import { validateBundle } from "../process/bundle";
 import { type AgentBundleInput, AgentBundle as AgentBundleSchema } from "../schemas/agent";
 import { bundle, bundleInput, ctx, edit } from "../testing/fixtures";
-import { validateBundle } from "../workflow/validate";
 import { formatKpi } from "./format";
 import { kpiBounds } from "./period";
 import { ClientView, kpiPathProblem, ratioDepth } from "./schema";
@@ -18,8 +18,13 @@ function withView(view: unknown): AgentBundleInput {
   });
 }
 
+// The fixture's workflow has no output and no End, so it isn't complete for publishing; those two
+// checks aren't what these tests are about.
+const unfinished = ["no_outputs", "no_end"];
 const codes = (input: unknown, packs?: string[]) =>
-  validateBundle(input, { ...ctx, ...(packs ? { packs } : {}) }).errors.map((e) => e.code);
+  validateBundle(input, { ...ctx, ...(packs ? { packs } : {}) })
+    .errors.filter((e) => !("stepCode" in e && unfinished.includes(e.stepCode as string)))
+    .map((e) => e.code);
 
 const view = {
   kpis: [
@@ -149,9 +154,9 @@ describe("clientView in the bundle", () => {
         b.workflows[0]?.workflow.steps.push({
           id: "follow",
           name: "Follow up",
-          kind: "use_automation",
-          automation: "follow-up@2",
-        } as never);
+          kind: "do",
+          uses: { type: "automation", automation: "follow-up@2" },
+        });
       });
     const kpiCodes = (input: unknown) => codes(input).filter((c) => c.startsWith("kpi"));
     expect(kpiCodes(withUse(sumOf("follow")))).toEqual([]);

@@ -46,7 +46,6 @@ export { lookupDocument, recordMatches } from "./catalog/split-store";
 // §1.104: vendor contracts and invoices without an accounting tool.
 export * from "./contracts/skills";
 export * from "./contracts/store";
-export * from "./contracts/template";
 export * from "./contracts/tools";
 export { seedDemoPrices } from "./demo";
 export { MATERIALS_EVENTS, materialsEventRegistry } from "./events";

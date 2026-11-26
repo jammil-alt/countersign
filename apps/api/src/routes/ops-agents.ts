@@ -16,11 +16,11 @@ import {
   getAgent,
   getVersion,
   handoffAgents,
-  latestVersion,
   listClientAgents,
   listTemplates,
   listVersionHeads,
   type OperationalPatch,
+  parseVersionBundle,
   pause,
   publish,
   publishStepSkills,
@@ -35,16 +35,8 @@ import {
   updateOperational,
   validateForPublish,
 } from "@countersign/agents";
-import {
-  type AnyAgentBundle,
-  AnyAgentBundle as AnyAgentBundleSchema,
-  processes,
-  routes,
-  type SkillDefinition,
-  validateWorkflow,
-} from "@countersign/core";
+import { type AgentBundle, routes } from "@countersign/core";
 import { connection, tenant } from "@countersign/db";
-import { knownModelIds } from "@countersign/llm";
 import {
   EventPayloadError,
   type EventTypeRegistry,
@@ -53,7 +45,6 @@ import {
 import {
   handTrigger,
   type RoutableAgent,
-  type RunRange,
   type RunRequest,
   requestRun,
 } from "@countersign/workflows";
@@ -76,7 +67,7 @@ async function agentInScope(ctx: Pick<HandlerCtx<never>, "tx" | "tenantIds">, id
   return row;
 }
 
-function routable(row: AgentRow, liveBundle: AnyAgentBundle | null): RoutableAgent {
+function routable(row: AgentRow, liveBundle: AgentBundle | null): RoutableAgent {
   return {
     id: row.id,
     tenantId: row.tenantId,
@@ -119,7 +110,7 @@ async function sandboxClient(ctx: Pick<HandlerCtx<never>, "tx" | "tenantIds">): 
 export async function bindTestCopy(
   ctx: Pick<HandlerCtx<never>, "tx" | "services" | "session">,
   copy: AgentRow,
-  bundle: AnyAgentBundle,
+  bundle: AgentBundle,
 ): Promise<AgentRow> {
   const add = await bindingsToAdd(ctx, copy, bundle);
   if (Object.keys(add).length === 0) return copy;
@@ -137,7 +128,7 @@ export async function bindTestCopy(
 export async function bindingsToAdd(
   ctx: Pick<HandlerCtx<never>, "tx" | "services">,
   copy: Pick<AgentRow, "tenantId" | "bindings">,
-  bundle: AnyAgentBundle,
+  bundle: AgentBundle,
 ): Promise<Record<string, string>> {
   const tenantId = copy.tenantId as string;
   const { skills } = await skillContext(ctx.tx, {
@@ -241,7 +232,7 @@ function request(make: () => RunRequest): RunRequest {
 // unknown workflow is left to requestRun's own refusal.
 function checkTestPayload(
   events: Pick<EventTypeRegistry, "parsePayload">,
-  bundle: AnyAgentBundle,
+  bundle: AgentBundle,
   workflow: string,
   payload: unknown,
 ): void {
@@ -572,8 +563,11 @@ export function opsAgentRoutes(app: Hono<AppEnv>): void {
     // DECISION: a test run is checked exactly as a publish is, against the agent asked for: a
     // template as a template, a client agent with its bound connections, as the builder checks it
     // before it offers Test run (docs/plan.md §1.5).
+    // DECISION: a version that went live (or was retired) was published, so none of its steps is
+    // new work: a test run of it is checked as it stands (invariant 3), not as a first draft.
     const errors = await validateForPublish(ctx.tx, row, v.bundle, ctx.services.platform.ctx, {
-      previous: await existingBundle(ctx.tx, v),
+      previous:
+        v.status === "draft" ? await existingBundle(ctx.tx, v) : parseVersionBundle(v.bundle),
     });
     if (errors.length > 0) {
       throw new HttpError(422, "invalid_bundle", `v${v.version} does not validate`, errors);
@@ -622,42 +616,18 @@ export function opsAgentRoutes(app: Hono<AppEnv>): void {
         bundle: target.version.bundle,
       }),
     );
-    // Owner, 2026-11-22 (docs/plan.md §1.185): a test of some of the steps. Checked here, so a
-    // step never reads nothing where it expects an earlier step's output.
-    // DECISION: a range is a test run's alone (it never writes, invariant 8), on a workflow in
-    // the new format, and what is given for the steps before it is at most 256 KB.
+    // Owner, 2026-11-22 (docs/plan.md §1.185): a test of some of the steps.
+    // DECISION (wave 4): the step model has no test of some of the steps yet (it was the old
+    // process format's alone), so a range is refused for every workflow.
     const { range } = ctx.body;
     if (range) {
-      const wf = target.version.bundle.workflows.find((w) => w.slug === ctx.body.workflow);
-      if (wf?.workflow.schemaVersion !== 4) {
-        throw new HttpError(
-          422,
-          "invalid_range",
-          "some of the steps can be tested once the workflow is saved in the new format",
-        );
-      }
-      const problems = processes.rangeProblems(
-        wf.workflow,
-        // What a step reads is in its own words; the tools' shapes are all the typing needs.
-        { tools: ctx.services.platform.tools.specs() },
-        range,
+      throw new HttpError(
+        422,
+        "invalid_range",
+        "some of the steps can't be tested yet: test the whole workflow",
       );
-      if (JSON.stringify(range.given ?? {}).length > 256_000) {
-        problems.push("what was given for the earlier steps is too large (256 KB at most)");
-      }
-      if (problems.length > 0) {
-        throw new HttpError(422, "invalid_range", problems.join("; "), { problems });
-      }
     }
-    // As the run keeps it: only what was said.
-    const kept: RunRange | null = range
-      ? {
-          ...(range.from ? { from: range.from } : {}),
-          ...(range.to ? { to: range.to } : {}),
-          ...(range.given ? { given: range.given } : {}),
-        }
-      : null;
-    let params: RunParams = kept ? { ...req, range: kept } : req;
+    let params: RunParams = req;
     // docs/plan.md §1.243: a test run marked sandbox is listed in the client's sandbox on both
     // sides. Only a client's own agent (never a template's test copy), within the day's limits.
     if (ctx.body.sandbox) {
@@ -680,40 +650,6 @@ export function opsAgentRoutes(app: Hono<AppEnv>): void {
     const started = params;
     ctx.afterCommit(() => startAfterCommit(ctx.services, started));
     return { runId: req.runId, agentId: target.agent.id, versionId: target.version.id };
-  });
-
-  mount(app, routes.opsValidateWorkflow, async (ctx) => {
-    const { tx, body, services } = ctx;
-    const { platform } = services;
-    let skills: Record<string, SkillDefinition> = Object.fromEntries(
-      platform.catalog.list().map((s) => [s.id, s]),
-    );
-    let agentDef: AnyAgentBundle["definition"] | undefined;
-    if (body.agentId) {
-      const row = await agentInScope(ctx, body.agentId);
-      const latest = await latestVersion(tx, row.id);
-      const v = row.liveVersionId ? await getVersion(tx, row.liveVersionId) : latest;
-      if (v) {
-        // Wave 3b: the agent's live (else latest) version may hold v4 processes; only its
-        // definition and skills are read here.
-        const bundle = AnyAgentBundleSchema.parse(v.bundle);
-        agentDef = bundle.definition;
-        const resolved = await skillContext(tx, {
-          tenantId: row.tenantId,
-          bundle,
-          catalog: platform.catalog,
-        });
-        skills = { ...skills, ...resolved.skills };
-      }
-    }
-    const result = validateWorkflow(body.workflow, {
-      skills,
-      tools: platform.tools.specs(),
-      models: knownModelIds(),
-      events: platform.events.byType(),
-      ...(agentDef ? { agent: agentDef } : {}),
-    });
-    return { valid: result.valid, errors: result.errors };
   });
 
   mount(app, routes.opsEventCatalog, async ({ services }) => ({

@@ -61,5 +61,5 @@ export function prefetchRun(prefetch: Prefetch, runId: string): void {
 export function prefetchWorkflowTab(prefetch: Prefetch, agentId: string): void {
   prefetch(apiRoutes.opsBuilderCatalog, { params: { id: agentId } }, "catalog");
   prefetch(apiRoutes.opsEventCatalog, {}, "catalog");
-  void import("../builder/WorkflowBuilder");
+  void import("../builder/steps/StepsBuilder");
 }

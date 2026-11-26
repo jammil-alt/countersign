@@ -9,9 +9,8 @@ import { buildEvent, build as buildTable } from "@countersign/db";
 import { FakeModel } from "@countersign/llm";
 import { desc, eq } from "drizzle-orm";
 import { afterAll, describe, expect, it, vi } from "vitest";
-import { admin, createApiHarness, OPERATOR } from "./api.test-helper";
+import { admin, createApiHarness, OPERATOR, v5Workflow } from "./api.test-helper";
 import { draftWritingSteps } from "./build/store";
-import { stepModelAnswer } from "./builder-v5.test-helper";
 
 for (const level of process.env.SHOW_LOGS ? [] : (["warn", "error"] as const)) {
   vi.spyOn(console, level).mockImplementation(() => {});
@@ -27,7 +26,7 @@ const turnAnswer = (input: Record<string, unknown>) => ({
 const reviewed = () => ({ toolUse: { name: "submit_review", input: { concerns: [] } } });
 
 function draftAnswer() {
-  return stepModelAnswer({
+  return {
     toolUse: {
       name: "submit_draft",
       input: {
@@ -61,17 +60,20 @@ function draftAnswer() {
               slug: "main",
               name: "Review a record",
               workflow: {
-                schemaVersion: 4,
+                schemaVersion: 5,
                 triggers: [{ id: "t", on: { type: "manual", input: {} } }],
+                outputs: [{ id: "out-done", name: "Done", kind: "nothing" }],
                 steps: [
                   {
                     id: "update",
-                    kind: "write",
                     name: "Update the record",
-                    tool: TESTKIT_UPDATE_TOOL,
-                    input: { id: "r1", amount: "12.00" },
                     checks: { approval: { required: "required" } },
+                    kind: "do",
+                    doneBy: "rules",
+                    uses: { type: "action", action: TESTKIT_UPDATE_TOOL },
+                    input: { id: "r1", amount: "12.00" },
                   },
+                  { id: "end", kind: "end", name: "Done", outputs: ["out-done"] },
                 ],
               },
             },
@@ -79,7 +81,7 @@ function draftAnswer() {
         },
       },
     },
-  });
+  };
 }
 
 describe.skipIf(!h)("decisions on a build", () => {
@@ -380,22 +382,27 @@ describe.skipIf(!h)("decisions on a build", () => {
       });
       expect(made.status, JSON.stringify(made.json)).toBe(200);
     }
-    const step = (id: string, skill: string) => ({ id, kind: "skill", name: id, skill });
+    const step = (id: string, skill: string) => ({
+      id,
+      kind: "do",
+      doneBy: "ai",
+      name: id,
+      uses: { type: "skill", skill },
+    });
     const bundle = {
       schemaVersion: 1,
       definition: { skills: [] },
       workflows: [
         {
           slug: "main",
-          workflow: {
-            schemaVersion: 4,
-            triggers: [],
-            steps: [
+          workflow: v5Workflow(
+            [
               step("reads", "custom:g4-reads"),
               step("writes", "custom:g4-writes"),
               step("nowhere", "custom:g4-nowhere"),
             ],
-          },
+            { triggers: [] },
+          ),
         },
       ],
     };

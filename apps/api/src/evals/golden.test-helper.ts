@@ -29,7 +29,7 @@ import {
   fakeResend,
 } from "@countersign/connectors/testing";
 import {
-  type AnyAgentBundle,
+  type AgentBundle,
   type EvalCase,
   type EvalCaseResult,
   EvalDataset,
@@ -443,7 +443,7 @@ export async function runGoldenCase(
       .select({ bundle: agentVersion.bundle })
       .from(agentVersion)
       .where(eq(agentVersion.id, versionId));
-    const bundle = row?.bundle as AnyAgentBundle;
+    const bundle = row?.bundle as AgentBundle;
     const tools = writeStepTools(bundle.workflows);
     const writes = runWrites(ran.steps, (step) => tools.get(step) ?? null);
     if (deps.transport.misses.length > 0) {
@@ -541,7 +541,7 @@ export interface Part {
 }
 
 /** Each step of a workflow (by its own id) and the part it uses. */
-export function stepParts(bundle: AnyAgentBundle, workflow: string): Map<string, Part> {
+export function stepParts(bundle: AgentBundle, workflow: string): Map<string, Part> {
   const parts = new Map<string, Part>();
   const w = bundle.workflows.find((x) => x.slug === workflow);
   const walk = (v: unknown) => {
@@ -564,11 +564,11 @@ export function stepParts(bundle: AnyAgentBundle, workflow: string): Map<string,
 }
 
 /** The template's live bundle. */
-export async function liveBundle(H: ApiHarness, slug: string): Promise<AnyAgentBundle> {
+export async function liveBundle(H: ApiHarness, slug: string): Promise<AgentBundle> {
   const id = await liveVersion(H, slug);
   const [row] = await H.t.db
     .select({ bundle: agentVersion.bundle })
     .from(agentVersion)
     .where(eq(agentVersion.id, id));
-  return row?.bundle as AnyAgentBundle;
+  return row?.bundle as AgentBundle;
 }

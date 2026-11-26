@@ -27,6 +27,7 @@ import {
   admin,
   allowForAgent,
   createApiHarness,
+  ended,
   FakeWorkflowStep,
   forbiddenKeys,
   OPERATOR,
@@ -52,7 +53,7 @@ const h = await createApiHarness({
 });
 afterAll(() => h?.close());
 
-const MEETING = {
+const _MEETING = {
   title: "Delivery walk-through",
   start: "2026-11-20T10:00",
   end: "2026-11-20T10:30",
@@ -81,18 +82,27 @@ function bundle(): AgentBundle {
         slug: "main",
         name: "Main",
         workflow: {
-          schemaVersion: 3,
-          trigger: { id: "trg-manual", on: { type: "manual", input: {} } },
-          // No `approval` on the step: a write waits for a person by default.
+          schemaVersion: 5,
+          triggers: [{ id: "trg-manual", on: { type: "manual", input: {} } }],
+          outputs: [{ id: "out-done", name: "Done", kind: "nothing" }],
           steps: [
             {
               id: "book",
               name: "Book it",
-              kind: "action",
-              tool: CALENDAR_TOOLS.create,
-              input: MEETING,
               client: { visible: true, label: "Book the meeting" },
+              checks: { approval: { required: "required" } },
+              kind: "do",
+              doneBy: "rules",
+              uses: { type: "action", action: CALENDAR_TOOLS.create },
+              input: {
+                title: "Delivery walk-through",
+                start: "2026-11-20T10:00",
+                end: "2026-11-20T10:30",
+                timeZone: "America/Chicago",
+                attendees: [{ address: "maria@proveedor.example" }],
+              },
             },
+            { id: "end", kind: "end", name: "Done", outputs: ["out-done"] },
           ],
         },
       },
@@ -176,9 +186,7 @@ describe.skipIf(!h)("Calendars through the API", () => {
       instances: H.instances,
       credentials: credentialsFor(H.db, { current: ENCRYPTION_KEY }),
     };
-    expect(await executeRun(deps, params, cloudflareStepRunner(step))).toEqual({
-      status: "succeeded",
-    });
+    expect(await executeRun(deps, params, cloudflareStepRunner(step))).toEqual(ended());
     const [action] = await H.t.db
       .select()
       .from(externalAction)

@@ -38,7 +38,6 @@ import {
   parseSkillRef,
   processes,
   REACH_OUT_SKILL,
-  steps,
 } from "@countersign/core";
 import {
   type Db,
@@ -577,7 +576,7 @@ export function agentPort(
         actionOn,
       );
       const r = processes.resolveActionConnector(action, via, { bound });
-      if (!r || !r.ok) {
+      if (!r?.ok) {
         if (off.length > 0 && (via === undefined || off.includes(via))) {
           return {
             refused: `${spec.label} is switched off for ${off.map(connectorName).join(" and ")}`,

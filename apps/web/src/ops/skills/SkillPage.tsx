@@ -27,7 +27,7 @@ import {
 import { agentPath } from "../agents/BuilderParts";
 import { errorText, Field, Notice, plural, Select, TextInput, useAction } from "../agents/ui";
 import { loopPath } from "../lab/loops/paths";
-import { parseAnyBundle } from "../versions";
+import { parseBundle } from "../versions";
 import { SchemaCard } from "./parts";
 import { SkillEditor } from "./SkillEditor";
 import { SKILLS_PATH, skillPath } from "./SkillsLibrary";
@@ -477,7 +477,7 @@ function AssignCard({ skill, onAssigned }: { skill: SkillListItem; onAssigned():
     const page = await action.call(apiRoutes.opsAgent, { params: { id: target.id } });
     if (!page.ok || !page.data.latest) return;
     // Wave 3b: a v4 version is read and saved back as v4; only `definition.skills` changes.
-    const parsed = parseAnyBundle(page.data.latest);
+    const parsed = parseBundle(page.data.latest);
     if (!parsed.ok) {
       setProblem(`We couldn't read ${target.name}'s latest version. ${parsed.message}`);
       return;

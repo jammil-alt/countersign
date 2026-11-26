@@ -17,10 +17,9 @@ import {
   type ConverseOutput,
   converseSubject,
   DEFAULT_APPROVAL,
-  type SkillStep,
 } from "@countersign/core";
 import { inboxItem, reachOut, run, withTenant } from "@countersign/db";
-import type { RunInfo, StepOutcome } from "@countersign/workflows";
+import type { RunInfo, SkillStep, StepOutcome } from "@countersign/workflows";
 import { and, eq, isNull, sql } from "drizzle-orm";
 import { toRunResolution } from "../inbox";
 import { type ConverseDeps, type ConversePeek, conversePort } from "./service";

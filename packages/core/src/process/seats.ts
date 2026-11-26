@@ -5,6 +5,8 @@
 // people the run started with (`fillSeats`), so the engine and the ports see plain user ids.
 
 import { type PersonRole, type SeatKind, seatKindOf } from "../reach/rules";
+import type { Step as StepModelStep, Workflow as StepModelWorkflow } from "../steps/schema";
+import { eachStep } from "../steps/walk";
 import type { ApprovalCheck, Deadline, DeadlineThen, NotifyCheck, Process, Step } from "./schema";
 import { walkSteps } from "./walk";
 
@@ -72,10 +74,8 @@ function notifyRefs(n: NotifyCheck, field: string, out: WhoRef[]): void {
   thenRefs(n.urgent?.ifNoAnswer, `${field}.urgent.ifNoAnswer`, out);
 }
 
-/** Every `Who` one step names itself (not the steps inside an if, a for_each or a repeat). */
-export function whoRefsOfStep(step: Step): WhoRef[] {
-  const out: WhoRef[] = [];
-  const checks = step.checks;
+/** The checks every step carries: confer, approval, notify. */
+function checkRefs(checks: Step["checks"], out: WhoRef[]): void {
   if (checks?.confer) {
     checks.confer.with.forEach((c, i) => {
       if ("person" in c) {
@@ -88,6 +88,12 @@ export function whoRefsOfStep(step: Step): WhoRef[] {
   (checks?.notify ?? []).forEach((n, i) => {
     notifyRefs(n, `checks.notify.${i}`, out);
   });
+}
+
+/** Every `Who` one step names itself (not the steps inside an if, a for_each or a repeat). */
+export function whoRefsOfStep(step: Step): WhoRef[] {
+  const out: WhoRef[] = [];
+  checkRefs(step.checks, out);
   switch (step.kind) {
     case "person":
       out.push({
@@ -124,6 +130,31 @@ export function whoRefsOfStep(step: Step): WhoRef[] {
   return out;
 }
 
+/** Every `Who` one v5 step names itself (not the steps inside a Fork, a For each or a Repeat). */
+export function whoRefsOfStepModelStep(step: StepModelStep): WhoRef[] {
+  const out: WhoRef[] = [];
+  if (step.kind === "do" || step.kind === "loop") checkRefs(step.checks as Step["checks"], out);
+  if (step.kind !== "do") return out;
+  const p = step.person;
+  if (p) {
+    out.push({ who: p.who, use: p.mode === "approve" ? "approve" : "answer", field: "person.who" });
+    deadlineRefs(p.deadline, "person.deadline", out);
+  }
+  const c = step.collect;
+  if (c) {
+    c.items.forEach((item, i) => {
+      out.push({ who: item.owner, use: "reach", field: `collect.items.${i}.owner` });
+    });
+    if (c.escalate) {
+      out.push({ who: c.escalate.to, use: "escalate", field: "collect.escalate.to" });
+      deadlineRefs(c.escalate.deadline, "collect.escalate.deadline", out);
+    }
+  }
+  if (step.contact) deadlineRefs(step.contact.deadline, "contact.deadline", out);
+  if (step.tell) notifyRefs(step.tell, "tell", out);
+  return out;
+}
+
 /** A problem with a seat a step names, in the validator's shape. */
 export interface SeatProblem {
   stepId: string;
@@ -152,6 +183,41 @@ export function seatProblems(
   const out: SeatProblem[] = [];
   walkSteps(process, ({ step }) => {
     for (const ref of whoRefsOfStep(step)) {
+      const role = seatRoleOf(ref.who);
+      if (role === null) continue;
+      const declared = byRole.get(role);
+      if (!declared) {
+        out.push({
+          stepId: step.id,
+          field: ref.field,
+          code: "unknown_seat",
+          message: `seat "${role}" isn't one of the agent's people`,
+        });
+        continue;
+      }
+      const kind = seatKindOf(declared);
+      if (!SEAT_USES[ref.use].includes(kind)) {
+        out.push({
+          stepId: step.id,
+          field: ref.field,
+          code: "seat_kind",
+          message: `seat "${role}" is for people who are ${kind === "reached" ? "contacted" : kind}, so it can't ${USE_WORDS[ref.use]}`,
+        });
+      }
+    }
+  });
+  return out;
+}
+
+/** `seatProblems` for a v5 workflow's steps. */
+export function stepModelSeatProblems(
+  workflow: Pick<StepModelWorkflow, "steps">,
+  roles: readonly PersonRole[],
+): SeatProblem[] {
+  const byRole = new Map(roles.map((r) => [r.role, r]));
+  const out: SeatProblem[] = [];
+  eachStep(workflow.steps, ({ step }) => {
+    for (const ref of whoRefsOfStepModelStep(step)) {
       const role = seatRoleOf(ref.who);
       if (role === null) continue;
       const declared = byRole.get(role);

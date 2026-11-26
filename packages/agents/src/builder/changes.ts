@@ -7,7 +7,7 @@
 // after the turn with only that entry reverted, so later changes stay; a conflict refuses it.
 
 import {
-  type AnyAgentBundle,
+  type AgentBundle,
   type BuilderChange,
   type BundleChange,
   buildEntity,
@@ -150,7 +150,7 @@ function sideOf(flat: FlatBundle, id: string): unknown {
 }
 
 /** The labelled entries between two drafts, in diff order. */
-export function labelledChanges(before: AnyAgentBundle, after: AnyAgentBundle): BuilderChange[] {
+export function labelledChanges(before: AgentBundle, after: AgentBundle): BuilderChange[] {
   const fa = flattenBundle(before);
   const fb = flattenBundle(after);
   const na = stepNumbers(fa);
@@ -166,7 +166,7 @@ export function labelledChanges(before: AnyAgentBundle, after: AnyAgentBundle): 
 }
 
 export type UndoResult =
-  | { ok: true; bundle: AnyAgentBundle }
+  | { ok: true; bundle: AgentBundle }
   | { ok: false; conflicts: MergeConflict[] };
 
 /**
@@ -175,9 +175,9 @@ export type UndoResult =
  * merge conflicts and nothing is reverted.
  */
 export function undoChange(input: {
-  before: AnyAgentBundle;
-  after: AnyAgentBundle;
-  working: AnyAgentBundle;
+  before: AgentBundle;
+  after: AgentBundle;
+  working: AgentBundle;
   changeId: string;
 }): UndoResult {
   const theirs = selectChanges(input.after, input.before, [input.changeId]);
@@ -187,7 +187,7 @@ export function undoChange(input: {
 }
 
 /** The entity, built with its children, for tests and labels. */
-export function entityOf(bundle: AnyAgentBundle, key: string): Record<string, unknown> | null {
+export function entityOf(bundle: AgentBundle, key: string): Record<string, unknown> | null {
   const flat = flattenBundle(bundle);
   return flat.entities.has(key) ? buildEntity(flat, key) : null;
 }

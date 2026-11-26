@@ -4,23 +4,18 @@
 // `requiresConnectors` that its tools or `needs` don't cover), and every need names a registered
 // connector, a registered tool and a record type its connector declares.
 
-import { convertLookup } from "@countersign/agents";
 import {
-  type AgentBundle,
-  AnyAgentBundle,
+  AgentBundle,
   agentNeeds,
   type ConnectorNeed,
-  holdsStepModel,
   skillNeeds,
-  toProcessBundle,
   uncoveredConnectors,
 } from "@countersign/core";
-import { loadDemoAgentVersions, loadSeedTemplates, loadSeedVersions } from "@countersign/db/seed";
+import { loadDemoAgent, loadSeedTemplates, loadSeedVersions } from "@countersign/db/seed";
 import { describe, expect, it } from "vitest";
 import { createPlatform, deploymentConnectors } from "./platform";
 
 const platform = createPlatform({ connectors: deploymentConnectors({}, false) });
-const lookup = convertLookup(platform.catalog, platform.tools);
 const connectorIds = new Set(platform.connectors.list().map((c) => c.manifest.id));
 const ctx = {
   skills: Object.fromEntries(platform.catalog.list().map((s) => [s.id, s])),
@@ -42,8 +37,8 @@ async function templates(): Promise<{ name: string; bundle: AgentBundle }[]> {
   }
   for (const [slug, v] of latest)
     out.push({ name: `seed ${slug} v${v.version}`, bundle: v.bundle });
-  const demo = (await loadDemoAgentVersions()).at(-1);
-  if (demo) out.push({ name: "seed demo client agent", bundle: demo.bundle as AgentBundle });
+  const demo = await loadDemoAgent();
+  out.push({ name: "seed demo client agent", bundle: demo.bundle as AgentBundle });
   for (const p of platform.packs) {
     for (const t of p.manifest.templates) {
       const last = (t.versions ?? []).at(-1) ?? t.bundle;
@@ -53,15 +48,11 @@ async function templates(): Promise<{ name: string; bundle: AgentBundle }[]> {
   return out;
 }
 
-// The step model (the platform agents' seeds): a v5 workflow's needs are read from its steps as
-// they are; older bundles through their v4 reading.
-const all = (await templates()).map((t) => {
-  const bundle = AnyAgentBundle.parse(t.bundle);
-  return {
-    ...t,
-    needs: agentNeeds(holdsStepModel(bundle) ? bundle : toProcessBundle(bundle, lookup), ctx),
-  };
-});
+// A workflow's needs are read from its steps as they are.
+const all = (await templates()).map((t) => ({
+  ...t,
+  needs: agentNeeds(AgentBundle.parse(t.bundle), ctx),
+}));
 
 /** A need as one line: `qbo create vendor (ask, via qbo.vendor.create)`. */
 const line = (n: ConnectorNeed) =>
@@ -123,7 +114,8 @@ describe("what the platform's skills need", () => {
 
 describe("what the templates need", () => {
   it("covers every seeded and pack template", () => {
-    expect(all.length).toBeGreaterThanOrEqual(10);
+    // The five platform agents and the demo client agent (the packs ship no template yet).
+    expect(all.length).toBeGreaterThanOrEqual(6);
   });
 
   it.each(all)("$name: every need names a registered connector, tool and record type", (t) => {

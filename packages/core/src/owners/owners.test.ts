@@ -15,7 +15,7 @@ import {
 } from "./definition";
 import { nextOwnerName, OWNER_NAME_POOL, ownerNameProblem } from "./names";
 
-const v3 = (oversight?: unknown) =>
+const agent = (oversight?: unknown) =>
   AgentBundle.parse({
     schemaVersion: 1,
     definition: {
@@ -86,17 +86,17 @@ describe("names", () => {
 
 describe("which settings a run uses", () => {
   it("without an area owner, is exactly v0.16's owner", () => {
-    const r = runOwnerOf(v3(), undefined);
-    expect(r.review).toBe("off");
+    const r = runOwnerOf(agent(), undefined);
+    expect(r.review).toBe("failures");
     expect(r.area).toBeUndefined();
   });
 
-  it("keeps a stored v3 process off unless the owner sets a review", () => {
-    const off = runOwnerOf(v3(), pia({ model: { id: "xai:grok-4.7" } }));
-    expect(off.review).toBe("off");
-    expect(off.settings).toBeUndefined();
+  it("reviews failures by default, and the owner's review replaces that", () => {
+    const failures = runOwnerOf(agent(), pia({ model: { id: "xai:grok-4.7" } }));
+    expect(failures.review).toBe("failures");
+    expect(failures.settings?.model?.id).toBe("xai:grok-4.7");
     const on = runOwnerOf(
-      v3(),
+      agent(),
       pia({ model: { id: "xai:grok-4.7" }, oversight: { review: "all" } }),
     );
     expect(on.review).toBe("all");
@@ -107,14 +107,14 @@ describe("which settings a run uses", () => {
 
   it("lets the process's saved settings win, with the owner's model when it names none", () => {
     const r = runOwnerOf(
-      v3({ review: "failures", maxPerRun: 1 }),
+      agent({ review: "failures", maxPerRun: 1 }),
       pia({ model: { id: "openai:gpt-5.5" }, oversight: { review: "all" } }),
     );
     expect(r.review).toBe("failures");
     expect(r.maxPerRun).toBe(1);
     expect(r.model.id).toBe("openai:gpt-5.5");
     const own = runOwnerOf(
-      v3({ review: "failures", model: { id: "claude-opus-5-5" } }),
+      agent({ review: "failures", model: { id: "claude-opus-5-5" } }),
       pia({ model: { id: "openai:gpt-5.5" } }),
     );
     expect(own.model.id).toBe("claude-opus-5-5");
@@ -122,7 +122,7 @@ describe("which settings a run uses", () => {
 
   it("starts a new owner with no model of its own, so each process keeps reviewing on its own", () => {
     expect(defaultOwnerDefinition()).toEqual({ notes: "" });
-    const r = runOwnerOf(v3({ review: "failures" }), pia({}));
+    const r = runOwnerOf(agent({ review: "failures" }), pia({}));
     expect(r.model.id).toBe("claude-haiku-5-5");
   });
 });

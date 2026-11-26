@@ -14,7 +14,6 @@ afterAll(() => h?.close());
 type Wf = {
   on: Record<string, unknown>;
   enabled?: boolean;
-  v4?: boolean;
   second?: Record<string, unknown>;
 };
 
@@ -25,28 +24,23 @@ function bundle(workflows: Wf[], clientView?: unknown): AgentBundle {
       slug: `w${i}`,
       name: `Workflow ${i}`,
       enabled: w.enabled ?? true,
-      workflow: w.v4
-        ? {
-            triggers: [
-              { id: `t${i}`, on: w.on },
-              { id: `u${i}`, on: w.second ?? { type: "manual" } },
-            ],
-          }
-        : { trigger: { id: `t${i}`, on: w.on } },
+      workflow: {
+        triggers: [{ id: `t${i}`, on: w.on }, ...(w.second ? [{ id: `u${i}`, on: w.second }] : [])],
+      },
     })),
   } as unknown as AgentBundle;
 }
 
 const doc = { type: "event", event: "document.extracted" };
 const cases: [string, AgentBundle][] = [
-  ["v3 document trigger", bundle([{ on: doc }])],
-  ["v4 document trigger", bundle([{ on: { type: "manual" } }, { on: doc, v4: true }])],
+  ["document trigger", bundle([{ on: doc }])],
+  ["document trigger, second workflow", bundle([{ on: { type: "manual" } }, { on: doc }])],
   ["disabled", bundle([{ on: doc, enabled: false }])],
   ["other event", bundle([{ on: { type: "event", event: "run.finished" } }])],
   ["no workflows", bundle([])],
-  ["v4, manual twice", bundle([{ on: { type: "manual" }, v4: true }])],
+  ["manual twice", bundle([{ on: { type: "manual" }, second: { type: "manual" } }])],
   // AP bill clerk (2026-11-11): started by hand first, a document second.
-  ["v4, document second", bundle([{ on: { type: "manual" }, v4: true, second: doc }])],
+  ["document second", bundle([{ on: { type: "manual" }, second: doc }])],
 ];
 
 describe.skipIf(!h)("liveProjections", () => {
