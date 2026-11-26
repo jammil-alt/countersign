@@ -14,7 +14,7 @@ import {
   generateEncryptionKey,
 } from "@countersign/connectors";
 import { FAKE_TWILIO_MAIN, fakeTwilio } from "@countersign/connectors/testing";
-import { AgentBundle, type AgentBundleInput, type SkillStep } from "@countersign/core";
+import { AgentBundle, type AgentBundleInput } from "@countersign/core";
 import {
   agent,
   agentVersion,
@@ -29,16 +29,20 @@ import {
   withTenant,
 } from "@countersign/db";
 import { FakeModel, type FakeTurn } from "@countersign/llm";
+import type { SkillStep } from "@countersign/workflows";
 import { and, eq, like } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   type ApiHarness,
   admin,
   createApiHarness,
+  ended,
   FakeWorkflowStep,
   OPERATOR,
+  publishStored,
   unsigned,
   user,
+  v5Workflow,
 } from "./api.test-helper";
 import { conversePort } from "./converse/service";
 import { quietNever } from "./quiet-hours.test-helper";
@@ -74,7 +78,7 @@ const h = await createApiHarness({
 afterAll(() => h?.close());
 
 const GOAL = "Get the exact item list and the date needed for this purchase request.";
-const RESULT = {
+const _RESULT = {
   type: "object",
   properties: {
     items: {
@@ -92,41 +96,47 @@ const RESULT = {
 const ITEMS = { items: [{ name: "3/4 birch ply", qty: 12 }], neededBy: "Friday" };
 
 function talkStep(input: Record<string, unknown> = {}, extra: Record<string, unknown> = {}) {
+  // A model on the step is the AI's (done by AI), as a v3 skill step's `model` was.
+  const { model, ...rest } = extra as { model?: unknown };
   return {
     id: "talk",
     name: "Clarify the request",
-    kind: "skill",
-    skill: "comms.converse",
+    client: { visible: true, label: "Clarified the request" },
+    checks: { approval: { required: "required" } },
+    kind: "do",
+    doneBy: model ? "ai" : "rules",
+    ...(model ? { ai: { model } } : {}),
+    uses: { type: "skill", skill: "comms.converse" },
+    ...rest,
     input: {
       to: { contactId: "{{trigger.contactId}}" },
       channel: "whatsapp",
-      goal: GOAL,
-      result: RESULT,
+      goal: "Get the exact item list and the date needed for this purchase request.",
+      result: {
+        type: "object",
+        properties: {
+          items: {
+            type: "array",
+            items: {
+              type: "object",
+              properties: { name: { type: "string" }, qty: { type: "number" } },
+              required: ["name", "qty"],
+            },
+          },
+          neededBy: { type: "string" },
+        },
+        required: ["items", "neededBy"],
+      },
       opening: "Thank them for the request and ask which items, how many, and by when.",
       about: ["{{trigger.request}}"],
       ...input,
     },
-    approval: { required: "required" },
-    client: { visible: true, label: "Clarified the request" },
-    ...extra,
   };
 }
 
 function workflow(step = talkStep()) {
-  return {
-    schemaVersion: 3,
-    trigger: {
-      id: "trg",
-      on: {
-        type: "manual",
-        input: {
-          type: "object",
-          properties: { contactId: { type: "string" }, request: { type: "string" } },
-          required: ["contactId", "request"],
-        },
-      },
-    },
-    steps: [
+  return v5Workflow(
+    [
       step,
       {
         id: "after",
@@ -144,9 +154,14 @@ function workflow(step = talkStep()) {
               {
                 id: "note",
                 name: "Note the items",
-                kind: "notify",
-                channel: "thread",
-                message: "Needed by {{steps.talk.output.result.neededBy}}",
+                kind: "do",
+                doneBy: "rules",
+                uses: { type: "tell" },
+                tell: {
+                  to: ["client_admin"],
+                  channel: "inbox",
+                  message: "Needed by {{steps.talk.output.result.neededBy}}",
+                },
               },
             ],
           },
@@ -154,7 +169,22 @@ function workflow(step = talkStep()) {
         otherwise: { id: "p-else", steps: [] },
       },
     ],
-  };
+    {
+      triggers: [
+        {
+          id: "trg",
+          on: {
+            type: "manual",
+            input: {
+              type: "object",
+              properties: { contactId: { type: "string" }, request: { type: "string" } },
+              required: ["contactId", "request"],
+            },
+          },
+        },
+      ],
+    },
+  );
 }
 
 function bundle(step = talkStep(), definition: Record<string, unknown> = {}): AgentBundle {
@@ -247,11 +277,7 @@ describe.skipIf(!h)("conversations through the API", () => {
     expect(j(created.json).errors ?? []).toEqual([]);
     const agentId = j(created.json).agent.id;
     const versionId = j(created.json).version.id;
-    const pub = await H.call(
-      OPERATOR,
-      "POST",
-      `/api/ops/agents/${agentId}/versions/${versionId}/publish`,
-    );
+    const pub = await publishStored(H, H.A.tenantId, agentId, versionId);
     expect(pub.status, JSON.stringify(pub.json)).toBe(200);
     const ch = await H.call(OPERATOR, "PUT", `/api/ops/agents/${agentId}/channels`, {
       channels: { sms: twilioConn, whatsapp: twilioConn },
@@ -295,6 +321,16 @@ describe.skipIf(!h)("conversations through the API", () => {
     expect(done.status, JSON.stringify(done.json)).toBe(200);
     return H.instances.events.find((e) => e.event.type === type)?.event.payload;
   }
+
+  /**
+   * A run that is refused before anything is planned (no consent, no window, another client's
+   * contact) still has its output, the refusal, signed off by a person as any step's output is.
+   */
+  const signsOff = () =>
+    new FakeWorkflowStep(async (_name, type) => {
+      if (!type.startsWith("inbox-")) throw new Error(`unexpected wait ${type}`);
+      return resolveItem(type);
+    });
 
   const stepOutput = async (runId: string, nodeId: string) => {
     const [row] = await H.t.db
@@ -399,7 +435,7 @@ describe.skipIf(!h)("conversations through the API", () => {
       throw new Error(`unexpected wait ${type}`);
     });
     const result = await executeRun(deps(), params, cloudflareStepRunner(step));
-    expect(result).toEqual({ status: "succeeded" });
+    expect(result).toEqual(ended());
 
     const out = await stepOutput(params.runId, "talk");
     expect(out).toMatchObject({
@@ -528,8 +564,12 @@ describe.skipIf(!h)("conversations through the API", () => {
     expect(res.status, JSON.stringify(res.json)).toBe(200);
     const params = H.instances.started.get(j(res.json).runId);
     if (!params) throw new Error("no test run");
-    const result = await executeRun(deps(), params, cloudflareStepRunner(new FakeWorkflowStep()));
-    expect(result.status).toBe("succeeded");
+    // The first message is shown on the card the operator signs; it is never sent.
+    const signed = new FakeWorkflowStep(async (_name, type) =>
+      resolveItem(type, { decision: "approve" }, OPERATOR),
+    );
+    const result = await executeRun(deps(), params, cloudflareStepRunner(signed));
+    expect(result, JSON.stringify(result)).toMatchObject({ status: "succeeded" });
     expect(await stepOutput(params.runId, "talk")).toMatchObject({
       outcome: "not_sent",
       testRun: true,
@@ -584,9 +624,7 @@ describe.skipIf(!h)("conversations through the API", () => {
       }
       throw new Error(`unexpected wait ${type}`);
     });
-    expect(await executeRun(deps(), params, cloudflareStepRunner(step))).toEqual({
-      status: "succeeded",
-    });
+    expect(await executeRun(deps(), params, cloudflareStepRunner(step))).toEqual(ended());
     expect(handover).not.toBe("");
     expect(await stepOutput(params.runId, "talk")).toMatchObject({
       outcome: "handed_over",
@@ -648,7 +686,7 @@ describe.skipIf(!h)("conversations through the API", () => {
       if (type.startsWith("reachout-")) {
         // A second conversation to Dana while this one is open is refused.
         const second = await startRun(agentId, dana, "REQ-10");
-        const r2 = await executeRun(deps(), second, cloudflareStepRunner(new FakeWorkflowStep()));
+        const r2 = await executeRun(deps(), second, cloudflareStepRunner(signsOff()));
         expect(r2.status).toBe("succeeded");
         expect(await stepOutput(second.runId, "talk")).toMatchObject({
           outcome: "not_allowed",
@@ -701,14 +739,14 @@ describe.skipIf(!h)("conversations through the API", () => {
     // No consent: nothing is planned, nothing sent, no model call.
     model = new FakeModel([]);
     const none = await startRun(agentId, noConsent, "REQ-11");
-    await executeRun(deps(), none, cloudflareStepRunner(new FakeWorkflowStep()));
+    await executeRun(deps(), none, cloudflareStepRunner(signsOff()));
     expect(await stepOutput(none.runId, "talk")).toMatchObject({ outcome: "not_allowed" });
     expect((await stepOutput(none.runId, "talk")).reason).toContain("no consent");
     expect(sentTo(NOCONSENT)).toHaveLength(0);
 
     // Outside the window with no template: nothing is sent.
     const cold = await startRun(agentId, quiet, "REQ-12");
-    await executeRun(deps(), cold, cloudflareStepRunner(new FakeWorkflowStep()));
+    await executeRun(deps(), cold, cloudflareStepRunner(signsOff()));
     expect(await stepOutput(cold.runId, "talk")).toMatchObject({
       outcome: "not_allowed",
       reason: "outside WhatsApp's 24-hour window and no approved template for the first message",
@@ -832,9 +870,7 @@ describe.skipIf(!h)("conversations through the API", () => {
       }
       throw new Error(`unexpected wait ${type}`);
     });
-    expect(await executeRun(deps(), params, cloudflareStepRunner(step))).toEqual({
-      status: "succeeded",
-    });
+    expect(await executeRun(deps(), params, cloudflareStepRunner(step))).toEqual(ended());
     expect(cards[0]).toContain("Talk with Sam Ortiz on WhatsApp");
     expect(cards[1]).toBe("Message 2 of up to 6 to Sam Ortiz on WhatsApp");
     expect(cards[2]).toContain("They need to check with the shop");
@@ -974,9 +1010,7 @@ describe.skipIf(!h)("conversations through the API", () => {
       }
       throw new Error(`unexpected wait ${type}`);
     });
-    expect(await executeRun(deps(), params, cloudflareStepRunner(step))).toEqual({
-      status: "succeeded",
-    });
+    expect(await executeRun(deps(), params, cloudflareStepRunner(step))).toEqual(ended());
     const overseen = await stepOutput(params.runId, "talk");
     expect(overseen, JSON.stringify(overseen)).toMatchObject({
       outcome: "completed",
@@ -1011,20 +1045,30 @@ describe.skipIf(!h)("conversations through the API", () => {
           slug: "main",
           name: "Main",
           workflow: {
-            schemaVersion: 4,
+            schemaVersion: 5,
             triggers: [{ id: "trg", on: { type: "manual", input: {} } }],
+            outputs: [{ id: "out-done", name: "Done", kind: "nothing" }],
             steps: [
               {
                 id: "talk",
-                kind: "conversation",
                 name: "Ask Ruth",
-                with: "{{trigger.contactId}}",
-                channel: "whatsapp",
-                goal: "Find out how many sheets of ply they need and by when.",
-                find: { qty: "number", neededBy: "text" },
-                messages: { first: "required", later: "within_goal" },
-                deadline: { after: "3 days" },
+                kind: "do",
+                doneBy: "contact",
+                contact: {
+                  with: "{{trigger.contactId}}",
+                  channel: "whatsapp",
+                  goal: "Find out how many sheets of ply they need and by when.",
+                  mayShare: [],
+                  maxTurns: 4,
+                  messages: { first: "required", later: "within_goal" },
+                  deadline: { after: "3 days", hours: "clock", ifNoAnswer: "stop" },
+                },
+                output: [
+                  { name: "qty", type: "text", required: true, about: "number" },
+                  { name: "neededBy", type: "text", required: true, about: "text" },
+                ],
               },
+              { id: "end", kind: "end", name: "Done", outputs: ["out-done"] },
             ],
           },
         },
@@ -1090,7 +1134,7 @@ describe.skipIf(!h)("conversations through the API", () => {
       return woke.event.payload;
     });
     const result = await executeRun(deps(), params, cloudflareStepRunner(step));
-    expect(result).toEqual({ status: "succeeded" });
+    expect(result).toEqual(ended());
     expect(waits).toHaveLength(3);
     expect(await stepOutput(params.runId, "talk")).toMatchObject({
       status: "done",
@@ -1123,21 +1167,28 @@ describe.skipIf(!h)("conversations through the API", () => {
           slug: "main",
           name: "Main",
           workflow: {
-            schemaVersion: 4,
+            schemaVersion: 5,
             triggers: [{ id: "trg", on: { type: "manual", input: {} } }],
+            outputs: [{ id: "out-done", name: "Done", kind: "nothing" }],
             steps: [
               {
                 id: "talk",
-                kind: "conversation",
                 name: "Ask Ivy",
-                with: "{{trigger.contactId}}",
-                channel: "whatsapp",
-                goal: "Find out how many metres of edge banding they need.",
-                find: { metres: "number" },
-                messages: { first: "required", later: "within_goal" },
-                deadline: { after: "3 days" },
-                checks: { approval: { approvers: [{ who: H.A.user }] } },
+                checks: { approval: { required: "required", approvers: [{ who: H.A.user }] } },
+                kind: "do",
+                doneBy: "contact",
+                contact: {
+                  with: "{{trigger.contactId}}",
+                  channel: "whatsapp",
+                  goal: "Find out how many metres of edge banding they need.",
+                  mayShare: [],
+                  maxTurns: 4,
+                  messages: { first: "required", later: "within_goal" },
+                  deadline: { after: "3 days", hours: "clock", ifNoAnswer: "stop" },
+                },
+                output: [{ name: "metres", type: "text", required: true, about: "number" }],
               },
+              { id: "end", kind: "end", name: "Done", outputs: ["out-done"] },
             ],
           },
         },
@@ -1167,10 +1218,10 @@ describe.skipIf(!h)("conversations through the API", () => {
     } as Parameters<typeof executeRun>[1];
     model = new FakeModel([turn({ action: "ask", message: "How many metres do you need?" })]);
     const conversation = `conversation-${params.runId}_ctalk`;
-    let ended = false;
+    let finished = false;
     const step = new FakeWorkflowStep(async (_name, type) => {
       expect(type).toBe(conversation);
-      expect(ended).toBe(false);
+      expect(finished).toBe(false);
       const [sr] = await H.t.db
         .select()
         .from(stepRun)
@@ -1195,13 +1246,13 @@ describe.skipIf(!h)("conversations through the API", () => {
       const before = H.instances.events.length;
       const res = await H.call(user("a"), "POST", control, { action: "end" });
       expect(res.status, JSON.stringify(res.json)).toBe(200);
-      ended = true;
+      finished = true;
       const woke = H.instances.events.slice(before).find((e) => e.event.type === conversation);
       if (!woke) throw new Error("the conversation's event wasn't sent");
       return woke.event.payload;
     });
     const result = await executeRun(deps(), params, cloudflareStepRunner(step));
-    expect(ended).toBe(true);
+    expect(finished).toBe(true);
     // Nothing went: the first message waited for its signature, and ending it turned the step
     // down (its onReject: stop).
     expect(sentTo(IVY)).toHaveLength(0);
@@ -1216,7 +1267,7 @@ describe.skipIf(!h)("conversations through the API", () => {
     const { agentId } = await makeAgent("purchasing-iso");
     model = new FakeModel([]);
     const params = await startRun(agentId, bContact, "REQ-17");
-    await executeRun(deps(), params, cloudflareStepRunner(new FakeWorkflowStep()));
+    await executeRun(deps(), params, cloudflareStepRunner(signsOff()));
     expect(await stepOutput(params.runId, "talk")).toMatchObject({
       outcome: "not_allowed",
       reason: "that contact is not one of this client's",

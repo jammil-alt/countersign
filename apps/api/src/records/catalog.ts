@@ -3,8 +3,8 @@
 // picked, wired and translated like built-in fields; a template's with the shared fields only.
 
 import {
+  type AgentBundle,
   type AgentData,
-  type AnyAgentBundle,
   accessFor,
   effectiveRecordGrants,
   recordActionSpecs,
@@ -26,7 +26,7 @@ export async function recordActionsFor(
   tx: Tx,
   catalog: RecordCatalog,
   tenantId: string | null,
-  bundle: AnyAgentBundle | null | undefined,
+  bundle: AgentBundle | null | undefined,
 ): Promise<ToolSpec[]> {
   const data = (bundle?.definition as { data?: AgentData } | undefined)?.data;
   const granted = effectiveRecordGrants(data);

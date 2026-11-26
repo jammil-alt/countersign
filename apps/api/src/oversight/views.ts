@@ -11,7 +11,7 @@ import {
   oversightLine,
   ownerDid,
   parseSkillRef,
-  processes,
+  steps,
 } from "@countersign/core";
 import {
   appUser,
@@ -174,12 +174,11 @@ export async function timelineOversight(
   return out;
 }
 
-/** A v3 workflow or a v4 process, as far as finding a step goes. */
+/** A workflow, as far as finding a step goes. */
 type StepHolder = Parameters<typeof findAnyStep>[0];
 
 /**
- * The step's input schema: its skill's (a built-in), or its tool's: a v3 action's, a v4 read's or
- * write's (wave 3b).
+ * The step's input schema: its skill's (a built-in), or its action's.
  */
 export function inputSchemaOf(
   nodeId: string,
@@ -189,11 +188,11 @@ export function inputSchemaOf(
 ): unknown {
   if (skillRef) return platform.catalog.get(parseSkillRef(skillRef).id)?.input ?? null;
   const step = workflow ? findAnyStep(workflow, baseStepId(nodeId)) : undefined;
-  // Skill model: an action write step's input is the action's (its tool's is mapped from it).
-  if (step?.kind === "write" && step.action !== undefined) {
-    return processes.actionInputSchema(step.action);
-  }
-  return step?.kind === "action" || step?.kind === "read" || step?.kind === "write"
-    ? (platform.tools.get(step.tool as string)?.spec.input ?? null)
-    : null;
+  if (step?.kind !== "do" || step.uses?.type !== "action") return null;
+  const own = platform.tools.get(step.uses.action);
+  if (own) return own.spec.input;
+  // A merged action (Email, Accounting) takes its first tool's input.
+  const merged = steps.mergedAction(step.uses.action);
+  const first = merged ? Object.values(merged.tools)[0] : undefined;
+  return (first ? platform.tools.get(first)?.spec.input : undefined) ?? null;
 }

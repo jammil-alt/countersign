@@ -6,12 +6,11 @@
 // values; a conversation has its own form; every step can carry checks (a second opinion,
 // approval, notices) and has its client timeline label and visibility.
 import {
-  type AnyAgentBundle,
+  type AgentBundle,
   // P-4
   CONVERSE_SKILL,
   lookupSkill,
   type PathOption,
-  type ProcessAgentBundle,
   parseSkillRef,
   pathOptions,
   processes,
@@ -68,6 +67,7 @@ import {
   looseningBlocked,
   newPath,
   type Process,
+  type ProcessAgentBundle,
   processClientVisible,
   type Step,
 } from "./model";
@@ -115,7 +115,7 @@ export interface InspectorProps {
   /** This process's validation errors. */
   errors: BuilderProblem[];
   /** A client agent's base template version, for "the template's value". */
-  template: { bundle: AnyAgentBundle | ProcessAgentBundle; workflow: Process | undefined } | null;
+  template: { bundle: AgentBundle | ProcessAgentBundle; workflow: Process | undefined } | null;
   /** Who a step may ask or tell: roles, the client's team and its People list. */
   people: People;
   focus: FocusRequest | null;

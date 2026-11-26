@@ -16,12 +16,12 @@ import {
   getVersion,
   isStepSkill,
   latestVersion,
-  lineageReadOptions,
   previewStepPrompt,
   requiredConnectors,
   resolveCustomSkill,
   retire,
   SHARED_COPY_PREFIX,
+  STEP_ONLY_SKILLS,
   skillContext,
   withWriteActionFields,
 } from "@countersign/agents";
@@ -29,7 +29,6 @@ import { BUILTIN_CONNECTORS } from "@countersign/connectors";
 import {
   type AgentBundle,
   AgentDefinition,
-  type AnyAgentBundle,
   type BuilderCatalog,
   type BundleChange,
   connectorShown,
@@ -64,6 +63,7 @@ import {
   tenant,
 } from "@countersign/db";
 import { clientGovernance } from "@countersign/documents";
+import { catalogKindOf, draftProcess, ProcessLoadError } from "@countersign/workflows";
 import { and, desc, eq, inArray, isNotNull, isNull, or } from "drizzle-orm";
 import type { Hono } from "hono";
 import { offActionIds } from "../actions-off";
@@ -94,6 +94,19 @@ export async function builderToolInputs(
 }
 
 /** The agent, if it is visible to this request (templates, or a client agent of a served client). */
+/**
+ * A builder draft (a v5 workflow, unsaved) as the engine process the typing, sample and preview
+ * routes read steps from: no publish checks, so an unfinished draft still reads.
+ */
+export function draftEngineProcess(platform: Platform, workflow: unknown): processes.Process {
+  try {
+    return draftProcess(workflow, catalogKindOf(platform.tools.specs()));
+  } catch (error) {
+    if (!(error instanceof ProcessLoadError)) throw error;
+    throw new HttpError(422, "invalid_process", "the workflow doesn't read in the new format");
+  }
+}
+
 export async function agentInScope(ctx: Scope, id: string): Promise<AgentRow> {
   const row = await getAgent(ctx.tx, id);
   if (row.tenantId !== null && !ctx.tenantIds.includes(row.tenantId)) throw notFound("agent");
@@ -111,7 +124,7 @@ async function currentVersion(ctx: Scope, row: AgentRow): Promise<AgentVersionRo
  * A name for every entity either bundle has, so the screens can say "Step Ask Jammil changed"
  * instead of `step:9f…`. Skills are labelled by their reference; otherwise branches "Otherwise".
  */
-export function bundleLabels(...bundles: AnyAgentBundle[]): Record<string, string> {
+export function bundleLabels(...bundles: AgentBundle[]): Record<string, string> {
   const out: Record<string, string> = {};
   for (const b of bundles) {
     for (const [key, e] of flattenBundle(b).entities) {
@@ -129,17 +142,10 @@ export function bundleLabels(...bundles: AnyAgentBundle[]): Record<string, strin
   return out;
 }
 
-/**
- * diffBundles, refusing cleanly when a stored draft can't be flattened (duplicate ids). R9: `read`
- * reads v3 workflows as v4 when the two versions are one of each (an agent updated to v4).
- */
-function diff(
-  a: AnyAgentBundle,
-  b: AnyAgentBundle,
-  read: ReturnType<typeof lineageReadOptions>,
-): { changes: BundleChange[] } {
+/** diffBundles, refusing cleanly when a stored draft can't be flattened (duplicate ids). */
+function diff(a: AgentBundle, b: AgentBundle): { changes: BundleChange[] } {
   try {
-    return { changes: diffBundles(a, b, read) };
+    return { changes: diffBundles(a, b) };
   } catch (error) {
     throw new HttpError(
       422,
@@ -149,7 +155,7 @@ function diff(
   }
 }
 
-export function labels(...bundles: AnyAgentBundle[]): Record<string, string> {
+export function labels(...bundles: AgentBundle[]): Record<string, string> {
   try {
     return bundleLabels(...bundles);
   } catch {
@@ -214,7 +220,7 @@ export async function operatorSkills(
 // step (`used`), so a stored step still types and reads by name.
 export function stepTools(platform: Platform, used: ReadonlySet<string> = new Set()): string[] {
   const stepOnly = new Set(
-    processes.STEP_ONLY_SKILLS.map((id) => platform.catalog.get(id)?.handler).filter(
+    STEP_ONLY_SKILLS.map((id) => platform.catalog.get(id)?.handler).filter(
       (h): h is string => h !== undefined,
     ),
   );
@@ -264,13 +270,13 @@ export const SPLIT_MODEL_TOOLS: ReadonlySet<string> = new Set([
 /** The account agent's (Sloan's) handlers: steps of its own processes, never general tools. */
 export const ACCOUNT_TOOL_PREFIX = "account.";
 
-/** The tools an agent's processes call as read or write steps (core's `processTools`). */
-export function bundleStepTools(bundle: AnyAgentBundle | null | undefined): Set<string> {
-  if (!bundle) return new Set();
-  const v4 = bundle.workflows
-    .map((w) => w.workflow)
-    .filter((w): w is processes.Process => w.schemaVersion === 4);
-  return new Set(processes.processTools(v4));
+/** The tools (actions) an agent's workflows call. */
+export function bundleStepTools(bundle: AgentBundle | null | undefined): Set<string> {
+  const out = new Set<string>();
+  for (const w of bundle?.workflows ?? []) {
+    for (const action of steps.stepModelActions(w.workflow)) out.add(action);
+  }
+  return out;
 }
 
 function skillOption(
@@ -439,7 +445,7 @@ export interface CatalogSubject {
   /** The tools its steps call as read or write steps. */
   stepTools: ReadonlySet<string>;
   /** An agent's latest bundle, for the automations it already pins; null for an automation. */
-  bundle: AnyAgentBundle | null;
+  bundle: AgentBundle | null;
   /** Whether a use step may be placed: never inside an automation (no nesting). */
   automations: boolean;
 }
@@ -667,11 +673,7 @@ export function opsLineageRoutes(app: Hono<AppEnv>): void {
     const { tx, services, body } = ctx;
     const { platform } = services;
     const row = await agentInScope(ctx, ctx.params.id);
-    const parsed = processes.Process.safeParse(body.process);
-    if (!parsed.success) {
-      throw new HttpError(422, "invalid_process", "the workflow doesn't read in the new format");
-    }
-    const process = parsed.data;
+    const process = draftEngineProcess(platform, body.process);
     const step = processes.findStep(process, body.stepId)?.step;
     if (step?.kind !== "skill") {
       throw new HttpError(
@@ -725,11 +727,8 @@ export function opsLineageRoutes(app: Hono<AppEnv>): void {
     const { tx, services, body } = ctx;
     const { platform } = services;
     const row = await agentInScope(ctx, ctx.params.id);
-    const parsed = processes.Process.safeParse(body.process);
-    if (!parsed.success) {
-      throw new HttpError(422, "invalid_process", "the workflow doesn't read in the new format");
-    }
-    const step = processes.findStep(parsed.data, body.stepId)?.step;
+    const process = draftEngineProcess(platform, body.process);
+    const step = processes.findStep(process, body.stepId)?.step;
     if (step?.kind !== "skill") {
       throw new HttpError(
         422,
@@ -792,8 +791,7 @@ export function opsLineageRoutes(app: Hono<AppEnv>): void {
     const from = fromId ? await getVersion(tx, fromId) : null;
     if (from && from.agentId !== row.id) throw notFound("version");
     // The first version has nothing to compare against: no changes, `from` null.
-    const read = lineageReadOptions(ctx.services.platform.ctx);
-    const { changes } = from ? diff(from.bundle, to.bundle, read) : { changes: [] };
+    const { changes } = from ? diff(from.bundle, to.bundle) : { changes: [] };
     return {
       from: from ? versionSummary(from) : null,
       to: versionSummary(to),
@@ -822,7 +820,7 @@ export function opsLineageRoutes(app: Hono<AppEnv>): void {
     return {
       base: versionSummary(base),
       version: versionSummary(v),
-      ...diff(base.bundle, v.bundle, lineageReadOptions(ctx.services.platform.ctx)),
+      ...diff(base.bundle, v.bundle),
       labels: labels(base.bundle, v.bundle),
     };
   });
@@ -862,7 +860,6 @@ export function opsLineageRoutes(app: Hono<AppEnv>): void {
 
     const agents = [];
     // R9: a v3 client agent against a template version of v4 processes.
-    const read = lineageReadOptions(ctx.services.platform.ctx);
     for (const row of rows) {
       const v = await currentVersion(ctx, row);
       const base = v?.basedOnTemplateVersionId
@@ -874,9 +871,9 @@ export function opsLineageRoutes(app: Hono<AppEnv>): void {
       let conflicts: number | null = null;
       if (v && base) {
         try {
-          customizations = diffBundles(base.bundle, v.bundle, read).length;
+          customizations = diffBundles(base.bundle, v.bundle).length;
           if (behind > 0 && templateLive) {
-            conflicts = mergeBundles(base.bundle, v.bundle, templateLive.bundle, [], read).conflicts
+            conflicts = mergeBundles(base.bundle, v.bundle, templateLive.bundle, []).conflicts
               .length;
           }
         } catch {

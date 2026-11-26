@@ -6,7 +6,7 @@ import { RecordType } from "../records/record-type";
 import { Role } from "../roles";
 import { MatchProfile } from "../steps/match-profile";
 import { LoopTests, loopsWithoutTests } from "../testbench/loop-tests";
-import { AgentBundle, AnyAgentBundle } from "./agent";
+import { AgentBundle } from "./agent";
 import { Slug } from "./common";
 import { EventTypeSpec } from "./event";
 import { PackConfigField, packConfigProblems } from "./pack-config";
@@ -105,7 +105,7 @@ export const PackManifest = z
       z.object({
         slug: Slug,
         bundle: AgentBundle,
-        versions: z.array(AnyAgentBundle).optional(),
+        versions: z.array(AgentBundle).optional(),
       }),
     ),
     screens: z.array(z.object({ route: z.string(), title: z.string(), roles: z.array(Role) })),

@@ -1,4 +1,4 @@
-import type { processes } from "@countersign/core";
+import type { AgentBundle, processes } from "@countersign/core";
 import { describe, expect, it } from "vitest";
 import { failureText } from "../screens/RunView";
 import { fieldText, processStepDetail, rulesText, stepCountWords, workflowStats } from "./describe";
@@ -68,21 +68,29 @@ describe("a v4 step's detail line", () => {
     );
   });
 
-  it("counts a v4 if as a fork and its nested steps", () => {
-    const process = {
-      schemaVersion: 4,
+  it("counts a Fork as a fork and its nested steps", () => {
+    const workflow = {
+      schemaVersion: 5,
       triggers: [{ id: "t", on: { type: "manual", input: { type: "object" } } }],
+      outputs: [],
       steps: [
         {
           id: "i",
-          kind: "if",
+          kind: "fork",
           name: "Big?",
-          paths: [{ id: "p", name: "Big", when: { match: "all", rules: [] }, steps: [write()] }],
+          paths: [
+            {
+              id: "p",
+              name: "Big",
+              when: { match: "all", rules: [] },
+              steps: [{ id: "w", kind: "wait", name: "Wait", for: "1 day" }],
+            },
+          ],
           otherwise: { id: "o", steps: [] },
         },
       ],
-    } as processes.Process;
-    const workflows = [{ slug: "a", name: "A", enabled: true, workflow: process }];
+    } as unknown as AgentBundle["workflows"][number]["workflow"];
+    const workflows = [{ slug: "a", name: "A", enabled: true, workflow }];
     expect(workflowStats({ workflows })).toEqual({ steps: 2, forks: 1, workflows: 1 });
   });
 

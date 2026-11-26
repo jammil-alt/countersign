@@ -10,6 +10,7 @@ import { processes } from "@countersign/core";
 import { auditEvent, run, stepRun } from "@countersign/db";
 import { fakeMessage, type LlmTransport, withRecording } from "@countersign/llm";
 import { fileFixtureStore } from "@countersign/llm/node";
+import { catalogKindOf, draftProcess } from "@countersign/workflows";
 import { and, eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { type ApiHarness, admin, createApiHarness, OPERATOR, testBundle } from "./api.test-helper";
@@ -75,7 +76,7 @@ afterAll(() => h?.close());
 
 /** Read document, a new Reshape step, then Create bill: the builder's draft, unsaved. */
 const draft = {
-  schemaVersion: 4,
+  schemaVersion: 5,
   triggers: [
     {
       id: "t1",
@@ -85,23 +86,34 @@ const draft = {
       },
     },
   ],
+  outputs: [{ id: "out-done", name: "Done", kind: "nothing" }],
   steps: [
     {
       id: "read",
       name: "Read document",
-      kind: "skill",
-      skill: "docs.read-document",
+      kind: "do",
+      doneBy: "ai",
+      uses: { type: "skill", skill: "docs.read-document" },
       input: { documentId: "{{trigger.documentId}}" },
     },
     {
       id: "shape",
       name: "Reshape data",
-      kind: "skill",
-      skill: processes.RESHAPE_SKILL,
+      kind: "do",
+      doneBy: "rules",
+      uses: { type: "skill", skill: processes.RESHAPE_SKILL },
       input: {},
-      reshape: { fields: [] },
+      translation: { fields: [] },
     },
-    { id: "bill", name: "Create bill", kind: "write", action: "create_bill", input: {} },
+    {
+      id: "bill",
+      name: "Create bill",
+      kind: "do",
+      doneBy: "rules",
+      uses: { type: "action", action: "accounting.bill.create" },
+      input: {},
+    },
+    { id: "end", kind: "end", name: "Done", outputs: ["out-done"] },
   ],
 };
 
@@ -171,12 +183,12 @@ describe.skipIf(!h)("Reshape data in the back office", () => {
     const mapping = body.mapping as processes.ReshapeMapping;
     const steps = draft.steps.map((s) =>
       s.id === "shape"
-        ? { ...s, input: body.input, reshape: mapping }
+        ? { ...s, input: body.input, translation: mapping }
         : s.id === "bill"
           ? {
               ...s,
               input: processes.wireToReshape(
-                s.input,
+                s.input as Record<string, unknown>,
                 "shape",
                 mapping,
                 processes.actionInputSchema("create_bill"),
@@ -185,7 +197,7 @@ describe.skipIf(!h)("Reshape data in the back office", () => {
           : s,
     );
     const result = processes.validateProcess(
-      { ...draft, steps },
+      draftProcess({ ...draft, steps }, catalogKindOf(H.platform.tools.specs())),
       {
         skills: Object.fromEntries(H.platform.catalog.list().map((d) => [d.id, d])),
         tools: H.platform.tools.specs(),
@@ -208,7 +220,7 @@ describe.skipIf(!h)("Reshape data in the back office", () => {
         ? {
             ...s,
             input: { readDocument: "{{steps.read.output}}" },
-            reshape: {
+            translation: {
               fields: [
                 {
                   name: "invoiceNumber",
@@ -246,7 +258,7 @@ describe.skipIf(!h)("Reshape data in the back office", () => {
           ? {
               ...s,
               input: { readDocument: "{{steps.read.output}}" },
-              reshape: {
+              translation: {
                 fields: [
                   {
                     name: "vendorName",

@@ -3,9 +3,8 @@
 // and the validator accepts `until` and `wait` as step ids.
 import { processes } from "@countersign/core";
 import { describe, expect, it } from "vitest";
-import { executeWorkflow } from "./executor";
 import { FakeStepRunner } from "./fake-runner";
-import { Harness, WRITE_TOOL } from "./fakes.test-helper";
+import { executeProcess, Harness, WRITE_TOOL } from "./fakes.test-helper";
 
 const MANUAL = { id: "t", on: { type: "manual", input: {} } };
 const READ_TOOL = { ...WRITE_TOOL, id: "testkit.thing.get", sideEffect: "none" as const };
@@ -47,7 +46,7 @@ describe("a repeat's durable names", () => {
       return { kind: "done", output: { n, ready: true } };
     };
     const runner = new FakeStepRunner();
-    const result = await executeWorkflow(runner, h.context({ catalog: CATALOG }), proc(steps), {});
+    const result = await executeProcess(runner, h.context({ catalog: CATALOG }), proc(steps), {});
     // Ready on the first pass: one pass, done.
     expect({ status: result.status, passes: n }).toEqual({ status: "succeeded", passes: 1 });
     expect(runner.names()).toContain("rep:r1:~until");
@@ -62,7 +61,7 @@ describe("a repeat's durable names", () => {
       return { kind: "done", output: { n, ready: n === 2 } };
     };
     const runner = new FakeStepRunner();
-    const result = await executeWorkflow(runner, h.context({ catalog: CATALOG }), proc(steps), {});
+    const result = await executeProcess(runner, h.context({ catalog: CATALOG }), proc(steps), {});
     expect({ status: result.status, passes: n }).toEqual({ status: "succeeded", passes: 2 });
     expect(runner.names()).toEqual(expect.arrayContaining(["rep:r2:wait", "rep:r2:~wait"]));
   });
@@ -71,7 +70,7 @@ describe("a repeat's durable names", () => {
     const h = new Harness();
     h.handlers.check = () => ({ kind: "done", output: { ready: true } });
     const runner = new FakeStepRunner();
-    await executeWorkflow(runner, h.context({ catalog: CATALOG }), proc([repeat("check")]), {});
+    await executeProcess(runner, h.context({ catalog: CATALOG }), proc([repeat("check")]), {});
     expect(runner.names()).toContain("rep:r1:until");
   });
 });

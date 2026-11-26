@@ -31,8 +31,7 @@ export const clientViewSql = sql<unknown>`(${agentVersion.bundle} -> 'definition
 
 /**
  * Whether an enabled workflow of the bundle starts on a `document.*` event (any of its triggers), as
- * `readsDocuments` (lifecycle/runs.ts) reads it from the whole bundle: v4's `triggers`, else v3's
- * `trigger` and `moreTriggers`.
+ * `readsDocuments` (lifecycle/runs.ts) reads it from the whole bundle: each workflow's `triggers`.
  */
 export const readsDocumentsSql = sql<boolean>`coalesce((select bool_or(
     (w ->> 'enabled')::boolean
@@ -40,10 +39,7 @@ export const readsDocumentsSql = sql<boolean>`coalesce((select bool_or(
       select 1
       from jsonb_array_elements(case when jsonb_typeof(w -> 'workflow' -> 'triggers') = 'array'
                                      then w -> 'workflow' -> 'triggers'
-                                     else jsonb_build_array(w -> 'workflow' -> 'trigger')
-                                          || case when jsonb_typeof(w -> 'workflow' -> 'moreTriggers') = 'array'
-                                                  then w -> 'workflow' -> 'moreTriggers'
-                                                  else '[]'::jsonb end end) t
+                                     else '[]'::jsonb end) t
       where t -> 'on' ->> 'type' = 'event' and t -> 'on' ->> 'event' like 'document.%'))
   from jsonb_array_elements(case when jsonb_typeof(${agentVersion.bundle} -> 'workflows') = 'array'
                                  then ${agentVersion.bundle} -> 'workflows' else '[]'::jsonb end) w),

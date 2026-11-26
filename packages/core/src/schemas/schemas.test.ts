@@ -8,22 +8,8 @@ import { PackManifest } from "./pack";
 import { PermissionMatrix } from "./permissions";
 import { resolveSkillSettings, SkillDefinition, skillTools } from "./skill";
 import { ToolSpec } from "./tool";
-import { ActionStep, clientLabel, isClientVisible, SkillStep, Step } from "./workflow";
 
 describe("defaults", () => {
-  it("starts every action with approval required", () => {
-    const a = ActionStep.parse({
-      id: "a",
-      name: "A",
-      kind: "action",
-      tool: "qbo.bill.update_lines",
-    });
-    expect(a.approval).toEqual({ required: "required", onReject: "stop" });
-    expect(a.input).toEqual({});
-    const s = SkillStep.parse({ id: "s", name: "S", kind: "skill", skill: "docs.extract" });
-    expect(s.approval).toBeUndefined();
-  });
-
   it("starts agents in suggest_only with default budgets", () => {
     const d = AgentDefinition.parse({
       schemaVersion: 2,
@@ -208,21 +194,6 @@ describe("helpers", () => {
       vendors: "",
       threshold: 9,
     });
-  });
-
-  it("shows work steps to clients and hides logic by default", () => {
-    const wait = Step.parse({ id: "w", name: "Wait", kind: "wait", for: "1 day" });
-    const act = Step.parse({
-      id: "a",
-      name: "Attach",
-      kind: "action",
-      tool: "qbo.attachable.upload",
-    });
-    expect(isClientVisible(wait)).toBe(false);
-    expect(isClientVisible(act)).toBe(true);
-    const hidden = Step.parse({ ...act, client: { visible: false, label: "Filed" } });
-    expect(isClientVisible(hidden)).toBe(false);
-    expect(clientLabel(hidden)).toBe("Filed");
   });
 });
 

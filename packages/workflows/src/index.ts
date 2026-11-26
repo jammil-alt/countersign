@@ -7,6 +7,7 @@ export {
   type ExecutorContext,
   // v0.13 W2-I
   type ExecutorOversight,
+  executeLoaded,
   executeWorkflow,
   FOR_EACH_MAX_ITEMS,
   jsonBytes,
@@ -31,20 +32,26 @@ export {
 // R6: what the owner watches.
 export * from "./oversight";
 export * from "./ports";
-// R3: v3 workflows read as v4 processes, with their stored steps kept for the ports.
+// The step shapes the ports take, and the engine steps the executor runs.
 export {
-  type AnyWorkflow,
+  type ActionStep,
+  type ClientVisibility,
+  clientLabel,
   gateApproval,
   type LoadedProcess,
-  loadProcess,
-  NO_LOOKUP,
+  type NotifyStep,
+  type PersonChoice,
+  type PersonStep,
   ProcessLoadError,
+  type SkillStep,
+  stepStateLabel,
 } from "./process";
 export * from "./router";
 export * from "./runner";
 // The step model (docs/step-model-plan.md): a v5 workflow on today's engines.
 export {
   catalogKindOf,
+  draftProcess,
   fieldsSchema,
   LOOP_SKILL,
   type LoadedStepModel,

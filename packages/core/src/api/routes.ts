@@ -2027,15 +2027,6 @@ export const opsRoutes = {
     body: z.strictObject({ eventIds: z.array(ApiId).min(1).max(100).optional() }),
     response: z.object({ retried: z.number().int() }),
   }),
-  opsValidateWorkflow: defineRoute({
-    method: "POST",
-    path: "/api/ops/workflows/validate",
-    auth: "session",
-    roles: OPS,
-    summary: "Validate a workflow (as the builder does), optionally against an agent",
-    body: z.strictObject({ workflow: z.unknown(), agentId: ApiId.optional() }),
-    response: z.object({ valid: z.boolean(), errors: z.array(ValidationErrorSchema) }),
-  }),
   opsEventCatalog: defineRoute({
     method: "GET",
     path: "/api/ops/catalog/events",

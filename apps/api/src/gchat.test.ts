@@ -22,6 +22,7 @@ import {
   type ApiHarness,
   admin,
   createApiHarness,
+  ended,
   FakeWorkflowStep,
   forbiddenKeys,
   OPERATOR,
@@ -87,18 +88,21 @@ function bundle(): AgentBundle {
         slug: "main",
         name: "Main",
         workflow: {
-          schemaVersion: 3,
-          trigger: { id: "trg-manual", on: { type: "manual", input: {} } },
-          // No `approval` on the step: a post waits for a person by default.
+          schemaVersion: 5,
+          triggers: [{ id: "trg-manual", on: { type: "manual", input: {} } }],
+          outputs: [{ id: "out-done", name: "Done", kind: "nothing" }],
           steps: [
             {
               id: "post",
               name: "Post",
-              kind: "action",
-              tool: GCHAT_POST_TOOL,
-              input: { space: SHOP, text: "Cherry veneer arrived. <users/all>" },
               client: { visible: true, label: "Post the update" },
+              checks: { approval: { required: "required" } },
+              kind: "do",
+              doneBy: "rules",
+              uses: { type: "action", action: GCHAT_POST_TOOL },
+              input: { space: "spaces/AAAAshopfloor", text: "Cherry veneer arrived. <users/all>" },
             },
+            { id: "end", kind: "end", name: "Done", outputs: ["out-done"] },
           ],
         },
       },
@@ -325,9 +329,7 @@ describe.skipIf(!h)("Google Chat through the API", () => {
       instances: H.instances,
       credentials: credentialsFor(H.db, { current: ENCRYPTION_KEY }),
     };
-    expect(await executeRun(deps, params, cloudflareStepRunner(step))).toEqual({
-      status: "succeeded",
-    });
+    expect(await executeRun(deps, params, cloudflareStepRunner(step))).toEqual(ended());
     expect(atWait).toEqual([0]);
     expect(google.messages.map((m) => [m.space, m.text])).toEqual([
       [SHOP, "Cherry veneer arrived."],

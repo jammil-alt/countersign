@@ -1,6 +1,6 @@
 // The Builder in the step model (docs/step-model-plan.md §10, build item 9): `draftStepAgent` turns
 // an operator's description into a new agent whose workflows are v5, and `reviseStepAgent` turns
-// an instruction into a new version of a v5 agent. Same flow as the v4 Builder (`../builder`): one
+// an instruction into a new version of a v5 agent. One
 // structured answer, the guards (`./guards`), the caller's validation as at publish
 // (`steps.validateWorkflow` through the bundle's validator), and a repair round for what failed.
 // What it offers and never does by itself comes back beside the draft: Save as skill where another
@@ -38,12 +38,12 @@ import {
 /** With works first, a "Not built yet" step is the model's to repair: a person takes its place. */
 const WORKS_FIRST_OPERATOR_FIXES = new Set([...OPERATOR_FIXES].filter((c) => c !== "missing_step"));
 
-export interface StepBuilderOptions extends Omit<BuilderOptions, "validate"> {
+export interface StepBuilderOptions extends BuilderOptions {
   /** Validates a guarded bundle as a publish would (the caller knows the agent and its client). */
   validate(bundle: StepAgentBundle): Promise<ValidationError[]>;
 }
 
-export interface StepBuilderResult extends Omit<BuilderResult, "bundle"> {
+export interface StepBuilderResult extends BuilderResult {
   bundle: StepAgentBundle;
   /** Steps whose instructions another agent of the client, or a template, also writes. */
   saveAsSkill: SaveAsSkillSuggestion[];
@@ -58,7 +58,7 @@ export interface StepBuilderResult extends Omit<BuilderResult, "bundle"> {
  * the Builder offers, never published untested (§8).
  */
 // DECISION: a step-model error is `step_model` with its own code in `stepCode`; the "Not built yet"
-// one is held out by that code, as v4's `missing_step` is by its own. With works first, "Not built
+// one is held out by that code. With works first, "Not built
 // yet" goes back to the model (a person takes its place); the Loops stay the operator's.
 const LOOP_GATE = new Set(["loop_unsaved", "loop_untested"]);
 
@@ -68,11 +68,6 @@ export function notBuiltYet(e: ValidationError): boolean {
 
 export function stepModelOperatorFix(e: ValidationError): boolean {
   return notBuiltYet(e) || LOOP_GATE.has(e.code);
-}
-
-/** The options `ask` takes: validation is the step model's own (`ask`'s `validate`). */
-function askOptions(options: StepBuilderOptions): BuilderOptions {
-  return { ...options, validate: async () => [] };
 }
 
 /** The skills and actions a bundle's steps use (a revision keeps them in its catalog in full). */
@@ -145,7 +140,7 @@ ${promptText(input.description)}
       },
     },
     {
-      ...askOptions(options),
+      ...options,
       ...(worksFirst ? { repairs: options.repairs ?? 2 } : {}),
     },
   );
@@ -197,7 +192,7 @@ function offerNotes(
  * The step a model's answer names by its own id, by the saved draft's id: the guards give every
  * step its id, so the model's id is followed to its step's name and that name to the new id.
  */
-// DECISION: as the v4 Builder's `savedStepIds`: a name used twice, or a step the guards took out,
+// DECISION: a name used twice, or a step the guards took out,
 // leaves it on no step rather than on a wrong one.
 function savedStepIds(
   asked: Pick<StepAgentBundle, "workflows">,
@@ -290,7 +285,7 @@ ${input.instruction ? `\nThe operator's instruction:\n<instruction>\n${promptTex
         return { ...g, gaps: [...new Set([...a.gaps, ...g.gaps])] };
       },
     },
-    askOptions(options),
+    options,
   );
   const calls = [...catalog.calls, ...out.calls];
   const saveAsSkill = saveAsSkillSuggestions(out.bundle, ctx.stepModel?.written);

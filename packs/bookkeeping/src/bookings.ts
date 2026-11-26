@@ -1798,7 +1798,7 @@ export interface PersonDecision {
 export async function approve(tx: Tx, who: PersonDecision, bankTxnId: string): Promise<string> {
   const t = await txnOf(tx, who.tenantId, bankTxnId);
   const live = await liveBooking(tx, who.tenantId, t.id);
-  if (!live || live.status !== "proposed") {
+  if (live?.status !== "proposed") {
     throw new PackRefusal("there's no proposal for this transaction to approve");
   }
   let other: Awaited<ReturnType<typeof otherSideBooked>> = null;

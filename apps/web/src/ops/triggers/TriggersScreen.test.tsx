@@ -2,7 +2,7 @@
 // each last fired and their guards, the webhook and message settings on demand, adding a trigger
 // from the dialog that explains the six kinds (saved as a new draft with a new id) and removing an
 // added one.
-import { type AgentBundleInput, AnyAgentBundle, type AnyAgentBundleInput } from "@countersign/core";
+import { AgentBundle, type AgentBundleInput } from "@countersign/core";
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
@@ -22,14 +22,15 @@ const HOOK = "00000000-0000-4000-8000-0000000a7001";
 const RUN = "00000000-0000-4000-8000-0000000d0001";
 
 const [first] = FORK_BUNDLE_INPUT.workflows ?? [];
-const INPUT: AgentBundleInput = {
+const INPUT = {
   ...FORK_BUNDLE_INPUT,
   workflows: [
     {
       ...(first as NonNullable<typeof first>),
       workflow: {
         ...(first as NonNullable<typeof first>).workflow,
-        moreTriggers: [
+        triggers: [
+          ...((first as NonNullable<typeof first>).workflow as { triggers: unknown[] }).triggers,
           {
             id: "t-msg",
             on: {
@@ -52,13 +53,13 @@ const INPUT: AgentBundleInput = {
       },
     },
   ],
-};
+} as unknown as AgentBundleInput;
 
 const LATEST = { ...AGENT_DETAIL.latest, bundle: INPUT };
 
 function setup(
   kind: "client" | "template" = "client",
-  input: AnyAgentBundleInput = INPUT,
+  input: AgentBundleInput = INPUT,
   errors: { stepId: string | null; message: string; workflow?: string }[] = [],
 ) {
   const saved: Record<string, unknown>[] = [];
@@ -108,7 +109,7 @@ function setup(
         <TriggersPanel
           agent={agent}
           latest={{ ...LATEST, bundle: input }}
-          bundle={AnyAgentBundle.parse(input)}
+          bundle={AgentBundle.parse(input)}
           errors={errors}
           onChanged={() => {
             changed += 1;
@@ -225,10 +226,10 @@ describe("Triggers", () => {
     expect(changed()).toBe(1);
     const body = saved[0] as {
       parentVersionId: string;
-      bundle: { workflows: { workflow: { moreTriggers: { id: string; on: unknown }[] } }[] };
+      bundle: { workflows: { workflow: { triggers: { id: string; on: unknown }[] } }[] };
     };
     expect(body.parentVersionId).toBe(LATEST.id);
-    const more = body.bundle.workflows[0]?.workflow.moreTriggers ?? [];
+    const more = (body.bundle.workflows[0]?.workflow.triggers ?? []).slice(1);
     expect(more.map((t) => t.id).slice(0, 2)).toEqual(["t-msg", "t-hook"]);
     expect(more[2]?.on).toEqual({ type: "schedule", cron: "0 8 * * 1-5", skipHolidays: true });
     expect(more[2]?.id).toMatch(/^[0-9a-f-]{36}$/);
@@ -268,10 +269,10 @@ describe("Triggers", () => {
     await user.click(screen.getByTestId("trigger-form-save"));
     expect(await screen.findByTestId("triggers-saved")).toBeInTheDocument();
     const body = saved[0] as {
-      bundle: { workflows: { workflow: { moreTriggers: { on: unknown }[] } }[] };
+      bundle: { workflows: { workflow: { triggers: { on: unknown }[] } }[] };
     };
     // Stored as a cron and, beside it, the weeks it skips, counted from that week's Sunday.
-    expect(body.bundle.workflows[0]?.workflow.moreTriggers[2]?.on).toEqual({
+    expect(body.bundle.workflows[0]?.workflow.triggers[3]?.on).toEqual({
       type: "schedule",
       cron: "30 14 * * 1",
       tz: "America/Chicago",
@@ -289,9 +290,9 @@ describe("Triggers", () => {
     await user.click(screen.getByTestId("trigger-form-save"));
     expect(await screen.findByTestId("triggers-saved")).toBeInTheDocument();
     const body = saved[0] as {
-      bundle: { workflows: { workflow: { moreTriggers: { on: unknown }[] } }[] };
+      bundle: { workflows: { workflow: { triggers: { on: unknown }[] } }[] };
     };
-    expect(body.bundle.workflows[0]?.workflow.moreTriggers[2]?.on).toEqual({
+    expect(body.bundle.workflows[0]?.workflow.triggers[3]?.on).toEqual({
       type: "message",
       channels: ["email"],
       from: { clientRoles: ["client_admin"] },
@@ -305,12 +306,12 @@ describe("Triggers", () => {
       "Removed a message trigger",
     );
     const body = saved[0] as {
-      bundle: { workflows: { workflow: { moreTriggers: { id: string }[] } }[] };
+      bundle: { workflows: { workflow: { triggers: { id: string }[] } }[] };
     };
-    expect(body.bundle.workflows[0]?.workflow.moreTriggers.map((t) => t.id)).toEqual(["t-hook"]);
+    expect(body.bundle.workflows[0]?.workflow.triggers.map((t) => t.id)).toEqual(["t1", "t-hook"]);
   });
 
-  // Wave 3b: a version that holds a v4 process lists its `triggers`, and adds to and removes
+  // Wave 3b: a version lists its `triggers`, and adds to and removes
   // from them (its first stays), every id kept.
   it("lists, adds to and removes from a process's triggers", async () => {
     const { saved, user } = setup("client", PROCESS_BUNDLE_INPUT);
@@ -324,8 +325,7 @@ describe("Triggers", () => {
     expect(await screen.findByTestId("triggers-saved")).toHaveTextContent("saved v3 as a draft");
     type Saved = { bundle: { workflows: { workflow: Record<string, unknown> }[] } };
     const added = (saved[0] as Saved).bundle.workflows[0]?.workflow;
-    expect(added?.schemaVersion).toBe(4);
-    expect(added).not.toHaveProperty("moreTriggers");
+    expect(added?.schemaVersion).toBe(5);
     const triggers = added?.triggers as { id: string; on: { type: string } }[];
     expect(triggers.map((t) => t.id).slice(0, 2)).toEqual(["t0", "t1"]);
     expect(triggers[2]?.on.type).toBe("schedule");

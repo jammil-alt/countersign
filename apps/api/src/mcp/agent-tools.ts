@@ -12,13 +12,12 @@
 // with the two-step confirm and the change shown first.
 
 import {
-  type AnyAgentBundle,
-  allSteps,
+  type AgentBundle,
   classifyChange,
   isUuid,
-  processes,
   type RouteSpec,
   routes,
+  steps,
 } from "@countersign/core";
 import { z } from "zod";
 import { HttpError, invokeRoute, type RouteInput } from "../http";
@@ -60,7 +59,7 @@ interface Located {
   pointer: (string | number)[];
 }
 
-/** Every step of every workflow in the bundle, v3 workflows and v4 processes alike, in run order. */
+/** Every step of every workflow in the bundle, in run order. */
 export function stepsOf(bundle: unknown): Located[] {
   const out: Located[] = [];
   const workflows = isObj(bundle) && Array.isArray(bundle.workflows) ? bundle.workflows : [];
@@ -69,10 +68,7 @@ export function stepsOf(bundle: unknown): Located[] {
     const wf = w.workflow as { schemaVersion?: number; steps?: unknown };
     if (!Array.isArray(wf.steps)) return;
     const meta = { index, slug: String(w.slug ?? ""), name: String(w.name ?? w.slug ?? "") };
-    const locs =
-      wf.schemaVersion === 4
-        ? processes.allSteps(wf as Parameters<typeof processes.allSteps>[0])
-        : allSteps(wf as Parameters<typeof allSteps>[0]);
+    const locs = steps.stepsWithPointers(wf as Pick<steps.Workflow, "steps">);
     for (const l of locs) out.push({ workflow: meta, step: l.step as Json, pointer: l.pointer });
   });
   return out;
@@ -169,7 +165,7 @@ export function backOfficeOnly(before: unknown, after: unknown): string[] {
   return out;
 }
 
-/** Sets (or, with null, removes) a field by a dotted path such as `approval.required`. */
+/** Sets (or, with null, removes) a field by a dotted path such as `checks.approval.required`. */
 function setPath(target: Json, path: string, value: unknown): void {
   const parts = path.split(".");
   let here: Json = target;
@@ -260,7 +256,7 @@ const agentSteps: Tool<OpsToolCtx> = {
     if (!v) throw new HttpError(404, "not_found", `the agent has no ${a.version} version`);
     const isLive = v.id === read.agent.liveVersionId;
     const steps = stepsOf(v.bundle);
-    const bundle = v.bundle as AnyAgentBundle;
+    const bundle = v.bundle as AgentBundle;
     const version = {
       id: v.id,
       version: v.version,
@@ -312,7 +308,7 @@ const agentStepUpdate: Tool<OpsToolCtx> = {
   name: "agent_step_update",
   title: "Change a step's settings",
   description:
-    "Change one step's settings and save it as a new draft version of the agent (the live version keeps running until agent_publish). set maps fields to new values: top level (input, model, review, settings, name, purpose) or dotted (approval.approver, checks.approval.mode); null removes one. Read the step with agent_steps first: an object given whole replaces it. The step's id, kind and the steps inside it are the builder's and can't be set here, nor can an approval be turned off or taken away (the back office does that). Answers what would stop the draft from publishing.",
+    "Change one step's settings and save it as a new draft version of the agent (the live version keeps running until agent_publish). set maps fields to new values: top level (input, model, review, settings, name, purpose) or dotted (checks.approval.approver, checks.approval.mode); null removes one. Read the step with agent_steps first: an object given whole replaces it. The step's id, kind and the steps inside it are the builder's and can't be set here, nor can an approval be turned off or taken away (the back office does that). Answers what would stop the draft from publishing.",
   input: z.strictObject({
     agent: AgentId,
     step: z.string().min(1).max(100).describe("The step's id"),

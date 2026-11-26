@@ -7,15 +7,11 @@ import { cloneJson, isPlainObject } from "../json";
 import type { AgentStage, StageState } from "../lifecycle/stage";
 import { DECIMAL_RE, Decimal } from "../money";
 import { ACTION_CONNECTOR_NAMES, ACTION_SPECS, type WriteAction } from "../process/actions";
-import type { SkillStep } from "../process/schema";
-import { stepWrites } from "../process/validate";
-import { allSteps } from "../process/walk";
-import type { AnyAgentBundle, ProcessAgentBundle } from "../schemas/agent";
+import type { AgentBundle } from "../schemas/agent";
 import { parseSkillRef } from "../schemas/common";
 import type { SkillDefinition } from "../schemas/skill";
 import type { ToolSpec } from "../schemas/tool";
 import { eachStep } from "../steps/walk";
-import type { TypingContext } from "../template/typer";
 import {
   SETUP_ITEMS_MAX,
   SETUP_SETTING_TYPES,
@@ -76,46 +72,6 @@ function toolUse(t: ToolSpec): WriteUse {
   return { connector, known: true, key, what, send };
 }
 
-/**
- * Where the draft writes and what: each write step's tool (or action), and each skill whose tools
- * write. A skill that only reaches people through its own channels names no connector here.
- */
-// DECISION: a step that contacts people with no write tool of its own (a conversation, a reach-out
-// skill) asks no "who signs" here: it signs through the client's channels, whose own approvals
-// (and the trial's) already hold it.
-export function draftWriteUses(
-  bundle: Pick<ProcessAgentBundle, "workflows">,
-  typing: TypingContext,
-): WriteUse[] {
-  const out = new Map<string, WriteUse>();
-  const add = (u: WriteUse) => {
-    const k = `${u.connector}|${u.key}`;
-    if (!out.has(k)) out.set(k, u);
-  };
-  for (const w of bundle.workflows) {
-    for (const { step } of allSteps(w.workflow)) {
-      if (step.kind === "write" && step.action !== undefined) {
-        const spec = ACTION_SPECS[step.action];
-        const channel = "channel" in spec.from ? spec.from.channel : null;
-        const connector = step.via ?? channel ?? "accounting";
-        add({
-          connector,
-          known: step.via !== undefined,
-          key: step.action.replace(/_/g, "-"),
-          what: ACTION_WHAT[step.action],
-          send: channel !== null,
-        });
-        continue;
-      }
-      if (step.kind !== "write" && step.kind !== "skill") continue;
-      for (const t of stepWrites(step, typing) ?? []) {
-        if (t.sideEffect === "external") add(toolUse(t));
-      }
-    }
-  }
-  return [...out.values()];
-}
-
 /** The merged write actions of the step model, as the write action each stands for. */
 const STEP_MODEL_ACTIONS: Readonly<Record<string, WriteAction>> = {
   "email.send": "send_email",
@@ -130,7 +86,7 @@ const STEP_MODEL_ACTIONS: Readonly<Record<string, WriteAction>> = {
  * action (Accounting, Email) is one not resolved yet; any other is its tool's.
  */
 export function stepModelWriteUses(
-  bundle: Pick<AnyAgentBundle, "workflows">,
+  bundle: Pick<AgentBundle, "workflows">,
   tools: Readonly<Record<string, ToolSpec>>,
 ): WriteUse[] {
   const out = new Map<string, WriteUse>();
@@ -204,31 +160,31 @@ function valueText(v: unknown): string | null {
 // the decision wasn't about.
 export function settingForDecision(
   d: Pick<Decision, "stepId" | "value" | "what">,
-  bundle: Pick<ProcessAgentBundle, "workflows" | "definition">,
+  bundle: Pick<AgentBundle, "workflows" | "definition">,
   skills: Readonly<Record<string, SkillDefinition>>,
 ): SetupSetting | null {
   if (!d.stepId) return null;
-  let found: SkillStep | undefined;
+  let found: string | undefined;
   for (const w of bundle.workflows) {
-    for (const { step } of allSteps(w.workflow)) {
-      if (step.id === d.stepId && step.kind === "skill") found = step;
-    }
+    eachStep(w.workflow.steps, ({ step }) => {
+      if (step.id === d.stepId && step.kind === "do" && step.uses?.type === "skill") {
+        found = step.uses.skill;
+      }
+    });
   }
   if (!found) return null;
-  const skillId = parseSkillRef(found.skill).id;
-  const def = skills[found.skill] ?? skills[skillId];
+  const skillId = parseSkillRef(found).id;
+  const def = skills[found] ?? skills[skillId];
   const params = (def?.parameters ?? []).filter((p) =>
     (SETUP_SETTING_TYPES as readonly string[]).includes(p.type),
   );
   if (params.length === 0) return null;
   const own = bundle.definition.skills.find((s) => parseSkillRef(s.skill).id === skillId);
-  const onStep = found.customize?.parameters ?? {};
-  const current = (name: string) => onStep[name] ?? own?.parameters?.[name];
+  const current = (name: string) => own?.parameters?.[name];
   const setting = (p: (typeof params)[number]): SetupSetting => ({
     skill: skillId,
     parameter: p.name,
     type: p.type as SetupSettingType,
-    ...(Object.hasOwn(onStep, p.name) ? { stepId: found.id } : {}),
   });
   if (d.value) {
     const want = norm(d.value);
@@ -501,19 +457,9 @@ export function readSetupAnswer(
   }
 }
 
-/** The value a setting has in a bundle now (the step's own, else the agent's), if any. */
-export function settingValue(bundle: AnyAgentBundle, setting: SetupSetting): unknown {
-  if (setting.stepId) {
-    for (const w of bundle.workflows) {
-      if (w.workflow.schemaVersion !== 4) continue;
-      for (const { step } of allSteps(w.workflow)) {
-        if (step.id === setting.stepId && step.kind === "skill") {
-          return step.customize?.parameters?.[setting.parameter];
-        }
-      }
-    }
-    return undefined;
-  }
+/** The value a setting has in a bundle now (the agent's for the skill), if any. */
+export function settingValue(bundle: AgentBundle, setting: SetupSetting): unknown {
+  if (setting.stepId) return undefined;
   const own = bundle.definition.skills.find(
     (s) => parseSkillRef(s.skill).id === parseSkillRef(setting.skill).id,
   );
@@ -521,31 +467,19 @@ export function settingValue(bundle: AnyAgentBundle, setting: SetupSetting): unk
 }
 
 /**
- * The bundle with a setup answer's value written into the parameter it sets: the step's own value
- * when the setting names a step, else the agent's value for the skill. Nothing else changes, so the
+ * The bundle with a setup answer's value written into the parameter it sets: the agent's value
+ * for the skill. Nothing else changes, so the
  * new version is a client settings change (ARCHITECTURE §10.15), never a loosening.
  */
 export function applySetupSetting(
-  bundle: AnyAgentBundle,
+  bundle: AgentBundle,
   setting: SetupSetting,
   value: unknown,
-): { ok: true; bundle: AnyAgentBundle } | { ok: false; reason: string } {
+): { ok: true; bundle: AgentBundle } | { ok: false; reason: string } {
   const next = cloneJson(bundle);
-  if (setting.stepId) {
-    for (const w of next.workflows) {
-      if (w.workflow.schemaVersion !== 4) continue;
-      for (const { step } of allSteps(w.workflow)) {
-        if (step.id !== setting.stepId || step.kind !== "skill") continue;
-        const customize = step.customize ?? {};
-        step.customize = {
-          ...customize,
-          parameters: { ...(customize.parameters ?? {}), [setting.parameter]: value },
-        };
-        return { ok: true, bundle: next };
-      }
-    }
-    return { ok: false, reason: "The step this answer sets is no longer in the agent." };
-  }
+  // A step carries no values of its own in the step model: only the agent's for the skill.
+  if (setting.stepId)
+    return { ok: false, reason: "This answer set a step, which has no settings now." };
   const id = parseSkillRef(setting.skill).id;
   const own = next.definition.skills.find((s) => parseSkillRef(s.skill).id === id);
   if (!own) return { ok: false, reason: "The skill this answer sets is no longer in the agent." };

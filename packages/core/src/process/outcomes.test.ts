@@ -3,7 +3,6 @@
 // route on them, and reading an outcome back from a row.
 import { describe, expect, it } from "vitest";
 import { outcomeOfStepRow } from "../api/run-checks";
-import { fromWorkflowV3 } from "./convert";
 import {
   combinedApproval,
   combinedVerdict,
@@ -342,17 +341,8 @@ describe("validation", () => {
     expect(errors(later(notify("email", "Failed: {{steps.find.error.code}}")))).toEqual([]);
   });
 
-  it("leaves onError out of a parsed step that never said it, and out of converted v3 steps", () => {
+  it("leaves onError out of a parsed step that never said it", () => {
     expect("onError" in stepOf("save")).toBe(false);
-    const v4 = fromWorkflowV3(
-      {
-        schemaVersion: 3,
-        trigger: MANUAL,
-        steps: [{ id: "a", name: "A", kind: "wait", for: "1 hour" }],
-      } as never,
-      { wrappedTool: () => null, sideEffect: () => null },
-    );
-    expect(JSON.stringify(v4)).not.toContain("onError");
   });
 });
 
@@ -387,7 +377,7 @@ describe("deriving outcomes", () => {
   it("keeps an error plain and short, and knows a write that may have happened", () => {
     const e = plainError(`refused: token sk_live_${"a".repeat(30)} expired\nstack`);
     expect(e).toEqual({ code: "refused", message: "refused: token [hidden] expired" });
-    expect(plainError("x".repeat(300) + " y").message.length).toBeLessThanOrEqual(200);
+    expect(plainError(`${"x".repeat(300)} y`).message.length).toBeLessThanOrEqual(200);
     expect(
       writeMayHaveHappened("The text to Pat may have been sent; check before trying again: 500"),
     ).toBe(true);

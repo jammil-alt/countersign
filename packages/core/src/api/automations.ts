@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { isUuid } from "../ids";
-import { AnyAutomationDefinition, AutomationRequires } from "../schemas/automation";
-import { JsonSchema, NodeId, Slug } from "../schemas/common";
+import { AutomationDefinition, AutomationRequires } from "../schemas/automation";
+import { JsonSchema } from "../schemas/common";
 import { defineRoute } from "./contract";
 
 // v0.12 W2-B: automations (ARCHITECTURE §10.7, §14 "Automations"; docs/plan.md §1.45). Reusable,
@@ -58,7 +58,7 @@ export const AutomationVersionView = z.object({
   version: z.number().int(),
   status: z.string(),
   // Wave 3b: v3 steps or v4 process steps.
-  definition: AnyAutomationDefinition,
+  definition: AutomationDefinition,
   changeNote: z.string().nullable(),
   authorId: z.string().nullable(),
   parentVersionId: z.string().nullable(),
@@ -92,7 +92,7 @@ export const BuilderAutomation = z.object({
   /** live: the version agents get today; pinned: a version the agent's latest version names. */
   status: z.string(),
   // Wave 3b: v3 steps or v4 process steps.
-  definition: AnyAutomationDefinition,
+  definition: AutomationDefinition,
   /** The use step's output, typed from the automation's `output`. */
   outputSchema: JsonSchema,
 });
@@ -171,26 +171,5 @@ export const automationRoutes = {
     params: IdParams,
     body: z.strictObject({ versionId: Id }),
     response: z.object({ version: AutomationVersionView }),
-  }),
-  opsAutomationFromSteps: defineRoute({
-    method: "POST",
-    path: "/api/ops/automations/from-steps",
-    auth: "session",
-    roles: OPS,
-    summary: "Save as automation: selected steps become an automation draft, used in their place",
-    body: z.strictObject({
-      agentId: Id,
-      versionId: Id,
-      stepIds: z.array(NodeId).min(1).max(100),
-      slug: Slug,
-      name: z.string().trim().min(1).max(120),
-      description: z.string().max(2000).optional(),
-    }),
-    response: z.object({
-      automation: AutomationListItem,
-      version: AutomationVersionView,
-      /** The agent's new draft version, with one use step in place of the selection. */
-      agentVersion: z.object({ id: z.string(), version: z.number().int() }),
-    }),
   }),
 } as const;

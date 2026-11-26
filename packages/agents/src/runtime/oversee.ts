@@ -16,7 +16,7 @@
 // nothing to a client's tool: a corrected input runs through the gate like any other.
 //
 // R6 (docs/plan.md §1.86, §9; ARCHITECTURE §10.14): this review is the agent's owner. It watches
-// v4 read, skill, write and conversation steps as it watches v3 skill and action steps, and the
+// read, skill, write and conversation steps, and the
 // cheap watch's signals (an empty result, a total far outside the step's history, a confer that
 // disagreed) reach it as a checkpoint review, with the signals in the data.
 
@@ -82,7 +82,7 @@ export interface OverseeRequest {
   workflowSlug: string;
   mode: "live" | "test";
   language?: Locale | undefined;
-  /** R6: a v3 skill or action step, or a v4 read, skill, write or conversation step. */
+  /** R6: a read, skill, write or conversation step. */
   step: OwnerWatchedStep;
   nodeId: string;
   stepRunId: string;
@@ -274,13 +274,13 @@ const CHECKPOINT_NO_RETRY = ["continue", "ask", "stop"] as const;
 const none = (reason: string): OverseeVerdict => ({ action: "none", reason });
 
 /**
- * Whether the step can write to a client's tool or reach a person: an action's or a v4 write's
- * tool, its skill's tools, or a conversation (which sends). A v4 read whose tool is external is
+ * Whether the step can write to a client's tool or reach a person: a write's or read's
+ * tool, its skill's tools, or a conversation (which sends). A read whose tool is external is
  * treated as a write too (the validator refuses it; the safe side here).
  */
 function writes(deps: RuntimeDeps, step: OwnerWatchedStep, def: SkillDefinition | null) {
   const external = (toolId: string) => deps.tools.get(toolId)?.spec.sideEffect === "external";
-  if (step.kind === "action" || step.kind === "write" || step.kind === "read") {
+  if (step.kind === "write" || step.kind === "read") {
     // Skill model: an action not yet resolved to its tool is external (every action is).
     return step.tool === undefined || external(step.tool);
   }
@@ -440,7 +440,7 @@ export async function overseeStep(
     // P-4: a conversation whose turn failed picks up where it stopped on a `retry`: each message
     // it sent is keyed and never sent again, so its sends don't stop the review. Not `retry_with`,
     // which would start the conversation over with the person (docs/plan.md §1.66).
-    // DECISION; R6: a v4 conversation step the same.
+    // DECISION; R6: a conversation step the same.
     else if (reached.length > 0 && (def?.id === CONVERSE_SKILL || step.kind === "conversation")) {
       allowed = CONVERSE_FAILED_ACTIONS;
     } else if (reached.length > 0) {
@@ -476,7 +476,7 @@ export async function overseeStep(
     }
   }
   // R6: what the owner may decide for this kind of step (a conversation never gets a corrected
-  // input), narrowed further by the write check above. v3 steps: as v0.13, every decision allowed.
+  // input), narrowed further by the write check above.
   const decides =
     allowed ?? (step.kind === "conversation" ? ownerAllowedActions(step, req.cause) : undefined);
 
@@ -644,7 +644,7 @@ export async function overseeStep(
 
   const label = ownerStepLabel(step);
   const words = OVERSIGHT_WORDS[req.language ?? "en"];
-  // R6: a v3 step's approval, or a v4 step's `checks.approval` by its first approver.
+  // R6: the step's `checks.approval`, by its first approver.
   const approval = ownerStepApproval(step);
   const proposal = decision.proposal ?? null;
   const recorded = await store.record(tenantId, {

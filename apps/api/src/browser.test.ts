@@ -43,6 +43,7 @@ import {
   type ApiHarness,
   admin,
   createApiHarness,
+  ended,
   FakeWorkflowStep,
   OPERATOR,
   user,
@@ -132,17 +133,20 @@ function bundle(name: string): AgentBundle {
         slug: "main",
         name: "Fetch invoices",
         workflow: {
-          schemaVersion: 3,
-          trigger: { id: "trg-manual", on: { type: "manual", input: {} } },
+          schemaVersion: 5,
+          triggers: [{ id: "trg-manual", on: { type: "manual", input: {} } }],
+          outputs: [{ id: "out-done", name: "Done", kind: "nothing" }],
           steps: [
             {
               id: "fetch",
               name: "Fetch the invoices",
-              kind: "skill",
-              skill: SKILL,
-              input: {},
               client: { visible: true, label: "Fetched the supplier's invoices" },
+              kind: "do",
+              doneBy: "ai",
+              uses: { type: "skill", skill: "test.fetch-invoices" },
+              input: {},
             },
+            { id: "end", kind: "end", name: "Done", outputs: ["out-done"] },
           ],
         },
       },
@@ -464,7 +468,7 @@ describe.skipIf(!h)("browser connections through the API", () => {
         { toolUse: { name: "browser__file__download", input: pdf } },
         { toolUse: { name: "finish", input: { answer: "Downloaded INV-1001" } } },
       ]);
-      expect(result).toEqual({ status: "succeeded" });
+      expect(result).toEqual(ended());
       // One browser per tool call: each signs in and out on its own.
       expect(portal.signIns).toBe(2);
       expect(portal.signOuts).toBe(2);
@@ -555,7 +559,7 @@ describe.skipIf(!h)("browser connections through the API", () => {
         },
         { toolUse: { name: "finish", input: { answer: "Could not read" } } },
       ]);
-      expect(result).toEqual({ status: "succeeded" });
+      expect(result).toEqual(ended());
       const calls = await H.t.db
         .select()
         .from(toolCall)
@@ -630,7 +634,7 @@ describe.skipIf(!h)("browser connections through the API", () => {
         params,
         cloudflareStepRunner(step),
       );
-      expect(result).toEqual({ status: "succeeded" });
+      expect(result).toEqual(ended());
       expect(step.waits).toHaveLength(1);
       expect(portal.signIns).toBe(signIns + 1);
 
@@ -639,7 +643,7 @@ describe.skipIf(!h)("browser connections through the API", () => {
         { toolUse: { name: "browser__page__read", input: read } },
         { toolUse: { name: "finish", input: { answer: "Could not read" } } },
       ]);
-      expect(again.result).toEqual({ status: "succeeded" });
+      expect(again.result).toEqual(ended());
       expect(portal.signIns).toBe(signIns + 1);
       const off = await H.call(
         admin("a"),
@@ -734,7 +738,7 @@ describe.skipIf(!h)("browser connections through the API", () => {
       },
       { toolUse: { name: "finish", input: { answer: "read" } } },
     ]);
-    expect(result).toEqual({ status: "succeeded" });
+    expect(result).toEqual(ended());
     const cookie = [...portal.sessions][0];
     expect(cookie).toBeTruthy();
 

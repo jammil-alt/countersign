@@ -1,6 +1,5 @@
 // The Builder as a conversation in the step model (docs/step-model-plan.md §10, build item 9): one
-// turn on a v5 working draft, as `../conversation` does for v4. The chat and the build's draft edits
-// stay as they are; only the draft they change is v5. The model sees short aliases in place of ids
+// turn on a v5 working draft. The model sees short aliases in place of ids
 // (`t1` triggers, `r1` outputs, `s1` steps, `p1` Fork paths, `o1` otherwise), the guards
 // (`./guards`) hold its answer, and the changes are labelled for undo as before.
 
@@ -15,11 +14,10 @@ import {
 } from "@countersign/core";
 import { DEFAULT_MODEL, type LlmCallRecord } from "@countersign/llm";
 import { z } from "zod";
-import { ask as askModel, type BuilderOptions, errorKey, totalCost } from "../builder";
+import { ask as askModel, errorKey, totalCost } from "../builder";
 import { labelledChanges } from "../changes";
 import { commandScope, type TurnCommand } from "../commands";
 import type { BuilderContext } from "../context";
-import { type HistoryLine, TURN_TOOL } from "../conversation";
 import { rewriteRefs } from "../guards";
 import { draftCatalog, partsOf, type ShortlistAnswer } from "../shortlist";
 import { StepAgentBundle } from "./answer";
@@ -29,6 +27,13 @@ import { guardStepBundle } from "./guards";
 import { STEP_RULES } from "./rules";
 
 // ── Aliases ────────────────────────────────────────────────────────────────────────────────────
+
+export const TURN_TOOL = "submit_turn";
+
+export interface HistoryLine {
+  role: "operator" | "builder";
+  text: string;
+}
 
 export type StepNodeKind = "trigger" | "output" | "step" | "path" | "otherwise";
 
@@ -418,7 +423,7 @@ ${input.request ? `\nThe client's request, in their words (what they want change
       // What the draft already got wrong before this turn is not the answer's to repair.
       known: new Set((await options.validate(working)).map(errorKey)),
     },
-    { ...options, validate: async () => [] } as BuilderOptions,
+    options,
   );
   if (command?.name === "automation") {
     const placed = JSON.stringify(out.bundle).includes(`"automation":"${command.ref}"`);

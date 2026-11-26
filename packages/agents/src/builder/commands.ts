@@ -5,13 +5,12 @@
 //
 // - `/skill <id> <instruction>`: that skill's steps and this agent's settings for it. The skill's
 //   own definition and defaults never change from here (they are the skill's versions).
-// - `/automation <slug>[@version] [where]`: place an automation as a process step (wave 3b: v4).
+// - `/automation <slug>[@version] [where]`: place an automation as a Do step.
 // - `/trigger <kind> <details>`: add or change a trigger.
 
 import {
-  type AnyAgentBundle,
+  type AgentBundle,
   flattenBundle,
-  holdsStepModel,
   parseCommand,
   parseSkillRef,
   resolveSkillCommand,
@@ -46,11 +45,11 @@ function isSpace(code: number): boolean {
 }
 
 /**
- * The skill a step runs, as stored: a v4 skill step's `skill`, a v5 Do's `uses.skill`, a v5 Loop's
- * saved Loop (`skill`). Null for any other step.
+ * The skill a step runs, as stored: a Do's `uses.skill`, a Loop's saved Loop (`skill`). Null for
+ * any other step.
  */
 function stepSkillRef(content: Record<string, unknown>): string | null {
-  if ((content.kind === "skill" || content.kind === "loop") && typeof content.skill === "string") {
+  if (content.kind === "loop" && typeof content.skill === "string") {
     return content.skill;
   }
   const uses = content.uses as { type?: unknown; skill?: unknown } | undefined;
@@ -61,7 +60,7 @@ function stepSkillRef(content: Record<string, unknown>): string | null {
 }
 
 /** The skill ids an agent draft uses (listed or run by a step). */
-export function draftSkillIds(bundle: AnyAgentBundle): string[] {
+export function draftSkillIds(bundle: AgentBundle): string[] {
   const ids = new Set(bundle.definition.skills.map((s) => parseSkillRef(s.skill).id));
   for (const e of flattenBundle(bundle).entities.values()) {
     const ref = e.kind === "step" ? stepSkillRef(e.content) : null;
@@ -76,7 +75,7 @@ export function draftSkillIds(bundle: AnyAgentBundle): string[] {
  */
 export function readCommand(
   text: string,
-  input: { bundle: AnyAgentBundle; automations: readonly BuilderAutomationRef[] },
+  input: { bundle: AgentBundle; automations: readonly BuilderAutomationRef[] },
 ): ReadCommand {
   const parsed = parseCommand(text);
   if (!parsed) return { ok: true, command: null };
@@ -124,9 +123,7 @@ export function readCommand(
         name: "automation",
         ref: found.ref,
         args: parsed.args,
-        instruction: holdsStepModel(input.bundle)
-          ? `Place the automation ${found.ref} ("${found.name}") as one Do step ("uses": {"type": "automation", "automation": "${found.ref}"}, no "doneBy", an input that matches its input) where it fits${rest ? `, as the operator says below` : ""}. Change nothing else.`
-          : `Place the automation ${found.ref} ("${found.name}") as one process step (kind "process", process "${found.ref}", an input that matches its input schema) where it fits${rest ? `, as the operator says below` : ""}. Change nothing else.`,
+        instruction: `Place the automation ${found.ref} ("${found.name}") as one Do step ("uses": {"type": "automation", "automation": "${found.ref}"}, no "doneBy", an input that matches its input) where it fits${rest ? `, as the operator says below` : ""}. Change nothing else.`,
       },
     };
   }
@@ -162,8 +159,8 @@ export function readCommand(
  */
 export function commandScope(
   command: TurnCommand | null,
-  before: AnyAgentBundle,
-  after: AnyAgentBundle,
+  before: AgentBundle,
+  after: AgentBundle,
 ): ((changeId: string) => boolean) | null {
   if (!command || command.name === "automation") return null;
   if (command.name === "trigger") {

@@ -12,7 +12,6 @@ import { AP_PACK_ID } from "./ids";
 import {
   billView,
   buildPayList,
-  codableAccounts,
   payListView,
   prepareBill,
   proposeCoding,

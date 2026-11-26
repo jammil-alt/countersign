@@ -4,8 +4,8 @@
 // route saves it as one new version of the draft per move, through the back office's own save.
 
 import {
+  type AgentBundle,
   type AgentManual,
-  type AnyAgentBundle,
   type BuildDetail,
   deepEqual,
   fillManual,
@@ -28,10 +28,7 @@ export function knownRisksOf(detail: Pick<BuildDetail, "items">) {
  * The draft's bundle with the manual the build writes now, or null when it would not change it
  * (so a move that changes nothing saves no version).
  */
-export function withBuildManual(
-  detail: BuildDetail,
-  bundle: AnyAgentBundle,
-): AnyAgentBundle | null {
+export function withBuildManual(detail: BuildDetail, bundle: AgentBundle): AgentBundle | null {
   const before = readManual(bundle.definition.manual) ?? undefined;
   const manual: AgentManual = fillManual({
     brief: detail.build.brief,

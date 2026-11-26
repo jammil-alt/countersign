@@ -103,16 +103,6 @@ export {
 } from "./store";
 export { SALES_SYNCED } from "./synced";
 export {
-  MATCH_KEYS,
-  SHEET_COLUMNS,
-  SPREADSHEET_TO_ZOHO_SLUG,
-  SPREADSHEET_TO_ZOHO_TEMPLATE,
-  spreadsheetSteps,
-  spreadsheetTriggers,
-  ZOHO_FIELDS,
-  zohoRowsMapping,
-} from "./template";
-export {
   ConfirmedUpdate,
   confirmedMatchesTool,
   keysRefreshTool,

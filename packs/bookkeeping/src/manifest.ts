@@ -1,5 +1,5 @@
 // The Bookkeeping pack's manifest (docs/plan.md §1.79): its tools and skills for bank transactions,
-// the chart of accounts and bookings, its report screens, and the Bookkeeper template.
+// the chart of accounts and bookings, its report screens.
 
 import {
   lazy,
@@ -20,7 +20,6 @@ import { RECONCILE_SKILLS } from "./reconcile/skills";
 import { RECONCILE_TOOLS } from "./reconcile/tools";
 import { BOOKKEEPING_RECORD_TYPES } from "./records";
 import { BOOKKEEPING_SPLIT_SKILLS } from "./splits";
-import { BOOKKEEPER_TEMPLATE } from "./template";
 import {
   accountPayeesTool,
   BOOKKEEPING_TOOLS,
@@ -207,7 +206,9 @@ export const bookkeepingManifest: PackManifest = lazyParse(PackManifest, () => (
   skills: BOOKKEEPING_SKILLS,
   // Step model §8: the Loop it ships carries its test set (CI replays it).
   loopTests: LEFTOVERS_LOOP_TESTS,
-  templates: [BOOKKEEPER_TEMPLATE],
+  // No agent template until the Bookkeeper is built again in the step model (docs/step-model-plan.md
+  // §12 R0: templates are built again one by one, later).
+  templates: [],
   // §1.149.2: the area's questions for a client's intake (Getting started's card).
   intakeSection: BOOKKEEPING_INTAKE_SECTION,
   screens: [

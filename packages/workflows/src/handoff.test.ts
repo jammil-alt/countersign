@@ -1,10 +1,9 @@
 // Hand off (owner, 2026-11-11; docs/plan.md §1.96): a hand-off step starts another agent's run at
 // one of its steps; a run so started skips its earlier steps and takes the input handed over.
-import type { AnyAgentBundle, processes } from "@countersign/core";
+import type { AgentBundle, processes } from "@countersign/core";
 import { describe, expect, it } from "vitest";
-import { executeWorkflow } from "./executor";
 import { FakeStepRunner } from "./fake-runner";
-import { Harness, RUN } from "./fakes.test-helper";
+import { executeProcess, Harness, RUN } from "./fakes.test-helper";
 import type { HandoffPort, HandoffRequest } from "./ports";
 import {
   type HandoffAsk,
@@ -39,7 +38,7 @@ describe("a run that starts at a step", () => {
   it("skips the steps before it and gives the entry step the input handed over", async () => {
     const h = new Harness();
     const input = { documentId: "doc-1", note: "{{trigger.secret}}" };
-    const result = await executeWorkflow(
+    const result = await executeProcess(
       new FakeStepRunner(),
       h.context({ start: { at: "itemize", input } }),
       priceChecker,
@@ -57,7 +56,7 @@ describe("a run that starts at a step", () => {
 
   it("fails rather than run from the top when the version has no such step", async () => {
     const h = new Harness();
-    const result = await executeWorkflow(
+    const result = await executeProcess(
       new FakeStepRunner(),
       h.context({ start: { at: "gone", input: {} } }),
       priceChecker,
@@ -103,7 +102,7 @@ describe("the hand-off step", () => {
       name: "Price checker",
       at: "2 · itemize",
     });
-    const result = await executeWorkflow(
+    const result = await executeProcess(
       new FakeStepRunner(),
       h.context({ handoff: p }),
       sender,
@@ -133,7 +132,7 @@ describe("the hand-off step", () => {
   it("in a test run starts nothing and says what it would have handed off", async () => {
     const h = new Harness({ ...RUN, mode: "test" });
     const { p, calls } = port({ refused: "should not be asked" });
-    const result = await executeWorkflow(
+    const result = await executeProcess(
       new FakeStepRunner(),
       h.context({ handoff: p }),
       sender,
@@ -155,7 +154,7 @@ describe("the hand-off step", () => {
       notStarted: true,
       name: "Price checker",
     });
-    const result = await executeWorkflow(
+    const result = await executeProcess(
       new FakeStepRunner(),
       h.context({ handoff: p }),
       sender,
@@ -175,7 +174,7 @@ describe("handoffRunRequest", () => {
   const TENANT = RUN.tenantId;
   const bundle = {
     workflows: [{ slug: "main", enabled: true, workflow: priceChecker }],
-  } as unknown as AnyAgentBundle;
+  } as unknown as AgentBundle;
   const target = (over: Partial<RoutableAgent> = {}): RoutableAgent & { slug: string } => ({
     id: "agent-b",
     slug: "price-checker",
@@ -280,7 +279,7 @@ describe("a hand-off to this agent's own workflow", () => {
         ],
       },
     ]);
-    const result = await executeWorkflow(new FakeStepRunner(), h.context({ handoff: p }), scan, {
+    const result = await executeProcess(new FakeStepRunner(), h.context({ handoff: p }), scan, {
       bills: [{ id: "b1" }, { id: "b2" }],
     });
     expect(result.status).toBe("succeeded");
@@ -304,7 +303,7 @@ describe("selfHandoffRunRequest", () => {
       { slug: "scan", name: "Scan bills", enabled: true, workflow: proc([skill("find")]) },
       { slug: "old", name: "Old", enabled: false, workflow: priceChecker },
     ],
-  } as unknown as AnyAgentBundle;
+  } as unknown as AgentBundle;
   const self = (over: Partial<RoutableAgent> = {}): RoutableAgent & { slug: string } => ({
     id: "agent-a",
     slug: "invoices",

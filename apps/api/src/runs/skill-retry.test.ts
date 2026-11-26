@@ -7,7 +7,13 @@ import { agent, inboxItem } from "@countersign/db";
 import { FakeModel } from "@countersign/llm";
 import { and, eq } from "drizzle-orm";
 import { afterAll, describe, expect, it } from "vitest";
-import { type ApiHarness, createApiHarness, FakeWorkflowStep, OPERATOR } from "../api.test-helper";
+import {
+  type ApiHarness,
+  createApiHarness,
+  ended,
+  FakeWorkflowStep,
+  OPERATOR,
+} from "../api.test-helper";
 import { credentialsFor, executeRun } from "./execute";
 import type { CloudflareStepConfig, WorkflowStepLike } from "./step-runner";
 import { cloudflareStepRunner } from "./step-runner";
@@ -89,17 +95,20 @@ describe.skipIf(!h)("STATE: an engine retry of a skill step", () => {
           slug: "main",
           name: "Month end",
           workflow: {
-            schemaVersion: 3,
-            trigger: { id: "trg-manual", on: { type: "manual", input: {} } },
+            schemaVersion: 5,
+            triggers: [{ id: "trg-manual", on: { type: "manual", input: {} } }],
+            outputs: [{ id: "out-done", name: "Done", kind: "nothing" }],
             steps: [
               {
                 id: "ask",
                 name: "Ask for the statement",
-                kind: "skill",
-                skill: SKILL,
-                input: {},
                 client: { visible: true, label: "Asked for the statement" },
+                kind: "do",
+                doneBy: "ai",
+                uses: { type: "skill", skill: "qa.state.ask-for-statement" },
+                input: {},
               },
+              { id: "end", kind: "end", name: "Done", outputs: ["out-done"] },
             ],
           },
         },
@@ -137,7 +146,7 @@ describe.skipIf(!h)("STATE: an engine retry of a skill step", () => {
       params,
       cloudflareStepRunner(new RetryOnce("ask")),
     );
-    expect(result).toEqual({ status: "succeeded" });
+    expect(result).toEqual(ended());
     const items = await H.t.db
       .select({ id: inboxItem.id })
       .from(inboxItem)

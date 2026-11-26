@@ -8,7 +8,7 @@
 // 11): no bundle, prompt, cost or seat role beyond its label.
 
 import {
-  type AnyAgentBundle,
+  type AgentBundle,
   adjustView,
   type PersonRole,
   readAgentGuide,
@@ -168,7 +168,7 @@ export async function scopeView(tx: Tx, input: ScopeInput): Promise<ScopeView> {
   const a = await clientAgent(tx, input.tenantId, input.agentId);
   const v = await sopVersion(tx, a);
   if (!v) throw notFound("service");
-  const bundle = v.bundle as AnyAgentBundle;
+  const bundle = v.bundle as AgentBundle;
   const read = await sopInputFor(tx, input.platform, a, {
     learned: null,
     measures: [],

@@ -3,18 +3,7 @@
 // RLS says they are: templates for operator sessions only. Step model (docs/step-model-plan.md §12,
 // R0): each platform template is one seeded version, its workflows in the step model.
 
-import {
-  type AgentBundle,
-  bundleHash,
-  holdsProcess,
-  nodeIds,
-  processes,
-  steps,
-  type Step as V3Step,
-  validateBundle,
-  type Workflow,
-  walkSteps,
-} from "@countersign/core";
+import { bundleHash, processes, steps } from "@countersign/core";
 import { and, eq, isNull, ne } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { withOperator, withTenant } from "./client";
@@ -37,20 +26,15 @@ import {
   DEMO_RECORD_BEFORE,
   DEMO_TOOL,
   loadDemoAgent,
-  loadDemoAgentVersions,
   loadSeedTemplates,
   loadSeedVersions,
   SEED_USERS,
-  type SeedTemplateVersion,
   seed,
 } from "./seed";
 import { seedVersionBundle } from "./seed-files";
 import { asWorker, createTestDatabase, databaseAvailable, type TestDatabase } from "./testing";
 
 const online = await databaseAvailable();
-
-/** Every step of a v4 process, nested ones included. */
-const stepsOf = (p: processes.Process) => processes.allSteps(p).map((l) => l.step);
 
 /** Every step of a step-model workflow, nested ones included. */
 function v5Steps(list: readonly steps.Step[]): steps.Step[] {
@@ -78,7 +62,7 @@ describe("seed files", () => {
     ]);
     expect(await loadSeedVersions()).toEqual([]);
     for (const t of templates) {
-      expect(processes.validateAnyBundle(t.bundle).errors, t.slug).toEqual([]);
+      expect(processes.validateBundle(t.bundle).errors, t.slug).toEqual([]);
       expect(t.bundle.definition.kind).toBe("platform");
       // Approval stays on by default (CLAUDE.md invariant 8).
       expect(t.bundle.definition.permissions.mode).toBe("suggest_only");
@@ -153,62 +137,7 @@ describe("seed files", () => {
   });
 });
 
-// ── R9 (docs/plan.md §1.86, §9): the seeds as v4 ──────────────────────────────────────────────
-
-/** The v3 person steps' `onTimeout`, by step id. */
-function personTimeouts(w: Workflow): Map<string, string> {
-  const out = new Map<string, string>();
-  walkSteps(w, ({ step }) => {
-    if (step.kind === "person") out.set(step.id, step.onTimeout);
-  });
-  return out;
-}
-
-/**
- * What the hand check of a v4 version holds to, against the v3 version it came from: the same
- * workflows, every trigger, step and path id kept, approval required on every write (stated on
- * every write that v3 asked approval for, never loosened) and every deadline `stop` unless v3 said
- * the run goes on (`continue`, v4 `proceed`).
- */
-function expectV4Of(v4: SeedTemplateVersion, v3: AgentBundle) {
-  expect(holdsProcess(v4.bundle), v4.slug).toBe(true);
-  // Only the workflows moved: the definition is the earlier version's.
-  expect(v4.bundle.definition).toEqual(v3.definition);
-  expect(v4.bundle.workflows.map((w) => [w.slug, w.name, w.enabled])).toEqual(
-    v3.workflows.map((w) => [w.slug, w.name, w.enabled]),
-  );
-  for (const w of v4.bundle.workflows) {
-    const before = v3.workflows.find((x) => x.slug === w.slug)?.workflow;
-    if (w.workflow.schemaVersion !== 4 || !before) throw new Error(`${w.slug}: not a v4 process`);
-    const process = w.workflow;
-    expect(processes.validateProcess(process).errors, w.slug).toEqual([]);
-    // The converter's id check: every id, in the same order, so merges line up.
-    expect(processes.nodeIds(process), w.slug).toEqual(nodeIds(before));
-    const timeouts = personTimeouts(before);
-    const v3Steps = new Map<string, V3Step>();
-    walkSteps(before, ({ step }) => v3Steps.set(step.id, step));
-    for (const step of stepsOf(process)) {
-      const was = v3Steps.get(step.id);
-      const approval = step.checks?.approval;
-      expect(processes.approvalLoosenings(approval, "checks.approval"), step.id).toEqual([]);
-      if (approval) {
-        expect(approval).toMatchObject({ required: "required", ifNoAnswer: "stop" });
-      }
-      if (was?.kind === "action") {
-        expect(step.kind, step.id).toBe("write");
-        expect(approval?.required, step.id).toBe("required");
-      }
-      if (step.kind === "person") {
-        const then = timeouts.get(step.id) === "continue" ? "proceed" : "stop";
-        expect(step.deadline.ifNoAnswer, step.id).toBe(then);
-      }
-      expect(step.checks?.confer, step.id).toBeUndefined();
-      expect(step.checks?.notify, step.id).toBeUndefined();
-    }
-  }
-}
-
-describe("seed files, R9", () => {
+describe("seed files, versions", () => {
   it("name the version they change, and nothing else", () => {
     const files = {
       1: { schemaVersion: 1, definition: { a: 1, b: 2 }, workflows: [1] },
@@ -225,26 +154,6 @@ describe("seed files, R9", () => {
       /unknown key/,
     );
     expect(() => seedVersionBundle(files, 9)).toThrow(/no version 9/);
-  });
-
-  it("hold the Demo client agent's v2: its one write as a v4 write step, approval on", async () => {
-    const v1 = await loadDemoAgent();
-    const later = await loadDemoAgentVersions();
-    expect(later.map((v) => v.version)).toEqual([2]);
-    const [v2] = later;
-    if (!v2) throw new Error("no v2");
-    expectV4Of(v2, v1.bundle);
-    const w = v2.bundle.workflows[0]?.workflow;
-    if (w?.schemaVersion !== 4) throw new Error("not v4");
-    expect(w.steps).toMatchObject([
-      {
-        id: "update",
-        kind: "write",
-        tool: DEMO_TOOL,
-        input: { id: "R-1002", syncToken: "0", amount: "9.1000" },
-        checks: { approval: { required: "required" } },
-      },
-    ]);
   });
 });
 
@@ -318,7 +227,7 @@ describe.skipIf(!online)("seed", () => {
     );
     for (const v of versions) {
       expect(v.status).toBe(live.has(v.id) ? "live" : "retired");
-      expect(processes.validateAnyBundle(v.bundle).valid).toBe(true);
+      expect(processes.validateBundle(v.bundle).valid).toBe(true);
       expect(v.bundleHash).toBe(await bundleHash(v.bundle));
     }
   });
@@ -453,9 +362,9 @@ describe.skipIf(!online)("seed", () => {
       { id: d.recordId, connectionId: d.connectionId, externalId: DEMO_RECORD_BEFORE.id },
     ]);
 
-    // The client agent: trial, approval on, a manual trigger only. R9: its live version is v2, the
-    // same step as a v4 process; the Desk item's run is on v1, the version it ran.
-    const [version, v2] = [...rows.versions].sort((a, b) => a.version - b.version);
+    // The client agent: trial, approval on, a manual trigger only; its one version is the one the
+    // Desk item's run is on.
+    const [version] = rows.versions;
     expect(rows.agents).toMatchObject([
       {
         id: d.agentId,
@@ -463,25 +372,22 @@ describe.skipIf(!online)("seed", () => {
         slug: DEMO_AGENT_SLUG,
         stage: "trial",
         runStatus: "active",
-        liveVersionId: v2?.id,
+        liveVersionId: d.agentVersionId,
         bindings: { [DEMO_CONNECTOR]: d.connectionId },
       },
     ]);
-    expect(version).toMatchObject({ id: d.agentVersionId, version: 1, status: "retired" });
-    expect(v2).toMatchObject({ version: 2, status: "live", parentVersionId: d.agentVersionId });
-    expect(rows.versions).toHaveLength(2);
-    if (!version || !v2) throw new Error("no version");
-    expect(processes.validateAnyBundle(v2.bundle).valid).toBe(true);
-    expect(v2.bundleHash).toBe(await bundleHash(v2.bundle));
-    expect(validateBundle(version.bundle).valid).toBe(true);
+    expect(version).toMatchObject({ id: d.agentVersionId, version: 1, status: "live" });
+    expect(rows.versions).toHaveLength(1);
+    if (!version) throw new Error("no version");
+    expect(processes.validateBundle(version.bundle).valid).toBe(true);
+    expect(version.bundleHash).toBe(await bundleHash(version.bundle));
     expect(version.bundle.definition.permissions.mode).toBe("suggest_only");
     for (const w of version.bundle.workflows) {
-      if (w.workflow.schemaVersion !== 3) throw new Error("v1 holds v3 workflows");
-      expect(w.workflow.trigger.on.type).toBe("manual");
+      expect(w.workflow.triggers.map((t) => t.on.type)).toEqual(["manual"]);
       for (const s of w.workflow.steps) {
-        if (s.kind === "action") {
-          expect(s.tool).toBe(DEMO_TOOL);
-          expect(s.approval.required).toBe("required");
+        if (s.kind === "do" && s.uses?.type === "action") {
+          expect(s.uses.action).toBe(DEMO_TOOL);
+          expect(s.checks?.approval?.required).toBe("required");
         }
       }
     }
@@ -580,12 +486,19 @@ describe.skipIf(!online)("seed", () => {
 describe("the Demo client agent's file", () => {
   it("is a valid client bundle whose only write is the testkit's, approval on", async () => {
     const demo = await loadDemoAgent();
-    expect(validateBundle(demo.bundle).valid).toBe(true);
+    expect(processes.validateBundle(demo.bundle).valid).toBe(true);
     expect(demo.bundle.definition.kind).not.toBe("platform");
     expect(demo.bundle.definition.extraTools).toEqual([DEMO_TOOL]);
-    const steps = demo.bundle.workflows.flatMap((w) => w.workflow.steps);
-    expect(steps).toMatchObject([
-      { id: "update", kind: "action", tool: DEMO_TOOL, approval: { required: "required" } },
+    const demoSteps = demo.bundle.workflows.flatMap((w) => w.workflow.steps);
+    expect(demoSteps).toMatchObject([
+      {
+        id: "update",
+        kind: "do",
+        uses: { type: "action", action: DEMO_TOOL },
+        input: { id: "R-1002", syncToken: "0", amount: "9.1000" },
+        checks: { approval: { required: "required" } },
+      },
+      { id: "updated", kind: "end" },
     ]);
   });
 });

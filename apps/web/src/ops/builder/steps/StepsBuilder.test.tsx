@@ -10,7 +10,7 @@ import type { AgentSummary, VersionDetail } from "../../../api/routes";
 import { ApiProvider } from "../../../api/useApi";
 import { rootOrder } from "../../../test/chart";
 import { fakeApi } from "../../../test/fixtures";
-import WorkflowBuilder from "../WorkflowBuilder";
+import StepsBuilder from "./StepsBuilder";
 
 const AGENT_ID = "00000000-0000-4000-8000-00000000d501";
 const V1 = "00000000-0000-4000-8000-0000000f0d51";
@@ -162,7 +162,7 @@ function setup(w: unknown) {
   function Page() {
     const { workflow: slug = "" } = useParams();
     return (
-      <WorkflowBuilder
+      <StepsBuilder
         agent={AGENT}
         from={from}
         bundle={from.bundle as never}

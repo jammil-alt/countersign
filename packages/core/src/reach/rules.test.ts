@@ -2,9 +2,9 @@ import { describe, expect, it } from "vitest";
 import { diffBundles } from "../bundle/diff";
 import { mergeBundles } from "../bundle/merge";
 import { bundleHash } from "../canonical";
+import { validateBundle } from "../process/bundle";
 import { AgentBundle } from "../schemas/agent";
 import { bundle, edit } from "../testing/fixtures";
-import { validateBundle } from "../workflow/validate";
 import {
   nextEscalation,
   type PlanInput,

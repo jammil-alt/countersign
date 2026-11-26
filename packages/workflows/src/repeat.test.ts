@@ -4,9 +4,8 @@
 // names, so writes are per pass and a replay finds the passes it already ran.
 import type { processes } from "@countersign/core";
 import { describe, expect, it } from "vitest";
-import { executeWorkflow } from "./executor";
 import { FakeStepRunner } from "./fake-runner";
-import { Harness, WRITE_TOOL } from "./fakes.test-helper";
+import { executeProcess, Harness, WRITE_TOOL } from "./fakes.test-helper";
 
 const MANUAL = { id: "t", on: { type: "manual", input: {} } };
 const READ_TOOL = { ...WRITE_TOOL, id: "testkit.thing.get", sideEffect: "none" as const };
@@ -57,7 +56,7 @@ describe("repeat", () => {
     const h = new Harness();
     countingRead(h, 2);
     const runner = new FakeStepRunner();
-    const result = await executeWorkflow(
+    const result = await executeProcess(
       runner,
       h.context({ catalog: CATALOG }),
       proc([
@@ -91,7 +90,7 @@ describe("repeat", () => {
   it("stops the run at its limit by default", async () => {
     const h = new Harness();
     countingRead(h, 99);
-    const result = await executeWorkflow(
+    const result = await executeProcess(
       new FakeStepRunner(),
       h.context({ catalog: CATALOG }),
       proc([repeat({ maxTimes: 2 }), { id: "never", kind: "read", name: "N", tool: READ_TOOL.id }]),
@@ -110,7 +109,7 @@ describe("repeat", () => {
   it("with onLimit proceed, goes on with outcome limit, which an if routes on", async () => {
     const h = new Harness();
     countingRead(h, 99);
-    const result = await executeWorkflow(
+    const result = await executeProcess(
       new FakeStepRunner(),
       h.context({ catalog: CATALOG }),
       proc([
@@ -147,7 +146,7 @@ describe("repeat", () => {
     const h = new Harness();
     countingRead(h, 3);
     const runner = new FakeStepRunner();
-    await executeWorkflow(
+    await executeProcess(
       runner,
       h.context({ catalog: CATALOG }),
       proc([repeat({ between: "1 hour" })]),
@@ -162,7 +161,7 @@ describe("repeat", () => {
   it("makes each pass's write its own node, so its key and approval are per pass", async () => {
     const h = new Harness();
     countingRead(h, 2);
-    await executeWorkflow(
+    await executeProcess(
       new FakeStepRunner(),
       h.context({ catalog: CATALOG }),
       proc([
@@ -188,9 +187,9 @@ describe("repeat", () => {
     const runner = new FakeStepRunner();
     const ctx = h.context({ catalog: CATALOG });
     const workflow = proc([repeat()]);
-    await executeWorkflow(runner, ctx, workflow, {});
+    await executeProcess(runner, ctx, workflow, {});
     runner.replay();
-    const again = await executeWorkflow(runner, ctx, workflow, {});
+    const again = await executeProcess(runner, ctx, workflow, {});
     expect(again.status).toBe("succeeded");
     expect(h.agentCalls.map((c) => c.nodeId)).toEqual(["rep:r1:get", "rep:r2:get"]);
   });

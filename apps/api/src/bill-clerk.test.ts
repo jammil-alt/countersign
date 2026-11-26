@@ -290,7 +290,7 @@ describe.skipIf(!h)("the Bill clerk", () => {
   it("validates against the platform, with approval on every write", async () => {
     const seeded = (await loadSeedTemplates()).find((t) => t.slug === "bill-clerk");
     if (!seeded) throw new Error("no bill-clerk seed");
-    const result = processes.validateAnyBundle(seeded.bundle, {
+    const result = processes.validateBundle(seeded.bundle, {
       skills: Object.fromEntries(H.platform.catalog.list().map((s) => [s.id, s])),
       tools: H.platform.tools.specs(),
       events: H.platform.events.byType(),

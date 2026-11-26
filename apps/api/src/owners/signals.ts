@@ -13,7 +13,7 @@
 // only a suggestion: nothing is drafted or applied here.
 
 import {
-  type AnyAgentBundle,
+  type AgentBundle,
   changedFields,
   oversightFingerprint,
   readAdjustable,
@@ -236,15 +236,15 @@ async function ownerRequests(tx: Tx, tenantId: string, at: Date): Promise<OwnerR
         sql`${issueEvent.payload}->'about'->>'kind' in ('adjustable', 'manual_line')`,
       ),
     );
-  const bundles = new Map<string, AnyAgentBundle | null>();
-  const bundleOf = async (versionId: string | null): Promise<AnyAgentBundle | null> => {
+  const bundles = new Map<string, AgentBundle | null>();
+  const bundleOf = async (versionId: string | null): Promise<AgentBundle | null> => {
     if (!versionId) return null;
     if (!bundles.has(versionId)) {
       const [v] = await tx
         .select({ bundle: agentVersion.bundle })
         .from(agentVersion)
         .where(and(eq(agentVersion.id, versionId), eq(agentVersion.tenantId, tenantId)));
-      bundles.set(versionId, (v?.bundle as AnyAgentBundle | undefined) ?? null);
+      bundles.set(versionId, (v?.bundle as AgentBundle | undefined) ?? null);
     }
     return bundles.get(versionId) ?? null;
   };

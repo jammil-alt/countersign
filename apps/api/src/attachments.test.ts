@@ -46,9 +46,11 @@ import {
   type ApiHarness,
   admin,
   createApiHarness,
+  ended,
   FakeWorkflowStep,
   OPERATOR,
   optOutOf,
+  publishStored,
   unsigned,
 } from "./api.test-helper";
 import { MESSAGE_MEDIA_ENTITY } from "./conversations/capture";
@@ -72,7 +74,7 @@ const resend = fakeResend();
 const fetch: FetchLike = (url, init) =>
   url.startsWith(RESEND_API) ? resend.fetch(url, init) : twilio.fetch(url, init);
 const PAT = "+15555550100";
-const PURPOSE = "Send the purchase order and ask for a quote";
+const _PURPOSE = "Send the purchase order and ask for a quote";
 const PO = new TextEncoder().encode(
   "%PDF-1.4\n1 0 obj << /Type /Catalog >> endobj\n2 0 obj << /Type /Page >> endobj\n%%EOF\n",
 );
@@ -124,28 +126,34 @@ function bundle(): AgentBundle {
         slug: "main",
         name: "Main",
         workflow: {
-          schemaVersion: 3,
-          trigger: {
-            id: "trg",
-            on: {
-              type: "manual",
-              input: {
-                type: "object",
-                properties: { order: { type: "string" }, po: { type: "string" } },
-                required: ["order", "po"],
+          schemaVersion: 5,
+          triggers: [
+            {
+              id: "trg",
+              on: {
+                type: "manual",
+                input: {
+                  type: "object",
+                  properties: { order: { type: "string" }, po: { type: "string" } },
+                  required: ["order", "po"],
+                },
               },
             },
-          },
+          ],
+          outputs: [{ id: "out-done", name: "Done", kind: "nothing" }],
           steps: [
             {
               id: "reach",
               name: "Send the PO to the vendor",
-              kind: "skill",
-              skill: "comms.reach-out",
+              client: { visible: true, label: "Sent the purchase order" },
+              checks: { approval: { required: "required" } },
+              kind: "do",
+              doneBy: "rules",
+              uses: { type: "skill", skill: "comms.reach-out" },
               input: {
                 to: { role: "vendor" },
                 about: ["{{trigger.order}}"],
-                purpose: PURPOSE,
+                purpose: "Send the purchase order and ask for a quote",
                 message: {
                   template: { en: "Our purchase order is attached. Please send a quote." },
                 },
@@ -153,12 +161,10 @@ function bundle(): AgentBundle {
                 urgency: "normal",
                 expectReply: true,
                 timeout: "2 days",
-                // The step's own input names the document: never a model.
                 attachments: ["{{trigger.po}}"],
               },
-              approval: { required: "required" },
-              client: { visible: true, label: "Sent the purchase order" },
             },
+            { id: "end", kind: "end", name: "Done", outputs: ["out-done"] },
           ],
         },
       },
@@ -345,10 +351,8 @@ describe.skipIf(!h)("attachments both ways through the API", () => {
     expect(j(created.json).errors ?? []).toEqual([]);
     agentId = j(created.json).agent.id;
     const versionId = j(created.json).version.id;
-    expect(
-      (await H.call(OPERATOR, "POST", `/api/ops/agents/${agentId}/versions/${versionId}/publish`))
-        .status,
-    ).toBe(200);
+    const published = await publishStored(H, H.A.tenantId, agentId, versionId);
+    expect(published.status, JSON.stringify(published.json)).toBe(200);
     await H.t.db.update(agent).set({ runStatus: "active" }).where(eq(agent.id, agentId));
 
     poId = await storeFor(A(), PO, "PO-1042.pdf");
@@ -359,12 +363,12 @@ describe.skipIf(!h)("attachments both ways through the API", () => {
     await bind(sam, { email: emailConn });
     const sentBefore = resend.emails.length;
     const params = await startRun("PO-9", otherClientsDoc);
+    // The refusal is the step's output, signed off as any output is; no plan is asked.
     const step = new FakeWorkflowStep(async (_n, type) => {
-      throw new Error(`unexpected wait ${type}`);
+      if (!type.startsWith("inbox-")) throw new Error(`unexpected wait ${type}`);
+      return approveItem(type);
     });
-    expect(await executeRun(deps(), params, cloudflareStepRunner(step))).toEqual({
-      status: "succeeded",
-    });
+    expect(await executeRun(deps(), params, cloudflareStepRunner(step))).toEqual(ended());
     expect(await stepOutput(params.runId, "reach")).toMatchObject({
       outcome: "not_allowed",
       reason: `document ${otherClientsDoc} is not this client's`,
@@ -372,7 +376,9 @@ describe.skipIf(!h)("attachments both ways through the API", () => {
     });
     expect(resend.emails.length).toBe(sentBefore);
     expect(
-      await H.t.db.select().from(inboxItem).where(eq(inboxItem.runId, params.runId)),
+      (await H.t.db.select().from(inboxItem).where(eq(inboxItem.runId, params.runId))).filter(
+        (i) => i.kind === "external_action",
+      ),
     ).toHaveLength(0);
   });
 
@@ -445,9 +451,7 @@ describe.skipIf(!h)("attachments both ways through the API", () => {
       await Promise.all(pending);
       return H.instances.events.find((e) => e.event.type === type)?.event.payload;
     });
-    expect(await executeRun(deps(), params, cloudflareStepRunner(step))).toEqual({
-      status: "succeeded",
-    });
+    expect(await executeRun(deps(), params, cloudflareStepRunner(step))).toEqual(ended());
 
     // The send's external action keeps the attachment by name and size.
     const [action] = await H.t.db
@@ -554,9 +558,7 @@ describe.skipIf(!h)("attachments both ways through the API", () => {
       await H.settle();
       return H.instances.events.find((e) => e.event.type === type)?.event.payload;
     });
-    expect(await executeRun(deps(), params, cloudflareStepRunner(step))).toEqual({
-      status: "succeeded",
-    });
+    expect(await executeRun(deps(), params, cloudflareStepRunner(step))).toEqual(ended());
     expect(mediaUrl).not.toBe("");
 
     const [action] = await H.t.db
@@ -638,9 +640,7 @@ describe.skipIf(!h)("attachments both ways through the API", () => {
       });
       return H.instances.events.find((e) => e.event.type === type)?.event.payload;
     });
-    expect(await executeRun(deps(), params, cloudflareStepRunner(step))).toEqual({
-      status: "succeeded",
-    });
+    expect(await executeRun(deps(), params, cloudflareStepRunner(step))).toEqual(ended());
     const out = await stepOutput(params.runId, "reach");
     expect(out).toMatchObject({ outcome: "replied", channel: "whatsapp" });
     expect(out.reply.documents).toHaveLength(1);
@@ -713,9 +713,7 @@ describe.skipIf(!h)("attachments both ways through the API", () => {
       expect(j(settled?.reply).pending).toBeUndefined();
       return { reachOutId: row?.id };
     });
-    expect(await executeRun(deps(), params, cloudflareStepRunner(step))).toEqual({
-      status: "succeeded",
-    });
+    expect(await executeRun(deps(), params, cloudflareStepRunner(step))).toEqual(ended());
     expect(await stepOutput(params.runId, "reach")).toMatchObject({
       outcome: "replied",
       reply: {

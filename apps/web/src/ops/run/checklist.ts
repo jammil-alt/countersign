@@ -1,32 +1,24 @@
-// The run view's "What it did" checklist (design screen 6; ARCHITECTURE §10.5): the trigger, then
-// one row per step the run reached, in order, named from the workflow that ran; while the run is
-// going, the top-level steps it has not reached yet follow as not started.
-// R8 (ARCHITECTURE §10.14): the workflow may be a v4 process (its steps in the builder's words),
-// and a step's confer and notify checks are rows of their own (`<step>:confer:<n>`), named for the
-// step they check.
-import {
-  allSteps,
-  checkKindOf,
-  processes,
-  type Step,
-  shownOnTimeline,
-  stepNodeOf,
-  Workflow,
-} from "@countersign/core";
-import { KIND_LABEL, PROCESS_KIND_LABEL, triggerTitle } from "../workflow/describe";
+import { checkKindOf, steps as stepModel, stepNodeOf } from "@countersign/core";
+import { KIND_LABEL, triggerTitle } from "../workflow/describe";
 
-/** The workflow that ran: a stored v3 workflow or a v4 process. */
-export type RanWorkflow = Workflow | processes.Process;
+/** The workflow that ran: a stored step-model workflow (`schemaVersion: 5`). */
+export type RanWorkflow = stepModel.Workflow;
 
-/** A v3 or a v4 step, as the checklist reads it. */
-type AnyStep = Step | processes.Step;
+type AnyStep = stepModel.Step;
 
-/** The workflow definition a run names, as v3 or v4; null when it reads as neither. */
+/** The workflow definition a run names; null when it doesn't read as one. */
 export function ranWorkflow(definition: unknown): RanWorkflow | null {
-  const v4 = processes.Process.safeParse(definition);
-  if (v4.success) return v4.data;
-  const v3 = Workflow.safeParse(definition);
-  return v3.success ? v3.data : null;
+  const parsed = stepModel.Workflow.safeParse(definition);
+  return parsed.success ? parsed.data : null;
+}
+
+/**
+ * Whether the client's timeline shows a step: its `client` setting, else the work and the people
+ * (a Do or a hand-off), never the logic.
+ */
+function shownOnTimeline(step: AnyStep): boolean {
+  if (step.client) return step.client.visible;
+  return step.kind === "do" || step.kind === "handoff";
 }
 
 export interface RunStepRow {
@@ -79,26 +71,21 @@ export function parseNodeId(nodeId: string): {
 
 function waitingText(step: AnyStep | undefined, nodeType: string): string {
   if (nodeType === "confer") return "Waiting for an answer";
-  if (step?.kind === "person" || nodeType === "person") {
-    return step?.kind === "person" && step.mode === "ask"
-      ? "Waiting for an answer"
-      : "Waiting for approval";
+  if (step?.kind === "do" && step.doneBy === "person") {
+    return step.person?.mode === "ask" ? "Waiting for an answer" : "Waiting for approval";
   }
-  if (step?.kind === "conversation") return "Waiting for a reply";
+  if (step?.kind === "do" && step.doneBy === "contact") return "Waiting for a reply";
   return "Waiting for approval";
 }
 
-/** A write step that waits for approval (the default; only the operator turns it off). */
+/** A step whose settings say it waits for approval. */
 function needsApproval(step: AnyStep): boolean {
-  if (step.kind === "action") return (step.approval?.required ?? "required") !== "not_required";
-  if (step.kind === "write") return step.checks?.approval?.required !== "not_required";
-  return false;
+  return step.kind === "do" && step.checks?.approval?.required === "required";
 }
 
-/** A step's kind in a word, in the schema's own words (v4: the builder's). */
-function kindWord(step: AnyStep | undefined, nodeType: string, v4: boolean): string {
+/** A step's kind in a word, in the builder's words. */
+function kindWord(step: AnyStep | undefined, nodeType: string): string {
   const kind = step?.kind ?? nodeType;
-  if (v4) return PROCESS_KIND_LABEL[kind as keyof typeof PROCESS_KIND_LABEL] ?? nodeType;
   return KIND_LABEL[kind as keyof typeof KIND_LABEL] ?? nodeType;
 }
 
@@ -112,19 +99,12 @@ export function checklistRows(input: {
   going: boolean;
 }): RunStepRow[] {
   const { workflow, steps } = input;
-  const v4 = workflow?.schemaVersion === 4;
-  const locations = new Map<string, { step: AnyStep; pointer: (string | number)[] }>(
-    !workflow
-      ? []
-      : workflow.schemaVersion === 4
-        ? processes.allSteps(workflow).map((l) => [l.step.id, l])
-        : allSteps(workflow).map((l) => [l.step.id, l]),
-  );
-  const firstTrigger = workflow
-    ? workflow.schemaVersion === 4
-      ? workflow.triggers[0]
-      : workflow.trigger
-    : undefined;
+  // Each step by id, with the index of the top-level step it sits in.
+  const locations = new Map<string, { step: AnyStep; top: number }>();
+  workflow?.steps.forEach((top, i) => {
+    stepModel.eachStep([top], ({ step }) => locations.set(step.id, { step, top: i }));
+  });
+  const firstTrigger = workflow?.triggers[0];
   const rows: RunStepRow[] = [
     {
       key: "trigger",
@@ -144,11 +124,10 @@ export function checklistRows(input: {
     const check = checkKindOf(s.nodeId);
     const loc = locations.get(stepId);
     const step = loc?.step;
-    const top = loc?.pointer[1];
-    if (typeof top === "number") reached = Math.max(reached, top);
+    if (loc) reached = Math.max(reached, loc.top);
     rows.push({
       key: s.id,
-      kind: check ? (CHECK_WORD[check] ?? check) : kindWord(step, s.nodeType, v4),
+      kind: check ? (CHECK_WORD[check] ?? check) : kindWord(step, s.nodeType),
       title: `${step?.name ?? stepId}${index === null ? "" : ` · item ${index + 1}`}${pass === undefined ? "" : ` · pass ${pass}`}`,
       // A waiting step says what it waits for, not its stored line: lines written before steps
       // read by their state carried the done label ("Itemized the bill: waiting for approval").
@@ -168,7 +147,7 @@ export function checklistRows(input: {
       if (i <= reached) return;
       rows.push({
         key: `pending:${step.id}`,
-        kind: kindWord(step, step.kind, v4),
+        kind: kindWord(step, step.kind),
         title: step.name,
         // A write that will wait for a person says so before it runs.
         detail: needsApproval(step) ? "Needs approval" : null,

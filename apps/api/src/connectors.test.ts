@@ -41,6 +41,7 @@ import {
   admin,
   allowForAgent,
   createApiHarness,
+  ended,
   FakeWorkflowStep,
   OPERATOR,
 } from "./api.test-helper";
@@ -248,28 +249,33 @@ describe.skipIf(!h)("connectors through the API", () => {
         H.A.tenantId,
         "zap-relay",
         bundle("Zap relay", [WEBHOOK_SEND_TOOL], {
-          schemaVersion: 3,
-          trigger: {
-            id: "trg-hook",
-            on: {
-              type: "event",
-              event: "webhook.received",
-              filter: {
-                match: "all",
-                rules: [{ field: "{{trigger.hookName}}", op: "=", value: "New form entries" }],
+          schemaVersion: 5,
+          triggers: [
+            {
+              id: "trg-hook",
+              on: {
+                type: "event",
+                event: "webhook.received",
+                filter: {
+                  match: "all",
+                  rules: [{ field: "{{trigger.hookName}}", op: "=", value: "New form entries" }],
+                },
               },
             },
-          },
+          ],
+          outputs: [{ id: "out-done", name: "Done", kind: "nothing" }],
           steps: [
             {
               id: "send",
               name: "Tell the Zap",
-              kind: "action",
-              tool: WEBHOOK_SEND_TOOL,
-              input: { event: "lead.seen", data: { record: "{{trigger.rawRecordId}}" } },
-              approval: { required: "required" },
               client: { visible: true, label: "Sent the lead to your Zap" },
+              checks: { approval: { required: "required" } },
+              kind: "do",
+              doneBy: "rules",
+              uses: { type: "action", action: WEBHOOK_SEND_TOOL },
+              input: { event: "lead.seen", data: { record: "{{trigger.rawRecordId}}" } },
             },
+            { id: "end", kind: "end", name: "Done", outputs: ["out-done"] },
           ],
         }),
         { webhook: connectionId },
@@ -311,7 +317,7 @@ describe.skipIf(!h)("connectors through the API", () => {
 
       // Approved by the client admin, the event is sent once; replaying the run sends nothing more.
       const result = await executeRun(deps(), params, cloudflareStepRunner(approver("a")));
-      expect(result).toEqual({ status: "succeeded" });
+      expect(result).toEqual(ended());
       expect(receiver.received).toHaveLength(1);
       const [action] = await H.t.db
         .select()
@@ -518,30 +524,34 @@ describe.skipIf(!h)("connectors through the API", () => {
           "CRM clerk",
           [ZOHO_TOOLS.update],
           {
-            schemaVersion: 3,
-            trigger: { id: "trg-manual", on: { type: "manual", input: {} } },
+            schemaVersion: 5,
+            triggers: [{ id: "trg-manual", on: { type: "manual", input: {} } }],
+            outputs: [{ id: "out-done", name: "Done", kind: "nothing" }],
             steps: [
               {
                 id: "find",
                 name: "Find the lead",
-                kind: "skill",
-                skill: ZOHO_TOOLS.search,
-                input: { module: "Leads", email: "pat@example.com" },
                 client: { visible: true, label: "Found the lead" },
+                kind: "do",
+                doneBy: "rules",
+                uses: { type: "action", action: "zoho_crm.record.search" },
+                input: { module: "Leads", email: "pat@example.com" },
               },
               {
                 id: "mark",
                 name: "Mark contacted",
-                kind: "action",
-                tool: ZOHO_TOOLS.update,
+                client: { visible: true, label: "Marked the lead contacted" },
+                checks: { approval: { required: "required" } },
+                kind: "do",
+                doneBy: "rules",
+                uses: { type: "action", action: ZOHO_TOOLS.update },
                 input: {
                   module: "Leads",
                   id: "{{steps.find.output.records.0.id}}",
                   fields: { Lead_Status: "Contacted" },
                 },
-                approval: { required: "required" },
-                client: { visible: true, label: "Marked the lead contacted" },
               },
+              { id: "end", kind: "end", name: "Done", outputs: ["out-done"] },
             ],
           },
           [ZOHO_TOOLS.search],
@@ -556,7 +566,7 @@ describe.skipIf(!h)("connectors through the API", () => {
       const params = H.instances.started.get(j(res.json).runId);
       if (!params) throw new Error("not started");
       const result = await executeRun(deps(), params, cloudflareStepRunner(approver("b")));
-      expect(result).toEqual({ status: "succeeded" });
+      expect(result).toEqual(ended());
       const puts = () => zoho.apiCalls().filter((r) => r.method === "PUT");
       expect(puts()).toHaveLength(1);
       expect(JSON.parse(puts()[0]?.body ?? "")).toEqual({ data: [{ Lead_Status: "Contacted" }] });
@@ -1041,29 +1051,33 @@ describe.skipIf(!h)("connectors through the API", () => {
             "Job clerk",
             ["podio.item.update"],
             {
-              schemaVersion: 3,
-              trigger: { id: "trg-manual", on: { type: "manual", input: {} } },
+              schemaVersion: 5,
+              triggers: [{ id: "trg-manual", on: { type: "manual", input: {} } }],
+              outputs: [{ id: "out-done", name: "Done", kind: "nothing" }],
               steps: [
                 {
                   id: "read",
                   name: "Read the job",
-                  kind: "skill",
-                  skill: "podio.item.get",
-                  input: { itemId: ITEM },
                   client: { visible: true, label: "Read the job" },
+                  kind: "do",
+                  doneBy: "rules",
+                  uses: { type: "action", action: "podio.item.get" },
+                  input: { itemId: PODIO_FIXTURES.item.item_id },
                 },
                 {
                   id: "move",
                   name: "Move to production",
-                  kind: "action",
-                  tool: "podio.item.update",
+                  client: { visible: true, label: "Moved the job to production" },
+                  checks: { approval: { required: "required" } },
+                  kind: "do",
+                  doneBy: "rules",
+                  uses: { type: "action", action: "podio.item.update" },
                   input: {
                     itemId: "{{steps.read.output.item.itemId}}",
                     fields: { status: "In production" },
                   },
-                  approval: { required: "required" },
-                  client: { visible: true, label: "Moved the job to production" },
                 },
+                { id: "end", kind: "end", name: "Done", outputs: ["out-done"] },
               ],
             },
             ["podio.item.get"],
@@ -1093,7 +1107,7 @@ describe.skipIf(!h)("connectors through the API", () => {
       const params = H.instances.started.get(j(res.json).runId);
       if (!params) throw new Error("not started");
       const result = await executeRun(deps(), params, cloudflareStepRunner(approver("c")));
-      expect(result).toEqual({ status: "succeeded" });
+      expect(result).toEqual(ended());
       const puts = () => podio.apiCalls().filter((r) => r.method === "PUT");
       expect(puts()).toHaveLength(1);
       expect(JSON.parse(puts()[0]?.body ?? "")).toEqual({ fields: { status: [2] }, revision: 3 });

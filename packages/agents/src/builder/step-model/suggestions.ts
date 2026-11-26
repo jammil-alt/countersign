@@ -6,7 +6,7 @@
 //   Agent lab against its test set before it is published (§8), so the draft is handed there as
 //   the designer's form.
 
-import { type AnyAgentBundle, canonicalJson, steps } from "@countersign/core";
+import { type AgentBundle, canonicalJson, steps } from "@countersign/core";
 import type { WrittenElsewhere } from "../context";
 import type { StepAgentBundle } from "./answer";
 
@@ -40,7 +40,7 @@ export function writtenKey(step: steps.Step): string | null {
 
 /** Every step written in the step in a bundle's v5 workflows, with its key (`WrittenElsewhere`). */
 export function writtenSteps(
-  bundle: Pick<AnyAgentBundle, "workflows">,
+  bundle: Pick<AgentBundle, "workflows">,
 ): { stepId: string; stepName: string; doneBy: "rules" | "ai"; key: string }[] {
   const out: { stepId: string; stepName: string; doneBy: "rules" | "ai"; key: string }[] = [];
   for (const w of bundle.workflows) {

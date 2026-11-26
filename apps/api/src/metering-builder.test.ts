@@ -8,7 +8,6 @@ import { FakeModel } from "@countersign/llm";
 import { and, eq, isNull } from "drizzle-orm";
 import { afterAll, describe, expect, it, vi } from "vitest";
 import { createApiHarness, OPERATOR } from "./api.test-helper";
-import { stepModelAnswer } from "./builder-v5.test-helper";
 
 for (const level of process.env.SHOW_LOGS ? [] : (["warn", "error"] as const)) {
   vi.spyOn(console, level).mockImplementation(() => {});
@@ -18,52 +17,54 @@ const model = new FakeModel();
 const h = await createApiHarness({ llm: model });
 afterAll(() => h?.close());
 
-const draft = (slug: string) =>
-  stepModelAnswer({
-    toolUse: {
-      name: "submit_draft",
-      input: {
-        summary: "It answers.",
-        gaps: [],
-        slug,
-        startFromTemplate: null,
-        decisions: [],
-        bundle: {
-          schemaVersion: 1,
-          definition: {
-            schemaVersion: 2,
-            identity: { name: "Metered", role: "Records", mission: "Keep records right" },
-            kind: "functional",
-            model: { id: "claude-sonnet-5-5" },
-            instructions: "Answer.",
-            skills: [],
-            permissions: { mode: "suggest_only" },
-          },
-          workflows: [
-            {
-              slug: "main",
-              name: "Answer",
-              workflow: {
-                schemaVersion: 4,
-                triggers: [{ id: "t", on: { type: "manual", input: {} } }],
-                steps: [
-                  {
-                    id: "update",
-                    kind: "write",
-                    name: "Update the record",
-                    tool: TESTKIT_UPDATE_TOOL,
-                    input: { id: "r1", amount: "12.00" },
-                    checks: { approval: { required: "required" } },
-                  },
-                ],
-              },
-            },
-          ],
+const draft = (slug: string) => ({
+  toolUse: {
+    name: "submit_draft",
+    input: {
+      summary: "It answers.",
+      gaps: [],
+      slug,
+      startFromTemplate: null,
+      decisions: [],
+      bundle: {
+        schemaVersion: 1,
+        definition: {
+          schemaVersion: 2,
+          identity: { name: "Metered", role: "Records", mission: "Keep records right" },
+          kind: "functional",
+          model: { id: "claude-sonnet-5-5" },
+          instructions: "Answer.",
+          skills: [],
+          permissions: { mode: "suggest_only" },
         },
+        workflows: [
+          {
+            slug: "main",
+            name: "Answer",
+            workflow: {
+              schemaVersion: 5,
+              triggers: [{ id: "t", on: { type: "manual", input: {} } }],
+              outputs: [{ id: "out-done", name: "Done", kind: "nothing" }],
+              steps: [
+                {
+                  id: "update",
+                  name: "Update the record",
+                  checks: { approval: { required: "required" } },
+                  kind: "do",
+                  doneBy: "rules",
+                  uses: { type: "action", action: TESTKIT_UPDATE_TOOL },
+                  input: { id: "r1", amount: "12.00" },
+                },
+                { id: "end", kind: "end", name: "Done", outputs: ["out-done"] },
+              ],
+            },
+          },
+        ],
       },
     },
-    usage: { input: 2000, output: 500, cacheRead: 300 },
-  });
+  },
+  usage: { input: 2000, output: 500, cacheRead: 300 },
+});
 
 describe.skipIf(!h)("the Builder's cost", () => {
   const H = h as NonNullable<typeof h>;
@@ -99,10 +100,10 @@ describe.skipIf(!h)("the Builder's cost", () => {
   it("records a failed draft's calls, though the request failed", async () => {
     const before = (await builderRows()).length;
     // Two answers that don't fit the schema: the repair fails too, and nothing is saved.
-    const bad = stepModelAnswer({
+    const bad = {
       toolUse: { name: "submit_draft", input: { summary: 1 } },
       usage: { input: 900 },
-    });
+    };
     model.push(bad, bad);
     const res = await H.call(OPERATOR, "POST", "/api/ops/agents/draft", {
       description: "An agent that answers.",

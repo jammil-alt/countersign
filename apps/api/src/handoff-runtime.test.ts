@@ -14,9 +14,11 @@ import {
   type ApiHarness,
   admin,
   createApiHarness,
+  ended,
   FakeWorkflowStep,
   OPERATOR,
   testBundle,
+  v5Workflow,
 } from "./api.test-helper";
 import { executeRun } from "./runs/execute";
 import type { RunParams } from "./runs/instances";
@@ -32,39 +34,61 @@ const MANUAL = { id: "trg-manual", on: { type: "manual", input: {} } };
 const read = (id: string, name: string, input: Record<string, unknown> = {}) => ({
   id,
   name,
-  kind: "read",
-  tool: TESTKIT_QUERY_TOOL,
+  kind: "do",
+  doneBy: "rules",
+  uses: { type: "action", action: TESTKIT_QUERY_TOOL },
   input,
 });
 
 /** Price checker: pull bills, itemize the invoice, check prices (reads what itemize found). */
 const PRICE_CHECKER = {
-  schemaVersion: 4,
-  triggers: [MANUAL],
+  schemaVersion: 5,
+  triggers: [{ id: "trg-manual", on: { type: "manual", input: {} } }],
+  outputs: [{ id: "out-done", name: "Done", kind: "nothing" }],
   steps: [
-    read("pull", "Pull bills from QuickBooks"),
-    read("itemize", "Itemize the invoice", { nameContains: "{{trigger.name}}" }),
-    read("check", "Check prices", {
-      nameContains: "{{steps.itemize.output.records.length}} found",
-    }),
+    {
+      id: "pull",
+      name: "Pull bills from QuickBooks",
+      kind: "do",
+      doneBy: "rules",
+      uses: { type: "action", action: TESTKIT_QUERY_TOOL },
+      input: {},
+    },
+    {
+      id: "itemize",
+      name: "Itemize the invoice",
+      kind: "do",
+      doneBy: "rules",
+      uses: { type: "action", action: TESTKIT_QUERY_TOOL },
+      input: { nameContains: "{{trigger.name}}" },
+    },
+    {
+      id: "check",
+      name: "Check prices",
+      kind: "do",
+      doneBy: "rules",
+      uses: { type: "action", action: TESTKIT_QUERY_TOOL },
+      input: { nameContains: "{{steps.itemize.output.records.length}} found" },
+    },
+    { id: "end", kind: "end", name: "Done", outputs: ["out-done"] },
   ],
 };
 
 /** AP bill clerk: read the invoice, then hand off to `to` at `step`. */
-const apClerk = (to: string, step = "itemize") => ({
-  schemaVersion: 4,
-  triggers: [MANUAL],
-  steps: [
-    read("read", "Read the invoice"),
-    {
-      id: "hand",
-      name: "Hand off",
-      kind: "handoff",
-      to: { agent: to, step },
-      input: { nameContains: "{{trigger.vendor}}" },
-    },
-  ],
-});
+const apClerk = (to: string, step = "itemize") =>
+  v5Workflow(
+    [
+      read("read", "Read the invoice"),
+      {
+        id: "hand",
+        name: "Hand off",
+        kind: "handoff",
+        to: { agent: to, step },
+        input: { nameContains: "{{trigger.vendor}}" },
+      },
+    ],
+    { triggers: [MANUAL] },
+  );
 
 describe.skipIf(!h)("hand-off steps in apps/api", () => {
   const H = h as ApiHarness;
@@ -178,6 +202,8 @@ describe.skipIf(!h)("hand-off steps in apps/api", () => {
       "Pull bills from QuickBooks",
       "Itemize the invoice",
       "Check prices",
+      // The End is a step of the workflow, so it is listed.
+      "Done",
     ]);
     expect(checker.steps[2].reads).toEqual(["itemize"]);
   });
@@ -205,7 +231,7 @@ describe.skipIf(!h)("hand-off steps in apps/api", () => {
 
   it("starts Price checker at step 2 with the mapped input, and doesn't wait for it", async () => {
     const p = params();
-    expect(await go(p)).toEqual({ status: "succeeded" });
+    expect(await go(p)).toEqual(ended());
     const [started] = startedFrom(p.runId);
     if (!started) throw new Error("nothing was handed off");
     expect(started).toMatchObject({
@@ -238,9 +264,9 @@ describe.skipIf(!h)("hand-off steps in apps/api", () => {
     });
 
     // Price checker's run starts at step 2: step 1 never runs, step 2 takes the input handed over.
-    expect(await go(started)).toEqual({ status: "succeeded" });
+    expect(await go(started)).toEqual(ended());
     const rows = await rowsOf(started.runId);
-    expect(rows.map((r) => r.nodeId).sort()).toEqual(["check", "itemize"]);
+    expect(rows.map((r) => r.nodeId).sort()).toEqual(["check", "end", "itemize"]);
     expect(rows.find((r) => r.nodeId === "itemize")?.input).toEqual({ nameContains: "Acme" });
 
     // Both pages say so: the back office and the portal.
@@ -295,13 +321,13 @@ describe.skipIf(!h)("hand-off steps in apps/api", () => {
         depth: 2,
       },
     );
-    expect(await go(two)).toEqual({ status: "succeeded" });
+    expect(await go(two)).toEqual(ended());
     expect(startedFrom(two.runId)[0]?.trigger).toMatchObject({ depth: 3 });
   });
 
   it("a test run starts nothing and records what it would have handed off", async () => {
     const p = params({ mode: "test" });
-    expect(await go(p)).toEqual({ status: "succeeded" });
+    expect(await go(p)).toEqual(ended());
     expect(startedFrom(p.runId)).toEqual([]);
     const hand = (await rowsOf(p.runId)).find((r) => r.nodeId === "hand");
     expect(hand).toMatchObject({ status: "succeeded", input: { nameContains: "Acme" } });
@@ -340,7 +366,7 @@ describe.skipIf(!h)("hand-off steps in apps/api", () => {
       return first;
     };
     const ok = params({ agentId: ids.checker, agentVersionId: ids.checkerVersion });
-    expect(await twice(ok)).toEqual({ status: "succeeded" });
+    expect(await twice(ok)).toEqual(ended());
     expect(await endsOf(ok.runId)).toEqual([{ type: "run.succeeded" }]);
 
     await H.t.db.update(agent).set({ runStatus: "paused" }).where(eq(agent.id, ids.checker));
@@ -352,9 +378,7 @@ describe.skipIf(!h)("hand-off steps in apps/api", () => {
   it("a finish landing after the run was cancelled leaves it cancelled, with no event", async () => {
     const p = params({ agentId: ids.checker, agentVersionId: ids.checkerVersion });
     const step = new FakeWorkflowStep();
-    expect(await executeRun(deps(), p, cloudflareStepRunner(step))).toEqual({
-      status: "succeeded",
-    });
+    expect(await executeRun(deps(), p, cloudflareStepRunner(step))).toEqual(ended());
     await H.t.db.delete(event).where(eq(event.subjectId, p.runId));
     await H.t.db.update(run).set({ status: "cancelled" }).where(eq(run.id, p.runId));
     step.results.delete("run:finish");

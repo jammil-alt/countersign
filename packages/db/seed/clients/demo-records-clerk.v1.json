@@ -8,31 +8,83 @@
       "mission": "Correct a record's amount when asked, with your signature first."
     },
     "kind": "functional",
-    "model": { "id": "claude-opus-5-5", "maxTokens": 1024 },
+    "model": {
+      "id": "claude-opus-5-5",
+      "maxTokens": 1024
+    },
     "instructions": "Change records only when asked. Every change waits for a person's signature.",
     "skills": [],
     "extraTools": ["testkit.record.update"],
     "canCommand": [],
-    "permissions": { "mode": "suggest_only" },
-    "budgets": { "maxSteps": 4, "maxCostUsd": "0.10" },
-    "memory": { "enabled": false }
+    "permissions": {
+      "mode": "suggest_only"
+    },
+    "budgets": {
+      "maxSteps": 4,
+      "maxCostUsd": "0.10"
+    },
+    "memory": {
+      "enabled": false
+    }
   },
   "workflows": [
     {
       "slug": "fix-price",
       "name": "Fix a price",
       "workflow": {
-        "schemaVersion": 3,
-        "trigger": { "id": "trg-manual", "on": { "type": "manual", "input": {} } },
+        "schemaVersion": 5,
+        "triggers": [
+          {
+            "id": "trg-manual",
+            "on": {
+              "type": "manual",
+              "input": {}
+            }
+          }
+        ],
+        "outputs": [
+          {
+            "id": "out-updated",
+            "name": "The price, updated",
+            "about": "The step changes the record itself, once signed; nothing more is delivered.",
+            "kind": "nothing"
+          }
+        ],
         "steps": [
           {
             "id": "update",
             "name": "Update the price",
-            "kind": "action",
-            "tool": "testkit.record.update",
-            "input": { "id": "R-1002", "syncToken": "0", "amount": "9.1000" },
-            "approval": { "required": "required" },
-            "client": { "visible": true, "label": "Updated the price" }
+            "client": {
+              "visible": true,
+              "label": "Updated the price"
+            },
+            "checks": {
+              "approval": {
+                "required": "required",
+                "mode": "in_turn",
+                "ifNoAnswer": "stop"
+              }
+            },
+            "kind": "do",
+            "doneBy": "rules",
+            "uses": {
+              "type": "action",
+              "action": "testkit.record.update"
+            },
+            "input": {
+              "id": "R-1002",
+              "syncToken": "0",
+              "amount": "9.1000"
+            }
+          },
+          {
+            "id": "updated",
+            "name": "Updated",
+            "client": {
+              "visible": false
+            },
+            "kind": "end",
+            "outputs": ["out-updated"]
           }
         ]
       }

@@ -20,7 +20,7 @@ import {
 } from "@countersign/agents";
 import { newReplyTag } from "@countersign/connectors";
 import {
-  type AnyAgentBundle,
+  type AgentBundle,
   CONVERSE_CHANNEL_WORDS,
   CONVERSE_FIXED_INPUTS,
   type ConverseAnswer,
@@ -1459,7 +1459,7 @@ export function conversePort(deps: ConverseDeps): ConversePort {
       .from(run)
       .where(and(eq(run.id, info.id), eq(run.tenantId, info.tenantId)));
     if (!agentRow || !v || !tenantRow) return "the agent or its client is gone";
-    const bundle: AnyAgentBundle = v.bundle;
+    const bundle: AgentBundle = v.bundle;
     const people = (agentRow.people ?? {}) as Record<string, PeopleBinding>;
     let candidates: ContactRow[] = [];
     let conditions: ReachConditions = {};

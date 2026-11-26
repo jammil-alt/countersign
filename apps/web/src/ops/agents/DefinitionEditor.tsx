@@ -3,8 +3,8 @@
 // budgets. Saving makes a new draft version from the version it was opened on; the workflows are
 // kept as they are (the builder edits them). The same editor serves templates and client agents.
 import {
+  type AgentBundle,
   type AgentData,
-  type AnyAgentBundle,
   type OversightReview,
   OWNER_REVIEW_CHOICES,
   SKILL_KIND_LABEL,
@@ -34,7 +34,7 @@ import {
 import { Field, isCode, Notice, Select, TextArea, TextInput, useAction } from "./ui";
 
 /** The bundle with the agent's data sets (left out when it grants nothing, so it hashes as before). */
-export function withData(next: AnyAgentBundle, data: AgentData | undefined): AnyAgentBundle {
+export function withData(next: AgentBundle, data: AgentData | undefined): AgentBundle {
   const { data: _old, ...definition } = next.definition as typeof next.definition & {
     data?: AgentData;
   };
@@ -59,7 +59,7 @@ export function DefinitionEditor({
   agent: AgentSummary;
   /** The version the editor was opened on: the new draft's parent. */
   from: VersionSummary;
-  bundle: AnyAgentBundle;
+  bundle: AgentBundle;
   /** The skills this agent may use (GET /api/ops/agents/:id/skills). */
   skills: readonly SkillOption[];
   onSaved(result: SaveResult): void;

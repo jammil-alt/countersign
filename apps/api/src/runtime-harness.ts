@@ -16,7 +16,7 @@ import {
   TESTKIT_UPDATE_TOOL,
   TestkitBackend,
 } from "@countersign/connectors";
-import type { Workflow as WorkflowDef } from "@countersign/core";
+import type { steps } from "@countersign/core";
 import {
   type ExecutorContext,
   executeWorkflow,
@@ -37,7 +37,7 @@ export {
 } from "./index";
 
 export interface ProbeParams {
-  workflow: WorkflowDef;
+  workflow: steps.Workflow;
 }
 
 /** The id the probe gives the inbox item of a person step: predictable for the test. */
@@ -78,7 +78,7 @@ export class ProbeWorkflow extends WorkflowEntrypoint<Bindings, ProbeParams> {
 // ── v0.12 W1-D: the undo window under the Workflows engine (ARCHITECTURE §11.1) ──────────────────
 
 export interface DeskProbeParams {
-  workflow: WorkflowDef;
+  workflow: steps.Workflow;
   /** When the approval's undo window ends (ms since the epoch); the database's role is played here. */
   heldUntil: number;
 }

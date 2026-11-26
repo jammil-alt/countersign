@@ -126,7 +126,9 @@ export const MatchSettings = z.strictObject({
   searchFloor: z.number().int().min(1).max(100).optional(),
   shortlist: z
     .strictObject({
-      model: z.number().int().min(1).max(50).default(20),
+      // DECISION (owner, 2026-11-25, on stream K's measurement): 10. A shortlist of 10 matched as
+      // well as 20 on both profiles for less; we can go back to 20 if a client's records need it.
+      model: z.number().int().min(1).max(50).default(10),
       person: z.number().int().min(1).max(10).default(5),
     })
     .prefault({}),
@@ -463,6 +465,6 @@ export const Workflow = z
     outputs: z.array(WorkflowOutput).max(20),
     steps: z.array(Step),
   })
-  .meta({ id: "WorkflowV5" });
+  .meta({ id: "Workflow" });
 export type Workflow = z.infer<typeof Workflow>;
 export type WorkflowInput = z.input<typeof Workflow>;

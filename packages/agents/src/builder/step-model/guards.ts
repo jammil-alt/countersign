@@ -1,5 +1,5 @@
 // The Builder's server guards in the step model (docs/step-model-plan.md §10, build item 9;
-// invariants 3, 8, 9, 11). They hold whatever the model answers, as the v4 guards (`../guards`) do
+// invariants 3, 8, 9, 11). They hold whatever the model answers, as the shared guards (`../guards`) do
 // for processes: a draft's v5 bundle is reshaped here before it is validated and saved, and every
 // change is reported as a gap (a missing capability), a note (a rule the Builder may not break), or
 // a fix (what its repair round should put right).
@@ -34,6 +34,7 @@ import {
   DEFAULT_APPROVAL,
   guardDefinition,
   holdApproval,
+  plainPurposes,
   replaceTemplates,
   rewriteRefs,
 } from "../guards";
@@ -269,7 +270,7 @@ export function refsToInput(
 ): { text: string; input: Record<string, unknown>; moved: number } {
   let moved = 0;
   const next = { ...input };
-  // DECISION (CodeQL js/polynomial-redos): `replaceTemplates`, the v4 guards' linear scan, not a
+  // DECISION (CodeQL js/polynomial-redos): `replaceTemplates`, the linear scan, not a
   // regular expression over model text; the reference is trimmed here.
   const out = replaceTemplates(text, (raw: string) => {
     const inner = raw.trim();
@@ -790,5 +791,13 @@ export function guardStepBundle(
     );
   }
 
-  return { bundle: StepAgentBundle.parse(bundle), gaps, notes, fix };
+  return {
+    bundle: StepAgentBundle.parse({
+      ...bundle,
+      workflows: bundle.workflows.map((w) => ({ ...w, workflow: plainPurposes(w.workflow) })),
+    }),
+    gaps,
+    notes,
+    fix,
+  };
 }

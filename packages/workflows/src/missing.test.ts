@@ -2,9 +2,8 @@
 // if a version held one anyway, the run fails before any step, so nothing runs part-way.
 import type { processes } from "@countersign/core";
 import { describe, expect, it } from "vitest";
-import { executeWorkflow } from "./executor";
 import { FakeStepRunner } from "./fake-runner";
-import { Harness, WRITE_TOOL } from "./fakes.test-helper";
+import { executeProcess, Harness, WRITE_TOOL } from "./fakes.test-helper";
 
 const MANUAL = { id: "t", on: { type: "manual", input: {} } };
 const READ_TOOL = { ...WRITE_TOOL, id: "testkit.thing.get", sideEffect: "none" as const };
@@ -25,7 +24,7 @@ describe("a missing step", () => {
   it("fails the run before any step runs, wherever it is", async () => {
     const h = new Harness();
     h.handlers.get = () => ({ kind: "done", output: {} });
-    const result = await executeWorkflow(
+    const result = await executeProcess(
       new FakeStepRunner(),
       h.context({ catalog: CATALOG }),
       proc([

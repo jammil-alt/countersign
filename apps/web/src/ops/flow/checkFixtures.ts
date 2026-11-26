@@ -1,7 +1,7 @@
 // Test answers for Describe it and Check the steps (F5): a build as `GET /api/ops/builds/:id`
 // answers it, its draft agent as `GET /api/ops/agents/:id`, and the Builder session routes. Only
 // the tests import this.
-import type { AnyAgentBundleInput, BuildDetail, steps } from "@countersign/core";
+import type { AgentBundleInput, BuildDetail, steps } from "@countersign/core";
 import { AGENT_SUMMARY, PROCESS_BUNDLE_INPUT } from "../../test/fixtures";
 import type { Process } from "./types";
 
@@ -135,12 +135,12 @@ export function draftProcess(): Process {
   };
 }
 
-export function draftBundle(process: Process = draftProcess()): AnyAgentBundleInput {
+export function draftBundle(process: Process = draftProcess()): AgentBundleInput {
   return {
     ...PROCESS_BUNDLE_INPUT,
     workflows: [
       { slug: "invoice-intake", name: "Invoice intake", workflow: process as never },
-    ] as AnyAgentBundleInput["workflows"],
+    ] as AgentBundleInput["workflows"],
   };
 }
 
@@ -161,7 +161,7 @@ const version = (id: string, n: number) => ({
 });
 
 /** The draft agent: a template with its v1 draft. */
-export function agentDetail(bundle: AnyAgentBundleInput = draftBundle()) {
+export function agentDetail(bundle: AgentBundleInput = draftBundle()) {
   return {
     agent: {
       ...AGENT_SUMMARY,
@@ -303,11 +303,11 @@ export function draftWorkflow5(): steps.WorkflowInput {
   };
 }
 
-export function draftBundle5(workflow: unknown = draftWorkflow5()): AnyAgentBundleInput {
+export function draftBundle5(workflow: unknown = draftWorkflow5()): AgentBundleInput {
   return {
     ...PROCESS_BUNDLE_INPUT,
     workflows: [{ slug: "invoice-intake", name: "Invoice intake", workflow }],
-  } as unknown as AnyAgentBundleInput;
+  } as unknown as AgentBundleInput;
 }
 
 /** What the step model's forms read for the draft agent: actions, skills, models, events. */

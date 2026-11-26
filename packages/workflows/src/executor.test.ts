@@ -1,13 +1,7 @@
 import { describe, expect, it } from "vitest";
-import {
-  executeWorkflow,
-  FOR_EACH_MAX_ITEMS,
-  jsonBytes,
-  pool,
-  STEP_OUTPUT_MAX_BYTES,
-} from "./executor";
+import { FOR_EACH_MAX_ITEMS, jsonBytes, pool, STEP_OUTPUT_MAX_BYTES } from "./executor";
 import { FakeStepRunner } from "./fake-runner";
-import { Harness, RUN, SKILL, WRITE_TOOL, wf } from "./fakes.test-helper";
+import { executeProcess, Harness, RUN, SKILL, WRITE_TOOL, wf } from "./fakes.test-helper";
 import { inboxEventType } from "./runner";
 
 /** Lets other pending work run (no timers: this package has no Node or DOM types). */
@@ -23,14 +17,13 @@ const person = (over: Record<string, unknown> = {}) => ({
   assignee: "client_admin",
   title: "Approve {{trigger.what}}",
   payload: { amount: "{{trigger.amount}}" },
-  timeout: "2 days",
-  onTimeout: "stop",
+  deadline: { after: "2 days", ifNoAnswer: "stop" },
   ...over,
 });
 
 const action = (over: Record<string, unknown> = {}) => ({
   id: "write",
-  kind: "action",
+  kind: "write",
   name: "Update the record",
   tool: WRITE_TOOL.id,
   input: { name: "{{trigger.what}}" },
@@ -47,7 +40,7 @@ describe("skill and action steps", () => {
     });
     h.handlers.write = (req) => ({ kind: "done", output: req.input });
     const runner = new FakeStepRunner();
-    const result = await executeWorkflow(
+    const result = await executeProcess(
       runner,
       h.context({
         catalog: { skills: { [SKILL.id]: SKILL }, tools: { [WRITE_TOOL.id]: WRITE_TOOL } },
@@ -87,7 +80,7 @@ describe("skill and action steps", () => {
 
   it("falls back to the client label when there is no summary template", async () => {
     const h = new Harness();
-    await executeWorkflow(
+    await executeProcess(
       new FakeStepRunner(),
       h.context(),
       wf([
@@ -116,7 +109,7 @@ describe("skill and action steps", () => {
       expect(h.row("write")?.status).toBe("waiting");
       runner.deliver(type, { approved: true, by: "u-1" });
     };
-    const result = await executeWorkflow(
+    const result = await executeProcess(
       runner,
       h.context(),
       wf([
@@ -154,7 +147,7 @@ describe("skill and action steps", () => {
     const item = h.approvalItem({ approved: true, by: "u-2" });
     h.handlers.write = () => ({ kind: "approval", pending: { inboxItemId: item } });
     const runner = new FakeStepRunner();
-    const result = await executeWorkflow(runner, h.context(), wf([action()]), { what: "x" });
+    const result = await executeProcess(runner, h.context(), wf([action()]), { what: "x" });
     expect(result.status).toBe("succeeded");
     expect(runner.names("wait")).toEqual([]);
     expect(runner.names()).toContain("write:approval:1:check");
@@ -167,12 +160,17 @@ describe("skill and action steps", () => {
       const h = new Harness();
       const item = h.approvalItem({ approved: false, by: "u-3" });
       h.handlers.write = () => ({ kind: "approval", pending: { inboxItemId: item } });
-      const result = await executeWorkflow(
+      const result = await executeProcess(
         new FakeStepRunner(),
         h.context(),
         wf([
-          action({ approval: { onReject } }),
-          { id: "next", kind: "notify", name: "N", channel: "thread", message: "hi" },
+          action({ checks: { approval: { onReject } } }),
+          {
+            id: "next",
+            kind: "notify",
+            name: "N",
+            notify: { to: ["client_admin"], message: "hi" },
+          },
         ]),
         { what: "x" },
       );
@@ -197,7 +195,7 @@ describe("skill and action steps", () => {
       kind: "approval",
       pending: { inboxItemId: waiting.approvalItem() },
     });
-    await executeWorkflow(
+    await executeProcess(
       new FakeStepRunner({ onWait: "timeout" }),
       waiting.context(),
       wf([labelled]),
@@ -216,10 +214,10 @@ describe("skill and action steps", () => {
     const item = h.approvalItem();
     h.handlers.write = () => ({ kind: "approval", pending: { inboxItemId: item } });
     const runner = new FakeStepRunner({ onWait: "timeout" });
-    const result = await executeWorkflow(
+    const result = await executeProcess(
       runner,
       h.context(),
-      wf([action({ approval: { timeout: "1 hour" } })]),
+      wf([action({ checks: { approval: { approvers: [{ deadline: { after: "1 hour" } }] } } })]),
       { what: "x" },
     );
     expect(result).toMatchObject({ status: "cancelled", reason: "rejected" });
@@ -241,7 +239,7 @@ describe("skill and action steps", () => {
       await sleep(name, duration);
       held = false;
     };
-    const result = await executeWorkflow(
+    const result = await executeProcess(
       runner,
       h.context({
         inbox: {
@@ -250,7 +248,7 @@ describe("skill and action steps", () => {
           heldFor: async () => (held ? 30 : 0),
         },
       }),
-      wf([action({ approval: { timeout: "1 hour" } })]),
+      wf([action({ checks: { approval: { approvers: [{ deadline: { after: "1 hour" } }] } } })]),
       { what: "x" },
     );
     expect(result).toMatchObject({ status: "succeeded" });
@@ -272,7 +270,7 @@ describe("skill and action steps", () => {
       await sleep(name, duration);
       sleeps += 1;
     };
-    const result = await executeWorkflow(
+    const result = await executeProcess(
       runner,
       h.context({
         inbox: {
@@ -281,7 +279,7 @@ describe("skill and action steps", () => {
           heldFor: async () => (sleeps >= 2 ? 0 : 30),
         },
       }),
-      wf([action({ approval: { timeout: "1 hour" } })]),
+      wf([action({ checks: { approval: { approvers: [{ deadline: { after: "1 hour" } }] } } })]),
       { what: "x" },
     );
     expect(result).toMatchObject({ status: "succeeded" });
@@ -297,7 +295,7 @@ describe("skill and action steps", () => {
       if (tries === 1) throw new Error("the Worker stopped");
       return { kind: "done", output: { ok: true } };
     };
-    const result = await executeWorkflow(
+    const result = await executeProcess(
       new FakeStepRunner(),
       h.context({ stepConfig: { retries: { limit: 2, delay: "1 second" } } }),
       wf([{ id: "s", kind: "skill", name: "Check", skill: SKILL.id, input: {} }]),
@@ -323,7 +321,7 @@ describe("skill and action steps", () => {
       resolved = false;
     };
     let expired = 0;
-    const result = await executeWorkflow(
+    const result = await executeProcess(
       runner,
       h.context({
         inbox: {
@@ -335,7 +333,7 @@ describe("skill and action steps", () => {
           },
         },
       }),
-      wf([action({ approval: { timeout: "1 hour" } })]),
+      wf([action({ checks: { approval: { approvers: [{ deadline: { after: "1 hour" } }] } } })]),
       { what: "x" },
     );
     expect(result).toMatchObject({ status: "cancelled", reason: "rejected" });
@@ -354,7 +352,7 @@ describe("skill and action steps", () => {
         ? { kind: "approval", pending: { inboxItemId: second } }
         : { kind: "done", output: { writes: 2 } };
     const runner = new FakeStepRunner();
-    const result = await executeWorkflow(
+    const result = await executeProcess(
       runner,
       h.context(),
       wf([{ id: "s", kind: "skill", name: "S", skill: "x.y" }]),
@@ -379,7 +377,7 @@ describe("skill and action steps", () => {
       req.pending.inboxItemId === withdrawn
         ? { kind: "approval", pending: { inboxItemId: answer, waitingFor: "answer" } }
         : { kind: "done", output: { result: req.resolution.answer } };
-    const result = await executeWorkflow(
+    const result = await executeProcess(
       new FakeStepRunner(),
       h.context(),
       wf([{ id: "s", kind: "skill", name: "S", skill: "x.y" }]),
@@ -391,12 +389,17 @@ describe("skill and action steps", () => {
     for (const onReject of ["stop", "continue"] as const) {
       const e = new Harness();
       e.handlers.s = () => ({ kind: "done", output: { outcome: "declined" }, declined: true });
-      const ended = await executeWorkflow(
+      const ended = await executeProcess(
         new FakeStepRunner(),
         e.context(),
         wf([
-          { id: "s", kind: "skill", name: "S", skill: "x.y", approval: { onReject } },
-          { id: "next", kind: "notify", name: "N", channel: "thread", message: "hi" },
+          { id: "s", kind: "skill", name: "S", skill: "x.y", checks: { approval: { onReject } } },
+          {
+            id: "next",
+            kind: "notify",
+            name: "N",
+            notify: { to: ["client_admin"], message: "hi" },
+          },
         ]),
         {},
       );
@@ -419,7 +422,7 @@ describe("skill and action steps", () => {
       return { kind: "approval", pending: { inboxItemId: item }, output: { wouldUpdate: "x" } };
     };
     const runner = new FakeStepRunner();
-    const result = await executeWorkflow(runner, h.context(), wf([action()]), { what: "x" });
+    const result = await executeProcess(runner, h.context(), wf([action()]), { what: "x" });
     expect(result.status).toBe("succeeded");
     expect(runner.names("wait")).toEqual([]);
     expect(h.resumeCalls).toHaveLength(0);
@@ -438,7 +441,7 @@ describe("skill and action steps", () => {
       output: { wouldHaveDone: true, actionId: "ea-1", before: null },
       notWritten: true,
     });
-    await executeWorkflow(
+    await executeProcess(
       new FakeStepRunner(),
       h.context({ catalog: { tools: { [WRITE_TOOL.id]: WRITE_TOOL } } }),
       wf([action({ client: { visible: true, label: "Updated the record" } })]),
@@ -450,7 +453,7 @@ describe("skill and action steps", () => {
   it("never reads a live write as not written", async () => {
     const h = new Harness();
     h.handlers.write = (req) => ({ kind: "done", output: req.input, notWritten: true });
-    await executeWorkflow(
+    await executeProcess(
       new FakeStepRunner(),
       h.context({ catalog: { tools: { [WRITE_TOOL.id]: WRITE_TOOL } } }),
       wf([action()]),
@@ -489,7 +492,7 @@ describe("skill and action steps", () => {
       const h = new Harness({ ...RUN, mode: "test" });
       h.handlers.create = () => ({ ...proposed({ id: "0", standIn: true }), standIn: true });
       h.handlers.attach = (req) => proposed({ billId: (req.input as { billId: string }).billId });
-      const result = await executeWorkflow(new FakeStepRunner(), h.context({ catalog }), chain(), {
+      const result = await executeProcess(new FakeStepRunner(), h.context({ catalog }), chain(), {
         what: "x",
       });
       expect(result).toEqual({ status: "succeeded" });
@@ -515,7 +518,7 @@ describe("skill and action steps", () => {
       h.handlers.create = () => proposed();
       h.handlers.attach = () => ({ kind: "failed", error: "invalid input: ✖ Invalid UUID" });
       h.handlers.look = () => ({ kind: "failed", error: "bill 0 not found" });
-      const result = await executeWorkflow(new FakeStepRunner(), h.context({ catalog }), chain(), {
+      const result = await executeProcess(new FakeStepRunner(), h.context({ catalog }), chain(), {
         what: "x",
       });
       expect(result).toEqual({ status: "succeeded" });
@@ -538,7 +541,7 @@ describe("skill and action steps", () => {
     it("still fails a test run's step that reads no unmade write", async () => {
       const h = new Harness({ ...RUN, mode: "test" });
       h.handlers.create = () => ({ kind: "failed", error: "the vendor isn't the company's" });
-      const result = await executeWorkflow(new FakeStepRunner(), h.context({ catalog }), chain(), {
+      const result = await executeProcess(new FakeStepRunner(), h.context({ catalog }), chain(), {
         what: "x",
       });
       expect(result).toMatchObject({ status: "failed", nodeId: "create" });
@@ -549,7 +552,7 @@ describe("skill and action steps", () => {
       const h = new Harness();
       h.handlers.create = () => ({ kind: "done", output: { id: "41" } });
       h.handlers.attach = () => ({ kind: "failed", error: "bill 41 not found" });
-      const result = await executeWorkflow(new FakeStepRunner(), h.context({ catalog }), chain(), {
+      const result = await executeProcess(new FakeStepRunner(), h.context({ catalog }), chain(), {
         what: "x",
       });
       expect(result).toMatchObject({ status: "failed", nodeId: "attach" });
@@ -565,7 +568,7 @@ describe("skill and action steps", () => {
   it("falls back to the label when the summary can't fill a slot", async () => {
     const h = new Harness();
     h.handlers.write = () => ({ kind: "done", output: { id: "1" } });
-    await executeWorkflow(
+    await executeProcess(
       new FakeStepRunner(),
       h.context({ catalog: { tools: { [WRITE_TOOL.id]: WRITE_TOOL } } }),
       wf([action({ client: { visible: true, label: "Updated the record" } })]),
@@ -589,7 +592,7 @@ describe("skill and action steps", () => {
     for (const [handler, reason] of cases) {
       const h = new Harness();
       h.handlers.s = handler;
-      const result = await executeWorkflow(
+      const result = await executeProcess(
         new FakeStepRunner(),
         h.context(),
         wf([
@@ -617,7 +620,7 @@ describe("skill and action steps", () => {
       if (tries < 3) throw new Error("flaky");
       return { kind: "done", output: {} };
     };
-    const result = await executeWorkflow(
+    const result = await executeProcess(
       new FakeStepRunner(),
       h.context({ stepConfig: { retries: { limit: 2, delay: "1 second" } } }),
       wf([{ id: "s", kind: "skill", name: "S", skill: "x.y" }]),
@@ -633,7 +636,7 @@ describe("skill and action steps", () => {
   it("counts one attempt for a step that works the first time", async () => {
     const h = new Harness();
     h.handlers.s = () => ({ kind: "done", output: {} });
-    await executeWorkflow(
+    await executeProcess(
       new FakeStepRunner(),
       h.context({ stepConfig: { retries: { limit: 2, delay: "1 second" } } }),
       wf([{ id: "s", kind: "skill", name: "S", skill: "x.y" }]),
@@ -658,20 +661,23 @@ describe("person steps", () => {
       });
       runner.deliver(type, { approved: true, by: "u-9" });
     };
-    const result = await executeWorkflow(
+    const result = await executeProcess(
       runner,
       h.context(),
       wf([
         person(),
         {
           id: "f",
-          kind: "fork",
+          kind: "if",
           name: "Approved?",
           paths: [
             {
               id: "p-yes",
               name: "Yes",
-              when: { rules: [{ field: "{{steps.ok.output.approved}}", op: "is", value: true }] },
+              when: {
+                match: "all",
+                rules: [{ field: "{{steps.ok.output.approved}}", op: "is", value: true }],
+              },
               steps: [],
             },
           ],
@@ -701,7 +707,7 @@ describe("person steps", () => {
       if (entry) entry.resolution = { approved: true, by: "u-1" };
       return made;
     };
-    const result = await executeWorkflow(runner, h.context(), wf([person()]), { what: "x" });
+    const result = await executeProcess(runner, h.context(), wf([person()]), { what: "x" });
     expect(result.status).toBe("succeeded");
     expect(runner.names("wait")).toEqual([]);
   });
@@ -711,7 +717,7 @@ describe("person steps", () => {
       const h = new Harness();
       const runner = new FakeStepRunner({ onWait: "block" });
       runner.onWaitStarted = (_n, type) => runner.deliver(type, { approved: false, by: "u-1" });
-      const result = await executeWorkflow(runner, h.context(), wf([person({ onReject })]), {
+      const result = await executeProcess(runner, h.context(), wf([person({ onReject })]), {
         what: "x",
       });
       expect(h.row("ok")?.summary).toBe("Approve the order: not approved");
@@ -719,21 +725,26 @@ describe("person steps", () => {
     }
   });
 
-  it("handles a timeout per onTimeout", async () => {
+  it("handles a timeout per its deadline's ifNoAnswer", async () => {
+    // Skip goes on with the step skipped (nobody said yes); tell the operator and stop.
+    const DEADLINES = {
+      stop: { after: "2 days", ifNoAnswer: "stop" },
+      continue: { after: "2 days", ifNoAnswer: "skip" },
+      notify_operator: { after: "2 days", ifNoAnswer: "stop", tell: ["operator"] },
+    } as const;
     for (const onTimeout of ["stop", "continue", "notify_operator"] as const) {
       const h = new Harness();
       const runner = new FakeStepRunner({ onWait: "timeout" });
-      const result = await executeWorkflow(
+      const result = await executeProcess(
         runner,
         h.context(),
         wf([
-          person({ onTimeout }),
+          person({ deadline: DEADLINES[onTimeout] }),
           {
             id: "n",
             kind: "notify",
             name: "N",
-            channel: "thread",
-            message: "approved={{steps.ok.output.approved}}",
+            notify: { to: ["client_admin"], message: "approved={{steps.ok.output.approved}}" },
           },
         ]),
         { what: "x" },
@@ -760,7 +771,7 @@ describe("person steps", () => {
     const h = new Harness();
     const runner = new FakeStepRunner({ onWait: "block" });
     runner.onWaitStarted = (_n, type) => runner.deliver(type, { answer: "use the oak", by: "u-2" });
-    const result = await executeWorkflow(
+    const result = await executeProcess(
       runner,
       h.context(),
       wf([person({ mode: "ask", title: "Which?" })]),
@@ -775,19 +786,19 @@ describe("person steps", () => {
 describe("forks", () => {
   const fork = {
     id: "f",
-    kind: "fork",
+    kind: "if",
     name: "By size",
     paths: [
       {
         id: "big",
         name: "Big",
-        when: { rules: [{ field: "{{trigger.total}}", op: ">", value: 1000 }] },
+        when: { match: "all", rules: [{ field: "{{trigger.total}}", op: ">", value: 1000 }] },
         steps: [{ id: "a", kind: "skill", name: "A", skill: "x.y" }],
       },
       {
         id: "mid",
         name: "Mid",
-        when: { rules: [{ field: "{{trigger.total}}", op: ">", value: 100 }] },
+        when: { match: "all", rules: [{ field: "{{trigger.total}}", op: ">", value: 100 }] },
         steps: [{ id: "b", kind: "skill", name: "B", skill: "x.y" }],
       },
     ],
@@ -803,7 +814,7 @@ describe("forks", () => {
 
   it("runs the first matching path, then joins", async () => {
     const h = new Harness();
-    const result = await executeWorkflow(new FakeStepRunner(), h.context(), wf([fork, after]), {
+    const result = await executeProcess(new FakeStepRunner(), h.context(), wf([fork, after]), {
       total: 5000,
     });
     expect(result.status).toBe("succeeded");
@@ -815,10 +826,10 @@ describe("forks", () => {
 
   it("takes the next path, or otherwise", async () => {
     let h = new Harness();
-    await executeWorkflow(new FakeStepRunner(), h.context(), wf([fork]), { total: 500 });
+    await executeProcess(new FakeStepRunner(), h.context(), wf([fork]), { total: 500 });
     expect(h.agentCalls.map((c) => c.nodeId)).toEqual(["b"]);
     h = new Harness();
-    await executeWorkflow(new FakeStepRunner(), h.context(), wf([fork]), { total: 5 });
+    await executeProcess(new FakeStepRunner(), h.context(), wf([fork]), { total: 5 });
     expect(h.agentCalls.map((c) => c.nodeId)).toEqual(["c"]);
     expect(h.row("f")?.output).toEqual({ pathId: "rest", pathName: "Otherwise" });
   });
@@ -834,7 +845,7 @@ describe("a step's output size (audit 4.4)", () => {
     const h = new Harness();
     h.handlers.read = () => ({ kind: "done", output: { text: "x".repeat(STEP_OUTPUT_MAX_BYTES) } });
     const runner = new FakeStepRunner();
-    const result = await executeWorkflow(
+    const result = await executeProcess(
       runner,
       h.context({ catalog: { skills: { [SKILL.id]: SKILL }, tools: {} } }),
       wf([{ id: "read", kind: "skill", name: "Read", skill: SKILL.id, input: {} }]),
@@ -859,7 +870,7 @@ describe("for_each", () => {
   it("fails at its start, before any item, on a list over the cap", async () => {
     const h = new Harness();
     const lines = Array.from({ length: FOR_EACH_MAX_ITEMS + 1 }, (_, i) => i);
-    const result = await executeWorkflow(new FakeStepRunner(), h.context(), wf([each]), { lines });
+    const result = await executeProcess(new FakeStepRunner(), h.context(), wf([each]), { lines });
     expect(result).toMatchObject({
       status: "failed",
       reason: `Each line: ${FOR_EACH_MAX_ITEMS + 1} items, over the ${FOR_EACH_MAX_ITEMS} one for each may take`,
@@ -873,7 +884,7 @@ describe("for_each", () => {
     const h = new Harness();
     const atCap = Array.from({ length: FOR_EACH_MAX_ITEMS }, (_, i) => i);
     expect(
-      (await executeWorkflow(new FakeStepRunner(), h.context(), wf([each]), { lines: atCap }))
+      (await executeProcess(new FakeStepRunner(), h.context(), wf([each]), { lines: atCap }))
         .status,
     ).toBe("succeeded");
     // A run whose loop started before the cap: its stored start has no refusal, so it goes on.
@@ -890,7 +901,7 @@ describe("for_each", () => {
     expect(started.stepRunId).toBeTruthy();
     runner.replay();
     const lines = Array.from({ length: 250 }, (_, i) => i);
-    const result = await executeWorkflow(runner, inFlight.context(), wf([each]), { lines });
+    const result = await executeProcess(runner, inFlight.context(), wf([each]), { lines });
     expect(result.status).toBe("succeeded");
     expect(inFlight.agentCalls).toHaveLength(250);
   });
@@ -907,7 +918,7 @@ describe("for_each", () => {
       return { kind: "done", output: { seen: req.input } };
     };
     const runner = new FakeStepRunner();
-    const result = await executeWorkflow(
+    const result = await executeProcess(
       runner,
       h.context(),
       wf([
@@ -958,7 +969,7 @@ describe("for_each", () => {
 
   it("names nested loops by chaining, and forks inside keep the item's prefix", async () => {
     const h = new Harness();
-    const result = await executeWorkflow(
+    const result = await executeProcess(
       new FakeStepRunner(),
       h.context(),
       wf([
@@ -976,13 +987,13 @@ describe("for_each", () => {
               steps: [
                 {
                   id: "f",
-                  kind: "fork",
+                  kind: "if",
                   name: "F",
                   paths: [
                     {
                       id: "p",
                       name: "P",
-                      when: { rules: [{ field: "{{item}}", op: ">", value: 1 }] },
+                      when: { match: "all", rules: [{ field: "{{item}}", op: ">", value: 1 }] },
                       steps: [{ id: "s", kind: "skill", name: "S", skill: "x.y" }],
                     },
                   ],
@@ -1008,7 +1019,7 @@ describe("for_each", () => {
       (req.input as { i: number }).i === 1
         ? { kind: "failed", error: "bad line" }
         : { kind: "done", output: {} };
-    const result = await executeWorkflow(
+    const result = await executeProcess(
       new FakeStepRunner(),
       h.context(),
       wf([
@@ -1038,7 +1049,7 @@ describe("for_each", () => {
 
   it("fails when `over` is not a list", async () => {
     const h = new Harness();
-    const result = await executeWorkflow(
+    const result = await executeProcess(
       new FakeStepRunner(),
       h.context(),
       wf([
@@ -1061,7 +1072,7 @@ describe("wait, notify and stop", () => {
   it("sleeps for the step's duration", async () => {
     const h = new Harness();
     const runner = new FakeStepRunner();
-    await executeWorkflow(
+    await executeProcess(
       runner,
       h.context(),
       wf([{ id: "w", kind: "wait", name: "Wait", for: "3 days" }]),
@@ -1073,7 +1084,7 @@ describe("wait, notify and stop", () => {
 
   it("renders and sends a notification", async () => {
     const h = new Harness();
-    await executeWorkflow(
+    await executeProcess(
       new FakeStepRunner(),
       h.context(),
       wf([
@@ -1081,9 +1092,7 @@ describe("wait, notify and stop", () => {
           id: "n",
           kind: "notify",
           name: "Tell",
-          channel: "email",
-          to: "{{trigger.who}}",
-          message: "Total {{trigger.total}}",
+          notify: { channel: "email", to: ["ap@example.com"], message: "Total {{trigger.total}}" },
         },
       ]),
       { who: "ap@example.com", total: "12.00" },
@@ -1099,8 +1108,8 @@ describe("wait, notify and stop", () => {
 
   it("in a test run sends nothing, keeps the text on the step and says it wasn't sent", async () => {
     const h = new Harness({ ...RUN, mode: "test" });
-    for (const channel of ["thread", "email", "digest"] as const) {
-      await executeWorkflow(
+    for (const channel of ["inbox", "email", "sms"] as const) {
+      await executeProcess(
         new FakeStepRunner(),
         h.context(),
         wf([
@@ -1108,9 +1117,12 @@ describe("wait, notify and stop", () => {
             id: `n-${channel}`,
             kind: "notify",
             name: "Say what changed",
-            channel,
-            message: "Bill {{trigger.bill}} now has 6 lines.",
-            sources: ["{{trigger.doc}}"],
+            notify: {
+              channel,
+              to: ["client_admin"],
+              message: "Bill {{trigger.bill}} now has 6 lines.",
+              sources: ["{{trigger.doc}}"],
+            },
             client: { visible: true, label: "Told you what changed" },
           },
         ]),
@@ -1129,7 +1141,7 @@ describe("wait, notify and stop", () => {
 
   it("cites its sources: ids and lists of ids, flattened, without blanks or repeats", async () => {
     const h = new Harness();
-    await executeWorkflow(
+    await executeProcess(
       new FakeStepRunner(),
       h.context(),
       wf([
@@ -1137,9 +1149,11 @@ describe("wait, notify and stop", () => {
           id: "n",
           kind: "notify",
           name: "Tell",
-          channel: "thread",
-          message: "Done",
-          sources: ["{{trigger.doc}}", "{{trigger.more}}", "{{trigger.missing}}", "fixed-id"],
+          notify: {
+            to: ["client_admin"],
+            message: "Done",
+            sources: ["{{trigger.doc}}", "{{trigger.more}}", "{{trigger.missing}}", "fixed-id"],
+          },
         },
       ]),
       { doc: "d1", more: ["t1", "d1", "", 7, "t2"] },
@@ -1150,7 +1164,7 @@ describe("wait, notify and stop", () => {
 
   it("ends the run with the stop step's status", async () => {
     const h = new Harness();
-    const result = await executeWorkflow(
+    const result = await executeProcess(
       new FakeStepRunner(),
       h.context(),
       wf([
@@ -1183,16 +1197,15 @@ describe("replay", () => {
         id: "n",
         kind: "notify",
         name: "N",
-        channel: "thread",
-        message: "{{steps.s.output.echo.v}}",
+        notify: { to: ["client_admin"], message: "{{steps.s.output.echo.v}}" },
       },
     ]);
     const trigger = { v: 1, what: "x", amount: "1", list: [1, 2] };
-    const first = await executeWorkflow(runner, h.context(), workflow, trigger);
+    const first = await executeProcess(runner, h.context(), workflow, trigger);
     const calls = h.agentCalls.length;
     const items = h.items.size;
     runner.replay();
-    const second = await executeWorkflow(runner, h.context(), workflow, trigger);
+    const second = await executeProcess(runner, h.context(), workflow, trigger);
     expect(second).toEqual(first);
     expect(h.agentCalls).toHaveLength(calls);
     expect(h.items.size).toBe(items);

@@ -12,7 +12,6 @@ import { fileFixtureStore } from "@countersign/llm/node";
 import { and, eq } from "drizzle-orm";
 import { afterAll, describe, expect, it, vi } from "vitest";
 import { createApiHarness, OPERATOR, OTHER_OPERATOR } from "./api.test-helper";
-import { stepModelAnswer } from "./builder-v5.test-helper";
 
 for (const level of process.env.SHOW_LOGS ? [] : (["warn", "error"] as const)) {
   vi.spyOn(console, level).mockImplementation(() => {});
@@ -44,7 +43,7 @@ const ANSWERS = [
   { skip: true },
 ];
 
-const draftAnswer = stepModelAnswer({
+const draftAnswer = {
   toolUse: {
     name: "submit_draft",
     input: {
@@ -71,17 +70,20 @@ const draftAnswer = stepModelAnswer({
             slug: "main",
             name: "Reconcile the month",
             workflow: {
-              schemaVersion: 4,
+              schemaVersion: 5,
               triggers: [{ id: "t", on: { type: "manual", input: {} } }],
+              outputs: [{ id: "out-done", name: "Done", kind: "nothing" }],
               steps: [
                 {
                   id: "update",
-                  kind: "write",
                   name: "Mark the invoice paid",
-                  tool: TESTKIT_UPDATE_TOOL,
-                  input: { id: "r1", amount: "12.00" },
                   checks: { approval: { required: "required" } },
+                  kind: "do",
+                  doneBy: "rules",
+                  uses: { type: "action", action: TESTKIT_UPDATE_TOOL },
+                  input: { id: "r1", amount: "12.00" },
                 },
+                { id: "end", kind: "end", name: "Done", outputs: ["out-done"] },
               ],
             },
           },
@@ -89,7 +91,7 @@ const draftAnswer = stepModelAnswer({
       },
     },
   },
-});
+};
 
 describe.skipIf(!h)("the process interview", () => {
   const H = h as NonNullable<typeof h>;

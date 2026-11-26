@@ -14,19 +14,12 @@ import {
   OversightSettings,
   ownerWatches,
 } from "../oversight/decision";
-import {
-  type AgentDefinition,
-  type AnyAgentBundle,
-  holdsProcess,
-  holdsStepModel,
-} from "../schemas/agent";
+import type { AgentBundle, AgentDefinition } from "../schemas/agent";
 import type { AgentMode } from "../schemas/permissions";
 import { collectRefs } from "../template/template";
 import { lookupSkill, type TypingContext } from "../template/typer";
-import { fromWorkflowV3 } from "./convert";
-import { runEnds } from "./ending";
-import { type Process, SELF_AGENT, type Step } from "./schema";
-import { type ProcessWarning, stepWrites, validateProcess } from "./validate";
+import type { Process, Step } from "./schema";
+import { stepWrites } from "./validate";
 import { walkSteps } from "./walk";
 
 // ── The owner's settings ─────────────────────────────────────────────────────────────────────
@@ -35,10 +28,8 @@ import { walkSteps } from "./walk";
 export type OwnerReviewSource =
   /** The definition's `oversight`, as saved. */
   | "set"
-  /** None saved, and the agent holds a v4 process: a new-model agent, so failures are reviewed. */
-  | "new_default"
-  /** None saved on a v3-only agent: off, exactly as it ran before (v0.13). */
-  | "stored_off";
+  /** None saved: failures are reviewed. */
+  | "new_default";
 
 /** The owner of one agent: who it is, what it reasons on and how closely it watches. */
 export interface Owner {
@@ -54,12 +45,9 @@ export interface Owner {
   maxPerStep: number;
   maxPerRun: number;
   maxCostUsd: string;
-  /**
-   * What the executor is handed as `oversight.settings`: the saved settings, the new-agent
-   * default, or absent for a stored agent with none (off, as today).
-   */
-  settings: OversightSettings | undefined;
-  /** The cheap watch on every step's result (v4 processes only; `anomalySignals`). */
+  /** What the executor is handed as `oversight.settings`: the saved settings or the new-agent default. */
+  settings: OversightSettings;
+  /** The cheap watch on every step's result (`anomalySignals`). */
   watch: boolean;
 }
 
@@ -68,51 +56,36 @@ type OwnerDefinition = Pick<
   "identity" | "instructions" | "model" | "permissions" | "oversight"
 >;
 
-/**
- * The owner of an agent, with defaults. `process` says whether the agent holds a v4 process
- * (`ownerOfBundle` reads it from the bundle).
- */
-// DECISION: "new agent" is read from the stored bundle itself, never from a new column or a
-// rewritten row: a bundle that holds a v4 process was saved under the process model (R1 onwards),
-// so an absent `oversight` there means the new default (`failures`). A v3-only bundle without
-// `oversight` keeps v0.13's meaning, off, so every stored agent runs exactly as before. New v3
-// drafts already start with `NEW_AGENT_OVERSIGHT` where they are made (Builder, definition form).
-export function ownerOf(definition: OwnerDefinition, options: { process: boolean }): Owner {
+/** The owner of an agent, with defaults. */
+// DECISION: an absent `oversight` means the new default (`failures`), read from the stored bundle
+// itself, never from a new column or a rewritten row.
+export function ownerOf(definition: OwnerDefinition): Owner {
   const saved = definition.oversight;
-  const settings = saved
-    ? saved
-    : options.process
-      ? OversightSettings.parse(NEW_AGENT_OVERSIGHT)
-      : undefined;
-  const source: OwnerReviewSource = saved ? "set" : options.process ? "new_default" : "stored_off";
-  const review: OversightReview = settings?.review ?? "off";
+  const settings = saved ?? OversightSettings.parse(NEW_AGENT_OVERSIGHT);
+  const source: OwnerReviewSource = saved ? "set" : "new_default";
+  const review: OversightReview = settings.review;
   const fallback = OversightSettings.parse({ review: "off" });
   return {
     identity: definition.identity,
     instructions: definition.instructions,
     model: {
-      id: settings?.model?.id ?? definition.model.id,
-      maxTokens: settings?.model?.maxTokens ?? definition.model.maxTokens,
+      id: settings.model?.id ?? definition.model.id,
+      maxTokens: settings.model?.maxTokens ?? definition.model.maxTokens,
     },
     mode: definition.permissions.mode,
     review,
     source,
     maxPerStep: OVERSIGHT_MAX_PER_STEP,
-    maxPerRun: settings?.maxPerRun ?? fallback.maxPerRun,
-    maxCostUsd: settings?.maxCostUsd ?? fallback.maxCostUsd,
+    maxPerRun: settings.maxPerRun ?? fallback.maxPerRun,
+    maxCostUsd: settings.maxCostUsd ?? fallback.maxCostUsd,
     settings,
-    // DECISION: the cheap watch runs for v4 processes only; v3 workflows keep v0.13's triggers for
-    // a review (failures, checkpoints, `all`), so a stored agent never gets a review it didn't.
-    watch: options.process && review !== "off",
+    watch: review !== "off",
   };
 }
 
 /** The owner of the agent a bundle stores. */
-export function ownerOfBundle(bundle: Pick<AnyAgentBundle, "definition" | "workflows">): Owner {
-  // The step model: a v5 workflow is native too, so its owner watches as a v4 process's does.
-  return ownerOf(bundle.definition, {
-    process: holdsProcess(bundle) || holdsStepModel(bundle),
-  });
+export function ownerOfBundle(bundle: Pick<AgentBundle, "definition">): Owner {
+  return ownerOf(bundle.definition);
 }
 
 // ── What the owner may and may never do ──────────────────────────────────────────────────────
@@ -219,101 +192,4 @@ export function processCheckpoints(
     for (const id of own(def)) out.push(`${step.id}/${id}`);
   });
   return out;
-}
-
-// ── One agent, one process: one main workflow, more ways in ───────────────────────────────────────────────────────────────────
-
-export interface OneProcessError {
-  stepId: null;
-  /** `workflows`, or `workflows.<i>` for the second and later enabled entries. */
-  field: string;
-  code: "one_process";
-  message: string;
-}
-
-/** A split advisory, with the workflow it is about (advice only, never an error). */
-export interface SplitAdvisory extends ProcessWarning {
-  workflow: string;
-}
-
-/** A v3 workflow read only for its shape: every skill stays a skill (counts and nesting hold). */
-const SHAPE_ONLY = { wrappedTool: () => null, sideEffect: () => null };
-
-/** Whether a step is a hand-off into another workflow of this same agent. */
-function selfHandoffTo(step: Step, own: string, slugs: ReadonlySet<string>): boolean {
-  if (step.kind !== "handoff") return false;
-  const to = step.to as { agent: string; workflow?: string };
-  return (
-    to.agent === SELF_AGENT &&
-    to.workflow !== undefined &&
-    to.workflow !== own &&
-    slugs.has(to.workflow)
-  );
-}
-
-/**
- * The one-process rule (ARCHITECTURE §10.14, restated 2026-11-23: "multiple ways in if needed,
- * multiple ways out if needed"): an agent has one main workflow, its first enabled one. Another
- * way in that starts the same work is another trigger on it. A way in that needs its own steps
- * first (a schedule that finds bills, a loop over them) is its own workflow, and every run of it
- * ends by handing off into another workflow of the agent (`to.agent: "@self"`), one hand-off per
- * item. An enabled workflow past the first that can end a run any other way is an error, one per
- * workflow. Disabled entries don't count. With it, each enabled workflow's split advisories
- * (`validateProcess` warnings: more than 20 steps, logic nested more than 3 deep); v3 workflows are
- * read as v4 for this.
- *
- * Stored versions keep parsing and running as stored (invariant 3): the caller applies this to a
- * NEW version only (publish, and the builder's save of a v4 bundle), never on load.
- */
-// DECISION: the rule is reported for the bundle it is given; whether a version is new is the
-// caller's (validateBundle should call this from publish for a version that holds a v4 process,
-// docs/plan.md §9 R6). Disabled workflows are kept in the bundle as they are, uncounted.
-// DECISION (2026-11-23): "every run end" is core's `runEnds` (ending.ts): each step a run can
-// finish on must be a "@self" hand-off into another enabled workflow; a path the operator ends
-// with a Stop is an end by choice ("nothing to do tonight") and asks nothing. A way in that never
-// hands off (no ends at all, or none a hand-off) is refused, since its runs would start nothing.
-// A hand-off into itself or a cycle is the hand-off's own check, not this one.
-type OlderWorkflow = AnyAgentBundle["workflows"][number] & { workflow: { schemaVersion: 3 | 4 } };
-
-export function oneProcessProblems(bundle: Pick<AnyAgentBundle, "workflows">): {
-  errors: OneProcessError[];
-  advisories: SplitAdvisory[];
-} {
-  const errors: OneProcessError[] = [];
-  const advisories: SplitAdvisory[] = [];
-  // DECISION (step model, wave 1): a v5 workflow's ways in and out are its declared outputs and
-  // End cards, checked by the step model's own publish checks; this rule reads v3 and v4 only.
-  const enabled = bundle.workflows
-    .map((w, i) => ({ w, i }))
-    .filter(
-      (x): x is { w: OlderWorkflow; i: number } =>
-        x.w.enabled !== false && x.w.workflow.schemaVersion !== 5,
-    );
-  const asProcess = (w: OlderWorkflow): Process =>
-    w.workflow.schemaVersion === 4 ? w.workflow : fromWorkflowV3(w.workflow, SHAPE_ONLY);
-  const main = enabled[0]?.w.slug ?? "";
-  const slugs = new Set(enabled.map(({ w }) => w.slug));
-  for (const { w, i } of enabled.slice(1)) {
-    const process = asProcess(w);
-    let handsOff = false;
-    walkSteps(process, ({ step }) => {
-      handsOff ||= selfHandoffTo(step, w.slug, slugs);
-    });
-    const loose = runEnds(process).filter((s) => !selfHandoffTo(s, w.slug, slugs));
-    if (handsOff && loose.length === 0) continue;
-    const where = loose[0] ? ` (a run can end on "${loose[0].name}")` : "";
-    errors.push({
-      stepId: null,
-      field: `workflows.${i}`,
-      code: "one_process",
-      message: `"${w.slug}" is a second way in beside the main workflow "${main}", but not every run of it hands off into "${main}"${where}: if it starts the same work, make it another trigger on "${main}"; if it needs its own steps first, end each run with a hand-off to "@self" into "${main}", one per item; otherwise turn it off or make it its own agent`,
-    });
-  }
-  for (const { w } of enabled) {
-    const process = asProcess(w);
-    for (const warning of validateProcess(process).warnings) {
-      advisories.push({ ...warning, workflow: w.slug });
-    }
-  }
-  return { errors, advisories };
 }

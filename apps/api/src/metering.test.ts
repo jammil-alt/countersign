@@ -160,7 +160,7 @@ describe.skipIf(!h)("metered usage", () => {
       [
         "b1",
         "issue-1",
-        "plaid:item-1:" + today.slice(0, 7),
+        `plaid:item-1:${today.slice(0, 7)}`,
         "read-1:0",
         "resend:e1",
         "twilio:SM1",

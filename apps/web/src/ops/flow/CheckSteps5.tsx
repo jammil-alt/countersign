@@ -96,15 +96,6 @@ import {
   useStart,
 } from "./checkParts";
 
-interface StoredBundle {
-  workflows?: { slug: string; name: string; workflow?: { schemaVersion?: unknown } }[];
-}
-
-/** Whether a stored bundle's workflow (the first, which Check the steps shows) is v5. */
-export function isStepModelBundle(bundle: unknown): boolean {
-  return (bundle as StoredBundle | null)?.workflows?.[0]?.workflow?.schemaVersion === 5;
-}
-
 /** The catalog a draft's lines are matched against; none for a build with no draft yet. */
 export function CheckBody5(props: CheckBodyProps) {
   if (!props.agent?.latest) return <Body5 {...props} uses={NO_USES_CONTEXT} catalog={null} />;
@@ -126,6 +117,10 @@ interface Loaded5 {
   workflow: Workflow;
   /** Why a stored v5 workflow didn't read. */
   error: string | null;
+}
+
+interface StoredBundle {
+  workflows?: { slug: string; name: string; workflow?: unknown }[];
 }
 
 function load5(agent: CheckBodyProps["agent"], newId: NewId | undefined): Loaded5 {

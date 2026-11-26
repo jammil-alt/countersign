@@ -23,15 +23,19 @@ describe.skipIf(!h)("builder safety", () => {
   it("fails 'Approval on for every write' when a conversation's messages go without a person's yes", async () => {
     const talk = {
       id: "talk",
-      kind: "conversation",
       name: "Ask the vendor for the missing W-9",
-      with: "{{trigger.contactId}}",
-      channel: "whatsapp",
-      goal: "Get the vendor's W-9 form.",
-      find: { received: "text" },
-      // Every message goes without a person's yes: the first one and the later ones.
-      messages: { first: "not_required", later: "within_goal" },
-      deadline: { after: "3 days" },
+      kind: "do",
+      doneBy: "contact",
+      contact: {
+        with: "{{trigger.contactId}}",
+        channel: "whatsapp",
+        goal: "Get the vendor's W-9 form.",
+        mayShare: [],
+        maxTurns: 4,
+        messages: { first: "not_required", later: "within_goal" },
+        deadline: { after: "3 days", hours: "clock", ifNoAnswer: "stop" },
+      },
+      output: [{ name: "received", type: "text", required: true, about: "text" }],
     };
     const bundle = {
       schemaVersion: 1,
@@ -57,9 +61,28 @@ describe.skipIf(!h)("builder safety", () => {
           slug: "main",
           name: "Main",
           workflow: {
-            schemaVersion: 4,
+            schemaVersion: 5,
             triggers: [{ id: "trg", on: { type: "manual", input: { contactId: "string" } } }],
-            steps: [talk],
+            outputs: [{ id: "out-done", name: "Done", kind: "nothing" }],
+            steps: [
+              {
+                id: "talk",
+                name: "Ask the vendor for the missing W-9",
+                kind: "do",
+                doneBy: "contact",
+                contact: {
+                  with: "{{trigger.contactId}}",
+                  channel: "whatsapp",
+                  goal: "Get the vendor's W-9 form.",
+                  mayShare: [],
+                  maxTurns: 4,
+                  messages: { first: "not_required", later: "within_goal" },
+                  deadline: { after: "3 days", hours: "clock", ifNoAnswer: "stop" },
+                },
+                output: [{ name: "received", type: "text", required: true, about: "text" }],
+              },
+              { id: "end", kind: "end", name: "Done", outputs: ["out-done"] },
+            ],
           },
         },
       ],
@@ -86,9 +109,7 @@ describe.skipIf(!h)("builder safety", () => {
     const detail = res.json as BuildDetail;
 
     // Core says the step loosens twice (invariant 8: each message is a write to a contact).
-    const loose = processes.conversationLoosenings(
-      talk as Parameters<typeof processes.conversationLoosenings>[0],
-    );
+    const loose = processes.conversationLoosenings(talk.contact as never);
     expect(loose).toHaveLength(2);
     const approvals = detail.qaChecks.find((c) => c.id === "approvals");
     expect(approvals, JSON.stringify(detail.qaChecks)).toBeDefined();
@@ -100,12 +121,15 @@ describe.skipIf(!h)("builder safety", () => {
 
   // BUILDER_QA INPUT-7
   it("keeps a client's change request inside <client_request>", async () => {
-    /** The draft the model was shown, unchanged, as its revision. */
+    /** The draft the model was shown, with the note reworded, as its revision. */
     const unchanged = (req: LlmRequest) => {
       const content = req.messages[0]?.content as string;
       const start = content.indexOf("<current_bundle>") + "<current_bundle>".length;
       const bundle = JSON.parse(content.slice(start, content.indexOf("</current_bundle>")));
-      // A v3 test bundle is revised as v4: the answer is the draft as it was shown.
+      const note = bundle.workflows[0].workflow.steps.find(
+        (x: { id: string }) => x.id === "internal",
+      );
+      note.tell.message = "Record fixed, thanks";
       return {
         toolUse: {
           name: "submit_revision",

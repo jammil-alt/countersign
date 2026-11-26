@@ -29,7 +29,6 @@ import {
   testBundle,
   user,
 } from "./api.test-helper";
-import { stepModelAnswer } from "./builder-v5.test-helper";
 
 for (const level of process.env.SHOW_LOGS ? [] : (["warn", "error"] as const)) {
   vi.spyOn(console, level).mockImplementation(() => {});
@@ -48,7 +47,7 @@ const turnAnswer = (input: Record<string, unknown>) => ({
 const reviewed = () => ({ toolUse: { name: "submit_review", input: { concerns: [] } } });
 
 function draftAnswer() {
-  return stepModelAnswer({
+  return {
     toolUse: {
       name: "submit_draft",
       input: {
@@ -73,17 +72,20 @@ function draftAnswer() {
               slug: "main",
               name: "Fix a record",
               workflow: {
-                schemaVersion: 4,
+                schemaVersion: 5,
                 triggers: [{ id: "t", on: { type: "manual", input: {} } }],
+                outputs: [{ id: "out-done", name: "Done", kind: "nothing" }],
                 steps: [
                   {
                     id: "update",
-                    kind: "write",
                     name: "Update the record",
-                    tool: TESTKIT_UPDATE_TOOL,
-                    input: { id: "r1", amount: "12.00" },
                     checks: { approval: { required: "required" } },
+                    kind: "do",
+                    doneBy: "rules",
+                    uses: { type: "action", action: TESTKIT_UPDATE_TOOL },
+                    input: { id: "r1", amount: "12.00" },
                   },
+                  { id: "end", kind: "end", name: "Done", outputs: ["out-done"] },
                 ],
               },
             },
@@ -91,7 +93,7 @@ function draftAnswer() {
         },
       },
     },
-  });
+  };
 }
 
 const SKILL = {

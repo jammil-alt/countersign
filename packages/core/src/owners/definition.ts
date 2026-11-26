@@ -12,8 +12,7 @@ import {
   OversightSettings,
 } from "../oversight/decision";
 import { type Owner, ownerOfBundle } from "../process/owner";
-import type { AnyAgentBundle } from "../schemas/agent";
-import { holdsProcess, holdsStepModel } from "../schemas/agent";
+import type { AgentBundle } from "../schemas/agent";
 import { ModelChoice } from "../schemas/skill";
 import type { OwnerArea } from "./areas";
 
@@ -36,8 +35,8 @@ export const OwnerDefinition = z
     /** Markdown the operator writes; trusted text, in the review's instructions. */
     notes: z.string().max(OWNER_NOTES_MAX).default(""),
     /**
-     * The area's defaults for processes that saved none. Absent: new-model processes (v4) are
-     * reviewed on failures and stored v3 ones stay off, exactly as before (v0.13's DECISION).
+     * The area's defaults for workflows that saved none. Absent: they are reviewed on
+     * failures.
      */
     oversight: z
       .strictObject({
@@ -74,12 +73,12 @@ export interface RunOwner extends Owner {
 /**
  * Which settings a run uses (docs/plan.md §1.117 "Precedence"):
  * - review and limits: the process's saved `definition.oversight`, else the owner's, else the
- *   new-model default (`failures`) for a v4 process, else off (a stored v3 one, as before);
+ *   new-model default (`failures`);
  * - model: the process's saved `oversight.model`, else the owner's model, else the process's.
  * A step's own `review` still applies on top, in the executor.
  */
 export function runOwnerOf(
-  bundle: Pick<AnyAgentBundle, "definition" | "workflows">,
+  bundle: Pick<AgentBundle, "definition" | "workflows">,
   owner: PinnedAreaOwner | undefined,
 ): RunOwner {
   const base = ownerOfBundle(bundle);
@@ -93,26 +92,19 @@ export function runOwnerOf(
       bundle.definition.model.maxTokens,
   };
   const areaDefaults = owner.definition.oversight;
-  const fromOwner = !saved && areaDefaults;
-  // The step model: a v5 workflow is native, as a v4 process is.
-  const native = holdsProcess(bundle) || holdsStepModel(bundle);
-  const fallback = !saved && !areaDefaults && native ? NEW_AGENT_OVERSIGHT : null;
-  const settings: OversightSettings | undefined = saved
-    ? OversightSettings.parse({ ...saved, model: saved.model ?? model })
-    : fromOwner
-      ? OversightSettings.parse({ ...areaDefaults, model })
-      : fallback
-        ? OversightSettings.parse({ ...fallback, model })
-        : undefined;
-  const review = settings?.review ?? "off";
+  const settings = OversightSettings.parse({
+    ...(saved ?? areaDefaults ?? NEW_AGENT_OVERSIGHT),
+    model: saved?.model ?? model,
+  });
+  const review = settings.review;
   return {
     ...base,
     model,
     review,
     settings,
-    maxPerRun: settings?.maxPerRun ?? base.maxPerRun,
-    maxCostUsd: settings?.maxCostUsd ?? base.maxCostUsd,
-    watch: native && review !== "off",
+    maxPerRun: settings.maxPerRun,
+    maxCostUsd: settings.maxCostUsd,
+    watch: review !== "off",
     area: {
       ownerId: owner.ownerId,
       versionId: owner.versionId,

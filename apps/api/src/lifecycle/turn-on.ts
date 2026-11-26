@@ -15,7 +15,6 @@ import {
   type AgentRow,
   AgentsError,
   type AgentVersionRow,
-  convertLookup,
   createUpdateDraft,
   discardDraft,
   existingBundle,
@@ -28,8 +27,8 @@ import {
   validateForPublish,
 } from "@countersign/agents";
 import {
+  AgentBundle,
   type AgentStage,
-  AnyAgentBundle,
   DECISION_CATEGORY_WORDS,
   decisionReviewed,
   type GrantLimits,
@@ -42,7 +41,6 @@ import {
   type TurnOnAnswer,
   type TurnOnBody,
   type TurnOnItem,
-  toProcessBundle,
   withDecisionRisk,
 } from "@countersign/core";
 import { agent, agentVersion, build, connection, run, type Tx, tenant } from "@countersign/db";
@@ -67,7 +65,7 @@ interface Subject {
   clientId: string;
   clientName: string;
   version: AgentVersionRow;
-  bundle: AnyAgentBundle;
+  bundle: AgentBundle;
   /** The client's agent that runs: the agent itself, or a template's copy at the client. */
   running: AgentRow | null;
   /** The agent's open build, when it has one. */
@@ -127,7 +125,7 @@ async function subject(
     clientId,
     clientName: client.name,
     version,
-    bundle: AnyAgentBundle.parse(version.bundle),
+    bundle: AgentBundle.parse(version.bundle),
     running: template ? await copyAt(tx, row, clientId, open ?? null) : row,
     build: open ?? null,
   };
@@ -220,13 +218,9 @@ async function itemsOf(ctx: Ctx, s: Subject, hashes: string[]): Promise<TurnOnIt
   if (s.build) {
     let writes = new Set<string>();
     try {
-      // A Builder draft's writing steps (v4); a v5 workflow has none the Builder flagged.
-      const processes = toProcessBundle(s.bundle, convertLookup(platform.catalog, platform.tools), {
-        stepModel: "skip",
-      });
-      writes = await draftWritingSteps({ tx, services }, { bundle: processes, agentRow: s.row });
+      writes = await draftWritingSteps({ tx, services }, { bundle: s.bundle, agentRow: s.row });
     } catch {
-      // A bundle that doesn't convert has no writing steps to read; the Builder's flags still count.
+      // A bundle that doesn't read has no writing steps to read; the Builder's flags still count.
     }
     for (const d of withDecisionRisk(readFitGap(s.build.fitgap).decisions, writes)) {
       if (d.risk !== "high") continue;
@@ -573,7 +567,7 @@ export async function turnOn(ctx: Ctx, id: string, body: TurnOnBody): Promise<Tu
         }
       }
       if (target) {
-        copy = await bindTestCopy(ctx, current, AnyAgentBundle.parse(target.bundle));
+        copy = await bindTestCopy(ctx, current, AgentBundle.parse(target.bundle));
         if (target.id !== copy.liveVersionId) {
           const vid = target.id;
           const published = await attempt(tx, (sp) =>
@@ -659,7 +653,7 @@ export async function turnOn(ctx: Ctx, id: string, body: TurnOnBody): Promise<Tu
           row: running,
           template: false,
           version: live,
-          bundle: AnyAgentBundle.parse(live.bundle),
+          bundle: AgentBundle.parse(live.bundle),
           running,
         }
       : { ...s, row, running };

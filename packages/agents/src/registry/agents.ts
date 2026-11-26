@@ -12,19 +12,13 @@ import {
   type AgentBundle,
   AgentBundle as AgentBundleSchema,
   type AgentData,
-  type AnyAgentBundle,
-  AnyAgentBundle as AnyAgentBundleSchema,
-  type AnyAutomationDefinition,
-  // v0.12 W2-D: the account agent's publish guard
+  type AutomationDefinition, // v0.12 W2-D: the account agent's publish guard
   accountAgentProblems,
   agentDataProblems,
-  automationRefs,
   bindingConnector,
   bundleHash,
   type EventTypeSpec,
   GrantLimits,
-  holdsProcess,
-  holdsStepModel,
   isExternalTool,
   type PermissionEntity,
   type PermissionMatrix,
@@ -37,8 +31,6 @@ import {
   steps,
   type ValidationCode,
   type ValidationError,
-  validateBundle,
-  walkSteps,
 } from "@countersign/core";
 import {
   agent,
@@ -59,8 +51,8 @@ import {
   automationPublishErrors,
   snapshotSharedAutomations,
 } from "./automations";
-// Hand off (owner, 2026-11-11): only functions cross this cycle too.
 import { handoffAgents, holdsHandoff } from "./handoff";
+// Hand off (owner, 2026-11-11): only functions cross this cycle too.
 // lineage imports this module too; only functions cross, so the cycle is safe at load time.
 import { type PromotionProblem, refuseProblems, stripForPromotion } from "./lineage";
 import { missingRoles } from "./people";
@@ -105,22 +97,6 @@ export interface RegistryContext {
   recordTypes?: readonly RecordType[];
 }
 
-/**
- * Whether a bundle holds an action write step (a v4 process's), or a v5 workflow (whose Email and
- * Text actions resolve from the agent's channels as an action write step does).
- */
-function holdsAction(bundle: AnyAgentBundle): boolean {
-  let found = false;
-  for (const w of bundle.workflows) {
-    if (w.workflow.schemaVersion === 5) return true;
-    if (w.workflow.schemaVersion !== 4) continue;
-    processes.walkSteps(w.workflow, ({ step }) => {
-      if (step.kind === "write" && step.action !== undefined) found = true;
-    });
-  }
-  return found;
-}
-
 /** Parses a bundle (schema only: drafts may be saved with semantic errors, §10.2). */
 export function parseBundle(input: unknown): AgentBundle {
   const parsed = AgentBundleSchema.safeParse(input);
@@ -130,21 +106,9 @@ export function parseBundle(input: unknown): AgentBundle {
   return parsed.data;
 }
 
-/**
- * R8 (docs/plan.md §1.86, §9): a bundle as a new version may hold it: v3 workflows, v4 processes
- * (what the workflow builder saves) or both. A v3 bundle parses to the same value, so the same
- * canonical JSON and hash, as `parseBundle` gives it.
- */
-// DECISION (wave 3b): the version row's `bundle` column is typed `AnyAgentBundle`, its true shape;
-// every reader checks `schemaVersion` or reads through core (`allTriggers`, `toProcessBundle`).
-// Stored versions are never rewritten (invariant 3): a v3 version stays v3, and the builder's next
-// save is a new version.
-export function parseVersionBundle(input: unknown): AnyAgentBundle {
-  const parsed = AnyAgentBundleSchema.safeParse(input);
-  if (!parsed.success) {
-    throw new AgentsError("invalid_bundle", parsed.error.message, parsed.error.issues);
-  }
-  return parsed.data;
+/** A bundle as a new version may hold it: the same as `parseBundle` (schema only). */
+export function parseVersionBundle(input: unknown): AgentBundle {
+  return parseBundle(input);
 }
 
 async function lockAgent(tx: Tx, agentId: string): Promise<AgentRow> {
@@ -393,7 +357,7 @@ export async function validateForPublish(
   // v0.12 W2-D: `slug`, for the account agent's guard (rows without one skip it).
   // v0.14 W4-B: `id`, for the agent's grants (a row without one, a draft not yet saved, has none).
   row: Pick<AgentRow, "tenantId" | "kind" | "bindings"> & { slug?: string; id?: string },
-  bundle: AnyAgentBundle,
+  bundle: AgentBundle,
   ctx: RegistryContext,
   // Skill model (2026-11-10): what already exists (`existingBundle`). A skill step the bundle given
   // doesn't have is new, and a new step may not use a retired kind of skill (`rules_then_ai`, agent
@@ -416,8 +380,6 @@ export async function validateForPublish(
     bundle,
     catalog: ctx.catalog,
   });
-  // R8: a bundle that holds v4 processes is validated as one (core's `validateAnyBundle`, which
-  // validates an all-v3 bundle exactly as `validateBundle` does).
   const previous = options.previous;
   const existing =
     previous === "none"
@@ -428,16 +390,9 @@ export async function validateForPublish(
   // Review: a step that kept its id but changed its skill is new too.
   const existingSkills =
     previous && previous !== "none" ? processes.bundleStepSkills(previous) : undefined;
-  const validate =
-    holdsProcess(bundle) || holdsStepModel(bundle)
-      ? (b: unknown, c: Parameters<typeof validateBundle>[1]) =>
-          processes.validateAnyBundle(b, {
-            ...c,
-            ...(existing ? { existingStepIds: existing } : {}),
-            ...(existingSkills ? { existingStepSkills: existingSkills } : {}),
-          })
-      : validateBundle;
-  const result = validate(bundle, {
+  const result = processes.validateBundle(bundle, {
+    ...(existing ? { existingStepIds: existing } : {}),
+    ...(existingSkills ? { existingStepSkills: existingSkills } : {}),
     skills: { ...used.skills, ...skills },
     // v0.14 W4-A: a client agent's shared ids (`whatsapp.send`) are checked against the connector
     // its bindings name (Twilio or Meta).
@@ -452,21 +407,15 @@ export async function validateForPublish(
             grants: await boundGrants(tx, row),
             entities: boundEntities(row.bindings, ctx.tools),
             // The step model: an action switched off on its connector is a publish issue.
-            ...(ctx.actionsOff && holdsStepModel(bundle)
-              ? { actionsOff: await ctx.actionsOff(tx) }
+            ...(ctx.actionsOff ? { actionsOff: await ctx.actionsOff(tx) } : {}),
+          },
+          // Email and Text actions resolve from the agent's bindings and channels.
+          actions: {
+            bound: Object.keys(row.bindings),
+            ...(ctx.actionChannels && row.tenantId
+              ? { channels: (await ctx.actionChannels(tx, row.tenantId, row.id ?? null)) ?? {} }
               : {}),
           },
-          // Skill model (2026-11-10): action write steps resolve from the bindings and channels.
-          ...(holdsAction(bundle)
-            ? {
-                actions: {
-                  bound: Object.keys(row.bindings),
-                  ...(ctx.actionChannels && row.tenantId
-                    ? { channels: await ctx.actionChannels(tx, row.tenantId, row.id ?? null) }
-                    : {}),
-                },
-              }
-            : {}),
         }
       : {}),
     // v0.12 W2-G: a client agent's pack panels must name packs its client has enabled.
@@ -493,7 +442,6 @@ export async function validateForPublish(
         }
       : {}),
   });
-  // v4's codes are v3's and more; the API answers `code` as a string either way.
   const errors = [
     ...(result.errors as ValidationError[]),
     ...automationPublishErrors(bundle, used),
@@ -549,13 +497,12 @@ export async function validateForPublish(
 async function loopPublishErrors(
   tx: Tx,
   row: Pick<AgentRow, "tenantId">,
-  bundle: AnyAgentBundle,
+  bundle: AgentBundle,
   ctx: RegistryContext,
   skills: Record<string, SkillDefinition>,
 ): Promise<ValidationError[]> {
   const errors: ValidationError[] = [];
   for (const w of bundle.workflows) {
-    if (w.workflow.schemaVersion !== 5) continue;
     const loops: Extract<steps.Step, { kind: "loop" }>[] = [];
     steps.eachStep(w.workflow.steps, ({ step }) => {
       if (step.kind === "loop") loops.push(step);
@@ -585,7 +532,7 @@ async function loopPublishErrors(
  * (`validateForPublish`'s `previous`): a bundle (a step it lacks is new), or `"none"` (every step
  * is new).
  */
-export type ExistingSteps = AnyAgentBundle | "none";
+export type ExistingSteps = AgentBundle | "none";
 
 /**
  * Skill model (2026-11-10): what already exists for a version, which says which of its steps are
@@ -776,7 +723,7 @@ export async function createTemplate(
   tx: Tx,
   input: NewAgentInput & { releaseNote?: string | null },
 ): Promise<{ agent: AgentRow; version: AgentVersionRow }> {
-  const bundle = parseVersionBundle(input.bundle); // Wave 3b: a Builder draft holds v4 processes.
+  const bundle = parseVersionBundle(input.bundle);
   const [row] = await tx
     .insert(agent)
     .values({
@@ -816,7 +763,7 @@ async function insertClientAgent(
     testCopy?: boolean;
     id?: string | undefined;
   },
-  bundle: AnyAgentBundle,
+  bundle: AgentBundle,
 ): Promise<AgentRow> {
   const [row] = await tx
     .insert(agent)
@@ -844,7 +791,7 @@ export async function createClientAgent(
   tx: Tx,
   input: ClientAgentFields & Omit<NewAgentInput, "slug">,
 ): Promise<{ agent: AgentRow; version: AgentVersionRow }> {
-  const bundle = parseVersionBundle(input.bundle); // Wave 3b: a Builder draft holds v4 processes.
+  const bundle = parseVersionBundle(input.bundle);
   const row = await insertClientAgent(
     tx,
     { ...input, role: input.role ?? bundle.definition.identity.role, templateId: null },
@@ -1144,14 +1091,14 @@ export async function relink(
 
 /**
  * The connectors a bundle needs bound: those its skills require, and the connectors of every
- * connector tool it can call (skills' tools, extra tools, action steps; v4: read and write steps).
+ * connector tool it can call (skills' tools, extra tools, a Do's action).
  */
 export function requiredConnectors(
-  bundle: AnyAgentBundle,
+  bundle: AgentBundle,
   skills: Record<string, SkillDefinition>,
   tools: ToolRegistry,
   // v0.12 W2-B: the automations its use steps pin (their `requires.connectors` count too).
-  automations: Record<string, AnyAutomationDefinition> = {},
+  automations: Record<string, AutomationDefinition> = {},
   // v0.14 W4-A: a client agent's bindings, so a shared id needs the connector it is bound to
   // (Twilio or Meta for `whatsapp.send`); without them, the first that supplies it.
   bindings?: Readonly<Record<string, string>>,
@@ -1159,15 +1106,8 @@ export function requiredConnectors(
   const out = new Set<string>();
   for (const w of bundle.workflows) {
     if (!w.enabled) continue;
-    // Wave 3b: a v4 process pins its automations on `process` steps.
-    // The step model: a v5 Do pins its automation in `uses`.
-    const refs =
-      w.workflow.schemaVersion === 5
-        ? stepModelAutomations(w.workflow)
-        : w.workflow.schemaVersion === 4
-          ? processes.subProcessRefs([w.workflow])
-          : automationRefs([w.workflow]);
-    for (const ref of refs) {
+    // A Do pins its automation in `uses`.
+    for (const ref of stepModelAutomations(w.workflow)) {
       for (const c of automations[ref]?.requires.connectors ?? []) out.add(c);
     }
   }
@@ -1183,38 +1123,20 @@ export function requiredConnectors(
     if (!w.enabled) continue;
     // The step model: a Do's skill and action, a Loop's skill and reads; a merged action's tool is
     // resolved from the bindings when it runs, as an action write step's is.
-    if (w.workflow.schemaVersion === 5) {
-      steps.eachStep(w.workflow.steps, ({ step }) => {
-        if (step.kind === "loop") {
-          if (step.skill) addSkill(step.skill);
-          for (const t of step.reads) toolIds.add(t);
-        }
-        if (step.kind !== "do") return;
-        if (step.uses?.type === "skill") addSkill(step.uses.skill);
-        if (step.uses?.type === "action" && !steps.mergedAction(step.uses.action)) {
-          toolIds.add(step.uses.action);
-        }
-      });
-      for (const o of w.workflow.outputs) {
-        if (o.action && !steps.mergedAction(o.action.action)) toolIds.add(o.action.action);
+    steps.eachStep(w.workflow.steps, ({ step }) => {
+      if (step.kind === "loop") {
+        if (step.skill) addSkill(step.skill);
+        for (const t of step.reads) toolIds.add(t);
       }
-      continue;
-    }
-    // Wave 3b: a v4 process's read and write steps name their tool, as an action step does.
-    if (w.workflow.schemaVersion === 4) {
-      processes.walkSteps(w.workflow, ({ step }) => {
-        if (step.kind === "skill") addSkill(step.skill);
-        // Skill model: an action write step's tool is resolved from the bindings when it runs.
-        if ((step.kind === "read" || step.kind === "write") && step.tool !== undefined) {
-          toolIds.add(step.tool);
-        }
-      });
-      continue;
-    }
-    walkSteps(w.workflow, ({ step }) => {
-      if (step.kind === "skill") addSkill(step.skill);
-      if (step.kind === "action") toolIds.add(step.tool);
+      if (step.kind !== "do") return;
+      if (step.uses?.type === "skill") addSkill(step.uses.skill);
+      if (step.uses?.type === "action" && !steps.mergedAction(step.uses.action)) {
+        toolIds.add(step.uses.action);
+      }
     });
+    for (const o of w.workflow.outputs) {
+      if (o.action && !steps.mergedAction(o.action.action)) toolIds.add(o.action.action);
+    }
   }
   for (const id of toolIds) {
     const t = tools.get(id);
@@ -1236,7 +1158,7 @@ function packsOf(skills: Record<string, SkillDefinition>): string[] {
  */
 export async function requiredPacks(
   tx: Tx,
-  input: { tenantId: string; bundle: AnyAgentBundle; catalog: SkillCatalog },
+  input: { tenantId: string; bundle: AgentBundle; catalog: SkillCatalog },
 ): Promise<string[]> {
   const { skills } = await skillContext(tx, input);
   return packsOf(skills);
