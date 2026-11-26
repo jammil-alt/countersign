@@ -1,5 +1,7 @@
 # Running the speed and structure plan with agents
 
+> **Status (2026-11-26): Done.** The runbook of the 2026-11-11 audit run, which happened. Its worker table names paths since deleted. What's open: `docs/open.md` §13.
+
 How to run `docs/audit-plan.md` with a group of agents that merge their own work. Read the plan
 first; this page only says who does what, in what order, and what may merge unattended.
 

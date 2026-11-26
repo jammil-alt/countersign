@@ -1,5 +1,7 @@
 # Back office work: Sales, onboarding and Build (design and plan, agreed 2026-11-17)
 
+> **Status (2026-11-26): Partly done.** B1–B5, T1, S1–S2, A1, W1 (email) and O1–O3 built and merged (2026-11-17); its §8 questions answered in `docs/plan.md` §1.124 and §1.149. O4–O6 are open: `docs/open.md` §10.
+
 **Status (2026-11-17): Build, Sales, Your call and Reggie are built; onboarding O1–O3 are built.**
 The owner asked for the back office work built on 2026-11-17. It is on two stacked PRs, not merged
 until the owner says so: the migrations (0060–0063, PR #380, `claude/ops-work-migrations-szb740`)

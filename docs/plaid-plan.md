@@ -1,5 +1,7 @@
 # Plaid compliance: the 11 attestations
 
+> **Status (2026-11-26): Live.** The technical controls are built; the owner's steps toward attestation by 2027-04-10 are open: `docs/open.md` §14.3.
+
 What Plaid's Compliance Center asks of us, what we have, and what's left. The controls are in the
 register (`packages/core/src/compliance/controls.ts`, shown at `/ops/security`); how the code
 enforces them is in `docs/security.md`; what we commit to is in `docs/policies/`. HIPAA, SOC 2 and

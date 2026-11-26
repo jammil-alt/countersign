@@ -1,5 +1,7 @@
 # Unmerged branches: the merge plan (2026-11-15)
 
+> **Status (2026-11-26): Done.** Every PR in it merged; no branch left.
+
 On 2026-11-15 we found 11 branches of finished work that never reached `main`, so never reached
 staging. Most had no PR. Two others had their PR merged, then got one more commit that nobody
 opened a PR for. This page lists what is on them, what must be decided first, and the order to

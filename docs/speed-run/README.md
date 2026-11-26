@@ -1,5 +1,7 @@
 # Speed run: shared material
 
+> **Status (2026-11-26): Done.** Every worker's PR merged (#250–#267).
+
 - `measure.mjs`: the measurement script from `docs/audit-plan.md` appendix A, as the lead runs it.
   Copy it outside the repo before running (it needs `require("playwright")`, which works from any
   directory in the cloud containers).

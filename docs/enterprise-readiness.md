@@ -1,5 +1,7 @@
 # Enterprise readiness (2026-11-15)
 
+> **Status (2026-11-26): Partly done.** E6, E13, E14 and E16 done. E1–E5, E7, E11, E12 and E15 are open: `docs/open.md` §14.1.
+
 The owner's list of what to close before the first enterprise and high-volume pilot clients, checked
 against the code on 2026-11-15. What matters most for pilots: **a clean security answer for the
 client's IT, getting started smoothly, and the tool working smoothly from day one.**

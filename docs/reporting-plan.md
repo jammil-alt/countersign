@@ -1,5 +1,7 @@
 # Reporting: runs, agents and accounts, searched by their data (agreed, 2026-11-22)
 
+> **Status (2026-11-26): Done.** R1–R6 built (§1.188–§1.236). Two deferred items: `docs/open.md` §15.
+
 Agreed by the owner on 2026-11-22 (§5). R1 is built (#524, #530), R2 (#534, `docs/plan.md` §1.193), R3 (#544, §1.200), R4 (#556, §1.214), R5 (#582, §1.235) and R6 (#577, #581, §1.236). It extends the runs lists (ARCHITECTURE §10.10) and search
 and plain-words questions (§11.6). R1 is `docs/plan.md` §1.188, migration 0077.
 

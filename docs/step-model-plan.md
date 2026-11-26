@@ -1,5 +1,7 @@
 # Steps, skills and loops: the new step model
 
+> **Status (2026-11-26): Live.** Built and released (#707), staging and production purged and on v5. The follow-ups: `docs/open.md` §2.
+
 Owner, 2026-11-25: "It is really hard to be able to add a step manually... we should be able to
 understand what the step does, provide the input and then dictate the output... I have not been
 able to run an agent yet, after weeks of trying, because I can't add a step that is not dependent

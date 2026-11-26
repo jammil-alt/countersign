@@ -1,5 +1,7 @@
 # End-of-life inventory
 
+> **Status (2026-11-26): Reference.** A register reviewed each quarter. Its open items: `docs/open.md` §14.5.
+
 Every component we run or build with, when its support ends, and the plan. The policy:
 Dependabot's monthly updates keep libraries and runtimes current, and any end-of-life component is
 replaced within 90 days (`docs/policies/information-security.md` §6). This list is reviewed every

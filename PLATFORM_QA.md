@@ -1,5 +1,7 @@
 # Platform QA (2026-11-20)
 
+> **Status (2026-11-26): Done.** All 49 findings fixed; parts of §5's map describe v3/v4 workflows since deleted. Code cites its ids.
+
 A hostile QA pass on Mezonas outside the Agent Builder, weighted toward tools, connectors and skills. The report came first, with nothing fixed; the fixes followed (see Fix status). The Builder (audited in `BUILDER_QA.md`) was left alone.
 
 **Result: 49 defects survived verification, out of 57 reported.**

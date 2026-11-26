@@ -1,5 +1,7 @@
 # Trust claims: what we keep, what we change
 
+> **Status (2026-11-26): Live, mostly not started.** What's open: `docs/open.md` §14.4.
+
 Status: **draft for the owner's decisions**, 2026-11-09, refreshed 2026-11-20 · Owner: Jammil
 
 The plan for 17 trust claims, grouped by the fear each answers ("they're training AI on my data",

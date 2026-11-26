@@ -1,5 +1,7 @@
 # Marketing and search: plan
 
+> **Status (2026-11-26): Built, waiting on the owner.** M43–M50 built (§1.72–§1.78); the agent set went with v4 and is to be rebuilt in v5. What's open: `docs/open.md` §8.
+
 Status: plan of 2026-11-08. The owner approved building it as a pack with Mezonas served as its
 own client, worked from the back office (2026-11-08). M43 (measurement) is built:
 `docs/plan.md` §1.72 and M43. M44–M50 are built as a wave of parallel builders on one shared
