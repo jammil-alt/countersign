@@ -1,5 +1,7 @@
 # Working through the open list (2026-11-22)
 
+> **Status (2026-11-26): Done.** Every item ticked or carried into `docs/open.md`, the one plan from now on.
+
 `docs/open.md` says what is still open. This page puts it in the order we work it: one item at a
 time, each its own branch and PR, each ending green. Two tracks run side by side:
 

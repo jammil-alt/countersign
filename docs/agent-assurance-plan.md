@@ -1,5 +1,7 @@
 # Agent assurance: each agent's architecture, and its security controls proved
 
+> **Status (2026-11-26): Partly done.** A0–A2 and A4 built. A3 (attacks) and the owner's items are open: `docs/open.md` §11.
+
 Owner, 2026-11-21: "Can we also add a tech architecture where we can validate security controls at
 an agent level?"
 

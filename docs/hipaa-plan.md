@@ -1,5 +1,7 @@
 # HIPAA, SOC 2 and PCI: what's still open
 
+> **Status (2026-11-26): Live.** T1 and T2 built; §1 merged. What's open: `docs/open.md` §14.2.
+
 The plan from here to a client in HIPAA mode, a SOC 2 report and a PCI self-assessment.
 `docs/security.md` has what is done. The design is in `docs/plan.md` §1.35. Each control, its
 status and its SOC 2, HIPAA and PCI references are in the register

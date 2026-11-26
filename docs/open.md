@@ -1,30 +1,30 @@
-# What's still open (2026-11-22)
+# What's open
 
-One list of everything that is still open, gathered from `docs/plan.md`, `docs/marketing-plan.md`,
-`docs/operations.md`, `docs/hipaa-plan.md` and each connector's `NOTES.md`. Those stay the
-source for the details; this page says what is left and in what order. Priority (owner,
-2026-11-08): **1. the purchasing agent working, 2. the marketing site, 3. the connectors and
-the rest.**
+The one forward plan: everything still to do, by area, with the **To do** list on top in priority
+order. Updated 2026-11-26, after a scrub of every plan document against the code (`docs/README.md`
+lists each document and its status). The plan documents and `docs/plan.md` stay the record of what
+was built and why; this page says only what is left.
 
-**The order we work it in** (2026-11-22): `docs/work-plan.md`, one item and one PR at a time,
-code and the owner's steps side by side. Reporting and searching runs by their data is agreed
-in `docs/reporting-plan.md`; R1 to R4 are built (a record's Runs panel, §1.200; a report per
-agent, §1.214).
+How to keep it (CLAUDE.md, "Nothing left for later goes unrecorded"): each PR adds a line here for
+what it leaves for later and ticks or removes what it finishes. Item ids (P1, K1, S1, M2, D4, A2…)
+are kept because other documents cite them.
+
+Marks: **[code]** a PR, **[owner]** a step only the owner can take (an account, a key, a
+setting), **[decision]** the owner's call, **[check]** a look on staging or against a live service.
 
 ## To do
 
-The working checklist (owner, 2026-11-26): tick an item when it is done, add one when it comes
-up, reorder as priorities move. Each points to the section below that holds the detail.
+Now:
 
-- [ ] **Every key in production.** GitHub → Settings → Environments → `production`, then
+- [ ] **Every key in production** [owner]. GitHub → Settings → Environments → `production`, then
   Actions → Deploy → production to copy them into the Worker (`docs/operations.md`, "Worker
   secrets"). Which are already there can't be seen from a session; check the list against it.
-  - For the first release: `WORKOS_API_KEY`, `ANTHROPIC_API_KEY`, `OPENAI_API_KEY` (dictation),
+  - For clients now: `WORKOS_API_KEY`, `ANTHROPIC_API_KEY`, `OPENAI_API_KEY` (dictation),
     `RESEND_API_KEY` and `RESEND_WEBHOOK_SECRET` with the variables `RESEND_FALLBACK_DOMAIN` and
     `RESEND_FALLBACK_DOMAIN_ID`, `SENTRY_DSN_API` and `SENTRY_DSN_WEB`,
     `TWILIO_VERIFY_API_KEY_SID` and `TWILIO_VERIFY_API_KEY_SECRET` (done 2026-11-18, A2),
     `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`.
-  - As each provider goes live (§3): `QBO_CLIENT_ID`, `QBO_CLIENT_SECRET`,
+  - As each provider goes live (§9): `QBO_CLIENT_ID`, `QBO_CLIENT_SECRET`,
     `QBO_WEBHOOK_VERIFIER`; `PLAID_CLIENT_ID`, `PLAID_SECRET`; `STRIPE_SECRET_KEY`,
     `STRIPE_WEBHOOK_SECRET`; `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`; `ELEVENLABS_API_KEY`,
     `ELEVENLABS_WEBHOOK_SECRET`; `META_APP_ID`, `META_APP_SECRET`, `META_CONFIG_ID`,
@@ -33,741 +33,466 @@ up, reorder as priorities move. Each points to the section below that holds the 
     `GOOGLE_PICKER_API_KEY`, `GOOGLE_PROJECT_NUMBER`; `BILL_DEV_KEY`; `MFA_TWILIO_ACCOUNT_SID`,
     `MFA_TWILIO_AUTH_TOKEN` (the code service, browser logins); optional `XAI_API_KEY`,
     `GEMINI_API_KEY`.
-  - Not copied by `deploy.yml` yet (code: one CI PR): `ONEDRIVE_CLIENT_*`, `EXCEL_CLIENT_*`,
+  - Not copied by `deploy.yml` yet [code, one CI PR]: `ONEDRIVE_CLIENT_*`, `EXCEL_CLIENT_*`,
     `OUTLOOK_CALENDAR_CLIENT_*`, `TEAMS_BOT_*`, `LINKEDIN_CLIENT_*`.
   - Never by hand: `ENCRYPTION_KEY`, `WORKOS_COOKIE_PASSWORD`, `OAUTH_STATE_SECRET`,
     `MFA_ENCRYPTION_KEY` (generated in Cloudflare on deploy; never replace `ENCRYPTION_KEY`).
-- [ ] **SSO in WorkOS production.** WorkOS → Production: Google and Microsoft sign-in on
+- [ ] **SSO in WorkOS production** [owner]. WorkOS → Production: Google and Microsoft sign-in on
   (Authentication → Social login) with Mezonas' own OAuth clients, not WorkOS's test ones;
   enterprise SSO (SAML or OIDC) set up per client organization when a client asks, in that
   organization's settings. SSO sign-ins skip our second step (`SECOND_FACTOR_EXEMPT_METHODS`);
-  Google and Microsoft sign-ins don't. Same pass: redirect and sign-out URIs, sessions 12 hours
-  and 30 minutes idle, branding, and A3 (Dynamic Client Registration and Client ID Metadata
-  Documents on) (`docs/operations.md`, "By hand" and "The first production release").
-- [ ] **Apple Developer Program** (organisation, D-U-N-S for Twelve Thirty-Four): gates the
+  Google and Microsoft sign-ins don't. Same pass: sessions 12 hours and 30 minutes idle,
+  branding, and A3 (§1.2).
+- [ ] **Finish production after today's deploy** [owner]: approve the Claude connection to
+  production, install the platform templates, each client's Sloan, the Mezonas client, Email
+  Routing for `in.mezonas.com`, then the sign-in checks and WorkOS multi-factor off (§1.1).
+- [ ] **#711 onto staging** [code]: both deploys of `bb05507a` failed the sweep (§2).
+- [ ] **Apple Developer Program** (organisation, D-U-N-S for Twelve Thirty-Four) [owner]: gates the
   iPhone build and push (M3) and the Mac app's signing (D5). Start first: approval can take days.
-- [ ] **Phone app, accounts**: an Expo account, `eas init`, `EAS_PROJECT_ID` (M2); a Firebase
-  project for Android push, its `google-services.json` and FCM key (M4).
-- [ ] **Phone app, code** (small PRs): `deploy.yml` copies `MOBILE_SIGNIN`, `MOBILE_PUSH` and
+- [ ] **Phone app, accounts** [owner]: an Expo account, `eas init`, `EAS_PROJECT_ID` (M2); a
+  Firebase project for Android push, its `google-services.json` and FCM key (M4).
+- [ ] **Phone app, code** [code]: `deploy.yml` copies `MOBILE_SIGNIN`, `MOBILE_PUSH` and
   `EXPO_ACCESS_TOKEN`, with Expo's enhanced push security on (M6); universal and app links in
-  place of `mezonas://` before production (M8); the evidence panel on the phone's Desk (Round 4).
-- [ ] **Phone app, on staging**: development builds on an iPhone and an Android phone, then M5's
-  checks and A8's phone approval of a sign-in.
-- [ ] **Phone app, decisions and store**: M7, M9, M10 and A9; the store listing and TestFlight
-  testers.
-- [ ] **Desktop app, signing**: the Apple Developer ID (Mac, notarised) and Azure Trusted Signing
-  or an OV certificate (Windows) (D5).
-- [ ] **Desktop app, updates** (code, own PR): an R2 bucket behind
-  `downloads.mezonas.com/desktop/` (what `electron-builder.yml` already points at) and a release
-  workflow that builds on macOS and Windows runners and uploads there (D6).
-- [ ] **Desktop app, on a Mac and a PC**: run it against staging with `MOBILE_SIGNIN=on` and
-  check `packages/connectors/src/desktop/NOTES.md` (D4).
+  place of `mezonas://` before production (M8); the evidence panel on the phone's Desk (M11).
+- [ ] **Phone app, on staging** [check]: development builds on an iPhone and an Android phone,
+  then M5's checks and A8's phone approval of a sign-in.
+- [ ] **Phone app, decisions and store** [decision]: M7, M9, M10 and A9; the store listing and
+  TestFlight testers.
+- [ ] **Desktop app, signing** [owner]: the Apple Developer ID (Mac, notarised) and Azure Trusted
+  Signing or an OV certificate (Windows) (D5).
+- [ ] **Desktop app, updates** [code, own PR]: an R2 bucket behind `downloads.mezonas.com/desktop/`
+  (what `electron-builder.yml` already points at) and a release workflow that builds on macOS and
+  Windows runners and uploads there (D6).
+- [ ] **Desktop app, on a Mac and a PC** [check]: run it against staging with `MOBILE_SIGNIN=on`
+  and check `packages/connectors/src/desktop/NOTES.md` (D4).
 - [ ] **Desktop app, code and decisions**: removing a phone also ends that person's desktop
-  sessions (D7); a screen listing a client's computers (D3's note); the owner's review of
-  §1.151's decisions (D1). D8 is the next version, not the finish.
+  sessions (D7) [code]; a screen listing a client's computers (D9) [code]; the owner's review of
+  §1.151's decisions (D1) [decision]. D8 is the next version, not the finish.
+
+Next:
+
+- [ ] **The buyer on staging**: P1–P5 [owner], then build it in v5 and run the done-when (§3).
+- [ ] **The pack templates rebuilt in v5** [code]: every pack ships none since #707 (§2).
+- [ ] **Search Console** (S6) [owner]: start now, it collects from the day it is verified.
+- [ ] **The site live**: S1–S4 (§8).
+- [ ] **The Bookkeeper**: K1–K2 [owner], then K4–K8 once its template is rebuilt (§4).
+- [ ] **Plaid attestation** by 2027-04-10 (Plaid's deadline 2027-05-10) [owner] (§14.3).
 
 ## Where things stand
 
-- **Built:** everything through M69 (`docs/plan.md` §4) and the work recorded through §1.220,
-  migrations through 0100, merged to `main` and deployed to staging. That includes purchasing end
-  to end by email (M42), the Marketing wave (M43–M50), the Bookkeeping area (M51–M57), the back
-  office's Sales, onboarding and Build (M64–M69), the SOP and agent assurance.
-- **Every provider is built against a fake.** Nothing has yet run against live QuickBooks, Gmail,
-  Resend, Twilio, Meta, ElevenLabs, Stripe, Plaid, Search Console or the others.
-- **Templates to production** (owner, 2026-11-16): planned in `docs/plan.md` §1.118, not built. Only
-  a template's tested set-up moves from staging to production, never client agents or their data.
-- **Unmerged work:** the 2026-11-15 backlog (`docs/merge-backlog.md`) has all landed: token
-  counts, the phone app, area owners, removing a person, §1.118 and the approval link (§1.120).
-  #518 and #520 (a workflow's starts; testing some of the steps) merged on 2026-11-22. Open:
-  #501 (the issue close-out, a stale draft; the owner to say finish or close).
-- Production is live from a hand-run deploy of `747d7ff`
-  (2026-11-09, migrations through 0041) but has had no `v*` tag; its next release is an upgrade.
-- Almost everything below is **a setup step, a key or a decision for the owner**, not code. Where
-  code is still needed, it says so.
-- **The step model** (2026-11-25, `docs/plan.md` §1.244, `docs/step-model-plan.md` §13d): built,
-  released on `main` (#707: workflows stored as v5 only) and running on staging, purged and seeded
-  again in v5. Matching defaults decided: a shortlist of 10 (#709). Open: production, where the
-  purge and the deploy wait for the owner's approval, then the templates' install and each client's
-  Sloan; #707 reaches production only after the purge. Then the follow-ups in §13d: v5 promotion
-  scrubs (invariant 11), rebuilt coverage, "Test some of the steps" in v5, the skill's mode, the
-  rest of §12, and the pack templates rebuilt. For the owner: a native read of the timeline's
-  output wording in five languages.
+- **Built:** everything through M69 (`docs/plan.md` §4), the work recorded through §1.244 and the
+  step model (`docs/step-model-plan.md` §13d), migrations through 0102. Every provider is built
+  against a fake: nothing has run against live QuickBooks, Gmail, Resend, Twilio, Meta,
+  ElevenLabs, Stripe, Plaid, Search Console or the others.
+- **Production** (`app.mezonas.com`): purged for the step model on 2026-11-26 (Purge agents run 4,
+  06:23 UTC) and deployed by hand from `269a3b70` the same day (Deploy run 606, 13:32 UTC:
+  migrations through 0102, #707 included, sign-in codes on). No `v*` tag yet.
+- **Staging** (`staging.mezonas.com`): purged and seeded in v5 on 2026-11-25. `main` is at
+  `bb05507a` (#711), which isn't on staging: its deploys failed (§2).
+- **Agents:** the platform's (the Builder, Sloan, the Coordinator, the Document clerk, the Bill
+  clerk) are seeded in v5. **No pack ships a template** until each is rebuilt in v5.
+- **Templates to production** (`docs/plan.md` §1.118): planned, not built. Only a template's
+  tested set-up moves from staging to production, never client agents or their data.
 
-## 0. Enterprise readiness (2026-11-15)
+## 1. Production, sign-in and deploys
 
-The owner's list for the first enterprise and high-volume pilots, checked against the code, with
-its gaps (E1–E16) and the open question of which accounting system they use:
-`docs/enterprise-readiness.md`.
+### 1.1 Production after today's deploy
 
-## 1. The purchasing agent (the buyer) working on staging
+| # | Step | Kind |
+|---|---|---|
+| R1 | Approve this Claude connection to production (the link the MCP shows), so sessions can read it. | owner |
+| R2 | Install the platform templates (`docs/operations.md`, "The first production release", step 5) and check each client's Sloan. | owner |
+| R3 | The Mezonas client (`docs/operations.md`, "Mezonas, our own client") and the first real client. | owner |
+| R4 | Email Routing: `in.mezonas.com` and `agents.mezonas.com`, staging's addresses first, then the catch-all to `mezonas` (`docs/operations.md`, "The first production release", step 3). | owner |
+| R5 | Sign-in codes are on in production: sign in, set up a method, save the recovery codes, approve one Claude connection, then WorkOS → Production → Multi-factor auth **off** (A5). Everyone sets up once; WorkOS's enrolments don't carry over. | owner |
+| R6 | The external checks: `/api/health`, `/api/ready` with the commit, the QBO webhook's 401 once its verifier is set. | check |
+| R7 | Tag `v0.1.0` on `main` at the next deploy, so production has a tag to roll back to. | owner |
+| R8 | A written production rollback (only staging's smoke-test rollback is written down; E15). | code, docs |
+| R9 | Sentry: point `mezonas-web`'s GitHub code mapping at `jammil-alt/countersign` (it points at Plenary Labs'); cancel the stuck staging run behind MEZONAS-API-1; check that Sentry's alerts reach the phone. | owner |
+| R10 | H3: caching off on the two Hyperdrive configs; let `staging` deploy the `claude/*` branches that quick-deploy. | owner |
 
-Goal: M42's done-when, on staging. A person emails the buyer; it opens a purchase request and
+### 1.2 Sign-in (`docs/operations.md`, "Sign-in codes" and "By hand")
+
+| # | Step | Kind |
+|---|---|---|
+| A3 | WorkOS production: Dynamic Client Registration and Client ID Metadata Documents on (Applications → Configuration). Check: `curl https://app.mezonas.com/.well-known/oauth-authorization-server` lists `registration_endpoint`. Without it Claude stops at "application not found". | owner |
+| A4 | Staging: finish the switch-over (set up a method with a fresh key, recovery codes, one Claude connection), then WorkOS → Staging → Multi-factor auth off. | owner |
+| A6 | WhatsApp codes for clients: a WhatsApp sender of our own on the Verify service (Meta Business verification is the slow part), then `TWILIO_VERIFY_WHATSAPP: on` (a one-line PR). | owner, code |
+| A7 | Check Twilio Verify for real: `packages/connectors/src/twilio/VERIFY_NOTES.md`, "To verify". | check |
+| A8 | Approving a sign-in on the phone: check once the app is live (§6). | check |
+| A9 | Not built: an email when a sign-in request is turned down; a phone approving a Claude connection; the desktop app approving. | decision |
+| A10 | WorkOS on both environments: branding (logo, colours, favicon; `docs/operations.md`, "By hand"), `auth.mezonas.com` if the plan allows; then `packages/auth/NOTES.md`'s unchecked list, first whether a new address can sign up without a WorkOS invitation. | owner, check |
+| A11 | Confirm the approval link also applies to clients' Claude connections (`docs/plan.md` §1.120, "Who"). | decision |
+
+## 2. The step model: follow-ups (`docs/step-model-plan.md` §13d)
+
+- **#711 isn't on staging** [code]: Deploy runs 607 and 608 of `bb05507a` failed the sweep, five
+  failures on `/ops/templates/bill-clerk/workflows/invoice-read` where navigation clicks time out,
+  probably #711's new side drawer.
+- **The pack templates, rebuilt one by one in v5** [code]: the Bookkeeper, Close, Bills to pay
+  (AP), Vendor contracts and invoice review (Materials), Spreadsheet to Zoho (Sales), and the
+  Marketing set. Each `templates` list is empty since #707.
+- **The Invoice item matcher** (§11), built in the new builder: the model's acceptance test [code].
+- **Promotion scrubs for v5** (invariant 11) [code]: a loosened `contact.messages`, `rules.values`,
+  `ai.values` and `rules.rows` with record literals aren't scrubbed on promotion; a loosened
+  `contact.messages` isn't held to act mode at publish (the gate still checks each send).
+- **Coverage to rebuild on v5 agents** [code]: Bookkeeping write-once, close, reconcile, `expand`
+  and the Builder suite and evals (their subjects were deleted with v4).
+- **"Test some of the steps"** refuses every workflow: it was v4 only [code].
+- **The rest of §12** [code]: the skill's `mode` (R4; v5 Loops still use it), the tool-only skills
+  (R1), duplicate settings (R5), dropped skills (R6), replaced pack actions (R7), the old "how it
+  ends" code (R8), the packs' superseded map (R9), vendor-item embeddings (R10, its own migration).
+- **The engine taking v5 shapes directly**; today `step-model.ts` loads each as an engine step [code].
+- **v5 automations**: still version 2; no Builder chat or Try of their own; renaming an input
+  doesn't rewrite the steps that read it [code].
+- **Turn on** is only on a client's Progress tab; the v5 builder has Publish only [decision].
+- **One main workflow at publish**: `oneProcessProblems` went with v4; rebuild the rule in v5 or
+  drop it (Sloan keeps four workflows as the owner's exception) [decision].
+- **Lanes**: ways in drawn as lanes into the main workflow on one chart [code, if wanted].
+- **Try the v5 builder on staging** (once #711 is there): a template from Describe it, a try, Turn
+  on at a test client, then a client's agent customised and its template updated [check].
+- A native read of the run timeline's output wording in five languages [owner].
+
+## 3. Purchasing: the buyer on staging
+
+Goal: M42's done-when on staging. A person emails the buyer; it opens a purchase request and
 matches the lines; an unsure line is answered on a card; two vendors get an RFQ by email; one
 replies with a PDF, one goes silent and expires; the vendor is picked on a card; the PO PDF is
-emailed and the QuickBooks purchase order is created; every write is approved once
-(`docs/plan.md` §1.71, M42).
+emailed and the QuickBooks purchase order is created; every write is approved once.
 
-### 1.1 Owner setup that blocks it
-
-| # | Step | Where | Why |
-|---|---|---|---|
-| P1 | **Email Routing for `in.staging.mezonas.com`**: add the subdomain, then a catch-all rule → Send to a Worker → `mezonas-staging`. `EMAIL_FORWARDING_DOMAIN` is already set in `apps/api/wrangler.jsonc`. | `docs/operations.md`, "By hand" step 3 | The buyer's address (and every forwarded invoice) arrives through the Worker's `email()`. Without it nothing reaches the agent. |
-| P2 | **An email channel to send RFQs and POs from.** Either: **Resend** (`RESEND_API_KEY` secret, `RESEND_FALLBACK_DOMAIN` and `RESEND_FALLBACK_DOMAIN_ID` variables in the GitHub staging environment, the sending domain verified in Resend); or **Gmail** (the "Mezonas web" OAuth client exists; add the sending account as a test user on the consent screen. In testing mode its token ends after 7 days, so reconnect weekly until Google's verification). Resend is the quicker one to keep working. | `docs/operations.md` "Worker secrets" (Resend), "Google" | Reach out needs a bound email channel; an unbound one is `not_allowed`. |
-| P3 | **Intuit developer app, sandbox keys**: `QBO_CLIENT_ID` and `QBO_CLIENT_SECRET` in the GitHub staging environment, redirect URI `https://staging.mezonas.com/api/connections/qbo/callback`, webhook pointed at staging. `QBO_ENV` is `sandbox` on staging already. | `docs/operations.md`, "Intuit" | QuickBooks vendor and PO creation, and the bill-price import. |
-| P4 | **Confirm the model key** (`ANTHROPIC_API_KEY`) is in the staging environment. `LLM_MODE` is `live` there. | GitHub → Environments → staging | The reading skills (request, quote PDF) call the model. |
-| P5 | **The real-mail check**, once P1 is done and before production's release: the checklist in `packages/connectors/src/upload/NOTES.md` on `in.staging.mezonas.com` (a genuine message, a forged top header, a spoofed envelope, a Microsoft 365 sender, an out-of-office then the real quote). | `docs/plan.md` §1.129 | Inbound mail trusts only Cloudflare's own `mx.cloudflare.net` verdict. If Cloudflare doesn't write it on top, genuine mail fails closed: forwarded invoices are refused and vendors' replies are kept as unverified. |
-
-### 1.2 Then, in the app (no code)
-
-1. Use the **Sandbox** client (or a pilot client). Switch on the **Materials pack** (Packs → Switch on).
-2. **Connect QuickBooks** from the client's portal to the sandbox company (`9341458640918607`) and
-   let the first sync run.
-3. **Import bill prices** (the client's Packs tab, a date range) so the catalog has items, vendors'
-   own words and prices.
-4. **Directory:** each vendor that should get an RFQ needs its organization tied to the vendor and
-   a person with an email, consent to email, purchasing or sales role. A vendor with nobody is
-   listed and skipped; the agent never guesses an address.
-5. **Build the buyer in the Agent lab** from the pack's skills (`comms.read-message`,
-   `materials.read-request`, `materials.open-request`, the request-lines card, `materials.vendor-contacts`,
-   `materials.quote.create` and `quote.document`, reach out in a `for_each`, `quote.mark-sent`,
-   `read-quote`, the vendor-choice card, the PO PDF, `materials.vendor.qbo`, `materials.po.qbo-lines`,
-   `qbo.purchaseorder.create`). `apps/api/src/purchasing-email.test.ts` is the working recipe: copy its
-   workflow. Set the skill setting `qbo_account_id` (the expense account PO lines book to when an
-   item has no QuickBooks item; items the bill-price import saw are tied already, and
-   `materials.item.qbo` ties the rest, `docs/plan.md` §1.205).
-6. **Bind its channels and connections** (email channel from P2, QuickBooks), test-run it, then take it
-   through trial (every write signed).
-7. **Run the done-when** with real email from a test inbox, and walk the QuickBooks sandbox checks in
-   `packages/connectors/src/qbo/NOTES.md` ("Against the sandbox company", 1 to 9; 9 is the PO
-   with an item line, C2.4).
-
-### 1.3 Owner decisions for the buyer (`docs/plan.md` §1.71)
-
-- The RFQ email's wording and language (plain English, built in code today).
-- Whether a vendor with nobody who agreed to email is asked anyway once the client says so (today: skipped).
-- The default wait for quotes (the reach-out's `timeout`; we suggest 2 days).
-- The QuickBooks expense account for PO lines when the item has none (a per-agent skill setting today).
-
-### 1.4 Known gaps (code, only if the test shows they matter)
-
-- A vendor's reply **from a colleague's address** (another address at the contact's own domain)
-  is kept on the thread without answering the reach-out (§1.194, #533), as one that comes
-  **after** the reach-out ended, or from the vendor's address but not proven, already is
-  (§1.129). Either way a person enters it (§1.65, §1.71). Not built: showing the colleague's
-  address on the thread line and adding them as a contact from there.
-- **More lines are held for a person** since the pack-size fix (`docs/plan.md` §1.144): a line
-  with no clear pack size and no SKU gets no automatic match. Price observations filed wrongly
-  before that fix stay as they are; nothing re-files them.
-- **Before the first purchasing client: a staging run with real invoices.** The fakes and the
-  goldens don't cover how real vendors word their packs.
-- RFQs are English only; the vendor's language is open.
-- QuickBooks PO lines are item lines for catalog items tied to a QuickBooks item, account lines
-  for the rest (C2.4, `docs/plan.md` §1.205). Open: no screen shows or changes an item's
-  QuickBooks item (a step or the import ties it; changing a wrong tie is by hand in the database
-  today).
-- The portal channel for conversations (§1.66).
-- **The vendor catalog** is built (`vendor_item`, migration 0047, §1.88) and purchasing reads and
-  fills it (§1.189, #529). Open: a request line doesn't keep which vendor item it matched, so a
-  request in boxes isn't sized by that vendor's box when quotes are compared.
-
-## 1b. The Bookkeeper (bank transactions into QuickBooks)
-
-Built against the fakes (`docs/plan.md` §1.79, M51–M56): the chart of accounts synced from
-QuickBooks with notes on what each account is for, the Bookkeeping pack, the QuickBooks writes
-(purchase, deposit, transfer), several banks per client, the Bookkeeper template and the screens,
-and reconciliation (§1.80, M57: each linked account against QuickBooks monthly, a deposit against
-its payout statement, signed off on a card).
-
-**Bookkeeping stays off for clients** until the steps below are walked. The two double-write paths
-§1.145 left open are closed by Bookkeeper template v6 (§1.187, #525), reaching client agents only
-through the reviewed update. What was open:
-
-1. **Two signatures.** The earlier copy's write was already laid out for a signature when the bank
-   sent the transaction again, and a person then also approves the new copy. Closing it needs a
-   check right before each write: a template change after v4.
-2. **Unrecorded deposits and transfers.** A deposit or transfer written but never recorded (the run
-   stopped after the write). These don't sync back from QuickBooks, so the guard can't see them.
-
-Both are fixed in code. Before a client's Bookkeeping is switched on, run `qbo/NOTES.md`'s
-"Booking bank transactions" check 6 (the same-day query by the transaction's mark) with K4. Then,
-to go live:
-
-| # | Step | Notes |
+| # | Step | Kind |
 |---|---|---|
-| K1 | **Plaid sandbox keys**: `PLAID_CLIENT_ID` and the sandbox `PLAID_SECRET` in the GitHub staging environment; redirect URIs `https://staging.mezonas.com/connections/bankfeed/callback` (and production's, and `http://localhost:8787/…`) in Plaid's dashboard; Link's name "Mezonas". | `docs/operations.md`, Plaid |
-| K2 | Walk `packages/connectors/src/bankfeed/NOTES.md` in Plaid's sandbox. | Nothing has run against real Plaid. |
-| K3 | **Plaid production**: the review (company profile, security questionnaire, use case) and the OAuth banks' registration (Chase and the like take weeks). | Start early. |
-| K4 | Intuit sandbox keys (P3 above), then the checks in `packages/connectors/src/qbo/NOTES.md` ("The chart of accounts", "Booking bank transactions"). | Shared with the buyer. |
-| K5 | Run the Bookkeeper on the Sandbox: `docs/operations.md`, "Switching on the Bookkeeping area". | |
-| K6 | Decide: Plaid's price per bank (absorbed or credits); `book_confidence_auto` (0.85 today); whether learned rules need a person's yes first. | `docs/plan.md` §1.79 |
-| K7 | Fluent review of the Bookkeeping portal words (one block per language, the reconciliation block too). | |
-| K8 | Check QuickBooks' register (`qbo/NOTES.md`, "The register, for reconciliation") and Plaid's balances (`bankfeed/NOTES.md`) in their sandboxes, then reconcile one Sandbox month by hand: the Bookkeeper's "Every month" workflow, run now. | Migration 0040 applied. |
+| P1 | Email Routing for `in.staging.mezonas.com`: the subdomain, then a catch-all → Send to a Worker → `mezonas-staging`. Without it nothing reaches the agent. | owner |
+| P2 | An email channel for RFQs and POs: Resend (`RESEND_API_KEY`, `RESEND_FALLBACK_DOMAIN`, `RESEND_FALLBACK_DOMAIN_ID`, the domain verified) or Gmail (a test user on the consent screen; its token ends after 7 days until Google's verification). Resend is the quicker. | owner |
+| P3 | Intuit sandbox keys: `QBO_CLIENT_ID`, `QBO_CLIENT_SECRET` in the staging environment, redirect URI `https://staging.mezonas.com/api/connections/qbo/callback`, webhook at staging. | owner |
+| P4 | Confirm `ANTHROPIC_API_KEY` in the staging environment (`LLM_MODE` is `live` there). | owner |
+| P5 | The real-mail check before production's purchasing: `packages/connectors/src/upload/NOTES.md` on `in.staging.mezonas.com` (genuine, forged top header, spoofed envelope, Microsoft 365 sender, out-of-office then the real quote). Inbound mail trusts only Cloudflare's own verdict, so genuine mail could fail closed. | check |
+| P6 | In the app: the Sandbox client, the Materials pack on, QuickBooks connected to the sandbox company (`9341458640918607`) and synced, bill prices imported, the vendors' contacts in the Directory (consent, role, email). | owner |
+| P7 | Build the buyer in v5: `apps/api/src/purchasing-email.test.ts` is the working recipe (a v5 workflow); set `qbo_account_id`; bind the email channel and QuickBooks. | owner, code |
+| P8 | Run the done-when with real email from a test inbox; walk `qbo/NOTES.md`, "Against the sandbox company" 1 to 9. | check |
+| P9 | Before the first purchasing client: a staging run with real invoices (the goldens don't cover how real vendors word their packs). | check |
 
-## 1c. Sloan and Reggie by email and text (`docs/plan.md` §1.150)
+Decisions [decision]: the RFQ email's wording and language (English only today; C2.5); whether a
+vendor with nobody who agreed to email is asked once the client says so; the default wait for
+quotes (we suggest 2 days); the PO lines' expense account when an item has none.
 
-Sloan is built: each client's people email `sloan.<client>-<id>@in.<env>.mezonas.com` and text the
-account's number, and the answer comes back the same way. To use it on staging: Email Routing for
-the forwarding domain (§1 P1), Resend for the answers (§1 P2), and for texts the client's Twilio
-number with its texting registration approved and the person signed up for texts. Open for the
-owner: whether Sloan may pause a service on a text (Twilio doesn't prove the sender). **Reggie** by
-email and text is planned (§1.150), its own PR: it needs Mezonas' own number and campaign.
+Gaps, only if the test shows they matter [code]: a reply from a colleague's address isn't shown
+on the thread line or addable as a contact; a line with no pack size and no SKU gets no automatic
+match, and earlier wrongly filed price observations aren't re-filed; no screen shows or changes a
+catalog item's QuickBooks item; the portal channel for conversations (§1.66); a request line
+doesn't keep the vendor item it matched, so quotes in boxes aren't sized by that vendor's box.
 
-## 1d. An agent's own phone line, $10 a month (`docs/plan.md` §1.160)
+## 4. Bookkeeping: bank transactions into QuickBooks
 
-Built (migration 0069 in its own PR, then the feature): a client admin asks for a number of an
-agent's own from the agent's card or the Channels page; we buy one on the client's Messaging page
-and pick the agent in the number's "Whose number" list. The agent then texts and calls from it,
-texts to it go to that agent only (never Sloan), and each active day is billed at the line price.
-To use it on staging: the client's Twilio subaccount, two numbers (the account keeps one), and the
-line price on `/ops/billing` if not $10. Retiring an agent gives its line back to the account
-(Messaging marks it Spare until it's given to another agent or released). Open for the owner:
-whether the account's own number should be billed too, and the five non-English portal strings'
-review. Built since: retiring a client releases its numbers and closes its Twilio subaccount within
-the hour, and Messaging registers a client's numbers for signed calls (SHAKEN/STIR) and its caller
-name (CNAM) once its texting registration's business profile is approved. Open: the by-hand checks
-against a real subaccount (`packages/connectors/src/twilio/NOTES.md`, "Calls that carry the
-client's name"), before the first client's calls.
+Built against the fakes (`docs/plan.md` §1.79, M51–M57, the double-write fixes of §1.187).
+**Off for clients** until the steps below. The Bookkeeper template is gone with v4: rebuild it in
+v5 first (§2).
 
-## 1e. Spreadsheets in and out, and a spreadsheet matched to Zoho (`docs/plan.md` §1.164)
-
-Built and merged (owner, 2026-11-20; #478 to #484: migration 0072, the Sales area's tables and
-`sales.match_records`, Reshape's `object`, Read table and Write table, Zoho's fields, Confirm
-matches and the template "Spreadsheet to Zoho"). Open for the owner: Zoho's field list, its scope and the
-50-field limit checked on the Mezonas Dev org before a client connects (existing Zoho connections
-sign in again for field lists); which client first, the fields matched on, and whether rows with no
-match make new leads; the portal's "attach PDFs or images" message, which doesn't name spreadsheets
-yet.
-
-## 2. The marketing site (mezonas.com)
-
-This session's network can't reach `mezonas.com`, so whether it is live is **not checked here**.
-The checklist in `docs/operations.md` ("The public site") is still unticked.
-
-### 2.1 Get the site live
-
-| # | Step | Notes |
+| # | Step | Kind |
 |---|---|---|
-| S1 | Delete the three parking records (`A mezonas.com 15.197.148.33`, `A mezonas.com 3.33.130.190`, `CNAME www`); keep everything else, especially the `google-site-verification` TXT. | `docs/operations.md`, "The public site" |
-| S2 | Re-run the `site` job of the latest Deploy on `main`; check `/`, `/hire`, `/security`, `/terms`, `/privacy`, `/subprocessors`, `/sms-terms` and `www`. | The job already exists in `deploy.yml`. |
-| S3 | **Lawyer's read of the legal pages**: the draft terms listed in `apps/site/README.md` ("Placeholders to fill in": notice periods, the liability cap, age 16, the AI providers' terms). | Placeholders are filled; the terms themselves are drafts. |
-| S4 | **Submit Google's OAuth verification** once the site is live (homepage, `/privacy`, `/terms`), with `gmail.send` and, for M50, `webmasters.readonly`. Remove `gmail.readonly`, `gmail.labels` and `gmail.compose` from the consent screen first. | Unblocks Gmail beyond test users and `gsc_oauth` beyond 7-day tokens. |
+| K1 | Plaid sandbox keys in staging; redirect URIs for staging, production and localhost in Plaid's dashboard; Link's name "Mezonas". | owner |
+| K2 | Walk `packages/connectors/src/bankfeed/NOTES.md` in Plaid's sandbox. | check |
+| K3 | Plaid production: the review and the OAuth banks' registration (weeks). Start early. | owner |
+| K4 | QuickBooks' checks (P3's keys): `qbo/NOTES.md`, "The chart of accounts" and "Booking bank transactions", check 6 (the same-day query by the transaction's mark) before any client. | check |
+| K5 | Run the rebuilt Bookkeeper on the Sandbox (`docs/operations.md`, "Switching on the Bookkeeping area"). | check |
+| K6 | Plaid's price per bank (absorbed or credits); `book_confidence_auto` (0.85); whether learned rules need a person's yes first. | decision |
+| K7 | Fluent review of the Bookkeeping portal words. | owner |
+| K8 | QuickBooks' register and Plaid's balances in their sandboxes, then one Sandbox month reconciled by the rebuilt Bookkeeper. | check |
+| K9 | The Close pack: `qbo.journal.create` on the QuickBooks sandbox (`qbo/NOTES.md`, "Journal entries"). | check |
+| K10 | Books health: the sign of a liability's `CurrentBalance` and Undeposited Funds' `AccountSubType` on the sandbox. | check |
+| K11 | Matching: a back-office screen for saved rules and "save as rule" on the reconciliation card; a pack tool running the ROMCO configuration. | code |
 
-### 2.2 Measuring, guides and search (each off until switched on)
+## 5. Messaging: Sloan, Reggie and agents' own lines
 
-| # | Step | Notes |
+- **Sloan by email and text** is built (§1.150). On staging it needs P1, P2, and for texts the
+  client's Twilio number with its texting registration and the person signed up [owner].
+  Whether Sloan may pause a service on a text (Twilio doesn't prove the sender) [decision].
+- **Reggie by email and text** [code, own PR]: needs Mezonas' own number and campaign.
+- **An agent's own line** (§1.160) is built. Whether the account's own number is billed too
+  [decision]; the by-hand checks against a real subaccount (`twilio/NOTES.md`, "Calls that carry
+  the client's name") before the first client's calls [check].
+- **Spreadsheets and Zoho** (§1.164) is built; its template is to rebuild in v5 (§2). Zoho's field
+  list, scope and 50-field limit on the Mezonas Dev org [check]; which client first, the fields
+  matched on, and whether unmatched rows make new leads [decision]; the portal's "attach PDFs or
+  images" message doesn't name spreadsheets [code].
+
+## 6. The phone app (`docs/plan.md` §1.116, `apps/mobile/README.md`)
+
+Merged unfinished; built and tested against fakes, never run on a phone. Off until
+`MOBILE_SIGNIN=on` and `MOBILE_PUSH=on`.
+
+| # | Step | Kind |
 |---|---|---|
-| S5 | Create the **Mezonas client** on staging (and later production): internal flag, approvals to us, Marketing pack on, site `mezonas.com` with its goals. | `docs/operations.md`, "Mezonas, our own client" |
-| S6 | **Search Console**: a Google Cloud service account (no roles), its JSON key, added to the property as Restricted; enter it in the Mezonas client's connection. | `docs/marketing-plan.md` §8 tasks 1–2. Start now: it collects from the day it is verified. |
-| S7 | **Bing Webmaster Tools**: import from Search Console, generate an API key, enter it. | §8 task 3 |
-| S8 | **Measuring**: the lawyer reads `docs/marketing/privacy-measurement-draft.md`; the reviewed section goes into `/privacy`; the repository variable `MEZONAS_MEASURE_URL`; a small `deploy.yml` PR passing it to the site build. | Code: the one-line `deploy.yml` PR (its own PR). |
-| S9 | **The collector's host** `collect.mezonas.com` (and `collect.staging.`): DNS and its own PR. Decide **D2**: cut production's first release for it, or point at staging until then. | `docs/marketing-plan.md` §8 tasks 5–6. Code: the host PR. |
-| S10 | **Guides**: create the R2 bucket `mezonas-site-content`, bind `SITE_CONTENT` to `apps/api` and the site, set `SITE_GUIDES=on` (uncomment two lines in `apps/site/wrangler.jsonc`); `INDEXNOW_KEY` once the site serves its key file; submit `/sitemap.xml` in Search Console. | Code: the binding PR. |
-| S11 | **Claims list**: read `docs/marketing/claims.md`, load it for the Mezonas client (`seed-claims`), point the Website connection at mezonas.com. | Content can't publish without it. |
-| S12 | **The marketing agents**: fork the templates into the Mezonas client (weekly report, titles, article drafts, forum watch); `MARKETING_RESEARCH=on` and its search vendor for article research; a **LinkedIn** developer app on the company page (Community Management API) for social posts. | M47–M49 |
-| S13 | Before offering it to a client: the lawyer's read of `docs/marketing/processor-terms-draft.md`; a CMS connector only when a client asks. | M50 |
+| M2 | An Expo account; in `apps/mobile`: `npx eas-cli login`, `npx eas-cli init`; the project id in `EAS_PROJECT_ID`. | owner |
+| M3 | iPhone: the Apple Developer Program (organisation, $99 a year, D-U-N-S), register the phone (`eas device:create`), `eas build --profile development --platform ios` with EAS making the certificates and APNs key. Bundle id `com.mezonas.app`. | owner |
+| M4 | Android: `eas build --profile development --platform android`; for push a Firebase project, `google-services.json` as the EAS file variable `GOOGLE_SERVICES_JSON`, the FCM v1 key via `eas credentials`. The Play Console ($25) only for the store. | owner |
+| M5 | Try it on staging: `MOBILE_SIGNIN=on` and `MOBILE_PUSH=on` with `wrangler secret put` (until M6), sign in, set up the phone, a Desk item on the Sandbox; the notification within 5 minutes, Face ID to sign, `inbox.device_signed` in the audit log, Undo within 60 seconds, removing the phone stops notifications. | check |
+| M6 | Expo's enhanced push security on; `deploy.yml` copies `MOBILE_SIGNIN`, `MOBILE_PUSH` and `EXPO_ACCESS_TOKEN` (its own PR), before production's `MOBILE_PUSH=on`. | owner, code |
+| M7 | A longer session for an unlocked registered phone; whether a remembered browser lets a phone sign-in skip the code; whether operators get the app; the store listing; TestFlight testers. | decision |
+| M8 | Universal links (iOS) and app links (Android) in place of `mezonas://`, before production's `MOBILE_SIGNIN=on`. | code |
+| M9 | When to refuse a `mezonas-sign:v1` signature that comes with an answer or a note. | decision |
+| M10 | Whether a release-code card may be resolved from a phone without a signature; whether a phone may turn human release off; test first whether an admin's phone undoing a rejection lets an `ifNoAnswer: proceed` step go on. | decision, check |
+| M11 | The evidence panel on the phone's Desk (the web inboxes have it, §1.211). | code |
 
-## 3. Connectors and providers
+## 7. The desktop app (`docs/plan.md` §1.151, `apps/desktop/README.md`)
 
-Each is built and tested against a fake; what is unchecked is in its folder's `NOTES.md`
-(`packages/connectors/src/<name>/NOTES.md`). To go live each needs the owner's account and keys,
-then one pass of its "To verify" list against the real service.
+The app, its API (§1.204) and the `desktop` connector are merged; never run on a Mac or a PC.
 
-| Area | Connector | What the owner needs to do |
+| # | Step | Kind |
 |---|---|---|
-| Accounting | QuickBooks (`qbo`) | Sandbox: §1 P3. Production: Intuit's app review and security questionnaire, production keys. 13 doc checks and 8 sandbox checks in `NOTES.md`. Known risk: after a long gap, deletions of an entity with 1,000 or more changes since the last sync can be missed (CDC cuts them off and queries can't see them); the sync reports "qbo CDC cap: deletions may be missed" when it happens. |
-| Email | Gmail (`gmail`, send only) | Google verification (S4). |
-| Email | Resend (`resend`) | Account, `RESEND_API_KEY`, fallback sending domain (§1 P2). |
-| Email | Outlook (`outlook`, send only) | Entra app, publisher verification, `OUTLOOK_CLIENT_ID`/`SECRET`. |
-| Microsoft | OneDrive (`onedrive`), Excel (`excel`), Outlook Calendar (`outlook_calendar`) | An Entra app each (`ONEDRIVE_CLIENT_*`, `EXCEL_CLIENT_*`, `OUTLOOK_CALENDAR_CLIENT_*`; `docs/operations.md`), publisher verification (the same Partner Network id as Outlook), `deploy.yml` to copy the secrets (its own PR), then each `NOTES.md`'s "To verify" with a work and a personal account. First checks: whether `Files.ReadWrite.AppFolder` works for work accounts (OneDrive), and whether Graph honours Excel's quote prefix (Excel). SharePoint is not built (plan §1.114). |
-| Microsoft | Teams (`teams`) | An Azure Bot (single tenant) with its Entra app and secret (`TEAMS_BOT_*`), the messaging endpoint `https://<api host>/api/hooks/teams`, the Teams app package (manifest in `teams/NOTES.md`) uploaded per client or published to the Teams Store. First check: that a single-tenant bot can be installed and post in another organisation's Teams. |
-| Google | Calendar (`gcal`) | `calendar.events.owned` on the "Mezonas web" consent screen (a sensitive scope: part of Google's verification, S4), the redirect URIs; then `gcal/NOTES.md`'s "To verify" (Google's docs couldn't be read while building). |
-| Texts and calls | Twilio (`twilio`) | Account and keys; per-client subaccounts (default) or the client's own; which countries first; run a US client's A2P registration (M41) against the real Trust Hub. |
-| Texts and calls | WhatsApp through Meta (`whatsapp_meta`) | Meta app, register as a Tech Provider, `META_*` secrets. |
-| Texts and calls | ElevenLabs (`elevenlabs`) | Account, `ELEVENLABS_API_KEY`, webhook secret. |
-| Texts and calls | All three | **Legal review** of consent, calling hours, recording consent and AI disclosure per country, before any live client call or text. In it, counsel checks the **relationship basis** (`docs/plan.md` §1.97), now for calls (an automated assistant, an artificial voice under the TCPA) and email only, and the **texting sign-up** that replaced it for texts (§1.98): the words beside the box, the invitation email, the confirmation text and the 10DLC opt-in, against the TCPA and the CTIA's messaging principles. |
-| Access | Code service (`apps/mfa`) | Confirm the domains; Email Routing for `agents.staging.mezonas.com`; the codes Twilio subaccount; then turn email codes on (`apps/mfa/NOTES.md`). |
-| Access | Browser logins (`browser`) | Turn on Browser Run (the `BROWSER` binding is in `apps/api/wrangler.jsonc` for staging and production); the first real low-tier site; legal review of agent accounts. |
-| Finance | Plaid (`bankfeed`) | §1b above (K1–K3): keys, sandbox checks, production review and OAuth banks; price per bank; BAA (until then not offered to HIPAA clients). Several banks per client is built. |
-| Finance | Ramp (`ramp`) | Developer app, `RAMP_*`. |
-| Finance | BILL (`billcom`, plan §1.87) | A BILL developer key, sandbox first (`BILL_DEV_KEY`; `docs/operations.md`), a dedicated BILL user's login entered by the client admin, then `NOTES.md`'s "To verify"; production after BILL's review. Decide: which BILL role our user gets; whether BILL goes on the site's subprocessors page (it is a processor, as Plaid is); BILL's BAA (until then not offered to HIPAA clients). **Code still needed for payments:** `billcom.payment.create` is defined, off and refused until BILL's MFA-trusted session can be reached through the code service (`apps/mfa`). |
-| ERP | Odoo (`odoo`, plan §1.113) | Nothing for the deployment. An Odoo 17 trial database on the Custom plan (Odoo Online answers the external API only there, unchecked), then `NOTES.md`'s "To verify". Per client: they make an internal Odoo user for us with the smallest rights and an API key, and enter both in the portal; tell clients on Odoo Online's cheaper plans that the API isn't available to them. |
-| Finance | Stripe (billing) | Account and keys; the open prices (§4). |
-| CRM | Zoho CRM (`zoho_crm`) | API console client and the CRM Developer Edition test org made (2026-11-12, `zoho_crm/NOTES.md` "Live setup"). Next: `ZOHO_CLIENT_ID` and `ZOHO_CLIENT_SECRET` in both GitHub environments, then the first connection to the test org and `NOTES.md`'s unchecked list. |
-| CRM | HubSpot, Podio | A developer app each (`HUBSPOT_*`, `PODIO_*`). |
-| Zoho | Books, Inventory, Expense | Test org "Mezonas Test" set up (2026-11-12; trials end about 2026-11-26, then free plans). **No connector built, and none planned yet**: outside v1 scope until the owner picks one. |
-| Google | Drive, Sheets | `drive.file` on the consent screen (with S4); `GOOGLE_PICKER_API_KEY`, `GOOGLE_PROJECT_NUMBER`. |
-| Google | Chat (`gchat`) | Chat app, service account, `GOOGLE_CHAT_*`. |
-| Chat | Slack (`slack`) | Slack app, `SLACK_*`; its timing. |
-| Marketing | Search Console, Bing, Website, LinkedIn, Hacker News | §2 (S6, S7, S10, S12). Hacker News needs nothing but a check of its "To verify". |
-| Other | Webhooks (Zapier) | Works today; the published Zapier app is later (`webhook/NOTES.md`). |
+| D1 | Review §1.151's decisions: Electron; closed workbooks only; only files added after a folder is given; drive paths only; a long poll. | decision |
+| D4 | A Mac and a PC: `node apps/desktop/node_modules/electron/install.js`, then `MEZONAS_API_URL=https://staging.mezonas.com pnpm --filter @countersign/desktop start`, with `MOBILE_SIGNIN=on` on staging; check each item in `desktop/NOTES.md` (Excel's owner file, a written workbook opens without repair, OneDrive-synced folders, Mac privacy prompts). | check |
+| D5 | Signing: the Apple Developer ID (the same account as M3) for signing and notarising; Azure Trusted Signing or an OV certificate for Windows. Without them Gatekeeper and SmartScreen warn. | owner |
+| D6 | The update feed: an R2 bucket behind `downloads.mezonas.com/desktop/` and a release workflow on macOS and Windows runners (its own PR). | owner, code |
+| D7 | Removing a phone also ends that person's desktop sessions (both are `ph` sessions). | code |
+| D9 | A back-office screen listing a client's computers (today they show as Desktop app connections). | code |
+| D8 | Next version: signing Desk items in the app (Touch ID, Windows Hello), the Office add-in for open workbooks, Word, QuickBooks Desktop (Web Connector), files already in a folder, network shares, managed installs. | later |
 
-## 4. Everything else
+## 8. The marketing site and the Marketing area (`docs/marketing-plan.md`)
 
-### Back office work: Sales, onboarding and Build (merged 2026-11-17; onboarding O1–O3 merged)
+The site's job ran in today's deploy; whether `mezonas.com` answers isn't checked from a session.
 
-One to-do list (Your call), Sales (new accounts and expansion), onboarding and Build (issues, agent
-builds and enhancements in one work order), with Reggie doing most of the work. Build, Sales, Your
-call and Reggie with Autopilot are built and merged on 2026-11-17 in two PRs: the migrations
-(0060–0063, PR #380) and the code on top of it (PR #383). Decisions: `docs/plan.md` §1.124 (M64–M68); what
-each stream left open is in its "Not yet" row in §1.124.1–§1.124.4.
-
-Onboarding's first part (steps O1–O3, `docs/plan.md` §1.149, M69, migration 0066) is built on
-top of it and merged on 2026-11-17 (the migration, PR #417, then the code, PR #406): a client file of what we know about each prospect and
-client; **Invite** from the lead record (a general, area or agents intake, filled from the file's
-`theirs` facts) and **Sign up now** from a saved start, both logged as a deal at the right stage
-(stages are a record, every account is in Sales); the branded invite from the lead at `hello@`
-and the welcome page with sign-in by the invited address; **Getting started** in the portal (get to
-the point: cards, "We think", Connect, Ask someone else, Different process in mind?); the build's
-Requirements request reading its card. All against fakes. What it still needs:
-
-- Code, next wave (`docs/cases-plan.md` §7): talk it through with Sloan (O4); the scope, signing,
-  facts into the knowledge base and builds into fit-gap (O5); Reggie filing facts and suggesting
-  what to cover; reminders and the remaining emails; voice (O6).
-- Code, smaller: a client file's documents (no storage yet); pack and template questions shown in
-  English. People added to an existing client with nothing
-  ticked still get WorkOS's invitation, not ours. The full list: `docs/plan.md` §1.149.5 and
-  §1.149.6. Built in Wave X (§1.220): delivered and bounced from Resend's webhooks (#564; needs
-  the owner's step: the webhook endpoint `https://<app host>/api/hooks/resend` for
-  `email.delivered` and `email.bounced` in Resend, and its signing secret as
-  `RESEND_WEBHOOK_SECRET` in each GitHub environment), "Send it again" (#567), "Just the
-  account"'s own welcome email (#570), and the hourly job that deletes a lost prospect's file 12
-  months on (migration 0097 #572, job #573). The owner's to confirm: "lost" is every deal naming
-  the file closed `lost` or `no`, the last over 12 months ago (`not_now` keeps it); every bounce,
-  soft or hard, leaves the lead a to-do; Send it again is for invites only, to the same address.
-  Unchecked against Resend: its webhook header names and the shape of its tags (`resend/NOTES.md`).
-- The owner's call: whether the deal page's old "Set up the account" card stays now that Invite
-  does the set-up.
-- **Built (2026-11-22), PR #522:** setting a client up from the intake to the first trial
-  (`docs/setup-plan.md`, SU1–SU6; decisions `docs/plan.md` §1.206): **seats** (a template names
-  "approves bills"; each client fills it), Getting started's chapters (Your tools, Your people, See
-  it work with a test run on a real document, Go live with a signed scope) and the back office's
-  Setup tab (Progress: the board, Nudge, Do it on a call, the runbook, Start trial). Open: Sloan
-  across the chapters (O4), the scope as O5's `intake_scope`, server-side words in six languages,
-  tries stopped at a person step, and a look in a browser.
-
-The plan, its steps (B1–O6) and the owner's open questions: `docs/cases-plan.md`. The screens:
-`docs/design/pipelines.html` and `docs/design/workflows.html` (onboarding not drawn yet).
-
-Owner steps for onboarding's emails and sign-in (O1, `docs/plan.md` §1.149; how-to in
-`docs/operations.md`, Resend under "Worker secrets" and WorkOS under "By hand"):
-
-- **Resend**: verify `mezonas.com` (SPF, DKIM, DMARC) and send from `hello@mezonas.com` in
-  production (`RESEND_FALLBACK_DOMAIN`); a mailbox or routing rule for `hello@`. Next to P2.
-- **WorkOS**: Google and Microsoft sign-in switched on, Mezonas' logo and colours on the hosted
-  sign-in and its code emails, `auth.mezonas.com` if the plan allows; then try a test invite to a
-  real inbox on staging and check what `packages/auth/NOTES.md` lists, first whether a new address
-  can sign up without a WorkOS invitation.
-
-### The Dev queue (built 2026-11-17, `docs/plan.md` §1.125)
-
-- **Owner:** create the daily scheduled task from `docs/operations.md` ("The Dev queue's daily
-  task"); until then requests are built only when a session is asked.
-- The seed requests from the AR aging and management report builds are filed on staging through the
-  MCP tools once the Dev queue is deployed: date offsets and division in Reshape data, sort and
-  top-N in "Filter, group and total a list", QuickBooks customer parent and is-job (answer first in
-  the QuickBooks sandbox: `packages/connectors/src/qbo/NOTES.md`), and the P&L, balance sheet and
-  AP aging reports.
-- "In production" is stamped by production's own copy of a request; a request filed on staging
-  shows it only after a cross-environment read, which isn't built.
-
-### Area owners, owner chat and Home (designed 2026-11-12)
-
-ARCHITECTURE v0.19 §10.15, `docs/plan.md` §1.117 and §10 (O1–O8). Built on
-`claude/clever-allen-i6npwp` and brought onto main in two PRs: the migration on its own, then the
-code. What is left of it is listed under §10's status. Waiting on the owner:
-- The **name pool** (40 short names, `docs/plan.md` §1.117).
-- The **public site** still calls Sloan "your manager agent" ("Every agent has a job, a manager and
-  a person who checks its work", `apps/site`): new words for Sloan as the chat.
-
-### Production's first release
-
-Production is **live** (`https://app.mezonas.com/api/health` answers 200): Deploy run 207 put
-`747d7ff` (PR #229) there by hand on 2026-11-09, migrations through 0041, and its cron runs every
-minute against Neon `main`. No `v*` tag yet, so the first tagged release is an **upgrade** of a
-live system (migrations 0042 onward on production; `docs/operations.md`, "The first production
-release"). Before it: WorkOS production checked against A1 and A3 below, the production secrets,
-Email Routing for `in.mezonas.com`, the platform templates installed by hand, and the Mezonas client.
-A second hand-run production deploy (run 210, `5d27cfc`) waited for approval from 2026-11-09 and
-was cancelled on 2026-11-14: approve only a deploy of current `main`. D2 (§2) may bring this forward.
-
-Owner, in Sentry (2026-11-14 review): the `mezonas-web` project's GitHub code mapping points at
-Plenary Labs' repository, so its suspect commits are Plenary Labs'; point it at
-`jammil-alt/countersign` (Settings → Integrations → GitHub → Code mappings). And the staging run
-behind MEZONAS-API-1 (an invoice read stuck as running since 2026-11-07) needs cancelling from
-the back office.
-
-### Pre-launch hardening: what's left (2026-11-17; `docs/plan.md` §1.126–§1.147)
-
-PRs #384–#414 closed the launch audit's findings for the first clients. What they left open:
-
-| # | What | Kind | Notes |
-|---|---|---|---|
-| H1 | **Live checks on staging**: one run each of a conversation step, an agent-chosen path, an agent-judged repeat, an oversight review of a failed step and an AI second check, on the default models. | Owner, after merge | §1.149. The fake model now refuses what the API refuses, but nothing has run these on the live models. |
-| H2 | **The real-mail check** (§1 P5). | Owner, gate before production | §1.129. |
-| H3 | **GitHub and Hyperdrive settings** from PR #384: caching off on the two existing Hyperdrive configs (`wrangler hyperdrive update <id> --caching-disabled`, or run Bootstrap with `rotate_password` unticked); the `production` environment with required reviewers and deployment limited to `main` and `v*` tags. If `staging` allows only `main` to deploy, allow the branches that quick-deploy (`claude/*`). | Owner, by hand | `production` done (checked 2026-11-18: required reviewer, `main` and `v*` tags, no administrator bypass). Hyperdrive caching and `staging`'s branches not checked. `docs/operations.md`. |
-| H4 | ~~A per-site limit on the beacon~~ Done (#537, §1.198): its own binding `INBOUND_TARGET_RATE_LIMIT`, 3,000 a minute per site. Its namespaces are created by the next deploy. | Code and `wrangler.jsonc` | §1.141. |
-| H5 | ~~Transcription records no usage~~ Done (#536, §1.196): the portal's dictation is the client's usage under Sloan (one test run per segment), the back office's is logged as ours. Open: one live call on staging to check OpenAI's `usage` shape and prices; an action of its own on `model_call` needs a migration. | Code | §1.139. |
-| H6 | ~~"Who is asking" on the Claude approval page~~ Done (§1.201, migration 0078): the page shows the asking Claude client, in words, and where the request came from. | Migration, then code | §1.130. |
-| H7 | ~~The portal's resume screen~~ Done (#535, §1.195): it says how many events came in while the agent was paused. Open: a native speaker's check of the five other languages. | Code, copy in six languages | §1.137. |
-| H8 | **`refresh_failing` connections**: counted in the ops MCP's `needsAttention` and the daily troubled list since #527. Open: LinkedIn's and HubSpot's dead-grant codes come from their docs, not a live call. | Check live | §1.134. |
-| H9 | ~~The web app's first load~~ Done (#531, §1.192): 344 kB, budget 351 kB; main reached 350.8 kB with #523, and R2 (#534) raised the budget to 352 kB, so the headroom is used up. English on demand done (§1.208): 301.9 kB, budget 335 kB. Next toward 300 kB: each portal screen on its own, the route contract split per screen. | Code | audit 4.6 |
-| H10 | ~~Texting edge cases~~ Done (#538, §1.197; the link's own check of a number taken a moment before, fixed in #534). Open, for the owner: a forwarded invitation can still learn that a number is one of the client's contacts (`number_taken`), as before. | Code, small | §1.142. |
-
-### The phone app (owner, 2026-11-13; `docs/plan.md` §1.116, `apps/mobile/README.md`)
-
-Merged unfinished on purpose (owner, 2026-11-15), in three PRs: migration 0056, the sign-in
-handoff, then the phones, push, signing and `apps/mobile`. Built and tested against fakes; nothing
-has run on a phone or against Expo yet. Off until the steps below: no app build exists, and phone
-sign-in stays off until `MOBILE_SIGNIN=on` and phone notifications until `MOBILE_PUSH=on`. To finish it:
-
-| # | Step | Notes |
+| # | Step | Kind |
 |---|---|---|
-| M1 | ~~Merge migration 0056, the sign-in PR, then the app's PR.~~ Done: all three are on `main`. | |
-| M2 | **An Expo account**, then in `apps/mobile`: `npx eas-cli login`, `npx eas-cli init` (makes the project; put its id in `EAS_PROJECT_ID` for builds, or in `app.config.ts`'s env). | Push tokens need the project id; without it the app skips notifications and still signs. |
-| M3 | **iPhone**: the Apple Developer Program (organisation account, $99 a year, D-U-N-S for Twelve Thirty-Four), then `npx eas-cli build --profile development --platform ios` and let EAS make the certificates and the push key (APNs). Register your phone with `npx eas-cli device:create` first. | Bundle id `com.mezonas.app`. Approving the developer account can take a day or more: start it first. |
-| M4 | **Android**: `npx eas-cli build --profile development --platform android` installs from a link. For push, a Firebase project: its `google-services.json` as the EAS file variable `GOOGLE_SERVICES_JSON`, and its FCM v1 service-account key uploaded with `npx eas-cli credentials`. Account steps: `apps/mobile/README.md`, "Accounts". The Play Console ($25 once) only for the store. | Package `com.mezonas.app`. |
-| M5 | **Try it on staging**: set `MOBILE_SIGNIN=on` and `MOBILE_PUSH=on` on staging's Worker with `wrangler secret put` (a dashboard variable is erased by the next deploy; `deploy.yml` copies neither yet), sign in from the app (WorkOS in the system browser, then the second step's code if it is on there), set up the phone (notifications, Face ID), make a Desk item on the Sandbox (any approval), and check: the notification arrives within 5 minutes with a count only, tapping opens the Desk, signing asks for Face ID, the audit log has `inbox.device_signed`, Undo works within 60 seconds, removing the phone in Settings stops its notifications. | Nothing in WorkOS changes: the sign-in returns to `/api/mobile/handoff` on our own origin. |
-| M6 | Expo's **enhanced push security** on, and `MOBILE_PUSH` and `EXPO_ACCESS_TOKEN` copied by `deploy.yml` (a small PR of its own), before production's `MOBILE_PUSH=on`. | Until then anyone holding a phone's token could send it a notification through Expo. |
-| M7 | Owner decisions: a longer session for an unlocked registered phone (today 30 idle minutes, as the browser, and the second step's code at each sign-in); whether a remembered browser may let a phone sign-in skip the code (today never); whether operators get the app (today refused at the handoff); (the phone app as a second-step method: built 2026-11-18, A8); the store listing (name, screenshots, privacy answers); TestFlight testers. | `docs/plan.md` §1.116 "Not in this pass". |
-| M8 | Before production's `MOBILE_SIGNIN=on`: the app's return on a universal link (iOS) and an app link (Android) instead of the `mezonas://` scheme, so only our app can receive the code. The confirm page before the handoff is built (#562, `docs/plan.md` §1.219). | Audit, 2026-11-17. The code is already useless without the app's PKCE verifier. |
-| M9 | ~~Signing follow-ups: a v2 signed text covering an answer's text and a note~~ Done (§1.203): the app signs `mezonas-sign:v2`; `v1` is still accepted. Owner decision left: when to refuse a `v1` signature that comes with an answer or a note (once every phone in use signs `v2`). The ±5 minute window is kept as is. | Owner decision. |
-| M10 | Decide: whether a release-code card may be resolved from a phone without a signature; whether a phone session may turn human release off (a setting, not a card). Possible, not checked: an admin's phone undoes another person's rejection, then a step set to `ifNoAnswer: proceed` goes on at its deadline. | Owner decisions; the last one needs a test first. |
+| S1 | Delete the three parking records (`A mezonas.com 15.197.148.33`, `A mezonas.com 3.33.130.190`, `CNAME www`); keep the `google-site-verification` TXT. | owner |
+| S2 | Check `/`, `/hire`, `/security`, `/terms`, `/privacy`, `/subprocessors`, `/sms-terms` and `www`; re-run the `site` job if needed. | check |
+| S3 | The lawyer's read of the terms (notice periods, liability cap, age 16, the AI providers' terms). | owner |
+| S4 | Google's OAuth verification once the site is live, with `gmail.send`, `webmasters.readonly`, `calendar.events.owned` and `drive.file`; remove `gmail.readonly`, `gmail.labels`, `gmail.compose` first. | owner |
+| S5 | The Mezonas client on staging and production: internal, approvals to us, Marketing pack on, `mezonas.com` and its goals. | owner |
+| S6 | Search Console: a service account (no roles), its JSON key, added to the property as Restricted, entered in the Mezonas client's connection. | owner |
+| S7 | Bing Webmaster Tools: import from Search Console, an API key. | owner |
+| S8 | Measuring: the lawyer reads `docs/marketing/privacy-measurement-draft.md`, the section into `/privacy`, the variable `MEZONAS_MEASURE_URL` and a `deploy.yml` PR passing it to the site build. | owner, code |
+| S9 | The collector's host `collect.mezonas.com` (and `collect.staging.`): DNS and its PR (no route in `wrangler.jsonc` yet). D2: point it at production now that production is current, or at staging. | owner, code, decision |
+| S10 | Guides: the R2 bucket `mezonas-site-content`, the `SITE_CONTENT` binding (still commented out in `apps/site/wrangler.jsonc`), `SITE_GUIDES=on`, `INDEXNOW_KEY`, `/sitemap.xml` in Search Console. | owner, code |
+| S11 | The claims list: read `docs/marketing/claims.md`, load it (`seed-claims`), point the Website connection at mezonas.com. | owner |
+| S12 | The marketing agents: rebuild the set in v5 (§2), then fork it into the Mezonas client; `MARKETING_RESEARCH=on` and its search vendor; a LinkedIn developer app on the company page. | code, owner |
+| S13 | Before a client gets the area: the lawyer's read of `docs/marketing/processor-terms-draft.md`; a CMS connector only when a client asks. | owner |
+| S14 | The site's "Get started" button is a mailto; a form (cases W1) if wanted. The site still calls Sloan "your manager agent". | code, decision |
 
-### The desktop app (owner, 2026-11-17; `docs/plan.md` §1.151, `apps/desktop/README.md`)
+## 9. Connectors and providers
 
-The app, core's protocol and the `desktop` connector are merged in one PR, built and tested against
-fakes; nothing has run on a Mac or a PC yet. The API takes computers since D2 and D3 (2026-11-22). To
-finish it:
+Each is built against a fake. What is unchecked is in its folder's `NOTES.md`
+(`packages/connectors/src/<name>/NOTES.md`; the count is its unchecked items). To go live: the
+owner's account and keys, then one pass of "To verify" against the real service.
 
-| # | Step | Notes |
+| Connector | Unchecked | What the owner needs |
 |---|---|---|
-| D1 | Owner review of §1.151's decisions (Electron; closed workbooks only; only files added after a folder is given; drive paths only; a long poll). | Each is a `// DECISION` in the code. |
-| D2 | ~~The migration~~ Done: 0080, `desktop_device` and `desktop_job` (#546). | `docs/plan.md` §1.204. |
-| D3 | ~~The API~~ Done: pairing and folders (client admin), the computer's signed routes, `services.desktop`, the connector registered, files into documents, with the contract tests (C5.2, #548). | `docs/plan.md` §1.204. A screen listing a client's computers is not built: they show as Desktop app connections. |
-| D4 | **A Mac and a PC**: `node apps/desktop/node_modules/electron/install.js`, then `MEZONAS_API_URL=https://staging.mezonas.com pnpm --filter @countersign/desktop start`, with `MOBILE_SIGNIN=on` on staging. Check each item in `packages/connectors/src/desktop/NOTES.md` (Excel's owner file on both, a written workbook opens without repair, OneDrive-synced folders, Mac privacy prompts). | |
-| D5 | **Signing certificates**: the Apple Developer ID (the same account as the phone, M3) for signing and notarising; for Windows, Azure Trusted Signing (or an OV certificate). | Without them Mac Gatekeeper and Windows SmartScreen warn on install. |
-| D6 | **The update feed**: an R2 bucket of ours behind `downloads.mezonas.com/desktop/`, and a release workflow that builds on macOS and Windows runners and uploads there (its own PR). | |
-| D7 | **Built (#562, `docs/plan.md` §1.219):** the handoff's audit rows name the app (`app=desktop`), and the confirm page before the handoff (M8's). Left: removing a phone also ends that person's desktop sessions (both are `ph` sessions). | |
-| D8 | Next: signing Desk items in the app (Touch ID, Windows Hello), the Office add-in for open workbooks, Word, QuickBooks Desktop (Web Connector), sending files already in a folder, network shares, managed installs. | Owner's order. |
+| QuickBooks (`qbo`) | 22 | Sandbox: P3. Production: Intuit's app review and security questionnaire, production keys. Risk: after a long gap, deletions of an entity with 1,000+ changes can be missed (the sync says "qbo CDC cap"). |
+| Gmail (`gmail`, send only) | 27 | Google's verification (S4). |
+| Resend (`resend`) | 23 | Account, key, domain (P2); the webhook `https://<app host>/api/hooks/resend` for `email.delivered` and `email.bounced`, its secret as `RESEND_WEBHOOK_SECRET`. |
+| Outlook (`outlook`) | 17 | Entra app, publisher verification, `OUTLOOK_CLIENT_*`. |
+| OneDrive, Excel, Outlook Calendar | 9, 17, 16 | An Entra app each, publisher verification, `deploy.yml` to copy their secrets (its own PR). First checks: `Files.ReadWrite.AppFolder` for work accounts; Excel's quote prefix. |
+| Teams (`teams`) | 28 | An Azure Bot (single tenant), `TEAMS_BOT_*`, the endpoint `/api/hooks/teams`, the app package. First: can a single-tenant bot post in another organisation's Teams. |
+| Google Calendar (`gcal`) | 14 | `calendar.events.owned` with S4. |
+| Google Drive, Sheets | 17, 20 | `drive.file` with S4; `GOOGLE_PICKER_API_KEY`, `GOOGLE_PROJECT_NUMBER`. |
+| Google Chat (`gchat`) | 20 | Chat app, service account, `GOOGLE_CHAT_*`. |
+| Slack (`slack`) | 18 | Slack app, `SLACK_*`. |
+| Twilio (`twilio`) | about 150 | Account and keys; subaccounts per client; which countries first; a US client's A2P registration against the real Trust Hub. |
+| WhatsApp through Meta | about 70 | Meta app, Tech Provider, `META_*`. |
+| ElevenLabs | about 40 | Account, key, webhook secret; its own workspace (§14.4). |
+| Texts and calls, all three | | **Legal review** before any live call or text: consent, calling hours, recording consent, AI disclosure; the relationship basis (§1.97) and the texting sign-up (§1.98) under the TCPA and CTIA. |
+| Code service (`apps/mfa`) | | Confirm the domains; Email Routing for `agents.staging.mezonas.com`; the codes Twilio subaccount; email codes on (`apps/mfa/NOTES.md`). |
+| Browser logins (`browser`) | | Browser Run on; the first real low-tier site; legal review of agent accounts. |
+| Plaid (`bankfeed`) | 29 | §4 (K1–K3); BAA (until then not for HIPAA clients). |
+| Ramp (`ramp`) | about 19 | Developer app, `RAMP_*`. |
+| BILL (`billcom`) | 8 | A developer key (sandbox first), a dedicated BILL user entered by the client admin; production after BILL's review. Decide: our user's BILL role; BILL on the subprocessors page; its BAA; whether payments stay off (`billcom.payment.create` is refused until BILL's trusted session goes through the code service). |
+| Odoo (`odoo`) | about 14 | An Odoo 17 trial on the Custom plan; per client an internal user and API key. |
+| Stripe (billing) | about 9 | Account and keys; the prices (§15). |
+| Zoho CRM (`zoho_crm`) | about 35 | `ZOHO_CLIENT_*` in both environments, the first connection to the Mezonas Dev org. |
+| HubSpot, Podio | about 9, 11 | A developer app each. |
+| Marketing: Search Console, Bing, Website, LinkedIn, Hacker News | 14, 9, 8, 7, 5 | §8 (S6, S7, S10, S12). |
+| Webhooks (Zapier) | 0 | Works; the published Zapier app is later. |
 
-### Builds that work first (B0–B6, owner 2026-11-19; `docs/plan.md` §1.155, `docs/builder-plan.md`)
+Also open: new connections are bound with the agent's grants, not narrowed to what it needs
+(`docs/connectors-plan.md` §5.5) [decision]. Not planned until the owner picks one: Zoho Books,
+Inventory and Expense; SharePoint.
 
-Built 2026-11-19 with no migration: a try on real examples in the POC, decisions on a build, the
-agent manual, the setup checklist, client adjustments and feedback, and governance in three tiers
-(ARCHITECTURE v0.20 §10.16). Left:
+## 10. Back office: onboarding, setup, forms, the Dev queue, area owners
 
-| # | What | Notes |
-|---|---|---|
-| G1 | **Run the builds again on staging** (the Nexonia expense agent, invoice intake) and count the operator's actions from New to a running trial. Target: under 15. | `docs/builder-plan.md` §9. Owner, once this is deployed. |
-| G2 | ~~Merge #433~~ Merged. | |
-| G3 | ~~A POC try on **a Sandbox record** (today an uploaded document or a JSON input; a record's id can be given as JSON). A **skill** tried on a document (skill cases run on fixtures only, so the API answers 422).~~ Built (Wave Y, #589). | Code. |
-| G4 | ~~Changing a decision's words directly from the Decisions card (today through the conversation, which marks it changed). A custom skill's step counted as writing in the high-risk check (only built-in skills are looked up).~~ Built (Wave Y, #599). | Code. |
-| G5 | ~~**Known risks counted from runs** (`ManualKnownRisk.hits` stays empty), and **deleting** a learned note from the manual (shown, read only).~~ Built (Wave Y, #587). | Code. §1.153 already lists the count. |
-| G6 | `manual.read` given to every agent: today only when listed (`extraTools` or a skill), because adding it to every step changes every model request and the recorded fixtures. | Code, with new fixtures. |
-| G7 | **Governance in the other model calls**: the owner's review, the AI check (confer), path choice, Sloan's and the area owners' chat, the Builder keep their own preambles; only agent and task steps, conversation turns and reach-out messages read the tiers. | Code. |
-| G8 | **A run-level pin** of the governance versions read (today recorded per model call in its stored body; no column fits without a migration). The guardrails and standard policies as seeded rows (`builder-plan.md` §8 "Where kept") would need a table. | Migration, its own PR. |
-| G9 | The guardrails and standard policies are in English for agents; only "How Mezonas agents work" is translated. A fluent speaker's review of the new portal copy (manual, setup checklist, adjustments, charter) joins the language review below. | Owner. |
-| G10 | ~~Setup checklist: the back office can't send a file item for the client; `setup` and `adjust` changes aren't in the back office's change list (who did what is on the checklist and in the manual); the intake form's fields have no guard and the Builder's decisions no parameter (the setting is worked out by code, `settingForDecision`).~~ Built (Wave Y, #601). | Code. Adding fields changes the Builder's answer and its fixtures. |
-| G11 | ~~Client adjustments: **marking a step's own parameter** from the builder's step panel (the schema and the API take one; the definition editor marks the agent's skill parameters and schedules); limits on a date; a **setup answer written into the manual** as a change, as an adjustment is.~~ Built (Wave Y, #601). | Code. |
-| G12 | ~~Feedback on the manual and requests past the bounds arrive as issues with what they are about on their created event; the **area owner's suggestions** (§10.15) don't read that link yet, so the operator turns them into a change by hand.~~ Built (Wave Y, #595). | Code. |
-| G13 | A client user who isn't limited reads "What you can adjust"; only the client admin changes it. Owner to confirm the client user may read it. | Owner decision. |
+Onboarding (`docs/cases-plan.md` §7, `docs/plan.md` §1.149) [code]:
+- O4, talk it through with Sloan, across the setup chapters: designed as a v3 workflow, so
+  redesign it on v5 first [decision].
+- O5: the scope and signing (`intake_scope`, Turn on checking the scope), facts into the knowledge
+  base, fit-gap, the "scope ready" and "what happens next" emails (still `unsupported`).
+- Reggie filing facts and suggesting what to cover; Reggie's to-do tools, outbound email for asks,
+  chasing missing connections (§1.124.4).
+- O6, voice.
+- Smaller: a client file's documents (no storage); pack and template questions in English only;
+  people added to an existing client still get WorkOS's invitation; first-look lines filed as
+  `seen` facts; setup's server-side words in six languages; tries that stop at a person step; a
+  browser look at setup in both themes with the v5 Bill clerk's seats [check].
+- The owner's to confirm: "lost" for the 12-month deletion; every bounce leaves a to-do; Send it
+  again for invites only; whether the deal page's "Set up the account" card stays [decision].
+- Unchecked against Resend: its webhook header names and tag shape (`resend/NOTES.md`) [check].
 
-### Builds, simplified (owner, 2026-11-21; `docs/plan.md` §1.165, `docs/builder-plan.md` §11)
+Forms (`docs/forms-plan.md`) [code]: F-4 dictation per question and the one-time code (whether a
+code is required [decision]); F-5 talk it through; F-6 saved forms and the editor, Request info by
+hand, texts and WhatsApp, passing a form on; the Desk door for client users. Link lifetime and
+passing on were never confirmed; saved forms were to be "versioned like automations" [decision].
 
-Steps 1 and 2 are built: an agent described in the lab's New is drafted at once (one model call,
-the stated steps and nothing more, a client's agent bound to its connections); the draft's steps
-show on the build's page; a change asked for is made at once with Undo; and an issue is settled
-from the issue (change the process, build a skill, needs code). Left:
+The Dev queue (§1.125): the daily scheduled task (`docs/operations.md`) [owner]; the seed
+requests from the AR aging and management report builds filed on staging [owner]; "In
+production" for a request filed on staging needs a cross-environment read [code].
 
-| # | What | Notes |
-|---|---|---|
-| S-A | **Owner: three answers** in `docs/builder-plan.md` §11.5 (one page with three steps; the high-risk check; where a client build's try runs). The fourth, agree cards, is answered. | S2, S4 and S5 wait on them. |
-| S-E | ~~A skill started from an issue is its own build with no link back from the issue, and a code request has no link to the Dev queue on the build's page.~~ Built (Wave Y, #603). | Code. |
-| S-B | **Try it on staging**: New → Template → describe it → "Build it", on the Progress updating agent. The works-first rules have run against a scripted model only; the Builder's evals (§1.108) have no case for them yet. | Owner, once merged. Code: an eval case. |
-| S-C | A client build's draft is still held by what its connection doesn't allow, and its POC by a test run the build's page can't start. | Code: S2 and S4. |
-| S-D | A skill build has no draft-it-now. | Code, if wanted. |
+Area owners (§1.117): the name pool of 40 short names [owner].
 
-### The builder on one screen (owner, 2026-11-21; `docs/plan.md` §1.170, `docs/builder-plan.md` §12)
+The walk-through (`STAGING_QA.md`): one way to start a client (New client, Sign up now, New deal
+and Invite differ) and the words (Areas or Packs, owners, processes, supervisor, lead, Reggie,
+Sloan, Kit) [decision]; schedule wording is 12-hour; deal and contact time zones are free text; a
+dependent write inside one skill reads its before state in a test run [code]; the Your call badge
+on Library and New client, and why `GET …/skills` hangs on staging [check].
 
-The agreed design (PR #498) built on today's builder: the chart, the step panel, the rail, the List,
-Try it, Turn on, Describe and Check the steps in the Agent lab, automations with Takes in and Gives
-back, and templates and client agents with their lineage. It answers §11.5's three questions as
-recommended (one page; high-risk decisions listed first, never holding; a client's try at that
-client). Left:
+## 11. Builder, SOP and assurance
 
-| # | What | Notes |
-|---|---|---|
-| F-A | **Try it on staging**: a new template from the lab (Describe, Check, Build it), a try, Turn on at a test client; then a client's agent customized and its template updated. Tweak from there (owner: "we can tweak it once we are testing"). | Owner, after merge. |
-| F-C | ~~Draft-now's gaps find their step by a word match; the drafter should name the step.~~ Built (Wave Y, #588). | Code, `packages/agents`. |
-| F-D | An automation has no Builder chat or Try it of its own, old-format automations don't open in the editor, and renaming an input doesn't rewrite the steps that read it. | Code, if wanted. |
-| F-E | "Ask an agent" and "Report to an agent" from the mock-up need new step kinds. | Not planned. |
+- G6 `manual.read` for every agent (new fixtures with a key) [code]; G7 governance in the other
+  model calls (the owner's review, confer, path choice, chat, the Builder) [code]; G8 a run-level
+  pin of the governance versions, with the guardrails as seeded rows [code, migration]; G9 the
+  guardrails in other languages [owner]; G13 whether a client user may read "What you can adjust"
+  [decision].
+- SOP (`docs/sop-plan.md` §7): an accountable person per agent, share links outside the client's
+  team, the back office's view of the SOP (route built, no screen) [decision]; then S3 (share
+  links, the accountable person, packs' own controls) [code, after the owner]; the chart's chip
+  still says "code" where the Do form says "Rules" [code]; references (the client's policies, the
+  agents it takes over from, its knowledge base) [code]; icons `mz-agent`, `mz-ai`, `mz-rules`
+  with the designer [owner]; check whether the v5 Builder writes each step's purpose (SOP-B) and
+  look at a revision on staging (SOP-T) [check].
+- Assurance (`docs/agent-assurance-plan.md`): A3 attack cases, now on v5 agents, recorded with a
+  key [code]; whether an attack check in review holds the trial (recommended) [decision]; read
+  each provider's own terms page and set `read: "page"` in `packages/core/src/assurance/terms.ts`
+  (until then `no_training` is In review on every AI agent) [code]; confirm our Gemini key is on a
+  billed project [owner]; accept that Intuit grants what we ask, or leave K21 open [decision];
+  adopt the two retention rows as policy [owner].
 
-### The agent's SOP (owner, 2026-11-21; `docs/sop-plan.md`, `docs/plan.md` §1.179, ARCHITECTURE v0.21 §10.17)
+## 12. Run quality: the verifier, evals, metering and costs
 
-Built and merged: S0 (PR #510), the `sop_revision` table (S1a, migration 0074, PR #511), S1 (PR
-#508) and W, the Workflow tab (PR #515): each client agent's SOP in the portal's SOP tab, made by
-code from its setup, with each step's method, model and purpose, its revision, date and history,
-Find, filters and printing. Left:
+- The verifier's model (about 1–2 cents a write on the agent's model; a smaller one under 0.2
+  cents would be a new `oversight.verifyModel`) [decision]; how often it's wrong (count overruled
+  disagreements on staging) [check].
+- Re-record with a live key (`LLM_MODE=record`): the eval harness's answers, the verifier's, the
+  process interview's [code].
+- File and email intake (§1.213): a back-office screen for report profiles; a screen of platform
+  alerts so the Desk shows intake's; reports from portal uploads and in an email's body [code].
+- Metering: a run view that adds a run's metered rows [code]. Not counted: deal emails, the Dev
+  queue's notices, texts to the agents' code numbers, BILL's per-payment fee once payments exist
+  [code]. Unit costs are placeholders (`UNIT_COSTS_CHECKED_ON = "unverified"`); model, embedding
+  and transcription prices unverified [check]. One live transcription to check OpenAI's `usage`
+  shape (H5) [check].
+- H1: one live run each of a conversation step, an agent-chosen path, an agent-judged repeat, an
+  oversight review of a failed step and an AI second check [check]. H8: LinkedIn's and HubSpot's
+  dead-grant codes from a live call [check].
+- The process interview (§1.217): sending the link from Mezonas, filing answers into an intake,
+  six languages, the reuse check's judge on interviews [code].
 
-| # | What | Notes |
-|---|---|---|
-| SOP-Q | **The owner's answers** to `docs/sop-plan.md` §7: an accountable person per agent (today: the agent's approver, else the client's admins), share links outside the client's team, the back office's view of the SOP (its route is built; no screen yet). | Owner. |
-| SOP-I | Icons for an agent, AI and rules (`mz-agent`, `mz-ai`, `mz-rules`) in the design system's next delivery; the portal draws provisional ones (`apps/web/src/sop/icons.tsx`). | Owner, with the designer. |
-| SOP-B | The Builder writes each step's purpose when it drafts (today the operator writes it in the step panel, else the SOP writes a plain line). Changes the Builder's requests, so its fixtures are re-recorded with a key (`LLM_MODE=record`). | Code, with a key. |
-| SOP-R | References: the client's own tagged policies by title, the agents it takes over from, its knowledge base; a step's entity-level settings and a person's own "show me first" on its line. | Code. |
-| SOP-T | Try it on staging after the merge: open an agent's SOP, change a connection's permission or the approval rules, and see revision n.1 with what changed and who. | Owner, after deploy. |
-| SOP-W | W, the Workflow tab, view only (`docs/sop-plan.md` §6a): merged (#515); the chart's own words in the six languages built (Wave Y, #578). | Done. |
-| SOP-2 | ~~S2: Sloan's `sop.read`, the Procedures page.~~ Built (Wave Y, #602). | Code. |
-| SOP-3 | S3: share links, the accountable person, packs' own controls; only what the owner agrees. | Migrations, own PRs; a security review for share links. |
+## 13. Performance and code health (`docs/audit-plan.md`)
 
-### Agent assurance (owner, 2026-11-21; `docs/agent-assurance-plan.md`, mock-up screens 4 and 5 of `docs/design/sop.html`)
+Open from the 2026-11-11 audit, all [code]: responses that wait on background work (1.7); waiting
+runs still poll every 2 s, the portal's Runs list every 5 s (2.2); go-live asked once per agent on
+ClientOverview (2.6); lists by the page beyond the back office's Runs (3.1–3.5); per-screen
+splitting toward 300 kB first load, core's single export (4.2, 4.6, 10.3; today 301.9 kB of 335);
+feedback status on its own route, no ETags (5.4, 5.5); 6.5–6.14 (re-measure 6.10 after the step
+model); indexes (7.1–7.7, a migration PR); the cron (8.1–8.5); clean-ups 10.1–10.12 (no shared
+OAuth client, 528 `as unknown as`, `log/` not renamed). 5.3: count audit rows per hour on staging
+[check].
 
-Built (`docs/plan.md` §1.181; PRs #514 for migration 0075 and the assurance PR): each agent's
-architecture drawn from its setup, 17 security checks of its setup and runs kept as history
-(`control_check`), nightly and on asking, every register control in its state, the data map, what
-goes to AI and access to each tool, as section 14 of the portal's SOP and a Security tab in the back
-office. Results are Verified, In review, Not yet checked or Not applicable, never "failed".
+## 14. Security, compliance and trust
 
-Left:
-- **A3, attacks:** planted cases in the test bench with their pass rules; fixtures recorded with a
-  key. Owner: should an attack check in review hold the trial's start (recommended)?
-- ~~A4, evidence export~~ Built (Wave Y, #600, `docs/plan.md` §1.231.3): per period, CSV and a
-  printable page, and the `/ops/security` rollup.
-- ~~Provider terms~~ Recorded (Wave Y, #576, §1.231.1) in `packages/core/src/assurance/terms.ts`,
-  each with its source page. **Left: read each provider's own page** (only Anthropic's
-  data-residency page was read on the page; the rest come from search snippets quoting them) and
-  set its source to `read: "page"`. Until then `no_training` is In review on every agent that uses
-  AI, and clients see "to be confirmed". **Owner:** confirm our Gemini key is on a billed Cloud
-  project (Google's no-training holds only for paid services).
-- ~~Two checks~~ Built (Wave Y, #592, §1.231.2): no secret in a stored model request; OAuth scopes as
-  granted. K21 stays Not yet checked for QuickBooks-bound agents: Intuit doesn't return the
-  granted scope. **Owner:** accept that Intuit grants exactly what we ask, or leave K21 open.
-- **Retention policy:** the two rows added for run histories and our copies of AI requests
-  describe what already happens; the owner adopts them as policy.
+### 14.1 Enterprise readiness (`docs/enterprise-readiness.md`)
+Which accounting system or ERP the pilots use [decision]. E2 a closed-period lock (nothing reads
+`BookCloseDate`); E3 a signature always on vendor bank and remit-to fields; E4 a hard kill switch
+(draft PRs #666, #668, #705, not merged); E5 a generic stale-write check (some connectors have
+their own); E1 a lock around token refresh, only if `invalid_grant` shows [code]. E7 the security
+packet, E11 the onboarding checklist, E12 runbooks, E15 the production rollback (R8) [docs].
 
-### Sign-in codes and the Claude connector (owner, 2026-11-10)
+### 14.2 HIPAA, SOC 2 and PCI (`docs/hipaa-plan.md`)
+- T3 a page for the client's audit log (the CSV export exists; LOG-3 in `controls.ts` still says
+  not built) [code]; T4 a yearly task for audit retention past 6 years [owner]; T9 Sentry's BAA or
+  strict scrubber tests [decision]; T10 a penetration test [owner, later].
+- Before any BAA is recorded: `BAA_PROCESSORS` empty on both environments and no tenant in HIPAA
+  mode [check]. Before the first purge of a retired client: time `purgePlan` on a Neon branch of
+  production [check].
+- `docs/security.md` §10 "Still to set": passkeys, Intuit's and Plaid's second factors, the scan as
+  a required check, `ALERTS_TOKEN`, the bank-feed webhook exclusion [owner].
+- Administrative [owner]: a security officer, the risk analysis, vendor BAAs and the client BAA and
+  DPA, acceptable use, sanctions, training, background checks; adopt the three draft policies in
+  `docs/policies/` and set them to 1.0 there and in `POLICIES`; counsel on the incident response
+  notice periods; the information security policy's §3 wording; the first deletion drill on
+  staging; 2026-Q4's access review before 31 December; the SOC 2 tool and when Type II starts
+  [decision]; confirm PCI SAQ A.
+- Not built [code]: a Purge client workflow input for the drill, the S-3 evidence pack, vendor
+  reviews and training recorded in the product.
 
-| # | Step | Notes |
-|---|---|---|
-| A1 | **WorkOS multi-factor is on** (owner, 2026-11-16): required for every sign-in on staging and production (WorkOS dashboard → the environment → Authentication → Multi-factor auth). The rest of this row is the earlier state. | Owner's call, 2026-11-10 (since reversed): a code on every sign-in is too much for now. HIPAA today requires "person or entity authentication", not multi-factor; the proposed rule that would require it is not final (projected July 2027). Until A2 ships, sign-in is the password (or Google) alone, operators included. **No HIPAA client signs in before A2.** `docs/operations.md` and `docs/security.md` still describe multi-factor as required: that is the target, restored by A2. |
-| A2 | **Our own second step (`docs/plan.md` §1.100)**: server, screens (2026-11-14) and the Claude connector's approval link (§1.120, 2026-11-16) built; no code left. To switch on: per environment, a Twilio subaccount for sign-in with a Verify service and a Standard API key (`TWILIO_VERIFY_API_KEY_SID`, `TWILIO_VERIFY_API_KEY_SECRET` in the GitHub environment), then `TWILIO_VERIFY_SERVICE_SID` under its `vars` in `apps/api/wrangler.jsonc` (2026-11-18: subaccounts, services, keys and both service ids done for staging and production; production turns on at its next release), then one sign-in and one Claude connection checked (`docs/operations.md`), then WorkOS multi-factor off for that environment (owner). | Until WorkOS multi-factor is off, a browser sign-in is asked twice once ours is on (WorkOS's code, then ours), and Claude asks for WorkOS's code and then our approval. Owner to confirm: the approval link also applies to clients' Claude connections (§1.120, "Who"). |
-| A3 | **WorkOS production: Dynamic Client Registration and Client ID Metadata Documents on** (Applications → Configuration), as on staging. | Without it, connecting Claude to `https://app.mezonas.com/mcp` stops at "application not found" (`docs/operations.md`, "MCP server"). Check: `curl https://app.mezonas.com/.well-known/oauth-authorization-server` lists `registration_endpoint`. |
-| A4 | **Staging: finish the switch-over** (owner; codes on since 2026-11-18). Sign in, set up a method (start the setup again for a fresh key: the first key was shared in a chat), save the 10 recovery codes, sign out and in once, approve one Claude connection (`/mcp`), then WorkOS → **Staging** → Multi-factor auth **off**. | `docs/operations.md`, sign-in codes, steps 4 to 6. |
-| A5 | **Production: the first `v*` release**, which turns codes on there (and ships everything merged since `747d7ff`, migrations included; "Production's first release" below). Then the same checks as A4 and WorkOS → **Production** → Multi-factor auth **off**. | Everyone is signed out once and sets up again; WorkOS's enrolments don't carry over. |
-| A6 | **WhatsApp codes** (clients only): per environment, a WhatsApp sender of our own (Meta Business verification, a number never on WhatsApp, a Messaging Service) attached to the Verify service, then `"TWILIO_VERIFY_WHATSAPP": "on"` under that environment's `vars` (a one-line PR). Until then WhatsApp isn't offered (PR #436). | `docs/operations.md`, sign-in codes, step 7. Meta's verification is the slow part. |
-| A7 | **Check Twilio Verify for real**: every item under "To verify" in `packages/connectors/src/twilio/VERIFY_NOTES.md` (codes, TOTP factors, API-key auth, errors, rate limits), as A4 runs. | Built against an in-memory fake. |
-| A8 | **Approving a sign-in on the phone** (`docs/plan.md` §1.154; PRs #429, #431, #432): built and tested against fakes; live only once the app is (M2 to M5 below) and push is on (M6). Then check on staging: a password sign-in offers the phone, the notification arrives, one Face ID, the right number signs in, a wrong number and "It wasn't me" stop it, the browser is remembered if asked. | Nothing tried yet on a real phone, Face ID or a real push. |
-| A9 | Phone approval, not built: an email to the person when a request is turned down; a phone approving a Claude connection (§1.120); the desktop app approving (§1.151). Owner to say which, if any. | §1.154, "Not in this pass". |
+### 14.3 Plaid attestation (`docs/plaid-plan.md`), by 2027-04-10
+[owner]: the vendor-console settings (`docs/security.md` §10); Plaid's "Reason for data access";
+the accounts inventory (Intuit, Plaid, DNS, Twilio, Resend, ElevenLabs and the model consoles are
+blank) and the first access review; the leaver test with a dummy user, logged; written policy
+confirmation from everyone with access; the evidence folder, then attest. [decision]: deleting one
+bank's transactions on a client's request; staging behind Cloudflare Access.
 
-### The staging walk-through (owner, 2026-11-22; `STAGING_QA.md`, `docs/plan.md` §1.207)
+### 14.4 Trust (`docs/marketing/trust-plan.md`)
+- [code]: record operators' model calls (the Builder, ops questions, the test bench; a migration);
+  masking (needs an ARCHITECTURE version first); a self-serve full export; vendor deletion on
+  retirement (T5); a contract test that no pay verb exists; ElevenLabs retention fields; the site's
+  security page still says "Enterprise terms", "enterprise-grade" and "Nothing posts without
+  approval".
+- [owner]: the model providers' terms on file and which plan the Ops MCP connector runs under; ask
+  for zero retention; ElevenLabs in its own workspace; the DPA with counsel.
+- [decision]: masked names; documents read as text first; the data receipt in scope; deletion
+  timing; the security page's wording.
 
-Fixed in one PR. What is still open from it:
+### 14.5 Registers (`docs/eol-inventory.md`)
+Replace the *confirm* dates with checked ones [check]; record work devices (GOV-6) [owner]; the
+next quarterly review, about February 2027 [owner].
 
-- **Owner decisions:** one way to start a client (New client, Sign up now, New deal and Invite
-  each work differently today), and the words: Areas or Packs (Purchasing or Materials), owners,
-  processes, supervisor, lead, Reggie, Sloan, Kit.
-- **Check on staging after the deploy:** the Your call badge on Library and New client (not seen
-  locally; a test now covers every route), and why `GET …/skills` hangs there (the agent page no
-  longer waits on it). Reading staging from a Claude session needs the operator to approve its
-  connect-claude link first.
-- **Code:** schedule wording is still 12-hour; deal and contact time
-  zones are still free text; a dependent write the model makes inside one skill still reads its
-  before state in a test run.
-- **Costs not yet counted** (an audit of 2026-11-22, for build plans 11 and `docs/plan.md` §1.199;
-  most are now metered, §1.210, #559 and #580):
-  - BILL's per-payment fee: payments are refused until a trusted session exists, so it is to be
-    metered when they are turned on.
-  - Deal emails, the dev queue's notices to operators, and texts to the agents' own code numbers
-    (`apps/mfa`): still not counted.
-  - Unit costs are placeholders, marked `UNIT_COSTS_CHECKED_ON = "unverified"`: texts and calls
-    (0009) and email, Browser Run, Verify and Plaid (0095). Model, embedding and transcription
-    prices are still unverified.
+## 15. Owner decisions not listed above
 
-### Round 4 (2026-11-22; `docs/plan.md` §1.208–§1.214)
-
-Built: the first-load cut (§1.208), the records test's flake (§1.209), metering (§1.210), the
-verifier and evidence (§1.211), the eval harness (§1.212), file and email intake (§1.213) and a
-report per agent (§1.214). What is left:
-
-- **Evidence and a verifier before writes (§1.211).** Built: the verifier before every write of an
-  agent with `oversight.verify: writes` (new agents, Builder drafts, the Bookkeeper's v7 and Vendor
-  contracts' v4), the evidence panel on every change card in both inboxes, and each client's dollar
-  thresholds (only tighten). Open:
-  - **The owner decides the verifier's model.** It runs on the agent's oversight model, else its
-    own: about 1–2 cents a write on both templates' model (3,000–8,000 tokens in, 300 out at $2 and
-    $10 a million), at most about 12 cents when a run's sources fill every limit. A smaller model
-    would be under 0.2 cents. A cheaper or a different provider's model for the check alone would
-    be a new setting (`oversight.verifyModel`), not built.
-  - **How often it is wrong.** Nothing yet counts disagreements a person overruled; the model
-    calls are there (`model_call` action `check`) to measure it on staging.
-  - **Clients' copies.** A client's Bookkeeper or invoice review takes `verify` only by the usual
-    reviewed update merge to the new template version; existing agents stay off until then.
-  - **The phone app's Desk** shows no evidence panel yet (`apps/mobile`).
-  - **Pack review cards** (the bookings review, the match review) propose no write themselves and
-    show their own data; the write each approved line becomes has its own card, with the panel.
-- **Re-record fixtures with a live key.** The eval harness's answers (§1.212) and the verifier's
-  recorded answer (§1.211) are hand-written (`handWritten`). Record real ones with a key
-  (`LLM_MODE=record`); the harness then compares them with the same goldens.
-- **File and email intake (§1.213), not built:** a back-office screen for report profiles (the
-  routes are there; it loads lazily); a screen that lists platform alerts, so the Desk shows
-  intake's alerts; landing reports from portal uploads; reports in the body of an email.
-- **Metering (§1.210):** a run view that adds a run's metered rows (`run.cost_usd` stays model
-  cost). What is still not counted is under "Costs not yet counted" above.
-- **The first load (§1.208):** 301.9 kB against 335 kB. The way toward 300 kB is in H9 above.
-
-### Wave Y (2026-11-22; `docs/plan.md` §1.230–§1.236)
-
-Built: one pack manifest and one install path with configuration only (§1.230, #563); C6's
-follow-ups (§1.231: #576, #578, #587, #588, #589, #592, #595, #599, #600, #601, #602, #603); the
-Close pack (§1.232, migration 0099, #575 and #583); the AP pack (§1.233, migration 0100, #584 and
-#585); the work-delivered statement (§1.234, #590); R5, a report per account and `/ops/accounts`
-(§1.235, #582); R6, the portal's saved views (§1.236, migration 0098, #577 and #581). What is left:
-
-- **Blocked on a live model key** (fixtures to record with `LLM_MODE=record`): SOP-B (the Builder
-  writes each step's purpose), G6 (`manual.read` for every agent), A3 (attack cases), and G10's
-  parameter for the Builder's decisions.
-- **The Close pack (§1.232).** `qbo.journal.create` is built against the fake only: run the
-  journal-entry checks on the QuickBooks sandbox (`packages/connectors/src/qbo/NOTES.md`, "Journal
-  entries"). Approval stays required; a client's matrix never allows journal entries on its own;
-  test runs never post.
-- **The statement (§1.234).** The PDF goes in our own email over Resend to the billing address with
-  the Stripe invoice (Stripe's API can't attach a file); a client in HIPAA mode gets it in the
-  portal only. Its words in the other five languages want a fluent speaker's review.
-- **Words to review.** The new words in #578 (the chart), #601 (setup and adjustments) and #602
-  (Procedures) are marked `// fluent review` in the five languages other than English.
-- **Staging after deploy.** Every agent that uses AI reads `no_training` In review until the
-  providers' pages are read (Agent assurance above), so the next nightly run opens one issue each.
-
-### Ways in, ways out (2026-11-23; `docs/plan.md` §1.238–§1.241, ARCHITECTURE v0.23 §10.14)
-
-Built: decisions that hold only what differs and How it ends (§1.238, #647); a hand-off into the
-agent's own workflow (§1.239, #649); one main workflow, more ways in, no copied steps (§1.240,
-#650); ways in and ways out on Check the steps (§1.241, #648). Merge in that order. What is left:
-
-- **Try it on staging** (owner, once merged): describe an invoice intake with a nightly QuickBooks
-  scan and check the Builder drafts one main workflow, a scan that hands each unread invoice into
-  it, no copied steps, a decision that holds only the new vendor's setup, and an end that reports
-  out. Every rule has run against a scripted model only; the Builder's evals (§1.108) have no case
-  for them yet. Code: an eval case.
-- **Publish doesn't apply the rule.** `oneProcessProblems` (§1.240) runs only in the seed test;
-  applying it at publish refuses a version whose extra workflow doesn't hand off. Sloan keeps its
-  four workflows as the owner's exception (`packages/db/src/seed.ts`). Code, once the owner agrees.
-- **The Bookkeeper's copied steps.** v7's payout check repeats the monthly reconciliation's last
-  four steps (§1.240, "Found"): make them an automation, or a hand-off into one workflow, in the
-  pack's next template version. Code.
-- **Lanes on the chart.** Ways in still show as workflow tabs; drawing them as lanes into the main
-  workflow on one chart is a later screen change. Code, if wanted.
-
-### Owner decisions still open (`docs/plan.md` §7 and the sections named)
-
-- **Billing**: the credit allowance per agent, whether allowances pool across a client's agents
-  (built pooled), the prices; whether a client agent's own test runs and paused days are billed
-  (§1.24, §1.32); whether trial and sign-off days are billed (§7 item 8e).
-- **Before Wave 2 confirmations** (§7 item 8): Sloan's name and the merge from "Account check"; the
-  agent address form; client test cases never gating shared skills; who sets "on its own".
-- **Smaller defaults** (§7 item 10): the 60 s undo window, US federal holidays only, notification
-  texts only from the client's own number, replay as a test run in the same client.
-- **Wave X (2026-11-22), defaults to confirm.** The matching engine (§1.215): `invoice_two_systems`
-  uses a 30-day window and a cent of tolerance, and two stated invoice numbers that differ never
-  match; an equal amount alone never auto-matches (fuzzy weights amount 0.6, name 0.3, date and
-  reference 0.1 each); a partial match is one item against items carrying its reference, all of one
-  sign; a Bookkeeping match made by a saved rule is stored as `exact`, the rule in its reason (a
-  method of its own needs a migration). Books health (§1.216): only reconciliations signed off in
-  Mezonas count, so most accounts read "Never reconciled with us" until the Bookkeeper signs one
-  off; the thresholds (45 days to reconcile, 30 days past due, 3 days for unnumbered duplicate
-  bills, 7 days in undeposited funds, 10% price drift over a year); whether to backfill more than
-  90 days of bills and purchases, here and for the prospect connection. Onboarding (§1.220): the
-  items under "Back office work" above. The handoff (§1.219): the six languages want a fluent
-  speaker's review.
-- **Wave Y (2026-11-22), to decide or confirm.** Packs (§1.230): a pack's vendors of ours are
-  marked for HIPAA on the Areas tab but don't block its install; refusing a HIPAA client the whole
-  pack is a one-line change. Close (§1.232): whether accruals proposed from billing patterns stay on
-  by default or become opt-in per client; the default accrual account's name
-  (`CLOSE_CONFIG_DEFAULTS`) or the client's own. AP (§1.233): whether a client with the AP pack runs
-  Bills to pay instead of Vendor contracts' invoice review (with both on, each invoice runs twice);
-  confirm that an approved bill is final in our records and a mistake is fixed in the accounting
-  tool (nothing of ours pays). The statement (§1.234): the counters' definitions (read-only records
-  aren't processed; exceptions are alerts and verifier disagreements; dollars identified are
-  alerts' `dollar_impact` only) and the page for client admins only. R5 (§1.235): "Needs us" reuses
-  its existing rules (a live run failed in the last 7 days and not retried, an item waiting over
-  24 hours, a connection in `error` or `refresh_failing`, an allowance over 80%); usage is the
-  projected month in the back office and the Billing page's month so far in the portal, for client
-  admins only. G5 (§1.231.6): deleting a learned note removes its row (notes are read live per
-  client, not from the bundle); known-risk counts match on words and are approximate.
-- **Wave X, not built yet.** Matching: a back-office screen for saved rules and "save as rule" on
-  the reconciliation card; a pack tool running the ROMCO configuration (the other system's
-  invoices aren't synced). Books health: two facts to check on the QuickBooks sandbox company
-  (`qbo/NOTES.md`): the sign of a liability's `CurrentBalance` and Undeposited Funds'
-  `AccountSubType`. The process interview (§1.217): its replay fixtures are hand-written and want
-  re-recording with a live key; sending the link from Mezonas (the operator copies it), filing
-  answers into an onboarding intake, the page in six languages, and the reuse check's judge on
-  interviews. The desktop (§1.219): universal and app links (M8); removing a phone also ends that
-  person's desktop sessions (D7).
-
-### Automations, repeat and the agent's choice (code; ARCHITECTURE v0.17, `docs/plan.md` §1.99)
-
-- Built 2026-11-14 on `claude/laughing-babbage-vyfvog`: M58 (the words back), M59 (`repeat`), M60
-  (migration 0048, a commit of its own for its own PR), M61 (the agent chooses a path and says when
-  a `repeat` is done). Open: the RFQ, QuickBooks and buyer examples on staging once those
-  connectors are live, with their recorded model fixtures.
-- Owner decisions open: whether the portal shows the agent's reason for a choice; `between` in
+- **Billing**: the credit allowance per agent; whether allowances pool (built pooled); the
+  prices; whether a client agent's test runs, paused days, trial and sign-off days are billed.
+- **Wave 2 confirmations** (§7 item 8): Sloan's name and the merge from "Account check"; the agent
+  address form; client test cases never gating shared skills; who sets "on its own".
+- **Smaller defaults** (§7 item 10): the 60 s undo window; US federal holidays only; notification
+  texts only from the client's own number; replay as a test run in the same client.
+- **Matching** (§1.215): `invoice_two_systems`' 30-day window and a cent of tolerance; an equal
+  amount alone never auto-matches; fuzzy weights; a rule's match stored as `exact`.
+- **Books health** (§1.216): only reconciliations signed off in Mezonas count; the thresholds;
+  whether to backfill more than 90 days.
+- **Packs and areas** (§1.230–§1.235): a HIPAA client and a pack with our vendors; Close's
+  accruals on by default or opt-in, and the default accrual account; AP's Bills to pay instead of
+  invoice review (with both, each invoice runs twice), and an approved bill final in our records;
+  the statement's counters and its audience; "Needs us" rules; usage shown to client admins only;
+  deleting a learned note removes its row.
+- **Repeat and choices**: whether the portal shows an agent's reason for a choice; `between` in
   business hours; more than 10 passes.
+- **Texting**: a forwarded invitation can still learn a number is a client's contact (H10).
+- **Reports**: reports by email; filtering by a KPI's value (`docs/reporting-plan.md`).
 
-### Approvals bound to what was seen (code; audit 3.4, 2026-11-17)
+## 16. Language and legal
 
-- The portal, the phone, the back office's own resolve and the operator's step-in send the
-  fingerprint of the card as shown, and the API refuses an answer to a card that changed since
-  (409 `changed`; the back office's since §1.191, #528).
-
-### Language and legal
-
-- A **fluent speaker's review** of the five translations (Spanish, French, Portuguese, Italian,
-  German): the portal's message files, `TIMELINE_WORDS`, the language instruction in `runAgent`, and
-  every pass since (§1.18, §1.27 invite strings, the Requests screens), and the pre-launch
-  hardening's new copy (`docs/plan.md` §1.126–§1.145: the two approval reasons of §1.133 first).
+- A **fluent speaker's review** of Spanish, French, Portuguese, Italian and German: the portal's
+  message files, `TIMELINE_WORDS`, `runAgent`'s language instruction, every `// fluent review`
+  (the chart #578, setup #601, Procedures #602), the resume screen (H7), the handoff (§1.219),
+  Bookkeeping (K7), the statement (§1.234), the governance copy (G9) and the output wording (§2).
 - **Legal**: the site's terms and privacy (S3), measurement wording (S8), processor terms (S13),
-  calls and texts (the relationship basis for calls and email, §1.97, and the texting sign-up,
-  §1.98, under the TCPA and CTIA), agent accounts on third-party sites.
+  calls and texts (§9), agent accounts on third-party sites, the incident response notice periods
+  (§14.2), the DPA (§14.4).
 
-### HIPAA, SOC 2 and PCI (`docs/hipaa-plan.md`)
+## 17. Later, not started
 
-- Technical: **T1** is done: the MCP server refuses a client in HIPAA mode until claude.ai is
-  covered (§1.190, #526). **T2** is done: every model call outside a run,
-  the Builder's included, goes through one entry point held to the clients' HIPAA mode
-  (`docs/plan.md` §1.143). T3 (clients' own audit log page) next; T4–T10 are notes or later.
-- **Before any BAA is recorded** (PR #414): check that `BAA_PROCESSORS` is empty on production and
-  staging, a dashboard value included; run `select id, name from tenant where
-  (settings->'compliance'->>'hipaa')::boolean` and expect no rows. Once a served client is in HIPAA
-  mode without a BAA covering the model vendor, Reggie and questions across clients are refused for
-  every operator who serves it, as are that client's Builder and builds (§1.143).
-- **Before the first purge of a retired client:** time `purgePlan` and one test purge on a Neon
-  branch of production (§1.143).
-- Administrative: a security officer, the risk analysis, policies, training, sanctions, the client
-  BAA and DPA, vendor BAAs, whether to use a compliance tool and when to start SOC 2's Type II period.
-- **SOC 2 readiness (built, Wave X, #560 and #571, `docs/plan.md` §1.218):** the readiness checklist
-  at `/ops/security/soc2`, the quarterly access review and its record, and the client-deletion drill
-  (`db:deletion-drill`). The owner's: adopt or edit the three draft policies in `docs/policies/`
-  (change management, incident response, vendor management), then set them to 1.0 in the files
-  and in `POLICIES` (`packages/core/src/compliance/controls.ts`); have counsel confirm the incident
-  response draft's notice periods (72 hours; HIPAA's 60 days); reword the information security
-  policy's §3 ("saved as a dated CSV") at its next review; run the first deletion drill on staging
-  after deploy (`docs/operations.md` §1.2); record 2026-Q4's access review before 31 December.
-  Not built: a Purge client workflow input so the drill runs from Actions (its own CI PR), the S-3
-  evidence pack, and vendor reviews and training recorded in the product.
+- **The FP&A pack** (`docs/fpa-plan.md`): the owner said not yet (2026-11-16); its team design
+  predates the step model and needs redoing on v5 first.
+- **Templates to production** (§1.118).
+- "Ask an agent" and "Report to an agent" step kinds: dropped.
 
-### Docs housekeeping
+## 18. Docs housekeeping
 
-- `docs/ARCHITECTURE.md` is v0.22 (the verifier, §10.18). The eval harness (`docs/plan.md`
-  §1.212) and metering (§1.210) have no ARCHITECTURE section yet. The Marketing area
-  (`docs/marketing-plan.md` §9) and the Bookkeeping area (`docs/plan.md` §1.79) are still to be
-  folded into it. CLAUDE.md's status line still says v0.15.
-- `docs/hipaa-plan.md` §1 ("Merge the code") lists PRs that were merged long ago.
+- `docs/ARCHITECTURE.md` (v0.24): fold in the Marketing area, the Bookkeeping area, the eval
+  harness (§1.212) and metering (§1.210).
+- `docs/audit-plan.md`: tick what merged (4.7, 5.1, 5.2, 9.1–9.6).
 
-## Suggested order
+## Finished ids still cited elsewhere
 
-1. **This week, purchasing and bookkeeping:** P1–P4 and K1–K2, then §1.2 on the Sandbox with the QuickBooks sandbox; answer
-   the four §1.3 decisions as the test shows them. In parallel, start S6 (Search Console collects
-   from the day it is verified).
-2. **Next, the site:** S1–S4, then S5 and S7; S8–S11 once the lawyer has read the drafts.
-3. **Then providers in the order clients need them:** Resend or Gmail (already done by then),
-   Twilio and the legal review, Stripe with the billing decisions, then the rest of §3.
+Code and older documents cite these; they are done and kept here only so the citation resolves.
+A1: WorkOS multi-factor required on both environments (owner, 2026-11-16), until A5 turns it off.
+A2: our own second step, its Twilio subaccounts, Verify services and keys for both environments
+(2026-11-18), on in production since the 2026-11-26 deploy. D2, D3: the desktop API and its
+migration 0080 (#546, #548). G3, G4: a try on a Sandbox record, decisions' words changed on the
+card (Wave Y, #589, #599).

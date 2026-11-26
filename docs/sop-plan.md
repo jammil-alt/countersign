@@ -1,5 +1,7 @@
 # The agent's SOP: a standard operating procedure made from its setup
 
+> **Status (2026-11-26): Partly done.** S0, S1a, S1, W and S2 built. The §7 questions and S3 are open: `docs/open.md` §11.
+
 Owner, 2026-11-21: "a documented SOP for each of the agents. Basically a clickable, readable,
 queryable SOP that clients can look at, print and share based on the current set up of their
 agent… at the client agent side. Formalize it, including a process, owners, controls, systems,

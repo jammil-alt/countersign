@@ -1,5 +1,7 @@
 # Connectors: one place for the client, access set by what agents need
 
+> **Status (2026-11-26): Done.** C1–C6 built (§1.161, migration 0070); "Nothing here is built yet" below is out of date. Least-access grants (§5.5) are open: `docs/open.md` §9.
+
 Agreed by the owner (2026-11-20): the design and the seven decisions in §10 as recommended, plus
 §7.1 (our changes go to the client to approve) and §7.2 (the client may authorize them in advance). Nothing here is built yet. The decisions go into
 `docs/plan.md` §1 and the build into its milestones (§9 below).

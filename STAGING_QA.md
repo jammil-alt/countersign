@@ -1,5 +1,7 @@
 # Staging walk-through (2026-11-22)
 
+> **Status (2026-11-26): Done.** Fixed in the §1.207 PR. What's left: `docs/open.md` §10.
+
 The owner went through every back-office sidebar section on staging. They only read and navigated,
 plus one question to Reggie. Done, Step in, Switch on, Invite and the create and save buttons were not
 clicked, so those paths are untested. Nothing crashed and the console showed no errors. The problems

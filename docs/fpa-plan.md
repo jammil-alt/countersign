@@ -1,5 +1,7 @@
 # FP&A team: build plan (draft, 2026-11-16)
 
+> **Status (2026-11-26): Not started, on hold.** The owner said not yet (2026-11-16); its design predates the step model. `docs/open.md` §17.
+
 Plan for the brief "Mezonas FP&A Agents — Dev Brief" (2026-11-15). Nothing here is built. It is
 outside ARCHITECTURE v0.18's §1 scope, so **step 0 is the owner's yes and an ARCHITECTURE v0.19
 section** (as the Marketing and Bookkeeping areas were added), then a `docs/plan.md` §1 entry and

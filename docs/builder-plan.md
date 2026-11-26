@@ -1,5 +1,7 @@
 # Builds that work first: decisions, the agent manual and governance (agreed 2026-11-19)
 
+> **Status (2026-11-26): Superseded.** B0–B6 and the one-screen builder were built, then replaced by the step model (`docs/step-model-plan.md`, #707, #711). Kept as the record of the decisions code still cites. What's left: `docs/open.md` §2 and §11.
+
 > **Built 2026-11-19 (B0–B6), with no migration.** The choices made where this plan left them open
 > are in `docs/plan.md` §1.155; the result is ARCHITECTURE v0.20 §10.16; what is left is in
 > `docs/open.md`, "Builds that work first".

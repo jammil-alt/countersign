@@ -1,5 +1,7 @@
 # Speed and structure plan (audit of 2026-11-11)
 
+> **Status (2026-11-26): Partly done.** Phases 0–2 and most of 4, 5 and 9 merged in the 2026-11-11 run. What's open: `docs/open.md` §13.
+
 What the audit of 2026-11-11 found, as work to do in order. The audit read the code at commit
 `d2e13ae` and ran the app locally on the demo seed, counting API calls and SQL statements per
 screen. This file is written to be run later, after other work has landed, by a person or an agent.

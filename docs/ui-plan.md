@@ -1,5 +1,7 @@
 # UI plan: the owner's prototype, page by page
 
+> **Status (2026-11-26): Done.** UI-0 to UI-4 merged (#157–#174); its workflow builder and triggers rows were replaced by the step builder. Translations' review: `docs/open.md` §16.
+
 Status: **UI-0 to UI-4 built and on staging** (2026-11-06). See [Status](#status) at the end. Source: [`docs/design/prototype.html`](design/prototype.html), the owner's clickable prototype (open it in a browser; hash routing, `#Start` lists every screen). It is built on the Mezonas design system's tokens (`packages/design-system/tokens.css`), with sample data for Harbor Millwork.
 
 The API for almost everything here exists already (built "API first", `docs/plan.md` §8). This plan turns it into screens. It replaces the rule "UI only where a screen would break" (plan §8.1) for the pages listed below.

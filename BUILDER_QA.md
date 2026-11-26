@@ -1,5 +1,7 @@
 # Agent Builder QA (2026-11-19)
 
+> **Status (2026-11-26): Done.** All 40 findings fixed (#442–#445); its rows on `WorkflowBuilder.tsx` and `BuilderPanel.tsx` describe screens the step model replaced. Code cites its ids.
+
 A hostile QA pass on the Agent Builder: the build flow an operator uses to take an agent or skill
 from intake to go-live, and the AI layer behind it. Report only; nothing is fixed.
 

@@ -1,5 +1,7 @@
 # Forms: collecting data from people by link (2026-11-16)
 
+> **Status (2026-11-26): Partly done.** F-1 to F-3b built (§1.121). F-4 to F-6 are open: `docs/open.md` §10.
+
 > **Built (2026-11-16): F-1 to F-3b**, against fakes: the form schema and its checks, migration
 > 0058 (`form_request`), the `forms.request` ("Request info") and `forms.draft` skills, sending the
 > link through reach out with the form on the approval card, the public page `/f/<token>` (type,
