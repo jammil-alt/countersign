@@ -11,6 +11,51 @@ code and the owner's steps side by side. Reporting and searching runs by their d
 in `docs/reporting-plan.md`; R1 to R4 are built (a record's Runs panel, §1.200; a report per
 agent, §1.214).
 
+## To do
+
+The working checklist (owner, 2026-11-26): tick an item when it is done, add one when it comes
+up, reorder as priorities move. Each points to the section below that holds the detail.
+
+- [ ] **Every key in production.** GitHub → Settings → Environments → `production`, then
+  Actions → Deploy → production to copy them into the Worker (`docs/operations.md`, "Worker
+  secrets"). Which are already there can't be seen from a session; check the list against it.
+  - For the first release: `WORKOS_API_KEY`, `ANTHROPIC_API_KEY`, `OPENAI_API_KEY` (dictation),
+    `RESEND_API_KEY` and `RESEND_WEBHOOK_SECRET` with the variables `RESEND_FALLBACK_DOMAIN` and
+    `RESEND_FALLBACK_DOMAIN_ID`, `SENTRY_DSN_API` and `SENTRY_DSN_WEB`,
+    `TWILIO_VERIFY_API_KEY_SID` and `TWILIO_VERIFY_API_KEY_SECRET` (done 2026-11-18, A2),
+    `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`.
+  - As each provider goes live (§3): `QBO_CLIENT_ID`, `QBO_CLIENT_SECRET`,
+    `QBO_WEBHOOK_VERIFIER`; `PLAID_CLIENT_ID`, `PLAID_SECRET`; `STRIPE_SECRET_KEY`,
+    `STRIPE_WEBHOOK_SECRET`; `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`; `ELEVENLABS_API_KEY`,
+    `ELEVENLABS_WEBHOOK_SECRET`; `META_APP_ID`, `META_APP_SECRET`, `META_CONFIG_ID`,
+    `META_WEBHOOK_VERIFY_TOKEN`; `OUTLOOK_*`, `RAMP_*`, `HUBSPOT_*`, `ZOHO_*`, `PODIO_*`, `SLACK_*`
+    (client id and secret each); `GOOGLE_CHAT_SERVICE_ACCOUNT`, `GOOGLE_CHAT_PROJECT_NUMBER`;
+    `GOOGLE_PICKER_API_KEY`, `GOOGLE_PROJECT_NUMBER`; `BILL_DEV_KEY`; `MFA_TWILIO_ACCOUNT_SID`,
+    `MFA_TWILIO_AUTH_TOKEN` (the code service, browser logins); optional `XAI_API_KEY`,
+    `GEMINI_API_KEY`.
+  - Not copied by `deploy.yml` yet (code: one CI PR): `ONEDRIVE_CLIENT_*`, `EXCEL_CLIENT_*`,
+    `OUTLOOK_CALENDAR_CLIENT_*`, `TEAMS_BOT_*`, `LINKEDIN_CLIENT_*`.
+  - Never by hand: `ENCRYPTION_KEY`, `WORKOS_COOKIE_PASSWORD`, `OAUTH_STATE_SECRET`,
+    `MFA_ENCRYPTION_KEY` (generated in Cloudflare on deploy; never replace `ENCRYPTION_KEY`).
+- [ ] **SSO in WorkOS production.** WorkOS → Production: Google and Microsoft sign-in on
+  (Authentication → Social login) with Mezonas' own OAuth clients, not WorkOS's test ones;
+  enterprise SSO (SAML or OIDC) set up per client organization when a client asks, in that
+  organization's settings. SSO sign-ins skip our second step (`SECOND_FACTOR_EXEMPT_METHODS`);
+  Google and Microsoft sign-ins don't. Same pass: redirect and sign-out URIs, sessions 12 hours
+  and 30 minutes idle, branding, and A3 (Dynamic Client Registration and Client ID Metadata
+  Documents on) (`docs/operations.md`, "By hand" and "The first production release").
+- [ ] **Production's first release** (`v0.1.0`): the step model's purge, then the tag, Email
+  Routing for `in.mezonas.com`, the platform templates, the Mezonas client ("Production's first
+  release" below, A5).
+- [ ] **The buyer on staging**: P1–P5, then §1.2 in the app, then the §1.3 decisions.
+- [ ] **The Bookkeeper**: K1–K2 (§1b).
+- [ ] **Search Console** (S6): start now, it collects from the day it is verified.
+- [ ] **The site live**: S1–S4, then S5 and S7; S8–S11 after the lawyer's read.
+- [ ] **Staging hardening**: H1 live checks, H3 Hyperdrive caching and `staging`'s branches.
+- [ ] **Sentry**: point `mezonas-web`'s code mapping at `jammil-alt/countersign`; cancel the
+  stuck staging run behind MEZONAS-API-1.
+- [ ] **#501**: finish or close the stale issue close-out draft.
+
 ## Where things stand
 
 - **Built:** everything through M69 (`docs/plan.md` §4) and the work recorded through §1.220,
