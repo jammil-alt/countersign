@@ -424,6 +424,10 @@ async function opsWalk(w) {
           );
         }
       }
+      // A step's settings are a modal over the page (owner, 2026-11-26): close the last one
+      // opened, as a person would, before going on through the sidebar.
+      await w.page.keyboard.press("Escape");
+      await w.page.locator('[data-testid="steps-drawer"]').waitFor({ state: "detached" });
     });
   }
 
