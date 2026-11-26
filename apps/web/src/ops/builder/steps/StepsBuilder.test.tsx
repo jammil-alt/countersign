@@ -243,11 +243,47 @@ describe("the step-model builder", () => {
     expect(
       within(screen.getByTestId("builder-chat")).getAllByRole("textbox")[0] as HTMLElement,
     ).toHaveValue("Half a thought");
-    // A step opens over it, and the Builder is a tab again once the step is closed.
+    // A step opened while it is open comes up beside it, the Builder about that step.
     await user.click(screen.getByTestId("flow-box-end"));
-    expect(await screen.findByTestId("flow-panel")).toBeTruthy();
-    await user.click(screen.getByTestId("steps-drawer-scrim"));
-    expect(await screen.findByTestId("steps-drawer-tab")).toHaveTextContent("Builder");
+    const pair = await screen.findByTestId("steps-drawer");
+    expect(within(pair).getByTestId("flow-panel")).toBeTruthy();
+    expect(within(pair).getByTestId("builder-chat")).toBeTruthy();
+    expect(within(pair).getByTestId("builder-chat-focus")).toHaveTextContent("On “Done”");
+    // Done closes the step; the Builder stays open.
+    await user.click(within(pair).getByTestId("flow-panel-done"));
+    await waitFor(() => expect(screen.queryByTestId("steps-drawer")).toBeNull());
+    expect(screen.getByTestId("builder-chat")).toBeVisible();
+  });
+
+  it("asks the Builder from an open step, and marks what its answer changed", async () => {
+    const { user } = setup(workflow());
+    await user.click(await screen.findByTestId("flow-box-enter"));
+    const drawer = await screen.findByTestId("steps-drawer");
+    expect(within(drawer).queryByTestId("builder-chat")).toBeNull();
+    await user.click(within(drawer).getByTestId("flow-panel-ask-builder"));
+    expect(within(screen.getByTestId("steps-drawer")).getByTestId("builder-chat")).toBeTruthy();
+    // Next and Previous walk the steps in reading order.
+    expect(within(drawer).getByTestId("flow-panel-previous")).toBeDisabled();
+    await user.click(within(drawer).getByTestId("flow-panel-next"));
+    expect(screen.getByTestId("flow-panel")).toHaveAttribute("data-step", "end");
+  });
+
+  it("offers back edits kept in this browser from before a reload", async () => {
+    const w = workflow() as { steps: { id: string; name: string }[] };
+    const kept = structuredClone(w);
+    (kept.steps[0] as { name: string }).name = "Enter the bill again";
+    window.localStorage.setItem(
+      `countersign:steps-unsaved:${AGENT_ID}:main`,
+      JSON.stringify({ baseId: V1, workflow: kept, at: "2026-11-26T15:00:00.000Z" }),
+    );
+    const { user } = setup(w);
+    await user.click(await screen.findByTestId("steps-kept-restore"));
+    await waitFor(() =>
+      expect(screen.getByTestId("flow-box-enter").textContent).toContain("Enter the bill again"),
+    );
+    expect(screen.getByTestId("flow-bar-version")).toHaveTextContent("Unsaved");
+    expect(screen.queryByTestId("steps-kept")).toBeNull();
+    window.localStorage.clear();
   });
 
   it("opens a step's settings in the side drawer, and Escape closes it", async () => {

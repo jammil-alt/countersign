@@ -8,7 +8,7 @@
 // Drawn at the end of the page (a portal): inside the page, a parent that makes its own frame
 // (a transform, a contained box) cut the scrim down to that frame, and a click outside it did
 // nothing.
-import { type ReactNode, useEffect, useRef } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { cx } from "../../../ui/primitives";
 import { trapTab } from "../../../ui/sheet";
@@ -21,6 +21,9 @@ export function Drawer({
   onCollapse,
   narrow = false,
   hidden = false,
+  companion,
+  companionLabel = "Builder",
+  keepOn,
   children,
 }: {
   label: string;
@@ -34,13 +37,25 @@ export function Drawer({
   narrow?: boolean;
   /** Folded: kept, with what it holds (a message being typed, a try under way), but not shown. */
   hidden?: boolean;
+  /**
+   * A second panel to the right of the first, in the same drawer (owner, 2026-11-26: the Builder
+   * beside an open step, both full height). Under 1200 px wide they share the drawer, with a
+   * switch between the two.
+   */
+  companion?: ReactNode;
+  companionLabel?: string;
+  /** Beside the page: what a press on doesn't fold it (a step on the chart, which opens beside it). */
+  keepOn?: string;
   children: ReactNode;
 }) {
+  const [pane, setPane] = useState<"main" | "companion">("main");
   const box = useRef<HTMLDivElement>(null);
   const close = useRef(onClose);
   close.current = onClose;
   const collapse = useRef(onCollapse);
   collapse.current = onCollapse;
+  const keepRef = useRef(keepOn);
+  keepRef.current = keepOn;
   useEffect(() => {
     if (hidden) return;
     const onKey = (e: KeyboardEvent) => {
@@ -59,6 +74,7 @@ export function Drawer({
       const t = e.target;
       if (!(t instanceof Element) || box.current?.contains(t)) return;
       if (t.closest("[data-drawer-keep]")) return;
+      if (keepRef.current && t.closest(keepRef.current)) return;
       collapse.current();
     };
     window.addEventListener("keydown", onKey);
@@ -87,9 +103,39 @@ export function Drawer({
         aria-modal={modal}
         aria-label={label}
         data-testid={testId}
-        className={cx("flow-drawer", narrow && "flow-drawer--narrow")}
+        className={cx(
+          "flow-drawer",
+          narrow && "flow-drawer--narrow",
+          companion !== undefined && "flow-drawer--pair",
+        )}
+        data-pane={companion !== undefined ? pane : undefined}
       >
-        {children}
+        {companion !== undefined ? (
+          <>
+            <fieldset className="ds-seg flow-drawer__switch" aria-label="Show">
+              <button
+                type="button"
+                aria-pressed={pane === "main"}
+                data-testid={testId ? `${testId}-show-main` : undefined}
+                onClick={() => setPane("main")}
+              >
+                {label}
+              </button>
+              <button
+                type="button"
+                aria-pressed={pane === "companion"}
+                data-testid={testId ? `${testId}-show-companion` : undefined}
+                onClick={() => setPane("companion")}
+              >
+                {companionLabel}
+              </button>
+            </fieldset>
+            <div className="flow-drawer__main">{children}</div>
+            <div className="flow-drawer__companion">{companion}</div>
+          </>
+        ) : (
+          children
+        )}
       </div>
     </div>,
     document.body,

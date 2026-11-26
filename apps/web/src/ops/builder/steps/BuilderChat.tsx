@@ -184,6 +184,12 @@ export function BuilderChat({
 }) {
   const turns = session.detail?.turns ?? [];
   const [about, setAbout] = useState(focus ?? null);
+  // Another step opened beside it (Next, Previous): the conversation is about that one now.
+  const focusId = focus?.id ?? null;
+  // biome-ignore lint/correctness/useExhaustiveDependencies: follows the open step by its id.
+  useEffect(() => {
+    if (focusId) setAbout(focus ?? null);
+  }, [focusId]);
   return (
     <aside aria-label="Builder" className="flex h-full min-h-0 flex-col" data-testid="builder-chat">
       <div className="flex items-start justify-between gap-3 border-b border-line px-5 py-4">

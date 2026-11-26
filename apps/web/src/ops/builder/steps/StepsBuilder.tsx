@@ -63,6 +63,7 @@ import { statusesFor, stepCounts } from "./status";
 import { guardedSuggestion, type SuggestFn, suggestBody, withStep } from "./suggest";
 import { TryPanel } from "./TryPanel";
 import type { Step, StepKind, Workflow } from "./types";
+import { forgetKept, keptToOffer, readKept, useKeepUnsaved, useLeaveGuard } from "./unsaved";
 import { hasWrittenSteps, withStepSkillPins } from "./written";
 
 export interface StepsBuilderProps {
@@ -190,6 +191,22 @@ function Body(
     canon: canonicalJson(props.start),
   });
   const dirty = canonicalJson(workflow) !== saved.canon;
+  // What the builder opened on, worked out (stream G): changed by an edit, it is the person's work.
+  const [opened] = useState(() => canonicalJson(history.present));
+  const unsaved = dirty && canonicalJson(workflow) !== opened;
+  // Edits kept in this browser from before a reload, offered back (owner, 2026-11-26).
+  const [offer, setOffer] = useState(() =>
+    keptToOffer(readKept(agent.id, props.workflow), from.id, history.present),
+  );
+  useKeepUnsaved({
+    agentId: agent.id,
+    slug: props.workflow,
+    baseId: saved.id,
+    workflow,
+    dirty: unsaved,
+    enabled: offer === null,
+  });
+  useLeaveGuard(unsaved);
   const [selection, setSelection] = useState<string | null>(null);
   const [addAt, setAddAt] = useState<InsertPoint | null>(null);
   const [folded, setFolded] = useState<ReadonlySet<string>>(new Set());
@@ -203,6 +220,8 @@ function Body(
   // and the try stay as they were, to open again.
   const [toolFolded, setToolFolded] = useState(false);
   const [tried, setTried] = useState<TryMark[]>([]);
+  // The steps the Builder's last answer changed (by id), until its next answer or a save.
+  const [builderChanged, setBuilderChanged] = useState<ReadonlySet<string>>(new Set());
   const [outputsOpen, setOutputsOpen] = useState(true);
   const api = useRef(action);
   api.current = action;
@@ -212,8 +231,14 @@ function Body(
   const statuses = useMemo(() => statusesFor(issues), [issues]);
   // What the chart and the list show: the issues, and the last try's result on each step.
   const shown = useMemo<StatusMap>(() => {
-    if (tried.length === 0) return statuses;
+    if (tried.length === 0 && builderChanged.size === 0) return statuses;
     const out = new Map(statuses);
+    // The steps the Builder's last answer changed, marked on the chart and the list.
+    for (const id of builderChanged) {
+      const s = out.get(id);
+      const tag = { word: "Builder changed", tone: "neutral" as const };
+      out.set(id, s ? { ...s, tag } : { stepId: id, level: "ok", items: [], decided: [], tag });
+    }
     for (const t of tried) {
       const s = out.get(t.stepId);
       out.set(
@@ -224,7 +249,7 @@ function Body(
       );
     }
     return out;
-  }, [statuses, tried]);
+  }, [statuses, tried, builderChanged]);
   const counts = useMemo(() => stepCounts(workflow, catalog.uses), [workflow, catalog.uses]);
   const process = useMemo(() => displayProcess(workflow, catalog.uses), [workflow, catalog.uses]);
   const label = useCallback(
@@ -289,13 +314,20 @@ function Body(
 
   const selected = selection ? (findStep(workflow, selection)?.step ?? null) : null;
   // A step opens in the drawer in place of Try it or the Builder.
+  // A step opens over Try it (folded to its tab); the Builder, when open, stays beside it.
+  const toolRef = useRef(tool);
+  toolRef.current = tool;
   const select = useCallback((id: string | null) => {
     setSelection(id);
     if (id) {
-      setToolFolded(true);
+      if (toolRef.current !== "builder") setToolFolded(true);
       setAddAt(null);
     }
   }, []);
+  const askBuilderHere = () => {
+    setTool("builder");
+    setToolFolded(false);
+  };
   const openTool = (t: "try" | "builder") => {
     setSelection(null);
     setAddAt(null);
@@ -387,6 +419,7 @@ function Body(
       canon: canonicalJson(snapshot),
     };
     setSaved(next);
+    setBuilderChanged(new Set());
     props.onChanged();
     return next;
   };
@@ -438,7 +471,10 @@ function Body(
       const v = dirty ? await save() : saved;
       return v ? { id: v.id } : null;
     },
-    onDraft: edit,
+    onDraft: (next) => {
+      setBuilderChanged(changedSteps(workflow, next));
+      edit(next);
+    },
   });
   const sample = useMemo(
     () => samplePayload(workflow as unknown as Triggered, catalog.events as never),
@@ -453,6 +489,13 @@ function Body(
   const tryBlocked = canPublish(issues)
     ? null
     : `Settle what stops Publish first: a test run is checked as a publish is. ${publishSummary(issues)}`;
+
+  // The step before and after the open one, in reading order.
+  const order = walk(workflow).map((l) => l.step.id);
+  const stepAt = (delta: number): string | null => {
+    const i = selection ? order.indexOf(selection) : -1;
+    return i < 0 ? null : (order[i + delta] ?? null);
+  };
 
   const stepName = (id: string) => findStep(workflow, id)?.step.name.trim() || "A step";
   const open = { issues: statuses.size, questions: 0 };
@@ -531,6 +574,40 @@ function Body(
               navigate(`${props.base}/${view === "list" ? "steps" : "workflows"}/${input.slug}`);
             }}
           />
+        ) : null}
+        {offer ? (
+          <Notice tone="warning" testId="steps-kept">
+            You have changes here that weren't saved (
+            {new Date(offer.at).toLocaleString(undefined, {
+              dateStyle: "medium",
+              timeStyle: "short",
+            })}
+            ).{" "}
+            <button
+              type="button"
+              className="font-medium underline"
+              data-testid="steps-kept-restore"
+              onClick={() => {
+                edit(offer.workflow);
+                setOffer(null);
+              }}
+            >
+              Bring them back
+            </button>{" "}
+            or{" "}
+            <button
+              type="button"
+              className="underline"
+              data-testid="steps-kept-discard"
+              onClick={() => {
+                forgetKept(agent.id, props.workflow);
+                setOffer(null);
+              }}
+            >
+              discard them
+            </button>
+            .
+          </Notice>
         ) : null}
         {notice ? <Notice tone={notice.tone}>{notice.body}</Notice> : null}
         {action.error ? (
@@ -638,7 +715,23 @@ function Body(
           <Palette onPick={add} onClose={() => setAddAt(null)} />
         </Drawer>
       ) : selected ? (
-        <Drawer label="Step settings" testId="steps-drawer" onClose={() => setSelection(null)}>
+        <Drawer
+          label="Step settings"
+          testId="steps-drawer"
+          onClose={() => setSelection(null)}
+          {...(tool === "builder" && !toolFolded
+            ? {
+                companion: (
+                  <BuilderChat
+                    session={builder}
+                    focus={{ id: selected.id, name: selected.name }}
+                    onClose={() => setTool(null)}
+                  />
+                ),
+                companionLabel: "Builder",
+              }
+            : {})}
+        >
           <StepPanel
             stepId={selected.id}
             kind={`Step ${walk(workflow).findIndex((l) => l.step.id === selected.id) + 1} · ${kindLabel(selected.kind)}`}
@@ -646,6 +739,10 @@ function Body(
             onRename={(name) => edit(updateStep(workflow, selected.id, (s) => ({ ...s, name })))}
             status={shown.get(selected.id)}
             onClose={() => setSelection(null)}
+            onDone={() => setSelection(null)}
+            {...(tool === "builder" && !toolFolded ? {} : { onAskBuilder: askBuilderHere })}
+            onPreviousStep={stepAt(-1) ? () => select(stepAt(-1) as string) : undefined}
+            onNextStep={stepAt(1) ? () => select(stepAt(1) as string) : undefined}
             onRemove={
               canRemove(workflow, selected.id)
                 ? () => {
@@ -655,6 +752,12 @@ function Body(
                 : undefined
             }
           >
+            {builderChanged.has(selected.id) ? (
+              <Notice tone="warning" testId="steps-builder-changed">
+                The Builder just changed this step. Check it; each change has its own Undo in the
+                Builder's answer.
+              </Notice>
+            ) : null}
             <StepEditor
               key={selected.id}
               step={selected}
@@ -704,6 +807,8 @@ function Body(
           label="Builder"
           testId="steps-tool-drawer"
           modal={false}
+          // A step clicked on the chart or the list opens beside the Builder rather than folding it.
+          keepOn={'.flow-box, [data-testid^="flow-list-row-"]'}
           hidden={toolFolded || !!selected || !!addAt}
           onCollapse={() => setToolFolded(true)}
           onClose={() => setTool(null)}
@@ -798,4 +903,33 @@ export function PublishIssues(props: {
       </ul>
     </section>
   );
+}
+
+/** The steps (by id) whose settings differ between two drafts, added ones included. */
+export function changedSteps(before: Workflow, after: Workflow): ReadonlySet<string> {
+  // A step's own settings, not the steps inside it: a change inside a Fork marks that step only.
+  const own = (step: Step) => {
+    const {
+      steps: _s,
+      paths,
+      otherwise,
+      ...rest
+    } = step as Step & {
+      steps?: unknown;
+      paths?: { steps: unknown }[];
+      otherwise?: { steps: unknown };
+    };
+    return canonicalJson({
+      ...rest,
+      // A path's name and condition are the Fork's own; the steps on it are theirs.
+      ...(paths ? { paths: paths.map(({ steps: _x, ...p }) => p) } : {}),
+      ...(otherwise ? { otherwise: { ...otherwise, steps: [] } } : {}),
+    });
+  };
+  const was = new Map(walk(before).map((l) => [l.step.id, own(l.step)]));
+  const out = new Set<string>();
+  for (const l of walk(after)) {
+    if (was.get(l.step.id) !== own(l.step)) out.add(l.step.id);
+  }
+  return out;
 }
