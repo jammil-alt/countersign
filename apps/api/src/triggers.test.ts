@@ -87,8 +87,24 @@ function bundle(name: string, workflow: unknown): AgentBundle {
   } as AgentBundleInput);
 }
 
-const wf = (trigger: unknown, _extra: Record<string, unknown> = {}) =>
-  v5Workflow([], { triggers: [trigger] });
+// `handoff`: what the workflow's End passes on to the agents that listen for it.
+const wf = (trigger: unknown, extra: { handoff?: { output: unknown; sources: unknown } } = {}) =>
+  v5Workflow(
+    [],
+    extra.handoff
+      ? {
+          triggers: [trigger],
+          outputs: [
+            {
+              id: "out-pass",
+              name: "Passed on",
+              kind: "pass_on",
+              passOn: { output: extra.handoff.output, sources: extra.handoff.sources },
+            },
+          ] as unknown as { id: string }[],
+        }
+      : { triggers: [trigger] },
+  );
 
 describe.skipIf(!h)("triggers, six kinds", () => {
   const H = h as ApiHarness;

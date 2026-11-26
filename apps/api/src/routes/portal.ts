@@ -704,7 +704,7 @@ export async function portalRunView(
                 check?.confer
                   ? { kind: "confer" }
                   : {
-                      kind: labelled.kind,
+                      kind: thinkingKindOf(labelled),
                       skill:
                         labelled.kind === "do" && labelled.uses?.type === "skill"
                           ? labelled.uses.skill
@@ -1146,4 +1146,34 @@ export function portalRouteHandlers(app: Hono<AppEnv>): void {
     if (!out) throw notFound("connection");
     return { connection: out };
   });
+}
+
+/**
+ * The kind `thinkingOf` reads a running step by: a Do step is told by what it uses and who does it
+ * (an action fetches or writes, a Tell and a Contact draft, a Match and a Loop fetch).
+ */
+function thinkingKindOf(step: {
+  kind: string;
+  uses?: { type: string } | undefined;
+  doneBy?: string | undefined;
+}): string {
+  if (step.kind === "loop") return "read";
+  if (step.kind !== "do") return step.kind;
+  switch (step.uses?.type) {
+    case "action":
+    case "match":
+      return "action";
+    case "tell":
+      return "notify";
+    case "collect":
+      return "collect";
+    case undefined:
+      return step.doneBy === "contact"
+        ? "conversation"
+        : step.doneBy === "collect"
+          ? "collect"
+          : "do";
+    default:
+      return "do";
+  }
 }

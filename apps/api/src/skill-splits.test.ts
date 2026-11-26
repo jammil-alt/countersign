@@ -16,6 +16,7 @@ import {
   newSkillVersionProblems,
   processes,
   skillKind,
+  steps as stepModel,
   toolLookup,
 } from "@countersign/core";
 import {
@@ -36,17 +37,12 @@ import {
   withRecording,
 } from "@countersign/llm";
 import { DEFAULT_FIXTURE_DIR, fileFixtureStore } from "@countersign/llm/node";
-import { categorizeSteps, leftoverSteps } from "@countersign/pack-bookkeeping";
-import { forumReplySteps, socialPostSteps, weeklyReportSteps } from "@countersign/pack-marketing";
 import {
   catalogItem,
   itemMatch,
   parseLine,
-  readQuoteSteps,
-  reviewMergeSteps,
   VENDOR_INVOICE_SKILLS,
   VENDOR_INVOICE_WRITES,
-  vendorInvoiceProcess,
 } from "@countersign/pack-materials";
 import { and, eq } from "drizzle-orm";
 import { afterAll, describe, expect, it } from "vitest";
@@ -60,6 +56,7 @@ import {
 import { createPlatform, deploymentConnectors } from "./platform";
 import { executeRun } from "./runs/execute";
 import { cloudflareStepRunner } from "./runs/step-runner";
+import patterns from "./skill-splits.patterns.json";
 
 // biome-ignore lint/suspicious/noExplicitAny: response bodies are read loosely in tests.
 type J = any;
@@ -129,20 +126,29 @@ function clerkBundle(): AgentBundleInput {
       budgets: { maxSteps: 4, maxCostUsd: "1.00" },
       memory: { enabled: false },
     },
-    workflows: [
-      { slug: "invoice", name: "Process a vendor invoice", workflow: vendorInvoiceProcess() },
-    ],
+    workflows: [{ slug: "invoice", name: "Process a vendor invoice", workflow: patterns.invoice }],
   } as unknown as AgentBundleInput;
 }
 
+/** The Do steps of a pattern, at any depth. */
+function doSteps(
+  steps: unknown[],
+): { step: { uses?: { type: string; skill: string; action: string } } }[] {
+  const out: ReturnType<typeof doSteps> = [];
+  stepModel.eachStep(steps as stepModel.Step[], ({ step }) => {
+    if (step.kind === "do") out.push({ step } as never);
+  });
+  return out;
+}
+
 /** A pattern as a process of its own: a manual trigger with the ids it needs, then its steps. */
-function patternBundle(name: string, steps: processes.Step[]): AgentBundleInput {
+function patternBundle(name: string, steps: unknown[]): AgentBundleInput {
   const skills = new Set<string>();
   const tools = new Set<string>();
-  processes.walkSteps(v5Workflow(steps, { triggers: [] }) as never, ({ step }) => {
-    if (step.kind === "skill") skills.add(step.skill);
-    if ((step.kind === "write" || step.kind === "read") && step.tool) tools.add(step.tool);
-  });
+  for (const { step } of doSteps(steps)) {
+    if (step.uses?.type === "skill") skills.add(step.uses.skill);
+    if (step.uses?.type === "action") tools.add(step.uses.action);
+  }
   const bundle = clerkBundle() as J;
   bundle.definition.skills = [...skills].map((skill) => ({ skill }));
   bundle.definition.extraTools = [...tools];
@@ -178,24 +184,11 @@ function patternBundle(name: string, steps: processes.Step[]): AgentBundleInput 
 }
 
 describe("the replacement patterns", () => {
-  const PATTERNS: Record<string, processes.Step[]> = {
-    "Read a vendor's quote": readQuoteSteps({
-      quoteRequestId: "{{trigger.quoteRequestId}}",
-      documentId: "{{trigger.documentId}}",
-    }),
-    "Find duplicate catalog items": reviewMergeSteps(),
-    "Categorize bank transactions": categorizeSteps("{{trigger.bankTxnIds}}"),
-    "Explain what a reconciliation left": leftoverSteps("{{trigger.reconciliationId}}"),
-    "The weekly site report": weeklyReportSteps(),
-    "A forum reply": forumReplySteps({
-      id: "41000000",
-      url: "https://news.ycombinator.com/item?id=41000000",
-      title: "Ask HN: approval workflows",
-    }),
-    "A LinkedIn post": socialPostSteps("{{trigger.reportId}}"),
-  };
+  // The patterns the packs' step functions made, as the step model reads them (their v4 steps
+  // rewritten once; the packs' own templates are built again later).
+  const { invoice: _invoice, ...PATTERNS } = patterns as Record<string, { steps: unknown[] }>;
 
-  for (const [name, steps] of Object.entries(PATTERNS)) {
+  for (const [name, { steps }] of Object.entries(PATTERNS)) {
     it(`${name}: validates, every model skill writes nothing, every change a write step`, () => {
       const result = processes.validateBundle(AgentBundle.parse(patternBundle(name, steps)), {
         skills: Object.fromEntries(platform.catalog.list().map((s) => [s.id, s])),
@@ -203,12 +196,12 @@ describe("the replacement patterns", () => {
         events: platform.events.byType(),
       });
       expect(result.errors).toEqual([]);
-      processes.walkSteps(v5Workflow(steps, { triggers: [] }) as never, ({ step }) => {
-        if (step.kind !== "skill") return;
-        const def = platform.catalog.get(step.skill);
-        expect(def, step.skill).toBeDefined();
-        if (def) expect(newSkillVersionProblems(def, lookup), step.skill).toEqual([]);
-      });
+      for (const { step } of doSteps(steps)) {
+        if (step.uses?.type !== "skill") continue;
+        const def = platform.catalog.get(step.uses.skill);
+        expect(def, step.uses.skill).toBeDefined();
+        if (def) expect(newSkillVersionProblems(def, lookup), step.uses.skill).toEqual([]);
+      }
     });
   }
 

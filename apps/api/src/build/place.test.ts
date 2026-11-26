@@ -13,10 +13,16 @@ const flow = (slug: string, name: string, steps: unknown[]) => ({
   workflow: v5Workflow(steps, { triggers: [] }),
 });
 
-const ask = { id: "ask", kind: "person", name: "Ask Jammil" };
+const ask = {
+  id: "ask",
+  kind: "do",
+  doneBy: "person",
+  name: "Ask Jammil",
+  person: { mode: "ask", who: "client_admin", question: "Ask Jammil" },
+};
 const fork = {
   id: "confidence",
-  kind: "if",
+  kind: "fork",
   name: "Match confidence",
   paths: [{ id: "low", name: "Low", when: { match: "any", rules: [] }, steps: [ask] }],
   otherwise: { id: "else", steps: [] },

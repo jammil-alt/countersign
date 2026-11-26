@@ -63,6 +63,7 @@ import {
   tenant,
 } from "@countersign/db";
 import { clientGovernance } from "@countersign/documents";
+import { catalogKindOf, draftProcess, ProcessLoadError } from "@countersign/workflows";
 import { and, desc, eq, inArray, isNotNull, isNull, or } from "drizzle-orm";
 import type { Hono } from "hono";
 import { offActionIds } from "../actions-off";
@@ -93,6 +94,19 @@ export async function builderToolInputs(
 }
 
 /** The agent, if it is visible to this request (templates, or a client agent of a served client). */
+/**
+ * A builder draft (a v5 workflow, unsaved) as the engine process the typing, sample and preview
+ * routes read steps from: no publish checks, so an unfinished draft still reads.
+ */
+export function draftEngineProcess(platform: Platform, workflow: unknown): processes.Process {
+  try {
+    return draftProcess(workflow, catalogKindOf(platform.tools.specs()));
+  } catch (error) {
+    if (!(error instanceof ProcessLoadError)) throw error;
+    throw new HttpError(422, "invalid_process", "the workflow doesn't read in the new format");
+  }
+}
+
 export async function agentInScope(ctx: Scope, id: string): Promise<AgentRow> {
   const row = await getAgent(ctx.tx, id);
   if (row.tenantId !== null && !ctx.tenantIds.includes(row.tenantId)) throw notFound("agent");
@@ -659,11 +673,7 @@ export function opsLineageRoutes(app: Hono<AppEnv>): void {
     const { tx, services, body } = ctx;
     const { platform } = services;
     const row = await agentInScope(ctx, ctx.params.id);
-    const parsed = processes.Process.safeParse(body.process);
-    if (!parsed.success) {
-      throw new HttpError(422, "invalid_process", "the workflow doesn't read in the new format");
-    }
-    const process = parsed.data;
+    const process = draftEngineProcess(platform, body.process);
     const step = processes.findStep(process, body.stepId)?.step;
     if (step?.kind !== "skill") {
       throw new HttpError(
@@ -717,11 +727,8 @@ export function opsLineageRoutes(app: Hono<AppEnv>): void {
     const { tx, services, body } = ctx;
     const { platform } = services;
     const row = await agentInScope(ctx, ctx.params.id);
-    const parsed = processes.Process.safeParse(body.process);
-    if (!parsed.success) {
-      throw new HttpError(422, "invalid_process", "the workflow doesn't read in the new format");
-    }
-    const step = processes.findStep(parsed.data, body.stepId)?.step;
+    const process = draftEngineProcess(platform, body.process);
+    const step = processes.findStep(process, body.stepId)?.step;
     if (step?.kind !== "skill") {
       throw new HttpError(
         422,

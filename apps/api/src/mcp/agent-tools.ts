@@ -165,7 +165,7 @@ export function backOfficeOnly(before: unknown, after: unknown): string[] {
   return out;
 }
 
-/** Sets (or, with null, removes) a field by a dotted path such as `approval.required`. */
+/** Sets (or, with null, removes) a field by a dotted path such as `checks.approval.required`. */
 function setPath(target: Json, path: string, value: unknown): void {
   const parts = path.split(".");
   let here: Json = target;
@@ -308,7 +308,7 @@ const agentStepUpdate: Tool<OpsToolCtx> = {
   name: "agent_step_update",
   title: "Change a step's settings",
   description:
-    "Change one step's settings and save it as a new draft version of the agent (the live version keeps running until agent_publish). set maps fields to new values: top level (input, model, review, settings, name, purpose) or dotted (approval.approver, checks.approval.mode); null removes one. Read the step with agent_steps first: an object given whole replaces it. The step's id, kind and the steps inside it are the builder's and can't be set here, nor can an approval be turned off or taken away (the back office does that). Answers what would stop the draft from publishing.",
+    "Change one step's settings and save it as a new draft version of the agent (the live version keeps running until agent_publish). set maps fields to new values: top level (input, model, review, settings, name, purpose) or dotted (checks.approval.approver, checks.approval.mode); null removes one. Read the step with agent_steps first: an object given whole replaces it. The step's id, kind and the steps inside it are the builder's and can't be set here, nor can an approval be turned off or taken away (the back office does that). Answers what would stop the draft from publishing.",
   input: z.strictObject({
     agent: AgentId,
     step: z.string().min(1).max(100).describe("The step's id"),

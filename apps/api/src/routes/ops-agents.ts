@@ -20,6 +20,7 @@ import {
   listTemplates,
   listVersionHeads,
   type OperationalPatch,
+  parseVersionBundle,
   pause,
   publish,
   publishStepSkills,
@@ -562,8 +563,11 @@ export function opsAgentRoutes(app: Hono<AppEnv>): void {
     // DECISION: a test run is checked exactly as a publish is, against the agent asked for: a
     // template as a template, a client agent with its bound connections, as the builder checks it
     // before it offers Test run (docs/plan.md §1.5).
+    // DECISION: a version that went live (or was retired) was published, so none of its steps is
+    // new work: a test run of it is checked as it stands (invariant 3), not as a first draft.
     const errors = await validateForPublish(ctx.tx, row, v.bundle, ctx.services.platform.ctx, {
-      previous: await existingBundle(ctx.tx, v),
+      previous:
+        v.status === "draft" ? await existingBundle(ctx.tx, v) : parseVersionBundle(v.bundle),
     });
     if (errors.length > 0) {
       throw new HttpError(422, "invalid_bundle", `v${v.version} does not validate`, errors);

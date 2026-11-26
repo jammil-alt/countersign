@@ -274,7 +274,8 @@ describe.skipIf(!h)("automations", () => {
         output: { amount: "12.00" },
       });
     }
-    expect(nodeIds[0]).toEqual(["follow", "follow/say", "follow/update"]);
+    // The workflow's End is a step of its own.
+    expect(nodeIds[0]).toEqual(["end", "follow", "follow/say", "follow/update"]);
     expect(nodeIds[1]).toEqual(nodeIds[0]);
 
     const detail = await H.call(OPERATOR, "GET", `/api/ops/automations/${automationId}`);

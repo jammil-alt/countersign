@@ -9,7 +9,15 @@ import { dbModelCalls } from "@countersign/agents";
 import { DEV_USER_HEADER } from "@countersign/auth";
 import { TESTKIT_UPDATE_TOOL } from "@countersign/connectors";
 import { AgentBundle, type AgentBundleInput, shortRunId } from "@countersign/core";
-import { connection, externalAction, inboxItem, run, stepRun, toolCall } from "@countersign/db";
+import {
+  connection,
+  externalAction,
+  inboxItem,
+  modelCall,
+  run,
+  stepRun,
+  toolCall,
+} from "@countersign/db";
 import { FakeModel } from "@countersign/llm";
 import { and, eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -655,9 +663,15 @@ describe.skipIf(!h)("run controls", () => {
     expect(text).toContain("[card ending 1111]");
     expect(text).not.toContain("4111");
     expect(text).toContain("bytes not kept");
+    // One body per recorded call: this one, and the area owner's reviews of the runs that failed.
+    const kept = await H.t.db
+      .select({ id: modelCall.id })
+      .from(modelCall)
+      .where(eq(modelCall.tenantId, H.A.tenantId));
+    expect(kept.map((k) => k.id)).toContain(call.id);
     expect([
       ...(await H.objects.list({ prefix: `tenants/${H.A.tenantId}/model-calls/` })).objects,
-    ]).toHaveLength(1);
+    ]).toHaveLength(kept.length);
     // Never the portal's, and never another operator's client.
     expect((await H.call(admin("a"), "GET", `/api/ops/model-calls/${call.id}`)).status).toBe(403);
     expect((await H.call(user("a"), "GET", `/api/ops/runs/${r.id}/model-calls`)).status).toBe(403);

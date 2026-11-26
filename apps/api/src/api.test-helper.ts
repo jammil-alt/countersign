@@ -3,6 +3,7 @@
 // app built over them with the dev sign-in, the testkit connector and in-memory Workflow
 // instances, and a fake WorkflowStep for driving runs.
 
+import { getVersion, parseVersionBundle, publish } from "@countersign/agents";
 import { DEV_USER_HEADER, type WorkOSClient } from "@countersign/auth";
 import type { CodeVerifier } from "@countersign/connectors";
 import {
@@ -37,6 +38,7 @@ import {
   skill,
   skillVersion,
   tenant,
+  withOperator,
 } from "@countersign/db";
 import { createTestDatabase, type TestDatabase } from "@countersign/db/testing";
 import { type LlmTransport, type Transcriber, withRecording } from "@countersign/llm";
@@ -703,5 +705,35 @@ export class FakeWorkflowStep implements WorkflowStepLike {
     const payload = await this.onWait(name, options.type);
     this.results.set(key, payload);
     return { type: options.type, payload, timestamp: new Date() };
+  }
+}
+
+/**
+ * Publishes a version as one stored before the skill model: a step that uses a built-in skill
+ * which writes (`comms.reach-out`, `comms.converse`, the packs' readers) is refused in new work,
+ * and a stored version keeps running (invariant 3), so every step of it counts as already there
+ * (`existingFrom`). Answers as `H.call` does: 200 with the version, or 422 with the refusal.
+ */
+export async function publishStored(
+  H: ApiHarness,
+  tenantId: string,
+  agentId: string,
+  versionId: string,
+): Promise<{ status: number; json: unknown }> {
+  try {
+    const version = await withOperator(H.db, [tenantId], async (tx) =>
+      publish(tx, {
+        agentId,
+        versionId,
+        ctx: H.platform.ctx,
+        existingFrom: parseVersionBundle((await getVersion(tx, versionId)).bundle),
+      }),
+    );
+    return { status: 200, json: { version } };
+  } catch (error) {
+    return {
+      status: 422,
+      json: { error: { message: error instanceof Error ? error.message : String(error) } },
+    };
   }
 }

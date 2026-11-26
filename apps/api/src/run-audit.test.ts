@@ -1,7 +1,6 @@
 // Wave 6 (docs/plan.md §1.86 "Run audit (wave 6)"): the run audit end to end in Node, through the
-// API with the real runtime, the testkit connector and a fake WorkflowStep. A v4 run records the
-// owner's check on its step and, having written, joins the audit queue; a v3 run records no check;
-// a reviewer marks runs (insert only, audited); the sampling rule is set per client and agent; one
+// API with the real runtime, the testkit connector and a fake WorkflowStep. A run records the
+// owner's check on its step and, having written, joins the audit queue; a reviewer marks runs (insert only, audited); the sampling rule is set per client and agent; one
 // run's trail exports as JSON and printable HTML, redacted, with AI prompts only when asked.
 
 import { TESTKIT_UPDATE_TOOL } from "@countersign/connectors";
@@ -214,27 +213,6 @@ describe.skipIf(!h)("the run audit (wave 6)", () => {
       marks: [],
       latest: null,
     });
-  });
-
-  it("records no check for a v3 run, and still queues it when it wrote", async () => {
-    H.backend.seed(H.A.connectionId, [{ id: "r1", name: "Oak board", amount: "10.00" }]);
-    const p = params(v3Version);
-    const step = new FakeWorkflowStep(async (_name, type) => {
-      const items = await H.t.db.select().from(inboxItem).where(eq(inboxItem.status, "open"));
-      const item = items.find((i) => inboxEventType(i.id) === type);
-      if (!item) throw TIMEOUT();
-      // The write's approval and the person step's question: yes to both.
-      const res = await H.call(admin("a"), "POST", `/api/inbox/${item.id}/resolve`, {
-        decision: "approve",
-      });
-      expect(res.status, JSON.stringify(res.json)).toBe(200);
-      return H.instances.events.find((e) => e.event.type === type)?.event.payload;
-    });
-    await executeRun(deps(), p, cloudflareStepRunner(step));
-    expect(await H.t.db.select().from(ownerCheck).where(eq(ownerCheck.runId, p.runId))).toEqual([]);
-    expect([...step.results.keys()].some((n) => n.includes(":owner:"))).toBe(false);
-    const [queued] = await H.t.db.select().from(runAudit).where(eq(runAudit.runId, p.runId));
-    expect(queued?.reason).toBe("wrote");
   });
 
   it("lists queued runs, takes marks (insert only, audited) and opens an item for a problem", async () => {

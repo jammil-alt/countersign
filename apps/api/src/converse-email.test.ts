@@ -24,6 +24,7 @@ import {
   FakeWorkflowStep,
   forbiddenKeys,
   OPERATOR,
+  publishStored,
   unsigned,
 } from "./api.test-helper";
 import { handleEmail } from "./email";
@@ -229,11 +230,7 @@ describe.skipIf(!h)("a conversation by email", () => {
     expect(created.status, JSON.stringify(created.json)).toBe(200);
     expect(j(created.json).errors ?? []).toEqual([]);
     agentId = j(created.json).agent.id;
-    const pub = await H.call(
-      OPERATOR,
-      "POST",
-      `/api/ops/agents/${agentId}/versions/${j(created.json).version.id}/publish`,
-    );
+    const pub = await publishStored(H, H.A.tenantId, agentId, j(created.json).version.id);
     expect(pub.status, JSON.stringify(pub.json)).toBe(200);
     const ch = await H.call(OPERATOR, "PUT", `/api/ops/agents/${agentId}/channels`, {
       channels: { email: gmail },

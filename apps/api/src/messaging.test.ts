@@ -769,10 +769,18 @@ describe.skipIf(!h)("texts and WhatsApp through the API", () => {
         expect(JSON.stringify(failed?.error)).toContain(
           "The text to Pat Lee may have been sent; check before trying again",
         );
+        // The step's owner also stops the run at a change that reached the tool (its own review
+        // item); this one is the action's, which only the operator checks.
         const items = await H.t.db
           .select()
           .from(inboxItem)
-          .where(and(eq(inboxItem.runId, params.runId), eq(inboxItem.kind, "review")));
+          .where(
+            and(
+              eq(inboxItem.runId, params.runId),
+              eq(inboxItem.kind, "review"),
+              eq(inboxItem.subjectType, "external_action"),
+            ),
+          );
         expect(items).toHaveLength(1);
         expect(items[0]).toMatchObject({
           assigneeRole: "operator",
@@ -794,7 +802,13 @@ describe.skipIf(!h)("texts and WhatsApp through the API", () => {
           await H.t.db
             .select()
             .from(inboxItem)
-            .where(and(eq(inboxItem.runId, params.runId), eq(inboxItem.kind, "review"))),
+            .where(
+              and(
+                eq(inboxItem.runId, params.runId),
+                eq(inboxItem.kind, "review"),
+                eq(inboxItem.subjectType, "external_action"),
+              ),
+            ),
         ).toHaveLength(1);
       }
     });

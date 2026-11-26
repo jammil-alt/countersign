@@ -51,6 +51,7 @@ export * from "./runner";
 // The step model (docs/step-model-plan.md): a v5 workflow on today's engines.
 export {
   catalogKindOf,
+  draftProcess,
   fieldsSchema,
   LOOP_SKILL,
   type LoadedStepModel,

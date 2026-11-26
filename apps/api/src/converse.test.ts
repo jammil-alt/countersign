@@ -39,6 +39,7 @@ import {
   ended,
   FakeWorkflowStep,
   OPERATOR,
+  publishStored,
   unsigned,
   user,
   v5Workflow,
@@ -94,15 +95,19 @@ const _RESULT = {
 };
 const ITEMS = { items: [{ name: "3/4 birch ply", qty: 12 }], neededBy: "Friday" };
 
-function talkStep(_input: Record<string, unknown> = {}, _extra: Record<string, unknown> = {}) {
+function talkStep(input: Record<string, unknown> = {}, extra: Record<string, unknown> = {}) {
+  // A model on the step is the AI's (done by AI), as a v3 skill step's `model` was.
+  const { model, ...rest } = extra as { model?: unknown };
   return {
     id: "talk",
     name: "Clarify the request",
     client: { visible: true, label: "Clarified the request" },
     checks: { approval: { required: "required" } },
     kind: "do",
-    doneBy: "rules",
+    doneBy: model ? "ai" : "rules",
+    ...(model ? { ai: { model } } : {}),
     uses: { type: "skill", skill: "comms.converse" },
+    ...rest,
     input: {
       to: { contactId: "{{trigger.contactId}}" },
       channel: "whatsapp",
@@ -124,6 +129,7 @@ function talkStep(_input: Record<string, unknown> = {}, _extra: Record<string, u
       },
       opening: "Thank them for the request and ask which items, how many, and by when.",
       about: ["{{trigger.request}}"],
+      ...input,
     },
   };
 }
@@ -271,11 +277,7 @@ describe.skipIf(!h)("conversations through the API", () => {
     expect(j(created.json).errors ?? []).toEqual([]);
     const agentId = j(created.json).agent.id;
     const versionId = j(created.json).version.id;
-    const pub = await H.call(
-      OPERATOR,
-      "POST",
-      `/api/ops/agents/${agentId}/versions/${versionId}/publish`,
-    );
+    const pub = await publishStored(H, H.A.tenantId, agentId, versionId);
     expect(pub.status, JSON.stringify(pub.json)).toBe(200);
     const ch = await H.call(OPERATOR, "PUT", `/api/ops/agents/${agentId}/channels`, {
       channels: { sms: twilioConn, whatsapp: twilioConn },
@@ -553,7 +555,7 @@ describe.skipIf(!h)("conversations through the API", () => {
     const params = H.instances.started.get(j(res.json).runId);
     if (!params) throw new Error("no test run");
     const result = await executeRun(deps(), params, cloudflareStepRunner(new FakeWorkflowStep()));
-    expect(result.status).toBe("succeeded");
+    expect(result, JSON.stringify(result)).toMatchObject({ status: "succeeded" });
     expect(await stepOutput(params.runId, "talk")).toMatchObject({
       outcome: "not_sent",
       testRun: true,

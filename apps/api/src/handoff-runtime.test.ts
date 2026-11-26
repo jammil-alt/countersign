@@ -34,8 +34,9 @@ const MANUAL = { id: "trg-manual", on: { type: "manual", input: {} } };
 const read = (id: string, name: string, input: Record<string, unknown> = {}) => ({
   id,
   name,
-  kind: "read",
-  tool: TESTKIT_QUERY_TOOL,
+  kind: "do",
+  doneBy: "rules",
+  uses: { type: "action", action: TESTKIT_QUERY_TOOL },
   input,
 });
 
@@ -201,6 +202,8 @@ describe.skipIf(!h)("hand-off steps in apps/api", () => {
       "Pull bills from QuickBooks",
       "Itemize the invoice",
       "Check prices",
+      // The End is a step of the workflow, so it is listed.
+      "Done",
     ]);
     expect(checker.steps[2].reads).toEqual(["itemize"]);
   });
@@ -263,7 +266,7 @@ describe.skipIf(!h)("hand-off steps in apps/api", () => {
     // Price checker's run starts at step 2: step 1 never runs, step 2 takes the input handed over.
     expect(await go(started)).toEqual(ended());
     const rows = await rowsOf(started.runId);
-    expect(rows.map((r) => r.nodeId).sort()).toEqual(["check", "itemize"]);
+    expect(rows.map((r) => r.nodeId).sort()).toEqual(["check", "end", "itemize"]);
     expect(rows.find((r) => r.nodeId === "itemize")?.input).toEqual({ nameContains: "Acme" });
 
     // Both pages say so: the back office and the portal.

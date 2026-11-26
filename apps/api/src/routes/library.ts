@@ -413,7 +413,6 @@ export function libraryRoutes(app: Hono<AppEnv>): void {
   }));
 
   mount(app, routes.opsLibraryConditions, async (ctx) => {
-    const { platform } = ctx.services;
     const templates = await templateProcesses(ctx);
     const automations = await automationProcesses(ctx);
     return {

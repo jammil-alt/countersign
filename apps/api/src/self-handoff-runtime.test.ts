@@ -32,8 +32,9 @@ afterAll(() => h?.close());
 const read = (id: string, name: string, input: Record<string, unknown> = {}) => ({
   id,
   name,
-  kind: "read",
-  tool: TESTKIT_QUERY_TOOL,
+  kind: "do",
+  doneBy: "rules",
+  uses: { type: "action", action: TESTKIT_QUERY_TOOL },
   input,
 });
 
@@ -230,7 +231,7 @@ describe.skipIf(!h)("hand-offs to the agent's own workflow in apps/api", () => {
     expect(row).toMatchObject({ agentId: ids.agent, agentVersionId: ids.older });
     expect(await go(first)).toEqual(ended());
     const checkRows = await rowsOf(first.runId);
-    expect(checkRows.map((r) => r.nodeId).sort()).toEqual(["chk-read", "chk-save"]);
+    expect(checkRows.map((r) => r.nodeId).sort()).toEqual(["chk-read", "chk-save", "end"]);
     expect(checkRows.find((r) => r.nodeId === "chk-read")?.input).toEqual({
       nameContains: "Acme",
     });
@@ -291,7 +292,7 @@ describe.skipIf(!h)("hand-offs to the agent's own workflow in apps/api", () => {
     const back = {
       ...CHECK,
       steps: [
-        ...CHECK.steps,
+        ...CHECK.steps.slice(0, -1),
         {
           id: "chk-hand",
           name: "Hand back",
@@ -299,6 +300,7 @@ describe.skipIf(!h)("hand-offs to the agent's own workflow in apps/api", () => {
           to: { agent: "@self", step: "scan-find", workflow: "scan" },
           input: {},
         },
+        ...CHECK.steps.slice(-1),
       ],
     };
     expect(await save(scan(TO_CHECK), back)).toEqual(["handoff_loop", "handoff_loop"]);

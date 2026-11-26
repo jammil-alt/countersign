@@ -11,10 +11,15 @@ import {
   QBO_TOOLS,
 } from "@countersign/connectors";
 import { FAKE_QBO_CLIENT, FAKE_QBO_REALM, fakeQbo } from "@countersign/connectors/testing";
-import { AgentBundle, type AgentBundleInput, DEFAULT_PERMISSIONS } from "@countersign/core";
-import { agent, connection, externalAction, inboxItem } from "@countersign/db";
+import {
+  AgentBundle,
+  type AgentBundleInput,
+  bundleHash,
+  DEFAULT_PERMISSIONS,
+} from "@countersign/core";
+import { agent, agentVersion, connection, externalAction, inboxItem } from "@countersign/db";
 import { FakeModel } from "@countersign/llm";
-import { asc, eq } from "drizzle-orm";
+import { asc, desc, eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   type ApiHarness,
@@ -112,7 +117,7 @@ describe.skipIf(!h)("QuickBooks ingredients through the API", () => {
     tools: string[],
     mode: "act" | "suggest_only",
     /** Runs after the version is published, before the run starts. */
-    published: () => Promise<unknown> = async () => {},
+    published: (agentId: string) => Promise<unknown> = async () => {},
     /** Connectors C4: the client admin allows what it needs before it is published. */
     allow = true,
   ) {
@@ -161,7 +166,7 @@ describe.skipIf(!h)("QuickBooks ingredients through the API", () => {
     );
     expect(pub.status, JSON.stringify(pub.json)).toBe(200);
     await H.t.db.update(agent).set({ runStatus: "active", stage: "live" }).where(eq(agent.id, id));
-    await published();
+    await published(id);
     const res = await H.call(OPERATOR, "POST", `/api/ops/agents/${id}/run`, { workflow: "main" });
     expect(res.status, JSON.stringify(res.json)).toBe(200);
     const params = H.instances.started.get(j(res.json).runId);
@@ -318,10 +323,43 @@ describe.skipIf(!h)("QuickBooks ingredients through the API", () => {
     expect((await actionsOf(params.runId))[0]).toMatchObject({ status: "done", approvedBy: null });
 
     // An agent that only suggests: the same step waits for a person.
+    // Publish refuses a step that goes without approval on an agent that only suggests (v5's
+    // check), so the agent is published acting and then only suggests: what the run does when a
+    // stored version says so, which the gate still holds to.
+    await expect(
+      makeAgent([step("PO-2003")], [QBO_TOOLS.purchaseOrderCreate], "suggest_only"),
+    ).rejects.toThrow(/approval_needs_act/);
     const suggests = await makeAgent(
       [step("PO-2003")],
       [QBO_TOOLS.purchaseOrderCreate],
-      "suggest_only",
+      "act",
+      async (agentId) => {
+        const [row] = await H.t.db
+          .select()
+          .from(agentVersion)
+          .where(eq(agentVersion.agentId, agentId))
+          .orderBy(desc(agentVersion.version))
+          .limit(1);
+        if (!row) throw new Error("no version");
+        const stored = structuredClone(row.bundle) as AgentBundle;
+        stored.definition.permissions.mode = "suggest_only";
+        const [only] = await H.t.db
+          .insert(agentVersion)
+          .values({
+            tenantId: H.A.tenantId,
+            agentId,
+            version: row.version + 1,
+            bundle: stored,
+            bundleHash: await bundleHash(stored),
+            authorType: "operator",
+            status: "live",
+          })
+          .returning({ id: agentVersion.id });
+        await H.t.db
+          .update(agent)
+          .set({ liveVersionId: only?.id as string })
+          .where(eq(agent.id, agentId));
+      },
     );
     const signer = approver(() => {
       expect(posts()).toBe(start + 1);

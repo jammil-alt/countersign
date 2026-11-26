@@ -50,6 +50,7 @@ import {
   FakeWorkflowStep,
   OPERATOR,
   optOutOf,
+  publishStored,
   unsigned,
 } from "./api.test-helper";
 import { MESSAGE_MEDIA_ENTITY } from "./conversations/capture";
@@ -350,10 +351,8 @@ describe.skipIf(!h)("attachments both ways through the API", () => {
     expect(j(created.json).errors ?? []).toEqual([]);
     agentId = j(created.json).agent.id;
     const versionId = j(created.json).version.id;
-    expect(
-      (await H.call(OPERATOR, "POST", `/api/ops/agents/${agentId}/versions/${versionId}/publish`))
-        .status,
-    ).toBe(200);
+    const published = await publishStored(H, H.A.tenantId, agentId, versionId);
+    expect(published.status, JSON.stringify(published.json)).toBe(200);
     await H.t.db.update(agent).set({ runStatus: "active" }).where(eq(agent.id, agentId));
 
     poId = await storeFor(A(), PO, "PO-1042.pdf");

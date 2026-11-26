@@ -3,7 +3,13 @@
 // server validates hand-off steps with it at publish, and the builder gets the same list, so both
 // say the same thing (invariant 4: one validator).
 
-import { collectRefs, type processes, steps, type ToolSpec } from "@countersign/core";
+import {
+  type AgentBundle,
+  collectRefs,
+  type processes,
+  steps,
+  type ToolSpec,
+} from "@countersign/core";
 import { agent, agentVersion, type Tx } from "@countersign/db";
 import { and, eq } from "drizzle-orm";
 import type { RegistryContext } from "./agents";
@@ -92,5 +98,16 @@ function stepModelTargets(
     const ids: string[] = [];
     steps.eachStep([step], ({ step: s }) => ids.push(s.id));
     return { id: step.id, name: step.name, kind: kindOfStep(step), reads: [...reads], ids };
+  });
+}
+
+/** Whether any workflow of the bundle has a hand-off step (the client's agents are read only then). */
+export function holdsHandoff(bundle: Pick<AgentBundle, "workflows">): boolean {
+  return bundle.workflows.some((w) => {
+    let found = false;
+    steps.eachStep(w.workflow.steps, ({ step }) => {
+      if (step.kind === "handoff") found = true;
+    });
+    return found;
   });
 }

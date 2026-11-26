@@ -61,6 +61,7 @@ import {
   forbiddenKeys,
   OPERATOR,
   OTHER_OPERATOR,
+  v5Workflow,
 } from "./api.test-helper";
 import { billingTick } from "./billing/jobs";
 import { MemoryQboSyncInstances } from "./qbo/instances";
@@ -929,30 +930,34 @@ describe.skipIf(!h)("end to end: the managed service, through the API", () => {
       slug: "vendor-check",
       name: "Check a vendor",
       enabled: true,
-      workflow: {
-        schemaVersion: 3,
-        trigger: {
-          id: "0192f7a0-0000-7000-8000-0000000c0de1",
-          on: {
-            type: "manual",
-            input: {
-              type: "object",
-              properties: { vendorName: { type: "string" } },
-              required: ["vendorName"],
-            },
-          },
-        },
-        steps: [
+      workflow: v5Workflow(
+        [
           {
             // Not "vendor": the Bill clerk's own vendor Match has that id, and ids are the bundle's.
             id: "vendor-lookup",
-            kind: "skill",
+            kind: "do",
             name: "Find the vendor",
-            skill: FIND_VENDOR.id,
+            doneBy: "rules",
+            uses: { type: "skill", skill: FIND_VENDOR.id },
             input: { name: "{{trigger.vendorName}}" },
           },
         ],
-      },
+        {
+          triggers: [
+            {
+              id: "0192f7a0-0000-7000-8000-0000000c0de1",
+              on: {
+                type: "manual",
+                input: {
+                  type: "object",
+                  properties: { vendorName: { type: "string" } },
+                  required: ["vendorName"],
+                },
+              },
+            },
+          ],
+        },
+      ),
     });
     const v = await ok(OPERATOR, "POST", `/api/ops/agents/${ids.clerk}/versions`, {
       bundle,
@@ -1007,11 +1012,11 @@ describe.skipIf(!h)("end to end: the managed service, through the API", () => {
         agentVersionId: v.version.id,
       }),
     ]);
-    // The step kept one row: its second attempt succeeded.
+    // The step kept one row: its second attempt succeeded (and the End step has its own).
     const rows = await H.t.db
       .select({ status: stepRun.status, attempts: stepRun.attempts })
       .from(stepRun)
-      .where(eq(stepRun.runId, ids.vendorRun));
+      .where(and(eq(stepRun.runId, ids.vendorRun), eq(stepRun.nodeId, "vendor-lookup")));
     expect(rows).toEqual([{ status: "succeeded", attempts: 2 }]);
     // One proposal, for the operator only.
     expect(

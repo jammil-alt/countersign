@@ -69,6 +69,7 @@ import {
   FakeWorkflowStep,
   forbiddenKeys,
   OPERATOR,
+  publishStored,
 } from "./api.test-helper";
 import { handleEmail } from "./email";
 import { defaultDeps } from "./http";
@@ -1019,11 +1020,7 @@ describe.skipIf(!h)("a buyer that works by email, end to end", () => {
     expect(bound.status, JSON.stringify(bound.json)).toBe(200);
     // Connectors C4: QuickBooks started low risk; the client admin allows what the buyer needs.
     await allowForAgent(H, admin("a"), ids.qbo, agentId);
-    const pub = await H.call(
-      OPERATOR,
-      "POST",
-      `/api/ops/agents/${agentId}/versions/${j(created.json).version.id}/publish`,
-    );
+    const pub = await publishStored(H, H.A.tenantId, agentId, j(created.json).version.id);
     expect(pub.status, JSON.stringify(pub.json)).toBe(200);
     const people = await H.call(admin("a"), "PUT", `/api/people/${agentId}`, {
       people: {

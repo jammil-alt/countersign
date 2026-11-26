@@ -468,7 +468,7 @@ describe.skipIf(!h)("action write steps through the API", () => {
   it("publish refuses an action with no accounting connection, or two without via", async () => {
     const none = await agentWith(H.A.tenantId, "no-books", [createBill(QBO_VENDOR, "X-1")], {});
     expect(none.pub.status).toBe(422);
-    expect(JSON.stringify(none.pub.json)).toContain("action_no_connection");
+    expect(JSON.stringify(none.pub.json)).toContain("connection_missing");
     const two = await agentWith(H.A.tenantId, "two-books", [createBill(QBO_VENDOR, "X-2")], {
       qbo: conn.qboA,
       billcom: conn.billA,

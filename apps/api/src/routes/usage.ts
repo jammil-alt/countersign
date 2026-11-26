@@ -1053,10 +1053,11 @@ export function serviceNow(r: AgentNowRow): ServiceNow | null {
   if (active) {
     if (r.steps && r.step) {
       const top = r.step.nodeId.split(":")[0] ?? r.step.nodeId;
-      // Wave 3b: a v3 workflow's or a v4 process's top-level steps alike.
-      const index = r.steps.findIndex((s) => s.id === top);
-      const s = r.steps[index];
-      if (s) step = { index: index + 1, total: r.steps.length, label: clientLabel(s) };
+      // The workflow's top-level steps; its End cards are where it finishes, not steps to count.
+      const work = r.steps.filter((s) => s.kind !== "end");
+      const index = work.findIndex((s) => s.id === top);
+      const s = work[index];
+      if (s) step = { index: index + 1, total: work.length, label: clientLabel(s) };
       since = iso(r.step.startedAt) ?? since;
     }
     if (r.waitingSince) since = r.waitingSince.toISOString();

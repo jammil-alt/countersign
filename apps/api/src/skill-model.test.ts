@@ -327,8 +327,10 @@ describe.skipIf(!h)("the builder and the skill model", () => {
       steps: [
         {
           ...process.steps[0],
-          model: { id: "claude-sonnet-5-5" },
-          customize: { addInstructions: "Prefer the vendor's own part number." },
+          ai: {
+            model: { id: "claude-sonnet-5-5" },
+            text: "Prefer the vendor's own part number.",
+          },
         },
         process.steps[1],
       ],

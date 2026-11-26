@@ -380,9 +380,10 @@ describe.skipIf(!h)("MCP builds and step settings", () => {
 
     r = await ok("agent_steps", { agent: clientAgent, step: "update" });
     expect(r.data().steps[0].settings).toMatchObject({
-      kind: "action",
+      kind: "do",
+      uses: { type: "action" },
       input: { id: "r1", amount: "12.00" },
-      approval: { required: "required" },
+      checks: { approval: { required: "required" } },
     });
 
     // The structure and turning approval off are the back office's.
@@ -395,7 +396,7 @@ describe.skipIf(!h)("MCP builds and step settings", () => {
     r = await tool("agent_step_update", {
       agent: clientAgent,
       step: "update",
-      set: { "approval.required": "not_required" },
+      set: { "checks.approval.required": "not_required" },
     });
     expect(r.text).toContain("back_office_only");
 
@@ -403,13 +404,13 @@ describe.skipIf(!h)("MCP builds and step settings", () => {
     r = await ok("agent_step_update", {
       agent: clientAgent,
       step: "update",
-      set: { "input.amount": "14.50", "approval.approver": "client_admin" },
+      set: { "input.amount": "14.50", "checks.approval.approvers": [{ who: "client_admin" }] },
     });
     const saved = r.data();
     expect(saved.errors).toEqual([]);
     expect(saved.step.settings).toMatchObject({
       input: { amount: "14.50" },
-      approval: { required: "required", approver: "client_admin" },
+      checks: { approval: { required: "required", approvers: [{ who: "client_admin" }] } },
     });
     const live = await asDev(OPERATOR, "GET", `/api/ops/agents/${clientAgent}`);
     expect(j(live.json).agent.liveVersionId).not.toBe(saved.version.id);
@@ -459,9 +460,9 @@ describe.skipIf(!h)("MCP builds and step settings", () => {
 
     const bundle = testBundle();
     const step = bundle.workflows[0]?.workflow.steps[0] as unknown as {
-      approval: { required: string };
+      checks: { approval: { required: string } };
     };
-    step.approval.required = "not_required";
+    step.checks.approval.required = "not_required";
     const loose = await asDev(OPERATOR, "POST", `/api/ops/agents/${clientAgent}/versions`, {
       bundle,
     });

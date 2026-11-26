@@ -52,6 +52,7 @@ import {
   OPERATOR,
   OTHER_OPERATOR,
   optOutOf,
+  publishStored,
   signatureOf,
   unsigned,
   user,
@@ -425,11 +426,7 @@ describe.skipIf(!h)("reach out through the API", () => {
     expect(j(created.json).errors ?? []).toEqual([]);
     agentId = j(created.json).agent.id;
     versionId = j(created.json).version.id;
-    const pub = await H.call(
-      OPERATOR,
-      "POST",
-      `/api/ops/agents/${agentId}/versions/${versionId}/publish`,
-    );
+    const pub = await publishStored(H, H.A.tenantId, agentId, versionId);
     expect(pub.status, JSON.stringify(pub.json)).toBe(200);
 
     const people = await H.call(OPERATOR, "GET", `/api/ops/agents/${agentId}/people`);

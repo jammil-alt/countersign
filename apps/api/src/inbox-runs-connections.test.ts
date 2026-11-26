@@ -385,6 +385,7 @@ describe.skipIf(!h)("inbox and run views", () => {
       "update",
       "confirm",
       "internal",
+      "end",
     ]);
     expect(body.actions[0]).toMatchObject({
       status: "done",

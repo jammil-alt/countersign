@@ -145,6 +145,33 @@ export function loadStepModel(
       `the workflow can't run: ${first.message}${first.at ? ` (${first.at})` : ""}`,
     );
   }
+  return loadSteps(wf, kindOf, stepSkill);
+}
+
+/**
+ * A v5 workflow's engine process with no publish checks: what the builder's routes type and
+ * sample a draft with (a Reshape step's context, a Read table step's columns). Throws
+ * `ProcessLoadError` when the workflow doesn't parse or a step can't be made into an engine step.
+ */
+export function draftProcess(
+  workflow: unknown,
+  kindOf: (action: string) => steps.ActionKind | undefined,
+): processes.Process {
+  const parsed = steps.Workflow.safeParse(workflow);
+  if (!parsed.success) {
+    const issue = parsed.error.issues[0];
+    throw new ProcessLoadError(
+      `the workflow doesn't parse: ${issue?.path.join(".") ?? ""} ${issue?.message ?? ""}`.trim(),
+    );
+  }
+  return loadSteps(parsed.data, kindOf, () => undefined).process;
+}
+
+function loadSteps(
+  wf: steps.Workflow,
+  kindOf: (action: string) => steps.ActionKind | undefined,
+  stepSkill: (stepId: string) => string | undefined,
+): LoadedStepModel {
   const sources = new WeakMap<object, steps.Step>();
   const merged = new WeakSet<object>();
 

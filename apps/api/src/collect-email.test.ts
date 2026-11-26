@@ -384,14 +384,16 @@ describe.skipIf(!h)(
     function reportsBundle(owner: string): unknown {
       const b = bundle(owner) as {
         definition: Record<string, unknown>;
-        workflows: { workflow: { triggers: unknown[]; steps: { items?: unknown[] }[] } }[];
+        workflows: {
+          workflow: { triggers: unknown[]; steps: { collect?: { items?: unknown[] } }[] };
+        }[];
         people?: unknown;
       };
       const wf = b.workflows[0]?.workflow;
       if (!wf) throw new Error("no workflow");
       wf.triggers = [{ id: "t1", on: { type: "report", step: "C1" } }];
-      const first = wf.steps[0] as { items: Record<string, unknown>[] };
-      first.items.push({
+      const first = wf.steps[0] as { collect: { items: Record<string, unknown>[] } };
+      first.collect.items.push({
         id: "card",
         name: "Card statement",
         owner: "seat:card-owner",

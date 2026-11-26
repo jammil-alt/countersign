@@ -212,7 +212,7 @@ async function healthRows(ctx: Scope) {
       .where(
         and(
           inArray(stepRun.tenantId, [...ctx.tenantIds]),
-          eq(stepRun.nodeType, "use_automation"),
+          eq(stepRun.nodeType, "process"),
           inArray(stepRun.status, ["succeeded", "failed"]),
           eq(run.mode, "live"),
           gte(run.createdAt, since),

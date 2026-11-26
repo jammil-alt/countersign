@@ -145,16 +145,17 @@ describe.skipIf(!h)("forks on a failure or an answer, against the database", () 
   /** A write the connection lets run unsigned (matrix `auto`, act mode, `not_required`). */
   const write = (id: string, record: string, more: Record<string, unknown> = {}) => ({
     id,
-    kind: "write",
+    kind: "do",
     name: `Update ${record}`,
-    tool: TESTKIT_UPDATE_TOOL,
+    doneBy: "rules",
+    uses: { type: "action", action: TESTKIT_UPDATE_TOOL },
     input: { id: record, amount: "12.00" },
     checks: { approval: { required: "not_required" } },
     ...more,
   });
   const onFailed = (stepId: string, steps: unknown[]) => ({
     id: "route",
-    kind: "if",
+    kind: "fork",
     name: "If it failed",
     paths: [
       {
@@ -352,6 +353,8 @@ describe.skipIf(!h)("forks on a failure or an answer, against the database", () 
             doneBy: "ai",
             uses: { type: "skill", skill: "custom:pay-vendor" },
             input: { id: "r1" },
+            // A write the connection lets run unsigned (matrix `auto`, act mode).
+            checks: { approval: { required: "not_required" } },
           },
           {
             id: "route",

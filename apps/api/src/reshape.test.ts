@@ -10,6 +10,7 @@ import { processes } from "@countersign/core";
 import { auditEvent, run, stepRun } from "@countersign/db";
 import { fakeMessage, type LlmTransport, withRecording } from "@countersign/llm";
 import { fileFixtureStore } from "@countersign/llm/node";
+import { catalogKindOf, draftProcess } from "@countersign/workflows";
 import { and, eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { type ApiHarness, admin, createApiHarness, OPERATOR, testBundle } from "./api.test-helper";
@@ -182,7 +183,7 @@ describe.skipIf(!h)("Reshape data in the back office", () => {
     const mapping = body.mapping as processes.ReshapeMapping;
     const steps = draft.steps.map((s) =>
       s.id === "shape"
-        ? { ...s, input: body.input, reshape: mapping }
+        ? { ...s, input: body.input, translation: mapping }
         : s.id === "bill"
           ? {
               ...s,
@@ -196,7 +197,7 @@ describe.skipIf(!h)("Reshape data in the back office", () => {
           : s,
     );
     const result = processes.validateProcess(
-      { ...draft, steps },
+      draftProcess({ ...draft, steps }, catalogKindOf(H.platform.tools.specs())),
       {
         skills: Object.fromEntries(H.platform.catalog.list().map((d) => [d.id, d])),
         tools: H.platform.tools.specs(),
@@ -219,7 +220,7 @@ describe.skipIf(!h)("Reshape data in the back office", () => {
         ? {
             ...s,
             input: { readDocument: "{{steps.read.output}}" },
-            reshape: {
+            translation: {
               fields: [
                 {
                   name: "invoiceNumber",
@@ -257,7 +258,7 @@ describe.skipIf(!h)("Reshape data in the back office", () => {
           ? {
               ...s,
               input: { readDocument: "{{steps.read.output}}" },
-              reshape: {
+              translation: {
                 fields: [
                   {
                     name: "vendorName",

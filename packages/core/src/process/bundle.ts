@@ -5,6 +5,7 @@
 import { validateClientView } from "../kpi/validate";
 import { AgentBundle } from "../schemas/agent";
 import { parseSkillRef } from "../schemas/common";
+import { retiredSkillReason, skillWriteTools, toolLookup } from "../skills/kind";
 import { mergedAction } from "../steps/catalog";
 import { Workflow as StepWorkflow } from "../steps/schema";
 import {
@@ -13,6 +14,7 @@ import {
   validateWorkflow as validateStepWorkflow,
 } from "../steps/validate";
 import { eachStep, stepModelIds } from "../steps/walk";
+import { lookupSkill } from "../template/typer";
 import { actionInputSchema, type WriteAction } from "./actions";
 import {
   definitionModelErrors,
@@ -20,7 +22,14 @@ import {
   type ValidationContext,
   type ValidationError,
 } from "./checks";
-import { stepModelPublishErrors } from "./step-model-publish";
+import { stepModelSeatProblems } from "./seats";
+import { type HandoffKnown, stepModelHandoffErrors } from "./step-model-handoff";
+import {
+  stepModelFixedInputErrors,
+  stepModelPublishErrors,
+  stepModelScheduleErrors,
+} from "./step-model-publish";
+import { stepModelRefErrors } from "./step-model-refs";
 import type { ProcessValidationCode, ProcessValidationContext } from "./validate";
 
 /**
@@ -87,6 +96,47 @@ function stepModelSkillsById(workflow: StepWorkflow): [string, string][] {
   return out;
 }
 
+/**
+ * Skill model (2026-11-10): a step new in this version (`existingStepIds`: not in the version it
+ * was made from, or there with another skill) uses a skill that doesn't write and isn't a retired
+ * kind. DECISION: the retired kinds are held to operator-written skills (`custom:`) only, as the
+ * engine's check was; the platform's own built-ins are installed from code with their steps.
+ * Stored versions and the steps already using a skill keep running (invariant 3).
+ */
+function newSkillStepErrors(
+  workflow: StepWorkflow,
+  ctx: Pick<ValidationContext, "skills" | "tools"> & {
+    existingStepIds?: ReadonlySet<string> | undefined;
+    existingStepSkills?: ReadonlyMap<string, string> | undefined;
+  },
+): ValidationError[] {
+  const { existingStepIds: existing, existingStepSkills: skillsBefore } = ctx;
+  if (!existing) return [];
+  const errors: ValidationError[] = [];
+  for (const [id, ref] of stepModelSkillsById(workflow)) {
+    const skillId = parseSkillRef(ref).id;
+    const isNew =
+      !existing.has(id) || (skillsBefore !== undefined && skillsBefore.get(id) !== skillId);
+    const skill = lookupSkill(ref, ctx);
+    if (!isNew || !skill) continue;
+    const retired = retiredSkillReason(skill);
+    if (retired && skillId.startsWith("custom:")) {
+      errors.push({ stepId: id, field: "skill", code: "skill_retired", message: retired });
+      continue;
+    }
+    const writes = retired || !ctx.tools ? [] : skillWriteTools(skill, toolLookup(ctx.tools));
+    if (writes.length > 0) {
+      errors.push({
+        stepId: id,
+        field: "skill",
+        code: "skill_retired",
+        message: `Skills never write: "${writes[0]}" changes something. Use the skill that only reads, then a write step.`,
+      });
+    }
+  }
+  return errors;
+}
+
 export interface BundleValidationResult {
   valid: boolean;
   errors: BundleValidationError[];
@@ -131,6 +181,8 @@ export function validateBundle(
       existingStepIds?: ReadonlySet<string>;
       /** Skill model (2026-11-10, review): each skill step's skill id in that version. */
       existingStepSkills?: ReadonlyMap<string, string>;
+      /** Hand off: the client's other agents a hand-off can start, and this agent's own slug. */
+      handoff?: HandoffKnown;
     } = {},
 ): BundleValidationResult {
   const parsed = AgentBundle.safeParse(input);
@@ -211,11 +263,26 @@ export function validateBundle(
         stepCode: issue.code,
       });
     }
+    // A schedule that can't start says so.
+    for (const e of stepModelScheduleErrors(w.workflow)) errors.push({ ...e, workflow: w.slug });
+    // Input that becomes instructions is written in the step, not filled from a template.
+    for (const e of stepModelFixedInputErrors(w.workflow, ctx))
+      errors.push({ ...e, workflow: w.slug });
     // At publish, its writes held to the client's connections.
     for (const e of stepModelPublishErrors(w.workflow, ctx, bundle.definition)) {
       errors.push({ ...e, workflow: w.slug });
     }
+    // References to other steps name steps that run before the reader.
+    for (const e of stepModelRefErrors(w.workflow)) errors.push({ ...e, workflow: w.slug });
+    // Setup-plan §4.1: every seat a step names is one the bundle declares, of a kind that fits.
+    for (const e of stepModelSeatProblems(w.workflow, bundle.people ?? [])) {
+      errors.push({ ...e, workflow: w.slug });
+    }
+    // Skill model: a new step may not use a retired kind of skill or one that writes.
+    for (const e of newSkillStepErrors(w.workflow, ctx)) errors.push({ ...e, workflow: w.slug });
   }
+  // Ways in, ways out: hand-offs to another agent, to this agent's own workflows, and the loops.
+  errors.push(...stepModelHandoffErrors(bundle.workflows, ctx.handoff));
   errors.push(...validateClientView(bundle, ctx.packs ? { packs: ctx.packs } : {}));
   return { valid: errors.length === 0, errors, value: bundle };
 }

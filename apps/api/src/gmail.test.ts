@@ -27,6 +27,7 @@ import {
   ended,
   FakeWorkflowStep,
   OPERATOR,
+  publishStored,
   signatureOf,
   unsigned,
   user,
@@ -340,11 +341,7 @@ describe.skipIf(!h)("Gmail, send only, through the API", () => {
     expect(j(created.json).errors ?? []).toEqual([]);
     agentId = j(created.json).agent.id;
     versionId = j(created.json).version.id;
-    const pub = await call(
-      OPERATOR,
-      "POST",
-      `/api/ops/agents/${agentId}/versions/${versionId}/publish`,
-    );
+    const pub = await publishStored(H, H.A.tenantId, agentId, versionId);
     expect(pub.status, JSON.stringify(pub.json)).toBe(200);
     const bound = await call(admin("a"), "PUT", `/api/people/${agentId}`, {
       people: { vendor: { contactIds: [maria], conditions: { maxPerDay: 10 } } },
@@ -375,8 +372,11 @@ describe.skipIf(!h)("Gmail, send only, through the API", () => {
 
   it("never sends from a test run", async () => {
     const params = await startRun("PO-T1", "test");
-    const result = await executeRun(deps(), params, cloudflareStepRunner(new FakeWorkflowStep()));
-    expect(result.status).toBe("succeeded");
+    // The step asks for its sign-off as in a live run; what a person approves in a test run is
+    // never sent.
+    const step = new FakeWorkflowStep(async (_name, type) => approveItem(type));
+    const result = await executeRun(deps(), params, cloudflareStepRunner(step));
+    expect(result, JSON.stringify(result)).toMatchObject({ status: "succeeded" });
     expect(await stepOutput(params.runId)).toMatchObject({
       testRun: true,
       plan: ["email"],

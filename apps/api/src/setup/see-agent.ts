@@ -60,6 +60,8 @@ type AnyStep = { id: string; name?: string; kind: string } & Record<string, unkn
 export function walkStepsOf(bundle: Pick<AgentBundle, "workflows">): WalkStep[] {
   const out: WalkStep[] = [];
   const visit = (step: AnyStep, top: boolean) => {
+    // An End card is where a path finishes, not a step the client reads or marks.
+    if (step.kind === "end") return;
     out.push({ id: step.id, name: typeof step.name === "string" ? step.name : step.id, top });
     if (step.kind === "if" || step.kind === "fork") {
       for (const p of (step.paths as { steps?: AnyStep[] }[] | undefined) ?? []) {

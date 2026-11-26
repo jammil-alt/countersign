@@ -84,6 +84,7 @@ import {
 } from "@countersign/llm";
 import { type EventRow, emit } from "@countersign/senses";
 import {
+  catalogKindOf,
   type ExecutorContext,
   executeWorkflow,
   type RunInfo,
@@ -593,7 +594,7 @@ export async function executeRun(
         workflow: wf.workflow,
         language: await tenantLocale(tx, info.tenantId),
         ...(client?.timeZone ? { timeZone: client.timeZone } : {}),
-        resume: await resumeOf(tx, params, wf.workflow),
+        resume: await resumeOf(tx, params, wf.workflow, deps.platform.tools.specs()),
         // v0.12 W2-B
         automations: await automationsOf(tx, info.tenantId, wf.workflow),
         // v0.13 W2-I; R6: the owner's settings and watch, from the version as pinned. v0.19:
@@ -952,6 +953,7 @@ async function resumeOf(
   tx: Tx,
   params: RunParams,
   workflow: StoredWorkflow,
+  tools: Parameters<typeof catalogKindOf>[0],
 ): Promise<RunResume | null> {
   if (!params.retryOf || !params.resumeFrom) return null;
   const index = workflow.steps.findIndex((s) => s.id === params.resumeFrom);
@@ -988,10 +990,53 @@ async function resumeOf(
   for (const step of before) {
     const row = rows.find((r) => r.nodeId === step.id);
     if (!row) continue;
-    const found = reusedStepOf(step as unknown as StoredStepLike, row, rows, items);
+    const found = reusedStepOf(storedStepLike(step, catalogKindOf(tools)), row, rows, items);
     if (found) reused[step.id] = found;
   }
   return { from: params.resumeFrom, of: shortRunId(params.retryOf), reused };
+}
+
+/**
+ * What a retry reads of a v5 step to rebuild its record: the engine step kind it ran as (a Do step
+ * runs on one: an action as a read or a write, rules or AI as a skill, a person's question as a
+ * person step, and so on), its error rule, its approval and its quick answers.
+ */
+function storedStepLike(
+  step: steps.Step,
+  kindOf: (action: string) => steps.ActionKind | undefined,
+): StoredStepLike {
+  const own = {
+    ...(step.onError ? { onError: step.onError } : {}),
+    ...(step.checks?.approval ? { checks: { approval: { mode: step.checks.approval.mode } } } : {}),
+  };
+  switch (step.kind) {
+    case "do": {
+      const engine = steps.doEngine(step, kindOf).engine;
+      const kind =
+        engine === "rules" || engine === "ai" || engine === "match"
+          ? "skill"
+          : engine === "tell"
+            ? "notify"
+            : engine === "contact"
+              ? "conversation"
+              : engine === "automation"
+                ? "process"
+                : engine;
+      return {
+        kind,
+        ...own,
+        ...(step.person?.choices ? { choices: step.person.choices } : {}),
+      };
+    }
+    case "loop":
+      return { kind: "skill", ...own };
+    case "fork":
+      return { kind: "if", ...own };
+    case "end":
+      return { kind: "stop", ...own };
+    default:
+      return { kind: step.kind, ...own };
+  }
 }
 
 /** The step model: the automations a v5 workflow's Do steps use, by their pinned refs. */

@@ -12,11 +12,13 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   admin,
   createApiHarness,
+  doTell,
   forbiddenKeys,
   OPERATOR,
   OTHER_OPERATOR,
   testBundle,
   user,
+  v5Workflow,
 } from "./api.test-helper";
 
 const h = await createApiHarness();
@@ -37,10 +39,9 @@ function scheduledBundle() {
         ...wf,
         slug: "daily-check",
         name: "Daily check",
-        workflow: {
-          ...(wf.workflow as object),
-          trigger: { id: "trg-daily", on: { type: "schedule", cron: "0 9 * * *" } },
-        },
+        workflow: v5Workflow([doTell("daily-note", "Daily note", "Checked")], {
+          triggers: [{ id: "trg-daily", on: { type: "schedule", cron: "0 9 * * *" } }],
+        }),
       },
     ],
   });

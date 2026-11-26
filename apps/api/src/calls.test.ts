@@ -733,7 +733,10 @@ describe.skipIf(!h)("calls through the API", () => {
           "Front desk",
           {
             ...CALL_BACK,
-            steps: [{ ...CALL_BACK.steps[0], input: { ...CALL_BACK.steps[0]?.input, ...input } }],
+            steps: [
+              { ...CALL_BACK.steps[0], input: { ...CALL_BACK.steps[0]?.input, ...input } },
+              ...CALL_BACK.steps.slice(1),
+            ],
           },
           { extraTools: [CALL_PLACE_TOOL, MESSAGES_SEARCH_TOOL, SMS_SEND_TOOL] },
         );
@@ -1196,10 +1199,18 @@ describe.skipIf(!h)("calls through the API", () => {
         expect(twilio.placed()).toHaveLength(placed + (reachTwilio ? 1 : 0));
         const failed = await actionOf(params.runId);
         expect(failed?.status).toBe("failed");
+        // The step's owner also stops the run at a change that reached the tool (its own review
+        // item); this one is the action's, which only the operator checks.
         const items = await H.t.db
           .select()
           .from(inboxItem)
-          .where(and(eq(inboxItem.runId, params.runId), eq(inboxItem.kind, "review")));
+          .where(
+            and(
+              eq(inboxItem.runId, params.runId),
+              eq(inboxItem.kind, "review"),
+              eq(inboxItem.subjectType, "external_action"),
+            ),
+          );
         expect(items).toHaveLength(1);
         expect(items[0]).toMatchObject({
           assigneeRole: "operator",
@@ -1221,7 +1232,13 @@ describe.skipIf(!h)("calls through the API", () => {
           await H.t.db
             .select()
             .from(inboxItem)
-            .where(and(eq(inboxItem.runId, params.runId), eq(inboxItem.kind, "review"))),
+            .where(
+              and(
+                eq(inboxItem.runId, params.runId),
+                eq(inboxItem.kind, "review"),
+                eq(inboxItem.subjectType, "external_action"),
+              ),
+            ),
         ).toHaveLength(1);
       }
     });
