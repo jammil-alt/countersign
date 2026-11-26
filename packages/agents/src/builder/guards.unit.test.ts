@@ -68,6 +68,13 @@ describe("guards: a step's purpose stays plain and within the limit", () => {
     expect(plainPurpose(`{{steps.${ID}.output}}`)).toBeNull();
   });
 
+  it("takes a reference out of the words around it, and stays quick on a run of braces", () => {
+    expect(plainPurpose("Read {{steps.s1.output}} now")).toBe("Read now");
+    const started = Date.now();
+    plainPurpose(`${"{{".repeat(20_000)} x`);
+    expect(Date.now() - started).toBeLessThan(1000);
+  });
+
   it("cuts a long one at its last sentence, else its last word, within 200", () => {
     const first = `Checks the vendor and invoice number against invoices this agent already reviewed${", so a repeat stops early".repeat(3)}.`;
     const long = `${first} ${"Then it goes on to match the lines. ".repeat(4)}`;

@@ -165,8 +165,7 @@ export function guardDefinition<D extends AgentBundle["definition"]>(
 // DECISION: cut, not sent back to repair: the purpose is one line of the SOP, the operator edits
 // it in the step panel, and a repair round would cost the turn a second model call.
 export function plainPurpose(text: string): string | null {
-  const plain = text
-    .replace(/\{\{[^}]*\}\}/g, "")
+  const plain = replaceTemplates(text, () => "")
     .replace(/\s+([,.;:)])/g, "$1")
     .replace(/\(\s*\)/g, "")
     .replace(/\s{2,}/g, " ")
