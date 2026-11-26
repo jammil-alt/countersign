@@ -41,6 +41,7 @@ import {
   admin,
   allowForAgent,
   createApiHarness,
+  ended,
   FakeWorkflowStep,
   OPERATOR,
 } from "./api.test-helper";
@@ -316,7 +317,7 @@ describe.skipIf(!h)("connectors through the API", () => {
 
       // Approved by the client admin, the event is sent once; replaying the run sends nothing more.
       const result = await executeRun(deps(), params, cloudflareStepRunner(approver("a")));
-      expect(result).toEqual({ status: "succeeded" });
+      expect(result).toEqual(ended());
       expect(receiver.received).toHaveLength(1);
       const [action] = await H.t.db
         .select()
@@ -565,7 +566,7 @@ describe.skipIf(!h)("connectors through the API", () => {
       const params = H.instances.started.get(j(res.json).runId);
       if (!params) throw new Error("not started");
       const result = await executeRun(deps(), params, cloudflareStepRunner(approver("b")));
-      expect(result).toEqual({ status: "succeeded" });
+      expect(result).toEqual(ended());
       const puts = () => zoho.apiCalls().filter((r) => r.method === "PUT");
       expect(puts()).toHaveLength(1);
       expect(JSON.parse(puts()[0]?.body ?? "")).toEqual({ data: [{ Lead_Status: "Contacted" }] });
@@ -1106,7 +1107,7 @@ describe.skipIf(!h)("connectors through the API", () => {
       const params = H.instances.started.get(j(res.json).runId);
       if (!params) throw new Error("not started");
       const result = await executeRun(deps(), params, cloudflareStepRunner(approver("c")));
-      expect(result).toEqual({ status: "succeeded" });
+      expect(result).toEqual(ended());
       const puts = () => podio.apiCalls().filter((r) => r.method === "PUT");
       expect(puts()).toHaveLength(1);
       expect(JSON.parse(puts()[0]?.body ?? "")).toEqual({ fields: { status: [2] }, revision: 3 });

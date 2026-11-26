@@ -6,7 +6,7 @@
 // is the client's document, and another client sees none of it.
 
 import { ContentStore, findOrCreateVendor } from "@countersign/connectors";
-import { AgentBundle, type AgentBundleInput, validateBundle } from "@countersign/core";
+import { AgentBundle, type AgentBundleInput, processes } from "@countersign/core";
 import { agent, document, externalAction, modelCall, stepRun, withTenant } from "@countersign/db";
 import { DEFAULT_MODELS, FakeModel } from "@countersign/llm";
 import {
@@ -20,7 +20,13 @@ import {
 } from "@countersign/pack-materials";
 import { and, eq } from "drizzle-orm";
 import { afterAll, describe, expect, it } from "vitest";
-import { type ApiHarness, createApiHarness, FakeWorkflowStep, OPERATOR } from "./api.test-helper";
+import {
+  type ApiHarness,
+  createApiHarness,
+  ended,
+  FakeWorkflowStep,
+  OPERATOR,
+} from "./api.test-helper";
 import { executeRun } from "./runs/execute";
 import { cloudflareStepRunner } from "./runs/step-runner";
 
@@ -32,9 +38,9 @@ afterAll(() => h?.close());
 
 const BB = "3/4 BB/BB BALTIC BIRCH 5X5";
 const OAK = "4/4 RED OAK FAS";
-const request = "{{steps.open.output.request.id}}";
-const line = (n: number) => `{{steps.open.output.request.lines.${n}.id}}`;
-const quote = (n: number) => `{{steps.rfq.output.quotes.${n}.id}}`;
+const _request = "{{steps.open.output.request.id}}";
+const _line = (n: number) => `{{steps.open.output.request.lines.${n}.id}}`;
+const _quote = (n: number) => `{{steps.rfq.output.quotes.${n}.id}}`;
 
 /** A buyer with the area's skills and one workflow: a request from intake to purchase order. */
 const BUYER: AgentBundleInput = {
@@ -249,7 +255,7 @@ describe.skipIf(!h)("the Purchasing area on the platform", () => {
   }
 
   it("validates a buyer built from the area's skills against the platform's registries", () => {
-    const result = validateBundle(AgentBundle.parse(BUYER), {
+    const result = processes.validateBundle(AgentBundle.parse(BUYER), {
       skills: Object.fromEntries(H.platform.catalog.list().map((s) => [s.id, s])),
       tools: H.platform.tools.specs(),
       events: H.platform.events.byType(),
@@ -310,9 +316,9 @@ describe.skipIf(!h)("the Purchasing area on the platform", () => {
     });
 
     const { params, steps, out, result } = await runBuyer("buyer", BUYER, "buy", new FakeModel());
-    expect(result, JSON.stringify(steps.map((s) => [s.nodeId, s.status, s.output]))).toEqual({
-      status: "succeeded",
-    });
+    expect(result, JSON.stringify(steps.map((s) => [s.nodeId, s.status, s.output]))).toEqual(
+      ended(),
+    );
 
     // The request, its lines matched by the rules, and the vendors that sold them.
     expect(out("open").request.lines.map((l: J) => l.catalogItemId)).toEqual([
@@ -413,7 +419,7 @@ describe.skipIf(!h)("the Purchasing area on the platform", () => {
                 kind: "do",
                 doneBy: "rules",
                 uses: { type: "action", action: "materials.quote.create" },
-                input: { vendorIds: [cedar.id] },
+                input: { vendorIds: [cedar?.id] },
               },
               {
                 id: "readq",
@@ -520,9 +526,9 @@ describe.skipIf(!h)("the Purchasing area on the platform", () => {
       }),
     ]);
     const { steps, out, result } = await runBuyer("reader", reader, "read", model);
-    expect(result, JSON.stringify(steps.map((s) => [s.nodeId, s.status, s.output]))).toEqual({
-      status: "succeeded",
-    });
+    expect(result, JSON.stringify(steps.map((s) => [s.nodeId, s.status, s.output]))).toEqual(
+      ended(),
+    );
     expect(model.remaining).toBe(0);
     // Both task skills ran on the small model, with the text as data, never as instructions.
     expect(model.requests.map((r) => r.model)).toEqual(

@@ -60,46 +60,7 @@ export type AssistDraftRequest = z.input<typeof AssistDraftRequest>;
 export const AssistDraft = z.object({ text: z.string() });
 export type AssistDraft = z.infer<typeof AssistDraft>;
 
-/** The most the operator may say about the data to make up. */
-export const TEST_DATA_NOTES_MAX = 1000;
-
-/** Made-up data for a try of some steps (docs/plan.md §1.186): what to put in each box. */
-export const TestDataMade = z.object({
-  /** What started the run, when the steps tried read it or the try starts at the top. */
-  trigger: z.unknown().optional(),
-  /** Each earlier step's output, by step id. */
-  given: z.record(z.string(), z.unknown()),
-  /** Pieces the model left out, filled with an example of their shape instead. */
-  missing: z.array(z.string()),
-});
-export type TestDataMade = z.infer<typeof TestDataMade>;
-
 export const assistRoutes = {
-  opsAssistTestData: defineRoute({
-    method: "POST",
-    path: "/api/ops/agents/:id/test-data",
-    auth: "session",
-    roles: ["operator"],
-    summary:
-      "Make up data to try some of a draft's steps on: what started the run and the outputs of the earlier steps they read, from the draft's shapes alone (no client's records); refused when the agent's client is in HIPAA mode and the model's vendor has no BAA",
-    params: z.object({ id: Id }),
-    body: z.strictObject({
-      /** The process being edited (a v4 process; the builder's draft, unsaved). */
-      process: z.unknown(),
-      /** Its name, for the model. */
-      workflow: storable(z.string().trim().max(200)).default(""),
-      /** The steps to be tried; absent: all of them. */
-      range: z
-        .strictObject({
-          from: z.string().min(1).max(100).optional(),
-          to: z.string().min(1).max(100).optional(),
-        })
-        .optional(),
-      /** What the data should look like, in the operator's words. */
-      notes: storable(z.string().trim().max(TEST_DATA_NOTES_MAX)).optional(),
-    }),
-    response: TestDataMade,
-  }),
   opsAssistDraft: defineRoute({
     method: "POST",
     path: "/api/ops/assist/draft",

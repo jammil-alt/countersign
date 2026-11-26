@@ -7,7 +7,7 @@
 import type { RuntimeDeps } from "@countersign/agents";
 import { dbOversightStore } from "@countersign/agents";
 import { TESTKIT_UPDATE_TOOL } from "@countersign/connectors";
-import { bundleHash, processes, SkillDefinition } from "@countersign/core";
+import { bundleHash, SkillDefinition } from "@countersign/core";
 import {
   agent,
   agentVersion,
@@ -27,6 +27,8 @@ import {
   type ApiHarness,
   admin,
   createApiHarness,
+  doAction,
+  ended,
   FakeWorkflowStep,
   OPERATOR,
   testBundle,
@@ -65,7 +67,7 @@ const CHECK_SKILL = SkillDefinition.parse({
 const h = await createApiHarness({ skills: [CHECK_SKILL] });
 afterAll(() => h?.close());
 
-describe.skipIf(!h)("v4 processes in apps/api", () => {
+describe.skipIf(!h)("workflows in apps/api", () => {
   const H = h as ApiHarness;
   let agentId = "";
   let v3Version = "";
@@ -192,14 +194,14 @@ describe.skipIf(!h)("v4 processes in apps/api", () => {
     H.instances.events.length = 0;
   });
 
-  const writeStep = (approval: Record<string, unknown>) => ({
-    id: "update",
-    kind: "write",
-    name: "Update the record",
-    tool: TESTKIT_UPDATE_TOOL,
-    input: { id: "r1", amount: "12.00" },
-    checks: { approval },
-  });
+  const writeStep = (approval: Record<string, unknown>) =>
+    doAction(
+      "update",
+      "Update the record",
+      TESTKIT_UPDATE_TOOL,
+      { id: "r1", amount: "12.00" },
+      { checks: { approval } },
+    );
   const proc = (steps: unknown[]) =>
     v5Workflow(steps, { triggers: [{ id: "trg-manual", on: { type: "manual", input: {} } }] });
 
@@ -223,7 +225,7 @@ describe.skipIf(!h)("v4 processes in apps/api", () => {
         }),
       );
       const result = await executeRun(deps(), p, cloudflareStepRunner(step));
-      expect(result).toEqual({ status: "succeeded" });
+      expect(result).toEqual(ended());
       expect(H.backend.writes).toHaveLength(1);
 
       const [action] = await H.t.db
@@ -312,7 +314,7 @@ describe.skipIf(!h)("v4 processes in apps/api", () => {
         return resolveAs(type, () => ({ decision: "approve" }));
       });
       const result = await executeRun(deps(), p, cloudflareStepRunner(step));
-      expect(result).toEqual({ status: "succeeded" });
+      expect(result).toEqual(ended());
       expect(tried).toEqual([409]);
       // Written once, with the input both signed.
       expect(H.backend.writes.map((w) => w.record.amount)).toEqual(["12.00"]);
@@ -431,7 +433,7 @@ describe.skipIf(!h)("v4 processes in apps/api", () => {
           }),
         ),
       );
-      expect(result).toEqual({ status: "succeeded" });
+      expect(result).toEqual(ended());
       expect(H.backend.writes).toHaveLength(1);
       const [action] = await H.t.db
         .select()
@@ -513,13 +515,15 @@ describe.skipIf(!h)("v4 processes in apps/api", () => {
       proc([
         {
           id: "warn",
-          kind: "notify",
           name: "Warn the admin",
-          notify: {
+          kind: "do",
+          doneBy: "rules",
+          uses: { type: "tell" },
+          tell: {
             to: [H.A.admin],
             channel: "sms",
             message: "The record {{trigger.id}} changed",
-            urgent: { ackWithin: "15 minutes" },
+            urgent: { ackWithin: "15 minutes", ifNoAnswer: "stop" },
           },
         },
       ]);
@@ -540,7 +544,7 @@ describe.skipIf(!h)("v4 processes in apps/api", () => {
         return resolveAs(type, () => ({ answer: "Seen" }));
       });
       const result = await executeRun(deps(), p, cloudflareStepRunner(step));
-      expect(result).toEqual({ status: "succeeded" });
+      expect(result).toEqual(ended());
       expect(waited).toEqual(["warn:seen:wait"]);
     });
 
@@ -613,13 +617,15 @@ describe.skipIf(!h)("v4 processes in apps/api", () => {
         proc([
           {
             id: "warn",
-            kind: "notify",
             name: "Warn the admin",
-            notify: {
+            kind: "do",
+            doneBy: "rules",
+            uses: { type: "tell" },
+            tell: {
               to: [H.A.admin],
               channel: "sms",
               message: "The record {{trigger.id}} changed",
-              urgent: { ackWithin: "15 minutes" },
+              urgent: { ackWithin: "15 minutes", ifNoAnswer: "stop" },
             },
           },
         ]),
@@ -637,7 +643,7 @@ describe.skipIf(!h)("v4 processes in apps/api", () => {
         p,
         cloudflareStepRunner(step),
       );
-      expect(result).toEqual({ status: "succeeded" });
+      expect(result).toEqual(ended());
       expect(mail).toHaveLength(1);
       expect(texts).toHaveLength(1);
       // C4.10: through the outbox, as `urgent`: one row per channel, sent, though the admin's
@@ -662,13 +668,15 @@ describe.skipIf(!h)("v4 processes in apps/api", () => {
         proc([
           {
             id: "warn-again",
-            kind: "notify",
             name: "Warn the admin again",
-            notify: {
+            kind: "do",
+            doneBy: "rules",
+            uses: { type: "tell" },
+            tell: {
               to: [H.A.admin],
               channel: "email",
               message: "Look at {{trigger.id}}",
-              urgent: { ackWithin: "15 minutes" },
+              urgent: { ackWithin: "15 minutes", ifNoAnswer: "stop" },
             },
           },
         ]),
@@ -682,7 +690,7 @@ describe.skipIf(!h)("v4 processes in apps/api", () => {
         cloudflareStepRunner(step),
       );
       // The step isn't held by a failed send: the text went, the email waits for a retry.
-      expect(result).toEqual({ status: "succeeded" });
+      expect(result).toEqual(ended());
       expect(mail).toHaveLength(0);
       expect(texts).toHaveLength(1);
       const waiting = await H.t.db
@@ -818,12 +826,23 @@ describe.skipIf(!h)("v4 processes in apps/api", () => {
         proc([
           {
             id: "ask",
-            kind: "person",
             name: "Ask",
-            mode: "approve",
-            assignee: H.A.admin,
-            title: "Is it right?",
-            deadline: { after: "1 day", tell: ["operator", "client_user"] },
+            kind: "do",
+            doneBy: "person",
+            person: {
+              mode: "approve",
+              who: H.A.admin,
+              question: "Is it right?",
+              show: {},
+              deadline: {
+                after: "1 day",
+                hours: "clock",
+                ifNoAnswer: "stop",
+                tell: ["operator", "client_user"],
+              },
+              channel: "inbox",
+              onReject: "stop",
+            },
           },
         ]),
       );
@@ -852,11 +871,12 @@ describe.skipIf(!h)("v4 processes in apps/api", () => {
         proc([
           {
             id: "check",
-            kind: "skill",
+            kind: "do",
+            doneBy: "ai",
             name: "Check the record",
-            skill: CHECK_SKILL.id,
+            uses: { type: "skill", skill: CHECK_SKILL.id },
             input: { id: "r1" },
-            customize: { addInstructions: "Also check that the amount is in dollars." },
+            ai: { text: "Also check that the amount is in dollars." },
           },
         ]),
       );
@@ -866,7 +886,7 @@ describe.skipIf(!h)("v4 processes in apps/api", () => {
         params(version),
         cloudflareStepRunner(new FakeWorkflowStep()),
       );
-      expect(result).toEqual({ status: "succeeded" });
+      expect(result).toEqual(ended());
       const system = String(model.requests[0]?.system);
       expect(system).toContain("Check the record you are given.");
       expect(system).toContain("Also check that the amount is in dollars.");
@@ -876,14 +896,14 @@ describe.skipIf(!h)("v4 processes in apps/api", () => {
     });
   });
 
-  describe("a converted v3 workflow", () => {
-    it("runs exactly as before: one card, the stored approver, no owner history step", async () => {
+  describe("the stored workflow", () => {
+    it("runs with one card and the stored approver", async () => {
       const p = params(v3Version);
       const step = new FakeWorkflowStep((_name, type) =>
         resolveAs(type, () => ({ decision: "approve" })),
       );
       const result = await executeRun(deps(), p, cloudflareStepRunner(step));
-      expect(result).toEqual({ status: "succeeded" });
+      expect(result).toEqual(ended());
       expect(H.backend.writes).toHaveLength(1);
       const items = await H.t.db.select().from(inboxItem).where(eq(inboxItem.runId, p.runId));
       expect(items.map((i) => i.kind).sort()).toEqual(["approval", "external_action"]);
@@ -894,15 +914,15 @@ describe.skipIf(!h)("v4 processes in apps/api", () => {
       expect(action).toMatchObject({ status: "done", approvedBy: H.A.admin });
       const steps = await H.t.db.select().from(stepRun).where(eq(stepRun.runId, p.runId));
       expect(Object.fromEntries(steps.map((s) => [s.nodeId, [s.nodeType, s.status]]))).toEqual({
-        update: ["action", "succeeded"],
+        update: ["write", "succeeded"],
         confirm: ["person", "succeeded"],
         internal: ["notify", "succeeded"],
+        end: ["stop", "succeeded"],
       });
-      // No marker on a write somebody signed, and no durable step a v3 run didn't have.
+      // No marker on a write somebody signed.
       expect(steps.find((s) => s.nodeId === "update")?.output).not.toHaveProperty(
         "proceededWithoutAnswer",
       );
-      expect([...step.results.keys()].some((k) => k.includes("owner-history"))).toBe(false);
       const [r] = await H.t.db.select().from(run).where(eq(run.id, p.runId));
       expect(r?.status).toBe("succeeded");
     });
@@ -923,9 +943,5 @@ describe.skipIf(!h)("v4 processes in apps/api", () => {
         limit: 50,
       }),
     ).toEqual([]);
-  });
-
-  it("reads a stored process as v4 (the converter's view is only for v3)", () => {
-    expect(processes.Process.safeParse(proc([writeStep({})])).success).toBe(true);
   });
 });

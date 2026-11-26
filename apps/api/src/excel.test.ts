@@ -21,6 +21,7 @@ import {
   type ApiHarness,
   admin,
   createApiHarness,
+  ended,
   FakeWorkflowStep,
   forbiddenKeys,
   OPERATOR,
@@ -199,9 +200,7 @@ describe.skipIf(!h)("Excel through the API", () => {
       credentials: credentialsFor(H.db, { current: ENCRYPTION_KEY }),
       documents: { content: new ContentStore(H.objects) },
     };
-    expect(await executeRun(deps, params, cloudflareStepRunner(step))).toEqual({
-      status: "succeeded",
-    });
+    expect(await executeRun(deps, params, cloudflareStepRunner(step))).toEqual(ended());
     expect(atWait).toEqual([1]);
     const rows = excel.cells(LOG.id, "Log");
     expect(rows).toHaveLength(2);

@@ -65,6 +65,7 @@ import {
   admin,
   allowForAgent,
   createApiHarness,
+  ended,
   FakeWorkflowStep,
   forbiddenKeys,
   OPERATOR,
@@ -119,7 +120,7 @@ const h = await createApiHarness({
 });
 afterAll(() => h?.close());
 
-const req = "{{steps.open.output.request.id}}";
+const _req = "{{steps.open.output.request.id}}";
 
 /** The buyer: platform and Materials parts only, every write behind approval. */
 function buyer(): AgentBundle {
@@ -1091,9 +1092,9 @@ describe.skipIf(!h)("a buyer that works by email, end to end", () => {
     );
     const steps = await H.t.db.select().from(stepRun).where(eq(stepRun.runId, runId));
     const out = (node: string) => j(steps.find((s) => s.nodeId === node)?.output);
-    expect(result, JSON.stringify(steps.map((s) => [s.nodeId, s.status, s.output]))).toEqual({
-      status: "succeeded",
-    });
+    expect(result, JSON.stringify(steps.map((s) => [s.nodeId, s.status, s.output]))).toEqual(
+      ended(),
+    );
 
     // Read the request as data: the injected words never reach a system prompt.
     for (const r of model.requests) expect(JSON.stringify(r.system)).not.toContain(INJECTED);

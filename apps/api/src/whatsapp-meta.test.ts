@@ -47,6 +47,7 @@ import {
   type ApiHarness,
   admin,
   createApiHarness,
+  ended,
   FakeWorkflowStep,
   forbiddenKeys,
   OPERATOR,
@@ -579,16 +580,12 @@ describe.skipIf(!h)("WhatsApp through Meta through the API", () => {
 
     const twilioBefore = twilio.sends().length;
     const p1 = await run(viaTwilio);
-    expect(await executeRun(deps(), p1, cloudflareStepRunner(approver()))).toEqual({
-      status: "succeeded",
-    });
+    expect(await executeRun(deps(), p1, cloudflareStepRunner(approver()))).toEqual(ended());
     expect(twilio.sends()).toHaveLength(twilioBefore + 1);
     expect(meta.sent).toHaveLength(0);
 
     const p2 = await run(viaMeta);
-    expect(await executeRun(deps(), p2, cloudflareStepRunner(approver()))).toEqual({
-      status: "succeeded",
-    });
+    expect(await executeRun(deps(), p2, cloudflareStepRunner(approver()))).toEqual(ended());
     expect(twilio.sends()).toHaveLength(twilioBefore + 1);
     expect(meta.sent).toHaveLength(1);
     expect(meta.sent[0]?.body).toMatchObject({

@@ -24,6 +24,7 @@ import {
   type ApiHarness,
   admin,
   createApiHarness,
+  ended,
   FakeWorkflowStep,
   OPERATOR,
   signatureOf,
@@ -45,8 +46,8 @@ const ORIGIN = "https://app.mezonas.test";
 const FORWARDING = "in.mezonas.test";
 const MAILBOX = "pat.lee@gmail.test";
 const MARIA = "maria@proveedor.example";
-const PURPOSE = "Confirm Friday's delivery of the oak order";
-const SUBJECT = "Entrega del viernes: pedido nº {{trigger.order}}";
+const _PURPOSE = "Confirm Friday's delivery of the oak order";
+const _SUBJECT = "Entrega del viernes: pedido nº {{trigger.order}}";
 const SPANISH = "Hola, ¿confirma la entrega del viernes? Responda SÍ o NO. Gracias.";
 const google = fakeGoogle();
 
@@ -460,7 +461,7 @@ describe.skipIf(!h)("Gmail, send only, through the API", () => {
       return H.instances.events.find((e) => e.event.type === type)?.event.payload;
     });
     const result = await executeRun(deps(), params, cloudflareStepRunner(step));
-    expect(result).toEqual({ status: "succeeded" });
+    expect(result).toEqual(ended());
     expect(reachEvent).not.toBe("");
     expect(await stepOutput(params.runId)).toMatchObject({
       outcome: "replied",
@@ -551,9 +552,9 @@ describe.skipIf(!h)("Gmail, send only, through the API", () => {
     // needs the person to connect again.
     google.expireRefreshTokens();
     google.expireAccessTokens();
-    const ended = await runWithoutReply("PO-3002");
+    const runEnded = await runWithoutReply("PO-3002");
     expect(google.sent).toHaveLength(2);
-    expect((await actionsOf(ended.runId)).map((a) => a.status)).toEqual(["failed"]);
+    expect((await actionsOf(runEnded.runId)).map((a) => a.status)).toEqual(["failed"]);
     const list = await call(user("a"), "GET", "/api/connections");
     expect(
       j(list.json).connections.find((c: { connector: string }) => c.connector === "gmail")

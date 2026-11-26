@@ -13,6 +13,7 @@ import {
   type ApiHarness,
   admin,
   createApiHarness,
+  ended,
   FakeWorkflowStep,
   OPERATOR,
   testBundle,
@@ -183,7 +184,7 @@ describe.skipIf(!h)("hand-offs to the agent's own workflow in apps/api", () => {
 
   it("starts one run per bill, of the same agent and version, at Check an invoice's step 2", async () => {
     const p = params();
-    expect(await go(p)).toEqual({ status: "succeeded" });
+    expect(await go(p)).toEqual(ended());
     // The items run side by side: in the order of their node ids.
     const fromStep = (s: RunParams) => (s.trigger.type === "handoff" ? s.trigger.fromStep : "");
     const started = startedFrom(p.runId).sort((a, b) =>
@@ -227,7 +228,7 @@ describe.skipIf(!h)("hand-offs to the agent's own workflow in apps/api", () => {
     if (!first) throw new Error("nothing was handed off");
     const [row] = await H.t.db.select().from(run).where(eq(run.id, first.runId));
     expect(row).toMatchObject({ agentId: ids.agent, agentVersionId: ids.older });
-    expect(await go(first)).toEqual({ status: "succeeded" });
+    expect(await go(first)).toEqual(ended());
     const checkRows = await rowsOf(first.runId);
     expect(checkRows.map((r) => r.nodeId).sort()).toEqual(["chk-read", "chk-save"]);
     expect(checkRows.find((r) => r.nodeId === "chk-read")?.input).toEqual({
@@ -249,7 +250,7 @@ describe.skipIf(!h)("hand-offs to the agent's own workflow in apps/api", () => {
 
   it("a test run starts nothing and names the workflow it would have handed off to", async () => {
     const p = params({ mode: "test" });
-    expect(await go(p)).toEqual({ status: "succeeded" });
+    expect(await go(p)).toEqual(ended());
     expect(startedFrom(p.runId)).toEqual([]);
     const hand = (await rowsOf(p.runId)).find((r) => r.nodeId === "scan-each:0:scan-hand");
     expect(hand?.summary).toBe(

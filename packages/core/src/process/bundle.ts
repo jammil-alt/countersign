@@ -63,12 +63,15 @@ export function stepContext(ctx: Pick<ValidationContext, "tools">): StepContext 
 }
 
 /**
- * The Accounting actions stand for a write action (`process/actions.ts`): they take its own input,
- * translated to each tool's when they run (`toToolInput`), not their first tool's.
+ * The Accounting, Email and Text actions stand for a write action (`process/actions.ts`): they
+ * take its own input, translated to each tool's when they run (`toToolInput`), not their first
+ * tool's: what the run refuses an input for is what publishing asks for.
  */
-// DECISION (step model, stream C): only the Accounting merges, which the catalog builds from
-// `ACTION_SPECS`; the Email, Team chat and Spreadsheets merges keep their tools' inputs.
+// DECISION (step model, stream J): Email and Text too, as the run's `STEP_MODEL_WRITE_ACTIONS`
+// has them; Team chat and Spreadsheets keep their tools' inputs.
 const MERGED_WRITE_ACTIONS: Readonly<Record<string, WriteAction>> = {
+  "email.send": "send_email",
+  "sms.send": "send_text",
   "accounting.bill.create": "create_bill",
   "accounting.vendor.create": "create_vendor",
 };

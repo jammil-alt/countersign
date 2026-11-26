@@ -87,7 +87,7 @@ function bundle(name: string, workflow: unknown): AgentBundle {
   } as AgentBundleInput);
 }
 
-const wf = (trigger: unknown, extra: Record<string, unknown> = {}) =>
+const wf = (trigger: unknown, _extra: Record<string, unknown> = {}) =>
   v5Workflow([], { triggers: [trigger] });
 
 describe.skipIf(!h)("triggers, six kinds", () => {

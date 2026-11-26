@@ -29,6 +29,7 @@ import {
   type ApiHarness,
   admin,
   createApiHarness,
+  ended,
   FakeWorkflowStep,
   OPERATOR,
   testBundle,
@@ -196,7 +197,7 @@ describe.skipIf(!h)("runs", () => {
     // The person step of a test run goes to the operator.
     const step = new FakeWorkflowStep(resolver(OPERATOR, () => "approve"));
     const result = await executeRun(deps(), params, cloudflareStepRunner(step));
-    expect(result).toEqual({ status: "succeeded" });
+    expect(result).toEqual(ended());
     expect(H.backend.writes).toHaveLength(0);
     const actions = await H.t.db
       .select()
@@ -304,7 +305,7 @@ describe.skipIf(!h)("runs", () => {
       return resolver(admin("a"), () => "approve")(name, type);
     });
     const result = await executeRun(deps(), params, cloudflareStepRunner(step));
-    expect(result).toEqual({ status: "succeeded" });
+    expect(result).toEqual(ended());
     expect(seen).toEqual(["external_action", "approval"]);
     expect(H.backend.writes).toHaveLength(1);
     expect(H.backend.writes[0]?.record).toMatchObject({ id: "r1", amount: "12.00" });
@@ -319,6 +320,7 @@ describe.skipIf(!h)("runs", () => {
       update: "succeeded",
       confirm: "succeeded",
       internal: "succeeded",
+      end: "succeeded",
     });
     expect((await runOf(liveRunId))?.status).toBe("succeeded");
     const usage = await H.t.db.select().from(usageDaily).where(eq(usageDaily.agentId, agentId));
@@ -326,7 +328,7 @@ describe.skipIf(!h)("runs", () => {
 
     // Replaying the whole run (as the engine may) changes nothing and writes nothing again.
     const again = await executeRun(deps(), params, cloudflareStepRunner(step));
-    expect(again).toEqual({ status: "succeeded" });
+    expect(again).toEqual(ended());
     expect(H.backend.writes).toHaveLength(1);
   });
 
@@ -371,7 +373,7 @@ describe.skipIf(!h)("runs", () => {
     // The operator's view has the cost and the internals.
     const ops = j((await H.call(OPERATOR, "GET", `/api/ops/runs/${liveRunId}`)).json);
     expect(ops.run.costUsd).toBeDefined();
-    expect(ops.steps).toHaveLength(3);
+    expect(ops.steps).toHaveLength(4);
     expect(ops.actions[0].before).toMatchObject({ amount: "10.00" });
     // Another client can't read it.
     expect((await H.call(admin("b"), "GET", `/api/runs/${liveRunId}`)).status).toBe(404);
@@ -464,7 +466,7 @@ describe.skipIf(!h)("runs", () => {
       return sentFor(type)[0]?.event.payload;
     });
     const result = await executeRun(deps(), params, cloudflareStepRunner(step));
-    expect(result).toEqual({ status: "succeeded" });
+    expect(result).toEqual(ended());
     expect(step.waits).toHaveLength(2);
 
     // The run took both resolutions, so nothing is re-sent any more.
@@ -498,7 +500,7 @@ describe.skipIf(!h)("runs", () => {
         .where(and(eq(stepRun.runId, liveRunId), eq(stepRun.nodeId, nodeId)));
     const [update] = await rowsOf("update");
     // A retried step gets the row its first attempt wrote, unchanged.
-    expect(await log.start({ runId: liveRunId, nodeId: "update", nodeType: "action" })).toBe(
+    expect(await log.start({ runId: liveRunId, nodeId: "update", nodeType: "write" })).toBe(
       update?.id,
     );
     expect(await rowsOf("update")).toEqual([update]);
@@ -575,9 +577,7 @@ describe.skipIf(!h)("runs", () => {
     const writes = H.backend.writes.length;
     const step = new FakeWorkflowStep(resolver(OPERATOR, () => "approve"));
     if (!params) throw new Error("not started");
-    expect(await executeRun(deps(), params, cloudflareStepRunner(step))).toEqual({
-      status: "succeeded",
-    });
+    expect(await executeRun(deps(), params, cloudflareStepRunner(step))).toEqual(ended());
     expect(H.backend.writes).toHaveLength(writes);
 
     // The same version again reuses the copy and its version.
@@ -632,7 +632,7 @@ describe.skipIf(!h)("runs", () => {
           workflow: {
             schemaVersion: 5,
             triggers: [{ id: "trg-event", on: { type: "event", event: "inbox.resolved" } }],
-            outputs: [{ id: "out-done", name: "Done", kind: "nothing" }],
+            outputs: [{ id: "out-done-on-resolved", name: "Done", kind: "nothing" }],
             steps: [
               {
                 id: "note-1",
@@ -642,7 +642,12 @@ describe.skipIf(!h)("runs", () => {
                 uses: { type: "tell" },
                 tell: { to: ["client_admin"], channel: "inbox", message: "seen" },
               },
-              { id: "end", kind: "end", name: "Done", outputs: ["out-done"] },
+              {
+                id: "end-on-resolved",
+                kind: "end",
+                name: "Done",
+                outputs: ["out-done-on-resolved"],
+              },
             ],
           },
         },
@@ -652,7 +657,7 @@ describe.skipIf(!h)("runs", () => {
           workflow: {
             schemaVersion: 5,
             triggers: [{ id: "trg-cron", on: { type: "schedule", cron: "* * * * *" } }],
-            outputs: [{ id: "out-done", name: "Done", kind: "nothing" }],
+            outputs: [{ id: "out-done-every-minute", name: "Done", kind: "nothing" }],
             steps: [
               {
                 id: "note-2",
@@ -662,7 +667,12 @@ describe.skipIf(!h)("runs", () => {
                 uses: { type: "tell" },
                 tell: { to: ["client_admin"], channel: "inbox", message: "tick" },
               },
-              { id: "end", kind: "end", name: "Done", outputs: ["out-done"] },
+              {
+                id: "end-every-minute",
+                kind: "end",
+                name: "Done",
+                outputs: ["out-done-every-minute"],
+              },
             ],
           },
         },
@@ -719,7 +729,7 @@ describe.skipIf(!h)("runs", () => {
     const params = started.find((r) => r.workflowSlug === "on-resolved");
     if (!params) throw new Error("no event run");
     const result = await executeRun(deps(), params, cloudflareStepRunner(new FakeWorkflowStep()));
-    expect(result).toEqual({ status: "succeeded" });
+    expect(result).toEqual(ended());
   });
   // v0.12 W1-H: dispatch right after commit, once (ARCHITECTURE §8).
   it("dispatches an event once when the after-commit dispatch and the sweep race", async () => {

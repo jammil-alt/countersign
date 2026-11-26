@@ -48,6 +48,7 @@ import {
   admin,
   allowForAgent,
   createApiHarness,
+  ended,
   FakeWorkflowStep,
   OPERATOR,
   OTHER_OPERATOR,
@@ -472,7 +473,7 @@ describe.skipIf(!h)("calls through the API", () => {
           }),
         ),
       );
-      expect(result).toEqual({ status: "succeeded" });
+      expect(result).toEqual(ended());
       expect(twilio.placed()).toHaveLength(1);
       const form = twilio.placed()[0]?.form ?? {};
       expect(form).toMatchObject({ To: PAT, From: number, TimeLimit: "300" });
@@ -883,9 +884,9 @@ describe.skipIf(!h)("calls through the API", () => {
       // The run on call.received records the answer once, automatically.
       if (!answeredRun) throw new Error("no run");
       expect(answeredRun.agentId).toBe(reception);
-      expect(await executeRun(deps(), answeredRun, cloudflareStepRunner(approver()))).toEqual({
-        status: "succeeded",
-      });
+      expect(await executeRun(deps(), answeredRun, cloudflareStepRunner(approver()))).toEqual(
+        ended(),
+      );
       const [answer] = await H.t.db
         .select()
         .from(externalAction)
@@ -959,7 +960,7 @@ describe.skipIf(!h)("calls through the API", () => {
         .select({ live: agent.liveVersionId })
         .from(agent)
         .where(eq(agent.id, reception));
-      const step = { ...ANSWER.steps[0] };
+      const step = { ...ANSWER.steps[0] } as { input: Record<string, unknown> };
       const saved = await H.call(OPERATOR, "POST", `/api/ops/agents/${reception}/versions`, {
         bundle: bundle(
           "Reception",
@@ -1112,7 +1113,7 @@ describe.skipIf(!h)("calls through the API", () => {
     it("resumes when retried: an opt-out since the call doesn't fail it, and nothing is placed twice", async () => {
       const params = await started();
       const placed = twilio.placed().length;
-      expect(await runIt(params)).toEqual({ status: "succeeded" });
+      expect(await runIt(params)).toEqual(ended());
       expect(twilio.placed()).toHaveLength(placed + 1);
       const action = await actionOf(params.runId);
       expect(action).toMatchObject({ status: "done", approvedBy: null });
@@ -1120,7 +1121,7 @@ describe.skipIf(!h)("calls through the API", () => {
 
       await leftExecuting(action?.id ?? "");
       await optOut(true);
-      expect(await runIt(params)).toEqual({ status: "succeeded" });
+      expect(await runIt(params)).toEqual(ended());
       expect(twilio.placed()).toHaveLength(placed + 1);
       const again = await actionOf(params.runId);
       expect(again).toMatchObject({ status: "done", error: null });
@@ -1154,7 +1155,7 @@ describe.skipIf(!h)("calls through the API", () => {
 
       await leftExecuting(action?.id ?? "");
       await optOut(true);
-      expect(await runIt(params)).toEqual({ status: "succeeded" });
+      expect(await runIt(params)).toEqual(ended());
       expect(twilio.placed()).toHaveLength(placed + 1);
       const done = await actionOf(params.runId);
       expect(done).toMatchObject({ status: "done" });

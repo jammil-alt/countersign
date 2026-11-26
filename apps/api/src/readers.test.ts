@@ -1,16 +1,9 @@
-// Wave 3b (docs/plan.md §1.86, readers): the server's readers of a stored bundle read a published
-// v4 version (processes) as they read a v3 one: Run now and its forms, inbound call routing, the
-// triggers list, whether a version writes, the field names of oversight lines, the back office's
-// workflow check, and the Builder chat and "Save as automation", which refuse a process in plain
-// words instead of failing. Against a real database through the app.
+// The server's readers of a stored bundle: Run now and its forms, inbound call routing, the
+// triggers list, whether a version writes, the field names of oversight lines, an edit before
+// signing, the steps the client's timeline and export show, and a step's name for the client and
+// for the back office. Against a real database through the app.
 
-import {
-  convertLookup,
-  createClientAgent,
-  createVersion,
-  publish,
-  updateOperational,
-} from "@countersign/agents";
+import { createClientAgent, createVersion, publish, updateOperational } from "@countersign/agents";
 import {
   CALL_ANSWER_TOOL,
   defineConnector,
@@ -19,15 +12,7 @@ import {
   TESTKIT_QUERY_TOOL,
   TESTKIT_UPDATE_TOOL,
 } from "@countersign/connectors";
-import {
-  type AgentBundle,
-  AgentBundle as AnyAgentBundleSchema,
-  bundleHash,
-  DecimalString,
-  type ProcessAgentBundle,
-  type processes,
-  toProcessBundle,
-} from "@countersign/core";
+import { AgentBundle, bundleHash, DecimalString } from "@countersign/core";
 import {
   agent,
   agentVersion,
@@ -48,10 +33,15 @@ import {
   type ApiHarness,
   admin,
   createApiHarness,
+  doAction,
+  doTell,
+  ended,
   FakeWorkflowStep,
+  MANUAL_TRIGGER,
   OPERATOR,
   testBundle,
   user,
+  v5Workflow,
 } from "./api.test-helper";
 import { answeringStep } from "./calls/answer";
 import { clientTitles } from "./change-display";
@@ -105,27 +95,27 @@ const editkit = defineConnector({
 const h = await createApiHarness({ connectors: () => [editkit] });
 afterAll(() => h?.close());
 
-function processOf(b: AgentBundle): processes.Process {
+function workflowOf(b: AgentBundle) {
   const w = b.workflows[0]?.workflow;
-  if (w?.schemaVersion !== 4) throw new Error("fixture: expected a process");
+  if (!w) throw new Error("fixture: expected a workflow");
   return w;
 }
 
-describe.skipIf(!h)("readers of a published v4 version", () => {
+describe.skipIf(!h)("readers of a published version", () => {
   const H = h as ApiHarness;
   const A = () => H.A.tenantId;
 
-  /** The helper's Records clerk read as v4 processes, as the builder saves it, client-runnable. */
-  function v4Clerk(edit?: (b: ProcessAgentBundle) => void): ProcessAgentBundle {
-    const b = toProcessBundle(testBundle(), convertLookup(H.platform.catalog, H.platform.tools));
-    const first = processOf(b).triggers[0];
+  /** The helper's Records clerk, client-runnable. */
+  function clerk(edit?: (b: AgentBundle) => void): AgentBundle {
+    const b = testBundle();
+    const first = workflowOf(b).triggers[0];
     if (first?.on.type !== "manual") throw new Error("fixture");
     first.on.client = { canRun: true, label: "Fix a record" };
     edit?.(b);
     return b;
   }
 
-  /** A client A agent whose live version is `bundle` (v1 is the v3 clerk), running live. */
+  /** A client A agent whose live version is `bundle` (v1 is the plain clerk), running live. */
   async function liveAgent(
     slug: string,
     bundle: AgentBundle,
@@ -153,8 +143,8 @@ describe.skipIf(!h)("readers of a published v4 version", () => {
     return ids;
   }
 
-  it("offers Run now from a process's trigger and starts the run on it", async () => {
-    const live = await liveAgent("v4-run-now", v4Clerk());
+  it("offers Run now from a workflow's trigger and starts the run on it", async () => {
+    const live = await liveAgent("run-now", clerk());
     const forms = await H.call(admin("a"), "GET", `/api/services/${live.agentId}/run-forms`);
     expect(forms.status, JSON.stringify(forms.json)).toBe(200);
     expect(j(forms.json).forms).toEqual([
@@ -176,9 +166,9 @@ describe.skipIf(!h)("readers of a published v4 version", () => {
   });
 
   it("refuses to start a workflow with no trigger rather than record one without it", () => {
-    const b = v4Clerk();
+    const b = clerk();
     // A stored draft can hold one; the schema's minimum is bypassed on purpose here.
-    processOf(b).triggers = [];
+    workflowOf(b).triggers = [];
     const refused = (() => {
       try {
         startable(b, "fix-record");
@@ -191,9 +181,9 @@ describe.skipIf(!h)("readers of a published v4 version", () => {
     expect(refused).toMatchObject({ status: 422, code: "no_trigger" });
   });
 
-  it("answers calls with a v4 agent whose process writes call.answer, its approval read as v4", async () => {
+  it("answers calls with an agent whose workflow writes call.answer, its approval read as set", async () => {
     const twilio = crypto.randomUUID();
-    const answerer = AnyAgentBundleSchema.parse({
+    const answerer = AgentBundle.parse({
       ...testBundle("Reception"),
       definition: {
         ...testBundle("Reception").definition,
@@ -203,23 +193,23 @@ describe.skipIf(!h)("readers of a published v4 version", () => {
         {
           slug: "answer",
           name: "Answer",
-          workflow: {
-            schemaVersion: 4,
-            triggers: [
-              { id: "trg-manual", on: { type: "manual", input: {} } },
-              { id: "trg-call", on: { type: "event", event: "call.received" } },
+          workflow: v5Workflow(
+            [
+              doAction(
+                "answer",
+                "Answer the call",
+                CALL_ANSWER_TOOL,
+                { callSid: "{{trigger.callSid}}", purpose: "Answer questions" },
+                { checks: { approval: { required: "not_required" } } },
+              ),
             ],
-            steps: [
-              {
-                id: "answer",
-                name: "Answer the call",
-                kind: "write",
-                tool: CALL_ANSWER_TOOL,
-                input: { callSid: "{{trigger.callSid}}", purpose: "Answer questions" },
-                checks: { approval: { required: "not_required" } },
-              },
-            ],
-          },
+            {
+              triggers: [
+                MANUAL_TRIGGER,
+                { id: "trg-call", on: { type: "event", event: "call.received" } },
+              ],
+            },
+          ),
         },
       ],
     });
@@ -229,7 +219,7 @@ describe.skipIf(!h)("readers of a published v4 version", () => {
       .values({
         tenantId: A(),
         kind: "client",
-        slug: "v4-reception",
+        slug: "reception",
         name: "Reception",
         runStatus: "active",
         stage: "live",
@@ -262,8 +252,8 @@ describe.skipIf(!h)("readers of a published v4 version", () => {
 
     // A condition on its approval can't be tested before the call: it counts as required.
     const conditional = structuredClone(answerer);
-    const step = processOf(conditional).steps[0];
-    if (step?.kind !== "write") throw new Error("fixture");
+    const step = workflowOf(conditional).steps[0];
+    if (step?.kind !== "do") throw new Error("fixture");
     step.checks = {
       approval: {
         required: "not_required",
@@ -292,13 +282,13 @@ describe.skipIf(!h)("readers of a published v4 version", () => {
   });
 
   it("lists a process's triggers, and counts its write steps as writing to a client's tool", async () => {
-    const daily = v4Clerk((b) => {
-      processOf(b).triggers.push({
+    const daily = clerk((b) => {
+      workflowOf(b).triggers.push({
         id: "trg-daily",
         on: { type: "schedule", cron: "0 9 * * *", tz: "UTC" },
       });
     });
-    const live = await liveAgent("v4-triggers", daily);
+    const live = await liveAgent("triggers", daily);
     const listed = await withTenant(H.db, A(), (tx) =>
       agentTriggers(tx, { id: live.agentId, tenantId: A(), liveVersionId: live.versionId }, null),
     );
@@ -315,38 +305,10 @@ describe.skipIf(!h)("readers of a published v4 version", () => {
     expect(writes).toBe(true);
   });
 
-  it("names a corrected field from a v4 write step's tool", () => {
-    const b = v4Clerk();
-    const schema = inputSchemaOf("update", null, H.platform, processOf(b));
+  it("names a corrected field from a write step's tool", () => {
+    const b = clerk();
+    const schema = inputSchemaOf("update", null, H.platform, workflowOf(b));
     expect(schema).toEqual(H.platform.tools.get(TESTKIT_UPDATE_TOOL)?.spec.input);
-  });
-
-  it("checks a workflow against an agent whose live version holds processes", async () => {
-    const live = await liveAgent("v4-validate", v4Clerk());
-    const res = await H.call(OPERATOR, "POST", "/api/ops/workflows/validate", {
-      agentId: live.agentId,
-      workflow: testBundle().workflows[0]?.workflow,
-    });
-    expect(res.status, JSON.stringify(res.json)).toBe(200);
-    expect(j(res.json).valid).toBe(true);
-  });
-
-  // Wave 3b (builder-chat): the Builder chat and Save as automation now read a process.
-  it("starts the Builder chat from a process and saves a process's steps as an automation", async () => {
-    const live = await liveAgent("v4-builder", v4Clerk());
-    const chat = await H.call(OPERATOR, "POST", "/api/ops/builder/sessions", {
-      kind: "agent",
-      agentId: live.agentId,
-    });
-    expect(chat.status, JSON.stringify(chat.json)).toBeLessThan(300);
-    const save = await H.call(OPERATOR, "POST", "/api/ops/automations/from-steps", {
-      agentId: live.agentId,
-      versionId: live.versionId,
-      stepIds: ["update"],
-      slug: "v4-steps",
-      name: "Steps",
-    });
-    expect(save.status, JSON.stringify(save.json)).toBeLessThan(300);
   });
 
   // ── Wave 3c: the tests the wave 3b review asked for ─────────────────────────────────────────
@@ -382,7 +344,7 @@ describe.skipIf(!h)("readers of a published v4 version", () => {
     return { agentId: a.id, versionId: v.id };
   }
 
-  it("takes an edit before signing from each named approver of a v4 write, and refuses one that reroutes", async () => {
+  it("takes an edit before signing from each named approver of a write, and refuses one that reroutes", async () => {
     const [t] = await H.t.db.select().from(tenant).where(eq(tenant.id, A()));
     await H.t.db
       .update(tenant)
@@ -393,27 +355,28 @@ describe.skipIf(!h)("readers of a published v4 version", () => {
       .values({ tenantId: A(), connector: "editkit", status: "connected" })
       .returning();
     if (!conn) throw new Error("no connection");
-    const fix: processes.Step = {
-      id: "fix-total",
-      name: "Fix the bill's total",
-      kind: "write",
-      tool: EDIT_TOOL,
-      input: { billId: "B-1", total: "100.00" },
-      checks: {
-        approval: {
-          required: "required",
-          mode: "in_turn",
-          approvers: [{ who: H.A.admin }, { who: H.A.user }],
-          ifNoAnswer: "stop",
-          onReject: "stop",
+    const fix = doAction(
+      "fix-total",
+      "Fix the bill's total",
+      EDIT_TOOL,
+      { billId: "B-1", total: "100.00" },
+      {
+        checks: {
+          approval: {
+            required: "required",
+            mode: "in_turn",
+            approvers: [{ who: H.A.admin }, { who: H.A.user }],
+            ifNoAnswer: "stop",
+            onReject: "stop",
+          },
         },
       },
-    };
+    );
     const live = await liveAgent(
-      "v4-desk-edit",
-      v4Clerk((b) => {
+      "desk-edit",
+      clerk((b) => {
         b.definition.extraTools.push(EDIT_TOOL);
-        processOf(b).steps = [fix];
+        workflowOf(b).steps = v5Workflow([fix]).steps;
       }),
       { editkit: conn.id },
     );
@@ -481,9 +444,7 @@ describe.skipIf(!h)("readers of a published v4 version", () => {
       transport: new FakeModel(),
       instances: H.instances,
     };
-    expect(await executeRun(deps, params, cloudflareStepRunner(step))).toEqual({
-      status: "succeeded",
-    });
+    expect(await executeRun(deps, params, cloudflareStepRunner(step))).toEqual(ended());
     expect(checked).toBe(true);
     const [done] = await H.t.db
       .select()
@@ -492,78 +453,79 @@ describe.skipIf(!h)("readers of a published v4 version", () => {
     expect(done).toMatchObject({ status: "done", editedInput: { total: "130.00" } });
   });
 
-  /** A process with a read, an if around a write, a loop around a read and a hidden note. */
+  /** A workflow with a read, a fork around a write, a loop around a read and a hidden note. */
   function tidyBundle(): AgentBundle {
-    return AnyAgentBundleSchema.parse({
+    return AgentBundle.parse({
       ...testBundle("Tidy clerk"),
       workflows: [
         {
           slug: "tidy",
           name: "Tidy",
-          workflow: {
-            schemaVersion: 4,
-            triggers: [{ id: "trg-manual", on: { type: "manual", input: {} } }],
-            steps: [
+          workflow: v5Workflow([
+            doAction(
+              "look",
+              "Look up the records",
+              TESTKIT_QUERY_TOOL,
+              {},
               {
-                id: "look",
-                name: "Look up the records",
-                kind: "read",
-                tool: TESTKIT_QUERY_TOOL,
                 client: { visible: true, label: "Looked up the records" },
+                checks: undefined,
               },
-              {
-                id: "check",
-                name: "Any to fix?",
-                kind: "if",
-                paths: [
-                  {
-                    id: "some",
-                    name: "Some to fix",
-                    when: {
-                      match: "all",
-                      rules: [{ field: "{{steps.look.output.records}}", op: "exists" }],
-                    },
-                    steps: [
+            ),
+            {
+              id: "check",
+              name: "Any to fix?",
+              kind: "fork",
+              paths: [
+                {
+                  id: "some",
+                  name: "Some to fix",
+                  when: {
+                    match: "all",
+                    rules: [{ field: "{{steps.look.output.records}}", op: "exists" }],
+                  },
+                  steps: [
+                    doAction(
+                      "fix",
+                      "Update the record",
+                      TESTKIT_UPDATE_TOOL,
+                      { id: "r1", amount: "12.00" },
                       {
-                        id: "fix",
-                        name: "Update the record",
-                        kind: "write",
-                        tool: TESTKIT_UPDATE_TOOL,
-                        input: { id: "r1", amount: "12.00" },
                         client: { visible: true, label: "Corrected the record" },
                         checks: {
                           confer: { with: [{ ai: { focus: "Is the amount right?" } }] },
                         },
                       },
-                    ],
-                  },
-                ],
-                otherwise: { id: "none", steps: [] },
-              },
-              {
-                id: "each",
-                name: "Each record",
-                kind: "for_each",
-                over: "{{steps.look.output.records}}",
-                steps: [
+                    ),
+                  ],
+                },
+              ],
+              otherwise: { id: "none", steps: [] },
+            },
+            {
+              id: "each",
+              name: "Each record",
+              kind: "for_each",
+              over: "{{steps.look.output.records}}",
+              concurrency: 1,
+              steps: [
+                doAction(
+                  "recheck",
+                  "Read it again",
+                  TESTKIT_QUERY_TOOL,
+                  {},
                   {
-                    id: "recheck",
-                    name: "Read it again",
-                    kind: "read",
-                    tool: TESTKIT_QUERY_TOOL,
                     client: { visible: true, label: "Read it again" },
+                    checks: undefined,
                   },
-                ],
-              },
-              {
-                id: "note",
-                name: "Operator note",
-                kind: "notify",
-                notify: { to: ["operator"], message: "Tidied" },
-                client: { visible: false },
-              },
-            ],
-          },
+                ),
+              ],
+            },
+            doTell("note", "Operator note", "Tidied", {
+              tell: { to: ["operator"], channel: "inbox", message: "Tidied" },
+              client: { visible: false },
+            }),
+          ]),
         },
       ],
     });
@@ -618,7 +580,7 @@ describe.skipIf(!h)("readers of a published v4 version", () => {
   }
 
   it("lists in the client export and on the Table exactly the steps the portal's timeline shows", async () => {
-    const s = await storedAgent("v4-timeline", tidyBundle());
+    const s = await storedAgent("timeline", tidyBundle());
     const runId = await tidyRun(s);
     const portal = await H.call(admin("a"), "GET", `/api/runs/${runId}`);
     expect(portal.status, JSON.stringify(portal.json)).toBe(200);
@@ -650,8 +612,8 @@ describe.skipIf(!h)("readers of a published v4 version", () => {
     );
   });
 
-  it("names a v4 step by its client label for the client and by its name for the back office", async () => {
-    const s = await storedAgent("v4-names", tidyBundle());
+  it("names a step by its client label for the client and by its name for the back office", async () => {
+    const s = await storedAgent("names", tidyBundle());
     const runId = await tidyRun(s);
     // An approval card's title: the step's client label, inside an if as at the top.
     const titles = await withTenant(H.db, A(), (tx) =>
@@ -715,9 +677,9 @@ describe.skipIf(!h)("readers of a published v4 version", () => {
     expect(await failedAt("fix:confer:1")).toBe("Update the record");
   });
 
-  it("compares a v3 base version with a v4 live version on the lineage routes", async () => {
+  it("compares a client's copy with its template's version on the lineage routes", async () => {
     const tpl = await H.call(OPERATOR, "POST", "/api/ops/templates", {
-      slug: "v4-lineage",
+      slug: "lineage",
       bundle: testBundle(),
     });
     expect(tpl.status, JSON.stringify(tpl.json)).toBe(200);
@@ -741,7 +703,7 @@ describe.skipIf(!h)("readers of a published v4 version", () => {
     expect(bound.status, JSON.stringify(bound.json)).toBe(200);
     // The client's copy saved as a process, on the template's v3 version.
     const saved = await H.call(OPERATOR, "POST", `/api/ops/agents/${id}/versions`, {
-      bundle: v4Clerk(),
+      bundle: clerk(),
       parentVersionId: v1,
     });
     expect(saved.status, JSON.stringify(saved.json)).toBe(200);

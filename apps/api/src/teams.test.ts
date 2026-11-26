@@ -21,6 +21,7 @@ import {
   type ApiHarness,
   admin,
   createApiHarness,
+  ended,
   FakeWorkflowStep,
   forbiddenKeys,
   OPERATOR,
@@ -291,9 +292,7 @@ describe.skipIf(!h)("Microsoft Teams through the API", () => {
       instances: H.instances,
       credentials: credentialsFor(H.db, { current: ENCRYPTION_KEY }),
     };
-    expect(await executeRun(deps, params, cloudflareStepRunner(step))).toEqual({
-      status: "succeeded",
-    });
+    expect(await executeRun(deps, params, cloudflareStepRunner(step))).toEqual(ended());
     expect(atWait).toEqual([0]);
     expect(teams.posts).toHaveLength(1);
     expect(teams.posts[0]?.channelId).toBe(ORDERS);

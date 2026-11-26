@@ -187,7 +187,7 @@ describe.skipIf(!h)("Reshape data in the back office", () => {
           ? {
               ...s,
               input: processes.wireToReshape(
-                s.input,
+                s.input as Record<string, unknown>,
                 "shape",
                 mapping,
                 processes.actionInputSchema("create_bill"),

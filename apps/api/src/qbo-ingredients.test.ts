@@ -21,6 +21,7 @@ import {
   admin,
   allowForAgent,
   createApiHarness,
+  ended,
   FakeWorkflowStep,
   OPERATOR,
   v5Workflow,
@@ -56,7 +57,7 @@ const h = await createApiHarness({
 });
 afterAll(() => h?.close());
 
-const ORDER = {
+const _ORDER = {
   docNumber: "PO-2001",
   txnDate: "2026-11-06",
   dueDate: "2026-11-20",
@@ -242,9 +243,7 @@ describe.skipIf(!h)("QuickBooks ingredients through the API", () => {
         qbo.apiCalls("POST", "purchaseorder").length,
       ]);
     });
-    expect(await executeRun(runDeps(), params, cloudflareStepRunner(step))).toEqual({
-      status: "succeeded",
-    });
+    expect(await executeRun(runDeps(), params, cloudflareStepRunner(step))).toEqual(ended());
     // Nothing was written while each waited.
     expect(atWait).toEqual([
       [0, 0],
@@ -313,9 +312,7 @@ describe.skipIf(!h)("QuickBooks ingredients through the API", () => {
     // Acting, not required, create on auto: it goes without anyone asked.
     const params = await makeAgent([step("PO-2002")], [QBO_TOOLS.purchaseOrderCreate], "act");
     const free = new FakeWorkflowStep();
-    expect(await executeRun(runDeps(), params, cloudflareStepRunner(free))).toEqual({
-      status: "succeeded",
-    });
+    expect(await executeRun(runDeps(), params, cloudflareStepRunner(free))).toEqual(ended());
     expect(free.waits).toHaveLength(0);
     expect(posts()).toBe(start + 1);
     expect((await actionsOf(params.runId))[0]).toMatchObject({ status: "done", approvedBy: null });
@@ -329,9 +326,7 @@ describe.skipIf(!h)("QuickBooks ingredients through the API", () => {
     const signer = approver(() => {
       expect(posts()).toBe(start + 1);
     });
-    expect(await executeRun(runDeps(), suggests, cloudflareStepRunner(signer))).toEqual({
-      status: "succeeded",
-    });
+    expect(await executeRun(runDeps(), suggests, cloudflareStepRunner(signer))).toEqual(ended());
     expect(signer.waits).toHaveLength(1);
     expect(posts()).toBe(start + 2);
 

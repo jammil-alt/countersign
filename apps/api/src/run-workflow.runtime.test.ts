@@ -4,14 +4,14 @@
 // in-memory ports; RunWorkflow's database side is covered by the Node tests.
 
 import { env, introspectWorkflowInstance } from "cloudflare:test";
-import type { Workflow as WorkflowDef } from "@countersign/core";
+import { steps } from "@countersign/core";
 import { inboxEventType } from "@countersign/workflows";
 import { describe, expect, it } from "vitest";
 import { probeItemId } from "./runtime-harness";
 
 const probe = (env as unknown as { PROBE_WORKFLOW: Workflow }).PROBE_WORKFLOW;
 
-const workflow: WorkflowDef = {
+const workflow = steps.Workflow.parse({
   schemaVersion: 5,
   triggers: [{ id: "trg", on: { type: "manual", input: {} } }],
   outputs: [{ id: "out-done", name: "Done", kind: "nothing" }],
@@ -41,7 +41,7 @@ const workflow: WorkflowDef = {
     },
     { id: "end", kind: "end", name: "Done", outputs: ["out-done"] },
   ],
-};
+});
 
 describe("RunWorkflow's StepRunner adapter under the Workflows engine", () => {
   it("waits on the inbox event and resumes when it is sent", async () => {
@@ -56,7 +56,11 @@ describe("RunWorkflow's StepRunner adapter under the Workflows engine", () => {
       payload: { approved: true, by: "user-1" },
     });
     await instance.waitForStatus("complete");
-    expect(await instance.getOutput()).toEqual({ status: "succeeded" });
+    expect(await instance.getOutput()).toEqual({
+      status: "succeeded",
+      nodeId: "end",
+      reason: "stop",
+    });
   });
 
   it("ends the run when nobody answers before the timeout", async () => {

@@ -33,6 +33,7 @@ import {
   admin,
   allowForAgent,
   createApiHarness,
+  ended,
   FakeWorkflowStep,
   OPERATOR,
   v5Workflow,
@@ -379,7 +380,7 @@ describe.skipIf(!h)("QuickBooks accounts receivable and create bill through the 
       atWait.push(qbo.apiCalls("POST", "invoice").length);
     });
     const result = await executeRun(runDeps(), params, cloudflareStepRunner(step));
-    expect(result).toEqual({ status: "succeeded" });
+    expect(result).toEqual(ended());
     expect(atWait).toEqual([0]);
     const actions = await H.t.db
       .select()
@@ -426,9 +427,7 @@ describe.skipIf(!h)("QuickBooks accounts receivable and create bill through the 
     const step = approver(() => {
       atWait.push(qbo.apiCalls("POST", "bill").length);
     });
-    expect(await executeRun(runDeps(), params, cloudflareStepRunner(step))).toEqual({
-      status: "succeeded",
-    });
+    expect(await executeRun(runDeps(), params, cloudflareStepRunner(step))).toEqual(ended());
     expect(atWait).toEqual([0]);
     expect(qbo.apiCalls("POST", "bill")).toHaveLength(1);
     const [done] = await H.t.db

@@ -8,7 +8,6 @@ import {
   type AgentBundle,
   type AgentBundleInput,
   AgentBundle as AgentBundleSchema,
-  type PersonStep,
 } from "@countersign/core";
 import {
   agent,
@@ -23,6 +22,7 @@ import {
   thread,
   vendor,
 } from "@countersign/db";
+import type { PersonStep } from "@countersign/workflows";
 import { and, eq } from "drizzle-orm";
 import { afterAll, describe, expect, it } from "vitest";
 import {
@@ -449,7 +449,19 @@ describe.skipIf(!h)("threads and the lead", () => {
   });
 
   it("assigns a lead check to the lead, or to the operator role without one", async () => {
-    const step = leadCheckBundle().workflows[0]?.workflow.steps[0] as PersonStep;
+    const step: PersonStep = {
+      id: "lead-check",
+      name: "Lead check",
+      kind: "person",
+      mode: "approve",
+      assignee: "lead",
+      title: "Check the new matches",
+      payload: {},
+      timeout: "1 day",
+      channel: "inbox",
+      onReject: "stop",
+      onTimeout: "stop",
+    };
     const [r] = await H.t.db
       .insert(run)
       .values({

@@ -48,6 +48,7 @@ import {
   AS_SENT,
   admin,
   createApiHarness,
+  ended,
   FakeWorkflowStep,
   forbiddenKeys,
   OPERATOR,
@@ -121,8 +122,8 @@ const h = await createApiHarness({
 });
 afterAll(() => h?.close());
 
-const GOAL = "Get the exact item list and the date needed for this purchase request.";
-const RESULT = {
+const _GOAL = "Get the exact item list and the date needed for this purchase request.";
+const _RESULT = {
   type: "object",
   properties: {
     items: {
@@ -138,9 +139,9 @@ const RESULT = {
   required: ["items", "neededBy"],
 };
 const ITEMS = { items: [{ name: "3/4 birch ply", qty: 12 }], neededBy: "Friday" };
-const PURPOSE = "Ask them to confirm Friday's delivery.";
+const _PURPOSE = "Ask them to confirm Friday's delivery.";
 
-const manual = (id: string, properties: Record<string, unknown> = {}) => ({
+const _manual = (id: string, properties: Record<string, unknown> = {}) => ({
   id,
   on: { type: "manual", input: { type: "object", properties } },
 });
@@ -170,7 +171,7 @@ function bundle(): AgentBundle {
           triggers: [
             { id: "trg-order", on: { type: "manual", input: { type: "object", properties: {} } } },
           ],
-          outputs: [{ id: "out-done", name: "Done", kind: "nothing" }],
+          outputs: [{ id: "out-done-order", name: "Done", kind: "nothing" }],
           steps: [
             {
               id: "order",
@@ -181,7 +182,7 @@ function bundle(): AgentBundle {
               uses: { type: "action", action: "stepkit.order.create" },
               input: { vendor: "Northline", total: "120.00" },
             },
-            { id: "end", kind: "end", name: "Done", outputs: ["out-done"] },
+            { id: "end-order", kind: "end", name: "Done", outputs: ["out-done-order"] },
           ],
         },
       },
@@ -193,7 +194,7 @@ function bundle(): AgentBundle {
           triggers: [
             { id: "trg-ask", on: { type: "manual", input: { type: "object", properties: {} } } },
           ],
-          outputs: [{ id: "out-done", name: "Done", kind: "nothing" }],
+          outputs: [{ id: "out-done-ask", name: "Done", kind: "nothing" }],
           steps: [
             {
               id: "pick",
@@ -210,7 +211,7 @@ function bundle(): AgentBundle {
                 onReject: "stop",
               },
             },
-            { id: "end", kind: "end", name: "Done", outputs: ["out-done"] },
+            { id: "end-ask", kind: "end", name: "Done", outputs: ["out-done-ask"] },
           ],
         },
       },
@@ -231,7 +232,7 @@ function bundle(): AgentBundle {
               },
             },
           ],
-          outputs: [{ id: "out-done", name: "Done", kind: "nothing" }],
+          outputs: [{ id: "out-done-talk", name: "Done", kind: "nothing" }],
           steps: [
             {
               id: "talk",
@@ -264,7 +265,7 @@ function bundle(): AgentBundle {
                 about: ["{{trigger.request}}"],
               },
             },
-            { id: "end", kind: "end", name: "Done", outputs: ["out-done"] },
+            { id: "end-talk", kind: "end", name: "Done", outputs: ["out-done-talk"] },
           ],
         },
       },
@@ -282,7 +283,7 @@ function bundle(): AgentBundle {
               },
             },
           ],
-          outputs: [{ id: "out-done", name: "Done", kind: "nothing" }],
+          outputs: [{ id: "out-done-reach", name: "Done", kind: "nothing" }],
           steps: [
             {
               id: "reach",
@@ -301,7 +302,7 @@ function bundle(): AgentBundle {
                 timeout: "2 days",
               },
             },
-            { id: "end", kind: "end", name: "Done", outputs: ["out-done"] },
+            { id: "end-reach", kind: "end", name: "Done", outputs: ["out-done-reach"] },
           ],
         },
       },
@@ -542,9 +543,7 @@ describe.skipIf(!h)("the client runs it, we step in", () => {
       expect(writes.size).toBe(0);
       return eventFor(type);
     });
-    expect(await executeRun(deps(), params, cloudflareStepRunner(step))).toEqual({
-      status: "succeeded",
-    });
+    expect(await executeRun(deps(), params, cloudflareStepRunner(step))).toEqual(ended());
     // Written once, through the external action, with its before state.
     const mine = [...writes.entries()].filter(([k]) => k.startsWith(params.runId));
     expect(mine).toEqual([[expect.any(String), { vendor: "Northline", total: "120.00", open: 3 }]]);
@@ -830,9 +829,7 @@ describe.skipIf(!h)("the client runs it, we step in", () => {
       });
       return resolveItem(type, { answer: "Northline" }, user("a"));
     });
-    expect(await executeRun(deps(), params, cloudflareStepRunner(step))).toEqual({
-      status: "succeeded",
-    });
+    expect(await executeRun(deps(), params, cloudflareStepRunner(step))).toEqual(ended());
     expect(j((await stepRunOf(params.runId, "pick")).output)).toMatchObject({
       approved: true,
       answer: "Northline",
@@ -896,9 +893,7 @@ describe.skipIf(!h)("the client runs it, we step in", () => {
       }
       throw new Error(`unexpected wait ${type}`);
     });
-    expect(await executeRun(deps(), params, cloudflareStepRunner(step))).toEqual({
-      status: "succeeded",
-    });
+    expect(await executeRun(deps(), params, cloudflareStepRunner(step))).toEqual(ended());
     expect(handover).not.toBe("");
     expect(j((await stepRunOf(params.runId, "talk")).output)).toMatchObject({
       outcome: "handed_over",
@@ -968,9 +963,7 @@ describe.skipIf(!h)("the client runs it, we step in", () => {
       }
       throw new Error(`unexpected wait ${type}`);
     });
-    expect(await executeRun(deps(), params, cloudflareStepRunner(step))).toEqual({
-      status: "succeeded",
-    });
+    expect(await executeRun(deps(), params, cloudflareStepRunner(step))).toEqual(ended());
     expect(sentTo(LEE)).toHaveLength(1);
     expect(model.requests).toHaveLength(1);
   });

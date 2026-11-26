@@ -73,7 +73,7 @@ function quietBundle(): AgentBundle {
 /** testBundle plus a workflow on `document.received` and one the client may run. */
 function fullBundle(): AgentBundle {
   const b = testBundle() as AgentBundleInput;
-  const update = (id: string) => ({
+  const _update = (id: string) => ({
     id,
     name: "Update",
     kind: "action",
@@ -91,7 +91,7 @@ function fullBundle(): AgentBundle {
         workflow: {
           schemaVersion: 5,
           triggers: [{ id: "trg-doc", on: { type: "event", event: "document.received" } }],
-          outputs: [{ id: "out-done", name: "Done", kind: "nothing" }],
+          outputs: [{ id: "out-done-on-doc", name: "Done", kind: "nothing" }],
           steps: [
             {
               id: "u-doc",
@@ -102,7 +102,7 @@ function fullBundle(): AgentBundle {
               uses: { type: "action", action: TESTKIT_UPDATE_TOOL },
               input: { id: "r1", amount: "1.00" },
             },
-            { id: "end", kind: "end", name: "Done", outputs: ["out-done"] },
+            { id: "end-on-doc", kind: "end", name: "Done", outputs: ["out-done-on-doc"] },
           ],
         },
       },
@@ -125,7 +125,7 @@ function fullBundle(): AgentBundle {
               },
             },
           ],
-          outputs: [{ id: "out-done", name: "Done", kind: "nothing" }],
+          outputs: [{ id: "out-done-client-run", name: "Done", kind: "nothing" }],
           steps: [
             {
               id: "u-client",
@@ -136,7 +136,7 @@ function fullBundle(): AgentBundle {
               uses: { type: "action", action: TESTKIT_UPDATE_TOOL },
               input: { id: "r1", amount: "1.00" },
             },
-            { id: "end", kind: "end", name: "Done", outputs: ["out-done"] },
+            { id: "end-client-run", kind: "end", name: "Done", outputs: ["out-done-client-run"] },
           ],
         },
       },

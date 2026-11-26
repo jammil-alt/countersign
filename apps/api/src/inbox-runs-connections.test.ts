@@ -13,6 +13,7 @@ import {
   type ApiHarness,
   admin,
   createApiHarness,
+  ended,
   FakeWorkflowStep,
   OPERATOR,
   OTHER_OPERATOR,
@@ -365,9 +366,7 @@ describe.skipIf(!h)("inbox and run views", () => {
         expect(taken.status).toBe(403);
       }),
     );
-    expect(await executeRun(deps(), params, cloudflareStepRunner(step))).toEqual({
-      status: "succeeded",
-    });
+    expect(await executeRun(deps(), params, cloudflareStepRunner(step))).toEqual(ended());
     expect(checked).toEqual(["external_action", "approval"]);
   });
 

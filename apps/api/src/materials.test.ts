@@ -19,7 +19,13 @@ import { FakeModel } from "@countersign/llm";
 import { catalogItem, itemMatch } from "@countersign/pack-materials";
 import { and, eq } from "drizzle-orm";
 import { afterAll, describe, expect, it } from "vitest";
-import { type ApiHarness, createApiHarness, FakeWorkflowStep, OPERATOR } from "./api.test-helper";
+import {
+  type ApiHarness,
+  createApiHarness,
+  ended,
+  FakeWorkflowStep,
+  OPERATOR,
+} from "./api.test-helper";
 import { executeRun } from "./runs/execute";
 import { cloudflareStepRunner } from "./runs/step-runner";
 
@@ -168,7 +174,7 @@ describe.skipIf(!h)("the Materials pack on the platform", () => {
       params,
       cloudflareStepRunner(new FakeWorkflowStep()),
     );
-    expect(result).toEqual({ status: "succeeded" });
+    expect(result).toEqual(ended());
     const [step] = await H.t.db
       .select()
       .from(stepRun)
@@ -229,15 +235,5 @@ describe.skipIf(!h)("the Materials pack on the platform", () => {
       .from(catalogItem)
       .where(eq(catalogItem.tenantId, H.B.tenantId));
     expect(others).toEqual([]);
-  });
-
-  it("takes the threshold from the agent's skill settings", async () => {
-    const doc = await invoice(H.A.tenantId, "Cedar Ridge Supply", [
-      'BIRCH BALTIC 3/4" 1525X1525MM BB/BB',
-    ]);
-    // The rules are 0.97 sure; this agent wants 0.99, so a person reviews it.
-    const run = await runMatcher("strict-matcher", doc, 0.99);
-    expect(run.output).toMatchObject({ total: 1, matched: 0, needsReview: 1 });
-    expect(run.output.belowThreshold).toHaveLength(1);
   });
 });

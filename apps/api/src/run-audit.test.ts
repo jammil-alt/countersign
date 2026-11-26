@@ -29,6 +29,7 @@ import {
   type ApiHarness,
   admin,
   createApiHarness,
+  ended,
   FakeWorkflowStep,
   OPERATOR,
   OTHER_OPERATOR,
@@ -149,16 +150,22 @@ describe.skipIf(!h)("the run audit (wave 6)", () => {
       proc([
         {
           id: "update",
-          kind: "write",
           name: "Update the record",
-          tool: TESTKIT_UPDATE_TOOL,
-          input: { id: "r1", amount: "12.00" },
           checks: {
             approval: {
-              mode: "in_turn",
-              approvers: [{ who: H.A.admin, deadline: { after: "1 day" } }],
+              required: "required",
+              approvers: [
+                {
+                  who: H.A.admin,
+                  deadline: { after: "1 day", hours: "clock", ifNoAnswer: "stop" },
+                },
+              ],
             },
           },
+          kind: "do",
+          doneBy: "rules",
+          uses: { type: "action", action: TESTKIT_UPDATE_TOOL },
+          input: { id: "r1", amount: "12.00" },
         },
       ]),
     );
@@ -170,9 +177,9 @@ describe.skipIf(!h)("the run audit (wave 6)", () => {
     H.backend.seed(H.A.connectionId, [{ id: "r1", name: "Oak board", amount: "10.00" }]);
     const p = params(v4Version);
     wroteRun = p.runId;
-    expect(await executeRun(deps(), p, cloudflareStepRunner(answering("approve")))).toEqual({
-      status: "succeeded",
-    });
+    expect(await executeRun(deps(), p, cloudflareStepRunner(answering("approve")))).toEqual(
+      ended(),
+    );
     const checks = await H.t.db.select().from(ownerCheck).where(eq(ownerCheck.runId, p.runId));
     expect(checks).toEqual([
       expect.objectContaining({

@@ -14,7 +14,7 @@ import {
   generateEncryptionKey,
 } from "@countersign/connectors";
 import { FAKE_TWILIO_MAIN, fakeTwilio } from "@countersign/connectors/testing";
-import { AgentBundle, type AgentBundleInput, type SkillStep } from "@countersign/core";
+import { AgentBundle, type AgentBundleInput } from "@countersign/core";
 import {
   agent,
   agentVersion,
@@ -29,12 +29,14 @@ import {
   withTenant,
 } from "@countersign/db";
 import { FakeModel, type FakeTurn } from "@countersign/llm";
+import type { SkillStep } from "@countersign/workflows";
 import { and, eq, like } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   type ApiHarness,
   admin,
   createApiHarness,
+  ended,
   FakeWorkflowStep,
   OPERATOR,
   unsigned,
@@ -75,7 +77,7 @@ const h = await createApiHarness({
 afterAll(() => h?.close());
 
 const GOAL = "Get the exact item list and the date needed for this purchase request.";
-const RESULT = {
+const _RESULT = {
   type: "object",
   properties: {
     items: {
@@ -92,7 +94,7 @@ const RESULT = {
 };
 const ITEMS = { items: [{ name: "3/4 birch ply", qty: 12 }], neededBy: "Friday" };
 
-function talkStep(input: Record<string, unknown> = {}, extra: Record<string, unknown> = {}) {
+function talkStep(_input: Record<string, unknown> = {}, _extra: Record<string, unknown> = {}) {
   return {
     id: "talk",
     name: "Clarify the request",
@@ -421,7 +423,7 @@ describe.skipIf(!h)("conversations through the API", () => {
       throw new Error(`unexpected wait ${type}`);
     });
     const result = await executeRun(deps(), params, cloudflareStepRunner(step));
-    expect(result).toEqual({ status: "succeeded" });
+    expect(result).toEqual(ended());
 
     const out = await stepOutput(params.runId, "talk");
     expect(out).toMatchObject({
@@ -606,9 +608,7 @@ describe.skipIf(!h)("conversations through the API", () => {
       }
       throw new Error(`unexpected wait ${type}`);
     });
-    expect(await executeRun(deps(), params, cloudflareStepRunner(step))).toEqual({
-      status: "succeeded",
-    });
+    expect(await executeRun(deps(), params, cloudflareStepRunner(step))).toEqual(ended());
     expect(handover).not.toBe("");
     expect(await stepOutput(params.runId, "talk")).toMatchObject({
       outcome: "handed_over",
@@ -854,9 +854,7 @@ describe.skipIf(!h)("conversations through the API", () => {
       }
       throw new Error(`unexpected wait ${type}`);
     });
-    expect(await executeRun(deps(), params, cloudflareStepRunner(step))).toEqual({
-      status: "succeeded",
-    });
+    expect(await executeRun(deps(), params, cloudflareStepRunner(step))).toEqual(ended());
     expect(cards[0]).toContain("Talk with Sam Ortiz on WhatsApp");
     expect(cards[1]).toBe("Message 2 of up to 6 to Sam Ortiz on WhatsApp");
     expect(cards[2]).toContain("They need to check with the shop");
@@ -996,9 +994,7 @@ describe.skipIf(!h)("conversations through the API", () => {
       }
       throw new Error(`unexpected wait ${type}`);
     });
-    expect(await executeRun(deps(), params, cloudflareStepRunner(step))).toEqual({
-      status: "succeeded",
-    });
+    expect(await executeRun(deps(), params, cloudflareStepRunner(step))).toEqual(ended());
     const overseen = await stepOutput(params.runId, "talk");
     expect(overseen, JSON.stringify(overseen)).toMatchObject({
       outcome: "completed",
@@ -1122,7 +1118,7 @@ describe.skipIf(!h)("conversations through the API", () => {
       return woke.event.payload;
     });
     const result = await executeRun(deps(), params, cloudflareStepRunner(step));
-    expect(result).toEqual({ status: "succeeded" });
+    expect(result).toEqual(ended());
     expect(waits).toHaveLength(3);
     expect(await stepOutput(params.runId, "talk")).toMatchObject({
       status: "done",
@@ -1162,7 +1158,7 @@ describe.skipIf(!h)("conversations through the API", () => {
               {
                 id: "talk",
                 name: "Ask Ivy",
-                checks: { approval: { required: "required", approvers: [{ who: h.A.user }] } },
+                checks: { approval: { required: "required", approvers: [{ who: H.A.user }] } },
                 kind: "do",
                 doneBy: "contact",
                 contact: {
@@ -1206,10 +1202,10 @@ describe.skipIf(!h)("conversations through the API", () => {
     } as Parameters<typeof executeRun>[1];
     model = new FakeModel([turn({ action: "ask", message: "How many metres do you need?" })]);
     const conversation = `conversation-${params.runId}_ctalk`;
-    let ended = false;
+    let finished = false;
     const step = new FakeWorkflowStep(async (_name, type) => {
       expect(type).toBe(conversation);
-      expect(ended).toBe(false);
+      expect(finished).toBe(false);
       const [sr] = await H.t.db
         .select()
         .from(stepRun)
@@ -1234,7 +1230,7 @@ describe.skipIf(!h)("conversations through the API", () => {
       const before = H.instances.events.length;
       const res = await H.call(user("a"), "POST", control, { action: "end" });
       expect(res.status, JSON.stringify(res.json)).toBe(200);
-      ended = true;
+      finished = true;
       const woke = H.instances.events.slice(before).find((e) => e.event.type === conversation);
       if (!woke) throw new Error("the conversation's event wasn't sent");
       return woke.event.payload;

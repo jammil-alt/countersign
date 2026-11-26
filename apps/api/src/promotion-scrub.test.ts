@@ -4,16 +4,7 @@
 // as a promotion's draft is: the scrub adds no validation error and leaves no id it was given.
 
 import { parseVersionBundle, skillContext, stripForPromotion } from "@countersign/agents";
-import {
-  type AgentBundle,
-  cloneJson,
-  holdsProcess,
-  holdsStepModel,
-  isPlainObject,
-  processes,
-  uuidv7,
-  validateBundle,
-} from "@countersign/core";
+import { type AgentBundle, cloneJson, isPlainObject, processes, uuidv7 } from "@countersign/core";
 import { seedVersionBundle, withOperator } from "@countersign/db";
 import billClerk from "@countersign/db/seed/agents/bill-clerk.v1.json";
 import builder from "@countersign/db/seed/agents/builder.v1.json";
@@ -64,7 +55,7 @@ function personalized(bundle: AgentBundle, ids: string[]): AgentBundle {
   walk(out.workflows);
   // And a message trigger that lists only one of the client's contacts.
   for (const [i, w] of out.workflows.entries()) {
-    if (w.workflow.schemaVersion !== 4 || w.workflow.triggers.length >= 10) continue;
+    if (w.workflow.triggers.length >= 10) continue;
     w.workflow.triggers.push({
       id: `trg-client-message-${i}`,
       on: { type: "message", channels: ["email"], from: { contactIds: [id()] } },
@@ -85,9 +76,7 @@ describe.skipIf(!h)("the promotion scrub on every shipped template", () => {
     const { skills } = await withOperator(H.db, [], (tx) =>
       skillContext(tx, { tenantId: null, bundle, catalog: ctx.catalog }),
     );
-    const validate =
-      holdsProcess(bundle) || holdsStepModel(bundle) ? processes.validateBundle : validateBundle;
-    const r = validate(bundle, {
+    const r = processes.validateBundle(bundle, {
       skills,
       tools: ctx.tools.specs(),
       models: knownModelIds(),
@@ -118,7 +107,10 @@ describe.skipIf(!h)("the promotion scrub on every shipped template", () => {
 
   it("scrubs each template, as shipped and as a client's version, into one that validates", async () => {
     const list = templates();
-    expect(list.length).toBeGreaterThan(5);
+    expect(list).toHaveLength(
+      Object.keys(SEEDED).length +
+        H.platform.packs.reduce((n, pack) => n + pack.manifest.templates.length, 0),
+    );
     for (const [name, template] of list) {
       const shipped = await errorsOf(template);
       // As it ships, with no template behind it.

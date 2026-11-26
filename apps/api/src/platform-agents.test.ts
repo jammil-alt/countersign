@@ -2,11 +2,7 @@
 // seed holds them after the purge, one v1 each, their workflows in the step model. Checked against
 // the registries a deployment builds: they pass the publish checks (with each action's side effect
 // and required input), name only registered skills and actions (no skill that only wraps a tool,
-// R1), keep approval on every change to a client's tool (invariant 8), and keep every step and path
-// id of the version they replace, so the behaviour is the same step for step.
-//
-// Runs of these agents in the step model come with the executor's v5 engine (stream A); until then
-// the runtime tests run the versions seeded before it (`SEED_DIR_BEFORE_STEP_MODEL`).
+// R1) and keep approval on every change to a client's tool (invariant 8).
 
 import {
   type AgentBundle,
@@ -15,11 +11,7 @@ import {
   processes,
   steps,
 } from "@countersign/core";
-import {
-  loadSeedTemplates,
-  loadSeedVersions,
-  SEED_DIR_BEFORE_STEP_MODEL,
-} from "@countersign/db/seed";
+import { loadSeedTemplates, loadSeedVersions } from "@countersign/db/seed";
 import { knownModelIds } from "@countersign/llm";
 import { describe, expect, it } from "vitest";
 import { createPlatform, deploymentConnectors } from "./platform";
@@ -34,16 +26,6 @@ const ctx = {
 };
 
 const seeds = await loadSeedTemplates();
-
-/** Each platform agent's latest version as seeded before the step model. */
-async function before(): Promise<Map<string, AgentBundle>> {
-  const out = new Map<string, AgentBundle>();
-  for (const t of await loadSeedTemplates(SEED_DIR_BEFORE_STEP_MODEL)) out.set(t.slug, t.bundle);
-  const later = await loadSeedVersions(SEED_DIR_BEFORE_STEP_MODEL);
-  for (const v of later) out.set(v.slug, v.bundle);
-  return out;
-}
-const previous = await before();
 
 const v5 = (b: AgentBundle, slug: string) => {
   const w = b.workflows.find((x) => x.slug === slug)?.workflow;
@@ -115,28 +97,6 @@ describe("the platform agents' seeds in the step model", () => {
         expect(approval?.required, step.id).toBe("required");
         expect(processes.approvalLoosenings(approval, "checks.approval"), step.id).toEqual([]);
       });
-    }
-  });
-
-  it.each(seeds)("$slug keeps every step and path id of the version it replaces", (t) => {
-    const old = previous.get(t.slug);
-    if (!old) throw new Error(`no earlier ${t.slug}`);
-    expect(t.bundle.definition.identity).toEqual(old.definition.identity);
-    expect(t.bundle.definition.model).toEqual(old.definition.model);
-    expect(t.bundle.definition.budgets).toEqual(old.definition.budgets);
-    expect(t.bundle.people).toEqual(old.people);
-    expect(t.bundle.workflows.map((w) => [w.slug, w.name])).toEqual(
-      old.workflows.map((w) => [w.slug, w.name]),
-    );
-    for (const w of old.workflows) {
-      if (w.workflow.schemaVersion !== 4) throw new Error(`${w.slug}: not v4`);
-      const now = v5(t.bundle, w.slug);
-      expect(now.triggers, w.slug).toEqual(
-        w.workflow.triggers.map((x) => steps.Workflow.shape.triggers.element.parse(x)),
-      );
-      const kept = new Set(steps.stepModelIds(now));
-      const lost = processes.nodeIds(w.workflow).filter((id) => !kept.has(id));
-      expect(lost, w.slug).toEqual([]);
     }
   });
 });

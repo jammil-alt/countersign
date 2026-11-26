@@ -9,14 +9,7 @@ import { auditEvent, clientFact, clientFile, tenant } from "@countersign/db";
 import { DEFAULT_MODELS, FakeModel } from "@countersign/llm";
 import { and, eq, isNull, sql } from "drizzle-orm";
 import { afterAll, describe, expect, it, vi } from "vitest";
-import {
-  admin,
-  createApiHarness,
-  OPERATOR,
-  OTHER_OPERATOR,
-  testBundle,
-  user,
-} from "./api.test-helper";
+import { admin, createApiHarness, OPERATOR, OTHER_OPERATOR, user } from "./api.test-helper";
 
 for (const level of process.env.SHOW_LOGS ? [] : (["info", "warn", "error"] as const)) {
   vi.spyOn(console, level).mockImplementation(() => {});
@@ -274,90 +267,6 @@ describe.skipIf(!h)("Draft", () => {
   });
 
   // Owner, 2026-11-22 (docs/plan.md §1.186): "have the AI make up data to feed through it".
-  it("makes up data to try steps on: from the draft's shapes, never a step's id or a client's record", async () => {
-    const template = await H.call(OPERATOR, "POST", "/api/ops/templates", {
-      slug: "data-maker",
-      bundle: testBundle("Data maker"),
-      releaseNote: "First",
-    });
-    expect(template.status, JSON.stringify(template.json)).toBe(200);
-    const agentId = (template.json as { agent: { id: string } }).agent.id;
-    const READ = "0193f000-0000-7000-8000-00000000aa01";
-    const drawn = {
-      schemaVersion: 5,
-      triggers: [{ id: "t", on: { type: "manual", input: { type: "object", properties: {} } } }],
-      outputs: [{ id: "out-done", name: "Done", kind: "nothing" }],
-      steps: [
-        {
-          id: "0193f000-0000-7000-8000-00000000aa01",
-          name: "Read the bill",
-          kind: "wait",
-          for: "1 minute",
-        },
-        {
-          id: "check",
-          name: "Over the limit?",
-          kind: "fork",
-          paths: [
-            {
-              id: "p",
-              name: "Over",
-              when: {
-                match: "all",
-                rules: [
-                  {
-                    field: "{{steps.0193f000-0000-7000-8000-00000000aa01.output.total}}",
-                    op: ">",
-                    value: 500,
-                  },
-                ],
-              },
-              steps: [],
-            },
-          ],
-          otherwise: { id: "o", steps: [] },
-        },
-        { id: "end", kind: "end", name: "Done", outputs: ["out-done"] },
-      ],
-    };
-    const make = (body: Record<string, unknown>, who = OPERATOR) =>
-      H.call(who, "POST", `/api/ops/agents/${agentId}/test-data`, body);
-
-    model.push({
-      toolUse: {
-        name: "make_test_data",
-        input: { pieces: [{ key: "s1", data: { total: "640.40" } }] },
-      },
-    });
-    const before = model.requests.length;
-    const res = await make({
-      process: drawn,
-      workflow: "Bills",
-      range: { from: "check", to: "check" },
-      notes: "a bill over the limit",
-    });
-    expect(res.status, JSON.stringify(res.json)).toBe(200);
-    // Read back by the step's own id, for the try's box.
-    expect(res.json).toEqual({ given: { [READ]: { total: "640.40" } }, missing: [] });
-    expect(model.requests.length - before).toBe(1);
-    const { system, user } = last();
-    expect(model.requests.at(-1)?.model).toBe(DEFAULT_MODELS.assist);
-    expect(system).toContain("You make up test data for a back-office workflow");
-    // The step to try, the piece and how it is read are data in their tags; the notes too.
-    expect(user).toContain("<steps>\n1. Over the limit?\n</steps>");
-    expect(user).toContain("steps.s1.output.total");
-    expect(user).toContain("<notes>\na bill over the limit\n</notes>");
-    expect(user).not.toContain(READ);
-    expect(system).not.toContain("over the limit");
-
-    // A range that can't be tested says why; nothing is asked of the model.
-    const bad = await make({ process: drawn, range: { from: "nope" } });
-    expect(bad.status).toBe(422);
-    expect(model.requests.length - before).toBe(1);
-    // Operators only.
-    expect((await make({ process: drawn }, admin("a"))).status).toBe(403);
-  });
-
   it("limits each operator's drafts: 20 a minute", async () => {
     const [op] = await H.t.db.execute<{ id: string }>(
       sql`select id from app_user where email = ${OPERATOR}`,

@@ -56,6 +56,7 @@ import {
   admin,
   allowForAgent,
   createApiHarness,
+  ended,
   FakeWorkflowStep,
   OPERATOR,
   user,
@@ -251,7 +252,7 @@ describe.skipIf(!h)("QuickBooks Online through the API", () => {
     uses: { type: "action", action: "qbo.bill.query" },
     input: { ids: [id] },
   });
-  const B = "{{steps.find.output.bills.0";
+  const _B = "{{steps.find.output.bills.0";
 
   beforeAll(async () => {
     const offer = await call(OPERATOR, "PUT", `/api/ops/clients/${H.A.tenantId}/connectors`, {
@@ -946,7 +947,7 @@ describe.skipIf(!h)("QuickBooks Online through the API", () => {
       atWaits.push(qbo.apiCalls("POST").length);
     });
     const result = await executeRun(runDeps(), params, cloudflareStepRunner(step));
-    expect(result).toEqual({ status: "succeeded" });
+    expect(result).toEqual(ended());
     expect(atWaits).toEqual([0, 1]);
     expect(qbo.apiCalls("POST", "bill")).toHaveLength(1);
     expect(qbo.apiCalls("POST", "upload")).toHaveLength(1);

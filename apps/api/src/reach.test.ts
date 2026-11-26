@@ -24,13 +24,7 @@ import {
   fakeResend,
   fakeTwilio,
 } from "@countersign/connectors/testing";
-import {
-  AgentBundle,
-  type AgentBundleInput,
-  bundleHash,
-  optOutLine,
-  type SkillStep,
-} from "@countersign/core";
+import { AgentBundle, type AgentBundleInput, bundleHash, optOutLine } from "@countersign/core";
 import {
   agent,
   agentChange,
@@ -46,12 +40,14 @@ import {
   stepRun,
 } from "@countersign/db";
 import { FakeModel } from "@countersign/llm";
+import type { SkillStep } from "@countersign/workflows";
 import { and, eq, sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   type ApiHarness,
   admin,
   createApiHarness,
+  ended,
   FakeWorkflowStep,
   OPERATOR,
   OTHER_OPERATOR,
@@ -123,7 +119,7 @@ const ROLES = [
   },
 ];
 
-function reachStep(input: Record<string, unknown> = {}) {
+function reachStep(_input: Record<string, unknown> = {}) {
   return {
     id: "reach",
     name: "Ask the purchaser",
@@ -583,7 +579,7 @@ describe.skipIf(!h)("reach out through the API", () => {
       throw new Error(`unexpected wait ${type}`);
     });
     const result = await executeRun(deps(), params, cloudflareStepRunner(step));
-    expect(result).toEqual({ status: "succeeded" });
+    expect(result).toEqual(ended());
     expect(reachEvent).not.toBe("");
 
     const out = await stepOutput(params.runId, "reach");
@@ -680,9 +676,7 @@ describe.skipIf(!h)("reach out through the API", () => {
       }
       throw new Error(`unexpected wait ${type}`);
     });
-    expect(await executeRun(deps(), params, cloudflareStepRunner(step))).toEqual({
-      status: "succeeded",
-    });
+    expect(await executeRun(deps(), params, cloudflareStepRunner(step))).toEqual(ended());
     // Pat is the purchaser again for the tests below.
     expect((await bind(pat)).status).toBe(200);
   });
@@ -723,9 +717,7 @@ describe.skipIf(!h)("reach out through the API", () => {
       }
       throw new Error(`unexpected wait ${type}`);
     });
-    expect(await executeRun(deps(), params, cloudflareStepRunner(step))).toEqual({
-      status: "succeeded",
-    });
+    expect(await executeRun(deps(), params, cloudflareStepRunner(step))).toEqual(ended());
     expect(await stepOutput(params.runId, "reach")).toMatchObject({ outcome: "replied" });
 
     const cleared = await H.call(OPERATOR, "PUT", rulesPath, {
@@ -886,7 +878,7 @@ describe.skipIf(!h)("reach out through the API", () => {
 
     // STOP ends the open reach-out as opted_out; the cron escalates nothing after it.
     await textIn(PAT, "STOP");
-    expect(await firstDone).toEqual({ status: "succeeded" });
+    expect(await firstDone).toEqual(ended());
     expect(reachType).not.toBe("");
     expect(await stepOutput(first.runId, "reach")).toMatchObject({ outcome: "opted_out" });
     const placed = twilio.placed().length;
@@ -1309,7 +1301,7 @@ describe.skipIf(!h)("reach out through the API", () => {
       return H.instances.events.find((e) => e.event.type === type)?.event.payload;
     });
     const result = await executeRun(deps(), run, cloudflareStepRunner(step));
-    expect(result).toEqual({ status: "succeeded" });
+    expect(result).toEqual(ended());
     expect(await stepOutput(run.runId, "reach")).toMatchObject({
       outcome: "replied",
       channel: "email",

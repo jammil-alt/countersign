@@ -44,6 +44,7 @@ import {
   type ApiHarness,
   admin,
   createApiHarness,
+  ended,
   FakeWorkflowStep,
   OPERATOR,
   OTHER_OPERATOR,
@@ -108,7 +109,7 @@ const h = await createApiHarness({
 afterAll(() => h?.close());
 
 function bundle(): AgentBundle {
-  const read = (id: string) => ({
+  const _read = (id: string) => ({
     id,
     name: "Read the records",
     kind: "skill",
@@ -138,7 +139,7 @@ function bundle(): AgentBundle {
         workflow: {
           schemaVersion: 5,
           triggers: [{ id: "trg", on: { type: "manual", input: {} } }],
-          outputs: [{ id: "out-done", name: "Done", kind: "nothing" }],
+          outputs: [{ id: "out-done-main", name: "Done", kind: "nothing" }],
           steps: [
             {
               id: "first",
@@ -158,7 +159,7 @@ function bundle(): AgentBundle {
               uses: { type: "action", action: "testkit.record.query" },
               input: {},
             },
-            { id: "end", kind: "end", name: "Done", outputs: ["out-done"] },
+            { id: "end-main", kind: "end", name: "Done", outputs: ["out-done-main"] },
           ],
         },
       },
@@ -168,7 +169,7 @@ function bundle(): AgentBundle {
         workflow: {
           schemaVersion: 5,
           triggers: [{ id: "trg-fix", on: { type: "manual", input: {} } }],
-          outputs: [{ id: "out-done", name: "Done", kind: "nothing" }],
+          outputs: [{ id: "out-done-fix", name: "Done", kind: "nothing" }],
           steps: [
             {
               id: "update",
@@ -180,7 +181,7 @@ function bundle(): AgentBundle {
               uses: { type: "action", action: TESTKIT_UPDATE_TOOL },
               input: { id: "r1", amount: "12.00" },
             },
-            { id: "end", kind: "end", name: "Done", outputs: ["out-done"] },
+            { id: "end-fix", kind: "end", name: "Done", outputs: ["out-done-fix"] },
           ],
         },
       },
@@ -480,7 +481,7 @@ describe.skipIf(!h)("human release through the API", () => {
       return sentEvent(type);
     });
     const result = await executeRun(deps(), params, cloudflareStepRunner(step));
-    expect(result).toEqual({ status: "succeeded" });
+    expect(result).toEqual(ended());
     expect(waited).toMatch(/^inbox-/);
     // One code for the whole run: the second read went through under the same release.
     expect(step.waits).toHaveLength(1);
@@ -497,10 +498,10 @@ describe.skipIf(!h)("human release through the API", () => {
       clock = Date.now() + 11 * 60_000;
       throw timeout();
     });
-    const ended = await executeRun(deps(), next, cloudflareStepRunner(again)).finally(() => {
+    const endedRun = await executeRun(deps(), next, cloudflareStepRunner(again)).finally(() => {
       clock = Date.now();
     });
-    expect(ended.status).toBe("failed");
+    expect(endedRun.status).toBe("failed");
     expect(again.waits).toHaveLength(1);
   });
 
@@ -574,7 +575,7 @@ describe.skipIf(!h)("human release through the API", () => {
       return sentEvent(type);
     });
     const result = await executeRun(deps(), params, cloudflareStepRunner(step));
-    expect(result).toEqual({ status: "succeeded" });
+    expect(result).toEqual(ended());
     expect(n).toBe(2);
     const rows = await H.t.db
       .select({ status: accessRelease.status, tries: accessRelease.tries })
@@ -617,7 +618,7 @@ describe.skipIf(!h)("human release through the API", () => {
       return sentEvent(type);
     });
     const result = await executeRun(deps(), params, cloudflareStepRunner(step));
-    expect(result).toEqual({ status: "succeeded" });
+    expect(result).toEqual(ended());
     expect((await releaseLog()).some((c) => c.event === "wrong_sender")).toBe(true);
     expect(
       (await releaseLog()).find((c) => c.event === "released" && c.runId === params.runId),
@@ -687,7 +688,7 @@ describe.skipIf(!h)("human release through the API", () => {
       return sentEvent(type);
     });
     const result = await executeRun(deps(), params, cloudflareStepRunner(step));
-    expect(result).toEqual({ status: "succeeded" });
+    expect(result).toEqual(ended());
     const live = j((await call(admin("a"), "GET", "/api/access/releases")).json).releases;
     expect(live).toHaveLength(1);
     expect(live[0]).toMatchObject({
@@ -706,9 +707,7 @@ describe.skipIf(!h)("human release through the API", () => {
     const none = new FakeWorkflowStep(async () => {
       throw new Error("no wait expected");
     });
-    expect(await executeRun(deps(), later, cloudflareStepRunner(none))).toEqual({
-      status: "succeeded",
-    });
+    expect(await executeRun(deps(), later, cloudflareStepRunner(none))).toEqual(ended());
 
     // The client user can't revoke; the client admin can, and then the next run asks again.
     expect(
@@ -757,9 +756,7 @@ describe.skipIf(!h)("human release through the API", () => {
       expect(j((await enter(admin("a"), item.id, code)).json).result).toBe("released");
       return sentEvent(type);
     });
-    expect(await executeRun(deps(), params, cloudflareStepRunner(step))).toEqual({
-      status: "succeeded",
-    });
+    expect(await executeRun(deps(), params, cloudflareStepRunner(step))).toEqual(ended());
   });
 
   it("never runs an approved write once its release is revoked: an approval is not a release", async () => {
@@ -820,9 +817,7 @@ describe.skipIf(!h)("human release through the API", () => {
       expect(j((await enter(admin("a"), item.id, code)).json).result).toBe("released");
       return sentEvent(type);
     });
-    expect(await executeRun(deps(), es, cloudflareStepRunner(step))).toEqual({
-      status: "succeeded",
-    });
+    expect(await executeRun(deps(), es, cloudflareStepRunner(step))).toEqual(ended());
 
     // No choice of her own: the client's default, German, by email.
     await call(admin("a"), "PUT", "/api/me/language", { language: null });
@@ -846,9 +841,7 @@ describe.skipIf(!h)("human release through the API", () => {
       expect(j((await enter(admin("a"), item.id, code)).json).result).toBe("released");
       return sentEvent(type);
     });
-    expect(await executeRun(deps(), de, cloudflareStepRunner(german))).toEqual({
-      status: "succeeded",
-    });
+    expect(await executeRun(deps(), de, cloudflareStepRunner(german))).toEqual(ended());
     await call(admin("a"), "PUT", "/api/client/language", { language: "en" });
   });
 
@@ -873,9 +866,7 @@ describe.skipIf(!h)("human release through the API", () => {
       expect(j((await enter(admin("a"), item.id, code)).json).result).toBe("released");
       return sentEvent(type);
     });
-    expect(await executeRun(deps(), fr, cloudflareStepRunner(french))).toEqual({
-      status: "succeeded",
-    });
+    expect(await executeRun(deps(), fr, cloudflareStepRunner(french))).toEqual(ended());
   });
 
   it("keeps releases per client", async () => {

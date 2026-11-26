@@ -22,6 +22,7 @@ import {
   admin,
   allowForAgent,
   createApiHarness,
+  ended,
   FakeWorkflowStep,
   OPERATOR,
 } from "./api.test-helper";
@@ -312,9 +313,7 @@ describe.skipIf(!h)("Ramp and HubSpot through the API", () => {
         instances: H.instances,
         credentials: credentials(),
       };
-      expect(await executeRun(deps, params, cloudflareStepRunner(approver))).toEqual({
-        status: "succeeded",
-      });
+      expect(await executeRun(deps, params, cloudflareStepRunner(approver))).toEqual(ended());
       expect(asked).toBe(1);
       const notes = () => hubspot.objects.filter((o) => o.type === "notes");
       expect(notes()).toHaveLength(1);

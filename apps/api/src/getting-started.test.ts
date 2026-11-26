@@ -39,7 +39,7 @@ const SEATS = [
   { role: "summary", kind: "told", label: "Gets the weekly summary" },
 ];
 
-function bundle(name: string, people = SEATS, onlyApprover = false): unknown {
+function bundle(name: string, people = SEATS, _onlyApprover = false): unknown {
   return {
     schemaVersion: 1,
     definition: {

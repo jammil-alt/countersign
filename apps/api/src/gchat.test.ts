@@ -22,6 +22,7 @@ import {
   type ApiHarness,
   admin,
   createApiHarness,
+  ended,
   FakeWorkflowStep,
   forbiddenKeys,
   OPERATOR,
@@ -328,9 +329,7 @@ describe.skipIf(!h)("Google Chat through the API", () => {
       instances: H.instances,
       credentials: credentialsFor(H.db, { current: ENCRYPTION_KEY }),
     };
-    expect(await executeRun(deps, params, cloudflareStepRunner(step))).toEqual({
-      status: "succeeded",
-    });
+    expect(await executeRun(deps, params, cloudflareStepRunner(step))).toEqual(ended());
     expect(atWait).toEqual([0]);
     expect(google.messages.map((m) => [m.space, m.text])).toEqual([
       [SHOP, "Cherry veneer arrived."],

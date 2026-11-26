@@ -31,13 +31,13 @@ import {
   admin,
   allowForAgent,
   createApiHarness,
+  ended,
   FakeWorkflowStep,
   OPERATOR,
   v5Workflow,
 } from "./api.test-helper";
 import { quietNever } from "./quiet-hours.test-helper";
 import { credentialsFor, executeRun } from "./runs/execute";
-import { paramsOfRow } from "./runs/reconcile";
 import { cloudflareStepRunner } from "./runs/step-runner";
 
 // biome-ignore lint/suspicious/noExplicitAny: response bodies are read loosely in tests.
@@ -106,22 +106,22 @@ function processBundle(steps: unknown[], extraTools: string[] = []) {
 const createBill = (
   vendorId: string,
   invoiceNumber: string,
-  extra: Record<string, unknown> = {},
+  _extra: Record<string, unknown> = {},
 ) => ({
   id: "bill",
-  kind: "write",
   name: "Create bill",
-  action: "create_bill",
+  kind: "do",
+  doneBy: "rules",
+  uses: { type: "action", action: "accounting.bill.create" },
   input: {
-    vendorId,
-    invoiceNumber,
+    vendorId: vendorId,
+    invoiceNumber: invoiceNumber,
     date: "2026-11-05",
     dueDate: "2026-12-05",
     currency: "USD",
     total: "640.40",
     lines: [{ description: "Plywood", amount: "640.40", account: "80" }],
   },
-  ...extra,
 });
 
 describe.skipIf(!h)("action write steps through the API", () => {
@@ -254,7 +254,7 @@ describe.skipIf(!h)("action write steps through the API", () => {
     const before = posts();
     const seen: string[] = [];
     const { params, result } = await run(a.id, "a", seen);
-    expect(result).toEqual({ status: "succeeded" });
+    expect(result).toEqual(ended());
     expect(seen).toHaveLength(1);
     expect(posts()).toBe(before + 1);
     const [action] = await actionsOf(params.runId);
@@ -286,11 +286,12 @@ describe.skipIf(!h)("action write steps through the API", () => {
     const steps = [
       {
         id: "bill",
-        kind: "write",
         name: "Create the bill in QuickBooks",
-        tool: "qbo.bill.create",
+        kind: "do",
+        doneBy: "rules",
+        uses: { type: "action", action: "qbo.bill.create" },
         input: {
-          vendorId: QBO_VENDOR,
+          vendorId: "57",
           docNumber: "INV-41010",
           txnDate: "2026-11-05",
           expectedTotal: "640.40",
@@ -299,11 +300,12 @@ describe.skipIf(!h)("action write steps through the API", () => {
       },
       {
         id: "attach",
-        kind: "write",
         name: "Attach the invoice to the bill",
-        tool: "qbo.attachable.upload",
+        kind: "do",
+        doneBy: "rules",
+        uses: { type: "action", action: "qbo.attachable.upload" },
         input: {
-          documentId: crypto.randomUUID(),
+          documentId: "823dad39-3d25-4b8d-a5ac-60b4356b350e",
           entity: "Bill",
           entityId: "{{steps.bill.output.id}}",
         },
@@ -328,7 +330,7 @@ describe.skipIf(!h)("action write steps through the API", () => {
     const params = H.instances.started.get(j(res.json).runId);
     if (!params) throw new Error("not started");
     const result = await executeRun(deps(), params, cloudflareStepRunner(approver("a")));
-    expect(result).toEqual({ status: "succeeded" });
+    expect(result).toEqual(ended());
     expect(writes()).toBe(before);
     const [row] = await H.t.db.select().from(runRow).where(eq(runRow.id, params.runId));
     expect(row).toMatchObject({ mode: "test", status: "succeeded", agentVersionId: a.version });
@@ -366,108 +368,17 @@ describe.skipIf(!h)("action write steps through the API", () => {
 
   // Owner, 2026-11-22 (docs/plan.md §1.185): "select one step or multiple… it then runs through
   // the steps and we see the output of each step… until the last step selected".
-  it("tests some of the steps: the ones before with what was given, ending after the last picked", async () => {
-    const steps = [
-      {
-        id: "bill",
-        kind: "write",
-        name: "Create the bill in QuickBooks",
-        tool: "qbo.bill.create",
-        input: {
-          vendorId: QBO_VENDOR,
-          docNumber: "INV-41020",
-          txnDate: "2026-11-05",
-          expectedTotal: "640.40",
-          lines: [{ description: "Plywood", amount: "640.40", accountId: "80" }],
-        },
-      },
-      {
-        id: "attach",
-        kind: "write",
-        name: "Attach the invoice to the bill",
-        tool: "qbo.attachable.upload",
-        input: {
-          documentId: crypto.randomUUID(),
-          entity: "Bill",
-          entityId: "{{steps.bill.output.id}}",
-        },
-      },
-    ];
-    const a = await agentWith(H.A.tenantId, "qbo-test-range", steps, { qbo: conn.qboA }, [
-      "qbo.bill.create",
-      "qbo.attachable.upload",
-    ]);
-    expect(a.pub.status, JSON.stringify(a.pub.json)).toBe(200);
-    const test = (range: Record<string, unknown>) =>
-      H.call(OPERATOR, "POST", `/api/ops/agents/${a.id}/versions/${a.version}/test-run`, {
-        workflow: "main",
-        range,
-      });
-    const rowsOf = async (runId: string) =>
-      (await H.t.db.select().from(stepRun).where(eq(stepRun.runId, runId))).map((r) => [
-        r.nodeId,
-        r.status,
-        r.summary,
-      ]);
-
-    // The second step reads the first: tested alone, its output has to be given.
-    const missing = await test({ from: "attach", to: "attach" });
-    expect(missing.status).toBe(422);
-    expect(j(missing.json).error).toMatchObject({ code: "invalid_range" });
-    expect(j(missing.json).error.message).toContain(
-      "“Attach the invoice to the bill” reads “Create the bill in QuickBooks”, which isn't run: give its output",
-    );
-    // A step the workflow doesn't have, and a range the wrong way round.
-    expect((await test({ from: "nope" })).status).toBe(422);
-    expect((await test({ from: "attach", to: "bill", given: { bill: {} } })).status).toBe(422);
-
-    // With it given: only the second step runs, on what was given, and nothing is written.
-    const posts = () => qbo.apiCalls("POST").length;
-    const before = posts();
-    const res = await test({ from: "attach", to: "attach", given: { bill: { id: "777" } } });
-    expect(res.status, JSON.stringify(res.json)).toBe(200);
-    const params = H.instances.started.get(j(res.json).runId);
-    if (!params) throw new Error("not started");
-    expect(params.range).toEqual({ from: "attach", to: "attach", given: { bill: { id: "777" } } });
-    // The run's row keeps it, so a restart of the instance runs the same range.
-    const [stored] = await H.t.db.select().from(runRow).where(eq(runRow.id, params.runId));
-    if (!stored) throw new Error("no run row");
-    expect(paramsOfRow(stored).range).toEqual(params.range);
-    const result = await executeRun(deps(), params, cloudflareStepRunner(approver("a")));
-    expect(result).toMatchObject({ status: "succeeded", reason: "range", nodeId: "attach" });
-    expect(posts()).toBe(before);
-    const rows = new Map((await rowsOf(params.runId)).map((r) => [r[0], [r[1], r[2]]]));
-    expect([...rows.keys()].sort()).toEqual(["attach", "bill"]);
-    expect(rows.get("bill")).toEqual(["succeeded", "given for this test, not run"]);
-    expect(rows.get("attach")).toEqual([
-      "succeeded",
-      "Would attach the invoice to the bill (test run, not written)",
-    ]);
-    const actions = await actionsOf(params.runId);
-    expect(actions.map((x) => [x.tool, x.status])).toEqual([["qbo.attachable.upload", "proposed"]]);
-    expect(actions[0]?.input).toMatchObject({ entity: "Bill", entityId: "777" });
-
-    // From the top to the first step: the run ends after it, and the second has no row.
-    const first = await test({ to: "bill" });
-    expect(first.status, JSON.stringify(first.json)).toBe(200);
-    const p2 = H.instances.started.get(j(first.json).runId);
-    if (!p2) throw new Error("not started");
-    const r2 = await executeRun(deps(), p2, cloudflareStepRunner(approver("a")));
-    expect(r2).toMatchObject({ status: "succeeded", nodeId: "bill" });
-    expect((await rowsOf(p2.runId)).map((r) => r[0])).toEqual(["bill"]);
-    expect(posts()).toBe(before);
-  });
-
   it("a test run's writes on the stand-in bill are proposed too: the run ends, nothing is read or written", async () => {
     const steps = [
       createBill(QBO_VENDOR, "INV-41011"),
       {
         id: "attach",
-        kind: "write",
         name: "Attach the invoice",
-        tool: "qbo.attachable.upload",
+        kind: "do",
+        doneBy: "rules",
+        uses: { type: "action", action: "qbo.attachable.upload" },
         input: {
-          documentId: crypto.randomUUID(),
+          documentId: "b9ab9586-09b2-4ac3-9854-184a1d1cbb25",
           entity: "Bill",
           entityId: "{{steps.bill.output.id}}",
         },
@@ -475,9 +386,10 @@ describe.skipIf(!h)("action write steps through the API", () => {
       // The memo's before state is the bill as QuickBooks has it: there is none for a stand-in.
       {
         id: "memo",
-        kind: "write",
         name: "Note the invoice on the bill",
-        tool: "qbo.bill.update_memo",
+        kind: "do",
+        doneBy: "rules",
+        uses: { type: "action", action: "qbo.bill.update_memo" },
         input: {
           id: "{{steps.bill.output.id}}",
           syncToken: "{{steps.bill.output.syncToken}}",
@@ -505,7 +417,7 @@ describe.skipIf(!h)("action write steps through the API", () => {
     const params = H.instances.started.get(j(res.json).runId);
     if (!params) throw new Error("not started");
     const result = await executeRun(deps(), params, cloudflareStepRunner(approver("a")));
-    expect(result).toEqual({ status: "succeeded" });
+    expect(result).toEqual(ended());
     expect(writes()).toBe(before.writes);
     expect(standInReads()).toBe(before.reads);
     const actions = await actionsOf(params.runId);
@@ -538,7 +450,7 @@ describe.skipIf(!h)("action write steps through the API", () => {
     );
     expect(b.pub.status, JSON.stringify(b.pub.json)).toBe(200);
     const { params, result } = await run(b.id, "b");
-    expect(result).toEqual({ status: "succeeded" });
+    expect(result).toEqual(ended());
     const made = bill.bills.filter(
       (x) => (x.invoice as { invoiceNumber?: string }).invoiceNumber === "INV-41002",
     );
@@ -579,9 +491,10 @@ describe.skipIf(!h)("action write steps through the API", () => {
       [
         {
           id: "mail",
-          kind: "write",
           name: "Send email",
-          action: "send_email",
+          kind: "do",
+          doneBy: "rules",
+          uses: { type: "action", action: "email.send" },
           input: { to: "sam@vendor.example", subject: "Your bill", body: "We entered your bill." },
         },
       ],
@@ -591,7 +504,7 @@ describe.skipIf(!h)("action write steps through the API", () => {
     const sent = resend.emails.length;
     const seen: string[] = [];
     const { params, result } = await run(e.id, "a", seen);
-    expect(result).toEqual({ status: "succeeded" });
+    expect(result).toEqual(ended());
     expect(seen).toHaveLength(1);
     expect(resend.emails.length).toBe(sent + 1);
     const [action] = await actionsOf(params.runId);

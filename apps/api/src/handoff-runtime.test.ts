@@ -14,6 +14,7 @@ import {
   type ApiHarness,
   admin,
   createApiHarness,
+  ended,
   FakeWorkflowStep,
   OPERATOR,
   testBundle,
@@ -227,7 +228,7 @@ describe.skipIf(!h)("hand-off steps in apps/api", () => {
 
   it("starts Price checker at step 2 with the mapped input, and doesn't wait for it", async () => {
     const p = params();
-    expect(await go(p)).toEqual({ status: "succeeded" });
+    expect(await go(p)).toEqual(ended());
     const [started] = startedFrom(p.runId);
     if (!started) throw new Error("nothing was handed off");
     expect(started).toMatchObject({
@@ -260,7 +261,7 @@ describe.skipIf(!h)("hand-off steps in apps/api", () => {
     });
 
     // Price checker's run starts at step 2: step 1 never runs, step 2 takes the input handed over.
-    expect(await go(started)).toEqual({ status: "succeeded" });
+    expect(await go(started)).toEqual(ended());
     const rows = await rowsOf(started.runId);
     expect(rows.map((r) => r.nodeId).sort()).toEqual(["check", "itemize"]);
     expect(rows.find((r) => r.nodeId === "itemize")?.input).toEqual({ nameContains: "Acme" });
@@ -317,13 +318,13 @@ describe.skipIf(!h)("hand-off steps in apps/api", () => {
         depth: 2,
       },
     );
-    expect(await go(two)).toEqual({ status: "succeeded" });
+    expect(await go(two)).toEqual(ended());
     expect(startedFrom(two.runId)[0]?.trigger).toMatchObject({ depth: 3 });
   });
 
   it("a test run starts nothing and records what it would have handed off", async () => {
     const p = params({ mode: "test" });
-    expect(await go(p)).toEqual({ status: "succeeded" });
+    expect(await go(p)).toEqual(ended());
     expect(startedFrom(p.runId)).toEqual([]);
     const hand = (await rowsOf(p.runId)).find((r) => r.nodeId === "hand");
     expect(hand).toMatchObject({ status: "succeeded", input: { nameContains: "Acme" } });
@@ -362,7 +363,7 @@ describe.skipIf(!h)("hand-off steps in apps/api", () => {
       return first;
     };
     const ok = params({ agentId: ids.checker, agentVersionId: ids.checkerVersion });
-    expect(await twice(ok)).toEqual({ status: "succeeded" });
+    expect(await twice(ok)).toEqual(ended());
     expect(await endsOf(ok.runId)).toEqual([{ type: "run.succeeded" }]);
 
     await H.t.db.update(agent).set({ runStatus: "paused" }).where(eq(agent.id, ids.checker));
@@ -374,9 +375,7 @@ describe.skipIf(!h)("hand-off steps in apps/api", () => {
   it("a finish landing after the run was cancelled leaves it cancelled, with no event", async () => {
     const p = params({ agentId: ids.checker, agentVersionId: ids.checkerVersion });
     const step = new FakeWorkflowStep();
-    expect(await executeRun(deps(), p, cloudflareStepRunner(step))).toEqual({
-      status: "succeeded",
-    });
+    expect(await executeRun(deps(), p, cloudflareStepRunner(step))).toEqual(ended());
     await H.t.db.delete(event).where(eq(event.subjectId, p.runId));
     await H.t.db.update(run).set({ status: "cancelled" }).where(eq(run.id, p.runId));
     step.results.delete("run:finish");

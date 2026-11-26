@@ -17,6 +17,7 @@ import {
   type ApiHarness,
   admin,
   createApiHarness,
+  ended,
   FakeWorkflowStep,
   forbiddenKeys,
   OPERATOR,
@@ -40,10 +41,11 @@ function bundle(): AgentBundle {
     {
       id: "hello",
       name: "Say hello",
-      kind: "notify",
-      channel: "thread",
-      message: "Starting",
       client: { visible: false },
+      kind: "do",
+      doneBy: "rules",
+      uses: { type: "tell" },
+      tell: { to: ["client_admin"], channel: "inbox", message: "Starting" },
     },
     ...wf.workflow.steps,
   ];
@@ -188,7 +190,7 @@ describe.skipIf(!h)("run controls", () => {
       params,
       cloudflareStepRunner(new FakeWorkflowStep(approveAs(admin("a"), seen))),
     );
-    expect(result).toEqual({ status: "succeeded" });
+    expect(result).toEqual(ended());
     // Only the person step asked; the write ran under its approval, not a new one.
     expect(seen).toEqual(["approval"]);
     const written = H.backend.writes.slice(writesBefore);
@@ -237,15 +239,15 @@ describe.skipIf(!h)("run controls", () => {
       params,
       cloudflareStepRunner(new FakeWorkflowStep(approveAs(admin("a"), seen))),
     );
-    expect(result).toEqual({ status: "succeeded" });
+    expect(result).toEqual(ended());
     expect(seen).toEqual(["external_action", "approval"]);
     expect(H.backend.writes.at(-1)?.idempotencyKey).toBe(`${id}:update:0`);
   });
 
   it("asks again for a write signed after its run had ended, never carrying that signature", async () => {
     const first = await failedAtWrite();
-    const [ended] = await H.t.db.select().from(run).where(eq(run.id, first));
-    const finishedAt = ended?.finishedAt;
+    const [endedRun] = await H.t.db.select().from(run).where(eq(run.id, first));
+    const finishedAt = endedRun?.finishedAt;
     if (!finishedAt) throw new Error("the run has no end");
     // As a Worker from before a run's end closed its cards left it: signed once the run was over.
     await H.t.db
@@ -263,7 +265,7 @@ describe.skipIf(!h)("run controls", () => {
       params,
       cloudflareStepRunner(new FakeWorkflowStep(approveAs(admin("a"), seen))),
     );
-    expect(result).toEqual({ status: "succeeded" });
+    expect(result).toEqual(ended());
     expect(seen).toEqual(["external_action", "approval"]);
     expect(H.backend.writes.at(-1)?.idempotencyKey).toBe(`${id}:update:0`);
     const [stale] = await H.t.db

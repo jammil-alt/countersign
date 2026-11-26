@@ -11,7 +11,6 @@ import { FakeModel, fakeMessage, type LlmRequest } from "@countersign/llm";
 import { desc, eq } from "drizzle-orm";
 import { afterAll, describe, expect, it, vi } from "vitest";
 import { admin, createApiHarness, OPERATOR, OTHER_OPERATOR } from "./api.test-helper";
-import { stepModelAnswer } from "./builder-v5.test-helper";
 
 // What reaches Sentry (a no-op here otherwise): a Builder failure must (QA on staging, 2026-11-17).
 const sentry = vi.hoisted(() => ({ captureException: vi.fn() }));
@@ -52,12 +51,12 @@ function editsDraft(text: string, fn: (d: Draft) => void) {
     const start = content.indexOf("<current_bundle>") + "<current_bundle>".length;
     const d = JSON.parse(content.slice(start, content.indexOf("</current_bundle>"))) as Draft;
     fn(d);
-    return stepModelAnswer({ toolUse: { name: "submit_turn", input: { text, bundle: d } } });
+    return { toolUse: { name: "submit_turn", input: { text, bundle: d } } };
   };
 }
 
 function draftAnswer() {
-  return stepModelAnswer({
+  return {
     toolUse: {
       name: "submit_draft",
       input: {
@@ -102,7 +101,7 @@ function draftAnswer() {
         },
       },
     },
-  });
+  };
 }
 
 describe.skipIf(!h)("builds", () => {

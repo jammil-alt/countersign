@@ -148,12 +148,13 @@ afterAll(() => h?.close());
 
 /** Started by hand (the client may run it) and on a document: an email, a record, a text. */
 function bundle(): unknown {
-  const steps = [
+  const _steps = [
     {
       id: "email",
-      kind: "write",
       name: "Email the vendor",
-      tool: MAIL_TOOL,
+      kind: "do",
+      doneBy: "rules",
+      uses: { type: "action", action: "fakemail.send" },
       input: {
         to: "orders@northside.example.com",
         subject: "Order 1042",
@@ -162,16 +163,18 @@ function bundle(): unknown {
     },
     {
       id: "update",
-      kind: "write",
       name: "Update the record",
-      tool: TESTKIT_UPDATE_TOOL,
+      kind: "do",
+      doneBy: "rules",
+      uses: { type: "action", action: TESTKIT_UPDATE_TOOL },
       input: { id: "r1", amount: "12.00" },
     },
     {
       id: "text",
-      kind: "write",
       name: "Text the driver",
-      tool: SMS_TOOL,
+      kind: "do",
+      doneBy: "rules",
+      uses: { type: "action", action: "fakesms.send" },
       input: { to: "+15125550100", text: "Pick up at 9." },
     },
   ];

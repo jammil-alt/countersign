@@ -27,6 +27,7 @@ import {
   admin,
   allowForAgent,
   createApiHarness,
+  ended,
   FakeWorkflowStep,
   forbiddenKeys,
   OPERATOR,
@@ -52,7 +53,7 @@ const h = await createApiHarness({
 });
 afterAll(() => h?.close());
 
-const MEETING = {
+const _MEETING = {
   title: "Delivery walk-through",
   start: "2026-11-20T10:00",
   end: "2026-11-20T10:30",
@@ -185,9 +186,7 @@ describe.skipIf(!h)("Calendars through the API", () => {
       instances: H.instances,
       credentials: credentialsFor(H.db, { current: ENCRYPTION_KEY }),
     };
-    expect(await executeRun(deps, params, cloudflareStepRunner(step))).toEqual({
-      status: "succeeded",
-    });
+    expect(await executeRun(deps, params, cloudflareStepRunner(step))).toEqual(ended());
     const [action] = await H.t.db
       .select()
       .from(externalAction)

@@ -9,7 +9,7 @@ import { agent, connection, externalAction, run, toolCall } from "@countersign/d
 import { FakeModel } from "@countersign/llm";
 import { eq } from "drizzle-orm";
 import { afterAll, describe, expect, it, vi } from "vitest";
-import { admin, createApiHarness, FakeWorkflowStep, OPERATOR } from "./api.test-helper";
+import { admin, createApiHarness, ended, FakeWorkflowStep, OPERATOR } from "./api.test-helper";
 import { executeRun } from "./runs/execute";
 import { cloudflareStepRunner } from "./runs/step-runner";
 
@@ -141,7 +141,7 @@ describe.skipIf(!h)("card numbers in a run's records", () => {
       .set({ status: "connected" })
       .where(eq(connection.id, H.A.connectionId));
     const { result, calls, actions } = await runWith("sec-cards", { id: "r1", amount: "12.00" });
-    expect(result, JSON.stringify(result)).toEqual({ status: "succeeded" });
+    expect(result, JSON.stringify(result)).toEqual(ended());
     expect(calls.length).toBeGreaterThan(0);
     expect(actions.length).toBe(1);
     expect(actions[0]?.status).toBe("done");

@@ -26,6 +26,7 @@ import {
   type ApiHarness,
   admin,
   createApiHarness,
+  ended,
   FakeWorkflowStep,
   OPERATOR,
   tamper,
@@ -315,9 +316,7 @@ describe.skipIf(!h)("Slack through the API", () => {
     });
     const atWait: number[] = [];
     const step = approver(() => atWait.push(slack.posted.length));
-    expect(await executeRun(deps(), params, cloudflareStepRunner(step))).toEqual({
-      status: "succeeded",
-    });
+    expect(await executeRun(deps(), params, cloudflareStepRunner(step))).toEqual(ended());
     // Nothing was posted before the approval.
     expect(atWait).toEqual([0]);
     expect(slack.posted).toHaveLength(1);

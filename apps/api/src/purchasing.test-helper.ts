@@ -10,7 +10,7 @@ import {
 } from "@countersign/core";
 import { DEFAULT_MODELS } from "@countersign/llm";
 
-const doc = "{{steps.read.output.documentId}}";
+const _doc = "{{steps.read.output.documentId}}";
 
 const bundle: AgentBundleInput = {
   schemaVersion: 1,

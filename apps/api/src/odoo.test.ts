@@ -36,6 +36,7 @@ import {
   admin,
   allowForAgent,
   createApiHarness,
+  ended,
   FakeWorkflowStep,
   OPERATOR,
 } from "./api.test-helper";
@@ -241,9 +242,7 @@ describe.skipIf(!h)("Odoo through the API", () => {
       instances: H.instances,
       credentials: credentialsFor(H.db, { current: ENCRYPTION_KEY }),
     };
-    expect(await executeRun(deps, params, cloudflareStepRunner(approver))).toEqual({
-      status: "succeeded",
-    });
+    expect(await executeRun(deps, params, cloudflareStepRunner(approver))).toEqual(ended());
     expect(asked).toBe(1);
     expect(odoo.row("purchase.order", FAKE_ODOO.purchaseOrder)?.state).toBe("purchase");
     const [action] = await H.t.db

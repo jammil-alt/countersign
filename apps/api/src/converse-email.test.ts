@@ -20,6 +20,7 @@ import {
   type ApiHarness,
   admin,
   createApiHarness,
+  ended,
   FakeWorkflowStep,
   forbiddenKeys,
   OPERATOR,
@@ -51,8 +52,8 @@ const h = await createApiHarness({
 });
 afterAll(() => h?.close());
 
-const GOAL = "Get the exact item list and the date needed for this purchase request.";
-const RESULT = {
+const _GOAL = "Get the exact item list and the date needed for this purchase request.";
+const _RESULT = {
   type: "object",
   properties: {
     items: {
@@ -323,7 +324,7 @@ describe.skipIf(!h)("a conversation by email", () => {
         params,
         cloudflareStepRunner(step),
       ),
-    ).toEqual({ status: "succeeded" });
+    ).toEqual(ended());
 
     const [row] = await H.t.db
       .select()

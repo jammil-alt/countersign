@@ -1,18 +1,12 @@
-// R8 (docs/plan.md §1.86; ARCHITECTURE §10.14 "Checks"): a v4 process's run on the client's
+// R8 (docs/plan.md §1.86; ARCHITECTURE §10.14 "Checks"): a workflow's run on the client's
 // timeline, over a throwaway database: a write's confers as steps of their own (a second check's
 // words never reach the portal), its approvers in the check's mode with their names, the write that
 // went ahead with nobody answering, and an urgent notice waiting for its "Seen".
 
-import { TESTKIT_UPDATE_TOOL } from "@countersign/connectors";
-import {
-  type AgentBundle,
-  type processes,
-  shownOnTimeline,
-  toProcessBundle,
-} from "@countersign/core";
+import { type AgentBundle, shownOnTimeline } from "@countersign/core";
 import { agent, agentVersion, inboxItem, run, stepRun } from "@countersign/db";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { admin, createApiHarness, OPERATOR, testBundle } from "./api.test-helper";
+import { admin, createApiHarness, doAction, doTell, OPERATOR, testBundle } from "./api.test-helper";
 import { stepFinder, stepOfRow } from "./routes/run-checks";
 
 const h = await createApiHarness();
@@ -21,15 +15,12 @@ afterAll(() => h?.close());
 // biome-ignore lint/suspicious/noExplicitAny: response bodies are read loosely in tests.
 const j = (v: unknown) => v as any;
 
-/** The test bundle as a v4 process: its write with a confer and an `any` approval; a notice. */
-function bundleV4(dana: string): AgentBundle {
-  const b = toProcessBundle(testBundle(), {
-    wrappedTool: () => null,
-    sideEffect: (t) => (t === TESTKIT_UPDATE_TOOL ? "external" : null),
-  });
-  const p = b.workflows[0]?.workflow as processes.Process;
-  const update = p.steps.find((s) => s.id === "update");
-  if (update?.kind !== "write") throw new Error("fixture");
+/** The test bundle: its write with a confer and an `any` approval; a notice, a read and a fork. */
+function bundleWithChecks(dana: string): AgentBundle {
+  const b = testBundle();
+  const w = b.workflows[0]?.workflow;
+  const update = w?.steps.find((s) => s.id === "update");
+  if (!w || update?.kind !== "do") throw new Error("fixture");
   update.checks = {
     confer: {
       with: [
@@ -47,58 +38,61 @@ function bundleV4(dana: string): AgentBundle {
       ifNoAnswer: "stop",
       onReject: "stop",
     },
-  };
-  p.steps.push({
-    id: "tell",
-    name: "Tell the team",
-    kind: "notify",
-    notify: {
-      to: ["client_admin"],
-      channel: "inbox",
-      message: "Done",
-      urgent: { ackWithin: "1 hour", ifNoAnswer: "stop" },
-    },
-  });
-  // Wave 5 (web): a read that carries on when it fails, and an if the client sees, routed on how
-  // the write and the read ended.
-  p.steps.push({
-    id: "look",
-    name: "Look the record up",
-    kind: "read",
-    tool: "testkit.record.query",
-    input: {},
-    onError: "continue",
-  });
-  p.steps.push({
-    id: "route",
-    name: "Which way",
-    kind: "if",
-    client: { visible: true, label: "Pick the way" },
-    paths: [
-      {
-        id: "p-done",
-        name: "Corrected",
-        when: {
-          match: "all",
-          rules: [
-            { field: "{{steps.update.outcome}}", op: "=", value: "done" },
-            { field: "{{steps.look.outcome}}", op: "=", value: "failed" },
-          ],
-        },
-        steps: [],
+  } as never;
+  // Before the End: a notice, a read that carries on when it fails, and a fork the client sees,
+  // routed on how the write and the read ended.
+  w.steps.splice(
+    -1,
+    0,
+    doTell("tell", "Tell the team", "Done", {
+      tell: {
+        to: ["client_admin"],
+        channel: "inbox",
+        message: "Done",
+        urgent: { ackWithin: "1 hour", ifNoAnswer: "stop" },
       },
-    ],
-    otherwise: { id: "p-else", steps: [] },
-  });
+    }) as never,
+    doAction(
+      "look",
+      "Look the record up",
+      "testkit.record.query",
+      {},
+      {
+        onError: "continue",
+        checks: undefined,
+      },
+    ) as never,
+    {
+      id: "route",
+      name: "Which way",
+      kind: "fork",
+      client: { visible: true, label: "Pick the way" },
+      paths: [
+        {
+          id: "p-done",
+          name: "Corrected",
+          when: {
+            match: "all",
+            rules: [
+              { field: "{{steps.update.outcome}}", op: "=", value: "done" },
+              { field: "{{steps.look.outcome}}", op: "=", value: "failed" },
+            ],
+          },
+          steps: [],
+        },
+      ],
+      otherwise: { id: "p-else", steps: [] },
+    } as never,
+  );
   return b;
 }
 
-describe("v4 steps on the timeline", () => {
-  it("finds steps in either schema and shows v4 work by default", () => {
-    const b = bundleV4("00000000-0000-4000-8000-000000000d01");
+describe("steps on the timeline", () => {
+  it("finds steps and shows the work by default", () => {
+    const b = bundleWithChecks("00000000-0000-4000-8000-000000000d01");
     const find = stepFinder(b.workflows[0]?.workflow);
     expect(stepOfRow(find, "update:confer:1")?.id).toBe("update");
-    expect(stepOfRow(find, "tell")?.kind).toBe("notify");
+    expect(stepOfRow(find, "tell")?.kind).toBe("do");
     const write = find("update");
     expect(write && shownOnTimeline(write)).toBe(true);
     expect(shownOnTimeline({ kind: "wait" })).toBe(false);
@@ -106,7 +100,7 @@ describe("v4 steps on the timeline", () => {
   });
 });
 
-describe.skipIf(!h)("a v4 run's checks in the portal", () => {
+describe.skipIf(!h)("a run's checks in the portal", () => {
   const H = h as NonNullable<typeof h>;
   const db = H.t.db;
   const A = () => H.A.tenantId;
@@ -119,7 +113,7 @@ describe.skipIf(!h)("a v4 run's checks in the portal", () => {
       .values({
         tenantId: A(),
         kind: "client",
-        slug: "records-v4",
+        slug: "records",
         name: "Records clerk",
         runStatus: "active",
         stage: "live",
@@ -132,8 +126,8 @@ describe.skipIf(!h)("a v4 run's checks in the portal", () => {
         tenantId: A(),
         agentId: a.id,
         version: 1,
-        bundle: bundleV4(dana) as never,
-        bundleHash: "hash-v4-checks",
+        bundle: bundleWithChecks(dana) as never,
+        bundleHash: "hash-checks",
         status: "live",
         authorType: "operator",
       })

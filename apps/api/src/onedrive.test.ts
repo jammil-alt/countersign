@@ -28,6 +28,7 @@ import {
   type ApiHarness,
   admin,
   createApiHarness,
+  ended,
   FakeWorkflowStep,
   OPERATOR,
   v5Workflow,
@@ -220,9 +221,7 @@ describe.skipIf(!h)("OneDrive through the API", () => {
       expect(done.status, JSON.stringify(done.json)).toBe(200);
       return H.instances.events.find((e) => e.event.type === type)?.event.payload;
     });
-    expect(await executeRun(deps(), params, cloudflareStepRunner(step))).toEqual({
-      status: "succeeded",
-    });
+    expect(await executeRun(deps(), params, cloudflareStepRunner(step))).toEqual(ended());
     // Nothing was filed before the approval, and nothing went to Google Drive.
     expect(atWait).toEqual([undefined]);
     expect(onedrive.text("Bills/2026/10/hardwood-INV-1042.pdf")).toBe(

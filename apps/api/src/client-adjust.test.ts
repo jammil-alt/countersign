@@ -97,7 +97,10 @@ function adjustBundle(): AgentBundle {
         ...w,
         workflow: {
           ...(w?.workflow as object),
-          moreTriggers: [{ id: "trg-daily", on: { type: "schedule", cron: "0 7 * * 1-5" } }],
+          triggers: [
+            ...((w?.workflow as { triggers?: unknown[] } | undefined)?.triggers ?? []),
+            { id: "trg-daily", on: { type: "schedule", cron: "0 7 * * 1-5" } },
+          ],
         },
       },
     ],
@@ -140,8 +143,11 @@ describe.skipIf(!h)("client adjustments and feedback", () => {
   const floorOf = (v: { bundle: unknown } | undefined) =>
     bundleOf(v).definition.skills[0]?.parameters?.floor;
   const cronOf = (v: { bundle: unknown } | undefined) =>
-    (bundleOf(v).workflows[0]?.workflow.moreTriggers?.[0]?.on as { cron?: string } | undefined)
-      ?.cron;
+    (
+      bundleOf(v).workflows[0]?.workflow.triggers.find((t) => t.id === "trg-daily")?.on as
+        | { cron?: string }
+        | undefined
+    )?.cron;
 
   let id = "";
 

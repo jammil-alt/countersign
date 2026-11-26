@@ -25,6 +25,7 @@ import {
   type ApiHarness,
   admin,
   createApiHarness,
+  ended,
   FakeWorkflowStep,
   OPERATOR,
   testBundle,
@@ -159,7 +160,7 @@ describe.skipIf(!h)("portal reads (speed run 6.2, 6.4)", () => {
         params,
         cloudflareStepRunner(new FakeWorkflowStep(resolveAs(admin("a")))),
       ),
-    ).toEqual({ status: "succeeded" });
+    ).toEqual(ended());
   });
 
   it("answers the run page as the run list does, with approvals and changes, in 10 statements", async () => {

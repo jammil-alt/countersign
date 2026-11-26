@@ -17,6 +17,7 @@ import {
   type ApiHarness,
   admin,
   createApiHarness,
+  ended,
   FakeWorkflowStep,
   forbiddenKeys,
   OPERATOR,
@@ -373,9 +374,7 @@ describe.skipIf(!h)("forms: request info from a contact", () => {
       }
       throw new Error(`unexpected wait ${type}`);
     });
-    expect(await executeRun(deps(model), params, cloudflareStepRunner(step))).toEqual({
-      status: "succeeded",
-    });
+    expect(await executeRun(deps(model), params, cloudflareStepRunner(step))).toEqual(ended());
 
     // The drafting call saw the need and the data as data, the operator's ask beside them.
     expect(JSON.stringify(model.requests[0]?.system)).not.toContain("INV-1042");
@@ -466,9 +465,7 @@ describe.skipIf(!h)("forms: request info from a contact", () => {
       }
       throw new Error(`unexpected wait ${type}`);
     });
-    expect(await executeRun(deps(model), params, cloudflareStepRunner(step))).toEqual({
-      status: "succeeded",
-    });
+    expect(await executeRun(deps(model), params, cloudflareStepRunner(step))).toEqual(ended());
     const out = await outputOf(params.runId, "ask");
     expect(out.output).toMatchObject({
       outcome: "no_answer",
@@ -497,9 +494,7 @@ describe.skipIf(!h)("forms: request info from a contact", () => {
     const step = new FakeWorkflowStep(async (_n, type) => {
       throw new Error(`unexpected wait ${type}`);
     });
-    expect(await executeRun(deps(model), params, cloudflareStepRunner(step))).toEqual({
-      status: "succeeded",
-    });
+    expect(await executeRun(deps(model), params, cloudflareStepRunner(step))).toEqual(ended());
     const out = await outputOf(runId, "ask");
     expect(out.output).toMatchObject({
       outcome: "not_sent",

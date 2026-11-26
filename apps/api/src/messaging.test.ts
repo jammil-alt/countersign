@@ -37,6 +37,7 @@ import {
   type ApiHarness,
   admin,
   createApiHarness,
+  ended,
   FakeWorkflowStep,
   OPERATOR,
   OTHER_OPERATOR,
@@ -111,7 +112,7 @@ const NOTIFY_WORKFLOW = {
       kind: "do",
       doneBy: "rules",
       uses: { type: "action", action: SMS_SEND_TOOL },
-      input: { to: "{{trigger.to}}", text: "Your order has shipped." },
+      input: { to: "{{trigger.to}}", body: "Your order has shipped." },
     },
     { id: "end", kind: "end", name: "Done", outputs: ["out-done"] },
   ],
@@ -148,7 +149,7 @@ const REPLY_WORKFLOW = {
       kind: "do",
       doneBy: "rules",
       uses: { type: "action", action: SMS_SEND_TOOL },
-      input: { to: "{{trigger.from}}", text: "Thanks, we got your message." },
+      input: { to: "{{trigger.from}}", body: "Thanks, we got your message." },
     },
     { id: "end", kind: "end", name: "Done", outputs: ["out-done"] },
   ],
@@ -476,7 +477,7 @@ describe.skipIf(!h)("texts and WhatsApp through the API", () => {
       // Waiting on approval: nothing sent yet.
       const sendsBefore = twilio.sends().length;
       const result = await executeRun(deps(), params, cloudflareStepRunner(approver("a")));
-      expect(result).toEqual({ status: "succeeded" });
+      expect(result).toEqual(ended());
       expect(twilio.sends()).toHaveLength(sendsBefore + 1);
       expect(twilio.sends().at(-1)?.form).toMatchObject({
         To: PAT,
@@ -648,7 +649,7 @@ describe.skipIf(!h)("texts and WhatsApp through the API", () => {
     it("resumes when retried: an opt-out since the send doesn't fail it, and nothing is sent twice", async () => {
       const params = await started();
       const sends = twilio.sends().length;
-      expect(await runIt(params)).toEqual({ status: "succeeded" });
+      expect(await runIt(params)).toEqual(ended());
       expect(twilio.sends()).toHaveLength(sends + 1);
       const action = await actionOf(params.runId);
       expect(action).toMatchObject({ status: "done", approvedBy: null });
@@ -657,7 +658,7 @@ describe.skipIf(!h)("texts and WhatsApp through the API", () => {
       // The Worker stopped before the action was marked done; Pat opts out; the step is retried.
       await leftExecuting(action?.id ?? "");
       await optOut(true);
-      expect(await runIt(params)).toEqual({ status: "succeeded" });
+      expect(await runIt(params)).toEqual(ended());
       expect(twilio.sends()).toHaveLength(sends + 1);
       const again = await actionOf(params.runId);
       expect(again).toMatchObject({ status: "done", error: null });
@@ -676,7 +677,7 @@ describe.skipIf(!h)("texts and WhatsApp through the API", () => {
     it("a step retried while its first try's claim holds waits for it to run out, then sends once", async () => {
       const params = await started();
       const sends = twilio.sends().length;
-      expect(await runIt(params)).toEqual({ status: "succeeded" });
+      expect(await runIt(params)).toEqual(ended());
       const action = await actionOf(params.runId);
       const id = action?.id ?? "";
       // The Worker stopped mid-send just now: the claim is fresh.
@@ -696,9 +697,7 @@ describe.skipIf(!h)("texts and WhatsApp through the API", () => {
           name: "WorkflowTimeoutError",
         });
       });
-      expect(await executeRun(deps(), params, cloudflareStepRunner(step))).toEqual({
-        status: "succeeded",
-      });
+      expect(await executeRun(deps(), params, cloudflareStepRunner(step))).toEqual(ended());
       expect(waits).toEqual([`lease-${id.replace(/-/g, "")}`]);
       expect(twilio.sends()).toHaveLength(sends + 1);
       expect(await actionOf(params.runId)).toMatchObject({ status: "done", error: null });
@@ -727,7 +726,7 @@ describe.skipIf(!h)("texts and WhatsApp through the API", () => {
 
       await leftExecuting(action?.id ?? "");
       await optOut(true);
-      expect(await runIt(params)).toEqual({ status: "succeeded" });
+      expect(await runIt(params)).toEqual(ended());
       expect(twilio.sends()).toHaveLength(sends + 1);
       const done = await actionOf(params.runId);
       expect(done).toMatchObject({ status: "done" });
@@ -825,7 +824,7 @@ describe.skipIf(!h)("texts and WhatsApp through the API", () => {
         // The run's retry carries the write under its key (a takeover of the same action).
         const action = await actionOf(params.runId);
         await leftExecuting(action?.id ?? "");
-        expect(await runIt(params)).toEqual({ status: "succeeded" });
+        expect(await runIt(params)).toEqual(ended());
       }
       expect(twilio.sends()).toHaveLength(sends + 1);
       const action = await actionOf(params.runId);

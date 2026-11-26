@@ -54,7 +54,6 @@ import {
   SEMANTIC_MATCH_VENDOR,
   VENDOR_CATALOG_SKILLS,
   VENDOR_CATALOG_TOOLS,
-  vendorCatalogProcess,
   vendorItem,
   vendorItemText,
 } from "@countersign/pack-materials";
@@ -71,6 +70,7 @@ import {
 import { createPlatform, deploymentConnectors } from "./platform";
 import { executeRun } from "./runs/execute";
 import { cloudflareStepRunner } from "./runs/step-runner";
+import vendorCatalogWorkflow from "./vendor-catalog.workflow.json";
 
 // biome-ignore lint/suspicious/noExplicitAny: response bodies are read loosely in tests.
 type J = any;
@@ -103,7 +103,7 @@ function bundle(): AgentBundleInput {
       memory: { enabled: false },
     },
     workflows: [
-      { slug: "vendor-lines", name: "Match a vendor's invoice", workflow: vendorCatalogProcess() },
+      { slug: "vendor-lines", name: "Match a vendor's invoice", workflow: vendorCatalogWorkflow },
     ],
   } as unknown as AgentBundleInput;
 }

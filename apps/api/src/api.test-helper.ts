@@ -25,7 +25,7 @@ import {
   hashJson,
   type SkillDefinition,
   SkillDefinition as SkillDefinitionSchema,
-  type steps,
+  steps,
 } from "@countersign/core";
 import {
   appUser,
@@ -43,6 +43,7 @@ import { type LlmTransport, type Transcriber, withRecording } from "@countersign
 import { fileFixtureStore } from "@countersign/llm/node";
 import { eq } from "drizzle-orm";
 import type { Hono } from "hono";
+import { expect } from "vitest";
 import { createApp } from "./app";
 // v0.12 W2-C
 import type { BrowserDeps } from "./browser/services";
@@ -498,8 +499,8 @@ export const MANUAL_TRIGGER = { id: "trg-manual", on: { type: "manual", input: {
 
 /**
  * A v5 workflow around `list`: a manual trigger unless `triggers` says otherwise, one declared
- * output ("Done", nothing to deliver) and, unless `end` is false, one End after the steps that
- * delivers it, so it publishes. Pass `outputs` to declare others (the End then delivers all).
+ * output ("Done", nothing to deliver) and, unless `end` is false or every path already ends, one
+ * End after the steps that delivers it, so it publishes. Pass `outputs` to declare others (the End then delivers all).
  */
 export function v5Workflow(
   list: readonly unknown[],
@@ -508,19 +509,37 @@ export function v5Workflow(
     outputs?: readonly { id: string }[];
     end?: boolean;
   } = {},
-): steps.WorkflowInput {
+): steps.Workflow {
   const outputs = options.outputs ?? [{ id: DONE_OUTPUT, name: "Done", kind: "nothing" }];
+  const taken = new Set<string>();
+  steps.eachStep(list as steps.Step[], ({ step }) => taken.add(step.id));
+  let endId = "end";
+  for (let n = 2; taken.has(endId); n++) endId = `end-${n}`;
+  // An End after the steps, unless every path through them already ends.
+  const needsEnd = options.end !== false && !steps.endsAlways(list as steps.Step[]);
   return {
     schemaVersion: 5,
     triggers: options.triggers ?? [MANUAL_TRIGGER],
     outputs,
     steps: [
       ...list,
-      ...(options.end === false
-        ? []
-        : [{ id: "end", kind: "end", name: "Done", outputs: outputs.map((o) => o.id) }]),
+      ...(needsEnd
+        ? [{ id: endId, kind: "end", name: "Done", outputs: outputs.map((o) => o.id) }]
+        : []),
     ],
-  } as steps.WorkflowInput;
+  } as unknown as steps.Workflow;
+}
+
+/**
+ * What a run that finished on an End step returns: succeeded, stopped there. Pass the End's id to
+ * pin it; without one any End the helpers name ("end", "end-<workflow>") matches.
+ */
+export function ended(nodeId?: string) {
+  return {
+    status: "succeeded" as const,
+    nodeId: nodeId ?? expect.stringMatching(/^end(-[\w-]+)?$/),
+    reason: "stop",
+  };
 }
 
 /** A Do step done by rules that calls an action (a Change or a Send waits for a person by default). */
@@ -530,7 +549,7 @@ export function doAction(
   action: string,
   input: Record<string, unknown> = {},
   extra: Record<string, unknown> = {},
-) {
+): steps.DoStep {
   return {
     id,
     name,
@@ -540,7 +559,7 @@ export function doAction(
     input,
     checks: { approval: { required: "required" } },
     ...extra,
-  };
+  } as unknown as steps.DoStep;
 }
 
 /** A Do step a person does: approve (or answer) a question; the deadline stops the run. */
@@ -549,7 +568,7 @@ export function doPerson(
   name: string,
   person: Record<string, unknown> = {},
   extra: Record<string, unknown> = {},
-) {
+): steps.DoStep {
   return {
     id,
     name,
@@ -563,7 +582,7 @@ export function doPerson(
       ...person,
     },
     ...extra,
-  };
+  } as unknown as steps.DoStep;
 }
 
 /** A Do step that tells the team (the thread, by default) and waits for nobody. */
@@ -572,7 +591,7 @@ export function doTell(
   name: string,
   message: string,
   extra: Record<string, unknown> = {},
-) {
+): steps.DoStep {
   return {
     id,
     name,
@@ -581,7 +600,7 @@ export function doTell(
     uses: { type: "tell" },
     tell: { to: ["lead"], channel: "inbox", message },
     ...extra,
-  };
+  } as unknown as steps.DoStep;
 }
 
 /**

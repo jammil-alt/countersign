@@ -7,14 +7,14 @@
 
 import { env, introspectWorkflowInstance } from "cloudflare:test";
 import { TESTKIT_UPDATE_TOOL } from "@countersign/connectors";
-import type { Workflow as WorkflowDef } from "@countersign/core";
+import { steps } from "@countersign/core";
 import { inboxEventType } from "@countersign/workflows";
 import { describe, expect, it } from "vitest";
 import { probeItemId } from "./runtime-harness";
 
 const probe = (env as unknown as { DESK_PROBE_WORKFLOW: Workflow }).DESK_PROBE_WORKFLOW;
 
-const workflow: WorkflowDef = {
+const workflow = steps.Workflow.parse({
   schemaVersion: 5,
   triggers: [{ id: "trg", on: { type: "manual", input: {} } }],
   outputs: [{ id: "out-done", name: "Done", kind: "nothing" }],
@@ -30,7 +30,7 @@ const workflow: WorkflowDef = {
     },
     { id: "end", kind: "end", name: "Done", outputs: ["out-done"] },
   ],
-};
+});
 
 const approved = {
   type: inboxEventType(probeItemId("send")),
@@ -49,7 +49,11 @@ describe("the undo window under the Workflows engine", () => {
     await new Promise((r) => setTimeout(r, Math.max(0, heldUntil - Date.now()) + 100));
     await (await probe.get(id)).sendEvent(approved);
     await instance.waitForStatus("complete");
-    expect(await instance.getOutput()).toEqual({ status: "succeeded" });
+    expect(await instance.getOutput()).toEqual({
+      status: "succeeded",
+      nodeId: "end",
+      reason: "stop",
+    });
     expect(await instance.waitForStepResult({ name: "send:approval:1:resume" })).toMatchObject({
       kind: "done",
       output: { written: true },

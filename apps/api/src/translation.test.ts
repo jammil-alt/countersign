@@ -75,7 +75,7 @@ const finish = (sourceLanguage: string, translation: string): FakeTurn => ({
   toolUse: { name: "finish", input: { sourceLanguage, translation } },
 });
 
-const PURPOSE = "Ask them to confirm Friday's delivery.";
+const _PURPOSE = "Ask them to confirm Friday's delivery.";
 
 function bundle(): AgentBundle {
   return AgentBundle.parse({
@@ -108,7 +108,7 @@ function bundle(): AgentBundle {
               },
             },
           ],
-          outputs: [{ id: "out-done", name: "Done", kind: "nothing" }],
+          outputs: [{ id: "out-done-reach", name: "Done", kind: "nothing" }],
           steps: [
             {
               id: "reach",
@@ -127,7 +127,7 @@ function bundle(): AgentBundle {
                 timeout: "2 days",
               },
             },
-            { id: "end", kind: "end", name: "Done", outputs: ["out-done"] },
+            { id: "end-reach", kind: "end", name: "Done", outputs: ["out-done-reach"] },
           ],
         },
       },
@@ -145,7 +145,7 @@ function bundle(): AgentBundle {
               },
             },
           ],
-          outputs: [{ id: "out-done", name: "Done", kind: "nothing" }],
+          outputs: [{ id: "out-done-translate", name: "Done", kind: "nothing" }],
           steps: [
             {
               id: "tr",
@@ -155,7 +155,7 @@ function bundle(): AgentBundle {
               uses: { type: "action", action: "comms.translate" },
               input: { sourceId: "{{trigger.sourceId}}", to: "de" },
             },
-            { id: "end", kind: "end", name: "Done", outputs: ["out-done"] },
+            { id: "end-translate", kind: "end", name: "Done", outputs: ["out-done-translate"] },
           ],
         },
       },

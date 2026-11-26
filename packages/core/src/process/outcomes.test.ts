@@ -377,7 +377,7 @@ describe("deriving outcomes", () => {
   it("keeps an error plain and short, and knows a write that may have happened", () => {
     const e = plainError(`refused: token sk_live_${"a".repeat(30)} expired\nstack`);
     expect(e).toEqual({ code: "refused", message: "refused: token [hidden] expired" });
-    expect(plainError("x".repeat(300) + " y").message.length).toBeLessThanOrEqual(200);
+    expect(plainError(`${"x".repeat(300)} y`).message.length).toBeLessThanOrEqual(200);
     expect(
       writeMayHaveHappened("The text to Pat may have been sent; check before trying again: 500"),
     ).toBe(true);

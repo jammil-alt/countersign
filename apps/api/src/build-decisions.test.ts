@@ -11,7 +11,6 @@ import { desc, eq } from "drizzle-orm";
 import { afterAll, describe, expect, it, vi } from "vitest";
 import { admin, createApiHarness, OPERATOR, v5Workflow } from "./api.test-helper";
 import { draftWritingSteps } from "./build/store";
-import { stepModelAnswer } from "./builder-v5.test-helper";
 
 for (const level of process.env.SHOW_LOGS ? [] : (["warn", "error"] as const)) {
   vi.spyOn(console, level).mockImplementation(() => {});
@@ -27,7 +26,7 @@ const turnAnswer = (input: Record<string, unknown>) => ({
 const reviewed = () => ({ toolUse: { name: "submit_review", input: { concerns: [] } } });
 
 function draftAnswer() {
-  return stepModelAnswer({
+  return {
     toolUse: {
       name: "submit_draft",
       input: {
@@ -82,7 +81,7 @@ function draftAnswer() {
         },
       },
     },
-  });
+  };
 }
 
 describe.skipIf(!h)("decisions on a build", () => {
@@ -383,7 +382,13 @@ describe.skipIf(!h)("decisions on a build", () => {
       });
       expect(made.status, JSON.stringify(made.json)).toBe(200);
     }
-    const step = (id: string, skill: string) => ({ id, kind: "skill", name: id, skill });
+    const step = (id: string, skill: string) => ({
+      id,
+      kind: "do",
+      doneBy: "ai",
+      name: id,
+      uses: { type: "skill", skill },
+    });
     const bundle = {
       schemaVersion: 1,
       definition: { skills: [] },

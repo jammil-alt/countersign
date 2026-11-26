@@ -22,6 +22,7 @@ import {
   type ApiHarness,
   admin,
   createApiHarness,
+  ended,
   FakeWorkflowStep,
   OPERATOR,
   user,
@@ -257,9 +258,7 @@ describe.skipIf(!h)("Google Sheets through the API", () => {
     });
     const atWait: number[] = [];
     const step = approver(() => atWait.push(sheets.cells(budget.id).length));
-    expect(await executeRun(deps(), params, cloudflareStepRunner(step))).toEqual({
-      status: "succeeded",
-    });
+    expect(await executeRun(deps(), params, cloudflareStepRunner(step))).toEqual(ended());
     // Nothing was added before the approval.
     expect(atWait).toEqual([2]);
     expect(sheets.cells(budget.id)).toEqual([

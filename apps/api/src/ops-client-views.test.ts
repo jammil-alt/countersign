@@ -54,7 +54,7 @@ function twoWorkflows(): AgentBundle {
         workflow: {
           schemaVersion: 5,
           triggers: [{ id: "trg-note", on: { type: "manual", input: {} } }],
-          outputs: [{ id: "out-done", name: "Done", kind: "nothing" }],
+          outputs: [{ id: "out-done-note", name: "Done", kind: "nothing" }],
           steps: [
             {
               id: "n",
@@ -64,7 +64,7 @@ function twoWorkflows(): AgentBundle {
               uses: { type: "tell" },
               tell: { to: ["client_admin"], channel: "inbox", message: "hello" },
             },
-            { id: "end", kind: "end", name: "Done", outputs: ["out-done"] },
+            { id: "end-note", kind: "end", name: "Done", outputs: ["out-done-note"] },
           ],
         },
       },

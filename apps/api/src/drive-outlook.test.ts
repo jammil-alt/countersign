@@ -32,6 +32,7 @@ import {
   type ApiHarness,
   admin,
   createApiHarness,
+  ended,
   FakeWorkflowStep,
   OPERATOR,
   v5Workflow,
@@ -244,9 +245,7 @@ describe.skipIf(!h)("Google Drive and Outlook through the API", () => {
       );
       const atWait: number[] = [];
       const step = approver(() => atWait.push(drive.uploaded().length));
-      expect(await executeRun(deps(), params, cloudflareStepRunner(step))).toEqual({
-        status: "succeeded",
-      });
+      expect(await executeRun(deps(), params, cloudflareStepRunner(step))).toEqual(ended());
       // Nothing was filed before the approval.
       expect(atWait).toEqual([0]);
       const filed = drive.uploaded();
@@ -325,9 +324,7 @@ describe.skipIf(!h)("Google Drive and Outlook through the API", () => {
       );
       const atWait: number[] = [];
       const step = approver(() => atWait.push(microsoft.sent.length));
-      expect(await executeRun(deps(), params, cloudflareStepRunner(step))).toEqual({
-        status: "succeeded",
-      });
+      expect(await executeRun(deps(), params, cloudflareStepRunner(step))).toEqual(ended());
       expect(atWait).toEqual([0]);
       expect(microsoft.sent).toHaveLength(1);
       expect(microsoft.sent[0]?.account).toBe("pat.lee@acme.example");

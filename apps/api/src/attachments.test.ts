@@ -46,6 +46,7 @@ import {
   type ApiHarness,
   admin,
   createApiHarness,
+  ended,
   FakeWorkflowStep,
   OPERATOR,
   optOutOf,
@@ -72,7 +73,7 @@ const resend = fakeResend();
 const fetch: FetchLike = (url, init) =>
   url.startsWith(RESEND_API) ? resend.fetch(url, init) : twilio.fetch(url, init);
 const PAT = "+15555550100";
-const PURPOSE = "Send the purchase order and ask for a quote";
+const _PURPOSE = "Send the purchase order and ask for a quote";
 const PO = new TextEncoder().encode(
   "%PDF-1.4\n1 0 obj << /Type /Catalog >> endobj\n2 0 obj << /Type /Page >> endobj\n%%EOF\n",
 );
@@ -366,9 +367,7 @@ describe.skipIf(!h)("attachments both ways through the API", () => {
     const step = new FakeWorkflowStep(async (_n, type) => {
       throw new Error(`unexpected wait ${type}`);
     });
-    expect(await executeRun(deps(), params, cloudflareStepRunner(step))).toEqual({
-      status: "succeeded",
-    });
+    expect(await executeRun(deps(), params, cloudflareStepRunner(step))).toEqual(ended());
     expect(await stepOutput(params.runId, "reach")).toMatchObject({
       outcome: "not_allowed",
       reason: `document ${otherClientsDoc} is not this client's`,
@@ -449,9 +448,7 @@ describe.skipIf(!h)("attachments both ways through the API", () => {
       await Promise.all(pending);
       return H.instances.events.find((e) => e.event.type === type)?.event.payload;
     });
-    expect(await executeRun(deps(), params, cloudflareStepRunner(step))).toEqual({
-      status: "succeeded",
-    });
+    expect(await executeRun(deps(), params, cloudflareStepRunner(step))).toEqual(ended());
 
     // The send's external action keeps the attachment by name and size.
     const [action] = await H.t.db
@@ -558,9 +555,7 @@ describe.skipIf(!h)("attachments both ways through the API", () => {
       await H.settle();
       return H.instances.events.find((e) => e.event.type === type)?.event.payload;
     });
-    expect(await executeRun(deps(), params, cloudflareStepRunner(step))).toEqual({
-      status: "succeeded",
-    });
+    expect(await executeRun(deps(), params, cloudflareStepRunner(step))).toEqual(ended());
     expect(mediaUrl).not.toBe("");
 
     const [action] = await H.t.db
@@ -642,9 +637,7 @@ describe.skipIf(!h)("attachments both ways through the API", () => {
       });
       return H.instances.events.find((e) => e.event.type === type)?.event.payload;
     });
-    expect(await executeRun(deps(), params, cloudflareStepRunner(step))).toEqual({
-      status: "succeeded",
-    });
+    expect(await executeRun(deps(), params, cloudflareStepRunner(step))).toEqual(ended());
     const out = await stepOutput(params.runId, "reach");
     expect(out).toMatchObject({ outcome: "replied", channel: "whatsapp" });
     expect(out.reply.documents).toHaveLength(1);
@@ -717,9 +710,7 @@ describe.skipIf(!h)("attachments both ways through the API", () => {
       expect(j(settled?.reply).pending).toBeUndefined();
       return { reachOutId: row?.id };
     });
-    expect(await executeRun(deps(), params, cloudflareStepRunner(step))).toEqual({
-      status: "succeeded",
-    });
+    expect(await executeRun(deps(), params, cloudflareStepRunner(step))).toEqual(ended());
     expect(await stepOutput(params.runId, "reach")).toMatchObject({
       outcome: "replied",
       reply: {

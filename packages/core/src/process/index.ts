@@ -30,7 +30,6 @@ export * from "./outcomes";
 // R6: the owner.
 export * from "./owner";
 export * from "./paths";
-export * from "./range";
 export * from "./reshape";
 export * from "./reshape-propose";
 // Reshape data (owner, 2026-11-11): the mapping, its evaluator, typing and proposer.

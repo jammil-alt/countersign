@@ -25,6 +25,7 @@ import {
   type ApiHarness,
   admin,
   createApiHarness,
+  ended,
   FakeWorkflowStep,
   OPERATOR,
 } from "./api.test-helper";
@@ -257,9 +258,7 @@ describe.skipIf(!h)("run oversight through the API's ports", () => {
     });
     const approved: string[] = [];
     const step = new FakeWorkflowStep(approving(approved));
-    expect(await executeRun(deps(model), params, cloudflareStepRunner(step))).toEqual({
-      status: "succeeded",
-    });
+    expect(await executeRun(deps(model), params, cloudflareStepRunner(step))).toEqual(ended());
     const actions = await H.t.db
       .select()
       .from(externalAction)
@@ -317,9 +316,7 @@ describe.skipIf(!h)("run oversight through the API's ports", () => {
       remember: [{ note: "This client types amounts with a comma" }],
     });
     const step = new FakeWorkflowStep(approving([]));
-    expect(await executeRun(deps(model), params, cloudflareStepRunner(step))).toEqual({
-      status: "succeeded",
-    });
+    expect(await executeRun(deps(model), params, cloudflareStepRunner(step))).toEqual(ended());
 
     // Pinned on the run, reviewed on the owner's model, with its notes and its memory as data.
     const [pinned] = await H.t.db
@@ -402,7 +399,7 @@ describe.skipIf(!h)("run oversight through the API's ports", () => {
     });
     expect(
       await executeRun(deps(model), params, cloudflareStepRunner(new FakeWorkflowStep())),
-    ).toEqual({ status: "succeeded" });
+    ).toEqual(ended());
     expect(H.backend.writes.length).toBe(writes);
     const actions = await H.t.db
       .select()
@@ -482,7 +479,7 @@ describe.skipIf(!h)("run oversight through the API's ports", () => {
       },
     ]);
     const { params, result, seen } = await billRun(clerk, model);
-    expect(result).toEqual({ status: "succeeded" });
+    expect(result).toEqual(ended());
     expect(model.remaining).toBe(0);
     // One proposal, with the corrected total: what the approver signed.
     const actions = await H.t.db
@@ -523,7 +520,7 @@ describe.skipIf(!h)("run oversight through the API's ports", () => {
     const { agentId: clerk } = await install("failures-clerk", billBundle("failures"));
     const model = new FakeModel([{ toolUse: { name: "finish", input: { total: "112.50" } } }]);
     const { params, result } = await billRun(clerk, model);
-    expect(result).toEqual({ status: "succeeded" });
+    expect(result).toEqual(ended());
     // The reading's call only.
     expect(model.requests).toHaveLength(1);
     const rows = await H.t.db

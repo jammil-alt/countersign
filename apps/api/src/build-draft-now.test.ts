@@ -9,8 +9,7 @@ import { agent, agentVersion } from "@countersign/db";
 import { FakeModel, type LlmRequest } from "@countersign/llm";
 import { desc, eq } from "drizzle-orm";
 import { afterAll, describe, expect, it, vi } from "vitest";
-import { createApiHarness, OPERATOR, v5Workflow } from "./api.test-helper";
-import { stepModelAnswer } from "./builder-v5.test-helper";
+import { createApiHarness, doPerson, OPERATOR, v5Workflow } from "./api.test-helper";
 
 for (const level of process.env.SHOW_LOGS ? [] : (["warn", "error"] as const)) {
   vi.spyOn(console, level).mockImplementation(() => {});
@@ -27,15 +26,16 @@ type StepDraft = Record<string, unknown>;
 
 const update: StepDraft = {
   id: "update",
-  kind: "write",
   name: "Update the record",
-  tool: TESTKIT_UPDATE_TOOL,
-  input: { id: "r1", amount: "12.00" },
   checks: { approval: { required: "required" } },
+  kind: "do",
+  doneBy: "rules",
+  uses: { type: "action", action: TESTKIT_UPDATE_TOOL },
+  input: { id: "r1", amount: "12.00" },
 };
 
 function draftAnswer(steps: StepDraft[] = [update], more: Record<string, unknown> = {}) {
-  return stepModelAnswer({
+  return {
     toolUse: {
       name: "submit_draft",
       input: {
@@ -66,7 +66,7 @@ function draftAnswer(steps: StepDraft[] = [update], more: Record<string, unknown
         ...more,
       },
     },
-  });
+  };
 }
 
 const turnAnswer = (input: Record<string, unknown>) => ({
@@ -83,7 +83,7 @@ function setsAmount(text: string, amount: string) {
     const d = JSON.parse(content.slice(start, content.indexOf("</current_bundle>"))) as Draft;
     const step = d.workflows[0]?.workflow.steps[0] as { input: { amount: string } } | undefined;
     if (step) step.input.amount = amount;
-    return stepModelAnswer({ toolUse: { name: "submit_turn", input: { text, bundle: d } } });
+    return { toolUse: { name: "submit_turn", input: { text, bundle: d } } };
   };
 }
 
@@ -240,22 +240,31 @@ describe.skipIf(!h)("draft it now", () => {
       draftAnswer([
         {
           id: "portal",
-          kind: "missing",
+          kind: "do",
           name: "Read the vendor's portal",
-          need: "There is no connector for the vendor's portal.",
-          fill: "connector",
+          uses: {
+            type: "missing",
+            need: "There is no connector for the vendor's portal.",
+            fill: "connector",
+          },
         },
         update,
       ]),
       draftAnswer([
         {
           id: "portal",
-          kind: "person",
           name: "Read the vendor's portal",
-          mode: "ask",
-          assignee: "client_admin",
-          title: "Check the vendor's portal and enter the amount",
-          deadline: { after: "2 days" },
+          kind: "do",
+          doneBy: "person",
+          person: {
+            mode: "ask",
+            who: "client_admin",
+            question: "Check the vendor's portal and enter the amount",
+            show: {},
+            deadline: { after: "2 days", hours: "clock", ifNoAnswer: "stop" },
+            channel: "inbox",
+            onReject: "stop",
+          },
         },
         update,
       ]),
@@ -278,12 +287,18 @@ describe.skipIf(!h)("draft it now", () => {
         [
           {
             id: "portal",
-            kind: "person",
             name: "Read the vendor's portal",
-            mode: "ask",
-            assignee: "client_admin",
-            title: "Check the vendor's portal and enter the amount",
-            deadline: { after: "2 days" },
+            kind: "do",
+            doneBy: "person",
+            person: {
+              mode: "ask",
+              who: "client_admin",
+              question: "Check the vendor's portal and enter the amount",
+              show: {},
+              deadline: { after: "2 days", hours: "clock", ifNoAnswer: "stop" },
+              channel: "inbox",
+              onReject: "stop",
+            },
           },
           update,
         ],
@@ -311,15 +326,13 @@ describe.skipIf(!h)("draft it now", () => {
   it("puts a gap on the step the drafter names, and word-matches the ones it doesn't", async () => {
     const started = await ok("POST", "/api/ops/builds", { kind: "agent", title: "Named gaps" });
     const id = started.build.id;
-    const ask = (stepId: string, name: string, title: string) => ({
-      id: stepId,
-      kind: "person",
-      name,
-      mode: "ask",
-      assignee: "client_admin",
-      title,
-      deadline: { after: "2 days" },
-    });
+    const ask = (stepId: string, name: string, title: string) =>
+      doPerson(stepId, name, {
+        mode: "ask",
+        who: "client_admin",
+        question: title,
+        deadline: { after: "2 days", ifNoAnswer: "stop" },
+      });
     model.push(
       draftAnswer(
         [
