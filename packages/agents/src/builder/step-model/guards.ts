@@ -34,6 +34,7 @@ import {
   DEFAULT_APPROVAL,
   guardDefinition,
   holdApproval,
+  plainPurposes,
   replaceTemplates,
   rewriteRefs,
 } from "../guards";
@@ -790,5 +791,13 @@ export function guardStepBundle(
     );
   }
 
-  return { bundle: StepAgentBundle.parse(bundle), gaps, notes, fix };
+  return {
+    bundle: StepAgentBundle.parse({
+      ...bundle,
+      workflows: bundle.workflows.map((w) => ({ ...w, workflow: plainPurposes(w.workflow) })),
+    }),
+    gaps,
+    notes,
+    fix,
+  };
 }

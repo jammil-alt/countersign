@@ -74,6 +74,22 @@ export interface RegistryContext {
   catalog: SkillCatalog;
   events?: Record<string, EventTypeSpec>;
   /**
+   * Skill model (2026-11-10): the email and text channels a client agent's actions send on (its
+   * own, else the account's: apps/api's `channelFor`), each with its connection's matrix. Absent:
+   * a message action's channel isn't checked at publish, and its approval can't be loosened.
+   */
+  actionChannels?: (
+    tx: Tx,
+    tenantId: string,
+    agentId: string | null,
+  ) => Promise<processes.ActionBindings["channels"]>;
+  /**
+   * The step model (docs/step-model-plan.md §10c): the actions switched off on their connector's
+   * page (apps/api's `offActionIds`). Absent: a v5 workflow's actions aren't checked for it at
+   * publish (the gate still refuses them at the call).
+   */
+  actionsOff?: (tx: Tx) => Promise<ReadonlySet<string>>;
+  /**
    * Step model §10f: every declared record type (the areas' and the shared ones). Absent: an
    * agent's record grants and data sets aren't checked at publish (the gate still holds them).
    */
@@ -389,6 +405,15 @@ export async function validateForPublish(
             // v0.14 W4-B
             grants: await boundGrants(tx, row),
             entities: boundEntities(row.bindings, ctx.tools),
+            // The step model: an action switched off on its connector is a publish issue.
+            ...(ctx.actionsOff ? { actionsOff: await ctx.actionsOff(tx) } : {}),
+          },
+          // Email and Text actions resolve from the agent's bindings and channels.
+          actions: {
+            bound: Object.keys(row.bindings),
+            ...(ctx.actionChannels && row.tenantId
+              ? { channels: await ctx.actionChannels(tx, row.tenantId, row.id ?? null) }
+              : {}),
           },
         }
       : {}),

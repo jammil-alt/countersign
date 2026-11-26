@@ -20,6 +20,7 @@ import {
   type ValidationContext,
   type ValidationError,
 } from "./checks";
+import { stepModelPublishErrors } from "./step-model-publish";
 import type { ProcessValidationCode, ProcessValidationContext } from "./validate";
 
 /**
@@ -209,6 +210,10 @@ export function validateBundle(
         workflow: w.slug,
         stepCode: issue.code,
       });
+    }
+    // At publish, its writes held to the client's connections.
+    for (const e of stepModelPublishErrors(w.workflow, ctx, bundle.definition)) {
+      errors.push({ ...e, workflow: w.slug });
     }
   }
   errors.push(...validateClientView(bundle, ctx.packs ? { packs: ctx.packs } : {}));

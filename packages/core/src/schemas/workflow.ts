@@ -21,7 +21,15 @@ export const STEP_PURPOSE_MAX = 200;
  * by the operator, like its name; versioned and merged with the step. Optional with no default, so
  * stored bundles parse and hash as they were (docs/sop-plan.md §3, owner 2026-11-21).
  */
-export const StepPurpose = z.string().trim().min(1).max(STEP_PURPOSE_MAX);
+export const StepPurpose = z
+  .string()
+  .trim()
+  .min(1)
+  .max(STEP_PURPOSE_MAX)
+  // What the Builder's model reads in its answer's schema (staging, 2026-11-25).
+  .describe(
+    "Why the step is there: one plain sentence the client reads, at most 200 characters, naming steps by name, never with {{ }} references",
+  );
 
 export const PersonChoice = z.strictObject({
   value: z

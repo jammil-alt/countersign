@@ -1407,3 +1407,35 @@ describe("draftStepAgent in two rounds", () => {
     expect(model.requests).toHaveLength(1);
   });
 });
+
+describe("guards: a step's purpose stays within the limit", () => {
+  it("guards a draft whose purpose grew past the limit instead of failing the turn", () => {
+    const ID = "01a2104a-928c-78c6-84dd-828e77acf308";
+    const grown = `Checks {{steps.${ID}.vendor}} and {{steps.${ID}.number}} against {{steps.${ID}.reviewed}} so an invoice this agent already reviewed stops here instead of being matched a second time by the steps below.`;
+    expect(grown.length).toBeGreaterThan(200);
+    const ctx = context();
+    const origin = parse(
+      bundleOf({
+        triggers: manual,
+        outputs: [],
+        steps: [
+          {
+            id: "s-bills",
+            kind: "do",
+            name: "Find earlier invoices",
+            doneBy: "ai",
+            uses: { type: "skill", skill: "docs.extract" },
+            input: {},
+          },
+        ],
+      }),
+    );
+    const answer = structuredClone(origin);
+    (answer.workflows[0]?.workflow.steps[0] as { purpose?: string }).purpose = grown;
+    const g = guardStepBundle(answer, ctx, { mode: "draft", newId: counter() });
+    const step = allSteps(g.bundle).find((s) => s.id === "s-bills") as { purpose?: string };
+    expect(step.purpose).toBe(
+      "Checks and against so an invoice this agent already reviewed stops here instead of being matched a second time by the steps below.",
+    );
+  });
+});

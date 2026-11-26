@@ -495,21 +495,10 @@ describe.skipIf(!h)("builds", () => {
     expect(b.clientTest).toMatchObject({ client: { id: H.A.tenantId }, writes: { rejected: 0 } });
     expect(b.draft?.live).toBe(true);
     // The copy's connection isn't bound at A yet: an open item says so, and the build is there.
-    // The step model (the Builder drafts v5): its publish checks don't check bindings yet, so the
-    // copy publishes and its trial is what can't start (stream I, Not done).
-    const publishItem = b.items.find((i) => i.title === "Publish the client's copy");
-    const trialItem = b.items.find((i) => i.title.startsWith("Start the trial"));
-    if (publishItem) {
-      expect(publishItem).toMatchObject({
-        state: "open",
-        detail: expect.stringContaining("does not validate"),
-      });
-    } else {
-      expect(trialItem).toMatchObject({
-        state: "open",
-        detail: expect.stringContaining("connector testkit is not bound"),
-      });
-    }
+    expect(b.items.find((i) => i.title === "Publish the client's copy")).toMatchObject({
+      state: "open",
+      detail: expect.stringContaining("does not validate"),
+    });
     const copy = b.build.testAgentId as string;
     const bound = await H.call(OPERATOR, "PATCH", `/api/ops/agents/${copy}/operation`, {
       bindings: { testkit: H.A.connectionId },
@@ -518,15 +507,13 @@ describe.skipIf(!h)("builds", () => {
     const page = (await H.call(OPERATOR, "GET", `/api/ops/agents/${copy}`)).json as {
       latest: { id: string };
     };
-    if (publishItem) {
-      const published = await H.call(
-        OPERATOR,
-        "POST",
-        `/api/ops/agents/${copy}/versions/${page.latest.id}/publish`,
-      );
-      expect(published.status, JSON.stringify(published.json)).toBe(200);
-    }
-    const startItem = publishItem ?? trialItem;
+    const published = await H.call(
+      OPERATOR,
+      "POST",
+      `/api/ops/agents/${copy}/versions/${page.latest.id}/publish`,
+    );
+    expect(published.status, JSON.stringify(published.json)).toBe(200);
+    const startItem = b.items.find((i) => i.title === "Publish the client's copy");
     b = await ok("PATCH", `/api/ops/builds/${id}/items/${startItem?.id}`, { state: "done" });
     expect(b.items.find((i) => i.id === startItem?.id)?.resolvedAt).toBeTruthy();
     // A passing test run at A, as the test run route records one.

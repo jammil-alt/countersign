@@ -87,6 +87,8 @@ import {
 import { readToolWords, SkillDefinition } from "@countersign/core";
 import { EventTypeRegistry } from "@countersign/senses";
 // Skill model (2026-11-10): publish checks a message action against the agent's channels.
+import { offActionIds } from "./actions-off";
+import { actionChannels } from "./channels/resolve";
 import type { Bindings } from "./env";
 import { DEPLOYMENT_PACKS, packToolSource, type RegisteredPack } from "./packs";
 import { type RecordCatalog, recordCatalog } from "./records/registry";
@@ -224,7 +226,14 @@ export function createPlatform(options: PlatformOptions = {}): Platform {
     packs,
     superseded: Object.assign({}, ...packs.map((p) => p.manifest.superseded ?? {})),
     records,
-    ctx: { tools, catalog, events: events.byType(), recordTypes: records.types },
+    ctx: {
+      tools,
+      catalog,
+      events: events.byType(),
+      actionChannels,
+      actionsOff: (tx) => offActionIds(tx, { connectors }),
+      recordTypes: records.types,
+    },
   };
 }
 

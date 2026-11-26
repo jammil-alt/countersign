@@ -158,10 +158,25 @@ describe("the Bill clerk", () => {
       doneBy: "rules",
       uses: {
         type: "match",
-        match: { to: "vendors", type: "hybrid", keys: ["name"], belowFloor: "no_match" },
+        match: { to: "vendors", type: "hybrid", keys: ["name"], belowFloor: "person" },
       },
       input: { name: "{{steps.match.output.invoice.vendorName}}" },
+      // A vendor the model isn't sure of is asked of the bill-questions seat, with the shortlist,
+      // and the answer is learned (stream P).
+      checks: {
+        confer: {
+          with: [
+            {
+              person: "seat:bill-questions",
+              deadline: { after: "3 days", hours: "clock", ifNoAnswer: "skip" },
+            },
+          ],
+        },
+      },
     });
+    expect(bill.people).toContainEqual(
+      expect.objectContaining({ role: "bill-questions", kind: "answers" }),
+    );
     expect(steps.findStep(w.steps, "vendor-record")).toMatchObject({
       uses: { type: "action", action: "records.vendor.get" },
       input: { id: "{{steps.vendor.output.items.0.matched}}" },
