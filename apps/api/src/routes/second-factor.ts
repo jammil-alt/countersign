@@ -12,7 +12,7 @@ import {
   type Session,
   type WorkOSAdapter,
 } from "@countersign/auth";
-import { globalFetch } from "@countersign/connectors";
+import { globalFetch, TwilioError } from "@countersign/connectors";
 import {
   browserLocale,
   parseAcceptLanguage,
@@ -41,6 +41,7 @@ import { meter } from "../metering";
 import { PHONE_ENDED_MESSAGE, phoneEndedForPerson } from "../mobile/phone-session";
 import { mailerFromEnv } from "../notify/mailer";
 import { pusherFromEnv } from "../notify/push";
+import { reportHandled, reportProblem } from "../observability/report";
 import {
   ATTEMPT_ACTION,
   allowedKinds,
@@ -147,8 +148,22 @@ function entry(
   };
 }
 
-/** Twilio refused or could not be reached: said plainly, logged without the provider's text. */
-function providerFailed(): HttpError {
+/**
+ * Twilio refused or could not be reached: said plainly, and reported with Twilio's status and error
+ * code but never its text (it can carry the phone number). Anything else that failed here (saving
+ * the method) is reported as the exception it is.
+ */
+function providerFailed(error: unknown, step: string): HttpError {
+  if (error instanceof TwilioError) {
+    reportProblem("sign-in code service failed", {
+      kind: "second_factor",
+      step,
+      twilio_status: String(error.status ?? "none"),
+      twilio_code: String(error.code ?? "none"),
+    });
+  } else {
+    reportHandled("sign-in second step failed", error, { kind: "second_factor", step });
+  }
   return new HttpError(502, "code_service_failed", "we couldn't send or check the code; try again");
 }
 
@@ -278,7 +293,7 @@ export function secondFactorRoutes(app: Hono<AppEnv>): void {
       await meterSignIn(c, userId, "verifications");
     } catch (error) {
       if (error instanceof HttpError) throw error;
-      throw providerFailed();
+      throw providerFailed(error, `setup_${body.kind}`);
     }
     await auditAlone(
       db,
@@ -298,8 +313,8 @@ export function secondFactorRoutes(app: Hono<AppEnv>): void {
     await sendOnce(c, session, body.kind);
     try {
       await config.verifier.sendCode(factor.phone, body.kind);
-    } catch {
-      throw providerFailed();
+    } catch (error) {
+      throw providerFailed(error, `send_${body.kind}`);
     }
     await meterSignIn(c, userId, "verifications");
     return { ok: true as const, phoneHint: phoneHint(factor.phone) ?? "" };
@@ -325,8 +340,8 @@ export function secondFactorRoutes(app: Hono<AppEnv>): void {
       } else {
         right = await config.verifier.checkCode(factor.phone ?? "", body.code);
       }
-    } catch {
-      throw providerFailed();
+    } catch (error) {
+      throw providerFailed(error, `verify_${body.kind}`);
     }
     if (!right) {
       await auditAlone(
@@ -555,7 +570,7 @@ export function setupLinkRoutes(app: Hono<AppEnv>): void {
       await meterSignIn(c, userId, "verifications");
     } catch (error) {
       if (error instanceof HttpError) throw error;
-      throw providerFailed();
+      throw providerFailed(error, `link_setup_${body.kind}`);
     }
     await auditAlone(
       services.db,
@@ -578,8 +593,8 @@ export function setupLinkRoutes(app: Hono<AppEnv>): void {
         factor.kind === "totp"
           ? await config.verifier.verifyTotp(userId, factor.twilioFactorSid ?? "", body.code)
           : await config.verifier.checkCode(factor.phone ?? "", body.code);
-    } catch {
-      throw providerFailed();
+    } catch (error) {
+      throw providerFailed(error, `link_verify_${body.kind}`);
     }
     if (!right) {
       await auditAlone(
