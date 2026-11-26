@@ -29,6 +29,7 @@ import {
   USES_FOR,
   usesLabel,
 } from "./options";
+import { ModelField, picksModel } from "./runsOn";
 import { SuggestButton } from "./SuggestButton";
 import type { DoStep, Step } from "./types";
 import { UsesPicker } from "./UsesPicker";
@@ -237,6 +238,18 @@ export function DoForm(props: StepFormProps<DoStep>) {
         </Box>
       ) : null}
 
+      {/* Owner, 2026-11-26: a model per step, where everyone sees it, not folded under More. */}
+      {picksModel(step) ? (
+        <ModelField
+          step={step}
+          env={env}
+          value={step.ai?.model?.id}
+          onPick={(id) => {
+            const { model: _m, ...rest } = step.ai ?? {};
+            onChange({ ...step, ai: id ? { ...rest, model: { id } } : rest });
+          }}
+        />
+      ) : null}
       <ChecksSection {...props} />
       <MoreSection step={step} env={env} onChange={onChange} />
     </div>

@@ -65,6 +65,7 @@ import {
   walk,
 } from "./model";
 import { OutputsEditor } from "./OutputsEditor";
+import { agentModelsOf, runsOn } from "./runsOn";
 import { StepEditor } from "./StepEditor";
 import { statusesFor, stepCounts } from "./status";
 import { guardedSuggestion, type SuggestFn, suggestBody, withStep } from "./suggest";
@@ -261,15 +262,19 @@ function Body(
   }, [statuses, tried, builderChanged]);
   const counts = useMemo(() => stepCounts(workflow, catalog.uses), [workflow, catalog.uses]);
   const process = useMemo(() => displayProcess(workflow, catalog.uses), [workflow, catalog.uses]);
+  // The agent's own model and per-skill models, for what an AI step runs on when it sets none.
+  const agentModels = useMemo(() => agentModelsOf(props.bundle), [props.bundle]);
   const label = useCallback(
     (s: { id: string }) => {
       const real = findStep(workflow, s.id)?.step;
       const w: BoxWords = real
         ? boxWords(real, catalog.uses, workflow)
         : { title: "", kind: "", detail: null };
-      return { ...w, detail: w.detail };
+      // Owner, 2026-11-26: every AI step's box names the model it runs on, set or not.
+      const runs = real ? runsOn(real, catalog.uses, agentModels) : null;
+      return { ...w, detail: w.detail, ...(runs ? { model: runs.id } : {}) };
     },
-    [workflow, catalog.uses],
+    [workflow, catalog.uses, agentModels],
   );
 
   // Suggest: the workflow as drawn goes with the step the form holds (the route's shape).
@@ -315,10 +320,11 @@ function Body(
       people: props.people,
       suggest,
       models: catalog.models,
+      agentModels,
       agents: props.handoffAgents,
       saveAsSkill,
     }),
-    [workflow, catalog, props.people, suggest, props.handoffAgents, saveAsSkill],
+    [workflow, catalog, props.people, suggest, props.handoffAgents, saveAsSkill, agentModels],
   );
 
   const selected = selection ? (findStep(workflow, selection)?.step ?? null) : null;

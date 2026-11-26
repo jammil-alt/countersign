@@ -41,6 +41,8 @@ export function usesContextFrom(input: {
       kind: s.kind === "ai" ? ("ai" as const) : ("rules" as const),
       input: steps.fieldsFromSchema(s.definition.input),
       output: steps.fieldsFromSchema(s.definition.output),
+      mode: s.definition.mode,
+      ...(s.definition.model ? { model: s.definition.model } : {}),
     }));
   // Step model §8: the saved Loops (agent-mode skills with a loop block) are picked by a Loop step,
   // never by a Do step, so the palette's list above leaves them out.

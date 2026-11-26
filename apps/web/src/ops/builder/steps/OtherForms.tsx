@@ -16,6 +16,7 @@ import type { StepFormProps } from "./form-kit";
 import type { BuilderIssue } from "./issues";
 import { type InputOption, inputOptions } from "./options";
 import { pickPaths } from "./paths";
+import { ModelField } from "./runsOn";
 import { SuggestButton } from "./SuggestButton";
 import type { Step } from "./types";
 
@@ -252,6 +253,15 @@ export function LoopForm(props: StepFormProps<Of<"loop">>) {
           </SmallSelect>
         </Row>
       </div>
+      <ModelField
+        step={step}
+        env={env}
+        value={step.model?.id}
+        onPick={(id) => {
+          const { model: _m, ...rest } = step;
+          props.onChange(id ? { ...rest, model: { id } } : rest);
+        }}
+      />
     </div>
   );
 }

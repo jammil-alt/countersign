@@ -1,5 +1,5 @@
-// More (§5): what most steps never touch, folded. Model (AI), if it fails, whether the client sees
-// it. Deadline and channel live with a person's or a contact's instructions, where they are said.
+// More (§5): what most steps never touch, folded: if it fails, whether the client sees it. The
+// model is on the form itself (owner, 2026-11-26). Deadline and channel live with a person's or a contact's instructions, where they are said.
 // "Run by another agent" is the step's `agent` (a slug of the client's other agents).
 
 import { SmallInput, SmallSelect } from "../fields";
@@ -15,34 +15,10 @@ export function MoreSection({
   env: StepFormEnv;
   onChange(next: DoStep): void;
 }) {
-  const aiHere = step.doneBy === "ai" && step.uses === undefined;
   return (
     <details className="border-t border-line pt-3" data-testid="do-more">
       <summary className="eyebrow cursor-pointer text-ink-muted">More</summary>
       <div className="mt-3 flex flex-col gap-3">
-        {aiHere ? (
-          <div className="flex flex-col gap-1 text-sm text-ink">
-            Model
-            <SmallSelect
-              aria-label="Model"
-              value={step.ai?.model?.id ?? ""}
-              onChange={(e) => {
-                const { model: _m, ...rest } = step.ai ?? {};
-                onChange({
-                  ...step,
-                  ai: e.target.value ? { ...rest, model: { id: e.target.value } } : rest,
-                });
-              }}
-            >
-              <option value="">The default</option>
-              {env.models.map((m) => (
-                <option key={m.id} value={m.id}>
-                  {m.label}
-                </option>
-              ))}
-            </SmallSelect>
-          </div>
-        ) : null}
         <div className="flex flex-col gap-1 text-sm text-ink">
           Run by another agent
           <SmallSelect
