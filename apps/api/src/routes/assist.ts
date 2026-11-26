@@ -1,3 +1,5 @@
+import { getAgent } from "@countersign/agents";
+import { ContentStore, ensureUploadConnection } from "@countersign/connectors";
 import {
   ASSIST_FIELDS,
   ASSIST_TOOL,
@@ -22,20 +24,44 @@ import {
   processingRefusal,
   readBrief,
   readFitGap,
+  readTestData,
   SETUP_WORDS,
+  steps as stepModel,
+  TEST_DATA_SYSTEM,
+  TEST_DATA_TOOL,
+  TEST_DOCUMENT_SYSTEM,
+  TEST_DOCUMENT_TOOL,
+  TestDataAnswer,
+  TestDocument,
+  testDataUserMessage,
+  testDocumentFilename,
+  triggerOnSchema,
+  triggerReads,
+  wantsDocument,
 } from "@countersign/core";
-import { buildItem, clientFact, dealPerson, type Tx, tenant } from "@countersign/db";
+import {
+  buildItem,
+  clientFact,
+  dealPerson,
+  narrowToTenant,
+  type Tx,
+  tenant,
+} from "@countersign/db";
+import { storeDocument } from "@countersign/documents";
 import { DEFAULT_MODELS } from "@countersign/llm";
 import { and, asc, desc, eq, inArray } from "drizzle-orm";
 import type { Hono } from "hono";
 import { type BuildRow, readBuild } from "../build/store";
 import { clientModels } from "../compliance/models";
-import { type AppEnv, ensureClient, HttpError, mountLong, type Services } from "../http";
+import { type AppEnv, ensureClient, HttpError, mountLong, notFound, type Services } from "../http";
 import { claimMetered } from "../metered";
 import { meterDepsOf, meteredLlm } from "../metering";
 import { reportHandled } from "../observability/report";
 import { readFile } from "../onboarding/files";
+import { renderTestDocument } from "../try/test-document";
 import { readDeal } from "../work/deals";
+import { extractInBackground } from "./documents";
+import { sandboxClient } from "./testbench";
 
 /** At most this many of a client file's current facts go with a fact's draft. */
 const FILE_FACTS_MAX = 20;
@@ -235,6 +261,156 @@ async function gather(
 }
 
 export function assistDraftRoutes(app: Hono<AppEnv>): void {
+  // Made-up data to try a draft workflow on (docs/plan.md §1.186; rebuilt for the step model on
+  // 2026-11-26). The model is given the workflow's name, its steps' names, the trigger's shape and
+  // what the steps read of it; nothing of a client's. Where the trigger carries a stored document,
+  // the model writes a document's contents instead, drawn here as a PDF and kept in the Sandbox
+  // quietly (no `document.received`, so no agent starts on it), read in the background as a try's
+  // upload is, and its id is the trigger's data.
+  // DECISION: a made-up document is kept in the Sandbox only, as the back office's uploads are
+  // (§1.16): a client agent, which test-runs on its own client's data, is refused one (422).
+  mountLong(app, assistRoutes.opsAssistTestData, async (ctx) => {
+    const { services, body } = ctx;
+    const row = await ctx.inTx(async (scoped) => {
+      const a = await getAgent(scoped.tx, ctx.params.id);
+      if (a.tenantId !== null && !ctx.tenantIds.includes(a.tenantId)) throw notFound("agent");
+      const [client] = a.tenantId
+        ? await scoped.tx
+            .select({ settings: tenant.settings })
+            .from(tenant)
+            .where(eq(tenant.id, a.tenantId))
+        : [];
+      return { tenantId: a.tenantId, kind: a.kind, settings: client?.settings ?? null };
+    });
+    if (row.settings) {
+      const refusal = processingRefusal(
+        complianceOf(row.settings as Record<string, unknown>),
+        parseCoveredProcessors(services.env.BAA_PROCESSORS),
+        DRAFT_ASSIST_FEATURE.processors,
+        DRAFT_ASSIST_FEATURE.what,
+      );
+      if (refusal) throw new HttpError(409, "hipaa", refusal);
+    }
+    const parsed = stepModel.Workflow.safeParse(body.workflow);
+    if (!parsed.success) {
+      throw new HttpError(422, "invalid_workflow", "the workflow doesn't read in the step model");
+    }
+    const wf = parsed.data;
+    const on = wf.triggers[0]?.on;
+    const events = Object.fromEntries(services.platform.events.list().map((e) => [e.type, e]));
+    const schema = on ? triggerOnSchema(on as never, { events }) : undefined;
+    const document = wantsDocument(schema);
+    if (document && row.kind === "client") {
+      throw new HttpError(
+        422,
+        "sandbox_only",
+        "a made-up document is kept in the Sandbox only: try the template there, or upload one of the client's documents",
+      );
+    }
+    const stepNames: string[] = [];
+    const walk = (list: readonly unknown[]) => {
+      for (const s of list as {
+        name?: string;
+        steps?: unknown[];
+        paths?: { steps: unknown[] }[];
+        otherwise?: { steps: unknown[] };
+      }[]) {
+        if (s.name?.trim()) stepNames.push(s.name.trim());
+        if (s.steps) walk(s.steps);
+        for (const p of s.paths ?? []) walk(p.steps);
+        if (s.otherwise) walk(s.otherwise.steps);
+      }
+    };
+    walk(wf.steps);
+    await ctx.inTx((scoped) =>
+      claimMetered(scoped.tx, ctx.c, {
+        kind: "assist.draft",
+        tenantId: row.tenantId,
+        session: ctx.session,
+        role: ctx.role,
+      }),
+    );
+    // §1.210: our own cost, recorded as the back office's (never the client's) when it ends.
+    const { llm } = meteredLlm(meterDepsOf(ctx), {
+      transport: clientModels(services, {
+        clients: row.tenantId ? [row.tenantId] : [],
+        read: services.db,
+      }),
+      tenantId: row.tenantId,
+      source: "assist",
+    });
+    const ask = {
+      workflow: body.name,
+      steps: stepNames.slice(0, 60),
+      ...(document ? {} : { schema, reads: triggerReads(wf.steps) }),
+      notes: body.notes,
+    };
+    try {
+      if (!document) {
+        const out = await llm.callTool({
+          model: DEFAULT_MODELS.assist,
+          system: TEST_DATA_SYSTEM,
+          messages: [{ role: "user", content: testDataUserMessage(ask) }],
+          tool: { ...TEST_DATA_TOOL, schema: TestDataAnswer },
+          maxTokens: 6000,
+          label: "assist.test_data",
+        });
+        return { ...readTestData(schema, out.value), document: null };
+      }
+      const out = await llm.callTool({
+        model: DEFAULT_MODELS.assist,
+        system: TEST_DOCUMENT_SYSTEM,
+        messages: [{ role: "user", content: testDataUserMessage(ask) }],
+        tool: { ...TEST_DOCUMENT_TOOL, schema: TestDocument },
+        maxTokens: 4000,
+        label: "assist.test_document",
+      });
+      const made = out.value;
+      const bytes = await renderTestDocument(made);
+      const filename = testDocumentFilename(made);
+      const stored = await ctx.inTx(async (scoped) => {
+        const sandbox = await sandboxClient(scoped);
+        return narrowToTenant(scoped.tx, sandbox, async (tx) => {
+          const conn = await ensureUploadConnection(tx, sandbox);
+          const doc = await storeDocument(
+            tx,
+            new ContentStore(services.deps.objects(services.env)),
+            {
+              tenantId: sandbox,
+              source: "upload",
+              connectionId: conn.id,
+              bytes,
+              filename,
+              mimeType: "application/pdf",
+              meta: { uploadedBy: ctx.session.user.id, via: "try", madeUp: true },
+              announce: false,
+            },
+          );
+          return { sandbox, doc: doc.document, created: doc.created };
+        });
+      });
+      if (stored.created) {
+        ctx.defer(() => extractInBackground(services, stored.sandbox, [stored.doc.id]));
+      }
+      return {
+        // The payload `document.received` carries, as a try's upload sends it.
+        trigger: {
+          documentId: stored.doc.id,
+          source: stored.doc.source,
+          filename: stored.doc.filename,
+          mimeType: stored.doc.mimeType,
+          sha256: stored.doc.sha256,
+        },
+        missing: false,
+        document: { id: stored.doc.id, filename: stored.doc.filename, clientId: stored.sandbox },
+      };
+    } catch (error) {
+      if (error instanceof ComplianceRefusal || error instanceof HttpError) throw error;
+      reportHandled("making up test data failed", error, { kind: "assist.test_data" });
+      throw new HttpError(502, "draft_failed", "we couldn't make up the data: try again");
+    }
+  });
+
   mountLong(app, assistRoutes.opsAssistDraft, async (ctx) => {
     const { field: id, notes, current, context } = ctx.body;
     const field = ASSIST_FIELDS[id];

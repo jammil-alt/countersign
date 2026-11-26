@@ -10,7 +10,14 @@
 // an issue on an output opens it; Try it and the Builder are back in the bar (both had gone with
 // the v4 builder in #707), each in the same drawer beside the page.
 
-import { type AgentBundle, canonicalJson, steps, uuidv7 } from "@countersign/core";
+import {
+  type AgentBundle,
+  canonicalJson,
+  steps,
+  triggerOnSchema,
+  uuidv7,
+  wantsDocument,
+} from "@countersign/core";
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { type AgentSummary, apiRoutes, type VersionDetail } from "../../../api/routes";
@@ -437,6 +444,12 @@ function Body(
     () => samplePayload(workflow as unknown as Triggered, catalog.events as never),
     [workflow, catalog.events],
   );
+  // The trigger carries a stored document: Try it makes up a document rather than JSON.
+  const documentTrigger = useMemo(() => {
+    const on = workflow.triggers[0]?.on;
+    const events = Object.fromEntries(catalog.events.map((e) => [e.type, e]));
+    return on ? wantsDocument(triggerOnSchema(on as never, { events: events as never })) : false;
+  }, [workflow.triggers, catalog.events]);
   const tryBlocked = canPublish(issues)
     ? null
     : `Settle what stops Publish first: a test run is checked as a publish is. ${publishSummary(issues)}`;
@@ -675,6 +688,8 @@ function Body(
             workflow={workflow}
             slug={props.workflow}
             sample={sample}
+            name={workflows.find((w) => w.slug === props.workflow)?.name ?? props.workflow}
+            documentTrigger={documentTrigger}
             prepare={async () => {
               const v = dirty ? await save(undefined, "Saved to try it") : saved;
               return v?.id ?? null;
