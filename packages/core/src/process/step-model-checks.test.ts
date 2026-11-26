@@ -39,7 +39,26 @@ describe("stepModelRefErrors", () => {
     expect(stepModelRefErrors(unknown)[0]?.message).toContain("unknown reference");
   });
 
-  it("lets a step's checks read its own output (a notice, an approval condition)", () => {
+  it("refuses an approval or confer condition that reads its own step's output", () => {
+    const approval = wf([
+      rules("pay", {
+        checks: {
+          approval: {
+            required: "required",
+            when: {
+              match: "all",
+              rules: [{ field: "{{steps.pay.output.total}}", op: ">", value: 1000 }],
+            },
+          },
+        },
+      }),
+    ]);
+    expect(stepModelRefErrors(approval).map((e) => [e.stepId, e.code])).toEqual([
+      ["pay", "template_scope"],
+    ]);
+  });
+
+  it("lets a step's notice read its own output", () => {
     const own = wf([
       rules("save", {
         checks: {
