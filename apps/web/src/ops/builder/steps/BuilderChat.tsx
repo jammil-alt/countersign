@@ -175,11 +175,14 @@ export function useBuilderSession({
 export function BuilderChat({
   session,
   focus,
+  prefill,
   onClose,
 }: {
   session: BuilderSession;
   /** The step open when the Builder was asked: each turn is about it until it is cleared. */
   focus?: { id: string; name: string } | null;
+  /** Words for the box (an issue to fix), changed each time the host asks; sent by the person. */
+  prefill?: { text: string; n: number } | null;
   onClose(): void;
 }) {
   const turns = session.detail?.turns ?? [];
@@ -245,6 +248,8 @@ export function BuilderChat({
           </div>
         ) : null}
         <Composer
+          key={prefill?.n ?? 0}
+          initialText={prefill?.text ?? ""}
           testId="builder-chat-composer"
           placeholder="Add a step, change a rule, or ask why"
           busy={session.busy}

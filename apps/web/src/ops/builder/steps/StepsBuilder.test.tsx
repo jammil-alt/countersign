@@ -209,17 +209,21 @@ describe("the step-model builder", () => {
     const issues = screen.getByTestId("publish-issues");
     expect(within(issues).getByText(/Pick what this End delivers/)).toBeTruthy();
     expect(within(issues).getByText(/No End delivers "Bill entered"/)).toBeTruthy();
-    expect(within(issues).getByText(/vendorId/)).toBeTruthy();
+    expect(within(issues).getAllByText(/vendorId/).length).toBeGreaterThan(0);
     await user.click(screen.getByTestId("steps-publish"));
     expect(sent).toHaveLength(0);
     // Each line says whether it is a step or an output, and opens it (feedback, 2026-11-26).
     expect(within(issues).getByText(/Output “Bill entered”:/)).toBeTruthy();
-    const show = within(issues)
-      .getAllByTestId("publish-issue-show")
-      .find((b) => b.textContent === "Show me in Outputs");
-    expect(show).toBeTruthy();
-    await user.click(show as HTMLElement);
-    expect(screen.getByTestId("steps-outputs")).toHaveAttribute("open");
+    // An output no End delivers points to the End that should: opening it opens that step.
+    const line = within(issues)
+      .getAllByTestId("publish-issue")
+      .find((l) => l.textContent?.includes("Output “Bill entered”")) as HTMLElement;
+    expect(within(line).getByTestId("publish-issue-elsewhere")).toHaveTextContent(
+      "For this to work, an End has to deliver “Bill entered”",
+    );
+    await user.click(within(line).getByTestId("publish-issue-show"));
+    expect(await screen.findByTestId("flow-panel")).toHaveAttribute("data-step", "end");
+    await user.keyboard("{Escape}");
     // Try it waits on them too: a test run is checked as a publish is.
     expect(screen.getByTestId("flow-bar-try")).toBeDisabled();
     expect(screen.getByTestId("flow-bar-builder")).toBeEnabled();
@@ -298,6 +302,37 @@ describe("the step-model builder", () => {
     await screen.findByTestId("steps-drawer");
     await user.click(screen.getByTestId("steps-drawer-scrim"));
     await waitFor(() => expect(screen.queryByTestId("steps-drawer")).toBeNull());
+  });
+
+  it("offers a fix in one click, what has to change elsewhere, and the Builder", async () => {
+    const { user } = setup(workflow());
+    const issues = await screen.findByTestId("publish-issues");
+    const lines = within(issues).getAllByTestId("publish-issue");
+    // The End with nothing picked, and only one output: one click delivers it.
+    const end = lines.find((l) => l.textContent?.includes("Pick what this End delivers"));
+    expect(within(end as HTMLElement).getByTestId("publish-issue-fix")).toHaveTextContent(
+      "Deliver “Bill entered”",
+    );
+    // A field nothing gives: what has to change elsewhere, in words.
+    const input = lines.find((l) => l.textContent?.includes("vendorId"));
+    expect(within(input as HTMLElement).getByTestId("publish-issue-elsewhere")).toHaveTextContent(
+      "For this to work, an earlier step has to give “vendorId”",
+    );
+    // Ask the Builder opens it beside that step, the issue in its box to read over and send.
+    await user.click(within(input as HTMLElement).getByTestId("publish-issue-ask"));
+    const pair = await screen.findByTestId("steps-drawer");
+    expect(within(pair).getByTestId("flow-panel")).toHaveAttribute("data-step", "enter");
+    expect(within(within(pair).getByTestId("builder-chat")).getAllByRole("textbox")[0]).toHaveValue(
+      `Fix this: Doesn't fit: nothing gives "vendorId", which this step needs.`,
+    );
+    await user.keyboard("{Escape}");
+    await user.click(within(end as HTMLElement).getByTestId("publish-issue-fix"));
+    await waitFor(() =>
+      expect(
+        within(screen.getByTestId("publish-issues")).queryByText(/Pick what this End delivers/),
+      ).toBeNull(),
+    );
+    expect(within(screen.getByTestId("publish-issues")).queryByText(/No End delivers/)).toBeNull();
   });
 
   it("fills an End from the outputs, and the issue goes", async () => {

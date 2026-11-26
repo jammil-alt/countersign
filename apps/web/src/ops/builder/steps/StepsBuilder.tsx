@@ -41,9 +41,16 @@ import { triggerFields, useStepsCatalog } from "./catalog";
 import { Drawer, DrawerTab } from "./Drawer";
 import { translateAll } from "./data";
 import { type BoxWords, boxWords, displayProcess } from "./display";
+import { fixFor, type IssueFix } from "./fixes";
 import type { SaveAsSkill, StepFormEnv } from "./form-kit";
 import { canRedo, canUndo, commit, redo, startHistory, undo } from "./history";
-import { canPublish, issuesByStep, publishSummary, workflowIssues } from "./issues";
+import {
+  type BuilderIssue,
+  canPublish,
+  issuesByStep,
+  publishSummary,
+  workflowIssues,
+} from "./issues";
 import {
   canRemove,
   findStep,
@@ -222,6 +229,8 @@ function Body(
   const [tried, setTried] = useState<TryMark[]>([]);
   // The steps the Builder's last answer changed (by id), until its next answer or a save.
   const [builderChanged, setBuilderChanged] = useState<ReadonlySet<string>>(new Set());
+  // Words put in the Builder's box by "Ask the Builder" on an issue, to read over and send.
+  const [prefill, setPrefill] = useState<{ text: string; n: number } | null>(null);
   const [outputsOpen, setOutputsOpen] = useState(true);
   const api = useRef(action);
   api.current = action;
@@ -633,6 +642,15 @@ function Body(
               if (findStep(workflow, id)) select(id);
               else if (workflow.outputs.some((o) => o.id === id)) showOutput(id);
             }}
+            fix={(i) => fixFor(i, workflow, catalog.uses)}
+            onApply={(run) => edit(run(workflow))}
+            onAsk={(i) => {
+              setPrefill((p) => ({ text: `Fix this: ${i.message}`, n: (p?.n ?? 0) + 1 }));
+              if (i.at && findStep(workflow, i.at)) {
+                select(i.at);
+                askBuilderHere();
+              } else openTool("builder");
+            }}
           />
         ) : null}
         {/* Feedback, 2026-11-26: the chart scrolls inside a frame as tall as the window under the
@@ -724,6 +742,7 @@ function Body(
                 companion: (
                   <BuilderChat
                     session={builder}
+                    prefill={prefill}
                     focus={{ id: selected.id, name: selected.name }}
                     onClose={() => setTool(null)}
                   />
@@ -813,7 +832,7 @@ function Body(
           onCollapse={() => setToolFolded(true)}
           onClose={() => setTool(null)}
         >
-          <BuilderChat session={builder} onClose={() => setTool(null)} />
+          <BuilderChat session={builder} prefill={prefill} onClose={() => setTool(null)} />
         </Drawer>
       ) : null}
     </div>,
@@ -853,7 +872,11 @@ function Palette({ onPick, onClose }: { onPick(kind: StepKind): void; onClose():
   );
 }
 
-/** What stops Publish, each on its step, in plain words; a step's line opens it. */
+/**
+ * What stops Publish, each on its step or output, in plain words, with how to settle it
+ * (owner, 2026-11-26): a fix in one click where there is one sensible answer, "For this to work…"
+ * where what has to change is elsewhere, and the Builder for the rest.
+ */
 export function PublishIssues(props: {
   issues: ReturnType<typeof workflowIssues>;
   show: boolean;
@@ -861,6 +884,10 @@ export function PublishIssues(props: {
   outputName(id: string): string;
   onToggle(): void;
   onPick(id: string): void;
+  /** How to settle an issue; absent: only its line and a way to open it. */
+  fix?: ((issue: BuilderIssue) => IssueFix) | undefined;
+  onApply?: ((run: (w: Workflow) => Workflow) => void) | undefined;
+  onAsk?: ((issue: BuilderIssue) => void) | undefined;
 }) {
   const { issues } = props;
   return (
@@ -872,7 +899,7 @@ export function PublishIssues(props: {
         <Badge tone="risk">Can't publish yet</Badge>
         <span className="text-risk-ink">{publishSummary(issues)}</span>
       </div>
-      <ul className="flex flex-col gap-1">
+      <ul className="flex flex-col gap-2">
         {issues.map((i, n) => {
           // Feedback, 2026-11-26: "it tells me there is an issue, but I don't know what it is or
           // how to fix it". Each line says whether it is a step or an output, and Show me opens it.
@@ -882,21 +909,50 @@ export function PublishIssues(props: {
             : output
               ? `Output “${props.outputName(i.at)}”`
               : `Step “${props.name(i.at)}”`;
+          const fix = props.fix?.(i) ?? {};
           return (
             // biome-ignore lint/suspicious/noArrayIndexKey: issues have no ids; their order is their identity.
-            <li key={n} className="flex flex-wrap items-baseline gap-x-2">
-              <span className="font-medium text-ink">{what}:</span>
-              <span className="text-ink">{i.message}</span>
-              {i.at ? (
-                <button
-                  type="button"
-                  className="text-slate underline"
-                  data-testid="publish-issue-show"
-                  onClick={() => props.onPick(i.at ?? "")}
-                >
-                  {output ? "Show me in Outputs" : "Open the step"}
-                </button>
+            <li key={n} className="flex flex-col gap-1" data-testid="publish-issue">
+              <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
+                <span className="font-medium text-ink">{what}:</span>
+                <span className="text-ink">{i.message}</span>
+              </div>
+              {fix.elsewhere ? (
+                <p className="text-ink-muted" data-testid="publish-issue-elsewhere">
+                  {fix.elsewhere.text}
+                </p>
               ) : null}
+              <div className="flex flex-wrap items-center gap-2">
+                {fix.apply && props.onApply ? (
+                  <Button
+                    size="sm"
+                    variant="primary"
+                    data-testid="publish-issue-fix"
+                    onClick={() => props.onApply?.(fix.apply?.run as (w: Workflow) => Workflow)}
+                  >
+                    {fix.apply.label}
+                  </Button>
+                ) : null}
+                {props.onAsk ? (
+                  <Button
+                    size="sm"
+                    data-testid="publish-issue-ask"
+                    onClick={() => props.onAsk?.(i)}
+                  >
+                    Ask the Builder
+                  </Button>
+                ) : null}
+                {i.at || fix.elsewhere?.open ? (
+                  <button
+                    type="button"
+                    className="text-slate underline"
+                    data-testid="publish-issue-show"
+                    onClick={() => props.onPick(fix.elsewhere?.open ?? i.at ?? "")}
+                  >
+                    {output && !fix.elsewhere?.open ? "Show me in Outputs" : "Open the step"}
+                  </button>
+                ) : null}
+              </div>
             </li>
           );
         })}
