@@ -9,7 +9,7 @@
 // PDF receipt, or a JSON, whatever it needs"): Make up data fills the input from the trigger's
 // shape (`opsAssistTestData`); where the trigger carries a document, it makes up a document (a
 // receipt, an invoice), kept in the Sandbox as a PDF, and the input names it.
-import { assistRoutes, TEST_DATA_NOTES_MAX } from "@countersign/core";
+import { assistRoutes, steps as stepModel, TEST_DATA_NOTES_MAX } from "@countersign/core";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import type { ResponseOf } from "../../../api/client";
@@ -184,6 +184,24 @@ export function TryPanel(props: TryPanelProps) {
     | null
   >(null);
   const notesField = useId();
+  // ── Which steps (owner, 2026-11-26: "the whole flow, or from step x to y") ──
+  const top = props.workflow.steps.filter((s) => s.kind !== "end");
+  const [which, setWhich] = useState<"all" | "some">("all");
+  const [from, setFrom] = useState<string>(() => top[0]?.id ?? "");
+  const [to, setTo] = useState<string>(() => top.at(-1)?.id ?? "");
+  const [givenText, setGivenText] = useState<Record<string, string>>({});
+  const range = which === "some" ? { from, to } : null;
+  const needs = range ? stepModel.stepRangeNeeds(props.workflow, range) : null;
+  const given: Record<string, unknown> = {};
+  let givenBad: string | null = null;
+  for (const e of needs?.earlier ?? []) {
+    const p = parsePayload(givenText[e.id] ?? "{}");
+    if (p.ok) given[e.id] = p.value;
+    else givenBad = e.name;
+  }
+  const rangeProblem = needs?.problems[0] ?? null;
+  const fromField = useId();
+  const toField = useId();
   // A made-up document is kept in the Sandbox only (the API refuses one for a client's agent).
   const canMake = !(props.documentTrigger && props.agent.kind === "client");
   async function makeUp() {
@@ -248,6 +266,15 @@ export function TryPanel(props: TryPanelProps) {
         body: {
           workflow: props.slug,
           payload: parsed.value,
+          ...(range
+            ? {
+                range: {
+                  ...(from ? { from } : {}),
+                  ...(to ? { to } : {}),
+                  ...(Object.keys(given).length > 0 ? { given } : {}),
+                },
+              }
+            : {}),
           ...(props.agent.kind === "template" && where ? { clientId: where } : {}),
         },
       });
@@ -322,6 +349,90 @@ export function TryPanel(props: TryPanelProps) {
             </Select>
           </div>
         ) : null}
+        <section
+          className="flex flex-col gap-2"
+          data-testid="steps-try-which"
+          aria-label="Which steps"
+        >
+          <span className="text-sm text-ink">Which steps</span>
+          <fieldset className="ds-seg self-start" aria-label="Which steps">
+            <button
+              type="button"
+              aria-pressed={which === "all"}
+              data-testid="steps-try-all"
+              onClick={() => setWhich("all")}
+            >
+              The whole workflow
+            </button>
+            <button
+              type="button"
+              aria-pressed={which === "some"}
+              data-testid="steps-try-some"
+              onClick={() => setWhich("some")}
+            >
+              From one step to another
+            </button>
+          </fieldset>
+          {which === "some" ? (
+            <div className="grid grid-cols-2 gap-2">
+              <div className="flex flex-col gap-1 text-sm text-ink">
+                <label htmlFor={fromField}>From</label>
+                <Select
+                  id={fromField}
+                  data-testid="steps-try-from"
+                  value={from}
+                  onChange={(e) => setFrom(e.target.value)}
+                >
+                  {top.map((s, i) => (
+                    <option key={s.id} value={s.id}>
+                      {i + 1}. {s.name.trim() || "A step"}
+                    </option>
+                  ))}
+                </Select>
+              </div>
+              <div className="flex flex-col gap-1 text-sm text-ink">
+                <label htmlFor={toField}>To</label>
+                <Select
+                  id={toField}
+                  data-testid="steps-try-to"
+                  value={to}
+                  onChange={(e) => setTo(e.target.value)}
+                >
+                  {top.map((s, i) => (
+                    <option key={s.id} value={s.id}>
+                      {i + 1}. {s.name.trim() || "A step"}
+                    </option>
+                  ))}
+                </Select>
+              </div>
+            </div>
+          ) : null}
+          {rangeProblem ? (
+            <p className="text-sm text-risk-ink" data-testid="steps-try-range-problem">
+              {rangeProblem.charAt(0).toUpperCase() + rangeProblem.slice(1)}.
+            </p>
+          ) : null}
+          {(needs?.earlier ?? []).map((e) => (
+            <div key={e.id} className="flex flex-col gap-1 text-sm text-ink">
+              <label htmlFor={`given-${e.id}`}>What “{e.name}” gave</label>
+              <span className="text-xs text-ink-muted">
+                It isn't run in this test, and “{e.readBy[0]}” reads it. As JSON.
+              </span>
+              <TextArea
+                {...JSON_INPUT_PROPS}
+                id={`given-${e.id}`}
+                data-testid={`steps-try-given-${e.id}`}
+                rows={4}
+                className="font-mono text-xs"
+                value={givenText[e.id] ?? "{}"}
+                onChange={(ev) => setGivenText((was) => ({ ...was, [e.id]: ev.target.value }))}
+              />
+            </div>
+          ))}
+          {givenBad ? (
+            <p className="text-sm text-risk-ink">What “{givenBad}” gave isn't valid JSON.</p>
+          ) : null}
+        </section>
         <div className="flex flex-col gap-1 text-sm text-ink">
           <label htmlFor={inputField}>What starts it</label>
           <span className="text-xs text-ink-muted">
@@ -439,7 +550,13 @@ export function TryPanel(props: TryPanelProps) {
           size="sm"
           data-testid="steps-try-run"
           working={busy}
-          disabled={busy || !parsed.ok || (props.agent.kind === "template" && !where)}
+          disabled={
+            busy ||
+            !parsed.ok ||
+            !!rangeProblem ||
+            !!givenBad ||
+            (props.agent.kind === "template" && !where)
+          }
           onClick={() => void start()}
         >
           {last ? "Run it again" : "Run the test"}

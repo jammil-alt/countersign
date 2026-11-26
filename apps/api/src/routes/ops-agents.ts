@@ -35,7 +35,7 @@ import {
   updateOperational,
   validateForPublish,
 } from "@countersign/agents";
-import { type AgentBundle, routes } from "@countersign/core";
+import { type AgentBundle, routes, steps } from "@countersign/core";
 import { connection, tenant } from "@countersign/db";
 import {
   EventPayloadError,
@@ -617,17 +617,31 @@ export function opsAgentRoutes(app: Hono<AppEnv>): void {
       }),
     );
     // Owner, 2026-11-22 (docs/plan.md §1.185): a test of some of the steps.
-    // DECISION (wave 4): the step model has no test of some of the steps yet (it was the old
-    // process format's alone), so a range is refused for every workflow.
+    // For the step model on 2026-11-26 ("from step x to y"): the executor runs a range of
+    // top-level steps as before; core's `stepRangeProblems` says why one can't, in words, and the
+    // outputs of earlier steps the picked ones read must be given (at most 256 KB of them).
     const { range } = ctx.body;
     if (range) {
-      throw new HttpError(
-        422,
-        "invalid_range",
-        "some of the steps can't be tested yet: test the whole workflow",
-      );
+      const wf = target.version.bundle.workflows.find((w) => w.slug === ctx.body.workflow);
+      if (!wf) throw notFound("workflow");
+      const problems = steps.stepRangeProblems(wf.workflow, range);
+      if (JSON.stringify(range.given ?? {}).length > 256_000) {
+        problems.push("what was given is over 256 KB");
+      }
+      if (problems.length > 0) {
+        throw new HttpError(422, "invalid_range", problems.join("; "), { problems });
+      }
     }
-    let params: RunParams = req;
+    let params: RunParams = range
+      ? {
+          ...req,
+          range: {
+            ...(range.from ? { from: range.from } : {}),
+            ...(range.to ? { to: range.to } : {}),
+            ...(range.given ? { given: range.given } : {}),
+          },
+        }
+      : req;
     // docs/plan.md §1.243: a test run marked sandbox is listed in the client's sandbox on both
     // sides. Only a client's own agent (never a template's test copy), within the day's limits.
     if (ctx.body.sandbox) {
