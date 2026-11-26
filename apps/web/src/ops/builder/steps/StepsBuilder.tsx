@@ -22,7 +22,7 @@ import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } fro
 import { useNavigate } from "react-router-dom";
 import { type AgentSummary, apiRoutes, type VersionDetail } from "../../../api/routes";
 import { useApi } from "../../../api/useApi";
-import { Badge, Button, ErrorNotice } from "../../../ui/primitives";
+import { Badge, Button, cx, ErrorNotice } from "../../../ui/primitives";
 import { Skeleton, SkeletonBlock } from "../../../ui/skeleton";
 import { detailMessages, errorText, Notice, useAction } from "../../agents/ui";
 import { Chart } from "../../flow/Chart";
@@ -517,12 +517,18 @@ function Body(
     // One frame at least as tall as the window under the header, ending the page as the v4
     // builder's does (`builder-frame`: the walkthrough checks the page scrolls no further).
     <div
-      className="-mb-8 flex min-h-[calc(100vh-var(--header-h))] flex-col gap-3 md:-mb-12"
+      className={cx(
+        "-mb-8 flex min-h-[calc(100vh-var(--header-h))] flex-col gap-3 md:-mb-12",
+        // Try it or the Builder open beside the page: on a wide window the page moves over, so
+        // the chart isn't under them.
+        tool && !toolFolded && !selected && !addAt && "flow-frame--beside",
+      )}
       data-testid="builder-frame"
     >
       <div className="contents" data-testid="steps-builder">
         {/* The bar stays in view while the page scrolls to the chart and the outputs. */}
-        <div className="sticky top-[var(--header-h)] z-10">
+        {/* On a phone the bar wraps to several rows: it scrolls with the page there. */}
+        <div className="md:sticky md:top-[var(--header-h)] md:z-10">
           <FlowBar
             lead={
               <WorkflowSwitcher
@@ -656,7 +662,7 @@ function Body(
         {/* Feedback, 2026-11-26: the chart scrolls inside a frame as tall as the window under the
             bar; it had no height of its own, so it never scrolled. */}
         <div
-          className="h-[calc(100vh-var(--header-h)-88px)] min-h-[420px] shrink-0 border border-line bg-surface"
+          className="h-[70vh] min-h-[420px] shrink-0 border border-line bg-surface md:h-[calc(100vh-var(--header-h)-88px)]"
           data-testid="steps-canvas"
         >
           {view === "chart" ? (
@@ -900,66 +906,82 @@ export function PublishIssues(props: {
         <span className="text-risk-ink">{publishSummary(issues)}</span>
       </div>
       <ul className="flex flex-col gap-2">
-        {issues.map((i, n) => {
-          // Feedback, 2026-11-26: "it tells me there is an issue, but I don't know what it is or
-          // how to fix it". Each line says whether it is a step or an output, and Show me opens it.
-          const output = !!i.at && props.name(i.at) === "A step" && props.outputName(i.at) !== i.at;
-          const what = !i.at
-            ? "This workflow"
-            : output
-              ? `Output “${props.outputName(i.at)}”`
-              : `Step “${props.name(i.at)}”`;
-          const fix = props.fix?.(i) ?? {};
-          return (
-            // biome-ignore lint/suspicious/noArrayIndexKey: issues have no ids; their order is their identity.
-            <li key={n} className="flex flex-col gap-1" data-testid="publish-issue">
-              <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
-                <span className="font-medium text-ink">{what}:</span>
-                <span className="text-ink">{i.message}</span>
-              </div>
-              {fix.elsewhere ? (
-                <p className="text-ink-muted" data-testid="publish-issue-elsewhere">
-                  {fix.elsewhere.text}
-                </p>
-              ) : null}
-              <div className="flex flex-wrap items-center gap-2">
-                {fix.apply && props.onApply ? (
-                  <Button
-                    size="sm"
-                    variant="primary"
-                    data-testid="publish-issue-fix"
-                    onClick={() => props.onApply?.(fix.apply?.run as (w: Workflow) => Workflow)}
-                  >
-                    {fix.apply.label}
-                  </Button>
+        {(props.show || issues.length <= ISSUES_SHOWN ? issues : issues.slice(0, ISSUES_SHOWN)).map(
+          (i, n) => {
+            // Feedback, 2026-11-26: "it tells me there is an issue, but I don't know what it is or
+            // how to fix it". Each line says whether it is a step or an output, and Show me opens it.
+            const output =
+              !!i.at && props.name(i.at) === "A step" && props.outputName(i.at) !== i.at;
+            const what = !i.at
+              ? "This workflow"
+              : output
+                ? `Output “${props.outputName(i.at)}”`
+                : `Step “${props.name(i.at)}”`;
+            const fix = props.fix?.(i) ?? {};
+            return (
+              // biome-ignore lint/suspicious/noArrayIndexKey: issues have no ids; their order is their identity.
+              <li key={n} className="flex flex-col gap-1" data-testid="publish-issue">
+                <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
+                  <span className="font-medium text-ink">{what}:</span>
+                  <span className="text-ink">{i.message}</span>
+                </div>
+                {fix.elsewhere ? (
+                  <p className="text-ink-muted" data-testid="publish-issue-elsewhere">
+                    {fix.elsewhere.text}
+                  </p>
                 ) : null}
-                {props.onAsk ? (
-                  <Button
-                    size="sm"
-                    data-testid="publish-issue-ask"
-                    onClick={() => props.onAsk?.(i)}
-                  >
-                    Ask the Builder
-                  </Button>
-                ) : null}
-                {i.at || fix.elsewhere?.open ? (
-                  <button
-                    type="button"
-                    className="text-slate underline"
-                    data-testid="publish-issue-show"
-                    onClick={() => props.onPick(fix.elsewhere?.open ?? i.at ?? "")}
-                  >
-                    {output && !fix.elsewhere?.open ? "Show me in Outputs" : "Open the step"}
-                  </button>
-                ) : null}
-              </div>
-            </li>
-          );
-        })}
+                <div className="flex flex-wrap items-center gap-2">
+                  {fix.apply && props.onApply ? (
+                    <Button
+                      size="sm"
+                      variant="primary"
+                      data-testid="publish-issue-fix"
+                      onClick={() => props.onApply?.(fix.apply?.run as (w: Workflow) => Workflow)}
+                    >
+                      {fix.apply.label}
+                    </Button>
+                  ) : null}
+                  {props.onAsk ? (
+                    <Button
+                      size="sm"
+                      data-testid="publish-issue-ask"
+                      onClick={() => props.onAsk?.(i)}
+                    >
+                      Ask the Builder
+                    </Button>
+                  ) : null}
+                  {i.at || fix.elsewhere?.open ? (
+                    <button
+                      type="button"
+                      className="text-slate underline"
+                      data-testid="publish-issue-show"
+                      onClick={() => props.onPick(fix.elsewhere?.open ?? i.at ?? "")}
+                    >
+                      {output && !fix.elsewhere?.open ? "Show me in Outputs" : "Open the step"}
+                    </button>
+                  ) : null}
+                </div>
+              </li>
+            );
+          },
+        )}
       </ul>
+      {issues.length > ISSUES_SHOWN ? (
+        <button
+          type="button"
+          className="self-start text-slate underline"
+          data-testid="publish-issues-toggle"
+          onClick={props.onToggle}
+        >
+          {props.show ? "Show fewer" : `Show all ${issues.length}`}
+        </button>
+      ) : null}
     </section>
   );
 }
+
+/** The issues listed before "Show all" (on a phone a long list hid the steps). */
+const ISSUES_SHOWN = 3;
 
 /** The steps (by id) whose settings differ between two drafts, added ones included. */
 export function changedSteps(before: Workflow, after: Workflow): ReadonlySet<string> {

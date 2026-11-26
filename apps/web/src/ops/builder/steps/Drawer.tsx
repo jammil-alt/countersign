@@ -49,6 +49,11 @@ export function Drawer({
   children: ReactNode;
 }) {
   const [pane, setPane] = useState<"main" | "companion">("main");
+  // Where the two share the drawer (a phone, a narrow window), the Builder asked for is shown.
+  const hasCompanion = companion !== undefined;
+  useEffect(() => {
+    setPane(hasCompanion ? "companion" : "main");
+  }, [hasCompanion]);
   const box = useRef<HTMLDivElement>(null);
   const close = useRef(onClose);
   close.current = onClose;
@@ -106,6 +111,7 @@ export function Drawer({
         className={cx(
           "flow-drawer",
           narrow && "flow-drawer--narrow",
+          !modal && companion === undefined && "flow-drawer--side",
           companion !== undefined && "flow-drawer--pair",
         )}
         data-pane={companion !== undefined ? pane : undefined}

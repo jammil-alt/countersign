@@ -1239,3 +1239,55 @@
     }
   }
 }
+
+/* On a phone (owner, 2026-11-26: "figure out mobile design for the builder step modals"): the
+ * drawer is the whole screen, clear of the home indicator; a step and the Builder share it with the
+ * switch at its top; a folded Try it or Builder is a pill above the bottom edge, not a tab over the
+ * page's text. */
+@layer components {
+  @media (max-width: 767.98px) {
+    .flow-drawer {
+      padding-bottom: env(safe-area-inset-bottom);
+      animation-name: flow-drawer-up;
+    }
+    .flow-drawer-tab {
+      top: auto;
+      right: 16px;
+      bottom: calc(16px + env(safe-area-inset-bottom));
+      padding: 10px 16px;
+      writing-mode: horizontal-tb;
+      transform: none;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+    }
+  }
+  @keyframes flow-drawer-up {
+    from {
+      transform: translateY(24px);
+      opacity: 0;
+    }
+    to {
+      transform: none;
+      opacity: 1;
+    }
+  }
+}
+
+/* Try it and the Builder on their own: a chat's width, and on a wide window the page moves over so
+ * the chart stays in view beside them. */
+@layer components {
+  .flow-drawer--side {
+    width: min(460px, 92vw);
+  }
+  @media (min-width: 1024px) {
+    .flow-frame--beside {
+      padding-right: 440px;
+      transition: padding-right 180ms ease-out;
+    }
+  }
+  @media (max-width: 767.98px) {
+    .flow-drawer--side {
+      width: 100%;
+    }
+  }
+}

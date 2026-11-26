@@ -173,7 +173,7 @@ export function StepTable(props: StepTableProps) {
             <tr className="dt-cols">
               <th className="w-12">#</th>
               <th>Step</th>
-              <th>Kind</th>
+              <th className="hidden sm:table-cell">Kind</th>
               <th>Status</th>
             </tr>
           </thead>
@@ -287,7 +287,8 @@ function StepRow({
           ) : null}
         </span>
       </td>
-      <td className="whitespace-nowrap eyebrow text-ink-muted">{row.kind}</td>
+      {/* A phone has room for the step and its status; the kind is in the step's panel. */}
+      <td className="hidden whitespace-nowrap eyebrow text-ink-muted sm:table-cell">{row.kind}</td>
       <td>
         <StatusCell status={status} />
       </td>
