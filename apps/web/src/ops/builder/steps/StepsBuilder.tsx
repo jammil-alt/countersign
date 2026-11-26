@@ -10,12 +10,19 @@
 // an issue on an output opens it; Try it and the Builder are back in the bar (both had gone with
 // the v4 builder in #707), each in the same drawer beside the page.
 
-import { type AgentBundle, canonicalJson, steps, uuidv7 } from "@countersign/core";
+import {
+  type AgentBundle,
+  canonicalJson,
+  steps,
+  triggerOnSchema,
+  uuidv7,
+  wantsDocument,
+} from "@countersign/core";
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { type AgentSummary, apiRoutes, type VersionDetail } from "../../../api/routes";
 import { useApi } from "../../../api/useApi";
-import { Badge, Button, ErrorNotice } from "../../../ui/primitives";
+import { Badge, Button, cx, ErrorNotice } from "../../../ui/primitives";
 import { Skeleton, SkeletonBlock } from "../../../ui/skeleton";
 import { detailMessages, errorText, Notice, useAction } from "../../agents/ui";
 import { Chart } from "../../flow/Chart";
@@ -31,12 +38,19 @@ import type { Member, People } from "../people";
 import { AddWorkflowForm, WorkflowSwitcher } from "../workflow-switcher";
 import { BuilderChat, useBuilderSession } from "./BuilderChat";
 import { triggerFields, useStepsCatalog } from "./catalog";
-import { Drawer } from "./Drawer";
+import { Drawer, DrawerTab } from "./Drawer";
 import { translateAll } from "./data";
 import { type BoxWords, boxWords, displayProcess } from "./display";
+import { fixFor, type IssueFix } from "./fixes";
 import type { SaveAsSkill, StepFormEnv } from "./form-kit";
 import { canRedo, canUndo, commit, redo, startHistory, undo } from "./history";
-import { canPublish, issuesByStep, publishSummary, workflowIssues } from "./issues";
+import {
+  type BuilderIssue,
+  canPublish,
+  issuesByStep,
+  publishSummary,
+  workflowIssues,
+} from "./issues";
 import {
   canRemove,
   findStep,
@@ -56,6 +70,7 @@ import { statusesFor, stepCounts } from "./status";
 import { guardedSuggestion, type SuggestFn, suggestBody, withStep } from "./suggest";
 import { TryPanel } from "./TryPanel";
 import type { Step, StepKind, Workflow } from "./types";
+import { forgetKept, keptToOffer, readKept, useKeepUnsaved, useLeaveGuard } from "./unsaved";
 import { hasWrittenSteps, withStepSkillPins } from "./written";
 
 export interface StepsBuilderProps {
@@ -183,6 +198,22 @@ function Body(
     canon: canonicalJson(props.start),
   });
   const dirty = canonicalJson(workflow) !== saved.canon;
+  // What the builder opened on, worked out (stream G): changed by an edit, it is the person's work.
+  const [opened] = useState(() => canonicalJson(history.present));
+  const unsaved = dirty && canonicalJson(workflow) !== opened;
+  // Edits kept in this browser from before a reload, offered back (owner, 2026-11-26).
+  const [offer, setOffer] = useState(() =>
+    keptToOffer(readKept(agent.id, props.workflow), from.id, history.present),
+  );
+  useKeepUnsaved({
+    agentId: agent.id,
+    slug: props.workflow,
+    baseId: saved.id,
+    workflow,
+    dirty: unsaved,
+    enabled: offer === null,
+  });
+  useLeaveGuard(unsaved);
   const [selection, setSelection] = useState<string | null>(null);
   const [addAt, setAddAt] = useState<InsertPoint | null>(null);
   const [folded, setFolded] = useState<ReadonlySet<string>>(new Set());
@@ -192,7 +223,14 @@ function Body(
   // The drawer's other two uses: Try it and the Builder (a step's settings and the palette are
   // `selection` and `addAt`). One drawer at a time.
   const [tool, setTool] = useState<"try" | "builder" | null>(null);
+  // Folded to a tab at the window's edge (a click outside, or a step opened): the conversation
+  // and the try stay as they were, to open again.
+  const [toolFolded, setToolFolded] = useState(false);
   const [tried, setTried] = useState<TryMark[]>([]);
+  // The steps the Builder's last answer changed (by id), until its next answer or a save.
+  const [builderChanged, setBuilderChanged] = useState<ReadonlySet<string>>(new Set());
+  // Words put in the Builder's box by "Ask the Builder" on an issue, to read over and send.
+  const [prefill, setPrefill] = useState<{ text: string; n: number } | null>(null);
   const [outputsOpen, setOutputsOpen] = useState(true);
   const api = useRef(action);
   api.current = action;
@@ -202,8 +240,14 @@ function Body(
   const statuses = useMemo(() => statusesFor(issues), [issues]);
   // What the chart and the list show: the issues, and the last try's result on each step.
   const shown = useMemo<StatusMap>(() => {
-    if (tried.length === 0) return statuses;
+    if (tried.length === 0 && builderChanged.size === 0) return statuses;
     const out = new Map(statuses);
+    // The steps the Builder's last answer changed, marked on the chart and the list.
+    for (const id of builderChanged) {
+      const s = out.get(id);
+      const tag = { word: "Builder changed", tone: "neutral" as const };
+      out.set(id, s ? { ...s, tag } : { stepId: id, level: "ok", items: [], decided: [], tag });
+    }
     for (const t of tried) {
       const s = out.get(t.stepId);
       out.set(
@@ -214,7 +258,7 @@ function Body(
       );
     }
     return out;
-  }, [statuses, tried]);
+  }, [statuses, tried, builderChanged]);
   const counts = useMemo(() => stepCounts(workflow, catalog.uses), [workflow, catalog.uses]);
   const process = useMemo(() => displayProcess(workflow, catalog.uses), [workflow, catalog.uses]);
   const label = useCallback(
@@ -279,17 +323,25 @@ function Body(
 
   const selected = selection ? (findStep(workflow, selection)?.step ?? null) : null;
   // A step opens in the drawer in place of Try it or the Builder.
+  // A step opens over Try it (folded to its tab); the Builder, when open, stays beside it.
+  const toolRef = useRef(tool);
+  toolRef.current = tool;
   const select = useCallback((id: string | null) => {
     setSelection(id);
     if (id) {
-      setTool(null);
+      if (toolRef.current !== "builder") setToolFolded(true);
       setAddAt(null);
     }
   }, []);
+  const askBuilderHere = () => {
+    setTool("builder");
+    setToolFolded(false);
+  };
   const openTool = (t: "try" | "builder") => {
     setSelection(null);
     setAddAt(null);
-    setTool((was) => (was === t ? null : t));
+    setTool(t);
+    setToolFolded(false);
   };
   // "Show me" on an output's issue: the outputs open, and that output comes into view.
   const showOutput = (id: string) => {
@@ -376,6 +428,7 @@ function Body(
       canon: canonicalJson(snapshot),
     };
     setSaved(next);
+    setBuilderChanged(new Set());
     props.onChanged();
     return next;
   };
@@ -427,15 +480,31 @@ function Body(
       const v = dirty ? await save() : saved;
       return v ? { id: v.id } : null;
     },
-    onDraft: edit,
+    onDraft: (next) => {
+      setBuilderChanged(changedSteps(workflow, next));
+      edit(next);
+    },
   });
   const sample = useMemo(
     () => samplePayload(workflow as unknown as Triggered, catalog.events as never),
     [workflow, catalog.events],
   );
+  // The trigger carries a stored document: Try it makes up a document rather than JSON.
+  const documentTrigger = useMemo(() => {
+    const on = workflow.triggers[0]?.on;
+    const events = Object.fromEntries(catalog.events.map((e) => [e.type, e]));
+    return on ? wantsDocument(triggerOnSchema(on as never, { events: events as never })) : false;
+  }, [workflow.triggers, catalog.events]);
   const tryBlocked = canPublish(issues)
     ? null
     : `Settle what stops Publish first: a test run is checked as a publish is. ${publishSummary(issues)}`;
+
+  // The step before and after the open one, in reading order.
+  const order = walk(workflow).map((l) => l.step.id);
+  const stepAt = (delta: number): string | null => {
+    const i = selection ? order.indexOf(selection) : -1;
+    return i < 0 ? null : (order[i + delta] ?? null);
+  };
 
   const stepName = (id: string) => findStep(workflow, id)?.step.name.trim() || "A step";
   const open = { issues: statuses.size, questions: 0 };
@@ -448,12 +517,18 @@ function Body(
     // One frame at least as tall as the window under the header, ending the page as the v4
     // builder's does (`builder-frame`: the walkthrough checks the page scrolls no further).
     <div
-      className="-mb-8 flex min-h-[calc(100vh-var(--header-h))] flex-col gap-3 md:-mb-12"
+      className={cx(
+        "-mb-8 flex min-h-[calc(100vh-var(--header-h))] flex-col gap-3 md:-mb-12",
+        // Try it or the Builder open beside the page: on a wide window the page moves over, so
+        // the chart isn't under them.
+        tool && !toolFolded && !selected && !addAt && "flow-frame--beside",
+      )}
       data-testid="builder-frame"
     >
       <div className="contents" data-testid="steps-builder">
         {/* The bar stays in view while the page scrolls to the chart and the outputs. */}
-        <div className="sticky top-[var(--header-h)] z-10">
+        {/* On a phone the bar wraps to several rows: it scrolls with the page there. */}
+        <div className="md:sticky md:top-[var(--header-h)] md:z-10">
           <FlowBar
             lead={
               <WorkflowSwitcher
@@ -515,6 +590,40 @@ function Body(
             }}
           />
         ) : null}
+        {offer ? (
+          <Notice tone="warning" testId="steps-kept">
+            You have changes here that weren't saved (
+            {new Date(offer.at).toLocaleString(undefined, {
+              dateStyle: "medium",
+              timeStyle: "short",
+            })}
+            ).{" "}
+            <button
+              type="button"
+              className="font-medium underline"
+              data-testid="steps-kept-restore"
+              onClick={() => {
+                edit(offer.workflow);
+                setOffer(null);
+              }}
+            >
+              Bring them back
+            </button>{" "}
+            or{" "}
+            <button
+              type="button"
+              className="underline"
+              data-testid="steps-kept-discard"
+              onClick={() => {
+                forgetKept(agent.id, props.workflow);
+                setOffer(null);
+              }}
+            >
+              discard them
+            </button>
+            .
+          </Notice>
+        ) : null}
         {notice ? <Notice tone={notice.tone}>{notice.body}</Notice> : null}
         {action.error ? (
           <Notice tone="warning" testId="builder-error">
@@ -539,12 +648,21 @@ function Body(
               if (findStep(workflow, id)) select(id);
               else if (workflow.outputs.some((o) => o.id === id)) showOutput(id);
             }}
+            fix={(i) => fixFor(i, workflow, catalog.uses)}
+            onApply={(run) => edit(run(workflow))}
+            onAsk={(i) => {
+              setPrefill((p) => ({ text: `Fix this: ${i.message}`, n: (p?.n ?? 0) + 1 }));
+              if (i.at && findStep(workflow, i.at)) {
+                select(i.at);
+                askBuilderHere();
+              } else openTool("builder");
+            }}
           />
         ) : null}
         {/* Feedback, 2026-11-26: the chart scrolls inside a frame as tall as the window under the
             bar; it had no height of its own, so it never scrolled. */}
         <div
-          className="h-[calc(100vh-var(--header-h)-88px)] min-h-[420px] shrink-0 border border-line bg-surface"
+          className="h-[70vh] min-h-[420px] shrink-0 border border-line bg-surface md:h-[calc(100vh-var(--header-h)-88px)]"
           data-testid="steps-canvas"
         >
           {view === "chart" ? (
@@ -566,7 +684,7 @@ function Body(
               onSelect={select}
               onInsert={(at) => {
                 setSelection(null);
-                setTool(null);
+                setToolFolded(true);
                 setAddAt(at);
               }}
               onMove={(id, to) => edit(moveStep(workflow, id, to))}
@@ -583,7 +701,7 @@ function Body(
                 label={label as never}
                 onAdd={() => {
                   setSelection(null);
-                  setTool(null);
+                  setToolFolded(true);
                   setAddAt({ container: ROOT, index: Math.max(0, workflow.steps.length - 1) });
                 }}
               />
@@ -621,7 +739,24 @@ function Body(
           <Palette onPick={add} onClose={() => setAddAt(null)} />
         </Drawer>
       ) : selected ? (
-        <Drawer label="Step settings" testId="steps-drawer" onClose={() => setSelection(null)}>
+        <Drawer
+          label="Step settings"
+          testId="steps-drawer"
+          onClose={() => setSelection(null)}
+          {...(tool === "builder" && !toolFolded
+            ? {
+                companion: (
+                  <BuilderChat
+                    session={builder}
+                    prefill={prefill}
+                    focus={{ id: selected.id, name: selected.name }}
+                    onClose={() => setTool(null)}
+                  />
+                ),
+                companionLabel: "Builder",
+              }
+            : {})}
+        >
           <StepPanel
             stepId={selected.id}
             kind={`Step ${walk(workflow).findIndex((l) => l.step.id === selected.id) + 1} · ${kindLabel(selected.kind)}`}
@@ -629,6 +764,10 @@ function Body(
             onRename={(name) => edit(updateStep(workflow, selected.id, (s) => ({ ...s, name })))}
             status={shown.get(selected.id)}
             onClose={() => setSelection(null)}
+            onDone={() => setSelection(null)}
+            {...(tool === "builder" && !toolFolded ? {} : { onAskBuilder: askBuilderHere })}
+            onPreviousStep={stepAt(-1) ? () => select(stepAt(-1) as string) : undefined}
+            onNextStep={stepAt(1) ? () => select(stepAt(1) as string) : undefined}
             onRemove={
               canRemove(workflow, selected.id)
                 ? () => {
@@ -638,6 +777,12 @@ function Body(
                 : undefined
             }
           >
+            {builderChanged.has(selected.id) ? (
+              <Notice tone="warning" testId="steps-builder-changed">
+                The Builder just changed this step. Check it; each change has its own Undo in the
+                Builder's answer.
+              </Notice>
+            ) : null}
             <StepEditor
               key={selected.id}
               step={selected}
@@ -647,13 +792,32 @@ function Body(
             />
           </StepPanel>
         </Drawer>
-      ) : tool === "try" ? (
-        <Drawer label="Try it" testId="steps-drawer" modal={false} onClose={() => setTool(null)}>
+      ) : null}
+      {/* Try it and the Builder stay mounted while folded or under a step, so a message being
+          typed and a try under way are kept; a tab at the edge opens them again. */}
+      {tool && toolFolded && !selected && !addAt ? (
+        <DrawerTab
+          label={tool === "try" ? "Try it" : "Builder"}
+          testId="steps-drawer-tab"
+          onOpen={() => setToolFolded(false)}
+        />
+      ) : null}
+      {tool === "try" ? (
+        <Drawer
+          label="Try it"
+          testId="steps-tool-drawer"
+          modal={false}
+          hidden={toolFolded || !!selected || !!addAt}
+          onCollapse={() => setToolFolded(true)}
+          onClose={() => setTool(null)}
+        >
           <TryPanel
             agent={{ id: agent.id, kind: agent.kind, tenantId: agent.tenantId ?? null }}
             workflow={workflow}
             slug={props.workflow}
             sample={sample}
+            name={workflows.find((w) => w.slug === props.workflow)?.name ?? props.workflow}
+            documentTrigger={documentTrigger}
             prepare={async () => {
               const v = dirty ? await save(undefined, "Saved to try it") : saved;
               return v?.id ?? null;
@@ -664,8 +828,17 @@ function Body(
           />
         </Drawer>
       ) : tool === "builder" ? (
-        <Drawer label="Builder" testId="steps-drawer" modal={false} onClose={() => setTool(null)}>
-          <BuilderChat session={builder} onClose={() => setTool(null)} />
+        <Drawer
+          label="Builder"
+          testId="steps-tool-drawer"
+          modal={false}
+          // A step clicked on the chart or the list opens beside the Builder rather than folding it.
+          keepOn={'.flow-box, [data-testid^="flow-list-row-"]'}
+          hidden={toolFolded || !!selected || !!addAt}
+          onCollapse={() => setToolFolded(true)}
+          onClose={() => setTool(null)}
+        >
+          <BuilderChat session={builder} prefill={prefill} onClose={() => setTool(null)} />
         </Drawer>
       ) : null}
     </div>,
@@ -705,7 +878,11 @@ function Palette({ onPick, onClose }: { onPick(kind: StepKind): void; onClose():
   );
 }
 
-/** What stops Publish, each on its step, in plain words; a step's line opens it. */
+/**
+ * What stops Publish, each on its step or output, in plain words, with how to settle it
+ * (owner, 2026-11-26): a fix in one click where there is one sensible answer, "For this to work…"
+ * where what has to change is elsewhere, and the Builder for the rest.
+ */
 export function PublishIssues(props: {
   issues: ReturnType<typeof workflowIssues>;
   show: boolean;
@@ -713,6 +890,10 @@ export function PublishIssues(props: {
   outputName(id: string): string;
   onToggle(): void;
   onPick(id: string): void;
+  /** How to settle an issue; absent: only its line and a way to open it. */
+  fix?: ((issue: BuilderIssue) => IssueFix) | undefined;
+  onApply?: ((run: (w: Workflow) => Workflow) => void) | undefined;
+  onAsk?: ((issue: BuilderIssue) => void) | undefined;
 }) {
   const { issues } = props;
   return (
@@ -724,35 +905,109 @@ export function PublishIssues(props: {
         <Badge tone="risk">Can't publish yet</Badge>
         <span className="text-risk-ink">{publishSummary(issues)}</span>
       </div>
-      <ul className="flex flex-col gap-1">
-        {issues.map((i, n) => {
-          // Feedback, 2026-11-26: "it tells me there is an issue, but I don't know what it is or
-          // how to fix it". Each line says whether it is a step or an output, and Show me opens it.
-          const output = !!i.at && props.name(i.at) === "A step" && props.outputName(i.at) !== i.at;
-          const what = !i.at
-            ? "This workflow"
-            : output
-              ? `Output “${props.outputName(i.at)}”`
-              : `Step “${props.name(i.at)}”`;
-          return (
-            // biome-ignore lint/suspicious/noArrayIndexKey: issues have no ids; their order is their identity.
-            <li key={n} className="flex flex-wrap items-baseline gap-x-2">
-              <span className="font-medium text-ink">{what}:</span>
-              <span className="text-ink">{i.message}</span>
-              {i.at ? (
-                <button
-                  type="button"
-                  className="text-slate underline"
-                  data-testid="publish-issue-show"
-                  onClick={() => props.onPick(i.at ?? "")}
-                >
-                  {output ? "Show me in Outputs" : "Open the step"}
-                </button>
-              ) : null}
-            </li>
-          );
-        })}
+      <ul className="flex flex-col gap-2">
+        {(props.show || issues.length <= ISSUES_SHOWN ? issues : issues.slice(0, ISSUES_SHOWN)).map(
+          (i, n) => {
+            // Feedback, 2026-11-26: "it tells me there is an issue, but I don't know what it is or
+            // how to fix it". Each line says whether it is a step or an output, and Show me opens it.
+            const output =
+              !!i.at && props.name(i.at) === "A step" && props.outputName(i.at) !== i.at;
+            const what = !i.at
+              ? "This workflow"
+              : output
+                ? `Output “${props.outputName(i.at)}”`
+                : `Step “${props.name(i.at)}”`;
+            const fix = props.fix?.(i) ?? {};
+            return (
+              // biome-ignore lint/suspicious/noArrayIndexKey: issues have no ids; their order is their identity.
+              <li key={n} className="flex flex-col gap-1" data-testid="publish-issue">
+                <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
+                  <span className="font-medium text-ink">{what}:</span>
+                  <span className="text-ink">{i.message}</span>
+                </div>
+                {fix.elsewhere ? (
+                  <p className="text-ink-muted" data-testid="publish-issue-elsewhere">
+                    {fix.elsewhere.text}
+                  </p>
+                ) : null}
+                <div className="flex flex-wrap items-center gap-2">
+                  {fix.apply && props.onApply ? (
+                    <Button
+                      size="sm"
+                      variant="primary"
+                      data-testid="publish-issue-fix"
+                      onClick={() => props.onApply?.(fix.apply?.run as (w: Workflow) => Workflow)}
+                    >
+                      {fix.apply.label}
+                    </Button>
+                  ) : null}
+                  {props.onAsk ? (
+                    <Button
+                      size="sm"
+                      data-testid="publish-issue-ask"
+                      onClick={() => props.onAsk?.(i)}
+                    >
+                      Ask the Builder
+                    </Button>
+                  ) : null}
+                  {i.at || fix.elsewhere?.open ? (
+                    <button
+                      type="button"
+                      className="text-slate underline"
+                      data-testid="publish-issue-show"
+                      onClick={() => props.onPick(fix.elsewhere?.open ?? i.at ?? "")}
+                    >
+                      {output && !fix.elsewhere?.open ? "Show me in Outputs" : "Open the step"}
+                    </button>
+                  ) : null}
+                </div>
+              </li>
+            );
+          },
+        )}
       </ul>
+      {issues.length > ISSUES_SHOWN ? (
+        <button
+          type="button"
+          className="self-start text-slate underline"
+          data-testid="publish-issues-toggle"
+          onClick={props.onToggle}
+        >
+          {props.show ? "Show fewer" : `Show all ${issues.length}`}
+        </button>
+      ) : null}
     </section>
   );
+}
+
+/** The issues listed before "Show all" (on a phone a long list hid the steps). */
+const ISSUES_SHOWN = 3;
+
+/** The steps (by id) whose settings differ between two drafts, added ones included. */
+export function changedSteps(before: Workflow, after: Workflow): ReadonlySet<string> {
+  // A step's own settings, not the steps inside it: a change inside a Fork marks that step only.
+  const own = (step: Step) => {
+    const {
+      steps: _s,
+      paths,
+      otherwise,
+      ...rest
+    } = step as Step & {
+      steps?: unknown;
+      paths?: { steps: unknown }[];
+      otherwise?: { steps: unknown };
+    };
+    return canonicalJson({
+      ...rest,
+      // A path's name and condition are the Fork's own; the steps on it are theirs.
+      ...(paths ? { paths: paths.map(({ steps: _x, ...p }) => p) } : {}),
+      ...(otherwise ? { otherwise: { ...otherwise, steps: [] } } : {}),
+    });
+  };
+  const was = new Map(walk(before).map((l) => [l.step.id, own(l.step)]));
+  const out = new Set<string>();
+  for (const l of walk(after)) {
+    if (was.get(l.step.id) !== own(l.step)) out.add(l.step.id);
+  }
+  return out;
 }

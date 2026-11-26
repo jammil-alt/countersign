@@ -90,6 +90,13 @@ export interface StepPanelProps {
   /** The step before and after this one, at the foot of the panel; absent at the first or last. */
   onPreviousStep?: (() => void) | undefined;
   onNextStep?: (() => void) | undefined;
+  /**
+   * Done: closes the panel (owner, 2026-11-26). Edits are already on the chart; Save draft in the
+   * bar stores them. With it, the foot holds Previous, Next, the Builder and Done.
+   */
+  onDone?: (() => void) | undefined;
+  /** "Ask the Builder" in the foot: the Builder beside this panel, about this step. */
+  onAskBuilder?: (() => void) | undefined;
   /** "Remove this step" (or "Remove this decision" with `removeLabel`). Absent: not offered. */
   onRemove?: (() => void) | undefined;
   removeLabel?: string | undefined;
@@ -217,7 +224,51 @@ export function StepPanel(props: StepPanelProps) {
           </div>
         </section>
       ) : null}
-      {props.onPreviousStep || props.onNextStep ? (
+      {props.onDone ? (
+        <nav
+          aria-label="Done with this step"
+          data-testid="flow-panel-foot"
+          className="flex shrink-0 flex-wrap items-center gap-2 border-t border-line px-5 py-3"
+        >
+          <button
+            type="button"
+            className="ds-btn ds-btn--ghost ds-btn--sm text-ink-muted hover:text-ink disabled:opacity-40"
+            data-testid="flow-panel-previous"
+            disabled={!props.onPreviousStep}
+            onClick={() => props.onPreviousStep?.()}
+          >
+            <Icon name="chevron-right" size={14} className="rotate-180" />
+            Previous
+          </button>
+          <button
+            type="button"
+            className="ds-btn ds-btn--ghost ds-btn--sm text-ink-muted hover:text-ink disabled:opacity-40"
+            data-testid="flow-panel-next"
+            disabled={!props.onNextStep}
+            onClick={() => props.onNextStep?.()}
+          >
+            Next
+            <Icon name="chevron-right" size={14} />
+          </button>
+          <span className="ml-auto flex items-center gap-2">
+            {props.onAskBuilder ? (
+              <Button size="sm" data-testid="flow-panel-ask-builder" onClick={props.onAskBuilder}>
+                <Icon name="message" />
+                Ask the Builder
+              </Button>
+            ) : null}
+            <Button
+              variant="primary"
+              size="sm"
+              data-testid="flow-panel-done"
+              title="Close this step. Its changes are on the chart; Save draft stores them."
+              onClick={props.onDone}
+            >
+              Done
+            </Button>
+          </span>
+        </nav>
+      ) : props.onPreviousStep || props.onNextStep ? (
         // Owner, 2026-11-21 ("move the previous and next steps to the bottom"): the way to the
         // step before and after is the panel's last line, whatever the Builder's size.
         <nav

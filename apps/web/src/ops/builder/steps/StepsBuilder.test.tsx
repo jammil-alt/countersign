@@ -102,10 +102,11 @@ function bundle(w: unknown) {
   };
 }
 
-function setup(w: unknown) {
+function setup(w: unknown, more: Parameters<typeof fakeApi>[0] = {}) {
   const sent: Record<string, unknown>[] = [];
   const stored: Record<string, unknown>[] = [];
   const api = fakeApi({
+    ...more,
     [`GET /api/ops/agents/${AGENT_ID}/action-catalog`]: () => ACTIONS,
     [`GET /api/ops/agents/${AGENT_ID}/builder-catalog`]: () => ({
       skills: [],
@@ -209,20 +210,156 @@ describe("the step-model builder", () => {
     const issues = screen.getByTestId("publish-issues");
     expect(within(issues).getByText(/Pick what this End delivers/)).toBeTruthy();
     expect(within(issues).getByText(/No End delivers "Bill entered"/)).toBeTruthy();
-    expect(within(issues).getByText(/vendorId/)).toBeTruthy();
+    expect(within(issues).getAllByText(/vendorId/).length).toBeGreaterThan(0);
     await user.click(screen.getByTestId("steps-publish"));
     expect(sent).toHaveLength(0);
     // Each line says whether it is a step or an output, and opens it (feedback, 2026-11-26).
     expect(within(issues).getByText(/Output “Bill entered”:/)).toBeTruthy();
-    const show = within(issues)
-      .getAllByTestId("publish-issue-show")
-      .find((b) => b.textContent === "Show me in Outputs");
-    expect(show).toBeTruthy();
-    await user.click(show as HTMLElement);
-    expect(screen.getByTestId("steps-outputs")).toHaveAttribute("open");
+    // An output no End delivers points to the End that should: opening it opens that step.
+    const line = within(issues)
+      .getAllByTestId("publish-issue")
+      .find((l) => l.textContent?.includes("Output “Bill entered”")) as HTMLElement;
+    expect(within(line).getByTestId("publish-issue-elsewhere")).toHaveTextContent(
+      "For this to work, an End has to deliver “Bill entered”",
+    );
+    await user.click(within(line).getByTestId("publish-issue-show"));
+    expect(await screen.findByTestId("flow-panel")).toHaveAttribute("data-step", "end");
+    await user.keyboard("{Escape}");
     // Try it waits on them too: a test run is checked as a publish is.
     expect(screen.getByTestId("flow-bar-try")).toBeDisabled();
     expect(screen.getByTestId("flow-bar-builder")).toBeEnabled();
+  });
+
+  it("folds the Builder to a tab on a click outside, and opens it again from the tab", async () => {
+    const { user } = setup(workflow());
+    await screen.findByTestId("flow-chart");
+    await user.click(screen.getByTestId("flow-bar-builder"));
+    expect(await screen.findByTestId("builder-chat")).toBeTruthy();
+    await user.type(
+      within(screen.getByTestId("builder-chat")).getAllByRole("textbox")[0] as HTMLElement,
+      "Half a thought",
+    );
+    // A click outside it folds it; nothing is lost.
+    await user.click(screen.getByTestId("flow-bar-counts"));
+    await waitFor(() => expect(screen.getByTestId("builder-chat")).not.toBeVisible());
+    await user.click(screen.getByTestId("steps-drawer-tab"));
+    expect(screen.getByTestId("builder-chat")).toBeVisible();
+    // What was being typed is still there.
+    expect(
+      within(screen.getByTestId("builder-chat")).getAllByRole("textbox")[0] as HTMLElement,
+    ).toHaveValue("Half a thought");
+    // A step opened while it is open comes up beside it, the Builder about that step.
+    await user.click(screen.getByTestId("flow-box-end"));
+    const pair = await screen.findByTestId("steps-drawer");
+    expect(within(pair).getByTestId("flow-panel")).toBeTruthy();
+    expect(within(pair).getByTestId("builder-chat")).toBeTruthy();
+    expect(within(pair).getByTestId("builder-chat-focus")).toHaveTextContent("On “Done”");
+    // Done closes the step; the Builder stays open.
+    await user.click(within(pair).getByTestId("flow-panel-done"));
+    await waitFor(() => expect(screen.queryByTestId("steps-drawer")).toBeNull());
+    expect(screen.getByTestId("builder-chat")).toBeVisible();
+  });
+
+  it("asks the Builder from an open step, and marks what its answer changed", async () => {
+    const { user } = setup(workflow());
+    await user.click(await screen.findByTestId("flow-box-enter"));
+    const drawer = await screen.findByTestId("steps-drawer");
+    expect(within(drawer).queryByTestId("builder-chat")).toBeNull();
+    await user.click(within(drawer).getByTestId("flow-panel-ask-builder"));
+    expect(within(screen.getByTestId("steps-drawer")).getByTestId("builder-chat")).toBeTruthy();
+    // Next and Previous walk the steps in reading order.
+    expect(within(drawer).getByTestId("flow-panel-previous")).toBeDisabled();
+    await user.click(within(drawer).getByTestId("flow-panel-next"));
+    expect(screen.getByTestId("flow-panel")).toHaveAttribute("data-step", "end");
+  });
+
+  it("offers back edits kept in this browser from before a reload", async () => {
+    const w = workflow() as { steps: { id: string; name: string }[] };
+    const kept = structuredClone(w);
+    (kept.steps[0] as { name: string }).name = "Enter the bill again";
+    window.localStorage.setItem(
+      `countersign:steps-unsaved:${AGENT_ID}:main`,
+      JSON.stringify({ baseId: V1, workflow: kept, at: "2026-11-26T15:00:00.000Z" }),
+    );
+    const { user } = setup(w);
+    await user.click(await screen.findByTestId("steps-kept-restore"));
+    await waitFor(() =>
+      expect(screen.getByTestId("flow-box-enter").textContent).toContain("Enter the bill again"),
+    );
+    expect(screen.getByTestId("flow-bar-version")).toHaveTextContent("Unsaved");
+    expect(screen.queryByTestId("steps-kept")).toBeNull();
+    window.localStorage.clear();
+  });
+
+  it("comes back to your open conversation, and lists past ones to open", async () => {
+    const S1 = "00000000-0000-4000-8000-00000000e101";
+    const S2 = "00000000-0000-4000-8000-00000000e102";
+    const summary = (id: string, title: string, mine: boolean, status = "open") => ({
+      id,
+      kind: "agent",
+      clientId: null,
+      clientName: null,
+      agentId: AGENT_ID,
+      skillId: null,
+      baseVersionId: V1,
+      status,
+      createdAt: "2026-11-26T10:00:00.000Z",
+      updatedAt: "2026-11-26T11:00:00.000Z",
+      title,
+      turns: 2,
+      mine,
+    });
+    const detail = (id: string, text: string, status = "open") => ({
+      session: {
+        ...summary(id, text, true, status),
+        bundle: bundle(workflow()),
+        errors: [],
+        closest: [],
+      },
+      turns: [
+        {
+          id: `${id}-t1`,
+          seq: 1,
+          role: "operator",
+          text,
+          command: null,
+          changes: [],
+          questions: [],
+          gaps: [],
+          notes: [],
+          errors: [],
+          savedVersionId: null,
+          costUsd: "0",
+          undoneAt: null,
+          createdAt: "2026-11-26T10:00:00.000Z",
+        },
+      ],
+    });
+    const { user } = setup(workflow(), {
+      "GET /api/ops/builder/sessions": ({ url }) => ({
+        sessions:
+          url.searchParams.get("status") === "open"
+            ? [summary(S2, "Someone else's", false), summary(S1, "Add a check on totals", true)]
+            : [
+                summary(S1, "Add a check on totals", true),
+                summary(S2, "Someone else's", false, "closed"),
+              ],
+      }),
+      [`GET /api/ops/builder/sessions/${S1}`]: () => detail(S1, "Add a check on totals"),
+      [`GET /api/ops/builder/sessions/${S2}`]: () => detail(S2, "Someone else's", "closed"),
+    });
+    await screen.findByTestId("flow-chart");
+    await user.click(screen.getByTestId("flow-bar-builder"));
+    // Your own open conversation, not another operator's, from the server.
+    expect(await screen.findByText("Add a check on totals")).toBeTruthy();
+    await user.click(screen.getByTestId("builder-chat-past"));
+    const list = await screen.findByTestId("builder-chat-past-list");
+    expect(within(list).getByTestId(`builder-chat-past-${S2}`)).toHaveTextContent(
+      "another operator's · closed",
+    );
+    await user.click(within(list).getByTestId(`builder-chat-past-${S2}`));
+    expect(await screen.findByTestId("builder-chat-closed")).toBeTruthy();
+    window.sessionStorage.clear();
   });
 
   it("opens a step's settings in the side drawer, and Escape closes it", async () => {
@@ -232,6 +369,42 @@ describe("the step-model builder", () => {
     expect(within(drawer).getByTestId("flow-panel")).toBeTruthy();
     await user.keyboard("{Escape}");
     await waitFor(() => expect(screen.queryByTestId("steps-drawer")).toBeNull());
+    // A click outside it closes it too.
+    await user.click(await screen.findByTestId("flow-box-end"));
+    await screen.findByTestId("steps-drawer");
+    await user.click(screen.getByTestId("steps-drawer-scrim"));
+    await waitFor(() => expect(screen.queryByTestId("steps-drawer")).toBeNull());
+  });
+
+  it("offers a fix in one click, what has to change elsewhere, and the Builder", async () => {
+    const { user } = setup(workflow());
+    const issues = await screen.findByTestId("publish-issues");
+    const lines = within(issues).getAllByTestId("publish-issue");
+    // The End with nothing picked, and only one output: one click delivers it.
+    const end = lines.find((l) => l.textContent?.includes("Pick what this End delivers"));
+    expect(within(end as HTMLElement).getByTestId("publish-issue-fix")).toHaveTextContent(
+      "Deliver “Bill entered”",
+    );
+    // A field nothing gives: what has to change elsewhere, in words.
+    const input = lines.find((l) => l.textContent?.includes("vendorId"));
+    expect(within(input as HTMLElement).getByTestId("publish-issue-elsewhere")).toHaveTextContent(
+      "For this to work, an earlier step has to give “vendorId”",
+    );
+    // Ask the Builder opens it beside that step, the issue in its box to read over and send.
+    await user.click(within(input as HTMLElement).getByTestId("publish-issue-ask"));
+    const pair = await screen.findByTestId("steps-drawer");
+    expect(within(pair).getByTestId("flow-panel")).toHaveAttribute("data-step", "enter");
+    expect(within(within(pair).getByTestId("builder-chat")).getAllByRole("textbox")[0]).toHaveValue(
+      `Fix this: Doesn't fit: nothing gives "vendorId", which this step needs.`,
+    );
+    await user.keyboard("{Escape}");
+    await user.click(within(end as HTMLElement).getByTestId("publish-issue-fix"));
+    await waitFor(() =>
+      expect(
+        within(screen.getByTestId("publish-issues")).queryByText(/Pick what this End delivers/),
+      ).toBeNull(),
+    );
+    expect(within(screen.getByTestId("publish-issues")).queryByText(/No End delivers/)).toBeNull();
   });
 
   it("fills an End from the outputs, and the issue goes", async () => {

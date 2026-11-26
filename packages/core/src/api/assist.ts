@@ -6,6 +6,7 @@
 
 import { z } from "zod";
 import { ASSIST_FIELD_IDS, ASSIST_FIELDS } from "../assist/fields";
+import { TEST_DATA_NOTES_MAX } from "../assist/test-data";
 import { isUuid } from "../ids";
 import { storable } from "../text";
 import { defineRoute } from "./contract";
@@ -60,7 +61,36 @@ export type AssistDraftRequest = z.input<typeof AssistDraftRequest>;
 export const AssistDraft = z.object({ text: z.string() });
 export type AssistDraft = z.infer<typeof AssistDraft>;
 
+/** Made-up data to try a workflow on (docs/plan.md §1.186): what starts the run. */
+export const TestDataMade = z.object({
+  /** The trigger's data, for Try it's input box. */
+  trigger: z.unknown(),
+  /** The model left it out: the box holds an example of the trigger's shape instead. */
+  missing: z.boolean(),
+  /** A made-up document, stored in the Sandbox, that the trigger's data names. */
+  document: z.object({ id: z.string(), filename: z.string(), clientId: z.string() }).nullable(),
+});
+export type TestDataMade = z.infer<typeof TestDataMade>;
+
 export const assistRoutes = {
+  opsAssistTestData: defineRoute({
+    method: "POST",
+    path: "/api/ops/agents/:id/test-data",
+    auth: "session",
+    roles: ["operator"],
+    summary:
+      "Make up what starts a draft workflow, to try it on: its trigger's data as JSON, or, where the trigger carries a document, a document (a receipt, an invoice) rendered as a PDF and kept in the Sandbox; from the draft's shapes alone (no client's records); refused when the agent's client is in HIPAA mode and the model's vendor has no BAA",
+    params: z.object({ id: Id }),
+    body: z.strictObject({
+      /** The workflow as drawn (a step-model workflow, unsaved changes included). */
+      workflow: z.unknown(),
+      /** Its name, for the model. */
+      name: storable(z.string().trim().max(200)).default(""),
+      /** What the data should look like, in the operator's words. */
+      notes: storable(z.string().trim().max(TEST_DATA_NOTES_MAX)).optional(),
+    }),
+    response: TestDataMade,
+  }),
   opsAssistDraft: defineRoute({
     method: "POST",
     path: "/api/ops/assist/draft",

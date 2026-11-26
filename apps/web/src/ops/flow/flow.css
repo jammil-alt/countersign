@@ -1155,3 +1155,139 @@
     outline-offset: 2px;
   }
 }
+
+/* A folded drawer (Try it, the Builder): a tab on the window's right edge that opens it again. */
+@layer components {
+  .flow-drawer-tab {
+    position: fixed;
+    top: 50%;
+    right: 0;
+    z-index: 45;
+    padding: 12px 8px;
+    writing-mode: vertical-rl;
+    transform: translateY(-50%) rotate(180deg);
+    border: 1px solid var(--line);
+    border-right: 0;
+    border-radius: var(--radius-sm) 0 0 var(--radius-sm);
+    background: var(--surface);
+    color: var(--slate);
+    font: 500 13px / 1 var(--font-sans);
+    cursor: pointer;
+  }
+  .flow-drawer-tab:hover {
+    background: var(--slate-tint);
+  }
+  .flow-drawer-tab:focus-visible {
+    outline: 2px solid var(--slate);
+    outline-offset: 2px;
+  }
+}
+
+/* The Builder beside an open step (owner, 2026-11-26): one drawer, two panels side by side, the
+ * chart still showing at its left on a wide window. Under 1200 px the two share the drawer, with a
+ * switch at its top; on a phone the drawer is the whole screen. */
+@layer components {
+  .flow-drawer--pair {
+    width: min(1160px, 96vw);
+    flex-direction: row;
+  }
+  .flow-drawer--pair > .flow-drawer__main {
+    display: flex;
+    flex: 1 1 0;
+    min-width: 0;
+    flex-direction: column;
+  }
+  .flow-drawer--pair > .flow-drawer__main > * {
+    flex: 1;
+    min-height: 0;
+  }
+  .flow-drawer--pair > .flow-drawer__companion {
+    display: flex;
+    flex: 0 0 440px;
+    min-width: 0;
+    flex-direction: column;
+    border-left: 1px solid var(--line);
+  }
+  .flow-drawer--pair > .flow-drawer__companion > * {
+    flex: 1;
+    min-height: 0;
+  }
+  .flow-drawer--pair > .flow-drawer__switch {
+    display: none;
+  }
+  @media (max-width: 1199.98px) {
+    .flow-drawer--pair {
+      width: min(680px, 100vw);
+      flex-direction: column;
+    }
+    .flow-drawer--pair > .flow-drawer__switch {
+      display: flex;
+      flex: none;
+      align-self: stretch;
+      margin: 8px 12px 0;
+    }
+    .flow-drawer--pair > .flow-drawer__switch > button {
+      flex: 1;
+    }
+    .flow-drawer--pair > .flow-drawer__companion {
+      flex: 1 1 0;
+      border-left: 0;
+    }
+    .flow-drawer--pair[data-pane="main"] > .flow-drawer__companion,
+    .flow-drawer--pair[data-pane="companion"] > .flow-drawer__main {
+      display: none;
+    }
+  }
+}
+
+/* On a phone (owner, 2026-11-26: "figure out mobile design for the builder step modals"): the
+ * drawer is the whole screen, clear of the home indicator; a step and the Builder share it with the
+ * switch at its top; a folded Try it or Builder is a pill above the bottom edge, not a tab over the
+ * page's text. */
+@layer components {
+  @media (max-width: 767.98px) {
+    .flow-drawer {
+      padding-bottom: env(safe-area-inset-bottom);
+      animation-name: flow-drawer-up;
+    }
+    .flow-drawer-tab {
+      top: auto;
+      right: 16px;
+      bottom: calc(16px + env(safe-area-inset-bottom));
+      padding: 10px 16px;
+      writing-mode: horizontal-tb;
+      transform: none;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+    }
+  }
+  @keyframes flow-drawer-up {
+    from {
+      transform: translateY(24px);
+      opacity: 0;
+    }
+    to {
+      transform: none;
+      opacity: 1;
+    }
+  }
+}
+
+/* Try it and the Builder on their own: a chat's width, and on a wide window the page moves over so
+ * the chart stays in view beside them. */
+@layer components {
+  .flow-drawer--side {
+    width: min(460px, 92vw);
+  }
+  @media (min-width: 1024px) {
+    .flow-frame--beside {
+      padding-right: 440px;
+      transition: padding-right 180ms ease-out;
+    }
+  }
+  @media (max-width: 767.98px) {
+    .flow-drawer--side {
+      width: 100%;
+    }
+  }
+}

@@ -239,7 +239,16 @@ export const builderRoutes = {
       status: BuilderSessionStatus.optional(),
     }),
     response: z.object({
-      sessions: z.array(BuilderSessionView.omit({ bundle: true, errors: true, closest: true })),
+      sessions: z.array(
+        BuilderSessionView.omit({ bundle: true, errors: true, closest: true }).extend({
+          /** Its first message (what it was about), for a list of past conversations. */
+          title: z.string().nullable().optional(),
+          /** How many messages it has, both sides. */
+          turns: z.number().int().optional(),
+          /** Started by the operator asking. */
+          mine: z.boolean().optional(),
+        }),
+      ),
     }),
   }),
   opsStartBuilderSession: defineRoute({
@@ -377,6 +386,17 @@ export const builderRoutes = {
       ),
       errors: z.array(CheckError),
     }),
+  }),
+  opsSyncBuilderSession: defineRoute({
+    method: "POST",
+    path: "/api/ops/builder/sessions/:id/sync",
+    auth: "session",
+    roles: OPS,
+    summary:
+      "Carry an agent conversation on from a version the operator saved since (their edits outside the chat): the draft becomes that version's, the turns stay",
+    params: IdParams,
+    body: z.strictObject({ fromVersionId: Id }),
+    response: SessionDetail,
   }),
   opsCloseBuilderSession: defineRoute({
     method: "POST",
