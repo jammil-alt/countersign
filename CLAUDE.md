@@ -96,6 +96,13 @@ pnpm format           # Biome (pinned to Plenary Labs' version; it leaves Markdo
 - **When several sessions build in parallel**, workers don't edit `docs/plan.md`, `docs/open.md` or
   `docs/work-plan.md`. Each puts its plan entry in its PR description, and the coordinator lands one
   docs PR per wave.
+- **Nothing left for later goes unrecorded** (owner, 2026-11-26). `docs/open.md`'s **To do** list
+  is the one place for work we don't finish. In the same PR as the work: add an unticked item for
+  anything left out, cut, deferred to a v2, built against a fake only, or waiting on a key, an
+  account or an owner decision; tick or remove each item the PR finishes; and drop any item the
+  change makes moot. One line each, saying what is left and where the detail is. A worker in a
+  parallel wave puts these lines under "For open.md" in its PR description instead, and the
+  coordinator adds them. A session's closing summary names the items it added.
 - **A migration merges only if** its number is higher than every migration on `main` and its journal
   `when` is newer than `main`'s latest. Otherwise renumber it and regenerate its snapshot and journal
   entry from `main`'s latest. Numbers are confirmed at merge time, not reserved ahead.

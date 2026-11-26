@@ -44,17 +44,27 @@ up, reorder as priorities move. Each points to the section below that holds the 
   Google and Microsoft sign-ins don't. Same pass: redirect and sign-out URIs, sessions 12 hours
   and 30 minutes idle, branding, and A3 (Dynamic Client Registration and Client ID Metadata
   Documents on) (`docs/operations.md`, "By hand" and "The first production release").
-- [ ] **Production's first release** (`v0.1.0`): the step model's purge, then the tag, Email
-  Routing for `in.mezonas.com`, the platform templates, the Mezonas client ("Production's first
-  release" below, A5).
-- [ ] **The buyer on staging**: P1–P5, then §1.2 in the app, then the §1.3 decisions.
-- [ ] **The Bookkeeper**: K1–K2 (§1b).
-- [ ] **Search Console** (S6): start now, it collects from the day it is verified.
-- [ ] **The site live**: S1–S4, then S5 and S7; S8–S11 after the lawyer's read.
-- [ ] **Staging hardening**: H1 live checks, H3 Hyperdrive caching and `staging`'s branches.
-- [ ] **Sentry**: point `mezonas-web`'s code mapping at `jammil-alt/countersign`; cancel the
-  stuck staging run behind MEZONAS-API-1.
-- [ ] **#501**: finish or close the stale issue close-out draft.
+- [ ] **Apple Developer Program** (organisation, D-U-N-S for Twelve Thirty-Four): gates the
+  iPhone build and push (M3) and the Mac app's signing (D5). Start first: approval can take days.
+- [ ] **Phone app, accounts**: an Expo account, `eas init`, `EAS_PROJECT_ID` (M2); a Firebase
+  project for Android push, its `google-services.json` and FCM key (M4).
+- [ ] **Phone app, code** (small PRs): `deploy.yml` copies `MOBILE_SIGNIN`, `MOBILE_PUSH` and
+  `EXPO_ACCESS_TOKEN`, with Expo's enhanced push security on (M6); universal and app links in
+  place of `mezonas://` before production (M8); the evidence panel on the phone's Desk (Round 4).
+- [ ] **Phone app, on staging**: development builds on an iPhone and an Android phone, then M5's
+  checks and A8's phone approval of a sign-in.
+- [ ] **Phone app, decisions and store**: M7, M9, M10 and A9; the store listing and TestFlight
+  testers.
+- [ ] **Desktop app, signing**: the Apple Developer ID (Mac, notarised) and Azure Trusted Signing
+  or an OV certificate (Windows) (D5).
+- [ ] **Desktop app, updates** (code, own PR): an R2 bucket behind
+  `downloads.mezonas.com/desktop/` (what `electron-builder.yml` already points at) and a release
+  workflow that builds on macOS and Windows runners and uploads there (D6).
+- [ ] **Desktop app, on a Mac and a PC**: run it against staging with `MOBILE_SIGNIN=on` and
+  check `packages/connectors/src/desktop/NOTES.md` (D4).
+- [ ] **Desktop app, code and decisions**: removing a phone also ends that person's desktop
+  sessions (D7); a screen listing a client's computers (D3's note); the owner's review of
+  §1.151's decisions (D1). D8 is the next version, not the finish.
 
 ## Where things stand
 
