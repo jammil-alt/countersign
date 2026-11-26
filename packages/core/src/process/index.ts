@@ -16,7 +16,6 @@ export * from "./conditions";
 // R7: the conversation step.
 export * from "./conversation";
 // Ways in, ways out (owner, 2026-11-23): steps one workflow repeats from another.
-export * from "./copies";
 export * from "./customize";
 // v0.18: what each step reads and saves.
 export * from "./data-use";
@@ -36,7 +35,6 @@ export * from "./reshape";
 export * from "./reshape-propose";
 // Reshape data (owner, 2026-11-11): the mapping, its evaluator, typing and proposer.
 // Triggers and outputs (owner, 2026-11-23): what each workflow is to the agent's others.
-export * from "./roles";
 export * from "./sample";
 export * from "./schema";
 export * from "./seats";
