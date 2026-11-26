@@ -378,6 +378,17 @@ export const builderRoutes = {
       errors: z.array(CheckError),
     }),
   }),
+  opsSyncBuilderSession: defineRoute({
+    method: "POST",
+    path: "/api/ops/builder/sessions/:id/sync",
+    auth: "session",
+    roles: OPS,
+    summary:
+      "Carry an agent conversation on from a version the operator saved since (their edits outside the chat): the draft becomes that version's, the turns stay",
+    params: IdParams,
+    body: z.strictObject({ fromVersionId: Id }),
+    response: SessionDetail,
+  }),
   opsCloseBuilderSession: defineRoute({
     method: "POST",
     path: "/api/ops/builder/sessions/:id/close",

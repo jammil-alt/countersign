@@ -1,8 +1,8 @@
 // The Builder beside the step builder (feedback, 2026-11-26: "Where is the builder? There is no
 // builder in this screen. How do I engage it?"). The v4 builder's conversation went with it (#707);
 // this is the same conversation on a step-model draft: a turn starts from what the chart shows
-// (unsaved edits are saved as a draft version first, and a new conversation starts from it when the
-// chart moved on), and the Builder's draft of this workflow comes back onto the chart as one
+// (unsaved edits are saved as a draft version first, and the conversation carries on from it, with
+// its turns, when the chart moved on), and the Builder's draft of this workflow comes back onto the chart as one
 // undoable edit. Nothing is published here: the operator saves, tries and publishes as before.
 // The conversation outlives a reload: its id is kept for the browser session, per agent.
 // DECISION: only this workflow comes back from the Builder's draft. A workflow it adds or changes
@@ -111,11 +111,24 @@ export function useBuilderSession({
     if (w && canonicalJson(w) !== canonicalJson(workflow)) onDraft(w);
   };
 
-  /** The conversation to talk in: this one while the chart matches it, else a new one. */
+  /**
+   * The conversation to talk in: this one, brought up to the chart when the chart moved on (it is
+   * saved, and the conversation carries on from that version with all its turns); a new one only
+   * when there is none yet (feedback, 2026-11-26: the history was lost on every edit).
+   */
   async function sessionId(): Promise<string | null> {
     if (detail && inSync) return detail.session.id;
     const from = await ensureSaved();
     if (!from) return null;
+    if (detail && detail.session.status === "open") {
+      const synced = await action.call(apiRoutes.opsSyncBuilderSession, {
+        params: { id: detail.session.id },
+        body: { fromVersionId: from.id },
+      });
+      if (!synced.ok) return null;
+      setDetail(synced.data);
+      return synced.data.session.id;
+    }
     const res = await action.call(apiRoutes.opsStartBuilderSession, {
       body: { kind: "agent", agentId: agent.id, fromVersionId: from.id },
     });

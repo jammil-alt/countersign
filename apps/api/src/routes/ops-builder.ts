@@ -1498,6 +1498,35 @@ function builderSessionRoutes(app: Hono<AppEnv>): void {
     };
   });
 
+  // Feedback, 2026-11-26: "the Builder does not keep the history of the conversation". The step
+  // builder started a new conversation whenever the chart had moved on from the conversation's
+  // draft (any edit there), and a new conversation starts with no turns. Now the same
+  // conversation picks up the version the operator saved: its draft becomes that version's, and a
+  // turn says so, so the Builder reads on with every earlier turn. Undo of an earlier change still
+  // merges against the draft as it now is (`undo_conflict` when it can't).
+  mount(app, routes.opsSyncBuilderSession, async (ctx) => {
+    const s = await lockSession(ctx, ctx.params.id);
+    refuseClosed(s);
+    if (s.kind !== "agent" || !s.agentId) {
+      throw new HttpError(
+        422,
+        "invalid_request",
+        "only an existing agent's conversation follows a saved version",
+      );
+    }
+    const v = await getVersion(ctx.tx, ctx.body.fromVersionId);
+    if (v.agentId !== s.agentId) throw notFound("version");
+    const bundle = asDraft(v.bundle);
+    await updateSession(ctx.tx, s.id, { bundle });
+    await addTurn(ctx.tx, s, {
+      role: "builder",
+      text: `You changed the draft yourself (saved as v${v.version}). I'm working from that now.`,
+      bundle,
+      savedVersionId: v.id,
+    });
+    return sessionDetail(ctx, await readSession(ctx, s.id));
+  });
+
   mount(app, routes.opsCloseBuilderSession, async (ctx) => {
     const s = await lockSession(ctx, ctx.params.id);
     await updateSession(ctx.tx, s.id, { status: "closed" });
