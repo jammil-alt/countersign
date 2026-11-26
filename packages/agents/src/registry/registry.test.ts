@@ -240,14 +240,14 @@ describe.skipIf(!harness)("agent registry", () => {
     const problems0 = await h.ops((tx) => activationProblems(tx, { agentId: a.id, ctx: h.ctx }));
     expect(problems0.join()).toContain("no live version");
 
-    // An unbound client agent publishes; activation needs its testkit connection (the step model's
-    // publish checks don't read the connections).
-    await h.ops((tx) => publish(tx, { agentId: a.id, versionId: version.id, ctx: h.ctx }));
-    const unbound = await h.ops((tx) => activationProblems(tx, { agentId: a.id, ctx: h.ctx }));
-    expect(unbound.join()).toContain("testkit");
+    // Publishing an unbound client agent fails: its action step needs the testkit connection.
+    expect(
+      await code(h.ops((tx) => publish(tx, { agentId: a.id, versionId: version.id, ctx: h.ctx }))),
+    ).toBe("invalid_bundle");
     await h.ops((tx) =>
       updateOperational(tx, { agentId: a.id, patch: { bindings: { testkit: h.A.connectionId } } }),
     );
+    await h.ops((tx) => publish(tx, { agentId: a.id, versionId: version.id, ctx: h.ctx }));
 
     const problems1 = await h.ops((tx) => activationProblems(tx, { agentId: a.id, ctx: h.ctx }));
     expect(problems1).toEqual(["v1 has no passing test run on this client"]);

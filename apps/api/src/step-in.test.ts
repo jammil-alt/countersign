@@ -54,6 +54,7 @@ import {
   OPERATOR,
   OTHER_OPERATOR,
   optOutOf,
+  publishStored,
   unsigned,
   user,
 } from "./api.test-helper";
@@ -475,11 +476,7 @@ describe.skipIf(!h)("the client runs it, we step in", () => {
       bindings: { stepkit: conn?.id },
     });
     expect(bound.status, JSON.stringify(bound.json)).toBe(200);
-    const pub = await H.call(
-      OPERATOR,
-      "POST",
-      `/api/ops/agents/${agentId}/versions/${j(created.json).version.id}/publish`,
-    );
+    const pub = await publishStored(H, H.A.tenantId, agentId, j(created.json).version.id);
     expect(pub.status, JSON.stringify(pub.json)).toBe(200);
     const ch = await H.call(OPERATOR, "PUT", `/api/ops/agents/${agentId}/channels`, {
       channels: { sms: setup.twilio.connectionId, whatsapp: setup.twilio.connectionId },

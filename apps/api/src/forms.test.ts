@@ -21,6 +21,7 @@ import {
   FakeWorkflowStep,
   forbiddenKeys,
   OPERATOR,
+  publishStored,
 } from "./api.test-helper";
 import { quietNever } from "./quiet-hours.test-helper";
 import { credentialsFor, executeRun } from "./runs/execute";
@@ -254,11 +255,7 @@ describe.skipIf(!h)("forms: request info from a contact", () => {
     expect(j(created.json).errors ?? []).toEqual([]);
     agentId = j(created.json).agent.id;
     versionId = j(created.json).version.id;
-    const pub = await H.call(
-      OPERATOR,
-      "POST",
-      `/api/ops/agents/${agentId}/versions/${versionId}/publish`,
-    );
+    const pub = await publishStored(H, H.A.tenantId, agentId, versionId);
     expect(pub.status, JSON.stringify(pub.json)).toBe(200);
     const ch = await H.call(OPERATOR, "PUT", `/api/ops/agents/${agentId}/channels`, {
       channels: { email: gmail },

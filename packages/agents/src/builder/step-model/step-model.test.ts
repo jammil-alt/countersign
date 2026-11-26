@@ -1433,7 +1433,7 @@ describe("guards: a step's purpose stays within the limit", () => {
     const answer = structuredClone(origin);
     (answer.workflows[0]?.workflow.steps[0] as { purpose?: string }).purpose = grown;
     const g = guardStepBundle(answer, ctx, { mode: "draft", newId: counter() });
-    const step = allSteps(g.bundle).find((s) => s.id === "s-bills") as { purpose?: string };
+    const step = allSteps(g.bundle)[0] as { purpose?: string };
     expect(step.purpose).toBe(
       "Checks and against so an invoice this agent already reviewed stops here instead of being matched a second time by the steps below.",
     );
