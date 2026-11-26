@@ -871,7 +871,38 @@ function builderSessionRoutes(app: Hono<AppEnv>): void {
       )
       .orderBy(desc(builderSession.updatedAt))
       .limit(100);
-    return { sessions: rows.map((r) => sessionSummary(r.s, r.clientName ?? null)) };
+    // Owner, 2026-11-26 ("past conversations" in the Builder): each one's first message, its
+    // length and whether it is the asking operator's own.
+    const ids = rows.map((r) => r.s.id);
+    const turns = ids.length
+      ? await tx
+          .select({
+            sessionId: builderTurn.sessionId,
+            role: builderTurn.role,
+            text: builderTurn.text,
+            command: builderTurn.command,
+          })
+          .from(builderTurn)
+          .where(inArray(builderTurn.sessionId, ids))
+          .orderBy(builderTurn.sessionId, builderTurn.seq)
+      : [];
+    const title = new Map<string, string>();
+    const count = new Map<string, number>();
+    for (const t of turns) {
+      if (t.command === "/start") continue;
+      count.set(t.sessionId, (count.get(t.sessionId) ?? 0) + 1);
+      if (t.role === "operator" && !title.has(t.sessionId)) {
+        title.set(t.sessionId, t.text.replace(/\s+/g, " ").trim().slice(0, 120));
+      }
+    }
+    return {
+      sessions: rows.map((r) => ({
+        ...sessionSummary(r.s, r.clientName ?? null),
+        title: title.get(r.s.id) ?? null,
+        turns: count.get(r.s.id) ?? 0,
+        mine: r.s.createdBy === ctx.session.user.id,
+      })),
+    };
   });
 
   mount(app, routes.opsStartBuilderSession, async (ctx) => {

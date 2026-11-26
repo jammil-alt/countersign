@@ -58,7 +58,16 @@ export interface BuilderSession {
   pending: string | null;
   send(text: string, options?: { focusStepId?: string | undefined }): Promise<boolean>;
   undo(turnId: string, changeId: string): Promise<void>;
+  /** This agent's conversations, newest first (loaded when asked for). */
+  past: Past[] | null;
+  loadPast(): Promise<void>;
+  /** Opens a past conversation; the next message carries it on from the chart as it is. */
+  open(id: string): Promise<void>;
+  /** Leaves this conversation: the next message starts a new one. */
+  startNew(): void;
 }
+
+export type Past = ResponseOf<typeof apiRoutes.opsBuilderSessions>["sessions"][number];
 
 export function useBuilderSession({
   agent,
@@ -81,19 +90,29 @@ export function useBuilderSession({
   const action = useAction();
   const api = useApiClient();
 
+  const [past, setPast] = useState<Past[] | null>(null);
+
+  // The conversation to come back to (owner, 2026-11-26: the history should follow you): this
+  // tab's, else the newest open one this operator started about this agent, on any device. A
+  // conversation another operator started is listed in Past conversations, never opened unasked.
   // biome-ignore lint/correctness/useExhaustiveDependencies: read once per agent.
   useEffect(() => {
-    const id = rememberedChat(agent.id);
-    if (!id) return;
     let live = true;
-    api
-      .call(apiRoutes.opsBuilderSession, { params: { id } })
-      .then((out) => {
-        if (!live) return;
-        if (out.session.status === "open") setDetail((now) => now ?? out);
-        else rememberChat(agent.id, null);
-      })
-      .catch(() => rememberChat(agent.id, null));
+    const load = async () => {
+      let id = rememberedChat(agent.id);
+      if (!id) {
+        const list = await api.call(apiRoutes.opsBuilderSessions, {
+          query: { agent: agent.id, status: "open" },
+        });
+        id = list.sessions.find((s) => s.mine)?.id ?? null;
+      }
+      if (!id) return;
+      const out = await api.call(apiRoutes.opsBuilderSession, { params: { id } });
+      if (!live) return;
+      if (out.session.status === "open") setDetail((now) => now ?? out);
+      else rememberChat(agent.id, null);
+    };
+    load().catch(() => rememberChat(agent.id, null));
     return () => {
       live = false;
     };
@@ -160,6 +179,19 @@ export function useBuilderSession({
       take(res.data);
       return true;
     },
+    past,
+    async loadPast() {
+      const out = await api.call(apiRoutes.opsBuilderSessions, { query: { agent: agent.id } });
+      setPast(out.sessions);
+    },
+    async open(id) {
+      const out = await api.call(apiRoutes.opsBuilderSession, { params: { id } });
+      setDetail(out);
+    },
+    startNew() {
+      setDetail(null);
+      rememberChat(agent.id, null);
+    },
     async undo(turnId, changeId) {
       if (!detail || !inSync) return;
       const res = await action.call(apiRoutes.opsBuilderUndo, {
@@ -187,6 +219,9 @@ export function BuilderChat({
 }) {
   const turns = session.detail?.turns ?? [];
   const [about, setAbout] = useState(focus ?? null);
+  const [showPast, setShowPast] = useState(false);
+  const [pastError, setPastError] = useState<unknown>(null);
+  const closed = session.detail?.session.status === "closed";
   // Another step opened beside it (Next, Previous): the conversation is about that one now.
   const focusId = focus?.id ?? null;
   // biome-ignore lint/correctness/useExhaustiveDependencies: follows the open step by its id.
@@ -204,6 +239,35 @@ export function BuilderChat({
           <span className="text-sm text-ink-muted">
             It changes this draft on the chart, each change with its own Undo.
           </span>
+          <span className="flex flex-wrap gap-3 text-xs">
+            <button
+              type="button"
+              className="text-slate underline"
+              data-testid="builder-chat-past"
+              aria-pressed={showPast}
+              onClick={() => {
+                const next = !showPast;
+                setShowPast(next);
+                setPastError(null);
+                if (next) session.loadPast().catch(setPastError);
+              }}
+            >
+              {showPast ? "Back to this conversation" : "Past conversations"}
+            </button>
+            {session.detail ? (
+              <button
+                type="button"
+                className="text-slate underline"
+                data-testid="builder-chat-new"
+                onClick={() => {
+                  session.startNew();
+                  setShowPast(false);
+                }}
+              >
+                New conversation
+              </button>
+            ) : null}
+          </span>
         </div>
         <Button
           variant="ghost"
@@ -215,29 +279,88 @@ export function BuilderChat({
           <Icon name="close" size={20} />
         </Button>
       </div>
-      <div className="relative flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-5 py-4">
-        <Turns
-          turns={turns}
-          thread={{ stepId: about?.id ?? null }}
-          busy={session.busy}
-          pending={session.pending}
-          {...(session.inSync ? { onUndo: session.undo } : {})}
-          undoOff="You've changed the workflow since. Undo it on the chart."
-          empty={
-            <p className="text-sm text-ink-muted" data-testid="builder-chat-empty">
-              Ask for a step, a fork or a rule, or ask why something is there. Approval stays on for
-              every step that changes a tool; only you can switch it off.
+      {showPast ? (
+        <div
+          className="relative flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto px-5 py-4"
+          data-testid="builder-chat-past-list"
+        >
+          {pastError ? <Notice tone="warning">{errorText(pastError)}</Notice> : null}
+          {session.past === null && !pastError ? (
+            <p className="text-sm text-ink-muted">Loading…</p>
+          ) : null}
+          {session.past?.length === 0 ? (
+            <p className="text-sm text-ink-muted">No conversations about this agent yet.</p>
+          ) : null}
+          <ul className="flex flex-col divide-y divide-line border border-line">
+            {(session.past ?? []).map((p) => (
+              <li key={p.id}>
+                <button
+                  type="button"
+                  className="flex w-full flex-col items-start gap-0.5 px-3 py-2 text-left hover:bg-surface-muted"
+                  data-testid={`builder-chat-past-${p.id}`}
+                  aria-current={p.id === session.detail?.session.id ? "true" : undefined}
+                  onClick={() => {
+                    session
+                      .open(p.id)
+                      .then(() => setShowPast(false))
+                      .catch(setPastError);
+                  }}
+                >
+                  <span className="text-sm text-ink">
+                    {p.title || "Started, nothing asked yet"}
+                  </span>
+                  <span className="text-xs text-ink-muted">
+                    {new Date(p.updatedAt).toLocaleString(undefined, {
+                      dateStyle: "medium",
+                      timeStyle: "short",
+                    })}
+                    {" · "}
+                    {p.turns ?? 0} {(p.turns ?? 0) === 1 ? "message" : "messages"}
+                    {p.mine === false ? " · another operator's" : ""}
+                    {p.status === "closed" ? " · closed" : ""}
+                    {p.id === session.detail?.session.id ? " · this one" : ""}
+                  </span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : (
+        <div className="relative flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-5 py-4">
+          {closed ? (
+            <Notice tone="warning" testId="builder-chat-closed">
+              This conversation is closed. Your next message starts a new one from the chart as it
+              is.
+            </Notice>
+          ) : session.detail && !session.inSync ? (
+            <p className="text-xs text-ink-muted" data-testid="builder-chat-behind">
+              The chart has changed since this conversation's last answer. Your next message carries
+              it on from the chart as it is now.
             </p>
-          }
-        />
-        {session.error ? (
-          <Notice tone="warning" testId="builder-chat-error">
-            {isCode(session.error, "builder_unavailable")
-              ? `The Builder can't reach its model right now. ${errorText(session.error)}`
-              : errorText(session.error)}
-          </Notice>
-        ) : null}
-      </div>
+          ) : null}
+          <Turns
+            turns={turns}
+            thread={{ stepId: about?.id ?? null }}
+            busy={session.busy}
+            pending={session.pending}
+            {...(session.inSync ? { onUndo: session.undo } : {})}
+            undoOff="You've changed the workflow since. Undo it on the chart."
+            empty={
+              <p className="text-sm text-ink-muted" data-testid="builder-chat-empty">
+                Ask for a step, a fork or a rule, or ask why something is there. Approval stays on
+                for every step that changes a tool; only you can switch it off.
+              </p>
+            }
+          />
+          {session.error ? (
+            <Notice tone="warning" testId="builder-chat-error">
+              {isCode(session.error, "builder_unavailable")
+                ? `The Builder can't reach its model right now. ${errorText(session.error)}`
+                : errorText(session.error)}
+            </Notice>
+          ) : null}
+        </div>
+      )}
       <div className="flex flex-col gap-2 border-t border-line px-5 py-3">
         {about ? (
           <div className="flex items-center gap-2 text-xs text-ink-muted">

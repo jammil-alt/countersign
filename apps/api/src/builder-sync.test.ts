@@ -93,6 +93,12 @@ describe.skipIf(!h)("syncing a Builder conversation to a saved version", () => {
     await ok("POST", `/api/ops/builder/sessions/${id}/turns`, { text: "And then?" });
     expect(JSON.stringify(asked.at(-1)?.messages)).toContain("What does it do first?");
 
+    // Past conversations: each one's first message, its length, and whether it is yours.
+    const list = await ok("GET", `/api/ops/builder/sessions?agent=${agentId}`);
+    const mine = (list.sessions as Json[]).find((x) => x.id === id) as Json;
+    expect(mine).toMatchObject({ title: "What does it do first?", mine: true });
+    expect(mine.turns).toBe(5);
+
     // Another agent's version can't be synced in.
     const other = await ok("POST", `/api/ops/clients/${H.B.tenantId}/agents`, {
       slug: "sync-other",

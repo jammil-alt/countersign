@@ -102,10 +102,11 @@ function bundle(w: unknown) {
   };
 }
 
-function setup(w: unknown) {
+function setup(w: unknown, more: Parameters<typeof fakeApi>[0] = {}) {
   const sent: Record<string, unknown>[] = [];
   const stored: Record<string, unknown>[] = [];
   const api = fakeApi({
+    ...more,
     [`GET /api/ops/agents/${AGENT_ID}/action-catalog`]: () => ACTIONS,
     [`GET /api/ops/agents/${AGENT_ID}/builder-catalog`]: () => ({
       skills: [],
@@ -288,6 +289,77 @@ describe("the step-model builder", () => {
     expect(screen.getByTestId("flow-bar-version")).toHaveTextContent("Unsaved");
     expect(screen.queryByTestId("steps-kept")).toBeNull();
     window.localStorage.clear();
+  });
+
+  it("comes back to your open conversation, and lists past ones to open", async () => {
+    const S1 = "00000000-0000-4000-8000-00000000e101";
+    const S2 = "00000000-0000-4000-8000-00000000e102";
+    const summary = (id: string, title: string, mine: boolean, status = "open") => ({
+      id,
+      kind: "agent",
+      clientId: null,
+      clientName: null,
+      agentId: AGENT_ID,
+      skillId: null,
+      baseVersionId: V1,
+      status,
+      createdAt: "2026-11-26T10:00:00.000Z",
+      updatedAt: "2026-11-26T11:00:00.000Z",
+      title,
+      turns: 2,
+      mine,
+    });
+    const detail = (id: string, text: string, status = "open") => ({
+      session: {
+        ...summary(id, text, true, status),
+        bundle: bundle(workflow()),
+        errors: [],
+        closest: [],
+      },
+      turns: [
+        {
+          id: `${id}-t1`,
+          seq: 1,
+          role: "operator",
+          text,
+          command: null,
+          changes: [],
+          questions: [],
+          gaps: [],
+          notes: [],
+          errors: [],
+          savedVersionId: null,
+          costUsd: "0",
+          undoneAt: null,
+          createdAt: "2026-11-26T10:00:00.000Z",
+        },
+      ],
+    });
+    const { user } = setup(workflow(), {
+      "GET /api/ops/builder/sessions": ({ url }) => ({
+        sessions:
+          url.searchParams.get("status") === "open"
+            ? [summary(S2, "Someone else's", false), summary(S1, "Add a check on totals", true)]
+            : [
+                summary(S1, "Add a check on totals", true),
+                summary(S2, "Someone else's", false, "closed"),
+              ],
+      }),
+      [`GET /api/ops/builder/sessions/${S1}`]: () => detail(S1, "Add a check on totals"),
+      [`GET /api/ops/builder/sessions/${S2}`]: () => detail(S2, "Someone else's", "closed"),
+    });
+    await screen.findByTestId("flow-chart");
+    await user.click(screen.getByTestId("flow-bar-builder"));
+    // Your own open conversation, not another operator's, from the server.
+    expect(await screen.findByText("Add a check on totals")).toBeTruthy();
+    await user.click(screen.getByTestId("builder-chat-past"));
+    const list = await screen.findByTestId("builder-chat-past-list");
+    expect(within(list).getByTestId(`builder-chat-past-${S2}`)).toHaveTextContent(
+      "another operator's · closed",
+    );
+    await user.click(within(list).getByTestId(`builder-chat-past-${S2}`));
+    expect(await screen.findByTestId("builder-chat-closed")).toBeTruthy();
+    window.sessionStorage.clear();
   });
 
   it("opens a step's settings in the side drawer, and Escape closes it", async () => {

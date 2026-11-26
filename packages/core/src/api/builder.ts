@@ -239,7 +239,16 @@ export const builderRoutes = {
       status: BuilderSessionStatus.optional(),
     }),
     response: z.object({
-      sessions: z.array(BuilderSessionView.omit({ bundle: true, errors: true, closest: true })),
+      sessions: z.array(
+        BuilderSessionView.omit({ bundle: true, errors: true, closest: true }).extend({
+          /** Its first message (what it was about), for a list of past conversations. */
+          title: z.string().nullable().optional(),
+          /** How many messages it has, both sides. */
+          turns: z.number().int().optional(),
+          /** Started by the operator asking. */
+          mine: z.boolean().optional(),
+        }),
+      ),
     }),
   }),
   opsStartBuilderSession: defineRoute({
