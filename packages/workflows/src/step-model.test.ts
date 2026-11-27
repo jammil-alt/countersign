@@ -851,6 +851,46 @@ describe("loading a v5 workflow", () => {
     expect(loaded.process.steps[0]).toMatchObject({ kind: "skill", agent: "reader" });
   });
 
+  // Staging, 2026-11-27: a Contact step's field with an `about` couldn't start its conversation.
+  it("asks a Contact step's output fields by their types, never by what they mean", () => {
+    const contact = {
+      id: "s_ask",
+      kind: "do",
+      name: "Ask the employee",
+      doneBy: "contact",
+      contact: {
+        with: "{{trigger.contactId}}",
+        channel: "email",
+        goal: "Get the project each receipt is for.",
+        maxTurns: 4,
+        mayShare: [],
+        messages: { first: "required", later: "required" },
+        deadline: { after: "2 days", hours: "business", ifNoAnswer: "stop" },
+      },
+      output: [
+        { name: "answers", type: "text", required: true, about: "What they said, in plain words" },
+        { name: "total", type: "money", required: false },
+        { name: "vendor", type: "record", record: "vendor", required: true },
+        {
+          name: "lines",
+          type: "list",
+          of: [{ name: "x", type: "text", required: true }],
+          required: false,
+        },
+      ],
+    };
+    const loaded = loadStepModel(wf([contact, end()]), () => undefined);
+    expect(loaded.process.steps[0]).toMatchObject({
+      kind: "conversation",
+      find: { answers: "text", total: "money?", vendor: "vendor", lines: "text[]?" },
+    });
+    for (const spec of Object.values(
+      (loaded.process.steps[0] as { find: Record<string, string> }).find,
+    )) {
+      expect(spec).not.toContain(" ");
+    }
+  });
+
   it("keeps every id, so durable names and hand-offs are a v4 step's", () => {
     const loaded = loadStepModel(wf([read, end()]), () => "get");
     expect(loaded.process.steps.map((s) => [s.id, s.kind])).toEqual([

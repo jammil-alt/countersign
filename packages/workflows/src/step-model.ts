@@ -397,10 +397,7 @@ function loadDo(
       if (!c) throw new ProcessLoadError(`step ${step.id}: nobody is contacted`);
       // What it must find out: its output fields, `?` for optional (the converter's reading).
       const find = Object.fromEntries(
-        (step.output ?? []).map((f) => [
-          f.name,
-          `${f.about ?? f.type}${f.required ? "" : "?"}`.replace(/\?\?$/, "?"),
-        ]),
+        (step.output ?? []).map((f) => [f.name, `${findType(f)}${f.required ? "" : "?"}`]),
       );
       return {
         ...base,
@@ -419,6 +416,31 @@ function loadDo(
       return { ...base, kind: "process", process: engine.automation, input } as processes.Step;
     case "missing":
       return { ...base, kind: "missing", need: engine.need } as processes.Step;
+  }
+}
+
+/**
+ * A Contact step's output field as the conversation's `find` reads it (core `FIND_TYPES`). A field's
+ * `about` is what it means, never its type (staging, 2026-11-27: "What the employee said, in plain
+ * words" was read as one, and the conversation couldn't start). A record is named as the person
+ * names it; a list is a list of plain words; a group is said in words.
+ */
+export function findType(f: steps.Field): string {
+  switch (f.type) {
+    case "text":
+    case "number":
+    case "money":
+    case "date":
+    case "yes_no":
+      return f.type;
+    case "record":
+      return f.record && /^[a-z][a-z0-9_]*(?:\.[a-z][a-z0-9_]*)*$/.test(f.record)
+        ? f.record
+        : "text";
+    case "list":
+      return "text[]";
+    case "group":
+      return "text";
   }
 }
 
