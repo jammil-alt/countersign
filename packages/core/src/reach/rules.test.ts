@@ -6,6 +6,7 @@ import { validateBundle } from "../process/bundle";
 import { AgentBundle } from "../schemas/agent";
 import { bundle, edit } from "../testing/fixtures";
 import {
+  emailSubjectFrom,
   nextEscalation,
   type PlanInput,
   pickMessage,
@@ -16,6 +17,7 @@ import {
   ReachOutInput,
   reachLanguage,
   reachSubject,
+  SUBJECT_LINE_MAX,
 } from "./rules";
 
 const GRANTED = { grantedAt: "2026-11-01T00:00:00.000Z", source: "signed form" };
@@ -318,5 +320,24 @@ describe("bundles with people", () => {
       d.people = AgentBundle.shape.people.parse(roles);
     });
     expect(mergeBundles(b, b, theirs).bundle.people?.[0]?.role).toBe("purchaser");
+  });
+});
+
+describe("emailSubjectFrom", () => {
+  it("makes one short line of a goal with line breaks", () => {
+    const goal =
+      "Get the employee's answers to the questions given in the input, so each receipt can be booked.\n\nYou may share only the facts under `mayShare` in the brief.";
+    const s = emailSubjectFrom(goal);
+    expect(s).not.toMatch(/[\r\n]/);
+    expect(s.length).toBeLessThanOrEqual(SUBJECT_LINE_MAX);
+    expect(s.startsWith("Get the employee's answers")).toBe(true);
+    expect(s.endsWith("…")).toBe(true);
+  });
+
+  it("keeps a short subject as it is, without its full stop", () => {
+    expect(emailSubjectFrom("Your receipt from Hicks Hardware.")).toBe(
+      "Your receipt from Hicks Hardware",
+    );
+    expect(emailSubjectFrom("  Invoice 1042\n")).toBe("Invoice 1042");
   });
 });
