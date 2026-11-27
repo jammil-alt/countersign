@@ -1830,7 +1830,8 @@ runAgent({ tenantId, agentVersionId, skill | task, input, threadId?, runContext 
    `external_action` (status `proposed`) plus an `inbox_item(kind='external_action')` for the step's
    approver, showing now / after this change; the step waits for `inbox.resolved`, and on approval the
    action executes once by idempotency key, with its before state. Automatic writes record the same
-   action and before state. Test runs (§10.4) never execute external actions.
+   action and before state. Test runs (§10.4) never execute external actions, but for a Sandbox test
+   run's message to its test person.
 6. Log `step_run`, `tool_call`, tokens, cost. Outputs of skills with `producesAlerts` must include
    `sources`; outputs without them are rejected.
 
@@ -2463,6 +2464,28 @@ emit events that start other workflows, and is hidden from the client portal. In
 test runs are tagged with the run. A client agent can't be activated, and an update merge can't be
 published, without one passing test run on that client.
 
+**People in a Sandbox test run (owner, 2026-11-27).** The one exception to "a test run sends nothing
+and waits for nobody". A test run in the **Sandbox client** (`settings.sandbox`), started with "Ask me"
+(`people: "ask_me"` on the test-run route; refused in plain words anywhere else, and when a Contact
+step's channel has no address for the test person), runs as a full simulation with one **test person**
+standing in for everyone: the operator who started it, by their login email and the phone of their
+Sandbox contact, unless the Sandbox's delivery setting (`settings.sandboxDelivery`) says where test
+messages go. It is kept on the run's trigger (`trigger.testPeople`, with the operator's user id).
+- **Messages.** A Contact step really talks, through the Sandbox's channel connection, to the test
+  person only, whoever the step names (made up or real): `[Test · For <name>]` before an email's
+  subject, `Test · For <name>: ` before a text. Every live check holds (the named person's consent,
+  opt-out, autonomy and quiet hours, the test person's own contact's opt-out and consent where there is
+  one, the message's approval). The send is the only external action a test run may execute: the
+  runtime allows it only for a send whose recipient is the test person (`executeAction`). The run
+  waits for the reply as a live run does, and the reply (matched by the address's tag, or by the number
+  the message went to) is that person's answer.
+- **Approvals and decisions.** A write a live run would have asked a person to sign waits for the test
+  person's decision on a card of its own in their Your call (never an external action's card); person
+  steps and a conversation's signatures and hand-overs go to them too. A no takes the reject path. A
+  yes is **still not written**: the step records what it would have written, as any test run's write.
+- Test runs never write to a client's tools, and a client agent's test run in a real client never
+  sends, with or without the flag (invariant 8).
+
 ### 10.5 The workflow builder, run view and merge view (back office)
 
 Routes `/ops/templates/[slug]/workflows/[workflow]` and `/ops/clients/[id]/agents/[slug]/workflows/[workflow]` (one builder for
@@ -2855,7 +2878,8 @@ thread; portal messages are `message` rows in the agent's thread; each turn's mo
 **Who sees what.** The back office's run page shows the transcript with each turn's model and cost.
 The portal's run timeline shows the client's side of the conversation (the messages and when), never
 a prompt, a model or a cost (invariant 11). Test runs send nothing: the opening is written (one model
-call) and shown as what would have been sent (`not_sent`).
+call) and shown as what would have been sent (`not_sent`), except a Sandbox test run with people in it,
+which talks with its test person only (§10.4).
 
 **Builder.** "Talk with a person" in the palette; the inspector asks who, the channel, what to find out
 (the result's fields), the first message, the WhatsApp template, the limits and the model. Validation

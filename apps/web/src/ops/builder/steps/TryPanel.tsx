@@ -136,6 +136,46 @@ function outcome(run: TryRun, marks: readonly TryMark[]): string {
   }
 }
 
+/**
+ * Owner, 2026-11-27: whether the workflow has people a test could ask: a Contact step, a person's
+ * step, or a change or send that waits for approval.
+ */
+export function hasPeople(workflow: Pick<Workflow, "steps">): boolean {
+  return walk(workflow).some(({ step }) => {
+    if (step.kind !== "do") return false;
+    if (step.doneBy === "contact" || step.doneBy === "person") return true;
+    return step.uses?.type === "action" && step.checks?.approval?.required !== "not_required";
+  });
+}
+
+const CHECK_WORDS: Record<string, string> = {
+  email: "check your email",
+  sms: "check your texts",
+  whatsapp: "check WhatsApp",
+  call: "check your phone",
+};
+
+/**
+ * What a test run with people in it waits on you for, in words: an approval or a decision in Your
+ * call, or your answer to a Contact step's message. Null when it waits on nothing of yours.
+ */
+export function waitingOnYou(
+  run: TryRun,
+  workflow: Workflow,
+): { words: string; yourCall: boolean } | null {
+  if (run.run.status !== "waiting") return null;
+  if (run.inbox.some((i) => i.status === "open")) {
+    return { words: "Waiting for you to approve in Your call", yourCall: true };
+  }
+  for (const row of run.steps) {
+    if (row.status !== "waiting" || row.nodeType !== "conversation") continue;
+    const step = findStep(workflow, parseNodeId(row.nodeId).stepId)?.step;
+    const channel = step?.kind === "do" ? (step.contact?.channel ?? "email") : "email";
+    return { words: `Waiting for your answer: ${CHECK_WORDS[channel]}`, yourCall: false };
+  }
+  return null;
+}
+
 const MARK_TONE: Record<TryMark["status"], "positive" | "warning" | "risk" | "neutral"> = {
   did: "positive",
   would: "positive",
@@ -240,6 +280,14 @@ export function TryPanel(props: TryPanelProps) {
   // A made-up document is kept in the Sandbox only (the API refuses one for a client's agent,
   // unless the agent is the Sandbox's own).
   const inSandbox = props.agent.kind === "client" && !!sandbox && props.agent.tenantId === sandbox;
+  // People in this test (owner, 2026-11-27): in the Sandbox, "Ask me" sends its messages to you
+  // and waits for your answers and approvals (written changes still never are).
+  const askable = hasPeople(props.workflow);
+  const runsInSandbox =
+    props.agent.kind === "template" ? !!sandbox && where === sandbox : inSandbox;
+  const [people, setPeople] = useState<"ask_me" | "skip">("ask_me");
+  const peopleNow = askable && runsInSandbox ? people : "skip";
+  const peopleField = useId();
   const canMake = !(kind !== "json" && props.agent.kind === "client" && !inSandbox);
   // Who a made-up message is from, and Run it live in the Sandbox (owner, 2026-11-27).
   const forMessage = kind === "message" && canMake && !!sandbox;
@@ -377,6 +425,7 @@ export function TryPanel(props: TryPanelProps) {
   );
 
   const marks = useMemo(() => (last ? tryMarks(last, props.workflow) : []), [last, props.workflow]);
+  const waiting = last ? waitingOnYou(last, props.workflow) : null;
 
   async function start() {
     if (!parsed.ok) return;
@@ -409,11 +458,14 @@ export function TryPanel(props: TryPanelProps) {
               }
             : {}),
           ...(props.agent.kind === "template" && where ? { clientId: where } : {}),
+          ...(peopleNow === "ask_me" ? { people: "ask_me" as const } : {}),
         },
       });
       if (gen.current !== mine) return;
       setRunId(res.runId);
       setPhase("running");
+      // With people in the test, a wait for you is followed until you answer.
+      const asking = peopleNow === "ask_me";
       const until = Date.now() + FOLLOW_MS;
       let refresh = false;
       for (;;) {
@@ -425,7 +477,11 @@ export function TryPanel(props: TryPanelProps) {
         if (gen.current !== mine) return;
         setLast(run);
         marksRef.current(tryMarks(run, props.workflow));
-        if (tryEnded(run.run.status) || run.run.status === "waiting" || Date.now() > until) {
+        if (
+          tryEnded(run.run.status) ||
+          (run.run.status === "waiting" && !asking) ||
+          Date.now() > until
+        ) {
           setPhase("ended");
           return;
         }
@@ -449,8 +505,8 @@ export function TryPanel(props: TryPanelProps) {
           <span className="eyebrow text-ink-muted">Test run</span>
           <h2 className="type-subheading text-ink">Try it</h2>
           <p className="text-sm text-ink-muted">
-            Runs this draft once on an example. It never writes to a tool or sends: what it would do
-            is shown as proposed.
+            Runs this draft once on an example. It never writes to a tool: what it would change is
+            shown as proposed. It sends only to you, when you ask it to.
           </p>
         </div>
         <Button
@@ -566,6 +622,57 @@ export function TryPanel(props: TryPanelProps) {
             <p className="text-sm text-risk-ink">What “{givenBad}” gave isn't valid JSON.</p>
           ) : null}
         </section>
+        {askable ? (
+          <section
+            className="flex flex-col gap-2"
+            data-testid="steps-try-people"
+            aria-labelledby={peopleField}
+          >
+            <span id={peopleField} className="text-sm text-ink">
+              People in this test
+            </span>
+            <fieldset className="ds-seg self-start" aria-label="People in this test">
+              <button
+                type="button"
+                aria-pressed={peopleNow === "ask_me"}
+                disabled={!runsInSandbox || busy}
+                data-testid="steps-try-people-ask"
+                onClick={() => setPeople("ask_me")}
+              >
+                Ask me
+              </button>
+              <button
+                type="button"
+                aria-pressed={peopleNow === "skip"}
+                disabled={busy}
+                data-testid="steps-try-people-skip"
+                onClick={() => setPeople("skip")}
+              >
+                Skip them
+              </button>
+            </fieldset>
+            <p className="text-xs text-ink-muted" data-testid="steps-try-people-words">
+              {!runsInSandbox ? (
+                "Ask me works in the Sandbox only. Here, nobody is sent anything and approvals read as given."
+              ) : peopleNow === "ask_me" ? (
+                <>
+                  You stand in for everyone: its messages go to you, and it waits for your answers
+                  and approvals. Approved changes are still not written. They go to your email and
+                  your phone from the Sandbox's people, or{" "}
+                  <Link
+                    className="text-slate underline"
+                    to={`${OPS_PATHS.client(sandbox as string)}/records`}
+                  >
+                    where the Sandbox's Records page says
+                  </Link>
+                  .
+                </>
+              ) : (
+                "Nobody is sent anything: messages are written and shown, and approvals read as given."
+              )}
+            </p>
+          </section>
+        ) : null}
         <div className="flex flex-col gap-1 text-sm text-ink">
           <label htmlFor={inputField}>What starts it</label>
           <span className="text-xs text-ink-muted">
@@ -742,9 +849,24 @@ export function TryPanel(props: TryPanelProps) {
         {error ? <ErrorNotice error={error} /> : null}
         {last ? (
           <section className="flex flex-col gap-2" data-testid="steps-try-result">
-            <p className="text-sm text-ink" data-testid="steps-try-outcome">
-              {phase === "running" ? "It is running…" : outcome(last, marks)}
-            </p>
+            {waiting ? (
+              <p className="text-sm text-ink" data-testid="steps-try-waiting">
+                <Badge tone="warning">Waiting</Badge> {waiting.words}
+                {waiting.yourCall ? (
+                  <>
+                    {" "}
+                    <Link className="text-slate underline" to={OPS_PATHS.escalations}>
+                      Open Your call
+                    </Link>
+                  </>
+                ) : null}
+                .
+              </p>
+            ) : (
+              <p className="text-sm text-ink" data-testid="steps-try-outcome">
+                {phase === "running" ? "It is running…" : outcome(last, marks)}
+              </p>
+            )}
             <ul className="flex flex-col divide-y divide-line border border-line">
               {order
                 .map((s) => ({ s, m: marks.find((m) => m.stepId === s.id) }))
