@@ -39,9 +39,9 @@ export const AgentTriggers = z.object({
   /** The agent's own email address; null without EMAIL_FORWARDING_DOMAIN or a command name. */
   address: z.string().nullable(),
   /** The name the operator gave the address's first part; null: it reads as computed. */
-  inboundName: z.string().nullable(),
+  inboundName: z.string().nullable().default(null),
   /** The agent is in the Sandbox client: its address can be named and test messages sent. */
-  sandbox: z.boolean(),
+  sandbox: z.boolean().default(false),
   triggers: z.array(TriggerListItem),
 });
 export type AgentTriggers = z.infer<typeof AgentTriggers>;

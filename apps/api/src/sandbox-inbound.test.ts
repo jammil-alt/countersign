@@ -4,7 +4,7 @@
 // (email or text, from one of the Sandbox's contacts) goes in as a received one would: from a
 // sender its trigger takes it starts a live run, from anyone else it is refused in plain words.
 
-import { dbInboundPort } from "@countersign/agents";
+import { dbInboundPort, templateTestCopy } from "@countersign/agents";
 import { generateEncryptionKey } from "@countersign/connectors";
 import { AgentBundle, type AgentBundleInput, uuidv7 } from "@countersign/core";
 import { agent, contact, membership, rawRecord, run, tenant } from "@countersign/db";
@@ -323,5 +323,46 @@ describe.skipIf(!h)("Sandbox inbound", () => {
     });
     expect(files.status).toBe(422);
     expect(j(files.json).error.code).toBe("invalid_documents");
+  });
+
+  it("turns a template on in the Sandbox as the Sandbox's own agent, which takes messages", async () => {
+    const made = await H.call(OPERATOR, "POST", "/api/ops/templates", {
+      slug: "tess",
+      bundle: bundle("Tess", ["email"]),
+    });
+    expect(made.status, JSON.stringify(made.json)).toBe(200);
+    const templateId = j(made.json).agent.id as string;
+    // Tried in the Sandbox as its test copy, which only test-runs.
+    const copy = await templateTestCopy(H.t.db as never, {
+      tenantId: sandbox,
+      templateVersionId: j(made.json).version.id,
+    });
+    await H.t.db.insert(run).values({
+      tenantId: sandbox,
+      agentId: copy.agent.id,
+      agentVersionId: copy.version.id,
+      workflowSlug: "main",
+      mode: "test",
+      status: "succeeded",
+    });
+    const copied = await test({
+      agentId: copy.agent.id,
+      channel: "email",
+      fromContactId: employee,
+      text: "x",
+    });
+    expect(j(copied.json)).toMatchObject({ status: "refused", reason: "test_copy" });
+
+    const on = await H.call(OPERATOR, "POST", `/api/ops/agents/${templateId}/turn-on`, {
+      clientId: sandbox,
+    });
+    expect(on.status, JSON.stringify(on.json)).toBe(200);
+    expect(j(on.json)).toMatchObject({ started: true, clientId: sandbox });
+    const tess = j(on.json).agentId as string;
+    const [row] = await H.t.db.select().from(agent).where(eq(agent.id, tess));
+    expect(row).toMatchObject({ kind: "client", testCopy: false, runStatus: "active" });
+    expect((await triggers(tess)).address).toMatch(/^tess\.sandbox-/);
+    const res = await test({ agentId: tess, channel: "email", fromContactId: employee, text: "x" });
+    expect(j(res.json).status).toBe("started");
   });
 });
