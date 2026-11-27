@@ -6,7 +6,7 @@
 // sends to its test person the same way, so their replies are matched alike.
 
 import type { ReachChannel } from "@countersign/core";
-import { reachOut, type Tx, tenant } from "@countersign/db";
+import { reachOut, run, type Tx, tenant } from "@countersign/db";
 import { and, desc, eq } from "drizzle-orm";
 import type { Attempt, ReachOutRow } from "./service";
 
@@ -67,4 +67,31 @@ export async function redirectedOpenFor(
     .orderBy(desc(reachOut.updatedAt))
     .limit(50);
   return open.find((r) => redirectedTo(r, input.channel) === from) ?? null;
+}
+
+/**
+ * The test person's address, when these reach-outs are a Sandbox test run's ("Ask me") and their
+ * email went to that person: a reply from there may answer though its sender isn't proven
+ * (staging, 2026-11-27: the owner's own domain publishes no DMARC and no working SPF, so his
+ * replies were kept as unverified and the test never went on). The reply address's tag, secret
+ * and made for this reach-out, is the proof; nowhere else does an unproven reply answer.
+ */
+export async function testPersonReplyFrom(
+  tx: Tx,
+  tenantId: string,
+  rows: readonly Pick<ReachOutRow, "attempts" | "runId">[],
+): Promise<string | null> {
+  if (!(await sandboxSettings(tx, tenantId))) return null;
+  for (const row of rows) {
+    if (!row.runId) continue;
+    const [r] = await tx
+      .select({ mode: run.mode, trigger: run.trigger })
+      .from(run)
+      .where(and(eq(run.id, row.runId), eq(run.tenantId, tenantId)));
+    const person = (r?.trigger as { testPeople?: { email?: unknown } } | null)?.testPeople;
+    const email = typeof person?.email === "string" ? person.email.toLowerCase() : null;
+    if (r?.mode !== "test" || !email) continue;
+    if (redirectedTo(row, "email")?.toLowerCase() === email) return email;
+  }
+  return null;
 }

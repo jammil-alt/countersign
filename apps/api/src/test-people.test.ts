@@ -179,7 +179,9 @@ describe.skipIf(!h)("people in a Sandbox test run", () => {
   async function replyAs(from: string, to: string, subject: string, text: string, n: number) {
     const raw = new TextEncoder().encode(
       [
-        `Authentication-Results: mx.cloudflare.net; spf=pass smtp.mailfrom=${from}`,
+        // The first answer is unproven, as from a domain with no DMARC and a broken SPF (the
+        // owner's own, staging 2026-11-27): in a Sandbox test, the tag is the proof.
+        `Authentication-Results: mx.cloudflare.net; spf=${n === 2 ? "softfail" : "pass"} smtp.mailfrom=${from}`,
         `From: Me <${from}>`,
         `To: ${to}`,
         `Subject: Re: ${subject}`,

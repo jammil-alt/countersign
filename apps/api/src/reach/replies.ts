@@ -50,7 +50,7 @@ import { reportHandled } from "../observability/report";
 import type { RunInstances } from "../runs/instances";
 // P-3: attachments both ways
 import { replyAttachments } from "./reply-media";
-import { redirectedEmailSender, redirectedOpenFor } from "./sandbox-delivery";
+import { redirectedEmailSender, redirectedOpenFor, testPersonReplyFrom } from "./sandbox-delivery";
 import { endReachOut, type ReachOutRow, reachOutEventType } from "./service";
 
 interface Wake {
@@ -405,7 +405,16 @@ export async function receiveReachOutReply(
       (await redirectedEmailSender(tx, target.tenantId, [about, tagged])) ??
       who?.email?.toLowerCase() ??
       null;
-    const proven = !!email && senders.includes(email);
+    // A Sandbox "Ask me" test: the test person's reply counts by its secret tag, proven or not.
+    const testPerson =
+      email && !senders.includes(email)
+        ? await testPersonReplyFrom(tx, target.tenantId, [about, tagged])
+        : null;
+    const proven =
+      !!email &&
+      (senders.includes(email) ||
+        (testPerson === email &&
+          (mail.from.trim().toLowerCase() === email || parsed.from === email)));
     // The contact's address on the envelope or in From, without proof (no DMARC, SPF not passing).
     const claimed = !!email && (mail.from.trim().toLowerCase() === email || parsed.from === email);
     // C2.3 (docs/plan.md §1.194): another address at the contact's own domain (a colleague who
