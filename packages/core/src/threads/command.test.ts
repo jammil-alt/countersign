@@ -5,7 +5,9 @@ import {
   agentCommandNames,
   commandWord,
   firstName,
+  isInboundName,
   parseCommand,
+  readInboundName,
   resolveAgentCommand,
   resolveSkillCommand,
 } from "./command";
@@ -106,6 +108,47 @@ describe("command names", () => {
     expect(names.get(ID(1))).toBe("pia");
     expect(names.get(ID(2))).toBe("pias");
     expect(names.get(ID(3))).toBe("other");
+  });
+
+  it("prefers the name given to the agent's address, unless another agent has it", () => {
+    const names = agentCommandNames([
+      { agentId: ID(1), slug: "remy", identityName: "Remy", inboundName: "ap-inbox" },
+      { agentId: ID(2), slug: "pia-materials", identityName: "Pia", inboundName: null },
+      // Given another agent's slug: not taken.
+      { agentId: ID(3), slug: "sam", identityName: "Sam", inboundName: "remy" },
+      // Given a name another agent's first word reads as: the given name wins.
+      { agentId: ID(4), slug: "tess", identityName: "Tess", inboundName: "pia" },
+    ]);
+    expect(names.get(ID(1))).toBe("ap-inbox");
+    expect(names.get(ID(2))).toBe("pia-materials");
+    expect(names.get(ID(3))).toBe("sam");
+    expect(names.get(ID(4))).toBe("pia");
+    const twice = agentCommandNames([
+      { agentId: ID(1), slug: "remy", identityName: "Remy", inboundName: "inbox" },
+      { agentId: ID(2), slug: "pia", identityName: "Pia", inboundName: "inbox" },
+    ]);
+    expect([twice.get(ID(1)), twice.get(ID(2))]).toEqual(["remy", "pia"]);
+  });
+
+  it.each([
+    ["pia", true],
+    ["ap-inbox", true],
+    ["a1", true],
+    ["a", false],
+    ["-pia", false],
+    ["pia-", false],
+    ["Pia", false],
+    ["pia.x", false],
+    ["p".repeat(31), false],
+  ])("%j is an address name: %s", (name, ok) => {
+    expect(isInboundName(name)).toBe(ok);
+  });
+
+  it("reads the stored name leniently", () => {
+    expect(readInboundName({ inbound: { name: "ap-inbox" } })).toBe("ap-inbox");
+    expect(readInboundName({ inbound: { name: "Not OK" } })).toBeNull();
+    expect(readInboundName({})).toBeNull();
+    expect(readInboundName(null)).toBeNull();
   });
 
   it("resolves /remy to the agent and /nobody to nothing", () => {

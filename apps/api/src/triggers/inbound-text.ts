@@ -6,20 +6,14 @@
 // sender; otherwise the sender gets the polite fixed reply from the same number and the lead a note.
 // The message's text stays in Twilio's raw record (read with `inbound.get`); the event carries ids.
 
-import {
-  acceptingTriggers,
-  E164_RE,
-  INBOUND_MESSAGE_EVENT,
-  type InboundMessagePayload,
-  messageTriggersOn,
-  type SenderFacts,
-} from "@countersign/core";
+import { acceptingTriggers, E164_RE, messageTriggersOn, type SenderFacts } from "@countersign/core";
 import { agent, agentVersion, contactChange, reachOut, type Tx } from "@countersign/db";
-import { type EventRow, type EventTypeRegistry, emit } from "@countersign/senses";
+import type { EventRow, EventTypeRegistry } from "@countersign/senses";
 import { and, eq, gt, isNotNull, or, sql } from "drizzle-orm";
 import { agentsListeningOn } from "../channels/resolve";
 import { type ContactRow, logContactChange } from "../messaging/contacts";
 import { tenantLocale } from "../routes/language";
+import { emitInboundMessage } from "./inbound-message";
 import { confirmReply, type InboundReply, noteStranger, strangerReply } from "./replies";
 import { contactFacts } from "./senders";
 
@@ -94,26 +88,7 @@ export async function routeInboundText(
   for (const r of bound) {
     // DECISION: a text from someone this agent is waiting on (an open reach-out) is their reply,
     // matched by reach out as before; it doesn't also start a new run.
-    const [open] = await tx
-      .select({ id: reachOut.id })
-      .from(reachOut)
-      .where(
-        and(
-          eq(reachOut.tenantId, tenantId),
-          eq(reachOut.agentId, r.id),
-          eq(reachOut.contactId, input.contact.id),
-          // P-4: a conversation's message waiting for its signature counts as open too (§1.66).
-          or(
-            eq(reachOut.status, "open"),
-            and(
-              eq(reachOut.status, "awaiting_approval"),
-              sql`${reachOut.subject} like 'converse:%'`,
-            ),
-          ),
-        ),
-      )
-      .limit(1);
-    if (open) {
+    if (await waitingOnReply(tx, { tenantId, agentId: r.id, contactId: input.contact.id })) {
       if (input.taken) input.taken.value = true;
       continue;
     }
@@ -149,26 +124,15 @@ export async function routeInboundText(
       }
       continue;
     }
-    const payload: InboundMessagePayload = {
+    const ev = await emitInboundMessage(tx, input.registry, {
+      tenantId,
       agentId: r.id,
       channel: input.channel,
       contactId: input.contact.id,
-      userId: null,
       rawRecordId: input.rawRecordId,
       documents: [],
-      receivedAt: input.now.toISOString(),
-    };
-    const ev = await emit(
-      tx,
-      {
-        tenantId,
-        type: INBOUND_MESSAGE_EVENT,
-        subjectType: "raw_record",
-        subjectId: input.rawRecordId,
-        payload,
-      },
-      { registry: input.registry },
-    );
+      now: input.now,
+    });
     if (ev) input.collect.push(ev);
     if (input.taken) input.taken.value = true;
     const confirm = accepting.find((t) => t.on.reply)?.on.reply?.confirm;
@@ -188,6 +152,33 @@ export async function routeInboundText(
     }
   }
   return replies;
+}
+
+/**
+ * Whether the agent is waiting on this contact (an open reach-out, or a conversation's message
+ * waiting for its signature): a text from them is their reply, not a new request.
+ */
+export async function waitingOnReply(
+  tx: Tx,
+  input: { tenantId: string; agentId: string; contactId: string },
+): Promise<boolean> {
+  const [open] = await tx
+    .select({ id: reachOut.id })
+    .from(reachOut)
+    .where(
+      and(
+        eq(reachOut.tenantId, input.tenantId),
+        eq(reachOut.agentId, input.agentId),
+        eq(reachOut.contactId, input.contactId),
+        // P-4: a conversation's message waiting for its signature counts as open too (§1.66).
+        or(
+          eq(reachOut.status, "open"),
+          and(eq(reachOut.status, "awaiting_approval"), sql`${reachOut.subject} like 'converse:%'`),
+        ),
+      ),
+    )
+    .limit(1);
+  return open !== undefined;
 }
 
 /** The window the automatic replies are counted in. */

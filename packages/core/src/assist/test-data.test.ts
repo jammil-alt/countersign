@@ -5,6 +5,7 @@ import {
   testDataUserMessage,
   testDocumentFilename,
   triggerReads,
+  variationNotes,
   wantsDocument,
 } from "./test-data";
 
@@ -57,5 +58,18 @@ describe("made-up data", () => {
       total: "10.00",
     });
     expect(testDocumentFilename(doc)).toBe("vendor-invoice-hartwell-sons-supply-inv-1042.pdf");
+  });
+
+  it("adds the cases picked to the person's words, and lists the Sandbox's records as data", () => {
+    expect(variationNotes("an invoice", ["unknown_vendor"])).toBe(
+      "an invoice\nThe vendor is one the Sandbox doesn't have: a new name, domain and tax id that match none of its records.",
+    );
+    expect(variationNotes(undefined, [])).toBeUndefined();
+    const text = testDataUserMessage({
+      workflow: "Bills",
+      steps: ["Find the vendor"],
+      records: { vendors: [{ name: "Hartwell <Supply>" }], people: [], items: [], accounts: [] },
+    });
+    expect(text).toContain('<records>\n{"vendors":[{"name":"Hartwell ‹Supply›"}]');
   });
 });

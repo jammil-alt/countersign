@@ -6,7 +6,7 @@
 
 import { z } from "zod";
 import { ASSIST_FIELD_IDS, ASSIST_FIELDS } from "../assist/fields";
-import { TEST_DATA_NOTES_MAX } from "../assist/test-data";
+import { TEST_DATA_NOTES_MAX, TEST_DATA_VARIATION_IDS } from "../assist/test-data";
 import { isUuid } from "../ids";
 import { storable } from "../text";
 import { defineRoute } from "./contract";
@@ -69,6 +69,16 @@ export const TestDataMade = z.object({
   missing: z.boolean(),
   /** A made-up document, stored in the Sandbox, that the trigger's data names. */
   document: z.object({ id: z.string(), filename: z.string(), clientId: z.string() }).nullable(),
+  /** A made-up message, stored in the Sandbox with its attachments, that the trigger's data names. */
+  message: z
+    .object({
+      subject: z.string(),
+      from: z.string(),
+      attachments: z.array(z.object({ id: z.string(), filename: z.string() })),
+      clientId: z.string(),
+    })
+    .nullable()
+    .optional(),
 });
 export type TestDataMade = z.infer<typeof TestDataMade>;
 
@@ -88,6 +98,13 @@ export const assistRoutes = {
       name: storable(z.string().trim().max(200)).default(""),
       /** What the data should look like, in the operator's words. */
       notes: storable(z.string().trim().max(TEST_DATA_NOTES_MAX)).optional(),
+      /**
+       * A message trigger: files the operator uploaded to the Sandbox for this try, attached to the
+       * made-up email in place of made-up ones (owner, 2026-11-26: "allow me to upload a document").
+       */
+      attach: z.array(Id).max(5).optional(),
+      /** Cases to try (TEST_DATA_VARIATIONS), added to the notes. */
+      variations: z.array(z.enum(TEST_DATA_VARIATION_IDS)).max(5).optional(),
     }),
     response: TestDataMade,
   }),

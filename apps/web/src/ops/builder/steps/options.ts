@@ -67,6 +67,9 @@ export interface SkillChoice {
   kind: "rules" | "ai";
   input: Field[];
   output: Field[];
+  /** The skill's mode and recommended model: which model a step using it runs on (`runsOn`). */
+  mode?: string | undefined;
+  model?: { id: string; maxTokens?: number | undefined } | undefined;
 }
 
 /**

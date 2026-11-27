@@ -17,7 +17,9 @@
     background-image: radial-gradient(var(--line) 1px, transparent 1px);
     background-size: 18px 18px;
     background-attachment: local;
-    overscroll-behavior: contain;
+    /* Owner, 2026-11-26 ("the scroll does not go all the way to the bottom"): at its end the
+     * chart hands the scroll on to the page, so the part of it below the window comes up. */
+    overscroll-behavior: auto;
   }
   .flow-chart.is-panning .flow-chart__viewport {
     cursor: grabbing;

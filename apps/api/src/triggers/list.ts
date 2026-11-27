@@ -8,11 +8,12 @@ import {
   agentAddress,
   agentCommandNames,
   allTriggers,
+  readInboundName,
   scheduleText,
   type TriggerListItem,
   type TriggerOn,
 } from "@countersign/core";
-import { agentVersion, run, type Tx, tenant } from "@countersign/db";
+import { agent, agentVersion, run, type Tx, tenant } from "@countersign/db";
 import { commandCandidates } from "@countersign/threads";
 import { and, desc, eq, sql } from "drizzle-orm";
 
@@ -129,12 +130,19 @@ export async function agentTriggers(
   const names = agentCommandNames(await commandCandidates(tx, row.tenantId));
   const commandName = names.get(row.id) ?? null;
   const address = (await agentAddresses(tx, row.tenantId, domain, names)).get(row.id) ?? null;
+  const [own] = await tx
+    .select({ stageState: agent.stageState, settings: tenant.settings })
+    .from(agent)
+    .innerJoin(tenant, eq(tenant.id, agent.tenantId))
+    .where(and(eq(agent.id, row.id), eq(agent.tenantId, row.tenantId)));
   return {
     agentId: row.id,
     versionId: v?.id ?? null,
     live: Boolean(row.liveVersionId && v?.id === row.liveVersionId),
     commandName,
     address,
+    inboundName: readInboundName(own?.stageState),
+    sandbox: (own?.settings as { sandbox?: unknown } | undefined)?.sandbox === true,
     triggers,
   };
 }
