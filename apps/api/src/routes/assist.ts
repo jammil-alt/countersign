@@ -27,6 +27,7 @@ import {
   readBrief,
   readFitGap,
   readTestData,
+  type SandboxRecords,
   SETUP_WORDS,
   steps as stepModel,
   TEST_DATA_SYSTEM,
@@ -43,26 +44,39 @@ import {
   triggerOnSchema,
   triggerReads,
   uuidv7,
+  variationNotes,
   wantsDocument,
   wantsMessage,
 } from "@countersign/core";
 import {
   buildItem,
   clientFact,
+  contact,
   dealPerson,
   document as documentTable,
+  ledgerAccount,
   narrowToTenant,
   rawRecord,
   type Tx,
   tenant,
+  vendor,
 } from "@countersign/db";
 import { storeDocument } from "@countersign/documents";
 import { DEFAULT_MODELS } from "@countersign/llm";
+import { vendorItem } from "@countersign/pack-materials";
 import { and, asc, desc, eq, inArray } from "drizzle-orm";
 import type { Hono } from "hono";
 import { type BuildRow, readBuild } from "../build/store";
 import { clientModels } from "../compliance/models";
-import { type AppEnv, ensureClient, HttpError, mountLong, notFound, type Services } from "../http";
+import {
+  type AppEnv,
+  ensureClient,
+  HttpError,
+  mountLong,
+  notFound,
+  type Scoped,
+  type Services,
+} from "../http";
 import { claimMetered } from "../metered";
 import { meterDepsOf, meteredLlm } from "../metering";
 import { reportHandled } from "../observability/report";
@@ -82,6 +96,64 @@ interface Gathered {
   /** The client the text is about (its language, the allowance), if one. */
   primary: string | null;
   language: string;
+}
+
+/** At most this many of each kind of the Sandbox's records go to the model with made-up data. */
+const SANDBOX_RECORDS_MAX = 30;
+
+/** What the Sandbox holds, by name: its vendors, people, items and accounts (all made up). */
+async function sandboxRecords(ctx: {
+  inTx<T>(work: (scoped: Scoped) => Promise<T>): Promise<T>;
+}): Promise<SandboxRecords | null> {
+  return ctx.inTx(async (scoped) => {
+    const sandbox = await sandboxClient(scoped);
+    return narrowToTenant(scoped.tx, sandbox, async (tx) => {
+      const vendors = await tx
+        .select({ id: vendor.id, name: vendor.name, ext: vendor.ext })
+        .from(vendor)
+        .where(eq(vendor.tenantId, sandbox))
+        .orderBy(asc(vendor.name))
+        .limit(SANDBOX_RECORDS_MAX);
+      const people = await tx
+        .select({ name: contact.name, email: contact.email, relationship: contact.relationship })
+        .from(contact)
+        .where(eq(contact.tenantId, sandbox))
+        .orderBy(asc(contact.name))
+        .limit(SANDBOX_RECORDS_MAX);
+      const items = await tx
+        .select({ name: vendorItem.name, sku: vendorItem.sku, vendorId: vendorItem.vendorId })
+        .from(vendorItem)
+        .where(eq(vendorItem.tenantId, sandbox))
+        .orderBy(asc(vendorItem.name))
+        .limit(SANDBOX_RECORDS_MAX);
+      const accounts = await tx
+        .select({ name: ledgerAccount.name })
+        .from(ledgerAccount)
+        .where(and(eq(ledgerAccount.tenantId, sandbox), eq(ledgerAccount.active, true)))
+        .orderBy(asc(ledgerAccount.name))
+        .limit(SANDBOX_RECORDS_MAX);
+      if (vendors.length + people.length + items.length + accounts.length === 0) return null;
+      const vendorName = new Map(vendors.map((v) => [v.id, v.name]));
+      return {
+        vendors: vendors.map((v) => {
+          const domains = (v.ext as { domains?: unknown } | null)?.domains;
+          return {
+            name: v.name,
+            ...(Array.isArray(domains)
+              ? { domains: domains.filter((d) => typeof d === "string") }
+              : {}),
+          };
+        }),
+        people: people.map((p) => ({ name: p.name, email: p.email, relationship: p.relationship })),
+        items: items.map((i) => ({
+          name: i.name,
+          sku: i.sku,
+          vendor: vendorName.get(i.vendorId) ?? null,
+        })),
+        accounts: accounts.map((a) => a.name),
+      };
+    });
+  });
 }
 
 /** The one thing on the build `ref` names, in lines; null when it names nothing there. */
@@ -289,7 +361,12 @@ export function assistDraftRoutes(app: Hono<AppEnv>): void {
             .from(tenant)
             .where(eq(tenant.id, a.tenantId))
         : [];
-      return { tenantId: a.tenantId, kind: a.kind, settings: client?.settings ?? null };
+      return {
+        tenantId: a.tenantId,
+        kind: a.kind,
+        settings: client?.settings ?? null,
+        sandbox: (client?.settings as { sandbox?: unknown } | null)?.sandbox === true,
+      };
     });
     if (row.settings) {
       const refusal = processingRefusal(
@@ -352,11 +429,18 @@ export function assistDraftRoutes(app: Hono<AppEnv>): void {
       tenantId: row.tenantId,
       source: "assist",
     });
+    // The Sandbox's own records (owner, 2026-11-26: variations "so that we can see different cases
+    // of a flow"): the model uses them so lookups and matches find something, or misses them on
+    // purpose. Only when the try runs in the Sandbox (a template's, or a Sandbox agent's), so no
+    // client's records ever reach the model this way.
+    const records =
+      row.kind === "template" || row.sandbox ? await sandboxRecords(ctx).catch(() => null) : null;
     const ask = {
       workflow: body.name,
       steps: stepNames.slice(0, 60),
       ...(document || message ? {} : { schema, reads: triggerReads(wf.steps) }),
-      notes: body.notes,
+      notes: variationNotes(body.notes, body.variations),
+      ...(records ? { records } : {}),
     };
     try {
       const content = new ContentStore(services.deps.objects(services.env));

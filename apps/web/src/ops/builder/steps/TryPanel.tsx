@@ -9,7 +9,13 @@
 // PDF receipt, or a JSON, whatever it needs"): Make up data fills the input from the trigger's
 // shape (`opsAssistTestData`); where the trigger carries a document, it makes up a document (a
 // receipt, an invoice), kept in the Sandbox as a PDF, and the input names it.
-import { assistRoutes, steps as stepModel, TEST_DATA_NOTES_MAX } from "@countersign/core";
+import {
+  assistRoutes,
+  steps as stepModel,
+  TEST_DATA_NOTES_MAX,
+  TEST_DATA_VARIATIONS,
+  type TestDataVariationId,
+} from "@countersign/core";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import type { ResponseOf } from "../../../api/client";
@@ -180,6 +186,9 @@ export function TryPanel(props: TryPanelProps) {
   const parsed = parsePayload(text);
   // ── Made-up data ──
   const [notes, setNotes] = useState("");
+  // Cases to try (owner, 2026-11-26: "create an invoice that does not match the vendor so that we
+  // can see different cases of a flow"): picked here, added to the words above.
+  const [variations, setVariations] = useState<readonly TestDataVariationId[]>([]);
   const [making, setMaking] = useState(false);
   const [makeError, setMakeError] = useState<unknown>(null);
   const [made, setMade] = useState<
@@ -274,6 +283,7 @@ export function TryPanel(props: TryPanelProps) {
           workflow: props.workflow,
           name: props.name,
           ...(notes.trim() ? { notes: notes.trim() } : {}),
+          ...(variations.length > 0 ? { variations: [...variations] } : {}),
           ...(kind === "message" && mine.length > 0 ? { attach: mine.map((m) => m.id) } : {}),
         },
       });
@@ -548,6 +558,40 @@ export function TryPanel(props: TryPanelProps) {
                 value={notes}
                 onChange={(e) => setNotes(e.target.value)}
               />
+              <fieldset className="flex flex-col gap-1.5" data-testid="steps-try-variations">
+                <legend className="mb-1 text-xs text-ink-muted">
+                  A case to try (pick any). In the Sandbox, made-up data uses its own vendors,
+                  people and items, or misses them on purpose.
+                </legend>
+                <div className="flex flex-wrap gap-1.5">
+                  {TEST_DATA_VARIATIONS.filter(
+                    (v) => kind === "message" || v.id !== "stranger",
+                  ).map((v) => {
+                    const on = variations.includes(v.id);
+                    return (
+                      <button
+                        key={v.id}
+                        type="button"
+                        aria-pressed={on}
+                        data-testid={`steps-try-variation-${v.id}`}
+                        title={v.words}
+                        className={
+                          on
+                            ? "ds-pill border border-slate bg-slate-tint px-2.5 py-1 text-xs text-ink"
+                            : "ds-pill border border-line px-2.5 py-1 text-xs text-ink hover:border-line-strong"
+                        }
+                        onClick={() =>
+                          setVariations((was) =>
+                            on ? was.filter((x) => x !== v.id) : [...was, v.id].slice(0, 5),
+                          )
+                        }
+                      >
+                        {v.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </fieldset>
               {kind !== "json" && sandbox ? (
                 <div className="flex flex-col gap-1 text-xs text-ink-muted">
                   <label htmlFor={fileField}>

@@ -6,7 +6,7 @@
 
 import { z } from "zod";
 import { ASSIST_FIELD_IDS, ASSIST_FIELDS } from "../assist/fields";
-import { TEST_DATA_NOTES_MAX } from "../assist/test-data";
+import { TEST_DATA_NOTES_MAX, TEST_DATA_VARIATION_IDS } from "../assist/test-data";
 import { isUuid } from "../ids";
 import { storable } from "../text";
 import { defineRoute } from "./contract";
@@ -103,6 +103,8 @@ export const assistRoutes = {
        * made-up email in place of made-up ones (owner, 2026-11-26: "allow me to upload a document").
        */
       attach: z.array(Id).max(5).optional(),
+      /** Cases to try (TEST_DATA_VARIATIONS), added to the notes. */
+      variations: z.array(z.enum(TEST_DATA_VARIATION_IDS)).max(5).optional(),
     }),
     response: TestDataMade,
   }),

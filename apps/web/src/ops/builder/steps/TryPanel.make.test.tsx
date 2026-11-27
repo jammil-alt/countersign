@@ -88,6 +88,17 @@ describe("Make up data", () => {
       ),
     );
     expect(sent).toEqual([{ workflow, name: "Bills", notes: "a lumber bill" }]);
+    // A case to try is sent with the words (owner, 2026-11-26: variations of the data).
+    await user.click(screen.getByTestId("steps-try-variation-unknown_vendor"));
+    expect(screen.getByTestId("steps-try-variation-unknown_vendor")).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    // "From someone we don't know" is for a message's sender only.
+    expect(screen.queryByTestId("steps-try-variation-stranger")).toBeNull();
+    await user.click(screen.getByTestId("steps-try-make-up"));
+    await waitFor(() => expect(sent).toHaveLength(2));
+    expect(sent[1]).toMatchObject({ variations: ["unknown_vendor"] });
     expect(screen.getByTestId("steps-try-made")).toHaveTextContent("Made up.");
   });
 

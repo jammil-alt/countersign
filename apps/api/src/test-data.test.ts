@@ -2,7 +2,7 @@
 // trigger that carries values, and a PDF document kept in the Sandbox for one that carries a
 // document. Scripted model answers only.
 import { DEV_USER_HEADER } from "@countersign/auth";
-import { document, rawRecord, tenant } from "@countersign/db";
+import { document, rawRecord, tenant, vendor as vendorTable } from "@countersign/db";
 import { DEFAULT_MODELS, FakeModel } from "@countersign/llm";
 import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
@@ -241,6 +241,44 @@ describe.skipIf(!h)("made-up data for Try it", () => {
     // A file that isn't the Sandbox's is refused.
     const bad = await make({ workflow: wf, attach: ["00000000-0000-4000-8000-000000000999"] });
     expect(bad.status).toBe(422);
+  });
+
+  it("gives the model the Sandbox's own records and the cases picked", async () => {
+    await H.t.db
+      .insert(vendorTable)
+      .values({
+        tenantId: H.B.tenantId,
+        name: "Hartwell Supply",
+        normalizedName: "hartwell supply",
+        ext: { domains: ["hartwell.example"] },
+      })
+      .onConflictDoNothing();
+    const wf = v5Workflow([], {
+      triggers: [{ id: "t1", on: { type: "event", event: "document.received" } }],
+    });
+    model.push({
+      toolUse: {
+        name: "make_test_document",
+        input: {
+          kind: "Invoice",
+          from: { name: "Hartwel Supply Co" },
+          date: "2026-11-20",
+          lines: [{ description: "Studs", amount: "10.00" }],
+          total: "10.00",
+        },
+      },
+    });
+    const res = await make({ workflow: wf, variations: ["near_vendor", "totals_off"] });
+    expect(res.status, JSON.stringify(res.json)).toBe(200);
+    const { user } = lastAsk();
+    expect(user).toContain("<records>");
+    expect(user).toContain("Hartwell Supply");
+    expect(user).toContain("hartwell.example");
+    expect(user).toContain("close to one the Sandbox has");
+    expect(user).toContain("don't add up");
+    // An unknown case is refused before the model is asked.
+    const bad = await make({ workflow: wf, variations: ["no_such_case"] });
+    expect(bad.status).toBe(400);
   });
 
   it("refuses a made-up document for a client's own agent, and a workflow that doesn't read", async () => {
