@@ -8,13 +8,11 @@ import {
   ContentStore,
   documentMimeType,
   ensureUploadConnection,
-  forwardingAddress,
   forwardingOf,
   forwardingStatsOf,
   importPurchasesCsv,
   isDocumentType,
   isPurchasesCsv,
-  newForwardingSecret,
   normalizeSender,
   PurchasesCsvError,
   type UploadConnectionRow,
@@ -35,7 +33,6 @@ import {
   run,
   stepRun,
   type Tx,
-  tenant,
   toolCall,
   transaction,
   withTenant,
@@ -67,6 +64,7 @@ import {
 } from "../http";
 import { meterModelCalls } from "../metering";
 import { reportHandled } from "../observability/report";
+import { withForwardingAddress } from "../reach/forwarding";
 import { dispatchAfterCommit, dispatchEvents } from "../runs/dispatch";
 import { signerFor, verifyFileToken } from "../storage";
 import { sandboxClient } from "./ops-clients";
@@ -318,19 +316,10 @@ async function forwardingView(
   actorId: string | null,
 ) {
   const domain = services.env.EMAIL_FORWARDING_DOMAIN?.trim().toLowerCase();
-  let conn = row;
   // DECISION: a client's forwarding address is made the first time its portal asks for it (once
-  // the deployment has a forwarding domain), so every client gets one without an extra step.
-  if (domain && !forwardingOf(conn).address) {
-    const [t] = await tx.select({ name: tenant.name }).from(tenant).where(eq(tenant.id, tenantId));
-    const address = forwardingAddress({
-      tenantId,
-      clientName: t?.name ?? "client",
-      secret: newForwardingSecret(),
-      domain,
-    });
-    conn = await updateForwarding(tx, conn, { address }, actorId);
-  }
+  // the deployment has a forwarding domain), so every client gets one without an extra step; the
+  // back office's email setup makes it too (`withForwardingAddress`).
+  const conn = await withForwardingAddress(tx, { tenantId, domain, actorId, row });
   const f = forwardingOf(conn);
   const s = forwardingStatsOf(conn);
   return {

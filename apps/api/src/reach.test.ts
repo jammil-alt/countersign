@@ -1337,6 +1337,22 @@ describe.skipIf(!h)("reach out through the API", () => {
     });
   });
 
+  // Staging, 2026-11-27: the Sandbox's portal never opened forwarding, so it had no forwarding
+  // address and replies to its agents had nowhere to come back to.
+  it("makes the forwarding address when the back office sets up email for a client with none", async () => {
+    const made = await H.call(OPERATOR, "POST", `/api/ops/clients/${H.B.tenantId}/email`, {
+      domain: null,
+      localPart: "assistant",
+    });
+    expect(made.status, JSON.stringify(made.json)).toBe(200);
+    expect(j(made.json).setup.replyTo).toMatch(/^r-[a-z2-7]{26}@/);
+    // The address the portal shows is the one made here.
+    const fwd = await H.call(admin("b"), "GET", "/api/connections/upload/forwarding");
+    expect(j(fwd.json).forwarding.address).toMatch(/@/);
+    const again = await H.call(OPERATOR, "GET", `/api/ops/clients/${H.B.tenantId}/email`);
+    expect(j(again.json).setup.replyTo).toBe(j(made.json).setup.replyTo);
+  });
+
   it("keeps reach-outs per client", async () => {
     expect((await H.call(OTHER_OPERATOR, "GET", `/api/ops/clients/${A()}/reach-outs`)).status).toBe(
       404,
