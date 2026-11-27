@@ -135,7 +135,18 @@ export interface RuntimeStore {
    * (`tenant.settings.approvals.external_actions`) and its client users' ids.
    */
   approvalRouting(tenantId: string): Promise<ApprovalRouting>;
-  run(tenantId: string, runId: string): Promise<{ mode: RunMode; agentId: string } | null>;
+  /**
+   * `testPerson` (owner, 2026-11-27): a Sandbox test run with people in it, where its messages may
+   * go: the test person's address and number (core `testPersonAddress`). Absent anywhere else.
+   */
+  run(
+    tenantId: string,
+    runId: string,
+  ): Promise<{
+    mode: RunMode;
+    agentId: string;
+    testPerson?: { email: string | null; phone: string | null } | undefined;
+  } | null>;
   /**
    * Another client agent of the same client that `agents.ask` may run: its live version and
    * name; null when there is none (another client's agent, a template, a test copy, retired or

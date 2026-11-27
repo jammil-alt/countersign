@@ -2,9 +2,10 @@
 // went to the operator's own address or number instead (`attemptFrom`, core `sandboxRedirect`),
 // and the attempt keeps where (`redirectedTo`). In the Sandbox only, a reply from there counts as
 // the made-up person's: an email by the reply address's tag, a text by the most recent open
-// reach-out redirected to that number.
+// reach-out redirected to that number. A Sandbox test run with people in it (owner, 2026-11-27)
+// sends to its test person the same way, so their replies are matched alike.
 
-import { type ReachChannel, readSandboxDelivery } from "@countersign/core";
+import type { ReachChannel } from "@countersign/core";
 import { reachOut, type Tx, tenant } from "@countersign/db";
 import { and, desc, eq } from "drizzle-orm";
 import type { Attempt, ReachOutRow } from "./service";
@@ -38,11 +39,13 @@ export async function redirectedEmailSender(
 }
 
 /**
- * The Sandbox's most recent open reach-out whose message on `channel` went to `from` (the
- * Sandbox's delivery phone) instead of a made-up person; null anywhere else.
+ * The Sandbox's most recent open reach-out whose message on `channel` went to `from` instead of the
+ * person it was for: the Sandbox's delivery phone for a made-up person, or (owner, 2026-11-27) a
+ * test run's test person; null anywhere else.
  */
-// DECISION: a text from the delivery phone answers a redirected reach-out before any open one to
-// the operator's own contact: in the Sandbox the operator is playing the made-up person.
+// DECISION: a text from where a message was redirected answers that reach-out before any open one
+// to the operator's own contact: in the Sandbox the operator is playing the person it was for.
+// Only the number the message actually went to can answer it (the attempt keeps it).
 export async function redirectedOpenFor(
   tx: Tx,
   tenantId: string,
@@ -50,7 +53,7 @@ export async function redirectedOpenFor(
 ): Promise<ReachOutRow | null> {
   const from = input.from.trim().replace(/^whatsapp:/i, "");
   const settings = await sandboxSettings(tx, tenantId);
-  if (!settings || !from || readSandboxDelivery(settings).phone !== from) return null;
+  if (!settings || !from) return null;
   const open = await tx
     .select()
     .from(reachOut)

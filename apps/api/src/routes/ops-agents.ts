@@ -35,8 +35,8 @@ import {
   updateOperational,
   validateForPublish,
 } from "@countersign/agents";
-import { type AgentBundle, routes, steps } from "@countersign/core";
-import { connection, tenant } from "@countersign/db";
+import { type AgentBundle, routes, steps, TestPeople, testPersonAddress } from "@countersign/core";
+import { connection, contact, tenant } from "@countersign/db";
 import {
   EventPayloadError,
   type EventTypeRegistry,
@@ -94,6 +94,68 @@ async function sandboxClient(ctx: Pick<HandlerCtx<never>, "tx" | "tenantIds">): 
     throw new HttpError(409, "no_sandbox", "a template is test-run in a Sandbox client you serve");
   }
   return row.id;
+}
+
+/**
+ * Owner, 2026-11-27: the test person of a test run started with "Ask me": the operator starting it,
+ * by their login email and the phone of the Sandbox's contact with that email, if any (the
+ * Sandbox's `sandboxDelivery` overrides both where it is set, as each message goes). The Sandbox
+ * only: a test run anywhere else never sends (422).
+ */
+// DECISION: refused only when a Contact step's channel has no address for the test person (a text
+// with no phone known); a workflow that only emails needs no phone. A message that still finds none
+// as it goes (the setting changed) fails, saying so.
+async function testPeopleFor(
+  ctx: Pick<HandlerCtx<never>, "tx" | "session">,
+  tenantId: string,
+  workflow: unknown,
+): Promise<TestPeople> {
+  const [t] = await ctx.tx
+    .select({ settings: tenant.settings })
+    .from(tenant)
+    .where(eq(tenant.id, tenantId));
+  if ((t?.settings as { sandbox?: unknown } | undefined)?.sandbox !== true) {
+    throw new HttpError(
+      422,
+      "not_sandbox",
+      "People in a test are asked only in the Sandbox: a test run in a client never sends anything",
+    );
+  }
+  const parsed = TestPeople.shape.email.safeParse(ctx.session.user.email?.trim().toLowerCase());
+  const email = parsed.success ? parsed.data : null;
+  const [me] = email
+    ? await ctx.tx
+        .select({ phone: contact.phone })
+        .from(contact)
+        .where(and(eq(contact.tenantId, tenantId), eq(contact.email, email)))
+        .limit(1)
+    : [];
+  const phone = TestPeople.shape.phone.safeParse(me?.phone ?? null);
+  const people = { by: ctx.session.user.id, email, phone: phone.success ? phone.data : null };
+  for (const channel of contactChannels(workflow)) {
+    if (testPersonAddress(t?.settings, people, channel)) continue;
+    throw new HttpError(
+      422,
+      "no_test_person",
+      channel === "email"
+        ? "We have no email address for you: set where test messages go on the Sandbox's Records page"
+        : "We have no phone number to text you at: add yours to your contact in the Sandbox, or set where test messages go on its Records page",
+    );
+  }
+  return people;
+}
+
+/** The channels a v5 workflow's Contact steps talk on (a call isn't sent yet). */
+function contactChannels(workflow: unknown): Set<"email" | "sms" | "whatsapp"> {
+  const out = new Set<"email" | "sms" | "whatsapp">();
+  const wf = steps.Workflow.safeParse(workflow);
+  if (!wf.success) return out;
+  steps.eachStep(wf.data.steps, ({ step }) => {
+    if (step.kind === "do" && step.doneBy === "contact" && step.contact) {
+      if (step.contact.channel !== "call") out.add(step.contact.channel);
+    }
+  });
+  return out;
 }
 
 /**
@@ -659,6 +721,15 @@ export function opsAgentRoutes(app: Hono<AppEnv>): void {
         side: "ops",
         title: (wf?.name ?? ctx.body.workflow).slice(0, 300),
       });
+    }
+    // Owner, 2026-11-27: "Ask me": the operator stands in for everyone in the test (the Sandbox
+    // only); its messages go to them and it waits for their answers and approvals.
+    if (ctx.body.people === "ask_me") {
+      const wf = target.version.bundle.workflows.find((w) => w.slug === ctx.body.workflow);
+      params = {
+        ...params,
+        testPeople: await testPeopleFor(ctx, target.agent.tenantId as string, wf?.workflow),
+      };
     }
     await createRunRow(ctx.tx, params);
     const started = params;

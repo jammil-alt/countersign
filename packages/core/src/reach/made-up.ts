@@ -106,3 +106,57 @@ export function redirectedSubject(subject: string, name: string): string {
 export function redirectedText(text: string, name: string): string {
   return `For ${name}: ${text}`;
 }
+
+// ── The test person (owner, 2026-11-27) ──────────────────────────────────────────────────────────
+// A Sandbox test run started with "Ask me" (`people: "ask_me"`) runs as a full simulation: every
+// message it sends goes to one test person, whoever the step names, and they answer, approve and
+// decide for everyone. The test person is the operator who started the run (their login email,
+// their phone from the Sandbox contact with that email); the Sandbox's `sandboxDelivery` setting,
+// when set, overrides where the messages go. Kept on the run's trigger (`trigger.testPeople`).
+
+/** Who stands in for everyone in a Sandbox test run: the operator who started it, and where. */
+export const TestPeople = z.object({
+  /** The operator's user id: their Your call gets the run's approvals and decisions. */
+  by: z.string().min(1),
+  email: z.email().max(254).nullable(),
+  phone: E164.nullable(),
+});
+export type TestPeople = z.infer<typeof TestPeople>;
+
+/** The run trigger's key for the test person. */
+export const TEST_PEOPLE_TRIGGER = "testPeople";
+
+/** The test person a run's trigger carries; null when the run was started without "Ask me". */
+export function readTestPeople(trigger: unknown): TestPeople | null {
+  const raw =
+    trigger && typeof trigger === "object"
+      ? (trigger as Record<string, unknown>)[TEST_PEOPLE_TRIGGER]
+      : undefined;
+  const p = TestPeople.safeParse(raw);
+  return p.success ? p.data : null;
+}
+
+/**
+ * Where a test run's message on `channel` goes: the Sandbox's delivery setting when set, else the
+ * operator's own address or number. Null when there is none for the channel.
+ */
+// DECISION: texts, WhatsApp messages and calls all go to the one phone, as for made-up people.
+export function testPersonAddress(
+  settings: unknown,
+  people: Pick<TestPeople, "email" | "phone">,
+  channel: ReachChannel,
+): string | null {
+  const override = readSandboxDelivery(settings);
+  if (channel === "email") return override.email ?? people.email?.toLowerCase() ?? null;
+  return override.phone ?? people.phone ?? null;
+}
+
+/** An email's subject in a test run: `[Test · For Dana Whitfield] …`. */
+export function testPersonSubject(subject: string, name: string): string {
+  return `[Test · For ${name}] ${subject}`;
+}
+
+/** A text's words in a test run: `Test · For Dana Whitfield: …`. */
+export function testPersonText(text: string, name: string): string {
+  return `Test · For ${name}: ${text}`;
+}

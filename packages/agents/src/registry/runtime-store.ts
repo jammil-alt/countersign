@@ -8,7 +8,9 @@ import {
   readApproverRuleSet,
   readAutonomy,
   readHold,
+  readTestPeople,
   readWriteThresholds,
+  testPersonAddress,
 } from "@countersign/core";
 import {
   agent,
@@ -289,10 +291,26 @@ export function dbRuntimeStore(db: Db): RuntimeStore {
     run(tenantId, runId) {
       return withTenant(db, tenantId, async (tx) => {
         const [row] = await tx
-          .select({ mode: run.mode, agentId: run.agentId })
+          .select({ mode: run.mode, agentId: run.agentId, trigger: run.trigger })
           .from(run)
           .where(and(eq(run.id, runId), eq(run.tenantId, tenantId)));
-        return row ?? null;
+        if (!row) return null;
+        const out = { mode: row.mode, agentId: row.agentId };
+        // Owner, 2026-11-27: a Sandbox test run with people in it, and where its messages go.
+        const people = row.mode === "test" ? readTestPeople(row.trigger) : null;
+        if (!people) return out;
+        const [t] = await tx
+          .select({ settings: tenant.settings })
+          .from(tenant)
+          .where(eq(tenant.id, tenantId));
+        if ((t?.settings as { sandbox?: unknown } | undefined)?.sandbox !== true) return out;
+        return {
+          ...out,
+          testPerson: {
+            email: testPersonAddress(t?.settings, people, "email"),
+            phone: testPersonAddress(t?.settings, people, "sms"),
+          },
+        };
       });
     },
   };

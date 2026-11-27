@@ -6,7 +6,7 @@
 // withTenant() transaction: jobs act for exactly one client (ARCHITECTURE §16).
 
 import { AgentsError, createRun, type Emit, rollupUsageDays, utcDay } from "@countersign/agents";
-import { clientHolidays } from "@countersign/core";
+import { clientHolidays, TEST_PEOPLE_TRIGGER, type TestPeople } from "@countersign/core";
 import {
   agent,
   agentChange,
@@ -105,7 +105,7 @@ export async function routableAgents(tx: Tx, tenantId: string): Promise<Routable
 // run's parameters from its row (`paramsOfRow`), and a range needs no column of its own.
 export async function createRunRow(
   tx: Tx,
-  request: RunRequest & { range?: RunRange },
+  request: RunRequest & { range?: RunRange; testPeople?: TestPeople },
 ): Promise<void> {
   await createRun(tx, {
     id: request.runId,
@@ -118,6 +118,10 @@ export async function createRunRow(
       ...request.trigger,
       payload: request.payload,
       ...(request.range ? { range: request.range } : {}),
+      // Owner, 2026-11-27: the test person, a test run's only (core `readTestPeople`).
+      ...(request.testPeople && request.mode === "test"
+        ? { [TEST_PEOPLE_TRIGGER]: request.testPeople }
+        : {}),
     } as Record<string, unknown>,
   });
 }

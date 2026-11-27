@@ -4,10 +4,43 @@ import {
   isMadeUpEmail,
   isMadeUpPhone,
   readSandboxDelivery,
+  readTestPeople,
   redirectedSubject,
   redirectedText,
   sandboxRedirect,
+  testPersonAddress,
+  testPersonSubject,
+  testPersonText,
 } from "./made-up";
+
+describe("the test person (owner, 2026-11-27)", () => {
+  const people = { by: "u-1", email: "me@realmail.co", phone: "+15125551234" };
+
+  it("is read from a run's trigger, or not at all", () => {
+    expect(readTestPeople({ type: "manual", testPeople: people })).toEqual(people);
+    expect(readTestPeople({ type: "manual" })).toBeNull();
+    expect(readTestPeople({ testPeople: { by: "", email: null, phone: null } })).toBeNull();
+    expect(readTestPeople({ testPeople: { ...people, phone: "not a phone" } })).toBeNull();
+  });
+
+  it("is reached at the operator's own address, unless the Sandbox's setting says where", () => {
+    expect(testPersonAddress({}, people, "email")).toBe("me@realmail.co");
+    expect(testPersonAddress({}, people, "sms")).toBe("+15125551234");
+    expect(testPersonAddress({}, { email: null, phone: null }, "whatsapp")).toBeNull();
+    const settings = { sandboxDelivery: { email: "Desk@RealMail.co", phone: null } };
+    expect(testPersonAddress(settings, people, "email")).toBe("desk@realmail.co");
+    expect(testPersonAddress(settings, people, "sms")).toBe("+15125551234");
+  });
+
+  it("marks what it gets as the test's, for whom", () => {
+    expect(testPersonSubject("Friday's delivery", "Dana Whitfield")).toBe(
+      "[Test · For Dana Whitfield] Friday's delivery",
+    );
+    expect(testPersonText("Can you confirm?", "Dana Whitfield")).toBe(
+      "Test · For Dana Whitfield: Can you confirm?",
+    );
+  });
+});
 
 describe("made-up addresses", () => {
   it("knows reserved email domains", () => {

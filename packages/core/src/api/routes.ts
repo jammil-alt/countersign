@@ -1975,6 +1975,13 @@ export const opsRoutes = {
        * sandbox on both sides, with what it would have changed and sent.
        */
       sandbox: z.literal(true).optional(),
+      /**
+       * Owner, 2026-11-27: the people in the test. `ask_me` (the Sandbox only): every message goes
+       * to the operator who started it (or the Sandbox's delivery setting), and the run waits for
+       * their answers, approvals and decisions; approved writes are still never made. `skip`
+       * (default): messages are composed and not sent, and approvals read as given.
+       */
+      people: z.enum(["ask_me", "skip"]).optional(),
     }),
     // For a template, the run belongs to its test copy: agentId and versionId name that copy.
     response: z.object({ runId: z.string(), agentId: z.string(), versionId: z.string() }),

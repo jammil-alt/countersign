@@ -553,6 +553,11 @@ export async function executeRun(
     workflowSlug: params.workflowSlug,
     mode: params.mode,
     ...(params.retryOf ? { retryOf: params.retryOf } : {}),
+    // Owner, 2026-11-27: a test run's only, whatever the row says (the route allows it in the
+    // Sandbox only; every send to the test person checks the Sandbox again).
+    ...(params.testPeople && params.mode === "test"
+      ? { testPeople: { by: params.testPeople.by } }
+      : {}),
   };
   const { db } = deps;
   const emitted: EventRow[] = [];

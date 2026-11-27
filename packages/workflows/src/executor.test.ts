@@ -433,6 +433,111 @@ describe("skill and action steps", () => {
     });
   });
 
+  // Owner, 2026-11-27: a Sandbox test run with people in it ("Ask me").
+  describe("a test run with people in it", () => {
+    const PEOPLE: typeof RUN = { ...RUN, mode: "test", testPeople: { by: "u-op" } };
+    // As apps/api answers it: the write asked of the test person, and once approved, not made.
+    const asked = (h: Harness, resolution: { approved: boolean; by: string | null } | null) => {
+      const item = h.approvalItem(resolution);
+      h.handlers.write = () => ({
+        kind: "approval",
+        pending: { inboxItemId: item },
+        output: { wouldHaveDone: true },
+      });
+      h.resumeHandler = (req) =>
+        req.resolution.approved === true
+          ? { kind: "done", output: { wouldHaveDone: true, actionId: "ea-1" }, notWritten: true }
+          : { kind: "done", output: null };
+      return item;
+    };
+
+    it("waits for the test person's approval, and an approved write is still not written", async () => {
+      const h = new Harness(PEOPLE);
+      // Open until the test person answers, while the run waits.
+      const item = asked(h, null);
+      const runner = new FakeStepRunner({ onWait: "block" });
+      runner.onWaitStarted = (_name, type) =>
+        runner.deliver(type, { approved: true, answer: null, by: "u-op" });
+      const result = await executeProcess(
+        runner,
+        h.context({ catalog: { tools: { [WRITE_TOOL.id]: WRITE_TOOL } } }),
+        wf([
+          action({
+            checks: {
+              approval: { approvers: [{ who: "client_admin" }, { who: "operator" }], mode: "all" },
+            },
+          }),
+        ]),
+        { what: "x" },
+      );
+      expect(result.status).toBe("succeeded");
+      // It waited for the answer, and the one answer decided for every approver.
+      expect(runner.calls.filter((c) => c.kind === "wait").map((c) => c.type)).toEqual([
+        inboxEventType(item),
+      ]);
+      expect(runner.names().filter((n) => n.endsWith(":resume"))).toEqual([
+        "write:approval:1:resume",
+      ]);
+      expect(h.resumeCalls).toHaveLength(1);
+      expect(h.resumeCalls[0]?.pending.inboxItemId).toBe(item);
+      expect(h.row("write")).toMatchObject({
+        status: "succeeded",
+        output: { wouldHaveDone: true },
+        summary: "Would update the record (test run, not written)",
+      });
+    });
+
+    it("takes the rejected path when the test person rejects", async () => {
+      const h = new Harness(PEOPLE);
+      asked(h, { approved: false, by: "u-op" });
+      const runner = new FakeStepRunner();
+      const result = await executeProcess(
+        runner,
+        h.context(),
+        wf([
+          action({ checks: { approval: { onReject: "continue" } } }),
+          {
+            id: "next",
+            kind: "notify",
+            name: "N",
+            notify: { to: ["client_admin"], message: "hi" },
+          },
+        ]),
+        { what: "x" },
+      );
+      expect(result.status).toBe("succeeded");
+      expect(h.row("write")).toMatchObject({
+        status: "skipped",
+        summary: "Update the record: not approved",
+      });
+      // A stop on reject cancels the run, as live.
+      const s = new Harness(PEOPLE);
+      asked(s, { approved: false, by: "u-op" });
+      const stopped = await executeProcess(new FakeStepRunner(), s.context(), wf([action()]), {
+        what: "x",
+      });
+      expect(stopped).toMatchObject({ status: "cancelled", reason: "rejected", nodeId: "write" });
+    });
+
+    it("without people, reads the approval as given, as before", async () => {
+      const h = new Harness({ ...RUN, mode: "test" });
+      asked(h, { approved: false, by: "u-op" });
+      const runner = new FakeStepRunner();
+      const result = await executeProcess(runner, h.context(), wf([action()]), { what: "x" });
+      expect(result.status).toBe("succeeded");
+      expect(runner.names("wait")).toEqual([]);
+      expect(h.resumeCalls).toHaveLength(0);
+    });
+
+    it("is never read in a live run", async () => {
+      const h = new Harness({ ...RUN, testPeople: { by: "u-op" } });
+      asked(h, { approved: true, by: "u-op" });
+      h.resumeHandler = () => ({ kind: "done", output: { written: true } });
+      await executeProcess(new FakeStepRunner(), h.context(), wf([action()]), { what: "x" });
+      expect(h.row("write")).toMatchObject({ status: "succeeded", output: { written: true } });
+    });
+  });
+
   it("says a test run's write would have been made, whatever the tool's summary", async () => {
     const h = new Harness({ ...RUN, mode: "test" });
     // As apps/api answers a test run's write: done, recorded as proposed, never made.

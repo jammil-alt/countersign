@@ -812,6 +812,14 @@ class Executor {
     return this.ctx.run.mode === "test";
   }
 
+  /**
+   * Owner, 2026-11-27: a test run with people in it ("Ask me"): its approvals wait for the test
+   * person's decision instead of reading as given. Its writes are still never made.
+   */
+  get testPeople(): boolean {
+    return this.testRun && this.ctx.run.testPeople !== undefined;
+  }
+
   /** The platform's words on the client timeline, in the client's language. */
   get words(): TimelineWords {
     return TIMELINE_WORDS[this.ctx.run.language ?? "en"];
@@ -1290,8 +1298,10 @@ class Executor {
     // R3: a write that went ahead without an answer says so on its row.
     extra: Pick<StepRunUpdate, "proceededWithoutAnswer" | "externalActionId"> = {},
   ): Promise<StepOutcome> {
+    // A test run with people in it waits for the test person's decision; the port never makes
+    // the write once they approve (it comes back done, `notWritten`).
     const done: StepOutcome =
-      outcome.kind === "approval" && this.testRun
+      outcome.kind === "approval" && this.testRun && !this.testPeople
         ? { kind: "done", output: outcome.output ?? null, notWritten: true }
         : outcome;
     // Audit 4.4: an output too large to hand on fails the step on its one row, saying why.
@@ -2125,7 +2135,9 @@ class Executor {
     opts: WorkOptions,
   ): Promise<Decided> {
     const fallback = approval.timeout ?? this.ctx.approvalTimeout ?? DEFAULT_APPROVAL_TIMEOUT;
-    if (!opts.plan) {
+    // DECISION (owner, 2026-11-27): in a test run with people in it, the test person stands in for
+    // every approver the check names, so their one answer on the port's item decides.
+    if (!opts.plan || this.testPeople) {
       const resolution = await this.awaitResolution(base, pending.inboxItemId, fallback);
       // Wave 5: `unanswered` only says why (for the outcome); it decides as it always did.
       return resolution
@@ -3206,6 +3218,7 @@ class Executor {
           tenantId: run.tenantId,
           agentVersionId: run.agentVersionId,
           mode: run.mode,
+          ...(this.testPeople ? { testPeople: true } : {}),
           stepRunId,
         };
         const result = await port.conversation(request);

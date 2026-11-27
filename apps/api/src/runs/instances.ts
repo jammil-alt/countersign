@@ -1,6 +1,7 @@
 // Starting and resuming RunWorkflow instances, behind a small interface so the API and the cron can
 // be tested without the Workflows engine. The instance id is the run id (ARCHITECTURE §10.3).
 
+import type { TestPeople } from "@countersign/core";
 import type { RunRange, RunRequest } from "@countersign/workflows";
 
 /**
@@ -14,6 +15,11 @@ export type RunParams = RunRequest & {
   resumeFrom?: string | null;
   /** A test of some of the steps (docs/plan.md §1.185); kept on the run's row with its trigger. */
   range?: RunRange;
+  /**
+   * Owner, 2026-11-27: a Sandbox test run started with "Ask me": who stands in for everyone, and
+   * where its messages go. Kept on the run's row with its trigger (`trigger.testPeople`).
+   */
+  testPeople?: TestPeople;
 };
 
 export interface RunEvent {

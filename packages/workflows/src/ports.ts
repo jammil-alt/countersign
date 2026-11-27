@@ -47,6 +47,12 @@ export interface RunInfo {
    * default week, `processes.defaultBusinessHours`). Absent: UTC.
    */
   timeZone?: string | undefined;
+  /**
+   * Owner, 2026-11-27: a Sandbox test run with people in it ("Ask me"): the operator who started
+   * it stands in for everyone. Its writes' approvals wait for their decision (an approved write is
+   * still never made), and its conversations really send, to them only. Test runs only.
+   */
+  testPeople?: { by: string } | undefined;
 }
 
 /** Step-run statuses (packages/db STEP_RUN_STATUSES) the executor writes. */
@@ -788,6 +794,8 @@ export interface ConversationRequest {
   tenantId: string;
   agentVersionId: string;
   mode: RunMode;
+  /** A test run with people in it (`RunInfo.testPeople`): the conversation really happens. */
+  testPeople?: boolean;
   /** The step's row, so the engine logs its turns on it. */
   stepRunId?: string;
   /**

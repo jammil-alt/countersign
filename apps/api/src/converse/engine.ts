@@ -17,12 +17,19 @@ import {
   type ConverseOutput,
   converseSubject,
   DEFAULT_APPROVAL,
+  readTestPeople,
 } from "@countersign/core";
 import { inboxItem, reachOut, run, withTenant } from "@countersign/db";
 import type { RunInfo, SkillStep, StepOutcome } from "@countersign/workflows";
 import { and, eq, isNull, sql } from "drizzle-orm";
 import { toRunResolution } from "../inbox";
 import { type ConverseDeps, type ConversePeek, conversePort } from "./service";
+
+/** Owner, 2026-11-27: the test person a test run's row carries, as the run's `testPeople`. */
+function testPeopleOf(mode: string, trigger: unknown): Pick<RunInfo, "testPeople"> {
+  const people = mode === "test" ? readTestPeople(trigger) : null;
+  return people ? { testPeople: { by: people.by } } : {};
+}
 
 /** How the service's output reads to the runner. */
 function endedOf(output: ConverseOutput): ConversationEnded {
@@ -75,7 +82,7 @@ export function conversationEngine(deps: ConverseDeps): ConversationEngine {
   const runInfo = async (req: ConversationEngineRequest): Promise<RunInfo | null> => {
     const [r] = await withTenant(db, req.tenantId, (tx) =>
       tx
-        .select({ agentId: run.agentId, workflowSlug: run.workflowSlug })
+        .select({ agentId: run.agentId, workflowSlug: run.workflowSlug, trigger: run.trigger })
         .from(run)
         .where(and(eq(run.id, req.runId), eq(run.tenantId, req.tenantId))),
     );
@@ -87,6 +94,7 @@ export function conversationEngine(deps: ConverseDeps): ConversationEngine {
       agentVersionId: req.agentVersionId,
       workflowSlug: r.workflowSlug,
       mode: req.mode,
+      ...testPeopleOf(req.mode, r.trigger),
     };
   };
 
@@ -188,7 +196,9 @@ export function conversationEngine(deps: ConverseDeps): ConversationEngine {
         approval,
       };
       const base = { run: info, step, nodeId: req.key, stepRunId: req.stepRunId };
-      const there = info.mode === "test" ? null : await port.peek(info, req.key);
+      // A test run without people never keeps a conversation's rows: each call starts it afresh.
+      const there =
+        info.mode === "test" && !info.testPeople ? null : await port.peek(info, req.key);
       if (!there) {
         const started = await port.start(
           { ...base, input: req.talk.input, approval },
@@ -237,6 +247,7 @@ export function conversationEngine(deps: ConverseDeps): ConversationEngine {
             agentVersionId: run.agentVersionId,
             workflowSlug: run.workflowSlug,
             mode: run.mode,
+            trigger: run.trigger,
           })
           .from(run)
           .where(and(eq(run.id, req.runId), eq(run.tenantId, req.tenantId))),
@@ -249,6 +260,7 @@ export function conversationEngine(deps: ConverseDeps): ConversationEngine {
         agentVersionId: r.agentVersionId,
         workflowSlug: r.workflowSlug,
         mode: r.mode as RunInfo["mode"],
+        ...testPeopleOf(r.mode, r.trigger),
       };
       const ended = await port.end(info, req.key, req.reason);
       return ended ? { output: endedOf(ended.output), endedNow: ended.endedNow } : null;
