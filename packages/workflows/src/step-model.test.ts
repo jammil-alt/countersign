@@ -428,6 +428,58 @@ describe("a v5 Fork, For each and outcomes", () => {
     expect(steps.ENGINE_OUTCOMES.read).toBe("read");
   });
 
+  // Owner, 2026-11-27: the employee asked inside a path, the answer read by the coding after it.
+  it("hands on what the path's last step gave, and nothing else from inside it", async () => {
+    const h = new Harness();
+    h.handlers.s_read = () => ({ kind: "done", output: { needs: true } });
+    h.handlers.s_first = () => ({ kind: "done", output: { secret: "inner" } });
+    h.handlers.s_ask = () => ({ kind: "done", output: { answers: "Hall job, company card" } });
+    h.handlers.s_use = () => ({ kind: "done", output: {} });
+    const inPath = (id: string) => ({ ...read, id, name: id, input: { id: "x" } });
+    const fork = {
+      id: "s_fork",
+      kind: "fork",
+      name: "Ask?",
+      paths: [
+        {
+          id: "p_ask",
+          name: "Ask",
+          when: {
+            match: "all",
+            rules: [{ field: "{{steps.s_read.output.needs}}", op: "=", value: true }],
+          },
+          steps: [inPath("s_first"), inPath("s_ask")],
+        },
+      ],
+      otherwise: { id: "p_else", steps: [] },
+    };
+    const use = {
+      ...read,
+      id: "s_use",
+      name: "Use the answers",
+      input: {
+        id: "{{steps.s_fork.output.answers}}",
+        path: "{{steps.s_fork.output.pathName}}",
+        inner: "{{steps.s_fork.output.secret}}",
+      },
+    };
+    const { result } = await run(h, wf([read, fork, use, end()]));
+    expect(result.status).toBe("succeeded");
+    expect(h.agentCalls.find((c) => c.step.id === "s_use")?.input).toEqual({
+      id: "Hall job, company card",
+      path: "Ask",
+    });
+
+    // The other way: nothing asked, so nothing handed on but the path.
+    const h2 = new Harness();
+    h2.handlers.s_read = () => ({ kind: "done", output: { needs: false } });
+    h2.handlers.s_use = () => ({ kind: "done", output: {} });
+    await run(h2, wf([read, fork, use, end()]));
+    expect(h2.agentCalls.find((c) => c.step.id === "s_use")?.input).toEqual({
+      path: "Otherwise",
+    });
+  });
+
   it("runs a For each's Do steps once per item, named by the loop", async () => {
     const h = new Harness();
     const each = {

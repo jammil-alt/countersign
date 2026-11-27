@@ -3812,13 +3812,38 @@ class Executor {
     });
     const branch = chosen.index >= 0 ? step.paths[chosen.index]?.steps : step.otherwise.steps;
     if (!branch) throw new Error(`fork ${step.id} has no path ${chosen.index}`);
-    // Outputs inside the branch are not visible after the join (ARCHITECTURE §10.2).
+    // Outputs inside the branch are not visible after the join (ARCHITECTURE §10.2), save what
+    // its last step gave, which the fork hands on.
+    const inner = { ...frame.scope, steps: { ...frame.scope.steps } };
     await this.runList(branch, {
       prefix: frame.prefix,
-      scope: { ...frame.scope, steps: { ...frame.scope.steps } },
+      scope: inner,
       ...(frame.checks ? { checks: frame.checks } : {}),
     });
-    this.record(frame, step, chosen.output);
+    this.join(frame, step, chosen.output, branch, inner);
+  }
+
+  /**
+   * Records a fork after its branch ran: which path ran, and what the branch's last step gave
+   * (owner, 2026-11-27: "Ask the employee" inside a path, its answer read by the coding after the
+   * fork), as a `for_each` hands on its items' results. Nothing else inside the branch is seen
+   * after it. An empty branch (or one whose last step gave no fields) hands on the path only.
+   */
+  join(
+    frame: Frame,
+    step: processes.Step,
+    path: { pathId: string; pathName: string },
+    branch: readonly processes.Step[],
+    inner: RunContext,
+  ) {
+    const last = branch.at(-1);
+    const entry = last ? inner.steps[last.id] : undefined;
+    const given = entry?.output;
+    const fields =
+      given && typeof given === "object" && !Array.isArray(given)
+        ? (given as Record<string, unknown>)
+        : {};
+    this.record(frame, step, { ...fields, ...path }, {}, !!entry && this.unwritten.has(entry));
   }
 
   /**
@@ -3912,13 +3937,15 @@ class Executor {
       return null;
     });
     const branch = picked ? picked.steps : step.otherwise.steps;
-    // Outputs inside the branch are not visible after the join (ARCHITECTURE §10.2).
+    // Outputs inside the branch are not visible after the join (ARCHITECTURE §10.2), save what
+    // its last step gave (`join`).
+    const inner = { ...frame.scope, steps: { ...frame.scope.steps } };
     await this.runList(branch, {
       prefix: frame.prefix,
-      scope: { ...frame.scope, steps: { ...frame.scope.steps } },
+      scope: inner,
       ...(frame.checks ? { checks: frame.checks } : {}),
     });
-    this.record(frame, step, output);
+    this.join(frame, step, output, branch, inner);
   }
 
   /** An agent's choice that couldn't be made: its step's row fails with the reason, and the run. */
