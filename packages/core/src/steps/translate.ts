@@ -260,7 +260,12 @@ export function workOutTranslation(options: {
   }
 
   // 2. The rest: Reshape's proposal, keeping the current translation where it still type-checks.
-  const rest = needs.filter((f) => !set.has(f.name));
+  // Only required fields are worked out unasked; an optional one stays as the person left it
+  // (staging, 2026-11-27: a QuickBooks customer search's optional `name` was filled from the
+  // message's sender on every load, so the project list only ever held customers named after the
+  // employee, and taking it out never stuck). One the current translation already maps is kept.
+  const mappedBefore = new Set((options.translation?.fields ?? []).map((m) => m.name));
+  const rest = needs.filter((f) => !set.has(f.name) && (f.required || mappedBefore.has(f.name)));
   const fields: FieldSource[] = [];
   const mapped: ReshapeField[] = [];
   if (rest.length > 0) {

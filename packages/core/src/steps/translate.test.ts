@@ -56,6 +56,27 @@ describe("workOutTranslation", () => {
     expect(w.fields[0]?.from).toBe("Read the invoice › currency");
   });
 
+  // Staging, 2026-11-27: a customer search's optional `name` was filled from the sender's name on
+  // every load, so the search only ever found customers named after the employee.
+  it("leaves an optional field as the person left it, even with a same-named source", () => {
+    const w = workOutTranslation({
+      needs: [f("documentId", "record"), f("memo", "text", false)],
+      sources: [trigger],
+    });
+    expect(w.input).toEqual({ documentId: "{{trigger.documentId}}" });
+    expect(w.fields.map((x) => [x.name, x.state])).toEqual([
+      ["documentId", "fits"],
+      ["memo", "empty"],
+    ]);
+    // Set by the person, it stays.
+    const kept = workOutTranslation({
+      needs: [f("memo", "text", false)],
+      sources: [trigger],
+      input: { memo: "{{trigger.memo}}" },
+    });
+    expect(kept.input).toEqual({ memo: "{{trigger.memo}}" });
+  });
+
   it("translates renames, money and lists, and brings the source in under a `_` key", () => {
     const w = workOutTranslation({
       needs: [
