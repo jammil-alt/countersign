@@ -329,7 +329,9 @@ describe("the run's goal and plan in a review", () => {
     const model = new FakeModel([finish({ action: "continue", note: "Right.", sources: [] })]);
     const d = deps(model);
     const base = (
-      d.ports.store as { loadAgentVersion: () => Promise<{ bundle: Record<string, unknown> }> }
+      d.ports.store as unknown as {
+        loadAgentVersion: () => Promise<{ bundle: Record<string, unknown> }>;
+      }
     ).loadAgentVersion;
     (d.ports.store as { loadAgentVersion: unknown }).loadAgentVersion = async () => {
       const { bundle } = await base();
