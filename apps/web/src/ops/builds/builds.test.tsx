@@ -89,9 +89,6 @@ function detail(over: Partial<BuildDetail> = {}): BuildDetail {
       { phase: "intake", label: "Intake", state: "done" },
       { phase: "fitgap", label: "Fit-gap", state: "current" },
       { phase: "draft", label: "Draft", state: "todo" },
-      { phase: "poc", label: "POC test", state: "todo" },
-      { phase: "client_test", label: "Client test", state: "todo" },
-      { phase: "qa", label: "QA and go / no-go", state: "todo" },
     ],
     gate: { next: "draft", reasons: [] },
     messages: [
@@ -196,7 +193,7 @@ const lab = {
 };
 
 describe("Builds", () => {
-  it("lives in the Agent lab: the old board's address opens Drafts, by phase", async () => {
+  it("lives in the Agent lab: the old board's address opens Drafts, every open build in Draft", async () => {
     const api = fakeApi({
       ...common,
       ...lab,
@@ -210,7 +207,8 @@ describe("Builds", () => {
     expect(screen.getByTestId("lab-tab-drafts")).toHaveAttribute("aria-pressed", "true");
     // The draft agent the build made shows as the build, not twice.
     expect(screen.getByTestId("lab-tab-drafts")).toHaveTextContent("Drafts · 1");
-    const fit = within(board).getByRole("region", { name: "Fit-gap" });
+    // Owner (2026-11-27): one Draft column, whatever phase (this one is in its fit-gap).
+    const fit = within(board).getByRole("region", { name: "Draft" });
     expect(within(fit).getByTestId(`builds-card-${ID}`)).toHaveTextContent(
       "Invoice intake reviewer",
     );
@@ -286,7 +284,7 @@ describe("Builds", () => {
         ...p,
         state: i < 2 ? ("done" as const) : i === 2 ? ("current" as const) : ("todo" as const),
       })),
-      gate: { next: "poc", reasons: [] },
+      gate: { next: null, reasons: [] },
     };
   };
 
@@ -1167,7 +1165,7 @@ describe("Builds", () => {
           ...p,
           state: i < 2 ? "done" : i === 2 ? "current" : "todo",
         })),
-        gate: { next: "poc", reasons: ["The draft has 1 problem."] },
+        gate: { next: null, reasons: ["The draft has 1 problem."] },
         items: [
           {
             ...detail().items[0],
@@ -1270,7 +1268,7 @@ describe("Builds", () => {
             ...p,
             state: i < 2 ? "done" : i === 2 ? "current" : "todo",
           })),
-          gate: { next: "poc", reasons: [] },
+          gate: { next: null, reasons: [] },
           draft: {
             agentId: AGENT,
             skillId: null,
@@ -1301,7 +1299,7 @@ describe("Builds", () => {
           ...p,
           state: i < 2 ? "done" : i === 2 ? "current" : "todo",
         })),
-        gate: { next: "poc", reasons: [] },
+        gate: { next: null, reasons: [] },
         draft: {
           agentId: AGENT,
           skillId: null,

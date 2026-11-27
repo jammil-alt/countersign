@@ -14,12 +14,14 @@ import {
   mergeFitGap,
   nextPhase,
   operatorFitGap,
+  phaseIndex,
   phasesOf,
   readBrief,
   readFitGap,
   readQa,
   readTestPlan,
   SETUP_KINDS,
+  shownPhase,
   withFitScope,
 } from "./build";
 
@@ -30,19 +32,25 @@ const base: GateFacts = {
   fitgap: { rows: [], needsTrue: [], setup: [], decisions: [] },
   draft: false,
   draftErrors: 0,
-  poc: { passed: false, detail: "No test has run yet." },
-  trialDone: false,
-  qaSigned: false,
-  openItems: 0,
 };
 
 describe("phases", () => {
-  it("are six for an agent and five for a skill, which skips the client test", () => {
-    expect(phasesOf("agent")).toEqual(["intake", "fitgap", "draft", "poc", "client_test", "qa"]);
-    expect(phasesOf("skill")).toEqual(["intake", "fitgap", "draft", "poc", "qa"]);
-    expect(nextPhase("skill", "poc")).toBe("qa");
-    expect(nextPhase("agent", "poc")).toBe("client_test");
-    expect(nextPhase("agent", "qa")).toBeNull();
+  // Owner (2026-11-27): from the draft a build is published; there is no phase after it.
+  it("are intake, fit-gap and the draft, for an agent and a skill alike", () => {
+    expect(phasesOf("agent")).toEqual(["intake", "fitgap", "draft"]);
+    expect(phasesOf("skill")).toEqual(["intake", "fitgap", "draft"]);
+    expect(nextPhase("agent", "fitgap")).toBe("draft");
+    expect(nextPhase("agent", "draft")).toBeNull();
+    expect(nextPhase("skill", "draft")).toBeNull();
+  });
+
+  it("read a build made before in the POC test, client test or QA as its draft", () => {
+    for (const old of ["poc", "client_test", "qa"] as const) {
+      expect(shownPhase(old)).toBe("draft");
+      expect(phaseIndex("agent", old)).toBe(2);
+      expect(nextPhase("agent", old)).toBeNull();
+    }
+    expect(shownPhase("fitgap")).toBe("fitgap");
   });
 });
 
@@ -58,17 +66,16 @@ describe("gates", () => {
     expect(gateReasons({ ...base, brief })).toEqual(["The brief has no data out yet."]);
   });
 
-  it("let open items carry over until the go-live", () => {
-    expect(gateReasons({ ...base, phase: "draft", draft: true, openItems: 3 })).toEqual([]);
+  it("hold Publish only on the draft: one exists, with no problems", () => {
+    expect(gateReasons({ ...base, phase: "draft" })).toEqual(["There is no draft yet."]);
+    expect(gateReasons({ ...base, phase: "draft", draft: true })).toEqual([]);
     expect(gateReasons({ ...base, phase: "draft", draft: true, draftErrors: 2 })).toEqual([
       "The draft has 2 problems to fix.",
     ]);
-    expect(
-      gateReasons({ ...base, phase: "poc", poc: { passed: true, detail: "" }, openItems: 1 }),
-    ).toEqual([]);
-    expect(gateReasons({ ...base, phase: "qa", qaSigned: true })).toEqual([]);
-    expect(gateReasons({ ...base, phase: "qa", qaSigned: true, openItems: 1 })).toEqual([
-      "1 open item is not done or put off.",
+    // A build stored in a retired phase is held as its draft is, and by nothing else.
+    expect(gateReasons({ ...base, phase: "qa", draft: true })).toEqual([]);
+    expect(gateReasons({ ...base, phase: "poc", draft: true, draftErrors: 1 })).toEqual([
+      "The draft has 1 problem to fix.",
     ]);
   });
 

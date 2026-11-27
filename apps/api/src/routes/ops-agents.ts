@@ -50,6 +50,7 @@ import {
 } from "@countersign/workflows";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import type { Hono } from "hono";
+import { liveOnPublish } from "../build/live";
 import { type AppEnv, ensureClient, type HandlerCtx, HttpError, mount, notFound } from "../http";
 import { markOperatorPause } from "../lifecycle/pause";
 import { afterActivate } from "../lifecycle/stages";
@@ -489,6 +490,13 @@ export function opsAgentRoutes(app: Hono<AppEnv>): void {
       versionId: ctx.params.vid,
       actorId: ctx.session.user.id,
       ctx: ctx.services.platform.ctx,
+    });
+    // Owner (2026-11-27): the agent's open build goes live with its draft, wherever it is published.
+    await liveOnPublish(ctx.tx, {
+      agentId: row.id,
+      versionId: v.id,
+      version: v.version,
+      userId: ctx.session.user.id,
     });
     return { version: versionSummary(v) };
   });
