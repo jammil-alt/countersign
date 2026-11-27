@@ -25,7 +25,8 @@ import { Badge, Button, EmptyState, ErrorNotice, Tabs } from "../../ui/primitive
 import { SkeletonRows } from "../../ui/skeleton";
 import { count, plural } from "../../usage/format";
 import { Select } from "../agents/ui";
-import { ClientFrame } from "../client/ClientFrame";
+import { ClientFrame, useClientPage } from "../client/ClientFrame";
+import { SampleCompanySetup } from "./SampleCompany";
 
 const KINDS: [RecordListKind, string, string][] = [
   ["transactions", "Transactions", "transaction"],
@@ -110,6 +111,7 @@ export function OpsRecordsScreen() {
       clientId={clientId}
       intro="What its connections brought in. Attachments are under Documents."
     >
+      <SandboxSample clientId={clientId} onDone={reload} />
       {data ? (
         <p className="mb-4 text-ink figures" data-testid="ops-records-counts">
           {countsLine(data)}
@@ -406,4 +408,11 @@ function ItemsTable({
       </tbody>
     </table>
   );
+}
+
+/** The Sandbox only: its sample company's button (the frame's client says which it is). */
+function SandboxSample({ clientId, onDone }: { clientId: string; onDone: () => void }) {
+  const client = useClientPage();
+  if (client.data?.client.settings.sandbox !== true) return null;
+  return <SampleCompanySetup clientId={clientId} onDone={onDone} />;
 }

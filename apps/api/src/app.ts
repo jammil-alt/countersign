@@ -170,6 +170,7 @@ import { requestRouteHandlers } from "./routes/requests";
 import { resendHookRoutes } from "./routes/resend-hooks";
 import { runAuditRouteHandlers } from "./routes/run-audit";
 import { runControlRoutes } from "./routes/run-controls";
+import { sampleCompanyRoutesFor } from "./routes/sample-company";
 import { sandboxRoutesFor } from "./routes/sandbox";
 import {
   claudeConnectionRoutes,
@@ -417,6 +418,8 @@ export function createApp(deps: AppDeps = defaultDeps): Hono<AppEnv> {
   gettingStartedRoutes(app);
   // docs/plan.md §1.243: a client's sandbox
   sandboxRoutesFor(app);
+  // Owner, 2026-11-27: the Sandbox's sample company
+  sampleCompanyRoutesFor(app);
   exportRoutes(app);
   // v0.12 W1-B: notifications, the Table and the Weekly Table
   notifyRouteHandlers(app);

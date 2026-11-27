@@ -125,6 +125,7 @@ import {
   RunStatusSchema,
   RunsPerDay,
 } from "./runs-filter";
+import { sampleCompanyRoutes } from "./sample-company";
 import { sandboxRoutes } from "./sandbox";
 import { secondFactorRoutes } from "./second-factor";
 // The skill model (owner, 2026-11-10)
@@ -2772,6 +2773,8 @@ export const routes = {
   ...gettingStartedRoutes,
   // docs/plan.md §1.243: a client's sandbox
   ...sandboxRoutes,
+  // Owner, 2026-11-27: the Sandbox's sample company
+  ...sampleCompanyRoutes,
   // v0.12 W1-B: notifications, the Table and the Weekly Table
   ...notifyRoutes,
   // §1.116: the phone app
