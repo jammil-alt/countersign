@@ -1459,11 +1459,12 @@ export async function attemptFrom(
       channel === "email"
         ? {
             to: address,
+            // Folded again here, so a plan stored before subjects were one line still sends.
             subject: testTo
-              ? testPersonSubject(plan.emailSubject, who.name)
+              ? testPersonSubject(emailSubjectFrom(plan.emailSubject), who.name)
               : redirect.kind === "redirect"
-                ? redirectedSubject(plan.emailSubject, who.name)
-                : plan.emailSubject,
+                ? redirectedSubject(emailSubjectFrom(plan.emailSubject), who.name)
+                : emailSubjectFrom(plan.emailSubject),
             text,
             replyTag: plan.replyTag,
             ...files,

@@ -371,7 +371,9 @@ describe.skipIf(!h)("people in a Sandbox test run", () => {
         const sent = out.at(-1);
         // To the operator, never to Dana, marked as the test's.
         expect(out.every((m) => m.to?.length === 1 && m.to[0] === OPERATOR)).toBe(true);
-        expect(sent?.subject?.startsWith(`[Test · For Dana Whitfield] ${GOAL}`)).toBe(true);
+        // One short line from the goal's first sentence, whatever the compiled goal adds after it
+        // (staging, 2026-11-27: the whole goal went over the send tool's 200 characters).
+        expect(sent?.subject).toBe(`[Test · For Dana Whitfield] ${GOAL.replace(/\.$/, "")}`);
         expect(unsigned(sent?.text as string) ?? sent?.text).toContain(
           waits.length === 2 ? OPENING : CONFIRM,
         );

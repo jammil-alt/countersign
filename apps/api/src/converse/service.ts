@@ -36,6 +36,7 @@ import {
   DEFAULT_QUIET_HOURS,
   Decimal,
   effectiveMode,
+  emailSubjectFrom,
   fixedInputProblem,
   inWhatsAppWindow,
   isPlainObject,
@@ -1233,7 +1234,9 @@ export function conversePort(deps: ConverseDeps): ConversePort {
         escalateAfter: input.limits.waitPerReply,
         language: setup.language,
         message: { template: { en: opening, [setup.language]: opening } },
-        emailSubject: input.goal.slice(0, 200),
+        // One short line from the goal (staging, 2026-11-27: the whole compiled goal, line breaks
+        // and all, went over the send tool's 200 characters with a test's label and was refused).
+        emailSubject: emailSubjectFrom(input.goal),
         expectReply: true,
         timeout: input.limits.waitPerReply,
         urgentOutsideHours: false,
