@@ -44,7 +44,7 @@ import { StatusChip } from "../../ui/status";
 import type { Member } from "../builder/Inspector";
 import { BuildView } from "../builds/BuildView";
 import { labPath } from "../lab/back";
-import { AssignToClient } from "../lab/TemplateParts";
+import { AssignToClient, TurnOnInSandbox } from "../lab/TemplateParts";
 import { OPS_PATHS } from "../paths";
 import { TriggersPanel } from "../triggers/TriggersScreen";
 import { liveAndDraft, parseBundle, versionBadges } from "../versions";
@@ -848,7 +848,10 @@ function AgentActions({
           Test run
         </Link>
         {view.kind === "template" && live && view.status === "active" ? (
-          <AssignToClient templateId={view.id} version={live.version} />
+          <>
+            <TurnOnInSandbox templateId={view.id} base={base} />
+            <AssignToClient templateId={view.id} version={live.version} />
+          </>
         ) : null}
         {/* Only a draft newer than the live version publishes; a live version says Live. */}
         {draft && draft.id !== live?.id && view.status === "active" ? (

@@ -56,23 +56,77 @@ export interface CommandCandidate {
   slug: string;
   /** The live version's identity name ("Remy"). */
   identityName: string;
+  /**
+   * The name the operator gave the agent's address (`stage_state.inbound.name`), when set: it is
+   * the agent's command name too. Null or left out: the name is computed as below.
+   */
+  inboundName?: string | null;
+}
+
+/** Shortest and longest name an operator may give an agent's address. */
+export const INBOUND_NAME_MIN = 2;
+export const INBOUND_NAME_MAX = 30;
+
+/**
+ * Whether `name` may be the first part of an agent's address: 2 to 30 lower-case letters, digits
+ * and dashes, starting and ending with a letter or digit (`pia`, `ap-inbox`).
+ */
+export function isInboundName(name: string): boolean {
+  if (name.length < INBOUND_NAME_MIN || name.length > INBOUND_NAME_MAX) return false;
+  if (name.startsWith("-") || name.endsWith("-")) return false;
+  for (const ch of name) {
+    if (!((ch >= "a" && ch <= "z") || (ch >= "0" && ch <= "9") || ch === "-")) return false;
+  }
+  return true;
+}
+
+/** The address name stored on an agent (`stage_state.inbound.name`), or null when none is valid. */
+export function readInboundName(stageState: unknown): string | null {
+  if (!stageState || typeof stageState !== "object") return null;
+  const inbound = (stageState as { inbound?: unknown }).inbound;
+  if (!inbound || typeof inbound !== "object") return null;
+  const name = (inbound as { name?: unknown }).name;
+  return typeof name === "string" && isInboundName(name) ? name : null;
 }
 
 /**
- * Each agent's command name (ARCHITECTURE §10.8): the first word of its identity name, lower case
- * (`/remy`), when no other candidate's first word is the same; else its slug (unique per client).
- * Computed on read from the client's active agents, so it needs no column.
+ * Each agent's command name (ARCHITECTURE §10.8): the name the operator gave its address, when no
+ * other candidate has it and it is no other candidate's slug; else the first word of its identity
+ * name, lower case (`/remy`), when no other candidate's first word is the same and no other
+ * candidate was given it; else its slug (unique per client). Computed on read from the client's
+ * active agents, so it needs no column.
  */
+// DECISION (Sandbox inbound, 2026-11-27): the name an operator gives an agent's address is its
+// command name too, so `/name` in a thread and `name.<client>-…@` always name the same agent and
+// the address code (agentAddress, parseAgentAddress, receiveAgentEmail) is unchanged. A given
+// name wins over another agent's computed first word; the route that sets it refuses one that
+// would change any other agent's name (409), so it never moves an address that is in use.
 export function agentCommandNames(candidates: readonly CommandCandidate[]): Map<string, string> {
+  const slugs = new Set(candidates.map((c) => c.slug));
+  const given = new Map<string, number>();
+  for (const c of candidates) {
+    if (c.inboundName) given.set(c.inboundName, (given.get(c.inboundName) ?? 0) + 1);
+  }
+  const own = candidates.map((c) => {
+    const n = c.inboundName ?? null;
+    return n && given.get(n) === 1 && !(slugs.has(n) && n !== c.slug) ? n : null;
+  });
+  const taken = new Set(own.filter((n): n is string => n !== null));
   const words = candidates.map((c) => commandWord(firstName(c.identityName)));
   const counts = new Map<string, number>();
-  for (const w of words) if (w) counts.set(w, (counts.get(w) ?? 0) + 1);
-  const slugs = new Set(candidates.map((c) => c.slug));
+  words.forEach((w, i) => {
+    if (w && own[i] === null) counts.set(w, (counts.get(w) ?? 0) + 1);
+  });
   const names = new Map<string, string>();
   candidates.forEach((c, i) => {
+    const mine = own[i];
+    if (mine) {
+      names.set(c.agentId, mine);
+      return;
+    }
     const w = words[i] as string;
-    // A first word that is another agent's slug would make `/word` ambiguous too.
-    const clash = !w || (counts.get(w) ?? 0) > 1 || (slugs.has(w) && w !== c.slug);
+    // A first word that is another agent's slug or given name would make `/word` ambiguous too.
+    const clash = !w || (counts.get(w) ?? 0) > 1 || (slugs.has(w) && w !== c.slug) || taken.has(w);
     names.set(c.agentId, clash ? c.slug : w);
   });
   return names;

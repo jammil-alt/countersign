@@ -98,6 +98,30 @@ After the first run: save the project id from the run summary as the repository 
      `mezonas-staging`: each staging client's forwarding address (the back office shows it) and each
      agent identity's address you test with. Rules match exact addresses only. A staging address
      without a rule reaches production, which doesn't know it and drops it.
+   - **A Sandbox agent's address on staging** (testing a workflow by real email, 2026-11-27). There
+     is no catch-all for `in.staging.mezonas.com` alone: the zone's one catch-all is production's,
+     and pointing it at `mezonas-staging` would take production's mail too. So each Sandbox agent
+     address you mail gets its own rule, the same way:
+     1. Back office → the Sandbox client → the agent → Workflow tab → "Try it with a message":
+        name the address's first part if you want (`ap-inbox`), then **Copy** the full address
+        (`ap-inbox.sandbox-<26 characters>@in.staging.mezonas.com`). The agent must be on (Turn on
+        in the Sandbox from its template), or it has no address yet.
+     2. Cloudflare → `mezonas.com` → Email → Email Routing → Settings → Subdomains: check that
+        `in.staging.mezonas.com` is listed (else Add subdomain, and let Cloudflare add its MX and
+        SPF records).
+     3. Email Routing → Routing rules → Custom addresses → **Create address**: Custom address = the
+        copied address, Action = **Send to a Worker**, Destination = `mezonas-staging`. Save.
+     4. Check: mail it from an address that is one of the Sandbox's people (a contact with that
+        email, its domain passing DMARC, so not a forged From) and that its message trigger takes;
+        the run shows on the agent's Runs tab. Anyone else gets the polite reply, and the Sandbox's
+        lead thread a note.
+     A renamed address is a new address: add its rule, and delete the old one. Without a rule,
+     test with "Send a test message" on the same tab: it goes in as a received message would, with
+     no mail at all. Production's catch-all and its own addresses are
+     untouched by any of this. A real catch-all for staging needs a mail domain on a zone of its
+     own (a separate domain added to Cloudflare, Email Routing on, its catch-all → Send to a
+     Worker → `mezonas-staging`, and staging's `EMAIL_FORWARDING_DOMAIN` changed to it, which
+     changes every staging address): the owner's call.
    - Each environment's `email()` takes its forwarding domain and its agent domain: mail to
      `AGENT_EMAIL_DOMAIN` is handed to that environment's code service through `CODES`
      (`apps/api/src/mail-route.ts`), the rest is forwarding. The code service needs no rule of its
