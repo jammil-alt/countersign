@@ -1064,8 +1064,8 @@ describe.skipIf(!h)("conversations through the API", () => {
                   deadline: { after: "3 days", hours: "clock", ifNoAnswer: "stop" },
                 },
                 output: [
-                  { name: "qty", type: "text", required: true, about: "number" },
-                  { name: "neededBy", type: "text", required: true, about: "text" },
+                  { name: "qty", type: "number", required: true, about: "How many sheets" },
+                  { name: "neededBy", type: "text", required: true, about: "By when" },
                 ],
               },
               { id: "end", kind: "end", name: "Done", outputs: ["out-done"] },
