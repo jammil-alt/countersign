@@ -9,6 +9,7 @@ import {
   type ParsedCommand,
   type PostedCommand,
   parseSkillRef,
+  readInboundName,
   resolveAgentCommand,
   resolveSkillCommand,
 } from "@countersign/core";
@@ -20,7 +21,12 @@ import { and, eq, isNotNull } from "drizzle-orm";
 // to no command, and its name is free for another agent's.
 export async function commandCandidates(tx: Tx, tenantId: string): Promise<CommandCandidate[]> {
   const rows = await tx
-    .select({ agentId: agent.id, slug: agent.slug, bundle: agentVersion.bundle })
+    .select({
+      agentId: agent.id,
+      slug: agent.slug,
+      bundle: agentVersion.bundle,
+      stageState: agent.stageState,
+    })
     .from(agent)
     .innerJoin(
       agentVersion,
@@ -39,6 +45,7 @@ export async function commandCandidates(tx: Tx, tenantId: string): Promise<Comma
     agentId: r.agentId,
     slug: r.slug,
     identityName: r.bundle.definition.identity.name,
+    inboundName: readInboundName(r.stageState),
   }));
 }
 
