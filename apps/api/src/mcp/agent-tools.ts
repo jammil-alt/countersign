@@ -11,6 +11,7 @@
 // is how it goes live), so agent_publish only publishes a new version of an agent already live,
 // with the two-step confirm and the change shown first.
 
+import { agentStepSkillPrefix } from "@countersign/agents";
 import {
   type AgentBundle,
   classifyChange,
@@ -60,6 +61,30 @@ interface Located {
 }
 
 /** Every step of every workflow in the bundle, in run order. */
+/**
+ * The rules and AI written in the bundle's steps, stored behind them as the agent's own step
+ * skills and pinned in its skills, as the workflow builder saves them (stream F): a version whose
+ * pins name older text would run that text, and one with none would run nothing.
+ */
+async function pinWrittenSteps(ctx: OpsToolCtx, agentId: string, bundle: Json): Promise<void> {
+  const pins: string[] = [];
+  for (const w of (bundle.workflows ?? []) as { workflow?: { schemaVersion?: unknown } }[]) {
+    if (w.workflow?.schemaVersion !== 5) continue;
+    const stored = await route(ctx, routes.opsStepSkillsStore, {
+      params: { id: agentId },
+      body: { workflow: w.workflow },
+    });
+    pins.push(...stored.skills.map((x) => x.pin));
+  }
+  const def = (bundle.definition ?? {}) as { skills?: { skill: string }[] };
+  const own = `custom:${agentStepSkillPrefix(agentId)}`;
+  const kept = (def.skills ?? []).filter((x) => !x.skill.startsWith(own));
+  bundle.definition = {
+    ...def,
+    skills: [...kept, ...pins.map((skill) => ({ skill, settings: {} }))],
+  };
+}
+
 export function stepsOf(bundle: unknown): Located[] {
   const out: Located[] = [];
   const workflows = isObj(bundle) && Array.isArray(bundle.workflows) ? bundle.workflows : [];
@@ -372,6 +397,7 @@ const agentStepUpdate: Tool<OpsToolCtx> = {
         `this ${loosens.join("; ")}: turning an approval off or letting the agent act is done in the back office`,
       );
     }
+    await pinWrittenSteps(ctx, a.agent, bundle);
     const name = String(loc.step.name || loc.step.id);
     const saved = await route(ctx, routes.opsSaveVersion, {
       params: { id: a.agent },

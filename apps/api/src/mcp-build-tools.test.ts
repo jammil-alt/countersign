@@ -4,12 +4,19 @@
 // here: the client test, QA or going live, turning an approval off, or a first publish.
 
 import { TESTKIT_UPDATE_TOOL } from "@countersign/connectors";
-import { appUser, auditEvent } from "@countersign/db";
+import { agentVersion, appUser, auditEvent, skill, skillVersion } from "@countersign/db";
 import { FakeModel, type LlmRequest } from "@countersign/llm";
 import { and, eq, like } from "drizzle-orm";
 import { createLocalJWKSet, exportJWK, generateKeyPair, SignJWT } from "jose";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import { type ApiHarness, admin, createApiHarness, OPERATOR, testBundle } from "./api.test-helper";
+import {
+  type ApiHarness,
+  admin,
+  createApiHarness,
+  OPERATOR,
+  testBundle,
+  v5Workflow,
+} from "./api.test-helper";
 import { memoryRateLimiter } from "./mcp/limits";
 
 for (const level of process.env.SHOW_LOGS ? [] : (["warn", "error"] as const)) {
@@ -440,6 +447,75 @@ describe.skipIf(!h)("MCP builds and step settings", () => {
           )
       ).length,
     ).toBe(1);
+  });
+
+  // Staging, 2026-11-27: a step's AI text changed here was saved without being stored behind the
+  // step, so the version still pinned the old text (or none). It is stored and pinned now, as the
+  // workflow builder's save does.
+  it("stores AI written in a step it changes, and pins that version in the draft", async () => {
+    const workflow = v5Workflow([
+      {
+        id: "s_check",
+        kind: "do",
+        name: "Check the receipt",
+        doneBy: "ai",
+        input: {},
+        ai: { text: "Say whether the receipt is complete." },
+        output: [{ name: "complete", type: "yes_no", required: true }],
+      },
+    ]);
+    const bundle = testBundle("MCP receipt checker");
+    bundle.workflows = [
+      {
+        ...(bundle.workflows[0] as (typeof bundle.workflows)[number]),
+        slug: "check",
+        name: "Check",
+        workflow,
+      },
+    ];
+    const made = await asDev(OPERATOR, "POST", "/api/ops/templates", {
+      slug: "mcp-receipt-checker",
+      bundle,
+    });
+    expect(made.status, JSON.stringify(made.json)).toBe(200);
+    const id = j(made.json).agent.id as string;
+    const pinsOf = async (versionId: string) => {
+      const [row] = await H.t.db
+        .select({ bundle: agentVersion.bundle })
+        .from(agentVersion)
+        .where(eq(agentVersion.id, versionId));
+      return (row?.bundle as { definition: { skills: { skill: string }[] } }).definition.skills
+        .map((s) => s.skill)
+        .filter((s) => s.startsWith("custom:step-"));
+    };
+    const textOf = async (pin: string) => {
+      const [ref, version] = pin.replace("custom:", "").split("@") as [string, string];
+      const [row] = await H.t.db
+        .select({ definition: skillVersion.definition })
+        .from(skillVersion)
+        .innerJoin(skill, eq(skill.id, skillVersion.skillId))
+        .where(and(eq(skill.slug, ref), eq(skillVersion.version, Number(version))));
+      return JSON.stringify(row?.definition ?? null);
+    };
+
+    let r = await ok("agent_step_update", {
+      agent: id,
+      step: "s_check",
+      set: { "ai.text": "Say whether the receipt has a date and a total." },
+    });
+    const first = await pinsOf(r.data().version.id);
+    expect(first).toHaveLength(1);
+    expect(await textOf(first[0] as string)).toContain("has a date and a total");
+
+    r = await ok("agent_step_update", {
+      agent: id,
+      step: "s_check",
+      set: { "ai.text": "Say whether the receipt has a merchant." },
+    });
+    const second = await pinsOf(r.data().version.id);
+    expect(second).toHaveLength(1);
+    expect(second[0]).not.toBe(first[0]);
+    expect(await textOf(second[0] as string)).toContain("has a merchant");
   });
 
   it("refuses a token for an older draft, and a draft from the back office that turns approval off", async () => {

@@ -348,6 +348,9 @@ type Loaded =
       // The step model (stream F): the skills the version pins, where a step written in the step
       // finds its own (`custom:step-<agent>-<step>@N`). v5 workflows only.
       pinnedSkills?: string[];
+      // Whose step skills those pins may name: the agent's own, and the template it was forked
+      // from (a fork or a test copy carries the template's pins until it is saved as its own).
+      stepSkillAgents?: string[];
     }
   | { ok: false; reason: string; cancelled?: true };
 
@@ -606,6 +609,7 @@ export async function executeRun(
               pinnedSkills: ((v?.bundle as AgentBundle | undefined)?.definition.skills ?? []).map(
                 (s) => s.skill,
               ),
+              stepSkillAgents: await stepSkillAgentsOf(tx, info.tenantId, info.agentId),
             }
           : {}),
       };
@@ -818,7 +822,11 @@ export async function executeRun(
     ...(loaded.pinnedSkills
       ? {
           stepSkill: (stepId: string) =>
-            pinnedStepSkill(loaded.pinnedSkills ?? [], info.agentId, stepId),
+            pinnedStepSkill(
+              loaded.pinnedSkills ?? [],
+              loaded.stepSkillAgents ?? [info.agentId],
+              stepId,
+            ),
         }
       : {}),
     // The step model §7: Match steps on every area's profiles, on the client's guarded transport.
@@ -1051,17 +1059,33 @@ function stepModelAutomationRefs(workflow: steps.Workflow): string[] {
 /**
  * The step skill an agent version pins for one of its steps written in the step (stream F): the
  * entry of its `definition.skills` that is `custom:step-<agent id>-<step id>@N`, with its version.
+ * `agentIds` is the agent and the template it was forked from, its own first: a fork and a
+ * template's test copy start from the template's bundle, whose pins name the template's step
+ * skills (shared, and a pinned version never changes), until a save of the copy stores its own.
  * Never resolved by convention without the pin: an unpinned or unversioned entry is none, and the
  * step fails saying so.
  */
 export function pinnedStepSkill(
   pinned: readonly string[],
-  agentId: string,
+  agentIds: string | readonly string[],
   stepId: string,
 ): string | undefined {
-  const own = stepSkillRef(agentId, stepId);
-  return pinned.find((ref) => {
-    const { id, version } = parseSkillRef(ref);
-    return id === own && version !== null;
-  });
+  for (const agentId of typeof agentIds === "string" ? [agentIds] : agentIds) {
+    const own = stepSkillRef(agentId, stepId);
+    const found = pinned.find((ref) => {
+      const { id, version } = parseSkillRef(ref);
+      return id === own && version !== null;
+    });
+    if (found) return found;
+  }
+  return undefined;
+}
+
+/** The agent and the template it was forked from, whose step skills its pins may name. */
+async function stepSkillAgentsOf(tx: Tx, tenantId: string, agentId: string): Promise<string[]> {
+  const [row] = await tx
+    .select({ templateId: agent.templateId })
+    .from(agent)
+    .where(and(eq(agent.id, agentId), eq(agent.tenantId, tenantId)));
+  return row?.templateId ? [agentId, row.templateId] : [agentId];
 }
