@@ -50,6 +50,7 @@ import { reportHandled } from "../observability/report";
 import type { RunInstances } from "../runs/instances";
 // P-3: attachments both ways
 import { replyAttachments } from "./reply-media";
+import { redirectedEmailSender, redirectedOpenFor } from "./sandbox-delivery";
 import { endReachOut, type ReachOutRow, reachOutEventType } from "./service";
 
 interface Wake {
@@ -172,7 +173,16 @@ export async function matchRepliesIn(
     const p = (e.payload ?? {}) as Record<string, unknown>;
     const contactId = typeof p.contactId === "string" ? p.contactId : null;
     if (!contactId) continue;
-    const open = await openFor(tx, tenantId, contactId);
+    // Owner, 2026-11-27: in the Sandbox, a text from the delivery phone answers the most recent
+    // open reach-out redirected to it, as the made-up person it was for.
+    const redirected =
+      e.type === "message.received" && p.keyword !== "stop" && typeof p.from === "string"
+        ? await redirectedOpenFor(tx, tenantId, {
+            from: p.from,
+            channel: p.channel === "whatsapp" ? "whatsapp" : "sms",
+          })
+        : null;
+    const open = redirected ? [redirected] : await openFor(tx, tenantId, contactId);
     if (open.length === 0) continue;
     if (e.type === "message.received") {
       if (p.keyword === "stop") {
@@ -389,7 +399,12 @@ export async function receiveReachOutReply(
       from: parsed.from,
       auth: parsed.auth,
     });
-    const email = who?.email?.toLowerCase() ?? null;
+    // Owner, 2026-11-27: in the Sandbox, a message to a made-up person went to the operator's own
+    // address; a reply from there is the made-up person's.
+    const email =
+      (await redirectedEmailSender(tx, target.tenantId, [about, tagged])) ??
+      who?.email?.toLowerCase() ??
+      null;
     const proven = !!email && senders.includes(email);
     // The contact's address on the envelope or in From, without proof (no DMARC, SPF not passing).
     const claimed = !!email && (mail.from.trim().toLowerCase() === email || parsed.from === email);

@@ -69,6 +69,22 @@ export const SampleCompanyResult = z.object({
 });
 export type SampleCompanyResult = z.infer<typeof SampleCompanyResult>;
 
+// Owner, 2026-11-27: where the Sandbox's messages to made-up people go (core `sandboxRedirect`).
+/** The Sandbox's delivery setting as the back office shows it. */
+export const SandboxDeliveryView = z.object({
+  email: z.string().nullable(),
+  /** E.164. */
+  phone: z.string().nullable(),
+});
+export type SandboxDeliveryView = z.infer<typeof SandboxDeliveryView>;
+
+/** Both fields at once; null clears one. A phone may be a 10-digit US number. */
+export const SandboxDeliveryBody = z.strictObject({
+  email: z.email().max(254).nullable(),
+  phone: z.string().trim().min(1).max(40).nullable(),
+});
+export type SandboxDeliveryBody = z.infer<typeof SandboxDeliveryBody>;
+
 export const sampleCompanyRoutes = {
   opsSandboxSampleCompany: defineRoute({
     method: "POST",
@@ -80,5 +96,26 @@ export const sampleCompanyRoutes = {
     params: z.object({ id: Id }),
     body: SampleCompanyBody,
     response: SampleCompanyResult,
+  }),
+  opsSandboxDelivery: defineRoute({
+    method: "GET",
+    path: "/api/ops/clients/:id/sandbox-delivery",
+    auth: "session",
+    roles: OPS,
+    summary:
+      "Where the Sandbox's messages to made-up people (example.com addresses, 555-01xx numbers) go instead (422 not_sandbox in any other client)",
+    params: z.object({ id: Id }),
+    response: SandboxDeliveryView,
+  }),
+  opsSetSandboxDelivery: defineRoute({
+    method: "PUT",
+    path: "/api/ops/clients/:id/sandbox-delivery",
+    auth: "session",
+    roles: OPS,
+    summary:
+      "Set where the Sandbox's messages to made-up people go: an email address and a phone of the Sandbox's own contacts (422 not_sandbox in any other client)",
+    params: z.object({ id: Id }),
+    body: SandboxDeliveryBody,
+    response: SandboxDeliveryView,
   }),
 };

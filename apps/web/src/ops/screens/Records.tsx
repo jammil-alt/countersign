@@ -26,7 +26,7 @@ import { SkeletonRows } from "../../ui/skeleton";
 import { count, plural } from "../../usage/format";
 import { Select } from "../agents/ui";
 import { ClientFrame, useClientPage } from "../client/ClientFrame";
-import { SampleCompanySetup } from "./SampleCompany";
+import { SampleCompanySetup, SandboxDeliverySetting } from "./SampleCompany";
 
 const KINDS: [RecordListKind, string, string][] = [
   ["transactions", "Transactions", "transaction"],
@@ -410,9 +410,17 @@ function ItemsTable({
   );
 }
 
-/** The Sandbox only: its sample company's button (the frame's client says which it is). */
+/**
+ * The Sandbox only: its sample company's button, and where its messages to made-up people go
+ * (the frame's client says which it is).
+ */
 function SandboxSample({ clientId, onDone }: { clientId: string; onDone: () => void }) {
   const client = useClientPage();
   if (client.data?.client.settings.sandbox !== true) return null;
-  return <SampleCompanySetup clientId={clientId} onDone={onDone} />;
+  return (
+    <>
+      <SampleCompanySetup clientId={clientId} onDone={onDone} />
+      <SandboxDeliverySetting clientId={clientId} />
+    </>
+  );
 }

@@ -12,6 +12,7 @@ import type { EventRow, EventTypeRegistry } from "@countersign/senses";
 import { and, eq, gt, isNotNull, or, sql } from "drizzle-orm";
 import { agentsListeningOn } from "../channels/resolve";
 import { type ContactRow, logContactChange } from "../messaging/contacts";
+import { redirectedOpenFor } from "../reach/sandbox-delivery";
 import { tenantLocale } from "../routes/language";
 import { emitInboundMessage } from "./inbound-message";
 import { confirmReply, type InboundReply, noteStranger, strangerReply } from "./replies";
@@ -88,7 +89,16 @@ export async function routeInboundText(
   for (const r of bound) {
     // DECISION: a text from someone this agent is waiting on (an open reach-out) is their reply,
     // matched by reach out as before; it doesn't also start a new run.
-    if (await waitingOnReply(tx, { tenantId, agentId: r.id, contactId: input.contact.id })) {
+    // Owner, 2026-11-27: in the Sandbox, a text from the delivery phone may answer a message this
+    // agent sent there for a made-up person; that is a reply too.
+    if (
+      (await waitingOnReply(tx, { tenantId, agentId: r.id, contactId: input.contact.id })) ||
+      (await redirectedOpenFor(tx, tenantId, {
+        from: input.from,
+        channel: input.channel,
+        agentId: r.id,
+      }))
+    ) {
       if (input.taken) input.taken.value = true;
       continue;
     }

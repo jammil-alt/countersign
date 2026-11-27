@@ -346,6 +346,8 @@ export * from "./process/numbers";
 export { THINKING_STATES, type ThinkingState, thinkingOf } from "./process/thinking";
 // Invariant 9: what a prompt puts between its tags can't close them.
 export * from "./prompt-data";
+// Owner, 2026-11-27: the Sandbox's messages to made-up people.
+export * from "./reach/made-up";
 export * from "./reach/rules";
 // Step model §10f: record types, their standard actions, grants, data sets and custom fields.
 export * from "./records/index";
