@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { Relationship } from "../directory/kinds";
 import { isUuid } from "../ids";
 import { INBOUND_NAME_MAX, isInboundName } from "../threads/command";
 import { defineRoute } from "./contract";
@@ -92,6 +93,31 @@ export const TestMessageBody = z.strictObject({
   documentIds: z.array(Id).max(TEST_MESSAGE_MAX_DOCUMENTS).optional(),
 });
 export type TestMessageBody = z.infer<typeof TestMessageBody>;
+
+/**
+ * Someone a test message is from, typed in Try it (2026-11-27): an email address or a phone
+ * number, added to the Sandbox's directory with what the trigger takes (its relationship, its
+ * labels), or the contact that has it already.
+ */
+export const SandboxSenderBody = z.strictObject({
+  /** The Sandbox client; any other is refused (422 not_sandbox). */
+  clientId: Id,
+  /** An email address or a phone number. */
+  address: z.string().trim().min(3).max(200),
+  relationship: Relationship.optional(),
+  tags: z.array(z.string().trim().min(1).max(60)).max(20).optional(),
+});
+export type SandboxSenderBody = z.infer<typeof SandboxSenderBody>;
+
+export const SandboxSender = z.object({
+  contactId: Id,
+  name: z.string(),
+  email: z.string().nullable(),
+  phone: z.string().nullable(),
+  /** False: a contact with this address was there already, and is used. */
+  created: z.boolean(),
+});
+export type SandboxSender = z.infer<typeof SandboxSender>;
 
 /** What a test message did, as the real one would have. */
 export const TestMessageAnswer = z.discriminatedUnion("status", [
@@ -195,5 +221,15 @@ export const triggerRoutes = {
       "Send a Sandbox agent a test message by email, text or WhatsApp from one of the Sandbox's contacts: it goes in as a received one would, past the carrier, and starts the same live run (every write signed in its trial); refused in plain words when no trigger takes it; 422 not_sandbox in any other client",
     body: TestMessageBody,
     response: TestMessageAnswer,
+  }),
+  opsSandboxSender: defineRoute({
+    method: "POST",
+    path: "/api/ops/sandbox/senders",
+    auth: "session",
+    roles: OPS,
+    summary:
+      "Add someone to the Sandbox's directory by email address or phone number, as who a test message is from, with the relationship and labels a trigger takes; the contact that has the address already is used; 422 not_sandbox in any other client",
+    body: SandboxSenderBody,
+    response: SandboxSender,
   }),
 } as const;
