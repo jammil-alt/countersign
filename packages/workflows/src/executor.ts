@@ -3275,7 +3275,15 @@ class Executor {
         result = { ...result, status: "no_answer" };
       }
     }
+    // What it found is handed on under its own names too (staging, 2026-11-27: a v5 Contact step
+    // says its output is `answers`, the fields it finds, but they were only under `found`, so a
+    // step reading `answers` got nothing). The conversation's own fields win a clash.
+    const found =
+      result.found && typeof result.found === "object" && !Array.isArray(result.found)
+        ? (result.found as Record<string, unknown>)
+        : {};
     const output = {
+      ...found,
       status: result.status,
       found: result.found,
       summary: result.summary,
