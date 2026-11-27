@@ -4,7 +4,16 @@
 // command or a request Sloan passed). Only what the run's trigger points at is read.
 
 import { INBOUND_MESSAGE_ENTITY, isUuid } from "@countersign/core";
-import { appUser, contact, type Db, message, rawRecord, run, withTenant } from "@countersign/db";
+import {
+  agent,
+  appUser,
+  contact,
+  type Db,
+  message,
+  rawRecord,
+  run,
+  withTenant,
+} from "@countersign/db";
 import { and, eq } from "drizzle-orm";
 import type { InboundMessageForTool, InboundPort } from "../tools/inbound";
 
@@ -24,6 +33,23 @@ interface TriggerPayload {
 
 const idOrNull = (v: unknown) => (typeof v === "string" && isUuid(v) ? v : null);
 const str = (v: unknown) => (typeof v === "string" ? v : null);
+
+type Tx = Parameters<Parameters<typeof withTenant>[2]>[0];
+
+/** Whether `agentId` is the Sandbox test copy of the template `templateId`. */
+async function testCopyOf(
+  tx: Tx,
+  tenantId: string,
+  agentId: string,
+  templateId: unknown,
+): Promise<boolean> {
+  if (typeof templateId !== "string" || !isUuid(templateId)) return false;
+  const [a] = await tx
+    .select({ testCopy: agent.testCopy, templateId: agent.templateId })
+    .from(agent)
+    .where(and(eq(agent.id, agentId), eq(agent.tenantId, tenantId)));
+  return a?.testCopy === true && a.templateId === templateId;
+}
 
 export function dbInboundPort(db: Db): InboundPort {
   return {
@@ -73,8 +99,14 @@ export function dbInboundPort(db: Db): InboundPort {
           if (!rec) return null;
           const body = (rec.payload ?? {}) as Record<string, unknown>;
           if (rec.entityType === INBOUND_MESSAGE_ENTITY) {
-            // An email kept for another agent is not this one's to read.
-            if (body.agentId !== input.agentId) return null;
+            // An email kept for another agent is not this one's to read, save one Try it made up
+            // for a template, read by that template's test copy (what its test runs run).
+            if (
+              body.agentId !== input.agentId &&
+              !(await testCopyOf(tx, tenantId, input.agentId, body.agentId))
+            ) {
+              return null;
+            }
           } else if (rec.entityType !== TWILIO_MESSAGE_ENTITY || body.direction !== "in") {
             return null;
           }

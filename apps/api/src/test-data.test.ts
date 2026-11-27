@@ -1,8 +1,10 @@
 // Made-up data for Try it (docs/plan.md §1.186, rebuilt for the step model 2026-11-26): JSON for a
 // trigger that carries values, and a PDF document kept in the Sandbox for one that carries a
 // document. Scripted model answers only.
+
+import { dbInboundPort, templateTestCopy } from "@countersign/agents";
 import { DEV_USER_HEADER } from "@countersign/auth";
-import { document, rawRecord, tenant, vendor as vendorTable } from "@countersign/db";
+import { document, rawRecord, run, tenant, vendor as vendorTable } from "@countersign/db";
 import { DEFAULT_MODELS, FakeModel } from "@countersign/llm";
 import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
@@ -22,6 +24,7 @@ const j = (v: unknown) => v as Json;
 describe.skipIf(!h)("made-up data for Try it", () => {
   const H = h as NonNullable<typeof h>;
   let templateId = "";
+  let templateVersionId = "";
 
   beforeAll(async () => {
     await H.t.db
@@ -34,6 +37,7 @@ describe.skipIf(!h)("made-up data for Try it", () => {
     });
     expect(created.status, JSON.stringify(created.json)).toBe(200);
     templateId = j(j(created.json).agent).id as string;
+    templateVersionId = j(j(created.json).version).id as string;
   });
 
   const make = (body: unknown) =>
@@ -192,6 +196,57 @@ describe.skipIf(!h)("made-up data for Try it", () => {
       documents: trigger.documents,
       madeUp: true,
     });
+  });
+
+  it("lets the template's test copy, which its test runs run, read the made-up email", async () => {
+    const wf = v5Workflow([], {
+      triggers: [
+        {
+          id: "t1",
+          on: { type: "message", channels: ["email"], from: { relationships: ["employee"] } },
+        },
+      ],
+    });
+    model.push({
+      toolUse: {
+        name: "make_test_message",
+        input: {
+          from: { name: "Priya Shah", email: "priya@example.com" },
+          subject: "Fuel",
+          text: "Fuel for the site truck",
+          attachments: [],
+        },
+      },
+    });
+    const res = await make({ workflow: wf, name: "Receipts" });
+    expect(res.status, JSON.stringify(res.json)).toBe(200);
+    const trigger = j(j(res.json).trigger);
+    const copy = await templateTestCopy(H.t.db as never, {
+      tenantId: H.B.tenantId,
+      templateVersionId,
+    });
+    const runFor = async (agentId: string, agentVersionId: string) => {
+      const [r] = await H.t.db
+        .insert(run)
+        .values({
+          tenantId: H.B.tenantId,
+          agentId,
+          agentVersionId,
+          workflowSlug: "main",
+          mode: "test",
+          status: "running",
+          trigger: { type: "manual", payload: trigger },
+        })
+        .returning({ id: run.id });
+      return r?.id as string;
+    };
+    const copyRun = await runFor(copy.agent.id, copy.version.id);
+    const read = await dbInboundPort(H.db).get(H.B.tenantId, {
+      runId: copyRun,
+      agentId: copy.agent.id,
+    });
+    expect(read).toMatchObject({ channel: "email", subject: "Fuel" });
+    expect(read?.text).toBe("Fuel for the site truck");
   });
 
   it("writes the email around files uploaded for the try, attaching them as they are", async () => {
