@@ -98,6 +98,28 @@ interface Gathered {
   language: string;
 }
 
+/**
+ * Who a made-up email is from, in words for the model: one of the Sandbox's people the message
+ * trigger takes (by relationship), named, when the trigger takes only certain people and the
+ * Sandbox has some; nothing otherwise.
+ */
+export function senderHint(on: unknown, records: SandboxRecords | null): string | null {
+  const from = (on as { type?: unknown; from?: { relationships?: unknown } } | undefined)?.from;
+  const wanted = Array.isArray(from?.relationships)
+    ? from.relationships.filter((r): r is string => typeof r === "string")
+    : [];
+  if (wanted.length === 0 || !records) return null;
+  const fit = records.people.filter(
+    (p) => p.email && p.relationship && wanted.includes(p.relationship),
+  );
+  if (fit.length === 0) return null;
+  const names = fit
+    .slice(0, 5)
+    .map((p) => `${p.name} (${p.email})`)
+    .join(", ");
+  return `The email is from one of these people in <records>, exactly as listed, since the workflow takes messages only from its ${wanted.join(" or ")}s: ${names}`;
+}
+
 /** At most this many of each kind of the Sandbox's records go to the model with made-up data. */
 const SANDBOX_RECORDS_MAX = 30;
 
@@ -499,11 +521,16 @@ export function assistDraftRoutes(app: Hono<AppEnv>): void {
             "an attached file isn't one of the Sandbox's",
           );
         }
+        // Staging, 2026-11-27: a message from an invented sender has no contact, so a step that
+        // asks the sender back had nobody to ask. Where the trigger takes only certain people, the
+        // email is from one of the Sandbox's people who fit, and is kept as from that contact.
+        const sender = senderHint(on, records);
+        const notes = [ask.notes, sender].filter(Boolean).join(". ");
         const words = given.length
-          ? `${ask.notes ? `${ask.notes}. ` : ""}These files are attached already (attach nothing more): ${given
+          ? `${notes ? `${notes}. ` : ""}These files are attached already (attach nothing more): ${given
               .map((d) => d.filename)
               .join(", ")}.`
-          : ask.notes;
+          : notes || undefined;
         const out = await llm.callTool({
           model: DEFAULT_MODELS.assist,
           system: TEST_MESSAGE_SYSTEM,
@@ -514,6 +541,17 @@ export function assistDraftRoutes(app: Hono<AppEnv>): void {
         });
         const made = out.value;
         const kept = await keep(given.length ? [] : made.attachments);
+        const fromEmail = made.from.email.trim().toLowerCase();
+        const [fromContact] = await ctx.inTx((scoped) =>
+          narrowToTenant(scoped.tx, kept.sandbox, (tx) =>
+            tx
+              .select({ id: contact.id })
+              .from(contact)
+              .where(and(eq(contact.tenantId, kept.sandbox), eq(contact.email, fromEmail)))
+              .limit(1),
+          ),
+        );
+        const contactId = fromContact?.id ?? null;
         const docs = given.length ? given : kept.stored.map((d) => d.document);
         const ids = docs.map((d) => d.id);
         const fresh = kept.stored.filter((d) => d.created).map((d) => d.document.id);
@@ -535,7 +573,7 @@ export function assistDraftRoutes(app: Hono<AppEnv>): void {
                   agentId: ctx.params.id,
                   channel: "email",
                   from: made.from.email,
-                  contactId: null,
+                  contactId,
                   authenticated: false,
                   subject: made.subject,
                   date: new Date().toUTCString(),
@@ -552,7 +590,7 @@ export function assistDraftRoutes(app: Hono<AppEnv>): void {
         return {
           trigger: {
             channel: "email",
-            contactId: null,
+            contactId,
             userId: null,
             rawRecordId: rec.id,
             threadId: null,

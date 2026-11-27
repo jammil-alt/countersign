@@ -141,7 +141,7 @@ export const TEST_MESSAGE_SYSTEM = [
   "You are given the workflow's steps and, perhaps, what the person wants the message to be.",
   "",
   "Rules:",
-  "- Write what a real sender would: a short email in plain words, from an invented person at an invented company, about what is attached.",
+  "- Write what a real sender would: a short email in plain words about what is attached, from the person the notes name as the sender, else from an invented person at an invented company.",
   "- Attach what the steps expect: receipts for expenses, vendor invoices or bills for payables. One or two documents unless the person asks for more; none only if they ask for none.",
   "- Each document has what a real one has: who issued it, a number, a date, line items with quantities and prices, a total that is the sum of the lines plus tax.",
   ...SHARED_RULES,

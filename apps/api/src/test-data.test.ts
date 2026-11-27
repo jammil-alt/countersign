@@ -4,7 +4,7 @@
 
 import { dbInboundPort, templateTestCopy } from "@countersign/agents";
 import { DEV_USER_HEADER } from "@countersign/auth";
-import { document, rawRecord, run, tenant, vendor as vendorTable } from "@countersign/db";
+import { contact, document, rawRecord, run, tenant, vendor as vendorTable } from "@countersign/db";
 import { DEFAULT_MODELS, FakeModel } from "@countersign/llm";
 import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
@@ -196,6 +196,49 @@ describe.skipIf(!h)("made-up data for Try it", () => {
       documents: trigger.documents,
       madeUp: true,
     });
+  });
+
+  // Staging, 2026-11-27: a step that asks the sender back had nobody to ask.
+  it("sends the email from one of the Sandbox's people the trigger takes, as that contact", async () => {
+    const [dana] = await H.t.db
+      .insert(contact)
+      .values({
+        tenantId: H.B.tenantId,
+        name: "Dana Whitfield",
+        email: "dana@ridgeline.example.com",
+        relationship: "employee",
+        source: "manual",
+      })
+      .returning({ id: contact.id });
+    const wf = v5Workflow([], {
+      triggers: [
+        {
+          id: "t1",
+          on: { type: "message", channels: ["email"], from: { relationships: ["employee"] } },
+        },
+      ],
+    });
+    model.push({
+      toolUse: {
+        name: "make_test_message",
+        input: {
+          from: { name: "Dana Whitfield", email: "Dana@Ridgeline.example.com" },
+          subject: "Lumber",
+          text: "Lumber for the Hall job, company card.",
+          attachments: [],
+        },
+      },
+    });
+    const res = await make({ workflow: wf, name: "Receipts" });
+    expect(res.status, JSON.stringify(res.json)).toBe(200);
+    expect(lastAsk().user).toContain("Dana Whitfield (dana@ridgeline.example.com)");
+    const trigger = j(j(res.json).trigger);
+    expect(trigger.contactId).toBe(dana?.id);
+    const [rec] = await H.t.db
+      .select()
+      .from(rawRecord)
+      .where(eq(rawRecord.id, trigger.rawRecordId as string));
+    expect(rec?.payload).toMatchObject({ contactId: dana?.id });
   });
 
   it("lets the template's test copy, which its test runs run, read the made-up email", async () => {
