@@ -20,6 +20,7 @@ import {
   normalizeSignupPhone,
   normalizeVendorName,
   qboTransactionExternalId,
+  type Relationship,
   relationshipChannelsFor,
   type SampleCompanyCounts,
   type SampleCompanyExample,
@@ -1473,16 +1474,66 @@ async function addYou(
     now: Date;
   },
 ): Promise<{ id: string; created: boolean }> {
-  const { tenantId, userId, you, now } = input;
-  const byEmail = you.email
+  const { you } = input;
+  return addSandboxPerson(tx, {
+    tenantId: input.tenantId,
+    userId: input.userId,
+    person: you,
+    relationship: "employee",
+    always: true,
+    organizationId: input.organizationId,
+    id: await input.id(`contact:you:${input.userId}:${you.email ?? you.phone ?? you.name}`),
+    now: input.now,
+    entry: {
+      title: "Operator (you)",
+      roles: ["operator"],
+      notes:
+        "You, added to the sample company so your own email and texts arrive as an employee's.",
+    },
+    conflict: (email, phone) =>
+      `Your email is ${email}'s and your phone is ${phone}'s in the Sandbox's directory. Give one of them, or change those contacts first.`,
+    mark: { sample: true },
+  });
+}
+
+/**
+ * Someone in the Sandbox's directory by email or number (the operator in the sample company, or a
+ * test message's sender typed in Try it): the contact that has either already (given the
+ * relationship and the address it lacks), else a new one with consent on the addresses given, as
+ * the sample company's people have. Email lower case and phone E.164, as the caller gives them.
+ */
+export async function addSandboxPerson(
+  tx: Tx,
+  input: {
+    tenantId: string;
+    userId: string;
+    person: { name: string; email: string | null; phone: string | null };
+    relationship: Relationship | null;
+    /** Make a contact found with another relationship this one (else only one that has none). */
+    always?: boolean;
+    /** Labels the contact needs (`contact.roles`), added where missing. */
+    tags?: readonly string[];
+    organizationId: string | null;
+    /** The new contact's id. */
+    id: string;
+    now: Date;
+    entry: { title: string | null; roles: string[]; notes: string };
+    /** The 409's words when the email and the number are two different contacts'. */
+    conflict(emailOf: string, phoneOf: string): string;
+    /** What the directory's history notes on the change. */
+    mark: Record<string, unknown>;
+  },
+): Promise<{ id: string; created: boolean }> {
+  const { tenantId, userId, person, now } = input;
+  const byEmail = person.email
     ? (
         await tx
           .select()
           .from(contact)
-          .where(and(eq(contact.tenantId, tenantId), eq(contact.email, you.email)))
+          .where(and(eq(contact.tenantId, tenantId), eq(contact.email, person.email)))
       )[0]
     : undefined;
-  const byPhone = you.phone
+  const byPhone = person.phone
     ? (
         await tx
           .select()
@@ -1490,26 +1541,35 @@ async function addYou(
           .where(
             and(
               eq(contact.tenantId, tenantId),
-              or(eq(contact.phone, you.phone), eq(contact.whatsapp, you.phone)),
+              or(eq(contact.phone, person.phone), eq(contact.whatsapp, person.phone)),
             ),
           )
       )[0]
     : undefined;
   if (byEmail && byPhone && byEmail.id !== byPhone.id) {
-    throw new HttpError(
-      409,
-      "contact_conflict",
-      `Your email is ${byEmail.name}'s and your phone is ${byPhone.name}'s in the Sandbox's directory. Give one of them, or change those contacts first.`,
-    );
+    throw new HttpError(409, "contact_conflict", input.conflict(byEmail.name, byPhone.name));
   }
+  const tags = input.tags ?? [];
   const found = byEmail ?? byPhone;
   if (found) {
     const set: Partial<typeof contact.$inferInsert> = {};
-    if (found.relationship !== "employee") set.relationship = "employee";
-    if (you.email && !found.email) set.email = you.email;
-    if (you.phone && !found.phone) set.phone = you.phone;
-    if (you.phone && !found.whatsapp && !(await numberTaken(tx, tenantId, you.phone, found.id))) {
-      set.whatsapp = you.phone;
+    if (
+      input.relationship &&
+      found.relationship !== input.relationship &&
+      (input.always || !found.relationship)
+    ) {
+      set.relationship = input.relationship;
+    }
+    const missing = tags.filter((t) => !found.roles.includes(t));
+    if (missing.length > 0) set.roles = [...found.roles, ...missing];
+    if (person.email && !found.email) set.email = person.email;
+    if (person.phone && !found.phone) set.phone = person.phone;
+    if (
+      person.phone &&
+      !found.whatsapp &&
+      !(await numberTaken(tx, tenantId, person.phone, found.id))
+    ) {
+      set.whatsapp = person.phone;
     }
     if (!found.organizationId && input.organizationId) set.organizationId = input.organizationId;
     if (Object.keys(set).length > 0) {
@@ -1525,34 +1585,33 @@ async function addYou(
           kind: "edited",
           fields: Object.keys(set),
           ...(set.relationship
-            ? { relationship: { from: found.relationship, to: "employee" } }
+            ? { relationship: { from: found.relationship, to: set.relationship } }
             : {}),
-          sample: true,
+          ...input.mark,
         },
       });
     }
     return { id: found.id, created: false };
   }
-  const cid = await input.id(`contact:you:${userId}:${you.email ?? you.phone ?? you.name}`);
+  const cid = input.id;
   const whatsapp =
-    you.phone && !(await numberTaken(tx, tenantId, you.phone, cid)) ? you.phone : null;
-  const consent = relationshipConsent(you, now);
+    person.phone && !(await numberTaken(tx, tenantId, person.phone, cid)) ? person.phone : null;
+  const consent = relationshipConsent(person, now);
   const [made] = await insertMissing(tx, contact, [
     {
       id: cid,
       tenantId,
-      name: you.name,
-      email: you.email,
-      phone: you.phone,
+      name: person.name,
+      email: person.email,
+      phone: person.phone,
       whatsapp,
-      title: "Operator (you)",
-      roles: ["operator"],
-      relationship: "employee",
+      title: input.entry.title,
+      roles: [...input.entry.roles, ...tags.filter((t) => !input.entry.roles.includes(t))],
+      relationship: input.relationship,
       organizationId: input.organizationId,
-      preferredChannels: you.email ? ["email"] : [],
+      preferredChannels: person.email ? ["email"] : [],
       consent,
-      notes:
-        "You, added to the sample company so your own email and texts arrive as an employee's.",
+      notes: input.entry.notes,
       source: "manual",
       createdBy: userId,
       createdAt: now,
@@ -1569,7 +1628,7 @@ async function addYou(
         source: CONSENT_SOURCE,
         basis: "relationship",
         from: "manual",
-        sample: true,
+        ...input.mark,
       },
     });
   }

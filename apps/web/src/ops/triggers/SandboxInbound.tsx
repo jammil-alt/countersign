@@ -346,12 +346,13 @@ function TestMessage({
           {errorText(action.error)}
         </Notice>
       ) : null}
-      {answer ? <Answer answer={answer} name={name} /> : null}
+      {answer ? <TestMessageResult answer={answer} name={name} /> : null}
     </div>
   );
 }
 
-function Answer({ answer, name }: { answer: TestMessageAnswer; name: string }) {
+/** What a test message did: the run it started, or why nothing did and the reply they'd get. */
+export function TestMessageResult({ answer, name }: { answer: TestMessageAnswer; name: string }) {
   if (answer.status === "refused") {
     return (
       <Notice tone="neutral" testId="sandbox-test-refused">

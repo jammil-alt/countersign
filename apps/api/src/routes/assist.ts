@@ -39,6 +39,7 @@ import {
   TestDataAnswer,
   TestDocument,
   TestMessage,
+  type TestMessageChannel,
   testDataUserMessage,
   testDocumentFilename,
   triggerOnSchema,
@@ -118,6 +119,51 @@ export function senderHint(on: unknown, records: SandboxRecords | null): string 
     .map((p) => `${p.name} (${p.email})`)
     .join(", ");
   return `The email is from one of these people in <records>, exactly as listed, since the workflow takes messages only from its ${wanted.join(" or ")}s: ${names}`;
+}
+
+interface ChosenSender {
+  contactId: string;
+  name: string;
+  channel: TestMessageChannel;
+  address: string;
+}
+
+/**
+ * The Sandbox contact Try it says a made-up message is from, with the address it comes in from on
+ * the channel asked (else their email, else their phone): 422 when they aren't the Sandbox's or
+ * have no address on it.
+ */
+async function chosenSender(
+  ctx: { inTx<T>(work: (scoped: Scoped) => Promise<T>): Promise<T> },
+  body: { fromContactId?: string | undefined; channel?: TestMessageChannel | undefined },
+): Promise<ChosenSender> {
+  const id = body.fromContactId as string;
+  const [c] = await ctx.inTx(async (scoped) => {
+    const sandbox = await sandboxClient(scoped);
+    return narrowToTenant(scoped.tx, sandbox, (tx) =>
+      tx
+        .select()
+        .from(contact)
+        .where(and(eq(contact.tenantId, sandbox), eq(contact.id, id))),
+    );
+  });
+  if (!c) throw new HttpError(422, "invalid_contact", "not one of the Sandbox's contacts");
+  // DECISION: left out, the channel is their email, else a text to their phone, else WhatsApp.
+  const channel: TestMessageChannel =
+    body.channel ?? (c.email ? "email" : c.phone ? "sms" : c.whatsapp ? "whatsapp" : "email");
+  const address = channel === "email" ? c.email : channel === "sms" ? c.phone : c.whatsapp;
+  if (!address) {
+    const what = channel === "email" ? "email address" : "phone number";
+    throw new HttpError(422, "no_address", `${c.name} has no ${what} in the Sandbox`);
+  }
+  return { contactId: c.id, name: c.name, channel, address };
+}
+
+/** Who the made-up message is from, in words for the model: the person Try it named. */
+export function chosenWords(c: Pick<ChosenSender, "name" | "address" | "channel">): string {
+  return c.channel === "email"
+    ? `The email is from ${c.name} (${c.address}), exactly as named`
+    : `The message is a text from ${c.name} (${c.address}), exactly as named: a line or two in plain words, with no greeting or sign-off`;
 }
 
 /** At most this many of each kind of the Sandbox's records go to the model with made-up data. */
@@ -412,7 +458,8 @@ export function assistDraftRoutes(app: Hono<AppEnv>): void {
     // too, like PDFs of a receipt or invoice"): its data is ids of a stored message and its
     // documents, so a whole email is made up and stored, attachments and all.
     const message = !document && wantsMessage(schema);
-    if ((document || message) && row.kind === "client") {
+    // A Sandbox agent's try runs in the Sandbox, where made-up files are kept: it is offered them.
+    if ((document || message) && row.kind === "client" && !row.sandbox) {
       throw new HttpError(
         422,
         "sandbox_only",
@@ -434,6 +481,8 @@ export function assistDraftRoutes(app: Hono<AppEnv>): void {
       }
     };
     walk(wf.steps);
+    // Try it's From (2026-11-27): the Sandbox's contact the message is from, on the channel picked.
+    const chosen = message && body.fromContactId ? await chosenSender(ctx, body) : null;
     await ctx.inTx((scoped) =>
       claimMetered(scoped.tx, ctx.c, {
         kind: "assist.draft",
@@ -524,7 +573,7 @@ export function assistDraftRoutes(app: Hono<AppEnv>): void {
         // Staging, 2026-11-27: a message from an invented sender has no contact, so a step that
         // asks the sender back had nobody to ask. Where the trigger takes only certain people, the
         // email is from one of the Sandbox's people who fit, and is kept as from that contact.
-        const sender = senderHint(on, records);
+        const sender = chosen ? chosenWords(chosen) : senderHint(on, records);
         const notes = [ask.notes, sender].filter(Boolean).join(". ");
         const words = given.length
           ? `${notes ? `${notes}. ` : ""}These files are attached already (attach nothing more): ${given
@@ -542,16 +591,21 @@ export function assistDraftRoutes(app: Hono<AppEnv>): void {
         const made = out.value;
         const kept = await keep(given.length ? [] : made.attachments);
         const fromEmail = made.from.email.trim().toLowerCase();
-        const [fromContact] = await ctx.inTx((scoped) =>
-          narrowToTenant(scoped.tx, kept.sandbox, (tx) =>
-            tx
-              .select({ id: contact.id })
-              .from(contact)
-              .where(and(eq(contact.tenantId, kept.sandbox), eq(contact.email, fromEmail)))
-              .limit(1),
-          ),
-        );
+        const [fromContact] = chosen
+          ? [{ id: chosen.contactId }]
+          : await ctx.inTx((scoped) =>
+              narrowToTenant(scoped.tx, kept.sandbox, (tx) =>
+                tx
+                  .select({ id: contact.id })
+                  .from(contact)
+                  .where(and(eq(contact.tenantId, kept.sandbox), eq(contact.email, fromEmail)))
+                  .limit(1),
+              ),
+            );
         const contactId = fromContact?.id ?? null;
+        const channel = chosen?.channel ?? "email";
+        const from = chosen ? chosen.address : made.from.email;
+        const fromName = chosen ? chosen.name : made.from.name;
         const docs = given.length ? given : kept.stored.map((d) => d.document);
         const ids = docs.map((d) => d.id);
         const fresh = kept.stored.filter((d) => d.created).map((d) => d.document.id);
@@ -571,11 +625,11 @@ export function assistDraftRoutes(app: Hono<AppEnv>): void {
                 externalVersion: null,
                 payload: {
                   agentId: ctx.params.id,
-                  channel: "email",
-                  from: made.from.email,
+                  channel,
+                  from,
                   contactId,
                   authenticated: false,
-                  subject: made.subject,
+                  subject: channel === "email" ? made.subject : null,
                   date: new Date().toUTCString(),
                   messageId: null,
                   text: inboundText(made.text),
@@ -589,7 +643,7 @@ export function assistDraftRoutes(app: Hono<AppEnv>): void {
         if (!rec) throw new Error("the made-up message wasn't stored");
         return {
           trigger: {
-            channel: "email",
+            channel,
             contactId,
             userId: null,
             rawRecordId: rec.id,
@@ -601,9 +655,12 @@ export function assistDraftRoutes(app: Hono<AppEnv>): void {
           document: null,
           message: {
             subject: made.subject,
-            from: `${made.from.name} <${made.from.email}>`,
+            from: `${fromName} <${from}>`,
             attachments: docs.map((d) => ({ id: d.id, filename: d.filename })),
             clientId: kept.sandbox,
+            text: made.text,
+            contactId,
+            channel,
           },
         };
       }
