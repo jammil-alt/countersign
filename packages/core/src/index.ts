@@ -139,6 +139,7 @@ export * from "./api/run-subject";
 // v0.12 W2-F
 export * from "./api/runs-ask";
 export * from "./api/runs-filter";
+export * from "./api/sample-company";
 export * from "./api/sandbox";
 // v0.12 W2-F
 export * from "./api/search";
