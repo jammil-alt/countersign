@@ -484,7 +484,8 @@ describe.skipIf(!h)("MCP builds and step settings", () => {
         .select({ bundle: agentVersion.bundle })
         .from(agentVersion)
         .where(eq(agentVersion.id, versionId));
-      return (row?.bundle as { definition: { skills: { skill: string }[] } }).definition.skills
+      if (!row) throw new Error(`no version ${versionId}`);
+      return (row.bundle as { definition: { skills: { skill: string }[] } }).definition.skills
         .map((s) => s.skill)
         .filter((s) => s.startsWith("custom:step-"));
     };
