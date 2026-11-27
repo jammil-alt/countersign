@@ -6,7 +6,7 @@
 import type { SampleCompanyCounts, SampleCompanyResult } from "@countersign/core";
 import { useState } from "react";
 import { apiRoutes } from "../../api/routes";
-import { useApiClient } from "../../api/useApi";
+import { useApi, useApiClient } from "../../api/useApi";
 import { Field, TextInput } from "../../ui/forms";
 import { Button, Card, ErrorNotice } from "../../ui/primitives";
 import { plural } from "../../usage/format";
@@ -172,6 +172,113 @@ export function SampleCompanySetup({
               </ul>
             </>
           ) : null}
+        </div>
+      ) : null}
+    </Card>
+  );
+}
+
+/**
+ * Owner, 2026-11-27: where the Sandbox's messages to its made-up people go instead (core
+ * `sandboxRedirect`), so the operator can answer as them. Unset, those messages aren't sent.
+ */
+export function SandboxDeliverySetting({ clientId }: { clientId: string }) {
+  const api = useApiClient();
+  const { data, error, reload } = useApi(apiRoutes.opsSandboxDelivery, {
+    params: { id: clientId },
+  });
+  // What the operator typed; undefined shows what is saved.
+  const [email, setEmail] = useState<string | undefined>(undefined);
+  const [phone, setPhone] = useState<string | undefined>(undefined);
+  const [busy, setBusy] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [problem, setProblem] = useState<unknown>(null);
+  const shownEmail = email ?? data?.email ?? "";
+  const shownPhone = phone ?? data?.phone ?? "";
+
+  async function save() {
+    setBusy(true);
+    setSaved(false);
+    setProblem(null);
+    try {
+      await api.call(apiRoutes.opsSetSandboxDelivery, {
+        params: { id: clientId },
+        body: { email: shownEmail.trim() || null, phone: shownPhone.trim() || null },
+      });
+      setEmail(undefined);
+      setPhone(undefined);
+      setSaved(true);
+      reload();
+    } catch (e) {
+      setProblem(e);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Card
+      title="Messages to made-up people"
+      pad
+      testId="ops-sandbox-delivery"
+      className="mb-6 max-w-3xl"
+    >
+      <p className="text-sm text-ink-muted">
+        When a Sandbox agent runs live and emails or texts one of the sample company's made-up
+        people (an example.com address or a 555-01xx number), we send it to you instead, marked with
+        their name, so you can answer as them. Use your own email and phone as the sample company
+        has them. With nothing set, those messages aren't sent.
+      </p>
+      {error ? (
+        <div className="mt-3">
+          <ErrorNotice error={error} onRetry={reload} />
+        </div>
+      ) : null}
+      <div className="mt-4 grid gap-3 sm:grid-cols-2">
+        <Field label="Email to">
+          <TextInput
+            type="email"
+            value={shownEmail}
+            onChange={(e) => {
+              setEmail(e.target.value);
+              setSaved(false);
+            }}
+            autoComplete="email"
+            data-testid="ops-sandbox-delivery-email"
+          />
+        </Field>
+        <Field label="Texts and calls to" hint="+15551234567, or a 10-digit US number">
+          <TextInput
+            type="tel"
+            value={shownPhone}
+            onChange={(e) => {
+              setPhone(e.target.value);
+              setSaved(false);
+            }}
+            autoComplete="tel"
+            data-testid="ops-sandbox-delivery-phone"
+          />
+        </Field>
+      </div>
+      <div className="mt-4 flex flex-wrap items-center gap-3">
+        <Button
+          variant="primary"
+          working={busy}
+          disabled={!data}
+          onClick={() => void save()}
+          data-testid="ops-sandbox-delivery-save"
+        >
+          Save
+        </Button>
+        {saved ? (
+          <span role="status" className="text-sm text-positive">
+            Saved.
+          </span>
+        ) : null}
+      </div>
+      {problem ? (
+        <div className="mt-3">
+          <ErrorNotice error={problem} />
         </div>
       ) : null}
     </Card>

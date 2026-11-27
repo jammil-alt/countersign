@@ -23,6 +23,8 @@ import {
   type ApprovalSource,
   // P-3: attachments both ways
   type AttachmentSummary,
+  autonomyFor,
+  autonomyMessage,
   channelAddress,
   channelTool,
   consentBlockFor,
@@ -58,8 +60,12 @@ import {
   type ReachPlan,
   type ReachReply,
   reachSubject,
+  readAutonomy,
   readHold,
+  redirectedSubject,
+  redirectedText,
   routeApproval,
+  sandboxRedirect,
   type Urgency,
   type WhyApproval,
 } from "@countersign/core";
@@ -154,6 +160,11 @@ export interface Attempt {
   /** The provider's id: SM…, CA… or the email's. */
   ref?: string;
   error?: string;
+  /**
+   * Owner, 2026-11-27: the Sandbox's address or number it went to instead of the made-up
+   * person's (core `sandboxRedirect`).
+   */
+  redirectedTo?: string;
 }
 
 /** The event a run waits on for one reach-out. */
@@ -1290,6 +1301,27 @@ export async function attemptFrom(
       await failed(`the agent has no ${CHANNEL_WORDS[channel]} channel`);
       continue;
     }
+    // Owner, 2026-11-27: in the Sandbox, a message to a made-up person (example.com, 555-01xx)
+    // goes to where the operator set instead, so they can play that person; unset, it is
+    // refused in words. Consent, opt-out and hours above were the person's own; so is autonomy.
+    const redirect = sandboxRedirect({
+      sandbox: (state.t.settings as { sandbox?: unknown }).sandbox === true,
+      settings: state.t.settings,
+      channel,
+      address: channelAddress(reach, channel) as string,
+      name: who.name,
+    });
+    if (redirect.kind === "refused") {
+      await failed(redirect.reason);
+      continue;
+    }
+    if (
+      redirect.kind === "redirect" &&
+      autonomyFor(readAutonomy(who.autonomy), channel) === "off"
+    ) {
+      await failed(autonomyMessage(channel, "off"));
+      continue;
+    }
 
     const agentPinned = await pinned(deps, row);
     const step: StepContext = {
@@ -1338,14 +1370,27 @@ export async function attemptFrom(
         text,
       });
     }
-    const address = channelAddress(reach, channel) as string;
+    const address =
+      redirect.kind === "redirect" ? redirect.to : (channelAddress(reach, channel) as string);
+    if (redirect.kind === "redirect" && channel !== "email" && channel !== "voice") {
+      text = redirectedText(text, who.name);
+    }
     // P-3: the plan's documents go with the email, the text (MMS) or the WhatsApp message.
     const files = plan.attachments?.length
       ? { attachments: plan.attachments.map((a) => ({ documentId: a.documentId })) }
       : {};
     const input =
       channel === "email"
-        ? { to: address, subject: plan.emailSubject, text, replyTag: plan.replyTag, ...files }
+        ? {
+            to: address,
+            subject:
+              redirect.kind === "redirect"
+                ? redirectedSubject(plan.emailSubject, who.name)
+                : plan.emailSubject,
+            text,
+            replyTag: plan.replyTag,
+            ...files,
+          }
         : channel === "voice"
           ? { to: address, purpose: row.purpose, tools: [] }
           : // P-4: a conversation's opening may carry a template for outside the 24-hour window.
@@ -1386,6 +1431,7 @@ export async function attemptFrom(
         status: "sent",
         ...(r.actionId ? { actionId: r.actionId } : {}),
         ...((out.sid ?? out.callSid ?? out.id) ? { ref: out.sid ?? out.callSid ?? out.id } : {}),
+        ...(redirect.kind === "redirect" ? { redirectedTo: redirect.to } : {}),
       },
       { nextAttemptAt: more ? new Date(t.getTime() + parseDuration(plan.escalateAfter)) : null },
     );

@@ -68,6 +68,7 @@ function renderRecords(sandbox: boolean, post: (body: unknown) => unknown) {
       limit: 50,
       page: { kind: "transactions", rows: [] },
     }),
+    [`GET /api/ops/clients/${CLIENT}/sandbox-delivery`]: () => ({ email: null, phone: null }),
     [`POST /api/ops/clients/${CLIENT}/sample-company`]: ({ init }) => {
       const body = JSON.parse(String(init.body));
       bodies.push(body);
@@ -149,5 +150,45 @@ describe("the Sandbox's sample company", () => {
     renderRecords(false, () => result(COUNTS));
     await screen.findByTestId("ops-records-empty", {}, { timeout: 10_000 });
     expect(screen.queryByTestId("ops-sample-company")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("ops-sandbox-delivery")).not.toBeInTheDocument();
+  });
+
+  it("sets where messages to made-up people go, and shows a refusal in the API's words", async () => {
+    const user = userEvent.setup();
+    const { api } = renderRecords(true, () => result(COUNTS));
+    const puts: unknown[] = [];
+    let saved = { email: null as string | null, phone: null as string | null };
+    api.on(`GET /api/ops/clients/${CLIENT}/sandbox-delivery`, () => saved);
+    api.on(`PUT /api/ops/clients/${CLIENT}/sandbox-delivery`, ({ init }) => {
+      const body = JSON.parse(String(init.body));
+      puts.push(body);
+      if (body.email === "nobody@realmail.co") {
+        return new Reply(422, {
+          error: {
+            code: "not_a_contact",
+            message: "No one in the Sandbox has this address: add yourself first",
+          },
+        });
+      }
+      saved = { email: body.email, phone: "+15125551234" };
+      return saved;
+    });
+    const card = await screen.findByTestId("ops-sandbox-delivery", {}, { timeout: 10_000 });
+    expect(card).toHaveTextContent("Messages to made-up people");
+    await user.type(within(card).getByTestId("ops-sandbox-delivery-email"), "nobody@realmail.co");
+    await user.click(within(card).getByTestId("ops-sandbox-delivery-save"));
+    expect(await within(card).findByRole("alert")).toHaveTextContent("No one in the Sandbox");
+    await user.clear(within(card).getByTestId("ops-sandbox-delivery-email"));
+    await user.type(within(card).getByTestId("ops-sandbox-delivery-email"), "pat@mezonas.co");
+    await user.type(within(card).getByTestId("ops-sandbox-delivery-phone"), "(512) 555-1234");
+    await user.click(within(card).getByTestId("ops-sandbox-delivery-save"));
+    expect(await within(card).findByRole("status")).toHaveTextContent("Saved.");
+    expect(puts).toEqual([
+      { email: "nobody@realmail.co", phone: null },
+      { email: "pat@mezonas.co", phone: "(512) 555-1234" },
+    ]);
+    await waitFor(() =>
+      expect(within(card).getByTestId("ops-sandbox-delivery-phone")).toHaveValue("+15125551234"),
+    );
   });
 });
