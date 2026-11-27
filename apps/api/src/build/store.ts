@@ -45,6 +45,8 @@ import {
   readQa,
   readRequirements,
   readTestPlan,
+  retiredPhase,
+  shownPhase,
   sliceWhole,
   steps,
   withDecisionRisk,
@@ -92,7 +94,17 @@ export async function readBuild(tx: Tx, id: string, lock = false): Promise<Build
   const q = tx.select().from(build).where(eq(build.id, id));
   const [row] = lock ? await q.for("update") : await q;
   if (!row) throw notFound("build");
-  return row;
+  return asDraft(row);
+}
+
+/**
+ * Owner (2026-11-27): a build goes from its draft to Publish. One stored in the POC test, client
+ * test or QA from before reads as its draft, everywhere it is read, and is published from there.
+ */
+// DECISION: read as the draft rather than rewritten (no migration, the stored enum kept): the
+// stored phase changes on the build's next move or when it is published.
+export function asDraft<R extends { phase: BuildPhase }>(row: R): R {
+  return retiredPhase(row.phase) ? { ...row, phase: shownPhase(row.phase) } : row;
 }
 
 async function names(tx: Tx, table: "tenant" | "user", ids: (string | null)[]) {
@@ -159,7 +171,7 @@ export async function summaries(tx: Tx, rows: BuildRow[]): Promise<BuildSummary[
       kind: r.kind,
       title: r.title,
       client: r.clientId ? { id: r.clientId, name: clients.get(r.clientId) ?? "Client" } : null,
-      phase: r.phase,
+      phase: shownPhase(r.phase),
       status: r.status,
       agentId: r.agentId,
       skillId: r.skillId,
@@ -1123,7 +1135,6 @@ export async function buildDetail(ctx: StoreCtx, row: BuildRow): Promise<BuildDe
   const poc = await pocFacts(ctx, row, draft);
   const clientTest = await clientTestFacts(ctx, row);
   const checks = qaChecks(row, draft, poc, clientTest);
-  const open = items.filter((i) => itemOpen(i.state)).length;
   const reasons =
     row.status !== "open"
       ? []
@@ -1134,16 +1145,6 @@ export async function buildDetail(ctx: StoreCtx, row: BuildRow): Promise<BuildDe
           fitgap,
           draft: row.kind === "skill" ? !!draft.view?.skillId : !!draft.view?.versionId,
           draftErrors: draft.view?.problems.length ?? 0,
-          poc: poc
-            ? { passed: poc.passed, detail: poc.detail }
-            : { passed: false, detail: "No tests yet." },
-          trialDone:
-            !!clientTest &&
-            (clientTest.stage === "signoff" ||
-              clientTest.stage === "live" ||
-              !!clientTest.trial?.ready),
-          qaSigned: !!qa.signedAt,
-          openItems: open,
         });
   const at = phaseIndex(row.kind, row.phase);
   return {
@@ -1216,10 +1217,15 @@ async function buildLinks(
           .limit(1)
       : [];
   return {
-    skillBuilds,
+    skillBuilds: skillBuilds.map(asDraft),
     startedFrom: from
       ? {
-          build: { id: from.id, title: from.title, phase: from.phase, status: from.status },
+          build: asDraft({
+            id: from.id,
+            title: from.title,
+            phase: from.phase,
+            status: from.status,
+          }),
           itemId: from.itemId,
           itemTitle: from.itemTitle,
         }

@@ -1,6 +1,7 @@
 // Decisions on a build (docs/builder-plan.md §4): every decision the Builder made to get the normal
 // case running, beside the issues and known risks. Each says what was decided, why, its starting
-// value and its kind; a high-risk one nobody has looked at says "Check" (it holds the client test).
+// value and its kind; a high-risk one nobody has looked at says "Check" (worth a look before it
+// is published; it holds nothing).
 // Owner (2026-11-21): "We can't close these." Each row is closed out where it is: Confirm it, say
 // what it should be (the Builder rewrites it), ask about it, or, by its kind, ask each client or
 // give it to a person on each run. Undo takes a look back to "Never discussed".

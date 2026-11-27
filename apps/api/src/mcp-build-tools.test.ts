@@ -288,7 +288,11 @@ describe.skipIf(!h)("MCP builds and step settings", () => {
       },
       H.env,
     );
-    const tools = j(await res.json()).result.tools as { name: string; inputSchema: unknown }[];
+    const tools = j(await res.json()).result.tools as {
+      name: string;
+      description?: string;
+      inputSchema: unknown;
+    }[];
     const names = tools.map((t) => t.name);
     for (const n of [
       "builds_list",
@@ -310,11 +314,14 @@ describe.skipIf(!h)("MCP builds and step settings", () => {
     expect(names.filter((n) => /client_test|qa|go_live|activate|release|rollback/.test(n))).toEqual(
       [],
     );
+    // Owner (2026-11-27): a build moves only to its draft here; from there it is published.
     const move = tools.find((t) => t.name === "build_move");
     expect(JSON.stringify(move?.inputSchema)).not.toContain("client_test");
-    expect(await tool("build_move", { id: clientAgent, to: "client_test" })).toMatchObject({
-      isError: true,
-    });
+    expect(move?.description).not.toMatch(/POC/i);
+    expect(JSON.stringify(move?.inputSchema)).toContain('"enum":["draft"]');
+    for (const to of ["poc", "client_test", "qa", "fitgap"]) {
+      expect(await tool("build_move", { id: clientAgent, to })).toMatchObject({ isError: true });
+    }
   });
 
   it("builds an agent with the Builder: start, draft, a proposal agreed, its steps read", async () => {

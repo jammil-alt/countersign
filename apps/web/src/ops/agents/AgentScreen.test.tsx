@@ -443,7 +443,7 @@ describe("AgentScreen", () => {
           qa: { accepted: {}, signedBy: null, signedAt: null, decision: null },
         },
         phases: [{ phase: "draft", label: "Draft", state: "current" }],
-        gate: { next: "poc", reasons: [] },
+        gate: { next: null, reasons: ["There is no draft yet."] },
         messages: [],
         items: [],
         draft: null,
@@ -473,6 +473,11 @@ describe("AgentScreen", () => {
     // On the agent page the build has no header of its own: the agent's bar is it.
     expect(within(view).queryByTestId("build-header")).toBeNull();
     expect(within(view).getByTestId("build-phase-draft")).toHaveAttribute("aria-current", "step");
+    // Owner (2026-11-27): the Build tab's one bar, Draft and why Publish is off.
+    expect(within(view).getByTestId("build-publish-bar-state")).toHaveTextContent(
+      "Draft · There is no draft yet.",
+    );
+    expect(within(view).getByTestId("build-publish-bar-publish")).toBeDisabled();
     // While it is being built, back goes to its build, not to the list of agents.
     expect(screen.queryByTestId("agent-back")).toBeNull();
     expect(screen.getByTestId("agent-back-build")).toHaveTextContent(

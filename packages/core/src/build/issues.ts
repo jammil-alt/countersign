@@ -1,8 +1,8 @@
 // A build's issues (owner, 2026-11-17): everything left to settle, in one list with stable keys, so
 // the operator and the Builder can talk about one at a time, come back to it later, and agree the
-// change that settles it. Open items are stored; the draft's problems, failing test cases, the
-// client's rejected writes and failing QA checks are read live from the build, as the build shows
-// them. Each message in the conversation may name the issue it is about (`about`): that is the
+// change that settles it. Open items are stored; the draft's problems, failing test cases and the
+// client's rejected writes are read live from the build, as the build shows them (a build has no
+// QA checklist since 2026-11-27). Each message in the conversation may name the issue it is about (`about`): that is the
 // issue's thread, which is how "go back to it" works however long ago it was.
 
 import type { BuildDetail } from "../api/build";
@@ -15,6 +15,7 @@ import {
   decisionUnreviewed,
   ITEM_STATE_WORDS,
   itemOpen,
+  shownPhase,
 } from "./build";
 
 export const ISSUE_SOURCES = ["item", "problem", "case", "rejection", "check", "decision"] as const;
@@ -74,11 +75,10 @@ export function buildIssues(d: BuildDetail): BuildIssue[] {
   for (const m of d.messages) if (m.about) talk.set(m.about, (talk.get(m.about) ?? 0) + 1);
   const t = (key: string) => talk.get(key) ?? 0;
   const out: BuildIssue[] = [];
-  const phase = d.build.phase;
   // What holds the next move, from the same facts as the gate (`gateReasons`, BUILDER_QA CONS-1):
-  // open items hold only the go-live (QA), draft problems only the move out of the draft.
-  const itemsHold = phase === "qa";
-  const problemsHold = phase === "draft";
+  // only the draft's problems, and only Publish (owner, 2026-11-27: from the draft to Publish).
+  // Failing tests, decisions and open items are settled or not; none of them holds Publish.
+  const problemsHold = shownPhase(d.build.phase) === "draft";
 
   // A missing step whose part is in the Dev queue waits on its request.
   const waitingByStep = new Map<string, { id: string; ref: string }>();
@@ -119,7 +119,7 @@ export function buildIssues(d: BuildDetail): BuildIssue[] {
       detail: `Its latest run: ${f.status}`,
       phase: "poc",
       open: true,
-      blocking: phase === "poc",
+      blocking: false,
       state: "Fails",
       owner: null,
       itemId: null,
@@ -128,27 +128,7 @@ export function buildIssues(d: BuildDetail): BuildIssue[] {
       stepId: null,
     });
   }
-  // The checklist is read in every phase, but it is QA's: before QA every check "fails".
-  for (const c of phase === "qa" ? d.qaChecks : []) {
-    if (c.state !== "fail" && c.state !== "accepted") continue;
-    const key = `check:${c.id}`;
-    out.push({
-      key,
-      source: "check",
-      title: c.label,
-      detail: c.state === "accepted" ? `Accepted: ${c.reason ?? ""}` : c.detail,
-      phase: "qa",
-      open: c.state === "fail",
-      blocking: c.state === "fail",
-      state: c.state === "fail" ? "Fails" : "Accepted",
-      owner: null,
-      itemId: null,
-      talk: t(key),
-      waitingOn: null,
-      stepId: null,
-    });
-  }
-  // docs/builder-plan.md §4.2: a high-risk decision nobody has looked at holds the POC's move on.
+  // docs/builder-plan.md §4.2: a high-risk decision nobody has looked at is an issue.
   for (const dec of d.build.fitgap?.decisions ?? []) {
     if (decisionUnreviewed(dec)) out.push(decisionIssue(d, dec, t(`decision:${dec.id}`)));
   }
@@ -182,7 +162,7 @@ export function buildIssues(d: BuildDetail): BuildIssue[] {
       detail: i.detail,
       phase: i.phase,
       open,
-      blocking: open && itemsHold,
+      blocking: false,
       state: waiting && open ? `Waiting on ${waiting.ref}` : ITEM_STATE_WORDS[i.state],
       owner: i.owner,
       itemId: i.id,
@@ -204,7 +184,7 @@ export function buildIssues(d: BuildDetail): BuildIssue[] {
 }
 
 /** A decision as an issue: the conversation can be on any decision ("Ask about it"). */
-export function decisionIssue(d: BuildDetail, dec: Decision, talk = 0): BuildIssue {
+export function decisionIssue(_d: BuildDetail, dec: Decision, talk = 0): BuildIssue {
   const open = decisionUnreviewed(dec);
   return {
     key: `decision:${dec.id}`,
@@ -220,7 +200,7 @@ export function decisionIssue(d: BuildDetail, dec: Decision, talk = 0): BuildIss
       .join(". "),
     phase: "fitgap",
     open,
-    blocking: open && d.build.phase === "poc",
+    blocking: false,
     state: DECISION_STATUS_WORDS[dec.status],
     owner: null,
     itemId: null,

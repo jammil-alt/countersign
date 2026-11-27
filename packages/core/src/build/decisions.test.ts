@@ -283,57 +283,33 @@ describe("decisions: risk by code", () => {
     });
     expect([...ids].sort()).toEqual(["post-bill", "tell-vendor"]);
 
-    // So a decision on that step is high risk, and holds the move into the client test.
+    // So a decision on that step is high risk: an issue to look at, which holds nothing.
     const decisions = withDecisionRisk([dec("post-without-check", { stepId: "post-bill" })], ids);
     expect(decisions[0]?.risk).toBe("high");
-    expect(
-      gateReasons({
-        kind: "agent",
-        phase: "poc",
-        brief: {},
-        fitgap: { ...empty, decisions },
-        draft: true,
-        draftErrors: 0,
-        poc: { passed: true, detail: "" },
-        trialDone: false,
-        qaSigned: false,
-        openItems: 0,
-      }),
-    ).toContain("1 high-risk decision hasn't been looked at yet.");
   });
 });
 
 describe("decisions: the gate and the issues", () => {
   const base: GateFacts = {
     kind: "agent",
-    phase: "poc",
+    phase: "draft",
     brief: {},
     fitgap: empty,
     draft: true,
     draftErrors: 0,
-    poc: { passed: true, detail: "All pass." },
-    trialDone: false,
-    qaSigned: false,
-    openItems: 0,
   };
 
-  it("hold the move from the POC into the client test until high-risk ones are looked at", () => {
+  // Owner (2026-11-27): from the draft straight to Publish; high-risk decisions are issues to
+  // look at, and none holds Publish.
+  it("never hold Publish, high-risk or not", () => {
     const decisions = [
       dec("a", { risk: "high" }),
       dec("b", { risk: "high" }),
       dec("c"),
       dec("d", { risk: "high", status: "discussed" }),
     ];
-    expect(gateReasons({ ...base, fitgap: { ...empty, decisions } })).toEqual([
-      "2 high-risk decisions haven't been looked at yet.",
-    ]);
-    expect(gateReasons({ ...base, fitgap: { ...empty, decisions: decisions.slice(1) } })).toEqual([
-      "1 high-risk decision hasn't been looked at yet.",
-    ]);
-    // Normal ones never hold a phase.
-    expect(gateReasons({ ...base, fitgap: { ...empty, decisions: [dec("c")] } })).toEqual([]);
-    // Only the POC's move waits on them.
-    expect(gateReasons({ ...base, phase: "draft", fitgap: { ...empty, decisions } })).toEqual([]);
+    expect(gateReasons({ ...base, fitgap: { ...empty, decisions } })).toEqual([]);
+    expect(gateReasons({ ...base, phase: "poc", fitgap: { ...empty, decisions } })).toEqual([]);
   });
 
   const detail = (decisions: Decision[], phase: BuildDetail["build"]["phase"] = "poc") =>
@@ -360,7 +336,7 @@ describe("decisions: the gate and the issues", () => {
       source: "decision",
       title: "Decision a",
       open: true,
-      blocking: true,
+      blocking: false,
       state: "Never discussed",
       talk: 1,
     });
@@ -369,7 +345,7 @@ describe("decisions: the gate and the issues", () => {
     expect(issueByKey(d, "decision:c")).toMatchObject({ open: false, talk: 1 });
     expect(issueByKey(d, "decision:b")).toMatchObject({ open: false, state: "Confirmed" });
     expect(issueByKey(d, "decision:zzz")).toBeNull();
-    // Outside the POC it is open but holds nothing.
+    // In the draft too it is open but holds nothing.
     expect(buildIssues(detail([dec("a", { risk: "high" })], "draft"))[0]?.blocking).toBe(false);
   });
 

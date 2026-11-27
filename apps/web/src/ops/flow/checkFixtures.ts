@@ -55,11 +55,8 @@ export function buildDetail(
       { phase: "intake", label: "Intake", state: agentId ? "done" : "current" },
       { phase: "fitgap", label: "Fit-gap", state: agentId ? "done" : "todo" },
       { phase: "draft", label: "Draft", state: agentId ? "current" : "todo" },
-      { phase: "poc", label: "POC test", state: "todo" },
-      { phase: "client_test", label: "Client test", state: "todo" },
-      { phase: "qa", label: "QA and go / no-go", state: "todo" },
     ],
-    gate: { next: agentId ? "poc" : "fitgap", reasons: [] },
+    gate: { next: agentId ? null : "fitgap", reasons: [] },
     messages: over.words
       ? [
           {

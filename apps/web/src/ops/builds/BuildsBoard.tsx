@@ -1,18 +1,19 @@
-// The builds in progress by phase (docs/plan.md §1.108), a card each with what holds it: the Agent
-// lab's Drafts tab shows it (owner, 2026-11-17: "Board is essentially the drafts section of the
-// lab"). Each card opens the build's page.
-import { type BuildPhase, type BuildSummary, PHASE_WORDS } from "@countersign/core";
+// The builds in progress (docs/plan.md §1.108), a card each with what holds it: the Agent lab's
+// Drafts tab shows it (owner, 2026-11-17: "Board is essentially the drafts section of the lab").
+// Each card opens the build's page.
+//
+// Owner (2026-11-27): a build goes from its draft straight to Publish, so the board has two
+// columns: Draft, every open build whatever phase it is stored in (intake, fit-gap, and the POC
+// test, client test and QA of builds made before), and Live, the builds it is given that went
+// live. The Lab gives it open builds only; a live one is listed as its agent, as before.
+import type { BuildStatus, BuildSummary } from "@countersign/core";
 import { Link } from "react-router-dom";
 import { Badge } from "../../ui/primitives";
 import { buildHref, plural } from "./words";
 
-export const BUILD_COLUMNS: BuildPhase[] = [
-  "intake",
-  "fitgap",
-  "draft",
-  "poc",
-  "client_test",
-  "qa",
+export const BUILD_COLUMNS: { status: Extract<BuildStatus, "open" | "live">; label: string }[] = [
+  { status: "open", label: "Draft" },
+  { status: "live", label: "Live" },
 ];
 
 /** What a build makes, in a word, and for whom. */
@@ -23,23 +24,25 @@ export function buildKindLine(b: BuildSummary): string {
 }
 
 export function BuildsBoard({ builds }: { builds: readonly BuildSummary[] }) {
+  // A column with nothing in it is left out, but Draft always shows.
+  const columns = BUILD_COLUMNS.map((c) => ({
+    ...c,
+    here: builds.filter((b) => b.status === c.status),
+  })).filter((c) => c.status === "open" || c.here.length > 0);
   return (
     <div
-      className="grid gap-4 overflow-x-auto pb-2 md:grid-cols-3 xl:grid-cols-6"
+      className={`grid gap-4 pb-2 ${columns.length > 1 ? "md:grid-cols-2" : ""}`}
       data-testid="builds-board"
     >
-      {BUILD_COLUMNS.map((phase) => {
-        const here = builds.filter((b) => b.phase === phase);
-        return (
-          <section
-            key={phase}
-            className="flex min-w-0 flex-col gap-3"
-            aria-label={PHASE_WORDS[phase].label}
+      {columns.map(({ status, label, here }) => (
+        <section key={status} className="flex min-w-0 flex-col gap-3" aria-label={label}>
+          <h2 className="flex items-center justify-between px-1 text-sm font-medium text-ink">
+            {label}
+            <span className="text-ink-muted">{here.length}</span>
+          </h2>
+          <div
+            className={`grid gap-3 ${columns.length > 1 ? "" : "sm:grid-cols-2 xl:grid-cols-3"}`}
           >
-            <h2 className="flex items-center justify-between px-1 text-sm font-medium text-ink">
-              {PHASE_WORDS[phase].label}
-              <span className="text-ink-muted">{here.length}</span>
-            </h2>
             {here.map((b) => (
               <Link
                 key={b.id}
@@ -66,9 +69,9 @@ export function BuildsBoard({ builds }: { builds: readonly BuildSummary[] }) {
                 </span>
               </Link>
             ))}
-          </section>
-        );
-      })}
+          </div>
+        </section>
+      ))}
     </div>
   );
 }
