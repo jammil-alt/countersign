@@ -268,9 +268,20 @@ export function AssignForm({
  * it publishes the version, copies the template there as the Sandbox's own agent (never its test
  * copy, which only test-runs), activates it and starts its trial, so it takes real mail at its own
  * address and test messages, every write waiting for a signature. Then its Workflow tab opens,
- * where the address and Send a test message are.
+ * where the address and Send a test message are. From Try it (`onStarted`), it stays where it is,
+ * and Try it in the sheet only closes it.
  */
-export function TurnOnInSandbox({ templateId, base }: { templateId: string; base: string }) {
+export function TurnOnInSandbox({
+  templateId,
+  base,
+  onStarted,
+}: {
+  templateId: string;
+  /** The template's page, for the sheet's Try it; without it, Try it closes the sheet. */
+  base?: string;
+  /** In place of opening the Sandbox agent's Workflow tab once its trial started. */
+  onStarted?(): void;
+}) {
   const clients = useApi(apiRoutes.opsClients, { query: { view: "names" } });
   const [open, setOpen] = useState(false);
   const navigate = useNavigate();
@@ -293,10 +304,13 @@ export function TurnOnInSandbox({ templateId, base }: { templateId: string; base
           template
           clients={[{ id: sandbox.id, name: sandbox.name }]}
           clientId={sandbox.id}
-          onTry={() => navigate(`${base}/versions#tests`)}
+          onTry={() => (base ? navigate(`${base}/versions#tests`) : setOpen(false))}
           onStarted={(r) => {
             notifyAgentsChanged();
-            if (r.agentId) navigate(`/ops/agents/${r.agentId}/workflow`);
+            if (onStarted) {
+              setOpen(false);
+              onStarted();
+            } else if (r.agentId) navigate(`/ops/agents/${r.agentId}/workflow`);
           }}
           onClose={() => setOpen(false)}
         />

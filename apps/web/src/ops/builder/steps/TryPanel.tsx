@@ -32,6 +32,14 @@ import { useOpsClients } from "../../OpsLayout";
 import { OPS_PATHS } from "../../paths";
 import { parseNodeId } from "../../run/checklist";
 import { findStep, walk } from "./model";
+import {
+  FromField,
+  type LiveMessage,
+  LiveRunNotes,
+  messageOn,
+  useLiveRun,
+  useTrySender,
+} from "./TrySender";
 import type { Workflow } from "./types";
 
 export type TryRun = ResponseOf<typeof apiRoutes.opsRun>;
@@ -194,7 +202,14 @@ export function TryPanel(props: TryPanelProps) {
   const [made, setMade] = useState<
     | { kind: "json"; missing: boolean }
     | { kind: "document"; filename: string; clientId: string }
-    | { kind: "message"; subject: string; from: string; files: string[] }
+    | {
+        kind: "message";
+        subject: string;
+        from: string;
+        files: string[];
+        /** For Run it live: the same message. */
+        live: LiveMessage;
+      }
     | null
   >(null);
   // Files of yours for the try (owner, 2026-11-26: "allow me to upload a document too"), kept in
@@ -222,8 +237,37 @@ export function TryPanel(props: TryPanelProps) {
   const rangeProblem = needs?.problems[0] ?? null;
   const fromField = useId();
   const toField = useId();
-  // A made-up document is kept in the Sandbox only (the API refuses one for a client's agent).
-  const canMake = !(kind !== "json" && props.agent.kind === "client");
+  // A made-up document is kept in the Sandbox only (the API refuses one for a client's agent,
+  // unless the agent is the Sandbox's own).
+  const inSandbox = props.agent.kind === "client" && !!sandbox && props.agent.tenantId === sandbox;
+  const canMake = !(kind !== "json" && props.agent.kind === "client" && !inSandbox);
+  // Who a made-up message is from, and Run it live in the Sandbox (owner, 2026-11-27).
+  const forMessage = kind === "message" && canMake && !!sandbox;
+  const sender = useTrySender({
+    sandbox,
+    on: messageOn(props.workflow),
+    enabled: forMessage,
+  });
+  const liveMessage: LiveMessage | null = !forMessage
+    ? null
+    : made?.kind === "message"
+      ? made.live
+      : mine.length > 0
+        ? {
+            subject: null,
+            text: "",
+            documentIds: mine.map((m) => m.id),
+            contactId: null,
+            channel: null,
+          }
+        : null;
+  const live = useLiveRun({
+    agent: props.agent,
+    sandbox,
+    message: liveMessage,
+    resolve: sender.resolve,
+    enabled: !!liveMessage,
+  });
   async function upload(files: File[]) {
     if (!sandbox || files.length === 0) return;
     setUploading(true);
@@ -277,11 +321,13 @@ export function TryPanel(props: TryPanelProps) {
     setMaking(true);
     setMakeError(null);
     try {
+      const who = forMessage ? await sender.resolve() : null;
       const out = await api.call(assistRoutes.opsAssistTestData, {
         params: { id: props.agent.id },
         body: {
           workflow: props.workflow,
           name: props.name,
+          ...(who ? { fromContactId: who.contactId, channel: who.channel } : {}),
           ...(notes.trim() ? { notes: notes.trim() } : {}),
           ...(variations.length > 0 ? { variations: [...variations] } : {}),
           ...(kind === "message" && mine.length > 0 ? { attach: mine.map((m) => m.id) } : {}),
@@ -296,6 +342,13 @@ export function TryPanel(props: TryPanelProps) {
           subject: out.message.subject,
           from: out.message.from,
           files: out.message.attachments.map((a) => a.filename),
+          live: {
+            subject: out.message.subject,
+            text: out.message.text ?? "",
+            documentIds: out.message.attachments.map((a) => a.id),
+            contactId: out.message.contactId ?? null,
+            channel: out.message.channel ?? null,
+          },
         });
       } else if (out.document) {
         // The document is in the Sandbox: the try runs there.
@@ -592,6 +645,7 @@ export function TryPanel(props: TryPanelProps) {
                   })}
                 </div>
               </fieldset>
+              {forMessage ? <FromField sender={sender} disabled={making || busy} /> : null}
               {kind !== "json" && sandbox ? (
                 <div className="flex flex-col gap-1 text-xs text-ink-muted">
                   <label htmlFor={fileField}>
@@ -653,7 +707,11 @@ export function TryPanel(props: TryPanelProps) {
                 </Button>
                 {made?.kind === "message" ? (
                   <span className="text-xs text-ink-muted" data-testid="steps-try-made">
-                    Made “{made.subject}” from {made.from}
+                    {made.live.channel === "sms"
+                      ? `Made a text from ${made.from}`
+                      : made.live.channel === "whatsapp"
+                        ? `Made a WhatsApp message from ${made.from}`
+                        : `Made “${made.subject}” from ${made.from}`}
                     {made.files.length > 0
                       ? `, with ${made.files.join(", ")}`
                       : ", with nothing attached"}
@@ -680,6 +738,7 @@ export function TryPanel(props: TryPanelProps) {
             </p>
           )}
         </section>
+        {liveMessage ? <LiveRunNotes live={live} templateId={props.agent.id} /> : null}
         {error ? <ErrorNotice error={error} /> : null}
         {last ? (
           <section className="flex flex-col gap-2" data-testid="steps-try-result">
@@ -730,6 +789,17 @@ export function TryPanel(props: TryPanelProps) {
         >
           {last ? "Run it again" : "Run the test"}
         </Button>
+        {liveMessage ? (
+          <Button
+            size="sm"
+            data-testid="steps-try-live-run"
+            working={live.busy}
+            disabled={live.busy || busy || making || !live.target}
+            onClick={() => void live.run()}
+          >
+            Run it live in the Sandbox
+          </Button>
+        ) : null}
         {runId ? (
           <Link
             className="text-sm text-slate underline"
