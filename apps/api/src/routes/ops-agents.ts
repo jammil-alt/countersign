@@ -36,7 +36,7 @@ import {
   validateForPublish,
 } from "@countersign/agents";
 import { type AgentBundle, routes, steps, TestPeople, testPersonAddress } from "@countersign/core";
-import { connection, contact, tenant } from "@countersign/db";
+import { contact, tenant } from "@countersign/db";
 import {
   EventPayloadError,
   type EventTypeRegistry,
@@ -54,6 +54,7 @@ import { liveOnPublish } from "../build/live";
 import { type AppEnv, ensureClient, type HandlerCtx, HttpError, mount, notFound } from "../http";
 import { markOperatorPause } from "../lifecycle/pause";
 import { afterActivate } from "../lifecycle/stages";
+import { connectionsToBind } from "../runs/bind-connections";
 import { createRunRow } from "../runs/dispatch";
 import type { RunParams } from "../runs/instances";
 import { startAfterCommit } from "../runs/reconcile";
@@ -175,7 +176,7 @@ export async function bindTestCopy(
   copy: AgentRow,
   bundle: AgentBundle,
 ): Promise<AgentRow> {
-  const add = await bindingsToAdd(ctx, copy, bundle);
+  const add = await bindingsToAdd(ctx, copy, bundle, { rebind: copy.testCopy === true });
   if (Object.keys(add).length === 0) return copy;
   return updateOperational(ctx.tx, {
     agentId: copy.id,
@@ -192,6 +193,7 @@ export async function bindingsToAdd(
   ctx: Pick<HandlerCtx<never>, "tx" | "services">,
   copy: Pick<AgentRow, "tenantId" | "bindings">,
   bundle: AgentBundle,
+  options: { rebind?: boolean } = {},
 ): Promise<Record<string, string>> {
   const tenantId = copy.tenantId as string;
   const { skills } = await skillContext(ctx.tx, {
@@ -205,21 +207,13 @@ export async function bindingsToAdd(
     bundle,
     catalog: ctx.services.platform.catalog,
   });
-  const needed = requiredConnectors(
-    bundle,
-    skills,
-    ctx.services.platform.tools,
-    used.automations,
-  ).filter((c) => !copy.bindings[c]);
-  if (needed.length === 0) return {};
-  const rows = await ctx.tx
-    .select({ id: connection.id, connector: connection.connector })
-    .from(connection)
-    .where(and(eq(connection.tenantId, tenantId), inArray(connection.connector, needed)))
-    .orderBy(connection.createdAt);
-  const add: Record<string, string> = {};
-  for (const r of rows) add[r.connector] ??= r.id;
-  return add;
+  const needed = requiredConnectors(bundle, skills, ctx.services.platform.tools, used.automations);
+  return connectionsToBind(ctx.tx, {
+    tenantId,
+    needed,
+    bindings: copy.bindings,
+    rebind: options.rebind === true,
+  });
 }
 
 /**
