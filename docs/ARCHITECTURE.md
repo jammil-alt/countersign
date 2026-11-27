@@ -2420,7 +2420,8 @@ A workflow can be saved as a draft with errors, but only a valid one can be test
   `for_each` has at least one step.
 - A template may reference only the trigger and steps that run **before** it on its own path. Outputs of
   steps inside a fork path or a `for_each` are not visible after it; a fork exposes which path ran
-  and what that path's last step gave (owner, 2026-11-27), as a `for_each` exposes its items'.
+  and what that path's last step gave, and a `for_each` its count and, as `items`, what each item's
+  last step gave, in order (owner, 2026-11-27).
 - Every `skill` step's input satisfies the skill's input schema (typed from upstream outputs and the
   trigger payload); every skill and tool exists and is allowed by the owning agent (its skills plus
   `extraTools`).

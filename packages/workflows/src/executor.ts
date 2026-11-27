@@ -3808,7 +3808,7 @@ class Executor {
         output,
         summary: `${clientLabel(step)}: ${path ? output.pathName : this.words.otherwise}`,
       });
-      return { index, output };
+      return { index, output, stepRunId };
     });
     const branch = chosen.index >= 0 ? step.paths[chosen.index]?.steps : step.otherwise.steps;
     if (!branch) throw new Error(`fork ${step.id} has no path ${chosen.index}`);
@@ -3820,7 +3820,7 @@ class Executor {
       scope: inner,
       ...(frame.checks ? { checks: frame.checks } : {}),
     });
-    this.join(frame, step, chosen.output, branch, inner);
+    await this.join(name, chosen.stepRunId, frame, step, chosen.output, branch, inner);
   }
 
   /**
@@ -3829,7 +3829,9 @@ class Executor {
    * fork), as a `for_each` hands on its items' results. Nothing else inside the branch is seen
    * after it. An empty branch (or one whose last step gave no fields) hands on the path only.
    */
-  join(
+  async join(
+    name: string,
+    stepRunId: string | undefined,
     frame: Frame,
     step: processes.Step,
     path: { pathId: string; pathName: string },
@@ -3843,7 +3845,16 @@ class Executor {
       given && typeof given === "object" && !Array.isArray(given)
         ? (given as Record<string, unknown>)
         : {};
-    this.record(frame, step, { ...fields, ...path }, {}, !!entry && this.unwritten.has(entry));
+    let output: Record<string, unknown> = { ...fields, ...path };
+    if (jsonBytes(output) > STEP_OUTPUT_MAX_BYTES) output = { ...path };
+    // Kept on the fork's row too, so a retry that reuses the fork hands on the same.
+    if (stepRunId && Object.keys(output).length > Object.keys(path).length) {
+      await this.runner.do(`${name}:joined`, async () => {
+        await this.ctx.log.update(stepRunId, { status: "succeeded", output });
+        return null;
+      });
+    }
+    this.record(frame, step, output, {}, !!entry && this.unwritten.has(entry));
   }
 
   /**
@@ -3945,7 +3956,7 @@ class Executor {
       scope: inner,
       ...(frame.checks ? { checks: frame.checks } : {}),
     });
-    this.join(frame, step, output, branch, inner);
+    await this.join(name, opened.stepRunId, frame, step, output, branch, inner);
   }
 
   /** An agent's choice that couldn't be made: its step's row fails with the reason, and the run. */
@@ -4020,19 +4031,26 @@ class Executor {
     const own: OwnerCheckEntry[] | undefined =
       this.ctx.ownerChecks && !frame.checks ? [] : undefined;
     const checks = frame.checks ?? own;
+    // Owner, 2026-11-27: what each item's last step gave, in the items' order, handed on as
+    // `items` ("Read each receipt" then "Work out what's missing" over what was read). Nothing
+    // else inside the loop is seen after it (ARCHITECTURE §10.2); a failed item hands on null.
+    const results: unknown[] = items.map(() => null);
+    const lastId = step.steps.at(-1)?.id;
     try {
       await pool(items.length, step.concurrency ?? 10, async (i) => {
         try {
+          const scope = {
+            ...frame.scope,
+            steps: { ...frame.scope.steps },
+            item: items[i],
+            index: i,
+          };
           await this.runList(step.steps, {
             prefix: `${name}:${i}:`,
-            scope: {
-              ...frame.scope,
-              steps: { ...frame.scope.steps },
-              item: items[i],
-              index: i,
-            },
+            scope,
             ...(checks ? { checks } : {}),
           });
+          if (lastId) results[i] = scope.steps[lastId]?.output ?? null;
         } catch (error) {
           if (!continues || !continuable(error)) throw error;
           failedItems.add(i);
@@ -4048,7 +4066,12 @@ class Executor {
     await this.writeChecks(name, own);
 
     const failed = failedItems.size;
-    const output = failed > 0 ? { count: items.length, failed } : { count: items.length };
+    const counted = failed > 0 ? { count: items.length, failed } : { count: items.length };
+    // Kept on the row too, so a retry that reuses this loop hands on the same (`scopeOutputOfRow`);
+    // over the most a step may hand on, the loop hands on its count only, and says so.
+    const whole = { ...counted, items: results };
+    const output =
+      jsonBytes(whole) > STEP_OUTPUT_MAX_BYTES ? { ...counted, itemsTooLarge: true } : whole;
     await this.runner.do(`${name}:done`, async () => {
       await log.update(stepRunId, {
         status: ended?.result.status === "failed" ? "failed" : "succeeded",

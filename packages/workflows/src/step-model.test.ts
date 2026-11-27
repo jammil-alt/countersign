@@ -480,6 +480,36 @@ describe("a v5 Fork, For each and outcomes", () => {
     });
   });
 
+  // Staging, 2026-11-27: "Read each receipt" handed on only its count, so the step after it
+  // never saw what was read.
+  it("hands on each item's last result, in order, and keeps them on its row", async () => {
+    const h = new Harness();
+    h.handlers.s_read = (req) => ({
+      kind: "done",
+      output: { total: (req.input as { id: string }).id === "a" ? "93.00" : "54.52" },
+    });
+    h.handlers.s_use = () => ({ kind: "done", output: {} });
+    const each = {
+      id: "s_each",
+      kind: "for_each",
+      name: "Each receipt",
+      over: "{{trigger.lines}}",
+      concurrency: 2,
+      steps: [{ ...read, input: { id: "{{item.id}}" } }],
+    };
+    const use = {
+      ...read,
+      id: "s_use",
+      name: "Use",
+      input: { id: "{{steps.s_each.output.items}}" },
+    };
+    const { result } = await run(h, wf([each, use, end()]), { lines: [{ id: "a" }, { id: "b" }] });
+    expect(result.status).toBe("succeeded");
+    const items = [{ total: "93.00" }, { total: "54.52" }];
+    expect(h.agentCalls.find((c) => c.step.id === "s_use")?.input).toEqual({ id: items });
+    expect(h.row("s_each")?.output).toEqual({ count: 2, items });
+  });
+
   it("runs a For each's Do steps once per item, named by the loop", async () => {
     const h = new Harness();
     const each = {

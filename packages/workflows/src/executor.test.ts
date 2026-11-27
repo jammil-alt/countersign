@@ -831,7 +831,8 @@ describe("forks", () => {
     h = new Harness();
     await executeProcess(new FakeStepRunner(), h.context(), wf([fork]), { total: 5 });
     expect(h.agentCalls.map((c) => c.nodeId)).toEqual(["c"]);
-    expect(h.row("f")?.output).toEqual({ pathId: "rest", pathName: "Otherwise" });
+    // The fork's row keeps what its path's last step gave beside the path (owner, 2026-11-27).
+    expect(h.row("f")?.output).toEqual({ echo: {}, pathId: "rest", pathName: "Otherwise" });
   });
 });
 
