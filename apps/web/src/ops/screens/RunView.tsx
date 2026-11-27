@@ -81,13 +81,13 @@ import {
 import { OwnerCheckLines, RunAuditCard, RunExportCard } from "../run/RunAudit";
 import { ModelCalls, RunControls } from "../run/RunControls";
 import { OpsStepPanel } from "../run/StepPanel";
+import { SupervisionLines, stepSupervision } from "../run/Supervision";
 import { type RunWait, runWaiting, waitingOn, waitingWhat } from "../run/waiting";
 import {
   actionBadge,
   NOBODY_TO_ACT_WORDS,
   OVERSIGHT_CAUSE_WORDS,
   OWNER_ACTION_WORDS,
-  ownerLine,
   plural,
   runChip,
   runErrorParts,
@@ -749,6 +749,7 @@ function Timeline({
     const decisions = s ? oversight.filter((d) => d.stepRunId === s.id) : [];
     // Wave 6: the owner's check on each attempt at this step (v4 read, skill and write steps).
     const ownerChecks = s ? (data.ownerChecks ?? []).filter((c) => c.nodeId === s.nodeId) : [];
+    const supervision = s ? stepSupervision(data, [s.id]) : null;
     const rowId = r.stepRunId ?? r.key;
     if (rowId === stepId) {
       panel = (
@@ -817,16 +818,28 @@ function Timeline({
           ) : null}
           {/* R8: what the owner did here (§10.14 "Agents and their owner"). */}
           <StepChecks checks={checks} testId={`ops-run-step-checks-${r.key}`} />
-          {decisions.map((d) => (
-            <p key={d.id} className="text-sm text-ink" data-testid={`ops-run-owner-${d.id}`}>
-              {ownerLine(d)}.
-            </p>
-          ))}
-          <OwnerCheckLines
-            checks={ownerChecks}
-            runId={run.id}
-            testId={`ops-run-owner-checks-${r.key}`}
-          />
+          {/* Owner, 2026-11-27: what the supervisor verified and decided here, in two lines;
+              each attempt's check folded under them. */}
+          {supervision ? (
+            <SupervisionLines
+              supervision={supervision}
+              run={data}
+              testId={`ops-run-supervisor-${r.key}`}
+              attempts={
+                <OwnerCheckLines
+                  checks={ownerChecks}
+                  runId={run.id}
+                  testId={`ops-run-owner-checks-${r.key}`}
+                />
+              }
+            />
+          ) : (
+            <OwnerCheckLines
+              checks={ownerChecks}
+              runId={run.id}
+              testId={`ops-run-owner-checks-${r.key}`}
+            />
+          )}
           {/* P-4: a conversation's transcript, each turn's model and cost (§1.66). */}
           {s?.conversation ? (
             <Transcript

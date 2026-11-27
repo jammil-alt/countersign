@@ -32,6 +32,7 @@ import { useOpsClients } from "../../OpsLayout";
 import { OPS_PATHS } from "../../paths";
 import { parseNodeId } from "../../run/checklist";
 import { findStep, walk } from "./model";
+import { TrySupervisorLines, trySupervision } from "./Supervisor";
 import {
   FromField,
   type LiveMessage,
@@ -872,7 +873,7 @@ export function TryPanel(props: TryPanelProps) {
                 .map((s) => ({ s, m: marks.find((m) => m.stepId === s.id) }))
                 .filter((x) => x.m)
                 .map(({ s, m }) => (
-                  <li key={s.id}>
+                  <li key={s.id} data-testid={`steps-try-step-${s.id}`}>
                     <button
                       type="button"
                       className="flex w-full items-start gap-3 px-3 py-2 text-left hover:bg-surface-muted"
@@ -888,6 +889,17 @@ export function TryPanel(props: TryPanelProps) {
                         ) : null}
                       </span>
                     </button>
+                    {/* Owner, 2026-11-27: what the supervisor checked and decided on the step. */}
+                    {(() => {
+                      const sup = trySupervision(last, s.id);
+                      return sup ? (
+                        <TrySupervisorLines
+                          supervision={sup}
+                          run={last}
+                          testId={`steps-try-supervisor-${s.id}`}
+                        />
+                      ) : null;
+                    })()}
                   </li>
                 ))}
             </ul>

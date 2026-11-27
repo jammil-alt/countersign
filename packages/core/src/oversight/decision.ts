@@ -72,6 +72,29 @@ export type OversightSettingsInput = z.input<typeof OversightSettings>;
 // Round 4 D (§1.211): and with every write verified, as the owner asked (2026-11-22).
 export const NEW_AGENT_OVERSIGHT: OversightSettingsInput = { review: "failures", verify: "writes" };
 
+/**
+ * Owner, 2026-11-27 (the step builder's Supervisor): the level an agent's owner reviews at, as a
+ * run with no area owner of its own reads it: the saved `review`, else the new-agent default.
+ */
+// DECISION: the builder doesn't load the area owner's own default (`runOwnerOf`), so an agent with
+// no `oversight` shows the new-agent default and says it isn't set.
+export function oversightReviewOf(
+  saved: Pick<OversightSettingsInput, "review"> | undefined,
+): OversightReview {
+  return saved?.review ?? (NEW_AGENT_OVERSIGHT.review as OversightReview);
+}
+
+/**
+ * `definition.oversight` with a new `review`: everything else kept as saved (the verifier, the
+ * model, the limits), or, when none was saved, the new-agent default with that review.
+ */
+export function withOversightReview(
+  saved: OversightSettings | undefined,
+  review: OversightReview,
+): OversightSettings {
+  return saved ? { ...saved, review } : OversightSettings.parse({ ...NEW_AGENT_OVERSIGHT, review });
+}
+
 /** Whether a failure of this step is reviewed: the step's own setting, else the agent's. */
 export function reviewsFailures(
   settings: Pick<OversightSettings, "review"> | undefined,

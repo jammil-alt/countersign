@@ -203,3 +203,88 @@ describe("People in this test", () => {
     expect(waitingOnYou({ ...run, run: { ...run.run, status: "succeeded" } }, flow([]))).toBeNull();
   });
 });
+
+describe("The supervisor in a try (owner, 2026-11-27)", () => {
+  it("shows what it checked and decided under the step", async () => {
+    const row = "00000000-0000-4000-8000-0000000000f2";
+    const api = fakeApi({
+      [`POST /api/ops/agents/${AGENT}/versions/${VERSION}/test-run`]: () => ({
+        runId: RUN,
+        agentId: AGENT,
+        versionId: VERSION,
+      }),
+      [`GET /api/ops/runs/${RUN}`]: () => ({
+        ...runDetail("succeeded", [
+          {
+            id: row,
+            nodeId: "r",
+            nodeType: "skill",
+            skillRef: null,
+            status: "succeeded",
+            input: null,
+            output: {},
+            summary: "Checked 3 lines",
+            costUsd: "0",
+            tokensIn: 0,
+            tokensOut: 0,
+            startedAt: "2026-11-27T10:00:10.000Z",
+            finishedAt: "2026-11-27T10:00:11.000Z",
+          },
+        ]),
+        ownerChecks: [
+          {
+            id: "c1",
+            nodeId: "r",
+            attempt: 1,
+            result: "reviewed",
+            attemptOutcome: "succeeded",
+            signals: [],
+            reason: null,
+            cause: "checkpoint",
+            verdict: "stop",
+            reviewDue: "all",
+            decisionId: "d1",
+            words: "Reviewed (every step) → stopped the run",
+            createdAt: "2026-11-27T10:00:11.000Z",
+          },
+        ],
+        oversight: [
+          {
+            id: "d1",
+            runId: RUN,
+            stepRunId: row,
+            nodeId: "r",
+            seq: 1,
+            cause: "checkpoint",
+            action: "stop",
+            inputBefore: null,
+            inputAfter: null,
+            note: "The invoice is for another client.",
+            proposal: null,
+            inboxItemId: null,
+            sources: [],
+            model: "m",
+            costUsd: "0.01",
+            tokensIn: 1,
+            tokensOut: 1,
+            agentVersionId: VERSION,
+            createdAt: "2026-11-27T10:00:11.000Z",
+          },
+        ],
+      }),
+    });
+    const user = open(api, {
+      workflow: flow([{ id: "r", kind: "do", name: "R", doneBy: "rules" }]),
+    });
+    await user.click(screen.getByTestId("steps-try-run"));
+    const lines = await screen.findByTestId("steps-try-supervisor-r");
+    expect(screen.getByTestId("steps-try-supervisor-r-verified")).toHaveTextContent(
+      "Verified Rules: no issues · Reviewed",
+    );
+    const decided = screen.getByTestId("steps-try-supervisor-r-decided-d1");
+    expect(decided).toHaveAttribute("data-action", "stop");
+    expect(decided).toHaveTextContent("StoppedThe invoice is for another client.");
+    // Each attempt's check is not repeated in a try: its two lines say it.
+    expect(lines.textContent).not.toContain("Reviewed (every step)");
+  });
+});

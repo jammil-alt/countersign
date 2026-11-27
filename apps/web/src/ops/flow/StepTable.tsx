@@ -5,6 +5,7 @@
 // "Needs you" keeps only the steps with something open. A click opens the same side panel.
 import type { processes } from "@countersign/core";
 import { type ReactNode, useState } from "react";
+import { Icon } from "../../ui/icons";
 import { Badge, cx } from "../../ui/primitives";
 import { processKindLabel, triggerTitle } from "../workflow/describe";
 import { openItems, plural, TRY_WORD } from "./status";
@@ -25,6 +26,8 @@ export interface StepTableProps {
   note?: ReactNode;
   /** Below the table: "Add a step" at the end. */
   onAdd?: (() => void) | undefined;
+  /** Owner, 2026-11-27: the words of a step's supervisor mark, or null (the chart's own). */
+  supervisor?: ((stepId: string) => string | null) | undefined;
 }
 
 export type TableRow =
@@ -204,6 +207,7 @@ export function StepTable(props: StepTableProps) {
                   selected={props.selected === r.id}
                   indent={!only}
                   onSelect={props.onSelect}
+                  supervisor={props.supervisor?.(r.id) ?? null}
                 />
               ),
             )}
@@ -239,12 +243,14 @@ function StepRow({
   selected,
   indent,
   onSelect,
+  supervisor,
 }: {
   row: Extract<TableRow, { type: "step" }>;
   status: StepStatus | undefined;
   selected: boolean;
   indent: boolean;
   onSelect(id: string): void;
+  supervisor: string | null;
 }) {
   const first = openItems(status)[0];
   const tried = status?.tried;
@@ -271,6 +277,17 @@ function StepRow({
             }}
           >
             {row.name}
+            {supervisor ? (
+              <span
+                className="ml-1.5 inline-flex align-middle text-ink-muted"
+                role="img"
+                title={supervisor}
+                aria-label={supervisor}
+                data-testid={`flow-list-supervisor-${row.id}`}
+              >
+                <Icon name="search" size={14} />
+              </span>
+            ) : null}
           </button>
           {first ? (
             <span

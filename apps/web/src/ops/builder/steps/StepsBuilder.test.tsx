@@ -85,7 +85,7 @@ const workflow = (over: Record<string, unknown> = {}) => ({
   ...over,
 });
 
-function bundle(w: unknown) {
+function bundle(w: unknown, oversight?: unknown) {
   return {
     schemaVersion: 1,
     definition: {
@@ -97,12 +97,13 @@ function bundle(w: unknown) {
       skills: [],
       extraTools: [],
       permissions: { mode: "suggest_only" },
+      ...(oversight ? { oversight } : {}),
     },
     workflows: [{ slug: "main", name: "Main", workflow: w }],
   };
 }
 
-function setup(w: unknown, more: Parameters<typeof fakeApi>[0] = {}) {
+function setup(w: unknown, more: Parameters<typeof fakeApi>[0] = {}, oversight?: unknown) {
   const sent: Record<string, unknown>[] = [];
   const stored: Record<string, unknown>[] = [];
   const api = fakeApi({
@@ -157,7 +158,7 @@ function setup(w: unknown, more: Parameters<typeof fakeApi>[0] = {}) {
     agentId: AGENT_ID,
     version: 1,
     status: "draft",
-    bundle: bundle(w),
+    bundle: bundle(w, oversight),
     createdAt: at,
   } as unknown as VersionDetail;
   function Page() {
@@ -448,6 +449,64 @@ describe("the step-model builder", () => {
     };
     expect(body.bundle.workflows[0]?.workflow.schemaVersion).toBe(5);
     expect(body.bundle.workflows[0]?.workflow.steps[0]?.name).toBe("Enter the bill now");
+  });
+
+  it("sets the supervisor from the bar, marks the steps it checks, and saves it with the draft", async () => {
+    const oversight = { review: "failures", verify: "writes", maxPerRun: 5, maxCostUsd: "0.25" };
+    const { user, sent } = setup(workflow(), {}, oversight);
+    await screen.findByTestId("flow-chart");
+    expect(screen.getByTestId("steps-supervisor-level")).toHaveTextContent("Review failures");
+    // Under failures, no step is checked after it succeeds.
+    expect(screen.queryByTestId("flow-supervisor-enter")).toBeNull();
+    await user.click(screen.getByTestId("steps-supervisor"));
+    const menu = screen.getByTestId("steps-supervisor-menu");
+    expect(menu.textContent).toContain("area's owner agent");
+    await user.click(within(menu).getByTestId("steps-supervisor-all"));
+    expect(screen.getByTestId("steps-supervisor-level")).toHaveTextContent("Review every step");
+    expect(screen.getByTestId("flow-supervisor-enter")).toHaveAttribute(
+      "title",
+      "Supervisor checks this step: it checks every step",
+    );
+    expect(screen.getByTestId("flow-bar-version")).toHaveTextContent("Unsaved");
+    await user.click(screen.getByTestId("flow-bar-save"));
+    await waitFor(() => expect(sent).toHaveLength(1));
+    const body = sent[0] as { bundle: { definition: { oversight: unknown } } };
+    expect(body.bundle.definition.oversight).toEqual({ ...oversight, review: "all" });
+    expect(screen.getByTestId("flow-bar-version")).toHaveTextContent("Draft · v2");
+  });
+
+  it("starts the supervisor from the new-agent default when none is saved", async () => {
+    const { user, sent } = setup(workflow());
+    await screen.findByTestId("flow-chart");
+    expect(screen.getByTestId("steps-supervisor-level")).toHaveTextContent("Review failures");
+    await user.click(screen.getByTestId("steps-supervisor"));
+    await user.click(screen.getByTestId("steps-supervisor-checkpoints"));
+    await user.click(screen.getByTestId("flow-bar-save"));
+    await waitFor(() => expect(sent).toHaveLength(1));
+    const body = sent[0] as { bundle: { definition: { oversight: Record<string, unknown> } } };
+    expect(body.bundle.definition.oversight).toMatchObject({
+      review: "checkpoints",
+      verify: "writes",
+    });
+  });
+
+  it("sets a step's own supervisor setting in its panel", async () => {
+    const { user, sent } = setup(workflow());
+    await screen.findByTestId("flow-chart");
+    await user.click(await screen.findByTestId("flow-box-enter"));
+    const field = await screen.findByTestId("step-supervisor");
+    expect(field).toHaveValue("auto");
+    await user.selectOptions(field, "always");
+    expect(screen.getByTestId("flow-supervisor-enter")).toHaveAttribute(
+      "title",
+      "Supervisor always checks this step",
+    );
+    await user.click(screen.getByTestId("flow-bar-save"));
+    await waitFor(() => expect(sent).toHaveLength(1));
+    const body = sent[0] as {
+      bundle: { workflows: { workflow: { steps: { review?: string }[] } }[] };
+    };
+    expect(body.bundle.workflows[0]?.workflow.steps[0]?.review).toBe("always");
   });
 
   it("stores rules written in a step behind it when the workflow is saved", async () => {

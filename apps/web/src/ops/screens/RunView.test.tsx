@@ -316,9 +316,17 @@ describe("back-office run view: confers, routes and checks", () => {
     expect(within(write).getByTestId(`ops-run-step-checks-${R(3)}-no-answer`)).toHaveTextContent(
       "Went ahead: nobody answered in time",
     );
-    expect(within(write).getByTestId(`ops-run-owner-${R(21)}`)).toHaveTextContent(
-      "The owner corrected the input and tried again after a failed step.",
+    // Owner, 2026-11-27: what the supervisor verified and decided, in two lines; the note, what
+    // it changed and its records folded under them.
+    expect(within(write).getByTestId(`ops-run-supervisor-${R(3)}-verified`)).toHaveTextContent(
+      "Verified Read against the run's goal",
     );
+    const decided = within(write).getByTestId(`ops-run-supervisor-${R(3)}-decided-${R(21)}`);
+    expect(decided).toHaveTextContent("Retried with a corrected input");
+    expect(decided).toHaveTextContent("The amount used a comma.");
+    expect(
+      within(write).getByTestId(`ops-run-supervisor-${R(3)}-changed-${R(21)}`),
+    ).toHaveTextContent("Changed: amount");
     expect(
       within(screen.getByTestId(`ops-run-step-${R(4)}`)).getByTestId(
         `ops-run-step-checks-${R(4)}-urgent`,
