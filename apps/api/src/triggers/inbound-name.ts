@@ -69,7 +69,13 @@ export async function setInboundName(
   await tx.execute(
     sql`select pg_advisory_xact_lock(hashtextextended(${`inbound:${tenantId}`}, 0))`,
   );
-  const was = readInboundName(row.stageState);
+  // The row locked and read again: the stage's own writes replace `stage_state` whole.
+  const [locked] = await tx
+    .select({ stageState: agent.stageState })
+    .from(agent)
+    .where(and(eq(agent.id, row.id), eq(agent.tenantId, tenantId)))
+    .for("update");
+  const was = readInboundName(locked?.stageState);
   if (input.name !== null && input.name !== was) {
     await refuseClash(tx, { ...row, tenantId }, input.name);
   }
