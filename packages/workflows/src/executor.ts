@@ -1771,7 +1771,8 @@ class Executor {
     for (const field of required) {
       if (typeof field !== "string") continue;
       const value = input[field];
-      // Only nothing at all: an empty text may be a real value (an email with no words).
+      // DECISION (2026-11-28): only nothing at all (undefined, null) fails here; an empty text
+      // may be a real value (an email with no words), and the tool's own check still holds.
       if (value !== undefined && value !== null) continue;
       const raw = step.input[field];
       const ref = typeof raw === "string" ? /^\{\{\s*([^{}]+?)\s*\}\}$/.exec(raw)?.[1] : undefined;

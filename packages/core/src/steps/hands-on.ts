@@ -10,6 +10,10 @@
 // the shape isn't known (a tool or skill the context doesn't have, a write, a Wait), it is `{}`,
 // which accepts any path: a check that can't tell says nothing rather than refuse a good workflow.
 // Pure.
+// DECISION (2026-11-28): an unknown shape accepts any path, and a write's output is unknown
+// (what a write hands on depends on its approval and its connector), so the check only refuses a
+// field it knows is not there. A Fork's fields are every path's last step's together: a step after
+// it may read a field one path gives, and finds nothing when another path ran.
 
 import { isPlainObject } from "../json";
 import type { JsonSchema } from "../schemas/common";
