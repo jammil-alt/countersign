@@ -636,6 +636,40 @@ describe("qbo connector: read tools", () => {
     expect(query).toContain("minorversion=75");
   });
 
+  // Staging, 2026-11-27: QuickBooks refuses `EntityRef` in a Purchase query ("property
+  // 'EntityRef' is not queryable"), so a payee's purchases are filtered after the query.
+  it("finds one payee's purchases without asking QuickBooks to filter by payee", async () => {
+    const s = setup();
+    const { ctx } = await signedIn(s);
+    const out = (await runReadTool(s.connector, QBO_TOOLS.purchaseQuery, { vendorId: "58" }, ctx()))
+      .output as { purchases: { id: string; vendor: { id: string } }[]; more: boolean };
+    expect(out.purchases.map((p) => p.id).sort()).toEqual(["201", "203"]);
+    expect(out.purchases.every((p) => p.vendor.id === "58")).toBe(true);
+    expect(out.more).toBe(false);
+    const queries = s.qbo
+      .apiCalls("GET", "query")
+      .map((r) => decodeURIComponent(r.url.replace(/\+/g, " ")))
+      .filter((u) => u.includes("from Purchase"));
+    expect(queries.some((u) => u.includes("EntityRef"))).toBe(false);
+    // Paged over the payee's own purchases.
+    const first = (
+      await runReadTool(s.connector, QBO_TOOLS.purchaseQuery, { vendorId: "58", limit: 1 }, ctx())
+    ).output as { purchases: { id: string }[]; more: boolean };
+    expect(first.purchases).toHaveLength(1);
+    expect(first.more).toBe(true);
+    const second = (
+      await runReadTool(
+        s.connector,
+        QBO_TOOLS.purchaseQuery,
+        { vendorId: "58", limit: 1, start: 2 },
+        ctx(),
+      )
+    ).output as { purchases: { id: string }[]; more: boolean };
+    expect(second.purchases).toHaveLength(1);
+    expect(second.purchases[0]?.id).not.toBe(first.purchases[0]?.id);
+    expect(second.more).toBe(false);
+  });
+
   it("finds items and attachments, and escapes quotes in what an agent types", async () => {
     const s = setup();
     const { ctx } = await signedIn(s);

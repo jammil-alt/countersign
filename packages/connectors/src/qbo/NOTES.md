@@ -70,7 +70,8 @@ Against the docs:
    second sort key we know of). A file that fails to download is tried by later syncs (one failure
    counted in ten minutes, never a 429); after three its attachment is stored without the file,
    reported ("qbo attachment stored without its file") and tried again once a day;
-   `VendorRef = '…'` on Bill, `EntityRef = '…'` on Purchase, `Id in (…)`,
+   `VendorRef = '…'` on Bill (a Purchase's `EntityRef` is not queryable, checked on staging
+   2026-11-27: its payee is filtered in code), `Id in (…)`,
    `DocNumber`, `TxnDate` ranges, `DisplayName like '%…%'`, `Name like '%…%'`, and
    `AttachableRef.EntityRef.Type` / `.value` on Attachable. Also that `select * from Vendor` returns
    active vendors only.
