@@ -893,6 +893,28 @@ export const InboundHookResponse = z.object({
 
 // DocumentSummary and DocumentExtractionView live in ./documents (shared with the records routes).
 
+/** Files sent as base64 in JSON (the MCP server can't send a multipart form). */
+// DECISION: 8 MB of bytes a file, as base64 in one JSON body: room for any invoice or receipt
+// without letting one call carry the 32 MB a document may be.
+export const SandboxUploadJsonBody = z.strictObject({
+  files: z
+    .array(
+      z.strictObject({
+        filename: z.string().trim().min(1).max(255),
+        /** The file's type; worked out from the name when left out. */
+        mimeType: z.string().trim().max(100).optional(),
+        contentBase64: z
+          .string()
+          .min(1)
+          .max(Math.ceil((8 * 1024 * 1024 * 4) / 3) + 4)
+          .regex(/^[A-Za-z0-9+/]+={0,2}$/, "base64 only"),
+      }),
+    )
+    .min(1)
+    .max(5),
+});
+export type SandboxUploadJsonBody = z.infer<typeof SandboxUploadJsonBody>;
+
 export const UploadResult = z.object({
   filename: z.string(),
   kind: z.enum(["document", "purchases", "refused"]),
@@ -1527,6 +1549,17 @@ export const opsRoutes = {
       "Upload files to the Sandbox client as the portal does (multipart, field `files`): PDFs and images become documents, a CSV of purchases becomes transactions; `for=try` keeps PDFs and images quiet for a build's try (403 not_sandbox in any other client)",
     params: IdParams,
     query: z.object({ for: z.enum(["try"]).optional() }),
+    response: z.object({ results: z.array(UploadResult) }),
+  }),
+  opsSandboxUploadsJson: defineRoute({
+    method: "POST",
+    path: "/api/ops/clients/:id/uploads/json",
+    auth: "session",
+    roles: OPS,
+    summary:
+      "Upload files to the Sandbox client with their bytes as base64 in a JSON body, for a build's try (the MCP server's sandbox_upload): stored quietly, as `for=try` does, so no agent starts on them; PDFs and images are read in the background (403 not_sandbox in any other client)",
+    params: IdParams,
+    body: SandboxUploadJsonBody,
     response: z.object({ results: z.array(UploadResult) }),
   }),
   opsSandboxAuthorizeCallback: defineRoute({

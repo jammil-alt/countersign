@@ -23,6 +23,7 @@ import {
   isUuid,
   type RouteSpec,
   routes,
+  SandboxUploadJsonBody,
   SettleWay,
   TryRecordKind,
   UpdateBuild,
@@ -493,6 +494,34 @@ const buildTry: Tool<OpsToolCtx> = {
   },
 };
 
+// Owner, 2026-11-28: a test invoice made outside Mezonas is tried from the MCP server without a
+// trip to the back office's Try it: stored in the Sandbox as a try's upload is, then `build_try`.
+const sandboxUpload: Tool<OpsToolCtx> = {
+  name: "sandbox_upload",
+  title: "Upload a test file to the Sandbox",
+  description:
+    "Store up to 5 files (PDFs, images, .csv, .xlsx, .json; at most 8 MB each, as base64) in the Sandbox client as a try's upload: quietly, so no agent starts on them; PDFs and images are read in the background. client is the Sandbox's id (clients_list). Answers each file's document id, to try with build_try's document. Any other client is refused.",
+  input: z.strictObject({
+    client: Id,
+    files: SandboxUploadJsonBody.shape.files,
+  }),
+  annotations: WRITE,
+  async run(ctx, args) {
+    const a = args as { client: string; files: SandboxUploadJsonBody["files"] };
+    ctx.audit.target = { client: a.client };
+    const d = await route(ctx, routes.opsSandboxUploadsJson, {
+      params: { id: a.client },
+      body: { files: a.files },
+    });
+    const stored = d.results.filter((r) => r.document).length;
+    return dataResult(
+      "sandbox_upload",
+      `Stored ${stored} of ${d.results.length} file${d.results.length === 1 ? "" : "s"} in the Sandbox.`,
+      d,
+    );
+  },
+};
+
 const buildTryDecide: Tool<OpsToolCtx> = {
   name: "build_try_decide",
   title: "Keep or discard a try",
@@ -647,6 +676,7 @@ export const BUILD_TOOLS: readonly Tool<OpsToolCtx>[] = [
   buildDraftNow,
   buildTests,
   buildTry,
+  sandboxUpload,
   buildTryDecide,
   buildItem,
   buildDecision,

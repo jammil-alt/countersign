@@ -4,7 +4,15 @@
 // here: the client test, QA or going live, turning an approval off, or a first publish.
 
 import { TESTKIT_UPDATE_TOOL } from "@countersign/connectors";
-import { agentVersion, appUser, auditEvent, skill, skillVersion } from "@countersign/db";
+import {
+  agentVersion,
+  appUser,
+  auditEvent,
+  document,
+  skill,
+  skillVersion,
+  tenant,
+} from "@countersign/db";
 import { FakeModel, type LlmRequest } from "@countersign/llm";
 import { and, eq, like } from "drizzle-orm";
 import { createLocalJWKSet, exportJWK, generateKeyPair, SignJWT } from "jose";
@@ -303,6 +311,7 @@ describe.skipIf(!h)("MCP builds and step settings", () => {
       "build_draft_now",
       "build_tests",
       "build_try",
+      "sandbox_upload",
       "build_stop",
       "agents_list",
       "agent_steps",
@@ -322,6 +331,47 @@ describe.skipIf(!h)("MCP builds and step settings", () => {
     for (const to of ["poc", "client_test", "qa", "fitgap"]) {
       expect(await tool("build_move", { id: clientAgent, to })).toMatchObject({ isError: true });
     }
+  });
+
+  // Owner, 2026-11-28: a test invoice made outside Mezonas goes into the Sandbox from here, quietly
+  // (as Try it's upload), then build_try runs it; no other client takes a file this way.
+  it("uploads a test file to the Sandbox, quietly, and to no other client", async () => {
+    await H.t.db
+      .update(tenant)
+      .set({
+        settings: { connectors_offered: ["testkit"], approvals: { undoSeconds: 0 }, sandbox: true },
+      })
+      .where(eq(tenant.id, H.B.tenantId));
+    const pdf = btoa("%PDF-1.4\n1 0 obj<<>>endobj\ntrailer<<>>\n%%EOF\n");
+    const files = [{ filename: "northfork-nf-45102.pdf", contentBase64: pdf }];
+    const up = await ok("sandbox_upload", { client: H.B.tenantId, files });
+    const results = up.data().results as {
+      kind: string;
+      created: boolean;
+      document: { id: string } | null;
+    }[];
+    expect(results).toHaveLength(1);
+    expect(results[0]).toMatchObject({ kind: "document", created: true });
+    const id = results[0]?.document?.id as string;
+    const [row] = await H.t.db.select().from(document).where(eq(document.id, id));
+    expect(row).toMatchObject({ tenantId: H.B.tenantId, mimeType: "application/pdf" });
+    expect(row?.meta).toMatchObject({ via: "try" });
+    // The same bytes again: the first document back.
+    const again = (await ok("sandbox_upload", { client: H.B.tenantId, files })).data().results as {
+      created: boolean;
+      document: { id: string };
+    }[];
+    expect(again[0]).toMatchObject({ created: false, document: { id } });
+    // A real client is refused, as the back office's upload is.
+    const real = await tool("sandbox_upload", { client: H.A.tenantId, files });
+    expect(real.isError).toBe(true);
+    expect(real.text).toContain("not_sandbox");
+    // Base64 only.
+    const bad = await tool("sandbox_upload", {
+      client: H.B.tenantId,
+      files: [{ filename: "x.pdf", contentBase64: "not base64!" }],
+    });
+    expect(bad.isError).toBe(true);
   });
 
   it("builds an agent with the Builder: start, draft, a proposal agreed, its steps read", async () => {
