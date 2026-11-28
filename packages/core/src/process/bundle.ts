@@ -26,6 +26,7 @@ import { stepModelSeatProblems } from "./seats";
 import { type HandoffKnown, stepModelHandoffErrors } from "./step-model-handoff";
 import {
   stepModelFixedInputErrors,
+  stepModelFormErrors,
   stepModelPublishErrors,
   stepModelScheduleErrors,
 } from "./step-model-publish";
@@ -263,6 +264,8 @@ export function validateBundle(
         stepCode: issue.code,
       });
     }
+    // What the builder's form leaves open (a Fork's unnamed path, a For each with no list).
+    for (const e of stepModelFormErrors(w.workflow)) errors.push({ ...e, workflow: w.slug });
     // A schedule that can't start says so.
     for (const e of stepModelScheduleErrors(w.workflow)) errors.push({ ...e, workflow: w.slug });
     // Input that becomes instructions is written in the step, not filled from a template.

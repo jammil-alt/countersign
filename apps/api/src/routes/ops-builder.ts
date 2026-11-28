@@ -736,7 +736,10 @@ async function sessionAgent(
  * Review: what a draft saved as a child of `parentId` is checked against as already there
  * (`existingBundle`); with no parent, a first version (`"none"`: every step new).
  */
-async function existingUnder(tx: Ctx["tx"], parentId: string | null): Promise<ExistingSteps> {
+export async function existingUnder(
+  tx: Ctx["tx"],
+  parentId: string | null,
+): Promise<ExistingSteps> {
   if (!parentId) return "none";
   const parent = await getVersion(tx, parentId);
   return existingBundle(tx, {
