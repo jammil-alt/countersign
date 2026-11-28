@@ -138,7 +138,10 @@ export function loadStepModel(
   // the publish checks runs. Structural checks only: what needs the registries was checked at
   // publish, against the catalog of that day.
   // DECISION: refused at load, before any step runs, naming the first problem.
-  const problems = steps.validateWorkflow(wf);
+  // DECISION (wiring checks, 2026-11-28): not the wiring between steps: that is checked at publish
+  // against the registries, and a version published before it was checked still loads; what it
+  // can't read fails its step, and the safe conversions are made where its input is resolved.
+  const problems = steps.validateWorkflow(wf, { wiring: false });
   const first = problems[0];
   if (first) {
     throw new ProcessLoadError(
