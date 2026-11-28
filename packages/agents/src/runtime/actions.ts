@@ -75,6 +75,25 @@ export const ACTION_BUSY = "this change was started and may have been made";
 // DECISION: crash recovery re-runs an `executing` action with its key rather than failing it, so a
 // retry after a lost response completes the write instead of stranding it; only once its lease
 // has run out, so two live callers never both send it (audit 3.2).
+/**
+ * Owner, 2026-11-27: the one thing a test run may execute: a message to its test person, in a
+ * Sandbox test run with people in it (`testPerson`, read from the run's row and its client). Only a
+ * send whose recipient is the test person's own address or number; every other write of a test run
+ * stays refused (invariant 8).
+ */
+function toTestPerson(
+  deps: RuntimeDeps,
+  action: ExternalActionRecord,
+  person: { email: string | null; phone: string | null } | undefined,
+): boolean {
+  if (!person) return false;
+  // A send is a tool that names its recipient (`spec.recipient`): email, a text, WhatsApp, a call.
+  const spec = deps.tools.get(action.tool)?.spec;
+  const to = spec ? recipientOf(spec, action.input) : null;
+  if (!to) return false;
+  return to.channel === "email" ? to.to === person.email : to.to === person.phone;
+}
+
 export async function executeAction(
   deps: RuntimeDeps,
   input: {
@@ -92,7 +111,7 @@ export async function executeAction(
   if (!found) throw notFound(`external action ${input.actionId}`);
   if (found.runId) {
     const run = await store.run(input.tenantId, found.runId);
-    if (run?.mode === "test") {
+    if (run?.mode === "test" && !toTestPerson(deps, found, run.testPerson)) {
       throw new AgentsError("test_run", "test runs never execute external actions");
     }
   }

@@ -198,7 +198,7 @@ describe("definition form", () => {
       steps: [{ kind: "end", outputs: ["0190a1b2-0000-7000-8000-000000000002"] }],
     });
     expect(steps.validateWorkflow(workflow as steps.Workflow)).toEqual([]);
-    expect(processes.validateAnyBundle(bundle, {}).errors).toEqual([]);
+    expect(processes.validateBundle(bundle, {}).errors).toEqual([]);
     expect(slugify("Card receipts — Q4!")).toBe("card-receipts-q4");
   });
 });

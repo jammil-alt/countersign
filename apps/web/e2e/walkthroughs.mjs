@@ -79,6 +79,11 @@ async function walk(browser, email, lookName, name, script, results) {
     if (req.method() === "POST" && /^\/api\/ops\/agents\/[^/]+\/suggest$/.test(path)) {
       return route.continue();
     }
+    // The step builder's check of its unsaved draft (`opsWorkflowCheck`, declared read only): the
+    // server says what would stop it publishing, and stores nothing.
+    if (req.method() === "POST" && /^\/api\/ops\/agents\/[^/]+\/workflow-check$/.test(path)) {
+      return route.continue();
+    }
     problems.push(`tried to write: ${req.method()} ${path}`);
     return route.abort();
   });
@@ -424,6 +429,10 @@ async function opsWalk(w) {
           );
         }
       }
+      // A step's settings are a modal over the page (owner, 2026-11-26): close the last one
+      // opened, as a person would, before going on through the sidebar.
+      await w.page.keyboard.press("Escape");
+      await w.page.locator('[data-testid="steps-drawer"]').waitFor({ state: "detached" });
     });
   }
 

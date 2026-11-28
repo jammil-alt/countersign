@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { ToolDisplay } from "../schemas/tool-display";
-import { PersonStep } from "../schemas/workflow";
+import { PersonInstructions } from "../steps/schema";
 import {
+  answerFields,
+  answerProblem,
   batchKeyOf,
   choiceProblem,
   editablePaths,
@@ -143,21 +145,19 @@ describe("quick answers", () => {
 
   it("a person step takes 1 to 6 choices", () => {
     const step = {
-      id: "ask",
-      name: "Ask",
-      kind: "person",
       mode: "ask",
-      assignee: "client_admin",
-      title: "Pay now?",
-      timeout: "1 day",
-      onTimeout: "stop",
+      who: "client_admin",
+      question: "Pay now?",
+      deadline: { after: "1 day", ifNoAnswer: "stop" },
     };
     const choice = (v: string) => ({ value: v, label: { en: v } });
-    expect(PersonStep.safeParse({ ...step, choices: [choice("yes")] }).success).toBe(true);
-    expect(PersonStep.safeParse({ ...step, choices: [] }).success).toBe(false);
+    expect(PersonInstructions.safeParse({ ...step, choices: [choice("yes")] }).success).toBe(true);
+    expect(PersonInstructions.safeParse({ ...step, choices: [] }).success).toBe(false);
     expect(
-      PersonStep.safeParse({ ...step, choices: ["a", "b", "c", "d", "e", "f", "g"].map(choice) })
-        .success,
+      PersonInstructions.safeParse({
+        ...step,
+        choices: ["a", "b", "c", "d", "e", "f", "g"].map(choice),
+      }).success,
     ).toBe(false);
   });
 });
@@ -166,5 +166,51 @@ describe("batchKeyOf", () => {
   it("keys a loop's children by the loop", () => {
     expect(batchKeyOf("r1", "send")).toBe("r1:send");
     expect(batchKeyOf("r1", "each:2:send")).toBe("r1:each");
+  });
+});
+
+// Owner, 2026-11-28: a person step asks for the fields it lists, each handed on by its name.
+describe("a person's answer to the fields it was asked for", () => {
+  const fields = [
+    { name: "choice", type: "text", required: true },
+    { name: "note", type: "text", required: false },
+    { name: "amount", type: "money", required: false },
+  ] as const;
+  const payload = {
+    choices: [
+      { value: "booked_by_hand", label: "I booked it" },
+      { value: "missing", label: "Missing" },
+    ],
+    fields,
+  };
+
+  it("reads a form answer by name, and a single value as the first field", () => {
+    expect(answerFields(fields, { choice: "missing", note: "No job named", extra: 1 })).toEqual({
+      choice: "missing",
+      note: "No job named",
+      amount: null,
+    });
+    expect(answerFields(fields, "missing")).toEqual({
+      choice: "missing",
+      note: null,
+      amount: null,
+    });
+    expect(answerFields(fields, null)).toEqual({ choice: null, note: null, amount: null });
+  });
+
+  it("holds the first field to the choices and the rest to their types", () => {
+    expect(answerProblem(payload, { choice: "missing", note: "No job" })).toBeNull();
+    expect(answerProblem(payload, "missing")).toBeNull();
+    expect(answerProblem(payload, { choice: "maybe" })).toBe(
+      "answer with one of: booked_by_hand, missing",
+    );
+    expect(answerProblem(payload, { choice: "missing", amount: "12.5x" })).toBe(
+      "amount: give an amount, like 125.00",
+    );
+    expect(answerProblem({ fields }, { note: "x" })).toBe("choice: this is needed");
+    expect(answerProblem({ fields }, { choice: "  " })).toBe("choice: this is needed");
+    // No fields: as before, a choice or anything.
+    expect(answerProblem({ choices: payload.choices }, "missing")).toBeNull();
+    expect(answerProblem({}, "anything")).toBeNull();
   });
 });

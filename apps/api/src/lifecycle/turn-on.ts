@@ -15,7 +15,6 @@ import {
   type AgentRow,
   AgentsError,
   type AgentVersionRow,
-  convertLookup,
   createUpdateDraft,
   discardDraft,
   existingBundle,
@@ -28,8 +27,8 @@ import {
   validateForPublish,
 } from "@countersign/agents";
 import {
+  AgentBundle,
   type AgentStage,
-  AnyAgentBundle,
   DECISION_CATEGORY_WORDS,
   decisionReviewed,
   type GrantLimits,
@@ -42,12 +41,12 @@ import {
   type TurnOnAnswer,
   type TurnOnBody,
   type TurnOnItem,
-  toProcessBundle,
   withDecisionRisk,
 } from "@countersign/core";
 import { agent, agentVersion, build, connection, run, type Tx, tenant } from "@countersign/db";
 import { and, desc, eq, inArray, isNull, ne, or } from "drizzle-orm";
-import { freeSlug, moveToClientTest, type TrialBlock } from "../build/client-test";
+import { freeSlug, type TrialBlock } from "../build/client-test";
+import { liveOnPublish } from "../build/live";
 import { type BuildRow, draftWritingSteps } from "../build/store";
 import { bundleNeeds, connectorName, gapsOf, gapWords } from "../connector-access/service";
 import { ensureClient, type HandlerCtx, HttpError, notFound } from "../http";
@@ -67,7 +66,7 @@ interface Subject {
   clientId: string;
   clientName: string;
   version: AgentVersionRow;
-  bundle: AnyAgentBundle;
+  bundle: AgentBundle;
   /** The client's agent that runs: the agent itself, or a template's copy at the client. */
   running: AgentRow | null;
   /** The agent's open build, when it has one. */
@@ -127,7 +126,7 @@ async function subject(
     clientId,
     clientName: client.name,
     version,
-    bundle: AnyAgentBundle.parse(version.bundle),
+    bundle: AgentBundle.parse(version.bundle),
     running: template ? await copyAt(tx, row, clientId, open ?? null) : row,
     build: open ?? null,
   };
@@ -220,13 +219,9 @@ async function itemsOf(ctx: Ctx, s: Subject, hashes: string[]): Promise<TurnOnIt
   if (s.build) {
     let writes = new Set<string>();
     try {
-      // A Builder draft's writing steps (v4); a v5 workflow has none the Builder flagged.
-      const processes = toProcessBundle(s.bundle, convertLookup(platform.catalog, platform.tools), {
-        stepModel: "skip",
-      });
-      writes = await draftWritingSteps({ tx, services }, { bundle: processes, agentRow: s.row });
+      writes = await draftWritingSteps({ tx, services }, { bundle: s.bundle, agentRow: s.row });
     } catch {
-      // A bundle that doesn't convert has no writing steps to read; the Builder's flags still count.
+      // A bundle that doesn't read has no writing steps to read; the Builder's flags still count.
     }
     for (const d of withDecisionRisk(readFitGap(s.build.fitgap).decisions, writes)) {
       if (d.risk !== "high") continue;
@@ -496,8 +491,7 @@ async function attempt<T>(
  * version is published, a template copied (or its copy updated), the client's connections bound,
  * the agent activated and its trial started. A refusal of the copy's publish, its update or the
  * activation (what the client owes) is answered with `started: false` and its reasons; the rest
- * stays done, and the agent's open build moves to its client test with the refusal as an open
- * item, as the client-test move does.
+ * stays done, and the agent's open build goes live with the published version (owner, 2026-11-27).
  */
 export async function turnOn(ctx: Ctx, id: string, body: TurnOnBody): Promise<TurnOnAnswer> {
   const { tx, services } = ctx;
@@ -573,7 +567,7 @@ export async function turnOn(ctx: Ctx, id: string, body: TurnOnBody): Promise<Tu
         }
       }
       if (target) {
-        copy = await bindTestCopy(ctx, current, AnyAgentBundle.parse(target.bundle));
+        copy = await bindTestCopy(ctx, current, AgentBundle.parse(target.bundle));
         if (target.id !== copy.liveVersionId) {
           const vid = target.id;
           const published = await attempt(tx, (sp) =>
@@ -636,18 +630,20 @@ export async function turnOn(ctx: Ctx, id: string, body: TurnOnBody): Promise<Tu
   }
   running = await getAgent(tx, running.id);
 
-  // 4. The agent's open build, at its client test, as the client-test move leaves it.
-  if (s.build && s.build.phase !== "qa") {
-    const [locked] = await tx.select().from(build).where(eq(build.id, s.build.id)).for("update");
-    if (locked && locked.status === "open") {
-      await moveToClientTest(tx, locked, {
-        clientId: s.clientId,
-        testAgentId: running.id,
-        userId: actorId,
-        blocked,
-        key: `start:${running.id}:${s.version.id}`,
-      });
-    }
+  // 4. Owner (2026-11-27): the agent's open build goes live with the version it published, as
+  // any publish of its draft does; its trial at the client is the agent's own from here.
+  if (s.build && row.liveVersionId === s.version.id) {
+    const n = s.version.version;
+    const trial = blocked
+      ? `Its trial at ${s.clientName} hasn't started yet: ${lower(blocked.title)}.`
+      : `It's turned on at ${s.clientName}: its trial has started, and the client signs every write.`;
+    await liveOnPublish(tx, {
+      agentId: s.row.id,
+      versionId: s.version.id,
+      version: n,
+      userId: actorId,
+      text: () => `Published v${n}. This build is done. ${trial}`,
+    });
   }
 
   // 5. The answer, read again: the agent that runs as it is now (a template's copy is read as the
@@ -659,7 +655,7 @@ export async function turnOn(ctx: Ctx, id: string, body: TurnOnBody): Promise<Tu
           row: running,
           template: false,
           version: live,
-          bundle: AnyAgentBundle.parse(live.bundle),
+          bundle: AgentBundle.parse(live.bundle),
           running,
         }
       : { ...s, row, running };

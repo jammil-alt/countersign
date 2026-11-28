@@ -5,6 +5,7 @@
 import type { People } from "../people";
 import type { BuilderIssue } from "./issues";
 import type { UsesContext } from "./options";
+import type { AgentModels } from "./runsOn";
 import type { SuggestFn } from "./suggest";
 import type { Field, Step, Workflow } from "./types";
 
@@ -20,10 +21,18 @@ export interface StepFormEnv {
   suggest: SuggestFn;
   /** The models a step may run on, as `{ id, label }`. */
   models: readonly { id: string; label: string }[];
+  /** The agent's own model and its per-skill models: what an AI step runs on when it sets none. */
+  agentModels?: AgentModels | null | undefined;
   /** The client's other agents a Hand off may go to, by slug and name. */
   agents?: readonly { slug: string; name: string }[] | undefined;
   /** Save as skill; absent where the host can't save one. */
   saveAsSkill?: SaveAsSkill | undefined;
+  /**
+   * Whether the person has changed this step on this page (or added it). Until they have, the
+   * Input box offers the input it works out rather than writing it into the step: opening a stored
+   * step changes nothing (staging, 2026-11-28). Absent: every step counts as changed.
+   */
+  edited?: ((stepId: string) => boolean) | undefined;
 }
 
 /** Save as skill (stream F): a Do step's rules or AI, named, in the library; the step then uses it. */

@@ -19,6 +19,7 @@ import { EntityPermissions, PermissionEntity, PermissionLevel } from "../schemas
 import { SkillBrowse, SkillDefinition, SkillMethod } from "../schemas/skill";
 import { ToolInputVariants, ToolSpec } from "../schemas/tool";
 import { ToolDisplay } from "../schemas/tool-display";
+import { MatchProfile } from "../steps/match-profile";
 import { Fields as StepFields } from "../steps/schema";
 import { IanaTimeZone } from "../timezone";
 // P-8: US texting registration
@@ -125,6 +126,7 @@ import {
   RunStatusSchema,
   RunsPerDay,
 } from "./runs-filter";
+import { sampleCompanyRoutes } from "./sample-company";
 import { sandboxRoutes } from "./sandbox";
 import { secondFactorRoutes } from "./second-factor";
 // The skill model (owner, 2026-11-10)
@@ -892,6 +894,28 @@ export const InboundHookResponse = z.object({
 
 // DocumentSummary and DocumentExtractionView live in ./documents (shared with the records routes).
 
+/** Files sent as base64 in JSON (the MCP server can't send a multipart form). */
+// DECISION: 8 MB of bytes a file, as base64 in one JSON body: room for any invoice or receipt
+// without letting one call carry the 32 MB a document may be.
+export const SandboxUploadJsonBody = z.strictObject({
+  files: z
+    .array(
+      z.strictObject({
+        filename: z.string().trim().min(1).max(255),
+        /** The file's type; worked out from the name when left out. */
+        mimeType: z.string().trim().max(100).optional(),
+        contentBase64: z
+          .string()
+          .min(1)
+          .max(Math.ceil((8 * 1024 * 1024 * 4) / 3) + 4)
+          .regex(/^[A-Za-z0-9+/]+={0,2}$/, "base64 only"),
+      }),
+    )
+    .min(1)
+    .max(5),
+});
+export type SandboxUploadJsonBody = z.infer<typeof SandboxUploadJsonBody>;
+
 export const UploadResult = z.object({
   filename: z.string(),
   kind: z.enum(["document", "purchases", "refused"]),
@@ -1071,6 +1095,9 @@ export const BuilderCatalog = z.object({
   // docs/plan.md §1.164 step 3: a client agent's tool inputs typed from its client's own
   // connections (a Zoho write's `fields` per module), by tool id; absent for a template.
   toolInputs: z.record(z.string(), ToolInputVariants).optional(),
+  // Staging, 2026-11-28: what a match step can match to (the areas' match profiles). Without it
+  // the step builder flagged every match step "Nothing can be matched to …".
+  profiles: z.array(MatchProfile).optional(),
 });
 export type BuilderCatalog = z.infer<typeof BuilderCatalog>;
 
@@ -1128,6 +1155,18 @@ export type StepSuggestion = z.infer<typeof StepSuggestion>;
  * step written in itself comes back with the skill version that backs it. The saved agent version
  * pins each one in its skills; publishing that version makes them live.
  */
+/**
+ * The step builder's check of its draft (`opsWorkflowCheck`): one workflow as it stands on the
+ * page, in place of `slug` in the version it was edited from (absent: the agent's latest).
+ */
+export const WorkflowCheckRequest = z.strictObject({
+  slug: SlugSchema,
+  /** The workflow, `schemaVersion: 5`; read by the step model's schema on the server. */
+  workflow: z.unknown(),
+  parentVersionId: ApiId.optional(),
+});
+export type WorkflowCheckRequest = z.infer<typeof WorkflowCheckRequest>;
+
 export const StepSkillsStoreRequest = z.strictObject({ workflow: z.unknown() });
 export const StepSkillsStored = z.object({
   skills: z.array(
@@ -1526,6 +1565,17 @@ export const opsRoutes = {
       "Upload files to the Sandbox client as the portal does (multipart, field `files`): PDFs and images become documents, a CSV of purchases becomes transactions; `for=try` keeps PDFs and images quiet for a build's try (403 not_sandbox in any other client)",
     params: IdParams,
     query: z.object({ for: z.enum(["try"]).optional() }),
+    response: z.object({ results: z.array(UploadResult) }),
+  }),
+  opsSandboxUploadsJson: defineRoute({
+    method: "POST",
+    path: "/api/ops/clients/:id/uploads/json",
+    auth: "session",
+    roles: OPS,
+    summary:
+      "Upload files to the Sandbox client with their bytes as base64 in a JSON body, for a build's try (the MCP server's sandbox_upload): stored quietly, as `for=try` does, so no agent starts on them; PDFs and images are read in the background (403 not_sandbox in any other client)",
+    params: IdParams,
+    body: SandboxUploadJsonBody,
     response: z.object({ results: z.array(UploadResult) }),
   }),
   opsSandboxAuthorizeCallback: defineRoute({
@@ -1974,6 +2024,13 @@ export const opsRoutes = {
        * sandbox on both sides, with what it would have changed and sent.
        */
       sandbox: z.literal(true).optional(),
+      /**
+       * Owner, 2026-11-27: the people in the test. `ask_me` (the Sandbox only): every message goes
+       * to the operator who started it (or the Sandbox's delivery setting), and the run waits for
+       * their answers, approvals and decisions; approved writes are still never made. `skip`
+       * (default): messages are composed and not sent, and approvals read as given.
+       */
+      people: z.enum(["ask_me", "skip"]).optional(),
     }),
     // For a template, the run belongs to its test copy: agentId and versionId name that copy.
     response: z.object({ runId: z.string(), agentId: z.string(), versionId: z.string() }),
@@ -2026,15 +2083,6 @@ export const opsRoutes = {
     params: IdParams,
     body: z.strictObject({ eventIds: z.array(ApiId).min(1).max(100).optional() }),
     response: z.object({ retried: z.number().int() }),
-  }),
-  opsValidateWorkflow: defineRoute({
-    method: "POST",
-    path: "/api/ops/workflows/validate",
-    auth: "session",
-    roles: OPS,
-    summary: "Validate a workflow (as the builder does), optionally against an agent",
-    body: z.strictObject({ workflow: z.unknown(), agentId: ApiId.optional() }),
-    response: z.object({ valid: z.boolean(), errors: z.array(ValidationErrorSchema) }),
   }),
   opsEventCatalog: defineRoute({
     method: "GET",
@@ -2105,6 +2153,19 @@ export const opsRoutes = {
     params: IdParams,
     body: StepSkillsStoreRequest,
     response: StepSkillsStored,
+  }),
+  // One checker (staging, 2026-11-28): the step builder asks the server what would stop its draft
+  // publishing, rather than checking it in the browser with what the browser loaded. Read only.
+  opsWorkflowCheck: defineRoute({
+    method: "POST",
+    path: "/api/ops/agents/:id/workflow-check",
+    auth: "session",
+    roles: OPS,
+    summary: "What would stop a workflow's unsaved draft publishing, as a save would say it",
+    params: IdParams,
+    body: WorkflowCheckRequest,
+    response: z.object({ errors: z.array(ValidationErrorSchema) }),
+    readOnly: true,
   }),
   opsStepSaveAsSkill: defineRoute({
     method: "POST",
@@ -2781,6 +2842,8 @@ export const routes = {
   ...gettingStartedRoutes,
   // docs/plan.md §1.243: a client's sandbox
   ...sandboxRoutes,
+  // Owner, 2026-11-27: the Sandbox's sample company
+  ...sampleCompanyRoutes,
   // v0.12 W1-B: notifications, the Table and the Weekly Table
   ...notifyRoutes,
   // §1.116: the phone app

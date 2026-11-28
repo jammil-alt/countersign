@@ -2,7 +2,7 @@
 // client's people. A v5 workflow names them on a Do step's person and Tell, on an approval, and on
 // a declared output (a report's `to`); each is put back to the base template's, or reset.
 
-import { type AnyAgentBundle, cloneJson, steps, uuidv7 } from "@countersign/core";
+import { type AgentBundle, cloneJson, steps, uuidv7 } from "@countersign/core";
 import { describe, expect, it } from "vitest";
 import { makeBundle } from "../log/harness.test-helper";
 import { stripForPromotion } from "./lineage";
@@ -58,7 +58,7 @@ function bundleWith(people: { asker: string; told: string; approver: string; rep
       { id: "end", name: "End", kind: "end", outputs: ["out-report"] },
     ],
   });
-  const b = cloneJson(makeBundle()) as AnyAgentBundle;
+  const b = cloneJson(makeBundle()) as AgentBundle;
   return { ...b, workflows: [{ slug: "main", name: "Main", enabled: true, workflow }] };
 }
 

@@ -9,8 +9,7 @@ import { agent, agentVersion } from "@countersign/db";
 import { FakeModel, type LlmRequest } from "@countersign/llm";
 import { desc, eq } from "drizzle-orm";
 import { afterAll, describe, expect, it, vi } from "vitest";
-import { createApiHarness, OPERATOR } from "./api.test-helper";
-import { stepModelAnswer } from "./builder-v5.test-helper";
+import { createApiHarness, doPerson, OPERATOR, v5Workflow } from "./api.test-helper";
 
 for (const level of process.env.SHOW_LOGS ? [] : (["warn", "error"] as const)) {
   vi.spyOn(console, level).mockImplementation(() => {});
@@ -27,15 +26,16 @@ type StepDraft = Record<string, unknown>;
 
 const update: StepDraft = {
   id: "update",
-  kind: "write",
   name: "Update the record",
-  tool: TESTKIT_UPDATE_TOOL,
-  input: { id: "r1", amount: "12.00" },
   checks: { approval: { required: "required" } },
+  kind: "do",
+  doneBy: "rules",
+  uses: { type: "action", action: TESTKIT_UPDATE_TOOL },
+  input: { id: "r1", amount: "12.00" },
 };
 
 function draftAnswer(steps: StepDraft[] = [update], more: Record<string, unknown> = {}) {
-  return stepModelAnswer({
+  return {
     toolUse: {
       name: "submit_draft",
       input: {
@@ -57,18 +57,16 @@ function draftAnswer(steps: StepDraft[] = [update], more: Record<string, unknown
             {
               slug: "main",
               name: "Fix a record",
-              workflow: {
-                schemaVersion: 4,
+              workflow: v5Workflow(steps, {
                 triggers: [{ id: "t", on: { type: "manual", input: {} } }],
-                steps,
-              },
+              }),
             },
           ],
         },
         ...more,
       },
     },
-  });
+  };
 }
 
 const turnAnswer = (input: Record<string, unknown>) => ({
@@ -85,7 +83,7 @@ function setsAmount(text: string, amount: string) {
     const d = JSON.parse(content.slice(start, content.indexOf("</current_bundle>"))) as Draft;
     const step = d.workflows[0]?.workflow.steps[0] as { input: { amount: string } } | undefined;
     if (step) step.input.amount = amount;
-    return stepModelAnswer({ toolUse: { name: "submit_turn", input: { text, bundle: d } } });
+    return { toolUse: { name: "submit_turn", input: { text, bundle: d } } };
   };
 }
 
@@ -172,18 +170,11 @@ describe.skipIf(!h)("draft it now", () => {
     expect(JSON.stringify(request?.system)).toContain("Works first: this draft must run as it is");
     expect(JSON.stringify(request?.messages)).toContain("fix the amount on the record");
 
-    // The build is in its draft, which can move on: nothing holds it.
+    // The build is in its draft, which can be published: nothing holds it, and no phase is next.
     expect(b.build.phase).toBe("draft");
-    expect(b.phases.map((p) => p.state)).toEqual([
-      "done",
-      "done",
-      "current",
-      "todo",
-      "todo",
-      "todo",
-    ]);
+    expect(b.phases.map((p) => p.state)).toEqual(["done", "done", "current"]);
     expect(b.draft?.problems).toEqual([]);
-    expect(b.gate).toEqual({ next: "poc", reasons: [] });
+    expect(b.gate).toEqual({ next: null, reasons: [] });
 
     // The operator's words are kept, and the Builder says what it did instead of asking.
     expect(b.build.brief.goal).toEqual({ text: DESCRIPTION, state: "assumed" });
@@ -193,7 +184,10 @@ describe.skipIf(!h)("draft it now", () => {
     expect(said).toContain("I drafted it from your description.");
     expect(said).toContain("I made 1 decision to get it running instead of asking");
     expect(said).toContain("a person does it for now");
-    expect(said).toContain("move to the POC test and try it on a real example");
+    expect(said).toContain(
+      "Next: try it in the step builder (a test run writes nothing), and publish it when it runs through.",
+    );
+    expect(said).not.toContain("POC");
     // To the point: three short paragraphs, and the gap's own sentence stays on its item.
     expect(said.split("\n\n")).toHaveLength(3);
     expect(said).not.toContain("vendor's portal");
@@ -225,13 +219,12 @@ describe.skipIf(!h)("draft it now", () => {
     expect(again.status).toBe(409);
     expect(errorOf(again.json)).toBe("same_phase");
 
-    // On to the POC test: it opens with the try, and the Builder writes no plan of made-up data.
+    // There is no POC test to move on to (owner, 2026-11-27): it is published from the draft.
     const calls = model.requests.length;
-    const poc = await ok("POST", `/api/ops/builds/${id}/phase`, { to: "poc" });
-    expect(poc.build.phase).toBe("poc");
+    const poc = await call("POST", `/api/ops/builds/${id}/phase`, { to: "poc" });
+    expect(poc.status).toBe(409);
+    expect(errorOf(poc.json)).toBe("no_such_phase");
     expect(model.requests.length).toBe(calls);
-    expect(poc.build.testPlan.datasets).toEqual([]);
-    expect(poc.messages.at(-1)?.text).toContain("Try it now on a real example");
   });
 
   it("has the Builder put a person where it left a missing step", async () => {
@@ -242,22 +235,31 @@ describe.skipIf(!h)("draft it now", () => {
       draftAnswer([
         {
           id: "portal",
-          kind: "missing",
+          kind: "do",
           name: "Read the vendor's portal",
-          need: "There is no connector for the vendor's portal.",
-          fill: "connector",
+          uses: {
+            type: "missing",
+            need: "There is no connector for the vendor's portal.",
+            fill: "connector",
+          },
         },
         update,
       ]),
       draftAnswer([
         {
           id: "portal",
-          kind: "person",
           name: "Read the vendor's portal",
-          mode: "ask",
-          assignee: "client_admin",
-          title: "Check the vendor's portal and enter the amount",
-          deadline: { after: "2 days" },
+          kind: "do",
+          doneBy: "person",
+          person: {
+            mode: "ask",
+            who: "client_admin",
+            question: "Check the vendor's portal and enter the amount",
+            show: {},
+            deadline: { after: "2 days", hours: "clock", ifNoAnswer: "stop" },
+            channel: "inbox",
+            onReject: "stop",
+          },
         },
         update,
       ]),
@@ -280,12 +282,18 @@ describe.skipIf(!h)("draft it now", () => {
         [
           {
             id: "portal",
-            kind: "person",
             name: "Read the vendor's portal",
-            mode: "ask",
-            assignee: "client_admin",
-            title: "Check the vendor's portal and enter the amount",
-            deadline: { after: "2 days" },
+            kind: "do",
+            doneBy: "person",
+            person: {
+              mode: "ask",
+              who: "client_admin",
+              question: "Check the vendor's portal and enter the amount",
+              show: {},
+              deadline: { after: "2 days", hours: "clock", ifNoAnswer: "stop" },
+              channel: "inbox",
+              onReject: "stop",
+            },
           },
           update,
         ],
@@ -313,15 +321,13 @@ describe.skipIf(!h)("draft it now", () => {
   it("puts a gap on the step the drafter names, and word-matches the ones it doesn't", async () => {
     const started = await ok("POST", "/api/ops/builds", { kind: "agent", title: "Named gaps" });
     const id = started.build.id;
-    const ask = (stepId: string, name: string, title: string) => ({
-      id: stepId,
-      kind: "person",
-      name,
-      mode: "ask",
-      assignee: "client_admin",
-      title,
-      deadline: { after: "2 days" },
-    });
+    const ask = (stepId: string, name: string, title: string) =>
+      doPerson(stepId, name, {
+        mode: "ask",
+        who: "client_admin",
+        question: title,
+        deadline: { after: "2 days", ifNoAnswer: "stop" },
+      });
     model.push(
       draftAnswer(
         [

@@ -4,17 +4,15 @@
 // automation as the builder's own editing model reads it: one process with no trigger, kept in a
 // bundle so `../../builder/model`'s edits and History apply unchanged. Pure; no React.
 import {
-  type AnyAutomationDefinition,
+  type AutomationDefinition,
   isPlainObject,
   type JsonSchema,
   type PathOption,
-  type ProcessAgentBundle,
-  type ProcessAutomationDefinition,
   pathOptions,
   processes,
   type TypingContext,
 } from "@countersign/core";
-import type { Process } from "../../builder/model";
+import type { Process, ProcessAgentBundle } from "../../builder/model";
 import { type Namer, referenceLabel } from "../../builder/problems";
 import type { FlowEnds } from "../types";
 
@@ -206,7 +204,7 @@ export function outputLine(f: Pick<OutputField, "name" | "value">, name: Namer):
  * give (the validator's `output` scope), as the builder's field picker lists them.
  */
 export function outputPaths(
-  def: Pick<ProcessAutomationDefinition, "input" | "steps">,
+  def: Pick<AutomationDefinition, "input" | "steps">,
   ctx: TypingContext,
 ): PathOption[] {
   const out: PathOption[] = [...pathOptions(def.input, "input")];
@@ -222,7 +220,7 @@ export function outputPaths(
 
 /** "Takes in" and "Gives back" as the chart draws them. */
 export function automationEnds(
-  def: Pick<ProcessAutomationDefinition, "input" | "output">,
+  def: Pick<AutomationDefinition, "input" | "output">,
   name: Namer,
 ): FlowEnds {
   // The chart shows the first line and "and N more"; pointing at the box lists them all.
@@ -261,12 +259,7 @@ export interface AutomationFace {
 // second undo for automations: the builder's operations, inspector and History all take a bundle.
 export type AutomationDraft = ProcessAgentBundle & { automation: AutomationFace };
 
-/** Whether a stored version can be edited here: only v4 process steps (`schemaVersion: 2`). */
-export function editable(def: AnyAutomationDefinition): def is ProcessAutomationDefinition {
-  return def.schemaVersion === 2;
-}
-
-export function toDraft(def: ProcessAutomationDefinition): AutomationDraft {
+export function toDraft(def: AutomationDefinition): AutomationDraft {
   const bundle = {
     schemaVersion: 1,
     definition: {
@@ -324,8 +317,8 @@ export function withFace(draft: AutomationDraft, face: Partial<AutomationFace>):
  */
 export function toDefinition(
   draft: AutomationDraft,
-  base: ProcessAutomationDefinition,
-): ProcessAutomationDefinition {
+  base: AutomationDefinition,
+): AutomationDefinition {
   return {
     ...base,
     name: draft.automation.name.trim() || base.name,

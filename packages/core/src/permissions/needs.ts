@@ -6,7 +6,7 @@
 import { ACTION_SPECS } from "../process/actions";
 import type { Step } from "../process/schema";
 import { walkSteps } from "../process/walk";
-import type { AnyAutomationDefinition } from "../schemas/automation";
+import type { AutomationDefinition } from "../schemas/automation";
 import {
   type AgentMode,
   DEFAULT_PERMISSIONS,
@@ -21,7 +21,6 @@ import { mergedAction } from "../steps/catalog";
 import { Workflow as StepWorkflow } from "../steps/schema";
 import { eachStep } from "../steps/walk";
 import { lookupSkill, type TypingContext } from "../template/typer";
-import { automationRequires as v3AutomationRequires } from "../workflow/automation";
 import { effectiveLevel, entityOfCall, readEntities } from "./entities";
 import { bindingConnector, type GrantLimits, grantAllowsTool, stricterLevel } from "./grants";
 
@@ -265,24 +264,17 @@ function visitStep(w: WalkCtx, step: Step, from: NeedSource, override?: Step["ch
       return;
     }
     case "process": {
-      const def: AnyAutomationDefinition | undefined = w.ctx.automations?.[step.process];
+      const def: AutomationDefinition | undefined = w.ctx.automations?.[step.process];
       if (!def) return;
-      if (def.schemaVersion === 2) {
-        // Its steps are the agent's too; this agent's approval overrides apply by inner step id.
-        walkSteps({ steps: def.steps }, ({ step: inner }) =>
-          visitStep(
-            w,
-            inner,
-            from,
-            step.approvals?.[inner.id] ? { approval: step.approvals[inner.id] } : undefined,
-          ),
-        );
-        return;
-      }
-      // A v3 automation: the tools it requires, read without its steps' approvals.
-      for (const id of v3AutomationRequires(def, w.ctx, w.ctx.connectors).tools) {
-        addTool(w, id, from, false);
-      }
+      // Its steps are the agent's too; this agent's approval overrides apply by inner step id.
+      walkSteps({ steps: def.steps }, ({ step: inner }) =>
+        visitStep(
+          w,
+          inner,
+          from,
+          step.approvals?.[inner.id] ? { approval: step.approvals[inner.id] } : undefined,
+        ),
+      );
       return;
     }
     default:
@@ -341,14 +333,8 @@ function visitStepModel(w: WalkCtx, workflow: StepWorkflow): void {
     if (uses?.type === "action") addAction(w, uses.action, from, autoStep, step.input);
     else if (uses?.type === "skill") addSkill(w, uses.skill, from, autoStep);
     else if (uses?.type === "automation") {
-      const def: AnyAutomationDefinition | undefined = w.ctx.automations?.[uses.automation];
-      if (def?.schemaVersion === 2) {
-        walkSteps({ steps: def.steps }, ({ step: inner }) => visitStep(w, inner, from));
-      } else if (def) {
-        for (const id of v3AutomationRequires(def, w.ctx, w.ctx.connectors).tools) {
-          addTool(w, id, from, false);
-        }
-      }
+      const def: AutomationDefinition | undefined = w.ctx.automations?.[uses.automation];
+      if (def) walkSteps({ steps: def.steps }, ({ step: inner }) => visitStep(w, inner, from));
     }
   });
   for (const o of workflow.outputs) {
@@ -374,17 +360,8 @@ export function agentNeeds(
   const set = new NeedSet();
   for (const w of bundle.workflows) {
     const walk: WalkCtx = { ctx, set, mode: bundle.definition.permissions.mode, workflow: w.slug };
-    // The step model: a v5 workflow, walked as it is.
-    if (w.workflow.schemaVersion === 5) {
-      const parsed = StepWorkflow.safeParse(w.workflow);
-      if (parsed.success) visitStepModel(walk, parsed.data);
-      continue;
-    }
-    // Only v4 processes are walked: callers read stored v3 workflows with `toProcessBundle`.
-    if (w.workflow.schemaVersion !== 4) continue;
-    walkSteps(w.workflow as { steps: Step[] }, ({ step }) =>
-      visitStep(walk, step, { workflow: w.slug, stepId: step.id, stepName: step.name }),
-    );
+    const parsed = StepWorkflow.safeParse(w.workflow);
+    if (parsed.success) visitStepModel(walk, parsed.data);
   }
   return set.list();
 }

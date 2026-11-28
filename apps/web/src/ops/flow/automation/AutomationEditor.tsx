@@ -10,9 +10,9 @@
 // At `/ops/skills/automations/:id/steps`, opened from the automation's page ("Edit steps"); an
 // automation step's box in an agent's chart links here too (`automationStepsPath` in ./paths).
 import {
+  type AutomationDefinition,
   canonicalJson,
   type OpsConnection,
-  type ProcessAutomationDefinition,
   parseSkillRef,
   processes,
 } from "@countersign/core";
@@ -82,7 +82,6 @@ import {
   type AutomationFace,
   automationEnds,
   draftProcess,
-  editable,
   outputPaths,
   toDefinition,
   toDraft,
@@ -99,7 +98,7 @@ interface Saved {
   id: string;
   version: number;
   status: string;
-  definition: ProcessAutomationDefinition;
+  definition: AutomationDefinition;
   canon: string;
 }
 
@@ -172,14 +171,12 @@ function Opened(props: {
 }) {
   const { automation, versions } = props.loaded;
   const latest = versions[0];
-  if (!latest || !editable(latest.definition)) {
+  if (!latest) {
     return (
       <div className="flex flex-col gap-4" data-testid="flow-auto">
         <BackLink id={automation.id} name={automation.name} />
-        <Notice tone="warning" testId="flow-auto-old">
-          {latest
-            ? "This automation was saved in the older step format, so its steps can't be edited here. Save its steps again from an agent's workflow to edit them."
-            : "This automation has no version to open."}
+        <Notice tone="warning" testId="flow-auto-empty">
+          This automation has no version to open.
         </Notice>
       </div>
     );
@@ -246,7 +243,7 @@ function Editor(props: {
     // Core's validator for an automation, as the server runs it on a save; named for the draft's
     // one process, so its words name the steps.
     const errors = processes
-      .validateAnyAutomation(definition, ctx)
+      .validateAutomation(definition, ctx)
       .errors.map((e) => ({ ...e, workflow: definition.slug }));
     return readableErrors(errors, draft);
   }, [definition, ctx, draft]);
@@ -395,7 +392,7 @@ function Editor(props: {
     if (res.ok) {
       const v = res.data.version;
       // The server's copy: it works out what the automation needs from the agent again.
-      const stored = editable(v.definition) ? v.definition : snapshot;
+      const stored = v.definition;
       const next: Saved = {
         id: v.id,
         version: v.version,

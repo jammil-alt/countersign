@@ -4,13 +4,27 @@
 // here: the client test, QA or going live, turning an approval off, or a first publish.
 
 import { TESTKIT_UPDATE_TOOL } from "@countersign/connectors";
-import { appUser, auditEvent } from "@countersign/db";
+import {
+  agentVersion,
+  appUser,
+  auditEvent,
+  document,
+  skill,
+  skillVersion,
+  tenant,
+} from "@countersign/db";
 import { FakeModel, type LlmRequest } from "@countersign/llm";
 import { and, eq, like } from "drizzle-orm";
 import { createLocalJWKSet, exportJWK, generateKeyPair, SignJWT } from "jose";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import { type ApiHarness, admin, createApiHarness, OPERATOR, testBundle } from "./api.test-helper";
-import { stepModelAnswer } from "./builder-v5.test-helper";
+import {
+  type ApiHarness,
+  admin,
+  createApiHarness,
+  OPERATOR,
+  testBundle,
+  v5Workflow,
+} from "./api.test-helper";
 import { memoryRateLimiter } from "./mcp/limits";
 
 for (const level of process.env.SHOW_LOGS ? [] : (["warn", "error"] as const)) {
@@ -69,60 +83,72 @@ afterAll(() => h?.close());
 const DESCRIPTION =
   "When someone asks, fix the amount on the record in the testkit. The client approves each change.";
 
-const update = {
+const _update = {
   id: "update",
-  kind: "write",
   name: "Update the record",
-  tool: TESTKIT_UPDATE_TOOL,
-  input: { id: "r1", amount: "12.00" },
   checks: { approval: { required: "required" } },
+  kind: "do",
+  doneBy: "rules",
+  uses: { type: "action", action: TESTKIT_UPDATE_TOOL },
+  input: { id: "r1", amount: "12.00" },
 };
 
-const draftAnswer = () =>
-  stepModelAnswer({
-    toolUse: {
-      name: "submit_draft",
-      input: {
-        summary: "It fixes the record's amount and asks the client first.",
-        gaps: [],
-        startFromTemplate: null,
-        decisions: [
+const draftAnswer = () => ({
+  toolUse: {
+    name: "submit_draft",
+    input: {
+      summary: "It fixes the record's amount and asks the client first.",
+      gaps: [],
+      startFromTemplate: null,
+      decisions: [
+        {
+          id: "approve-each",
+          what: "The client approves each change to a record.",
+          why: "The description says so.",
+          kind: "assumption",
+          risk: "high",
+          category: "writes",
+          stepId: "update",
+        },
+      ],
+      bundle: {
+        schemaVersion: 1,
+        definition: {
+          schemaVersion: 2,
+          identity: { name: "Record fixer", role: "Records", mission: "Keep records right" },
+          kind: "functional",
+          model: { id: "claude-sonnet-5-5" },
+          instructions: "Fix records when asked.",
+          skills: [],
+          permissions: { mode: "suggest_only" },
+        },
+        workflows: [
           {
-            id: "approve-each",
-            what: "The client approves each change to a record.",
-            why: "The description says so.",
-            kind: "assumption",
-            risk: "high",
-            category: "writes",
-            stepId: "update",
+            slug: "main",
+            name: "Fix a record",
+            workflow: {
+              schemaVersion: 5,
+              triggers: [{ id: "t", on: { type: "manual", input: {} } }],
+              outputs: [{ id: "out-done", name: "Done", kind: "nothing" }],
+              steps: [
+                {
+                  id: "update",
+                  name: "Update the record",
+                  checks: { approval: { required: "required" } },
+                  kind: "do",
+                  doneBy: "rules",
+                  uses: { type: "action", action: TESTKIT_UPDATE_TOOL },
+                  input: { id: "r1", amount: "12.00" },
+                },
+                { id: "end", kind: "end", name: "Done", outputs: ["out-done"] },
+              ],
+            },
           },
         ],
-        bundle: {
-          schemaVersion: 1,
-          definition: {
-            schemaVersion: 2,
-            identity: { name: "Record fixer", role: "Records", mission: "Keep records right" },
-            kind: "functional",
-            model: { id: "claude-sonnet-5-5" },
-            instructions: "Fix records when asked.",
-            skills: [],
-            permissions: { mode: "suggest_only" },
-          },
-          workflows: [
-            {
-              slug: "main",
-              name: "Fix a record",
-              workflow: {
-                schemaVersion: 4,
-                triggers: [{ id: "t", on: { type: "manual", input: {} } }],
-                steps: [update],
-              },
-            },
-          ],
-        },
       },
     },
-  });
+  },
+});
 
 const editProposal = (amount: string) => ({
   toolUse: {
@@ -150,9 +176,9 @@ function setsAmount(amount: string) {
     const d = JSON.parse(content.slice(start, content.indexOf("</current_bundle>"))) as Draft;
     const step = d.workflows[0]?.workflow.steps[0] as { input: { amount: string } } | undefined;
     if (step) step.input.amount = amount;
-    return stepModelAnswer({
+    return {
       toolUse: { name: "submit_turn", input: { text: `Set it to ${amount}.`, bundle: d } },
-    });
+    };
   };
 }
 
@@ -270,7 +296,11 @@ describe.skipIf(!h)("MCP builds and step settings", () => {
       },
       H.env,
     );
-    const tools = j(await res.json()).result.tools as { name: string; inputSchema: unknown }[];
+    const tools = j(await res.json()).result.tools as {
+      name: string;
+      description?: string;
+      inputSchema: unknown;
+    }[];
     const names = tools.map((t) => t.name);
     for (const n of [
       "builds_list",
@@ -281,6 +311,7 @@ describe.skipIf(!h)("MCP builds and step settings", () => {
       "build_draft_now",
       "build_tests",
       "build_try",
+      "sandbox_upload",
       "build_stop",
       "agents_list",
       "agent_steps",
@@ -292,11 +323,55 @@ describe.skipIf(!h)("MCP builds and step settings", () => {
     expect(names.filter((n) => /client_test|qa|go_live|activate|release|rollback/.test(n))).toEqual(
       [],
     );
+    // Owner (2026-11-27): a build moves only to its draft here; from there it is published.
     const move = tools.find((t) => t.name === "build_move");
     expect(JSON.stringify(move?.inputSchema)).not.toContain("client_test");
-    expect(await tool("build_move", { id: clientAgent, to: "client_test" })).toMatchObject({
-      isError: true,
+    expect(move?.description).not.toMatch(/POC/i);
+    expect(JSON.stringify(move?.inputSchema)).toContain('"enum":["draft"]');
+    for (const to of ["poc", "client_test", "qa", "fitgap"]) {
+      expect(await tool("build_move", { id: clientAgent, to })).toMatchObject({ isError: true });
+    }
+  });
+
+  // Owner, 2026-11-28: a test invoice made outside Mezonas goes into the Sandbox from here, quietly
+  // (as Try it's upload), then build_try runs it; no other client takes a file this way.
+  it("uploads a test file to the Sandbox, quietly, and to no other client", async () => {
+    await H.t.db
+      .update(tenant)
+      .set({
+        settings: { connectors_offered: ["testkit"], approvals: { undoSeconds: 0 }, sandbox: true },
+      })
+      .where(eq(tenant.id, H.B.tenantId));
+    const pdf = btoa("%PDF-1.4\n1 0 obj<<>>endobj\ntrailer<<>>\n%%EOF\n");
+    const files = [{ filename: "northfork-nf-45102.pdf", contentBase64: pdf }];
+    const up = await ok("sandbox_upload", { client: H.B.tenantId, files });
+    const results = up.data().results as {
+      kind: string;
+      created: boolean;
+      document: { id: string } | null;
+    }[];
+    expect(results).toHaveLength(1);
+    expect(results[0]).toMatchObject({ kind: "document", created: true });
+    const id = results[0]?.document?.id as string;
+    const [row] = await H.t.db.select().from(document).where(eq(document.id, id));
+    expect(row).toMatchObject({ tenantId: H.B.tenantId, mimeType: "application/pdf" });
+    expect(row?.meta).toMatchObject({ via: "try" });
+    // The same bytes again: the first document back.
+    const again = (await ok("sandbox_upload", { client: H.B.tenantId, files })).data().results as {
+      created: boolean;
+      document: { id: string };
+    }[];
+    expect(again[0]).toMatchObject({ created: false, document: { id } });
+    // A real client is refused, as the back office's upload is.
+    const real = await tool("sandbox_upload", { client: H.A.tenantId, files });
+    expect(real.isError).toBe(true);
+    expect(real.text).toContain("not_sandbox");
+    // Base64 only.
+    const bad = await tool("sandbox_upload", {
+      client: H.B.tenantId,
+      files: [{ filename: "x.pdf", contentBase64: "not base64!" }],
     });
+    expect(bad.isError).toBe(true);
   });
 
   it("builds an agent with the Builder: start, draft, a proposal agreed, its steps read", async () => {
@@ -369,9 +444,10 @@ describe.skipIf(!h)("MCP builds and step settings", () => {
 
     r = await ok("agent_steps", { agent: clientAgent, step: "update" });
     expect(r.data().steps[0].settings).toMatchObject({
-      kind: "action",
+      kind: "do",
+      uses: { type: "action" },
       input: { id: "r1", amount: "12.00" },
-      approval: { required: "required" },
+      checks: { approval: { required: "required" } },
     });
 
     // The structure and turning approval off are the back office's.
@@ -384,7 +460,7 @@ describe.skipIf(!h)("MCP builds and step settings", () => {
     r = await tool("agent_step_update", {
       agent: clientAgent,
       step: "update",
-      set: { "approval.required": "not_required" },
+      set: { "checks.approval.required": "not_required" },
     });
     expect(r.text).toContain("back_office_only");
 
@@ -392,13 +468,13 @@ describe.skipIf(!h)("MCP builds and step settings", () => {
     r = await ok("agent_step_update", {
       agent: clientAgent,
       step: "update",
-      set: { "input.amount": "14.50", "approval.approver": "client_admin" },
+      set: { "input.amount": "14.50", "checks.approval.approvers": [{ who: "client_admin" }] },
     });
     const saved = r.data();
     expect(saved.errors).toEqual([]);
     expect(saved.step.settings).toMatchObject({
       input: { amount: "14.50" },
-      approval: { required: "required", approver: "client_admin" },
+      checks: { approval: { required: "required", approvers: [{ who: "client_admin" }] } },
     });
     const live = await asDev(OPERATOR, "GET", `/api/ops/agents/${clientAgent}`);
     expect(j(live.json).agent.liveVersionId).not.toBe(saved.version.id);
@@ -430,6 +506,76 @@ describe.skipIf(!h)("MCP builds and step settings", () => {
     ).toBe(1);
   });
 
+  // Staging, 2026-11-27: a step's AI text changed here was saved without being stored behind the
+  // step, so the version still pinned the old text (or none). It is stored and pinned now, as the
+  // workflow builder's save does.
+  it("stores AI written in a step it changes, and pins that version in the draft", async () => {
+    const workflow = v5Workflow([
+      {
+        id: "s_check",
+        kind: "do",
+        name: "Check the receipt",
+        doneBy: "ai",
+        input: {},
+        ai: { text: "Say whether the receipt is complete." },
+        output: [{ name: "complete", type: "yes_no", required: true }],
+      },
+    ]);
+    const bundle = testBundle("MCP receipt checker");
+    bundle.workflows = [
+      {
+        ...(bundle.workflows[0] as (typeof bundle.workflows)[number]),
+        slug: "check",
+        name: "Check",
+        workflow,
+      },
+    ];
+    const made = await asDev(OPERATOR, "POST", "/api/ops/templates", {
+      slug: "mcp-receipt-checker",
+      bundle,
+    });
+    expect(made.status, JSON.stringify(made.json)).toBe(200);
+    const id = j(made.json).agent.id as string;
+    const pinsOf = async (versionId: string) => {
+      const [row] = await H.t.db
+        .select({ bundle: agentVersion.bundle })
+        .from(agentVersion)
+        .where(eq(agentVersion.id, versionId));
+      if (!row) throw new Error(`no version ${versionId}`);
+      return (row.bundle as { definition: { skills: { skill: string }[] } }).definition.skills
+        .map((s) => s.skill)
+        .filter((s) => s.startsWith("custom:step-"));
+    };
+    const textOf = async (pin: string) => {
+      const [ref, version] = pin.replace("custom:", "").split("@") as [string, string];
+      const [row] = await H.t.db
+        .select({ definition: skillVersion.definition })
+        .from(skillVersion)
+        .innerJoin(skill, eq(skill.id, skillVersion.skillId))
+        .where(and(eq(skill.slug, ref), eq(skillVersion.version, Number(version))));
+      return JSON.stringify(row?.definition ?? null);
+    };
+
+    let r = await ok("agent_step_update", {
+      agent: id,
+      step: "s_check",
+      set: { "ai.text": "Say whether the receipt has a date and a total." },
+    });
+    const first = await pinsOf(r.data().version.id);
+    expect(first).toHaveLength(1);
+    expect(await textOf(first[0] as string)).toContain("has a date and a total");
+
+    r = await ok("agent_step_update", {
+      agent: id,
+      step: "s_check",
+      set: { "ai.text": "Say whether the receipt has a merchant." },
+    });
+    const second = await pinsOf(r.data().version.id);
+    expect(second).toHaveLength(1);
+    expect(second[0]).not.toBe(first[0]);
+    expect(await textOf(second[0] as string)).toContain("has a merchant");
+  });
+
   it("refuses a token for an older draft, and a draft from the back office that turns approval off", async () => {
     await ok("agent_step_update", {
       agent: clientAgent,
@@ -447,8 +593,10 @@ describe.skipIf(!h)("MCP builds and step settings", () => {
     expect(r.text).toContain("confirm_mismatch");
 
     const bundle = testBundle();
-    const step = bundle.workflows[0]?.workflow.steps[0] as { approval: { required: string } };
-    step.approval.required = "not_required";
+    const step = bundle.workflows[0]?.workflow.steps[0] as unknown as {
+      checks: { approval: { required: string } };
+    };
+    step.checks.approval.required = "not_required";
     const loose = await asDev(OPERATOR, "POST", `/api/ops/agents/${clientAgent}/versions`, {
       bundle,
     });

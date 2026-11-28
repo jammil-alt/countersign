@@ -6,9 +6,11 @@
 
 import { z } from "zod";
 import { ASSIST_FIELD_IDS, ASSIST_FIELDS } from "../assist/fields";
+import { TEST_DATA_NOTES_MAX, TEST_DATA_VARIATION_IDS } from "../assist/test-data";
 import { isUuid } from "../ids";
 import { storable } from "../text";
 import { defineRoute } from "./contract";
+import { TestMessageChannel } from "./triggers";
 
 const Id = z.string().refine((v) => isUuid(v), "not an id");
 
@@ -60,17 +62,30 @@ export type AssistDraftRequest = z.input<typeof AssistDraftRequest>;
 export const AssistDraft = z.object({ text: z.string() });
 export type AssistDraft = z.infer<typeof AssistDraft>;
 
-/** The most the operator may say about the data to make up. */
-export const TEST_DATA_NOTES_MAX = 1000;
-
-/** Made-up data for a try of some steps (docs/plan.md §1.186): what to put in each box. */
+/** Made-up data to try a workflow on (docs/plan.md §1.186): what starts the run. */
 export const TestDataMade = z.object({
-  /** What started the run, when the steps tried read it or the try starts at the top. */
-  trigger: z.unknown().optional(),
-  /** Each earlier step's output, by step id. */
-  given: z.record(z.string(), z.unknown()),
-  /** Pieces the model left out, filled with an example of their shape instead. */
-  missing: z.array(z.string()),
+  /** The trigger's data, for Try it's input box. */
+  trigger: z.unknown(),
+  /** The model left it out: the box holds an example of the trigger's shape instead. */
+  missing: z.boolean(),
+  /** A made-up document, stored in the Sandbox, that the trigger's data names. */
+  document: z.object({ id: z.string(), filename: z.string(), clientId: z.string() }).nullable(),
+  /** A made-up message, stored in the Sandbox with its attachments, that the trigger's data names. */
+  message: z
+    .object({
+      subject: z.string(),
+      from: z.string(),
+      attachments: z.array(z.object({ id: z.string(), filename: z.string() })),
+      clientId: z.string(),
+      /** What the sender wrote, as kept: for sending the same message live. */
+      text: z.string().optional(),
+      /** The Sandbox's contact it is from; null: an address the Sandbox doesn't know. */
+      contactId: z.string().nullable().optional(),
+      /** What it came in by: an email, or a text from a phone number. */
+      channel: TestMessageChannel.optional(),
+    })
+    .nullable()
+    .optional(),
 });
 export type TestDataMade = z.infer<typeof TestDataMade>;
 
@@ -81,22 +96,29 @@ export const assistRoutes = {
     auth: "session",
     roles: ["operator"],
     summary:
-      "Make up data to try some of a draft's steps on: what started the run and the outputs of the earlier steps they read, from the draft's shapes alone (no client's records); refused when the agent's client is in HIPAA mode and the model's vendor has no BAA",
+      "Make up what starts a draft workflow, to try it on: its trigger's data as JSON, or, where the trigger carries a document, a document (a receipt, an invoice) rendered as a PDF and kept in the Sandbox; from the draft's shapes alone (no client's records); refused when the agent's client is in HIPAA mode and the model's vendor has no BAA",
     params: z.object({ id: Id }),
     body: z.strictObject({
-      /** The process being edited (a v4 process; the builder's draft, unsaved). */
-      process: z.unknown(),
+      /** The workflow as drawn (a step-model workflow, unsaved changes included). */
+      workflow: z.unknown(),
       /** Its name, for the model. */
-      workflow: storable(z.string().trim().max(200)).default(""),
-      /** The steps to be tried; absent: all of them. */
-      range: z
-        .strictObject({
-          from: z.string().min(1).max(100).optional(),
-          to: z.string().min(1).max(100).optional(),
-        })
-        .optional(),
+      name: storable(z.string().trim().max(200)).default(""),
       /** What the data should look like, in the operator's words. */
       notes: storable(z.string().trim().max(TEST_DATA_NOTES_MAX)).optional(),
+      /**
+       * A message trigger: files the operator uploaded to the Sandbox for this try, attached to the
+       * made-up email in place of made-up ones (owner, 2026-11-26: "allow me to upload a document").
+       */
+      attach: z.array(Id).max(5).optional(),
+      /** Cases to try (TEST_DATA_VARIATIONS), added to the notes. */
+      variations: z.array(z.enum(TEST_DATA_VARIATION_IDS)).max(5).optional(),
+      /**
+       * A message trigger: the Sandbox contact the made-up message is from (Try it's From); left
+       * out, one of the Sandbox's people the trigger takes, picked by the model.
+       */
+      fromContactId: Id.optional(),
+      /** With `fromContactId`: what it comes in by; left out, their email, else their phone. */
+      channel: TestMessageChannel.optional(),
     }),
     response: TestDataMade,
   }),

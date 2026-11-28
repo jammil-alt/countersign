@@ -266,7 +266,8 @@ export const VENDOR_ITEMS_PROFILE: steps.MatchProfile = steps.MatchProfile.parse
       about: "The line's words: never matched on, only checked against the item",
     },
   ],
-  keys: [{ id: "sku", name: "SKU", field: "sku" }],
+  // An invoice's line as read (`docs.read-document`) names its SKU `vendorSku`.
+  keys: [{ id: "sku", name: "SKU", field: "sku", also: ["vendorSku"] }],
   types: ["exact"],
   neverSame: [
     { id: "vendor", words: "Another vendor's item" },
@@ -286,7 +287,16 @@ function vendorItemRecord(v: VendorItemRow, masterName?: string | null): Profile
 }
 
 /** The SKU a line's code is looked up by: a SKU that names one item, else none (`identifyingSku`). */
-const skuOf = (item: Readonly<Record<string, unknown>>) => identifyingSku(cleanSku(text(item.sku)));
+/**
+ * The code a line names its item by: its `sku`, or, for a line as an invoice is read
+ * (`docs.read-document`'s lines), its `vendorSku`.
+ */
+// Staging, 2026-11-28: a SKU match given an invoice's lines as they were read found nothing, since
+// the reader hands the code on as `vendorSku`.
+const rawSku = (item: Readonly<Record<string, unknown>>) =>
+  cleanSku(text(item.sku) || text(item.vendorSku));
+
+const skuOf = (item: Readonly<Record<string, unknown>>) => identifyingSku(rawSku(item));
 
 /** The vendor items' store for one call. */
 export function vendorItemsStore(ctx: MatchContext): ProfileStore {
@@ -310,7 +320,7 @@ export function vendorItemsStore(ctx: MatchContext): ProfileStore {
     // taught. An alias kept before the vendor catalog, naming no vendor item, names nothing here.
     async learned(item) {
       const vendorId = vendorOf(item);
-      const raw = cleanSku(text(item.sku));
+      const raw = rawSku(item);
       if (!vendorId || !raw) return [];
       const sku = identifyingSku(raw);
       const taught = sku ? null : taughtCode(raw);
@@ -354,7 +364,7 @@ export function vendorItemsStore(ctx: MatchContext): ProfileStore {
     },
     async learn(item, recordId) {
       const vendorId = vendorOf(item);
-      const raw = cleanSku(text(item.sku));
+      const raw = rawSku(item);
       // A person's answer keeps a short code too, never a generic one (`taughtCode`).
       const sku = raw ? (identifyingSku(raw) ?? taughtCode(raw)) : null;
       if (!vendorId || !sku) return false;

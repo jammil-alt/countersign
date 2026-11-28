@@ -41,6 +41,23 @@ function chooser(llm: LlmClient, model: ModelChoice, label: string): ProfileChoo
 }
 
 /**
+ * What a Match step matches: each item of its list (`items`), with what the step gives beside the
+ * list (the vendor of an invoice's lines) as each item's too, under the item's own fields; or the
+ * input itself, as one item, when there is no list.
+ */
+// Staging, 2026-11-28: a SKU match's vendor sat beside the lines and reached none of them.
+export function matchItems(input: unknown): Record<string, unknown>[] {
+  const asItem = (i: unknown): Record<string, unknown> =>
+    i !== null && typeof i === "object" ? (i as Record<string, unknown>) : { value: i };
+  const raw =
+    input !== null && typeof input === "object" ? (input as Record<string, unknown>) : null;
+  if (!raw || !Array.isArray(raw.items)) return [asItem(input)];
+  const { items: list, ...shared } = raw;
+  return (list as unknown[]).map((i) => ({ ...shared, ...asItem(i) }));
+}
+
+/**
+ * The Match port for one run./**
  * The Match port for one run. `transport` is the run's (guarded for a client in HIPAA mode);
  * `runtime` gives the agent's model and where usage and model calls are recorded.
  */
@@ -83,10 +100,7 @@ export function runMatchPort(deps: {
       const profile = engine.profile(match.to);
       if (!profile) return { kind: "failed", error: `nothing can be matched to "${match.to}"` };
       const ctx = context(nodeId, stepRunId);
-      const raw = input as { items?: unknown } | null;
-      const items = (Array.isArray(raw?.items) ? raw.items : [input]).map((i) =>
-        i !== null && typeof i === "object" ? (i as Record<string, unknown>) : { value: i },
-      );
+      const items = matchItems(input);
       const pinned = await runtime.ports.store.loadAgentVersion(info.tenantId, info.agentVersionId);
       const model = pinned.bundle.definition.model;
       const llm = ctx.llm;

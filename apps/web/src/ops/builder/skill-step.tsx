@@ -8,7 +8,6 @@ import {
   effectiveModel,
   MODEL_SOURCE_WORDS,
   modelTools,
-  type ProcessAgentBundle,
   parseSkillRef,
   type SkillDefinition,
   type SkillMoveView,
@@ -26,7 +25,7 @@ import { modelOptionLabel } from "../agents/definition-form";
 import { errorText, useAction } from "../agents/ui";
 import { ParameterValueInput, parameterText, valueProblem } from "../skills/parameters";
 import { type FieldErrors, Row, SmallSelect } from "./fields";
-import type { Process, Step } from "./model";
+import type { Process, ProcessAgentBundle, Step } from "./model";
 import { outputFields, remappable, type SkillReference } from "./skill-move";
 
 type SkillStep = Extract<Step, { kind: "skill" }>;

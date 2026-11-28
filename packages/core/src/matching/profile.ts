@@ -21,7 +21,7 @@
 import { z } from "zod";
 import { promptJson } from "../prompt-data";
 import type { MatchKey, MatchProfile } from "../steps/match-profile";
-import { type MATCHED_BY, matchSettingsProblems } from "../steps/match-profile";
+import { keyValue, type MATCHED_BY, matchSettingsProblems } from "../steps/match-profile";
 import type { MatchSettings } from "../steps/schema";
 
 /** One item to match: the profile's input fields, by name. */
@@ -297,7 +297,7 @@ async function matchOne(
   let ambiguous: ProfileRecord[] = [];
   if (settings.type !== "semantic") {
     for (const key of stepKeys(profile, settings)) {
-      if (text(item[key.field]) === null) continue;
+      if (text(keyValue(key, item)) === null) continue;
       const hits = await allowed(await store.byKey(key, item));
       if (hits.length === 1 && hits[0]) return matched(hits[0], "exact", 100, `key:${key.id}`);
       if (hits.length > 1) {

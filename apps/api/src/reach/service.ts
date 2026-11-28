@@ -17,12 +17,14 @@ import {
 } from "@countersign/agents";
 import { newReplyTag } from "@countersign/connectors";
 import {
+  type AgentBundle,
   type AgentMode,
-  type AnyAgentBundle,
   type ApprovalRequirement,
   type ApprovalSource,
   // P-3: attachments both ways
   type AttachmentSummary,
+  autonomyFor,
+  autonomyMessage,
   channelAddress,
   channelTool,
   consentBlockFor,
@@ -30,6 +32,7 @@ import {
   DEFAULT_QUIET_HOURS,
   type Duration,
   effectiveMode,
+  emailSubjectFrom,
   explainWrite,
   fixedInputProblem,
   hoursBlock,
@@ -58,8 +61,16 @@ import {
   type ReachPlan,
   type ReachReply,
   reachSubject,
+  readAutonomy,
   readHold,
+  readTestPeople,
+  redirectedSubject,
+  redirectedText,
   routeApproval,
+  sandboxRedirect,
+  testPersonAddress,
+  testPersonSubject,
+  testPersonText,
   type Urgency,
   type WhyApproval,
 } from "@countersign/core";
@@ -84,7 +95,7 @@ import type {
   StepOutcome,
   WaitRequest,
 } from "@countersign/workflows";
-import { and, eq, gte, inArray, isNull, lte, ne, sql } from "drizzle-orm";
+import { and, eq, gte, inArray, isNull, lte, ne, or, sql } from "drizzle-orm";
 import { accountBindings, pickChannel, sendingChannels } from "../channels/resolve";
 // R7
 import { conversationEventOfSubject, sendWithConversation } from "../converse/wake";
@@ -154,6 +165,11 @@ export interface Attempt {
   /** The provider's id: SM…, CA… or the email's. */
   ref?: string;
   error?: string;
+  /**
+   * Owner, 2026-11-27: the Sandbox's address or number it went to instead of the made-up
+   * person's (core `sandboxRedirect`).
+   */
+  redirectedTo?: string;
 }
 
 /** The event a run waits on for one reach-out. */
@@ -357,7 +373,7 @@ async function wake(
 
 interface Loaded {
   agentRow: typeof agent.$inferSelect;
-  bundle: AnyAgentBundle;
+  bundle: AgentBundle;
   tenantRow: typeof tenant.$inferSelect;
   trigger: unknown;
   candidates: ContactRow[];
@@ -914,7 +930,7 @@ export function reachPort(deps: ReachDeps): ReachPort {
           escalateAfter: plan.escalateAfter,
           language,
           message: input.message,
-          emailSubject: input.subject ?? input.purpose.slice(0, 200),
+          emailSubject: emailSubjectFrom(input.subject ?? input.purpose),
           expectReply: input.expectReply,
           timeout: input.timeout,
           urgentOutsideHours: conditions.urgentOutsideHours === true,
@@ -1145,6 +1161,27 @@ async function pinned(deps: ReachDeps, row: ReachOutRow): Promise<PinnedAgent> {
   return deps.runtime.ports.store.loadAgentVersion(row.tenantId, row.agentVersionId);
 }
 
+/** The Sandbox's contact with the test person's address or number, if there is one. */
+async function testPersonContact(
+  tx: Tx,
+  tenantId: string,
+  address: string,
+): Promise<ContactRow | null> {
+  const [row] = await tx
+    .select()
+    .from(contact)
+    .where(
+      and(
+        eq(contact.tenantId, tenantId),
+        address.includes("@")
+          ? eq(contact.email, address)
+          : or(eq(contact.phone, address), eq(contact.whatsapp, address)),
+      ),
+    )
+    .limit(1);
+  return row ?? null;
+}
+
 /**
  * Sends the next attempts of an open reach-out, from the first not yet made: each channel's attempt
  * is its own external action; a channel that fails (consent withdrawn, refused, provider error)
@@ -1177,7 +1214,21 @@ export async function attemptFrom(
         .where(and(eq(agent.id, row.agentId), eq(agent.tenantId, tenantId)));
       const [t] = await tx.select().from(tenant).where(eq(tenant.id, tenantId));
       const conns = await tx.select().from(connection).where(eq(connection.tenantId, tenantId));
-      return { row, who, channels: (a?.channels ?? {}) as Record<string, string>, t, conns };
+      // Owner, 2026-11-27: a test run's message goes to its test person only, or nowhere.
+      const [r] = row.runId
+        ? await tx
+            .select({ mode: run.mode, trigger: run.trigger })
+            .from(run)
+            .where(and(eq(run.id, row.runId), eq(run.tenantId, tenantId)))
+        : [];
+      return {
+        row,
+        who,
+        channels: (a?.channels ?? {}) as Record<string, string>,
+        t,
+        conns,
+        test: r?.mode === "test" ? { people: readTestPeople(r.trigger) } : null,
+      };
     });
     if (!state?.who || !state.t) return sentNow;
     const { row, who } = state;
@@ -1290,6 +1341,63 @@ export async function attemptFrom(
       await failed(`the agent has no ${CHANNEL_WORDS[channel]} channel`);
       continue;
     }
+    // Owner, 2026-11-27: in the Sandbox, a message to a made-up person (example.com, 555-01xx)
+    // goes to where the operator set instead, so they can play that person; unset, it is
+    // refused in words. Consent, opt-out and hours above were the person's own; so is autonomy.
+    const inSandbox = (state.t.settings as { sandbox?: unknown }).sandbox === true;
+    // Owner, 2026-11-27: a Sandbox test run with people in it sends every message to its test
+    // person (the operator who started it, or the Sandbox's delivery setting), whoever the step
+    // names, made up or real; anything else in a test run sends nothing.
+    let testTo: string | null = null;
+    if (state.test) {
+      const people = inSandbox ? state.test.people : null;
+      if (!people) {
+        await failed("a test run never sends");
+        continue;
+      }
+      const to = testPersonAddress(state.t.settings, people, channel);
+      testTo = to;
+      if (!to) {
+        await failed(
+          `we have no ${channel === "email" ? "email address" : "phone number"} for you as the test person: set where test messages go on the Sandbox's Records page`,
+        );
+        continue;
+      }
+      // DECISION: the test person's own contact in the Sandbox, when there is one, holds too: their
+      // opt-out and consent for the channel (it only tightens). Without one, their "Ask me" is
+      // their say-so for their own test messages. The named person's checks above still hold.
+      const own = await withTenant(db, tenantId, (tx) => testPersonContact(tx, tenantId, to));
+      const ownReach = own ? reachContactOf(own) : null;
+      const ownBlock = ownReach
+        ? ownReach.optedOutAt
+          ? "you opted out of messages as the test person"
+          : consentBlockFor(ownReach, channel)?.replace(/_/g, " ")
+        : null;
+      if (ownBlock) {
+        await failed(ownBlock);
+        continue;
+      }
+    }
+    const redirect = testTo
+      ? ({ kind: "redirect", to: testTo } as const)
+      : sandboxRedirect({
+          sandbox: inSandbox,
+          settings: state.t.settings,
+          channel,
+          address: channelAddress(reach, channel) as string,
+          name: who.name,
+        });
+    if (redirect.kind === "refused") {
+      await failed(redirect.reason);
+      continue;
+    }
+    if (
+      redirect.kind === "redirect" &&
+      autonomyFor(readAutonomy(who.autonomy), channel) === "off"
+    ) {
+      await failed(autonomyMessage(channel, "off"));
+      continue;
+    }
 
     const agentPinned = await pinned(deps, row);
     const step: StepContext = {
@@ -1338,14 +1446,29 @@ export async function attemptFrom(
         text,
       });
     }
-    const address = channelAddress(reach, channel) as string;
+    const address =
+      redirect.kind === "redirect" ? redirect.to : (channelAddress(reach, channel) as string);
+    if (redirect.kind === "redirect" && channel !== "email" && channel !== "voice") {
+      text = testTo ? testPersonText(text, who.name) : redirectedText(text, who.name);
+    }
     // P-3: the plan's documents go with the email, the text (MMS) or the WhatsApp message.
     const files = plan.attachments?.length
       ? { attachments: plan.attachments.map((a) => ({ documentId: a.documentId })) }
       : {};
     const input =
       channel === "email"
-        ? { to: address, subject: plan.emailSubject, text, replyTag: plan.replyTag, ...files }
+        ? {
+            to: address,
+            // Folded again here, so a plan stored before subjects were one line still sends.
+            subject: testTo
+              ? testPersonSubject(emailSubjectFrom(plan.emailSubject), who.name)
+              : redirect.kind === "redirect"
+                ? redirectedSubject(emailSubjectFrom(plan.emailSubject), who.name)
+                : emailSubjectFrom(plan.emailSubject),
+            text,
+            replyTag: plan.replyTag,
+            ...files,
+          }
         : channel === "voice"
           ? { to: address, purpose: row.purpose, tools: [] }
           : // P-4: a conversation's opening may carry a template for outside the 24-hour window.
@@ -1386,6 +1509,7 @@ export async function attemptFrom(
         status: "sent",
         ...(r.actionId ? { actionId: r.actionId } : {}),
         ...((out.sid ?? out.callSid ?? out.id) ? { ref: out.sid ?? out.callSid ?? out.id } : {}),
+        ...(redirect.kind === "redirect" ? { redirectedTo: redirect.to } : {}),
       },
       { nextAttemptAt: more ? new Date(t.getTime() + parseDuration(plan.escalateAfter)) : null },
     );

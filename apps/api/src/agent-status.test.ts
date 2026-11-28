@@ -8,7 +8,6 @@ import { clientAgentCounts } from "@countersign/core";
 import { agent } from "@countersign/db";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { type ApiHarness, createApiHarness, OPERATOR } from "./api.test-helper";
-import { installBeforeStepModel } from "./before-step-model.test-helper";
 
 const qbo = fakeQbo();
 const h = await createApiHarness({
@@ -31,7 +30,9 @@ describe.skipIf(!h)("agent status", () => {
   let clerk = "";
 
   beforeAll(async () => {
-    const tpl = await installBeforeStepModel(H, "bill-clerk", 2);
+    const tpl = await H.call(OPERATOR, "POST", "/api/ops/platform-templates/bill-clerk/install", {
+      version: 1,
+    });
     expect(tpl.status, JSON.stringify(tpl.json)).toBe(200);
     const templateId = j(tpl.json).template.id as string;
     const fork = await H.call(OPERATOR, "POST", `/api/ops/templates/${templateId}/fork`, {

@@ -52,7 +52,7 @@ describe("the step model's schema", () => {
     const match = w.steps[2] as Extract<Step, { kind: "do" }>;
     expect(match.uses?.type === "match" && match.uses.match.confidenceThreshold).toBe(90);
     expect(match.uses?.type === "match" && match.uses.match.shortlist).toEqual({
-      model: 20,
+      model: 10,
       person: 5,
     });
   });

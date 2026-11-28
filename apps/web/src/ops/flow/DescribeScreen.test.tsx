@@ -1,6 +1,7 @@
-// Describe it (F5): Draft the steps starts the build and drafts it from the words, in that order,
-// saying so while it runs, then opens Check the steps with the words; List the steps myself starts
-// the build only; a client agent names its client.
+// Describe it (F5): Draft the workflow starts the build and drafts it from the words, in that
+// order, saying so while it runs, then opens the draft's workflow as its list of steps (owner,
+// 2026-11-26: no Check the steps in between); List the steps myself starts the build only and
+// opens Check the steps to type into; a client agent names its client.
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
@@ -15,6 +16,10 @@ function Check() {
   return <p data-testid="check-page">{state?.words ?? ""}</p>;
 }
 
+function Steps() {
+  return <p data-testid="steps-page">{useLocation().pathname}</p>;
+}
+
 function renderDescribe(api: ReturnType<typeof fakeApi>, props: Partial<DescribeScreenProps> = {}) {
   render(
     <MemoryRouter initialEntries={["/ops/lab"]}>
@@ -22,6 +27,7 @@ function renderDescribe(api: ReturnType<typeof fakeApi>, props: Partial<Describe
         <Routes>
           <Route path="/ops/lab" element={<DescribeScreen kind="template" {...props} />} />
           <Route path="/ops/lab/check/:id" element={<Check />} />
+          <Route path="/ops/agents/:id/steps" element={<Steps />} />
         </Routes>
       </ApiProvider>
     </MemoryRouter>,
@@ -33,7 +39,7 @@ const WORDS =
   "When a vendor invoice arrives by email, read it. If it is a duplicate, tell Dana and stop.";
 
 describe("Describe it", () => {
-  it("starts the build, then drafts it from the words, then opens Check the steps", async () => {
+  it("starts the build, then drafts it from the words, then opens its steps to edit", async () => {
     const bodies: unknown[] = [];
     let release: () => void = () => {};
     const api = fakeApi({
@@ -50,7 +56,7 @@ describe("Describe it", () => {
     });
     const user = renderDescribe(api);
     expect(screen.getByTestId("flow-stepper")).toHaveTextContent(
-      "1Describe it2Check the steps3Build and try",
+      "1Describe it2Edit the steps3Try and publish",
     );
     expect(screen.getByRole("heading", { name: "What should it do?" })).toBeInTheDocument();
     // Nothing to start from yet.
@@ -71,7 +77,9 @@ describe("Describe it", () => {
     );
     expect(screen.getByTestId("flow-describe-clock")).toHaveTextContent("0:0");
     release();
-    expect(await screen.findByTestId("check-page")).toHaveTextContent(WORDS);
+    expect(await screen.findByTestId("steps-page")).toHaveTextContent(
+      `/ops/agents/${DRAFT_AGENT_ID}/steps`,
+    );
     expect(api.calls).toEqual([
       "POST /api/ops/builds",
       `POST /api/ops/builds/${BUILD_ID}/draft-now`,
@@ -110,12 +118,12 @@ describe("Describe it", () => {
     await user.click(screen.getByTestId("flow-describe-words"));
     await user.tab();
     await user.click(screen.getByTestId("flow-describe-draft"));
-    await screen.findByTestId("check-page");
+    await screen.findByTestId("steps-page");
     expect(api.calls.filter((c) => c === "POST /api/ops/assist/draft")).toHaveLength(1);
     expect(bodies[1]).toEqual({ kind: "agent", title: "Invoice intake by email" });
   });
 
-  it("names it on the way when Draft the steps is pressed with no name", async () => {
+  it("names it on the way when Draft the workflow is pressed with no name", async () => {
     const titles: unknown[] = [];
     const api = fakeApi({
       "POST /api/ops/assist/draft": () => ({ text: "Invoice intake" }),
@@ -128,7 +136,7 @@ describe("Describe it", () => {
     });
     const user = renderDescribe(api, { initialWords: WORDS });
     await user.click(screen.getByTestId("flow-describe-draft"));
-    await screen.findByTestId("check-page");
+    await screen.findByTestId("steps-page");
     // One name, made once, then the build with it.
     expect(api.calls).toEqual([
       "POST /api/ops/assist/draft",
@@ -169,7 +177,7 @@ describe("Describe it", () => {
     await user.click(screen.getByTestId("flow-describe-draft"));
     await waitFor(() => expect(screen.getByTestId("flow-describe-draft")).toBeEnabled());
     await user.click(screen.getByTestId("flow-describe-draft"));
-    await screen.findByTestId("check-page");
+    await screen.findByTestId("steps-page");
     expect(api.calls.filter((c) => c === "POST /api/ops/builds")).toHaveLength(1);
     expect(tries).toBe(2);
   });
@@ -206,7 +214,7 @@ describe("Describe it", () => {
       buildId: BUILD_ID,
     });
     await user.click(screen.getByTestId("flow-describe-draft"));
-    await screen.findByTestId("check-page");
+    await screen.findByTestId("steps-page");
     expect(api.calls).toEqual([`POST /api/ops/builds/${BUILD_ID}/draft-now`]);
   });
 

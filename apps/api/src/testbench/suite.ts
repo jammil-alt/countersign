@@ -22,7 +22,7 @@ import {
   updateOperational,
 } from "@countersign/agents";
 import {
-  type AnyAgentBundle,
+  type AgentBundle,
   type CaseOutcome,
   expectedWritesOf,
   Fixtures,
@@ -47,7 +47,6 @@ import {
 import {
   agentVersion,
   buildItem,
-  connection,
   type Db,
   run,
   stepRun,
@@ -60,6 +59,7 @@ import {
 } from "@countersign/db";
 import { requestRun, type StepRunner, WaitTimeoutError } from "@countersign/workflows";
 import { and, asc, type Column, desc, eq, inArray, isNull, sql } from "drizzle-orm";
+import { connectionsToBind } from "../runs/bind-connections";
 import { createRunRow } from "../runs/dispatch";
 import { executeRun, forClient, type RunDeps } from "../runs/execute";
 import { partialMarks } from "./partial";
@@ -222,22 +222,18 @@ async function bindCopy(
   tx: Tx,
   deps: RunDeps,
   copy: AgentRow,
-  bundle: AnyAgentBundle,
+  bundle: AgentBundle,
   actorId: string | null,
 ): Promise<AgentRow> {
   const tenantId = copy.tenantId as string;
   const { skills } = await skillContext(tx, { tenantId, bundle, catalog: deps.platform.catalog });
-  const needed = requiredConnectors(bundle, skills, deps.platform.tools).filter(
-    (c) => !copy.bindings[c],
-  );
-  if (needed.length === 0) return copy;
-  const rows = await tx
-    .select({ id: connection.id, connector: connection.connector })
-    .from(connection)
-    .where(eq(connection.tenantId, tenantId))
-    .orderBy(connection.createdAt);
-  const add: Record<string, string> = {};
-  for (const r of rows) if (needed.includes(r.connector)) add[r.connector] ??= r.id;
+  const needed = requiredConnectors(bundle, skills, deps.platform.tools);
+  const add = await connectionsToBind(tx, {
+    tenantId,
+    needed,
+    bindings: copy.bindings,
+    rebind: copy.testCopy === true,
+  });
   if (Object.keys(add).length === 0) return copy;
   return updateOperational(tx, {
     agentId: copy.id,
@@ -273,7 +269,7 @@ function stoppedWhy(result: { reason?: string; nodeId?: string; errorKey?: strin
  * them; the golden datasets and cases saved from a client's run use it.
  */
 export function withParameters(parameters: Record<string, Record<string, unknown>>) {
-  return (bundle: AnyAgentBundle): AnyAgentBundle =>
+  return (bundle: AgentBundle): AgentBundle =>
     ({
       ...bundle,
       definition: {
@@ -283,14 +279,14 @@ export function withParameters(parameters: Record<string, Record<string, unknown
           return own ? { ...ref, parameters: { ...(ref.parameters ?? {}), ...own } } : ref;
         }),
       },
-    }) as AnyAgentBundle;
+    }) as AgentBundle;
 }
 
 /** A template test run's steps, cost and time, as `runTemplateTest` answers them. */
 export interface TemplateTestRun {
   runId: string;
   /** The bundle the run ran (the test copy's version). */
-  bundle: AnyAgentBundle;
+  bundle: AgentBundle;
   result: Awaited<ReturnType<typeof executeRun>>;
   steps: { nodeId: string; nodeType: string; input: unknown; output: unknown; status: string }[];
   costUsd: string;
@@ -312,7 +308,7 @@ export async function runTemplateTest(
     workflow: string;
     payload: Record<string, unknown>;
     /** §1.212: the bundle as a client agent would set it (a skill's parameters), run as a version of the test copy. */
-    adjust?: (bundle: AnyAgentBundle) => AnyAgentBundle;
+    adjust?: (bundle: AgentBundle) => AgentBundle;
   },
 ): Promise<TemplateTestRun> {
   const runTenant = args.runTenantId;
@@ -370,7 +366,7 @@ export async function runTemplateTest(
       bundle: version.bundle,
     });
     await createRunRow(tx, r);
-    return { req: r, ranBundle: version.bundle as AnyAgentBundle };
+    return { req: r, ranBundle: version.bundle as AgentBundle };
   });
   // Run to the end here; a test run emits nothing that starts other runs (§10.4).
   const { instances: _none, ...runDeps } = deps;

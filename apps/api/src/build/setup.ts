@@ -4,27 +4,23 @@
 // draft is made and when it moves to the POC test. A client copy forked from the template carries
 // it; each client's progress is the copy's (`apps/api/src/setup/checklist.ts`).
 
-import { convertLookup } from "@countersign/agents";
 import {
-  AnyAgentBundle,
+  AgentBundle,
   buildSetupItems,
   deepEqual,
-  draftWriteUses,
   type FitGap,
   parseSkillRef,
-  processes,
   type SetupItem,
   type SkillDefinition,
   settingForDecision,
   stepModelWriteUses,
   steps,
-  toProcessBundle,
 } from "@countersign/core";
 import type { Services } from "../http";
 
 /**
  * The checklist for a draft's latest bundle (stored, as `agent_version.bundle` holds it), from the
- * build's fit-gap record. Null when the bundle doesn't read as processes: then nothing is saved.
+ * build's fit-gap record. Null when the bundle doesn't read: then nothing is saved.
  */
 export function draftSetupItems(
   services: Pick<Services, "platform">,
@@ -32,14 +28,9 @@ export function draftSetupItems(
   stored: unknown,
 ): SetupItem[] | null {
   const { platform } = services;
-  let bundle: ReturnType<typeof toProcessBundle>;
+  let bundle: AgentBundle;
   try {
-    // Step model (build item 9): v5 workflows are read apart (`stepModelWriteUses`).
-    bundle = toProcessBundle(
-      AnyAgentBundle.parse(stored),
-      convertLookup(platform.catalog, platform.tools),
-      { stepModel: "skip" },
-    );
+    bundle = AgentBundle.parse(stored);
   } catch {
     return null;
   }
@@ -51,24 +42,14 @@ export function draftSetupItems(
     if (def) skills[ref] = def;
   };
   for (const s of bundle.definition.skills) addSkill(s.skill);
-  for (const ref of AnyAgentBundle.parse(stored).workflows.flatMap((w) =>
-    w.workflow.schemaVersion === 5 ? steps.stepModelSkills(w.workflow) : [],
-  )) {
+  for (const ref of bundle.workflows.flatMap((w) => steps.stepModelSkills(w.workflow))) {
     addSkill(ref);
-  }
-  for (const w of bundle.workflows) {
-    for (const { step } of processes.allSteps(w.workflow)) {
-      if (step.kind === "skill") addSkill(step.skill);
-    }
   }
   const tools = platform.tools.specs();
   return buildSetupItems({
     form: fitgap.setup,
     decisions: fitgap.decisions,
-    writes: [
-      ...draftWriteUses(bundle, { tools, skills }),
-      ...stepModelWriteUses(AnyAgentBundle.parse(stored), tools),
-    ],
+    writes: stepModelWriteUses(bundle, tools),
     connectors: platform.connectors.list().map((c) => ({
       id: c.manifest.id,
       name: c.manifest.name,

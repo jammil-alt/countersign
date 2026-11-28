@@ -1,23 +1,10 @@
 import { z } from "zod";
-import { Duration } from "../duration";
 import { LocalizedString, localizedText } from "../i18n/locale";
-// v0.13 W2-I
-import { StepReview } from "../oversight/decision";
 // v0.12 W2-E: who may start a message trigger.
 import { PeopleFilter } from "../triggers/people";
 import { WebhookDataSchema } from "../triggers/sample";
-import { Approval } from "./approval";
-import {
-  JsonSchema,
-  NodeId,
-  SkillRef,
-  Slug,
-  TemplateObject,
-  TemplateString,
-  ToolId,
-} from "./common";
+import { JsonSchema, NodeId, Slug, TemplateObject, TemplateString } from "./common";
 import { Rules } from "./rules";
-import { ModelChoice } from "./skill";
 
 /** Where a step shows in the client's run timeline (ARCHITECTURE §10.6). */
 export const ClientVisibility = z.object({
@@ -44,42 +31,6 @@ export const StepPurpose = z
     "Why the step is there: one plain sentence the client reads, at most 200 characters, naming steps by name, never with {{ }} references",
   );
 
-const base = {
-  id: NodeId,
-  name: z.string(),
-  client: ClientVisibility.optional(),
-  purpose: StepPurpose.optional(),
-};
-
-export const SkillStep = z.object({
-  ...base,
-  kind: z.literal("skill"),
-  skill: SkillRef,
-  /** Another agent of the same client (by slug) to run the skill; default the owner. */
-  agent: Slug.optional(),
-  input: TemplateObject.default({}),
-  settings: z.record(z.string(), z.unknown()).optional(),
-  /** Only when the skill's tools can write to a client tool (validation checks). */
-  approval: Approval.optional(),
-  // v0.13 W2-H: the model this step runs on, over the skill's (task) or the agent's (agent).
-  /** Overrides the model of a `task` or `agent` skill; not allowed on a `tool` skill (§10.11). */
-  model: ModelChoice.optional(),
-  // v0.13 W2-I: run oversight for this step: `off`, `always`, or (absent) follow the agent (§10.11).
-  review: StepReview.optional(),
-});
-
-export const ActionStep = z.object({
-  ...base,
-  kind: z.literal("action"),
-  tool: ToolId,
-  input: TemplateObject.default({}),
-  approval: Approval.prefault({}),
-  // v0.13 W2-I
-  review: StepReview.optional(),
-});
-
-// v0.12 W1-D: quick answers (ARCHITECTURE §11.1).
-/** One quick answer to a person step's question: shown as a button with its label. */
 export const PersonChoice = z.strictObject({
   value: z
     .string()
@@ -90,87 +41,18 @@ export const PersonChoice = z.strictObject({
 });
 export type PersonChoice = z.infer<typeof PersonChoice>;
 
-export const PersonStep = z.object({
-  ...base,
-  kind: z.literal("person"),
-  mode: z.enum(["approve", "ask"]),
-  /**
-   * A role or a user id; v0.12 W1-C: or `lead`, a lead check: the client's lead, else the operator
-   * role (ARCHITECTURE §11.2).
-   */
-  assignee: z.string().min(1),
-  title: TemplateString,
-  payload: TemplateObject.default({}),
-  timeout: Duration,
-  remindEvery: Duration.optional(),
-  channel: z.enum(["inbox", "email"]).default("inbox"),
-  onReject: z.enum(["stop", "continue"]).default("stop"),
-  onTimeout: z.enum(["stop", "continue", "notify_operator"]),
-  // v0.12 W1-D: only on `ask`; the answer is one `value`, and a fork can branch on
-  // `steps.<id>.output.answer`.
-  choices: z.array(PersonChoice).min(1).max(6).optional(),
+/**
+ * One thing a person step asks for (the step model: the output fields it lists), handed on by
+ * its name. With choices, the first field is filled by the button pressed.
+ */
+export const PERSON_FIELD_TYPES = ["text", "number", "money", "date", "yes_no"] as const;
+export const PersonField = z.strictObject({
+  name: z.string().regex(/^[A-Za-z][A-Za-z0-9_]{0,63}$/),
+  type: z.enum(PERSON_FIELD_TYPES),
+  about: z.string().max(200).optional(),
+  required: z.boolean().default(false),
 });
-
-export const WaitStep = z.object({ ...base, kind: z.literal("wait"), for: Duration });
-
-export const NotifyStep = z.object({
-  ...base,
-  kind: z.literal("notify"),
-  channel: z.enum(["thread", "email", "digest"]),
-  to: TemplateString.optional(),
-  message: TemplateString,
-  /**
-   * The record ids the notice rests on (CLAUDE.md invariant 10): each entry an id, or a reference
-   * to one or to a list of them (`{{steps.match.output.sources}}`). Optional.
-   */
-  // DECISION: a notice cites its records with an optional list on the notify step, resolved to
-  // ids and stored as the message's `sources`, rather than a new step kind (docs/plan.md §1.30).
-  sources: z.array(TemplateString).max(50).optional(),
-});
-
-export const StopStep = z.object({
-  ...base,
-  kind: z.literal("stop"),
-  status: z.enum(["succeeded", "failed", "cancelled"]),
-});
-
-export const ForkPath = z.object({
-  id: NodeId,
-  name: z.string(),
-  when: Rules,
-  get steps() {
-    return z.array(Step);
-  },
-});
-
-export const ForkOtherwise = z.object({
-  id: NodeId,
-  get steps() {
-    return z.array(Step);
-  },
-});
-
-export const ForkStep = z.object({
-  ...base,
-  kind: z.literal("fork"),
-  get paths() {
-    return z.array(ForkPath);
-  },
-  get otherwise() {
-    return ForkOtherwise;
-  },
-});
-
-export const ForEachStep = z.object({
-  ...base,
-  kind: z.literal("for_each"),
-  /** A template that resolves to an array. */
-  over: TemplateString,
-  concurrency: z.number().int().min(1).max(50).default(10),
-  get steps() {
-    return z.array(Step);
-  },
-});
+export type PersonField = z.infer<typeof PersonField>;
 
 // v0.12 W2-B: automations (ARCHITECTURE §10.7; docs/plan.md §1.45).
 /** An automation pinned to one version: `<slug>@<version>`. */
@@ -180,95 +62,6 @@ export const AutomationRef = z
     /^[a-z0-9]+(?:-[a-z0-9]+)*@[1-9]\d{0,8}$/,
     "an automation slug and its version, e.g. follow-up@2",
   );
-
-/**
- * A reusable chain of steps used as one step. Its input is checked against the automation's input
- * schema; its output is the automation's `output`. `approvals` (client agents only, set by the
- * operator) overrides an inner write step's approval, by the inner step's id.
- */
-export const UseAutomationStep = z.object({
-  ...base,
-  kind: z.literal("use_automation"),
-  automation: AutomationRef,
-  input: TemplateObject.default({}),
-  approvals: z.record(NodeId, Approval).optional(),
-});
-
-export type SkillStep = z.infer<typeof SkillStep>;
-export type ActionStep = z.infer<typeof ActionStep>;
-export type PersonStep = z.infer<typeof PersonStep>;
-export type WaitStep = z.infer<typeof WaitStep>;
-export type NotifyStep = z.infer<typeof NotifyStep>;
-export type StopStep = z.infer<typeof StopStep>;
-// v0.12 W2-B
-export type UseAutomationStep = z.infer<typeof UseAutomationStep>;
-export interface ForkPath {
-  id: string;
-  name: string;
-  when: Rules;
-  steps: Step[];
-}
-export interface ForkOtherwise {
-  id: string;
-  steps: Step[];
-}
-export interface ForkStep {
-  id: string;
-  name: string;
-  client?: z.infer<typeof ClientVisibility> | undefined;
-  kind: "fork";
-  paths: ForkPath[];
-  otherwise: ForkOtherwise;
-}
-export interface ForEachStep {
-  id: string;
-  name: string;
-  client?: z.infer<typeof ClientVisibility> | undefined;
-  kind: "for_each";
-  over: string;
-  concurrency: number;
-  steps: Step[];
-}
-export type Step =
-  | SkillStep
-  | ActionStep
-  | PersonStep
-  | ForkStep
-  | ForEachStep
-  | WaitStep
-  | NotifyStep
-  | StopStep
-  // v0.12 W2-B
-  | UseAutomationStep;
-export type StepKind = Step["kind"];
-export const STEP_KINDS = [
-  "skill",
-  "action",
-  "person",
-  "fork",
-  "for_each",
-  "wait",
-  "notify",
-  "stop",
-  // v0.12 W2-B
-  "use_automation",
-] as const satisfies readonly StepKind[];
-
-// The annotation breaks the type cycle between Step and the container steps' getters.
-export const Step: z.ZodType<Step> = z
-  .discriminatedUnion("kind", [
-    SkillStep,
-    ActionStep,
-    PersonStep,
-    ForkStep,
-    ForEachStep,
-    WaitStep,
-    NotifyStep,
-    StopStep,
-    // v0.12 W2-B
-    UseAutomationStep,
-  ])
-  .meta({ id: "Step" }) as unknown as z.ZodType<Step>;
 
 // v0.12 W2-E: triggers, six kinds (ARCHITECTURE §10.1, §10.8; docs/plan.md §1.48). Each new kind is
 // a new union member and every new field is optional, so stored versions parse and hash as before.
@@ -383,36 +176,11 @@ export const WorkflowHandoff = z.object({
 });
 export type WorkflowHandoff = z.infer<typeof WorkflowHandoff>;
 
-/** ARCHITECTURE §10.1: one trigger, then a structured list of steps. */
-export const Workflow = z
-  .object({
-    schemaVersion: z.literal(3),
-    trigger: Trigger,
-    steps: z.array(Step),
-    // v0.12 W2-E: other ways to start the same workflow (each with its own id), and what a
-    // successful live run passes on to a handoff trigger (ARCHITECTURE §10.8).
-    moreTriggers: z.array(Trigger).max(9).optional(),
-    handoff: WorkflowHandoff.optional(),
-  })
-  .meta({ id: "Workflow" });
-export type Workflow = z.infer<typeof Workflow>;
-
-/** By default skill, action, person and notify steps show in the client timeline; logic is hidden. */
-export function isClientVisible(step: Step): boolean {
-  if (step.client) return step.client.visible;
-  return (
-    step.kind === "skill" ||
-    step.kind === "action" ||
-    step.kind === "person" ||
-    step.kind === "notify" ||
-    // v0.12 W2-B: a use step is one piece of work on the timeline; its inner steps are not in the
-    // bundle, so they never show there (ARCHITECTURE §10.6, §10.7).
-    // DECISION: shown by default, like a skill step.
-    step.kind === "use_automation"
-  );
-}
-
-export function clientLabel(step: Pick<Step, "client" | "name">): string {
+/** A step's words for the client: its client label, else its name. */
+export function clientLabel(step: {
+  client?: { label?: string | undefined } | undefined;
+  name: string;
+}): string {
   return step.client?.label ?? step.name;
 }
 
@@ -425,6 +193,14 @@ export function clientLabel(step: Pick<Step, "client" | "name">): string {
 // DECISION: the step's operator-written name stands for "not done yet" rather than a generated
 // tense: names are imperative by convention ("Find the bill"), and test runs already show it
 // ("Would itemize the bill").
-export function stepStateLabel(step: Step, ran: boolean): string {
-  return ran || step.kind === "person" ? clientLabel(step) : step.name;
+export function stepStateLabel(
+  step: {
+    client?: { label?: string | undefined } | undefined;
+    name: string;
+    kind: string;
+    doneBy?: string | undefined;
+  },
+  ran: boolean,
+): string {
+  return ran || step.kind === "person" || step.doneBy === "person" ? clientLabel(step) : step.name;
 }

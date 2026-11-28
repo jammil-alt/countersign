@@ -4,31 +4,15 @@
 // say the same thing (invariant 4: one validator).
 
 import {
-  type AnyAgentBundle,
+  type AgentBundle,
   collectRefs,
-  processes,
+  type processes,
   steps,
   type ToolSpec,
-  toProcessBundle,
 } from "@countersign/core";
 import { agent, agentVersion, type Tx } from "@countersign/db";
 import { and, eq } from "drizzle-orm";
 import type { RegistryContext } from "./agents";
-import { convertLookup, skillContext } from "./skills";
-
-/**
- * Whether a bundle has a hand-off step to another agent (only those versions need the client's
- * agents; a hand-off to this agent's own workflow is checked against the bundle alone).
- */
-export function holdsHandoff(bundle: AnyAgentBundle): boolean {
-  return bundle.workflows.some(
-    (w) =>
-      w.workflow.schemaVersion === 4 &&
-      processes
-        .allSteps(w.workflow)
-        .some((l) => l.step.kind === "handoff" && !processes.isSelfHandoff(l.step)),
-  );
-}
 
 /**
  * A client's client agents as hand-off targets: each with the first enabled process of its live
@@ -40,7 +24,7 @@ export function holdsHandoff(bundle: AnyAgentBundle): boolean {
 export async function handoffAgents(
   tx: Tx,
   tenantId: string,
-  ctx: Pick<RegistryContext, "tools" | "catalog">,
+  ctx: Pick<RegistryContext, "tools">,
 ): Promise<processes.HandoffAgent[]> {
   const rows = await tx
     .select({ a: agent, bundle: agentVersion.bundle })
@@ -51,7 +35,6 @@ export async function handoffAgents(
     )
     .where(and(eq(agent.tenantId, tenantId), eq(agent.kind, "client"), eq(agent.testCopy, false)))
     .orderBy(agent.name);
-  const lookup = convertLookup(ctx.catalog, ctx.tools);
   const out: processes.HandoffAgent[] = [];
   for (const { a, bundle } of rows) {
     if (a.runStatus === "retired") continue;
@@ -61,24 +44,11 @@ export async function handoffAgents(
       out.push({ slug: a.slug, name, workflow: null, steps: [] });
       continue;
     }
-    if (wf.workflow.schemaVersion === 5) {
-      out.push({
-        slug: a.slug,
-        name,
-        workflow: wf.slug,
-        steps: stepModelTargets(wf.workflow, ctx.tools.specs(a.bindings)),
-      });
-      continue;
-    }
-    const { skills } = await skillContext(tx, { tenantId, bundle, catalog: ctx.catalog });
-    const process = toProcessBundle({ ...bundle, workflows: [wf] }, lookup).workflows[0]?.workflow;
     out.push({
       slug: a.slug,
       name,
       workflow: wf.slug,
-      steps: process
-        ? processes.handoffTargetSteps(process, { skills, tools: ctx.tools.specs(a.bindings) })
-        : [],
+      steps: stepModelTargets(wf.workflow, ctx.tools.specs(a.bindings)),
     });
   }
   return out;
@@ -87,7 +57,7 @@ export async function handoffAgents(
 /**
  * The step model: a v5 workflow's top-level steps as hand-off targets, each named by the engine
  * that runs it (`steps.ENGINE_OUTCOMES`: a Do on a Get action is a `read`), so the hand-off
- * picker offers the same work steps as for a v4 process. Their input schemas come with the
+ * picker offers the same work steps as for a process. Their input schemas come with the
  * builder's forms (stream B); until then none is given.
  */
 function stepModelTargets(
@@ -128,5 +98,16 @@ function stepModelTargets(
     const ids: string[] = [];
     steps.eachStep([step], ({ step: s }) => ids.push(s.id));
     return { id: step.id, name: step.name, kind: kindOfStep(step), reads: [...reads], ids };
+  });
+}
+
+/** Whether any workflow of the bundle has a hand-off step (the client's agents are read only then). */
+export function holdsHandoff(bundle: Pick<AgentBundle, "workflows">): boolean {
+  return bundle.workflows.some((w) => {
+    let found = false;
+    steps.eachStep(w.workflow.steps, ({ step }) => {
+      if (step.kind === "handoff") found = true;
+    });
+    return found;
   });
 }

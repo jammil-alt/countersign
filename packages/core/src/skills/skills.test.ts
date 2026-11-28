@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
+import { definitionModelErrors, definitionSkillErrors } from "../process/checks";
 import { Process } from "../process/schema";
 import { validateProcess } from "../process/validate";
 import { SkillDefinition, type SkillRule } from "../schemas/skill";
 import { parameterValueProblem } from "../schemas/skill-model";
 import type { ToolSpec } from "../schemas/tool";
-import { definitionModelErrors, definitionSkillErrors } from "../workflow/validate";
 import {
   loopSkillProblems,
   newSkillVersionProblems,

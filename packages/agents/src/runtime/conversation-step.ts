@@ -36,6 +36,8 @@ export interface ConversationStepInput {
   tenantId: string;
   agentVersionId: string;
   mode: "live" | "test";
+  /** Owner, 2026-11-27: a Sandbox test run with people in it: the conversation really happens. */
+  testPeople?: boolean | undefined;
   // DECISION: two optional fields beyond the shared contract. `stepRunId` lets the engine log its
   // turns on the step (absent: the turns' usage is kept on the run only). `wake` says what woke a
   // waiting step: the payload of its `processes.conversationEventType(id)` event (an inbox resolution, a reply), the
@@ -282,7 +284,9 @@ async function endedResult(
   const by = CHANNEL_WORDS[step.channel];
   const base = { conversationId: id, sources: out.sources };
 
-  if (out.testRun || input.mode === "test") {
+  // Owner, 2026-11-27: a Sandbox test run with people in it really talks, with its test person
+  // (the engine checks it against the run's own row).
+  if (out.testRun || (input.mode === "test" && input.testPeople !== true)) {
     // Test runs never write (invariant 8): nothing was sent and nothing was found.
     const first = out.opening ? ` The first message would have been: "${out.opening}"` : "";
     return { ...base, status: "done", found: {}, summary: `Test run: nothing was sent.${first}` };

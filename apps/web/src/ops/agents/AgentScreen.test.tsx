@@ -164,28 +164,35 @@ describe("AgentScreen", () => {
       setup(BASE, routes);
       const chips = await screen.findByTestId("agent-chips-new-bill");
       expect(chips).toHaveTextContent("Started by hand");
-      expect(chips).toHaveTextContent("If");
-      expect(chips).toHaveTextContent("Write");
+      expect(chips).toHaveTextContent("Fork");
+      expect(chips).toHaveTextContent("Do");
       expect(screen.getByTestId("agent-how-it-works")).toHaveTextContent("4 steps, 1 fork");
       expect(screen.getByTestId("agent-bar-line")).toHaveTextContent("4 steps · 1 fork");
       expect(screen.queryByText(/does not match the agent bundle schema/)).toBeNull();
     });
 
-    // Wave 3c: a process names its tools on its read and write steps, not in the definition.
-    it("lists the tools of a process's read and write steps, nested ones too, each once", async () => {
+    // A workflow names its tools on its steps, not in the definition.
+    it("lists the actions of a workflow's steps, nested ones too, each once", async () => {
       const bundle = structuredClone(PROCESS_BUNDLE);
       bundle.definition.extraTools = ["gmail.message.send"];
       const workflow = bundle.workflows[0]?.workflow;
-      if (workflow?.schemaVersion !== 4) throw new Error("fixture");
-      const branch = workflow.steps[1];
-      if (branch?.kind !== "if") throw new Error("fixture");
+      const branch = workflow?.steps[1];
+      if (branch?.kind !== "fork") throw new Error("fixture");
       branch.paths[0]?.steps.push(
-        { id: "look", kind: "read", name: "Look up the bill", tool: "qbo.bill.get", input: {} },
+        {
+          id: "look",
+          kind: "do",
+          name: "Look up the bill",
+          doneBy: "rules",
+          uses: { type: "action", action: "qbo.bill.get" },
+          input: {},
+        },
         {
           id: "again",
-          kind: "write",
+          kind: "do",
           name: "Update again",
-          tool: "qbo.bill.update_lines",
+          doneBy: "rules",
+          uses: { type: "action", action: "qbo.bill.update_lines" },
           input: {},
         },
       );
@@ -212,9 +219,7 @@ describe("AgentScreen", () => {
       setup(`${BASE}/workflow?version=1`, routes);
       const list = await screen.findByTestId("workflow-new-bill");
       // F6: drawn as the chart, read only.
-      expect(await within(list).findByTestId("flow-box-update")).toHaveTextContent(
-        "needs approval",
-      );
+      expect(await within(list).findByTestId("flow-box-update")).toHaveTextContent("Update bill");
       expect(within(list).queryByTestId("flow-tail")).toBeNull();
       cleanup();
       setup(`${BASE}/settings/definition`, routes);
@@ -438,7 +443,7 @@ describe("AgentScreen", () => {
           qa: { accepted: {}, signedBy: null, signedAt: null, decision: null },
         },
         phases: [{ phase: "draft", label: "Draft", state: "current" }],
-        gate: { next: "poc", reasons: [] },
+        gate: { next: null, reasons: ["There is no draft yet."] },
         messages: [],
         items: [],
         draft: null,
@@ -468,6 +473,11 @@ describe("AgentScreen", () => {
     // On the agent page the build has no header of its own: the agent's bar is it.
     expect(within(view).queryByTestId("build-header")).toBeNull();
     expect(within(view).getByTestId("build-phase-draft")).toHaveAttribute("aria-current", "step");
+    // Owner (2026-11-27): the Build tab's one bar, Draft and why Publish is off.
+    expect(within(view).getByTestId("build-publish-bar-state")).toHaveTextContent(
+      "Draft · There is no draft yet.",
+    );
+    expect(within(view).getByTestId("build-publish-bar-publish")).toBeDisabled();
     // While it is being built, back goes to its build, not to the list of agents.
     expect(screen.queryByTestId("agent-back")).toBeNull();
     expect(screen.getByTestId("agent-back-build")).toHaveTextContent(

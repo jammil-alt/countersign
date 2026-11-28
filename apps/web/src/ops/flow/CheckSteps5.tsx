@@ -41,7 +41,7 @@ import type { DoneBy, EndStep, Step, Workflow } from "../builder/steps/types";
 import { UsesPicker } from "../builder/steps/UsesPicker";
 import { OPS_PATHS } from "../paths";
 import { opsAgentHref } from "../screens/AgentRedirect";
-import { type EndKind, fillRequest, startWordsAll } from "./checkModel";
+import { ENDS, type EndKind, fillRequest, startWordsAll } from "./checkModel";
 import {
   addDecision,
   addEnding,
@@ -67,6 +67,7 @@ import {
   movePathBelow,
   pathEnds,
   readWorkflow,
+  removeEnding,
   removeLine,
   removePath,
   renameLine,
@@ -96,15 +97,6 @@ import {
   useStart,
 } from "./checkParts";
 
-interface StoredBundle {
-  workflows?: { slug: string; name: string; workflow?: { schemaVersion?: unknown } }[];
-}
-
-/** Whether a stored bundle's workflow (the first, which Check the steps shows) is v5. */
-export function isStepModelBundle(bundle: unknown): boolean {
-  return (bundle as StoredBundle | null)?.workflows?.[0]?.workflow?.schemaVersion === 5;
-}
-
 /** The catalog a draft's lines are matched against; none for a build with no draft yet. */
 export function CheckBody5(props: CheckBodyProps) {
   if (!props.agent?.latest) return <Body5 {...props} uses={NO_USES_CONTEXT} catalog={null} />;
@@ -126,6 +118,10 @@ interface Loaded5 {
   workflow: Workflow;
   /** Why a stored v5 workflow didn't read. */
   error: string | null;
+}
+
+interface StoredBundle {
+  workflows?: { slug: string; name: string; workflow?: unknown }[];
 }
 
 function load5(agent: CheckBodyProps["agent"], newId: NewId | undefined): Loaded5 {
@@ -172,6 +168,7 @@ function Body5({
   const [, setFocus] = useFocusLine();
   // The card picked for a line added under How it ends (a person finishing it).
   const [endChosen, setEndChosen] = useState<Record<string, EndKind>>({});
+  const [endKept, setEndKept] = useState<EndKind | null>(null);
   const [matching, setMatching] = useState<string | null>(null);
   const [busy, setBusy] = useState<"build" | "fill" | null>(null);
   const [error, setError] = useState<unknown>(null);
@@ -417,8 +414,24 @@ function Body5({
               setEndChosen((was) => ({ ...was, [id]: k }));
               setFocus(id);
             }
+            setEndKept(null);
+          }}
+          onRemove={(k) => {
+            const next = removeEnding(workflow, k, endChosen, newId);
+            setWorkflow(next);
+            setEndChosen((was) =>
+              Object.fromEntries(Object.entries(was).filter(([, kind]) => kind !== k)),
+            );
+            // A step that does it keeps the card on: say which, so it can be taken out there.
+            setEndKept(endingOf(next).kinds.includes(k) ? k : null);
           }}
         />
+        {endKept ? (
+          <p className="text-sm text-ink-muted" data-testid="flow-check-end-kept">
+            “{ENDS[endKept].title}” stays on: a step above does it. Remove that step to take it
+            back.
+          </p>
+        ) : null}
         {blocking.length > 0 ? (
           <p className="text-sm text-signal-ink" data-testid="flow-check-dead-end">
             Waiting on you: {blocking[0]?.message}

@@ -124,32 +124,6 @@ export interface HandoffWorkflow {
   steps: HandoffTargetStep[];
 }
 
-/**
- * A bundle's v4 workflows as self hand-off targets: what the validator and the builder read. A
- * stored v3 workflow is left out (it can't be a hand-off's target: it has no entry by step).
- */
-export function handoffWorkflows(
-  workflows: readonly {
-    slug: string;
-    name: string;
-    enabled?: boolean | undefined;
-    workflow: { schemaVersion: number };
-  }[],
-  ctx: TypingContext,
-): HandoffWorkflow[] {
-  const out: HandoffWorkflow[] = [];
-  for (const w of workflows) {
-    if (w.workflow.schemaVersion !== 4) continue;
-    out.push({
-      slug: w.slug,
-      name: w.name,
-      enabled: w.enabled ?? true,
-      steps: handoffTargetSteps(w.workflow as Process, ctx),
-    });
-  }
-  return out;
-}
-
 /** Every self hand-off step in a process, at any depth (an if's paths, a loop's steps). */
 export function selfHandoffSteps(process: Pick<Process, "steps">): HandoffStep[] {
   const out: HandoffStep[] = [];
@@ -164,45 +138,4 @@ export function selfHandoffSteps(process: Pick<Process, "steps">): HandoffStep[]
   };
   walk(process.steps);
   return out;
-}
-
-/**
- * The loops self hand-offs make between a bundle's workflows (A hands to B, B back to A; or
- * longer): each loop as the workflow slugs in order, starting and ending at the same one. A
- * hand-off to its own workflow is not counted here (the step's own check refuses it).
- */
-export function selfHandoffLoops(
-  workflows: readonly { slug: string; workflow: { schemaVersion: number } }[],
-): string[][] {
-  const edges = new Map<string, string[]>();
-  for (const w of workflows) {
-    if (w.workflow.schemaVersion !== 4) continue;
-    const to = new Set<string>();
-    for (const step of selfHandoffSteps(w.workflow as Process)) {
-      const target = step.to.workflow;
-      if (target !== undefined && target !== w.slug) to.add(target);
-    }
-    edges.set(w.slug, [...to]);
-  }
-  // Each loop once: found from its smallest slug, through slugs larger than it.
-  const loops: string[][] = [];
-  const starts = [...edges.keys()].sort();
-  for (const start of starts) {
-    const path = [start];
-    const onPath = new Set(path);
-    const visit = (at: string) => {
-      for (const next of edges.get(at) ?? []) {
-        if (next === start) loops.push([...path, start]);
-        else if (next > start && !onPath.has(next) && edges.has(next)) {
-          path.push(next);
-          onPath.add(next);
-          visit(next);
-          path.pop();
-          onPath.delete(next);
-        }
-      }
-    };
-    visit(start);
-  }
-  return loops;
 }

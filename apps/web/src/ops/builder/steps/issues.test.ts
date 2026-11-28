@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { canPublish, issuesByStep, workflowIssues } from "./issues";
+import { canPublish, issuesByStep, issuesFromServer, workflowIssues } from "./issues";
 import {
   ensureEnd,
   insertStep,
@@ -112,5 +112,31 @@ describe("what stops publishing", () => {
     expect(workflowIssues(w, ctx).find((i) => i.code === "output_incomplete")?.message).toBe(
       "Pick the action that delivers this output.",
     );
+  });
+});
+
+describe("the server's issues", () => {
+  it("keeps this workflow's and the bundle's, on their steps, with the step check's code", () => {
+    const issues = issuesFromServer(
+      [
+        {
+          stepId: "s1",
+          field: "",
+          code: "step_model",
+          stepCode: "input_missing",
+          message: "a",
+          workflow: "main",
+        },
+        { stepId: "t1", field: "on.cron", code: "invalid_cron", message: "b", workflow: "main" },
+        { stepId: null, field: "definition.skills", code: "unknown_skill", message: "c" },
+        { stepId: "x", field: "", code: "step_model", message: "d", workflow: "other" },
+      ],
+      "main",
+    );
+    expect(issues).toEqual([
+      { at: "s1", code: "input_missing", message: "a" },
+      { at: "t1", code: "invalid_cron", message: "b" },
+      { code: "unknown_skill", message: "c" },
+    ]);
   });
 });

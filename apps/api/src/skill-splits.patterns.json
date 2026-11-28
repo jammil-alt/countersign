@@ -1,0 +1,940 @@
+{
+  "Read a vendor's quote": {
+    "steps": [
+      {
+        "id": "quote",
+        "name": "The lines asked for",
+        "client": {
+          "visible": false
+        },
+        "kind": "do",
+        "doneBy": "rules",
+        "uses": {
+          "type": "action",
+          "action": "materials.quote.get"
+        },
+        "input": {
+          "quoteRequestId": "{{trigger.quoteRequestId}}"
+        }
+      },
+      {
+        "id": "read-quote",
+        "name": "Read the vendor's quote",
+        "client": {
+          "visible": true,
+          "label": "Read the vendor's quote"
+        },
+        "kind": "do",
+        "doneBy": "ai",
+        "uses": {
+          "type": "skill",
+          "skill": "materials.read-quote-document"
+        },
+        "input": {
+          "quoteRequestId": "{{trigger.quoteRequestId}}",
+          "quote": "{{steps.quote.output}}",
+          "documentId": "{{trigger.documentId}}"
+        }
+      },
+      {
+        "id": "save-quote",
+        "name": "Save to records: the quote",
+        "client": {
+          "visible": false
+        },
+        "kind": "do",
+        "doneBy": "rules",
+        "uses": {
+          "type": "action",
+          "action": "materials.quote.record"
+        },
+        "input": {
+          "quoteRequestId": "{{trigger.quoteRequestId}}",
+          "declined": "{{steps.read-quote.output.declined}}",
+          "lines": "{{steps.read-quote.output.lines}}"
+        }
+      },
+      {
+        "id": "end",
+        "kind": "end",
+        "name": "Done",
+        "outputs": ["out-done"]
+      }
+    ]
+  },
+  "Find duplicate catalog items": {
+    "steps": [
+      {
+        "id": "pairs",
+        "name": "Likely duplicates",
+        "client": {
+          "visible": false
+        },
+        "kind": "do",
+        "doneBy": "rules",
+        "uses": {
+          "type": "action",
+          "action": "materials.catalog.duplicates"
+        },
+        "input": {}
+      },
+      {
+        "id": "choose",
+        "name": "Choose items to merge",
+        "client": {
+          "visible": false
+        },
+        "kind": "do",
+        "doneBy": "ai",
+        "uses": {
+          "type": "skill",
+          "skill": "materials.choose-merges"
+        },
+        "input": {
+          "pairs": "{{steps.pairs.output.pairs}}"
+        }
+      },
+      {
+        "id": "each",
+        "name": "Each merge",
+        "kind": "for_each",
+        "over": "{{steps.choose.output.proposals}}",
+        "concurrency": 1,
+        "steps": [
+          {
+            "id": "ask-merge",
+            "name": "Save to records: ask the operator to merge",
+            "client": {
+              "visible": false
+            },
+            "kind": "do",
+            "doneBy": "rules",
+            "uses": {
+              "type": "action",
+              "action": "inbox.create"
+            },
+            "input": {
+              "kind": "review",
+              "title": "Merge catalog items",
+              "details": "{{item.reason}}",
+              "sources": ["{{item.fromId}}", "{{item.intoId}}"],
+              "assignee": "operator"
+            }
+          }
+        ]
+      },
+      {
+        "id": "end",
+        "kind": "end",
+        "name": "Done",
+        "outputs": ["out-done"]
+      }
+    ]
+  },
+  "Categorize bank transactions": {
+    "steps": [
+      {
+        "id": "open",
+        "name": "The open transactions",
+        "client": {
+          "visible": false
+        },
+        "kind": "do",
+        "doneBy": "rules",
+        "uses": {
+          "type": "action",
+          "action": "bookkeeping.transactions.open"
+        },
+        "input": {
+          "ids": "{{trigger.bankTxnIds}}"
+        }
+      },
+      {
+        "id": "chart",
+        "name": "The chart of accounts",
+        "client": {
+          "visible": false
+        },
+        "kind": "do",
+        "doneBy": "rules",
+        "uses": {
+          "type": "action",
+          "action": "ledger.accounts.list"
+        },
+        "input": {
+          "classifications": ["expense", "revenue", "asset", "liability", "equity"]
+        }
+      },
+      {
+        "id": "propose",
+        "name": "Propose accounts",
+        "client": {
+          "visible": true,
+          "label": "Proposed accounts for new transactions"
+        },
+        "kind": "do",
+        "doneBy": "ai",
+        "uses": {
+          "type": "skill",
+          "skill": "bookkeeping.propose-accounts"
+        },
+        "input": {
+          "transactions": "{{steps.open.output.transactions}}",
+          "accounts": "{{steps.chart.output.accounts}}"
+        }
+      },
+      {
+        "id": "each-proposal",
+        "name": "Each proposal",
+        "kind": "for_each",
+        "over": "{{steps.propose.output.proposals}}",
+        "concurrency": 1,
+        "steps": [
+          {
+            "id": "save-proposal",
+            "name": "Save to records: the proposed booking",
+            "client": {
+              "visible": false
+            },
+            "kind": "do",
+            "doneBy": "rules",
+            "uses": {
+              "type": "action",
+              "action": "bookkeeping.booking.propose"
+            },
+            "input": {
+              "bankTxnId": "{{item.bankTxnId}}",
+              "lines": "{{item.lines}}",
+              "confidence": "{{item.confidence}}",
+              "reason": "{{item.reason}}"
+            }
+          }
+        ]
+      },
+      {
+        "id": "each-note",
+        "name": "Each note",
+        "kind": "for_each",
+        "over": "{{steps.propose.output.notes}}",
+        "concurrency": 1,
+        "steps": [
+          {
+            "id": "save-note",
+            "name": "Save to records: what the account is for",
+            "client": {
+              "visible": false
+            },
+            "kind": "do",
+            "doneBy": "rules",
+            "uses": {
+              "type": "action",
+              "action": "bookkeeping.account.note"
+            },
+            "input": {
+              "ledgerAccountId": "{{item.ledgerAccountId}}",
+              "note": "{{item.note}}",
+              "sources": "{{item.sources}}"
+            }
+          }
+        ]
+      },
+      {
+        "id": "end",
+        "kind": "end",
+        "name": "Done",
+        "outputs": ["out-done"]
+      }
+    ]
+  },
+  "Explain what a reconciliation left": {
+    "steps": [
+      {
+        "id": "recon",
+        "name": "The reconciliation",
+        "client": {
+          "visible": false
+        },
+        "kind": "do",
+        "doneBy": "rules",
+        "uses": {
+          "type": "action",
+          "action": "bookkeeping.reconcile.open"
+        },
+        "input": {
+          "reconciliationId": "{{trigger.reconciliationId}}"
+        }
+      },
+      {
+        "id": "suggest",
+        "name": "Suggest matches for what is left",
+        "client": {
+          "visible": false
+        },
+        "kind": "do",
+        "doneBy": "ai",
+        "uses": {
+          "type": "skill",
+          "skill": "bookkeeping.suggest-matches"
+        },
+        "input": {
+          "reconciliation": "{{steps.recon.output}}"
+        }
+      },
+      {
+        "id": "each-match",
+        "name": "Each suggestion",
+        "kind": "for_each",
+        "over": "{{steps.suggest.output.proposals}}",
+        "concurrency": 1,
+        "steps": [
+          {
+            "id": "save-match",
+            "name": "Save to records: the suggested match",
+            "client": {
+              "visible": false
+            },
+            "kind": "do",
+            "doneBy": "rules",
+            "uses": {
+              "type": "action",
+              "action": "bookkeeping.reconcile.propose"
+            },
+            "input": {
+              "reconciliationId": "{{trigger.reconciliationId}}",
+              "aItemIds": "{{item.aItemIds}}",
+              "bItemIds": "{{item.bItemIds}}",
+              "reason": "{{item.reason}}",
+              "confidence": "{{item.confidence}}"
+            }
+          }
+        ]
+      },
+      {
+        "id": "end",
+        "kind": "end",
+        "name": "Done",
+        "outputs": ["out-done"]
+      }
+    ]
+  },
+  "The weekly site report": {
+    "steps": [
+      {
+        "id": "figures",
+        "name": "The week's figures",
+        "client": {
+          "visible": false
+        },
+        "kind": "do",
+        "doneBy": "rules",
+        "uses": {
+          "type": "action",
+          "action": "marketing.site.figures"
+        },
+        "input": {}
+      },
+      {
+        "id": "write-report",
+        "name": "Write the weekly report",
+        "client": {
+          "visible": false
+        },
+        "kind": "do",
+        "doneBy": "ai",
+        "uses": {
+          "type": "skill",
+          "skill": "marketing.write-report"
+        },
+        "input": {
+          "figures": "{{steps.figures.output}}"
+        }
+      },
+      {
+        "id": "save-report",
+        "name": "Save to records: the report",
+        "client": {
+          "visible": true,
+          "label": "Wrote the weekly site report"
+        },
+        "kind": "do",
+        "doneBy": "rules",
+        "uses": {
+          "type": "action",
+          "action": "marketing.report.record"
+        },
+        "input": {
+          "report": "{{steps.write-report.output.report}}",
+          "sources": "{{steps.figures.output.sourcesIds}}"
+        }
+      },
+      {
+        "id": "end",
+        "kind": "end",
+        "name": "Done",
+        "outputs": ["out-done"]
+      }
+    ]
+  },
+  "A forum reply": {
+    "steps": [
+      {
+        "id": "thread",
+        "name": "Read the thread",
+        "client": {
+          "visible": false
+        },
+        "kind": "do",
+        "doneBy": "rules",
+        "uses": {
+          "type": "action",
+          "action": "hackernews.thread"
+        },
+        "input": {
+          "id": "41000000"
+        }
+      },
+      {
+        "id": "write-reply",
+        "name": "Write a forum reply",
+        "client": {
+          "visible": false
+        },
+        "kind": "do",
+        "doneBy": "ai",
+        "uses": {
+          "type": "skill",
+          "skill": "marketing.write-forum-reply"
+        },
+        "input": {
+          "thread": "{{steps.thread.output}}"
+        }
+      },
+      {
+        "id": "mark",
+        "name": "Save to records: the thread was read",
+        "client": {
+          "visible": false
+        },
+        "kind": "do",
+        "doneBy": "rules",
+        "uses": {
+          "type": "action",
+          "action": "marketing.forum.thread.mark"
+        },
+        "input": {
+          "id": "41000000",
+          "url": "https://news.ycombinator.com/item?id=41000000",
+          "title": "Ask HN: approval workflows",
+          "outcome": "seen"
+        }
+      },
+      {
+        "id": "reply",
+        "name": "A reply worth drafting?",
+        "kind": "fork",
+        "paths": [
+          {
+            "id": "reply-path",
+            "name": "Reply",
+            "when": {
+              "match": "all",
+              "rules": [
+                {
+                  "field": "{{steps.write-reply.output.decision}}",
+                  "op": "=",
+                  "value": "reply"
+                }
+              ]
+            },
+            "steps": [
+              {
+                "id": "save-reply",
+                "name": "Save to records: the reply for a person to post",
+                "client": {
+                  "visible": true,
+                  "label": "Drafted a forum reply for you to post"
+                },
+                "kind": "do",
+                "doneBy": "rules",
+                "uses": {
+                  "type": "action",
+                  "action": "marketing.forum.reply.draft"
+                },
+                "input": {
+                  "threadId": "{{steps.mark.output.threadId}}",
+                  "body": "{{steps.write-reply.output.body}}"
+                }
+              }
+            ]
+          }
+        ],
+        "otherwise": {
+          "id": "reply-none",
+          "steps": []
+        }
+      },
+      {
+        "id": "end",
+        "kind": "end",
+        "name": "Done",
+        "outputs": ["out-done"]
+      }
+    ]
+  },
+  "A LinkedIn post": {
+    "steps": [
+      {
+        "id": "report",
+        "name": "The report",
+        "client": {
+          "visible": false
+        },
+        "kind": "do",
+        "doneBy": "rules",
+        "uses": {
+          "type": "action",
+          "action": "marketing.report.get"
+        },
+        "input": {
+          "report": "{{trigger.reportId}}"
+        }
+      },
+      {
+        "id": "write-post",
+        "name": "Write a LinkedIn post",
+        "client": {
+          "visible": false
+        },
+        "kind": "do",
+        "doneBy": "ai",
+        "uses": {
+          "type": "skill",
+          "skill": "marketing.write-post"
+        },
+        "input": {
+          "report": "{{steps.report.output}}"
+        }
+      },
+      {
+        "id": "check-post",
+        "name": "Check the post",
+        "client": {
+          "visible": false
+        },
+        "kind": "do",
+        "doneBy": "rules",
+        "uses": {
+          "type": "action",
+          "action": "marketing.social.check"
+        },
+        "input": {
+          "text": "{{steps.write-post.output.text}}",
+          "report": "{{trigger.reportId}}"
+        }
+      },
+      {
+        "id": "end",
+        "kind": "end",
+        "name": "Done",
+        "outputs": ["out-done"]
+      }
+    ]
+  },
+  "invoice": {
+    "schemaVersion": 5,
+    "triggers": [
+      {
+        "id": "trg-document",
+        "on": {
+          "type": "manual",
+          "input": {
+            "type": "object",
+            "properties": {
+              "documentId": {
+                "type": "string",
+                "format": "uuid"
+              }
+            },
+            "required": ["documentId"],
+            "additionalProperties": false
+          }
+        }
+      }
+    ],
+    "outputs": [
+      {
+        "id": "out-done",
+        "name": "Done",
+        "kind": "nothing"
+      }
+    ],
+    "steps": [
+      {
+        "id": "read",
+        "name": "Read the invoice",
+        "client": {
+          "visible": true,
+          "label": "Read the invoice"
+        },
+        "kind": "do",
+        "doneBy": "ai",
+        "uses": {
+          "type": "skill",
+          "skill": "docs.read-document"
+        },
+        "input": {
+          "documentId": "{{trigger.documentId}}"
+        }
+      },
+      {
+        "id": "totals",
+        "name": "Check the totals",
+        "client": {
+          "visible": false
+        },
+        "kind": "do",
+        "doneBy": "rules",
+        "uses": {
+          "type": "skill",
+          "skill": "docs.check-totals"
+        },
+        "input": {
+          "reading": "{{steps.read.output}}"
+        }
+      },
+      {
+        "id": "totals-off",
+        "name": "Totals don't add up?",
+        "kind": "fork",
+        "paths": [
+          {
+            "id": "totals-off-path",
+            "name": "They don't",
+            "when": {
+              "match": "all",
+              "rules": [
+                {
+                  "field": "{{steps.totals.output.totalsMatch}}",
+                  "op": "=",
+                  "value": false
+                }
+              ]
+            },
+            "steps": [
+              {
+                "id": "totals-person",
+                "name": "Ask a person to check the totals",
+                "client": {
+                  "visible": true,
+                  "label": "Asked you to check an invoice's totals"
+                },
+                "kind": "do",
+                "doneBy": "person",
+                "person": {
+                  "mode": "approve",
+                  "who": "client_admin",
+                  "question": "Check the totals on {{steps.totals.output.vendorName}} invoice {{steps.totals.output.invoiceNumber}}",
+                  "show": {
+                    "documentId": "{{trigger.documentId}}",
+                    "problems": "{{steps.totals.output.problems}}"
+                  },
+                  "deadline": {
+                    "after": "3 days",
+                    "hours": "business",
+                    "remind": ["1 day"],
+                    "ifNoAnswer": "stop"
+                  },
+                  "channel": "inbox",
+                  "onReject": "stop"
+                }
+              }
+            ]
+          }
+        ],
+        "otherwise": {
+          "id": "totals-ok",
+          "steps": []
+        }
+      },
+      {
+        "id": "save-reading",
+        "name": "Save to records: the reading",
+        "client": {
+          "visible": false
+        },
+        "kind": "do",
+        "doneBy": "rules",
+        "uses": {
+          "type": "action",
+          "action": "docs.reading.record"
+        },
+        "input": {
+          "documentId": "{{trigger.documentId}}",
+          "reading": "{{steps.totals.output.reading}}"
+        }
+      },
+      {
+        "id": "lookup",
+        "name": "Look up existing",
+        "client": {
+          "visible": false
+        },
+        "kind": "do",
+        "doneBy": "rules",
+        "uses": {
+          "type": "skill",
+          "skill": "materials.lookup-existing"
+        },
+        "input": {
+          "documentId": "{{trigger.documentId}}"
+        }
+      },
+      {
+        "id": "open",
+        "name": "Any lines left open?",
+        "kind": "fork",
+        "paths": [
+          {
+            "id": "open-path",
+            "name": "Some",
+            "when": {
+              "match": "all",
+              "rules": [
+                {
+                  "field": "{{steps.lookup.output.openCount}}",
+                  "op": ">",
+                  "value": 0
+                }
+              ]
+            },
+            "steps": [
+              {
+                "id": "match",
+                "name": "Match the unmatched",
+                "client": {
+                  "visible": false
+                },
+                "kind": "do",
+                "doneBy": "ai",
+                "uses": {
+                  "type": "skill",
+                  "skill": "materials.match-unmatched"
+                },
+                "input": {
+                  "lines": "{{steps.lookup.output.open}}"
+                }
+              },
+              {
+                "id": "check",
+                "name": "Check matches",
+                "client": {
+                  "visible": false
+                },
+                "kind": "do",
+                "doneBy": "rules",
+                "uses": {
+                  "type": "skill",
+                  "skill": "materials.check-matches"
+                },
+                "input": {
+                  "lines": "{{steps.lookup.output.lines}}",
+                  "answers": "{{steps.match.output.answers}}"
+                }
+              },
+              {
+                "id": "needs-person",
+                "name": "Any line for a person?",
+                "kind": "fork",
+                "paths": [
+                  {
+                    "id": "needs-person-path",
+                    "name": "Some",
+                    "when": {
+                      "match": "all",
+                      "rules": [
+                        {
+                          "field": "{{steps.check.output.anyNeedsReview}}",
+                          "op": "=",
+                          "value": true
+                        }
+                      ]
+                    },
+                    "steps": [
+                      {
+                        "id": "person",
+                        "name": "Ask a person about the lines we weren't sure of",
+                        "client": {
+                          "visible": true,
+                          "label": "Asked you about lines we weren't sure of"
+                        },
+                        "kind": "do",
+                        "doneBy": "person",
+                        "person": {
+                          "mode": "approve",
+                          "who": "client_admin",
+                          "question": "{{steps.check.output.needsReview}} invoice lines need you",
+                          "show": {
+                            "documentId": "{{trigger.documentId}}",
+                            "lines": "{{steps.check.output.lines}}"
+                          },
+                          "deadline": {
+                            "after": "3 days",
+                            "hours": "business",
+                            "remind": ["1 day"],
+                            "ifNoAnswer": "stop"
+                          },
+                          "channel": "inbox",
+                          "onReject": "stop"
+                        }
+                      }
+                    ]
+                  }
+                ],
+                "otherwise": {
+                  "id": "needs-person-none",
+                  "steps": []
+                }
+              },
+              {
+                "id": "save-open",
+                "name": "Save to records: the matches",
+                "client": {
+                  "visible": false
+                },
+                "kind": "do",
+                "doneBy": "rules",
+                "uses": {
+                  "type": "action",
+                  "action": "materials.matches.record"
+                },
+                "input": {
+                  "lines": "{{steps.check.output.lines}}"
+                }
+              }
+            ]
+          }
+        ],
+        "otherwise": {
+          "id": "open-none",
+          "steps": [
+            {
+              "id": "check-settled",
+              "name": "Check matches",
+              "client": {
+                "visible": false
+              },
+              "kind": "do",
+              "doneBy": "rules",
+              "uses": {
+                "type": "skill",
+                "skill": "materials.check-matches"
+              },
+              "input": {
+                "lines": "{{steps.lookup.output.lines}}",
+                "answers": []
+              }
+            },
+            {
+              "id": "save-settled",
+              "name": "Save to records: the matches",
+              "client": {
+                "visible": false
+              },
+              "kind": "do",
+              "doneBy": "rules",
+              "uses": {
+                "type": "action",
+                "action": "materials.matches.record"
+              },
+              "input": {
+                "lines": "{{steps.check-settled.output.lines}}"
+              }
+            }
+          ]
+        }
+      },
+      {
+        "id": "compare",
+        "name": "Compare to historicals",
+        "client": {
+          "visible": false
+        },
+        "kind": "do",
+        "doneBy": "rules",
+        "uses": {
+          "type": "skill",
+          "skill": "materials.compare-prices"
+        },
+        "input": {
+          "documentId": "{{trigger.documentId}}"
+        }
+      },
+      {
+        "id": "save-prices",
+        "name": "Save to records: the prices",
+        "client": {
+          "visible": false
+        },
+        "kind": "do",
+        "doneBy": "rules",
+        "uses": {
+          "type": "action",
+          "action": "materials.prices.record"
+        },
+        "input": {
+          "documentId": "{{trigger.documentId}}"
+        }
+      },
+      {
+        "id": "alerts",
+        "name": "Any alert?",
+        "kind": "fork",
+        "paths": [
+          {
+            "id": "alerts-path",
+            "name": "Some",
+            "when": {
+              "match": "all",
+              "rules": [
+                {
+                  "field": "{{steps.compare.output.anyAlerts}}",
+                  "op": "=",
+                  "value": true
+                }
+              ]
+            },
+            "steps": [
+              {
+                "id": "save-alerts",
+                "name": "Save to records: raise the alerts",
+                "client": {
+                  "visible": true,
+                  "label": "Raised price alerts"
+                },
+                "kind": "do",
+                "doneBy": "rules",
+                "uses": {
+                  "type": "action",
+                  "action": "materials.prices.check"
+                },
+                "input": {
+                  "documentId": "{{trigger.documentId}}"
+                }
+              }
+            ]
+          }
+        ],
+        "otherwise": {
+          "id": "alerts-none",
+          "steps": []
+        }
+      },
+      {
+        "id": "end",
+        "kind": "end",
+        "name": "Done",
+        "outputs": ["out-done"]
+      }
+    ]
+  }
+}

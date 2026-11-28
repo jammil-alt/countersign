@@ -11,18 +11,25 @@ import {
   QBO_TOOLS,
 } from "@countersign/connectors";
 import { FAKE_QBO_CLIENT, FAKE_QBO_REALM, fakeQbo } from "@countersign/connectors/testing";
-import { AgentBundle, type AgentBundleInput, DEFAULT_PERMISSIONS } from "@countersign/core";
-import { agent, connection, externalAction, inboxItem } from "@countersign/db";
+import {
+  AgentBundle,
+  type AgentBundleInput,
+  bundleHash,
+  DEFAULT_PERMISSIONS,
+} from "@countersign/core";
+import { agent, agentVersion, connection, externalAction, inboxItem } from "@countersign/db";
 import { FakeModel } from "@countersign/llm";
-import { asc, eq } from "drizzle-orm";
+import { asc, desc, eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   type ApiHarness,
   admin,
   allowForAgent,
   createApiHarness,
+  ended,
   FakeWorkflowStep,
   OPERATOR,
+  v5Workflow,
 } from "./api.test-helper";
 import { MemoryQboSyncInstances } from "./qbo/instances";
 import { credentialsFor, executeRun } from "./runs/execute";
@@ -55,7 +62,7 @@ const h = await createApiHarness({
 });
 afterAll(() => h?.close());
 
-const ORDER = {
+const _ORDER = {
   docNumber: "PO-2001",
   txnDate: "2026-11-06",
   dueDate: "2026-11-20",
@@ -110,7 +117,7 @@ describe.skipIf(!h)("QuickBooks ingredients through the API", () => {
     tools: string[],
     mode: "act" | "suggest_only",
     /** Runs after the version is published, before the run starts. */
-    published: () => Promise<unknown> = async () => {},
+    published: (agentId: string) => Promise<unknown> = async () => {},
     /** Connectors C4: the client admin allows what it needs before it is published. */
     allow = true,
   ) {
@@ -134,11 +141,9 @@ describe.skipIf(!h)("QuickBooks ingredients through the API", () => {
         {
           slug: "main",
           name: "Main",
-          workflow: {
-            schemaVersion: 3,
-            trigger: { id: "trg", on: { type: "manual", input: {} } },
-            steps,
-          },
+          workflow: v5Workflow(steps, {
+            triggers: [{ id: "trg", on: { type: "manual", input: {} } }],
+          }),
         },
       ],
     } as AgentBundleInput);
@@ -161,7 +166,7 @@ describe.skipIf(!h)("QuickBooks ingredients through the API", () => {
     );
     expect(pub.status, JSON.stringify(pub.json)).toBe(200);
     await H.t.db.update(agent).set({ runStatus: "active", stage: "live" }).where(eq(agent.id, id));
-    await published();
+    await published(id);
     const res = await H.call(OPERATOR, "POST", `/api/ops/agents/${id}/run`, { workflow: "main" });
     expect(res.status, JSON.stringify(res.json)).toBe(200);
     const params = H.instances.started.get(j(res.json).runId);
@@ -197,20 +202,40 @@ describe.skipIf(!h)("QuickBooks ingredients through the API", () => {
         {
           id: "vendor",
           name: "Add the vendor",
-          kind: "action",
-          tool: QBO_TOOLS.vendorCreate,
-          input: { displayName: "Rogue Valley Veneers", email: "ap@roguevalley.example" },
-          approval: { required: "required" },
           client: { visible: true, label: "Added the vendor" },
+          checks: { approval: { required: "required" } },
+          kind: "do",
+          doneBy: "rules",
+          uses: { type: "action", action: QBO_TOOLS.vendorCreate },
+          input: { displayName: "Rogue Valley Veneers", email: "ap@roguevalley.example" },
         },
         {
           id: "order",
           name: "Order the walnut",
-          kind: "action",
-          tool: QBO_TOOLS.purchaseOrderCreate,
-          input: { ...ORDER, vendorId: "{{steps.vendor.output.id}}" },
-          approval: { required: "required" },
           client: { visible: true, label: "Ordered the walnut" },
+          checks: { approval: { required: "required" } },
+          kind: "do",
+          doneBy: "rules",
+          uses: { type: "action", action: QBO_TOOLS.purchaseOrderCreate },
+          input: {
+            docNumber: "PO-2001",
+            txnDate: "2026-11-06",
+            dueDate: "2026-11-20",
+            expectedTotal: "1125.00",
+            lines: [
+              {
+                itemId: "22",
+                qty: "120",
+                unitPrice: "8.75",
+                amount: "1050.00",
+                classId: "5000000000000301",
+                customerId: "8",
+                billable: true,
+              },
+              { accountId: "81", description: "Delivery", amount: "75.00" },
+            ],
+            vendorId: "{{steps.vendor.output.id}}",
+          },
         },
       ],
       [QBO_TOOLS.vendorCreate, QBO_TOOLS.purchaseOrderCreate],
@@ -223,9 +248,7 @@ describe.skipIf(!h)("QuickBooks ingredients through the API", () => {
         qbo.apiCalls("POST", "purchaseorder").length,
       ]);
     });
-    expect(await executeRun(runDeps(), params, cloudflareStepRunner(step))).toEqual({
-      status: "succeeded",
-    });
+    expect(await executeRun(runDeps(), params, cloudflareStepRunner(step))).toEqual(ended());
     // Nothing was written while each waited.
     expect(atWait).toEqual([
       [0, 0],
@@ -263,11 +286,30 @@ describe.skipIf(!h)("QuickBooks ingredients through the API", () => {
     const step = (docNumber: string) => ({
       id: "order",
       name: "Order the walnut",
-      kind: "action",
-      tool: QBO_TOOLS.purchaseOrderCreate,
-      input: { ...ORDER, vendorId: "57", docNumber },
-      approval: { required: "not_required" },
       client: { visible: true, label: "Ordered the walnut" },
+      checks: { approval: { required: "not_required" } },
+      kind: "do",
+      doneBy: "rules",
+      uses: { type: "action", action: QBO_TOOLS.purchaseOrderCreate },
+      input: {
+        docNumber: docNumber,
+        txnDate: "2026-11-06",
+        dueDate: "2026-11-20",
+        expectedTotal: "1125.00",
+        lines: [
+          {
+            itemId: "22",
+            qty: "120",
+            unitPrice: "8.75",
+            amount: "1050.00",
+            classId: "5000000000000301",
+            customerId: "8",
+            billable: true,
+          },
+          { accountId: "81", description: "Delivery", amount: "75.00" },
+        ],
+        vendorId: "57",
+      },
     });
     const posts = () => qbo.apiCalls("POST", "purchaseorder").length;
     const start = posts();
@@ -275,25 +317,54 @@ describe.skipIf(!h)("QuickBooks ingredients through the API", () => {
     // Acting, not required, create on auto: it goes without anyone asked.
     const params = await makeAgent([step("PO-2002")], [QBO_TOOLS.purchaseOrderCreate], "act");
     const free = new FakeWorkflowStep();
-    expect(await executeRun(runDeps(), params, cloudflareStepRunner(free))).toEqual({
-      status: "succeeded",
-    });
+    expect(await executeRun(runDeps(), params, cloudflareStepRunner(free))).toEqual(ended());
     expect(free.waits).toHaveLength(0);
     expect(posts()).toBe(start + 1);
     expect((await actionsOf(params.runId))[0]).toMatchObject({ status: "done", approvedBy: null });
 
     // An agent that only suggests: the same step waits for a person.
+    // Publish refuses a step that goes without approval on an agent that only suggests (v5's
+    // check), so the agent is published acting and then only suggests: what the run does when a
+    // stored version says so, which the gate still holds to.
+    await expect(
+      makeAgent([step("PO-2003")], [QBO_TOOLS.purchaseOrderCreate], "suggest_only"),
+    ).rejects.toThrow(/approval_needs_act/);
     const suggests = await makeAgent(
       [step("PO-2003")],
       [QBO_TOOLS.purchaseOrderCreate],
-      "suggest_only",
+      "act",
+      async (agentId) => {
+        const [row] = await H.t.db
+          .select()
+          .from(agentVersion)
+          .where(eq(agentVersion.agentId, agentId))
+          .orderBy(desc(agentVersion.version))
+          .limit(1);
+        if (!row) throw new Error("no version");
+        const stored = structuredClone(row.bundle) as AgentBundle;
+        stored.definition.permissions.mode = "suggest_only";
+        const [only] = await H.t.db
+          .insert(agentVersion)
+          .values({
+            tenantId: H.A.tenantId,
+            agentId,
+            version: row.version + 1,
+            bundle: stored,
+            bundleHash: await bundleHash(stored),
+            authorType: "operator",
+            status: "live",
+          })
+          .returning({ id: agentVersion.id });
+        await H.t.db
+          .update(agent)
+          .set({ liveVersionId: only?.id as string })
+          .where(eq(agent.id, agentId));
+      },
     );
     const signer = approver(() => {
       expect(posts()).toBe(start + 1);
     });
-    expect(await executeRun(runDeps(), suggests, cloudflareStepRunner(signer))).toEqual({
-      status: "succeeded",
-    });
+    expect(await executeRun(runDeps(), suggests, cloudflareStepRunner(signer))).toEqual(ended());
     expect(signer.waits).toHaveLength(1);
     expect(posts()).toBe(start + 2);
 

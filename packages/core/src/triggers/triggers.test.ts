@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { Workflow } from "../schemas/workflow";
-import { triggerSchema } from "../template/typer";
-import { validateWorkflow } from "../workflow/validate";
+import { Process } from "../process/schema";
+import { processTriggerSchema, validateProcess } from "../process/validate";
+import { Workflow } from "../steps/schema";
 import { agentAddress, agentStepAddress, parseAgentAddress, sameAgentAddress } from "./address";
 import { INBOUND_TEXT_MAX, inboundText } from "./inbound";
 import { acceptingTriggers, acceptsSloan, passToAgentEvent } from "./kinds";
@@ -124,47 +124,46 @@ const NOTIFY = (message: string) => ({
   id: "say",
   kind: "notify",
   name: "Say",
-  channel: "thread",
-  message,
+  notify: { to: ["lead"], message },
 });
 
 describe("trigger validation", () => {
   it("types a field one trigger lacks as optional, never an error", () => {
     const wf = {
-      schemaVersion: 3,
-      trigger: {
-        id: "by-hand",
-        on: {
-          type: "manual",
-          input: { type: "object", properties: { note: { type: "string" } }, required: ["note"] },
+      schemaVersion: 4,
+      triggers: [
+        {
+          id: "by-hand",
+          on: {
+            type: "manual",
+            input: { type: "object", properties: { note: { type: "string" } }, required: ["note"] },
+          },
         },
-      },
-      moreTriggers: [
         { id: "daily", on: { type: "schedule", cron: "0 7 * * 1-5", skipHolidays: true } },
       ],
       steps: [NOTIFY("{{trigger.note}} at {{trigger.scheduledAt}}")],
     };
-    const ok = validateWorkflow(wf);
+    const ok = validateProcess(wf);
     expect(ok.errors).toEqual([]);
-    const schema = triggerSchema(Workflow.parse(wf), {});
+    const schema = processTriggerSchema(Process.parse(wf), {});
     expect(schema?.required).toEqual([]);
-    const bad = validateWorkflow({ ...wf, steps: [NOTIFY("{{trigger.nope}}")] });
+    const bad = validateProcess({ ...wf, steps: [NOTIFY("{{trigger.nope}}")] });
     expect(bad.errors.map((e) => e.code)).toEqual(["template_path"]);
   });
 
   it("checks every trigger: ids unique, People named, a fixed confirmation, handoff references", () => {
     const wf = {
-      schemaVersion: 3,
-      trigger: {
-        id: "t1",
-        on: {
-          type: "message",
-          channels: ["email", "email"],
-          from: {},
-          reply: { confirm: "Got {{trigger.channel}}" },
+      schemaVersion: 4,
+      triggers: [
+        {
+          id: "t1",
+          on: {
+            type: "message",
+            channels: ["email", "email"],
+            from: {},
+            reply: { confirm: "Got {{trigger.channel}}" },
+          },
         },
-      },
-      moreTriggers: [
         { id: "t1", on: { type: "handoff", from: { agent: "intake" } } },
         {
           id: "t3",
@@ -182,7 +181,7 @@ describe("trigger validation", () => {
         sources: "{{trigger.sources}}",
       },
     };
-    const codes = validateWorkflow(wf).errors.map((e) => `${e.stepId}:${e.code}`);
+    const codes = validateProcess(wf).errors.map((e) => `${e.stepId}:${e.code}`);
     expect(codes).toEqual(
       expect.arrayContaining([
         "t1:duplicate_id",
@@ -203,11 +202,14 @@ describe("Sloan's handoff", () => {
         slug: "chat",
         enabled: true,
         workflow: Workflow.parse({
-          schemaVersion: 3,
-          trigger: {
-            id: "t",
-            on: { type: "message", channels, from: { clientRoles: ["client_admin"] } },
-          },
+          schemaVersion: 5,
+          triggers: [
+            {
+              id: "t",
+              on: { type: "message", channels, from: { clientRoles: ["client_admin"] } },
+            },
+          ],
+          outputs: [],
           steps: [],
         }),
       },

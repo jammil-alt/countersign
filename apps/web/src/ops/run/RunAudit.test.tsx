@@ -173,6 +173,15 @@ describe("run view: the owner's check on each step", () => {
     const look = await screen.findByTestId(`ops-run-owner-check-${R(1)}`);
     expect(look).toHaveTextContent("Owner checked: nothing off");
     expect(look).toHaveAttribute("data-result", "clean");
+    // Owner, 2026-11-27: a clean step says so quietly, its attempts folded under the line; a step
+    // the supervisor reviewed says what it verified and decided.
+    expect(screen.getByTestId(`ops-run-supervisor-${R(11)}-quiet`)).toHaveTextContent(
+      "Checked by rules: no issues",
+    );
+    expect(screen.queryByTestId(`ops-run-supervisor-${R(12)}`)).toBeNull();
+    expect(screen.getByTestId(`ops-run-supervisor-${R(13)}-verified`)).toHaveTextContent(
+      "Verified Rules flagged total 4× its usual · Reviewed",
+    );
     expect(screen.getByTestId(`ops-run-owner-check-${R(2)}`)).toHaveTextContent(
       "Not watched: the owner's review is off for this step",
     );

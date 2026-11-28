@@ -4,12 +4,12 @@
 // which of the file's headers each expected column took, what is missing, the headers no column
 // took and the first rows. Nothing is stored: the sample never becomes a client's document.
 // Back office only.
-import type { ProcessAgentBundle, ReadTableSampleView } from "@countersign/core";
+import type { ReadTableSampleView } from "@countersign/core";
 import { useRef, useState } from "react";
 import { apiRoutes } from "../../api/routes";
 import { Badge, Button, cx } from "../../ui/primitives";
 import { errorText, useAction } from "../agents/ui";
-import type { Process, Step } from "./model";
+import type { Process, ProcessAgentBundle, Step } from "./model";
 
 type SkillStep = Extract<Step, { kind: "skill" }>;
 

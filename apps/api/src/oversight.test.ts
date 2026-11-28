@@ -25,6 +25,7 @@ import {
   type ApiHarness,
   admin,
   createApiHarness,
+  ended,
   FakeWorkflowStep,
   OPERATOR,
 } from "./api.test-helper";
@@ -57,26 +58,31 @@ function bundle(): AgentBundle {
         slug: "fix-record",
         name: "Fix a record",
         workflow: {
-          schemaVersion: 3,
-          trigger: {
-            id: "trg-manual",
-            on: {
-              type: "manual",
-              input: {
-                type: "object",
-                properties: { id: { type: "string" }, amount: { type: "string" } },
+          schemaVersion: 5,
+          triggers: [
+            {
+              id: "trg-manual",
+              on: {
+                type: "manual",
+                input: {
+                  type: "object",
+                  properties: { id: { type: "string" }, amount: { type: "string" } },
+                },
               },
             },
-          },
+          ],
+          outputs: [{ id: "out-done", name: "Done", kind: "nothing" }],
           steps: [
             {
               id: "update",
               name: "Update the record",
-              kind: "action",
-              tool: TESTKIT_UPDATE_TOOL,
+              checks: { approval: { required: "required" } },
+              kind: "do",
+              doneBy: "rules",
+              uses: { type: "action", action: TESTKIT_UPDATE_TOOL },
               input: { id: "{{trigger.id}}", amount: "{{trigger.amount}}" },
-              approval: { required: "required" },
             },
+            { id: "end", kind: "end", name: "Done", outputs: ["out-done"] },
           ],
         },
       },
@@ -131,30 +137,36 @@ function billBundle(review: "checkpoints" | "failures"): AgentBundle {
         slug: "bill-invoice",
         name: "Bill an invoice",
         workflow: {
-          schemaVersion: 3,
-          trigger: {
-            id: "trg-bill",
-            on: {
-              type: "manual",
-              input: { type: "object", properties: { note: { type: "string" } } },
+          schemaVersion: 5,
+          triggers: [
+            {
+              id: "trg-bill",
+              on: {
+                type: "manual",
+                input: { type: "object", properties: { note: { type: "string" } } },
+              },
             },
-          },
+          ],
+          outputs: [{ id: "out-done", name: "Done", kind: "nothing" }],
           steps: [
             {
               id: "read",
               name: "Read the invoice",
-              kind: "skill",
-              skill: READ_INVOICE.id,
+              kind: "do",
+              doneBy: "ai",
+              uses: { type: "skill", skill: "test.read-invoice" },
               input: { note: "{{trigger.note}}" },
             },
             {
               id: "bill",
               name: "Create the bill",
-              kind: "action",
-              tool: TESTKIT_UPDATE_TOOL,
+              checks: { approval: { required: "required" } },
+              kind: "do",
+              doneBy: "rules",
+              uses: { type: "action", action: TESTKIT_UPDATE_TOOL },
               input: { id: "r1", amount: "{{steps.read.output.total}}" },
-              approval: { required: "required" },
             },
+            { id: "end", kind: "end", name: "Done", outputs: ["out-done"] },
           ],
         },
       },
@@ -246,9 +258,7 @@ describe.skipIf(!h)("run oversight through the API's ports", () => {
     });
     const approved: string[] = [];
     const step = new FakeWorkflowStep(approving(approved));
-    expect(await executeRun(deps(model), params, cloudflareStepRunner(step))).toEqual({
-      status: "succeeded",
-    });
+    expect(await executeRun(deps(model), params, cloudflareStepRunner(step))).toEqual(ended());
     const actions = await H.t.db
       .select()
       .from(externalAction)
@@ -306,9 +316,7 @@ describe.skipIf(!h)("run oversight through the API's ports", () => {
       remember: [{ note: "This client types amounts with a comma" }],
     });
     const step = new FakeWorkflowStep(approving([]));
-    expect(await executeRun(deps(model), params, cloudflareStepRunner(step))).toEqual({
-      status: "succeeded",
-    });
+    expect(await executeRun(deps(model), params, cloudflareStepRunner(step))).toEqual(ended());
 
     // Pinned on the run, reviewed on the owner's model, with its notes and its memory as data.
     const [pinned] = await H.t.db
@@ -391,7 +399,7 @@ describe.skipIf(!h)("run oversight through the API's ports", () => {
     });
     expect(
       await executeRun(deps(model), params, cloudflareStepRunner(new FakeWorkflowStep())),
-    ).toEqual({ status: "succeeded" });
+    ).toEqual(ended());
     expect(H.backend.writes.length).toBe(writes);
     const actions = await H.t.db
       .select()
@@ -471,7 +479,7 @@ describe.skipIf(!h)("run oversight through the API's ports", () => {
       },
     ]);
     const { params, result, seen } = await billRun(clerk, model);
-    expect(result).toEqual({ status: "succeeded" });
+    expect(result).toEqual(ended());
     expect(model.remaining).toBe(0);
     // One proposal, with the corrected total: what the approver signed.
     const actions = await H.t.db
@@ -512,7 +520,7 @@ describe.skipIf(!h)("run oversight through the API's ports", () => {
     const { agentId: clerk } = await install("failures-clerk", billBundle("failures"));
     const model = new FakeModel([{ toolUse: { name: "finish", input: { total: "112.50" } } }]);
     const { params, result } = await billRun(clerk, model);
-    expect(result).toEqual({ status: "succeeded" });
+    expect(result).toEqual(ended());
     // The reading's call only.
     expect(model.requests).toHaveLength(1);
     const rows = await H.t.db

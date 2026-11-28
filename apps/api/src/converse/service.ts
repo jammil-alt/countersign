@@ -20,7 +20,7 @@ import {
 } from "@countersign/agents";
 import { newReplyTag } from "@countersign/connectors";
 import {
-  type AnyAgentBundle,
+  type AgentBundle,
   CONVERSE_CHANNEL_WORDS,
   CONVERSE_FIXED_INPUTS,
   type ConverseAnswer,
@@ -36,6 +36,7 @@ import {
   DEFAULT_QUIET_HOURS,
   Decimal,
   effectiveMode,
+  emailSubjectFrom,
   fixedInputProblem,
   inWhatsAppWindow,
   isPlainObject,
@@ -614,7 +615,11 @@ export function conversePort(deps: ConverseDeps): ConversePort {
     const { run: info } = place;
     if (info.mode === "test") {
       return {
-        assignee: { assigneeRole: "operator" as const, assigneeUserId: null },
+        // Owner, 2026-11-27: with people in the test, the operator who started it.
+        assignee: {
+          assigneeRole: "operator" as const,
+          assigneeUserId: info.testPeople?.by ?? null,
+        },
         route: { source: "default" as const, ruleId: null },
       };
     }
@@ -971,7 +976,9 @@ export function conversePort(deps: ConverseDeps): ConversePort {
       // up where it stopped and a `retry_with` starts a fresh one (docs/plan.md §1.66).
       const key = req.keyNode ?? req.nodeId;
       const place = placeOf(req, key, req.approval);
-      const test = info.mode === "test";
+      // Owner, 2026-11-27: a test run with people in it talks as a live run does; its messages go
+      // to the test person only (reach out's `attemptFrom`).
+      const test = info.mode === "test" && !info.testPeople;
 
       if (!test) {
         const existing = await rowsOf(info.tenantId, info.id, key);
@@ -1227,7 +1234,9 @@ export function conversePort(deps: ConverseDeps): ConversePort {
         escalateAfter: input.limits.waitPerReply,
         language: setup.language,
         message: { template: { en: opening, [setup.language]: opening } },
-        emailSubject: input.goal.slice(0, 200),
+        // One short line from the goal (staging, 2026-11-27: the whole compiled goal, line breaks
+        // and all, went over the send tool's 200 characters with a test's label and was refused).
+        emailSubject: emailSubjectFrom(input.goal),
         expectReply: true,
         timeout: input.limits.waitPerReply,
         urgentOutsideHours: false,
@@ -1459,7 +1468,7 @@ export function conversePort(deps: ConverseDeps): ConversePort {
       .from(run)
       .where(and(eq(run.id, info.id), eq(run.tenantId, info.tenantId)));
     if (!agentRow || !v || !tenantRow) return "the agent or its client is gone";
-    const bundle: AnyAgentBundle = v.bundle;
+    const bundle: AgentBundle = v.bundle;
     const people = (agentRow.people ?? {}) as Record<string, PeopleBinding>;
     let candidates: ContactRow[] = [];
     let conditions: ReachConditions = {};

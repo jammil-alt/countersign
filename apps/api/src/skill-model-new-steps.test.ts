@@ -13,8 +13,7 @@ import { seed } from "@countersign/db/seed";
 import { FakeModel, type LlmRequest } from "@countersign/llm";
 import { and, eq, isNull } from "drizzle-orm";
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
-import { type ApiHarness, createApiHarness, OPERATOR } from "./api.test-helper";
-import { stepModelAnswer } from "./builder-v5.test-helper";
+import { type ApiHarness, createApiHarness, OPERATOR, v5Workflow } from "./api.test-helper";
 
 // biome-ignore lint/suspicious/noExplicitAny: response bodies are read loosely in tests.
 const j = (v: unknown) => v as any;
@@ -26,20 +25,22 @@ afterAll(() => h?.close());
 /** A step reading a vendor's quote with `materials.read-quote`, a task skill that writes. */
 const READ_QUOTE_STEP = {
   id: "read-quote",
-  kind: "skill",
   name: "Read the vendor's quote",
-  skill: "materials.read-quote",
+  kind: "do",
+  doneBy: "ai",
+  uses: { type: "skill", skill: "materials.read-quote" },
   input: { quoteRequestId: "{{trigger.quoteRequestId}}", text: "{{trigger.text}}" },
 };
 
 /** A Save to records-free change on the testkit, approval on: nothing new-step checks refuse. */
 const NOTE_STEP = {
   id: "note",
-  kind: "write",
   name: "Note it on the record",
-  tool: TESTKIT_UPDATE_TOOL,
-  input: { id: "r1", name: "Quote read" },
   checks: { approval: { required: "required" } },
+  kind: "do",
+  doneBy: "rules",
+  uses: { type: "action", action: TESTKIT_UPDATE_TOOL },
+  input: { id: "r1", name: "Quote read" },
 };
 
 /** A v4 agent with one manual process of `steps`, listing `skills`. */
@@ -63,11 +64,7 @@ function bundleOf(steps: unknown[], skills: string[] = []) {
       {
         slug: "read",
         name: "Read a quote",
-        workflow: {
-          schemaVersion: 4,
-          triggers: [{ id: "t", on: { type: "manual", input: {} } }],
-          steps,
-        },
+        workflow: v5Workflow(steps, { triggers: [{ id: "t", on: { type: "manual", input: {} } }] }),
       },
     ],
   };
@@ -211,32 +208,31 @@ describe.skipIf(!h)("new steps in a first version", () => {
   });
 
   it("leaves skills that write and the splits' hidden AI out of what the Builder is offered", async () => {
-    model.push(
-      stepModelAnswer({
-        toolUse: {
-          name: "submit_draft",
-          input: {
-            summary: "It reads a vendor's quote and extracts the document.",
-            gaps: [],
-            slug: "builder-reader",
-            startFromTemplate: null,
-            bundle: bundleOf(
-              [
-                READ_QUOTE_STEP,
-                {
-                  id: "extract",
-                  kind: "write",
-                  name: "Extract the quote document",
-                  tool: "docs.extract",
-                  input: { documentId: "{{trigger.documentId}}" },
-                },
-              ],
-              ["materials.read-quote"],
-            ),
-          },
+    model.push({
+      toolUse: {
+        name: "submit_draft",
+        input: {
+          summary: "It reads a vendor's quote and extracts the document.",
+          gaps: [],
+          slug: "builder-reader",
+          startFromTemplate: null,
+          bundle: bundleOf(
+            [
+              READ_QUOTE_STEP,
+              {
+                id: "extract",
+                name: "Extract the quote document",
+                kind: "do",
+                doneBy: "rules",
+                uses: { type: "action", action: "docs.extract" },
+                input: { documentId: "{{trigger.documentId}}" },
+              },
+            ],
+            ["materials.read-quote"],
+          ),
         },
-      }),
-    );
+      },
+    });
     const res = await H.call(OPERATOR, "POST", "/api/ops/agents/draft", {
       description: "Read vendors' quotes",
       clientId: H.A.tenantId,

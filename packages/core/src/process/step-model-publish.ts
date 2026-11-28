@@ -16,12 +16,8 @@ import { isAlwaysSigned, type ToolSpec } from "../schemas/tool";
 import { mergedAction } from "../steps/catalog";
 import type { Workflow as StepWorkflow } from "../steps/schema";
 import { eachStep } from "../steps/walk";
-import {
-  type CheckSink,
-  checkEntityOff,
-  type ValidationContext,
-  VERB_NOUN,
-} from "../workflow/validate";
+import { hasTemplate } from "../template/template";
+import { lookupSkill } from "../template/typer";
 import {
   ACCOUNTING_CONNECTORS,
   type ActionBindings,
@@ -30,6 +26,15 @@ import {
   resolveActionConnector,
   type WriteAction,
 } from "./actions";
+import {
+  type CheckSink,
+  checkEntityOff,
+  checkFixed,
+  type ValidationContext,
+  VERB_NOUN,
+  validCron,
+  validTimezone,
+} from "./checks";
 import type { ProcessValidationCode, ProcessValidationContext } from "./validate";
 import { approvalLoosenings, type Loosening } from "./validate";
 
@@ -163,6 +168,102 @@ export function stepModelPublishErrors(
     if ((o.kind !== "write" && o.kind !== "save") || !o.action) continue;
     check(o.id, o.action.action, o.action.input, o.checks?.approval, "action.action");
   }
+  return errors;
+}
+
+/**
+ * Input that becomes instructions (a call's purpose, its opening) is written in the step, never
+ * filled from a template (invariant 9): a Do step's action is held to its tool's `fixedInputs`,
+ * at every save and publish, as a v4 write step's was.
+ */
+export function stepModelFixedInputErrors(
+  workflow: StepWorkflow,
+  ctx: Pick<ValidationContext, "tools" | "skills">,
+): StepModelPublishError[] {
+  const errors: StepModelPublishError[] = [];
+  const sink: CheckSink = {
+    add: (stepId, field, code, message) =>
+      errors.push({ stepId: stepId ?? "", field, code: code as ProcessValidationCode, message }),
+  };
+  eachStep(workflow.steps, ({ step }) => {
+    if (step.kind !== "do") return;
+    // A contact's goal is the model's instruction: written in the step, never filled from a template.
+    if (step.contact && hasTemplate(step.contact.goal)) {
+      sink.add(
+        step.id,
+        "contact.goal",
+        "input_not_fixed",
+        "write goal in the step: it becomes instructions, so it can't come from a template",
+      );
+    }
+    if (step.uses?.type === "action") {
+      checkFixed(sink, step.id, step.input, ctx.tools?.[step.uses.action]?.fixedInputs);
+    } else if (step.uses?.type === "skill") {
+      checkFixed(sink, step.id, step.input, lookupSkill(step.uses.skill, ctx)?.fixedInputs);
+    }
+  });
+  return errors;
+}
+
+/** A schedule that can't start: its cron isn't five fields, or its zone is unknown. */
+export function stepModelScheduleErrors(
+  workflow: Pick<StepWorkflow, "triggers">,
+): StepModelPublishError[] {
+  const errors: StepModelPublishError[] = [];
+  for (const t of workflow.triggers) {
+    if (t.on.type !== "schedule") continue;
+    if (!validCron(t.on.cron)) {
+      errors.push({
+        stepId: t.id,
+        field: "on.cron",
+        code: "invalid_cron",
+        message: "a schedule needs five cron fields, e.g. 0 7 * * 1-5",
+      });
+    }
+    if (t.on.tz !== undefined && !validTimezone(t.on.tz)) {
+      errors.push({
+        stepId: t.id,
+        field: "on.tz",
+        code: "invalid_timezone",
+        message: `unknown timezone "${t.on.tz}"`,
+      });
+    }
+  }
+  return errors;
+}
+
+/**
+ * What the step builder's form leaves open, held at publish (one checker, 2026-11-28: the builder
+ * shows the server's issues, so these were the builder's alone): a Fork's path with no name, a For
+ * each with no list to go through.
+ */
+// DECISION: here, not in `steps.validateWorkflow`, which the engine also runs when it loads a
+// version: a live version with an unnamed path still runs (invariant 3); only publishing holds it.
+export function stepModelFormErrors(
+  workflow: Pick<StepWorkflow, "steps">,
+): StepModelPublishError[] {
+  const errors: StepModelPublishError[] = [];
+  eachStep(workflow.steps, ({ step }) => {
+    if (step.kind === "fork") {
+      const at = step.paths.findIndex((p) => !p.name.trim());
+      if (at >= 0) {
+        errors.push({
+          stepId: step.id,
+          field: `paths.${at}.name`,
+          code: "fork_path_unnamed",
+          message: "Name each path of this Fork.",
+        });
+      }
+    }
+    if (step.kind === "for_each" && !step.over.trim()) {
+      errors.push({
+        stepId: step.id,
+        field: "over",
+        code: "for_each_list_missing",
+        message: "Pick the list to go through.",
+      });
+    }
+  });
   return errors;
 }
 

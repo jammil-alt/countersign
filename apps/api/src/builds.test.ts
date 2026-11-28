@@ -1,17 +1,16 @@
 // Builds through the API (docs/plan.md §1.108), with scripted model answers: a template's build
 // from intake to live. Intake fills the brief, confirming it leaves its open questions as items,
-// fit-gap is written by the Builder and agreed, the draft is the Builder's own, the POC makes and
-// runs test cases, the client test publishes, forks and activates, QA is signed with a failing
-// check accepted, and go waits for the client's copy to be live. Only operators reach it, and an
+// fit-gap is written by the Builder and agreed, the draft is the Builder's own, and Publish
+// publishes the draft and makes the build live (owner, 2026-11-27: from the draft straight to
+// Publish; the POC test, client test and QA are refused). Only operators reach it, and an
 // operator sees a client's build only when it serves the client.
 import { TESTKIT_UPDATE_TOOL } from "@countersign/connectors";
 import type { BuildDetail } from "@countersign/core";
-import { agentVersion, run, tenant, testCase, testCaseResult, testSuiteRun } from "@countersign/db";
+import { agentVersion, build } from "@countersign/db";
 import { FakeModel, fakeMessage, type LlmRequest } from "@countersign/llm";
 import { desc, eq } from "drizzle-orm";
 import { afterAll, describe, expect, it, vi } from "vitest";
 import { admin, createApiHarness, OPERATOR, OTHER_OPERATOR } from "./api.test-helper";
-import { stepModelAnswer } from "./builder-v5.test-helper";
 
 // What reaches Sentry (a no-op here otherwise): a Builder failure must (QA on staging, 2026-11-17).
 const sentry = vi.hoisted(() => ({ captureException: vi.fn() }));
@@ -52,12 +51,12 @@ function editsDraft(text: string, fn: (d: Draft) => void) {
     const start = content.indexOf("<current_bundle>") + "<current_bundle>".length;
     const d = JSON.parse(content.slice(start, content.indexOf("</current_bundle>"))) as Draft;
     fn(d);
-    return stepModelAnswer({ toolUse: { name: "submit_turn", input: { text, bundle: d } } });
+    return { toolUse: { name: "submit_turn", input: { text, bundle: d } } };
   };
 }
 
 function draftAnswer() {
-  return stepModelAnswer({
+  return {
     toolUse: {
       name: "submit_draft",
       input: {
@@ -81,17 +80,20 @@ function draftAnswer() {
               slug: "main",
               name: "Review a record",
               workflow: {
-                schemaVersion: 4,
+                schemaVersion: 5,
                 triggers: [{ id: "t", on: { type: "manual", input: {} } }],
+                outputs: [{ id: "out-done", name: "Done", kind: "nothing" }],
                 steps: [
                   {
                     id: "update",
-                    kind: "write",
                     name: "Update the record",
-                    tool: TESTKIT_UPDATE_TOOL,
-                    input: { id: "r1", amount: "12.00" },
                     checks: { approval: { required: "required" } },
+                    kind: "do",
+                    doneBy: "rules",
+                    uses: { type: "action", action: TESTKIT_UPDATE_TOOL },
+                    input: { id: "r1", amount: "12.00" },
                   },
+                  { id: "end", kind: "end", name: "Done", outputs: ["out-done"] },
                 ],
               },
             },
@@ -99,7 +101,7 @@ function draftAnswer() {
         },
       },
     },
-  });
+  };
 }
 
 describe.skipIf(!h)("builds", () => {
@@ -173,14 +175,7 @@ describe.skipIf(!h)("builds", () => {
   it("takes a template from intake to live", async () => {
     let b = await ok("POST", "/api/ops/builds", { kind: "agent", title: "Record review" });
     expect(b.build).toMatchObject({ phase: "intake", status: "open", client: null });
-    expect(b.phases.map((p) => p.state)).toEqual([
-      "current",
-      "todo",
-      "todo",
-      "todo",
-      "todo",
-      "todo",
-    ]);
+    expect(b.phases.map((p) => p.state)).toEqual(["current", "todo", "todo"]);
     expect(b.gate.reasons).toHaveLength(4);
     const id = b.build.id;
 
@@ -373,226 +368,42 @@ describe.skipIf(!h)("builds", () => {
     expect(sent).toContain("- Read a vendor portal");
     expect(sent).toContain("Your price tolerance (Answer)");
 
-    // POC: the Builder plans the data, makes the cases; the gate waits for them to pass.
-    model.push(
-      turnAnswer({
-        text: "Three records will do.",
-        testPlan: {
-          datasets: [
-            {
-              id: "records",
-              name: "Records",
-              count: 3,
-              covers: "1 wrong amount",
-              source: "generate",
-            },
-          ],
-        },
-      }),
-    );
-    b = await ok("POST", `/api/ops/builds/${id}/phase`, { to: "poc" });
-    expect(b.build.testPlan.datasets).toHaveLength(1);
-    // The case names the draft's step by its id as stored (the Builder's "update" got a server
-    // id): a case naming a step the draft doesn't have is left out (BUILDER_QA AI-6).
-    const [drafted] = await H.t.db
-      .select({ bundle: agentVersion.bundle })
-      .from(agentVersion)
-      .where(eq(agentVersion.agentId, b.build.agentId as string))
-      .orderBy(desc(agentVersion.version))
-      .limit(1);
-    const draftedBundle = drafted?.bundle as {
-      workflows: { workflow: { steps: { id: string }[] } }[];
-    };
-    const stepId = draftedBundle.workflows[0]?.workflow.steps[0]?.id as string;
-    model.push({
-      toolUse: {
-        name: "submit_test_cases",
-        input: {
-          cases: [
-            {
-              name: "Wrong amount",
-              dataset: "records",
-              input: { workflow: "main", payload: {} },
-              expected: { [stepId]: {} },
-            },
-            { name: "Not a template case", dataset: "records", input: {}, expected: {} },
-          ],
-        },
-      },
-    });
-    b = await ok("POST", `/api/ops/builds/${id}/cases`);
-    expect(b.created).toBe(1);
-    expect(b.poc).toMatchObject({ mode: "suite", cases: 1, required: 1, passed: false });
-    expect(b.gate.reasons).toContain("The test cases haven't run yet.");
-
-    // Staging (2026-11-18, Sentry MEZONAS-API-7): the Builder proposes running them and the
-    // operator agrees; the suite starts in the Sandbox (the run route is a slow one, so the
-    // proposal calls its code directly).
-    const [b2] = await H.t.db
-      .select({ settings: tenant.settings })
-      .from(tenant)
-      .where(eq(tenant.id, H.B.tenantId));
-    await H.t.db
-      .update(tenant)
-      .set({ settings: { ...(b2?.settings as object), sandbox: true } })
-      .where(eq(tenant.id, H.B.tenantId));
-    model.push(
-      turnAnswer({
-        text: "The cases are made. I'd run them now.",
-        proposal: { summary: "Run the test cases", action: { do: "run_tests" } },
-      }),
-    );
-    b = await ok("POST", `/api/ops/builds/${id}/turns`, { text: "What's next?" });
-    const runIt = b.messages.at(-1);
-    expect(runIt?.proposal).toMatchObject({ state: "proposed", action: { do: "run_tests" } });
-    b = await ok("POST", `/api/ops/builds/${id}/messages/${runIt?.id}/proposal`, {
-      decide: "agree",
-    });
-    expect(b.messages.find((m) => m.id === runIt?.id)?.proposal).toMatchObject({
-      state: "agreed",
-    });
-    const started = await H.t.db
-      .select({ id: testSuiteRun.id })
-      .from(testSuiteRun)
-      .where(eq(testSuiteRun.targetId, b.build.agentId as string));
-    expect(started).toHaveLength(1);
-
-    // The suite passes (as the test bench writes it).
-    const [suite] = await H.t.db
-      .insert(testSuiteRun)
-      .values({
-        targetKind: "template",
-        targetId: b.build.agentId as string,
-        versionId: b.draft?.versionId as string,
-        status: "done",
-        total: 1,
-        passed: 1,
-        finishedAt: new Date(),
-      })
-      .returning();
-    await H.t.db.insert(testCaseResult).values({
-      suiteRunId: suite?.id as string,
-      testCaseId: (await caseIds(H, b.build.agentId as string))[0] as string,
-      status: "pass",
-    });
-    b = await ok("GET", `/api/ops/builds/${id}`);
-    expect(b.poc?.passed).toBe(true);
-    // Happy path first: open items don't hold the move into the client test (they hold QA).
-    expect(b.gate.reasons).toEqual([]);
-    for (const item of b.items) {
-      b = await ok("PATCH", `/api/ops/builds/${id}/items/${item.id}`, { state: "deferred" });
+    // Owner (2026-11-27): no phase after the draft. The POC test, client test and QA are refused
+    // in plain words, and so are their routes.
+    expect(b.gate).toEqual({ next: null, reasons: [] });
+    for (const to of ["poc", "client_test", "qa"]) {
+      const refused = await call("POST", `/api/ops/builds/${id}/phase`, { to });
+      expect(refused.status).toBe(409);
+      expect(
+        (refused.json as unknown as { error: { code: string; message: string } }).error,
+      ).toMatchObject({ code: "no_such_phase", message: expect.stringContaining("Publish") });
     }
-
-    // Client test: published, forked into A, its trial started (or an open item says why not).
-    expect((await call("POST", `/api/ops/builds/${id}/phase`, { to: "client_test" })).status).toBe(
-      409,
-    );
-    b = await ok("POST", `/api/ops/builds/${id}/client-test`, { clientId: H.A.tenantId });
-    expect(b.build).toMatchObject({ phase: "client_test", testClient: { id: H.A.tenantId } });
-    expect(b.build.testAgentId).not.toBe(b.build.agentId);
-    expect(b.clientTest).toMatchObject({ client: { id: H.A.tenantId }, writes: { rejected: 0 } });
-    expect(b.draft?.live).toBe(true);
-    // The copy's connection isn't bound at A yet: an open item says so, and the build is there.
-    // The step model (the Builder drafts v5): its publish checks don't check bindings yet, so the
-    // copy publishes and its trial is what can't start (stream I, Not done).
-    const publishItem = b.items.find((i) => i.title === "Publish the client's copy");
-    const trialItem = b.items.find((i) => i.title.startsWith("Start the trial"));
-    if (publishItem) {
-      expect(publishItem).toMatchObject({
-        state: "open",
-        detail: expect.stringContaining("does not validate"),
-      });
-    } else {
-      expect(trialItem).toMatchObject({
-        state: "open",
-        detail: expect.stringContaining("connector testkit is not bound"),
-      });
+    for (const [path, body] of [
+      ["client-test", { clientId: H.A.tenantId }],
+      ["qa", { sign: true }],
+      ["decision", { go: true }],
+    ] as const) {
+      expect((await call("POST", `/api/ops/builds/${id}/${path}`, body)).status).toBe(409);
     }
-    const copy = b.build.testAgentId as string;
-    const bound = await H.call(OPERATOR, "PATCH", `/api/ops/agents/${copy}/operation`, {
-      bindings: { testkit: H.A.connectionId },
-    });
-    expect(bound.status, JSON.stringify(bound.json)).toBe(200);
-    const page = (await H.call(OPERATOR, "GET", `/api/ops/agents/${copy}`)).json as {
-      latest: { id: string };
-    };
-    if (publishItem) {
-      const published = await H.call(
-        OPERATOR,
-        "POST",
-        `/api/ops/agents/${copy}/versions/${page.latest.id}/publish`,
-      );
-      expect(published.status, JSON.stringify(published.json)).toBe(200);
-    }
-    const startItem = publishItem ?? trialItem;
-    b = await ok("PATCH", `/api/ops/builds/${id}/items/${startItem?.id}`, { state: "done" });
-    expect(b.items.find((i) => i.id === startItem?.id)?.resolvedAt).toBeTruthy();
-    // A passing test run at A, as the test run route records one.
-    await H.t.db.insert(run).values({
-      tenantId: H.A.tenantId,
-      agentId: copy,
-      agentVersionId: page.latest.id,
-      workflowSlug: "main",
-      mode: "test",
-      status: "succeeded",
-    });
+    expect(b.build.phase).toBe("draft");
 
-    // Moving on before the trial is done needs a reason.
-    expect((await call("POST", `/api/ops/builds/${id}/phase`, { to: "qa" })).status).toBe(409);
-    b = await ok("POST", `/api/ops/builds/${id}/phase`, { to: "qa", reason: "Short trial agreed" });
-    expect(b.build.phase).toBe("qa");
-
-    // QA: a failing check is accepted with a reason, then QA is signed.
-    // Every write asks first, and a published version stays to go back to.
-    expect(b.qaChecks.find((c) => c.id === "approvals")?.state).toBe("pass");
-    expect(b.qaChecks.find((c) => c.id === "rollback")?.state).toBe("pass");
-    const failing = b.qaChecks.filter((c) => c.state === "fail").map((c) => c.id);
-    expect(failing).toContain("trial");
-    expect((await call("POST", `/api/ops/builds/${id}/qa`, { sign: true })).status).toBe(409);
-    for (const check of failing) {
-      b = await ok("POST", `/api/ops/builds/${id}/qa`, {
-        accept: check,
-        reason: "Agreed with the client",
-      });
-    }
-    expect(b.qaChecks.find((c) => c.id === "trial")).toMatchObject({
-      state: "accepted",
-      reason: "Agreed with the client",
-    });
-    b = await ok("POST", `/api/ops/builds/${id}/qa`, { sign: true });
-    expect(b.build.qa.signedAt).toBeTruthy();
-
-    // Go waits for the client's copy to be live.
-    const waiting = await call("POST", `/api/ops/builds/${id}/decision`, { go: true });
-    expect(waiting.status).toBe(409);
-    // docs/builder-plan.md §6: the copy carries the template's setup checklist, and its stages
-    // wait on it; we record the items the client agreed with us.
-    const held = await H.call(OPERATOR, "POST", `/api/ops/agents/${b.build.testAgentId}/stage`, {
-      to: "live",
-      reason: "Signed off on paper",
-    });
-    expect(held.status).toBe(409);
-    expect((held.json as { error: { code: string } }).error.code).toBe("setup_not_done");
-    const goLive = (await H.call(OPERATOR, "GET", `/api/ops/agents/${b.build.testAgentId}/go-live`))
-      .json as { goLive: { setup?: { items: { id: string; done: boolean }[] } } };
-    for (const item of goLive.goLive.setup?.items.filter((i) => !i.done) ?? []) {
-      const done = await H.call(
-        OPERATOR,
-        "POST",
-        `/api/ops/agents/${b.build.testAgentId}/setup/${item.id}`,
-        { value: "2" },
-      );
-      expect(done.status, JSON.stringify(done.json)).toBe(200);
-    }
-    const stage = await H.call(OPERATOR, "POST", `/api/ops/agents/${b.build.testAgentId}/stage`, {
-      to: "live",
-      reason: "Signed off on paper",
-    });
-    expect(stage.status, JSON.stringify(stage.json)).toBe(200);
-    b = await ok("POST", `/api/ops/builds/${id}/decision`, { go: true });
+    // Publish: the draft's latest version is published, and the build is live. Open items don't
+    // hold it, nor tests, a trial or QA.
+    expect(b.items.some((i) => i.state === "open")).toBe(true);
+    b = await ok("POST", `/api/ops/builds/${id}/publish`);
     expect(b.build.status).toBe("live");
+    expect(b.draft).toMatchObject({ version: 2, live: true });
     expect(b.phases.every((p) => p.state === "done")).toBe(true);
     expect(b.events.map((e) => e.kind)).toContain("decision");
+    expect(b.messages.at(-1)?.text).toContain("Published v2. This build is done.");
+    // A template's publish changes no client agent (invariant 11): none was forked.
+    const copies = await H.t.db
+      .select({ id: agentVersion.id })
+      .from(agentVersion)
+      .where(eq(agentVersion.basedOnTemplateVersionId, b.draft?.versionId as string));
+    expect(copies).toEqual([]);
+    // A live build publishes no more.
+    expect((await call("POST", `/api/ops/builds/${id}/publish`)).status).toBe(409);
 
     const board = (await H.call(OPERATOR, "GET", "/api/ops/builds?status=live")).json as {
       builds: { id: string }[];
@@ -600,9 +411,82 @@ describe.skipIf(!h)("builds", () => {
     expect(board.builds.map((x) => x.id)).toContain(id);
   });
 
+  it("is held from Publish by the draft's problems, and published from the steps page too", async () => {
+    let b = await ok("POST", "/api/ops/builds", { kind: "agent", title: "Published elsewhere" });
+    const id = b.build.id;
+    model.push(draftAnswer());
+    b = await ok("POST", `/api/ops/builds/${id}/draft-now`, {
+      description: "Update the record when asked. The client approves each change.",
+    });
+    expect(b.build.phase).toBe("draft");
+    const agentId = b.build.agentId as string;
+    // A draft with a problem: its workflow has lost its end.
+    const latest = (await H.call(OPERATOR, "GET", `/api/ops/agents/${agentId}`)).json as {
+      latest: { id: string; bundle: Draft };
+    };
+    const broken = structuredClone(latest.latest.bundle);
+    const flow = broken.workflows[0]?.workflow as Draft["workflows"][number]["workflow"];
+    flow.steps = flow.steps.filter((x) => x.kind !== "end");
+    const saved = await H.call(OPERATOR, "POST", `/api/ops/agents/${agentId}/versions`, {
+      bundle: broken,
+      parentVersionId: latest.latest.id,
+    });
+    expect(saved.status, JSON.stringify(saved.json)).toBe(200);
+    b = await ok("GET", `/api/ops/builds/${id}`);
+    expect(b.gate.reasons).toEqual([
+      expect.stringMatching(/^The draft has \d problems? to fix\.$/),
+    ]);
+    const held = await call("POST", `/api/ops/builds/${id}/publish`);
+    expect(held.status).toBe(409);
+    expect((held.json as unknown as { error: { code: string } }).error.code).toBe("gate");
+    // Fixed and published on the steps page (its own publish route): the build goes live too.
+    const again = await H.call(OPERATOR, "POST", `/api/ops/agents/${agentId}/versions`, {
+      bundle: latest.latest.bundle,
+      parentVersionId: (saved.json as { version: { id: string } }).version.id,
+    });
+    const vid = (again.json as { version: { id: string } }).version.id;
+    const published = await H.call(
+      OPERATOR,
+      "POST",
+      `/api/ops/agents/${agentId}/versions/${vid}/publish`,
+    );
+    expect(published.status, JSON.stringify(published.json)).toBe(200);
+    b = await ok("GET", `/api/ops/builds/${id}`);
+    expect(b.build.status).toBe("live");
+    expect(b.draft).toMatchObject({ versionId: vid, live: true });
+    expect(b.events.filter((e) => e.kind === "decision")).toHaveLength(1);
+  });
+
+  // Builds made before 2026-11-27 sit in the POC test, client test or QA: they read as their draft
+  // and are published from there.
+  it("reads a build stored in a retired phase as its draft, and publishes it from there", async () => {
+    let b = await ok("POST", "/api/ops/builds", { kind: "agent", title: "Made before" });
+    const id = b.build.id;
+    model.push(draftAnswer());
+    await ok("POST", `/api/ops/builds/${id}/draft-now`, {
+      description: "Update the record when asked. The client approves each change.",
+    });
+    await H.t.db.update(build).set({ phase: "qa" }).where(eq(build.id, id));
+    b = await ok("GET", `/api/ops/builds/${id}`);
+    expect(b.build.phase).toBe("draft");
+    expect(b.phases.map((p) => [p.phase, p.state])).toEqual([
+      ["intake", "done"],
+      ["fitgap", "done"],
+      ["draft", "current"],
+    ]);
+    const list = (await H.call(OPERATOR, "GET", "/api/ops/builds?status=open")).json as {
+      builds: { id: string; phase: string }[];
+    };
+    expect(list.builds.find((x) => x.id === id)?.phase).toBe("draft");
+    b = await ok("POST", `/api/ops/builds/${id}/publish`);
+    expect(b.build.status).toBe("live");
+    const [stored] = await H.t.db.select().from(build).where(eq(build.id, id));
+    expect(stored?.phase).toBe("draft");
+  });
+
   it("goes back with a reason, makes an item from a case once, and stops", async () => {
     let b = await ok("POST", "/api/ops/builds", { kind: "skill", title: "Apply volume tiers" });
-    expect(b.phases.map((p) => p.phase)).toEqual(["intake", "fitgap", "draft", "poc", "qa"]);
+    expect(b.phases.map((p) => p.phase)).toEqual(["intake", "fitgap", "draft"]);
     const id = b.build.id;
     const ref = { testCaseId: "00000000-0000-4000-8000-00000000c001" };
     await ok("POST", `/api/ops/builds/${id}/items`, { title: "Case fails", kind: "test", ref });
@@ -1257,11 +1141,3 @@ describe.skipIf(!h)("builds", () => {
     expect(sent).not.toContain("cut off");
   });
 });
-
-async function caseIds(H: NonNullable<typeof h>, templateId: string): Promise<string[]> {
-  const rows = await H.t.db
-    .select({ id: testCase.id })
-    .from(testCase)
-    .where(eq(testCase.targetId, templateId));
-  return rows.map((r) => r.id);
-}

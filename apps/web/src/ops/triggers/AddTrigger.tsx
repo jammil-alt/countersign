@@ -4,7 +4,7 @@
 // when that version is published. What the trigger may do is the workflow's; the trigger only
 // starts it.
 import {
-  type AnyAgentBundle,
+  type AgentBundle,
   CONTACT_RELATIONSHIPS,
   MESSAGE_CHANNELS,
   type MessageChannel,
@@ -76,7 +76,7 @@ export function AddTriggerForm({
   onAdd,
   onCancel,
 }: {
-  bundle: AnyAgentBundle;
+  bundle: AgentBundle;
   kind: TriggerKind;
   /** A client agent's client, for the agents a handoff can come from; none for a template. */
   clientId: string | null;

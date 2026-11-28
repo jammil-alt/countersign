@@ -7,10 +7,10 @@
 
 import {
   type AccountRequestPassedPayload,
-  type AnyAgentBundle,
-  type AnyBundleWorkflow,
+  type AgentBundle,
   addressedTo,
   allTriggers,
+  type BundleWorkflow,
   evaluateRules,
   eventRunId,
   type HandoffRunPayload,
@@ -47,8 +47,8 @@ export interface RoutableAgent {
   runStatus: string | null;
   liveVersionId: string | null;
   /** The bundle of `liveVersionId`. */
-  /** R3: its workflows may be v3 workflows or v4 processes. */
-  liveBundle: AnyAgentBundle | null;
+  /** Its workflows' triggers and steps. */
+  liveBundle: AgentBundle | null;
 }
 
 export interface RoutableEvent {
@@ -162,7 +162,7 @@ export interface RouteResult {
 }
 
 interface Live {
-  agent: RoutableAgent & { tenantId: string; liveVersionId: string; liveBundle: AnyAgentBundle };
+  agent: RoutableAgent & { tenantId: string; liveVersionId: string; liveBundle: AgentBundle };
 }
 
 /**
@@ -532,7 +532,7 @@ export async function handoffRunRequest(
   }
   if (!isRunnable(target)) return { refused: "not_started" };
   // DECISION: a hand-off starts the live version's first enabled workflow (an agent owns one
-  // process; a stored v3 agent may hold more), as packages/agents' `handoffAgents` lists it.
+  // process), as packages/agents' `handoffAgents` lists it.
   const wf = target.liveBundle.workflows.find((w) => w.enabled);
   if (!wf?.workflow.steps.some((s) => s.id === ask.to.step)) {
     return { refused: "unknown_step" };
@@ -590,7 +590,7 @@ export interface SelfHandoffAsk extends HandoffAsk {
 export async function selfHandoffRunRequest(
   ask: SelfHandoffAsk,
   self: (RoutableAgent & { slug: string }) | null,
-  bundle: AnyAgentBundle | null,
+  bundle: AgentBundle | null,
 ): Promise<{ run: RunRequest; workflowName: string } | { refused: HandoffRefusal }> {
   const depth = ask.from.depth + 1;
   if (depth > MAX_HANDOFF_DEPTH) return { refused: "too_deep" };
@@ -782,7 +782,7 @@ export function requestRun(input: {
   payload: unknown;
   mode?: "live" | "test";
   versionId?: string;
-  bundle?: AnyAgentBundle;
+  bundle?: AgentBundle;
   now?: number;
 }): RunRequest {
   const { agent } = input;
@@ -822,10 +822,10 @@ export function requestRun(input: {
   };
 }
 
-// ── R3: v4 processes (docs/plan.md §1.86, §9) ───────────────────────────────────────────────────
+// ── Triggers of a workflow ──────────────────────────────────────────────────────────────────
 
-/** Every trigger of a workflow: a v3 workflow's `trigger` and `moreTriggers`, a process's list (core). */
-export function triggersOfWorkflow(workflow: AnyBundleWorkflow["workflow"]): Trigger[] {
+/** Every trigger of a workflow (core). */
+export function triggersOfWorkflow(workflow: BundleWorkflow["workflow"]): Trigger[] {
   return allTriggers(workflow);
 }
 
@@ -834,7 +834,7 @@ export function triggersOfWorkflow(workflow: AnyBundleWorkflow["workflow"]): Tri
  * workflow's first (a test run of an event-started workflow runs as that event).
  */
 // v0.12 W2-E: a manual or command trigger among `moreTriggers` lets it start by hand too.
-export function handTrigger(workflow: AnyBundleWorkflow["workflow"]): Trigger {
+export function handTrigger(workflow: BundleWorkflow["workflow"]): Trigger {
   return (
     triggersOfWorkflow(workflow).find((t) => t.on.type === "manual" || t.on.type === "command") ??
     firstTrigger(workflow)
@@ -842,8 +842,8 @@ export function handTrigger(workflow: AnyBundleWorkflow["workflow"]): Trigger {
 }
 
 /** The workflow's first trigger (a process has at least one). */
-function firstTrigger(workflow: AnyBundleWorkflow["workflow"]): Trigger {
-  const first = workflow.schemaVersion === 3 ? workflow.trigger : workflow.triggers[0];
+function firstTrigger(workflow: BundleWorkflow["workflow"]): Trigger {
+  const first = workflow.triggers[0];
   if (!first) throw new Error("a process needs a trigger");
   return first;
 }

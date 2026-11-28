@@ -3,12 +3,12 @@
 
 import {
   actionWrote,
+  processes,
+  runErrorKey,
   type SkillDefinition,
   type ToolSpec,
-  type Workflow,
-  Workflow as WorkflowSchema,
 } from "@countersign/core";
-import type { ExecutorContext } from "./executor";
+import { type ExecutorContext, executeLoaded, type RunResult } from "./executor";
 import type {
   ActionStepRequest,
   AgentPort,
@@ -24,6 +24,7 @@ import type {
   StepRunStart,
   StepRunUpdate,
 } from "./ports";
+import type { StepRunner } from "./runner";
 
 export const RUN: RunInfo = {
   id: "0192f7a0-0000-7000-8000-00000000a001",
@@ -181,13 +182,31 @@ export class Harness {
   }
 }
 
-/** A parsed workflow (defaults applied), with a manual trigger unless given one. */
-export function wf(steps: unknown[], trigger?: unknown): Workflow {
-  return WorkflowSchema.parse({
-    schemaVersion: 3,
-    trigger: trigger ?? { id: "t", on: { type: "manual", input: {} } },
+/** A parsed process (defaults applied), with a manual trigger unless given one. */
+export function wf(steps: unknown[], trigger?: unknown): processes.Process {
+  return processes.Process.parse({
+    schemaVersion: 4,
+    triggers: [trigger ?? { id: "t", on: { type: "manual", input: {} } }],
     steps,
   });
+}
+
+/**
+ * Runs a process of engine steps as they are (the engines' tests build their steps directly):
+ * parsed first, as a stored one was when saved, so every default is there.
+ */
+export async function executeProcess(
+  runner: StepRunner,
+  ctx: ExecutorContext,
+  process: processes.Process,
+  trigger: unknown,
+): Promise<RunResult> {
+  const parsed = processes.Process.safeParse(process);
+  if (!parsed.success) {
+    const reason = `the process doesn't parse: ${parsed.error.issues[0]?.message}`;
+    return { status: "failed", reason, errorKey: runErrorKey({ tool: null, kind: "run" }, reason) };
+  }
+  return executeLoaded(runner, ctx, { process: parsed.data }, trigger);
 }
 
 export const SKILL: SkillDefinition = {

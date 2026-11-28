@@ -24,6 +24,13 @@ import { shortTime } from "../runs/format";
 import type { AccentTone } from "../ui/figures";
 import { Icon } from "../ui/icons";
 import { Badge, Button, ErrorNotice, Tag, type Tone } from "../ui/primitives";
+import {
+  AskedFieldsForm,
+  answerOf,
+  askedFields,
+  type FieldValues,
+  missingRequired,
+} from "./AskedFields";
 import { ChangeTables } from "./ChangePanel";
 import { changeHeading, connectorName, connectorOf, fieldLabel, formatValue } from "./change";
 import { LateAnswer } from "./LateAnswer";
@@ -138,6 +145,8 @@ const PLUMBING = new Set([
   "accessRelease",
   // §1.101: a lead's request: its choices are the quick answers; who asked is the lead.
   "choices",
+  // What a person step asks for: shown as the card's boxes.
+  "fields",
   "leadRequest",
   // A finding's fingerprint and its state (docs/plan.md §1.28): the steps show as a list.
   "fingerprint",
@@ -389,14 +398,27 @@ export function InboxCard({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>(null);
   const [answer, setAnswer] = useState("");
+  const [values, setValues] = useState<FieldValues>({});
   const i18n = useI18n();
   const { t } = i18n;
   const open = item.status === "open";
   const choices = item.kind === "request" ? quickAnswers(item.payload, i18n.locale) : null;
+  // Owner, 2026-11-28: a person step's fields, each handed on by its name.
+  const fields = item.kind === "request" ? askedFields(item.payload) : null;
+  const fieldsMissing = fields ? missingRequired(fields, values, choices !== null) : false;
   const undoable =
     !open && !!onUndo && !!item.deliverAfter && new Date(item.deliverAfter).getTime() > Date.now();
   const badge = statusBadge(item, outcome ?? null, i18n);
   const isChange = item.kind === "external_action";
+  // A test run's approval of a change: the same change, shown the same way, under its own title
+  // ("… approve it for the test (nothing is written)"). Staging, 2026-11-28: it showed only
+  // "Not written: true".
+  const isTestChange =
+    item.kind === "approval" &&
+    item.payload.testRun === true &&
+    typeof item.payload.tool === "string" &&
+    isPlainObject(item.payload.input);
+  const showsChange = isChange || isTestChange;
   const isRelease =
     typeof item.payload.accessRelease === "object" && item.payload.accessRelease !== null;
   const tool = typeof item.payload.tool === "string" ? item.payload.tool : null;
@@ -423,9 +445,9 @@ export function InboxCard({
         )
       : null;
   // A pack's review (e.g. the Materials match review) brings its own card and its own finish.
-  const ReviewCard = isChange ? null : packReviewCard(item.payload);
+  const ReviewCard = showsChange ? null : packReviewCard(item.payload);
   const facts =
-    isChange || ReviewCard
+    showsChange || ReviewCard
       ? []
       : (suggestionFacts(item.payload, i18n) ??
         // v0.12 W2-D: a change Sloan drafted, as its now and after lines.
@@ -484,7 +506,7 @@ export function InboxCard({
         ) : null}
       </div>
 
-      {isChange ? (
+      {showsChange ? (
         <>
           <ChangeTables
             before={item.payload.before}
@@ -531,7 +553,15 @@ export function InboxCard({
 
       <LateAnswer payload={item.payload} surface={surface} onUndo={onUndoChange ?? null} />
 
-      {item.kind === "request" && open && onResolve && !isRelease && !choices && !ReviewCard ? (
+      {item.kind === "request" && open && onResolve && !isRelease && fields && !ReviewCard ? (
+        <AskedFieldsForm
+          id={item.id}
+          fields={fields}
+          choices={choices !== null}
+          values={values}
+          onChange={setValues}
+        />
+      ) : item.kind === "request" && open && onResolve && !isRelease && !choices && !ReviewCard ? (
         <label className="ds-field" htmlFor={`answer-${item.id}`}>
           <span className="text-sm font-medium text-ink">{t("inbox.yourAnswer")}</span>
           <textarea
@@ -607,8 +637,13 @@ export function InboxCard({
                 key={c.value}
                 data-testid={`inbox-item-choice-${c.value}`}
                 variant="primary"
-                disabled={busy}
-                onClick={() => void resolve({ decision: "approve", answer: c.value })}
+                disabled={busy || fieldsMissing}
+                onClick={() =>
+                  void resolve({
+                    decision: "approve",
+                    answer: fields ? answerOf(fields, values, c.value) : c.value,
+                  })
+                }
               >
                 {c.label}
               </Button>
@@ -621,6 +656,7 @@ export function InboxCard({
             busy={busy}
             toolName={toolName}
             answer={answer}
+            form={fields ? { answer: answerOf(fields, values), ready: !fieldsMissing } : null}
             onResolve={(b) => void resolve(b)}
           />
         ) : null}
@@ -635,6 +671,7 @@ function Actions({
   busy,
   toolName,
   answer,
+  form,
   onResolve,
 }: {
   kind: string;
@@ -643,6 +680,8 @@ function Actions({
   busy: boolean;
   toolName: string | null;
   answer: string;
+  /** A request that asks for fields: what its boxes answer, and whether each one it needs is in. */
+  form?: { answer: Record<string, unknown>; ready: boolean } | null;
   onResolve: (body: ResolveInput) => void;
 }) {
   const { t } = useI18n();
@@ -679,8 +718,15 @@ function Actions({
         <Button
           data-testid="inbox-item-answer-send"
           variant="primary"
-          disabled={busy || answer.trim().length === 0}
-          onClick={() => onResolve({ decision: "approve", answer: answer.trim() })}
+          disabled={
+            busy ||
+            (form
+              ? !form.ready || Object.keys(form.answer).length === 0
+              : answer.trim().length === 0)
+          }
+          onClick={() =>
+            onResolve({ decision: "approve", answer: form ? form.answer : answer.trim() })
+          }
         >
           {t("inbox.sendAnswer")}
         </Button>

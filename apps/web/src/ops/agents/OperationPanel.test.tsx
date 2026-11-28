@@ -125,7 +125,7 @@ describe("the test run's input", () => {
       ...w,
       workflow: {
         ...w.workflow,
-        trigger: { id: "t1", on: { type: "event", event: "document.extracted" } },
+        triggers: [{ id: "t1", on: { type: "event", event: "document.extracted" } }],
       },
     })),
   } as typeof FORK_BUNDLE;

@@ -26,7 +26,9 @@ function plainBundle() {
         ...wf,
         workflow: {
           ...wf.workflow,
-          steps: wf.workflow.steps.filter((s) => s.kind === "notify"),
+          steps: wf.workflow.steps.filter(
+            (s) => s.kind === "end" || (s.kind === "do" && s.uses?.type === "tell"),
+          ),
         },
       },
     ],

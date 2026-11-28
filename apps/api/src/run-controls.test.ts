@@ -9,7 +9,15 @@ import { dbModelCalls } from "@countersign/agents";
 import { DEV_USER_HEADER } from "@countersign/auth";
 import { TESTKIT_UPDATE_TOOL } from "@countersign/connectors";
 import { AgentBundle, type AgentBundleInput, shortRunId } from "@countersign/core";
-import { connection, externalAction, inboxItem, run, stepRun, toolCall } from "@countersign/db";
+import {
+  connection,
+  externalAction,
+  inboxItem,
+  modelCall,
+  run,
+  stepRun,
+  toolCall,
+} from "@countersign/db";
 import { FakeModel } from "@countersign/llm";
 import { and, eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -17,6 +25,7 @@ import {
   type ApiHarness,
   admin,
   createApiHarness,
+  ended,
   FakeWorkflowStep,
   forbiddenKeys,
   OPERATOR,
@@ -40,10 +49,11 @@ function bundle(): AgentBundle {
     {
       id: "hello",
       name: "Say hello",
-      kind: "notify",
-      channel: "thread",
-      message: "Starting",
       client: { visible: false },
+      kind: "do",
+      doneBy: "rules",
+      uses: { type: "tell" },
+      tell: { to: ["client_admin"], channel: "inbox", message: "Starting" },
     },
     ...wf.workflow.steps,
   ];
@@ -188,7 +198,7 @@ describe.skipIf(!h)("run controls", () => {
       params,
       cloudflareStepRunner(new FakeWorkflowStep(approveAs(admin("a"), seen))),
     );
-    expect(result).toEqual({ status: "succeeded" });
+    expect(result).toEqual(ended());
     // Only the person step asked; the write ran under its approval, not a new one.
     expect(seen).toEqual(["approval"]);
     const written = H.backend.writes.slice(writesBefore);
@@ -237,15 +247,15 @@ describe.skipIf(!h)("run controls", () => {
       params,
       cloudflareStepRunner(new FakeWorkflowStep(approveAs(admin("a"), seen))),
     );
-    expect(result).toEqual({ status: "succeeded" });
+    expect(result).toEqual(ended());
     expect(seen).toEqual(["external_action", "approval"]);
     expect(H.backend.writes.at(-1)?.idempotencyKey).toBe(`${id}:update:0`);
   });
 
   it("asks again for a write signed after its run had ended, never carrying that signature", async () => {
     const first = await failedAtWrite();
-    const [ended] = await H.t.db.select().from(run).where(eq(run.id, first));
-    const finishedAt = ended?.finishedAt;
+    const [endedRun] = await H.t.db.select().from(run).where(eq(run.id, first));
+    const finishedAt = endedRun?.finishedAt;
     if (!finishedAt) throw new Error("the run has no end");
     // As a Worker from before a run's end closed its cards left it: signed once the run was over.
     await H.t.db
@@ -263,7 +273,7 @@ describe.skipIf(!h)("run controls", () => {
       params,
       cloudflareStepRunner(new FakeWorkflowStep(approveAs(admin("a"), seen))),
     );
-    expect(result).toEqual({ status: "succeeded" });
+    expect(result).toEqual(ended());
     expect(seen).toEqual(["external_action", "approval"]);
     expect(H.backend.writes.at(-1)?.idempotencyKey).toBe(`${id}:update:0`);
     const [stale] = await H.t.db
@@ -653,9 +663,15 @@ describe.skipIf(!h)("run controls", () => {
     expect(text).toContain("[card ending 1111]");
     expect(text).not.toContain("4111");
     expect(text).toContain("bytes not kept");
+    // One body per recorded call: this one, and the area owner's reviews of the runs that failed.
+    const kept = await H.t.db
+      .select({ id: modelCall.id })
+      .from(modelCall)
+      .where(eq(modelCall.tenantId, H.A.tenantId));
+    expect(kept.map((k) => k.id)).toContain(call.id);
     expect([
       ...(await H.objects.list({ prefix: `tenants/${H.A.tenantId}/model-calls/` })).objects,
-    ]).toHaveLength(1);
+    ]).toHaveLength(kept.length);
     // Never the portal's, and never another operator's client.
     expect((await H.call(admin("a"), "GET", `/api/ops/model-calls/${call.id}`)).status).toBe(403);
     expect((await H.call(user("a"), "GET", `/api/ops/runs/${r.id}/model-calls`)).status).toBe(403);

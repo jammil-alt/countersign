@@ -27,15 +27,18 @@ const sloanWorkflow = () => [
     slug: "take-request",
     name: "Take a request",
     workflow: {
-      schemaVersion: 3 as const,
-      trigger: {
-        id: "trg-sloan",
-        on: {
-          type: "message" as const,
-          channels: ["sloan" as const],
-          from: { clientRoles: ["client_admin" as const] },
+      schemaVersion: 5 as const,
+      triggers: [
+        {
+          id: "trg-sloan",
+          on: {
+            type: "message" as const,
+            channels: ["sloan" as const],
+            from: { clientRoles: ["client_admin" as const] },
+          },
         },
-      },
+      ],
+      outputs: [],
       steps: [],
     },
   },

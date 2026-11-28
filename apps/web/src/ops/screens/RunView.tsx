@@ -20,13 +20,13 @@ import {
   isPlainObject,
   itemFingerprint,
   noAnswerOf,
-  processes,
   routeOfRow,
   runErrorCode,
   runStartedBy,
   SKILL_KIND_LABEL,
   type StepModelFacts,
   shortRunId,
+  steps as stepModel,
   stepNodeOf,
   type TimelineChecks,
   thinkingOf,
@@ -81,18 +81,18 @@ import {
 import { OwnerCheckLines, RunAuditCard, RunExportCard } from "../run/RunAudit";
 import { ModelCalls, RunControls } from "../run/RunControls";
 import { OpsStepPanel } from "../run/StepPanel";
+import { SupervisionLines, stepSupervision } from "../run/Supervision";
 import { type RunWait, runWaiting, waitingOn, waitingWhat } from "../run/waiting";
 import {
   actionBadge,
   NOBODY_TO_ACT_WORDS,
   OVERSIGHT_CAUSE_WORDS,
   OWNER_ACTION_WORDS,
-  ownerLine,
   plural,
   runChip,
   runErrorParts,
 } from "../run/words";
-import { processStepNames, type StepNames, stepNames } from "../workflow/describe";
+import { type StepNames, workflowStepNames } from "../workflow/describe";
 
 type RunDetail = ResponseOf<typeof apiRoutes.opsRun>;
 type Action = RunDetail["actions"][number];
@@ -246,7 +246,7 @@ export function OpsRunScreen() {
   usePoll(calls.reload, going, 10_000, calls.loading);
   const [params, setParams] = useSearchParams();
 
-  // R8: the workflow that ran, a stored v3 workflow or a v4 process (§1.86).
+  // The workflow that ran, as stored.
   const workflow = useMemo(
     () => (data?.workflow ? ranWorkflow(data.workflow.definition) : null),
     [data?.workflow],
@@ -272,11 +272,7 @@ export function OpsRunScreen() {
     });
     reload();
   };
-  const names: StepNames = workflow
-    ? workflow.schemaVersion === 4
-      ? processStepNames(workflow)
-      : stepNames(workflow)
-    : new Map();
+  const names: StepNames = workflow ? workflowStepNames(workflow) : new Map();
   const rows = checklistRows({
     workflow,
     steps: data.steps,
@@ -638,7 +634,7 @@ function checksFor(
   if (noAnswer) out.noAnswer = noAnswer;
   if (!checkKindOf(s.nodeId)) {
     const id = stepNodeOf(s.nodeId).node.split(":").at(-1) ?? s.nodeId;
-    const step = workflow?.schemaVersion === 4 ? processes.findStep(workflow, id)?.step : undefined;
+    const step = workflow ? stepModel.findStep(workflow.steps, id) : undefined;
     const approval = approvalOf(s, data.inbox, step?.checks?.approval?.mode ?? "in_turn");
     if (approval) {
       out.approval = {
@@ -650,12 +646,13 @@ function checksFor(
       };
     }
     // Wave 5: the route an if took and why (by step name), and a failure the run carried on past.
-    if (step && workflow?.schemaVersion === 4) {
+    if (step && workflow) {
       const route = routeOfRow(
-        step,
+        // A Fork's paths are what a decision's route reads (core's `routeOfRow` calls it an if).
+        step.kind === "fork" ? { id: step.id, kind: "if", paths: step.paths } : step,
         s,
         (nodeId) => outcomes.get(nodeId),
-        (sid) => processes.findStep(workflow, sid)?.step.name,
+        (sid) => stepModel.findStep(workflow.steps, sid)?.name,
       );
       if (route) out.route = route;
       if (carriedOn(step, s.outcome)) out.carriedOn = true;
@@ -752,6 +749,7 @@ function Timeline({
     const decisions = s ? oversight.filter((d) => d.stepRunId === s.id) : [];
     // Wave 6: the owner's check on each attempt at this step (v4 read, skill and write steps).
     const ownerChecks = s ? (data.ownerChecks ?? []).filter((c) => c.nodeId === s.nodeId) : [];
+    const supervision = s ? stepSupervision(data, [s.id]) : null;
     const rowId = r.stepRunId ?? r.key;
     if (rowId === stepId) {
       panel = (
@@ -820,16 +818,28 @@ function Timeline({
           ) : null}
           {/* R8: what the owner did here (§10.14 "Agents and their owner"). */}
           <StepChecks checks={checks} testId={`ops-run-step-checks-${r.key}`} />
-          {decisions.map((d) => (
-            <p key={d.id} className="text-sm text-ink" data-testid={`ops-run-owner-${d.id}`}>
-              {ownerLine(d)}.
-            </p>
-          ))}
-          <OwnerCheckLines
-            checks={ownerChecks}
-            runId={run.id}
-            testId={`ops-run-owner-checks-${r.key}`}
-          />
+          {/* Owner, 2026-11-27: what the supervisor verified and decided here, in two lines;
+              each attempt's check folded under them. */}
+          {supervision ? (
+            <SupervisionLines
+              supervision={supervision}
+              run={data}
+              testId={`ops-run-supervisor-${r.key}`}
+              attempts={
+                <OwnerCheckLines
+                  checks={ownerChecks}
+                  runId={run.id}
+                  testId={`ops-run-owner-checks-${r.key}`}
+                />
+              }
+            />
+          ) : (
+            <OwnerCheckLines
+              checks={ownerChecks}
+              runId={run.id}
+              testId={`ops-run-owner-checks-${r.key}`}
+            />
+          )}
           {/* P-4: a conversation's transcript, each turn's model and cost (§1.66). */}
           {s?.conversation ? (
             <Transcript

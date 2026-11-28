@@ -56,7 +56,7 @@ export function problemAdvice(p: Pick<DraftProblem, "code" | "title">): ProblemA
       return {
         what: need ? sentence(need) : detail,
         fix: "Build the piece (a new tool or skill, which engineering builds), or put a person step here so someone on the client's team does it, or drop it from scope.",
-        cost: "A person step works today but takes a person's time on every case. Dropping it means these cases aren't handled by the agent. Building it takes engineering time before the POC test.",
+        cost: "A person step works today but takes a person's time on every case. Dropping it means these cases aren't handled by the agent. Building it takes engineering time before it can be published.",
       };
     }
     case "template_path": {
@@ -136,7 +136,7 @@ export function problemAdvice(p: Pick<DraftProblem, "code" | "title">): ProblemA
       return {
         what: `A step uses something the catalog doesn't have. ${detail}`,
         fix: "Pick a tool or skill the catalog has, or turn the step into a missing step for engineering to build.",
-        cost: "A missing step blocks the POC test until it is built or replaced.",
+        cost: "A missing step holds Publish until it is built or replaced.",
       };
     case "connection_missing":
     case "action_no_connection":

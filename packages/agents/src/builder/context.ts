@@ -67,8 +67,8 @@ export interface BuilderContext {
   people?: { name: string; relationship: string | null }[];
   /**
    * The step model (docs/step-model-plan.md §10, build item 9): what a v5 draft is built from, as
-   * the builder's pickers offer it. Absent: the API hasn't gathered it (a v4 path), and a v5 draft
-   * builds its catalog from `tools` alone.
+   * the builder's pickers offer it. Absent: the API hasn't gathered it, and a draft builds its
+   * catalog from `tools` alone.
    */
   stepModel?: StepModelContext;
 }

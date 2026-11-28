@@ -2,7 +2,7 @@
 // open, or the build's own draft edit), and two editor tabs. A save made from an older version
 // never quietly drops the change saved in between (docs/plan.md §1.153: "so another change is
 // never lost"). From the Builder QA (BUILDER_QA.md, PR #441): STATE-7. Scripted model answers only.
-import type { ProcessAgentBundle as AgentBundle } from "@countersign/core";
+import type { AgentBundle } from "@countersign/core";
 import { agentVersion } from "@countersign/db";
 import { FakeModel, type LlmRequest } from "@countersign/llm";
 import { desc, eq } from "drizzle-orm";

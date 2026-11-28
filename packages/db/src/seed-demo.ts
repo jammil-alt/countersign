@@ -45,14 +45,12 @@ import {
   GO_LIVE_SUBJECT,
   goLiveItem,
   type HealthSummary,
-  holdsProcess,
-  holdsStepModel,
   normalizeVendorName,
   type PermissionMatrix,
+  processes,
   runErrorKey,
   toNumeric,
   uuidv5,
-  validateBundle,
   type WeeklyStats,
   weekBounds,
   weeklySchedule,
@@ -60,7 +58,7 @@ import {
   zonedParts,
   zonedTimeToUtc,
 } from "@countersign/core";
-import { and, desc, eq, isNull, sql } from "drizzle-orm";
+import { and, eq, isNull, sql } from "drizzle-orm";
 import type { PgTable } from "drizzle-orm/pg-core";
 import { type Db, type Tx, withOperator } from "./client";
 import {
@@ -101,7 +99,7 @@ import {
   vendor,
   weeklyTable,
 } from "./schema";
-import { loadSeedTemplates, SEED_DIR_BEFORE_STEP_MODEL, SEED_NAMESPACE } from "./seed";
+import { SEED_NAMESPACE } from "./seed";
 
 // ── Who and what ─────────────────────────────────────────────────────────────────────────────────
 
@@ -1015,7 +1013,7 @@ async function validated(
   raw: unknown,
   what: string,
 ): Promise<{ bundle: AgentBundle; hash: string }> {
-  const result = validateBundle(raw);
+  const result = processes.validateBundle(raw);
   if (!result.valid || !result.value) {
     const errors = result.errors.map((e) => `${e.field}: ${e.message}`).join("; ");
     throw new Error(`seed-demo: ${what} is not a valid bundle: ${errors}`);
@@ -1031,11 +1029,11 @@ function billClerkV2(base: AgentBundle): AgentBundle {
     for (const raw of steps) {
       const s = raw as {
         id: string;
-        approval?: { required: string };
+        checks?: { approval?: { required: string } };
         paths?: { steps: unknown[] }[];
         otherwise?: { steps: unknown[] };
       };
-      if (s.id === "memo" && s.approval) s.approval.required = "not_required";
+      if (s.id === "memo" && s.checks?.approval) s.checks.approval.required = "not_required";
       for (const path of s.paths ?? []) walk(path.steps);
       if (s.otherwise) walk(s.otherwise.steps);
     }
@@ -1054,19 +1052,37 @@ function documentClerkV2(base: AgentBundle): unknown {
         slug: "find-support",
         name: "When a bill or purchase arrives",
         workflow: {
-          schemaVersion: 3,
-          trigger: {
-            id: "trg-transaction",
-            on: { type: "event", event: "transaction.created" },
-          },
+          schemaVersion: 5,
+          triggers: [
+            {
+              id: "trg-transaction",
+              on: { type: "event", event: "transaction.created" },
+            },
+          ],
+          outputs: [
+            {
+              id: "out-done",
+              name: "The work, done",
+              about: "The step does the work itself; nothing more is delivered.",
+              kind: "nothing",
+            },
+          ],
           steps: [
             {
               id: "find",
-              kind: "skill",
+              kind: "do",
+              doneBy: "ai",
+              uses: { type: "skill", skill: "docs.find-support" },
               name: "Find the document",
-              skill: "docs.find-support",
               input: { transactionId: "{{trigger.transactionId}}" },
               client: { visible: true, label: "Looked for the invoice or receipt" },
+            },
+            {
+              id: "finished",
+              kind: "end",
+              name: "Finished",
+              outputs: ["out-done"],
+              client: { visible: false },
             },
           ],
         },
@@ -1112,44 +1128,63 @@ function priceKeeperBundle(model: AgentBundle["definition"]["model"]): unknown {
         slug: PRICE_WF,
         name: "When an invoice shows a new price",
         workflow: {
-          schemaVersion: 3,
-          trigger: {
-            id: "trg-manual",
-            on: {
-              type: "manual",
-              input: {
-                type: "object",
-                properties: {
-                  documentId: { type: "string", format: "uuid" },
-                  itemId: { type: "string" },
-                  purchaseCost: { type: "string" },
+          schemaVersion: 5,
+          triggers: [
+            {
+              id: "trg-manual",
+              on: {
+                type: "manual",
+                input: {
+                  type: "object",
+                  properties: {
+                    documentId: { type: "string", format: "uuid" },
+                    itemId: { type: "string" },
+                    purchaseCost: { type: "string" },
+                  },
+                  required: ["documentId", "itemId", "purchaseCost"],
                 },
-                required: ["documentId", "itemId", "purchaseCost"],
               },
             },
-          },
+          ],
+          outputs: [
+            {
+              id: "out-done",
+              name: "The work, done",
+              about: "The step does the work itself; nothing more is delivered.",
+              kind: "nothing",
+            },
+          ],
           steps: [
             {
               id: "read",
-              kind: "skill",
+              kind: "do",
+              doneBy: "rules",
+              uses: { type: "action", action: "qbo.item.query" },
               name: "Read the item",
-              skill: "qbo.item.query",
               input: { ids: ["{{trigger.itemId}}"] },
               client: { visible: true, label: "Read the item in QuickBooks" },
             },
             {
               id: "update",
-              kind: "action",
+              kind: "do",
+              doneBy: "rules",
+              uses: { type: "action", action: "qbo.item.update_purchase_cost" },
               name: "Update the purchase cost",
-              tool: "qbo.item.update_purchase_cost",
               input: {
                 id: "{{steps.read.output.items.0.id}}",
                 syncToken: "{{steps.read.output.items.0.syncToken}}",
                 purchaseCost: "{{trigger.purchaseCost}}",
                 currency: "USD",
               },
-              approval: { required: "required" },
+              checks: { approval: { required: "required" } },
               client: { visible: true, label: "Updated the purchase cost" },
+            },
+            {
+              id: "finished",
+              kind: "end",
+              name: "Finished",
+              outputs: ["out-done"],
+              client: { visible: false },
             },
           ],
         },
@@ -1180,34 +1215,15 @@ async function seedAgents(tx: Tx, ctx: Ctx): Promise<Agents> {
       if (!trow?.live) {
         throw new Error(`seed-demo: the ${spec.template} template is missing; run the seed first`);
       }
-      // R9: the agents were forked weeks ago, before the templates' v4 versions, and their runs
-      // below are v3 runs: the fork is of the template's latest version of v3 workflows only.
-      // DECISION: the demo forks the template's newest version that holds no v4 process (the live
-      // one while it holds none), so its history reads as the platform ran then and the v4
-      // version is the update the operator is offered.
-      const vrows = await tx
+      // The agent was forked from the template's live version, as the API's fork copies it.
+      const [live] = await tx
         .select({ id: agentVersion.id, version: agentVersion.version, bundle: agentVersion.bundle })
         .from(agentVersion)
-        .where(eq(agentVersion.agentId, trow.id))
-        .orderBy(desc(agentVersion.version));
+        .where(eq(agentVersion.id, trow.live));
       template = trow;
-      const v3 = vrows.find((v) => !holdsProcess(v.bundle) && !holdsStepModel(v.bundle));
-      // Step model (docs/step-model-plan.md §12, R0): a platform template seeded since the purge
-      // holds only its v5 version; the agent then starts from its v1 as seeded before it (v3
-      // workflows), based on the template's live version, which is the update it is offered.
-      // DECISION: so the demo's weeks of v3 runs still read as the platform ran then. Wave 4
-      // rebuilds the demo in the step model with the rest of v3 and v4.
-      const before = v3
-        ? null
-        : (await loadSeedTemplates(SEED_DIR_BEFORE_STEP_MODEL)).find(
-            (t) => t.slug === spec.template,
-          );
-      const live = vrows.find((v) => v.id === trow.live);
       tv = must(
-        v3
-          ? { ...v3, bundle: v3.bundle as AgentBundle }
-          : before && live && { ...live, bundle: before.bundle as AgentBundle },
-        `${spec.template} version of v3 workflows`,
+        live && { ...live, bundle: live.bundle as AgentBundle },
+        `${spec.template} version`,
       );
     }
     const v1 = template && tv ? await validated(tv.bundle, `${spec.template} live version`) : null;
@@ -2408,7 +2424,7 @@ async function planBillClerk(ctx: Ctx, agents: Agents, books: Books, plan: Plan)
     });
     steps.push({
       node: "matched",
-      type: "fork",
+      type: "if",
       output: matched
         ? { pathId: "path-matched", pathName: "One bill matches" }
         : { pathId: "path-no-match", pathName: "Otherwise" },
@@ -2581,7 +2597,7 @@ async function planBillClerk(ctx: Ctx, agents: Agents, books: Books, plan: Plan)
     });
     steps.push({
       node: "decide",
-      type: "fork",
+      type: "if",
       output: nothing
         ? { pathId: "path-nothing", pathName: "Nothing to do" }
         : { pathId: "path-itemize", pathName: "Itemize it" },
@@ -2699,7 +2715,7 @@ async function planBillClerk(ctx: Ctx, agents: Agents, books: Books, plan: Plan)
     const failMsg = `QuickBooks says bill ${inv.spec.number} changed after it was read (SyncToken 0, now 1): nothing was written`;
     steps.push({
       node: "itemize",
-      type: "action",
+      type: "write",
       input: itemizeInput,
       output: waiting || rejected || failedWrite ? null : itemizeResult,
       summary: waiting
@@ -2723,7 +2739,7 @@ async function planBillClerk(ctx: Ctx, agents: Agents, books: Books, plan: Plan)
       const rel = (at: Date) => (at.getTime() - startedAt.getTime()) / 1000;
       later.push({
         node: "attach-needed",
-        type: "fork",
+        type: "if",
         output: attach
           ? { pathId: "path-attach", pathName: "Attach the invoice" }
           : { pathId: "path-attached", pathName: "Otherwise" },
@@ -2737,7 +2753,7 @@ async function planBillClerk(ctx: Ctx, agents: Agents, books: Books, plan: Plan)
         const attachSigned = plusMin(t, intIn(r, 1, 6));
         later.push({
           node: "attach",
-          type: "action",
+          type: "write",
           input: { documentId: inv.documentId, entity: "Bill", entityId: b.qboId },
           output: {
             attachableId: String(5000 + inv.index),
@@ -2792,7 +2808,7 @@ async function planBillClerk(ctx: Ctx, agents: Agents, books: Books, plan: Plan)
       }
       later.push({
         node: "memo-needed",
-        type: "fork",
+        type: "if",
         output: setMemo
           ? { pathId: "path-memo", pathName: "Note the invoice" }
           : { pathId: "path-has-memo", pathName: "Otherwise" },
@@ -2820,7 +2836,7 @@ async function planBillClerk(ctx: Ctx, agents: Agents, books: Books, plan: Plan)
         const memoSigned = automatic ? null : plusMin(t, intIn(r, 1, 5));
         later.push({
           node: "memo",
-          type: "action",
+          type: "write",
           input: { id: b.qboId, syncToken: "1", memo: memoText },
           output: {
             entity: "Bill",
@@ -2901,7 +2917,7 @@ async function planBillClerk(ctx: Ctx, agents: Agents, books: Books, plan: Plan)
         ? {
             reason: failMsg,
             nodeId: "itemize",
-            key: runErrorKey({ tool: "qbo.bill.update_lines", kind: "action" }, failMsg),
+            key: runErrorKey({ tool: "qbo.bill.update_lines", kind: "write" }, failMsg),
           }
         : undefined;
     const result = await addRun(ctx, plan, a, {
@@ -3107,7 +3123,11 @@ async function planPriceKeeper(ctx: Ctx, agents: Agents, books: Books, plan: Pla
   const step = bundle.workflows
     .find((w) => w.slug === PRICE_WF)
     ?.workflow.steps.find((s) => s.id === "update");
-  if (step?.kind !== "action" || step.tool !== PURCHASE_COST_TOOL) {
+  if (
+    step?.kind !== "do" ||
+    step.uses?.type !== "action" ||
+    step.uses.action !== PURCHASE_COST_TOOL
+  ) {
     throw new Error("seed-demo: the Price keeper has no purchase cost step");
   }
   // Three runs in its first week of trial, each after the invoice was read; Dana signed all three
@@ -3205,7 +3225,7 @@ async function planPriceKeeper(ctx: Ctx, agents: Agents, books: Books, plan: Pla
             error: {
               reason: failed,
               nodeId: "update",
-              key: runErrorKey({ tool: PURCHASE_COST_TOOL, kind: "action" }, failed),
+              key: runErrorKey({ tool: PURCHASE_COST_TOOL, kind: "write" }, failed),
             },
           }
         : {}),
@@ -3223,7 +3243,7 @@ async function planPriceKeeper(ctx: Ctx, agents: Agents, books: Books, plan: Pla
         },
         {
           node: "update",
-          type: "action",
+          type: "write",
           input,
           output: failed ? null : after,
           summary: failed
@@ -3280,9 +3300,9 @@ async function planPriceKeeper(ctx: Ctx, agents: Agents, books: Books, plan: Pla
 async function planSupervisor(ctx: Ctx, agents: Agents, plan: Plan): Promise<void> {
   const a = agents.supervisor;
   const { tenantId, id, admin } = ctx;
-  const bundle = must(a.versions[0], "supervisor v1").bundle;
+  const _bundle = must(a.versions[0], "supervisor v1").bundle;
 
-  // Each failure: the supervisor looked into it and reported it (the run-failed workflow).
+  // Each failure: the supervisor looked into it and reported it.
   for (const [i, f] of plan.failures.entries()) {
     const startedAt = plusSec(f.at, 25);
     const fingerprint = findingFingerprint({
@@ -3302,60 +3322,9 @@ async function planSupervisor(ctx: Ctx, agents: Agents, plan: Plan): Promise<voi
         : f.stepId === "bill"
           ? "QuickBooks timed out on one read. Nothing was written; a retry read the bill fine."
           : "The item was edited in QuickBooks between our read and our write, so QuickBooks refused the new purchase cost. Nothing was written. Check the item's cost in QuickBooks, then retry the run: it reads the item again.";
-    const result = await addRun(ctx, plan, a, {
-      key: `supervisor:failed:${i}`,
-      workflow: "run-failed",
-      trigger: {
-        triggerId: "trg-run-failed",
-        type: "event",
-        eventId: await id(`event:run.failed:${f.runId}`),
-        eventType: "run.failed",
-        payload: {
-          runId: f.runId,
-          agentId: f.agent.id,
-          agentVersionId: f.versionId,
-          workflowSlug: f.workflow,
-          stepId: f.stepId,
-          error: f.error,
-        },
-      },
-      startedAt,
-      status: "succeeded",
-      steps: [
-        {
-          node: "run-triage",
-          type: "skill",
-          skill: "supervisor.triage",
-          input: { event: "run.failed", facts: { runId: f.runId, stepId: f.stepId } },
-          output: { note, sources: [f.runId, ...f.sources] },
-          summary: `${labelOf(bundle, "run-failed", "run-triage")}: done`,
-          status: "succeeded",
-          start: 1,
-          took: 8,
-          model: {
-            calls: [
-              { tokensIn: 4100 + i * 230, tokensOut: 420 + i * 40, ms: 6800, stop: "end_turn" },
-            ],
-          },
-        },
-        {
-          node: "run-report",
-          type: "skill",
-          skill: "supervisor.report",
-          input: { event: "run.failed", note, sources: [f.runId, ...f.sources] },
-          output: {
-            fingerprint,
-            client: clientItem ? { itemId: clientItem, status: "opened" } : null,
-            operator: { itemId: operatorItem, status: "opened" },
-          },
-          summary: "Reported what needs a person",
-          status: "succeeded",
-          start: 10,
-          took: 1,
-        },
-      ],
-    });
-    const reportedAt = plusSec(must(result.finishedAt, "finish"), -1);
+    // The report is written by the platform when a run fails, not by a run of the supervisor's own
+    // (its one workflow is the chat, ARCHITECTURE §10.15).
+    const reportedAt = plusSec(startedAt, 12);
     const state = {
       kind: "run_failed",
       occurrences: 1,
@@ -3410,40 +3379,13 @@ async function planSupervisor(ctx: Ctx, agents: Agents, plan: Plan): Promise<voi
     });
   }
 
-  // The daily check, every morning at 8:00 in Chicago (its schedule trigger).
+  // The daily check, every morning at 8:00 in Chicago: its summary of the account.
   const localNow = zonedParts(ctx.now, ctx.profile.timezone);
   const firstDay = localNow.hour >= 9 ? 0 : 1;
   let latest: { at: Date; summary: HealthSummary } | null = null;
   for (let d = RUN_DAYS - 1; d >= firstDay; d--) {
     const scheduledAt = ctx.at({ d, h: 8, m: 0 });
     const summary = healthAt(plan, scheduledAt);
-    await addRun(ctx, plan, a, {
-      key: `supervisor:daily:${d}`,
-      workflow: "daily-check",
-      trigger: {
-        triggerId: "trg-daily",
-        type: "schedule",
-        cron: "0 8 * * *",
-        tz: ctx.profile.timezone,
-        scheduledAt: scheduledAt.toISOString(),
-        payload: { scheduledAt: scheduledAt.toISOString() },
-      },
-      startedAt: plusSec(scheduledAt, 4),
-      status: "succeeded",
-      steps: [
-        {
-          node: "check",
-          type: "skill",
-          skill: "supervisor.daily-check",
-          input: {},
-          output: summary,
-          summary: "Checked the account",
-          status: "succeeded",
-          start: 1,
-          took: 2,
-        },
-      ],
-    });
     latest = { at: plusSec(scheduledAt, 7), summary };
   }
   // The latest check's summary, as the overview reads it (`health.checked`, already dispatched).

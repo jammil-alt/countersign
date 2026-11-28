@@ -36,6 +36,7 @@ import {
   admin,
   allowForAgent,
   createApiHarness,
+  ended,
   FakeWorkflowStep,
   OPERATOR,
 } from "./api.test-helper";
@@ -162,30 +163,35 @@ describe.skipIf(!h)("Odoo through the API", () => {
           slug: "main",
           name: "Main",
           workflow: {
-            schemaVersion: 3,
-            trigger: { id: "trg-manual", on: { type: "manual", input: {} } },
+            schemaVersion: 5,
+            triggers: [{ id: "trg-manual", on: { type: "manual", input: {} } }],
+            outputs: [{ id: "out-done", name: "Done", kind: "nothing" }],
             steps: [
               {
                 id: "po",
                 name: "Read the purchase order",
-                kind: "skill",
-                skill: ODOO_TOOLS.get,
-                input: { model: "purchase.order", id: FAKE_ODOO.purchaseOrder },
                 client: { visible: true, label: "Read the purchase order" },
+                kind: "do",
+                doneBy: "rules",
+                uses: { type: "action", action: "odoo.record.get" },
+                input: { model: "purchase.order", id: FAKE_ODOO.purchaseOrder },
               },
               {
                 id: "confirm",
                 name: "Confirm it",
-                kind: "action",
-                tool: ODOO_TOOLS.confirmOrder,
+                client: { visible: true, label: "Confirmed the purchase order in Odoo" },
+                checks: { approval: { required: "required" } },
+                kind: "do",
+                doneBy: "rules",
+                uses: { type: "action", action: ODOO_TOOLS.confirmOrder },
                 input: {
                   model: "purchase.order",
                   id: "{{steps.po.output.record.id}}",
                   expectedTotal: "{{steps.po.output.record.fields.amount_total}}",
                   currency: "USD",
                 },
-                client: { visible: true, label: "Confirmed the purchase order in Odoo" },
               },
+              { id: "end", kind: "end", name: "Done", outputs: ["out-done"] },
             ],
           },
         },
@@ -236,9 +242,7 @@ describe.skipIf(!h)("Odoo through the API", () => {
       instances: H.instances,
       credentials: credentialsFor(H.db, { current: ENCRYPTION_KEY }),
     };
-    expect(await executeRun(deps, params, cloudflareStepRunner(approver))).toEqual({
-      status: "succeeded",
-    });
+    expect(await executeRun(deps, params, cloudflareStepRunner(approver))).toEqual(ended());
     expect(asked).toBe(1);
     expect(odoo.row("purchase.order", FAKE_ODOO.purchaseOrder)?.state).toBe("purchase");
     const [action] = await H.t.db

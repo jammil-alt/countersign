@@ -1,7 +1,7 @@
 // A step's setup in the side panel: its form by kind, and the Data tab next to it on every step
 // (docs/step-model-plan.md §5, "The Data tab"). The host owns the workflow; this edits one step.
 
-import { useState } from "react";
+import { type ReactNode, useState } from "react";
 import { DataTab, type LastRun } from "./DataTab";
 import { DoForm } from "./DoForm";
 import { EndCard } from "./EndCard";
@@ -12,6 +12,8 @@ import type { Step } from "./types";
 export interface StepEditorProps extends StepFormProps<Step> {
   /** The step's last test run, and the runs of the steps before it, when there are any. */
   runs?: Readonly<Record<string, LastRun>> | undefined;
+  /** Under the step's form on its Settings tab (the step builder's Supervisor field). */
+  settingsFooter?: ReactNode;
 }
 
 type Tab = "settings" | "data";
@@ -58,7 +60,10 @@ export function StepEditor(props: StepEditorProps) {
         ))}
       </fieldset>
       {tab === "settings" ? (
-        <StepForm {...props} />
+        <>
+          <StepForm {...props} />
+          {props.settingsFooter}
+        </>
       ) : (
         <DataTab
           step={step}

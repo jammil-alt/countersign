@@ -25,7 +25,8 @@ import type { Hono } from "hono";
 import { clientModels } from "../compliance/models";
 import { type AppEnv, type HandlerCtx, HttpError, mount } from "../http";
 import { meteredLlm } from "../metering";
-import { agentInScope, builderToolInputs } from "./ops-lineage";
+import type { Platform } from "../platform";
+import { agentInScope, builderToolInputs, draftEngineProcess } from "./ops-lineage";
 
 type Ctx = HandlerCtx<never>;
 
@@ -38,12 +39,8 @@ function transport(ctx: Pick<Ctx, "services" | "tx">, clientId: string | null): 
 }
 
 /** The process and its Reshape step, as the builder sent them. */
-function reshapeStep(body: { process: unknown; stepId: string }) {
-  const parsed = processes.Process.safeParse(body.process);
-  if (!parsed.success) {
-    throw new HttpError(422, "invalid_process", "the workflow doesn't read in the new format");
-  }
-  const process = parsed.data;
+function reshapeStep(platform: Platform, body: { process: unknown; stepId: string }) {
+  const process = draftEngineProcess(platform, body.process);
   const step = processes.findStep(process, body.stepId)?.step;
   if (step?.kind !== "skill" || !processes.isReshapeStep(step)) {
     throw new HttpError(422, "not_a_reshape_step", `no Reshape data step "${body.stepId}"`);
@@ -84,7 +81,7 @@ export function opsReshapeRoutes(app: Hono<AppEnv>): void {
   mount(app, routes.opsReshapePropose, async (ctx): Promise<ReshapeProposalView> => {
     const { body } = ctx;
     const row = await agentInScope(ctx, ctx.params.id);
-    const { process, step } = reshapeStep(body);
+    const { process, step } = reshapeStep(ctx.services.platform, body);
     // §1.164: a Read table step before it is typed by the agent's columns (the builder's draft).
     const typing = { ...(await typingFor(ctx, row, process)), agentSkills: body.agentSkills };
     const context = processes.reshapeContext(process, step.id, typing);
@@ -161,7 +158,7 @@ export function opsReshapeRoutes(app: Hono<AppEnv>): void {
   mount(app, routes.opsReshapeSample, async (ctx): Promise<ReshapeSampleView> => {
     const { tx, body } = ctx;
     const row = await agentInScope(ctx, ctx.params.id);
-    const { process, step } = reshapeStep(body);
+    const { process, step } = reshapeStep(ctx.services.platform, body);
     // §1.164: a Read table step before it is typed by the agent's columns (the builder's draft).
     const typing = { ...(await typingFor(ctx, row, process)), agentSkills: body.agentSkills };
     const context = processes.reshapeContext(process, step.id, typing);

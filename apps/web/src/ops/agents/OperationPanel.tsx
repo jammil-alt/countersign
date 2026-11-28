@@ -4,7 +4,7 @@
 // `ServicePanel` (Settings): its service name and description in the portal, its approver, the
 // connections it is bound to and their grants. None of this is a new version: it is the agent
 // row, logged.
-import { type AnyAgentBundle, connectionAccountName } from "@countersign/core";
+import { type AgentBundle, connectionAccountName } from "@countersign/core";
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import type { ResponseOf } from "../../api/client";
@@ -70,7 +70,7 @@ export function OperationPanel({
 }: {
   agent: AgentSummary;
   live: VersionSummary | null;
-  liveBundle: AnyAgentBundle | null;
+  liveBundle: AgentBundle | null;
   onChanged(): void;
 }) {
   const activation = useApi(apiRoutes.opsActivation, { params: { id: agent.id } });
@@ -168,7 +168,7 @@ function StatusCard({
   agent: AgentSummary;
   activation: ApiState<ResponseOf<typeof apiRoutes.opsActivation>>;
   live: VersionSummary | null;
-  liveBundle: AnyAgentBundle | null;
+  liveBundle: AgentBundle | null;
   onChanged(): void;
 }) {
   const action = useAction();
@@ -346,7 +346,7 @@ export function TestRun({
 }: {
   agent: AgentSummary;
   live: VersionSummary | null;
-  liveBundle: AnyAgentBundle | null;
+  liveBundle: AgentBundle | null;
   /** The activation check reloads, sees the run and polls it. */
   onStarted(): void;
 }) {

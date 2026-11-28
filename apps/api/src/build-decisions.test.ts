@@ -1,17 +1,16 @@
 // Decisions on a build (docs/builder-plan.md §4) through the API, with scripted model answers: the
 // Builder records its decisions in the fit-gap and while drafting, any decision can be talked
-// about, the risk of one on a step that writes is raised by code, the high-risk ones hold the move
-// from the POC into the client test until the operator marks them discussed or confirmed, and only
-// operators reach the status route.
+// about, the risk of one on a step that writes is raised by code, the high-risk ones are issues
+// until the operator marks them discussed or confirmed (they hold nothing: owner, 2026-11-27, a
+// build goes from its draft straight to Publish), and only operators reach the status route.
 import { TESTKIT_UPDATE_TOOL } from "@countersign/connectors";
 import { type BuildDetail, buildIssues } from "@countersign/core";
 import { buildEvent, build as buildTable } from "@countersign/db";
 import { FakeModel } from "@countersign/llm";
 import { desc, eq } from "drizzle-orm";
 import { afterAll, describe, expect, it, vi } from "vitest";
-import { admin, createApiHarness, OPERATOR } from "./api.test-helper";
+import { admin, createApiHarness, OPERATOR, v5Workflow } from "./api.test-helper";
 import { draftWritingSteps } from "./build/store";
-import { stepModelAnswer } from "./builder-v5.test-helper";
 
 for (const level of process.env.SHOW_LOGS ? [] : (["warn", "error"] as const)) {
   vi.spyOn(console, level).mockImplementation(() => {});
@@ -27,7 +26,7 @@ const turnAnswer = (input: Record<string, unknown>) => ({
 const reviewed = () => ({ toolUse: { name: "submit_review", input: { concerns: [] } } });
 
 function draftAnswer() {
-  return stepModelAnswer({
+  return {
     toolUse: {
       name: "submit_draft",
       input: {
@@ -61,17 +60,20 @@ function draftAnswer() {
               slug: "main",
               name: "Review a record",
               workflow: {
-                schemaVersion: 4,
+                schemaVersion: 5,
                 triggers: [{ id: "t", on: { type: "manual", input: {} } }],
+                outputs: [{ id: "out-done", name: "Done", kind: "nothing" }],
                 steps: [
                   {
                     id: "update",
-                    kind: "write",
                     name: "Update the record",
-                    tool: TESTKIT_UPDATE_TOOL,
-                    input: { id: "r1", amount: "12.00" },
                     checks: { approval: { required: "required" } },
+                    kind: "do",
+                    doneBy: "rules",
+                    uses: { type: "action", action: TESTKIT_UPDATE_TOOL },
+                    input: { id: "r1", amount: "12.00" },
                   },
+                  { id: "end", kind: "end", name: "Done", outputs: ["out-done"] },
                 ],
               },
             },
@@ -79,7 +81,7 @@ function draftAnswer() {
         },
       },
     },
-  });
+  };
 }
 
 describe.skipIf(!h)("decisions on a build", () => {
@@ -98,7 +100,7 @@ describe.skipIf(!h)("decisions on a build", () => {
     return typeof m?.content === "string" ? m.content : JSON.stringify(m?.content);
   };
 
-  it("are recorded by the Builder, raised by code and looked at before the client test", async () => {
+  it("are recorded by the Builder, raised by code and looked at before it is published", async () => {
     let b = await ok("POST", "/api/ops/builds", { kind: "agent", title: "Record review" });
     const id = b.build.id;
     model.push(
@@ -196,18 +198,18 @@ describe.skipIf(!h)("decisions on a build", () => {
     expect(post?.stepId).toBeTruthy();
     expect(post?.stepId).not.toBe("update");
 
-    // POC: the high-risk ones are issues, in the Builder's facts, and hold the client test.
-    model.push(turnAnswer({ text: "One record will do.", testPlan: { datasets: [] } }));
-    b = await ok("POST", `/api/ops/builds/${id}/phase`, { to: "poc" });
+    // The high-risk ones are issues and in the Builder's facts; they don't hold Publish.
+    model.push(turnAnswer({ text: "Two are worth a look." }));
+    b = await ok("POST", `/api/ops/builds/${id}/turns`, { text: "Anything to look at?" });
     expect(lastUserText()).toContain("High-risk decision not looked at yet [decision:post]");
-    expect(b.gate.reasons).toContain("2 high-risk decisions haven't been looked at yet.");
+    expect(b.gate.reasons).toEqual([]);
     expect(
       buildIssues(b)
         .filter((i) => i.source === "decision")
         .map((i) => [i.key, i.blocking]),
     ).toEqual([
-      ["decision:tol", true],
-      ["decision:post", true],
+      ["decision:tol", false],
+      ["decision:post", false],
     ]);
 
     // The operator marks them; only operators may, and only to their own statuses.
@@ -223,7 +225,7 @@ describe.skipIf(!h)("decisions on a build", () => {
       by: expect.any(String),
       at: expect.any(String),
     });
-    expect(b.gate.reasons).toContain("1 high-risk decision hasn't been looked at yet.");
+    expect(buildIssues(b).filter((i) => i.source === "decision")).toHaveLength(1);
     b = await ok("PATCH", path("post"), { status: "discussed" });
     expect(b.gate.reasons.join(" ")).not.toContain("high-risk");
     expect(buildIssues(b).some((i) => i.source === "decision")).toBe(false);
@@ -380,22 +382,27 @@ describe.skipIf(!h)("decisions on a build", () => {
       });
       expect(made.status, JSON.stringify(made.json)).toBe(200);
     }
-    const step = (id: string, skill: string) => ({ id, kind: "skill", name: id, skill });
+    const step = (id: string, skill: string) => ({
+      id,
+      kind: "do",
+      doneBy: "ai",
+      name: id,
+      uses: { type: "skill", skill },
+    });
     const bundle = {
       schemaVersion: 1,
       definition: { skills: [] },
       workflows: [
         {
           slug: "main",
-          workflow: {
-            schemaVersion: 4,
-            triggers: [],
-            steps: [
+          workflow: v5Workflow(
+            [
               step("reads", "custom:g4-reads"),
               step("writes", "custom:g4-writes"),
               step("nowhere", "custom:g4-nowhere"),
             ],
-          },
+            { triggers: [] },
+          ),
         },
       ],
     };

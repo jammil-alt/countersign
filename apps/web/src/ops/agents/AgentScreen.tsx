@@ -6,7 +6,7 @@
 // publish) and Settings, split into Access (applies at once, logged) and Definition (a new draft
 // version). The old Triggers and Tests addresses open their new homes. `/revise` asks the Builder
 // for a new draft. `?version=N` shows an older version on the bundle tabs.
-import type { AnyAgentBundle } from "@countersign/core";
+import type { AgentBundle } from "@countersign/core";
 import type { ReactNode } from "react";
 import { lazy, Suspense, useState } from "react";
 import {
@@ -43,11 +43,12 @@ import { Skeleton, SkeletonBlock, SkeletonCard, SkeletonLine } from "../../ui/sk
 import { StatusChip } from "../../ui/status";
 import type { Member } from "../builder/Inspector";
 import { BuildView } from "../builds/BuildView";
+import { StepsBuildBar } from "../builds/PublishBar";
 import { labPath } from "../lab/back";
-import { AssignToClient } from "../lab/TemplateParts";
+import { AssignToClient, TurnOnInSandbox } from "../lab/TemplateParts";
 import { OPS_PATHS } from "../paths";
 import { TriggersPanel } from "../triggers/TriggersScreen";
-import { liveAndDraft, parseAnyBundle, versionBadges } from "../versions";
+import { liveAndDraft, parseBundle, versionBadges } from "../versions";
 import { stepCountWords, workflowStats } from "../workflow/describe";
 import { ReviseTab } from "./BuilderParts";
 import { DefinitionEditor, type SaveResult } from "./DefinitionEditor";
@@ -65,7 +66,7 @@ type Connection = ResponseOf<typeof apiRoutes.opsClient>["connections"][number];
 export type AgentDetail = ResponseOf<typeof apiRoutes.opsAgent>;
 
 // The builder (with drag and drop) is its own chunk inside /ops, fetched when a workflow opens.
-const WorkflowBuilder = lazy(() => import("../builder/WorkflowBuilder"));
+const StepsBuilder = lazy(() => import("../builder/steps/StepsBuilder"));
 // F6: an older version's workflow as the chart, read only (with the builder's drag-and-drop code,
 // so fetched only when one is opened).
 const ReadOnlyFlow = lazy(() => import("../flow/ReadOnlyFlow"));
@@ -338,14 +339,16 @@ export function AgentScreen({
   const shown: VersionDetail | null = requested
     ? (inHand ?? fetched.data?.version ?? null)
     : (data.live ?? data.latest);
-  const parsed = shown ? parseAnyBundle(shown) : null;
+  const parsed = shown ? parseBundle(shown) : null;
   const bundle = parsed?.ok ? parsed.bundle : null;
-  const liveParsed = data.live ? parseAnyBundle(data.live) : null;
+  const liveParsed = data.live ? parseBundle(data.live) : null;
   const liveBundle = liveParsed?.ok ? liveParsed.bundle : null;
 
   const keep = search.toString() ? `?${search.toString()}` : "";
   const reload = () => {
     agent.reload();
+    // A publish here ends the agent's open build (owner, 2026-11-27): its bar goes.
+    builds.reload();
     notifyAgentsChanged();
   };
 
@@ -363,7 +366,7 @@ export function AgentScreen({
   // The builder edits the latest version (draft or live), like the definition editor. R8: every
   // tab reads a version that holds v4 processes too (what the builder saves, and the templates'
   // v4 versions and their forks).
-  const latestAnyParsed = data.latest ? parseAnyBundle(data.latest) : null;
+  const latestAnyParsed = data.latest ? parseBundle(data.latest) : null;
   const latestAny = latestAnyParsed?.ok ? latestAnyParsed.bundle : null;
   const builderStart = latestAny?.workflows[0]?.slug ?? "main";
   const isClient = view.kind === "client";
@@ -428,7 +431,7 @@ export function AgentScreen({
           </div>
         }
       >
-        <WorkflowBuilder
+        <StepsBuilder
           // A trigger added above the builder is a new draft the builder didn't make: once the
           // agent has reloaded with it, the builder moves onto it with its unsaved edits carried
           // over (FLOW-6, QA 2026-11-19: it used to open afresh on it, and they were gone).
@@ -442,7 +445,9 @@ export function AgentScreen({
           above={
             // The workflow's first step is how it starts: the agent's triggers, then the canvas.
             <div className="flex flex-col gap-4" data-testid="agent-workflow-top">
-              {openBuild ? <BackToBuild build={openBuild} /> : null}
+              {/* Owner (2026-11-27): the build's one bar, Draft and what holds Publish; read again
+                  with each version saved here. */}
+              {openBuild ? <StepsBuildBar key={latest.id} build={openBuild} /> : null}
               <TriggersPanel
                 agent={view}
                 latest={latest}
@@ -452,15 +457,9 @@ export function AgentScreen({
               />
             </div>
           }
-          connections={connections}
           members={members}
           onChanged={reload}
           view={stepsTab ? "steps" : "canvas"}
-          // F6: the line under the builder's bar (whose agent this is, what it owes its template),
-          // and the open build's issues on their steps.
-          detail={data}
-          templateDetail={template.data ?? null}
-          buildId={openBuild?.id ?? null}
         />
       </Suspense>
     );
@@ -484,6 +483,7 @@ export function AgentScreen({
             // Wave 3b: the Builder's server sessions draft processes, so any readable version
             // can be revised.
             canRevise={latestAny !== null}
+            workflow={builderStart}
             onChanged={reload}
             onDiscarded={() =>
               navigate(view.kind === "template" ? "/ops/lab" : `/ops/clients/${view.tenantId}`)
@@ -522,7 +522,7 @@ export function AgentScreen({
               blocked ??
               (requested && bundle && shown ? (
                 // An older version is read, not edited: the builder always opens the latest.
-                <WorkflowTab bundle={bundle} version={shown} />
+                <WorkflowTab agentId={view.id} bundle={bundle} version={shown} />
               ) : (
                 <Navigate to={`${base}/workflows/${builderStart}`} replace />
               ))
@@ -688,7 +688,7 @@ function AgentBar({
 }: {
   view: AgentSummary;
   clientName: string | undefined;
-  bundle: AnyAgentBundle | null;
+  bundle: AgentBundle | null;
   live: { version: number } | null;
   draft: { version: number } | null;
   lineage: ReactNode;
@@ -807,6 +807,7 @@ function AgentActions({
   base,
   detail,
   canRevise,
+  workflow,
   onChanged,
   onDiscarded,
 }: {
@@ -814,6 +815,8 @@ function AgentActions({
   base: string;
   detail: AgentDetail;
   canRevise: boolean;
+  /** The workflow the step builder opens first (the Turn on sheet's Try it goes there). */
+  workflow: string;
   onChanged(): void;
   onDiscarded(): void;
 }) {
@@ -854,7 +857,10 @@ function AgentActions({
           Test run
         </Link>
         {view.kind === "template" && live && view.status === "active" ? (
-          <AssignToClient templateId={view.id} version={live.version} />
+          <>
+            <TurnOnInSandbox templateId={view.id} base={base} workflow={workflow} />
+            <AssignToClient templateId={view.id} version={live.version} />
+          </>
         ) : null}
         {/* Only a draft newer than the live version publishes; a live version says Live. */}
         {draft && draft.id !== live?.id && view.status === "active" ? (
@@ -901,7 +907,15 @@ function AgentActions({
   );
 }
 
-function WorkflowTab({ bundle, version }: { bundle: AnyAgentBundle; version: VersionDetail }) {
+function WorkflowTab({
+  agentId,
+  bundle,
+  version,
+}: {
+  agentId: string;
+  bundle: AgentBundle;
+  version: VersionDetail;
+}) {
   if (bundle.workflows.length === 0) {
     return <EmptyState>v{version.version} has no workflows.</EmptyState>;
   }
@@ -925,7 +939,7 @@ function WorkflowTab({ bundle, version }: { bundle: AnyAgentBundle; version: Ver
               </Skeleton>
             }
           >
-            <ReadOnlyFlow workflow={w} />
+            <ReadOnlyFlow agentId={agentId} workflow={w} />
           </Suspense>
         </section>
       ))}
@@ -1070,7 +1084,7 @@ function DefinitionPart({
     { kind: "saved"; save: SaveResult } | { kind: "no_change"; from: number } | null
   >(null);
   const latest = detail.latest;
-  const parsed = latest ? parseAnyBundle(latest) : null;
+  const parsed = latest ? parseBundle(latest) : null;
 
   return (
     <div className="flex flex-col gap-4" data-testid="agent-settings-definition-part">

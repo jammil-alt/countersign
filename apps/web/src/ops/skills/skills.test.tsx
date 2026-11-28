@@ -157,7 +157,7 @@ const AUTOMATION = {
 };
 
 const AUTO_DEF = (version: number) => ({
-  schemaVersion: 1,
+  schemaVersion: 2,
   slug: "polite-follow-up",
   name: "Polite follow-up",
   description: "",
@@ -173,10 +173,9 @@ const AUTO_DEF = (version: number) => ({
       assignee: "client_admin",
       title: "Sign the message",
       payload: {},
-      timeout: "2 days",
+      deadline: { after: "2 days" },
       channel: "inbox",
       onReject: "stop",
-      onTimeout: "stop",
     },
   ],
   requires: { skills: ["reach.draft"], tools: [], connectors: [] },

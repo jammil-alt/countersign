@@ -1,12 +1,11 @@
 // An automation's Takes in and Gives back as rows, and back (F7): the schema and the template the
 // rows write, what a half-typed row leaves out, the words on the chart's end boxes, and the
 // automation as the builder's editing model holds it.
-import { AnyAutomationDefinition, type ProcessAutomationDefinition } from "@countersign/core";
+import { AutomationDefinition } from "@countersign/core";
 import { describe, expect, it } from "vitest";
 import {
   automationEnds,
   draftProcess,
-  editable,
   inputFields,
   inputLine,
   inputProblems,
@@ -37,7 +36,7 @@ const INPUT = {
   required: ["billId"],
 };
 
-const DEFINITION = AnyAutomationDefinition.parse({
+const DEFINITION = AutomationDefinition.parse({
   schemaVersion: 2,
   slug: "bill-intake",
   name: "Bill intake",
@@ -52,7 +51,7 @@ const DEFINITION = AnyAutomationDefinition.parse({
       input: { billId: "{{input.billId}}" },
     },
   ],
-}) as ProcessAutomationDefinition;
+}) as AutomationDefinition;
 
 const names = (id: string) => (id === "find" ? "Find the document" : null);
 
@@ -243,10 +242,5 @@ describe("the automation as a draft", () => {
     expect(def.requires).toBe(DEFINITION.requires);
     // The same process again is the same draft (no undo step).
     expect(withProcess(draft, draftProcess(draft))).toBe(draft);
-  });
-
-  it("opens only v4 process steps", () => {
-    expect(editable(DEFINITION)).toBe(true);
-    expect(editable({ ...DEFINITION, schemaVersion: 1, steps: [] } as never)).toBe(false);
   });
 });

@@ -16,7 +16,6 @@ import { FakeModel } from "@countersign/llm";
 import { count, desc, eq, like } from "drizzle-orm";
 import { afterAll, describe, expect, it, vi } from "vitest";
 import { createApiHarness, OPERATOR, testBundle, user } from "./api.test-helper";
-import { stepModelAnswer } from "./builder-v5.test-helper";
 
 for (const level of process.env.SHOW_LOGS ? [] : (["warn", "error"] as const)) {
   vi.spyOn(console, level).mockImplementation(() => {});
@@ -243,57 +242,59 @@ describe.skipIf(!h)("turn on", () => {
     });
   });
 
-  it("moves the agent's open build to its client test, as the client-test move does", async () => {
+  // Owner (2026-11-27): a build goes from its draft to Publish, wherever the draft is published.
+  it("makes the agent's open build live with the version it publishes", async () => {
     const started = await ok("POST", "/api/ops/builds", {
       kind: "agent",
       title: "Turned on from a build",
       clientId: A().tenantId,
     });
     const id = started.build.id as string;
-    model.push(
-      stepModelAnswer({
-        toolUse: {
-          name: "submit_draft",
-          input: {
-            summary: "It fixes the record's amount and asks the client first.",
-            gaps: [],
-            startFromTemplate: null,
-            bundle: {
-              schemaVersion: 1,
-              definition: {
-                schemaVersion: 2,
-                identity: { name: "Build clerk", role: "Records", mission: "Keep records right" },
-                kind: "functional",
-                model: { id: "claude-sonnet-5-5" },
-                instructions: "Fix records when asked.",
-                skills: [],
-                permissions: { mode: "suggest_only" },
-              },
-              workflows: [
-                {
-                  slug: "main",
-                  name: "Fix a record",
-                  workflow: {
-                    schemaVersion: 4,
-                    triggers: [{ id: "t", on: { type: "manual", input: {} } }],
-                    steps: [
-                      {
-                        id: "update",
-                        kind: "write",
-                        name: "Update the record",
-                        tool: TESTKIT_UPDATE_TOOL,
-                        input: { id: "r1", amount: "12.00" },
-                        checks: { approval: { required: "required" } },
-                      },
-                    ],
-                  },
-                },
-              ],
+    model.push({
+      toolUse: {
+        name: "submit_draft",
+        input: {
+          summary: "It fixes the record's amount and asks the client first.",
+          gaps: [],
+          startFromTemplate: null,
+          bundle: {
+            schemaVersion: 1,
+            definition: {
+              schemaVersion: 2,
+              identity: { name: "Build clerk", role: "Records", mission: "Keep records right" },
+              kind: "functional",
+              model: { id: "claude-sonnet-5-5" },
+              instructions: "Fix records when asked.",
+              skills: [],
+              permissions: { mode: "suggest_only" },
             },
+            workflows: [
+              {
+                slug: "main",
+                name: "Fix a record",
+                workflow: {
+                  schemaVersion: 5,
+                  triggers: [{ id: "t", on: { type: "manual", input: {} } }],
+                  outputs: [{ id: "out-done", name: "Done", kind: "nothing" }],
+                  steps: [
+                    {
+                      id: "update",
+                      name: "Update the record",
+                      checks: { approval: { required: "required" } },
+                      kind: "do",
+                      doneBy: "rules",
+                      uses: { type: "action", action: TESTKIT_UPDATE_TOOL },
+                      input: { id: "r1", amount: "12.00" },
+                    },
+                    { id: "end", kind: "end", name: "Done", outputs: ["out-done"] },
+                  ],
+                },
+              },
+            ],
           },
         },
-      }),
-    );
+      },
+    });
     const drafted = (await ok("POST", `/api/ops/builds/${id}/draft-now`, {
       description: "Fix the amount on the record when asked. The client approves each change.",
     })) as BuildDetail;
@@ -309,12 +310,12 @@ describe.skipIf(!h)("turn on", () => {
     const on = (await ok("POST", `/api/ops/agents/${agentId}/turn-on`, {})) as TurnOnAnswer;
     expect(on.started).toBe(true);
     const [b] = await H.t.db.select().from(build).where(eq(build.id, id));
-    expect(b).toMatchObject({
-      phase: "client_test",
-      testClientId: A().tenantId,
-      testAgentId: agentId,
-    });
+    expect(b).toMatchObject({ phase: "draft", status: "live" });
     const detail = (await ok("GET", `/api/ops/builds/${id}`)) as BuildDetail;
-    expect(detail.messages.at(-1)?.text).toContain("in its trial");
+    expect(detail.messages.at(-1)?.text).toContain("This build is done.");
+    expect(detail.messages.at(-1)?.text).toContain("its trial has started");
+    // Its trial is the agent's own: every write is signed until sign-off.
+    const [a] = await H.t.db.select().from(agent).where(eq(agent.id, agentId));
+    expect(a?.stage).toBe("trial");
   });
 });

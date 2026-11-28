@@ -30,6 +30,7 @@ import {
   AS_SENT,
   admin,
   createApiHarness,
+  ended,
   FakeWorkflowStep,
   forbiddenKeys,
   OPERATOR,
@@ -95,7 +96,7 @@ const deskkit = defineConnector({
 const SEND = "deskkit.message.send";
 
 function bundle(): AgentBundle {
-  const send = (id: string, input: Record<string, string>, onReject = "stop") => ({
+  const _send = (id: string, input: Record<string, string>, onReject = "stop") => ({
     id,
     name: "Send",
     kind: "action",
@@ -123,15 +124,20 @@ function bundle(): AgentBundle {
         slug: "one",
         name: "Send one",
         workflow: {
-          schemaVersion: 3,
-          trigger: { id: "trg-one", on: { type: "manual", input: {} } },
+          schemaVersion: 5,
+          triggers: [{ id: "trg-one", on: { type: "manual", input: {} } }],
+          outputs: [{ id: "out-done-one", name: "Done", kind: "nothing" }],
           steps: [
-            send("send1", {
-              to: "pat@example.com",
-              subject: "Your invoice",
-              body: "Hi",
-              total: "10.00",
-            }),
+            {
+              id: "send1",
+              name: "Send",
+              checks: { approval: { required: "required" } },
+              kind: "do",
+              doneBy: "rules",
+              uses: { type: "action", action: "deskkit.message.send" },
+              input: { to: "pat@example.com", subject: "Your invoice", body: "Hi", total: "10.00" },
+            },
+            { id: "end-one", kind: "end", name: "Done", outputs: ["out-done-one"] },
           ],
         },
       },
@@ -139,25 +145,28 @@ function bundle(): AgentBundle {
         slug: "many",
         name: "Send many",
         workflow: {
-          schemaVersion: 3,
-          trigger: {
-            id: "trg-many",
-            on: {
-              type: "manual",
-              input: {
-                type: "object",
-                properties: {
-                  messages: {
-                    type: "array",
-                    items: {
-                      type: "object",
-                      properties: { to: { type: "string" }, subject: { type: "string" } },
+          schemaVersion: 5,
+          triggers: [
+            {
+              id: "trg-many",
+              on: {
+                type: "manual",
+                input: {
+                  type: "object",
+                  properties: {
+                    messages: {
+                      type: "array",
+                      items: {
+                        type: "object",
+                        properties: { to: { type: "string" }, subject: { type: "string" } },
+                      },
                     },
                   },
                 },
               },
             },
-          },
+          ],
+          outputs: [{ id: "out-done-many", name: "Done", kind: "nothing" }],
           steps: [
             {
               id: "each",
@@ -166,13 +175,23 @@ function bundle(): AgentBundle {
               over: "{{trigger.messages}}",
               concurrency: 5,
               steps: [
-                send(
-                  "send",
-                  { to: "{{item.to}}", subject: "{{item.subject}}", body: "Hi", total: "1.00" },
-                  "continue",
-                ),
+                {
+                  id: "send",
+                  name: "Send",
+                  checks: { approval: { required: "required", onReject: "continue" } },
+                  kind: "do",
+                  doneBy: "rules",
+                  uses: { type: "action", action: "deskkit.message.send" },
+                  input: {
+                    to: "{{item.to}}",
+                    subject: "{{item.subject}}",
+                    body: "Hi",
+                    total: "1.00",
+                  },
+                },
               ],
             },
+            { id: "end-many", kind: "end", name: "Done", outputs: ["out-done-many"] },
           ],
         },
       },
@@ -180,23 +199,30 @@ function bundle(): AgentBundle {
         slug: "ask",
         name: "Ask",
         workflow: {
-          schemaVersion: 3,
-          trigger: { id: "trg-ask", on: { type: "manual", input: {} } },
+          schemaVersion: 5,
+          triggers: [{ id: "trg-ask", on: { type: "manual", input: {} } }],
+          outputs: [{ id: "out-done-ask", name: "Done", kind: "nothing" }],
           steps: [
             {
               id: "pay",
               name: "Pay now?",
-              kind: "person",
-              mode: "ask",
-              assignee: "client_admin",
-              title: "Pay this bill now?",
-              timeout: "1 day",
-              onTimeout: "stop",
-              choices: [
-                { value: "now", label: { en: "Pay now", es: "Pagar ya" } },
-                { value: "later", label: "Pay on the due date" },
-              ],
+              kind: "do",
+              doneBy: "person",
+              person: {
+                mode: "ask",
+                who: "client_admin",
+                question: "Pay this bill now?",
+                show: {},
+                choices: [
+                  { value: "now", label: { en: "Pay now", es: "Pagar ya" } },
+                  { value: "later", label: "Pay on the due date" },
+                ],
+                deadline: { after: "1 day", hours: "clock", ifNoAnswer: "stop" },
+                channel: "inbox",
+                onReject: "stop",
+              },
             },
+            { id: "end-ask", kind: "end", name: "Done", outputs: ["out-done-ask"] },
           ],
         },
       },
@@ -409,9 +435,7 @@ describe.skipIf(!h)("the Desk", () => {
       checked = true;
       return delivered?.event.payload;
     });
-    expect(await executeRun(deps(), params, cloudflareStepRunner(step))).toEqual({
-      status: "succeeded",
-    });
+    expect(await executeRun(deps(), params, cloudflareStepRunner(step))).toEqual(ended());
     expect(checked).toBe(true);
     // Written once, with the person's edit; the agent's input is kept.
     expect([...sent.values()]).toEqual([
@@ -626,9 +650,7 @@ describe.skipIf(!h)("the Desk", () => {
       const [event] = eventFor(type);
       return event?.event.payload;
     });
-    expect(await executeRun(deps(), params, cloudflareStepRunner(step))).toEqual({
-      status: "succeeded",
-    });
+    expect(await executeRun(deps(), params, cloudflareStepRunner(step))).toEqual(ended());
     const added = [...sent.values()]
       .slice(before)
       .map((s) => s.to)
@@ -668,9 +690,7 @@ describe.skipIf(!h)("the Desk", () => {
       const [event] = eventFor(type);
       return event?.event.payload;
     });
-    expect(await executeRun(deps(), params, cloudflareStepRunner(step))).toEqual({
-      status: "succeeded",
-    });
+    expect(await executeRun(deps(), params, cloudflareStepRunner(step))).toEqual(ended());
   });
 
   it("lets a viewer see but never sign, and keeps them out of the rules", async () => {

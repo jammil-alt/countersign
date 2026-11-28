@@ -20,9 +20,11 @@ import {
   type ApiHarness,
   admin,
   createApiHarness,
+  ended,
   FakeWorkflowStep,
   forbiddenKeys,
   OPERATOR,
+  publishStored,
   unsigned,
 } from "./api.test-helper";
 import { handleEmail } from "./email";
@@ -51,8 +53,8 @@ const h = await createApiHarness({
 });
 afterAll(() => h?.close());
 
-const GOAL = "Get the exact item list and the date needed for this purchase request.";
-const RESULT = {
+const _GOAL = "Get the exact item list and the date needed for this purchase request.";
+const _RESULT = {
   type: "object",
   properties: {
     items: {
@@ -91,35 +93,54 @@ function bundle(): AgentBundle {
         slug: "main",
         name: "Main",
         workflow: {
-          schemaVersion: 3,
-          trigger: {
-            id: "trg",
-            on: {
-              type: "manual",
-              input: {
-                type: "object",
-                properties: { contactId: { type: "string" }, request: { type: "string" } },
-                required: ["contactId", "request"],
+          schemaVersion: 5,
+          triggers: [
+            {
+              id: "trg",
+              on: {
+                type: "manual",
+                input: {
+                  type: "object",
+                  properties: { contactId: { type: "string" }, request: { type: "string" } },
+                  required: ["contactId", "request"],
+                },
               },
             },
-          },
+          ],
+          outputs: [{ id: "out-done", name: "Done", kind: "nothing" }],
           steps: [
             {
               id: "talk",
               name: "Clarify the request",
-              kind: "skill",
-              skill: "comms.converse",
+              client: { visible: true, label: "Clarified the request" },
+              checks: { approval: { required: "required" } },
+              kind: "do",
+              doneBy: "rules",
+              uses: { type: "skill", skill: "comms.converse" },
               input: {
                 to: { contactId: "{{trigger.contactId}}" },
                 channel: "email",
-                goal: GOAL,
-                result: RESULT,
+                goal: "Get the exact item list and the date needed for this purchase request.",
+                result: {
+                  type: "object",
+                  properties: {
+                    items: {
+                      type: "array",
+                      items: {
+                        type: "object",
+                        properties: { name: { type: "string" }, qty: { type: "number" } },
+                        required: ["name", "qty"],
+                      },
+                    },
+                    neededBy: { type: "string" },
+                  },
+                  required: ["items", "neededBy"],
+                },
                 opening: "Thank them for the request and ask which items, how many, and by when.",
                 about: ["{{trigger.request}}"],
               },
-              approval: { required: "required" },
-              client: { visible: true, label: "Clarified the request" },
             },
+            { id: "end", kind: "end", name: "Done", outputs: ["out-done"] },
           ],
         },
       },
@@ -209,11 +230,7 @@ describe.skipIf(!h)("a conversation by email", () => {
     expect(created.status, JSON.stringify(created.json)).toBe(200);
     expect(j(created.json).errors ?? []).toEqual([]);
     agentId = j(created.json).agent.id;
-    const pub = await H.call(
-      OPERATOR,
-      "POST",
-      `/api/ops/agents/${agentId}/versions/${j(created.json).version.id}/publish`,
-    );
+    const pub = await publishStored(H, H.A.tenantId, agentId, j(created.json).version.id);
     expect(pub.status, JSON.stringify(pub.json)).toBe(200);
     const ch = await H.call(OPERATOR, "PUT", `/api/ops/agents/${agentId}/channels`, {
       channels: { email: gmail },
@@ -304,7 +321,7 @@ describe.skipIf(!h)("a conversation by email", () => {
         params,
         cloudflareStepRunner(step),
       ),
-    ).toEqual({ status: "succeeded" });
+    ).toEqual(ended());
 
     const [row] = await H.t.db
       .select()

@@ -15,10 +15,9 @@
 
 import { type BundleChange, diffFlat } from "../bundle/diff";
 import { type FlatBundle, flattenBundle, ROOT, TRIGGER_ORDER } from "../bundle/flatten";
-import { type BundleReadOptions, readBundles } from "../bundle/normalize";
 import { deepEqual, isPlainObject } from "../json";
 import { Decimal } from "../money";
-import type { AnyAgentBundle } from "../schemas/agent";
+import type { AgentBundle } from "../schemas/agent";
 
 export type ChangeClass = "none" | "process" | "never";
 
@@ -374,21 +373,14 @@ function reasonsFor(a: FlatBundle, b: FlatBundle, changes: readonly BundleChange
 }
 
 /**
- * The class of the change from `before` to `after` (two versions of the same agent). `options`
- * reads a v3 version as v4 when the other is a process, as the diff does.
+ * The class of the change from `before` to `after` (two versions of the same agent).
  */
-export function classifyChange(
-  before: unknown,
-  after: unknown,
-  options: BundleReadOptions = {},
-): ChangeClassResult {
+export function classifyChange(before: unknown, after: unknown): ChangeClassResult {
   let a: FlatBundle;
   let b: FlatBundle;
   try {
-    const [ra, rb] = readBundles([before as AnyAgentBundle, after as AnyAgentBundle], options)
-      .bundles as [AnyAgentBundle, AnyAgentBundle];
-    a = flattenBundle(ra);
-    b = flattenBundle(rb);
+    a = flattenBundle(before as AgentBundle);
+    b = flattenBundle(after as AgentBundle);
   } catch {
     // Two versions that can't be read side by side are reviewed whole.
     return deepEqual(before, after)

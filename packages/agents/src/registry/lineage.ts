@@ -9,13 +9,11 @@
 // automatically (DECISION in plan §1.2).
 
 import {
-  type AnyAgentBundle,
+  type AgentBundle,
   type AnyStep,
   canonicalJson,
   cloneJson,
   eachBundleStep,
-  holdsProcess,
-  holdsStepModel,
   isPlainObject,
   type MergeResult,
   mergeBundles,
@@ -25,7 +23,6 @@ import {
   readManual,
   type SkillDefinition,
   selectChanges,
-  validateBundle,
 } from "@countersign/core";
 import { agent, agentVersion, type Tx } from "@countersign/db";
 import { knownModelIds } from "@countersign/llm";
@@ -40,7 +37,7 @@ import {
   type RegistryContext,
   resolveVersion,
 } from "./agents";
-import { convertLookup, skillContext } from "./skills";
+import { skillContext } from "./skills";
 
 export interface UpdateInfo {
   linked: boolean;
@@ -122,17 +119,7 @@ export interface MergePreview {
   base: AgentVersionRow;
   ours: AgentVersionRow;
   theirs: AgentVersionRow;
-  result: MergeResult<AnyAgentBundle>;
-}
-
-/**
- * R9 (docs/plan.md §1.86, §9): how a merge reads stored v3 workflows as v4 when the template's
- * versions hold processes and the client's (or its base) don't, with the registries as they are.
- */
-export function lineageReadOptions(ctx: Pick<RegistryContext, "catalog" | "tools">): {
-  lookup: processes.ConvertLookup;
-} {
-  return { lookup: convertLookup(ctx.catalog, ctx.tools) };
+  result: MergeResult<AgentBundle>;
 }
 
 /** The merged result of applying the template's live version to a client agent, with conflicts. */
@@ -141,11 +128,6 @@ export async function previewUpdate(
   input: {
     agentId: string;
     resolutions?: readonly Resolution[];
-    /**
-     * R9: the registries, for a template whose live version holds v4 processes while the client
-     * agent's are v3 workflows (the merged draft is then all v4). Without it, such a merge throws.
-     */
-    ctx?: Pick<RegistryContext, "catalog" | "tools">;
   },
 ): Promise<MergePreview> {
   const row = await clientAgent(tx, input.agentId);
@@ -161,7 +143,6 @@ export async function previewUpdate(
     ours.bundle,
     info.templateLive.bundle,
     input.resolutions ?? [],
-    input.ctx ? lineageReadOptions(input.ctx) : {},
   );
   return { base: info.base, ours, theirs: info.templateLive, result };
 }
@@ -169,7 +150,7 @@ export async function previewUpdate(
 async function requireMergeable(
   tx: Tx,
   tenantId: string | null,
-  result: MergeResult<AnyAgentBundle>,
+  result: MergeResult<AgentBundle>,
   ctx: RegistryContext,
 ): Promise<void> {
   if (!result.clean) {
@@ -184,17 +165,12 @@ async function requireMergeable(
     bundle: result.bundle,
     catalog: ctx.catalog,
   });
-  // R9: a merge with a template's v4 version is all v4, validated as such (an all-v3 one exactly
-  // as before).
-  const validate =
-    holdsProcess(result.bundle) || holdsStepModel(result.bundle)
-      ? processes.validateAnyBundle
-      : validateBundle;
-  const valid = validate(result.bundle, {
+  const valid = processes.validateBundle(result.bundle, {
     skills,
     tools: ctx.tools.specs(),
     models: knownModelIds(),
     ...(ctx.events ? { events: ctx.events } : {}),
+    ...(ctx.profiles ? { profiles: ctx.profiles } : {}),
   });
   if (!valid.valid) {
     throw new AgentsError("invalid_bundle", "the merged bundle does not validate", valid.errors);
@@ -484,7 +460,7 @@ function scrubPeople(node: unknown, base: unknown, scope: ScrubScope = { inCheck
       case "to":
         if (typeof value === "string" && namesPerson(value)) {
           const kept = from(key);
-          // A v3 notify step's optional address goes; an escalation's required person resets.
+          // A notice's optional address goes; an escalation's required person resets.
           if (typeof kept === "string") node[key] = kept;
           else if ("kind" in node) delete node[key];
           else node[key] = DEFAULT_WHO;
@@ -567,38 +543,13 @@ function redactAddresses(node: unknown, freeText = false): unknown {
   return node;
 }
 
-/**
- * Review of 5.10: a skill step's rule rows (`customize.rules`) that name the client's records
- * (in their condition or what they set): the base's row of the same id where it has one, else
- * left out. Edits of the skill's own rows are dropped the same way.
- */
-function scrubRuleRows(customize: Bag | undefined, base: Bag | undefined): void {
-  const rows = isPlainObject(customize?.rules) ? (customize.rules as Bag) : undefined;
-  if (!customize || !rows) return;
-  const baseRows = isPlainObject(base?.rules) ? (base.rules as Bag) : {};
-  for (const list of ["add", "edit"] as const) {
-    const items = rows[list];
-    if (!Array.isArray(items)) continue;
-    const theirs = Array.isArray(baseRows[list]) ? (baseRows[list] as unknown[]) : [];
-    const kept = items.flatMap((row) => {
-      if (!holdsClientLiteral(row)) return [row];
-      const id = isPlainObject(row) ? row.id : undefined;
-      const same = theirs.find((t) => isPlainObject(t) && id !== undefined && t.id === id);
-      return same !== undefined && !holdsClientLiteral(same) ? [cloneJson(same)] : [];
-    });
-    if (kept.length > 0) rows[list] = kept;
-    else delete rows[list];
-  }
-  if (Object.keys(rows).length === 0) delete customize.rules;
-}
-
-function triggersOf(w: AnyAgentBundle["workflows"][number]["workflow"]): Bag[] {
+function triggersOf(w: AgentBundle["workflows"][number]["workflow"]): Bag[] {
   const t = w as { trigger?: unknown; triggers?: unknown };
   const list = Array.isArray(t.triggers) ? t.triggers : t.trigger ? [t.trigger] : [];
   return list.filter(isPlainObject);
 }
 
-function stepsById(bundle: AnyAgentBundle): Map<string, AnyStep> {
+function stepsById(bundle: AgentBundle): Map<string, AnyStep> {
   const out = new Map<string, AnyStep>();
   eachBundleStep(bundle, (step) => out.set(step.id, step));
   return out;
@@ -607,19 +558,13 @@ function stepsById(bundle: AnyAgentBundle): Map<string, AnyStep> {
 /**
  * TOOL-1 (invariant 8, docs/plan.md "approval stays on"): how a step's approval is loosened is the
  * operator's setting for one client, so it never travels into a template or another client. A
- * loosened approval (v3 `approval.required`, v4 `checks.approval`, a conversation's `messages`, a
- * process step's `approvals`) is put back to the base template's step of the same id, or, where
- * the base has none in the same shape, tightened (approval on). What isn't loosened stays.
+ * loosened approval (a step's `checks.approval`) is put back to the base template's step of the same
+ * id, or, where the base has none, tightened (approval on). What isn't loosened stays.
  */
 // DECISION: the base's value where the base step holds one in the same shape, else approval on.
-// A v3 step and a v4 step of the same id aren't compared across shapes: the copy is tightened.
 function scrubApprovals(step: AnyStep, base: AnyStep | undefined): void {
   const s = step as AnyStep & Bag;
   const b = base as (AnyStep & Bag) | undefined;
-  if (isPlainObject(s.approval) && s.approval.required === "not_required") {
-    const kept = isPlainObject(b?.approval) ? b.approval.required : undefined;
-    s.approval = { ...s.approval, required: kept === "not_required" ? kept : "required" };
-  }
   const checks = isPlainObject(s.checks)
     ? (s.checks as { approval?: processes.ApprovalCheck })
     : undefined;
@@ -627,38 +572,22 @@ function scrubApprovals(step: AnyStep, base: AnyStep | undefined): void {
     const kept = (b?.checks as { approval?: processes.ApprovalCheck } | undefined)?.approval;
     checks.approval = kept ? cloneJson(kept) : processes.tightenedApproval(checks.approval);
   }
-  if (step.kind === "conversation" && processes.conversationLoosenings(step).length > 0) {
-    step.messages =
-      base?.kind === "conversation"
-        ? cloneJson(base.messages)
-        : { first: "required", later: "required" };
-  }
-  if (step.kind === "process" && step.approvals) {
-    const kept = base?.kind === "process" ? (base.approvals ?? {}) : {};
-    for (const [id, approval] of Object.entries(step.approvals)) {
-      if (processes.approvalLoosenings(approval, "a").length === 0) continue;
-      const same = kept[id];
-      step.approvals[id] = same ? cloneJson(same) : processes.tightenedApproval(approval);
-    }
-  }
 }
 
 /**
  * A client version as it may go into a template: settings marked `clientSpecific` and literal
  * record ids are replaced by the base template's value where it has one (so promotion doesn't
- * delete them from the template), else removed. Bindings never are in a bundle. Wave 3b: a v4
- * process's steps the same way (a skill step's `customize.settings` too); the client and base
- * versions may be v3 and v4 apiece, and their steps line up by id (the converter keeps them).
+ * delete them from the template), else removed. Bindings never are in a bundle.
  * Invariant 11: people and contacts named by id or address (approvers, assignees, people told,
  * escalations, reviewers, a message trigger's contacts), webhook hooks and skill parameter values
  * are reset to the base's or left unset, and email addresses and phone numbers left in free text
  * are removed. TOOL-1 (invariant 8): the client's mode and loosened approvals are put back to the
  * base's, or approval on. Step and path ids never change (invariant 3).
  */
-export function stripForPromotion<B extends AnyAgentBundle>(
+export function stripForPromotion<B extends AgentBundle>(
   client: B,
   /** The base template version's bundle; null (no template) drops every such value. */
-  base: AnyAgentBundle | null,
+  base: AgentBundle | null,
   skills: Record<string, Pick<SkillDefinition, "settings">>,
   /** Review of 5.10: what can't be carried (a path choosing by records), for the caller to refuse. */
   problems?: PromotionProblem[],
@@ -678,26 +607,9 @@ export function stripForPromotion<B extends AnyAgentBundle>(
     scrub(s.settings, baseSkills.get(parseSkillRef(s.skill).id)?.settings, specificKeys(s.skill));
   }
   const baseSteps = base ? stepsById(base) : new Map<string, AnyStep>();
-  /** A step's settings wherever they live: v3's `settings`, v4's and `customize.settings`. */
-  const settingsOf = (step: AnyStep | undefined): Bag | undefined => {
-    if (step?.kind !== "skill") return undefined;
-    const own = step.settings as Bag | undefined;
-    const customized = (step as { customize?: { settings?: Bag } }).customize?.settings;
-    return own || customized ? { ...customized, ...own } : undefined;
-  };
   eachBundleStep(out, (step) => {
     const b = baseSteps.get(step.id);
     const bag = b as (AnyStep & Bag) | undefined;
-    if (step.kind === "skill") {
-      const keys = specificKeys(step.skill);
-      scrub(step.settings as Bag | undefined, settingsOf(b), keys);
-      const customize = (step as { customize?: { settings?: Bag } }).customize;
-      scrub(customize?.settings, settingsOf(b), keys);
-      scrubRuleRows(
-        customize as Bag | undefined,
-        (b as { customize?: Bag } | undefined)?.customize,
-      );
-    }
     const s = step as AnyStep & Bag;
     for (const field of ["input", "payload"] as const) {
       scrub(s[field] as Bag | undefined, bag?.[field] as Bag | undefined, new Set());
@@ -718,14 +630,6 @@ export function stripForPromotion<B extends AnyAgentBundle>(
     if (kept) s.parameters = cloneJson(kept);
     else delete s.parameters;
   }
-  eachBundleStep(out, (step) => {
-    const customize = (step as { customize?: { parameters?: Bag } }).customize;
-    if (!customize?.parameters) return;
-    const kept = (baseSteps.get(step.id) as { customize?: { parameters?: Bag } } | undefined)
-      ?.customize?.parameters;
-    if (kept) customize.parameters = cloneJson(kept);
-    else delete customize.parameters;
-  });
   scrubPeople(out.definition.permissions, base?.definition.permissions);
   // TOOL-1 (invariant 8): the client's mode is its own; a template or another client starts with
   // the base's, or suggests only.
@@ -791,7 +695,7 @@ function scrubManual(def: { manual?: unknown }, base: { manual?: unknown } | und
 }
 
 /** The `when` of a path of a step, or undefined when the bundle has no such path. */
-function pathWhen(bundle: AnyAgentBundle, p: Pick<PromotionProblem, "stepId" | "pathId">): unknown {
+function pathWhen(bundle: AgentBundle, p: Pick<PromotionProblem, "stepId" | "pathId">): unknown {
   let found: unknown;
   eachBundleStep(bundle, (step) => {
     if (step.id !== p.stepId) return;
@@ -827,9 +731,9 @@ export interface PromotionPreview extends MergePreview {
   /** The client version promoted (before stripping). */
   client: AgentVersionRow;
   /** The client version's bundle with client-specific values stripped (every change offered). */
-  stripped: AnyAgentBundle;
+  stripped: AgentBundle;
   /** The "theirs" side merged: `stripped` with only the selected changes (all when none given). */
-  selected: AnyAgentBundle;
+  selected: AgentBundle;
   /** Review of 5.10: paths that choose by the client's records; a draft holding one is refused. */
   problems: PromotionProblem[];
 }
@@ -865,12 +769,8 @@ export async function previewPromotion(
   });
   const problems: PromotionProblem[] = [];
   const stripped = stripForPromotion(client.bundle, base.bundle, skills, problems);
-  // R9: a client version and a template version may be v3 and v4 apiece.
-  const read = lineageReadOptions(input.ctx);
-  const selected = input.changes
-    ? selectChanges(base.bundle, stripped, input.changes, read)
-    : stripped;
-  const result = mergeBundles(base.bundle, ours.bundle, selected, input.resolutions ?? [], read);
+  const selected = input.changes ? selectChanges(base.bundle, stripped, input.changes) : stripped;
+  const result = mergeBundles(base.bundle, ours.bundle, selected, input.resolutions ?? []);
   // The "theirs" side is the stripped client bundle; report it against the client version row.
   return { base, ours, theirs: client, client, stripped, selected, result, problems };
 }

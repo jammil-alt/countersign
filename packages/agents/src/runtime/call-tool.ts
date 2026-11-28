@@ -100,6 +100,11 @@ export type ToolOutcome =
       standIn?: unknown;
       /** §1.212: the verifier's outcome on the write, kept on a test run's step (the evals). */
       verification?: WriteVerification;
+      /**
+       * Owner, 2026-11-27: a live run would have asked a person to sign it (the gate didn't let it
+       * run on its own). A Sandbox test run with people in it asks its test person.
+       */
+      asks?: true;
     }
   /**
    * The connection needs a person to release it (docs/plan.md §1.26): a code went to them and their
@@ -720,9 +725,21 @@ async function dispatch(
       : null,
   });
   const settled = await settle(deps, step, tool, action);
-  // §1.212: a test run routes no person, so its verification would go nowhere: it stays on the
-  // step's output, which the eval harness scores (the verifier's agreement).
-  if (settled.status === "would_have_done" && verification) return { ...settled, verification };
+  if (settled.status === "would_have_done") {
+    // Owner, 2026-11-27: whether a live run would have waited for a person, by the gate's own
+    // answer (without the client's routing, which a test run never reads).
+    const asks =
+      decision !== "run" ||
+      step.signAllWrites === true ||
+      (verification !== null && verification.outcome !== "agreed");
+    return {
+      ...settled,
+      // §1.212: a test run routes no person, so its verification would go nowhere: it stays on
+      // the step's output, which the eval harness scores (the verifier's agreement).
+      ...(verification ? { verification } : {}),
+      ...(asks ? { asks: true as const } : {}),
+    };
+  }
   return settled;
 }
 

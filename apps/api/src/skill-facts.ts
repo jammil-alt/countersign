@@ -7,16 +7,14 @@
 
 import { resolveCustomSkill } from "@countersign/agents";
 import {
-  allSteps,
   parseSkillRef,
-  processes,
   type SkillDefinition,
   type StepModelFacts,
   skillKind,
+  steps,
   type TimelineWrite,
   type ToolSpec,
   toolLookup,
-  Workflow,
   writeStepLabel,
   writesToClientTool,
 } from "@countersign/core";
@@ -28,16 +26,31 @@ type AnyStep = {
   kind: string;
   skill?: string;
   tool?: string;
-  action?: string;
-  via?: string;
 };
 
-/** Every step of a stored v3 workflow or v4 process, flat; none when it reads as neither. */
-function stepsOf(definition: unknown): AnyStep[] {
-  const v4 = processes.Process.safeParse(definition);
-  if (v4.success) return processes.allSteps(v4.data).map((l) => l.step as AnyStep);
-  const v3 = Workflow.safeParse(definition);
-  return v3.success ? allSteps(v3.data).map((l) => l.step as AnyStep) : [];
+/**
+ * Every step of a stored workflow that uses a skill or an action, flat; none when it doesn't read.
+ * An action is a read or a write by its tool's side effect (a merged action by its first tool).
+ */
+function stepsOf(definition: unknown, platform: Platform): AnyStep[] {
+  const parsed = steps.Workflow.safeParse(definition);
+  if (!parsed.success) return [];
+  const out: AnyStep[] = [];
+  steps.eachStep(parsed.data.steps, ({ step }) => {
+    if (step.kind !== "do" || !step.uses) return;
+    if (step.uses.type === "skill") {
+      out.push({ id: step.id, kind: "skill", skill: step.uses.skill });
+    } else if (step.uses.type === "action") {
+      const merged = steps.mergedAction(step.uses.action);
+      const tool = platform.tools.get(step.uses.action)
+        ? step.uses.action
+        : Object.values(merged?.tools ?? {})[0];
+      if (!tool) return;
+      const sideEffect = platform.tools.get(tool)?.spec.sideEffect;
+      out.push({ id: step.id, kind: sideEffect === "none" ? "read" : "write", tool });
+    }
+  });
+  return out;
 }
 
 /** The connector's name as people know it, for a tool's connector (null for our own tools). */
@@ -55,25 +68,17 @@ export function writeFacts(platform: Platform, toolId: string): StepModelFacts["
 }
 
 /**
- * An action write step (send email, create bill, …) always changes a client's tool. Which one is
- * the agent's binding, resolved at run time; the label names it only when the step's `via` does.
+ * How a Do that uses an action reads on the client's timeline: saved or changed in their tool, by
+ * the action's tool (a merged action by its first tool); null for a read or an action not known.
  */
-// DECISION: an action step's facts name its `via` connector, else "the client's tool" (the run's
-// row name, "Create bill · in QuickBooks", says where it went).
-export function actionWriteFacts(
-  platform: Platform,
-  via: string | undefined,
-): StepModelFacts["write"] {
-  const name = via ? (platform.connectors.get(via)?.manifest.name ?? via) : null;
-  return { kind: "change_in", text: `Change in ${name ?? "the client's tool"}` };
-}
-
-/** How an action write step reads on the client's timeline: changed in their tool. */
-export function actionTimelineWrite(platform: Platform, via: string | undefined): TimelineWrite {
-  return {
-    kind: "change_in",
-    connector: via ? (platform.connectors.get(via)?.manifest.name ?? null) : null,
-  };
+export function actionTimelineWrite(platform: Platform, action: string): TimelineWrite | null {
+  const merged = steps.mergedAction(action);
+  const tool = platform.tools.get(action)
+    ? action
+    : Object.values(merged?.tools ?? {}).find((t) => platform.tools.get(t));
+  const spec = tool ? platform.tools.get(tool)?.spec : undefined;
+  if (!tool || !spec || spec.sideEffect === "none") return null;
+  return timelineWrite(platform, tool);
 }
 
 /** How a write reads on the client's timeline: saved, or changed in their tool (by name). */
@@ -96,7 +101,7 @@ export async function stepModelFacts(
   const lookup = toolLookup(platform.tools.specs());
   const out: Record<string, StepModelFacts> = {};
   const skills = new Map<string, SkillDefinition | null>();
-  for (const step of stepsOf(definition)) {
+  for (const step of stepsOf(definition, platform)) {
     if (step.kind === "skill" && step.skill) {
       let def = skills.get(step.skill);
       if (def === undefined) {
@@ -107,9 +112,7 @@ export async function stepModelFacts(
         skills.set(step.skill, def);
       }
       if (def) out[step.id] = { skillKind: skillKind(def, lookup) };
-    } else if (step.kind === "write" && step.action) {
-      out[step.id] = { write: actionWriteFacts(platform, step.via) };
-    } else if ((step.kind === "write" || step.kind === "action") && step.tool) {
+    } else if (step.kind === "write" && step.tool) {
       out[step.id] = {
         write: writeFacts(platform, step.tool),
         ...(lookup(step.tool)?.usesModel !== undefined ? { usesModel: true as const } : {}),

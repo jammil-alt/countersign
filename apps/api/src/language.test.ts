@@ -10,6 +10,7 @@ import {
   type ApiHarness,
   admin,
   createApiHarness,
+  ended,
   FakeWorkflowStep,
   OPERATOR,
   testBundle,
@@ -182,9 +183,7 @@ describe.skipIf(!h)("languages", () => {
         return H.instances.events.find((e) => e.event.type === type)?.event.payload;
       });
       const deps = { db: H.db, platform: H.platform, transport: new FakeModel() };
-      expect(await executeRun(deps, params, cloudflareStepRunner(step))).toEqual({
-        status: "succeeded",
-      });
+      expect(await executeRun(deps, params, cloudflareStepRunner(step))).toEqual(ended());
       const rows = await H.t.db.select().from(stepRun).where(eq(stepRun.runId, runId));
       const confirm = rows.find((r) => r.nodeId === "confirm");
       // "Confirm" is the operator's label; "freigegeben" is the platform's word, in German.

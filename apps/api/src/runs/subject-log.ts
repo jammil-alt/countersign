@@ -9,14 +9,14 @@ import {
   writeStepSubjectsTx,
   writeTriggerSubjectsTx,
 } from "@countersign/agents";
-import { type AnyAgentBundle, checkKindOf, shownOnTimeline } from "@countersign/core";
+import { type AgentBundle, checkKindOf, shownOnTimeline } from "@countersign/core";
 import { agentVersion, type Db, run, stepRun, type Tx, tenant, withTenant } from "@countersign/db";
 import { and, desc, eq, gte, inArray, type SQL, sql } from "drizzle-orm";
 import { reportHandled } from "../observability/report";
 import type { Platform } from "../platform";
 import { stepFinder, stepOfRow } from "../routes/run-checks";
 
-type StoredWorkflow = AnyAgentBundle["workflows"][number]["workflow"];
+type StoredWorkflow = AgentBundle["workflows"][number]["workflow"];
 
 /** The registry's spec for a tool id (packs' tools included), for the writer. */
 export function subjectTools(platform: Pick<Platform, "tools">): SubjectToolLookup {

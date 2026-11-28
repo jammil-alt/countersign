@@ -35,11 +35,13 @@ import {
   type ApiHarness,
   admin,
   createApiHarness,
+  ended,
   FakeWorkflowStep,
   OPERATOR,
   OTHER_OPERATOR,
   testBundle,
   user,
+  v5Workflow,
 } from "./api.test-helper";
 import { codesClient } from "./codes/client";
 import type { Bindings } from "./env";
@@ -184,11 +186,9 @@ describe.skipIf(!h)("scripted site tools through the API", () => {
         {
           slug: "fix-record",
           name: "Order supplies",
-          workflow: {
-            schemaVersion: 4,
+          workflow: v5Workflow(steps, {
             triggers: [{ id: "trg-manual", on: { type: "manual", input: {} } }],
-            steps,
-          },
+          }),
         },
       ],
     };
@@ -227,21 +227,28 @@ describe.skipIf(!h)("scripted site tools through the API", () => {
   /** A write of the place-order script, signed by the client admin. */
   const orderStep = () => ({
     id: "order",
-    kind: "write",
     name: "Order the boards",
-    tool: BROWSER_SCRIPT_SUBMIT_TOOL,
-    input: { site: "supplier", script: "place-order", inputs: { sku: "OAK-1", qty: 2 } },
     checks: {
-      approval: { approvers: [{ who: "client_admin", deadline: { after: "1 day" } }] },
+      approval: {
+        required: "required",
+        approvers: [
+          { who: "client_admin", deadline: { after: "1 day", hours: "clock", ifNoAnswer: "stop" } },
+        ],
+      },
     },
+    kind: "do",
+    doneBy: "rules",
+    uses: { type: "action", action: BROWSER_SCRIPT_SUBMIT_TOOL },
+    input: { site: "supplier", script: "place-order", inputs: { sku: "OAK-1", qty: 2 } },
   });
 
   const readStep = (script: string, inputs: Record<string, unknown>) => ({
     id: "stock",
-    kind: "read",
     name: "Check the stock",
-    tool: BROWSER_SCRIPT_READ_TOOL,
-    input: { site: "supplier", script, inputs },
+    kind: "do",
+    doneBy: "rules",
+    uses: { type: "action", action: BROWSER_SCRIPT_READ_TOOL },
+    input: { site: "supplier", script: script, inputs: inputs },
   });
 
   beforeAll(async () => {
@@ -717,8 +724,9 @@ describe.skipIf(!h)("scripted site tools through the API", () => {
     });
     const result = await executeRun(deps(), p, cloudflareStepRunner(step));
     const rows = await H.t.db.select().from(stepRun).where(eq(stepRun.runId, p.runId));
-    expect(result).toEqual({ status: "succeeded" });
-    expect(rows.map((r) => [r.nodeId, r.output])).toEqual([
+    expect(result).toEqual(ended());
+    // The End row after it is not what is asserted here.
+    expect(rows.filter((r) => r.nodeId !== "end").map((r) => [r.nodeId, r.output])).toEqual([
       ["order", expect.objectContaining({ wouldHaveDone: true })],
     ]);
     expect(portal.orders).toEqual([]);
@@ -733,7 +741,7 @@ describe.skipIf(!h)("scripted site tools through the API", () => {
     const version = await processVersion([readStep("check-stock", { sku: "OAK-1" })]);
     const p = params(version);
     const result = await executeRun(deps(), p, cloudflareStepRunner(new FakeWorkflowStep()));
-    expect(result).toEqual({ status: "succeeded" });
+    expect(result).toEqual(ended());
     const [row] = await H.t.db
       .select()
       .from(stepRun)
@@ -763,7 +771,7 @@ describe.skipIf(!h)("scripted site tools through the API", () => {
       return sent?.event.payload;
     });
     const result = await executeRun(deps(), p, cloudflareStepRunner(step));
-    expect(result, JSON.stringify(result)).toEqual({ status: "succeeded" });
+    expect(result, JSON.stringify(result)).toEqual(ended());
     expect(asked).toBe(1);
     expect(portal.orders).toEqual([{ number: "ORD-1", sku: "OAK-1", qty: "2" }]);
     const actions = await H.t.db
@@ -817,7 +825,7 @@ describe.skipIf(!h)("scripted site tools through the API", () => {
     const result = await executeRun(deps(), p, cloudflareStepRunner(step));
     expect(questions).toHaveLength(1);
     expect(questions[0]).toMatch(/couldn't find #stock-level/);
-    expect(result, JSON.stringify(result)).toEqual({ status: "succeeded" });
+    expect(result, JSON.stringify(result)).toEqual(ended());
     const [row] = await H.t.db
       .select()
       .from(stepRun)

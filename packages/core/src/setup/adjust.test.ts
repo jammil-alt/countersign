@@ -38,7 +38,6 @@ const limit: AdjustableSetting = {
     skill: "materials.match",
     parameter: "limit",
     type: "money",
-    stepId: "match",
   },
   bounds: { min: "1000", max: "10000" },
   tighter: "lower",
@@ -63,7 +62,13 @@ const schedule: AdjustableSetting = {
 function bundle() {
   return {
     definition: {
-      skills: [{ skill: "materials.match", settings: {}, parameters: { tolerance: 2 } }],
+      skills: [
+        {
+          skill: "materials.match",
+          settings: {},
+          parameters: { tolerance: 2, limit: { amount: "5000.00", currency: "USD" } },
+        },
+      ],
       adjustable: [tolerance, limit, category, schedule],
     } as Record<string, unknown> & { skills: unknown[] },
     workflows: [
@@ -72,21 +77,23 @@ function bundle() {
         name: "Main",
         enabled: true,
         workflow: {
-          schemaVersion: 4,
+          schemaVersion: 5,
           triggers: [{ id: "t1", on: { type: "schedule", cron: "0 7 * * 1-5" } }],
+          outputs: [],
           steps: [
             {
               id: "match",
-              kind: "skill",
+              kind: "do",
+              doneBy: "ai",
               name: "Match",
-              skill: "materials.match",
-              customize: { parameters: { limit: { amount: "5000.00", currency: "USD" } } },
+              uses: { type: "skill", skill: "materials.match" },
             },
             {
               id: "post",
-              kind: "write",
+              kind: "do",
+              doneBy: "rules",
               name: "Post",
-              tool: "qbo.bill.create",
+              uses: { type: "action", action: "qbo.bill.create" },
               checks: { approval: { required: "required" } },
             },
           ],
@@ -127,7 +134,11 @@ describe("client-adjustable settings: the schema", () => {
     expect(readAdjustable(undefined)).toEqual([]);
     expect(readAdjustable([{ nope: 1 }])).toEqual([]);
     expect(adjustableId(tolerance.target)).toBe("param-tolerance");
-    expect(adjustableId(limit.target)).toBe("param-match-limit");
+    expect(adjustableId(limit.target)).toBe("param-limit");
+    // A target written for a step (an older agent's) still gets its own id.
+    expect(adjustableId({ ...(limit.target as AdjustParameter), stepId: "match" })).toBe(
+      "param-match-limit",
+    );
     expect(adjustableId(schedule.target)).toBe("schedule-main-t1");
     expect(sameTarget(tolerance.target, { ...tolerance.target })).toBe(true);
     expect(sameTarget(tolerance.target, limit.target)).toBe(false);
@@ -244,7 +255,7 @@ describe("judgeAdjustment: bounds, tightening and requests", () => {
 });
 
 describe("applying an adjustment", () => {
-  it("writes the agent's value, a step's value or a schedule, and nothing else", () => {
+  it("writes the agent's value or a schedule, and nothing else; a step has no values of its own", () => {
     const b = bundle();
     const a = applyAdjustValue(b, tolerance.target, 1);
     if (!a.ok) throw new Error(a.reason);
@@ -256,6 +267,9 @@ describe("applying an adjustment", () => {
     if (!s.ok) throw new Error(s.reason);
     expect(adjustValue(s.bundle, limit.target)).toEqual({ amount: "2500.00", currency: "USD" });
     expect(onlyAdjusted(b, s.bundle, limit.target)).toBe(true);
+    expect(
+      applyAdjustValue(b, { ...(limit.target as AdjustParameter), stepId: "match" }, 1),
+    ).toMatchObject({ ok: false });
 
     const c = applyAdjustValue(b, schedule.target, "0 7 * * 1");
     if (!c.ok) throw new Error(c.reason);

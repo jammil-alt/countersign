@@ -1,5 +1,5 @@
-// builder-plan.md B1: try a build's draft on real examples in the POC test. The operator uploads a
-// document to the Sandbox (the back office's Sandbox upload, kept quiet), picks one of the
+// builder-plan.md B1: try a build's draft on real examples before it is published. The operator
+// uploads a document to the Sandbox (the back office's Sandbox upload, kept quiet), picks one of the
 // Sandbox's records (docs/open.md G3), or gives an input; it is
 // saved as a try (a shared test case, `try:<build id>`, not required) and run alone through the
 // test bench's own run route (a partial suite run: a test, never a write). The result is what the
@@ -9,7 +9,7 @@
 
 import { documentForTool, latestVersion } from "@countersign/agents";
 import {
-  type AnyAgentBundle,
+  type AgentBundle,
   allTriggers,
   type BuildDetail,
   type Fixture,
@@ -87,9 +87,15 @@ function refuseClosed(row: BuildRow): void {
   }
 }
 
-function refuseNotPoc(row: BuildRow): void {
-  if (row.phase !== "poc") {
-    throw new HttpError(409, "not_poc", "examples are tried in the POC test");
+// DECISION (owner, 2026-11-27: no POC test): an example is tried on the draft, before it is
+// published; the step builder's test run is the page's way, this one the MCP server's.
+function refuseNotDraft(row: BuildRow): void {
+  if (row.phase !== "draft") {
+    throw new HttpError(
+      409,
+      "not_draft",
+      "examples are tried on the draft, before it is published",
+    );
   }
 }
 
@@ -112,7 +118,7 @@ async function suiteTarget(scoped: Scoped, services: Services, row: BuildRow): P
   return { kind: "template", id: detail.draft.agentId, versionId };
 }
 
-type Flow = AnyAgentBundle["workflows"][number];
+type Flow = AgentBundle["workflows"][number];
 
 /**
  * The template's workflow a try runs: the one named, else the first that starts on the example's
@@ -125,7 +131,7 @@ type Flow = AnyAgentBundle["workflows"][number];
 // its `*.created` event (a purchase or bill: `transaction.created`; an invoice to a customer:
 // `receivable.created`), then to one started by hand, then to the first that's on.
 export function tryWorkflow(
-  bundle: Pick<AnyAgentBundle, "workflows">,
+  bundle: Pick<AgentBundle, "workflows">,
   as: TryOn,
   slug?: string,
 ): string {
@@ -285,7 +291,7 @@ async function tryCase(
     return { name: "Try: your input", input: body.input ?? null };
   }
   const v = await latestVersion(tx, target.id);
-  const bundle = (v?.bundle ?? { workflows: [] }) as Pick<AnyAgentBundle, "workflows">;
+  const bundle = (v?.bundle ?? { workflows: [] }) as Pick<AgentBundle, "workflows">;
   if (body.record) {
     // The record is the Sandbox's: where a shared template case runs (routes/testbench.ts).
     const made = await recordTry(tx, await sandboxClient(scoped), body.record);
@@ -378,7 +384,7 @@ export function buildTryRoutes(app: Hono<AppEnv>): void {
     const started = await ctx.inTx(async (scoped) => {
       const row = await readBuild(scoped.tx, id, true);
       refuseClosed(row);
-      refuseNotPoc(row);
+      refuseNotDraft(row);
       const target = await suiteTarget(scoped, ctx.services, row);
       if (body.caseId) {
         const c = await pendingTry(scoped.tx, target, row.id, body.caseId);
@@ -438,7 +444,7 @@ export function buildTryRoutes(app: Hono<AppEnv>): void {
     await ctx.inTx(async (scoped) => {
       const row = await readBuild(scoped.tx, params.id, true);
       refuseClosed(row);
-      refuseNotPoc(row);
+      refuseNotDraft(row);
       const target = await suiteTarget(scoped, ctx.services, row);
       const c = await pendingTry(scoped.tx, target, row.id, params.caseId);
       if (body.decide === "discard") {

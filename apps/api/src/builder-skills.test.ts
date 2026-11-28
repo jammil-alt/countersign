@@ -5,13 +5,18 @@
 // v3 version it revises is read through the converter, every id kept (docs/plan.md §1.86).
 
 import { TESTKIT_UPDATE_TOOL } from "@countersign/connectors";
-import { type ProcessAgentBundle as AgentBundle, processes, steps } from "@countersign/core";
+import { type AgentBundle, steps } from "@countersign/core";
 import { agentVersion, inboxItem } from "@countersign/db";
 import { FakeModel, type LlmRequest } from "@countersign/llm";
 import { eq } from "drizzle-orm";
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
-import { createApiHarness, OPERATOR, OTHER_OPERATOR, testBundle } from "./api.test-helper";
-import { stepModelAnswer } from "./builder-v5.test-helper";
+import {
+  createApiHarness,
+  doAction,
+  OPERATOR,
+  OTHER_OPERATOR,
+  testBundle,
+} from "./api.test-helper";
 
 const model = new FakeModel();
 const h = await createApiHarness({ llm: model });
@@ -43,13 +48,6 @@ function skillDef(slug: string, over: Json = {}) {
     ...over,
   };
 }
-
-type Step = processes.Step;
-const stepsOf = (b: AgentBundle) => {
-  const out: Step[] = [];
-  for (const w of b.workflows) processes.walkSteps(w.workflow, ({ step }) => out.push(step));
-  return out;
-};
 
 /** A v5 draft's steps (the step model: the Builder drafts in it, build item 9). */
 const v5StepsOf = (b: { workflows: { workflow: unknown }[] }) => {
@@ -269,33 +267,48 @@ function cardChargesAnswer() {
           slug: "weekly",
           name: "Weekly check",
           workflow: {
-            schemaVersion: 4,
+            schemaVersion: 5,
             triggers: [{ id: "t", on: { type: "schedule", cron: "0 9 * * 1" } }],
+            outputs: [{ id: "out-done", name: "Done", kind: "nothing" }],
             steps: [
               {
                 id: "find",
-                kind: "skill",
                 name: "Find card charges over $500 without a receipt",
-                skill: "custom:find-card-charges",
+                kind: "do",
+                doneBy: "ai",
+                uses: { type: "skill", skill: "custom:find-card-charges" },
                 input: {},
               },
               {
                 id: "ask",
-                kind: "person",
                 name: "Ask for the receipts",
-                mode: "ask",
-                assignee: "client_admin",
-                title: "Receipts needed for card charges over $500",
-                deadline: { after: "3 days", tell: ["operator"] },
+                kind: "do",
+                doneBy: "person",
+                person: {
+                  mode: "ask",
+                  who: "client_admin",
+                  question: "Receipts needed for card charges over $500",
+                  show: {},
+                  deadline: {
+                    after: "3 days",
+                    hours: "clock",
+                    ifNoAnswer: "stop",
+                    tell: ["operator"],
+                  },
+                  channel: "inbox",
+                  onReject: "stop",
+                },
               },
               {
                 id: "note",
-                kind: "write",
                 name: "Note it on the record",
-                tool: TESTKIT_UPDATE_TOOL,
-                input: { id: "r1", name: "Receipt asked for" },
                 checks: { approval: { required: "not_required" } },
+                kind: "do",
+                doneBy: "rules",
+                uses: { type: "action", action: TESTKIT_UPDATE_TOOL },
+                input: { id: "r1", name: "Receipt asked for" },
               },
+              { id: "end", kind: "end", name: "Done", outputs: ["out-done"] },
             ],
           },
         },
@@ -311,7 +324,7 @@ describe.skipIf(!h)("the Builder", () => {
   });
 
   it("drafts a template for card charges, with gaps and approval on", async () => {
-    model.push(stepModelAnswer({ toolUse: { name: "submit_draft", input: cardChargesAnswer() } }));
+    model.push({ toolUse: { name: "submit_draft", input: cardChargesAnswer() } });
     const res = await H.call(OPERATOR, "POST", "/api/ops/agents/draft", {
       description: "Flag card charges over $500 missing receipts",
     });
@@ -353,7 +366,7 @@ describe.skipIf(!h)("the Builder", () => {
   });
 
   it("drafts a client agent with what that client has connected", async () => {
-    model.push(stepModelAnswer({ toolUse: { name: "submit_draft", input: cardChargesAnswer() } }));
+    model.push({ toolUse: { name: "submit_draft", input: cardChargesAnswer() } });
     const res = await H.call(OPERATOR, "POST", "/api/ops/agents/draft", {
       description: "Flag card charges over $500 missing receipts",
       clientId: H.A.tenantId,
@@ -408,17 +421,17 @@ describe.skipIf(!h)("the Builder", () => {
       bindings: { testkit: H.A.connectionId },
     });
     const source = (created.json as { version: Json }).version;
-    // The model is shown the stored v3 version read as a process (every id kept) and answers v4.
+    // The model is shown the stored version (every id kept) and answers a revision of it.
     model.push((req: LlmRequest) => {
       const revised = structuredClone(shownSource(req));
       const wf = revised.workflows[0]?.workflow;
       if (!wf) throw new Error("no workflow");
-      expect(wf.schemaVersion).toBe(4);
-      const update = wf.steps[0] as Step;
+      expect(wf.schemaVersion).toBe(5);
+      const update = wf.steps[0] as steps.Step;
       wf.steps = [
         {
           id: "small-or-not",
-          kind: "if",
+          kind: "fork",
           name: "Invoice under $200?",
           paths: [
             {
@@ -429,28 +442,29 @@ describe.skipIf(!h)("the Builder", () => {
                 rules: [{ field: "{{trigger.amount}}", op: "<", value: 200 }],
               },
               steps: [
-                {
-                  id: "update-small",
-                  kind: "write",
-                  name: "Update without approval",
-                  tool: TESTKIT_UPDATE_TOOL,
-                  input: { id: "r1", amount: "12.00" },
-                  checks: {
-                    approval: {
-                      required: "not_required",
-                      mode: "in_turn",
-                      ifNoAnswer: "stop",
-                      onReject: "stop",
+                doAction(
+                  "update-small",
+                  "Update without approval",
+                  TESTKIT_UPDATE_TOOL,
+                  { id: "r1", amount: "12.00" },
+                  {
+                    checks: {
+                      approval: {
+                        required: "not_required",
+                        mode: "in_turn",
+                        ifNoAnswer: "stop",
+                        onReject: "stop",
+                      },
                     },
                   },
-                },
+                ),
               ],
             },
           ],
           otherwise: { id: "big", steps: [update] },
         },
         ...wf.steps.slice(1),
-      ];
+      ] as steps.Step[];
       return {
         toolUse: {
           name: "submit_revision",
@@ -483,16 +497,22 @@ describe.skipIf(!h)("the Builder", () => {
       parentVersionId: source.id,
       changeNote: "Builder: Skip approval under $200",
     });
-    const writes = stepsOf(out.bundle).filter((s) => s.kind === "write");
+    const writes = v5StepsOf(out.bundle).filter(
+      (s) => s.kind === "do" && s.uses?.type === "action",
+    );
     expect(writes.map((s) => s.checks?.approval?.required)).toEqual(["required", "required"]);
-    expect(stepsOf(out.bundle).find((s) => s.name === "Update the record")?.id).toBe("update");
-    // The revision is a v4 version; the v3 version it revised is as it was (invariant 3).
+    expect(v5StepsOf(out.bundle).find((s) => s.name === "Update the record")?.id).toBe("update");
+    // The version it revised is as it was (invariant 3).
     const [v1] = await H.t.db
       .select()
       .from(agentVersion)
       .where(eq(agentVersion.id, source.id as string));
-    expect(v1?.bundle.workflows[0]?.workflow.schemaVersion).toBe(3);
-    expect(out.bundle.workflows[0]?.workflow.schemaVersion).toBe(4);
+    expect(v1?.bundle.workflows[0]?.workflow.steps.map((x) => x.id)).toEqual([
+      "update",
+      "confirm",
+      "internal",
+      "end",
+    ]);
     expect(out.notes.join(" ")).toMatch(/Approval stays on/);
     expect(out.diff.changes.length).toBeGreaterThan(0);
     expect(Object.values(out.diff.labels)).toContain("Invoice under $200?");
@@ -517,7 +537,7 @@ describe.skipIf(!h)("the Builder", () => {
     model.push((req: LlmRequest) => {
       const changed = structuredClone(shownSource(req));
       const note = changed.workflows[0]?.workflow.steps[2];
-      if (note?.kind === "notify") note.notify.message = "Record checked";
+      if (note?.kind === "do" && note.tell) note.tell.message = "Record checked";
       return {
         toolUse: {
           name: "submit_revision",
@@ -547,7 +567,7 @@ describe.skipIf(!h)("discarding drafts", () => {
   const H = h as NonNullable<typeof h>;
 
   it("discards an unwanted Builder draft, keeps it out of lists, and restores it", async () => {
-    model.push(stepModelAnswer({ toolUse: { name: "submit_draft", input: cardChargesAnswer() } }));
+    model.push({ toolUse: { name: "submit_draft", input: cardChargesAnswer() } });
     const drafted = await H.call(OPERATOR, "POST", "/api/ops/agents/draft", {
       description: "Flag card charges over $500 missing receipts",
       name: "Unwanted draft",
@@ -576,7 +596,7 @@ describe.skipIf(!h)("discarding drafts", () => {
       versions: [{ id: version.id }],
     });
     // The slug stays taken: the next draft of the same name gets another.
-    model.push(stepModelAnswer({ toolUse: { name: "submit_draft", input: cardChargesAnswer() } }));
+    model.push({ toolUse: { name: "submit_draft", input: cardChargesAnswer() } });
     const again = await H.call(OPERATOR, "POST", "/api/ops/agents/draft", {
       description: "x",
       name: "Unwanted draft",

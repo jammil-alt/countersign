@@ -20,33 +20,40 @@ const ITEM_ID = "00000000-0000-4000-8000-0000000f3001";
 const TENANT = "00000000-0000-4000-8000-00000000a001";
 
 const WORKFLOW = {
-  schemaVersion: 3,
-  trigger: { id: "trg", on: { type: "manual", input: {} } },
+  schemaVersion: 5,
+  triggers: [{ id: "trg", on: { type: "manual", input: {} } }],
+  outputs: [],
   steps: [
     {
       id: "update",
       name: "Update the record",
-      kind: "action",
-      tool: "testkit.record.update",
+      kind: "do",
+      doneBy: "rules",
+      uses: { type: "action", action: "testkit.record.update" },
       input: { id: "r1", amount: "12.00" },
-      approval: { required: "required" },
+      checks: { approval: { required: "required" } },
     },
     {
       id: "confirm",
       name: "Confirm",
-      kind: "person",
-      mode: "approve",
-      assignee: "client_admin",
-      title: "Is it right?",
-      timeout: "1 day",
-      onTimeout: "stop",
+      kind: "do",
+      doneBy: "person",
+      person: {
+        mode: "approve",
+        who: "client_admin",
+        question: "Is it right?",
+        deadline: { after: "1 day", ifNoAnswer: "stop" },
+        channel: "inbox",
+        onReject: "stop",
+      },
     },
     {
       id: "internal",
       name: "Operator note",
-      kind: "notify",
-      channel: "thread",
-      message: "done",
+      kind: "do",
+      doneBy: "rules",
+      uses: { type: "tell" },
+      tell: { to: ["client_admin"], channel: "inbox", message: "done" },
       client: { visible: false },
     },
   ],
@@ -159,19 +166,21 @@ describe("run checklist", () => {
   });
 });
 
-// R8 (ARCHITECTURE §10.14): a v4 process's run. A write's confers are rows of their own (with
+// R8 (ARCHITECTURE §10.14): a workflow's run. A write's confers are rows of their own (with
 // the second check's note: the back office sees it), its approvers in the check's mode, the write
 // that went ahead with nobody answering, an urgent notice waiting for its Seen, and the owner.
-describe("back-office run view: a v4 process", () => {
+describe("back-office run view: confers, routes and checks", () => {
   const PROCESS = {
-    schemaVersion: 4,
+    schemaVersion: 5,
     triggers: [{ id: "trg", on: { type: "manual", input: {} } }],
+    outputs: [],
     steps: [
       {
         id: "post",
         name: "Post the bill",
-        kind: "write",
-        tool: "testkit.record.update",
+        kind: "do",
+        doneBy: "rules",
+        uses: { type: "action", action: "testkit.record.update" },
         input: {},
         checks: {
           confer: {
@@ -195,8 +204,10 @@ describe("back-office run view: a v4 process", () => {
       {
         id: "tell",
         name: "Tell the team",
-        kind: "notify",
-        notify: {
+        kind: "do",
+        doneBy: "rules",
+        uses: { type: "tell" },
+        tell: {
           to: ["client_admin"],
           channel: "inbox",
           message: "Posted",
@@ -294,7 +305,7 @@ describe("back-office run view: a v4 process", () => {
     expect(person).toHaveAttribute("data-state", "person");
 
     const write = screen.getByTestId(`ops-run-step-${R(3)}`);
-    expect(write).toHaveTextContent("Write");
+    expect(write).toHaveTextContent("Do");
     const approval = within(write).getByTestId(`ops-run-step-checks-${R(3)}-approval`);
     expect(approval).toHaveTextContent("Asked together; everyone must approve");
     expect(
@@ -305,9 +316,17 @@ describe("back-office run view: a v4 process", () => {
     expect(within(write).getByTestId(`ops-run-step-checks-${R(3)}-no-answer`)).toHaveTextContent(
       "Went ahead: nobody answered in time",
     );
-    expect(within(write).getByTestId(`ops-run-owner-${R(21)}`)).toHaveTextContent(
-      "The owner corrected the input and tried again after a failed step.",
+    // Owner, 2026-11-27: what the supervisor verified and decided, in two lines; the note, what
+    // it changed and its records folded under them.
+    expect(within(write).getByTestId(`ops-run-supervisor-${R(3)}-verified`)).toHaveTextContent(
+      "Verified Read against the run's goal",
     );
+    const decided = within(write).getByTestId(`ops-run-supervisor-${R(3)}-decided-${R(21)}`);
+    expect(decided).toHaveTextContent("Retried with a corrected input");
+    expect(decided).toHaveTextContent("The amount used a comma.");
+    expect(
+      within(write).getByTestId(`ops-run-supervisor-${R(3)}-changed-${R(21)}`),
+    ).toHaveTextContent("Changed: amount");
     expect(
       within(screen.getByTestId(`ops-run-step-${R(4)}`)).getByTestId(
         `ops-run-step-checks-${R(4)}-urgent`,
@@ -318,22 +337,25 @@ describe("back-office run view: a v4 process", () => {
   // Wave 5: the route an if took and why, by step name; a failure the run carried on past.
   it("says which route an if took and why, and a step that failed and carried on", async () => {
     const forked = {
-      schemaVersion: 4,
+      schemaVersion: 5,
       triggers: [{ id: "trg", on: { type: "manual", input: {} } }],
+      outputs: [],
       steps: [
         {
           id: "look",
           name: "Look the PO up",
-          kind: "read",
-          tool: "testkit.record.query",
+          kind: "do",
+          doneBy: "rules",
+          uses: { type: "action", action: "testkit.record.query" },
           input: {},
           onError: "continue",
         },
         {
           id: "post",
           name: "Approve the bill",
-          kind: "write",
-          tool: "testkit.record.update",
+          kind: "do",
+          doneBy: "rules",
+          uses: { type: "action", action: "testkit.record.update" },
           input: {},
           checks: {
             approval: {
@@ -347,7 +369,7 @@ describe("back-office run view: a v4 process", () => {
         {
           id: "route",
           name: "If rejected",
-          kind: "if",
+          kind: "fork",
           paths: [
             {
               id: "p-rej",
@@ -1056,8 +1078,9 @@ describe("back-office run view: hand-offs", () => {
   const FROM = "00000000-0000-4000-8000-0000000f1def";
   const STEP = "00000000-0000-4000-8000-0000000f2abc";
   const PROCESS = {
-    schemaVersion: 4,
+    schemaVersion: 5,
     triggers: [{ id: "trg", on: { type: "manual", input: {} } }],
+    outputs: [],
     steps: [
       {
         id: "hand",

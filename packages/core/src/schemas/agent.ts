@@ -7,20 +7,18 @@ import { DecimalString } from "../money";
 // v0.13 W2-I
 import { OversightSettings } from "../oversight/decision";
 import { OwnerArea } from "../owners/areas";
-// R1 (docs/plan.md §1.86): a bundle entry may hold a v4 process.
-import { Process } from "../process/schema";
 import { PersonRole } from "../reach/rules";
 import { AgentData } from "../records/grants";
 // docs/builder-plan.md §7 (B5): the settings a client may adjust, with their bounds.
 import { AdjustableSettings } from "../setup/adjustable";
 // docs/builder-plan.md §6: the setup checklist a client copy is set up by.
 import { SetupChecklist } from "../setup/item";
-// The step model (docs/step-model-plan.md §13c, wave 1): a bundle entry may hold a v5 workflow.
-import { Workflow as StepWorkflow } from "../steps/schema";
+// The step model (docs/step-model-plan.md §13c): a bundle entry holds a v5 workflow.
+import { Workflow } from "../steps/schema";
+import { EmailIntake } from "../triggers/intake";
 import { SkillRef, Slug, ToolId } from "./common";
 import { AgentMode } from "./permissions";
 import { ModelChoice } from "./skill";
-import { Workflow } from "./workflow";
 
 /** ARCHITECTURE §9.1. */
 export const AgentDefinition = z
@@ -107,6 +105,9 @@ export const AgentDefinition = z
     // per record type, and its data sets. Optional with no default, so bundles without it parse
     // and hash as they were; absent grants nothing (the standard record actions are refused).
     data: AgentData.optional(),
+    // Email intake (owner, 2026-11-28): who may start the agent by emailing its own address. Optional
+    // with no default, so bundles without it parse and hash as they were; absent is `people`.
+    emailIntake: EmailIntake.optional(),
   })
   .meta({ id: "AgentDefinition" });
 export type AgentDefinition = z.infer<typeof AgentDefinition>;
@@ -134,60 +135,3 @@ export const AgentBundle = z
   .meta({ id: "AgentBundle" });
 export type AgentBundle = z.infer<typeof AgentBundle>;
 export type AgentBundleInput = z.input<typeof AgentBundle>;
-
-// ── R1: bundles that may hold v4 processes (docs/plan.md §1.86, §9) ──────────────────────────
-//
-// DECISION: `AgentBundle` keeps its v3-only type and schema while the runtime, validator, Builder
-// and screens read v3 only; a bundle that may hold v4 processes is `AnyAgentBundle`, whose entries
-// are a v3 workflow or a v4 process by `schemaVersion`. Every `AgentBundle` is an
-// `AnyAgentBundle`, and a v3 bundle parses to the same value (so the same canonical JSON and
-// `bundle_hash`) under either schema. When every reader handles v4 (R3, R8), `AgentBundle` becomes
-// this schema and the v3-only one goes.
-
-/**
- * A workflow entry whose workflow is a stored v3 workflow, a v4 process, or (the step model,
- * docs/step-model-plan.md §13a) a v5 workflow.
- */
-// DECISION (step model, wave 1): v5 joins the same union rather than a bundle schema of its own,
-// so a bundle stores, hashes and validates the same way whichever versions it holds; v3 and v4
-// leave the union in wave 4 (§12, R2).
-export const AnyBundleWorkflow = BundleWorkflow.extend({
-  workflow: z.discriminatedUnion("schemaVersion", [Workflow, Process, StepWorkflow]),
-});
-export type AnyBundleWorkflow = z.infer<typeof AnyBundleWorkflow>;
-
-/** An agent bundle whose workflows may be v3 workflows or v4 processes, mixed. */
-export const AnyAgentBundle = AgentBundle.extend({
-  workflows: z.array(AnyBundleWorkflow),
-}).meta({ id: "AnyAgentBundle" });
-export type AnyAgentBundle = z.infer<typeof AnyAgentBundle>;
-export type AnyAgentBundleInput = z.input<typeof AnyAgentBundle>;
-
-/** A workflow entry read as a v4 process. */
-export type ProcessBundleWorkflow = Omit<BundleWorkflow, "workflow"> & { workflow: Process };
-
-/** A bundle with every workflow read as a v4 process (core's `toProcessBundle`). */
-export type ProcessAgentBundle = Omit<AgentBundle, "workflows"> & {
-  workflows: ProcessBundleWorkflow[];
-};
-
-/**
- * Wave 3b: the schema of a bundle whose workflows are all v4 processes: what the Builder drafts
- * and answers (docs/plan.md §1.86). Its value is a `ProcessAgentBundle`.
- */
-export const ProcessAgentBundle = AgentBundle.extend({
-  workflows: z.array(BundleWorkflow.extend({ workflow: Process })),
-}).meta({ id: "ProcessAgentBundle" });
-
-/** A workflow entry read as a v5 workflow (the step model). */
-export type StepBundleWorkflow = Omit<BundleWorkflow, "workflow"> & { workflow: StepWorkflow };
-
-/** True when any of the bundle's workflows is a v5 workflow (the step model). */
-export function holdsStepModel(bundle: Pick<AnyAgentBundle, "workflows">): boolean {
-  return bundle.workflows.some((w) => w.workflow.schemaVersion === 5);
-}
-
-/** True when any of the bundle's workflows is a v4 process. */
-export function holdsProcess(bundle: Pick<AnyAgentBundle, "workflows">): boolean {
-  return bundle.workflows.some((w) => w.workflow.schemaVersion === 4);
-}

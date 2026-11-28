@@ -37,6 +37,7 @@ import {
   type ApiHarness,
   admin,
   createApiHarness,
+  ended,
   FakeWorkflowStep,
   OPERATOR,
   OTHER_OPERATOR,
@@ -91,55 +92,66 @@ function bundle(workflow: unknown, mode: "suggest_only" | "act" = "suggest_only"
 
 /** Texts the number it is given, without approval (the connection allows `create` on auto). */
 const NOTIFY_WORKFLOW = {
-  schemaVersion: 3,
-  trigger: {
-    id: "trg-manual",
-    on: {
-      type: "manual",
-      input: { type: "object", properties: { to: { type: "string" } }, required: ["to"] },
+  schemaVersion: 5,
+  triggers: [
+    {
+      id: "trg-manual",
+      on: {
+        type: "manual",
+        input: { type: "object", properties: { to: { type: "string" } }, required: ["to"] },
+      },
     },
-  },
+  ],
+  outputs: [{ id: "out-done", name: "Done", kind: "nothing" }],
   steps: [
     {
       id: "notify",
       name: "Text the customer",
-      kind: "action",
-      tool: SMS_SEND_TOOL,
-      input: { to: "{{trigger.to}}", text: "Your order has shipped." },
-      approval: { required: "not_required" },
       client: { visible: true, label: "Texted the customer" },
+      checks: { approval: { required: "not_required" } },
+      kind: "do",
+      doneBy: "rules",
+      uses: { type: "action", action: SMS_SEND_TOOL },
+      input: { to: "{{trigger.to}}", body: "Your order has shipped." },
     },
+    { id: "end", kind: "end", name: "Done", outputs: ["out-done"] },
   ],
 };
 
 const REPLY_WORKFLOW = {
-  schemaVersion: 3,
-  trigger: {
-    id: "trg-text",
-    on: {
-      type: "event",
-      event: "message.received",
-      filter: { match: "all", rules: [{ field: "{{trigger.keyword}}", op: "is", value: null }] },
+  schemaVersion: 5,
+  triggers: [
+    {
+      id: "trg-text",
+      on: {
+        type: "event",
+        event: "message.received",
+        filter: { match: "all", rules: [{ field: "{{trigger.keyword}}", op: "is", value: null }] },
+      },
     },
-  },
+  ],
+  outputs: [{ id: "out-done", name: "Done", kind: "nothing" }],
   steps: [
     {
       id: "read",
       name: "Read the text",
-      kind: "skill",
-      skill: MESSAGE_GET_TOOL,
-      input: { sid: "{{trigger.messageSid}}" },
       client: { visible: true, label: "Read the text" },
+      kind: "do",
+      doneBy: "rules",
+      uses: { type: "action", action: "message.get" },
+      input: { sid: "{{trigger.messageSid}}" },
     },
     {
       id: "reply",
       name: "Text back",
-      kind: "action",
-      tool: SMS_SEND_TOOL,
-      input: { to: "{{trigger.from}}", text: "Thanks, we got your message." },
-      approval: { required: "required" },
       client: { visible: true, label: "Texted back" },
+      checks: { approval: { required: "required" } },
+      kind: "do",
+      doneBy: "rules",
+      uses: { type: "action", action: SMS_SEND_TOOL },
+      input: { to: "{{trigger.from}}", body: "Thanks, we got your message." },
     },
+    { id: "end", kind: "end", name: "Done", outputs: ["out-done"] },
   ],
 };
 
@@ -465,7 +477,7 @@ describe.skipIf(!h)("texts and WhatsApp through the API", () => {
       // Waiting on approval: nothing sent yet.
       const sendsBefore = twilio.sends().length;
       const result = await executeRun(deps(), params, cloudflareStepRunner(approver("a")));
-      expect(result).toEqual({ status: "succeeded" });
+      expect(result).toEqual(ended());
       expect(twilio.sends()).toHaveLength(sendsBefore + 1);
       expect(twilio.sends().at(-1)?.form).toMatchObject({
         To: PAT,
@@ -637,7 +649,7 @@ describe.skipIf(!h)("texts and WhatsApp through the API", () => {
     it("resumes when retried: an opt-out since the send doesn't fail it, and nothing is sent twice", async () => {
       const params = await started();
       const sends = twilio.sends().length;
-      expect(await runIt(params)).toEqual({ status: "succeeded" });
+      expect(await runIt(params)).toEqual(ended());
       expect(twilio.sends()).toHaveLength(sends + 1);
       const action = await actionOf(params.runId);
       expect(action).toMatchObject({ status: "done", approvedBy: null });
@@ -646,7 +658,7 @@ describe.skipIf(!h)("texts and WhatsApp through the API", () => {
       // The Worker stopped before the action was marked done; Pat opts out; the step is retried.
       await leftExecuting(action?.id ?? "");
       await optOut(true);
-      expect(await runIt(params)).toEqual({ status: "succeeded" });
+      expect(await runIt(params)).toEqual(ended());
       expect(twilio.sends()).toHaveLength(sends + 1);
       const again = await actionOf(params.runId);
       expect(again).toMatchObject({ status: "done", error: null });
@@ -665,7 +677,7 @@ describe.skipIf(!h)("texts and WhatsApp through the API", () => {
     it("a step retried while its first try's claim holds waits for it to run out, then sends once", async () => {
       const params = await started();
       const sends = twilio.sends().length;
-      expect(await runIt(params)).toEqual({ status: "succeeded" });
+      expect(await runIt(params)).toEqual(ended());
       const action = await actionOf(params.runId);
       const id = action?.id ?? "";
       // The Worker stopped mid-send just now: the claim is fresh.
@@ -685,9 +697,7 @@ describe.skipIf(!h)("texts and WhatsApp through the API", () => {
           name: "WorkflowTimeoutError",
         });
       });
-      expect(await executeRun(deps(), params, cloudflareStepRunner(step))).toEqual({
-        status: "succeeded",
-      });
+      expect(await executeRun(deps(), params, cloudflareStepRunner(step))).toEqual(ended());
       expect(waits).toEqual([`lease-${id.replace(/-/g, "")}`]);
       expect(twilio.sends()).toHaveLength(sends + 1);
       expect(await actionOf(params.runId)).toMatchObject({ status: "done", error: null });
@@ -716,7 +726,7 @@ describe.skipIf(!h)("texts and WhatsApp through the API", () => {
 
       await leftExecuting(action?.id ?? "");
       await optOut(true);
-      expect(await runIt(params)).toEqual({ status: "succeeded" });
+      expect(await runIt(params)).toEqual(ended());
       expect(twilio.sends()).toHaveLength(sends + 1);
       const done = await actionOf(params.runId);
       expect(done).toMatchObject({ status: "done" });
@@ -759,10 +769,18 @@ describe.skipIf(!h)("texts and WhatsApp through the API", () => {
         expect(JSON.stringify(failed?.error)).toContain(
           "The text to Pat Lee may have been sent; check before trying again",
         );
+        // The step's owner also stops the run at a change that reached the tool (its own review
+        // item); this one is the action's, which only the operator checks.
         const items = await H.t.db
           .select()
           .from(inboxItem)
-          .where(and(eq(inboxItem.runId, params.runId), eq(inboxItem.kind, "review")));
+          .where(
+            and(
+              eq(inboxItem.runId, params.runId),
+              eq(inboxItem.kind, "review"),
+              eq(inboxItem.subjectType, "external_action"),
+            ),
+          );
         expect(items).toHaveLength(1);
         expect(items[0]).toMatchObject({
           assigneeRole: "operator",
@@ -784,7 +802,13 @@ describe.skipIf(!h)("texts and WhatsApp through the API", () => {
           await H.t.db
             .select()
             .from(inboxItem)
-            .where(and(eq(inboxItem.runId, params.runId), eq(inboxItem.kind, "review"))),
+            .where(
+              and(
+                eq(inboxItem.runId, params.runId),
+                eq(inboxItem.kind, "review"),
+                eq(inboxItem.subjectType, "external_action"),
+              ),
+            ),
         ).toHaveLength(1);
       }
     });
@@ -814,7 +838,7 @@ describe.skipIf(!h)("texts and WhatsApp through the API", () => {
         // The run's retry carries the write under its key (a takeover of the same action).
         const action = await actionOf(params.runId);
         await leftExecuting(action?.id ?? "");
-        expect(await runIt(params)).toEqual({ status: "succeeded" });
+        expect(await runIt(params)).toEqual(ended());
       }
       expect(twilio.sends()).toHaveLength(sends + 1);
       const action = await actionOf(params.runId);

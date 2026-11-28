@@ -2,7 +2,7 @@
 // (and sees no channels there); the operator's People and Channels sections on a client agent; the
 // builder's reach-out inspector; contact details with email, preferences, hours and roles; and the
 // back office's email setup with its DNS records.
-import type { AgentBundle, Step } from "@countersign/core";
+import type { AgentBundle, processes } from "@countersign/core";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useState } from "react";
@@ -80,6 +80,8 @@ const agentPage = {
     people: [],
   }),
 };
+
+type Step = processes.Step;
 
 describe("portal: who an agent contacts (its Access tab)", () => {
   it("lets the client admin bind a contact to a role, with conditions; no channels here", async () => {

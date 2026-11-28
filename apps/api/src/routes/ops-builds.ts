@@ -14,7 +14,7 @@ import {
   reviewBrief,
 } from "@countersign/agents";
 import {
-  AnyAgentBundle,
+  AgentBundle,
   BRIEF_FIELDS,
   BRIEF_LABELS,
   type Brief,
@@ -55,12 +55,12 @@ import {
   ProposalState,
   parseDqNumber,
   phaseIndex,
-  processes,
   proposalUndo,
   readBrief,
   readFitGap,
   readQa,
   readTestPlan,
+  retiredPhase,
   routes,
   SETTLE_OWNER,
   SETTLE_WORDS,
@@ -87,7 +87,8 @@ import {
 import { DEFAULT_MODELS, type LlmTransport } from "@countersign/llm";
 import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 import type { Hono } from "hono";
-import { freeSlug, moveToClientTest } from "../build/client-test";
+import { freeSlug } from "../build/client-test";
+import { goLive } from "../build/live";
 import { withBuildManual } from "../build/manual";
 import { draftSetupItems, withSetupItems } from "../build/setup";
 import {
@@ -467,16 +468,18 @@ async function turn(
             ),
           ]
         : []),
-      ...detail.qaChecks.map((c) => `QA ${c.label}: ${c.state} (${c.detail})`),
-      // docs/builder-plan.md §4.2: high-risk decisions nobody has looked at hold the client test.
+      // docs/builder-plan.md §4.2: high-risk decisions nobody has looked at, to look at before it
+      // is published (they hold nothing since 2026-11-27).
       ...detail.build.fitgap.decisions
         .filter(decisionUnreviewed)
         .map((d) => `High-risk decision not looked at yet [decision:${d.id}]: ${d.what}`),
       ...(detail.gate.reasons.length > 0
-        ? [`Can't move on yet: ${detail.gate.reasons.join(" ")}`]
+        ? [
+            `${row.phase === "draft" ? "Can't be published yet" : "Can't move on yet"}: ${detail.gate.reasons.join(" ")}`,
+          ]
         : []),
       // The draft's steps by id, so a proposed edit names a real one.
-      ...(row.phase === "draft" || row.phase === "poc"
+      ...(row.phase === "draft"
         ? await draftOutline({ tx: scoped.tx, services: ctx.services, now }, row)
         : []),
       // docs/plan.md §1.125: what this build waits on in the Dev queue, and what is open there,
@@ -1361,7 +1364,7 @@ async function runDevQueueAction(
         ? ""
         : ` Before it can be approved: ${q.moves.accept.reason}`;
       return {
-        text: `Filed ${q.ref}: ${q.title}. It's in triage in the Dev queue, owned by Mezonas engineering.${flag}${reasons} The draft's problem on this step holds the move to the POC test until it ships; open questions and other gaps don't.`,
+        text: `Filed ${q.ref}: ${q.title}. It's in triage in the Dev queue, owned by Mezonas engineering.${flag}${reasons} The draft's problem on this step holds Publish until it ships; open questions and other gaps don't.`,
         ...(q.moves.accept.allowed
           ? {
               proposal: {
@@ -1620,20 +1623,12 @@ async function draftGapSteps(
   named: readonly (string | null)[] = [],
 ): Promise<(string | null)[]> {
   const latest = agentId ? await latestVersion(tx, agentId) : null;
-  const parsed = latest ? AnyAgentBundle.safeParse(latest.bundle) : null;
+  const parsed = latest ? AgentBundle.safeParse(latest.bundle) : null;
   if (!parsed?.success) return gaps.map(() => null);
-  const drafted = parsed.data.workflows.flatMap((w) =>
-    w.workflow.schemaVersion === 4 ? [w.workflow] : [],
-  );
-  // Step model (build item 9): a v5 draft's steps stand for its gaps the same way.
-  const stepModel = parsed.data.workflows.flatMap((w) =>
-    w.workflow.schemaVersion === 5 ? [w.workflow] : [],
-  );
-  const ids = new Set([
-    ...drafted.flatMap((p) => processes.allSteps(p).map(({ step }) => step.id)),
-    ...stepModel.flatMap((w) => steps.stepModelIds(w)),
-  ]);
-  const matched = gapSteps(gaps, [...drafted, ...stepModel]);
+  // A draft's steps stand for its gaps the same way.
+  const drafted = parsed.data.workflows.map((w) => w.workflow);
+  const ids = new Set(drafted.flatMap((w) => steps.stepModelIds(w)));
+  const matched = gapSteps(gaps, drafted);
   return gaps.map((_, i) => {
     const said = named[i];
     return said && ids.has(said) ? said : (matched[i] ?? null);
@@ -1711,7 +1706,7 @@ function draftMovedText(
       : `I drafted it from the brief and the fit-gap. ${open}`;
   }
   if (changes && changes.length > 0) {
-    return `I kept the draft from before. It was made before the fit-gap changed, so it doesn't cover: ${changes.join(", ")}. I added an item to change the draft to match; the draft can't go to the POC test until you close it. ${open}`;
+    return `I kept the draft from before. It was made before the fit-gap changed, so it doesn't cover: ${changes.join(", ")}. I added an item to change the draft to match; the draft can't be published until you close it. ${open}`;
   }
   return changes
     ? `I kept the draft from before: the fit-gap's first version hasn't changed since. ${open}`
@@ -1725,9 +1720,9 @@ function draftMovedText(
  * copy forked from the template carries to the client. A skill build has neither. A failure is
  * reported and never holds the move. Nothing is written once the build has left `phase` or closed.
  */
-// DECISION: written on the moves into the draft and the POC test only, never per turn, so a
-// conversation doesn't add a version each time the Builder records a decision; the manual is
-// written again on the next move.
+// DECISION: written on the move into the draft and on the build's Publish only, never per turn,
+// so a conversation doesn't add a version each time the Builder records a decision; the manual is
+// written again when it is published (owner, 2026-11-27: Publish replaced the POC test's move).
 // DECISION: only a template build (one with a client intake form) makes a checklist; a build for
 // one client keeps its open items, as its fit-gap does today.
 // DECISION: the manual and the checklist go in one version per move (merged from B3 and B4), so a
@@ -1740,7 +1735,7 @@ async function writeDraftFromBuild(ctx: LongCtx, id: string, phase: BuildPhase):
     if (r.kind !== "agent" || !r.agentId) return null;
     const latest = await latestVersion(scoped.tx, r.agentId);
     if (!latest) return null;
-    const parsed = AnyAgentBundle.safeParse(latest.bundle);
+    const parsed = AgentBundle.safeParse(latest.bundle);
     if (!parsed.success) return null;
     // The decisions with their risk worked out by code, as the build shows them.
     const detail = await detailIn(scoped, ctx.services, r);
@@ -1830,8 +1825,8 @@ export function draftedNowText(o: {
   if (notes.length > 0) lines.push(notes.join(" "));
   lines.push(
     o.problems === 0
-      ? "Next: move to the POC test and try it on a real example, then tell me what to change."
-      : `${o.problems === 1 ? "1 problem is" : `${o.problems} problems are`} left before it can be tried: use the buttons on each issue.`,
+      ? "Next: try it in the step builder (a test run writes nothing), and publish it when it runs through."
+      : `${o.problems === 1 ? "1 problem is" : `${o.problems} problems are`} left before it can be published: use the buttons on each issue.`,
   );
   return lines.join("\n\n");
 }
@@ -2059,7 +2054,7 @@ export async function draftNow(ctx: LongCtx, id: string, given: string | null): 
     if (r.clientId && agentId) {
       const agentRow = await getAgent(scoped.tx, agentId);
       const latest = await latestVersion(scoped.tx, agentId);
-      const parsed = latest ? AnyAgentBundle.safeParse(latest.bundle) : null;
+      const parsed = latest ? AgentBundle.safeParse(latest.bundle) : null;
       if (parsed?.success) {
         const after = await bindTestCopy(
           { tx: scoped.tx, services: ctx.services, session: ctx.session },
@@ -2104,6 +2099,81 @@ export async function draftNow(ctx: LongCtx, id: string, given: string | null): 
   });
 }
 
+/** Why the POC test, client test, QA and go/no-go are refused (owner, 2026-11-27). */
+const RETIRED_WORDS =
+  "A build goes from its draft straight to Publish: there is no POC test, client test or QA now. Try it in the step builder, then publish it; a client's agent is then tried at the client in its trial, where every write is signed.";
+
+/**
+ * Publish (owner, 2026-11-27): the one move from the draft. The draft's gate holds it (a draft with
+ * no problems); then the manual and a template's setup checklist are written as the move into the
+ * draft wrote them, the draft's latest version is published through the back office's own publish
+ * route (its validation and refusals; an agent's publish marks its open build live, the steps
+ * page's too), and the build is live. A draft already live (a build from before, at its client
+ * test or QA) is only marked live.
+ */
+// DECISION: a skill build publishes the skill's latest version through the skill's own publish
+// route (its test gate stays), then goes live here: the skill's publish knows no build.
+async function publishBuild(ctx: LongCtx, id: string): Promise<void> {
+  const userId = ctx.session.user.id;
+  const gate = async () =>
+    ctx.inTx(async (scoped) => {
+      const r = await readBuild(scoped.tx, id, true);
+      refuseClosed(r);
+      if (r.phase !== "draft") {
+        throw new HttpError(409, "not_draft", "a build is published from its draft");
+      }
+      const detail = await detailIn(scoped, ctx.services, r);
+      if (detail.gate.reasons.length > 0) {
+        throw new HttpError(409, "gate", detail.gate.reasons.join(" "), detail.gate.reasons);
+      }
+      return r;
+    });
+  const row = await gate();
+  if (row.kind === "agent") await writeDraftFromBuild(ctx, id, "draft");
+  // What is published, read after the manual's version: the agent's (or skill's) latest.
+  const target = await ctx.inTx(async (scoped) => {
+    const r = await readBuild(scoped.tx, id);
+    if (r.kind === "skill") {
+      const skillId = (await detailIn(scoped, ctx.services, r)).draft?.skillId ?? null;
+      const vid = skillId ? await latestSkillVersion(scoped.tx, skillId) : null;
+      if (!skillId || !vid) throw new HttpError(409, "no_draft", "there is no draft yet");
+      const [v] = await scoped.tx
+        .select({ version: skillVersion.version, status: skillVersion.status })
+        .from(skillVersion)
+        .where(eq(skillVersion.id, vid));
+      return {
+        kind: "skill" as const,
+        id: skillId,
+        vid,
+        version: v?.version ?? null,
+        live: v?.status === "live",
+      };
+    }
+    if (!r.agentId) throw new HttpError(409, "no_draft", "there is no draft yet");
+    const agentRow = await getAgent(scoped.tx, r.agentId);
+    const latest = await latestVersion(scoped.tx, r.agentId);
+    if (!latest) throw new HttpError(409, "no_draft", "there is no draft yet");
+    return {
+      kind: "agent" as const,
+      id: r.agentId,
+      vid: latest.id,
+      version: latest.version,
+      live: agentRow.liveVersionId === latest.id,
+    };
+  });
+  if (!target.live) {
+    // The manual's version is checked as the draft was: a new problem in it holds Publish too.
+    if (target.kind === "agent") await gate();
+    await call(ctx, target.kind === "skill" ? routes.opsPublishSkill : routes.opsPublish, {
+      params: { id: target.id, vid: target.vid },
+    });
+  }
+  await ctx.inTx(async (scoped) => {
+    const r = await readBuild(scoped.tx, id, true);
+    await goLive(scoped.tx, r, { userId, versionId: target.vid, version: target.version });
+  });
+}
+
 async function move(
   ctx: LongCtx,
   id: string,
@@ -2111,8 +2181,17 @@ async function move(
   reason: string | null,
 ): Promise<void> {
   const userId = ctx.session.user.id;
+  // Owner (2026-11-27): a build goes from its draft straight to Publish. The POC test, client test
+  // and QA are no longer moved to, from here or anywhere.
+  if (retiredPhase(to)) {
+    throw new HttpError(
+      409,
+      "no_such_phase",
+      "A build goes from its draft straight to Publish: there is no POC test, client test or QA to move to. Try it in the step builder, then publish it.",
+    );
+  }
   // 1. The move is allowed: back to any earlier phase with a reason, or on to the next when its
-  //    gate passes (a client test may move on with a reason).
+  //    gate passes.
   const row = await ctx.inTx(async (scoped) => {
     const r = await readBuild(scoped.tx, id, true);
     refuseClosed(r);
@@ -2127,30 +2206,9 @@ async function move(
     if (nextPhase(r.kind, r.phase) !== to) {
       throw new HttpError(409, "skip_phase", "a build moves on one phase at a time");
     }
-    if (to === "client_test" && !r.testAgentId) {
-      throw new HttpError(
-        409,
-        "use_client_test",
-        "start the client test with the client it runs at",
-      );
-    }
-    if (to === "client_test" && !r.clientId && r.agentId && r.testAgentId !== r.agentId) {
-      // STATE-8: the client's copy of a template is from the version it was forked from; a
-      // template changed since goes back through the client test's own start, which updates it.
-      const copy = await latestVersion(scoped.tx, r.testAgentId as string);
-      const template = await latestVersion(scoped.tx, r.agentId);
-      if (template && copy?.basedOnTemplateVersionId !== template.id) {
-        throw new HttpError(
-          409,
-          "copy_behind",
-          "The client's copy is from an older version of the template, so its trial wouldn't run your changes. Start the client test again to update it.",
-        );
-      }
-    }
     const detail = await detailIn(scoped, ctx.services, r);
-    const skip = r.phase === "client_test" && !!reason;
     // Moving into the draft makes it: the draft gate is the fit-gap's.
-    if (detail.gate.reasons.length > 0 && !skip) {
+    if (detail.gate.reasons.length > 0) {
       throw new HttpError(409, "gate", detail.gate.reasons.join(" "), detail.gate.reasons);
     }
     // STATE-1: the move into the draft is claimed here, before the draft is made outside any
@@ -2254,13 +2312,6 @@ async function move(
       await addEvent(scoped.tx, r, { kind: "record", payload: { fitgap }, userId });
       await addItems(scoped.tx, r, fitGapItems(fitgap, buildHasSetupForm(r)), userId);
     }
-    if (forward && from === "poc") {
-      await addEvent(scoped.tx, r, {
-        kind: "record",
-        payload: { testPlan: readTestPlan(r.testPlan) },
-        userId,
-      });
-    }
     return { refused: null, changes };
   });
   if (done.refused) {
@@ -2281,26 +2332,10 @@ async function move(
   }
   // 3b. docs/builder-plan.md §5 and §6: the agent's manual (from the brief, the decisions and the
   //     known risks) and a template's setup checklist (from the intake form, the client_setup
-  //     decisions and the draft's writes), when it is drafted and when it goes to the POC test.
-  if (forward && (to === "draft" || to === "poc")) await writeDraftFromBuild(ctx, id, to);
-  // 4. The Builder opens the phases it has work in.
-  // DECISION (docs/plan.md §1.165): a build drafted at once (it has no fit-gap) opens its POC
-  // test with the try, not with the Builder writing a plan of made-up data first: real examples
-  // come first (builder-plan.md §3), and a plan can still be asked for in the conversation.
-  const atOnce = to === "poc" && readFitGap(row.fitgap).rows.length === 0;
-  if (forward && (to === "fitgap" || to === "poc") && !atOnce) await turn(ctx, id, null);
-  if (forward && atOnce) {
-    await ctx.inTx(async (scoped) => {
-      const r = await readBuild(scoped.tx, id, true);
-      if (r.status !== "open" || r.phase !== to) return;
-      await addMessage(scoped.tx, r, {
-        role: "builder",
-        text: r.clientId
-          ? "Try it now: test-run it from the workflow (nothing is written), then tell me what it got wrong and I'll change it."
-          : "Try it now on a real example: upload a document or give the input it starts from. It runs as a test, so nothing is written. Mark the result right or wrong, and tell me what to change.",
-      });
-    });
-  }
+  //     decisions and the draft's writes), when it is drafted and when it is published.
+  if (forward && to === "draft") await writeDraftFromBuild(ctx, id, to);
+  // 4. The Builder opens the fit-gap.
+  if (forward && to === "fitgap") await turn(ctx, id, null);
   if (claimed) {
     await ctx.inTx(async (scoped) => {
       const r = await readBuild(scoped.tx, id, true);
@@ -2834,8 +2869,8 @@ export function opsBuildRoutes(app: Hono<AppEnv>): void {
     const prep = await ctx.inTx(async (scoped) => {
       const row = await readBuild(scoped.tx, ctx.params.id);
       refuseClosed(row);
-      if (row.phase !== "poc")
-        throw new HttpError(409, "not_poc", "test cases are made in the POC test");
+      if (row.phase !== "draft")
+        throw new HttpError(409, "not_draft", "test cases are made for the draft");
       const detail = await detailIn(scoped, ctx.services, row);
       return {
         row,
@@ -2914,168 +2949,21 @@ export function opsBuildRoutes(app: Hono<AppEnv>): void {
     return detailOf(ctx, ctx.params.id);
   });
 
-  mountLong(app, routes.opsBuildClientTest, async (ctx) => {
-    const lc = long(ctx.c, ctx.session, ctx.services, ctx.inTx);
-    const userId = ctx.session.user.id;
-    const prep = await ctx.inTx(async (scoped) => {
-      const row = await readBuild(scoped.tx, ctx.params.id, true);
-      refuseClosed(row);
-      if (row.kind !== "agent")
-        throw new HttpError(409, "skill_build", "a skill has no client test");
-      if (row.phase !== "poc")
-        throw new HttpError(409, "not_poc", "the client test starts from the POC test");
-      const detail = await detailIn(scoped, ctx.services, row);
-      if (detail.gate.reasons.length > 0) {
-        throw new HttpError(409, "gate", detail.gate.reasons.join(" "), detail.gate.reasons);
-      }
-      const clientId = row.clientId ?? ctx.body.clientId ?? null;
-      if (!clientId)
-        throw new HttpError(400, "client_required", "name the client it is tested with");
-      ensureClient(scoped, clientId);
-      return { row, detail, clientId };
-    });
-    const { row, detail, clientId } = prep;
-    const agentId = detail.draft?.agentId;
-    const versionId = detail.draft?.versionId;
-    if (!agentId || !versionId) throw new HttpError(409, "no_draft", "there is no draft yet");
-    if (!detail.draft?.live) {
-      await call(lc, routes.opsPublish, { params: { id: agentId, vid: versionId } });
-    }
-    // A template is forked into the client, and the copy's version published (a copy in trial
-    // runs its live version), then its trial starts with Activate. What stops either (a
-    // connection not bound there yet, no passing test run there) becomes an open item, and the
-    // build is at the client either way.
-    const refused = (e: unknown) => {
-      const err = toHttpError(e);
-      const details = Array.isArray(err.details)
-        ? err.details
-            .map((d) => (typeof d === "string" ? d : (d as { message?: unknown })?.message))
-            .filter((m): m is string => typeof m === "string")
-        : [];
-      return [err.message, ...details].join(": ").slice(0, 2000);
-    };
-    let testAgentId = agentId;
-    let blocked: { title: string; detail: string } | null = null;
-    // An item made once per copy, and once per template version for a copy brought up to date.
-    let blockKey = "";
-    // STATE-8: a template build back at the client test after a fix brings the copy its first
-    // client test made up to the fixed template, so the trial runs the fix (a second fork
-    // conflicted with the first copy). A copy the client ran (it has a live version) gets the
-    // update merge any client agent gets from its template, and is published; a copy never
-    // published there is discarded and forked again.
-    // DECISION: a copy that ran is updated in place rather than replaced, so its trial, runs and
-    // what the client set up on it stay; a merge that conflicts becomes an open item, as a refused
-    // publish does.
-    const earlier =
-      !row.clientId && row.testAgentId && row.testClientId === clientId ? row.testAgentId : null;
-    const before = earlier
-      ? await ctx.inTx(async (scoped) => {
-          const copyRow = await getAgent(scoped.tx, earlier);
-          return {
-            latest: await latestVersion(scoped.tx, earlier),
-            live: copyRow.liveVersionId,
-            slug: await freeSlug(scoped.tx, clientId, (await getAgent(scoped.tx, agentId)).slug),
-          };
-        })
-      : null;
-    if (earlier && before && !before.live) {
-      await call(lc, routes.opsDiscardAgent, { params: { id: earlier } }).catch((e: unknown) =>
-        reportHandled("discarding a client's unpublished copy before forking again failed", e, {
-          kind: "build",
-          build: row.id,
-        }),
-      );
-    }
-    const copy = earlier && before?.live ? earlier : null;
-    if (copy && before) {
-      testAgentId = copy;
-      blockKey = `start:${copy}:${versionId}`;
-      let target: string | null = before.latest?.id ?? null;
-      if (before.latest?.basedOnTemplateVersionId !== versionId) {
-        try {
-          const updated = await call(lc, routes.opsUpdate, {
-            params: { id: copy },
-            body: { resolutions: [], changeNote: "The template's fix, for the client's trial" },
-          });
-          target = updated.version.id;
-        } catch (e) {
-          target = null;
-          blocked = { title: "Update the client's copy to the fixed template", detail: refused(e) };
-        }
-      }
-      if (target && target !== before.live) {
-        const vid = target;
-        blocked = await call(lc, routes.opsPublish, { params: { id: copy, vid } })
-          .then(() => null)
-          .catch((e: unknown) => ({ title: "Publish the client's copy", detail: refused(e) }));
-      }
-    } else if (!row.clientId) {
-      const fork = await call(lc, routes.opsFork, {
-        params: { id: agentId },
-        body: { clientId, versionId, ...(before ? { slug: before.slug } : {}) },
-      });
-      testAgentId = fork.agent.id;
-      blocked = await call(lc, routes.opsPublish, {
-        params: { id: testAgentId, vid: fork.version.id },
-      })
-        .then(() => null)
-        .catch((e: unknown) => ({ title: "Publish the client's copy", detail: refused(e) }));
-    }
-    if (!blocked) {
-      blocked = await call(lc, routes.opsActivate, { params: { id: testAgentId } })
-        .then(() => null)
-        .catch((e: unknown) => ({
-          title: "Start the trial: activate the client's copy",
-          detail: refused(e),
-        }));
-    }
-    await ctx.inTx(async (scoped) => {
-      const r = await readBuild(scoped.tx, ctx.params.id, true);
-      await moveToClientTest(scoped.tx, r, {
-        clientId,
-        testAgentId,
-        userId,
-        blocked,
-        key: blockKey,
-      });
-    });
-    return detailOf(ctx, ctx.params.id);
+  // Owner (2026-11-27): "just go from draft to publish". The client test and QA are gone; a
+  // client's agent is tried with the client's real data in its own go-live stages once published.
+  // DECISION: their routes stay in the contract and refuse in plain words, so an older page or a
+  // script that still calls them is told what to do instead.
+  mount(app, routes.opsBuildClientTest, async () => {
+    throw new HttpError(409, "no_client_test", RETIRED_WORDS);
   });
 
-  mount(app, routes.opsBuildQa, async (ctx) => {
-    const row = await readBuild(ctx.tx, ctx.params.id, true);
-    refuseClosed(row);
-    if (row.phase !== "qa") throw new HttpError(409, "not_qa", "QA is the last phase");
-    const qa = readQa(row.qa);
-    const userId = ctx.session.user.id;
-    const at = now().toISOString();
-    if ("accept" in ctx.body) {
-      qa.accepted[ctx.body.accept] = { reason: ctx.body.reason, by: userId, at };
-      await addEvent(ctx.tx, row, {
-        kind: "qa",
-        payload: { accept: ctx.body.accept },
-        reason: ctx.body.reason,
-        userId,
-      });
-    } else {
-      const detail = await buildDetail({ tx: ctx.tx, services: ctx.services, now }, row);
-      const failing = detail.qaChecks.filter((c) => c.state === "fail");
-      if (failing.length > 0) {
-        throw new HttpError(
-          409,
-          "qa_failing",
-          `accept or fix first: ${failing.map((c) => c.label.toLowerCase()).join(", ")}`,
-        );
-      }
-      qa.signedBy = userId;
-      qa.signedAt = at;
-      await addEvent(ctx.tx, row, { kind: "qa", payload: { signed: true }, userId });
-    }
-    await ctx.tx.update(build).set({ qa }).where(eq(build.id, row.id));
-    return buildDetail(
-      { tx: ctx.tx, services: ctx.services, now },
-      await readBuild(ctx.tx, row.id),
-    );
+  mount(app, routes.opsBuildQa, async () => {
+    throw new HttpError(409, "no_qa", RETIRED_WORDS);
+  });
+
+  mountLong(app, routes.opsPublishBuild, async (ctx) => {
+    await publishBuild(long(ctx.c, ctx.session, ctx.services, ctx.inTx), ctx.params.id);
+    return detailOf(ctx, ctx.params.id);
   });
 
   mountLong(app, routes.opsBuildDecision, async (ctx) => {
@@ -3107,52 +2995,7 @@ export function opsBuildRoutes(app: Hono<AppEnv>): void {
       });
       return detailOf(ctx, ctx.params.id);
     }
-    await ctx.inTx(async (scoped) => {
-      const row = await readBuild(scoped.tx, ctx.params.id, true);
-      refuseClosed(row);
-      if (row.phase !== "qa") throw new HttpError(409, "not_qa", "go-live is decided in QA");
-      const detail = await detailIn(scoped, ctx.services, row);
-      if (detail.gate.reasons.length > 0) {
-        throw new HttpError(409, "gate", detail.gate.reasons.join(" "), detail.gate.reasons);
-      }
-      const live =
-        row.kind === "skill"
-          ? !!detail.draft?.skillId
-          : detail.clientTest
-            ? detail.clientTest.stage === "live"
-            : !!detail.draft?.live;
-      if (!live) {
-        throw new HttpError(
-          409,
-          "waiting_signoff",
-          "it goes live when the client signs off: their go-live sign-off is on their Desk",
-        );
-      }
-      const qa = readQa(row.qa);
-      await scoped.tx
-        .update(build)
-        .set({ status: "live", qa: { ...qa, decision: "go" } })
-        .where(eq(build.id, row.id));
-      await addEvent(scoped.tx, row, { kind: "decision", payload: { go: true }, userId });
-      // docs/plan.md §1.169: a skill build that goes live settles the issue that started it.
-      if (row.kind === "skill") {
-        const note = "Settled: its skill build went live.";
-        await scoped.tx
-          .update(buildItem)
-          .set({
-            state: "done",
-            resolvedAt: now(),
-            detail: sql`left(case when ${buildItem.detail} = '' then ${note} else ${buildItem.detail} || ${`\n${note}`} end, 2000)`,
-          })
-          .where(
-            and(
-              sql`${buildItem.ref}->>'buildId' = ${row.id}`,
-              inArray(buildItem.state, ["open", "in_progress", "waiting", "deferred"]),
-            ),
-          );
-      }
-    });
-    return detailOf(ctx, ctx.params.id);
+    throw new HttpError(409, "publish_instead", RETIRED_WORDS);
   });
 
   mount(app, routes.opsAddBuildItem, async (ctx) => {

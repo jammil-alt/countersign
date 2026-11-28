@@ -154,7 +154,7 @@ export interface ClientFixture {
 
 /** A shared automation's definition, as core's `Automation` (W2-B) will check it. */
 export const AUTOMATION_DEFINITION: AutomationDefinition = {
-  schemaVersion: 1,
+  schemaVersion: 2,
   slug: "lookup",
   name: "Lookup",
   description: "Looks a thing up",
@@ -255,7 +255,7 @@ export async function insertClient(db: Db, name: string): Promise<ClientFixture>
   if (!r) throw new Error("no run");
   const [sr] = await db
     .insert(stepRun)
-    .values({ tenantId, runId: r.id, nodeId: "s1", nodeType: "action" })
+    .values({ tenantId, runId: r.id, nodeId: "s1", nodeType: "write" })
     .returning();
   if (!sr) throw new Error("no step run");
   const [ii] = await db

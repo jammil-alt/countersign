@@ -139,10 +139,12 @@ export * from "./api/run-subject";
 // v0.12 W2-F
 export * from "./api/runs-ask";
 export * from "./api/runs-filter";
+export * from "./api/sample-company";
 export * from "./api/sandbox";
 // v0.12 W2-F
 export * from "./api/search";
 export * from "./api/second-factor";
+export * from "./api/selftest";
 // docs/builder-plan.md §6 (B4): the setup checklist
 export * from "./api/setup";
 export * from "./api/skill-model";
@@ -338,11 +340,15 @@ export * from "./permissions/release";
 // R1: processes, workflow schemaVersion 4 (docs/plan.md §1.86, §9), as the `processes` namespace.
 export * as processes from "./process";
 export * from "./process/change-class";
+// v0.12 W2-B
+export * from "./process/checks";
 export * from "./process/numbers";
 // Agent motion (docs/plan.md §1.106): the thinking state a running step shows.
 export { THINKING_STATES, type ThinkingState, thinkingOf } from "./process/thinking";
 // Invariant 9: what a prompt puts between its tags can't close them.
 export * from "./prompt-data";
+// Owner, 2026-11-27: the Sandbox's messages to made-up people.
+export * from "./reach/made-up";
 export * from "./reach/rules";
 // Step model §10f: record types, their standard actions, grants, data sets and custom fields.
 export * from "./records/index";
@@ -415,7 +421,3 @@ export * from "./units";
 export * from "./weekly/schemas";
 export * from "./weekly/week";
 export * from "./work";
-// v0.12 W2-B
-export * from "./workflow/automation";
-export * from "./workflow/validate";
-export * from "./workflow/walk";

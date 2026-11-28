@@ -2,9 +2,8 @@
 // owner, checks each in code, follows up, and escalates a late one.
 import { processes } from "@countersign/core";
 import { describe, expect, it } from "vitest";
-import { executeWorkflow } from "./executor";
 import { FakeStepRunner } from "./fake-runner";
-import { Harness, RUN } from "./fakes.test-helper";
+import { executeProcess, Harness, RUN } from "./fakes.test-helper";
 import type { CollectCheckRequest, CollectPort, SkillStepRequest } from "./ports";
 
 const MANUAL = { id: "t", on: { type: "manual", input: {} } };
@@ -118,7 +117,7 @@ describe("collecting reports", () => {
       "c1:1:r1:ask": { outcome: "submitted", documents: ["doc-card"] },
     });
     const { port, calls } = checks();
-    const result = await executeWorkflow(
+    const result = await executeProcess(
       new FakeStepRunner(),
       h.context({ collect: port }),
       proc([collect(), reconcile]),
@@ -175,7 +174,7 @@ describe("collecting reports", () => {
         card: "{{steps.c1.output.reports.card.rows}}",
       },
     };
-    const result = await executeWorkflow(
+    const result = await executeProcess(
       new FakeStepRunner(),
       h.context({ collect: port }),
       proc([collect(), match]),
@@ -206,7 +205,7 @@ describe("collecting reports", () => {
       "c1:0:r2:ask": { outcome: "submitted", documents: ["doc-good"] },
     });
     const { port } = checks();
-    const result = await executeWorkflow(
+    const result = await executeProcess(
       new FakeStepRunner(),
       h.context({ collect: port }),
       proc([collect({ items: [report("bank")] })]),
@@ -226,7 +225,7 @@ describe("collecting reports", () => {
   it("follows up when nobody sent it, then stops the run when it never came", async () => {
     const { h, asks } = harness({});
     const { port } = checks();
-    const result = await executeWorkflow(
+    const result = await executeProcess(
       new FakeStepRunner(),
       h.context({ collect: port }),
       proc([collect({ items: [report("bank")] }), reconcile]),
@@ -243,7 +242,7 @@ describe("collecting reports", () => {
   it("goes on without a missing report under ifMissing: proceed", async () => {
     const { h } = harness({ "c1:1:r1:ask": { outcome: "submitted", documents: ["doc-card"] } });
     const { port } = checks();
-    const result = await executeWorkflow(
+    const result = await executeProcess(
       new FakeStepRunner(),
       h.context({ collect: port }),
       proc([collect({ ifMissing: "proceed" }), reconcile]),
@@ -260,7 +259,7 @@ describe("collecting reports", () => {
   it("doesn't hold the step up for a report that isn't required", async () => {
     const { h } = harness({ "c1:0:r1:ask": { outcome: "submitted", documents: ["doc-bank"] } });
     const { port } = checks();
-    const result = await executeWorkflow(
+    const result = await executeProcess(
       new FakeStepRunner(),
       h.context({ collect: port }),
       proc([collect({ items: [report("bank"), report("card", { required: false })] })]),
@@ -276,7 +275,7 @@ describe("collecting reports", () => {
       "c1:1:r1:ask": { outcome: "not_sent", reason: "no consent for email" },
     });
     const { port } = checks();
-    const result = await executeWorkflow(
+    const result = await executeProcess(
       new FakeStepRunner(),
       h.context({ collect: port }),
       proc([collect({ ifMissing: "proceed" })]),
@@ -299,7 +298,7 @@ describe("a report emailed to the step", () => {
       "c1:0:r1:ask": { outcome: "submitted", documents: ["doc-mailed-bank"] },
     });
     const { port } = checks();
-    const result = await executeWorkflow(
+    const result = await executeProcess(
       new FakeStepRunner(),
       h.context({ collect: port }),
       proc([collect({ items: [report("bank")] })]),
@@ -327,7 +326,7 @@ describe("the step's email address", () => {
         return `remy.acme-x+${req.stepId.toLowerCase()}@in.mezonas.test`;
       },
     };
-    const result = await executeWorkflow(
+    const result = await executeProcess(
       new FakeStepRunner(),
       h.context({ collect: withAddress }),
       proc([collect({ items: [report("bank")] })]),
@@ -355,7 +354,7 @@ describe("escalating a late report", () => {
     const { h } = harness({});
     answerEscalations(h, "go_on");
     const { port } = checks();
-    const result = await executeWorkflow(
+    const result = await executeProcess(
       new FakeStepRunner(),
       h.context({ collect: port }),
       proc([collect({ items: [noFollowUps], escalate }), reconcile]),
@@ -382,7 +381,7 @@ describe("escalating a late report", () => {
     });
     answerEscalations(h, "keep_asking");
     const { port } = checks();
-    const result = await executeWorkflow(
+    const result = await executeProcess(
       new FakeStepRunner(),
       h.context({ collect: port }),
       proc([collect({ items: [noFollowUps], escalate })]),
@@ -407,7 +406,7 @@ describe("escalating a late report", () => {
       return made;
     };
     const { port } = checks();
-    const result = await executeWorkflow(
+    const result = await executeProcess(
       new FakeStepRunner(),
       h.context({ collect: port }),
       proc([collect({ items: [noFollowUps], escalate })]),
@@ -424,7 +423,7 @@ describe("escalating a late report", () => {
   it("takes the deadline's ifNoAnswer when nobody answers the escalation", async () => {
     const { h } = harness({});
     const { port } = checks();
-    const result = await executeWorkflow(
+    const result = await executeProcess(
       new FakeStepRunner({ onWait: "timeout" }),
       h.context({ collect: port }),
       proc([
@@ -450,7 +449,7 @@ describe("a test run", () => {
       "test",
     );
     const { port, calls } = checks();
-    const result = await executeWorkflow(
+    const result = await executeProcess(
       new FakeStepRunner(),
       h.context({ collect: port }),
       proc([collect(), reconcile]),
@@ -471,9 +470,9 @@ describe("replay", () => {
     const { port, calls } = checks();
     const runner = new FakeStepRunner();
     const workflow = proc([collect()]);
-    await executeWorkflow(runner, h.context({ collect: port }), workflow, {});
+    await executeProcess(runner, h.context({ collect: port }), workflow, {});
     runner.replay();
-    const again = await executeWorkflow(runner, h.context({ collect: port }), workflow, {});
+    const again = await executeProcess(runner, h.context({ collect: port }), workflow, {});
     expect(again.status).toBe("succeeded");
     expect(asks).toHaveLength(2);
     expect(calls).toHaveLength(2);
@@ -498,7 +497,7 @@ describe("started by a report (the report trigger)", () => {
     const runner = new FakeStepRunner();
     // The card statement came by email while the run listened.
     runner.deliver(processes.reportEventType("c1", "card"), { documents: ["doc-card"] });
-    const result = await executeWorkflow(
+    const result = await executeProcess(
       runner,
       h.context({ collect: port }),
       proc([collect(), reconcile]),
@@ -519,7 +518,7 @@ describe("started by a report (the report trigger)", () => {
       "c1:1:r1:ask": { outcome: "submitted", documents: ["doc-card"] },
     });
     const { port } = checks();
-    const result = await executeWorkflow(
+    const result = await executeProcess(
       new FakeStepRunner({ onWait: "timeout" }),
       h.context({ collect: port }),
       proc([collect()]),
@@ -540,7 +539,7 @@ describe("started by a report (the report trigger)", () => {
     const { port } = checks();
     const runner = new FakeStepRunner({ onWait: "timeout" });
     runner.deliver(processes.reportEventType("c1", "card"), { documents: ["doc-card"] });
-    const result = await executeWorkflow(
+    const result = await executeProcess(
       runner,
       h.context({ collect: port }),
       proc([collect()]),
@@ -559,7 +558,7 @@ describe("started by a report (the report trigger)", () => {
       "c1:1:r1:ask": { outcome: "submitted", documents: ["doc-card"] },
     });
     const { port } = checks();
-    const result = await executeWorkflow(
+    const result = await executeProcess(
       new FakeStepRunner(),
       h.context({ collect: port }),
       proc([collect()]),

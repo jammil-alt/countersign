@@ -437,6 +437,41 @@ describe("DefinitionEditor", () => {
     });
   });
 
+  // Email intake (owner, 2026-11-28): who may start the agent by emailing its own address.
+  it("sets who can email the agent: one domain, checked, then saved", async () => {
+    const { sent, user } = setup();
+    // FORK_BUNDLE has none: its triggers' people decide.
+    expect(screen.getByTestId("agent-editor-intake-people")).toBeChecked();
+    await user.click(screen.getByTestId("agent-editor-intake-domain"));
+    const field = screen.getByTestId("agent-editor-intake-domain-input");
+    await user.type(field, "not a domain");
+    await user.click(screen.getByTestId("agent-editor-save"));
+    expect(sent).toHaveLength(0);
+    expect(screen.getByTestId("agent-editor-intake")).toHaveTextContent(
+      "A domain such as client.com.",
+    );
+    await user.clear(field);
+    await user.type(field, "@Client.com");
+    await user.click(screen.getByTestId("agent-editor-save"));
+    expect(sent).toHaveLength(1);
+    const body = sent[0] as { bundle: typeof FORK_BUNDLE };
+    expect(body.bundle.definition.emailIntake).toEqual({ mode: "domain", domain: "client.com" });
+  });
+
+  it("takes a list of senders, or anyone", async () => {
+    const { sent, user } = setup();
+    await user.click(screen.getByTestId("agent-editor-intake-list"));
+    await user.type(
+      screen.getByTestId("agent-editor-intake-senders"),
+      "AP@Client.com{enter}supplier.com, ap@client.com",
+    );
+    await user.click(screen.getByTestId("agent-editor-save"));
+    expect((sent[0] as { bundle: typeof FORK_BUNDLE }).bundle.definition.emailIntake).toEqual({
+      mode: "list",
+      senders: ["ap@client.com", "supplier.com"],
+    });
+  });
+
   it("reports the API's no-op answer instead of an error", async () => {
     const { user, onNoChange, onSaved } = setup(
       () =>

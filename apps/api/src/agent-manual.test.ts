@@ -1,5 +1,5 @@
 // The agent manual (docs/builder-plan.md §5, B3) through the API, with scripted model answers: a
-// build writes the manual into its draft when the draft is made and when it moves to the POC test
+// build writes the manual into its draft when the draft is made and when it is published
 // (one new version per move, never per turn), a template's copy carries it, the back office reads
 // it with the copy's notes, and the portal reads a view made by code: never the bundle,
 // instructions, prompts or cost (invariant 11), what it learned only for the client admin, and
@@ -10,7 +10,6 @@ import { inboxItem, memoryNote, run } from "@countersign/db";
 import { FakeModel } from "@countersign/llm";
 import { afterAll, describe, expect, it, vi } from "vitest";
 import { admin, createApiHarness, forbiddenKeys, OPERATOR, user } from "./api.test-helper";
-import { stepModelAnswer } from "./builder-v5.test-helper";
 
 for (const level of process.env.SHOW_LOGS ? [] : (["warn", "error"] as const)) {
   vi.spyOn(console, level).mockImplementation(() => {});
@@ -28,7 +27,7 @@ const turnAnswer = (input: Record<string, unknown>) => ({
 const reviewed = () => ({ toolUse: { name: "submit_review", input: { concerns: [] } } });
 
 function draftAnswer() {
-  return stepModelAnswer({
+  return {
     toolUse: {
       name: "submit_draft",
       input: {
@@ -61,17 +60,20 @@ function draftAnswer() {
               slug: "main",
               name: "Review a record",
               workflow: {
-                schemaVersion: 4,
+                schemaVersion: 5,
                 triggers: [{ id: "t", on: { type: "manual", input: {} } }],
+                outputs: [{ id: "out-done", name: "Done", kind: "nothing" }],
                 steps: [
                   {
                     id: "update",
-                    kind: "write",
                     name: "Update the record",
-                    tool: TESTKIT_UPDATE_TOOL,
-                    input: { id: "r1", amount: "12.00" },
                     checks: { approval: { required: "required" } },
+                    kind: "do",
+                    doneBy: "rules",
+                    uses: { type: "action", action: TESTKIT_UPDATE_TOOL },
+                    input: { id: "r1", amount: "12.00" },
                   },
+                  { id: "end", kind: "end", name: "Done", outputs: ["out-done"] },
                 ],
               },
             },
@@ -79,7 +81,7 @@ function draftAnswer() {
         },
       },
     },
-  });
+  };
 }
 
 describe.skipIf(!h)("the agent manual", () => {
@@ -105,7 +107,7 @@ describe.skipIf(!h)("the agent manual", () => {
   let templateId = "";
   let templateVersion = "";
 
-  it("is written into the draft when it is made, and again on the move to the POC test", async () => {
+  it("is written into the draft when it is made, and again when it is published", async () => {
     let b = await ok<BuildDetail>("POST", "/api/ops/builds", {
       kind: "agent",
       title: "Record manual",
@@ -193,7 +195,7 @@ describe.skipIf(!h)("the agent manual", () => {
       },
     ]);
 
-    // A turn that records a decision saves no version: the manual is written on the next move.
+    // A turn that records a decision saves no version: the manual is written when it is published.
     model.push(
       turnAnswer({
         text: "Noted.",
@@ -203,9 +205,9 @@ describe.skipIf(!h)("the agent manual", () => {
     await ok("POST", `/api/ops/builds/${id}/turns`, { text: "Tax stays, right?" });
     expect(await versionsOf(templateId)).toHaveLength(2);
 
-    model.push(turnAnswer({ text: "One record will do.", testPlan: { datasets: [] } }));
-    b = await ok<BuildDetail>("POST", `/api/ops/builds/${id}/phase`, { to: "poc" });
-    expect(b.build.phase).toBe("poc");
+    // Owner (2026-11-27): Publish writes it, then publishes that version.
+    b = await ok<BuildDetail>("POST", `/api/ops/builds/${id}/publish`);
+    expect(b.build.status).toBe("live");
     versions = await versionsOf(templateId);
     expect(versions).toHaveLength(3);
     latest = await latestBundle(templateId);
@@ -240,8 +242,8 @@ describe.skipIf(!h)("the agent manual", () => {
   });
 
   it("travels with a copy, and the portal reads it made by code, its notes for the admin only", async () => {
-    // PLATFORM_QA TOOL-2: only a published template version is forked into a client.
-    await ok("POST", `/api/ops/agents/${templateId}/versions/${templateVersion}/publish`);
+    // PLATFORM_QA TOOL-2: only a published template version is forked into a client; its build
+    // published it above.
     const forked = await ok<{ agent: { id: string } }>(
       "POST",
       `/api/ops/templates/${templateId}/fork`,

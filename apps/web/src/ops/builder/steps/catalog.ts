@@ -41,6 +41,8 @@ export function usesContextFrom(input: {
       kind: s.kind === "ai" ? ("ai" as const) : ("rules" as const),
       input: steps.fieldsFromSchema(s.definition.input),
       output: steps.fieldsFromSchema(s.definition.output),
+      mode: s.definition.mode,
+      ...(s.definition.model ? { model: s.definition.model } : {}),
     }));
   // Step model §8: the saved Loops (agent-mode skills with a loop block) are picked by a Loop step,
   // never by a Do step, so the palette's list above leaves them out.
@@ -100,7 +102,8 @@ export interface StepsCatalog {
   error: unknown;
   uses: UsesContext;
   models: StepFormEnv["models"];
-  events: readonly { type: string; payload: unknown }[];
+  /** Event types a trigger can name: the payload's schema and a sample (Try it starts from it). */
+  events: readonly { type: string; payload: unknown; sample?: unknown }[];
   reload(): void;
 }
 
@@ -113,7 +116,11 @@ export function useStepsCatalog(agentId: string): StepsCatalog {
   const uses = useMemo(
     () =>
       actions.data && builder.data
-        ? usesContextFrom({ actions: actions.data.groups, catalog: builder.data })
+        ? usesContextFrom({
+            actions: actions.data.groups,
+            catalog: builder.data,
+            profiles: builder.data.profiles ?? [],
+          })
         : usesContextFrom({ actions: [], catalog: { skills: [], automations: [] } }),
     [actions.data, builder.data],
   );

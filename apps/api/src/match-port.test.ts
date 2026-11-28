@@ -3,6 +3,7 @@
 
 import { describe, expect, it } from "vitest";
 import { DEPLOYMENT_PACKS, matchPort } from "./packs";
+import { matchItems } from "./runs/match";
 
 describe("the Match port", () => {
   it("reaches every profile the packs declare, and only those", () => {
@@ -34,5 +35,29 @@ describe("the Match port", () => {
         expect(pack.handlers[id], id).toBeDefined();
       }
     }
+  });
+});
+
+// Staging, 2026-11-28: a SKU match's vendor sat beside the invoice's lines and reached none.
+describe("what a Match step matches", () => {
+  it("is each item of its list, with what the step gives beside the list", () => {
+    expect(
+      matchItems({
+        vendorId: "v1",
+        items: [{ sku: "NF-BB34" }, { sku: "NF-RO44", vendorId: "v2" }, "loose"],
+      }),
+    ).toEqual([
+      { vendorId: "v1", sku: "NF-BB34" },
+      // The item's own field wins.
+      { vendorId: "v2", sku: "NF-RO44" },
+      { vendorId: "v1", value: "loose" },
+    ]);
+  });
+
+  it("is the input itself, as one item, without a list", () => {
+    expect(matchItems({ name: "Northfork Lumber Co." })).toEqual([
+      { name: "Northfork Lumber Co." },
+    ]);
+    expect(matchItems("x")).toEqual([{ value: "x" }]);
   });
 });

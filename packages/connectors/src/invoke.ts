@@ -93,8 +93,56 @@ function parse(
   toolId: string,
 ): unknown {
   const r = schema.safeParse(value);
-  if (!r.success) throw new ToolCallError(code, toolId, code.replace("_", " "), r.error.issues);
-  return r.data;
+  if (r.success) return r.data;
+  // A step's money is `{ amount, currency }`; a tool takes a decimal string beside its own
+  // currency. Refused as it came, the input is tried once with each money value as its amount.
+  if (code === "invalid_input") {
+    const plain = moneyAsDecimals(value);
+    if (plain !== undefined) {
+      const again = schema.safeParse(plain);
+      if (again.success) return again.data;
+    }
+  }
+  throw new ToolCallError(code, toolId, code.replace("_", " "), r.error.issues);
+}
+
+const isMoney = (v: unknown): v is { amount: string; currency: string } =>
+  typeof v === "object" &&
+  v !== null &&
+  !Array.isArray(v) &&
+  Object.keys(v).length === 2 &&
+  typeof (v as { amount?: unknown }).amount === "string" &&
+  typeof (v as { currency?: unknown }).currency === "string";
+
+/**
+ * The input with every money value (`{ amount: "41.54", currency: "USD" }`) as its amount
+ * (`"41.54"`), or undefined when it holds none, or when its money is in more than one currency or
+ * in another than the input's own `currency`: an amount never loses the currency it was in.
+ */
+// Staging, 2026-11-28: a receipt agent's coded lines reached qbo.purchase.create as money objects
+// ("qbo.purchase.create: invalid input"); the supervisor rewrote them by hand. Invariant 6 holds:
+// the decimal string is passed on as it was, never through a number.
+export function moneyAsDecimals(value: unknown): unknown {
+  const currencies = new Set<string>();
+  const walk = (v: unknown): unknown => {
+    if (isMoney(v)) {
+      currencies.add(v.currency.toUpperCase());
+      return v.amount;
+    }
+    if (Array.isArray(v)) return v.map(walk);
+    if (typeof v === "object" && v !== null) {
+      return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, walk(x)]));
+    }
+    return v;
+  };
+  const out = walk(value);
+  if (currencies.size === 0 || currencies.size > 1) return undefined;
+  const own =
+    typeof value === "object" && value !== null
+      ? (value as { currency?: unknown }).currency
+      : undefined;
+  if (typeof own === "string" && !currencies.has(own.toUpperCase())) return undefined;
+  return out;
 }
 
 function summarize(spec: ToolSpec, output: unknown): string | undefined {

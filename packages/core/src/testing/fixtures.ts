@@ -1,5 +1,6 @@
 // Test fixtures shared by core's tests (not exported from the package).
 import { cloneJson } from "../json";
+import type { ValidationContext } from "../process/checks";
 import {
   type AgentBundle,
   type AgentBundleInput,
@@ -8,8 +9,7 @@ import {
 import { EventTypeSpec as EventSchema, type EventTypeSpec } from "../schemas/event";
 import { type SkillDefinition, SkillDefinition as SkillSchema } from "../schemas/skill";
 import { ToolSpec as ToolSchema, type ToolSpec } from "../schemas/tool";
-import type { Workflow } from "../schemas/workflow";
-import type { ValidationContext } from "../workflow/validate";
+import type { WorkflowInput } from "../steps/schema";
 
 const obj = (properties: Record<string, unknown>, required: string[] = []) => ({
   type: "object",
@@ -128,16 +128,18 @@ export const events: Record<string, EventTypeSpec> = {
 
 export const ctx: ValidationContext = { tools, skills, events };
 
-export function workflowInput(): Workflow {
+export function workflowInput(): WorkflowInput {
   return {
-    schemaVersion: 3,
-    trigger: { id: "t1", on: { type: "event", event: "document.received" } },
+    schemaVersion: 5,
+    triggers: [{ id: "t1", on: { type: "event", event: "document.received" } }],
+    outputs: [],
     steps: [
       {
         id: "s1",
         name: "Extract",
-        kind: "skill",
-        skill: "docs.extract",
+        kind: "do",
+        doneBy: "rules",
+        uses: { type: "action", action: "docs.extract" },
         input: { documentId: "{{trigger.documentId}}" },
       },
       {
@@ -153,24 +155,24 @@ export function workflowInput(): Workflow {
               {
                 id: "s3",
                 name: "Approve",
-                kind: "person",
-                mode: "approve",
-                assignee: "client_admin",
-                title: "Approve {{trigger.vendor}}",
-                payload: { total: "{{trigger.total}}" },
-                timeout: "5 days",
-                channel: "inbox",
-                onReject: "stop",
-                onTimeout: "stop",
+                kind: "do",
+                doneBy: "person",
+                person: {
+                  mode: "approve",
+                  who: "client_admin",
+                  question: "Approve {{trigger.vendor}}",
+                  show: { total: "{{trigger.total}}" },
+                  deadline: { after: "5 days", ifNoAnswer: "stop" },
+                  channel: "inbox",
+                  onReject: "stop",
+                },
               },
             ],
           },
         ],
         otherwise: {
           id: "o1",
-          steps: [
-            { id: "s4", name: "Note", kind: "notify", channel: "thread", message: "Small one" },
-          ],
+          steps: [{ id: "s4", name: "Note", kind: "wait", for: "1 hour" }],
         },
       },
       {
@@ -183,8 +185,9 @@ export function workflowInput(): Workflow {
           {
             id: "s6",
             name: "Summarize",
-            kind: "skill",
-            skill: "test.summarize",
+            kind: "do",
+            doneBy: "ai",
+            uses: { type: "skill", skill: "test.summarize" },
             input: { text: "{{item.description}}" },
           },
         ],
@@ -192,10 +195,11 @@ export function workflowInput(): Workflow {
       {
         id: "s7",
         name: "Attach",
-        kind: "action",
-        tool: "qbo.attachable.upload",
+        kind: "do",
+        doneBy: "rules",
+        uses: { type: "action", action: "qbo.attachable.upload" },
         input: { documentId: "{{steps.s1.output.documentId}}" },
-        approval: { required: "required", onReject: "stop" },
+        checks: { approval: { required: "required", onReject: "stop" } },
       },
     ],
   };

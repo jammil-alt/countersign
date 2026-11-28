@@ -174,7 +174,7 @@ describe.skipIf(!online)("bookkeeping (database, as cs_worker)", () => {
     await expect(
       action("link-account", {
         linkId: (await linkOf(CHECKING.id)).id,
-        ledgerAccountId: A.accounts["Fuel"],
+        ledgerAccountId: A.accounts.Fuel,
         mode: "book",
       }),
     ).rejects.toThrow("not a bank or card account");

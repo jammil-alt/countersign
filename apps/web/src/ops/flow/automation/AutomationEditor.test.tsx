@@ -1,7 +1,7 @@
 // An automation in the one-screen builder (F7): it opens on its saved steps between Takes in and
 // Gives back, a step is added from the rail, both ends are edited in the side panel, a save posts
 // the definition as edited (ids as they were), and Publish makes the saved version live.
-import { AnyAutomationDefinition, type BuilderCatalog } from "@countersign/core";
+import { AutomationDefinition, type BuilderCatalog } from "@countersign/core";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, useLocation } from "react-router-dom";
@@ -69,7 +69,7 @@ const CATALOG = {
   automations: [],
 } as unknown as BuilderCatalog;
 
-const DEFINITION = AnyAutomationDefinition.parse({
+const DEFINITION = AutomationDefinition.parse({
   schemaVersion: 2,
   slug: "bill-intake",
   name: "Bill intake",
@@ -403,21 +403,15 @@ describe("an automation in the builder", () => {
     expect(first.api.calls).toContain(`GET /api/ops/clients/${CLIENT_ID}/connections`);
   });
 
-  it("doesn't open an automation saved in the older step format", async () => {
-    const old = AnyAutomationDefinition.parse({
-      schemaVersion: 1,
-      slug: "bill-intake",
-      name: "Bill intake",
-      steps: [],
-    });
+  it("says so when an automation has no version to open", async () => {
     open({
       [`GET /api/ops/automations/${AUTO_ID}`]: () => ({
         automation: AUTOMATION,
-        versions: [version(V1, 1, "live", old)],
+        versions: [],
         usedBy: [],
       }),
     });
-    expect(await screen.findByTestId("flow-auto-old")).toHaveTextContent("older step format");
+    expect(await screen.findByTestId("flow-auto-empty")).toHaveTextContent("no version");
     expect(screen.queryByTestId("flow-bar")).toBeNull();
     expect(screen.getByTestId("flow-auto-back")).toHaveAttribute(
       "href",

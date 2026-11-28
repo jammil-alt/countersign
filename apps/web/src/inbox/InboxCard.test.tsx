@@ -80,6 +80,32 @@ describe("InboxCard: external action", () => {
     expect(screen.queryByTestId("change-unchanged-id")).toBeNull();
   });
 
+  // Staging, 2026-11-28: a test's approval card showed only "Not written: true".
+  it("shows a test run's approval as the change it would make, under its own title", () => {
+    const item: InboxCardItem = {
+      ...CHANGE,
+      kind: "approval",
+      title: "Book it: approve it for the test (nothing is written)",
+      payload: {
+        nodeId: "book",
+        mode: "approve",
+        tool: "testkit.record.update",
+        actionId: "a1",
+        input: { id: "r1", amount: "12.00", syncToken: "0" },
+        before: { id: "r1", name: "Oak board", amount: "10.00", syncToken: "0" },
+        testRun: true,
+        notWritten: true,
+      },
+    };
+    renderCard({ item });
+    const card = screen.getByTestId(`inbox-item-${item.id}`);
+    expect(within(card).getByRole("heading", { level: 3 })).toHaveTextContent(
+      "approve it for the test (nothing is written)",
+    );
+    expect(screen.getByTestId("change-row-amount")).toHaveTextContent("Amount10.0012.00");
+    expect(within(card).queryByText("Not written")).toBeNull();
+  });
+
   // §1.97: a first text names the client and ends with the opt-out line, added at send time.
   it("shows a first text as it will go, from the before state, and not as a field", () => {
     const sentAs = "Rivera Supply: Your order ships Friday. Reply STOP to opt out.";
@@ -165,6 +191,76 @@ describe("InboxCard: a person's question", () => {
     expect(onResolve).toHaveBeenCalledWith({ decision: "approve", answer: "Yes, new" });
     await userEvent.click(screen.getByTestId("inbox-item-decline"));
     expect(onResolve).toHaveBeenLastCalledWith({ decision: "reject" });
+  });
+
+  // Owner, 2026-11-28: a person step asks for the fields it lists; with quick answers the button
+  // pressed is the first, the rest are boxes.
+  it("asks for its fields beside its quick answers, and sends them by name", async () => {
+    const onResolve = vi.fn().mockResolvedValue(undefined);
+    renderCard({
+      item: {
+        ...CHANGE,
+        kind: "request",
+        title: "None of the receipts could be coded. Book them by hand, or say what is missing.",
+        payload: {
+          nodeId: "ask",
+          mode: "ask",
+          choices: [
+            { value: "booked_by_hand", label: "I booked it by hand" },
+            { value: "missing", label: "Something is missing" },
+          ],
+          fields: [
+            { name: "choice", type: "text", required: true },
+            {
+              name: "note",
+              type: "text",
+              about: "What is missing, or what was booked",
+              required: false,
+            },
+          ],
+        },
+      },
+      onResolve,
+    });
+    expect(screen.queryByTestId("inbox-item-field-choice")).toBeNull();
+    expect(screen.getByText("What is missing, or what was booked")).toBeInTheDocument();
+    expect(screen.queryByText("Fields")).toBeNull();
+    await userEvent.type(screen.getByTestId("inbox-item-field-note"), "No job named");
+    await userEvent.click(screen.getByTestId("inbox-item-choice-missing"));
+    expect(onResolve).toHaveBeenCalledWith({
+      decision: "approve",
+      answer: { choice: "missing", note: "No job named" },
+    });
+  });
+
+  it("holds Send until each field it needs is in", async () => {
+    const onResolve = vi.fn().mockResolvedValue(undefined);
+    renderCard({
+      item: {
+        ...CHANGE,
+        kind: "request",
+        title: "Which job was this for?",
+        payload: {
+          nodeId: "ask",
+          mode: "ask",
+          fields: [
+            { name: "job", type: "text", required: true },
+            { name: "billable", type: "yes_no", required: false },
+          ],
+        },
+      },
+      onResolve,
+    });
+    expect(screen.queryByTestId("inbox-item-answer-input")).toBeNull();
+    const send = screen.getByTestId("inbox-item-answer-send");
+    expect(send).toBeDisabled();
+    await userEvent.type(screen.getByTestId("inbox-item-field-job"), "Maple Court");
+    await userEvent.selectOptions(screen.getByTestId("inbox-item-field-billable"), "yes");
+    await userEvent.click(send);
+    expect(onResolve).toHaveBeenCalledWith({
+      decision: "approve",
+      answer: { job: "Maple Court", billable: true },
+    });
   });
 });
 

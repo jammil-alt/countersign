@@ -13,6 +13,7 @@ import { AgentBadge } from "../../ui/badges";
 import { Button, Card, ErrorNotice, Loading, Tag } from "../../ui/primitives";
 import { StatusChip } from "../../ui/status";
 import { errorText, Notice, notifyAgentsChanged, plural, Select, useAction } from "../agents/ui";
+import { TurnOnSheet } from "../flow/TurnOnSheet";
 import type { AgentLinkState } from "../screens/AgentPage";
 
 type UsedBy = ResponseOf<typeof apiRoutes.opsUsedBy>["agents"][number];
@@ -259,6 +260,72 @@ export function AssignForm({
       </div>
       {action.error ? <Notice tone="warning">{errorText(action.error)}</Notice> : null}
     </div>
+  );
+}
+
+/**
+ * Sandbox inbound (2026-11-27): Turn on in the Sandbox. The Turn on sheet at the Sandbox client:
+ * it publishes the version, copies the template there as the Sandbox's own agent (never its test
+ * copy, which only test-runs), activates it and starts its trial, so it takes real mail at its own
+ * address and test messages, every write waiting for a signature. Then its Workflow tab opens,
+ * where the address and Send a test message are. From Try it (`onStarted`), it stays where it is,
+ * and Try it in the sheet only closes it.
+ */
+export function TurnOnInSandbox({
+  templateId,
+  base,
+  workflow,
+  onStarted,
+}: {
+  templateId: string;
+  /** The template's page; without it, Try it closes the sheet. */
+  base?: string;
+  /** The workflow the sheet's Try it opens in the step builder, Try it open (`#try`). */
+  workflow?: string;
+  /** In place of opening the Sandbox agent's Workflow tab once its trial started. */
+  onStarted?(): void;
+}) {
+  const clients = useApi(apiRoutes.opsClients, { query: { view: "names" } });
+  const [open, setOpen] = useState(false);
+  const navigate = useNavigate();
+  const sandbox = (clients.data?.clients ?? []).find((c) => c.sandbox);
+  if (!sandbox) return null;
+  return (
+    <>
+      <Button
+        size="sm"
+        variant="secondary"
+        data-testid="lab-turn-on-sandbox"
+        aria-haspopup="dialog"
+        onClick={() => setOpen(true)}
+      >
+        Turn on in the Sandbox
+      </Button>
+      {open ? (
+        <TurnOnSheet
+          agentId={templateId}
+          template
+          clients={[{ id: sandbox.id, name: sandbox.name }]}
+          clientId={sandbox.id}
+          // Staging, 2026-11-28: Try it went to the Versions tab's tests, the page the operator was
+          // usually on, with the sheet still open, so nothing seemed to happen. It closes the sheet
+          // and opens the step builder with Try it open, where a try is made.
+          onTry={() => {
+            setOpen(false);
+            if (base)
+              navigate(workflow ? `${base}/steps/${workflow}#try` : `${base}/versions#tests`);
+          }}
+          onStarted={(r) => {
+            notifyAgentsChanged();
+            if (onStarted) {
+              setOpen(false);
+              onStarted();
+            } else if (r.agentId) navigate(`/ops/agents/${r.agentId}/workflow`);
+          }}
+          onClose={() => setOpen(false)}
+        />
+      ) : null}
+    </>
   );
 }
 

@@ -39,12 +39,12 @@ function bundle(): AgentBundle {
         slug: "main",
         name: "Main",
         workflow: {
-          schemaVersion: 3,
-          trigger: {
-            id: "msg",
-            on: { type: "message", channels: ["email"], from: { tags: ["vendor"] } },
-          },
-          steps: [],
+          schemaVersion: 5,
+          triggers: [
+            { id: "msg", on: { type: "message", channels: ["email"], from: { tags: ["vendor"] } } },
+          ],
+          outputs: [{ id: "out-done", name: "Done", kind: "nothing" }],
+          steps: [{ id: "end", kind: "end", name: "Done", outputs: ["out-done"] }],
         },
       },
     ],

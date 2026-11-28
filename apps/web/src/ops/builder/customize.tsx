@@ -6,9 +6,8 @@
 // (and, on a client agent, the agent template's), and core's `customizationProblems` says what
 // can't apply. The customization is versioned with the agent like everything else in the bundle.
 import {
-  type AnyAgentBundle,
+  type AgentBundle,
   lookupSkill,
-  type ProcessAgentBundle,
   processes,
   SKILL_KIND_LABEL,
   type SkillDefinition,
@@ -33,7 +32,7 @@ import {
   SmallInput,
   SmallSelect,
 } from "./fields";
-import { findTemplateStep, type Process, type Step } from "./model";
+import { findTemplateStep, type Process, type ProcessAgentBundle, type Step } from "./model";
 import { RulesEditor } from "./rules";
 
 type SkillStep = Extract<Step, { kind: "skill" }>;
@@ -142,7 +141,7 @@ export interface CustomizeProps {
   ctx: TypingContext;
   bundle: ProcessAgentBundle;
   /** A client agent's base template version, for "the template's value". */
-  template: { bundle: AnyAgentBundle | ProcessAgentBundle; workflow: Process | undefined } | null;
+  template: { bundle: AgentBundle | ProcessAgentBundle; workflow: Process | undefined } | null;
   errors: FieldErrors;
   set: SetStep;
 }
