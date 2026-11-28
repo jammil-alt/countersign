@@ -15,6 +15,7 @@ import { AdjustableSettings } from "../setup/adjustable";
 import { SetupChecklist } from "../setup/item";
 // The step model (docs/step-model-plan.md §13c): a bundle entry holds a v5 workflow.
 import { Workflow } from "../steps/schema";
+import { EmailIntake } from "../triggers/intake";
 import { SkillRef, Slug, ToolId } from "./common";
 import { AgentMode } from "./permissions";
 import { ModelChoice } from "./skill";
@@ -104,6 +105,9 @@ export const AgentDefinition = z
     // per record type, and its data sets. Optional with no default, so bundles without it parse
     // and hash as they were; absent grants nothing (the standard record actions are refused).
     data: AgentData.optional(),
+    // Email intake (owner, 2026-11-28): who may start the agent by emailing its own address. Optional
+    // with no default, so bundles without it parse and hash as they were; absent is `people`.
+    emailIntake: EmailIntake.optional(),
   })
   .meta({ id: "AgentDefinition" });
 export type AgentDefinition = z.infer<typeof AgentDefinition>;

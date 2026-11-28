@@ -2591,6 +2591,15 @@ Automation = { schemaVersion: 1, slug, name, description,
 | Message | Something is sent to the agent | `email` to the agent's own address; `sms`/`whatsapp` to a number bound as its channel; `command`: `/<agent>` in a client thread (§11.2); `sloan`: a request Sloan passes. Only senders matching `from` (People) start it; anyone else gets a polite fixed reply (to email only when it passes DMARC) and the lead is told. The message is data for step 1: its text through a read tool (`inbound.get`), its attachments as documents; it can't change the agent's rules or access (invariant 9). `reply.confirm` is a fixed template sent within a minute, behind no approval because it goes only to the sender, from the same channel, and says only that it was received |
 | Handoff | Another agent of the same client finishes a live run successfully | The finishing run emits `run.succeeded` with its workflow's `handoff.output` and `sources`; the router starts matching handoff triggers in the same client only, never the same agent, at most 3 handoffs deep (`depth` in the payload) |
 
+**Who can email an agent** (owner, 2026-11-28): the agent's `emailIntake`, set in Settings,
+Definition. `people` (the default, and absent): each email trigger's `from` decides, as above.
+`domain`: only mail proven to come from one domain or its subdomains. `list`: only mail proven to
+come from listed addresses or domains. `open`: anyone, proven or not; the stored message has no
+contact and records how it got in (`meta.email.intake`). Proven is SPF for the envelope's domain or
+DMARC for the From header's, as the forwarding address's allowed senders. `domain` and `list` are
+strict: a known person outside them is refused. Under every setting the sender's words and files
+stay data (invariant 9); `open` changes who may start the agent, never what it may do.
+
 **The agent's address** (v0.12): `<agent>.<client label>-<client id in base32>@<EMAIL_FORWARDING_DOMAIN>`
 (`<agent>` is its command name, below), received by the Worker's `email()` like forwarding. The
 prototype's `<agent>@<client>.agents.mezonas.com` needs Email Routing per client subdomain and a
