@@ -5,11 +5,15 @@
 import {
   type AgentRow,
   findStepIn,
+  getVersion,
   isStepSkill,
+  latestVersion,
+  parseVersionBundle,
   saveAsSkillRefusal,
   saveStepAsSkill,
   storeStepSkills,
   suggestStep,
+  validateForPublish,
 } from "@countersign/agents";
 import { routes, type SkillDefinition, steps } from "@countersign/core";
 import { knownModelIds } from "@countersign/llm";
@@ -17,7 +21,7 @@ import type { Hono } from "hono";
 import { clientModels } from "../compliance/models";
 import { type AppEnv, HttpError, mount, notFound } from "../http";
 import { meteredLlm } from "../metering";
-import { builderHttpError } from "./ops-builder";
+import { builderHttpError, existingUnder } from "./ops-builder";
 import { actionCatalogFor, agentInScope, operatorSkills } from "./ops-lineage";
 
 /** The workflow as the step model reads it, or the plain 422 the other step routes give. */
@@ -81,6 +85,35 @@ export function opsStepSkillRoutes(app: Hono<AppEnv>): void {
         scope: body.scope,
       },
     };
+  });
+
+  // One checker (staging, 2026-11-28: the page's own copy of the check, with what the browser had
+  // loaded, flagged issues the server didn't have and blocked Try it). The draft is checked exactly
+  // as saving it on the version it was edited from would check it (`opsSaveVersion`), and as
+  // publishing checks it (`publish`): the same `validateForPublish`, the same `previous`. Nothing
+  // is stored.
+  // DECISION: the rules and AI written in a step aren't stored here (a save stores them and pins
+  // them first): no check reads the pins, so the answer is the same and the check writes nothing.
+  mount(app, routes.opsWorkflowCheck, async (ctx) => {
+    const { tx, body, services } = ctx;
+    const row = await agentInScope(ctx, ctx.params.id);
+    const workflow = readWorkflow(body.workflow);
+    const parent = body.parentVersionId
+      ? await getVersion(tx, body.parentVersionId)
+      : await latestVersion(tx, row.id);
+    if (!parent || parent.agentId !== row.id) throw notFound("version");
+    const stored = parent.bundle as { workflows: { slug: string }[] };
+    if (!stored.workflows.some((w) => w.slug === body.slug)) {
+      throw notFound(`workflow ${body.slug}`);
+    }
+    const bundle = parseVersionBundle({
+      ...stored,
+      workflows: stored.workflows.map((w) => (w.slug === body.slug ? { ...w, workflow } : w)),
+    });
+    const errors = await validateForPublish(tx, row, bundle, services.platform.ctx, {
+      previous: await existingUnder(tx, parent.id),
+    });
+    return { errors };
   });
 
   // Suggest (§5): the Builder's AI on one step, or one field, held to the form's rules.

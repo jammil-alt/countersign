@@ -303,7 +303,7 @@ export function noteWrites(client: ApiClient): ApiClient {
   return {
     async call(route, options) {
       const out = await client.call(route, options);
-      if (route.method !== "GET") noteWrite();
+      if (route.method !== "GET" && !route.readOnly) noteWrite();
       return out;
     },
   };

@@ -3,7 +3,11 @@
 // pickers and what the new structure needs). One workflow of an agent's version, `schemaVersion: 5`:
 // the chart (the builder's own, `../../flow`), the bar, the step's side panel with its form and Data
 // tab, the palette of eight kinds, the workflow's outputs next to the triggers, and Publish, which
-// shows `validateWorkflow`'s issues on their steps and refuses while any remain.
+// shows the server's publish check of the draft on its steps and refuses while any issue remains.
+//
+// One checker (staging, 2026-11-28): the issues are the server's (`./check`), asked as the page
+// opens and after each edit, and the page never changes the workflow by itself: what opens is what
+// is stored, and "Unsaved" means a person changed it.
 //
 // Feedback, 2026-11-26: a step's settings open in a full-height side drawer over the page; the
 // chart scrolls inside a frame the window's height under the bar; the outputs come after the chart;
@@ -51,19 +55,13 @@ import type { Member, People } from "../people";
 import { AddWorkflowForm, WorkflowSwitcher } from "../workflow-switcher";
 import { BuilderChat, useBuilderSession } from "./BuilderChat";
 import { triggerFields, useStepsCatalog } from "./catalog";
+import { useWorkflowCheck } from "./check";
 import { Drawer, DrawerTab } from "./Drawer";
-import { translateAll } from "./data";
 import { type BoxWords, boxWords, displayProcess } from "./display";
 import { fixFor, type IssueFix } from "./fixes";
 import type { SaveAsSkill, StepFormEnv } from "./form-kit";
 import { canRedo, canUndo, commit, redo, startHistory, undo } from "./history";
-import {
-  type BuilderIssue,
-  canPublish,
-  issuesByStep,
-  publishSummary,
-  workflowIssues,
-} from "./issues";
+import { type BuilderIssue, canPublish, issuesByStep, publishSummary } from "./issues";
 import {
   canRemove,
   findStep,
@@ -210,13 +208,9 @@ function Body(
         .workflows,
     [props.bundle],
   );
-  // Stream G: every Do step's incoming side worked out on load, opened or not; what changes shows
-  // as unsaved, as an edit would.
-  const [history, setHistory] = useState(() =>
-    startHistory(
-      translateAll(props.start, catalog.uses, triggerFields(props.start, catalog.events)),
-    ),
-  );
+  // The workflow as stored: nothing is worked out or filled in as the page opens (staging,
+  // 2026-11-28: a step's input dropped on load was saved as a broken version).
+  const [history, setHistory] = useState(() => startHistory(props.start));
   const workflow = history.present;
   const edit = useCallback((next: Workflow) => setHistory((h) => commit(h, next)), []);
   // The supervisor's settings (owner, 2026-11-27): the agent's `definition.oversight`, changed
@@ -232,12 +226,14 @@ function Body(
     oversight: canonicalJson(oversightOf(props.bundle) ?? null),
   });
   const oversightDirty = canonicalJson(oversight ?? null) !== saved.oversight;
+  // Only a person's edit makes the draft differ from what is stored.
   const dirty = canonicalJson(workflow) !== saved.canon || oversightDirty;
-  // What the builder opened on, worked out (stream G): changed by an edit, it is the person's work.
-  const [opened] = useState(() => canonicalJson(history.present));
-  const unsaved =
-    oversightDirty ||
-    (canonicalJson(workflow) !== saved.canon && canonicalJson(workflow) !== opened);
+  // Each step as the page opened it: a step the person hasn't changed is never rewritten by its
+  // form (the Input box offers what it works out instead).
+  const openedSteps = useMemo(
+    () => new Map(walk(props.start).map((l) => [l.step.id, canonicalJson(l.step)])),
+    [props.start],
+  );
   const review: OversightReview = oversightReviewOf(oversight);
   // Edits kept in this browser from before a reload, offered back (owner, 2026-11-26).
   const [offer, setOffer] = useState(() =>
@@ -248,10 +244,10 @@ function Body(
     slug: props.workflow,
     baseId: saved.id,
     workflow,
-    dirty: unsaved,
+    dirty,
     enabled: offer === null,
   });
-  useLeaveGuard(unsaved);
+  useLeaveGuard(dirty);
   const [selection, setSelection] = useState<string | null>(null);
   const [addAt, setAddAt] = useState<InsertPoint | null>(null);
   const [folded, setFolded] = useState<ReadonlySet<string>>(new Set());
@@ -288,7 +284,14 @@ function Body(
   const api = useRef(action);
   api.current = action;
 
-  const issues = useMemo(() => workflowIssues(workflow, catalog.uses), [workflow, catalog.uses]);
+  // What would stop a publish, as the server's save and publish check it.
+  const check = useWorkflowCheck({
+    agentId: agent.id,
+    slug: props.workflow,
+    parentVersionId: saved.id,
+    workflow,
+  });
+  const issues = useMemo(() => check.issues ?? [], [check.issues]);
   const byStep = useMemo(() => issuesByStep(issues), [issues]);
   const statuses = useMemo(() => statusesFor(issues), [issues]);
   // What the chart and the list show: the issues, and the last try's result on each step.
@@ -381,8 +384,22 @@ function Body(
       agentModels,
       agents: props.handoffAgents,
       saveAsSkill,
+      edited: (id) => {
+        const was = openedSteps.get(id);
+        const now = findStep(workflow, id)?.step;
+        return was === undefined || (now !== undefined && canonicalJson(now) !== was);
+      },
     }),
-    [workflow, catalog, props.people, suggest, props.handoffAgents, saveAsSkill, agentModels],
+    [
+      workflow,
+      catalog,
+      props.people,
+      suggest,
+      props.handoffAgents,
+      saveAsSkill,
+      agentModels,
+      openedSteps,
+    ],
   );
 
   const selected = selection ? (findStep(workflow, selection)?.step ?? null) : null;
@@ -712,6 +729,13 @@ function Body(
             ) : null}
           </Notice>
         ) : null}
+        {check.failed ? (
+          <p className="text-sm text-ink-muted" data-testid="steps-check-failed">
+            We couldn't check this draft just now
+            {check.issues ? ", so what stops Publish below may be out of date" : ""}. Saving still
+            works; we'll check again after your next change.
+          </p>
+        ) : null}
         {showIssues || !canPublish(issues) ? (
           <PublishIssues
             issues={issues}
@@ -973,7 +997,7 @@ function Palette({ onPick, onClose }: { onPick(kind: StepKind): void; onClose():
  * where what has to change is elsewhere, and the Builder for the rest.
  */
 export function PublishIssues(props: {
-  issues: ReturnType<typeof workflowIssues>;
+  issues: readonly BuilderIssue[];
   show: boolean;
   name(id: string): string;
   outputName(id: string): string;

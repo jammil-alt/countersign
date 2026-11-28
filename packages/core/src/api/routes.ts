@@ -1155,6 +1155,18 @@ export type StepSuggestion = z.infer<typeof StepSuggestion>;
  * step written in itself comes back with the skill version that backs it. The saved agent version
  * pins each one in its skills; publishing that version makes them live.
  */
+/**
+ * The step builder's check of its draft (`opsWorkflowCheck`): one workflow as it stands on the
+ * page, in place of `slug` in the version it was edited from (absent: the agent's latest).
+ */
+export const WorkflowCheckRequest = z.strictObject({
+  slug: SlugSchema,
+  /** The workflow, `schemaVersion: 5`; read by the step model's schema on the server. */
+  workflow: z.unknown(),
+  parentVersionId: ApiId.optional(),
+});
+export type WorkflowCheckRequest = z.infer<typeof WorkflowCheckRequest>;
+
 export const StepSkillsStoreRequest = z.strictObject({ workflow: z.unknown() });
 export const StepSkillsStored = z.object({
   skills: z.array(
@@ -2141,6 +2153,19 @@ export const opsRoutes = {
     params: IdParams,
     body: StepSkillsStoreRequest,
     response: StepSkillsStored,
+  }),
+  // One checker (staging, 2026-11-28): the step builder asks the server what would stop its draft
+  // publishing, rather than checking it in the browser with what the browser loaded. Read only.
+  opsWorkflowCheck: defineRoute({
+    method: "POST",
+    path: "/api/ops/agents/:id/workflow-check",
+    auth: "session",
+    roles: OPS,
+    summary: "What would stop a workflow's unsaved draft publishing, as a save would say it",
+    params: IdParams,
+    body: WorkflowCheckRequest,
+    response: z.object({ errors: z.array(ValidationErrorSchema) }),
+    readOnly: true,
   }),
   opsStepSaveAsSkill: defineRoute({
     method: "POST",

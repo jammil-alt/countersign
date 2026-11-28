@@ -179,6 +179,10 @@ export type ProcessValidationCode =
   | "handoff_entry_kind"
   // Ways in, ways out (2026-11-23): a hand-off to this agent's own workflow (`checkHandoffStep`)
   // and the loops such hand-offs make between workflows (bundle.ts).
+  // One checker (2026-11-28): what the step builder's form leaves open, held at publish too: a
+  // Fork's path with no name, a For each with no list to go through.
+  | "fork_path_unnamed"
+  | "for_each_list_missing"
   | "handoff_unknown_workflow"
   | "handoff_same_workflow"
   | "handoff_workflow_off"

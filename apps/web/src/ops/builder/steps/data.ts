@@ -4,7 +4,7 @@
 // Pure.
 
 import { steps } from "@countersign/core";
-import { findStep, stepsBefore, updateStep } from "./model";
+import { findStep, stepsBefore } from "./model";
 import { actionPath, inputFields, outputFields, type UsesContext, usesLabel } from "./options";
 import type { Field, Step, Workflow } from "./types";
 
@@ -234,31 +234,4 @@ function didWords(step: Step, uses: UsesContext): string {
     case "end":
       return "Delivers what the workflow promised.";
   }
-}
-
-/**
- * Every Do step's incoming side worked out (core `steps.translateStep`), not only the step open in
- * the panel: run on what the builder loads, so a step never opened is translated too. A step
- * written in the step (no Uses) or taking nothing is left as it is; so is a workflow that needed
- * nothing (the same object comes back).
- */
-export function translateAll(
-  workflow: Workflow,
-  uses: UsesContext,
-  trigger: readonly Field[] = [],
-): Workflow {
-  let next = workflow;
-  const ids: string[] = [];
-  steps.eachStep(workflow.steps as never, ({ step }) => {
-    if (step.kind === "do" && step.uses) ids.push(step.id);
-  });
-  for (const id of ids) {
-    const s = findStep(next, id)?.step;
-    if (s?.kind !== "do") continue;
-    const takes = inputFields(s, uses);
-    if (takes.length === 0) continue;
-    const translated = steps.translateStep(s, takes, incomingSources(next, id, uses, trigger)).step;
-    if (translated !== s) next = updateStep(next, id, () => translated);
-  }
-  return next;
 }

@@ -232,6 +232,41 @@ export function stepModelScheduleErrors(
   return errors;
 }
 
+/**
+ * What the step builder's form leaves open, held at publish (one checker, 2026-11-28: the builder
+ * shows the server's issues, so these were the builder's alone): a Fork's path with no name, a For
+ * each with no list to go through.
+ */
+// DECISION: here, not in `steps.validateWorkflow`, which the engine also runs when it loads a
+// version: a live version with an unnamed path still runs (invariant 3); only publishing holds it.
+export function stepModelFormErrors(
+  workflow: Pick<StepWorkflow, "steps">,
+): StepModelPublishError[] {
+  const errors: StepModelPublishError[] = [];
+  eachStep(workflow.steps, ({ step }) => {
+    if (step.kind === "fork") {
+      const at = step.paths.findIndex((p) => !p.name.trim());
+      if (at >= 0) {
+        errors.push({
+          stepId: step.id,
+          field: `paths.${at}.name`,
+          code: "fork_path_unnamed",
+          message: "Name each path of this Fork.",
+        });
+      }
+    }
+    if (step.kind === "for_each" && !step.over.trim()) {
+      errors.push({
+        stepId: step.id,
+        field: "over",
+        code: "for_each_list_missing",
+        message: "Pick the list to go through.",
+      });
+    }
+  });
+  return errors;
+}
+
 /** The connector names a refusal says. */
 function connectorList(connectors: readonly string[]): string {
   return connectors.join(" and ");
