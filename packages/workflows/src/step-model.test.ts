@@ -394,6 +394,37 @@ describe("a v5 Do step's incoming side (stream G)", () => {
     expect(h.agentCalls).toHaveLength(1);
   });
 
+  // Staging, 2026-11-27: "Check the items" ran with its vendor empty and failed on the tool's own
+  // "expected string, received undefined", three steps from the cause.
+  it("fails a step whose required input came from a reference that gave nothing, naming it", async () => {
+    const h = new Harness();
+    const needsId = {
+      ...TOOLS["testkit.thing.read"],
+      input: { type: "object", properties: { id: { type: "string" } }, required: ["id"] },
+    } as ToolSpec;
+    h.handlers.s_read = () => ({ kind: "done", output: { items: [] } });
+    const next = {
+      ...read,
+      id: "s_next",
+      name: "Check the items",
+      input: { id: "{{steps.s_read.output.items.0.matched}}" },
+    };
+    const catalog = { ...CATALOG, tools: { ...TOOLS, "testkit.thing.read": needsId } };
+    const { result } = await run(h, wf([read, next, end()]), { id: "7" }, { catalog });
+    expect(result.status).toBe("failed");
+    expect(result.nodeId).toBe("s_next");
+    expect(result.reason).toContain(
+      `"Check the items" can't run: id is empty. It comes from {{steps.s_read.output.items.0.matched}} ("Read the thing"), which gave nothing there.`,
+    );
+    expect(h.agentCalls).toHaveLength(1);
+    // An empty text is a value, not nothing.
+    const h2 = new Harness();
+    h2.handlers.s_read = () => ({ kind: "done", output: { items: [{ matched: "" }] } });
+    h2.handlers.s_next = () => ({ kind: "done", output: {} });
+    const ok = await run(h2, wf([read, next, end()]), { id: "7" }, { catalog });
+    expect(ok.result.status).toBe("succeeded");
+  });
+
   it("never hands a source key to an engine, with or without a translation", async () => {
     const h = new Harness();
     const plain = { ...read, id: "s_two", input: { id: "1", _s_read: "{{trigger}}" } };

@@ -1748,7 +1748,47 @@ class Executor {
         `what comes into "${v5.name}" can't be translated: ${problem.field}: ${problem.message}`,
       );
     }
+    this.requireFilled(v5, t.input);
     return t.input;
+  }
+
+  /**
+   * A v5 Do step's required input that came from another step or the trigger and arrived empty
+   * fails the step here, naming the field and where it should have come from, before the tool or
+   * skill refuses it in its own words (staging, 2026-11-27: "Check the items" failed on its tool's
+   * "vendorId: expected string, received undefined", three steps from the cause).
+   */
+  requireFilled(step: steps.DoStep, input: Record<string, unknown>) {
+    const uses = step.uses;
+    const schema =
+      uses?.type === "action"
+        ? this.ctx.catalog?.tools?.[uses.action]?.input
+        : uses?.type === "skill"
+          ? lookupSkill(uses.skill, this.typing())?.input
+          : undefined;
+    const required = (schema as { required?: unknown } | undefined)?.required;
+    if (!Array.isArray(required)) return;
+    for (const field of required) {
+      if (typeof field !== "string") continue;
+      const value = input[field];
+      // Only nothing at all: an empty text may be a real value (an email with no words).
+      if (value !== undefined && value !== null) continue;
+      const raw = step.input[field];
+      const ref = typeof raw === "string" ? /^\{\{\s*([^{}]+?)\s*\}\}$/.exec(raw)?.[1] : undefined;
+      if (!ref) continue;
+      const [head, id] = ref.split(".");
+      const from =
+        head === "steps" && id !== undefined
+          ? `"${this.stepModel?.byId.get(id)?.name ?? id}"`
+          : head === "trigger"
+            ? "what started the run"
+            : head === "item"
+              ? "the item this step is working on"
+              : ref;
+      throw new Error(
+        `"${step.name}" can't run: ${field} is empty. It comes from {{${ref}}} (${from}), which gave nothing there.`,
+      );
+    }
   }
 
   /** A work step's input for an attempt: resolved, and as an action's tool takes it. */
