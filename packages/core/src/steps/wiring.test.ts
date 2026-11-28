@@ -226,6 +226,35 @@ describe("the wiring between steps, at publish", () => {
     ]);
   });
 
+  // Owner, 2026-11-28: a person step asks for the fields it lists and hands each on by its name.
+  it("reads a person step by the fields it lists, beside its answer and who gave it", () => {
+    const ask = {
+      id: "s_ask",
+      kind: "do",
+      name: "Ask the bookkeeper",
+      doneBy: "person",
+      input: {},
+      person: {
+        mode: "ask",
+        who: "client_admin",
+        question: "Book it?",
+        deadline: { after: "1 day" },
+      },
+      output: [
+        { name: "choice", type: "text", required: true },
+        { name: "note", type: "text", required: false },
+      ],
+    };
+    const ok = wf([
+      read,
+      ask,
+      tellAfter("{{steps.s_ask.output.note}} by {{steps.s_ask.output.by}}"),
+    ]);
+    expect(wiringIssues(ok)).toEqual([]);
+    const wrong = wf([read, ask, tellAfter("{{steps.s_ask.output.reason}}")]);
+    expect(wiringIssues(wrong).map((i) => i.code)).toEqual(["reference_unknown"]);
+  });
+
   it("1. refuses a Match's record read as if it were a group", () => {
     const w = wf([
       read,

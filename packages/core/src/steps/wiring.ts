@@ -12,6 +12,7 @@
 import type { Trigger } from "../schemas/workflow";
 import { collectRefs, singleRef, type TemplateRef } from "../template/template";
 import { type MatchProfile, matchResultFields } from "./match-profile";
+import { personFields } from "./person-fields";
 import type { DoStep, Step, Uses, Workflow, WorkflowOutput } from "./schema";
 import {
   ANY,
@@ -51,11 +52,23 @@ const withSources = (shape: Shape): Shape =>
     ? withFields(shape, { sources: SOURCES })
     : shape;
 
-/** What a person step hands on: whether they approved, their answer, and who. */
-const PERSON: Shape = group(
-  { approved: { type: "yes_no" }, answer: ANY, by: TEXT },
-  { required: ["approved"] },
-);
+/**
+ * What a person step hands on: the fields it asked for, by their names (owner, 2026-11-28),
+ * beside whether they approved, their answer as given, and who. A person's amount is the decimal
+ * they typed, not an amount and its currency.
+ */
+function personShape(step: DoStep): Shape {
+  const asked = Object.fromEntries(
+    personFields(step.output).map((f): [string, Shape] => [
+      f.name,
+      { type: f.type === "money" ? "text" : f.type, ...(f.about ? { about: f.about } : {}) },
+    ]),
+  );
+  return group(
+    { ...asked, approved: { type: "yes_no" }, answer: ANY, by: TEXT },
+    { required: ["approved"] },
+  );
+}
 
 /** Whether a list of steps can't run past its last step (an End, or a Fork whose every path ends). */
 function ends(list: readonly Step[]): boolean {
@@ -173,7 +186,7 @@ function doOutput(step: DoStep, ctx: ShapeContext): Shape {
     case undefined:
       break;
   }
-  if (step.doneBy === "person") return PERSON;
+  if (step.doneBy === "person") return personShape(step);
   if (step.doneBy === "contact") {
     // What it finds is handed on under its own names and under `found` (the executor's output).
     const find = fieldsShape(step.output ?? [], { money: "object" });

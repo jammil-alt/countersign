@@ -36,6 +36,7 @@ export const en = {
   "common.notFoundBody": "No page here.",
   "common.yes": "Yes",
   "common.no": "No",
+  "common.optional": "optional",
   "common.close": "Close",
 
   // ── Error pages (a page that failed to load) ──

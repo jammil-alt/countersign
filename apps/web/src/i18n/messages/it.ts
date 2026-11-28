@@ -36,6 +36,7 @@ export const it: Messages = {
   "common.notFoundBody": "Qui non c'è nessuna pagina.",
   "common.yes": "Sì",
   "common.no": "No",
+  "common.optional": "facoltativo",
   "common.close": "Chiudi",
 
   // ── Error pages (a page that failed to load) ──

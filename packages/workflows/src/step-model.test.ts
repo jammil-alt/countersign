@@ -338,6 +338,64 @@ describe("a v5 workflow's Do steps", () => {
   });
 });
 
+// Owner, 2026-11-28: a person step asks for the fields it lists and hands each on by its name.
+describe("a v5 person step's fields", () => {
+  const ask = {
+    id: "s_ask",
+    kind: "do",
+    name: "Ask the bookkeeper",
+    doneBy: "person",
+    output: [
+      { name: "choice", type: "text", required: true },
+      { name: "note", type: "text", required: false },
+    ],
+    person: {
+      mode: "ask",
+      who: "client_admin",
+      question: "Book {{trigger.id}} by hand?",
+      choices: [
+        { value: "booked_by_hand", label: "I booked it by hand" },
+        { value: "missing", label: "Something is missing" },
+      ],
+      deadline: { after: "1 day" },
+    },
+  };
+  const after = {
+    ...read,
+    id: "s_after",
+    name: "After",
+    input: { choice: "{{steps.s_ask.output.choice}}", note: "{{steps.s_ask.output.note}}" },
+  };
+
+  for (const [given, choice, note] of [
+    [{ choice: "missing", note: "No job named" }, "missing", "No job named"],
+    ["missing", "missing", null],
+  ] as const) {
+    it(`asks for them and hands on ${typeof given === "string" ? "a single answer as the first" : "a form's by name"}`, async () => {
+      const h = new Harness();
+      const runner = new FakeStepRunner({ onWait: "block" });
+      runner.onWaitStarted = (_n, type) => runner.deliver(type, { answer: given, by: "u-1" });
+      h.handlers.s_after = () => ({ kind: "done", output: {} });
+      const result = await executeWorkflow(
+        runner,
+        h.context({ catalog: CATALOG }),
+        wf([ask, after, end()]),
+        { id: "7" },
+      );
+      expect(result.status).toBe("succeeded");
+      const asked = [...h.items.values()][0]?.item;
+      expect(asked?.step.fields).toEqual([
+        { name: "choice", type: "text", required: true },
+        { name: "note", type: "text", required: false },
+      ]);
+      expect(h.row("s_ask")?.output).toMatchObject({ choice, note, approved: true, by: "u-1" });
+      expect(h.agentCalls.at(-1)?.input).toEqual(
+        note === null ? { choice, note: null } : { choice, note },
+      );
+    });
+  }
+});
+
 describe("a v5 Do step's incoming side (stream G)", () => {
   const needs = [
     { name: "vendorName", type: "text" as const, required: true },
@@ -392,6 +450,37 @@ describe("a v5 Do step's incoming side (stream G)", () => {
     expect(result.nodeId).toBe("s_change");
     expect(result.reason).toContain(`what comes into "Update the thing" can't be translated`);
     expect(h.agentCalls).toHaveLength(1);
+  });
+
+  // Staging, 2026-11-27: "Check the items" ran with its vendor empty and failed on the tool's own
+  // "expected string, received undefined", three steps from the cause.
+  it("fails a step whose required input came from a reference that gave nothing, naming it", async () => {
+    const h = new Harness();
+    const needsId = {
+      ...TOOLS["testkit.thing.read"],
+      input: { type: "object", properties: { id: { type: "string" } }, required: ["id"] },
+    } as ToolSpec;
+    h.handlers.s_read = () => ({ kind: "done", output: { items: [] } });
+    const next = {
+      ...read,
+      id: "s_next",
+      name: "Check the items",
+      input: { id: "{{steps.s_read.output.items.0.matched}}" },
+    };
+    const catalog = { ...CATALOG, tools: { ...TOOLS, "testkit.thing.read": needsId } };
+    const { result } = await run(h, wf([read, next, end()]), { id: "7" }, { catalog });
+    expect(result.status).toBe("failed");
+    expect(result.nodeId).toBe("s_next");
+    expect(result.reason).toContain(
+      `"Check the items" can't run: id is empty. It comes from {{steps.s_read.output.items.0.matched}} ("Read the thing"), which gave nothing there.`,
+    );
+    expect(h.agentCalls).toHaveLength(1);
+    // An empty text is a value, not nothing.
+    const h2 = new Harness();
+    h2.handlers.s_read = () => ({ kind: "done", output: { items: [{ matched: "" }] } });
+    h2.handlers.s_next = () => ({ kind: "done", output: {} });
+    const ok = await run(h2, wf([read, next, end()]), { id: "7" }, { catalog });
+    expect(ok.result.status).toBe("succeeded");
   });
 
   // Staging, 2026-11-28: an AI step's money reached qbo.purchase.create as `{ amount, currency }`.

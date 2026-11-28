@@ -13,6 +13,7 @@
 
 import {
   type Approval,
+  answerFields,
   automationSkillRef,
   collectRefs,
   DEFAULT_APPROVAL,
@@ -1205,6 +1206,7 @@ class Executor {
       payload: unknown;
       mode?: "ask" | "approve";
       choices?: PersonStep["choices"];
+      fields?: PersonStep["fields"];
     },
   ): Asker {
     return async (b, who, deadline) => {
@@ -1219,6 +1221,7 @@ class Executor {
           after: d.after,
           ...(item.mode ? { mode: item.mode } : {}),
           ...(item.choices ? { choices: item.choices } : {}),
+          ...(item.fields ? { fields: item.fields } : {}),
         });
         const made = await this.ctx.inbox.createForPerson({
           run: this.ctx.run,
@@ -1748,6 +1751,7 @@ class Executor {
         `what comes into "${v5.name}" can't be translated: ${problem.field}: ${problem.message}`,
       );
     }
+    this.requireFilled(v5, t.input);
     return this.converted(v5, t.input);
   }
 
@@ -1766,6 +1770,41 @@ class Executor {
     const problem = c.problems[0];
     if (problem) throw new Error(`what comes into "${v5.name}" can't be used: ${problem}`);
     return c.value as Record<string, unknown>;
+  }
+
+  /**
+   * A v5 Do step's required input that came from another step or the trigger and arrived empty
+   * fails the step here, naming the field and where it should have come from, before the tool or
+   * skill refuses it in its own words (staging, 2026-11-27: "Check the items" failed on its tool's
+   * "vendorId: expected string, received undefined", three steps from the cause).
+   */
+  requireFilled(step: steps.DoStep, input: Record<string, unknown>) {
+    if (!step.uses) return;
+    const schema = processes.usesInputSchema(this.ctx.catalog ?? {}, step.uses);
+    const required = (schema as { required?: unknown } | undefined)?.required;
+    if (!Array.isArray(required)) return;
+    for (const field of required) {
+      if (typeof field !== "string") continue;
+      const value = input[field];
+      // DECISION (2026-11-28): only nothing at all (undefined, null) fails here; an empty text
+      // may be a real value (an email with no words), and the tool's own check still holds.
+      if (value !== undefined && value !== null) continue;
+      const raw = step.input[field];
+      const ref = typeof raw === "string" ? /^\{\{\s*([^{}]+?)\s*\}\}$/.exec(raw)?.[1] : undefined;
+      if (!ref) continue;
+      const [head, id] = ref.split(".");
+      const from =
+        head === "steps" && id !== undefined
+          ? `"${this.stepModel?.byId.get(id)?.name ?? id}"`
+          : head === "trigger"
+            ? "what started the run"
+            : head === "item"
+              ? "the item this step is working on"
+              : ref;
+      throw new Error(
+        `"${step.name}" can't run: ${field} is empty. It comes from {{${ref}}} (${from}), which gave nothing there.`,
+      );
+    }
   }
 
   /** A work step's input for an attempt: resolved, and as an action's tool takes it. */
@@ -3099,6 +3138,7 @@ class Executor {
         payload: resolveTemplate(step.payload, frame.scope),
         mode: step.mode,
         ...(step.choices ? { choices: step.choices } : {}),
+        ...(step.fields ? { fields: step.fields } : {}),
       });
       const end = await this.escalate(name, deadline.ifNoAnswer, ask);
       if ("resolution" in end) resolution = end.resolution;
@@ -3120,7 +3160,13 @@ class Executor {
     // An answer to an `ask` counts as approved unless the resolver said otherwise.
     const approved =
       step.mode === "approve" ? resolution.approved === true : resolution.approved !== false;
-    const output = { approved, answer: resolution.answer ?? null, by: resolution.by };
+    // The fields it asked for by their names (owner, 2026-11-28), beside its own, which win.
+    const output = {
+      ...(step.fields ? answerFields(step.fields, resolution.answer) : {}),
+      approved,
+      answer: resolution.answer ?? null,
+      by: resolution.by,
+    };
     const summary =
       step.mode === "approve"
         ? `${label}: ${approved ? this.words.approved : this.words.notApproved}`

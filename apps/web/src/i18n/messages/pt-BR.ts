@@ -36,6 +36,7 @@ export const ptBR: Messages = {
   "common.notFoundBody": "Não há nenhuma página aqui.",
   "common.yes": "Sim",
   "common.no": "Não",
+  "common.optional": "opcional",
   "common.close": "Fechar",
 
   // ── Error pages (a page that failed to load) ──

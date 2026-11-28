@@ -21,6 +21,7 @@ import {
   AutomationRef,
   ClientVisibility,
   PersonChoice,
+  PersonField,
   StepPurpose,
   Trigger,
   WorkflowHandoff,
@@ -260,6 +261,8 @@ export const PersonStep = z.object({
   channel: z.enum(["inbox", "email"]).default("inbox"),
   onReject: z.enum(["stop", "continue"]).default("stop"),
   choices: z.array(PersonChoice).min(1).max(6).optional(),
+  /** What the person is asked for, each handed on by its name (the step model's output fields). */
+  fields: z.array(PersonField).min(1).max(10).optional(),
 });
 
 /** A two-way exchange with a contact until a goal is met (docs/plan.md §1.86). */

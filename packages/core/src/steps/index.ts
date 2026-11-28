@@ -4,6 +4,7 @@
 export * from "./catalog";
 export * from "./engine";
 export * from "./match-profile";
+export * from "./person-fields";
 export * from "./range";
 export * from "./schema";
 export * from "./shape";
