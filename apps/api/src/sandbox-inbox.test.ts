@@ -14,6 +14,7 @@ import {
   type ApiHarness,
   admin,
   createApiHarness,
+  ended,
   FakeWorkflowStep,
   OPERATOR,
   testBundle,
@@ -173,7 +174,7 @@ describe.skipIf(!h)("the Sandbox's inbox", () => {
       seen.push({ kind: item.kind, assigneeRole: item.assigneeRole, flags: await flags(item) });
       return OPERATOR;
     });
-    expect(outcome).toEqual({ status: "succeeded" });
+    expect(outcome).toEqual(ended());
     // Both items were the client admin's, and the operator's to resolve in the Sandbox.
     expect(seen).toEqual([
       { kind: "external_action", assigneeRole: "client_admin", flags: [true, true, true] },
@@ -216,7 +217,7 @@ describe.skipIf(!h)("the Sandbox's inbox", () => {
       expect([res.status, code(res)]).toEqual([403, "not_assignee"]);
       return admin("a");
     });
-    expect(outcome).toEqual({ status: "succeeded" });
+    expect(outcome).toEqual(ended());
     expect(seen).toEqual([
       { kind: "external_action", flags: [false, false, false] },
       { kind: "approval", flags: [false, false, false] },
@@ -246,7 +247,7 @@ describe.skipIf(!h)("the Sandbox's inbox", () => {
       expect([res.status, code(res)]).toEqual([403, "not_assignee"]);
       return admin("b");
     });
-    expect(outcome).toEqual({ status: "succeeded" });
+    expect(outcome).toEqual(ended());
     expect(seen).toEqual([
       { kind: "external_action", assigneeRole: "operator", flags: [true, true, true] },
       { kind: "approval", assigneeRole: "client_admin", flags: [false, false, false] },

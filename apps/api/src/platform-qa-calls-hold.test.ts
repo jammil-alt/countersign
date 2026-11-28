@@ -50,22 +50,25 @@ const h = await createApiHarness({
 afterAll(() => h?.close());
 
 const ANSWER = {
-  schemaVersion: 3,
-  trigger: { id: "trg", on: { type: "event", event: "call.received" } },
+  schemaVersion: 5,
+  triggers: [{ id: "trg", on: { type: "event", event: "call.received" } }],
+  outputs: [{ id: "out-done", name: "Done", kind: "nothing" }],
   steps: [
     {
       id: "answer",
       name: "Answer the call",
-      kind: "action",
-      tool: CALL_ANSWER_TOOL,
+      client: { visible: true, label: "Answered a call" },
+      checks: { approval: { required: "not_required" } },
+      kind: "do",
+      doneBy: "rules",
+      uses: { type: "action", action: CALL_ANSWER_TOOL },
       input: {
         callSid: "{{trigger.callSid}}",
         purpose: "Answer questions about orders and opening hours",
         tools: [MESSAGES_SEARCH_TOOL],
       },
-      approval: { required: "not_required" },
-      client: { visible: true, label: "Answered a call" },
     },
+    { id: "end", kind: "end", name: "Done", outputs: ["out-done"] },
   ],
 };
 

@@ -17,7 +17,7 @@ import {
 } from "@countersign/core";
 import type { Hono } from "hono";
 import { type AppEnv, HttpError, mount } from "../http";
-import { agentInScope } from "./ops-lineage";
+import { agentInScope, draftEngineProcess } from "./ops-lineage";
 
 /** At most this many rows and problems come back to the builder. */
 const ROWS_SHOWN = 5;
@@ -35,11 +35,8 @@ export function opsReadTableRoutes(app: Hono<AppEnv>): void {
   mount(app, routes.opsReadTableSample, async (ctx): Promise<ReadTableSampleView> => {
     const { body, services } = ctx;
     await agentInScope(ctx, ctx.params.id);
-    const parsed = processes.Process.safeParse(body.process);
-    if (!parsed.success) {
-      throw new HttpError(422, "invalid_process", "the workflow doesn't read in the new format");
-    }
-    const step = processes.findStep(parsed.data, body.stepId)?.step;
+    const process = draftEngineProcess(services.platform, body.process);
+    const step = processes.findStep(process, body.stepId)?.step;
     if (step?.kind !== "skill" || !processes.isReadTableStep(step)) {
       throw new HttpError(422, "not_a_read_table_step", `no Read table step "${body.stepId}"`);
     }

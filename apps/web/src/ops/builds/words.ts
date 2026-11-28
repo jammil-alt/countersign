@@ -5,7 +5,6 @@ import {
   type BuildPhase,
   type FitVerdict,
   PHASE_WORDS,
-  type QaCheck,
 } from "@countersign/core";
 import type { Tone } from "../../ui/primitives";
 
@@ -14,7 +13,7 @@ export const buildPath = (id: string) => `${BUILDS_PATH}/${id}`;
 
 /**
  * Where a build opens from the lab's Drafts (docs/plan.md §1.172): one started on Describe it, in
- * the one-screen builder once it has a draft and on Check the steps until then; any other, on its
+ * the builder's list of steps once it has a draft and on Check the steps until then; any other, on its
  * build page.
  */
 export function buildHref(b: {
@@ -23,7 +22,7 @@ export function buildHref(b: {
   agentId: string | null;
 }): string {
   if (b.flow !== "describe") return buildPath(b.id);
-  return b.agentId ? `/ops/agents/${b.agentId}/workflow` : `/ops/lab/check/${b.id}`;
+  return b.agentId ? `/ops/agents/${b.agentId}/steps` : `/ops/lab/check/${b.id}`;
 }
 
 export const phaseLabel = (p: BuildPhase) => PHASE_WORDS[p].label;
@@ -117,20 +116,6 @@ export const CLOSE_CHOICES = [
 /** The line a question closed as not needed keeps in its detail; the server adds it (§1.169). */
 export { NOT_NEEDED_NOTE, withNote } from "@countersign/core";
 
-export const QA_TONE: Record<QaCheck["state"], Tone> = {
-  pass: "positive",
-  fail: "risk",
-  accepted: "person",
-  unknown: "neutral",
-};
-
-export const QA_STATE_WORDS: Record<QaCheck["state"], string> = {
-  pass: "Passes",
-  fail: "Fails",
-  accepted: "Accepted",
-  unknown: "Not known yet",
-};
-
 export const BRIEF_STATE_WORDS = {
   confirmed: "Confirmed",
   assumed: "Assumed",
@@ -141,8 +126,6 @@ export const BRIEF_STATE_TONE: Record<keyof typeof BRIEF_STATE_WORDS, Tone> = {
   assumed: "neutral",
   open: "warning",
 };
-
-export const SOURCE_WORDS = { generate: "Generate", upload: "Upload", sandbox: "Sandbox" } as const;
 
 export function plural(n: number, one: string, many = `${one}s`): string {
   return `${n} ${n === 1 ? one : many}`;

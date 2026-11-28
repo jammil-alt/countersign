@@ -6383,6 +6383,23 @@ action, not just mark it... if it is an issue, just because I say it is closed d
 | Not built | The client as an owner: no step yet sends an item to the client and closes it by their answer (the requirements request asks the intake form's fields, not an item). Until there is one, "Client" is only set by the fit-gap's preconditions. |
 | Checked | `apps/api/src/build-settled-by-step.test.ts` (done by hand refused, a drop, a note done, the Builder's close left out; a put-off gap given to engineering then the Builder, closed by its change and opened by its undo; a test closed by a full passing run and not by a failing or partial one), `apps/web/src/ops/builds/closeout.test.tsx` and `builds.test.tsx` (no selects; Put off, Drop it, Reopen; Take it up on a put-off gap). The skill build's go-live closing has no test of its own. |
 
+### 1.244 The step model: a step is what it does, its input and its output (owner, 2026-11-25; migration 0101)
+
+The owner could not build an agent by hand (the Invoice item matcher had 28 steps wired by ids), so
+the workflow format was redesigned with the owner item by item and rebuilt in parallel streams.
+The plan of record, with every decision dated, is `docs/step-model-plan.md`; where it stands is its
+§13d.
+
+| | |
+|---|---|
+| What changed | Workflows are `schemaVersion: 5` (`packages/core/src/steps`): eight step kinds (Do, Loop, Fork, For each, Repeat, Wait, Hand off, End); a Do says who does it (rules, AI, a person, an outside contact) and what it uses (an action, a skill, an automation, a Match, Collect reports, Tell, or "not built yet"); declared workflow outputs delivered by End cards, so nothing ends silently. Data between steps is translated automatically when building and run as code; only "doesn't fit" blocks publishing. |
+| Same product | Screens and flows stay; only forms and groupings changed (`docs/design/step-model.html`). Triggers unchanged. |
+| Built (merged 2026-11-25) | Waves 1 and 2: #671 (plan, `db:purge-agents`, the stored format), #672 (builder screens), #676 (executor), #673 (Match profiles), #678 (translation), #674 and #675 (connector action switches, merged Email, Team chat, Spreadsheets and Accounting, Request an action; migration 0101), #681 (Loop designer and the test-set gate), #679 (platform agents seeded as v5), #677 (rules and AI written in the step, Save as skill, Suggest). Wave 3: #682 (the executor wired to Match, translation, merged connectors and step skills), #683 and #687 (Data, §10f: record types, Find, Get by id, Create and Update, grants, data sets, custom fields; migration 0102), #696 (signed record saves), #685 and #699 (the Builder drafting in v5), #686 and #693 (ARCHITECTURE v0.24; CLAUDE.md invariants 3, 8, 9, 13, 14), #690 and #704 (publish checks hold a v5 workflow's writes to the client's connections), #697 (every new workflow starts as v5), #702 (Check the steps in v5), #701 (a Match asks the person or seat it names), #700 (outputs worded on the timeline), #689, #695, #703 and #706 (the platform agents' run tests on v5; the Bill clerk's vendor by Match and Get by id, asking the `bill-questions` seat), #691 and #694 (matching measured on recorded answers), #692 (seats keep a v5 workflow). |
+| Staging | Purged (2,602 rows) and seeded again in v5, 2026-11-25 21:43 UTC. |
+| Released (2026-11-26) | #707 deletes what only v3 and v4 used: v3 workflows, the v4 stored format, both converters, version 1 automations, the old screens and fixtures, and the pack templates (rebuilt later in v5). Workflows are stored as v5 only, and v4's publish checks are ported to v5. #709: a Match's model shortlist defaults to 10 (owner, on stream K's measurement). |
+| Then | Production: the purge (148 rows in the dry run) and the deploy (the owner approves each), the platform templates' install, each client's Sloan; #707 after the purge. Follow-ups (`docs/step-model-plan.md` §13d): v5 promotion scrubs, rebuilt coverage, "Test some of the steps" in v5, the skill's mode, §12 R1 and R5–R10, the engine on v5 shapes, v5 automations, the pack templates, and the Invoice item matcher built in the new model. |
+| Invariants | No live agents are kept (owner, 2026-11-25): the one-off purge is the single exception to invariants 3 and 14, by hand, audited, confirmed by the database's name. Every Sonnet stream touching approvals or the gate had an Opus review; findings are in §13d. |
+
 ### 1.242 Collect reports: wait for several reports, each from its own owner, checked before they count (owner, 2026-11-24; no migration)
 
 The owner: "a trigger that waits for multiple reports to come in from different sources… once all

@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { isUuid } from "../ids";
-import { JsonSchema, NodeId, Slug } from "../schemas/common";
+import { JsonSchema, Slug } from "../schemas/common";
 import { TableColumn } from "../schemas/table";
 import { defineRoute } from "./contract";
 
@@ -239,7 +239,16 @@ export const builderRoutes = {
       status: BuilderSessionStatus.optional(),
     }),
     response: z.object({
-      sessions: z.array(BuilderSessionView.omit({ bundle: true, errors: true, closest: true })),
+      sessions: z.array(
+        BuilderSessionView.omit({ bundle: true, errors: true, closest: true }).extend({
+          /** Its first message (what it was about), for a list of past conversations. */
+          title: z.string().nullable().optional(),
+          /** How many messages it has, both sides. */
+          turns: z.number().int().optional(),
+          /** Started by the operator asking. */
+          mine: z.boolean().optional(),
+        }),
+      ),
     }),
   }),
   opsStartBuilderSession: defineRoute({
@@ -354,25 +363,6 @@ export const builderRoutes = {
     body: z.strictObject({ turnId: Id, changeId: z.string().min(1).max(500) }),
     response: SessionDetail.extend({ turn: BuilderTurnView }),
   }),
-  opsBuilderSaveAutomation: defineRoute({
-    method: "POST",
-    path: "/api/ops/builder/sessions/:id/automation",
-    auth: "session",
-    roles: OPS,
-    summary: "Save selected steps of the draft as an automation draft, used in their place",
-    params: IdParams,
-    body: z.strictObject({
-      stepIds: z.array(NodeId).min(1).max(100),
-      slug: Slug,
-      name: z.string().trim().min(1).max(120),
-      description: z.string().max(2000).optional(),
-    }),
-    response: SessionDetail.extend({
-      turn: BuilderTurnView,
-      automation: z.object({ id: z.string(), slug: z.string(), ref: z.string() }),
-      automationVersion: z.object({ id: z.string(), version: z.number().int() }),
-    }),
-  }),
   opsBuilderSave: defineRoute({
     method: "POST",
     path: "/api/ops/builder/sessions/:id/save",
@@ -396,6 +386,17 @@ export const builderRoutes = {
       ),
       errors: z.array(CheckError),
     }),
+  }),
+  opsSyncBuilderSession: defineRoute({
+    method: "POST",
+    path: "/api/ops/builder/sessions/:id/sync",
+    auth: "session",
+    roles: OPS,
+    summary:
+      "Carry an agent conversation on from a version the operator saved since (their edits outside the chat): the draft becomes that version's, the turns stay",
+    params: IdParams,
+    body: z.strictObject({ fromVersionId: Id }),
+    response: SessionDetail,
   }),
   opsCloseBuilderSession: defineRoute({
     method: "POST",

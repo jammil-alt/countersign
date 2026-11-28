@@ -345,7 +345,19 @@ export function fakeQbo(opts: FakeQboOptions = {}) {
     const order = tail("orderby", rest.toLowerCase().indexOf("orderby"));
     const where = rest.toLowerCase().startsWith("where") ? tail("where", 0) : null;
     let rows = [...table(entity).values()];
-    if (where) for (const c of splitAnd(where)) rows = rows.filter((r) => matches(r, c));
+    if (where) {
+      for (const c of splitAnd(where)) {
+        // As QuickBooks answers (staging, 2026-11-27): a Purchase's payee isn't queryable.
+        if (entity === "Purchase" && /^EntityRef\b/i.test(c.trim())) {
+          throw new FakeFault(
+            400,
+            "4000",
+            "QueryValidationError: property 'EntityRef' is not queryable",
+          );
+        }
+        rows = rows.filter((r) => matches(r, c));
+      }
+    }
     if (order) {
       const [field = "", dir] = order.trim().split(/\s+/);
       rows.sort((a, b) => {

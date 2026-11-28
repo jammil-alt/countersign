@@ -1,10 +1,10 @@
 // The manifest is a valid PackManifest, every tool has its handler, none writes to a client's tool,
 // and the skills use only the pack's tools or the platform's.
 
-import { PackManifest, processes, SkillDefinition } from "@countersign/core";
+import { PackManifest, SkillDefinition } from "@countersign/core";
 import { DEFAULT_MODELS } from "@countersign/llm";
 import { describe, expect, it } from "vitest";
-import { MATERIALS_HANDLERS, MATERIALS_SKILLS, materialsManifest, PACK_ID } from "./manifest";
+import { MATERIALS_HANDLERS, MATERIALS_SKILLS, materialsManifest } from "./manifest";
 import { readDecimal, splitSavingFrom } from "./purchasing/tools";
 import { thresholdFrom } from "./tools";
 
@@ -52,35 +52,11 @@ describe("the Materials manifest", () => {
 });
 
 describe("ingredients only (docs/plan.md §1.63)", () => {
-  // §1.104 (owner, 2026-11-15): the one template the owner asked for; other agents on the
-  // Purchasing area are still built in the Agent lab.
-  it("ships one template, Vendor contracts and invoice review, approval on, suggest only", () => {
-    expect(materialsManifest.templates.map((t) => t.slug)).toEqual(["vendor-contracts"]);
-    const [t] = materialsManifest.templates;
-    const latest = t?.versions?.at(-1);
-    expect(latest?.definition.permissions.mode).toBe("suggest_only");
-    const skills = new Set(MATERIALS_SKILLS.map((s) => s.id));
-    const writes: string[] = [];
-    for (const w of latest?.workflows ?? []) {
-      if (w.workflow.schemaVersion !== 4) continue;
-      for (const { step } of processes.allSteps(w.workflow)) {
-        if (step.kind === "skill" && step.skill.startsWith("materials.")) {
-          expect(skills.has(step.skill), step.skill).toBe(true);
-        }
-        if (
-          step.kind === "write" &&
-          (step.action !== undefined || step.tool === "materials.contract.save")
-        ) {
-          writes.push(step.action ?? step.tool ?? "");
-          expect(step.checks?.approval?.required, step.id).toBe("required");
-        }
-      }
-    }
-    expect(writes.sort()).toEqual(["materials.contract.save", "send_email"]);
-    for (const s of latest?.definition.skills ?? []) {
-      const def = MATERIALS_SKILLS.find((x) => x.id === s.skill);
-      if (def) expect(def.requiresPacks, s.skill).toContain(PACK_ID);
-    }
+  // Since the step model's purge the pack ships no agent template: Vendor contracts and invoice
+  // review is built again later (docs/step-model-plan.md §12 R0). Other agents on the Purchasing
+  // area are built in the Agent lab.
+  it("ships no agent template for now", () => {
+    expect(materialsManifest.templates).toEqual([]);
   });
 
   it("raises alerts only from a skill whose outputs carry sources", () => {

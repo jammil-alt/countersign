@@ -10,7 +10,7 @@ function bundle(workflows: { on: Record<string, unknown>; enabled?: boolean }[])
       slug: `w${i}`,
       name: `Workflow ${i}`,
       enabled: w.enabled ?? true,
-      workflow: { trigger: { id: `t${i}`, on: w.on } },
+      workflow: { triggers: [{ id: `t${i}`, on: w.on }] },
     })),
   } as unknown as AgentBundle;
 }

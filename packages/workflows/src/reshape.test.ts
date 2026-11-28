@@ -10,9 +10,8 @@ import {
 } from "@countersign/core";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
-import { executeWorkflow } from "./executor";
 import { FakeStepRunner } from "./fake-runner";
-import { Harness } from "./fakes.test-helper";
+import { executeProcess, Harness } from "./fakes.test-helper";
 import type { SkillStepRequest } from "./ports";
 
 const READ: SkillDefinition = {
@@ -179,7 +178,7 @@ describe("Reshape data between Read document and Create bill", () => {
     };
     h.handlers.bill = (req) => ({ kind: "done", output: { billId: "9", input: req.input } });
 
-    const result = await executeWorkflow(new FakeStepRunner(), h.context(), process, {
+    const result = await executeProcess(new FakeStepRunner(), h.context(), process, {
       documentId: "doc-1",
     });
     // The run stops at Create bill: QuickBooks takes a vendor by id, which nothing maps yet.
@@ -243,7 +242,7 @@ describe("Reshape data between Read document and Create bill", () => {
       return { kind: "done", output: r.output };
     };
     h.handlers.bill = (req) => ({ kind: "done", output: { billId: "9", input: req.input } });
-    const result = await executeWorkflow(
+    const result = await executeProcess(
       new FakeStepRunner(),
       h.context(),
       { ...process, steps } as processes.Process,

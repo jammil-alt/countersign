@@ -1,12 +1,11 @@
 import { describe, expect, it } from "vitest";
 import type { Decision, SetupField } from "../build/build";
 import { readStageState } from "../lifecycle/stage";
-import { AgentBundle, type AnyAgentBundle, type ProcessAgentBundle } from "../schemas/agent";
+import { AgentBundle } from "../schemas/agent";
 import type { SkillDefinition } from "../schemas/skill";
 import {
   applySetupSetting,
   buildSetupItems,
-  draftWriteUses,
   matchConnector,
   readSetupAnswer,
   settingForDecision,
@@ -14,6 +13,7 @@ import {
   setupHolds,
   setupHoldText,
   setupItemDone,
+  stepModelWriteUses,
   withSetupProgress,
 } from "./checklist";
 import { SetupChecklist, type SetupItem, type SetupProgress } from "./item";
@@ -46,9 +46,23 @@ const CONNECTORS = [
   { id: "gmail", name: "Gmail" },
 ];
 
+const step = (id: string, name: string, action: string) => ({
+  id,
+  kind: "do",
+  doneBy: "rules",
+  name,
+  uses: { type: "action", action },
+});
+
 const draft = {
   definition: {
-    skills: [{ skill: "materials.match", settings: {}, parameters: { tolerance: 2 } }],
+    skills: [
+      {
+        skill: "materials.match",
+        settings: {},
+        parameters: { tolerance: 2, limit: { amount: "5000.00", currency: "USD" } },
+      },
+    ],
   },
   workflows: [
     {
@@ -56,26 +70,27 @@ const draft = {
       name: "Main",
       enabled: true,
       workflow: {
-        schemaVersion: 4,
+        schemaVersion: 5,
         triggers: [],
+        outputs: [],
         steps: [
-          { id: "read", kind: "read", name: "Read", tool: "qbo.bill.list" },
+          step("read", "Read", "qbo.bill.list"),
           {
             id: "match",
-            kind: "skill",
+            kind: "do",
+            doneBy: "ai",
             name: "Match",
-            skill: "materials.match",
-            customize: { parameters: { limit: { amount: "5000.00", currency: "USD" } } },
+            uses: { type: "skill", skill: "materials.match" },
           },
-          { id: "post", kind: "write", name: "Post", tool: "qbo.bill.create" },
-          { id: "vendor", kind: "write", name: "Vendor", action: "create_vendor" },
-          { id: "mail", kind: "write", name: "Mail", tool: "gmail.send" },
-          { id: "note", kind: "write", name: "Note", tool: "platform.note" },
+          step("post", "Post", "qbo.bill.create"),
+          step("vendor", "Vendor", "accounting.vendor.create"),
+          step("mail", "Mail", "gmail.send"),
+          step("note", "Note", "platform.note"),
         ],
       },
     },
   ],
-} as unknown as ProcessAgentBundle;
+} as unknown as AgentBundle;
 
 const TOOLS = {
   "qbo.bill.list": { id: "qbo.bill.list", sideEffect: "none", verb: "read", source: "qbo" },
@@ -113,7 +128,7 @@ const connected = (ids: string[]) => ({ connected: (c: string) => ids.includes(c
 
 describe("setup checklist: built from a template build", () => {
   it("lists where the draft writes and what, by connector", () => {
-    const uses = draftWriteUses(draft, { tools: TOOLS });
+    const uses = stepModelWriteUses(draft, TOOLS);
     expect(uses).toEqual([
       { connector: "qbo", known: true, key: "create-bill", what: "new bills", send: false },
       {
@@ -139,10 +154,10 @@ describe("setup checklist: built from a template build", () => {
       parameter: "tolerance",
       type: "number",
     });
-    // The step's own value: the setting names the step.
+    // A money value matches the agent's own value for the parameter.
     expect(
       settingForDecision(dec("l", { stepId: "match", value: "$5,000" }), draft, SKILLS),
-    ).toEqual({ skill: "materials.match", parameter: "limit", type: "money", stepId: "match" });
+    ).toEqual({ skill: "materials.match", parameter: "limit", type: "money" });
     expect(
       settingForDecision(
         dec("w", { stepId: "match", what: "The price tolerance differs by client" }),
@@ -171,7 +186,7 @@ describe("setup checklist: built from a template build", () => {
         field("date", { label: "Your go-live date", guards: "live" }),
       ],
       decisions,
-      writes: draftWriteUses(draft, { tools: TOOLS }),
+      writes: stepModelWriteUses(draft, TOOLS),
       connectors: CONNECTORS,
       settingFor: (d) => settingForDecision(d, draft, SKILLS),
     });
@@ -386,8 +401,8 @@ describe("setup checklist: answers", () => {
     expect(readSetupAnswer(date, "next week")).toMatchObject({ ok: false });
   });
 
-  it("write only the parameter they set: the agent's value, or the step's own", () => {
-    const bundle = draft as unknown as AnyAgentBundle;
+  it("write only the parameter they set: the agent's value", () => {
+    const bundle = draft as unknown as AgentBundle;
     const agentLevel = {
       skill: "materials.match",
       parameter: "tolerance",
@@ -398,16 +413,16 @@ describe("setup checklist: answers", () => {
     expect(settingValue(out.bundle, agentLevel)).toBe(3);
     // The bundle it came from is unchanged.
     expect(settingValue(bundle, agentLevel)).toBe(2);
-    const onStep = { ...agentLevel, parameter: "limit", type: "money" as const, stepId: "match" };
-    const step = applySetupSetting(bundle, onStep, { amount: "9000.00", currency: "USD" });
-    if (!step.ok) throw new Error(step.reason);
-    expect(settingValue(step.bundle, onStep)).toEqual({ amount: "9000.00", currency: "USD" });
-    expect(JSON.stringify(step.bundle.workflows)).not.toBe(JSON.stringify(bundle.workflows));
-    expect(step.bundle.definition).toEqual(bundle.definition);
-    expect(applySetupSetting(bundle, { ...agentLevel, skill: "gone" }, 1)).toMatchObject({
+    const limit = { ...agentLevel, parameter: "limit", type: "money" as const };
+    const money = applySetupSetting(bundle, limit, { amount: "9000.00", currency: "USD" });
+    if (!money.ok) throw new Error(money.reason);
+    expect(settingValue(money.bundle, limit)).toEqual({ amount: "9000.00", currency: "USD" });
+    expect(money.bundle.workflows).toEqual(bundle.workflows);
+    // A step carries no values of its own in the step model: an answer that names one is refused.
+    expect(applySetupSetting(bundle, { ...limit, stepId: "match" }, 1)).toMatchObject({
       ok: false,
     });
-    expect(applySetupSetting(bundle, { ...onStep, stepId: "gone" }, 1)).toMatchObject({
+    expect(applySetupSetting(bundle, { ...agentLevel, skill: "gone" }, 1)).toMatchObject({
       ok: false,
     });
   });

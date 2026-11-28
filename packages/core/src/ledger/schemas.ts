@@ -1,3 +1,7 @@
+// One chart of accounts (docs/step-model-plan.md §10e, 2026-11-25): `ledger.accounts.list` is the
+// only list of the client's accounts; Bookkeeping's and AP's own lists were folded into it, each area
+// asking for the kinds or classifications it wants.
+//
 // The ledger's tools (docs/plan.md §1.79): `ledger.accounts.list` and `ledger.dimensions.list` read
 // the client's chart of accounts, classes and locations as each accounting connection's sync keeps
 // them, with what each account is for. Any of the client's agents may read them; nothing here
@@ -7,12 +11,16 @@ import { z } from "zod";
 import { LEDGER_KIND_VALUES } from "../mappers/qbo";
 
 export const LedgerKind = z.enum(LEDGER_KIND_VALUES);
+/** The broad classes an account falls in, as the accounting tool says (or its type implies). */
+export const LedgerClassification = z.enum(["expense", "revenue", "asset", "liability", "equity"]);
 
 export const LedgerAccountsInput = z.object({
   /** One accounting connection's ledger (a company); absent: every one of the client's. */
   connectionId: z.uuid().optional(),
   /** Only these kinds (e.g. `expense`, `cost_of_goods`). */
   kinds: z.array(LedgerKind).max(16).optional(),
+  /** Only these classifications: what an area wants (Bookkeeping's expense and revenue, say). */
+  classifications: z.array(LedgerClassification).max(5).optional(),
   /** Inactive accounts too (never book to one). */
   inactive: z.boolean().optional(),
 });

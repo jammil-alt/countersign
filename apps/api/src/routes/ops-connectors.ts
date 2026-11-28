@@ -5,13 +5,23 @@
 // connector (`connector_setting`), else the connector's, else the platform's.
 
 import { requiredConnectors } from "@countersign/agents";
-import { type Connector, connectionDefaults, defaultAccessProblems } from "@countersign/connectors";
 import {
+  type ActionSwitches,
+  actionIsOn,
+  BUILTIN_CONNECTORS,
+  type Connector,
+  connectionDefaults,
+  defaultAccessProblems,
+} from "@countersign/connectors";
+import {
+  type CatalogAction,
   type CatalogConnector,
   type ConnectorManifest,
   type ConnectorStatus,
   type PermissionMatrix,
   routes,
+  steps,
+  type ToolSpec,
   type WaitingClient,
 } from "@countersign/core";
 import {
@@ -64,6 +74,7 @@ function usable(c: { status: string }, connector: Connector | undefined): boolea
 /** The connector each tool id belongs to (shared namespaces such as `sms.` included). */
 function toolOwners(platform: Platform): Map<string, string> {
   const out = new Map<string, string>();
+  for (const b of BUILTIN_CONNECTORS) for (const a of b.actions) out.set(a.id, b.id);
   for (const c of platform.connectors.list()) {
     for (const t of c.manifest.tools) out.set(t.id, c.manifest.id);
   }
@@ -83,6 +94,50 @@ export function catalogStatus(
 ): Pick<CatalogConnector, "status" | "statusSource"> {
   if (set) return { status: set, statusSource: "operator" };
   return { status: available ? "live" : null, statusSource: "deployment" };
+}
+
+/** An action's words when no one has named it: the tool's id, read aloud. */
+function actionLabel(id: string): string {
+  return id.replace(/[._-]+/g, " ").replace(/^\w/, (c) => c.toUpperCase());
+}
+
+/**
+ * A connector's actions as the page shows them (docs/step-model-plan.md §10c): every tool it gives,
+ * with its kind and whether it is on for agents. An action the operator never looked at and that the
+ * manifest starts off is `isNew`: it waits there to be turned on.
+ */
+export function catalogActions(
+  manifest: Pick<ConnectorManifest, "offByDefault">,
+  specs: readonly ToolSpec[],
+  switches: ActionSwitches,
+  labels: Readonly<Record<string, string>> = {},
+): CatalogAction[] {
+  return specs.map((t) => ({
+    id: t.id,
+    label: labels[t.id] ?? actionLabel(t.id),
+    description: t.description,
+    kind: steps.actionKind(t),
+    entity: t.entity ?? null,
+    on: actionIsOn(manifest, t.id, switches),
+    isNew: switches?.[t.id] === undefined && (manifest.offByDefault ?? []).includes(t.id),
+  }));
+}
+
+/**
+ * The switches a save leaves: the ones stored, with the named ones changed. Only ids the connector
+ * has count (anything else is refused by the route first). A connector's first switch writes the
+ * choice of every action it has, so later actions never follow the first save by accident.
+ */
+export function nextSwitches(
+  stored: ActionSwitches,
+  ids: readonly string[],
+  manifest: Pick<ConnectorManifest, "offByDefault">,
+  change: Readonly<Record<string, boolean>>,
+): Record<string, boolean> {
+  const out: Record<string, boolean> = {};
+  for (const id of ids) out[id] = stored?.[id] ?? actionIsOn(manifest, id, stored);
+  for (const [id, on] of Object.entries(change)) out[id] = on;
+  return out;
 }
 
 /** The catalog over the clients this operator serves (`tenantIds`). */
@@ -174,7 +229,42 @@ async function catalog(
     return { ...a, needed };
   });
 
-  return platform.connectors.list().map((connector) => {
+  const builtIns: CatalogConnector[] = BUILTIN_CONNECTORS.map((b) => {
+    const setting = settings.find((x) => x.connector === b.id);
+    const specs = b.actions
+      .map((a) => platform.tools.get(a.id)?.spec)
+      .filter((t): t is ToolSpec => t !== undefined);
+    const labels = Object.fromEntries(b.actions.map((a) => [a.id, a.label]));
+    const manifest = { offByDefault: b.offByDefault ? [...b.offByDefault] : [] };
+    return {
+      id: b.id,
+      name: b.name,
+      description: b.description,
+      icon: b.icon,
+      auth: "none" as const,
+      ...catalogStatus(setting?.status ?? null, true),
+      testOnly: false,
+      note: setting?.note ?? "",
+      available: true,
+      clientsConnected: 0,
+      tools: specs.map((t) => ({
+        id: t.id,
+        description: t.description,
+        verb: t.verb,
+        entity: t.entity ?? null,
+      })),
+      actions: catalogActions(manifest, specs, setting?.actions, labels),
+      syncs: [],
+      builtIn: true,
+      permissionEntities: [],
+      errors: { toolCalls: failedBy.get(b.id) ?? 0, connections: 0 },
+      defaultAccess: { matrix: connectionDefaults(undefined, null), source: "platform" as const },
+      waiting: [],
+      updatedAt: iso(setting?.updatedAt),
+    };
+  });
+
+  const registered = platform.connectors.list().map((connector) => {
     const m = connector.manifest;
     const setting = settings.find((s) => s.connector === m.id);
     const operatorDefault =
@@ -211,6 +301,9 @@ async function catalog(
         verb: t.verb,
         entity: t.entity ?? null,
       })),
+      actions: catalogActions(m, m.tools, setting?.actions),
+      syncs: m.entities,
+      builtIn: false,
       permissionEntities: m.permissionEntities ?? [],
       errors: {
         toolCalls: failedBy.get(m.id) ?? 0,
@@ -218,12 +311,17 @@ async function catalog(
       },
       defaultAccess: {
         matrix: connectionDefaults(m, operatorDefault),
-        source: operatorDefault ? "operator" : m.defaultPermissions ? "connector" : "platform",
+        source: (operatorDefault
+          ? "operator"
+          : m.defaultPermissions
+            ? "connector"
+            : "platform") as CatalogConnector["defaultAccess"]["source"],
       },
       waiting,
       updatedAt: iso(setting?.updatedAt),
     };
   });
+  return [...registered, ...builtIns];
 }
 
 export function opsConnectorRoutes(app: Hono<AppEnv>): void {
@@ -233,21 +331,56 @@ export function opsConnectorRoutes(app: Hono<AppEnv>): void {
 
   mount(app, routes.opsSetConnector, async ({ tx, tenantIds, params, body, session, services }) => {
     const connector = services.platform.connectors.get(params.id);
-    if (!connector) throw notFound("connector");
+    const builtIn = connector ? undefined : BUILTIN_CONNECTORS.find((b) => b.id === params.id);
+    if (!connector && !builtIn) throw notFound("connector");
+    const id = connector?.manifest.id ?? (builtIn?.id as string);
     const [before] = await tx
       .select()
       .from(connectorSetting)
-      .where(eq(connectorSetting.connector, connector.manifest.id));
+      .where(eq(connectorSetting.connector, id));
+    if (builtIn && body.defaultPermissions) {
+      throw new HttpError(422, "invalid_default_access", `${builtIn.name} has no access to set`);
+    }
     const defaultPermissions =
       body.defaultPermissions === undefined
         ? (before?.defaultPermissions ?? null)
         : body.defaultPermissions;
-    if (defaultPermissions) {
+    if (defaultPermissions && connector) {
       const problems = defaultAccessProblems(connector.manifest, defaultPermissions);
       if (problems.length > 0)
         throw new HttpError(422, "invalid_default_access", problems.join("; "));
     }
-    const status = body.status ?? before?.status;
+    // Step model E: switch actions on or off. Only ids the connector has; delete is not an action
+    // and stays off whatever is set here (invariant 8).
+    const own = connector
+      ? connector.manifest.tools.map((t) => t.id)
+      : (builtIn?.actions.map((a) => a.id) ?? []);
+    let actions = before?.actions ?? null;
+    if (body.actions) {
+      const unknown = Object.keys(body.actions).filter((a) => !own.includes(a));
+      if (unknown.length > 0) {
+        throw new HttpError(422, "unknown_action", `no such action: ${unknown.join(", ")}`);
+      }
+      actions = nextSwitches(
+        before?.actions,
+        own,
+        connector?.manifest ?? {
+          offByDefault: builtIn?.offByDefault ? [...builtIn.offByDefault] : [],
+        },
+        body.actions,
+      );
+    }
+    // DECISION: switching an action on a connector nobody has set a status on keeps the status the
+    // deployment shows (live where a client can sign in, else still being built), so the page
+    // doesn't ask for one first.
+    const status =
+      body.status ??
+      before?.status ??
+      (body.actions
+        ? connector && !canSignIn(connector)
+          ? ("building" as const)
+          : ("live" as const)
+        : undefined);
     if (!status) {
       throw new HttpError(
         422,
@@ -258,19 +391,18 @@ export function opsConnectorRoutes(app: Hono<AppEnv>): void {
     const values = {
       status,
       defaultPermissions,
+      actions,
       note: body.note ?? before?.note ?? "",
       updatedBy: session.user.id,
     };
     await tx
       .insert(connectorSetting)
-      .values({ connector: connector.manifest.id, ...values })
+      .values({ connector: id, ...values })
       .onConflictDoUpdate({
         target: connectorSetting.connector,
         set: { ...values, updatedAt: sql`now()` },
       });
-    const out = (await catalog(tx, tenantIds, services.platform)).find(
-      (c) => c.id === connector.manifest.id,
-    );
+    const out = (await catalog(tx, tenantIds, services.platform)).find((c) => c.id === id);
     if (!out) throw notFound("connector");
     return { connector: out };
   });

@@ -40,6 +40,7 @@ import {
   forbiddenKeys,
   OPERATOR,
   optOutOf,
+  publishStored,
   unsigned,
   user,
 } from "./api.test-helper";
@@ -75,7 +76,7 @@ const finish = (sourceLanguage: string, translation: string): FakeTurn => ({
   toolUse: { name: "finish", input: { sourceLanguage, translation } },
 });
 
-const PURPOSE = "Ask them to confirm Friday's delivery.";
+const _PURPOSE = "Ask them to confirm Friday's delivery.";
 
 function bundle(): AgentBundle {
   return AgentBundle.parse({
@@ -98,31 +99,36 @@ function bundle(): AgentBundle {
         slug: "reach",
         name: "Reach",
         workflow: {
-          schemaVersion: 3,
-          trigger: {
-            id: "trg-reach",
-            on: {
-              type: "manual",
-              input: { type: "object", properties: { order: { type: "string" } } },
+          schemaVersion: 5,
+          triggers: [
+            {
+              id: "trg-reach",
+              on: {
+                type: "manual",
+                input: { type: "object", properties: { order: { type: "string" } } },
+              },
             },
-          },
+          ],
+          outputs: [{ id: "out-done-reach", name: "Done", kind: "nothing" }],
           steps: [
             {
               id: "reach",
               name: "Ask the requester",
-              kind: "skill",
-              skill: "comms.reach-out",
+              checks: { approval: { required: "required" } },
+              kind: "do",
+              doneBy: "rules",
+              uses: { type: "skill", skill: "comms.reach-out" },
               input: {
                 to: { role: "requester" },
                 about: ["{{trigger.order}}"],
-                purpose: PURPOSE,
+                purpose: "Ask them to confirm Friday's delivery.",
                 message: { compose: true },
                 urgency: "normal",
                 expectReply: true,
                 timeout: "2 days",
               },
-              approval: { required: "required" },
             },
+            { id: "end-reach", kind: "end", name: "Done", outputs: ["out-done-reach"] },
           ],
         },
       },
@@ -130,22 +136,27 @@ function bundle(): AgentBundle {
         slug: "translate",
         name: "Translate",
         workflow: {
-          schemaVersion: 3,
-          trigger: {
-            id: "trg-translate",
-            on: {
-              type: "manual",
-              input: { type: "object", properties: { sourceId: { type: "string" } } },
+          schemaVersion: 5,
+          triggers: [
+            {
+              id: "trg-translate",
+              on: {
+                type: "manual",
+                input: { type: "object", properties: { sourceId: { type: "string" } } },
+              },
             },
-          },
+          ],
+          outputs: [{ id: "out-done-translate", name: "Done", kind: "nothing" }],
           steps: [
             {
               id: "tr",
               name: "Translate the message",
-              kind: "skill",
-              skill: "comms.translate",
+              kind: "do",
+              doneBy: "rules",
+              uses: { type: "action", action: "comms.translate" },
               input: { sourceId: "{{trigger.sourceId}}", to: "de" },
             },
+            { id: "end-translate", kind: "end", name: "Done", outputs: ["out-done-translate"] },
           ],
         },
       },
@@ -280,11 +291,7 @@ describe.skipIf(!h)("message translation", () => {
     expect(created.status, JSON.stringify(created.json)).toBe(200);
     expect(j(created.json).errors ?? []).toEqual([]);
     agentId = j(created.json).agent.id;
-    const pub = await H.call(
-      OPERATOR,
-      "POST",
-      `/api/ops/agents/${agentId}/versions/${j(created.json).version.id}/publish`,
-    );
+    const pub = await publishStored(H, H.A.tenantId, agentId, j(created.json).version.id);
     expect(pub.status, JSON.stringify(pub.json)).toBe(200);
     const ch = await H.call(OPERATOR, "PUT", `/api/ops/agents/${agentId}/channels`, {
       channels: { sms: setup.twilio.connectionId },

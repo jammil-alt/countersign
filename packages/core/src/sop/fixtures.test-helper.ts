@@ -1,6 +1,6 @@
 // The SOP's test fixture (docs/sop-plan.md): "Bills in" at Harbor Millwork, used by the SOP's tests
 // and the agent assurance tests (docs/agent-assurance-plan.md), which read the same setup.
-import type { AnyAgentBundle } from "../schemas/agent";
+import type { AgentBundle } from "../schemas/agent";
 import type { PermissionMatrix } from "../schemas/permissions";
 import type { SkillDefinition } from "../schemas/skill";
 import type { ToolSpec } from "../schemas/tool";
@@ -75,7 +75,7 @@ export const SKILLS: Record<string, SkillDefinition> = {
 
 export function bundle(
   over: { attachApproval?: "required" | "not_required"; mode?: "act" | "suggest_only" } = {},
-): AnyAgentBundle {
+): AgentBundle {
   return {
     schemaVersion: 1,
     definition: {
@@ -215,7 +215,7 @@ export function bundle(
         },
       },
     ],
-  } as unknown as AnyAgentBundle;
+  } as unknown as AgentBundle;
 }
 
 export const QBO = (
@@ -244,7 +244,7 @@ export function input(
     stage?: string;
     matrix?: Partial<PermissionMatrix>;
     grant?: SopConnection["grant"];
-    b?: AnyAgentBundle;
+    b?: AgentBundle;
   } = {},
 ): SopInput {
   return {

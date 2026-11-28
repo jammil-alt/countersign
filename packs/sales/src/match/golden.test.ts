@@ -7,11 +7,13 @@
 // costs a review, never a wrong update.
 
 import { readdirSync, readFileSync } from "node:fs";
+import { matchWithProfile, type ProfileStore, steps } from "@countersign/core";
 import { describe, expect, it } from "vitest";
 import { keysOf } from "../keys/build";
 import { zohoMapper } from "../keys/zoho";
 import type { CrmKeys } from "../schema";
 import { type KeyMapping, kindOf, rowKeys, rowValues } from "./match";
+import { CRM_RECORDS_PROFILE, crmItemKeys, crmKeyHits, crmNeverSame } from "./profile";
 import { decideByRules, MATCH_THRESHOLD, scorePair } from "./score";
 
 interface GoldenRecord {
@@ -126,5 +128,51 @@ describe("CRM matching golden set", () => {
         ).toBeNull();
       }
     }
+  });
+
+  // Step model §7 (stream D): the same rows on the Match engine's CRM records profile: email,
+  // phone and website (exact, where the area's rules let a key settle it), the hard rules vetoing.
+  // Exact only: no model answers here, so names and meaning (the semantic tier) are left to the
+  // model and a person; recall is lower than the rules' above, which also matched on names.
+  it("runs on the Match engine's CRM records profile at 95% precision", async () => {
+    const settings = steps.MatchSettings.parse({ to: "crm-records", type: "exact" });
+    let right = 0;
+    let wrong = 0;
+    let missed = 0;
+    let rows = 0;
+    for (const s of sets) {
+      const records = prepare(s.set);
+      for (const row of s.set.rows) {
+        rows += 1;
+        const mine = records.filter((r) => row.modules.includes(r.module));
+        const store: ProfileStore = {
+          get: async (id) => (mine.some((r) => r.id === id) ? { id, label: id } : null),
+          byKey: async (key, item) =>
+            crmKeyHits(crmItemKeys(item), key, mine).map((r) => ({ id: r.id, label: r.id })),
+          neverSame: (item, record) => {
+            const r = mine.find((x) => x.id === record.id);
+            return r ? crmNeverSame(crmItemKeys(item), r) : null;
+          },
+        };
+        const out = await matchWithProfile({
+          profile: CRM_RECORDS_PROFILE,
+          settings,
+          store,
+          items: [rowValues(row.values, s.set.keys)],
+        });
+        const got = out.output.items[0]?.matched ?? null;
+        const same = row.expect !== null && row.expect.length > 0;
+        if (got !== null) {
+          if (row.expect?.includes(got)) right += 1;
+          else wrong += 1;
+        } else if (same) missed += 1;
+      }
+    }
+    const precision = right + wrong === 0 ? 1 : right / (right + wrong);
+    console.info(
+      `crm golden on the Match engine (CRM records, exact): ${rows} rows; precision ${(precision * 100).toFixed(1)}%, ${right} matched, ${wrong} wrong, ${missed} to the model or a person`,
+    );
+    expect(precision).toBeGreaterThanOrEqual(0.95);
+    expect(right).toBeGreaterThan(0);
   });
 });

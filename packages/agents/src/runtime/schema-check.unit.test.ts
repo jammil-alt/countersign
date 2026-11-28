@@ -12,7 +12,7 @@ import { PLATFORM_TOOLS } from "../tools/platform";
 import type { RuntimeDeps } from "./context";
 import { checkAgainst, schemaProblem } from "./json-schema";
 import type { PinnedAgent, RunLog, RuntimeStore } from "./ports";
-import { runAgent } from "./run-agent";
+import { leakedMarkup, runAgent } from "./run-agent";
 
 for (const level of ["warn", "error"] as const)
   vi.spyOn(console, level).mockImplementation(() => {});
@@ -131,5 +131,51 @@ describe("a skill's output check against a schema Zod can't read", () => {
     expect(result.status).toBe("failed");
     expect(model.requests.length).toBeGreaterThan(1);
     expect(JSON.stringify(model.requests[1]?.messages)).toContain("the schema can't be checked");
+  });
+});
+
+// Staging, 2026-11-27: "Work out what's missing" finished with its `purpose` holding
+// "…</purpose>\n<parameter name=\"missing\">…", the model's call markup, and the step succeeded.
+describe("a skill's output with a tool call's markup in a field", () => {
+  const ASSESS = {
+    ...READ_TOTAL,
+    id: "custom:assess",
+    output: {
+      type: "object",
+      properties: { purpose: { type: "string" }, missing: { type: "string" } },
+      required: ["purpose"],
+    },
+  } as unknown as SkillDefinition;
+
+  it("finds the markup, and leaves plain text alone", () => {
+    expect(leakedMarkup({ purpose: 'Glue.</purpose>\n<parameter name="missing">Payment' })).toBe(
+      '"purpose" holds the markup of a tool call (<parameter): give each field on its own, as plain values',
+    );
+    expect(leakedMarkup({ purpose: "Glue.</purpose> and more", missing: "x" })).toContain(
+      "(</purpose>)",
+    );
+    expect(
+      leakedMarkup({ purpose: "Glue for the <b>kitchen</b> job", lines: ["2 < 3"] }),
+    ).toBeNull();
+  });
+
+  it("refuses it and asks again, and takes a clean answer", async () => {
+    const deps = harness(ASSESS);
+    const model = new FakeModel([
+      finish({ purpose: 'Glue.</purpose>\n<parameter name="missing">Payment' }),
+      finish({ purpose: "Glue for the kitchen job.", missing: "How it was paid." }),
+    ]);
+    const result = await runAgent(deps(model), {
+      tenantId: TENANT,
+      agentVersionId: "v1",
+      skill: ASSESS.id,
+      input: {},
+      runId: "r1",
+      stepId: "assess",
+    });
+    expect(result.status).toBe("succeeded");
+    expect(JSON.stringify(model.requests[1]?.messages)).toContain(
+      "holds the markup of a tool call",
+    );
   });
 });

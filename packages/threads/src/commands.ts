@@ -1,6 +1,7 @@
 // `/commands` (ARCHITECTURE §11.2, §10.8; docs/plan.md §1.38): what `/word` in a message points at.
 // In a client thread it names one of the client's active agents by its command name (computed on
-// read: the first word of its identity name, else its slug); in the back office, on an agent's
+// read: the name given to its address, else the first word of its identity name, else its slug);
+// in the back office, on an agent's
 // thread, `/skill` names one of that agent's skills. This module only resolves: starting runs from
 // the posted command is the message trigger's (W2-E).
 
@@ -9,6 +10,7 @@ import {
   type ParsedCommand,
   type PostedCommand,
   parseSkillRef,
+  readInboundName,
   resolveAgentCommand,
   resolveSkillCommand,
 } from "@countersign/core";
@@ -20,7 +22,12 @@ import { and, eq, isNotNull } from "drizzle-orm";
 // to no command, and its name is free for another agent's.
 export async function commandCandidates(tx: Tx, tenantId: string): Promise<CommandCandidate[]> {
   const rows = await tx
-    .select({ agentId: agent.id, slug: agent.slug, bundle: agentVersion.bundle })
+    .select({
+      agentId: agent.id,
+      slug: agent.slug,
+      bundle: agentVersion.bundle,
+      stageState: agent.stageState,
+    })
     .from(agent)
     .innerJoin(
       agentVersion,
@@ -39,6 +46,7 @@ export async function commandCandidates(tx: Tx, tenantId: string): Promise<Comma
     agentId: r.agentId,
     slug: r.slug,
     identityName: r.bundle.definition.identity.name,
+    inboundName: readInboundName(r.stageState),
   }));
 }
 

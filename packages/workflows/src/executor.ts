@@ -4,9 +4,7 @@
 // calls, inbox items, notifications) happens inside a named `runner.do`, so a replayed run repeats
 // nothing.
 //
-// R3: it runs v4 processes only. A stored v3 workflow is read as v4 at load (`./process`), each
-// converted step keeping its stored v3 step (its origin) for the ports, so it runs exactly as it
-// did: same durable names, same step_run rows, same idempotency keys, same port calls.
+// It runs a v5 workflow on its engine steps (`./step-model` loads them, `executeLoaded` runs them).
 //
 // Durable names: a step's name is its id, or `${forEachName}:${index}:${childId}` inside a loop
 // (so nested loops chain). Suffixes after `:` that are not an index (`:check`, `:wait`, `:done`,
@@ -14,20 +12,20 @@
 // ids never contain `:`.
 
 import {
-  type ActionStep,
   type Approval,
+  answerFields,
   automationSkillRef,
-  clientLabel,
   collectRefs,
   DEFAULT_APPROVAL,
+  type DeliveredKind,
   type Duration,
   evaluateRules,
   // Collect reports (owner, 2026-11-24): each link is a "Request info" step.
   FORMS_REQUEST_SKILL,
+  isoToday,
   isPlainObject,
   LEAD_ASSIGNEE,
   lookupSkill,
-  type NotifyStep,
   // v0.13 W2-I
   OVERSIGHT_DEFAULT_MAX_PER_RUN,
   OVERSIGHT_MAX_PER_STEP,
@@ -38,7 +36,6 @@ import {
   // R6
   type OwnerWatchedStep,
   ownerStepApproval,
-  type PersonStep,
   parseDuration,
   processes,
   type Rules,
@@ -48,21 +45,16 @@ import {
   resolvePath,
   resolveTemplate,
   runErrorKey,
-  type SkillStep,
   shortRunId,
   singleRef,
-  stepStateLabel,
+  steps,
   TIMELINE_WORDS,
   type TimelineWords,
-  type Step as V3Step,
-  type Workflow,
   // v0.13 M32
-  workflowCheckpoints,
 } from "@countersign/core";
 import {
   type AutomationResolver,
   ExpandError,
-  expandAutomations,
   expandProcesses,
   type ProcessExpansions,
 } from "./expand";
@@ -88,6 +80,9 @@ import {
   type HoursPort,
   type InboxPort,
   InboxResolution,
+  type MatchNote,
+  type MatchPort,
+  type MatchResult,
   NeedsHelp,
   type NotifyPort,
   // v0.13 W2-I
@@ -105,20 +100,38 @@ import {
   type StepWait,
 } from "./ports";
 import {
-  type AnyWorkflow,
+  type ActionStep,
   askView,
+  clientLabel,
   gateApproval,
   type LoadedProcess,
-  loadProcess,
-  NO_LOOKUP,
-  type Origins,
+  type NotifyStep,
+  type PersonStep,
   ProcessLoadError,
   personView,
+  type SkillStep,
+  stepStateLabel,
   storedKind,
   toolOf,
   workView,
 } from "./process";
 import { inboxEventType, isWaitTimeout, type StepConfig, type StepRunner } from "./runner";
+// The step model (docs/step-model-plan.md): a v5 workflow's steps on today's engines.
+import {
+  carryStepModel,
+  catalogKindOf,
+  incomingTranslation,
+  type LoadedStepModel,
+  loadStepModel,
+  loopRequest,
+  MATCH_SKILL,
+  STEP_MODEL_WRITE_ACTIONS,
+  type StepLoop,
+  type StepModelRun,
+  translates,
+  WRITTEN_SKILL,
+  writtenInStep,
+} from "./step-model";
 
 export interface ExecutorContext {
   run: RunInfo;
@@ -136,7 +149,7 @@ export interface ExecutorContext {
   /** A retry: the top-level steps before `from` are not run again, their outputs reused. */
   resume?: RunResume;
   // v0.12 W2-B: automations (ARCHITECTURE §10.7; docs/plan.md §1.45).
-  /** The automation versions the workflow's use steps pin, loaded in the run's load step. */
+  /** The automation versions the workflow's process steps pin, loaded in the run's load step. */
   automations?: AutomationResolver;
   // v0.13 W2-I: run oversight (ARCHITECTURE §10.11; docs/plan.md §1.54).
   /** The run's own agent reviewing failed steps; absent: no step is reviewed, as before. */
@@ -145,12 +158,6 @@ export interface ExecutorContext {
   /** Where the owner's check on each attempt at a native v4 step is kept; absent: nowhere. */
   ownerChecks?: OwnerCheckLog;
   // R3: the process model (ARCHITECTURE §10.14; docs/plan.md §1.86, §9).
-  /**
-   * How v3 workflows are read as v4 (`processes.ConvertLookup`, from packages/agents' registries).
-   * Absent: tool-wrapper skills stay skill steps. Converted steps run through their stored v3 step
-   * either way, so it changes only the kinds a v4 reader sees.
-   */
-  lookup?: processes.ConvertLookup;
   /** Stored business hours and away dates; absent: the default week in `run.timeZone`. */
   hours?: HoursPort;
   /** Conversation steps; absent: a conversation step fails the run. */
@@ -180,6 +187,15 @@ export interface ExecutorContext {
   start?: { at: string; input: unknown };
   /** A test of some of the steps: see `RunRange`. */
   range?: RunRange;
+  // The step model (docs/step-model-plan.md §7)
+  /** Match steps (stream D's engine); absent: a Match step fails, nothing matched or saved. */
+  match?: MatchPort;
+  /**
+   * The step model (stream F): the step skill the run's agent version pins for a step written in
+   * the step (`custom:step-<agent>-<step>@N` in its `definition.skills`), by step id; undefined:
+   * none pinned, and the step fails. Read from the pinned version, so a replay resolves the same.
+   */
+  stepSkill?: (stepId: string) => string | undefined;
 }
 
 /**
@@ -236,6 +252,12 @@ export interface RunResult {
   // v0.13 W2-I
   /** A failure the run's agent reviewed: its last decision's note (operator side only). */
   diagnosis?: string;
+  // The step model (docs/step-model-plan.md §9)
+  /**
+   * What the End that ended the run passed on (its `pass_on` output), evaluated over the run: what
+   * other agents' hand-off triggers receive (`run.succeeded`). Absent: nothing passed on.
+   */
+  passedOn?: { output: unknown; sources: string[] };
 }
 
 // v0.13 W2-I: run oversight (ARCHITECTURE §10.11; docs/plan.md §1.54). R6: the owner, whose
@@ -292,20 +314,26 @@ interface AttemptRetry {
 // R3: what a v4 work step adds to an attempt.
 interface WorkOptions {
   /**
-   * A native v4 approval check on the writes the step proposes, its approvers (who is away
-   * already known): its mode, deadlines and `ifNoAnswer`. Absent (a converted v3 step), the gate's
-   * approval is decided exactly as v3 decided it.
+   * Signed record saves: the step carries its own approval check (an approver the operator
+   * added, or a v4 step's own), not the default filled in for a step with none.
+   */
+  ownApproval?: boolean;
+  /**
+   * The approval check on the writes the step proposes, its approvers (who is away already
+   * known): its mode, deadlines and `ifNoAnswer`. Absent (no check), the gate's approval decides.
    */
   plan?: ApprovalPlan;
   /** A skill step's customization, for the runtime (instructions, rule rows). */
   customize?: processes.SkillCustomization;
   /** Reshape data (2026-11-11): a Reshape step's mapping, for the runtime to run. */
   reshape?: processes.ReshapeMapping;
-  /** The step's row kind when not its port view's: a native `read` or `write`. */
-  nodeType?: "read" | "write";
+  /** The step model: a Loop's goal, reads and limits, for the runtime's loop (§8). */
+  loop?: StepLoop;
+  /** The step's row kind: the engine step's own (its port view of a write is an `action`). */
+  nodeType: "read" | "skill" | "write";
   // R6
-  /** The native v4 step the owner watches (absent: the port view, a converted step's v3 step). */
-  watched?: OwnerWatchedStep;
+  /** The step the owner watches. */
+  watched: OwnerWatchedStep;
   /**
    * Before the approval of each write the step proposes: its confer (a native skill), under `at`
    * (the step's own name for the first attempt's first proposal, else the approval's name).
@@ -385,6 +413,27 @@ function verdictsOf(entries: readonly ConferEntry[] | undefined): processes.Conf
 
 /** Who an approver without a `who` is: the client's admin, as the gate's default asks. */
 const DEFAULT_APPROVER = "client_admin";
+
+/** A Match's unsure question with nobody named: the client admin, seven days, then left unsure. */
+const MATCH_ASK_DEADLINE: processes.Deadline = {
+  after: "7 days",
+  hours: "clock",
+  ifNoAnswer: "skip",
+};
+
+/**
+ * Who a Match step's unsure items are asked of, and by when: the first person its confer names
+ * (seats already filled), else the client admin (`Executor.matchAsk`).
+ */
+function matchAsker(step: Pick<processes.Step, "checks">): {
+  who: string;
+  deadline: processes.Deadline;
+} {
+  for (const c of step.checks?.confer?.with ?? []) {
+    if ("person" in c) return { who: c.person, deadline: c.deadline };
+  }
+  return { who: DEFAULT_APPROVER, deadline: MATCH_ASK_DEADLINE };
+}
 
 /** Asks one more person (an approver, an escalation): creates the item, says how long to wait. */
 type Asker = (
@@ -551,64 +600,79 @@ interface Frame {
 type WorkStep = processes.ReadStep | processes.SkillStep | processes.WriteStep;
 
 /**
- * The label helpers read only a step's `name`, `client` and `kind`, which v4 steps share with v3
- * ones: one cast, here, rather than a second copy of them.
- */
-const asLabelled = (step: processes.Step): V3Step => step as unknown as V3Step;
-
-/**
- * Runs `workflow` (a stored v3 workflow or a v4 process) for `ctx.run` with `trigger` as the
- * trigger payload. Returns how the run ended; apps/api records it on `run`. Throws only if the
- * runner itself fails outside any step.
+ * Runs a v5 workflow for `ctx.run` with `trigger` as the trigger payload. Returns how the run
+ * ended; apps/api records it on `run`. Throws only if the runner itself fails outside any step.
  */
 export async function executeWorkflow(
   runner: StepRunner,
   ctx: ExecutorContext,
-  workflow: AnyWorkflow,
+  workflow: steps.Workflow,
   trigger: unknown,
 ): Promise<RunResult> {
-  // R3: v4 only. Pure over immutable versions, so a replay or a retry reads the same steps.
-  let loaded: LoadedProcess;
+  // Pure over immutable versions, so a replay or a retry reads the same steps.
+  let loaded: LoadedStepModel;
   try {
-    loaded = loadProcess(workflow, ctx.lookup ?? NO_LOOKUP);
-    // Setup-plan §4.1: a v4 process's seats become the people in them before anything runs, so
-    // the engine and the ports see plain user ids. Pure over the run's snapshot, so a replay reads
-    // the same people. A converted v3 workflow names no seat.
-    if (loaded.v3 === null && processes.namesSeats(loaded.process)) {
-      loaded = { ...loaded, process: processes.fillSeats(loaded.process, ctx.seats ?? {}) };
+    // The step model: each step on the engine its kind, done by and uses pick (`./step-model`).
+    loaded = loadStepModel(
+      workflow,
+      catalogKindOf(ctx.catalog?.tools),
+      ctx.stepSkill ?? (() => undefined),
+    );
+  } catch (error) {
+    if (!(error instanceof ProcessLoadError)) throw error;
+    return loadFailed(error);
+  }
+  return executeLoaded(runner, ctx, loaded, trigger, translates(workflow));
+}
+
+function loadFailed(error: ProcessLoadError): RunResult {
+  return {
+    status: "failed",
+    reason: error.message,
+    errorKey: runErrorKey({ tool: null, kind: "run" }, error.message),
+  };
+}
+
+/**
+ * Runs loaded engine steps: what `executeWorkflow` does after loading. Exported for tests of the
+ * engines, which build their steps directly (`stepModel` absent: every step is an engine's own).
+ */
+export async function executeLoaded(
+  runner: StepRunner,
+  ctx: ExecutorContext,
+  start: LoadedProcess & { stepModel?: StepModelRun },
+  trigger: unknown,
+  translating = false,
+): Promise<RunResult> {
+  let loaded: LoadedProcess = start;
+  const stepModel = start.stepModel;
+  try {
+    // Setup-plan §4.1: a process's seats become the people in them before anything runs, so the
+    // engine and the ports see plain user ids. Pure over the run's snapshot, so a replay reads
+    // the same people.
+    if (processes.namesSeats(loaded.process)) {
+      const filled = processes.fillSeats(loaded.process, ctx.seats ?? {});
+      // The step model: what it knows of each engine step moves to the filled copy.
+      if (stepModel) carryStepModel(stepModel, loaded.process, filled);
+      loaded = { ...loaded, process: filled };
     }
   } catch (error) {
     if (!(error instanceof ProcessLoadError)) throw error;
-    return {
-      status: "failed",
-      reason: error.message,
-      errorKey: runErrorKey({ tool: null, kind: "run" }, error.message),
-    };
+    return loadFailed(error);
   }
   // v0.12 W2-B: automations expand before execution (ARCHITECTURE §10.7; docs/plan.md §1.45).
   // DECISION: a pinned version the run can't load fails the run at its use step before any step
   // runs, rather than part-way through.
   let expansions: ProcessExpansions;
-  // R3: the approval checks a v4 process step sets on its automation's steps (native v4 checks).
-  const overrides = new WeakSet<object>();
   try {
-    expansions = expandProcesses(
-      loaded.process,
-      ctx.automations ?? {},
-      ctx.lookup ?? NO_LOOKUP,
-      loaded.origins,
-      overrides,
-    );
+    expansions = expandProcesses(loaded.process, ctx.automations ?? {});
   } catch (error) {
     if (!(error instanceof ExpandError)) throw error;
     return {
       status: "failed",
       reason: error.message,
       nodeId: error.stepId,
-      errorKey: runErrorKey(
-        { tool: null, kind: loaded.v3 ? "use_automation" : "process" },
-        error.message,
-      ),
+      errorKey: runErrorKey({ tool: null, kind: "process" }, error.message),
     };
   }
   // v0.18 (docs/plan.md §1.103): a missing step is never published, so a run never meets one; if
@@ -629,10 +693,12 @@ export async function executeWorkflow(
     const reason = `the step "${ctx.start.at}" this hand-off starts at isn't in this version`;
     return { status: "failed", reason, errorKey: runErrorKey({ tool: null, kind: "run" }, reason) };
   }
-  const ex = new Executor(runner, ctx, expansions, loaded.origins, overrides);
-  // DECISION (wave 5): outcomes are recorded for native v4 processes only; a converted v3 workflow's
-  // scope stays `{ output }` (its conditions can't name an outcome, and nothing it reads changes).
-  ex.records = loaded.v3 === null;
+  const ex = new Executor(runner, ctx, expansions, stepModel);
+  // The step model: a run whose steps translate what comes in reads one "today", the client's
+  // date when it started, in a durable step, so a replay translates the same way.
+  if (translating) {
+    ex.today = await runner.do("run:today", async () => isoToday(new Date(), ctx.run.timeZone));
+  }
   // v0.13 M32: checkpoints, from the version's steps and the automations they expand to. Pure over
   // immutable versions, so a replay computes the same set.
   if (ctx.oversight) ex.checkpoints = checkpointsOf(loaded, ctx, expansions);
@@ -642,17 +708,20 @@ export async function executeWorkflow(
       scope: { trigger, steps: {} },
       top: true,
     });
-    return { status: "succeeded" };
+    return { status: "succeeded", ...(ex.passedOn ? { passedOn: ex.passedOn } : {}) };
   } catch (error) {
-    if (error instanceof RunEnd) return error.result;
+    if (error instanceof RunEnd) {
+      return ex.passedOn && error.result.status === "succeeded"
+        ? { ...error.result, passedOn: ex.passedOn }
+        : error.result;
+    }
     throw error;
   }
 }
 
 /**
- * v0.13 M32: a stored v3 workflow's checkpoints as they always were (core's v3
- * `workflowCheckpoints`); R6: a v4 process's by core's v4 rule (`processes.processCheckpoints`),
- * its process steps' inner checkpoints as `${processStepId}/${innerId}`.
+ * v0.13 M32: the run's checkpoints, by core's rule (`processes.processCheckpoints`), its process
+ * steps' inner checkpoints as `${processStepId}/${innerId}`.
  */
 function checkpointsOf(
   loaded: LoadedProcess,
@@ -663,19 +732,10 @@ function checkpointsOf(
     ...(ctx.catalog?.skills ? { skills: ctx.catalog.skills } : {}),
     ...(ctx.catalog?.tools ? { tools: ctx.catalog.tools } : {}),
   };
-  if (loaded.v3) {
-    const v3 = expandAutomations(loaded.v3, ctx.automations ?? {});
-    return new Set(
-      workflowCheckpoints(loaded.v3, {
-        ...typing,
-        automations: Object.fromEntries(Object.values(v3).map((e) => [e.ref, { steps: e.steps }])),
-      }),
-    );
-  }
   return new Set(
     processes.processCheckpoints(loaded.process, {
       ...typing,
-      // The pinned versions as the run reads them (v4, with the step's approval overrides).
+      // The pinned versions as the run reads them, with the step's approval overrides.
       processes: Object.fromEntries(Object.values(expansions).map((e) => [e.ref, e])),
     }),
   );
@@ -715,10 +775,23 @@ class Executor {
     // v0.12 W2-B
     readonly expansions: ProcessExpansions = {},
     // R3
-    readonly origins: Origins = new WeakMap(),
-    /** Approval checks a v4 process step set on its automation's (converted) steps. */
-    readonly overrides: WeakSet<object> = new WeakSet(),
+    // The step model (docs/step-model-plan.md): a v5 workflow's steps beside their engines'.
+    readonly stepModel?: StepModelRun,
   ) {}
+
+  /** The step model: what the End that ended the run passed on (`RunResult.passedOn`). */
+  passedOn: { output: unknown; sources: string[] } | undefined;
+
+  /** The step model: a merged action's step, resolved, by the concrete step that runs it. */
+  readonly mergedCalls = new WeakMap<object, { action: string; connector: string }>();
+
+  /** The step model: the client's date a translation reads as "today", fixed for the run. */
+  today: string | undefined;
+
+  /** The step model: the v5 step an engine step runs, if the run is a v5 workflow's. */
+  source(step: processes.Step): steps.Step | undefined {
+    return this.stepModel?.sources.get(step);
+  }
 
   // v0.13 W2-I
   /** Oversight decisions taken in this run so far (each counts toward `maxPerRun`). */
@@ -728,11 +801,6 @@ class Executor {
    * automation's inner step as `${useStepId}/${innerId}`.
    */
   checkpoints: ReadonlySet<string> = new Set();
-  /**
-   * Wave 5: whether steps record how they ended beside their output (`steps.<id>.outcome`, …):
-   * a native v4 process. A stored v3 workflow's scope stays `{ output }` exactly.
-   */
-  records = false;
   /**
    * A test run's scope entries whose output rests on a write the test never made: a write's own
    * (recorded as proposed; its output is the tool's stand-in, or nothing), and the entry of every
@@ -745,13 +813,17 @@ class Executor {
     return this.ctx.run.mode === "test";
   }
 
+  /**
+   * Owner, 2026-11-27: a test run with people in it ("Ask me"): its approvals wait for the test
+   * person's decision instead of reading as given. Its writes are still never made.
+   */
+  get testPeople(): boolean {
+    return this.testRun && this.ctx.run.testPeople !== undefined;
+  }
+
   /** The platform's words on the client timeline, in the client's language. */
   get words(): TimelineWords {
     return TIMELINE_WORDS[this.ctx.run.language ?? "en"];
-  }
-
-  origin(step: processes.Step): V3Step | undefined {
-    return this.origins.get(step);
   }
 
   /**
@@ -767,10 +839,9 @@ class Executor {
     unwritten = false,
   ) {
     const entry: RunContext["steps"][string] = { output };
-    if (this.records) {
-      for (const [k, v] of Object.entries(rec)) {
-        if (v !== undefined) (entry as unknown as Record<string, unknown>)[k] = v;
-      }
+    for (const [k, v] of Object.entries(rec)) {
+      if (k === "__proto__" || k === "constructor" || k === "prototype") continue;
+      if (v !== undefined) (entry as unknown as Record<string, unknown>)[k] = v;
     }
     if (unwritten && this.testRun) this.unwritten.add(entry);
     frame.scope.steps[step.id] = entry;
@@ -795,17 +866,7 @@ class Executor {
 
   /** Wave 5: whether the step goes on past a failure it reported (`onError: continue`). */
   continues(step: processes.Step): boolean {
-    return this.records && step.onError === "continue";
-  }
-
-  /**
-   * Whether the step's approval is a native v4 check (modes, deadlines, `ifNoAnswer`, away
-   * approvers skipped): a native step's, or one a v4 process step set on its automation's step. A
-   * converted v3 step's approval is decided exactly as v3 decided it.
-   */
-  nativeApproval(step: processes.Step): boolean {
-    const check = step.checks?.approval;
-    return !this.origin(step) || (check !== undefined && this.overrides.has(check));
+    return step.onError === "continue";
   }
 
   async runList(steps: readonly processes.Step[], frame: Frame): Promise<void> {
@@ -857,7 +918,7 @@ class Executor {
       const id = await this.ctx.log.start({
         runId: this.ctx.run.id,
         nodeId: step.id,
-        nodeType: storedKind(step, this.origin(step)) as never,
+        nodeType: storedKind(step) as never,
         ...(skillRef ? { skillRef } : {}),
       });
       await this.ctx.log.update(id, {
@@ -879,8 +940,6 @@ class Executor {
 
   /** `step_run.skill_ref` for a step: its skill, or the skill a converted read or write ran. */
   skillRefOf(step: processes.Step): string | undefined {
-    const origin = this.origin(step);
-    if (origin) return origin.kind === "skill" ? origin.skill : undefined;
     return step.kind === "skill" ? step.skill : undefined;
   }
 
@@ -896,7 +955,7 @@ class Executor {
       const id = await this.ctx.log.start({
         runId: this.ctx.run.id,
         nodeId: step.id,
-        nodeType: storedKind(step, this.origin(step)) as never,
+        nodeType: storedKind(step) as never,
         ...(skillRef ? { skillRef } : {}),
       });
       // DECISION: a step skipped in the run retried (a write a person turned down, a person step
@@ -927,6 +986,19 @@ class Executor {
   async runStep(step: processes.Step, frame: Frame): Promise<void> {
     const name = `${frame.prefix}${step.id}`;
     try {
+      // The step model: what runs beside the engines (docs/step-model-plan.md §7, §9).
+      const v5 = this.source(step);
+      if (v5) {
+        if (v5.kind === "end" && step.kind === "stop") return await this.end(v5, step, name, frame);
+        if (v5.kind === "do" && v5.uses?.type === "match") {
+          return await this.match(v5, v5.uses.match, step, name, frame);
+        }
+        if (writtenInStep(v5) && step.kind === "skill" && step.skill === WRITTEN_SKILL) {
+          throw new Error(
+            `the step "${v5.name}" has no saved version of what is written in it: save the workflow and publish it again`,
+          );
+        }
+      }
       switch (step.kind) {
         case "read":
         case "skill":
@@ -980,13 +1052,9 @@ class Executor {
     }
   }
 
-  /** `<tool id or step kind>:<code>`: a write or read (v3: an action) names its tool. */
+  /** `<tool id or step kind>:<code>`: a write or read names its tool. */
   errorKeyOf(step: processes.Step, reason: string | undefined): string {
-    const origin = this.origin(step);
-    return runErrorKey(
-      { tool: toolOf(step, origin), kind: storedKind(step, origin) },
-      reason ?? null,
-    );
+    return runErrorKey({ tool: toolOf(step), kind: storedKind(step) }, reason ?? null);
   }
 
   /** Best effort: the step's row says why it failed. The run fails either way. */
@@ -996,12 +1064,12 @@ class Executor {
         const id = await this.ctx.log.start({
           runId: this.ctx.run.id,
           nodeId: name,
-          nodeType: storedKind(step, this.origin(step)) as never,
+          nodeType: storedKind(step) as never,
         });
         await this.ctx.log.update(id, {
           status: "failed",
           error,
-          summary: `${stepStateLabel(asLabelled(step), false)}: ${this.words.failed}`,
+          summary: `${stepStateLabel(step, false)}: ${this.words.failed}`,
         });
         return null;
       });
@@ -1033,8 +1101,8 @@ class Executor {
   ): Promise<{ dueAt: string; remindAt: string[] }> {
     const start = from ?? new Date();
     const offsets = deadline.remind ?? [];
-    // DECISION: each `remind` is a time after the asking (one reminder each); a v3 step's
-    // `remindEvery` becomes one reminder.
+    // DECISION: each `remind` is a time after the asking (one reminder each); a person's
+    // `remindEvery` is one reminder.
     if (deadline.hours !== "business") {
       const at = (d: Duration) => new Date(start.getTime() + parseDuration(d)).toISOString();
       return { dueAt: at(deadline.after), remindAt: offsets.map(at) };
@@ -1138,6 +1206,7 @@ class Executor {
       payload: unknown;
       mode?: "ask" | "approve";
       choices?: PersonStep["choices"];
+      fields?: PersonStep["fields"];
     },
   ): Asker {
     return async (b, who, deadline) => {
@@ -1152,6 +1221,7 @@ class Executor {
           after: d.after,
           ...(item.mode ? { mode: item.mode } : {}),
           ...(item.choices ? { choices: item.choices } : {}),
+          ...(item.fields ? { fields: item.fields } : {}),
         });
         const made = await this.ctx.inbox.createForPerson({
           run: this.ctx.run,
@@ -1186,6 +1256,8 @@ class Executor {
     afterUnwritten = false,
   ): string {
     if (rejected) return `${stepStateLabel(step, false)}: ${this.words.notApproved}`;
+    const delivered = this.delivering.get(step);
+    if (delivered) return this.words.delivered(delivered.kind, delivered.name, notWritten);
     // A read or skill a test run couldn't try on what an unmade write would have returned.
     if (notWritten && afterUnwritten && !this.writes(step)) {
       return this.words.wouldAfterUnwritten(step.name);
@@ -1229,8 +1301,10 @@ class Executor {
     // R3: a write that went ahead without an answer says so on its row.
     extra: Pick<StepRunUpdate, "proceededWithoutAnswer" | "externalActionId"> = {},
   ): Promise<StepOutcome> {
+    // A test run with people in it waits for the test person's decision; the port never makes
+    // the write once they approve (it comes back done, `notWritten`).
     const done: StepOutcome =
-      outcome.kind === "approval" && this.testRun
+      outcome.kind === "approval" && this.testRun && !this.testPeople
         ? { kind: "done", output: outcome.output ?? null, notWritten: true }
         : outcome;
     // Audit 4.4: an output too large to hand on fails the step on its one row, saying why.
@@ -1312,7 +1386,7 @@ class Executor {
    * proposes a write confers on it before its approval is decided (the gate's approval, in the
    * check's mode, deadlines and `ifNoAnswer`), so the write follows both. A read, or a skill that
    * proposed no write, runs first, confers on its output, and its approval is a sign-off of that
-   * output. Converted v3 steps carry only an approval, which the gate takes exactly as before.
+   * output.
    */
   async workStep(
     step: WorkStep,
@@ -1341,7 +1415,34 @@ class Executor {
           : undefined,
       );
     }
-    const origin = this.origin(step);
+    // The step model: a merged action that isn't one of today's write actions resolves to its tool
+    // for this run's agent first (durably), then runs as a step calling that tool, through the gate.
+    if (
+      (step.kind === "read" || step.kind === "write") &&
+      step.tool !== undefined &&
+      this.stepModel?.merged.has(step)
+    ) {
+      const action = step.tool;
+      const resolved = await this.resolveMerged(name, action);
+      const concrete = { ...step, tool: resolved.tool } as WorkStep;
+      this.mergedCalls.set(concrete, { action, connector: resolved.connector });
+      const port = this.ctx.agent;
+      // The action's input in the words of the tool it resolved to (the merge's mappings).
+      const toTool = (input: unknown) => {
+        const own = mapInput ? mapInput(input) : input;
+        return port.mergedInput ? port.mergedInput(action, resolved.connector, own) : own;
+      };
+      return this.workStep(
+        concrete,
+        name,
+        frame,
+        toTool,
+        resolved.connectionId
+          ? { connector: resolved.connector, connectionId: resolved.connectionId }
+          : binding,
+      );
+    }
+    const source = this.source(step);
     const checks = step.checks;
     const check = checks?.approval;
     // A read, or a skill the catalog knows writes nothing and contacts nobody: its output exists
@@ -1393,9 +1494,8 @@ class Executor {
       await conferOn(name, { input: input(), output, own: { id: step.id, output } });
     };
 
-    // A native approval is planned (who is away known); a converted one goes to the gate as v3's.
-    const plan =
-      check && this.nativeApproval(step) ? await this.approverPlan(name, check) : undefined;
+    // The approval is planned (who is away known).
+    const plan = check ? await this.approverPlan(name, check) : undefined;
     const firstWho = plan?.approvers.find((a) => !a.away)?.who ?? null;
     let gate = gateApproval(check, plan ? firstWho : undefined);
     // An approval limited to some runs (`when`) doesn't apply on the others: the gate decides
@@ -1416,7 +1516,7 @@ class Executor {
       );
       if (!applies) gate = { ...gate, required: "not_required" };
     }
-    const view = workView(runs, origin, gate);
+    const view = workView(runs, gate);
     const approval: Approval =
       view.kind === "action" ? view.approval : (view.approval ?? DEFAULT_APPROVAL);
     // A test run: what this step reads from writes the test never made (none in a live run).
@@ -1426,12 +1526,16 @@ class Executor {
       // Any write the step proposes is signed in the native check's mode (a read-like skill's too,
       // should it propose one after all).
       ...(plan ? { plan } : {}),
+      ...(check ? { ownApproval: true } : {}),
       ...(step.kind === "skill" && step.customize ? { customize: step.customize } : {}),
       ...(step.kind === "skill" && step.reshape ? { reshape: step.reshape } : {}),
-      // A converted step's row keeps its stored kind; a native read or write is named as such.
-      ...(!origin && step.kind !== "skill" ? { nodeType: step.kind } : {}),
-      // R6: the owner watches the native step itself (a converted step as its stored v3 step).
-      ...(!origin ? { watched: step } : {}),
+      // The step model: a Loop's reads (Get actions only) and limits, for the runtime's loop.
+      ...(source?.kind === "loop"
+        ? { loop: loopRequest(source, (a) => this.actionKind(a) === "get") }
+        : {}),
+      nodeType: step.kind,
+      // R6: the owner watches the step itself.
+      watched: step,
       verdicts: () => conferred,
       ...(mapInput ? { mapInput } : {}),
       ...(binding ? { binding } : {}),
@@ -1445,7 +1549,7 @@ class Executor {
     if (step.kind !== "write" && checks?.confer) {
       opts.afterRun = async (output) => {
         // A request for help isn't the step's result: it is conferred on once answered.
-        if (needsHelpOf(output, !origin)) return;
+        if (needsHelpOf(output)) return;
         await conferOutput(shape(output));
       };
     }
@@ -1475,20 +1579,17 @@ class Executor {
       // R3: a native skill that couldn't do it asks the lead, then runs once more with the answer.
       // Wave 4: so does a native read or write step whose tool asked (a recorded script whose page
       // changed answers `needsHelp`, docs/plan.md §1.86 "Scripts (wave 4)").
-      // DECISION: any native work step's `needsHelp` output asks; a converted v3 step's never does.
-      if (!origin) {
-        const helped = await this.needsHelp(view, name, frame, approval, done, opts);
-        output = helped.output;
-        proposed = helped.proposed;
-        why = helped.why;
-        if (helped.approvals) approvals = [...approvals, ...helped.approvals];
-      }
+      // DECISION: any work step's `needsHelp` output asks.
+      const helped = await this.needsHelp(view, name, frame, approval, done, opts);
+      output = helped.output;
+      proposed = helped.proposed;
+      why = helped.why;
+      if (helped.approvals) approvals = [...approvals, ...helped.approvals];
     } catch (error) {
       // Wave 5 review: a skill or write whose failure came with a write made, or one that may have
       // been (the runtime's `notWritten` missing on a failed action), is never gone on past, here
       // or by a loop or sub-process around it: the run ends there and the operator checks it.
       if (
-        this.records &&
         step.kind !== "read" &&
         continuable(error) &&
         error.result.nodeId === name &&
@@ -1516,6 +1617,11 @@ class Executor {
       return;
     }
     output = shape(output);
+    // The step model: a merged action's output back in the action's words, whichever tool ran.
+    const merged = this.mergedCalls.get(step);
+    if (merged && this.ctx.agent.mergedOutput) {
+      output = this.ctx.agent.mergedOutput(merged.action, merged.connector, output);
+    }
 
     if (step.kind !== "write" && checks?.confer) await conferOutput(output);
     // The sign-off: a read's, or a skill's that proposed no write (a proposed write was signed
@@ -1596,13 +1702,109 @@ class Executor {
   }
 
   /**
+   * The step model: the tool a merged action (`spreadsheet.rows.append`) runs on for this run's
+   * agent (`AgentPort.resolveMerged`), resolved once in a durable step (`<name>:action`), as an
+   * action write step's is. One that doesn't resolve fails the step before anything is proposed.
+   */
+  async resolveMerged(
+    name: string,
+    action: string,
+  ): Promise<Exclude<ResolvedAction, { refused: string }>> {
+    const port = this.ctx.agent.resolveMerged;
+    if (!port) throw new Error(`refused: ${action} can't run here: nothing resolves it to a tool`);
+    const r = await this.runner.do(`${name}:action`, () =>
+      port.call(this.ctx.agent, { run: this.ctx.run, nodeId: name, action }),
+    );
+    if ("refused" in r) throw new Error(`refused: ${r.refused}`);
+    if (!Object.values(steps.mergedAction(action)?.tools ?? {}).includes(r.tool)) {
+      throw new Error(`refused: ${action} doesn't run with ${r.tool}`);
+    }
+    return r;
+  }
+
+  /** The step model: an action's kind, from the catalog's tools (absent: unknown). */
+  actionKind(action: string): steps.ActionKind | undefined {
+    return catalogKindOf(this.ctx.catalog?.tools)(action);
+  }
+
+  /**
    * A step's input resolved over the run; hand off: the entry step of a run a hand-off started
    * takes the input handed over instead (data, never rendered as a template: invariant 9).
    */
   inputOf(step: { id: string; input: unknown }, frame: Frame): unknown {
     const start = this.ctx.start;
     if (start && frame.prefix === "" && step.id === start.at) return start.input;
-    return resolveTemplate(step.input, frame.scope);
+    const resolved = resolveTemplate(step.input, frame.scope);
+    // The step model: a Do step's incoming side (stream G). Its translation runs on the resolved
+    // input, in code, and the `_` source keys that bring whole earlier outputs in never reach the
+    // engine. A field the translation can't fill fails the step in plain words.
+    const v5 = this.stepModel?.byId.get(step.id);
+    if (v5?.kind !== "do" || !isPlainObject(resolved)) return resolved;
+    const t = steps.applyTranslation(
+      incomingTranslation(v5) ? v5 : {},
+      resolved as Record<string, unknown>,
+      { today: this.today ?? "" },
+    );
+    const problem = t.problems[0];
+    if (problem) {
+      throw new Error(
+        `what comes into "${v5.name}" can't be translated: ${problem.field}: ${problem.message}`,
+      );
+    }
+    this.requireFilled(v5, t.input);
+    return this.converted(v5, t.input);
+  }
+
+  /**
+   * The step model: a Do step's input in the form its action or skill takes, by the conversions
+   * the publish checks allow (`steps.fitShape`): money as its amount when the currencies agree, a
+   * number as a decimal string. One place, so publish and run agree; the connector's own money
+   * fallback (`moneyAsDecimals`) stays a last resort. A conversion that would lose an amount's
+   * currency fails the step, naming why.
+   */
+  converted(v5: steps.DoStep, input: Record<string, unknown>): Record<string, unknown> {
+    if (!v5.uses) return input;
+    const schema = processes.usesInputSchema(this.ctx.catalog ?? {}, v5.uses);
+    if (!schema) return input;
+    const c = steps.convertToShape(input, steps.schemaShape(schema));
+    const problem = c.problems[0];
+    if (problem) throw new Error(`what comes into "${v5.name}" can't be used: ${problem}`);
+    return c.value as Record<string, unknown>;
+  }
+
+  /**
+   * A v5 Do step's required input that came from another step or the trigger and arrived empty
+   * fails the step here, naming the field and where it should have come from, before the tool or
+   * skill refuses it in its own words (staging, 2026-11-27: "Check the items" failed on its tool's
+   * "vendorId: expected string, received undefined", three steps from the cause).
+   */
+  requireFilled(step: steps.DoStep, input: Record<string, unknown>) {
+    if (!step.uses) return;
+    const schema = processes.usesInputSchema(this.ctx.catalog ?? {}, step.uses);
+    const required = (schema as { required?: unknown } | undefined)?.required;
+    if (!Array.isArray(required)) return;
+    for (const field of required) {
+      if (typeof field !== "string") continue;
+      const value = input[field];
+      // DECISION (2026-11-28): only nothing at all (undefined, null) fails here; an empty text
+      // may be a real value (an email with no words), and the tool's own check still holds.
+      if (value !== undefined && value !== null) continue;
+      const raw = step.input[field];
+      const ref = typeof raw === "string" ? /^\{\{\s*([^{}]+?)\s*\}\}$/.exec(raw)?.[1] : undefined;
+      if (!ref) continue;
+      const [head, id] = ref.split(".");
+      const from =
+        head === "steps" && id !== undefined
+          ? `"${this.stepModel?.byId.get(id)?.name ?? id}"`
+          : head === "trigger"
+            ? "what started the run"
+            : head === "item"
+              ? "the item this step is working on"
+              : ref;
+      throw new Error(
+        `"${step.name}" can't run: ${field} is empty. It comes from {{${ref}}} (${from}), which gave nothing there.`,
+      );
+    }
   }
 
   /** A work step's input for an attempt: resolved, and as an action's tool takes it. */
@@ -1668,8 +1870,7 @@ class Executor {
 
   /**
    * A native approval's approvers, who is away known before the step runs (a durable step, only
-   * when stored hours can say so): an away approver is skipped at once, never waited for. Only
-   * for native v4 checks: a converted v3 approver is waited for as v3 did.
+   * when stored hours can say so): an away approver is skipped at once, never waited for.
    */
   async approverPlan(name: string, check: processes.ApprovalCheck): Promise<ApprovalPlan> {
     const list: NonNullable<processes.ApprovalCheck["approvers"]> =
@@ -1692,11 +1893,11 @@ class Executor {
     name: string,
     frame: Frame,
     approval: Approval,
-    opts: WorkOptions = {},
+    opts: WorkOptions,
   ): Promise<WorkDone> {
     // v0.13 W2-I: run oversight (ARCHITECTURE §10.11; docs/plan.md §1.54). Without a port, or when
     // this step's failures aren't reviewed, the first attempt is the only one, exactly as before.
-    if (this.oversees(step, opts)) {
+    if (this.oversees(opts)) {
       const done = await this.overseen(step, name, frame, approval, opts);
       if (done.kind === "thrown") {
         if (done.diagnosis === undefined) throw done.error;
@@ -1706,7 +1907,7 @@ class Executor {
           status: "failed",
           reason,
           nodeId: name,
-          errorKey: ownerErrorKey(opts.watched ?? step, reason),
+          errorKey: ownerErrorKey(opts.watched, reason),
           diagnosis: done.diagnosis,
         });
       }
@@ -1726,7 +1927,6 @@ class Executor {
     const unwatched = (attemptOutcome: OwnerCheckAttempt) =>
       this.recordCheck(
         name,
-        opts,
         {
           attempt: 1,
           result: "not_watched",
@@ -1809,8 +2009,8 @@ class Executor {
     name: string,
     frame: Frame,
     approval: Approval,
-    retry?: AttemptRetry,
-    opts: WorkOptions = {},
+    retry: AttemptRetry | undefined,
+    opts: WorkOptions,
   ): Promise<Attempt> {
     const { run, agent, log } = this.ctx;
     const at = retry ? (retry.at ?? `${name}:retry:${retry.seq}`) : name;
@@ -1847,6 +2047,8 @@ class Executor {
           stepRunId,
           input,
           approval,
+          // Signed record saves: whether `approval` is the step's own or the filled-in default.
+          ...(opts.ownApproval ? { ownApproval: true } : {}),
           // v0.12 W2-B: an automation's step runs as the using agent, with the automation's skills.
           ...(frame.automation ? { automation: frame.automation } : {}),
           // v0.13 W2-I
@@ -1866,6 +2068,8 @@ class Executor {
                   ...(opts.customize ? { customize: opts.customize } : {}),
                   // Reshape data (2026-11-11): the step's mapping, which the runtime runs.
                   ...(opts.reshape ? { reshape: opts.reshape } : {}),
+                  // The step model: a Loop, reads only (§8).
+                  ...(opts.loop ? { loop: opts.loop } : {}),
                 })
               : await agent.runAction({
                   ...request,
@@ -1974,8 +2178,8 @@ class Executor {
   }
 
   /**
-   * Who signs a write and what came of it. Without a native v4 plan (every converted v3 step),
-   * exactly as before: the gate's item, its timeout, and no answer counts as not approved. With
+   * Who signs a write and what came of it. Without a plan (a step with no check),
+   * the gate's item, its timeout, and no answer counts as not approved. With
    * one, the approval engine (`approve`), the gate's item asking the first approver present.
    */
   async decideApproval(
@@ -1987,7 +2191,9 @@ class Executor {
     opts: WorkOptions,
   ): Promise<Decided> {
     const fallback = approval.timeout ?? this.ctx.approvalTimeout ?? DEFAULT_APPROVAL_TIMEOUT;
-    if (!opts.plan) {
+    // DECISION (owner, 2026-11-27): in a test run with people in it, the test person stands in for
+    // every approver the check names, so their one answer on the port's item decides.
+    if (!opts.plan || this.testPeople) {
       const resolution = await this.awaitResolution(base, pending.inboxItemId, fallback);
       // Wave 5: `unanswered` only says why (for the outcome); it decides as it always did.
       return resolution
@@ -2123,7 +2329,7 @@ class Executor {
     const end = await this.escalate(base, check.ifNoAnswer ?? "stop", ask);
     if ("resolution" in end) return { resolution: end.resolution };
     // DECISION: `stop` on a write's approval is what a timeout always was: not approved, so the
-    // step's `onReject` applies (a converted step behaves exactly as before). A sign-off that
+    // step's `onReject` applies. A sign-off that
     // nobody answered ends the run as a timeout (`signOff`).
     if (end.ended === "stop") return { resolution: notApproved, unanswered: true };
     if (end.ended === "skip") return { resolution: notApproved, skip: true };
@@ -2434,7 +2640,7 @@ class Executor {
   ): Promise<ConferEntry> {
     const { run, log } = this.ctx;
     const who = reviewer.person;
-    const label = clientLabel(asLabelled(step));
+    const label = clientLabel(step);
     const title = `Check: ${label}`;
     const started = await this.runner.do(b, async () => {
       const id = await log.start({
@@ -2522,7 +2728,7 @@ class Executor {
     output: unknown,
   ): Promise<{ go: boolean; why?: NotRun; approval: ApprovalRecord | null }> {
     const base = `${name}:signoff`;
-    const label = clientLabel(asLabelled(step));
+    const label = clientLabel(step);
     const ask = this.personAsker(stepRunId, {
       stepId: step.id,
       name: step.name,
@@ -2548,7 +2754,7 @@ class Executor {
         status: decided.unanswered ? "failed" : "skipped",
         ...(decided.unanswered ? { error: "no answer to the sign-off in time" } : {}),
         summary: answered
-          ? `${stepStateLabel(asLabelled(step), false)}: ${this.words.notApproved}`
+          ? `${stepStateLabel(step, false)}: ${this.words.notApproved}`
           : `${label}: ${this.words.noAnswerInTime}`,
       });
       return null;
@@ -2572,6 +2778,7 @@ class Executor {
     // Wave 5: a notify step with `onError: continue`: a send that fails is recorded as failed in
     // the durable step's result (so a replay doesn't send again) and the run goes on.
     continues = false,
+    delivered?: { kind: DeliveredKind; name: string },
   ): Promise<{ outcome: "sent" | "skipped" | "not_seen" | "failed"; error?: string }> {
     const { run, log, notify } = this.ctx;
     const sent: {
@@ -2600,7 +2807,9 @@ class Executor {
           await log.update(id, {
             status: "succeeded",
             output: { sent: false },
-            summary: this.words.wouldSend(label),
+            summary: delivered
+              ? this.words.delivered(delivered.kind, delivered.name, true)
+              : this.words.wouldSend(label),
           });
           return { sent: false, ack: null, urgent: null };
         }
@@ -2622,9 +2831,9 @@ class Executor {
             });
             ack = r.ackItemId ?? null;
           } else {
-            // DECISION: without the port's v4 notify, each recipient gets the v3 notice (an inbox
+            // DECISION: without the port's v4 notify, each recipient gets the plain notice (an inbox
             // notice as a thread message, sms as one too); an urgent one isn't waited on.
-            const v3: NotifyStep = {
+            const plain: NotifyStep = {
               id: nodeName,
               name: label,
               kind: "notify",
@@ -2635,9 +2844,9 @@ class Executor {
             for (const to of n.to) {
               await notify.send({
                 run,
-                step: v3,
+                step: plain,
                 nodeId: nodeName,
-                channel: v3.channel,
+                channel: plain.channel,
                 to,
                 text,
                 sources,
@@ -2670,7 +2879,12 @@ class Executor {
       await this.runner.do(
         `${nodeName}:logged`,
         async () => {
-          await log.update(logId, { status: "succeeded", summary: `${label}: ${this.words.sent}` });
+          await log.update(logId, {
+            status: "succeeded",
+            summary: delivered
+              ? this.words.delivered(delivered.kind, delivered.name, false)
+              : `${label}: ${this.words.sent}`,
+          });
           return null;
         },
         NOTICE_STEP_CONFIG,
@@ -2706,8 +2920,7 @@ class Executor {
   /**
    * R3: a native skill's output said it needs help (`needsHelp`): the lead is asked with what it
    * tried, the answer is kept (`memory.write`) and the step runs once more with `help` in its
-   * input, as data. Still stuck after that, the step fails. A converted v3 skill's output is its
-   * output, whatever it holds (it never asked before). A tool step's request may name the
+   * input, as data. Still stuck after that, the step fails. A tool step's request may name the
    * operator (`to`) and say its answer isn't kept (`keep: false`): a recorded script's does.
    */
   // DECISION (wave 4 review): a script's fixed steps can't change with anyone's answer, so its
@@ -2726,7 +2939,7 @@ class Executor {
     done: { output: unknown; stepRunId: string; proposed: boolean },
     opts: WorkOptions,
   ): Promise<{ output: unknown; proposed: boolean; why?: NotRun; approvals?: ApprovalRecord[] }> {
-    const need = needsHelpOf(done.output, true);
+    const need = needsHelpOf(done.output);
     if (!need) return { output: done.output, proposed: done.proposed };
     const { run, log, agent } = this.ctx;
     const label = clientLabel(view);
@@ -2856,8 +3069,7 @@ class Executor {
         ...(again.approvals ? { approvals: again.approvals } : {}),
       };
     }
-    if (needsHelpOf(again.output, true))
-      throw new Error("still needs help after the lead's answer");
+    if (needsHelpOf(again.output)) throw new Error("still needs help after the lead's answer");
     return {
       output: again.output,
       proposed: done.proposed || again.proposed,
@@ -2869,7 +3081,7 @@ class Executor {
 
   async person(step: processes.PersonStep, name: string, frame: Frame): Promise<void> {
     const { run, inbox, log } = this.ctx;
-    const view = personView(step, this.origin(step));
+    const view = personView(step);
     const deadline = step.deadline;
     const created = await this.runner.do(name, async () => {
       const title = renderTemplate(step.title, frame.scope);
@@ -2926,6 +3138,7 @@ class Executor {
         payload: resolveTemplate(step.payload, frame.scope),
         mode: step.mode,
         ...(step.choices ? { choices: step.choices } : {}),
+        ...(step.fields ? { fields: step.fields } : {}),
       });
       const end = await this.escalate(name, deadline.ifNoAnswer, ask);
       if ("resolution" in end) resolution = end.resolution;
@@ -2947,7 +3160,13 @@ class Executor {
     // An answer to an `ask` counts as approved unless the resolver said otherwise.
     const approved =
       step.mode === "approve" ? resolution.approved === true : resolution.approved !== false;
-    const output = { approved, answer: resolution.answer ?? null, by: resolution.by };
+    // The fields it asked for by their names (owner, 2026-11-28), beside its own, which win.
+    const output = {
+      ...(step.fields ? answerFields(step.fields, resolution.answer) : {}),
+      approved,
+      answer: resolution.answer ?? null,
+      by: resolution.by,
+    };
     const summary =
       step.mode === "approve"
         ? `${label}: ${approved ? this.words.approved : this.words.notApproved}`
@@ -2970,13 +3189,10 @@ class Executor {
   /**
    * Nobody answered a person step. `stop` fails the run (`timeout`), as a timeout always has;
    * `skip` goes on with the step skipped and its output saying nobody answered. `proceed` goes on
-   * as §10.14's table says for a native v4 step, as if the answer were yes; a converted v3 step's
-   * (v3's `continue`) as v3 did, `approved: false`.
+   * as §10.14's table says, as if the answer were yes.
    */
-  // DECISION: `proceed` on a converted v3 person step goes on with `approved: false`, the step
-  // skipped: nobody said yes, and its stored workflow's later `if` was written for that (v3's
-  // `continue` did exactly this). On a native v4 step it reads as a yes (`approved: true`, `by`
-  // null, `proceeded: true`, the row succeeded), as §10.14's table says. A person step writes
+  // DECISION: `proceed` reads as a yes (`approved: true`, `by` null, `proceeded: true`, the row
+  // succeeded), as §10.14's table says. A person step writes
   // nothing itself: every write after it still has its own approval (invariant 8).
   async personNoAnswer(
     step: processes.PersonStep,
@@ -2987,8 +3203,8 @@ class Executor {
     reason: string,
     told: boolean,
   ): Promise<void> {
-    const label = clientLabel(asLabelled(step));
-    const yes = then === "proceed" && !this.origin(step);
+    const label = clientLabel(step);
+    const yes = then === "proceed";
     const output = yes
       ? { approved: true, answer: null, by: null, proceeded: true }
       : { approved: false, answer: null, by: null };
@@ -2998,7 +3214,7 @@ class Executor {
         output,
         summary: `${label}: ${this.words.noAnswerInTime}`,
       });
-      // DECISION: v3 `notify_operator` (now `tell: ['operator']`) tells the operator and then ends
+      // DECISION: `tell: ["operator"]` tells the operator and then ends
       // the run like `stop`: it can't go on without the person, and the operator decides.
       if (!told) {
         await this.tell(step.deadline.tell, {
@@ -3027,7 +3243,7 @@ class Executor {
     const port = this.ctx.conversation;
     if (!port) throw new Error("conversation steps need the conversation service");
     const { run, log } = this.ctx;
-    const label = clientLabel(asLabelled(step));
+    const label = clientLabel(step);
     const waiting = async (stepRunId: string, result: ConversationResult) => {
       if (result.status !== "pending") return;
       const on = result.waitingOn ?? "reply";
@@ -3065,6 +3281,7 @@ class Executor {
           tenantId: run.tenantId,
           agentVersionId: run.agentVersionId,
           mode: run.mode,
+          ...(this.testPeople ? { testPeople: true } : {}),
           stepRunId,
         };
         const result = await port.conversation(request);
@@ -3121,7 +3338,15 @@ class Executor {
         result = { ...result, status: "no_answer" };
       }
     }
+    // What it found is handed on under its own names too (staging, 2026-11-27: a v5 Contact step
+    // says its output is `answers`, the fields it finds, but they were only under `found`, so a
+    // step reading `answers` got nothing). The conversation's own fields win a clash.
+    const found =
+      result.found && typeof result.found === "object" && !Array.isArray(result.found)
+        ? (result.found as Record<string, unknown>)
+        : {};
     const output = {
+      ...found,
       status: result.status,
       found: result.found,
       summary: result.summary,
@@ -3152,7 +3377,7 @@ class Executor {
           status: "failed",
           output,
           error,
-          summary: `${stepStateLabel(asLabelled(step), false)}: ${this.words.failed}`,
+          summary: `${stepStateLabel(step, false)}: ${this.words.failed}`,
         });
         return null;
       });
@@ -3233,7 +3458,7 @@ class Executor {
 
   async collect(step: processes.CollectStep, name: string, frame: Frame): Promise<void> {
     const { run, log } = this.ctx;
-    const label = clientLabel(asLabelled(step));
+    const label = clientLabel(step);
     const started = await this.runner.do(
       name,
       async () => {
@@ -3655,7 +3880,7 @@ class Executor {
       const stepRunId = await log.start({
         runId: run.id,
         nodeId: name,
-        nodeType: storedKind(step, this.origin(step)) as never,
+        nodeType: storedKind(step) as never,
       });
       const index = step.paths.findIndex((p) => evaluateRules(p.when, frame.scope));
       const path = index >= 0 ? step.paths[index] : undefined;
@@ -3665,19 +3890,55 @@ class Executor {
       await log.update(stepRunId, {
         status: "succeeded",
         output,
-        summary: `${clientLabel(asLabelled(step))}: ${path ? output.pathName : this.words.otherwise}`,
+        summary: `${clientLabel(step)}: ${path ? output.pathName : this.words.otherwise}`,
       });
-      return { index, output };
+      return { index, output, stepRunId };
     });
     const branch = chosen.index >= 0 ? step.paths[chosen.index]?.steps : step.otherwise.steps;
     if (!branch) throw new Error(`fork ${step.id} has no path ${chosen.index}`);
-    // Outputs inside the branch are not visible after the join (ARCHITECTURE §10.2).
+    // Outputs inside the branch are not visible after the join (ARCHITECTURE §10.2), save what
+    // its last step gave, which the fork hands on.
+    const inner = { ...frame.scope, steps: { ...frame.scope.steps } };
     await this.runList(branch, {
       prefix: frame.prefix,
-      scope: { ...frame.scope, steps: { ...frame.scope.steps } },
+      scope: inner,
       ...(frame.checks ? { checks: frame.checks } : {}),
     });
-    this.record(frame, step, chosen.output);
+    await this.join(name, chosen.stepRunId, frame, step, chosen.output, branch, inner);
+  }
+
+  /**
+   * Records a fork after its branch ran: which path ran, and what the branch's last step gave
+   * (owner, 2026-11-27: "Ask the employee" inside a path, its answer read by the coding after the
+   * fork), as a `for_each` hands on its items' results. Nothing else inside the branch is seen
+   * after it. An empty branch (or one whose last step gave no fields) hands on the path only.
+   */
+  async join(
+    name: string,
+    stepRunId: string | undefined,
+    frame: Frame,
+    step: processes.Step,
+    path: { pathId: string; pathName: string },
+    branch: readonly processes.Step[],
+    inner: RunContext,
+  ) {
+    const last = branch.at(-1);
+    const entry = last ? inner.steps[last.id] : undefined;
+    const given = entry?.output;
+    const fields =
+      given && typeof given === "object" && !Array.isArray(given)
+        ? (given as Record<string, unknown>)
+        : {};
+    let output: Record<string, unknown> = { ...fields, ...path };
+    if (jsonBytes(output) > STEP_OUTPUT_MAX_BYTES) output = { ...path };
+    // Kept on the fork's row too, so a retry that reuses the fork hands on the same.
+    if (stepRunId && Object.keys(output).length > Object.keys(path).length) {
+      await this.runner.do(`${name}:joined`, async () => {
+        await this.ctx.log.update(stepRunId, { status: "succeeded", output });
+        return null;
+      });
+    }
+    this.record(frame, step, output, {}, !!entry && this.unwritten.has(entry));
   }
 
   /**
@@ -3688,12 +3949,12 @@ class Executor {
    */
   async agentFork(step: processes.IfStep, name: string, frame: Frame): Promise<void> {
     const { run, log } = this.ctx;
-    const label = clientLabel(asLabelled(step));
+    const label = clientLabel(step);
     const opened = await this.runner.do(name, async () => {
       const stepRunId = await log.start({
         runId: run.id,
         nodeId: name,
-        nodeType: storedKind(step, this.origin(step)) as never,
+        nodeType: storedKind(step) as never,
       });
       const allowed = step.paths
         .filter((p) => p.when.rules.length === 0 || evaluateRules(p.when, frame.scope))
@@ -3771,13 +4032,15 @@ class Executor {
       return null;
     });
     const branch = picked ? picked.steps : step.otherwise.steps;
-    // Outputs inside the branch are not visible after the join (ARCHITECTURE §10.2).
+    // Outputs inside the branch are not visible after the join (ARCHITECTURE §10.2), save what
+    // its last step gave (`join`).
+    const inner = { ...frame.scope, steps: { ...frame.scope.steps } };
     await this.runList(branch, {
       prefix: frame.prefix,
-      scope: { ...frame.scope, steps: { ...frame.scope.steps } },
+      scope: inner,
       ...(frame.checks ? { checks: frame.checks } : {}),
     });
-    this.record(frame, step, output);
+    await this.join(name, opened.stepRunId, frame, step, output, branch, inner);
   }
 
   /** An agent's choice that couldn't be made: its step's row fails with the reason, and the run. */
@@ -3787,12 +4050,12 @@ class Executor {
     stepRunId: string,
     failed: string,
   ): Promise<never> {
-    const reason = `${clientLabel(asLabelled(step))}: ${failed}`;
+    const reason = `${clientLabel(step)}: ${failed}`;
     await this.runner.do(`${name}:failed`, async () => {
       await this.ctx.log.update(stepRunId, {
         status: "failed",
         error: reason,
-        summary: `${stepStateLabel(asLabelled(step), false)}: ${this.words.failed}`,
+        summary: `${stepStateLabel(step, false)}: ${this.words.failed}`,
       });
       return null;
     });
@@ -3814,7 +4077,7 @@ class Executor {
     // is inside the step's first durable call, so a run already past it (in flight) goes on.
     const tooMany =
       items.length > FOR_EACH_MAX_ITEMS
-        ? `${clientLabel(asLabelled(step))}: ${items.length} items, over the ${FOR_EACH_MAX_ITEMS} one for each may take`
+        ? `${clientLabel(step)}: ${items.length} items, over the ${FOR_EACH_MAX_ITEMS} one for each may take`
         : null;
     const { stepRunId, refused } = await this.runner.do(name, async () => {
       const id = await log.start({
@@ -3827,7 +4090,7 @@ class Executor {
         await log.update(id, {
           status: "failed",
           error: tooMany,
-          summary: `${stepStateLabel(asLabelled(step), false)}: ${this.words.failed}`,
+          summary: `${stepStateLabel(step, false)}: ${this.words.failed}`,
         });
         return { stepRunId: id, refused: tooMany };
       }
@@ -3852,19 +4115,26 @@ class Executor {
     const own: OwnerCheckEntry[] | undefined =
       this.ctx.ownerChecks && !frame.checks ? [] : undefined;
     const checks = frame.checks ?? own;
+    // Owner, 2026-11-27: what each item's last step gave, in the items' order, handed on as
+    // `items` ("Read each receipt" then "Work out what's missing" over what was read). Nothing
+    // else inside the loop is seen after it (ARCHITECTURE §10.2); a failed item hands on null.
+    const results: unknown[] = items.map(() => null);
+    const lastId = step.steps.at(-1)?.id;
     try {
       await pool(items.length, step.concurrency ?? 10, async (i) => {
         try {
+          const scope = {
+            ...frame.scope,
+            steps: { ...frame.scope.steps },
+            item: items[i],
+            index: i,
+          };
           await this.runList(step.steps, {
             prefix: `${name}:${i}:`,
-            scope: {
-              ...frame.scope,
-              steps: { ...frame.scope.steps },
-              item: items[i],
-              index: i,
-            },
+            scope,
             ...(checks ? { checks } : {}),
           });
+          if (lastId) results[i] = scope.steps[lastId]?.output ?? null;
         } catch (error) {
           if (!continues || !continuable(error)) throw error;
           failedItems.add(i);
@@ -3880,12 +4150,17 @@ class Executor {
     await this.writeChecks(name, own);
 
     const failed = failedItems.size;
-    const output = failed > 0 ? { count: items.length, failed } : { count: items.length };
+    const counted = failed > 0 ? { count: items.length, failed } : { count: items.length };
+    // Kept on the row too, so a retry that reuses this loop hands on the same (`scopeOutputOfRow`);
+    // over the most a step may hand on, the loop hands on its count only, and says so.
+    const whole = { ...counted, items: results };
+    const output =
+      jsonBytes(whole) > STEP_OUTPUT_MAX_BYTES ? { ...counted, itemsTooLarge: true } : whole;
     await this.runner.do(`${name}:done`, async () => {
       await log.update(stepRunId, {
         status: ended?.result.status === "failed" ? "failed" : "succeeded",
         output,
-        summary: `${clientLabel(asLabelled(step))}: ${this.words.items(items.length)}`,
+        summary: `${clientLabel(step)}: ${this.words.items(items.length)}`,
       });
       return null;
     });
@@ -3905,7 +4180,7 @@ class Executor {
    */
   async repeat(step: processes.RepeatStep, name: string, frame: Frame): Promise<void> {
     const { run, log } = this.ctx;
-    const label = clientLabel(asLabelled(step));
+    const label = clientLabel(step);
     const { stepRunId } = await this.runner.do(name, async () => {
       const id = await log.start({
         runId: run.id,
@@ -4046,7 +4321,7 @@ class Executor {
 
   async wait(step: processes.WaitStep, name: string, frame: Frame): Promise<void> {
     const { run, log } = this.ctx;
-    const label = clientLabel(asLabelled(step));
+    const label = clientLabel(step);
     const { stepRunId } = await this.runner.do(name, async () => {
       const id = await log.start({ runId: run.id, nodeId: name, nodeType: "wait" });
       await log.update(id, {
@@ -4067,16 +4342,15 @@ class Executor {
     this.record(frame, step, null, { outcome: "timed_out" });
   }
 
-  /** A notify step: a converted one exactly as v3 sent it; a v4 one through `notice`. */
+  /** A notify step, sent through `notice`. */
   async notifyStep(step: processes.NotifyStep, name: string, frame: Frame): Promise<void> {
-    const origin = this.origin(step);
-    if (origin?.kind === "notify") return this.notifyV3(origin, name, frame);
     const ended = await this.notice(
       step.notify,
       name,
       frame.scope,
       step.name,
       this.continues(step),
+      this.delivering.get(step),
     );
     // Wave 5: sent, skipped (its `when`), not seen in time (urgent, the run went on), or failed.
     this.record(frame, step, null, {
@@ -4096,6 +4370,7 @@ class Executor {
   async handoff(step: processes.HandoffStep, name: string, frame: Frame): Promise<void> {
     const { run, log } = this.ctx;
     const port = this.ctx.handoff;
+    const delivered = this.delivering.get(step);
     const ended = await this.runner.do(name, async () => {
       const input = resolveTemplate(step.input, frame.scope);
       const id = await log.start({ runId: run.id, nodeId: name, nodeType: "handoff", input });
@@ -4106,7 +4381,9 @@ class Executor {
         await log.update(id, {
           status: "succeeded",
           output,
-          summary: this.words.wouldHandOff(names.name, names.at),
+          summary: delivered
+            ? this.words.delivered("handoff", delivered.name, true)
+            : this.words.wouldHandOff(names.name, names.at),
         });
         return { output };
       }
@@ -4120,7 +4397,7 @@ class Executor {
           summary:
             "notStarted" in r && r.notStarted
               ? this.words.handOffNotStarted(r.name ?? step.to.agent)
-              : `${stepStateLabel(asLabelled(step), false)}: ${this.words.failed}`,
+              : `${stepStateLabel(step, false)}: ${this.words.failed}`,
         });
         return { refused: r.refused };
       }
@@ -4128,7 +4405,9 @@ class Executor {
       await log.update(id, {
         status: "succeeded",
         output,
-        summary: this.words.handedOff(r.name, shortRunId(r.runId)),
+        summary: delivered
+          ? this.words.delivered("handoff", delivered.name, false)
+          : this.words.handedOff(r.name, shortRunId(r.runId)),
       });
       return { output };
     });
@@ -4141,38 +4420,6 @@ class Executor {
       });
     }
     this.record(frame, step, ended.output);
-  }
-
-  async notifyV3(step: NotifyStep, name: string, frame: Frame): Promise<void> {
-    const { run, log, notify } = this.ctx;
-    await this.runner.do(name, async () => {
-      const text = renderTemplate(step.message, frame.scope);
-      const to = step.to === undefined ? null : renderTemplate(step.to, frame.scope);
-      const sources = noticeSources(step.sources, frame.scope);
-      const id = await log.start({
-        runId: run.id,
-        nodeId: name,
-        nodeType: "notify",
-        input: { channel: step.channel, to, text, ...(sources.length ? { sources } : {}) },
-      });
-      // DECISION: a test run's notice is not sent anywhere, not even as an operator-only thread
-      // message in the client's data: its text stays on the step (the run log shows it), and the
-      // timeline says it would have been sent (ARCHITECTURE §10.4: test runs never reach clients).
-      if (this.testRun) {
-        await log.update(id, {
-          status: "succeeded",
-          output: { sent: false },
-          summary: this.words.wouldSend(step.name),
-        });
-        return null;
-      }
-      await notify.send({ run, step, nodeId: name, channel: step.channel, to, text, sources });
-      await log.update(id, {
-        status: "succeeded",
-        summary: `${clientLabel(step)}: ${this.words.sent}`,
-      });
-      return null;
-    });
   }
 
   // ── v0.12 W2-B: use steps (ARCHITECTURE §10.7; docs/plan.md §1.45); R3: `process` steps ──────
@@ -4192,7 +4439,7 @@ class Executor {
       const id = await log.start({
         runId: run.id,
         nodeId: name,
-        nodeType: storedKind(step, this.origin(step)) as never,
+        nodeType: storedKind(step) as never,
         skillRef: automationSkillRef(expanded.ref),
         input,
       });
@@ -4224,7 +4471,7 @@ class Executor {
       this.continues(step) &&
       (ended.result.reason === "stop" || continuable(ended));
     const output = ended ? null : resolveTemplate(expanded.output, inner.scope);
-    const label = clientLabel(asLabelled(step));
+    const label = clientLabel(step);
     await this.runner.do(`${name}:done`, async () => {
       const status = ended?.result.status;
       await log.update(started.stepRunId, {
@@ -4279,11 +4526,11 @@ class Executor {
   // ── v0.13 W2-I: run oversight (ARCHITECTURE §10.11; docs/plan.md §1.54) ──────────────────────
 
   /**
-   * Whether a failure of this step goes to the run's own agent (its owner, R6): the native v4
-   * step it runs for when there is one, else the port view (a converted step's stored v3 step).
+   * Whether a failure of this step goes to the run's own agent (its owner, R6): the step it
+   * runs for.
    */
-  oversees(step: SkillStep | ActionStep, opts: WorkOptions = {}): boolean {
-    return ownerReviewsFailureOf(this.ctx.oversight, opts.watched ?? step);
+  oversees(opts: WorkOptions): boolean {
+    return ownerReviewsFailureOf(this.ctx.oversight, opts.watched);
   }
 
   /**
@@ -4302,7 +4549,7 @@ class Executor {
       return { review: false, signals: [], found: [] };
     }
     const verdicts = verdictsOf(opts.verdicts?.());
-    return ownerAfterSuccess(this.ctx.oversight, opts.watched ?? step, {
+    return ownerAfterSuccess(this.ctx.oversight, opts.watched, {
       name,
       checkpoint: this.checkpoints.has(checkpointKey(name, step.id)),
       output: attempt.outcome.output,
@@ -4311,13 +4558,10 @@ class Executor {
   }
 
   /**
-   * Wave 6 (docs/plan.md §1.86 "Run audit (wave 6)"): the owner's check on one attempt at a native
-   * v4 step, recorded in a durable step of its own (`${name}:owner:${attempt}`), so a replay reuses
-   * it; the port keeps one row per run, node and attempt besides. A converted v3 step records
-   * nothing, so a v3 run keeps exactly the durable steps it had.
+   * Wave 6 (docs/plan.md §1.86 "Run audit (wave 6)"): the owner's check on one attempt at a
+   * step, recorded in a durable step of its own (`${name}:owner:${attempt}`), so a replay reuses
+   * it; the port keeps one row per run, node and attempt besides.
    */
-  // DECISION (wave 6): only native v4 steps (`opts.watched`) record a check; a converted v3 step,
-  // which has no cheap watch, records none, so a v3 run keeps exactly the durable steps it had.
   // DECISION (wave 6): a check that can't be written never fails the step or the run: the step's
   // own result stands and the run view shows no check for that attempt.
   // DECISION (wave 6 review): inside a for each the check is kept on the loop's frame and the
@@ -4325,12 +4569,11 @@ class Executor {
   // or not; so a v4 run with a loop of n items adds one durable step for the loop, not n.
   async recordCheck(
     name: string,
-    opts: WorkOptions,
     entry: Omit<OwnerCheckEntry, "runId" | "nodeId">,
     frame?: Frame,
   ): Promise<void> {
     const log = this.ctx.ownerChecks;
-    if (!log || !opts.watched) return;
+    if (!log) return;
     if (frame?.checks) {
       frame.checks.push({ runId: this.ctx.run.id, nodeId: name, ...entry });
       return;
@@ -4375,7 +4618,7 @@ class Executor {
    */
   async recordEnded(
     name: string,
-    opts: WorkOptions,
+    _opts: WorkOptions,
     frame: Frame,
     attempt: number,
     end: RunEnd,
@@ -4383,7 +4626,6 @@ class Executor {
     const attemptOutcome = endedOutcome(end);
     await this.recordCheck(
       name,
-      opts,
       {
         attempt,
         result: attemptOutcome === "failed" ? "flagged" : "clean",
@@ -4428,7 +4670,7 @@ class Executor {
     name: string,
     frame: Frame,
     approval: Approval,
-    opts: WorkOptions = {},
+    opts: WorkOptions,
   ): Promise<
     | { kind: "attempt"; attempt: Attempt; diagnosis?: string }
     | { kind: "thrown"; error: unknown; diagnosis?: string }
@@ -4440,12 +4682,12 @@ class Executor {
     if (!oversight) throw new Error("unreachable");
     const { run, log } = this.ctx;
     const maxPerRun = oversight.settings?.maxPerRun ?? OVERSIGHT_DEFAULT_MAX_PER_RUN;
-    // R6: the owner reviews the native v4 step; a converted step as its stored v3 step, as before.
-    const watched = opts.watched ?? step;
-    // As the owner is shown it: a native check's approvers who are away left out, so an ask goes
-    // to the first approver present, as the step's own approval does.
-    const reviewed = opts.watched && opts.plan ? presentFirst(opts.watched, opts.plan) : watched;
-    const nodeType = opts.nodeType ?? step.kind;
+    // R6: the owner reviews the step itself.
+    const watched = opts.watched;
+    // As the owner is shown it: the approvers who are away left out, so an ask goes to the first
+    // approver present, as the step's own approval does.
+    const reviewed = opts.plan ? presentFirst(opts.watched, opts.plan) : watched;
+    const nodeType = opts.nodeType;
     let current = await this.tryAttempt(step, name, frame, approval, undefined, opts);
     let input: unknown;
     let keyNode = name;
@@ -4489,7 +4731,6 @@ class Executor {
       const flag = (reason: OwnerCheckReason) =>
         this.recordCheck(
           name,
-          opts,
           {
             attempt: seq,
             result: off ? "flagged" : "clean",
@@ -4506,7 +4747,6 @@ class Executor {
         // reviewed by the setting; a person's no or nobody answering, nothing for the owner.
         await this.recordCheck(
           name,
-          opts,
           {
             attempt: seq,
             result: off ? "flagged" : "clean",
@@ -4587,7 +4827,6 @@ class Executor {
       // (inside a loop, once the loop ends).
       await this.recordCheck(
         name,
-        opts,
         {
           attempt: seq,
           result: "reviewed",
@@ -4610,8 +4849,7 @@ class Executor {
         break;
       }
       if (verdict.action === "ask") {
-        // R6: an ask follows the step's approval (core `ownerStepApproval`): a v3 step's own, a v4
-        // step's first approver's deadline and its `onReject`. A native check's first approver
+        // R6: an ask follows the step's approval (core `ownerStepApproval`): the step's first approver's deadline and its `onReject`. A native check's first approver
         // present (the plan knows who is away) is asked, on their deadline in its own hours.
         const owned = ownerStepApproval(reviewed);
         const fallback = this.ctx.approvalTimeout ?? DEFAULT_APPROVAL_TIMEOUT;
@@ -4659,6 +4897,333 @@ class Executor {
     return result();
   }
 
+  // ── The step model: Match, End and the workflow's outputs (docs/step-model-plan.md §7, §9) ─────
+
+  /**
+   * A Match step (§7): its input matched on its profile through stream D's port, in one durable
+   * step with its row (a skill row, as `steps.ENGINE_OUTCOMES.match` says). Each item the engine
+   * leaves unsure is a person's call: they are asked which of its shortlist it is (or none), and
+   * their answer is saved as a learned name (`MatchPort.learn`, never in a test run), so the same
+   * item is an exact hit next time. The step's output carries the records its matches rest on
+   * (`sources`, invariant 10). Its outcome is `done`, or `failed` with `onError: continue`; its
+   * Tell after checks are sent as any step's.
+   */
+  // DECISION (wave 1): no confer or owner review on a Match: its second opinion is the profile's
+  // own (`secondOpinion`), which the engine asks per item. Stream P: the person a confer names is
+  // who that second look's unsure items are asked of (`matchAsk`).
+  async match(
+    v5: steps.DoStep,
+    settings: steps.MatchSettings,
+    step: processes.Step,
+    name: string,
+    frame: Frame,
+  ): Promise<void> {
+    const port = this.ctx.match;
+    if (!port) throw new Error(`refused: "${v5.name}" matches records, which can't run here yet`);
+    const { run, log } = this.ctx;
+    const input = this.inputOf(v5, frame);
+    const label = clientLabel(step);
+    const summaryOf = (o: MatchResult) => `${label}: ${o.matched} of ${o.items.length} matched`;
+    const ended = await this.runner.do(name, async () => {
+      const id = await log.start({
+        runId: run.id,
+        nodeId: name,
+        nodeType: "skill",
+        skillRef: MATCH_SKILL,
+        input,
+      });
+      const r = await port.match({ run, nodeId: name, stepRunId: id, match: settings, input });
+      if (r.kind === "done") {
+        const asking = r.output.items.some((i) => i.unsure);
+        await log.update(id, {
+          status: asking ? "waiting" : "succeeded",
+          output: withSources(r.output, r.notes),
+          summary: asking
+            ? `${label}: ${this.words.waitingForAnswer}`
+            : (r.summary ?? summaryOf(r.output)),
+        });
+      } else {
+        await log.update(id, {
+          status: "failed",
+          error: r.error,
+          summary: `${stepStateLabel(step, false)}: ${this.words.failed}`,
+        });
+      }
+      return { ...r, stepRunId: id };
+    });
+    if (ended.kind === "failed") {
+      if (this.continues(step)) {
+        this.record(frame, step, null, {
+          outcome: "failed",
+          error: processes.plainError(ended.error),
+        });
+        return;
+      }
+      throw new RunEnd({
+        status: "failed",
+        reason: ended.error,
+        nodeId: name,
+        errorKey: this.errorKeyOf(step, ended.error),
+      });
+    }
+    let output: MatchResult = ended.output;
+    if (output.items.some((i) => i.unsure)) {
+      output = await this.matchAsk(v5, settings, ended, step, name, frame);
+      const final = withSources(output, ended.notes);
+      await this.runner.do(`${name}:done`, async () => {
+        await log.update(ended.stepRunId, {
+          status: "succeeded",
+          output: final,
+          summary: summaryOf(output),
+        });
+        return null;
+      });
+    }
+    const recorded = withSources(output, ended.notes);
+    if (v5.checks?.notify?.length) {
+      const scope = checkScope(frame.scope, { id: step.id, output: recorded }, undefined);
+      for (const [i, n] of v5.checks.notify.entries()) {
+        await this.notice(n, `${name}:notify:${i}`, scope, label);
+      }
+    }
+    this.record(frame, step, recorded, { outcome: "done" });
+  }
+
+  /**
+   * The items a Match left unsure, each asked of a person in turn (`${name}:ask:<i>`): which of the
+   * shortlist it is, or none of them. An answer naming a record matches the item (`how: person`)
+   * and is learned; "none" leaves it unmatched; no answer in time leaves it unsure.
+   */
+  // DECISION (wave 1): with no one named, the client's admin is asked, with seven days to answer
+  // and the item left unsure when nobody does; at most five records are offered, with "None of
+  // these", whatever the person shortlist says beyond that.
+  // DECISION (stream P): who is asked is the first person the Match step's confer names
+  // (`checks.confer.with[].person`, a person or a `seat:<role>`), with that reviewer's deadline: a
+  // Match's second look by a person is its unsure question, so the frozen v5 format needs no new
+  // field. The seat is validated as one that answers and filled by `fillSeats` (an empty seat falls
+  // back to the client admin) before the run, so `step` (the engine's, filled) is read, not `v5`.
+  // The confer's and the reviewer's `when` aren't read here: an unsure item is always asked.
+  async matchAsk(
+    v5: steps.DoStep,
+    settings: steps.MatchSettings,
+    ended: { output: MatchResult; notes?: MatchNote[] | undefined; profileName?: string },
+    step: processes.Step,
+    name: string,
+    frame: Frame,
+  ): Promise<MatchResult> {
+    const asker = matchAsker(step);
+    const items = ended.output.items.map((i) => ({ ...i }));
+    for (const [index, item] of items.entries()) {
+      if (!item.unsure) continue;
+      const labels = ended.notes?.[index]?.labels ?? {};
+      const offered = item.candidates.slice(0, Math.min(settings.shortlist.person, 5));
+      const choices = [
+        ...offered.map((c) => ({ value: c.record, label: labels[c.record] ?? c.record })),
+        { value: NONE_OF_THESE, label: "None of these" },
+      ];
+      const ask = {
+        id: `ask${index}`,
+        name: v5.name,
+        kind: "person",
+        mode: "ask",
+        assignee: asker.who,
+        title: `${ended.profileName ?? v5.name}: which one is ${itemText(item.item)}?`,
+        payload: { item: item.item, candidates: choices.slice(0, -1) },
+        deadline: asker.deadline,
+        channel: "inbox",
+        onReject: "continue",
+        choices,
+      } as processes.PersonStep;
+      // Its own scope: the ask's record is the Match's to read, not a step's for the run.
+      const asked: Frame = {
+        ...frame,
+        prefix: `${name}:ask:`,
+        top: false,
+        scope: { ...frame.scope, steps: {} },
+      };
+      await this.person(ask, `${name}:ask:${index}`, asked);
+      const answer = asked.scope.steps[ask.id] as
+        | { output?: { answer?: unknown; by?: string | null } }
+        | undefined;
+      const chosen = answer?.output?.answer;
+      if (typeof chosen !== "string") continue;
+      if (chosen === NONE_OF_THESE) {
+        items[index] = { ...item, unsure: false, isNew: settings.noMatch === "new" };
+        continue;
+      }
+      if (!offered.some((c) => c.record === chosen)) continue;
+      items[index] = { ...item, matched: chosen, how: "person", confidence: 100, unsure: false };
+      const by = answer?.output?.by;
+      const learn = this.ctx.match?.learn;
+      if (learn && by && !this.testRun) {
+        await this.runner.do(`${name}:learn:${index}`, () =>
+          learn.call(this.ctx.match, {
+            run: this.ctx.run,
+            nodeId: `${name}:ask:${index}`,
+            profile: settings.to,
+            item: item.item,
+            recordId: chosen,
+            personId: by,
+          }),
+        );
+      }
+    }
+    const unsure = items.filter((i) => i.unsure).length;
+    return {
+      items,
+      matched: items.filter((i) => i.matched !== null).length,
+      unsure,
+      anyUnsure: unsure > 0,
+    };
+  }
+
+  /**
+   * An End (§9): each declared output it selects is delivered, in order, then it ends the run as
+   * a Stop does, with its status (a failed End ends the run failed, as today's Stop).
+   */
+  async end(
+    v5: steps.EndStep,
+    step: processes.StopStep,
+    name: string,
+    frame: Frame,
+  ): Promise<void> {
+    for (const id of v5.outputs) {
+      const output = this.stepModel?.outputs.get(id);
+      if (!output) {
+        throw new Error(`"${v5.name}" delivers "${id}", which isn't one of the workflow's outputs`);
+      }
+      await this.deliver(output, name, frame);
+    }
+    return this.stop(step, name);
+  }
+
+  /**
+   * One workflow output, delivered by the End `endName` through the path today's steps take: a
+   * report as a notice, a write or a save as a write step through the gate (a write's approval on
+   * by default, invariant 8), a hand off as a hand-off step, `pass_on` as what the run passes on.
+   * Its durable name is `${endName}:out:${outputId}`; its record (`steps.<outputId>`) has its
+   * outcome. An output with `when` is delivered only when its rules hold (else `skipped`).
+   */
+  /**
+   * A step an End builds for an output, with the seats it names (a report's people, a write's
+   * approvers) filled as the workflow's own steps were at load (`processes.fillSeats`).
+   */
+  seated(step: processes.Step): processes.Step {
+    const one = { steps: [step] };
+    if (!processes.namesSeats(one)) return step;
+    return processes.fillSeats(one, this.ctx.seats ?? {}).steps[0] as processes.Step;
+  }
+
+  /**
+   * The steps an End built for a delivered output, with what the output is: their timeline lines
+   * quote the output's name (`this.words.delivered`) instead of reading the name as a sentence.
+   */
+  readonly delivering = new WeakMap<object, { kind: DeliveredKind; name: string }>();
+
+  async deliver(o: steps.WorkflowOutput, endName: string, frame: Frame): Promise<void> {
+    const out: Frame = { ...frame, prefix: `${endName}:out:`, top: false };
+    const name = `${out.prefix}${o.id}`;
+    const as = { id: o.id, name: o.name } as processes.Step;
+    if (o.when) {
+      const when = o.when;
+      const applies = await this.runner.do(`${name}:when`, async () =>
+        evaluateRules(when, checkScope(frame.scope, undefined, undefined)),
+      );
+      if (!applies) {
+        this.record(frame, as, null, { outcome: "skipped" });
+        return;
+      }
+    }
+    const base = { id: o.id, name: o.name, ...(o.checks ? { checks: o.checks } : {}) };
+    switch (o.kind) {
+      case "report": {
+        const r = o.report;
+        if (!r) throw new Error(`the report "${o.name}" says nothing`);
+        const notify = {
+          to: r.to,
+          channel: r.channel,
+          message: r.message,
+          ...(r.sources ? { sources: r.sources } : {}),
+        };
+        const sent = this.seated({ ...base, kind: "notify", notify } as processes.Step);
+        this.delivering.set(sent, { kind: "report", name: o.name });
+        return this.runStep(sent, out);
+      }
+      case "write":
+      case "save": {
+        const a = o.action;
+        if (!a) throw new Error(`"${o.name}" names no action`);
+        const kind = this.actionKind(a.action) ?? "change";
+        if (kind === "get") {
+          return this.runStep({ ...base, kind: "read", tool: a.action, input: a.input }, out);
+        }
+        // Invariant 8: a write to a client's tool asks for approval unless the operator set it off.
+        const checks =
+          kind !== "save" && !o.checks?.approval
+            ? { ...(o.checks ?? {}), approval: processes.ApprovalCheck.parse({}) }
+            : o.checks;
+        const action = STEP_MODEL_WRITE_ACTIONS[a.action];
+        const write = (
+          action
+            ? { ...base, kind: "write", action, input: a.input }
+            : { ...base, kind: "write", tool: a.action, input: a.input }
+        ) as processes.Step;
+        if (checks) write.checks = checks;
+        const seated = this.seated(write);
+        if (o.kind === "save") this.delivering.set(seated, { kind: "save", name: o.name });
+        if (!action && steps.mergedAction(a.action)) this.stepModel?.merged.add(seated);
+        return this.runStep(seated, out);
+      }
+      case "handoff": {
+        const h = o.handoff;
+        if (!h) throw new Error(`"${o.name}" hands off to nobody`);
+        const to = {
+          agent: h.agent,
+          step: h.step,
+          ...(h.workflow ? { workflow: h.workflow } : {}),
+        };
+        const handed = { ...base, kind: "handoff", to, input: h.input } as processes.Step;
+        this.delivering.set(handed, { kind: "handoff", name: o.name });
+        return this.runStep(handed, out);
+      }
+      case "pass_on": {
+        const p = o.passOn;
+        if (!p) throw new Error(`"${o.name}" passes nothing on`);
+        const { run, log } = this.ctx;
+        const got = await this.runner.do(name, async () => {
+          const id = await log.start({ runId: run.id, nodeId: name, nodeType: "stop" });
+          let output: unknown = null;
+          let raw: unknown = [];
+          try {
+            output = resolveTemplate(p.output, frame.scope) ?? null;
+            raw = p.sources === undefined ? [] : resolveTemplate(p.sources, frame.scope);
+          } catch {
+            // What can't be read passes on as nothing, as a v4 process's hand-off output does.
+          }
+          const sources = [
+            ...new Set(
+              (Array.isArray(raw) ? raw : [raw])
+                .flat(2)
+                .filter((s): s is string => typeof s === "string" && s.length > 0),
+            ),
+          ];
+          await log.update(id, {
+            status: "succeeded",
+            output: { output, sources },
+            summary: this.words.delivered("pass_on", o.name, this.testRun),
+          });
+          return { output, sources };
+        });
+        this.passedOn = got;
+        this.record(frame, as, got.output, { outcome: "done" });
+        return;
+      }
+      case "nothing":
+        this.record(frame, as, null, { outcome: "done" });
+        return;
+    }
+  }
+
   async stop(step: processes.StopStep, name: string): Promise<void> {
     const { run, log } = this.ctx;
     await this.runner.do(name, async () => {
@@ -4668,7 +5233,7 @@ class Executor {
         // Wave 5 review: how it ends the run, which a retry reads back as a stopped process's
         // `stopStatus` (core's `recordOfStoredStep`).
         output: { status: step.status },
-        summary: `${clientLabel(asLabelled(step))}: ${this.words.stopped[step.status]}`,
+        summary: `${clientLabel(step)}: ${this.words.stopped[step.status]}`,
       });
       return null;
     });
@@ -4772,9 +5337,9 @@ function keptFields(output: unknown, schema: Record<string, unknown>): unknown {
   return Object.fromEntries(Object.entries(output).filter(([k]) => Object.hasOwn(props, k)));
 }
 
-/** A native skill's request for help in its output (`needsHelp`), else null. */
-function needsHelpOf(output: unknown, native: boolean): NeedsHelp | null {
-  if (!native || !isPlainObject(output)) return null;
+/** A work step's request for help in its output (`needsHelp`), else null. */
+function needsHelpOf(output: unknown): NeedsHelp | null {
+  if (!isPlainObject(output)) return null;
   const need = NeedsHelp.safeParse(output.needsHelp);
   return need.success ? need.data : null;
 }
@@ -4783,31 +5348,32 @@ function needsHelpOf(output: unknown, native: boolean): NeedsHelp | null {
  * Where a retry of a run that failed at `nodeId` resumes (docs/plan.md §1.40): the top-level step
  * that is, or holds, the failed one. Only top-level steps are resumable, so a failure inside a fork
  * (`if`) path or a loop resumes at that fork or loop. Null when no step matches (it failed before
- * any). R3: v3 workflows and v4 processes alike.
+ * any).
  */
 export function resumePoint(
-  workflow: Pick<Workflow, "steps"> | Pick<processes.Process, "steps">,
+  // The step model: a v5 Fork, For each and Repeat hold their steps as v4's do.
+  workflow: Pick<processes.Process, "steps"> | Pick<steps.Workflow, "steps">,
   nodeId: string | null,
 ): string | null {
   if (!nodeId) return null;
   // A durable name is the step id, `${loop}:${i}:${child}` in a loop, or a suffix after `:`;
   // v0.12 W2-B: inside a use step, `${use}/${inner}` (the use step is what resumes).
   const id = nodeId.split(/[:/]/)[0] ?? nodeId;
-  const holds = (step: V3Step | processes.Step): boolean => {
+  const holds = (step: steps.Step | processes.Step): boolean => {
     if (step.id === id) return true;
     if (step.kind === "fork" || step.kind === "if") {
-      const inner: (V3Step | processes.Step)[] = [
-        ...step.paths.flatMap((p: { steps: (V3Step | processes.Step)[] }) => p.steps),
+      const inner: (steps.Step | processes.Step)[] = [
+        ...step.paths.flatMap((p: { steps: (steps.Step | processes.Step)[] }) => p.steps),
         ...step.otherwise.steps,
       ];
       return inner.some(holds);
     }
     return (
       (step.kind === "for_each" || step.kind === "repeat") &&
-      (step.steps as (V3Step | processes.Step)[]).some(holds)
+      (step.steps as (steps.Step | processes.Step)[]).some(holds)
     );
   };
-  const steps = workflow.steps as (V3Step | processes.Step)[];
+  const steps = workflow.steps as (steps.Step | processes.Step)[];
   return steps.find(holds)?.id ?? null;
 }
 
@@ -4884,4 +5450,30 @@ function handoffOutput(step: processes.HandoffStep): Record<string, string> {
       ? { workflow: step.to.workflow }
       : {}),
   };
+}
+
+/** A person's "none of these" on a Match item (never a record id). */
+const NONE_OF_THESE = "none";
+
+/** A Match result with the records its matches rest on (invariant 10), from the engine's notes. */
+function withSources(
+  output: MatchResult,
+  notes: readonly MatchNote[] | undefined,
+): MatchResult & { sources: string[] } {
+  const sources = new Set<string>();
+  for (const n of notes ?? []) for (const s of n.sources) sources.add(s);
+  for (const i of output.items) if (i.matched) sources.add(i.matched);
+  return { ...output, sources: [...sources] };
+}
+
+/** An item as a person reads it in a question: its values, in quotes, briefly. */
+function itemText(item: unknown): string {
+  const values =
+    item !== null && typeof item === "object"
+      ? Object.values(item as Record<string, unknown>).filter(
+          (v) => typeof v === "string" || typeof v === "number",
+        )
+      : [item];
+  const text = values.map(String).join(", ").slice(0, 120);
+  return text ? `"${text}"` : "this item";
 }

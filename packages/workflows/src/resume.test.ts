@@ -1,21 +1,24 @@
 // v0.12 W1-E: a retry from the failed step (ARCHITECTURE §10.10; docs/plan.md §1.40).
 
 import { describe, expect, it } from "vitest";
-import { executeWorkflow, resumePoint } from "./executor";
+import { resumePoint } from "./executor";
 import { FakeStepRunner } from "./fake-runner";
-import { Harness, WRITE_TOOL, wf } from "./fakes.test-helper";
+import { executeProcess, Harness, WRITE_TOOL, wf } from "./fakes.test-helper";
 
 const steps = [
   { id: "read", kind: "skill", name: "Read", skill: "x.read", input: {} },
   {
     id: "route",
-    kind: "fork",
+    kind: "if",
     name: "Route",
     paths: [
       {
         id: "big",
         name: "Big",
-        when: { rules: [{ field: "{{steps.read.output.total}}", op: ">", value: 100 }] },
+        when: {
+          match: "all",
+          rules: [{ field: "{{steps.read.output.total}}", op: ">", value: 100 }],
+        },
         steps: [{ id: "check", kind: "skill", name: "Check", skill: "x.check", input: {} }],
       },
     ],
@@ -23,7 +26,7 @@ const steps = [
   },
   {
     id: "send",
-    kind: "action",
+    kind: "write",
     name: "Send the email",
     tool: WRITE_TOOL.id,
     input: { total: "{{steps.read.output.total}}" },
@@ -36,7 +39,7 @@ describe("retry from the failed step", () => {
     const h = new Harness();
     h.handlers.send = (req) => ({ kind: "done", output: { sent: req.input } });
     const runner = new FakeStepRunner();
-    const result = await executeWorkflow(
+    const result = await executeProcess(
       runner,
       h.context({
         resume: {
@@ -70,7 +73,7 @@ describe("retry from the failed step", () => {
   it("runs a step again when the run retried has no row to reuse for it", async () => {
     const h = new Harness();
     h.handlers.read = () => ({ kind: "done", output: { total: 5 } });
-    await executeWorkflow(
+    await executeProcess(
       new FakeStepRunner(),
       h.context({ resume: { from: "send", of: "R-0a0b0c", reused: {} } }),
       wf(steps),
@@ -82,7 +85,7 @@ describe("retry from the failed step", () => {
   it("names the failed action's tool in the error key", async () => {
     const h = new Harness();
     h.handlers.send = () => ({ kind: "failed", error: "HTTP 401: invalid_grant" });
-    const result = await executeWorkflow(new FakeStepRunner(), h.context(), wf(steps), {});
+    const result = await executeProcess(new FakeStepRunner(), h.context(), wf(steps), {});
     expect(result).toMatchObject({
       status: "failed",
       nodeId: "send",

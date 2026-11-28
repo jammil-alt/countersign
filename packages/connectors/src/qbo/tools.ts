@@ -93,11 +93,11 @@ function txnQueryTool(entity: QboTxnEntity, clientFor: ClientFor): ToolDefinitio
     async run(input, ctx) {
       const conds: string[] = [];
       if (input.ids) conds.push(`Id in (${input.ids.map(qboLiteral).join(", ")})`);
-      // UNCHECKED (NOTES.md): Purchase is filtered by EntityRef, Bill by VendorRef.
-      if (input.vendorId) {
-        conds.push(
-          `${entity === "Bill" ? "VendorRef" : "EntityRef"} = ${qboLiteral(input.vendorId)}`,
-        );
+      // Checked (staging, 2026-11-27): a Bill is queried by VendorRef, but a Purchase's EntityRef
+      // is refused by QuickBooks ("property 'EntityRef' is not queryable"), so its payee is
+      // filtered here, below, after the date-bounded query.
+      if (input.vendorId && entity === "Bill") {
+        conds.push(`VendorRef = ${qboLiteral(input.vendorId)}`);
       }
       if (input.docNumber) conds.push(`DocNumber = ${qboLiteral(input.docNumber)}`);
       const from =
@@ -105,10 +105,56 @@ function txnQueryTool(entity: QboTxnEntity, clientFor: ClientFor): ToolDefinitio
       if (from) conds.push(`TxnDate >= ${qboLiteral(from)}`);
       if (input.to) conds.push(`TxnDate <= ${qboLiteral(input.to)}`);
       const client = await clientFor(ctx);
+      if (entity === "Purchase" && input.vendorId) {
+        return purchasesOf(client, conds, input.vendorId, input);
+      }
       const { rows, more } = await page(client, entity, conds, input, (r) => toTxn(entity, r));
       return { [plural]: rows, more };
     },
   });
+}
+
+/** How many purchases are read, at most, to find one payee's (QuickBooks answers 1,000 a query). */
+const PURCHASE_SCAN_PAGES = 5;
+// One under QuickBooks' 1,000: `page` asks for one more row to tell whether there are more.
+const PURCHASE_SCAN_PAGE = 999;
+
+/**
+ * One payee's purchases: QuickBooks can't filter a Purchase by its payee, so the purchases the
+ * other conditions find are read 999 at a time, newest change first, and the payee's kept.
+ * `start` and `limit` page through the payee's own purchases. `more` is also true when the scan
+ * stopped before the end, so a caller narrows the dates rather than taking the list as whole.
+ */
+// DECISION: at most 5,000 purchases are read for one call; a client with more in the window gets
+// `more: true` and the newest changed first, which a lookback of a year rarely reaches.
+async function purchasesOf(
+  client: QboClient,
+  conds: string[],
+  vendorId: string,
+  input: { start: number; limit: number },
+): Promise<{ purchases: QboTxn[]; more: boolean }> {
+  const mine: QboTxn[] = [];
+  const want = input.start - 1 + input.limit + 1;
+  let scannedAll = false;
+  for (let p = 0; p < PURCHASE_SCAN_PAGES && mine.length < want; p++) {
+    const { rows, more } = await page(
+      client,
+      "Purchase",
+      conds,
+      { start: p * PURCHASE_SCAN_PAGE + 1, limit: PURCHASE_SCAN_PAGE },
+      (r) => toTxn("Purchase", r),
+    );
+    for (const t of rows) if (t.vendor?.id === vendorId) mine.push(t);
+    if (!more) {
+      scannedAll = true;
+      break;
+    }
+  }
+  const from = input.start - 1;
+  return {
+    purchases: mine.slice(from, from + input.limit),
+    more: mine.length > from + input.limit || !scannedAll,
+  };
 }
 
 /**

@@ -20,6 +20,7 @@ import {
   signerItemsTx,
   unsignedRefusal,
 } from "@countersign/agents";
+import { actionIsOn, mergedOutput, resolveMergedCall } from "@countersign/connectors";
 import {
   type Approval,
   type ApprovalAssignee,
@@ -49,14 +50,15 @@ import {
   withTenant,
 } from "@countersign/db";
 import { leadOf } from "@countersign/threads";
-import type {
-  AgentPort,
-  InboxPort,
-  NotifyPort,
-  RunInfo,
-  StepLog,
-  StepOutcome,
-  StepRunUpdate,
+import {
+  type AgentPort,
+  type InboxPort,
+  LOOP_SKILL,
+  type NotifyPort,
+  type RunInfo,
+  type StepLog,
+  type StepOutcome,
+  type StepRunUpdate,
 } from "@countersign/workflows";
 import { and, eq, isNull, or, sql } from "drizzle-orm";
 import { z } from "zod";
@@ -78,7 +80,9 @@ import { type NotifyDeps, sendQueued } from "../notify/outbox";
 import { queueUrgent } from "../notify/urgent";
 import { reportHandled } from "../observability/report";
 import { type ReachPort, reachOutState } from "../reach/service";
+import { signedRecordWrite } from "../records/port";
 import { leaseWaitDone, leaseWaitOf, leaseWaitOutcome, MAX_LEASE_WAITS } from "./lease-wait";
+import { boundWithActionOn, channelFallback, pickMerged } from "./merged-pick";
 import { keepStepSubjects } from "./subject-log";
 
 const TERMINAL = new Set(["succeeded", "failed", "skipped", "cancelled"]);
@@ -187,6 +191,14 @@ async function proceededMark(
 }
 
 /**
+ * A test run's items are the operator's; in one with people in it (owner, 2026-11-27), the
+ * operator's who started it, in their own Your call.
+ */
+export function testAssignee(run: Pick<RunInfo, "testPeople">): ApprovalAssignee {
+  return { assigneeRole: "operator", assigneeUserId: run.testPeople?.by ?? null };
+}
+
+/**
  * Who an item asked of `who` goes to: a role, the client's lead (as an operator's item), or a
  * person of this client by user id. A test run's items go to the operator (test runs are hidden
  * from the portal).
@@ -196,10 +208,10 @@ async function proceededMark(
 // non-member: an item is never left with nobody able to answer it.
 export async function personAssignee(
   tx: Tx,
-  run: Pick<RunInfo, "tenantId" | "mode">,
+  run: Pick<RunInfo, "tenantId" | "mode" | "testPeople">,
   who: string,
 ): Promise<ApprovalAssignee> {
-  if (run.mode === "test") return { assigneeRole: "operator", assigneeUserId: null };
+  if (run.mode === "test") return testAssignee(run);
   if (who === LEAD_ASSIGNEE) {
     const lead = await leadOf(tx, run.tenantId);
     return { assigneeRole: "operator", assigneeUserId: lead?.userId ?? null };
@@ -217,7 +229,14 @@ export async function personAssignee(
 
 /** What a step waiting on approvals carries between durable steps. Small: ids only. */
 const PendingState = z.object({
-  actions: z.array(z.object({ actionId: z.string(), inboxItemId: z.string().nullable() })),
+  actions: z.array(
+    z.object({
+      actionId: z.string(),
+      inboxItemId: z.string().nullable(),
+      // Signed record saves: a save to our own records, signed on its card (no external action).
+      recordSave: z.boolean().optional(),
+    }),
+  ),
   output: z.unknown().optional(),
   // Audit 3.7: one of the step's changes was rejected though the run read a yes: the step ends
   // as declined once its other changes are settled.
@@ -234,6 +253,81 @@ function firstWaiting(state: PendingState, after = -1): StepOutcome | null {
         pending: { inboxItemId: next.inboxItemId, state, actionId: next.actionId },
       }
     : null;
+}
+
+/** Owner, 2026-11-27: a test run's write waiting for its test person: what it would have done. */
+const TestWriteState = z.object({
+  testWrite: z.object({ kind: z.literal("done"), output: z.unknown() }).passthrough(),
+});
+
+/**
+ * Owner, 2026-11-27: a Sandbox test run with people in it asks its test person (the operator who
+ * started it, in their Your call) to sign a write a live run would have asked a person to sign
+ * (`ask`), on a card of its own: kind `approval`, marked a test run, never an external action's
+ * card, so nothing can execute it. One card per step (a retried step finds the one it made). Null:
+ * nothing to ask.
+ */
+async function askTestPerson(
+  db: Db,
+  run: RunInfo,
+  w: {
+    step: { name: string; tool: string };
+    nodeId: string;
+    stepRunId: string;
+    actionId: string;
+    input: unknown;
+    before: unknown;
+    done: Extract<StepOutcome, { kind: "done" }>;
+    ask: boolean;
+  },
+): Promise<StepOutcome | null> {
+  const id = await withTenant(db, run.tenantId, async (tx) => {
+    const [existing] = await tx
+      .select({ id: inboxItem.id })
+      .from(inboxItem)
+      .where(
+        and(
+          eq(inboxItem.tenantId, run.tenantId),
+          eq(inboxItem.runId, run.id),
+          eq(inboxItem.kind, "approval"),
+          sql`${inboxItem.payload}->>'nodeId' = ${w.nodeId}`,
+        ),
+      )
+      .limit(1);
+    if (existing) return existing.id;
+    if (!w.ask) return null;
+    const [row] = await tx
+      .insert(inboxItem)
+      .values({
+        tenantId: run.tenantId,
+        kind: "approval",
+        agentId: run.agentId,
+        subjectType: "run",
+        subjectId: run.id,
+        runId: run.id,
+        ...testAssignee(run),
+        title: `${w.step.name}: approve it for the test (nothing is written)`.slice(0, 200),
+        payload: {
+          nodeId: w.nodeId,
+          mode: "approve",
+          tool: w.step.tool,
+          actionId: w.actionId,
+          input: (w.input ?? null) as JsonObject[string],
+          before: (w.before ?? null) as JsonObject[string],
+          testRun: true,
+          notWritten: true,
+        } as JsonObject,
+      })
+      .returning({ id: inboxItem.id });
+    if (!row) throw new Error("inbox item insert returned nothing");
+    return row.id;
+  });
+  if (!id) return null;
+  return {
+    kind: "approval",
+    pending: { inboxItemId: id, state: { testWrite: w.done }, actionId: w.actionId },
+    output: w.done.output,
+  };
 }
 
 /**
@@ -257,6 +351,14 @@ export function agentPort(
   forms?: FormsPort,
 ): AgentPort {
   const now = () => deps.now?.() ?? new Date();
+  // The step model (§10c): whether the operator has a connector's action on for agents.
+  const actionOn = async (connector: string, tool: string): Promise<boolean> => {
+    const manifest = deps.tools.connectors.get(connector)?.manifest;
+    if (!manifest) return true;
+    const switches = (await deps.ports.store.actionSwitches?.(connector)) ?? null;
+    return actionIsOn(manifest, tool, switches);
+  };
+  const connectorName = (id: string) => deps.tools.connectors.get(id)?.manifest.name ?? id;
   // A call the platform makes for a step (an action step's tool, the lead's answer kept).
   const platformStep = async (
     run: RunInfo,
@@ -332,10 +434,13 @@ export function agentPort(
         if (!converse) return { kind: "failed", error: "comms.converse needs its service" };
         return converse.start(request);
       }
+      // The step model (§8): a Loop written in the step runs on its own goal and reads, no skill.
+      const writtenLoop = request.loop !== undefined && step.skill === LOOP_SKILL;
       const r = await runAgent(deps, {
         tenantId: run.tenantId,
         agentVersionId: run.agentVersionId,
-        skill: step.skill,
+        ...(writtenLoop ? {} : { skill: step.skill }),
+        ...(request.loop ? { loop: request.loop } : {}),
         input,
         ...(step.settings ? { settings: step.settings } : {}),
         ...(step.model ? { model: step.model } : {}),
@@ -345,6 +450,8 @@ export function agentPort(
         stepId: request.keyNode ?? nodeId,
         stepRunId,
         approval,
+        // Signed record saves: the step's own approval check, not the filled-in default.
+        ...(request.ownApproval ? { ownApproval: true } : {}),
         mode: run.mode,
         language: run.language,
         // Owner, 2026-11-11: rule skills read "today" in the client's time zone.
@@ -377,7 +484,11 @@ export function agentPort(
           const state: PendingState = {
             actions: r.pendingActions
               .filter((p) => p.status === "awaiting_approval")
-              .map((p) => ({ actionId: p.actionId, inboxItemId: p.inboxItemId })),
+              .map((p) => ({
+                actionId: p.actionId,
+                inboxItemId: p.inboxItemId,
+                ...(p.recordSave ? { recordSave: true } : {}),
+              })),
             output: r.output,
           };
           return (
@@ -403,6 +514,7 @@ export function agentPort(
       stepRunId,
       input,
       approval,
+      ownApproval,
       keyNode,
       binding,
       afterUnwritten,
@@ -411,6 +523,8 @@ export function agentPort(
       const ctx: StepContext = {
         // v0.13 W2-I: an oversight retry with a corrected input keys its own write.
         ...base,
+        // Signed record saves: the step's own approval check, not the filled-in default.
+        ...(ownApproval ? { ownApproval: true } : {}),
         // Skill model: an action's channel connection is the agent's binding for this call (the
         // account's channel is the agent's when it has none of its own, §10.14); the gate reads
         // that connection's matrix, the agent's grant and its mode as for any binding.
@@ -443,19 +557,41 @@ export function agentPort(
             ...(o.verification ? { verification: o.verification } : {}),
           };
           // §1.94: the tool's stand-in output, its fields where later steps read the real ones.
-          if (!isPlainObject(o.standIn))
-            return { kind: "done", output: proposed, notWritten: true };
-          return {
-            kind: "done",
-            output: { ...proposed, ...o.standIn, standIn: true },
-            notWritten: true,
-            standIn: true,
-          };
+          const done: Extract<StepOutcome, { kind: "done" }> = !isPlainObject(o.standIn)
+            ? { kind: "done", output: proposed, notWritten: true }
+            : {
+                kind: "done",
+                output: { ...proposed, ...o.standIn, standIn: true },
+                notWritten: true,
+                standIn: true,
+              };
+          // Owner, 2026-11-27: with people in the test, a write a live run would have asked a
+          // person to sign waits for the test person's decision. It is still never made.
+          if (run.mode === "test" && run.testPeople && release) {
+            const asked = await askTestPerson(release.db, run, {
+              step,
+              nodeId,
+              stepRunId,
+              actionId: o.actionId,
+              input,
+              before: o.before ?? null,
+              done,
+              ask: o.asks === true,
+            });
+            if (asked) return asked;
+          }
+          return done;
         }
         case "awaiting_approval":
           return (
             firstWaiting({
-              actions: [{ actionId: o.actionId, inboxItemId: o.inboxItemId }],
+              actions: [
+                {
+                  actionId: o.actionId,
+                  inboxItemId: o.inboxItemId,
+                  ...(o.recordSave ? { recordSave: true } : {}),
+                },
+              ],
               output: null,
             }) ?? { kind: "failed", error: "a change waits with no approval card" }
           );
@@ -483,6 +619,25 @@ export function agentPort(
     // the gate then reads fresh); a message action from `channelFor` (the agent's own channel,
     // else the account's), read now, in the run's own client. Neither is guessed: no connection,
     // or two accounting connections without `via`, is refused (nothing written).
+    // The step model (§10c): a merged action that isn't one of today's write actions (Team chat,
+    // Spreadsheets), from the connectors the pinned version is bound to, in the merge's order,
+    // skipping one whose action the operator switched off (`connector_setting.actions`), so an
+    // off action is refused before the gate and another bound connector of the merge still runs.
+    // DECISION: never guessed: no bound connector of the merge with the action on is refused,
+    // saying whether it was off or not connected (nothing written).
+    async resolveMerged({ run, action }) {
+      const pinned = await deps.ports.store.loadAgentVersion(run.tenantId, run.agentVersionId);
+      return pickMerged(action, Object.keys(pinned.bindings), actionOn, connectorName);
+    },
+
+    mergedInput(action, connector, input) {
+      return resolveMergedCall(action, [connector], input)?.input ?? input;
+    },
+
+    mergedOutput(action, connector, output) {
+      return mergedOutput(action, connector, output);
+    },
+
     async resolveAction({ run, action, via }) {
       const spec = processes.ACTION_SPECS[action];
       if ("channel" in spec.from) {
@@ -496,14 +651,39 @@ export function agentPort(
           channels: { [kind]: line ? { connector: line.connector } : null },
         });
         if (!r?.ok || !line) return { refused: r && !r.ok ? r.message : "no channel" };
-        return { tool: r.tool, connector: r.connector, connectionId: line.connectionId };
+        if (await actionOn(r.connector, r.tool)) {
+          return { tool: r.tool, connector: r.connector, connectionId: line.connectionId };
+        }
+        // The step model (§10c): the channel's action is switched off; another of the merge's
+        // connectors the agent is bound to, with it on, sends instead (Gmail when Resend's is off).
+        const pinned = await deps.ports.store.loadAgentVersion(run.tenantId, run.agentVersionId);
+        const other = await channelFallback(
+          action,
+          r.connector,
+          Object.keys(pinned.bindings),
+          actionOn,
+        );
+        return (
+          other ?? { refused: `${spec.label} is switched off for ${connectorName(r.connector)}` }
+        );
       }
       const pinned = await deps.ports.store.loadAgentVersion(run.tenantId, run.agentVersionId);
-      const r = processes.resolveActionConnector(action, via, {
-        bound: Object.keys(pinned.bindings),
-      });
-      if (!r) return { refused: `${spec.label} doesn't resolve here` };
-      return r.ok ? { tool: r.tool, connector: r.connector } : { refused: r.message };
+      // The step model (§10c): a bound connector whose action is switched off isn't a candidate.
+      const { bound, off } = await boundWithActionOn(
+        action,
+        Object.keys(pinned.bindings),
+        actionOn,
+      );
+      const r = processes.resolveActionConnector(action, via, { bound });
+      if (!r?.ok) {
+        if (off.length > 0 && (via === undefined || off.includes(via))) {
+          return {
+            refused: `${spec.label} is switched off for ${off.map(connectorName).join(" and ")}`,
+          };
+        }
+        return { refused: r && !r.ok ? r.message : `${spec.label} doesn't resolve here` };
+      }
+      return { tool: r.tool, connector: r.connector };
     },
 
     async waitDone(request) {
@@ -594,9 +774,57 @@ export function agentPort(
       // P-4: a conversation's approvals and hand-over first: its state also names a reach-out.
       if (converse && converseState(pending.state)) return converse.resume(request);
       if (reach && reachOutState(pending.state)) return reach.resume(request);
+      // Owner, 2026-11-27: the test person's decision on a test run's write. A yes still writes
+      // nothing (the write as it would have been); a no, or no answer, takes the rejected path.
+      const tested = TestWriteState.safeParse(pending.state);
+      if (tested.success && run.mode === "test") {
+        return resolution.approved === true
+          ? (tested.data.testWrite as StepOutcome)
+          : { kind: "done", output: null };
+      }
       const state = PendingState.parse(pending.state ?? { actions: [] });
       const index = state.actions.findIndex((a) => a.inboxItemId === pending.inboxItemId);
       const current = state.actions[index];
+      // Signed record saves: a yes makes the write once, under its key, as proposed on the card;
+      // a no (or nobody answering) writes nothing, and the step takes a no as declined.
+      if (current?.recordSave) {
+        if (resolution.approved === true && resolution.proceeded === true) {
+          // Nobody signed: a save that needed a signature never goes ahead unsigned (invariant 8).
+          return { kind: "failed", error: "nobody signed this save to our records in time" };
+        }
+        if (resolution.approved === true) {
+          const records = deps.ports.records;
+          if (!release || !records)
+            return { kind: "failed", error: "our records aren't reachable" };
+          // Review of #696: the safety hold as a backstop, as executeAction's. Approving a held
+          // agent's card is refused, so a save reaches here held only when the hold came between
+          // its signature and its write: it fails closed, never written (invariant 8).
+          if (
+            run.mode !== "test" &&
+            deps.ports.store.agentHold &&
+            (await deps.ports.store.agentHold(run.tenantId, run.agentId))
+          ) {
+            return { kind: "failed", error: "the agent is on a safety hold: the save wasn't made" };
+          }
+          try {
+            const written = await signedRecordWrite(
+              release.db,
+              records,
+              run.tenantId,
+              current.inboxItemId ?? current.actionId,
+            );
+            if (step.kind === "action") state.output = written;
+          } catch (error) {
+            return {
+              kind: "failed",
+              error: error instanceof Error ? error.message : String(error),
+            };
+          }
+        } else if (resolution.by !== null && resolution.withdrawn !== true) {
+          state.declined = true;
+        }
+        return afterExecuted(step, state, index, null, 0);
+      }
       if (current && resolution.approved === true && release) {
         // R3: the run's decision on a change several people (or, in time, nobody) were asked to
         // sign. Nobody answering goes ahead only where the gate, asked again now, would let the
@@ -695,6 +923,11 @@ export function agentPort(
     async askApprover(request) {
       const { run, pending, who } = request;
       if (!release) throw new Error("asking another approver needs the database");
+      // Signed record saves: one person signs a save's card (fails closed, as a message's).
+      const records = PendingState.safeParse(pending.state ?? { actions: [] });
+      if (records.success && records.data.actions.some((a) => a.recordSave)) {
+        throw new Error("a save to our records is signed by one person");
+      }
       if (converseState(pending.state) || reachOutState(pending.state)) {
         // DECISION: a conversation's or a reach-out's signature is one person's (its own card and
         // route); asking more people to sign it is refused, so the step fails closed.
@@ -759,7 +992,7 @@ export function dbInboxPort(db: Db, run: RunInfo): InboxPort {
             : null;
         const assignee =
           run.mode === "test"
-            ? { assigneeRole: "operator" as const, assigneeUserId: null }
+            ? testAssignee(run)
             : item.step.assignee === LEAD_ASSIGNEE
               ? { assigneeRole: "operator" as const, assigneeUserId: lead?.userId ?? null }
               : resolveApprover([item.step.assignee]);
@@ -770,6 +1003,8 @@ export function dbInboxPort(db: Db, run: RunInfo): InboxPort {
           ...(run.mode === "test" ? { testRun: true } : {}),
           // v0.12 W1-D: quick answers, from the version's step (the answer must be one of them).
           ...(item.step.mode === "ask" && item.step.choices ? { choices: item.step.choices } : {}),
+          // Owner, 2026-11-28: what the person is asked for, each handed on by its name.
+          ...(item.step.mode === "ask" && item.step.fields ? { fields: item.step.fields } : {}),
         };
         const [row] = await tx
           .insert(inboxItem)

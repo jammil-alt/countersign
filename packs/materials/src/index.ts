@@ -16,6 +16,7 @@ export {
   ReviewError,
 } from "./api";
 export * from "./catalog/keys";
+export { parseLine } from "./catalog/keys";
 export {
   decideLine,
   type HumanDecisionInput,
@@ -33,12 +34,18 @@ export {
   type CategorySpec,
   detectCategory,
 } from "./catalog/parsers";
+export {
+  attributesHit,
+  MASTER_ITEMS_MATCHER,
+  MASTER_ITEMS_PROFILE,
+  masterItemsStore,
+  masterNeverSame,
+} from "./catalog/profile";
 export * from "./catalog/split";
 export { lookupDocument, recordMatches } from "./catalog/split-store";
 // §1.104: vendor contracts and invoices without an accounting tool.
 export * from "./contracts/skills";
 export * from "./contracts/store";
-export * from "./contracts/template";
 export * from "./contracts/tools";
 export { seedDemoPrices } from "./demo";
 export { MATERIALS_EVENTS, materialsEventRegistry } from "./events";
@@ -55,6 +62,13 @@ export { compareOffers, compareQuotes, SPLIT_MIN_SAVING_PCT } from "./purchasing
 export { renderPurchaseOrder } from "./purchasing/po";
 export { PURCHASING_SKILLS } from "./purchasing/skills";
 export { PURCHASING_TOOLS } from "./purchasing/tools";
+// Step model §10f: the area's record types and their stores.
+export {
+  MASTER_ITEM_RECORD_TYPE,
+  MATERIALS_RECORD_STORES,
+  MATERIALS_RECORD_TYPES,
+  VENDOR_ITEM_RECORD_TYPE,
+} from "./records";
 export * from "./reports";
 export * from "./schema";
 export * from "./split";
@@ -74,6 +88,7 @@ export {
   specsText,
   stripTerms,
 } from "./vendor/embedding-text";
+export { MATERIALS_MATCHERS, MATERIALS_RETIRED_TOOLS } from "./vendor/matchers";
 export * from "./vendor/patterns";
 export {
   type LoadedDocument,
@@ -87,6 +102,7 @@ export {
   VendorMatchError,
   vendorItemText,
 } from "./vendor/pipeline";
+export * from "./vendor/profiles";
 export {
   MASTER_ITEM_MANAGER,
   SEMANTIC_MATCH_VENDOR,

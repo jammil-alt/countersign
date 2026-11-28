@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { FORBIDDEN_PORTAL_FIELD } from "../api/contract";
 import { effectiveMode } from "../lifecycle/stage";
 import { decideToolCall } from "../permissions/decide";
-import type { AnyAgentBundle } from "../schemas/agent";
+import type { AgentBundle } from "../schemas/agent";
 import type { SkillDefinition } from "../schemas/skill";
 import { runModel } from "../skills/model";
 import { moneyWords, pathWords, sopView } from "./build";
@@ -249,7 +249,7 @@ describe("the agent's SOP, made by code (docs/sop-plan.md)", () => {
       ],
       otherwise: { id: "io", steps: [] },
     });
-    const view = sopView(input({ b: b as unknown as AnyAgentBundle }));
+    const view = sopView(input({ b: b as unknown as AgentBundle }));
     const numbers = view.procedure
       .filter((l): l is SopStepLine => l.line === "step")
       .map((l) => `${l.number} ${l.name}`);
@@ -328,7 +328,7 @@ describe("the agent's SOP, made by code (docs/sop-plan.md)", () => {
       },
       ifMissing: "stop",
     });
-    const view = sopView(input({ b: b as unknown as AnyAgentBundle }));
+    const view = sopView(input({ b: b as unknown as AgentBundle }));
     expect(SopView.safeParse(view).success).toBe(true);
     // The chart draws it as a Collect reports step, not as a conversation.
     expect(view.outline.find((o) => o.id === "reports")?.kind).toBe("collect");

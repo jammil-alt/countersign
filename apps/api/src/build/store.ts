@@ -4,7 +4,6 @@
 // operator transaction: RLS shows a build only to operators serving its client and test client.
 
 import {
-  convertLookup,
   existingBundle,
   getAgent,
   latestVersion,
@@ -12,7 +11,7 @@ import {
   validateForPublish,
 } from "@countersign/agents";
 import {
-  AnyAgentBundle,
+  AgentBundle,
   type BuildClientTestView,
   type BuildDetail,
   type BuildDraftView,
@@ -46,8 +45,10 @@ import {
   readQa,
   readRequirements,
   readTestPlan,
+  retiredPhase,
+  shownPhase,
   sliceWhole,
-  toProcessBundle,
+  steps,
   withDecisionRisk,
   writingStepIds,
 } from "@countersign/core";
@@ -93,7 +94,17 @@ export async function readBuild(tx: Tx, id: string, lock = false): Promise<Build
   const q = tx.select().from(build).where(eq(build.id, id));
   const [row] = lock ? await q.for("update") : await q;
   if (!row) throw notFound("build");
-  return row;
+  return asDraft(row);
+}
+
+/**
+ * Owner (2026-11-27): a build goes from its draft to Publish. One stored in the POC test, client
+ * test or QA from before reads as its draft, everywhere it is read, and is published from there.
+ */
+// DECISION: read as the draft rather than rewritten (no migration, the stored enum kept): the
+// stored phase changes on the build's next move or when it is published.
+export function asDraft<R extends { phase: BuildPhase }>(row: R): R {
+  return retiredPhase(row.phase) ? { ...row, phase: shownPhase(row.phase) } : row;
 }
 
 async function names(tx: Tx, table: "tenant" | "user", ids: (string | null)[]) {
@@ -160,7 +171,7 @@ export async function summaries(tx: Tx, rows: BuildRow[]): Promise<BuildSummary[
       kind: r.kind,
       title: r.title,
       client: r.clientId ? { id: r.clientId, name: clients.get(r.clientId) ?? "Client" } : null,
-      phase: r.phase,
+      phase: shownPhase(r.phase),
       status: r.status,
       agentId: r.agentId,
       skillId: r.skillId,
@@ -439,10 +450,31 @@ async function sessionSkill(tx: Tx, row: BuildRow): Promise<string | null> {
   return s?.skillId ?? null;
 }
 
+/** A draft as the build reads it: an agent's bundle, its workflows in the step model. */
+type DraftBundle = AgentBundle;
+
+/** A draft's workflow's steps in run order. */
+function draftSteps(
+  workflow: DraftBundle["workflows"][number]["workflow"],
+): { id: string; name: string; kind: string }[] {
+  const out: { id: string; name: string; kind: string }[] = [];
+  steps.eachStep(workflow.steps, ({ step }) => out.push(step));
+  return out;
+}
+
+/** The latest version as the build reads it; null when it does not parse. */
+function readDraftBundle(raw: unknown): DraftBundle | null {
+  try {
+    return AgentBundle.parse(raw);
+  } catch {
+    return null;
+  }
+}
+
 interface DraftFacts {
   view: BuildDraftView | null;
-  /** The latest version's bundle as processes (agents). */
-  bundle: ReturnType<typeof toProcessBundle> | null;
+  /** The latest version's bundle as processes, or in the step model (agents). */
+  bundle: DraftBundle | null;
   liveVersions: boolean;
   latestVersionId: string | null;
   agentRow: Awaited<ReturnType<typeof getAgent>> | null;
@@ -460,9 +492,7 @@ export function problemPlace(
   if (!bundle) return { stepName: null, workflowName: null };
   const flows = workflow ? bundle.workflows.filter((w) => w.slug === workflow) : bundle.workflows;
   for (const w of flows) {
-    const found = stepId
-      ? processes.allSteps(w.workflow).find((l) => l.step.id === stepId)?.step
-      : null;
+    const found = stepId ? draftSteps(w.workflow).find((step) => step.id === stepId) : null;
     if (found || (!stepId && workflow)) {
       return {
         stepName: found ? found.name || null : null,
@@ -482,15 +512,21 @@ export function problemPlace(
 // with the same key adds the reference it is about, then a number, so the keys of problems already
 // talked about stay as they were.
 export function draftProblems(
-  errors: readonly {
+  raw: readonly {
     workflow?: string;
     stepId: string | null;
     field: string;
     code: string;
     message: string;
+    stepCode?: string | undefined;
   }[],
   bundle: DraftFacts["bundle"],
 ): DraftProblem[] {
+  // DECISION (step model, build item 9): a v5 draft's "Not built yet" step is the build's missing
+  // step (its badge, its words, what holds the gate), so the build's screens read it as before.
+  const errors = raw.map((e) =>
+    e.stepCode === "not_built_yet" ? { ...e, code: "missing_step" } : e,
+  );
   const seen = new Set<string>();
   return groupProblems(errors).flatMap((group) => {
     const e = group[0];
@@ -536,7 +572,7 @@ export async function draftWorkflowSteps(
   if (row.kind !== "agent") return out;
   const { bundle } = await draftFacts(ctx, row);
   for (const w of bundle?.workflows ?? []) {
-    out.set(w.slug, new Set(processes.allSteps(w.workflow).map(({ step }) => step.id)));
+    out.set(w.slug, new Set(draftSteps(w.workflow).map((step) => step.id)));
   }
   return out;
 }
@@ -563,7 +599,7 @@ export async function draftOutline(ctx: StoreCtx, row: BuildRow): Promise<string
   if (!bundle) return [];
   const lines: string[] = [];
   for (const w of bundle.workflows) {
-    for (const { step } of processes.allSteps(w.workflow)) {
+    for (const step of draftSteps(w.workflow)) {
       if (lines.length >= OUTLINE_STEPS) return [...lines, "Draft: more steps not listed"];
       lines.push(
         `Draft v${view?.version ?? "?"} step [${step.id}] ${step.name || "(no name)"} (${step.kind}), in "${w.name}"`,
@@ -687,15 +723,7 @@ async function bundleDraftFacts(ctx: StoreCtx, row: BuildRow): Promise<DraftFact
   const errors = await validateForPublish(ctx.tx, agentRow, latest.bundle, platform.ctx, {
     previous: await existingBundle(ctx.tx, latest),
   });
-  let bundle: DraftFacts["bundle"] = null;
-  try {
-    bundle = toProcessBundle(
-      AnyAgentBundle.parse(latest.bundle),
-      convertLookup(platform.catalog, platform.tools),
-    );
-  } catch {
-    bundle = null;
-  }
+  const bundle = readDraftBundle(latest.bundle);
   return {
     view: {
       agentId: agentRow.id,
@@ -951,7 +979,19 @@ async function clientTestFacts(ctx: StoreCtx, row: BuildRow): Promise<BuildClien
  * conversations' messages sent without a person's yes, and process steps' approval overrides.
  */
 function loosenedApprovals(bundle: NonNullable<DraftFacts["bundle"]>): number {
-  return processes.bundleLoosenings(bundle).length;
+  let n = 0;
+  for (const w of bundle.workflows) {
+    steps.eachStep(w.workflow.steps, ({ step }) => {
+      n += processes.approvalLoosenings(step.checks?.approval, "checks.approval").length;
+      if (step.kind === "do" && step.contact) {
+        n += processes.conversationLoosenings(step.contact).length;
+      }
+    });
+    for (const o of w.workflow.outputs) {
+      n += processes.approvalLoosenings(o.checks?.approval, "checks.approval").length;
+    }
+  }
+  return n;
 }
 
 function qaChecks(
@@ -1095,7 +1135,6 @@ export async function buildDetail(ctx: StoreCtx, row: BuildRow): Promise<BuildDe
   const poc = await pocFacts(ctx, row, draft);
   const clientTest = await clientTestFacts(ctx, row);
   const checks = qaChecks(row, draft, poc, clientTest);
-  const open = items.filter((i) => itemOpen(i.state)).length;
   const reasons =
     row.status !== "open"
       ? []
@@ -1106,16 +1145,6 @@ export async function buildDetail(ctx: StoreCtx, row: BuildRow): Promise<BuildDe
           fitgap,
           draft: row.kind === "skill" ? !!draft.view?.skillId : !!draft.view?.versionId,
           draftErrors: draft.view?.problems.length ?? 0,
-          poc: poc
-            ? { passed: poc.passed, detail: poc.detail }
-            : { passed: false, detail: "No tests yet." },
-          trialDone:
-            !!clientTest &&
-            (clientTest.stage === "signoff" ||
-              clientTest.stage === "live" ||
-              !!clientTest.trial?.ready),
-          qaSigned: !!qa.signedAt,
-          openItems: open,
         });
   const at = phaseIndex(row.kind, row.phase);
   return {
@@ -1188,10 +1217,15 @@ async function buildLinks(
           .limit(1)
       : [];
   return {
-    skillBuilds,
+    skillBuilds: skillBuilds.map(asDraft),
     startedFrom: from
       ? {
-          build: { id: from.id, title: from.title, phase: from.phase, status: from.status },
+          build: asDraft({
+            id: from.id,
+            title: from.title,
+            phase: from.phase,
+            status: from.status,
+          }),
           itemId: from.itemId,
           itemTitle: from.itemTitle,
         }

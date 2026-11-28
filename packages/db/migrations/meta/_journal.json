@@ -607,8 +607,22 @@
     {
       "idx": 86,
       "version": "7",
-      "when": 1795559607107,
-      "tag": "0101_lockdown",
+      "when": 1795620121326,
+      "tag": "0101_connector_actions",
+      "breakpoints": true
+    },
+    {
+      "idx": 87,
+      "version": "7",
+      "when": 1795630834290,
+      "tag": "0102_record_data",
+      "breakpoints": true
+    },
+    {
+      "idx": 88,
+      "version": "7",
+      "when": 1795877149831,
+      "tag": "0103_lockdown",
       "breakpoints": true
     }
   ]

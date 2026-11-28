@@ -46,6 +46,8 @@ export interface FlowBarProps {
   primary?: ReactNode;
   /** Before the name: the client or the back-office crumb. */
   lead?: ReactNode;
+  /** The host's own control before Ask the Builder (the step builder's Supervisor). */
+  extra?: ReactNode;
 }
 
 /** "18 steps · 3 decisions · 3 write to a tool · 3 need approval". */
@@ -163,6 +165,7 @@ export function FlowBar(props: FlowBarProps) {
         >
           Redo
         </Button>
+        {props.extra}
         {props.onAskBuilder ? (
           <Button size="sm" data-testid="flow-bar-builder" onClick={props.onAskBuilder}>
             <Icon name="message" />

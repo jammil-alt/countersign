@@ -29,6 +29,14 @@ agent, §1.214).
   (2026-11-09, migrations through 0041) but has had no `v*` tag; its next release is an upgrade.
 - Almost everything below is **a setup step, a key or a decision for the owner**, not code. Where
   code is still needed, it says so.
+- **The step model** (2026-11-25, `docs/plan.md` §1.244, `docs/step-model-plan.md` §13d): built,
+  released on `main` (#707: workflows stored as v5 only) and running on staging, purged and seeded
+  again in v5. Matching defaults decided: a shortlist of 10 (#709). Open: production, where the
+  purge and the deploy wait for the owner's approval, then the templates' install and each client's
+  Sloan; #707 reaches production only after the purge. Then the follow-ups in §13d: v5 promotion
+  scrubs (invariant 11), rebuilt coverage, "Test some of the steps" in v5, the skill's mode, the
+  rest of §12, and the pack templates rebuilt. For the owner: a native read of the timeline's
+  output wording in five languages.
 
 ## 0. Enterprise readiness (2026-11-15)
 
@@ -48,7 +56,7 @@ emailed and the QuickBooks purchase order is created; every write is approved on
 
 | # | Step | Where | Why |
 |---|---|---|---|
-| P1 | **Email Routing for `in.staging.mezonas.com`**: add the subdomain, then a catch-all rule → Send to a Worker → `mezonas-staging`. `EMAIL_FORWARDING_DOMAIN` is already set in `apps/api/wrangler.jsonc`. | `docs/operations.md`, "By hand" step 3 | The buyer's address (and every forwarded invoice) arrives through the Worker's `email()`. Without it nothing reaches the agent. |
+| P1 | **Email Routing for `in.staging.mezonas.com`**: add the subdomain, then one custom address rule per staging address in use (the buyer's address, each forwarding address) → Send to a Worker → `mezonas-staging`. Not a catch-all: the zone has one, and it is production's. `EMAIL_FORWARDING_DOMAIN` is already set in `apps/api/wrangler.jsonc`. | `docs/operations.md`, "By hand" step 3 | The buyer's address (and every forwarded invoice) arrives through the Worker's `email()`. Without it nothing reaches the agent. |
 | P2 | **An email channel to send RFQs and POs from.** Either: **Resend** (`RESEND_API_KEY` secret, `RESEND_FALLBACK_DOMAIN` and `RESEND_FALLBACK_DOMAIN_ID` variables in the GitHub staging environment, the sending domain verified in Resend); or **Gmail** (the "Mezonas web" OAuth client exists; add the sending account as a test user on the consent screen. In testing mode its token ends after 7 days, so reconnect weekly until Google's verification). Resend is the quicker one to keep working. | `docs/operations.md` "Worker secrets" (Resend), "Google" | Reach out needs a bound email channel; an unbound one is `not_allowed`. |
 | P3 | **Intuit developer app, sandbox keys**: `QBO_CLIENT_ID` and `QBO_CLIENT_SECRET` in the GitHub staging environment, redirect URI `https://staging.mezonas.com/api/connections/qbo/callback`, webhook pointed at staging. `QBO_ENV` is `sandbox` on staging already. | `docs/operations.md`, "Intuit" | QuickBooks vendor and PO creation, and the bill-price import. |
 | P4 | **Confirm the model key** (`ANTHROPIC_API_KEY`) is in the staging environment. `LLM_MODE` is `live` there. | GitHub → Environments → staging | The reading skills (request, quote PDF) call the model. |

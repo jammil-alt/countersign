@@ -5,12 +5,18 @@
 // v3 version it revises is read through the converter, every id kept (docs/plan.md §1.86).
 
 import { TESTKIT_UPDATE_TOOL } from "@countersign/connectors";
-import { type ProcessAgentBundle as AgentBundle, processes } from "@countersign/core";
+import { type AgentBundle, steps } from "@countersign/core";
 import { agentVersion, inboxItem } from "@countersign/db";
 import { FakeModel, type LlmRequest } from "@countersign/llm";
 import { eq } from "drizzle-orm";
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
-import { createApiHarness, OPERATOR, OTHER_OPERATOR, testBundle } from "./api.test-helper";
+import {
+  createApiHarness,
+  doAction,
+  OPERATOR,
+  OTHER_OPERATOR,
+  testBundle,
+} from "./api.test-helper";
 
 const model = new FakeModel();
 const h = await createApiHarness({ llm: model });
@@ -43,12 +49,17 @@ function skillDef(slug: string, over: Json = {}) {
   };
 }
 
-type Step = processes.Step;
-const stepsOf = (b: AgentBundle) => {
-  const out: Step[] = [];
-  for (const w of b.workflows) processes.walkSteps(w.workflow, ({ step }) => out.push(step));
+/** A v5 draft's steps (the step model: the Builder drafts in it, build item 9). */
+const v5StepsOf = (b: { workflows: { workflow: unknown }[] }) => {
+  const out: steps.Step[] = [];
+  for (const w of b.workflows) {
+    steps.eachStep((w.workflow as steps.Workflow).steps, ({ step }) => out.push(step));
+  }
   return out;
 };
+
+/** An error's code, the step model's own where it has one. */
+const codeOf = (e: Json) => (e.stepCode ?? e.code) as string;
 
 /** The bundle a revise request showed the model (real ids: a revision keeps them). */
 function shownSource(req: LlmRequest): AgentBundle {
@@ -256,33 +267,48 @@ function cardChargesAnswer() {
           slug: "weekly",
           name: "Weekly check",
           workflow: {
-            schemaVersion: 4,
+            schemaVersion: 5,
             triggers: [{ id: "t", on: { type: "schedule", cron: "0 9 * * 1" } }],
+            outputs: [{ id: "out-done", name: "Done", kind: "nothing" }],
             steps: [
               {
                 id: "find",
-                kind: "skill",
                 name: "Find card charges over $500 without a receipt",
-                skill: "custom:find-card-charges",
+                kind: "do",
+                doneBy: "ai",
+                uses: { type: "skill", skill: "custom:find-card-charges" },
                 input: {},
               },
               {
                 id: "ask",
-                kind: "person",
                 name: "Ask for the receipts",
-                mode: "ask",
-                assignee: "client_admin",
-                title: "Receipts needed for card charges over $500",
-                deadline: { after: "3 days", tell: ["operator"] },
+                kind: "do",
+                doneBy: "person",
+                person: {
+                  mode: "ask",
+                  who: "client_admin",
+                  question: "Receipts needed for card charges over $500",
+                  show: {},
+                  deadline: {
+                    after: "3 days",
+                    hours: "clock",
+                    ifNoAnswer: "stop",
+                    tell: ["operator"],
+                  },
+                  channel: "inbox",
+                  onReject: "stop",
+                },
               },
               {
                 id: "note",
-                kind: "write",
                 name: "Note it on the record",
-                tool: TESTKIT_UPDATE_TOOL,
-                input: { id: "r1", name: "Receipt asked for" },
                 checks: { approval: { required: "not_required" } },
+                kind: "do",
+                doneBy: "rules",
+                uses: { type: "action", action: TESTKIT_UPDATE_TOOL },
+                input: { id: "r1", name: "Receipt asked for" },
               },
+              { id: "end", kind: "end", name: "Done", outputs: ["out-done"] },
             ],
           },
         },
@@ -312,8 +338,8 @@ describe.skipIf(!h)("the Builder", () => {
       errors: unknown[];
     };
     // v0.18: the step on a skill that doesn't exist is a missing step in its place, which only
-    // stops a publish (docs/plan.md §1.103).
-    expect((out.errors as Json[]).map((e) => e.code)).toEqual(["missing_step"]);
+    // stops a publish (docs/plan.md §1.103); in the step model, "Not built yet".
+    expect((out.errors as Json[]).map(codeOf)).toEqual(["not_built_yet"]);
     expect(out.agent).toMatchObject({
       kind: "template",
       slug: "card-receipts",
@@ -324,14 +350,16 @@ describe.skipIf(!h)("the Builder", () => {
     expect(out.gaps).toEqual(
       expect.arrayContaining(["There is no card feed connector, so it can't read card charges."]),
     );
-    expect(stepsOf(out.bundle).find((s) => s.kind === "missing")).toMatchObject({
-      need: expect.stringContaining("custom:find-card-charges"),
-      fill: "skill",
+    const drafted = v5StepsOf(out.bundle);
+    expect(drafted.find((s) => s.kind === "do" && s.uses?.type === "missing")).toMatchObject({
+      uses: { need: expect.stringContaining("custom:find-card-charges"), fill: "skill" },
     });
-    expect(out.bundle.workflows[0]?.workflow.schemaVersion).toBe(4);
-    const write = stepsOf(out.bundle).find((s) => s.kind === "write");
+    expect(out.bundle.workflows[0]?.workflow.schemaVersion).toBe(5);
+    const write = drafted.find(
+      (s) => s.kind === "do" && s.uses?.type === "action" && s.uses.action === TESTKIT_UPDATE_TOOL,
+    );
     expect(write?.checks?.approval?.required).toBe("required");
-    expect(stepsOf(out.bundle).every((s) => /^[0-9a-f-]{36}$/.test(s.id))).toBe(true);
+    expect(drafted.every((s) => /^[0-9a-f-]{36}$/.test(s.id))).toBe(true);
     // It is saved: the agent page opens it.
     const page = await H.call(OPERATOR, "GET", `/api/ops/agents/${out.agent.id}`);
     expect(page.json).toMatchObject({ latest: { status: "draft" } });
@@ -350,12 +378,14 @@ describe.skipIf(!h)("the Builder", () => {
     });
     const prompt = JSON.stringify(model.requests[0]?.messages);
     expect(prompt).toContain("Client A");
-    // A client's draft is checked against its (absent) bindings: the operator binds, not the model.
-    // v0.18: the step on a skill that doesn't exist is held as a missing step.
-    expect((res.json as { errors: Json[] }).errors.map((e) => e.code as string).sort()).toEqual([
-      "connection_missing",
-      "missing_step",
-    ]);
+    // v0.18: the step on a skill that doesn't exist is held as a missing step ("Not built yet" in
+    // the step model). A client agent's writes are also held to its bindings at publish: the draft
+    // writes to Testkit, which it isn't bound to yet, so it can't publish until it is.
+    const errors = (res.json as { errors: Json[] }).errors;
+    expect(errors.map(codeOf).sort()).toEqual(["connection_missing", "not_built_yet"]);
+    expect(JSON.stringify(errors.find((e) => codeOf(e) === "connection_missing"))).toContain(
+      "testkit",
+    );
     expect(
       (
         await H.call(OTHER_OPERATOR, "POST", "/api/ops/agents/draft", {
@@ -391,17 +421,17 @@ describe.skipIf(!h)("the Builder", () => {
       bindings: { testkit: H.A.connectionId },
     });
     const source = (created.json as { version: Json }).version;
-    // The model is shown the stored v3 version read as a process (every id kept) and answers v4.
+    // The model is shown the stored version (every id kept) and answers a revision of it.
     model.push((req: LlmRequest) => {
       const revised = structuredClone(shownSource(req));
       const wf = revised.workflows[0]?.workflow;
       if (!wf) throw new Error("no workflow");
-      expect(wf.schemaVersion).toBe(4);
-      const update = wf.steps[0] as Step;
+      expect(wf.schemaVersion).toBe(5);
+      const update = wf.steps[0] as steps.Step;
       wf.steps = [
         {
           id: "small-or-not",
-          kind: "if",
+          kind: "fork",
           name: "Invoice under $200?",
           paths: [
             {
@@ -412,28 +442,29 @@ describe.skipIf(!h)("the Builder", () => {
                 rules: [{ field: "{{trigger.amount}}", op: "<", value: 200 }],
               },
               steps: [
-                {
-                  id: "update-small",
-                  kind: "write",
-                  name: "Update without approval",
-                  tool: TESTKIT_UPDATE_TOOL,
-                  input: { id: "r1", amount: "12.00" },
-                  checks: {
-                    approval: {
-                      required: "not_required",
-                      mode: "in_turn",
-                      ifNoAnswer: "stop",
-                      onReject: "stop",
+                doAction(
+                  "update-small",
+                  "Update without approval",
+                  TESTKIT_UPDATE_TOOL,
+                  { id: "r1", amount: "12.00" },
+                  {
+                    checks: {
+                      approval: {
+                        required: "not_required",
+                        mode: "in_turn",
+                        ifNoAnswer: "stop",
+                        onReject: "stop",
+                      },
                     },
                   },
-                },
+                ),
               ],
             },
           ],
           otherwise: { id: "big", steps: [update] },
         },
         ...wf.steps.slice(1),
-      ];
+      ] as steps.Step[];
       return {
         toolUse: {
           name: "submit_revision",
@@ -466,16 +497,22 @@ describe.skipIf(!h)("the Builder", () => {
       parentVersionId: source.id,
       changeNote: "Builder: Skip approval under $200",
     });
-    const writes = stepsOf(out.bundle).filter((s) => s.kind === "write");
+    const writes = v5StepsOf(out.bundle).filter(
+      (s) => s.kind === "do" && s.uses?.type === "action",
+    );
     expect(writes.map((s) => s.checks?.approval?.required)).toEqual(["required", "required"]);
-    expect(stepsOf(out.bundle).find((s) => s.name === "Update the record")?.id).toBe("update");
-    // The revision is a v4 version; the v3 version it revised is as it was (invariant 3).
+    expect(v5StepsOf(out.bundle).find((s) => s.name === "Update the record")?.id).toBe("update");
+    // The version it revised is as it was (invariant 3).
     const [v1] = await H.t.db
       .select()
       .from(agentVersion)
       .where(eq(agentVersion.id, source.id as string));
-    expect(v1?.bundle.workflows[0]?.workflow.schemaVersion).toBe(3);
-    expect(out.bundle.workflows[0]?.workflow.schemaVersion).toBe(4);
+    expect(v1?.bundle.workflows[0]?.workflow.steps.map((x) => x.id)).toEqual([
+      "update",
+      "confirm",
+      "internal",
+      "end",
+    ]);
     expect(out.notes.join(" ")).toMatch(/Approval stays on/);
     expect(out.diff.changes.length).toBeGreaterThan(0);
     expect(Object.values(out.diff.labels)).toContain("Invoice under $200?");
@@ -500,7 +537,7 @@ describe.skipIf(!h)("the Builder", () => {
     model.push((req: LlmRequest) => {
       const changed = structuredClone(shownSource(req));
       const note = changed.workflows[0]?.workflow.steps[2];
-      if (note?.kind === "notify") note.notify.message = "Record checked";
+      if (note?.kind === "do" && note.tell) note.tell.message = "Record checked";
       return {
         toolUse: {
           name: "submit_revision",

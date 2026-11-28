@@ -4,57 +4,31 @@
 // as a promotion's draft is: the scrub adds no validation error and leaves no id it was given.
 
 import { parseVersionBundle, skillContext, stripForPromotion } from "@countersign/agents";
-import {
-  type AnyAgentBundle,
-  cloneJson,
-  holdsProcess,
-  isPlainObject,
-  processes,
-  uuidv7,
-  validateBundle,
-} from "@countersign/core";
+import { type AgentBundle, cloneJson, isPlainObject, processes, uuidv7 } from "@countersign/core";
 import { seedVersionBundle, withOperator } from "@countersign/db";
-import billClerkV1 from "@countersign/db/seed/agents/bill-clerk.v1.json";
-import billClerkV2 from "@countersign/db/seed/agents/bill-clerk.v2.json";
-import billClerkV3 from "@countersign/db/seed/agents/bill-clerk.v3.json";
-import builderV1 from "@countersign/db/seed/agents/builder.v1.json";
-import builderV2 from "@countersign/db/seed/agents/builder.v2.json";
-import coordinatorV1 from "@countersign/db/seed/agents/coordinator.v1.json";
-import coordinatorV2 from "@countersign/db/seed/agents/coordinator.v2.json";
-import documentClerkV1 from "@countersign/db/seed/agents/document-clerk.v1.json";
-import documentClerkV2 from "@countersign/db/seed/agents/document-clerk.v2.json";
-import supervisorV1 from "@countersign/db/seed/agents/supervisor.v1.json";
-import supervisorV2 from "@countersign/db/seed/agents/supervisor.v2.json";
-import supervisorV3 from "@countersign/db/seed/agents/supervisor.v3.json";
-import supervisorV4 from "@countersign/db/seed/agents/supervisor.v4.json";
-import supervisorV5 from "@countersign/db/seed/agents/supervisor.v5.json";
-import supervisorV6 from "@countersign/db/seed/agents/supervisor.v6.json";
-import supervisorV7 from "@countersign/db/seed/agents/supervisor.v7.json";
+import billClerk from "@countersign/db/seed/agents/bill-clerk.v1.json";
+import builder from "@countersign/db/seed/agents/builder.v1.json";
+import coordinator from "@countersign/db/seed/agents/coordinator.v1.json";
+import documentClerk from "@countersign/db/seed/agents/document-clerk.v1.json";
+import supervisor from "@countersign/db/seed/agents/supervisor.v1.json";
 import { knownModelIds } from "@countersign/llm";
 import { afterAll, describe, expect, it } from "vitest";
 import { type ApiHarness, createApiHarness } from "./api.test-helper";
 
+// Step model: one seeded version per platform agent, its v1.
 const SEEDED: Record<string, Record<number, unknown>> = {
-  "bill-clerk": { 1: billClerkV1, 2: billClerkV2, 3: billClerkV3 },
-  builder: { 1: builderV1, 2: builderV2 },
-  coordinator: { 1: coordinatorV1, 2: coordinatorV2 },
-  "document-clerk": { 1: documentClerkV1, 2: documentClerkV2 },
-  supervisor: {
-    1: supervisorV1,
-    2: supervisorV2,
-    3: supervisorV3,
-    4: supervisorV4,
-    5: supervisorV5,
-    6: supervisorV6,
-    7: supervisorV7,
-  },
+  "bill-clerk": { 1: billClerk },
+  builder: { 1: builder },
+  coordinator: { 1: coordinator },
+  "document-clerk": { 1: documentClerk },
+  supervisor: { 1: supervisor },
 };
 
 /**
  * A client's version of a template: every person it names is one of the client's (a user or
  * contact id), and every message trigger lists only the client's contacts.
  */
-function personalized(bundle: AnyAgentBundle, ids: string[]): AnyAgentBundle {
+function personalized(bundle: AgentBundle, ids: string[]): AgentBundle {
   const out = cloneJson(bundle);
   const id = () => {
     const v = uuidv7();
@@ -81,7 +55,7 @@ function personalized(bundle: AnyAgentBundle, ids: string[]): AnyAgentBundle {
   walk(out.workflows);
   // And a message trigger that lists only one of the client's contacts.
   for (const [i, w] of out.workflows.entries()) {
-    if (w.workflow.schemaVersion !== 4 || w.workflow.triggers.length >= 10) continue;
+    if (w.workflow.triggers.length >= 10) continue;
     w.workflow.triggers.push({
       id: `trg-client-message-${i}`,
       on: { type: "message", channels: ["email"], from: { contactIds: [id()] } },
@@ -98,12 +72,11 @@ describe.skipIf(!h)("the promotion scrub on every shipped template", () => {
   const H = h as ApiHarness;
   const ctx = H?.platform.ctx;
 
-  const errorsOf = async (bundle: AnyAgentBundle) => {
+  const errorsOf = async (bundle: AgentBundle) => {
     const { skills } = await withOperator(H.db, [], (tx) =>
       skillContext(tx, { tenantId: null, bundle, catalog: ctx.catalog }),
     );
-    const validate = holdsProcess(bundle) ? processes.validateAnyBundle : validateBundle;
-    const r = validate(bundle, {
+    const r = processes.validateBundle(bundle, {
       skills,
       tools: ctx.tools.specs(),
       models: knownModelIds(),
@@ -112,20 +85,20 @@ describe.skipIf(!h)("the promotion scrub on every shipped template", () => {
     return r.errors.map((e) => `${e.code} ${e.field ?? ""}`).sort();
   };
 
-  const templates = (): [string, AnyAgentBundle][] => {
-    const out: [string, AnyAgentBundle][] = [];
+  const templates = (): [string, AgentBundle][] => {
+    const out: [string, AgentBundle][] = [];
     for (const [slug, files] of Object.entries(SEEDED)) {
       const latest = Math.max(...Object.keys(files).map(Number));
       out.push([
         `${slug} v${latest}`,
-        parseVersionBundle(seedVersionBundle(files, latest, slug)) as AnyAgentBundle,
+        parseVersionBundle(seedVersionBundle(files, latest, slug)) as AgentBundle,
       ]);
     }
     for (const pack of H.platform.packs) {
       for (const t of pack.manifest.templates) {
         out.push([
           `${pack.manifest.id}/${t.slug}`,
-          (t.versions?.at(-1) ?? t.bundle) as AnyAgentBundle,
+          (t.versions?.at(-1) ?? t.bundle) as AgentBundle,
         ]);
       }
     }
@@ -134,7 +107,10 @@ describe.skipIf(!h)("the promotion scrub on every shipped template", () => {
 
   it("scrubs each template, as shipped and as a client's version, into one that validates", async () => {
     const list = templates();
-    expect(list.length).toBeGreaterThan(5);
+    expect(list).toHaveLength(
+      Object.keys(SEEDED).length +
+        H.platform.packs.reduce((n, pack) => n + pack.manifest.templates.length, 0),
+    );
     for (const [name, template] of list) {
       const shipped = await errorsOf(template);
       // As it ships, with no template behind it.

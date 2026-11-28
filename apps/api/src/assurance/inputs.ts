@@ -4,7 +4,7 @@
 
 import { CredentialEnvelope } from "@countersign/connectors";
 import {
-  type AnyAgentBundle,
+  type AgentBundle,
   type AssuranceAction,
   type AssuranceConnection,
   type AssuranceInput,
@@ -222,7 +222,7 @@ export async function assuranceInputFor(
     duringTrial: trial,
   }));
 
-  const bundle = v.bundle as AnyAgentBundle;
+  const bundle = v.bundle as AgentBundle;
   return {
     clientName: read.input.client,
     sop,

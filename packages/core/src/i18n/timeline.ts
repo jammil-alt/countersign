@@ -37,6 +37,12 @@ export interface TimelineWords {
   wouldAfterUnwritten(step: string): string;
   /** A test run's notify step, which sends nothing: "Would say what changed (test run, not sent)". */
   wouldSend(step: string): string;
+  /**
+   * A workflow output its End delivers, quoting the output's name as written (it is a noun phrase,
+   * so it never follows "Would" bare): `Would send “The bill, itemized” (test run, not sent)`,
+   * live `Sent “The bill, itemized”`. A write output keeps its action's words.
+   */
+  delivered(kind: DeliveredKind, name: string, testRun: boolean): string;
   stopped: Record<"succeeded" | "failed" | "cancelled", string>;
   items(n: number): string;
   waiting(duration: string): string;
@@ -57,6 +63,18 @@ export interface TimelineWords {
   /** A hand-off to an agent that isn't started: "Price checker isn't started, so the hand-off didn't run". */
   handOffNotStarted(agent: string): string;
 }
+
+/** What an End's output does: a report is sent, a save saved, a hand off handed off, pass on passed on. */
+export type DeliveredKind = "report" | "save" | "handoff" | "pass_on";
+
+/** Per kind: the test run's phrase before the name, its note after it, and the live phrase. */
+type DeliveredPhrases = Record<DeliveredKind, [would: string, note: string, live: string]>;
+
+/** `Would send “X” (test run, not sent)` / `Sent “X”`, from one language's phrases. */
+const deliveredIn =
+  (p: DeliveredPhrases) =>
+  (kind: DeliveredKind, name: string, test: boolean): string =>
+    test ? `${p[kind][0]} “${name}” (${p[kind][1]})` : `${p[kind][2]} “${name}”`;
 
 /**
  * "Itemize the bill" → "itemize the bill", to follow "Would". A first word that isn't a plain
@@ -89,6 +107,12 @@ export const TIMELINE_WORDS: Record<Locale, TimelineWords> = {
       `Would ${afterWould(s)} (test run, not written${standIn ? "; stand-in values" : ""})`,
     wouldAfterUnwritten: (s) => `Would ${afterWould(s)} (test run, after a change not written)`,
     wouldSend: (s) => `Would ${afterWould(s)} (test run, not sent)`,
+    delivered: deliveredIn({
+      report: ["Would send", "test run, not sent", "Sent"],
+      save: ["Would save", "test run, not saved", "Saved"],
+      handoff: ["Would hand off", "test run, not handed off", "Handed off"],
+      pass_on: ["Would pass on", "test run, not passed on", "Passed on"],
+    }),
     stopped: { succeeded: "succeeded", failed: "failed", cancelled: "cancelled" },
     items: (n) => plural("en", n, "item", "items"),
     waiting: (d) => `waiting ${d}`,
@@ -121,6 +145,12 @@ export const TIMELINE_WORDS: Record<Locale, TimelineWords> = {
       `Propuesto: ${s} (prueba, sin escribir${standIn ? "; valores de muestra" : ""})`,
     wouldAfterUnwritten: (s) => `Propuesto: ${s} (prueba, tras un cambio sin escribir)`,
     wouldSend: (s) => `Propuesto: ${s} (prueba, sin enviar)`,
+    delivered: deliveredIn({
+      report: ["Se enviaría", "prueba, sin enviar", "Enviado"],
+      save: ["Se guardaría", "prueba, sin guardar", "Guardado"],
+      handoff: ["Se pasaría", "prueba, sin pasar", "Pasado"],
+      pass_on: ["Se trasladaría", "prueba, sin trasladar", "Trasladado"],
+    }),
     stopped: { succeeded: "terminado", failed: "falló", cancelled: "cancelado" },
     items: (n) => plural("es", n, "elemento", "elementos"),
     waiting: (d) => `esperando ${d}`,
@@ -153,6 +183,12 @@ export const TIMELINE_WORDS: Record<Locale, TimelineWords> = {
       `Proposé : ${s} (test, rien n'est écrit${standIn ? " ; valeurs fictives" : ""})`,
     wouldAfterUnwritten: (s) => `Proposé : ${s} (test, après une modification non écrite)`,
     wouldSend: (s) => `Proposé : ${s} (test, rien n'est envoyé)`,
+    delivered: deliveredIn({
+      report: ["Enverrait", "test, non envoyé", "Envoyé"],
+      save: ["Enregistrerait", "test, non enregistré", "Enregistré"],
+      handoff: ["Transmettrait", "test, non transmis", "Transmis"],
+      pass_on: ["Ferait suivre", "test, non suivi", "Suivi"],
+    }),
     stopped: { succeeded: "terminé", failed: "échec", cancelled: "annulé" },
     items: (n) => plural("fr", n, "élément", "éléments"),
     waiting: (d) => `en attente : ${d}`,
@@ -185,6 +221,12 @@ export const TIMELINE_WORDS: Record<Locale, TimelineWords> = {
       `Proposto: ${s} (teste, nada gravado${standIn ? "; valores fictícios" : ""})`,
     wouldAfterUnwritten: (s) => `Proposto: ${s} (teste, após uma alteração não gravada)`,
     wouldSend: (s) => `Proposto: ${s} (teste, nada enviado)`,
+    delivered: deliveredIn({
+      report: ["Enviaria", "teste, não enviado", "Enviado"],
+      save: ["Salvaria", "teste, não salvo", "Salvo"],
+      handoff: ["Repassaria", "teste, não repassado", "Repassado"],
+      pass_on: ["Encaminharia", "teste, não encaminhado", "Encaminhado"],
+    }),
     stopped: { succeeded: "concluído", failed: "falhou", cancelled: "cancelado" },
     items: (n) => plural("pt-BR", n, "item", "itens"),
     waiting: (d) => `aguardando ${d}`,
@@ -217,6 +259,12 @@ export const TIMELINE_WORDS: Record<Locale, TimelineWords> = {
       `Proposto: ${s} (prova, non scritto${standIn ? "; valori fittizi" : ""})`,
     wouldAfterUnwritten: (s) => `Proposto: ${s} (prova, dopo una modifica non scritta)`,
     wouldSend: (s) => `Proposto: ${s} (prova, non inviato)`,
+    delivered: deliveredIn({
+      report: ["Invierebbe", "prova, non inviato", "Inviato"],
+      save: ["Salverebbe", "prova, non salvato", "Salvato"],
+      handoff: ["Passerebbe", "prova, non passato", "Passato"],
+      pass_on: ["Inoltrerebbe", "prova, non inoltrato", "Inoltrato"],
+    }),
     stopped: { succeeded: "completato", failed: "non riuscito", cancelled: "annullato" },
     items: (n) => plural("it", n, "elemento", "elementi"),
     waiting: (d) => `in attesa: ${d}`,
@@ -250,6 +298,12 @@ export const TIMELINE_WORDS: Record<Locale, TimelineWords> = {
     wouldAfterUnwritten: (s) =>
       `Vorgeschlagen: ${s} (Testlauf, nach einer nicht geschriebenen Änderung)`,
     wouldSend: (s) => `Vorgeschlagen: ${s} (Testlauf, nicht gesendet)`,
+    delivered: deliveredIn({
+      report: ["Würde senden", "Test, nicht gesendet", "Gesendet"],
+      save: ["Würde speichern", "Test, nicht gespeichert", "Gespeichert"],
+      handoff: ["Würde übergeben", "Test, nicht übergeben", "Übergeben"],
+      pass_on: ["Würde weitergeben", "Test, nicht weitergegeben", "Weitergegeben"],
+    }),
     stopped: { succeeded: "abgeschlossen", failed: "fehlgeschlagen", cancelled: "abgebrochen" },
     items: (n) => plural("de", n, "Eintrag", "Einträge"),
     waiting: (d) => `wartet: ${d}`,

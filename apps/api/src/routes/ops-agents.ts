@@ -16,14 +16,16 @@ import {
   getAgent,
   getVersion,
   handoffAgents,
-  latestVersion,
   listClientAgents,
   listTemplates,
   listVersionHeads,
   type OperationalPatch,
+  parseVersionBundle,
   pause,
   publish,
+  publishStepSkills,
   requiredConnectors,
+  requiredPacks,
   restoreAgent,
   rollback,
   skillContext,
@@ -33,16 +35,8 @@ import {
   updateOperational,
   validateForPublish,
 } from "@countersign/agents";
-import {
-  type AnyAgentBundle,
-  AnyAgentBundle as AnyAgentBundleSchema,
-  processes,
-  routes,
-  type SkillDefinition,
-  validateWorkflow,
-} from "@countersign/core";
-import { connection, tenant } from "@countersign/db";
-import { knownModelIds } from "@countersign/llm";
+import { type AgentBundle, routes, steps, TestPeople, testPersonAddress } from "@countersign/core";
+import { contact, tenant } from "@countersign/db";
 import {
   EventPayloadError,
   type EventTypeRegistry,
@@ -51,20 +45,22 @@ import {
 import {
   handTrigger,
   type RoutableAgent,
-  type RunRange,
   type RunRequest,
   requestRun,
 } from "@countersign/workflows";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import type { Hono } from "hono";
+import { liveOnPublish } from "../build/live";
 import { type AppEnv, ensureClient, type HandlerCtx, HttpError, mount, notFound } from "../http";
 import { markOperatorPause } from "../lifecycle/pause";
 import { afterActivate } from "../lifecycle/stages";
+import { connectionsToBind } from "../runs/bind-connections";
 import { createRunRow } from "../runs/dispatch";
 import type { RunParams } from "../runs/instances";
 import { startAfterCommit } from "../runs/reconcile";
 import { ensureSandboxRoom, markSandbox } from "../sandbox/sandbox";
 import { agentSummary, versionDetail, versionSummary } from "./mappers";
+import { switchOnPacks } from "./packs";
 
 /** The agent, if it is visible to this request (templates, or a client agent of a served client). */
 async function agentInScope(ctx: Pick<HandlerCtx<never>, "tx" | "tenantIds">, id: string) {
@@ -73,7 +69,7 @@ async function agentInScope(ctx: Pick<HandlerCtx<never>, "tx" | "tenantIds">, id
   return row;
 }
 
-function routable(row: AgentRow, liveBundle: AnyAgentBundle | null): RoutableAgent {
+function routable(row: AgentRow, liveBundle: AgentBundle | null): RoutableAgent {
   return {
     id: row.id,
     tenantId: row.tenantId,
@@ -103,6 +99,68 @@ async function sandboxClient(ctx: Pick<HandlerCtx<never>, "tx" | "tenantIds">): 
 }
 
 /**
+ * Owner, 2026-11-27: the test person of a test run started with "Ask me": the operator starting it,
+ * by their login email and the phone of the Sandbox's contact with that email, if any (the
+ * Sandbox's `sandboxDelivery` overrides both where it is set, as each message goes). The Sandbox
+ * only: a test run anywhere else never sends (422).
+ */
+// DECISION: refused only when a Contact step's channel has no address for the test person (a text
+// with no phone known); a workflow that only emails needs no phone. A message that still finds none
+// as it goes (the setting changed) fails, saying so.
+async function testPeopleFor(
+  ctx: Pick<HandlerCtx<never>, "tx" | "session">,
+  tenantId: string,
+  workflow: unknown,
+): Promise<TestPeople> {
+  const [t] = await ctx.tx
+    .select({ settings: tenant.settings })
+    .from(tenant)
+    .where(eq(tenant.id, tenantId));
+  if ((t?.settings as { sandbox?: unknown } | undefined)?.sandbox !== true) {
+    throw new HttpError(
+      422,
+      "not_sandbox",
+      "People in a test are asked only in the Sandbox: a test run in a client never sends anything",
+    );
+  }
+  const parsed = TestPeople.shape.email.safeParse(ctx.session.user.email?.trim().toLowerCase());
+  const email = parsed.success ? parsed.data : null;
+  const [me] = email
+    ? await ctx.tx
+        .select({ phone: contact.phone })
+        .from(contact)
+        .where(and(eq(contact.tenantId, tenantId), eq(contact.email, email)))
+        .limit(1)
+    : [];
+  const phone = TestPeople.shape.phone.safeParse(me?.phone ?? null);
+  const people = { by: ctx.session.user.id, email, phone: phone.success ? phone.data : null };
+  for (const channel of contactChannels(workflow)) {
+    if (testPersonAddress(t?.settings, people, channel)) continue;
+    throw new HttpError(
+      422,
+      "no_test_person",
+      channel === "email"
+        ? "We have no email address for you: set where test messages go on the Sandbox's Records page"
+        : "We have no phone number to text you at: add yours to your contact in the Sandbox, or set where test messages go on its Records page",
+    );
+  }
+  return people;
+}
+
+/** The channels a v5 workflow's Contact steps talk on (a call isn't sent yet). */
+function contactChannels(workflow: unknown): Set<"email" | "sms" | "whatsapp"> {
+  const out = new Set<"email" | "sms" | "whatsapp">();
+  const wf = steps.Workflow.safeParse(workflow);
+  if (!wf.success) return out;
+  steps.eachStep(wf.data.steps, ({ step }) => {
+    if (step.kind === "do" && step.doneBy === "contact" && step.contact) {
+      if (step.contact.channel !== "call") out.add(step.contact.channel);
+    }
+  });
+  return out;
+}
+
+/**
  * Binds a test copy's unbound required connectors to its client's connection for each, when the
  * client has one (a client has at most one connection per connector). Logged as any binding is.
  */
@@ -116,9 +174,9 @@ async function sandboxClient(ctx: Pick<HandlerCtx<never>, "tx" | "tenantIds">): 
 export async function bindTestCopy(
   ctx: Pick<HandlerCtx<never>, "tx" | "services" | "session">,
   copy: AgentRow,
-  bundle: AnyAgentBundle,
+  bundle: AgentBundle,
 ): Promise<AgentRow> {
-  const add = await bindingsToAdd(ctx, copy, bundle);
+  const add = await bindingsToAdd(ctx, copy, bundle, { rebind: copy.testCopy === true });
   if (Object.keys(add).length === 0) return copy;
   return updateOperational(ctx.tx, {
     agentId: copy.id,
@@ -134,7 +192,8 @@ export async function bindTestCopy(
 export async function bindingsToAdd(
   ctx: Pick<HandlerCtx<never>, "tx" | "services">,
   copy: Pick<AgentRow, "tenantId" | "bindings">,
-  bundle: AnyAgentBundle,
+  bundle: AgentBundle,
+  options: { rebind?: boolean } = {},
 ): Promise<Record<string, string>> {
   const tenantId = copy.tenantId as string;
   const { skills } = await skillContext(ctx.tx, {
@@ -148,21 +207,13 @@ export async function bindingsToAdd(
     bundle,
     catalog: ctx.services.platform.catalog,
   });
-  const needed = requiredConnectors(
-    bundle,
-    skills,
-    ctx.services.platform.tools,
-    used.automations,
-  ).filter((c) => !copy.bindings[c]);
-  if (needed.length === 0) return {};
-  const rows = await ctx.tx
-    .select({ id: connection.id, connector: connection.connector })
-    .from(connection)
-    .where(and(eq(connection.tenantId, tenantId), inArray(connection.connector, needed)))
-    .orderBy(connection.createdAt);
-  const add: Record<string, string> = {};
-  for (const r of rows) add[r.connector] ??= r.id;
-  return add;
+  const needed = requiredConnectors(bundle, skills, ctx.services.platform.tools, used.automations);
+  return connectionsToBind(ctx.tx, {
+    tenantId,
+    needed,
+    bindings: copy.bindings,
+    rebind: options.rebind === true,
+  });
 }
 
 /**
@@ -176,6 +227,17 @@ export async function activateAgent(
   row: AgentRow,
   options: { requireTestRun?: boolean } = {},
 ): Promise<AgentRow> {
+  // Owner, 2026-11-24: an agent built for the client (no fork) gets its packs as it is turned on.
+  // A refusal below rolls them back with the rest.
+  if (row.kind === "client" && row.tenantId && row.liveVersionId) {
+    const live = await getVersion(ctx.tx, row.liveVersionId);
+    const needed = await requiredPacks(ctx.tx, {
+      tenantId: row.tenantId,
+      bundle: live.bundle,
+      catalog: ctx.services.platform.ctx.catalog,
+    });
+    await switchOnPacks(ctx.tx, ctx.services, row.tenantId, needed, ctx.session.user.id);
+  }
   const activated = await activate(ctx.tx, {
     agentId: row.id,
     actorId: ctx.session.user.id,
@@ -227,7 +289,7 @@ function request(make: () => RunRequest): RunRequest {
 // unknown workflow is left to requestRun's own refusal.
 function checkTestPayload(
   events: Pick<EventTypeRegistry, "parsePayload">,
-  bundle: AnyAgentBundle,
+  bundle: AgentBundle,
   workflow: string,
   payload: unknown,
 ): void {
@@ -308,7 +370,18 @@ export function opsAgentRoutes(app: Hono<AppEnv>): void {
         serviceDescription: body.serviceDescription,
       }),
     });
-    return { agent: agentSummary(created.agent), version: versionSummary(created.version) };
+    // Owner, 2026-11-24: the packs its skills need are switched on for the client with it.
+    const needed = await requiredPacks(tx, {
+      tenantId: body.clientId,
+      bundle: created.version.bundle,
+      catalog: ctx.services.platform.ctx.catalog,
+    });
+    const packs = await switchOnPacks(tx, ctx.services, body.clientId, needed, session.user.id);
+    return {
+      agent: agentSummary(created.agent),
+      version: versionSummary(created.version),
+      packs,
+    };
   });
 
   mount(app, routes.opsClientAgents, async (ctx) => {
@@ -458,11 +531,28 @@ export function opsAgentRoutes(app: Hono<AppEnv>): void {
 
   mount(app, routes.opsPublish, async (ctx) => {
     const row = await agentInScope(ctx, ctx.params.id);
+    // The rules and the AI written in this version's steps were saved as drafts and pinned in its
+    // skills; the version going live makes exactly those versions live (stream F).
+    const pinning = await getVersion(ctx.tx, ctx.params.vid);
+    if (pinning.agentId === row.id) {
+      await publishStepSkills(ctx.tx, {
+        agentId: row.id,
+        tenantId: row.tenantId,
+        skills: pinning.bundle.definition.skills,
+      });
+    }
     const v = await publish(ctx.tx, {
       agentId: row.id,
       versionId: ctx.params.vid,
       actorId: ctx.session.user.id,
       ctx: ctx.services.platform.ctx,
+    });
+    // Owner (2026-11-27): the agent's open build goes live with its draft, wherever it is published.
+    await liveOnPublish(ctx.tx, {
+      agentId: row.id,
+      versionId: v.id,
+      version: v.version,
+      userId: ctx.session.user.id,
     });
     return { version: versionSummary(v) };
   });
@@ -537,8 +627,11 @@ export function opsAgentRoutes(app: Hono<AppEnv>): void {
     // DECISION: a test run is checked exactly as a publish is, against the agent asked for: a
     // template as a template, a client agent with its bound connections, as the builder checks it
     // before it offers Test run (docs/plan.md §1.5).
+    // DECISION: a version that went live (or was retired) was published, so none of its steps is
+    // new work: a test run of it is checked as it stands (invariant 3), not as a first draft.
     const errors = await validateForPublish(ctx.tx, row, v.bundle, ctx.services.platform.ctx, {
-      previous: await existingBundle(ctx.tx, v),
+      previous:
+        v.status === "draft" ? await existingBundle(ctx.tx, v) : parseVersionBundle(v.bundle),
     });
     if (errors.length > 0) {
       throw new HttpError(422, "invalid_bundle", `v${v.version} does not validate`, errors);
@@ -587,42 +680,32 @@ export function opsAgentRoutes(app: Hono<AppEnv>): void {
         bundle: target.version.bundle,
       }),
     );
-    // Owner, 2026-11-22 (docs/plan.md §1.185): a test of some of the steps. Checked here, so a
-    // step never reads nothing where it expects an earlier step's output.
-    // DECISION: a range is a test run's alone (it never writes, invariant 8), on a workflow in
-    // the new format, and what is given for the steps before it is at most 256 KB.
+    // Owner, 2026-11-22 (docs/plan.md §1.185): a test of some of the steps.
+    // For the step model on 2026-11-26 ("from step x to y"): the executor runs a range of
+    // top-level steps as before; core's `stepRangeProblems` says why one can't, in words, and the
+    // outputs of earlier steps the picked ones read must be given (at most 256 KB of them).
     const { range } = ctx.body;
     if (range) {
       const wf = target.version.bundle.workflows.find((w) => w.slug === ctx.body.workflow);
-      if (wf?.workflow.schemaVersion !== 4) {
-        throw new HttpError(
-          422,
-          "invalid_range",
-          "some of the steps can be tested once the workflow is saved in the new format",
-        );
-      }
-      const problems = processes.rangeProblems(
-        wf.workflow,
-        // What a step reads is in its own words; the tools' shapes are all the typing needs.
-        { tools: ctx.services.platform.tools.specs() },
-        range,
-      );
+      if (!wf) throw notFound("workflow");
+      const problems = steps.stepRangeProblems(wf.workflow, range);
       if (JSON.stringify(range.given ?? {}).length > 256_000) {
-        problems.push("what was given for the earlier steps is too large (256 KB at most)");
+        problems.push("what was given is over 256 KB");
       }
       if (problems.length > 0) {
         throw new HttpError(422, "invalid_range", problems.join("; "), { problems });
       }
     }
-    // As the run keeps it: only what was said.
-    const kept: RunRange | null = range
+    let params: RunParams = range
       ? {
-          ...(range.from ? { from: range.from } : {}),
-          ...(range.to ? { to: range.to } : {}),
-          ...(range.given ? { given: range.given } : {}),
+          ...req,
+          range: {
+            ...(range.from ? { from: range.from } : {}),
+            ...(range.to ? { to: range.to } : {}),
+            ...(range.given ? { given: range.given } : {}),
+          },
         }
-      : null;
-    let params: RunParams = kept ? { ...req, range: kept } : req;
+      : req;
     // docs/plan.md §1.243: a test run marked sandbox is listed in the client's sandbox on both
     // sides. Only a client's own agent (never a template's test copy), within the day's limits.
     if (ctx.body.sandbox) {
@@ -641,44 +724,19 @@ export function opsAgentRoutes(app: Hono<AppEnv>): void {
         title: (wf?.name ?? ctx.body.workflow).slice(0, 300),
       });
     }
+    // Owner, 2026-11-27: "Ask me": the operator stands in for everyone in the test (the Sandbox
+    // only); its messages go to them and it waits for their answers and approvals.
+    if (ctx.body.people === "ask_me") {
+      const wf = target.version.bundle.workflows.find((w) => w.slug === ctx.body.workflow);
+      params = {
+        ...params,
+        testPeople: await testPeopleFor(ctx, target.agent.tenantId as string, wf?.workflow),
+      };
+    }
     await createRunRow(ctx.tx, params);
     const started = params;
     ctx.afterCommit(() => startAfterCommit(ctx.services, started));
     return { runId: req.runId, agentId: target.agent.id, versionId: target.version.id };
-  });
-
-  mount(app, routes.opsValidateWorkflow, async (ctx) => {
-    const { tx, body, services } = ctx;
-    const { platform } = services;
-    let skills: Record<string, SkillDefinition> = Object.fromEntries(
-      platform.catalog.list().map((s) => [s.id, s]),
-    );
-    let agentDef: AnyAgentBundle["definition"] | undefined;
-    if (body.agentId) {
-      const row = await agentInScope(ctx, body.agentId);
-      const latest = await latestVersion(tx, row.id);
-      const v = row.liveVersionId ? await getVersion(tx, row.liveVersionId) : latest;
-      if (v) {
-        // Wave 3b: the agent's live (else latest) version may hold v4 processes; only its
-        // definition and skills are read here.
-        const bundle = AnyAgentBundleSchema.parse(v.bundle);
-        agentDef = bundle.definition;
-        const resolved = await skillContext(tx, {
-          tenantId: row.tenantId,
-          bundle,
-          catalog: platform.catalog,
-        });
-        skills = { ...skills, ...resolved.skills };
-      }
-    }
-    const result = validateWorkflow(body.workflow, {
-      skills,
-      tools: platform.tools.specs(),
-      models: knownModelIds(),
-      events: platform.events.byType(),
-      ...(agentDef ? { agent: agentDef } : {}),
-    });
-    return { valid: result.valid, errors: result.errors };
   });
 
   mount(app, routes.opsEventCatalog, async ({ services }) => ({

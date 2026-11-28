@@ -20,15 +20,13 @@ import {
   parseForwardedEmail,
   parseReplyEmail,
   trustedFromHeader,
-  UPLOAD_CONNECTOR_ID,
 } from "@countersign/connectors";
 import {
   acceptingTriggers,
   agentAddress,
   agentCommandNames,
-  INBOUND_MESSAGE_ENTITY,
-  INBOUND_MESSAGE_EVENT,
-  type InboundMessagePayload,
+  authenticatedSenders,
+  emailIntakeAdmits,
   inboundText,
   messageTriggersOn,
   parseAgentAddress,
@@ -42,13 +40,12 @@ import {
   agentVersion,
   type Db,
   document,
-  rawRecord,
   type Tx,
   tenant,
   withTenant,
 } from "@countersign/db";
 import { attachmentsToKeep, storeEmailAttachments } from "@countersign/documents";
-import { type EventRow, type EventTypeRegistry, emit } from "@countersign/senses";
+import type { EventRow, EventTypeRegistry } from "@countersign/senses";
 import { commandCandidates } from "@countersign/threads";
 import type { RunRequest } from "@countersign/workflows";
 import { and, eq, inArray, sql } from "drizzle-orm";
@@ -65,6 +62,7 @@ import {
 } from "../collect/email";
 import { tenantLocale } from "../routes/language";
 import { createRunRow } from "../runs/dispatch";
+import { emitInboundMessage, inboundMessageSeen, storeInboundMessage } from "./inbound-message";
 import { confirmReply, type InboundReply, noteStranger, strangerReply } from "./replies";
 import { contactByEmail, contactFacts } from "./senders";
 
@@ -179,19 +177,9 @@ async function stepEmail(
     });
   }
   const conn = await ensureUploadConnection(tx, m.tenantId);
-  const [seen] = await tx
-    .select({ id: rawRecord.id })
-    .from(rawRecord)
-    .where(
-      and(
-        eq(rawRecord.tenantId, m.tenantId),
-        eq(rawRecord.connectionId, conn.id),
-        eq(rawRecord.entityType, INBOUND_MESSAGE_ENTITY),
-        eq(rawRecord.externalId, m.key),
-      ),
-    )
-    .limit(1);
-  if (seen) return m.dropped("duplicate");
+  if (await inboundMessageSeen(tx, { tenantId: m.tenantId, connectionId: conn.id, key: m.key })) {
+    return m.dropped("duplicate");
+  }
   const meta = {
     email: {
       from: m.from,
@@ -220,39 +208,32 @@ async function stepEmail(
     .from(document)
     .where(and(eq(document.tenantId, m.tenantId), inArray(document.id, ids)));
   const stored = ids.flatMap((id) => types.filter((t) => t.id === id));
-  const [record] = await tx
-    .insert(rawRecord)
-    .values({
-      tenantId: m.tenantId,
-      connectionId: conn.id,
-      connector: UPLOAD_CONNECTOR_ID,
-      entityType: INBOUND_MESSAGE_ENTITY,
-      externalId: m.key,
-      externalVersion: null,
-      payload: {
-        agentId: m.agentId,
-        channel: "email",
-        from: m.from,
-        contactId,
-        step: m.tag,
-        authenticated: m.proven !== null,
-        subject: m.headers.subject?.slice(0, 300) ?? null,
-        date: m.headers.date,
-        messageId: m.headers.messageId,
-        // The sender's words: data, never instructions (invariant 9).
-        text: inboundText(m.text),
-        documents: ids,
-      },
-      syncedAt: m.now,
-    })
-    .onConflictDoNothing()
-    .returning({ id: rawRecord.id });
-  if (!record) return m.dropped("duplicate");
+  const recordId = await storeInboundMessage(tx, {
+    tenantId: m.tenantId,
+    connectionId: conn.id,
+    key: m.key,
+    payload: {
+      agentId: m.agentId,
+      channel: "email",
+      from: m.from,
+      contactId,
+      step: m.tag,
+      authenticated: m.proven !== null,
+      subject: m.headers.subject?.slice(0, 300) ?? null,
+      date: m.headers.date,
+      messageId: m.headers.messageId,
+      // The sender's words: data, never instructions (invariant 9).
+      text: inboundText(m.text),
+      documents: ids,
+    },
+    now: m.now,
+  });
+  if (!recordId) return m.dropped("duplicate");
   const accepted = {
     status: "accepted" as const,
     tenantId: m.tenantId,
     agentId: m.agentId,
-    rawRecordId: record.id,
+    rawRecordId: recordId,
     fresh: files.documents.filter((d) => d.created).map((d) => d.id),
     events: files.events,
     replies: [],
@@ -395,7 +376,23 @@ export async function receiveAgentEmail(
     const proven = trustedFromHeader(from, headers.headers.dmarcPassFrom) ? from : null;
     const sender = proven ? await contactByEmail(tx, tenantId, proven) : null;
     const facts: SenderFacts = sender ? contactFacts(sender) : { kind: "stranger" };
-    const accepting = acceptingTriggers(bundle, "email", facts);
+    // Email intake (owner, 2026-11-28): the agent may take mail only from a domain, only from a
+    // list, or from anyone, in place of its triggers' People filters (`people`, the default).
+    const intake = bundle.definition.emailIntake;
+    const admitted = emailIntakeAdmits(
+      intake,
+      authenticatedSenders({
+        envelopeFrom: message.from,
+        from,
+        auth: headers.headers.auth,
+      }),
+    );
+    const accepting =
+      admitted === null
+        ? acceptingTriggers(bundle, "email", facts)
+        : admitted
+          ? messageTriggersOn(bundle, "email")
+          : [];
     const messageKey = headers.headers.messageId?.slice(0, 300) || (await sha256Hex(message.raw));
     const key = `${found.agentId}:${messageKey}`;
 
@@ -452,19 +449,9 @@ export async function receiveAgentEmail(
 
     const conn = await ensureUploadConnection(tx, tenantId);
     // The same message twice (Email Routing retries, a resend): one record, one run.
-    const [seen] = await tx
-      .select({ id: rawRecord.id })
-      .from(rawRecord)
-      .where(
-        and(
-          eq(rawRecord.tenantId, tenantId),
-          eq(rawRecord.connectionId, conn.id),
-          eq(rawRecord.entityType, INBOUND_MESSAGE_ENTITY),
-          eq(rawRecord.externalId, key),
-        ),
-      )
-      .limit(1);
-    if (seen) return dropped("duplicate");
+    if (await inboundMessageSeen(tx, { tenantId, connectionId: conn.id, key })) {
+      return dropped("duplicate");
+    }
 
     const events: EventRow[] = [];
     const documents: string[] = [];
@@ -481,6 +468,8 @@ export async function receiveAgentEmail(
         authenticated: proven !== null,
         authenticatedAs: proven,
         agentId: found.agentId,
+        // How it got in: the agent's email intake, when that (not a People filter) took it.
+        ...(admitted ? { intake: intake?.mode } : {}),
       },
     };
     // As forwarded mail: a part whose bytes aren't its type, or that the store refuses (empty, too
@@ -496,52 +485,34 @@ export async function receiveAgentEmail(
       if (d.created) fresh.push(d.id);
     }
     events.push(...files.events);
-    const [stored] = await tx
-      .insert(rawRecord)
-      .values({
-        tenantId,
-        connectionId: conn.id,
-        connector: UPLOAD_CONNECTOR_ID,
-        entityType: INBOUND_MESSAGE_ENTITY,
-        externalId: key,
-        externalVersion: null,
-        payload: {
-          agentId: found.agentId,
-          channel: "email",
-          from,
-          contactId: sender?.id ?? null,
-          subject: headers.headers.subject?.slice(0, 300) ?? null,
-          date: headers.headers.date,
-          messageId: headers.headers.messageId,
-          // The sender's words: data for `inbound.get`, never instructions (invariant 9).
-          text: inboundText(reply.text),
-          documents,
-        },
-        syncedAt: now,
-      })
-      .onConflictDoNothing()
-      .returning({ id: rawRecord.id });
-    if (!stored) return dropped("duplicate");
-    const payload: InboundMessagePayload = {
+    const storedId = await storeInboundMessage(tx, {
+      tenantId,
+      connectionId: conn.id,
+      key,
+      payload: {
+        agentId: found.agentId,
+        channel: "email",
+        from,
+        contactId: sender?.id ?? null,
+        subject: headers.headers.subject?.slice(0, 300) ?? null,
+        date: headers.headers.date,
+        messageId: headers.headers.messageId,
+        // The sender's words: data for `inbound.get`, never instructions (invariant 9).
+        text: inboundText(reply.text),
+        documents,
+      },
+      now,
+    });
+    if (!storedId) return dropped("duplicate");
+    const ev = await emitInboundMessage(tx, deps.registry, {
+      tenantId,
       agentId: found.agentId,
       channel: "email",
       contactId: sender?.id ?? null,
-      userId: null,
-      rawRecordId: stored.id,
+      rawRecordId: storedId,
       documents,
-      receivedAt: now.toISOString(),
-    };
-    const ev = await emit(
-      tx,
-      {
-        tenantId,
-        type: INBOUND_MESSAGE_EVENT,
-        subjectType: "raw_record",
-        subjectId: stored.id,
-        payload,
-      },
-      { registry: deps.registry },
-    );
+      now,
+    });
     if (ev) events.push(ev);
     const confirm = accepting.find((t) => t.on.reply)?.on.reply?.confirm;
     const replies: InboundReply[] = [];
@@ -553,7 +524,7 @@ export async function receiveAgentEmail(
       status: "accepted",
       tenantId,
       agentId: found.agentId,
-      rawRecordId: stored.id,
+      rawRecordId: storedId,
       fresh,
       events,
       replies,

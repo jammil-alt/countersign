@@ -9,9 +9,8 @@ import type {
   SkillDefinition,
 } from "@countersign/core";
 import { describe, expect, it } from "vitest";
-import { executeWorkflow } from "./executor";
 import { FakeStepRunner } from "./fake-runner";
-import { Harness, SKILL, WRITE_TOOL, wf } from "./fakes.test-helper";
+import { executeProcess, Harness, SKILL, WRITE_TOOL } from "./fakes.test-helper";
 import type { OversightPort, OversightRequest, OversightVerdict, OwnerCheckLog } from "./ports";
 
 const MANUAL = { id: "t", on: { type: "manual", input: {} } };
@@ -64,7 +63,7 @@ describe("the owner's check on every v4 step (wave 6)", () => {
       ownerChecks: c.log,
       oversight: { port: reviewer().port, settings: settings("failures"), watch: {} },
     });
-    expect((await executeWorkflow(runner, ctx, proc([read()]), {})).status).toBe("succeeded");
+    expect((await executeProcess(runner, ctx, proc([read()]), {})).status).toBe("succeeded");
     expect(c.entries).toEqual([
       {
         runId: h.run.id,
@@ -77,7 +76,7 @@ describe("the owner's check on every v4 step (wave 6)", () => {
     ]);
     expect(runner.names("do")).toEqual(["get", "get:owner:1"]);
     runner.replay();
-    await executeWorkflow(runner, ctx, proc([read()]), {});
+    await executeProcess(runner, ctx, proc([read()]), {});
     expect(c.entries).toHaveLength(1);
   });
 
@@ -86,7 +85,7 @@ describe("the owner's check on every v4 step (wave 6)", () => {
     h.handlers.get = () => ({ kind: "done", output: { lines: [] } });
     const c = checks();
     const o = reviewer({ action: "continue", note: "Nothing to post today." });
-    const result = await executeWorkflow(
+    const result = await executeProcess(
       new FakeStepRunner(),
       h.context({
         ownerChecks: c.log,
@@ -119,7 +118,7 @@ describe("the owner's check on every v4 step (wave 6)", () => {
         : { kind: "done", output: { lines: [1] } };
     const c = checks();
     const runner = new FakeStepRunner();
-    await executeWorkflow(
+    await executeProcess(
       runner,
       h.context({
         ownerChecks: c.log,
@@ -154,7 +153,7 @@ describe("the owner's check on every v4 step (wave 6)", () => {
       const h = new Harness();
       h.handlers.get = () => ({ kind: "failed", error: "not found" });
       const c = checks();
-      const result = await executeWorkflow(
+      const result = await executeProcess(
         new FakeStepRunner(),
         h.context({
           ownerChecks: c.log,
@@ -183,7 +182,7 @@ describe("the owner's check on every v4 step (wave 6)", () => {
       const h = new Harness();
       h.handlers.get = () => ({ kind: "done", output: { lines: [1] } });
       const c = checks();
-      await executeWorkflow(
+      await executeProcess(
         new FakeStepRunner(),
         h.context({ ownerChecks: c.log, oversight: { port: reviewer().port, ...ctx } }),
         proc([step]),
@@ -203,7 +202,7 @@ describe("the owner's check on every v4 step (wave 6)", () => {
   it("never fails the run when the check can't be written", async () => {
     const h = new Harness();
     h.handlers.get = () => ({ kind: "done", output: { lines: [1] } });
-    const result = await executeWorkflow(
+    const result = await executeProcess(
       new FakeStepRunner(),
       h.context({
         ownerChecks: {
@@ -217,24 +216,6 @@ describe("the owner's check on every v4 step (wave 6)", () => {
       {},
     );
     expect(result.status).toBe("succeeded");
-  });
-
-  it("records nothing for a v3 workflow: its run keeps the durable steps it had", async () => {
-    const h = new Harness();
-    h.handlers.lookup = () => ({ kind: "done", output: { name: "Acme" } });
-    const c = checks();
-    const runner = new FakeStepRunner();
-    await executeWorkflow(
-      runner,
-      h.context({
-        ownerChecks: c.log,
-        oversight: { port: reviewer().port, settings: settings("failures") },
-      }),
-      wf([{ id: "lookup", kind: "skill", name: "Find", skill: SKILL.id, input: {} }]),
-      {},
-    );
-    expect(c.entries).toEqual([]);
-    expect(runner.names("do").some((n) => n.includes(":owner:"))).toBe(false);
   });
 });
 
@@ -263,7 +244,7 @@ describe("the owner's check when a review was due on a clean step (wave 6 review
       h.handlers.put = () => ({ kind: "done", output: { ok: true } });
       const c = checks();
       const o = reviewer({ action: "continue", note: "Fine." }, { action: "continue", note: "" });
-      const result = await executeWorkflow(
+      const result = await executeProcess(
         new FakeStepRunner(),
         h.context({
           catalog: CATALOG,
@@ -296,7 +277,7 @@ describe("the owner's check when a review was due on a clean step (wave 6 review
       const h = new Harness();
       h.handlers.get = () => ({ kind: "done", output: { lines: [1] } });
       const c = checks();
-      const result = await executeWorkflow(
+      const result = await executeProcess(
         new FakeStepRunner(),
         h.context({
           ownerChecks: c.log,
@@ -330,7 +311,7 @@ describe("the owner's check when a review was due on a clean step (wave 6 review
     const h = new Harness();
     h.handlers.get = () => ({ kind: "failed", error: "not found" });
     const c = checks();
-    await executeWorkflow(
+    await executeProcess(
       new FakeStepRunner(),
       h.context({
         ownerChecks: c.log,
@@ -356,7 +337,7 @@ describe("the owner's check names how an attempt ended (wave 6 review)", () => {
     const h = new Harness();
     h.handlers.get = () => ({ kind: "escalated", reason: "budget" });
     const c = checks();
-    const result = await executeWorkflow(
+    const result = await executeProcess(
       new FakeStepRunner(),
       h.context({
         ownerChecks: c.log,
@@ -379,7 +360,7 @@ describe("the owner's check names how an attempt ended (wave 6 review)", () => {
       h.handlers.get = () => ({ kind: "done", output: { lines: [1] } });
       h.handlers.put = () => ({ kind: "approval", pending: { inboxItemId: item } });
       const c = checks();
-      const result = await executeWorkflow(
+      const result = await executeProcess(
         new FakeStepRunner(),
         h.context({
           ownerChecks: c.log,
@@ -401,7 +382,7 @@ describe("the owner's check names how an attempt ended (wave 6 review)", () => {
     h.handlers.get = () => ({ kind: "done", output: { lines: [1] } });
     h.handlers.put = () => ({ kind: "approval", pending: { inboxItemId: item } });
     const c = checks();
-    await executeWorkflow(
+    await executeProcess(
       new FakeStepRunner({ onWait: "timeout" }),
       h.context({
         ownerChecks: c.log,
@@ -420,7 +401,7 @@ describe("the owner's check names how an attempt ended (wave 6 review)", () => {
     const h = new Harness();
     h.handlers.get = () => ({ kind: "done", output: { lines: [1] } });
     const c = checks();
-    const result = await executeWorkflow(
+    const result = await executeProcess(
       new FakeStepRunner({ onWait: "timeout" }),
       h.context({
         ownerChecks: c.log,
@@ -461,7 +442,7 @@ describe("the owner's check names how an attempt ended (wave 6 review)", () => {
         output: { line: 1 },
       });
       const c = checks();
-      const result = await executeWorkflow(
+      const result = await executeProcess(
         new FakeStepRunner({ onWait: "timeout" }),
         h.context({
           catalog: { skills: { [writer.id]: writer }, tools: { [WRITE_TOOL.id]: WRITE_TOOL } },
@@ -532,7 +513,7 @@ describe("the owner's checks inside a loop (wave 6 review)", () => {
       oversight: { port: reviewer().port, settings: settings("failures"), watch: {} },
     });
     const items = Array.from({ length: 50 }, (_, i) => i);
-    const result = await executeWorkflow(runner, ctx, loop(), { items });
+    const result = await executeProcess(runner, ctx, loop(), { items });
     expect(result.status).toBe("succeeded");
     const steps = runner.names("do");
     // The loop's start and end, one attempt per item, one step for all the checks.
@@ -547,7 +528,7 @@ describe("the owner's checks inside a loop (wave 6 review)", () => {
     expect(steps.length).toBeLessThan(1024);
     // A replay writes nothing twice.
     runner.replay();
-    await executeWorkflow(runner, ctx, loop(), { items });
+    await executeProcess(runner, ctx, loop(), { items });
     expect(c.entries).toHaveLength(50);
   });
 
@@ -556,7 +537,7 @@ describe("the owner's checks inside a loop (wave 6 review)", () => {
     h.handlers.r = () => ({ kind: "done", output: { lines: [1] } });
     const batches: number[] = [];
     const runner = new FakeStepRunner();
-    await executeWorkflow(
+    await executeProcess(
       runner,
       h.context({
         ownerChecks: {
@@ -583,7 +564,7 @@ describe("the owner's checks inside a loop (wave 6 review)", () => {
         : { kind: "done", output: { lines: [1] } };
     const c = checks();
     const runner = new FakeStepRunner();
-    const result = await executeWorkflow(
+    const result = await executeProcess(
       runner,
       h.context({
         ownerChecks: c.log,

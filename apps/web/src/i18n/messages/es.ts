@@ -36,6 +36,7 @@ export const es: Messages = {
   "common.notFoundBody": "Aquí no hay ninguna página.",
   "common.yes": "Sí",
   "common.no": "No",
+  "common.optional": "opcional",
   "common.close": "Cerrar",
 
   // ── Error pages (a page that failed to load) ──
@@ -463,6 +464,7 @@ export const es: Messages = {
   "desk.team.undoIs": "Margen para deshacer: {window}.",
   "desk.approvalSettings": "Ajustes de aprobación",
   "change.now": "Ahora",
+  "change.recordSave.why": "Por qué espera",
   "change.after": "Después del cambio",
   "change.createsIt": "Aún no existe: este cambio lo crea.",
   "change.nothingRecorded": "No hay nada registrado.",
@@ -3893,6 +3895,14 @@ export const es: Messages = {
   "connectors.ask.send": "Enviar a su responsable",
   "connectors.ask.sent": "Enviado. Ver su solicitud",
   "connectors.ask.subject": "Un conector para {tool}",
+  "requestAction.title": "Pedir algo",
+  "requestAction.label": "¿Qué necesita que haga?",
+  "requestAction.send": "Enviar",
+  "requestAction.cancel": "Cancelar",
+  "requestAction.thanks": "Gracias. Lo tenemos y le avisaremos cuando esté listo.",
+  "requestAction.another": "Pedir otra cosa",
+  "requestAction.hint":
+    "Dígalo con sus propias palabras. Lo revisaremos y le avisaremos cuando esté listo.",
   "connectors.browse.title": "Explorar",
   "connectors.browse.search": "Buscar conectores",
   "connectors.browse.recommended": "Recomendados para usted",

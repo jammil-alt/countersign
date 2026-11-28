@@ -565,9 +565,20 @@ export const buildRoutes = {
     auth: "session",
     roles: OPS,
     summary:
-      "Move a build to the next phase when its gate passes (into the draft, the Builder drafts it; a client test may move on with a reason), or back to any earlier phase with a reason",
+      "Move a build on to its fit-gap or its draft when the gate passes (into the draft, the Builder drafts it), or back to an earlier phase with a reason. From the draft a build is published; the POC test, client test and QA are refused",
     params: IdParams,
     body: z.strictObject({ to: BuildPhase, reason: Reason.optional() }),
+    response: BuildDetail,
+  }),
+  // Owner (2026-11-27): "just go from draft to publish".
+  opsPublishBuild: defineRoute({
+    method: "POST",
+    path: "/api/ops/builds/:id/publish",
+    auth: "session",
+    roles: OPS,
+    summary:
+      "Publish a build's draft (an agent's latest version, or a skill's), with the publish's own checks, and mark the build live: its one move from the draft",
+    params: IdParams,
     response: BuildDetail,
   }),
   opsDraftBuildNow: defineRoute({
@@ -605,7 +616,7 @@ export const buildRoutes = {
     auth: "session",
     roles: OPS,
     summary:
-      "Try the draft on a real example in the POC test: a Sandbox document or record, or an input, run once as a test (never writes); with caseId, try one again on the latest version",
+      "Try the draft on a real example before it is published: a Sandbox document or record, or an input, run once as a test (never writes); with caseId, try one again on the latest version",
     params: IdParams,
     body: TryBody,
     response: BuildDetail,
@@ -627,7 +638,7 @@ export const buildRoutes = {
     auth: "session",
     roles: OPS,
     summary:
-      "Ready to test: publish the draft, put it at the client (a template is forked there) and start its trial",
+      "Refused since 2026-11-27: a build goes from its draft to Publish; there is no client test",
     params: IdParams,
     body: z.strictObject({ clientId: Id.optional() }),
     response: BuildDetail,
@@ -637,7 +648,7 @@ export const buildRoutes = {
     path: "/api/ops/builds/:id/qa",
     auth: "session",
     roles: OPS,
-    summary: "Accept a failing QA check with a reason, or sign QA",
+    summary: "Refused since 2026-11-27: a build goes from its draft to Publish; there is no QA",
     params: IdParams,
     body: z.union([
       z.strictObject({ accept: QaCheckId, reason: Reason }),
@@ -651,7 +662,7 @@ export const buildRoutes = {
     auth: "session",
     roles: OPS,
     summary:
-      "Go (the build is live once its agent is) or no-go (back to a phase, the reason an open item)",
+      "No-go: back to a phase, the reason an open item. Go is refused: a build goes live when its draft is published",
     params: IdParams,
     body: z.union([
       z.strictObject({ go: z.literal(true) }),

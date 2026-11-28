@@ -5,7 +5,7 @@
 // Versions are immutable (invariant 3): every save is a new draft; a rollback copies an older one.
 import { isUuid, type SkillListItem, skillKindLabel } from "@countersign/core";
 import { useState } from "react";
-import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
+import { Link, Navigate, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import type { ResponseOf } from "../../api/client";
 import { apiRoutes } from "../../api/routes";
 import { type ApiState, useApi } from "../../api/useApi";
@@ -26,7 +26,8 @@ import {
 } from "../../ui/primitives";
 import { agentPath } from "../agents/BuilderParts";
 import { errorText, Field, Notice, plural, Select, TextInput, useAction } from "../agents/ui";
-import { parseAnyBundle } from "../versions";
+import { loopPath } from "../lab/loops/paths";
+import { parseBundle } from "../versions";
 import { SchemaCard } from "./parts";
 import { SkillEditor } from "./SkillEditor";
 import { SKILLS_PATH, skillPath } from "./SkillsLibrary";
@@ -73,6 +74,10 @@ export function SkillPage() {
   if (!detail.data || !library.data) return <Loading />;
   const latest = detail.data.versions[0];
   if (!latest) return <EmptyState>This skill has no versions.</EmptyState>;
+  // Step model §8: a Loop is designed in the Agent lab, not edited as an AI skill.
+  if ((latest.definition as { loop?: unknown }).loop !== undefined) {
+    return <Navigate to={loopPath(detail.data.skill.id)} replace />;
+  }
   return (
     <SkillPageBody
       // A new latest version (saved, published, rolled back) resets the form to it.
@@ -472,7 +477,7 @@ function AssignCard({ skill, onAssigned }: { skill: SkillListItem; onAssigned():
     const page = await action.call(apiRoutes.opsAgent, { params: { id: target.id } });
     if (!page.ok || !page.data.latest) return;
     // Wave 3b: a v4 version is read and saved back as v4; only `definition.skills` changes.
-    const parsed = parseAnyBundle(page.data.latest);
+    const parsed = parseBundle(page.data.latest);
     if (!parsed.ok) {
       setProblem(`We couldn't read ${target.name}'s latest version. ${parsed.message}`);
       return;

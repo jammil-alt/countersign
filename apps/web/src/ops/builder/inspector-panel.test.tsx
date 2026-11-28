@@ -1,12 +1,12 @@
 // The inspector inside the one-screen builder's side panel (docs/builder-plan.md §12, F2): it leaves
 // out what the panel shows (the heading, the name, connections, Delete) and folds the less used
 // settings into "More settings"; without `layout` it renders as it always did.
-import type { BuilderCatalog, ProcessAgentBundle, ToolSpec } from "@countersign/core";
+import type { BuilderCatalog, ToolSpec } from "@countersign/core";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import type { BuilderData } from "./catalog";
 import { Inspector, type InspectorProps } from "./Inspector";
-import type { Process } from "./model";
+import type { Process, ProcessAgentBundle } from "./model";
 import { NO_PEOPLE } from "./people";
 
 const find: ToolSpec = {

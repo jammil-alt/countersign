@@ -26,10 +26,12 @@ import {
   type ApiHarness,
   admin,
   createApiHarness,
+  ended,
   FakeWorkflowStep,
   OPERATOR,
   storedSkill,
   testBundle,
+  v5Workflow,
 } from "./api.test-helper";
 import { executeRun } from "./runs/execute";
 import type { RunParams } from "./runs/instances";
@@ -69,11 +71,9 @@ describe.skipIf(!h)("forks on a failure or an answer, against the database", () 
         {
           slug: "fix-record",
           name: "Fix a record",
-          workflow: {
-            schemaVersion: 4,
+          workflow: v5Workflow(steps, {
             triggers: [{ id: "trg-manual", on: { type: "manual", input: {} } }],
-            steps,
-          },
+          }),
         },
       ],
     };
@@ -145,16 +145,17 @@ describe.skipIf(!h)("forks on a failure or an answer, against the database", () 
   /** A write the connection lets run unsigned (matrix `auto`, act mode, `not_required`). */
   const write = (id: string, record: string, more: Record<string, unknown> = {}) => ({
     id,
-    kind: "write",
+    kind: "do",
     name: `Update ${record}`,
-    tool: TESTKIT_UPDATE_TOOL,
+    doneBy: "rules",
+    uses: { type: "action", action: TESTKIT_UPDATE_TOOL },
     input: { id: record, amount: "12.00" },
     checks: { approval: { required: "not_required" } },
     ...more,
   });
   const onFailed = (stepId: string, steps: unknown[]) => ({
     id: "route",
-    kind: "if",
+    kind: "fork",
     name: "If it failed",
     paths: [
       {
@@ -241,7 +242,7 @@ describe.skipIf(!h)("forks on a failure or an answer, against the database", () 
     const again = await retry(first.runId);
     expect(again.resumeFrom).toBe("route");
     const second = await executeRun(deps(), again.params, noWaits());
-    expect(second).toEqual({ status: "succeeded" });
+    expect(second).toEqual(ended());
     // The update was reused as it failed, never run again: the retry proposed nothing of its
     // own, and the route took the same path, where `later` made its write once, under its key.
     expect(await actions(again.params.runId)).toEqual([]);
@@ -264,9 +265,10 @@ describe.skipIf(!h)("forks on a failure or an answer, against the database", () 
         [
           {
             id: "look",
-            kind: "read",
             name: "Look",
-            tool: "testkit.record.query",
+            kind: "do",
+            doneBy: "rules",
+            uses: { type: "action", action: "testkit.record.query" },
             input: { ids: ["r1"] },
           },
           write("update", "r1", { onError: "continue" }),
@@ -346,17 +348,18 @@ describe.skipIf(!h)("forks on a failure or an answer, against the database", () 
         [
           {
             id: "pay",
-            kind: "skill",
             name: "Pay vendor",
-            skill: "custom:pay-vendor",
+            kind: "do",
+            doneBy: "ai",
+            uses: { type: "skill", skill: "custom:pay-vendor" },
             input: { id: "r1" },
-            onError: "continue",
+            // A write the connection lets run unsigned (matrix `auto`, act mode).
             checks: { approval: { required: "not_required" } },
           },
           {
             id: "route",
-            kind: "if",
             name: "If it didn't pay",
+            kind: "fork",
             paths: [
               {
                 id: "yes",
@@ -433,29 +436,36 @@ describe.skipIf(!h)("forks on a failure or an answer, against the database", () 
       [
         {
           id: "ask",
-          kind: "person",
           name: "Ask",
-          mode: "ask",
-          assignee: "client_admin",
-          title: "Keep the record?",
-          deadline: { after: "1 day" },
-          choices: [
-            { value: "keep", label: "Keep it" },
-            { value: "drop", label: "Drop it" },
-          ],
+          kind: "do",
+          doneBy: "person",
+          person: {
+            mode: "ask",
+            who: "client_admin",
+            question: "Keep the record?",
+            show: {},
+            choices: [
+              { value: "keep", label: "Keep it" },
+              { value: "drop", label: "Drop it" },
+            ],
+            deadline: { after: "1 day", hours: "clock", ifNoAnswer: "stop" },
+            channel: "inbox",
+            onReject: "stop",
+          },
         },
         {
           id: "fix",
-          kind: "write",
           name: "Fix",
-          tool: TESTKIT_UPDATE_TOOL,
+          checks: { approval: { required: "required", onReject: "continue" } },
+          kind: "do",
+          doneBy: "rules",
+          uses: { type: "action", action: TESTKIT_UPDATE_TOOL },
           input: { id: "r1", amount: "1.00" },
-          checks: { approval: { onReject: "continue" } },
         },
         {
           id: "route",
-          kind: "if",
           name: "If dropped and turned down",
+          kind: "fork",
           paths: [
             {
               id: "yes",
@@ -473,9 +483,10 @@ describe.skipIf(!h)("forks on a failure or an answer, against the database", () 
               steps: [
                 {
                   id: "boom",
-                  kind: "write",
                   name: "Boom",
-                  tool: TESTKIT_UPDATE_TOOL,
+                  kind: "do",
+                  doneBy: "rules",
+                  uses: { type: "action", action: TESTKIT_UPDATE_TOOL },
                   input: { id: "r3", amount: "3.00" },
                 },
               ],
@@ -535,7 +546,7 @@ describe.skipIf(!h)("forks on a failure or an answer, against the database", () 
     const again = await retry(first.runId);
     expect(again.resumeFrom).toBe("route");
     const second = await executeRun(deps(), again.params, noWaits());
-    expect(second).toEqual({ status: "succeeded" });
+    expect(second).toEqual(ended());
     // The if read the quick answer, the rejection and who made it back from the rows and items:
     // it took the same path, and `boom` made its signed write once, under its first key.
     const secondRows = await rows(again.params.runId);

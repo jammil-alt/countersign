@@ -6,6 +6,7 @@ import type { Step } from "../process/schema";
 import type { PermissionEntity, PermissionMatrix } from "../schemas/permissions";
 import { SkillDefinition, SkillNeed } from "../schemas/skill";
 import type { ToolSpec } from "../schemas/tool";
+import type { Step as StepV5 } from "../steps/schema";
 import { decideToolCall } from "./decide";
 import {
   type AccessState,
@@ -144,10 +145,33 @@ const step = (s: Partial<Step> & Pick<Step, "id" | "kind">): Step =>
 
 const auto = { checks: { approval: { required: "not_required" } } } as Partial<Step>;
 
-function bundle(steps: Step[], mode: "act" | "suggest_only" = "act") {
+/** A Do step done by rules that uses an action. */
+const doAction = (id: string, action: string, extra: Record<string, unknown> = {}): StepV5 =>
+  ({
+    id,
+    name: id,
+    kind: "do",
+    doneBy: "rules",
+    uses: { type: "action", action },
+    ...extra,
+  }) as StepV5;
+
+const autoV5 = { checks: { approval: { required: "not_required" } } };
+
+function bundle(steps: StepV5[], mode: "act" | "suggest_only" = "act") {
   return {
     definition: { permissions: { mode } },
-    workflows: [{ slug: "buy", workflow: { schemaVersion: 4, steps } }],
+    workflows: [
+      {
+        slug: "buy",
+        workflow: {
+          schemaVersion: 5,
+          triggers: [{ id: "t", on: { type: "manual", input: {} } }],
+          outputs: [],
+          steps,
+        },
+      },
+    ],
   };
 }
 
@@ -201,9 +225,15 @@ describe("agentNeeds", () => {
   it("collects reads, writes and skills, each with the steps it comes from", () => {
     const needs = agentNeeds(
       bundle([
-        step({ id: "r1", kind: "read", tool: "qbo.bill.query" } as Partial<Step> as Step),
-        step({ id: "s1", kind: "skill", skill: "custom:read-bills" } as Partial<Step> as Step),
-        step({ id: "w1", kind: "write", tool: "qbo.bill.create" } as Partial<Step> as Step),
+        doAction("r1", "qbo.bill.query"),
+        {
+          id: "s1",
+          name: "s1",
+          kind: "do",
+          doneBy: "ai",
+          uses: { type: "skill", skill: "custom:read-bills" },
+        } as StepV5,
+        doAction("w1", "qbo.bill.create"),
       ]),
       ctx,
     );
@@ -233,12 +263,7 @@ describe("agentNeeds", () => {
       connectors: new Set([...ctx.connectors, "odoo"]),
     };
     const write = (id: string, model: string) =>
-      step({
-        id,
-        kind: "write",
-        tool: "odoo.record.update",
-        input: { model, id: "7" },
-      } as Partial<Step> as Step);
+      doAction(id, "odoo.record.update", { input: { model, id: "7" } });
     const needs = agentNeeds(
       bundle([write("w1", "purchase.order"), write("w2", "{{trigger.model}}")]),
       odoo,
@@ -251,9 +276,9 @@ describe("agentNeeds", () => {
 
   it("wants auto only for a write step set to skip approval in an act agent", () => {
     const steps = [
-      step({ id: "w1", kind: "write", tool: "qbo.bill.create", ...auto } as Partial<Step> as Step),
-      step({ id: "w2", kind: "write", tool: "gmail.send", ...auto } as Partial<Step> as Step),
-      step({ id: "r1", kind: "read", tool: "qbo.vendor.query", ...auto } as Partial<Step> as Step),
+      doAction("w1", "qbo.bill.create", autoV5),
+      doAction("w2", "gmail.send", autoV5),
+      doAction("r1", "qbo.vendor.query", autoV5),
     ];
     const act = agentNeeds(bundle(steps, "act"), ctx);
     expect(pick(act, "qbo", "create", "bill")?.wantsAuto).toBe(true);
@@ -264,50 +289,38 @@ describe("agentNeeds", () => {
     expect(pick(suggest, "qbo", "create", "bill")?.wantsAuto).toBe(false);
   });
 
-  it("makes an action without via one need per connector, as alternatives", () => {
-    const needs = agentNeeds(
-      bundle([step({ id: "a1", kind: "write", action: "create_bill" } as Partial<Step> as Step)]),
-      ctx,
-    );
+  it("makes a merged action one need per connector, as alternatives", () => {
+    const needs = agentNeeds(bundle([doAction("a1", "accounting.bill.create")]), ctx);
     expect(needs.map((n) => [n.connector, n.anyOf])).toEqual([
       ["qbo", "buy/a1"],
       ["billcom", "buy/a1"],
     ]);
-    const via = agentNeeds(
-      bundle([
-        step({
-          id: "a1",
-          kind: "write",
-          action: "create_bill",
-          via: "qbo",
-        } as Partial<Step> as Step),
-      ]),
-      ctx,
-    );
+    // A connector's own action is that connector alone.
+    const via = agentNeeds(bundle([doAction("a1", "qbo.bill.create")]), ctx);
     expect(via.map((n) => [n.connector, n.anyOf])).toEqual([["qbo", undefined]]);
   });
 
-  it("walks inside forks and loops, and v4 automations with this agent's overrides", () => {
-    const fork = step({
+  it("walks inside forks and loops, and automations' steps", () => {
+    const fork = {
       id: "f1",
-      kind: "if",
+      name: "f1",
+      kind: "fork",
       paths: [
         {
           id: "p1",
-          when: [],
-          steps: [
-            step({ id: "in", kind: "read", tool: "qbo.bill.query" } as Partial<Step> as Step),
-          ],
+          name: "p1",
+          when: { match: "all", rules: [] },
+          steps: [doAction("in", "qbo.bill.query")],
         },
       ],
       otherwise: { id: "o1", steps: [] },
-    } as unknown as Step);
-    const use = step({
+    } as StepV5;
+    const use = {
       id: "u1",
-      kind: "process",
-      process: "vendor-setup@1",
-      approvals: { v1: { required: "not_required" } },
-    } as unknown as Step);
+      name: "u1",
+      kind: "do",
+      uses: { type: "automation", automation: "vendor-setup@1" },
+    } as StepV5;
     const needs = agentNeeds(bundle([fork, use]), {
       ...ctx,
       automations: {
@@ -316,25 +329,18 @@ describe("agentNeeds", () => {
           slug: "vendor-setup",
           name: "Vendor setup",
           steps: [
-            step({ id: "v1", kind: "write", tool: "qbo.vendor.create" } as Partial<Step> as Step),
+            step({
+              id: "v1",
+              kind: "write",
+              tool: "qbo.vendor.create",
+              ...auto,
+            } as Partial<Step> as Step),
           ],
         } as never,
       },
     });
     expect(pick(needs, "qbo", "read", "bill")?.because[0]?.stepId).toBe("in");
     expect(pick(needs, "qbo", "create", "vendor")).toMatchObject({ wantsAuto: true });
-  });
-
-  it("skips stored v3 workflows (callers read them as processes first)", () => {
-    expect(
-      agentNeeds(
-        {
-          definition: { permissions: { mode: "act" } },
-          workflows: [{ slug: "old", workflow: { schemaVersion: 3, steps: [] } }],
-        },
-        ctx,
-      ),
-    ).toEqual([]);
   });
 });
 

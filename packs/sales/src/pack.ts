@@ -60,6 +60,11 @@ export function defineTool<I extends z.ZodType, O extends z.ZodType>(def: {
   usesModel?: string;
   /** v0.18 (ARCHITECTURE §12.0): the record type it reads or saves. Its area is Sales. */
   entity?: string;
+  /**
+   * 2026-11-24: the connector whose synced records it reads (core `ToolSpec.feed`): apps/api
+   * brings them up to date before the tool runs, and the step shows the connector's mark.
+   */
+  feed?: string;
   input: I;
   output: O;
   run(input: z.output<I>, ctx: PackToolContext): Promise<z.input<O>>;
@@ -77,6 +82,7 @@ export function defineTool<I extends z.ZodType, O extends z.ZodType>(def: {
       ...(def.usesModel ? { usesModel: def.usesModel } : {}),
       area: "sales",
       ...(def.entity ? { entity: def.entity } : {}),
+      ...(def.feed ? { feed: def.feed } : {}),
     }),
     input: def.input,
     output: def.output,

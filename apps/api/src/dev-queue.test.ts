@@ -232,15 +232,17 @@ describe.skipIf(!h)("the Dev queue", () => {
             slug: "monthly",
             name: "Monthly report",
             workflow: {
-              schemaVersion: 4,
+              schemaVersion: 5,
               triggers: [{ id: "t", on: { type: "manual", input: {} } }],
+              outputs: [{ id: "out-done", name: "Done", kind: "nothing" }],
               steps: [
                 {
                   id: "offset",
                   name: "Offset the run date",
-                  kind: "missing",
-                  need: "Run date minus one month",
+                  kind: "do",
+                  uses: { type: "missing", need: "Run date minus one month" },
                 },
+                { id: "end", kind: "end", name: "Done", outputs: ["out-done"] },
               ],
             },
           },

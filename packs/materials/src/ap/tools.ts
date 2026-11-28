@@ -12,7 +12,6 @@ import { AP_PACK_ID } from "./ids";
 import {
   billView,
   buildPayList,
-  codableAccounts,
   payListView,
   prepareBill,
   proposeCoding,
@@ -149,31 +148,6 @@ export const getTool = defineApTool({
         uncoded: b.lines.filter((l) => !l.account).length,
         sources: [b.id, ...b.sources],
       };
-    }),
-});
-
-export const accountsTool = defineApTool({
-  id: "ap.accounts.list",
-  description:
-    "The client's accounts a bill's line may be coded to (costs, expenses, assets and other liabilities), with their numbers and descriptions from the accounting tool.",
-  sideEffect: "none",
-  input: z.object({}),
-  output: z.object({
-    count: z.number().int(),
-    accounts: z.array(
-      z.object({
-        id: Id,
-        name: z.string(),
-        number: z.string().nullable(),
-        kind: z.string(),
-        description: z.string().nullable(),
-      }),
-    ),
-  }),
-  run: (_input, ctx) =>
-    withTenant(ctx.db, ctx.tenantId, async (tx) => {
-      const accounts = await codableAccounts(tx, ctx.tenantId);
-      return { count: accounts.length, accounts };
     }),
 });
 
@@ -326,7 +300,6 @@ export const payListGetTool = defineApTool({
 export const AP_TOOLS: readonly PackTool[] = [
   prepareTool,
   getTool,
-  accountsTool,
   proposeCodingTool,
   receiptTool,
   payListTool,

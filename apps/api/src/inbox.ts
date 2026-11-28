@@ -18,12 +18,11 @@ import type { JsonObject, ResolveBody } from "@countersign/core";
 import {
   // v0.12 W2-D
   ACCOUNT_CHANGE_SUBJECT,
+  answerProblem,
   CONNECTION_REQUEST_SUBJECT,
-  choiceProblem,
   FORBIDDEN_PORTAL_FIELD,
   isPlainObject,
   processes,
-  readChoices,
   undoSecondsOf,
 } from "@countersign/core";
 import { inboxItem, membership, run, type Tx, tenant } from "@countersign/db";
@@ -248,10 +247,10 @@ export async function resolveInboxItem(tx: Tx, input: ResolveInput): Promise<Res
       "This agent is on a safety hold. Mezonas reviews held items first.",
     );
   }
-  // v0.12 W1-D: a question with quick answers takes one of them (a decline needs none).
-  const choices = readChoices(isPlainObject(item.payload) ? item.payload.choices : undefined);
-  if (choices && item.kind === "request" && decision !== "reject") {
-    const problem = choiceProblem(choices, answer);
+  // v0.12 W1-D: a question with quick answers takes one of them, and one that asks for fields
+  // takes each one it needs (owner, 2026-11-28); a decline needs none.
+  if (item.kind === "request" && decision !== "reject") {
+    const problem = answerProblem(item.payload, answer);
     if (problem) throw new HttpError(422, "invalid_answer", problem);
   }
   const emitter = senseEmitter(input.registry, { collect: input.collect, testRun });
@@ -445,10 +444,10 @@ async function resolveLate(
   const { decision, answer, note } = input.body;
   let approved: boolean;
   if (item.kind === "request") {
-    // A question with quick answers takes one of them, late or not (a decline needs none).
-    const choices = readChoices(isPlainObject(item.payload) ? item.payload.choices : undefined);
-    if (choices && decision !== "reject") {
-      const problem = choiceProblem(choices, answer);
+    // A question with quick answers takes one of them, and its fields, late or not (a decline
+    // needs none).
+    if (decision !== "reject") {
+      const problem = answerProblem(item.payload, answer);
       if (problem) throw new HttpError(422, "invalid_answer", problem);
     }
     approved = decision !== "reject";

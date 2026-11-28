@@ -17,7 +17,9 @@
     background-image: radial-gradient(var(--line) 1px, transparent 1px);
     background-size: 18px 18px;
     background-attachment: local;
-    overscroll-behavior: contain;
+    /* Owner, 2026-11-26 ("the scroll does not go all the way to the bottom"): at its end the
+     * chart hands the scroll on to the page, so the part of it below the window comes up. */
+    overscroll-behavior: auto;
   }
   .flow-chart.is-panning .flow-chart__viewport {
     cursor: grabbing;
@@ -398,6 +400,21 @@
     justify-content: center;
     background: var(--surface-subtle);
     padding: 0 10px;
+  }
+  /* An End's deliveries, under its pill (docs/design/step-model.html §1). */
+  .flow-box__cap {
+    position: absolute;
+    top: calc(100% + 4px);
+    left: 50%;
+    transform: translateX(-50%);
+    max-width: 220px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 11px;
+    line-height: 14px;
+    color: var(--ink-muted);
+    pointer-events: none;
   }
   .flow-box--pill .flow-box__t {
     font-size: 12px;
@@ -1075,6 +1092,204 @@
     .flow-host__try {
       border-top: 1px solid var(--line);
       border-left: 0;
+    }
+  }
+}
+
+/* The step builder's side drawer (builder/steps/Drawer.tsx; feedback, 2026-11-26): the window's
+ * full height, sliding out from the right. Over a scrim for a step's settings; beside the page,
+ * with no scrim, for Try it and the Builder. */
+@layer components {
+  .flow-drawer-layer {
+    position: fixed;
+    inset: 0;
+    z-index: 50;
+    pointer-events: none;
+  }
+  .flow-drawer-layer.is-modal {
+    pointer-events: auto;
+  }
+  .flow-drawer {
+    position: absolute;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    display: flex;
+    flex-direction: column;
+    width: min(680px, 92vw);
+    min-height: 0;
+    background: var(--surface);
+    border-left: 1px solid var(--line);
+    pointer-events: auto;
+    animation: flow-drawer-in 180ms ease-out;
+  }
+  .flow-drawer--narrow {
+    width: min(360px, 92vw);
+  }
+  /* What fills it takes its height: a step's panel, the palette, a try, the Builder. */
+  .flow-drawer > * {
+    flex: 1;
+    min-height: 0;
+  }
+  @keyframes flow-drawer-in {
+    from {
+      transform: translateX(24px);
+      opacity: 0;
+    }
+    to {
+      transform: none;
+      opacity: 1;
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .flow-drawer {
+      animation: none;
+    }
+  }
+  @media (max-width: 767.98px) {
+    .flow-drawer {
+      width: 100%;
+    }
+  }
+  /* An output an issue pointed to, for a moment (PublishIssues → Show me). */
+  .flow-output-flash {
+    outline: 2px solid var(--slate);
+    outline-offset: 2px;
+  }
+}
+
+/* A folded drawer (Try it, the Builder): a tab on the window's right edge that opens it again. */
+@layer components {
+  .flow-drawer-tab {
+    position: fixed;
+    top: 50%;
+    right: 0;
+    z-index: 45;
+    padding: 12px 8px;
+    writing-mode: vertical-rl;
+    transform: translateY(-50%) rotate(180deg);
+    border: 1px solid var(--line);
+    border-right: 0;
+    border-radius: var(--radius-sm) 0 0 var(--radius-sm);
+    background: var(--surface);
+    color: var(--slate);
+    font: 500 13px / 1 var(--font-sans);
+    cursor: pointer;
+  }
+  .flow-drawer-tab:hover {
+    background: var(--slate-tint);
+  }
+  .flow-drawer-tab:focus-visible {
+    outline: 2px solid var(--slate);
+    outline-offset: 2px;
+  }
+}
+
+/* The Builder beside an open step (owner, 2026-11-26): one drawer, two panels side by side, the
+ * chart still showing at its left on a wide window. Under 1200 px the two share the drawer, with a
+ * switch at its top; on a phone the drawer is the whole screen. */
+@layer components {
+  .flow-drawer--pair {
+    width: min(1160px, 96vw);
+    flex-direction: row;
+  }
+  .flow-drawer--pair > .flow-drawer__main {
+    display: flex;
+    flex: 1 1 0;
+    min-width: 0;
+    flex-direction: column;
+  }
+  .flow-drawer--pair > .flow-drawer__main > * {
+    flex: 1;
+    min-height: 0;
+  }
+  .flow-drawer--pair > .flow-drawer__companion {
+    display: flex;
+    flex: 0 0 440px;
+    min-width: 0;
+    flex-direction: column;
+    border-left: 1px solid var(--line);
+  }
+  .flow-drawer--pair > .flow-drawer__companion > * {
+    flex: 1;
+    min-height: 0;
+  }
+  .flow-drawer--pair > .flow-drawer__switch {
+    display: none;
+  }
+  @media (max-width: 1199.98px) {
+    .flow-drawer--pair {
+      width: min(680px, 100vw);
+      flex-direction: column;
+    }
+    .flow-drawer--pair > .flow-drawer__switch {
+      display: flex;
+      flex: none;
+      align-self: stretch;
+      margin: 8px 12px 0;
+    }
+    .flow-drawer--pair > .flow-drawer__switch > button {
+      flex: 1;
+    }
+    .flow-drawer--pair > .flow-drawer__companion {
+      flex: 1 1 0;
+      border-left: 0;
+    }
+    .flow-drawer--pair[data-pane="main"] > .flow-drawer__companion,
+    .flow-drawer--pair[data-pane="companion"] > .flow-drawer__main {
+      display: none;
+    }
+  }
+}
+
+/* On a phone (owner, 2026-11-26: "figure out mobile design for the builder step modals"): the
+ * drawer is the whole screen, clear of the home indicator; a step and the Builder share it with the
+ * switch at its top; a folded Try it or Builder is a pill above the bottom edge, not a tab over the
+ * page's text. */
+@layer components {
+  @media (max-width: 767.98px) {
+    .flow-drawer {
+      padding-bottom: env(safe-area-inset-bottom);
+      animation-name: flow-drawer-up;
+    }
+    .flow-drawer-tab {
+      top: auto;
+      right: 16px;
+      bottom: calc(16px + env(safe-area-inset-bottom));
+      padding: 10px 16px;
+      writing-mode: horizontal-tb;
+      transform: none;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+    }
+  }
+  @keyframes flow-drawer-up {
+    from {
+      transform: translateY(24px);
+      opacity: 0;
+    }
+    to {
+      transform: none;
+      opacity: 1;
+    }
+  }
+}
+
+/* Try it and the Builder on their own: a chat's width, and on a wide window the page moves over so
+ * the chart stays in view beside them. */
+@layer components {
+  .flow-drawer--side {
+    width: min(460px, 92vw);
+  }
+  @media (min-width: 1024px) {
+    .flow-frame--beside {
+      padding-right: 440px;
+      transition: padding-right 180ms ease-out;
+    }
+  }
+  @media (max-width: 767.98px) {
+    .flow-drawer--side {
+      width: 100%;
     }
   }
 }

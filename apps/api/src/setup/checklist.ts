@@ -16,8 +16,8 @@ import {
   type RegistryContext,
 } from "@countersign/agents";
 import {
+  type AgentBundle,
   type AgentStage,
-  type AnyAgentBundle,
   applySetupSetting,
   deepEqual,
   type GrantLimits,
@@ -244,7 +244,7 @@ export async function recordSetupItem(
     progress = { ...base, done: true, files, ...(note ? { value: note } : {}) };
   } else if (item.kind === "answer") {
     const current = item.setting
-      ? settingValue(shown.bundle as AnyAgentBundle, item.setting)
+      ? settingValue(shown.bundle as AgentBundle, item.setting)
       : undefined;
     const answer = readSetupAnswer(item, input.body.value ?? "", current);
     if (!answer.ok) throw new HttpError(422, "bad_answer", answer.reason);
@@ -318,7 +318,7 @@ async function writeSetting(
 ): Promise<string | null> {
   const setting = input.item.setting;
   if (!setting) return null;
-  const bundle = input.from.bundle as AnyAgentBundle;
+  const bundle = input.from.bundle as AgentBundle;
   const out = applySetupSetting(bundle, setting, input.value);
   if (!out.ok) throw new HttpError(409, "setting_gone", out.reason);
   // The same value again makes no version (nor a line in the manual).
@@ -345,7 +345,7 @@ async function writeSetting(
         "the setup checklist",
       ),
     },
-  } as AnyAgentBundle;
+  } as AgentBundle;
   const v = await writeClientVersion(tx, {
     row: input.row,
     from: input.from,
@@ -367,7 +367,7 @@ export async function writeClientVersion(
   input: {
     row: AgentRow;
     from: VersionRow;
-    bundle: AnyAgentBundle;
+    bundle: AgentBundle;
     actor: SetupActor;
     changeNote: string;
     ctx: RegistryContext;
@@ -402,7 +402,7 @@ export async function writeClientVersion(
           actorId: input.actor.userId,
           ctx: input.ctx,
           // A setting's value is the only change: every step was there before.
-          existingFrom: input.from.bundle as AnyAgentBundle,
+          existingFrom: input.from.bundle as AgentBundle,
         }),
       );
     } catch (error) {

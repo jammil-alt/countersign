@@ -11,7 +11,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { DEV_USER_HEADER } from "@countersign/auth";
 import { ContentStore, findOrCreateVendor } from "@countersign/connectors";
-import { FORBIDDEN_PORTAL_FIELD, validateBundle } from "@countersign/core";
+import { FORBIDDEN_PORTAL_FIELD, processes } from "@countersign/core";
 import {
   agent,
   agentVersion,
@@ -38,6 +38,7 @@ import {
   type ApiHarness,
   admin,
   createApiHarness,
+  ended,
   FakeWorkflowStep,
   OPERATOR,
   user,
@@ -99,15 +100,8 @@ describe.skipIf(!h)("packs on the platform", () => {
     expect(res.status).toBe(200);
     const [materials] = (res.json as J).packs;
     expect(materials).toMatchObject({ id: "materials", name: "Materials" });
-    // §1.104: the one template, not installed until the pack is first switched on.
-    expect(materials.templates).toEqual([
-      {
-        slug: "vendor-contracts",
-        name: "Vendor contracts and invoice review",
-        templateId: null,
-        newVersions: 0,
-      },
-    ]);
+    // The pack ships no template yet (templates are rebuilt in the step model).
+    expect(materials.templates).toEqual([]);
     expect(materials.clients.map((c: J) => c.enabled)).toEqual([false, false]);
     expect(materials.screens.map((s: J) => s.title)).toEqual([
       "Price watch",
@@ -120,7 +114,7 @@ describe.skipIf(!h)("packs on the platform", () => {
   });
 
   it("validates an agent built from the pack's skills against the platform's registries", () => {
-    const result = validateBundle(PURCHASING_TEST_BUNDLE, {
+    const result = processes.validateBundle(PURCHASING_TEST_BUNDLE, {
       skills: Object.fromEntries(H.platform.catalog.list().map((s) => [s.id, s])),
       tools: H.platform.tools.specs(),
       events: H.platform.events.byType(),
@@ -128,7 +122,7 @@ describe.skipIf(!h)("packs on the platform", () => {
     expect(result.errors).toEqual([]);
   });
 
-  it("switches the pack on for a client and installs its template once, no client agent", async () => {
+  it("switches the pack on for a client and installs nothing, no client agent", async () => {
     const res = await H.call(
       OPERATOR,
       "POST",
@@ -137,8 +131,8 @@ describe.skipIf(!h)("packs on the platform", () => {
     expect(res.status, JSON.stringify(res.json)).toBe(200);
     const body = res.json as J;
     expect(body.pack).toMatchObject({ id: "materials", enabled: true });
-    // §1.104: the template (v1, its processes as v2, the hand-off as v3), never a client's agent.
-    expect(body.installed.map((t: J) => t.slug)).toEqual(["vendor-contracts"]);
+    // The pack ships no template yet, and never a client's agent.
+    expect(body.installed).toEqual([]);
 
     // Again, and for another client: switched on, nothing more installed.
     const again = await H.call(
@@ -157,9 +151,7 @@ describe.skipIf(!h)("packs on the platform", () => {
       .select()
       .from(agentVersion)
       .where(eq(agentVersion.authorType, "pack"));
-    // Round 4 D (§1.211): v4 verifies its writes.
-    expect(packTemplates.map((v) => v.version).sort()).toEqual([1, 2, 3, 4]);
-    expect(packTemplates.every((v) => v.tenantId === null)).toBe(true);
+    expect(packTemplates).toEqual([]);
     const list = await H.call(OPERATOR, "GET", `/api/ops/clients/${H.A.tenantId}/packs`);
     // §1.162: the area's name as people see it, and the connections it works through.
     expect((list.json as J).packs[0]).toMatchObject({
@@ -274,7 +266,7 @@ describe.skipIf(!h)("packs on the platform", () => {
       params,
       cloudflareStepRunner(new FakeWorkflowStep()),
     );
-    expect(result, JSON.stringify(result)).toEqual({ status: "succeeded" });
+    expect(result, JSON.stringify(result)).toEqual(ended());
 
     const steps = await H.t.db.select().from(stepRun).where(eq(stepRun.runId, params.runId));
     const step = (id: string) => steps.find((s) => s.nodeId === id);

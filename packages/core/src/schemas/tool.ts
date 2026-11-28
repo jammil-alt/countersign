@@ -50,7 +50,9 @@ export const ToolSpec = z
     connector: z.string().min(1).optional(),
     /**
      * The connector whose feed fills what the tool reads from our own records: the bank feed for a
-     * pack's import of bank transactions (docs/plan.md §1.221). For the tool's mark on a step only.
+     * pack's import of bank transactions (docs/plan.md §1.221), Zoho CRM for the Sales area's
+     * match. The tool's mark on a step, and (2026-11-24) for a connector apps/api can catch up
+     * (`feeds.ts`: Zoho CRM), the client's synced records are brought up to date before it runs.
      */
     // DECISION (owner, 2026-11-21: "this is Plaid integration, have we not added the icon for
     // Plaid?"): its own field, not `connector`. `connector` is the connection a call acts through,
@@ -135,6 +137,18 @@ export const ToolSpec = z
     // DECISION: optional and absent on every tool that calls no model, so specs stored before it
     // parse unchanged.
     usesModel: z.string().min(1).max(300).optional(),
+    // Step model §10f (stream N): one of a record type's standard actions (Find, Get by id,
+    // Create, Update; core `records`). The gate checks the agent version's grant on `type`, and a
+    // Find's on each record type it follows (`links`: link name → record type).
+    // DECISION: declared on the spec, as `entity` and `area` are, so the gate stays a function of
+    // the spec, the input and the pinned version; the platform names no record type.
+    record: z
+      .strictObject({
+        type: EntityId,
+        action: z.enum(["find", "get", "create", "update"]),
+        links: z.record(z.string(), EntityId).optional(),
+      })
+      .optional(),
   })
   .refine((t) => t.approval === undefined || t.sideEffect === "external", {
     message: "only external tools can always need a person's signature",
@@ -166,6 +180,16 @@ export const ToolSpec = z
     message: "only external tools say how they are taken back",
     path: ["undo"],
   })
+  .refine(
+    (t) =>
+      t.record === undefined ||
+      (t.sideEffect !== "external" &&
+        (t.sideEffect === "none") === (t.record.action === "find" || t.record.action === "get")),
+    {
+      message: "a record action reads or saves our own records, as its action says",
+      path: ["record"],
+    },
+  )
   .refine((t) => t.undo?.kind !== "reverse" || t.undo.tool !== t.id, {
     message: "a write isn't reversed by itself; use restore",
     path: ["undo", "tool"],

@@ -36,6 +36,7 @@ export const en = {
   "common.notFoundBody": "No page here.",
   "common.yes": "Yes",
   "common.no": "No",
+  "common.optional": "optional",
   "common.close": "Close",
 
   // ── Error pages (a page that failed to load) ──
@@ -452,6 +453,7 @@ export const en = {
   "desk.team.undoIs": "Undo window: {window}.",
   "desk.approvalSettings": "Approval settings",
   "change.now": "Now",
+  "change.recordSave.why": "Why it waits",
   "change.after": "After this change",
   "change.createsIt": "Not there yet: this change creates it.",
   "change.nothingRecorded": "Nothing recorded.",
@@ -3796,6 +3798,14 @@ export const en = {
   "connectors.ask.send": "Send to your lead",
   "connectors.ask.sent": "Sent. See your request",
   "connectors.ask.subject": "A connector for {tool}",
+  "requestAction.title": "Request something",
+  "requestAction.label": "What do you need it to do?",
+  "requestAction.send": "Send",
+  "requestAction.cancel": "Cancel",
+  "requestAction.thanks": "Thank you. We have it, and we will tell you when it is ready.",
+  "requestAction.another": "Ask for something else",
+  "requestAction.hint":
+    "Say it in your own words. We will look at it and tell you when it is ready.",
   "connectors.browse.title": "Browse",
   "connectors.browse.search": "Search connectors",
   "connectors.browse.recommended": "Recommended for you",

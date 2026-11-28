@@ -57,6 +57,11 @@ export interface DqCtx {
   /** Who is acting: the operator, a Claude Code session (MCP), or the Builder (a build's card). */
   actor: CodeRequestActor;
   now(): Date;
+  /**
+   * The clients whose words the request carries (a client asked from their account): the reuse
+   * check's judge is held to each one's HIPAA mode, as it is for a build's clients.
+   */
+  clients?: readonly string[];
 }
 
 const refused = (reason: string) => new HttpError(409, "refused", reason);
@@ -102,7 +107,12 @@ async function checkReuse(
   const selfId = about.requestId;
   const { index, bctx, clients } = await ctx.inTx(async (scoped) => {
     const r = await reuseIndex(scoped, ctx.services);
-    return { index: r.index, bctx: r.ctx, clients: await clientsOf(scoped.tx, about) };
+    const linked = await clientsOf(scoped.tx, about);
+    return {
+      index: r.index,
+      bctx: r.ctx,
+      clients: [...new Set([...linked, ...(ctx.clients ?? [])])],
+    };
   });
   const base = {
     title: input.title,

@@ -495,12 +495,15 @@ describe.skipIf(!h)("WhatsApp passive capture", () => {
     const created = await H.call(OPERATOR, "POST", `/api/ops/clients/${A()}/agents`, {
       slug: "filer",
       bundle: bundle("Filer", {
-        schemaVersion: 3,
-        trigger: {
-          id: "msg",
-          on: { type: "message", channels: ["whatsapp"], from: { tags: ["supplier"] } },
-        },
-        steps: [],
+        schemaVersion: 5,
+        triggers: [
+          {
+            id: "msg",
+            on: { type: "message", channels: ["whatsapp"], from: { tags: ["supplier"] } },
+          },
+        ],
+        outputs: [{ id: "out-done", name: "Done", kind: "nothing" }],
+        steps: [{ id: "end", kind: "end", name: "Done", outputs: ["out-done"] }],
       }),
     });
     expect(created.status, JSON.stringify(created.json)).toBe(200);

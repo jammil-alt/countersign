@@ -17,9 +17,11 @@ import {
   type ApiHarness,
   admin,
   createApiHarness,
+  ended,
   FakeWorkflowStep,
   forbiddenKeys,
   OPERATOR,
+  publishStored,
 } from "./api.test-helper";
 import { quietNever } from "./quiet-hours.test-helper";
 import { credentialsFor, executeRun } from "./runs/execute";
@@ -82,47 +84,65 @@ function bundle(): AgentBundle {
         slug: "main",
         name: "Main",
         workflow: {
-          schemaVersion: 3,
-          trigger: {
-            id: "trg",
-            on: {
-              type: "manual",
-              input: {
-                type: "object",
-                properties: { contactId: { type: "string" }, invoice: { type: "string" } },
-                required: ["contactId", "invoice"],
+          schemaVersion: 5,
+          triggers: [
+            {
+              id: "trg",
+              on: {
+                type: "manual",
+                input: {
+                  type: "object",
+                  properties: { contactId: { type: "string" }, invoice: { type: "string" } },
+                  required: ["contactId", "invoice"],
+                },
               },
             },
-          },
+          ],
+          outputs: [{ id: "out-done", name: "Done", kind: "nothing" }],
           steps: [
             {
               id: "draft",
               name: "Draft the questions",
-              kind: "skill",
-              skill: "forms.draft",
+              kind: "do",
+              doneBy: "ai",
+              uses: { type: "skill", skill: "forms.draft" },
               input: {
                 need: "The PO number for this invoice, and the freight quote behind its freight line.",
                 data: { invoice: "{{trigger.invoice}}" },
-                ask: { required: [PO, QUOTE], maxExtra: 2 },
+                ask: {
+                  required: [
+                    { id: "po_number", label: "PO number", type: "text", required: true },
+                    { id: "freight_quote", label: "Freight quote", type: "files", required: true },
+                  ],
+                  maxExtra: 2,
+                },
                 audience: "the vendor's sales rep",
               },
             },
             {
               id: "ask",
               name: "Ask the vendor",
-              kind: "skill",
-              skill: "forms.request",
+              client: { visible: true, label: "Asked the vendor" },
+              checks: { approval: { required: "required" } },
+              kind: "do",
+              doneBy: "rules",
+              uses: { type: "skill", skill: "forms.request" },
               input: {
                 to: { contactId: "{{trigger.contactId}}" },
                 about: ["{{trigger.invoice}}"],
-                purpose: PURPOSE,
-                ask: { required: [PO, QUOTE], maxExtra: 2 },
+                purpose: "Invoice 1042 has no PO number and its freight looks high",
+                ask: {
+                  required: [
+                    { id: "po_number", label: "PO number", type: "text", required: true },
+                    { id: "freight_quote", label: "Freight quote", type: "files", required: true },
+                  ],
+                  maxExtra: 2,
+                },
                 form: "{{steps.draft.output}}",
                 due: "3 days",
               },
-              approval: { required: "required" },
-              client: { visible: true, label: "Asked the vendor" },
             },
+            { id: "end", kind: "end", name: "Done", outputs: ["out-done"] },
           ],
         },
       },
@@ -235,11 +255,7 @@ describe.skipIf(!h)("forms: request info from a contact", () => {
     expect(j(created.json).errors ?? []).toEqual([]);
     agentId = j(created.json).agent.id;
     versionId = j(created.json).version.id;
-    const pub = await H.call(
-      OPERATOR,
-      "POST",
-      `/api/ops/agents/${agentId}/versions/${versionId}/publish`,
-    );
+    const pub = await publishStored(H, H.A.tenantId, agentId, versionId);
     expect(pub.status, JSON.stringify(pub.json)).toBe(200);
     const ch = await H.call(OPERATOR, "PUT", `/api/ops/agents/${agentId}/channels`, {
       channels: { email: gmail },
@@ -355,9 +371,7 @@ describe.skipIf(!h)("forms: request info from a contact", () => {
       }
       throw new Error(`unexpected wait ${type}`);
     });
-    expect(await executeRun(deps(model), params, cloudflareStepRunner(step))).toEqual({
-      status: "succeeded",
-    });
+    expect(await executeRun(deps(model), params, cloudflareStepRunner(step))).toEqual(ended());
 
     // The drafting call saw the need and the data as data, the operator's ask beside them.
     expect(JSON.stringify(model.requests[0]?.system)).not.toContain("INV-1042");
@@ -448,9 +462,7 @@ describe.skipIf(!h)("forms: request info from a contact", () => {
       }
       throw new Error(`unexpected wait ${type}`);
     });
-    expect(await executeRun(deps(model), params, cloudflareStepRunner(step))).toEqual({
-      status: "succeeded",
-    });
+    expect(await executeRun(deps(model), params, cloudflareStepRunner(step))).toEqual(ended());
     const out = await outputOf(params.runId, "ask");
     expect(out.output).toMatchObject({
       outcome: "no_answer",
@@ -479,9 +491,7 @@ describe.skipIf(!h)("forms: request info from a contact", () => {
     const step = new FakeWorkflowStep(async (_n, type) => {
       throw new Error(`unexpected wait ${type}`);
     });
-    expect(await executeRun(deps(model), params, cloudflareStepRunner(step))).toEqual({
-      status: "succeeded",
-    });
+    expect(await executeRun(deps(model), params, cloudflareStepRunner(step))).toEqual(ended());
     const out = await outputOf(runId, "ask");
     expect(out.output).toMatchObject({
       outcome: "not_sent",

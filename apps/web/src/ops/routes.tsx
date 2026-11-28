@@ -59,6 +59,7 @@ import { CommandCenterScreen } from "./command/CommandCenter";
 import { OpsClientConnectorScreen } from "./connectors/ClientConnector";
 import { CheckStepsScreen } from "./flow/CheckSteps";
 import { LabScreen } from "./lab/LabScreen";
+import { LoopPage, NewLoopScreen } from "./lab/loops/LoopDesigner";
 // R8: the Library (docs/plan.md §1.86)
 import { ConditionsBank } from "./library/ConditionsBank";
 import { LibraryIndexScreen } from "./library/LibraryIndex";
@@ -162,6 +163,9 @@ export const opsRoutes = (
     <Route path="runs/:id" element={<OpsRunScreen />} />
     {/* O2 Agent lab, update merge (UI-2b) */}
     <Route path="lab" element={<LabScreen />} />
+    {/* Step model §8: the Loop designer, laid out as the skill page is. */}
+    <Route path="lab/loops/new" element={<NewLoopScreen />} />
+    <Route path="lab/loops/:id" element={<LoopPage />} />
     {/* §1.212: the eval scorecard, per template workflow and version (its own chunk) */}
     <Route
       path="scorecard"
@@ -174,6 +178,8 @@ export const opsRoutes = (
     <Route path="templates/:slug/*" element={<TemplatePage />} />
     <Route path="agents/:id" element={<OpsAgentRedirect />} />
     <Route path="agents/:id/workflow" element={<OpsAgentRedirect tab="workflow" />} />
+    {/* A new agent's first workflow as a list of steps, to edit (owner, 2026-11-26). */}
+    <Route path="agents/:id/steps" element={<OpsAgentRedirect tab="steps" />} />
     <Route path="agents/:id/merge" element={<MergeScreen />} />
     {/* O5 New agent, by conversation with the Builder (UI-2c) */}
     {/* Owner (2026-11-17): a new template starts as a build, from the Agent lab's New. */}

@@ -8,7 +8,6 @@ import {
   type AgentBundle,
   type AgentBundleInput,
   AgentBundle as AgentBundleSchema,
-  type PersonStep,
 } from "@countersign/core";
 import {
   agent,
@@ -23,6 +22,7 @@ import {
   thread,
   vendor,
 } from "@countersign/db";
+import type { PersonStep } from "@countersign/workflows";
 import { and, eq } from "drizzle-orm";
 import { afterAll, describe, expect, it } from "vitest";
 import {
@@ -57,20 +57,27 @@ function leadCheckBundle(): AgentBundle {
       slug: "check",
       name: "Check",
       workflow: {
-        schemaVersion: 3,
-        trigger: { id: "trg-manual", on: { type: "manual", input: {} } },
+        schemaVersion: 5,
+        triggers: [{ id: "trg-manual", on: { type: "manual", input: {} } }],
+        outputs: [{ id: "out-done", name: "Done", kind: "nothing" }],
         steps: [
           {
             id: "lead-check",
             name: "Lead check",
-            kind: "person",
-            mode: "approve",
-            assignee: "lead",
-            title: "Check the new matches",
-            timeout: "1 day",
-            onTimeout: "stop",
             client: { visible: true, label: "Check new matches" },
+            kind: "do",
+            doneBy: "person",
+            person: {
+              mode: "approve",
+              who: "lead",
+              question: "Check the new matches",
+              show: {},
+              deadline: { after: "1 day", hours: "clock", ifNoAnswer: "stop" },
+              channel: "inbox",
+              onReject: "stop",
+            },
           },
+          { id: "end", kind: "end", name: "Done", outputs: ["out-done"] },
         ],
       },
     },
@@ -442,7 +449,19 @@ describe.skipIf(!h)("threads and the lead", () => {
   });
 
   it("assigns a lead check to the lead, or to the operator role without one", async () => {
-    const step = leadCheckBundle().workflows[0]?.workflow.steps[0] as PersonStep;
+    const step: PersonStep = {
+      id: "lead-check",
+      name: "Lead check",
+      kind: "person",
+      mode: "approve",
+      assignee: "lead",
+      title: "Check the new matches",
+      payload: {},
+      timeout: "1 day",
+      channel: "inbox",
+      onReject: "stop",
+      onTimeout: "stop",
+    };
     const [r] = await H.t.db
       .insert(run)
       .values({

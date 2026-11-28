@@ -31,7 +31,7 @@ describe.skipIf(!h)("agent status", () => {
 
   beforeAll(async () => {
     const tpl = await H.call(OPERATOR, "POST", "/api/ops/platform-templates/bill-clerk/install", {
-      version: 2,
+      version: 1,
     });
     expect(tpl.status, JSON.stringify(tpl.json)).toBe(200);
     const templateId = j(tpl.json).template.id as string;

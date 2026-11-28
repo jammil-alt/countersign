@@ -90,17 +90,20 @@ function draftAnswer(slug: string): FakeTurn {
               slug: "main",
               name: "Review a record",
               workflow: {
-                schemaVersion: 4,
+                schemaVersion: 5,
                 triggers: [{ id: "t", on: { type: "manual", input: {} } }],
+                outputs: [{ id: "out-done", name: "Done", kind: "nothing" }],
                 steps: [
                   {
                     id: "update",
-                    kind: "write",
                     name: "Update the record",
-                    tool: TESTKIT_UPDATE_TOOL,
-                    input: { id: "r1", amount: "12.00" },
                     checks: { approval: { required: "required" } },
+                    kind: "do",
+                    doneBy: "rules",
+                    uses: { type: "action", action: TESTKIT_UPDATE_TOOL },
+                    input: { id: "r1", amount: "12.00" },
                   },
+                  { id: "end", kind: "end", name: "Done", outputs: ["out-done"] },
                 ],
               },
             },
@@ -165,7 +168,8 @@ describe.skipIf(!h)("builds: what the Builder's answers may change", () => {
     return d;
   }
 
-  async function inPoc(title: string, slug: string): Promise<BuildDetail> {
+  /** A draft with a test plan the operator asked the Builder for (there is no POC test now). */
+  async function withTestPlan(title: string, slug: string): Promise<BuildDetail> {
     const d = await inDraft(title, slug);
     model.inner.push(
       turnAnswer({
@@ -183,8 +187,10 @@ describe.skipIf(!h)("builds: what the Builder's answers may change", () => {
         },
       }),
     );
-    const p = await ok("POST", `/api/ops/builds/${d.build.id}/phase`, { to: "poc" });
-    expect(p.build.phase).toBe("poc");
+    const p = await ok("POST", `/api/ops/builds/${d.build.id}/turns`, {
+      text: "Plan some test data for it.",
+    });
+    expect(p.build.testPlan.datasets).toHaveLength(1);
     return p;
   }
 
@@ -405,7 +411,7 @@ describe.skipIf(!h)("builds: what the Builder's answers may change", () => {
 
   // BUILDER_QA AI-6.
   it("generated test cases naming a step or workflow the draft doesn't have aren't saved", async () => {
-    const p = await inPoc("Cases on made-up steps", "cases-made-up-steps");
+    const p = await withTestPlan("Cases on made-up steps", "cases-made-up-steps");
     model.inner.push({
       toolUse: {
         name: "submit_test_cases",

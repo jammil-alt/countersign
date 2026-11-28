@@ -1,5 +1,5 @@
 {
-  "id": "8d222c0a-cd1e-467a-a330-f095288e09b6",
+  "id": "528fe7b2-2c09-49e5-9827-ca389b844d3b",
   "prevId": "1c3c85ad-55d1-4adc-b5fa-34838f8a405a",
   "version": "7",
   "dialect": "postgresql",
@@ -7398,6 +7398,12 @@
         "clients": {
           "name": "clients",
           "type": "uuid[]",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "actions": {
+          "name": "actions",
+          "type": "jsonb",
           "primaryKey": false,
           "notNull": false
         },
@@ -17254,68 +17260,6 @@
       },
       "isRLSEnabled": false
     },
-    "public.platform_lock": {
-      "name": "platform_lock",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "boolean",
-          "primaryKey": true,
-          "notNull": true,
-          "default": true
-        },
-        "locked_by": {
-          "name": "locked_by",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "locked_at": {
-          "name": "locked_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
-        "reason": {
-          "name": "reason",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {
-        "platform_lock_locked_by_app_user_id_fk": {
-          "name": "platform_lock_locked_by_app_user_id_fk",
-          "tableFrom": "platform_lock",
-          "tableTo": "app_user",
-          "columnsFrom": [
-            "locked_by"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {
-        "platform_lock_one_row_check": {
-          "name": "platform_lock_one_row_check",
-          "value": "\"platform_lock\".\"id\""
-        },
-        "platform_lock_reason_check": {
-          "name": "platform_lock_reason_check",
-          "value": "length(\"platform_lock\".\"reason\") between 1 and 500"
-        }
-      },
-      "isRLSEnabled": false
-    },
     "public.play_log": {
       "name": "play_log",
       "schema": "",
@@ -21269,18 +21213,6 @@
           "type": "timestamp with time zone",
           "primaryKey": false,
           "notNull": false
-        },
-        "locked_at": {
-          "name": "locked_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "lock": {
-          "name": "lock",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": false
         }
       },
       "indexes": {},
@@ -21296,16 +21228,7 @@
         }
       },
       "policies": {},
-      "checkConstraints": {
-        "tenant_lock_check": {
-          "name": "tenant_lock_check",
-          "value": "(\"tenant\".\"locked_at\" is null) = (\"tenant\".\"lock\" is null)"
-        },
-        "tenant_lock_object_check": {
-          "name": "tenant_lock_object_check",
-          "value": "\"tenant\".\"lock\" is null or jsonb_typeof(\"tenant\".\"lock\") = 'object'"
-        }
-      },
+      "checkConstraints": {},
       "isRLSEnabled": false
     },
     "public.tenant_change": {

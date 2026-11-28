@@ -233,6 +233,16 @@ describe("builds in the pipeline", () => {
     expect(buildPipelineStage({ ...base, agentStage: "bench" })).toBe("bench");
     expect(buildPipelineStage({ ...base, agentStage: "live" })).toBe("live");
   });
+
+  // Owner (2026-11-27): a build ends at Publish; a client's agent then goes through its stages.
+  it("follows a published client agent through its go-live stages", () => {
+    const published = { ...base, status: "live" as const, path: "new" as const };
+    expect(buildPipelineStage({ ...published, agentStage: "bench" })).toBe("bench");
+    expect(buildPipelineStage({ ...published, agentStage: "trial" })).toBe("trial");
+    expect(buildPipelineStage({ ...published, agentStage: "live" })).toBe("live");
+    // A new agent stored in a retired phase is still being built while its build is open.
+    expect(buildPipelineStage({ ...base, path: "new", phase: "client_test" })).toBe("building");
+  });
 });
 
 describe("the hold", () => {

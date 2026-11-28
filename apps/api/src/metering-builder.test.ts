@@ -42,17 +42,20 @@ const draft = (slug: string) => ({
             slug: "main",
             name: "Answer",
             workflow: {
-              schemaVersion: 4,
+              schemaVersion: 5,
               triggers: [{ id: "t", on: { type: "manual", input: {} } }],
+              outputs: [{ id: "out-done", name: "Done", kind: "nothing" }],
               steps: [
                 {
                   id: "update",
-                  kind: "write",
                   name: "Update the record",
-                  tool: TESTKIT_UPDATE_TOOL,
-                  input: { id: "r1", amount: "12.00" },
                   checks: { approval: { required: "required" } },
+                  kind: "do",
+                  doneBy: "rules",
+                  uses: { type: "action", action: TESTKIT_UPDATE_TOOL },
+                  input: { id: "r1", amount: "12.00" },
                 },
+                { id: "end", kind: "end", name: "Done", outputs: ["out-done"] },
               ],
             },
           },
@@ -97,7 +100,10 @@ describe.skipIf(!h)("the Builder's cost", () => {
   it("records a failed draft's calls, though the request failed", async () => {
     const before = (await builderRows()).length;
     // Two answers that don't fit the schema: the repair fails too, and nothing is saved.
-    const bad = { toolUse: { name: "submit_draft", input: { summary: 1 } }, usage: { input: 900 } };
+    const bad = {
+      toolUse: { name: "submit_draft", input: { summary: 1 } },
+      usage: { input: 900 },
+    };
     model.push(bad, bad);
     const res = await H.call(OPERATOR, "POST", "/api/ops/agents/draft", {
       description: "An agent that answers.",

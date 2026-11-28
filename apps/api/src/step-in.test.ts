@@ -48,11 +48,13 @@ import {
   AS_SENT,
   admin,
   createApiHarness,
+  ended,
   FakeWorkflowStep,
   forbiddenKeys,
   OPERATOR,
   OTHER_OPERATOR,
   optOutOf,
+  publishStored,
   unsigned,
   user,
 } from "./api.test-helper";
@@ -121,8 +123,8 @@ const h = await createApiHarness({
 });
 afterAll(() => h?.close());
 
-const GOAL = "Get the exact item list and the date needed for this purchase request.";
-const RESULT = {
+const _GOAL = "Get the exact item list and the date needed for this purchase request.";
+const _RESULT = {
   type: "object",
   properties: {
     items: {
@@ -138,9 +140,9 @@ const RESULT = {
   required: ["items", "neededBy"],
 };
 const ITEMS = { items: [{ name: "3/4 birch ply", qty: 12 }], neededBy: "Friday" };
-const PURPOSE = "Ask them to confirm Friday's delivery.";
+const _PURPOSE = "Ask them to confirm Friday's delivery.";
 
-const manual = (id: string, properties: Record<string, unknown> = {}) => ({
+const _manual = (id: string, properties: Record<string, unknown> = {}) => ({
   id,
   on: { type: "manual", input: { type: "object", properties } },
 });
@@ -166,17 +168,22 @@ function bundle(): AgentBundle {
         slug: "order",
         name: "Order",
         workflow: {
-          schemaVersion: 3,
-          trigger: manual("trg-order"),
+          schemaVersion: 5,
+          triggers: [
+            { id: "trg-order", on: { type: "manual", input: { type: "object", properties: {} } } },
+          ],
+          outputs: [{ id: "out-done-order", name: "Done", kind: "nothing" }],
           steps: [
             {
               id: "order",
               name: "Create the order",
-              kind: "action",
-              tool: ORDER,
+              checks: { approval: { required: "required" } },
+              kind: "do",
+              doneBy: "rules",
+              uses: { type: "action", action: "stepkit.order.create" },
               input: { vendor: "Northline", total: "120.00" },
-              approval: { required: "required", onReject: "stop" },
             },
+            { id: "end-order", kind: "end", name: "Done", outputs: ["out-done-order"] },
           ],
         },
       },
@@ -184,19 +191,28 @@ function bundle(): AgentBundle {
         slug: "ask",
         name: "Ask",
         workflow: {
-          schemaVersion: 3,
-          trigger: manual("trg-ask"),
+          schemaVersion: 5,
+          triggers: [
+            { id: "trg-ask", on: { type: "manual", input: { type: "object", properties: {} } } },
+          ],
+          outputs: [{ id: "out-done-ask", name: "Done", kind: "nothing" }],
           steps: [
             {
               id: "pick",
               name: "Which vendor?",
-              kind: "person",
-              mode: "ask",
-              assignee: "client_admin",
-              title: "Which vendor for the plywood?",
-              timeout: "1 day",
-              onTimeout: "stop",
+              kind: "do",
+              doneBy: "person",
+              person: {
+                mode: "ask",
+                who: "client_admin",
+                question: "Which vendor for the plywood?",
+                show: {},
+                deadline: { after: "1 day", hours: "clock", ifNoAnswer: "stop" },
+                channel: "inbox",
+                onReject: "stop",
+              },
             },
+            { id: "end-ask", kind: "end", name: "Done", outputs: ["out-done-ask"] },
           ],
         },
       },
@@ -204,28 +220,53 @@ function bundle(): AgentBundle {
         slug: "talk",
         name: "Talk",
         workflow: {
-          schemaVersion: 3,
-          trigger: manual("trg-talk", {
-            contactId: { type: "string" },
-            request: { type: "string" },
-          }),
+          schemaVersion: 5,
+          triggers: [
+            {
+              id: "trg-talk",
+              on: {
+                type: "manual",
+                input: {
+                  type: "object",
+                  properties: { contactId: { type: "string" }, request: { type: "string" } },
+                },
+              },
+            },
+          ],
+          outputs: [{ id: "out-done-talk", name: "Done", kind: "nothing" }],
           steps: [
             {
               id: "talk",
               name: "Clarify the request",
-              kind: "skill",
-              skill: "comms.converse",
+              client: { visible: true, label: "Clarified the request" },
+              checks: { approval: { required: "required" } },
+              kind: "do",
+              doneBy: "rules",
+              uses: { type: "skill", skill: "comms.converse" },
               input: {
                 to: { contactId: "{{trigger.contactId}}" },
                 channel: "whatsapp",
-                goal: GOAL,
-                result: RESULT,
+                goal: "Get the exact item list and the date needed for this purchase request.",
+                result: {
+                  type: "object",
+                  properties: {
+                    items: {
+                      type: "array",
+                      items: {
+                        type: "object",
+                        properties: { name: { type: "string" }, qty: { type: "number" } },
+                        required: ["name", "qty"],
+                      },
+                    },
+                    neededBy: { type: "string" },
+                  },
+                  required: ["items", "neededBy"],
+                },
                 opening: "Thank them and ask which items, how many, and by when.",
                 about: ["{{trigger.request}}"],
               },
-              approval: { required: "required", onReject: "stop" },
-              client: { visible: true, label: "Clarified the request" },
             },
+            { id: "end-talk", kind: "end", name: "Done", outputs: ["out-done-talk"] },
           ],
         },
       },
@@ -233,25 +274,36 @@ function bundle(): AgentBundle {
         slug: "reach",
         name: "Reach",
         workflow: {
-          schemaVersion: 3,
-          trigger: manual("trg-reach", { order: { type: "string" } }),
+          schemaVersion: 5,
+          triggers: [
+            {
+              id: "trg-reach",
+              on: {
+                type: "manual",
+                input: { type: "object", properties: { order: { type: "string" } } },
+              },
+            },
+          ],
+          outputs: [{ id: "out-done-reach", name: "Done", kind: "nothing" }],
           steps: [
             {
               id: "reach",
               name: "Ask the requester",
-              kind: "skill",
-              skill: "comms.reach-out",
+              checks: { approval: { required: "required" } },
+              kind: "do",
+              doneBy: "rules",
+              uses: { type: "skill", skill: "comms.reach-out" },
               input: {
                 to: { role: "requester" },
                 about: ["{{trigger.order}}"],
-                purpose: PURPOSE,
+                purpose: "Ask them to confirm Friday's delivery.",
                 message: { compose: true },
                 urgency: "normal",
                 expectReply: true,
                 timeout: "2 days",
               },
-              approval: { required: "required" },
             },
+            { id: "end-reach", kind: "end", name: "Done", outputs: ["out-done-reach"] },
           ],
         },
       },
@@ -424,11 +476,7 @@ describe.skipIf(!h)("the client runs it, we step in", () => {
       bindings: { stepkit: conn?.id },
     });
     expect(bound.status, JSON.stringify(bound.json)).toBe(200);
-    const pub = await H.call(
-      OPERATOR,
-      "POST",
-      `/api/ops/agents/${agentId}/versions/${j(created.json).version.id}/publish`,
-    );
+    const pub = await publishStored(H, H.A.tenantId, agentId, j(created.json).version.id);
     expect(pub.status, JSON.stringify(pub.json)).toBe(200);
     const ch = await H.call(OPERATOR, "PUT", `/api/ops/agents/${agentId}/channels`, {
       channels: { sms: setup.twilio.connectionId, whatsapp: setup.twilio.connectionId },
@@ -492,9 +540,7 @@ describe.skipIf(!h)("the client runs it, we step in", () => {
       expect(writes.size).toBe(0);
       return eventFor(type);
     });
-    expect(await executeRun(deps(), params, cloudflareStepRunner(step))).toEqual({
-      status: "succeeded",
-    });
+    expect(await executeRun(deps(), params, cloudflareStepRunner(step))).toEqual(ended());
     // Written once, through the external action, with its before state.
     const mine = [...writes.entries()].filter(([k]) => k.startsWith(params.runId));
     expect(mine).toEqual([[expect.any(String), { vendor: "Northline", total: "120.00", open: 3 }]]);
@@ -780,9 +826,7 @@ describe.skipIf(!h)("the client runs it, we step in", () => {
       });
       return resolveItem(type, { answer: "Northline" }, user("a"));
     });
-    expect(await executeRun(deps(), params, cloudflareStepRunner(step))).toEqual({
-      status: "succeeded",
-    });
+    expect(await executeRun(deps(), params, cloudflareStepRunner(step))).toEqual(ended());
     expect(j((await stepRunOf(params.runId, "pick")).output)).toMatchObject({
       approved: true,
       answer: "Northline",
@@ -846,9 +890,7 @@ describe.skipIf(!h)("the client runs it, we step in", () => {
       }
       throw new Error(`unexpected wait ${type}`);
     });
-    expect(await executeRun(deps(), params, cloudflareStepRunner(step))).toEqual({
-      status: "succeeded",
-    });
+    expect(await executeRun(deps(), params, cloudflareStepRunner(step))).toEqual(ended());
     expect(handover).not.toBe("");
     expect(j((await stepRunOf(params.runId, "talk")).output)).toMatchObject({
       outcome: "handed_over",
@@ -918,9 +960,7 @@ describe.skipIf(!h)("the client runs it, we step in", () => {
       }
       throw new Error(`unexpected wait ${type}`);
     });
-    expect(await executeRun(deps(), params, cloudflareStepRunner(step))).toEqual({
-      status: "succeeded",
-    });
+    expect(await executeRun(deps(), params, cloudflareStepRunner(step))).toEqual(ended());
     expect(sentTo(LEE)).toHaveLength(1);
     expect(model.requests).toHaveLength(1);
   });

@@ -1,3 +1,9 @@
+// ENGINE-INTERNAL (wave 4): these are the steps the executor runs, not a stored format. Nothing
+// stores a v4 process or a v3 workflow any more: a bundle holds v5 workflows (`steps/schema.ts`),
+// and `packages/workflows/src/step-model.ts` loads each v5 step as one of the steps below for a run.
+// Automations (`schemaVersion: 2`) still hold them. Moving the engines to the v5 shapes is a
+// follow-up (docs/step-model-plan.md §12).
+
 // R1 (docs/plan.md §1.86, §9): the process schema, workflow `schemaVersion: 4`.
 // Six kinds of work (read, skill, write, person, conversation, notify) plus logic (if, for_each,
 // wait, stop, process), and checks on any step (confer, approval, notify) with conditions and one
@@ -15,6 +21,7 @@ import {
   AutomationRef,
   ClientVisibility,
   PersonChoice,
+  PersonField,
   StepPurpose,
   Trigger,
   WorkflowHandoff,
@@ -254,6 +261,8 @@ export const PersonStep = z.object({
   channel: z.enum(["inbox", "email"]).default("inbox"),
   onReject: z.enum(["stop", "continue"]).default("stop"),
   choices: z.array(PersonChoice).min(1).max(6).optional(),
+  /** What the person is asked for, each handed on by its name (the step model's output fields). */
+  fields: z.array(PersonField).min(1).max(10).optional(),
 });
 
 /** A two-way exchange with a contact until a goal is met (docs/plan.md §1.86). */

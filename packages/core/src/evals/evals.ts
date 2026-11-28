@@ -389,7 +389,10 @@ export function runWrites(
     });
 }
 
-/** Every write step's tool (a v3 action step's tool, a v4 write's tool or action), by step id. */
+/**
+ * Every write step's tool by step id: a v4 write's tool or action, and a v5 Do's action (a read's
+ * too: a run records writes only for the steps that made one).
+ */
 export function writeStepTools(workflows: unknown): Map<string, string> {
   const tools = new Map<string, string>();
   const walk = (v: unknown): void => {
@@ -402,6 +405,10 @@ export function writeStepTools(workflows: unknown): Map<string, string> {
       const tool =
         typeof v.tool === "string" ? v.tool : typeof v.action === "string" ? v.action : null;
       if (tool) tools.set(v.id, tool);
+    }
+    const uses = v.kind === "do" ? v.uses : undefined;
+    if (typeof v.id === "string" && isPlainObject(uses) && typeof uses.action === "string") {
+      if (uses.type === "action") tools.set(v.id, uses.action);
     }
     for (const x of Object.values(v)) walk(x);
   };

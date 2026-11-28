@@ -36,7 +36,6 @@ export {
   readyEntries,
   settleEntries,
 } from "./close/store";
-export { MONTH_END_CLOSE_SLUG, MONTH_END_CLOSE_TEMPLATE } from "./close/template";
 export { CLOSE_TOOLS } from "./close/tools";
 export { type ImportResult, importFeeds } from "./feed";
 export { PACK_ID } from "./ids";
@@ -55,7 +54,12 @@ export {
   runReconciliation,
 } from "./reconcile/store";
 export { bankPairKey, RECONCILE_TOOLS } from "./reconcile/tools";
+// Step model §10f: the area's record types and their stores.
+export {
+  BANK_TRANSACTION_RECORD_TYPE,
+  BOOKKEEPING_RECORD_STORES,
+  BOOKKEEPING_RECORD_TYPES,
+} from "./records";
 export * from "./schema";
 export * from "./splits";
-export { BOOKKEEPER_SLUG, BOOKKEEPER_TEMPLATE } from "./template";
 export { BOOKKEEPING_TOOLS, thresholdFrom } from "./tools";

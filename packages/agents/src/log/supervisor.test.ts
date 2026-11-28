@@ -26,7 +26,6 @@ import {
   tenant,
   toolCall,
 } from "@countersign/db";
-import { loadSeedTemplates } from "@countersign/db/seed";
 import { FakeModel } from "@countersign/llm";
 import { emit } from "@countersign/senses";
 import { and, eq, sql } from "drizzle-orm";
@@ -71,11 +70,14 @@ describe.skipIf(!harness)("supervisor", () => {
   const ids = new Map<string, Ids>();
 
   beforeAll(async () => {
-    const seeded = (await loadSeedTemplates()).find((t) => t.slug === "supervisor");
-    if (!seeded) throw new Error("no supervisor seed");
+    // The supervisor's own bundle: its skills, and no workflow (it is asked and reads, never run).
+    const supervisorBundle = makeBundle({
+      skills: SUPERVISOR_SKILLS.map((s) => ({ skill: s.id })),
+      workflows: [],
+    });
     const templates = await h.ops(async (tx) => {
       const w = await createTemplate(tx, { slug: "worker", bundle: makeBundle() });
-      const s = await createTemplate(tx, { slug: "supervisor", bundle: seeded.bundle });
+      const s = await createTemplate(tx, { slug: "supervisor", bundle: supervisorBundle });
       return {
         worker: await publish(tx, { agentId: w.agent.id, versionId: w.version.id, ctx }),
         supervisor: await publish(tx, { agentId: s.agent.id, versionId: s.version.id, ctx }),

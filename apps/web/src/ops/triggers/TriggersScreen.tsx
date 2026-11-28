@@ -5,7 +5,7 @@
 // and message triggers, their settings. "Add a trigger" opens a dialog that explains the six kinds
 // and saves the new trigger as a new draft version. The hook's URL and secret are the client's
 // (their admin keeps them in Accounts), so this panel never shows them.
-import type { AnyAgentBundle, Trigger, TriggerOn } from "@countersign/core";
+import type { AgentBundle, Trigger, TriggerOn } from "@countersign/core";
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import type { ResponseOf } from "../../api/client";
@@ -24,6 +24,7 @@ import {
   TRIGGER_KINDS,
   type TriggerKind,
 } from "./AddTrigger";
+import { SandboxInbound } from "./SandboxInbound";
 import {
   addTrigger,
   channelWords,
@@ -83,7 +84,7 @@ export function TriggersPanel({
   agent: AgentSummary;
   /** The agent's latest version, which the list reads and new triggers are added to. */
   latest: VersionDetail | null;
-  bundle: AnyAgentBundle | null;
+  bundle: AgentBundle | null;
   /** The latest version's problems when it is a stored draft (S6.5); each row shows its own. */
   errors?: readonly { stepId: string | null; message: string; workflow?: string | undefined }[];
   /** After a save, with the new draft version's id. */
@@ -105,7 +106,7 @@ export function TriggersPanel({
   const labels = eventLabels(events.data?.events);
   const manyWorkflows = bundle.workflows.length > 1;
 
-  async function saveBundle(next: AnyAgentBundle, what: string) {
+  async function saveBundle(next: AgentBundle, what: string) {
     if (!latest) return false;
     setSaved(null);
     const res = await action.call(apiRoutes.opsSaveVersion, {
@@ -133,103 +134,117 @@ export function TriggersPanel({
   }
 
   const lastFired = (id: string) => fired.data?.triggers.find((t) => t.triggerId === id)?.lastFired;
+  // Sandbox inbound (2026-11-27): a Sandbox agent's address and test messages, under its triggers.
+  const sandbox =
+    isClient && !agent.testCopy && agent.tenantId && fired.data?.sandbox ? fired.data : null;
 
   return (
-    <Card
-      titleAbove
-      title={`Starts when · ${plural(rows.length, "trigger")}`}
-      testId="triggers-table"
-      meta={
-        <Button
-          size="sm"
-          data-testid="triggers-add"
-          aria-haspopup="dialog"
-          onClick={() => setAdding(true)}
-        >
-          Add a trigger
-        </Button>
-      }
-    >
-      {saved || action.error ? (
-        <div className="flex flex-col gap-2 px-6 pb-4">
-          {saved ? (
-            <Notice tone={saved.errors.length ? "warning" : "positive"} testId="triggers-saved">
-              {saved.what}: saved v{saved.version} as a draft. It starts work once you publish it.
-              {saved.errors.length ? (
-                <ul className="mt-2 list-disc pl-5">
-                  {saved.errors.map((m) => (
-                    <li key={m}>{m}</li>
-                  ))}
-                </ul>
-              ) : null}
-            </Notice>
-          ) : null}
-          {action.error && !adding ? (
-            <Notice tone="warning" testId="triggers-error">
-              {errorText(action.error)}
-              {detailMessages(action.error).length ? (
-                <ul className="mt-2 list-disc pl-5">
-                  {detailMessages(action.error).map((m) => (
-                    <li key={m}>{m}</li>
-                  ))}
-                </ul>
-              ) : null}
-            </Notice>
-          ) : null}
-        </div>
-      ) : null}
-      {rows.length === 0 ? (
-        <p className="px-6 pb-5 text-sm text-ink-muted">
-          No workflows yet, so nothing starts it. Add a step below to make one.
-        </p>
-      ) : (
-        <ul className="flex flex-col divide-y divide-line border-t border-line">
-          {rows.map((r) => (
-            <TriggerItem
-              key={`${r.workflow}:${r.trigger.id}`}
-              row={r}
-              labels={labels}
-              showWorkflow={manyWorkflows}
-              isClient={isClient}
-              lastFired={lastFired(r.trigger.id)}
-              problems={errors
-                .filter(
-                  (e) =>
-                    e.stepId === r.trigger.id &&
-                    (e.workflow === undefined || e.workflow === r.workflow),
-                )
-                .map((e) => e.message)}
-              busy={action.busy}
-              removing={action.busy && removing === r.trigger.id}
-              name={agent.name}
-              address={fired.data?.address ?? null}
-              commandName={fired.data?.commandName ?? null}
-              onRemove={() => {
-                setRemoving(r.trigger.id);
-                return saveBundle(
-                  removeTrigger(bundle, r.workflow, r.trigger.id),
-                  `Removed a ${TRIGGER_KIND_LABEL[r.trigger.on.type].toLowerCase()} trigger`,
-                );
-              }}
-            />
-          ))}
-        </ul>
-      )}
-      {adding ? (
-        <AddTriggerDialog
-          bundle={bundle}
-          clientId={isClient ? agent.tenantId : null}
-          agentSlug={agent.slug}
-          busy={action.busy}
-          error={action.error}
-          onAdd={add}
-          onClose={() => {
-            action.clear();
-            setAdding(false);
-          }}
+    <>
+      <Card
+        titleAbove
+        title={`Starts when · ${plural(rows.length, "trigger")}`}
+        testId="triggers-table"
+        meta={
+          <Button
+            size="sm"
+            data-testid="triggers-add"
+            aria-haspopup="dialog"
+            onClick={() => setAdding(true)}
+          >
+            Add a trigger
+          </Button>
+        }
+      >
+        {saved || action.error ? (
+          <div className="flex flex-col gap-2 px-6 pb-4">
+            {saved ? (
+              <Notice tone={saved.errors.length ? "warning" : "positive"} testId="triggers-saved">
+                {saved.what}: saved v{saved.version} as a draft. It starts work once you publish it.
+                {saved.errors.length ? (
+                  <ul className="mt-2 list-disc pl-5">
+                    {saved.errors.map((m) => (
+                      <li key={m}>{m}</li>
+                    ))}
+                  </ul>
+                ) : null}
+              </Notice>
+            ) : null}
+            {action.error && !adding ? (
+              <Notice tone="warning" testId="triggers-error">
+                {errorText(action.error)}
+                {detailMessages(action.error).length ? (
+                  <ul className="mt-2 list-disc pl-5">
+                    {detailMessages(action.error).map((m) => (
+                      <li key={m}>{m}</li>
+                    ))}
+                  </ul>
+                ) : null}
+              </Notice>
+            ) : null}
+          </div>
+        ) : null}
+        {rows.length === 0 ? (
+          <p className="px-6 pb-5 text-sm text-ink-muted">
+            No workflows yet, so nothing starts it. Add a step below to make one.
+          </p>
+        ) : (
+          <ul className="flex flex-col divide-y divide-line border-t border-line">
+            {rows.map((r) => (
+              <TriggerItem
+                key={`${r.workflow}:${r.trigger.id}`}
+                row={r}
+                labels={labels}
+                showWorkflow={manyWorkflows}
+                isClient={isClient}
+                lastFired={lastFired(r.trigger.id)}
+                problems={errors
+                  .filter(
+                    (e) =>
+                      e.stepId === r.trigger.id &&
+                      (e.workflow === undefined || e.workflow === r.workflow),
+                  )
+                  .map((e) => e.message)}
+                busy={action.busy}
+                removing={action.busy && removing === r.trigger.id}
+                name={agent.name}
+                address={fired.data?.address ?? null}
+                commandName={fired.data?.commandName ?? null}
+                onRemove={() => {
+                  setRemoving(r.trigger.id);
+                  return saveBundle(
+                    removeTrigger(bundle, r.workflow, r.trigger.id),
+                    `Removed a ${TRIGGER_KIND_LABEL[r.trigger.on.type].toLowerCase()} trigger`,
+                  );
+                }}
+              />
+            ))}
+          </ul>
+        )}
+        {adding ? (
+          <AddTriggerDialog
+            bundle={bundle}
+            clientId={isClient ? agent.tenantId : null}
+            agentSlug={agent.slug}
+            busy={action.busy}
+            error={action.error}
+            onAdd={add}
+            onClose={() => {
+              action.clear();
+              setAdding(false);
+            }}
+          />
+        ) : null}
+      </Card>
+      {sandbox && agent.tenantId ? (
+        <SandboxInbound
+          agentId={agent.id}
+          clientId={agent.tenantId}
+          name={agent.name}
+          fired={sandbox}
+          onChanged={() => fired.reload()}
         />
       ) : null}
-    </Card>
+    </>
   );
 }
 
@@ -358,7 +373,7 @@ function AddTriggerDialog({
   onAdd,
   onClose,
 }: {
-  bundle: AnyAgentBundle;
+  bundle: AgentBundle;
   clientId: string | null;
   agentSlug: string;
   busy: boolean;

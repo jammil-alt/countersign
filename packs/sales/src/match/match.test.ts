@@ -481,6 +481,47 @@ describe.skipIf(!online)("matching rows to a client's synced CRM records", () =>
     expect((await look("Leads", "a", 3)).length).toBeLessThanOrEqual(3);
   });
 
+  // 2026-11-24: a record deleted in the CRM (the sync marks its raw records) leaves the searches;
+  // its key row stays for the matches already made.
+  it("never offers a record deleted in the CRM, and keeps the matches made to it", async () => {
+    const { rawRecord, withTenant } = await import("@countersign/db");
+    const { keyRowsByIds } = await import("../store");
+    const D = await insertSalesClient(t.db, "Deletions");
+    const raw = await D.record("Leads", "G1", {
+      First_Name: "Gus",
+      Last_Name: "Gone",
+      Company: "Vanished Ltd",
+      Email: "gus@vanished.example",
+    });
+    const row = { Email: "gus@vanished.example", Name: "Gus Gone" };
+    const before = await matchRecords(ctx(D), {
+      rows: [row],
+      keys: { email: "Email", name: "Name" },
+      modules: ["Leads"],
+    });
+    expect(before.rows[0]).toMatchObject({ decision: "matched", record: { externalId: "G1" } });
+    const recordKeyId = await keyId(D, "G1");
+    await t.db.update(rawRecord).set({ isDeleted: true }).where(eq(rawRecord.id, raw));
+
+    const after = await matchRecords(ctx(D), {
+      rows: [row],
+      keys: { email: "Email", name: "Name" },
+      modules: ["Leads"],
+    });
+    // No candidate: without the search by meaning (no model here) a person confirms it's new.
+    expect(after.rows[0]).toMatchObject({ record: null, suggestion: null, candidates: [] });
+    expect(after.rows[0]?.decision).not.toBe("matched");
+    const look = (q: string) =>
+      withTenant(t.db, D.tenantId, (tx) => lookupRecords(tx, D.tenantId, { module: "Leads", q }));
+    expect(await look("Gus Gone")).toEqual([]);
+    expect(await look("gus@vanished.example")).toEqual([]);
+    // The match made before still reads its record (evidence); an alias's look leaves it out.
+    await withTenant(t.db, D.tenantId, async (tx) => {
+      expect(await keyRowsByIds(tx, D.tenantId, [recordKeyId])).toHaveLength(1);
+      expect(await keyRowsByIds(tx, D.tenantId, [recordKeyId], { live: true })).toEqual([]);
+    });
+  });
+
   it("reads the client's own match fields from the payload by name, custom fields included", async () => {
     const R = await insertSalesClient(t.db, "Regions", {
       settings: { sales: { matchFields: { Leads: ["Region", "Tags"] } } },

@@ -41,6 +41,9 @@ type ClientSummaryRow = ResponseOf<typeof apiRoutes.opsClients>["clients"][numbe
 const OpsClientsContext = createContext<readonly ClientSummaryRow[] | null>(null);
 
 /** §1.73: the frame's clients list (with `internal` and `sandbox`); null until it loads. */
+/** The frame's clients list, given by hand (a screen shown outside the frame, its tests). */
+export const OpsClientsProvider = OpsClientsContext.Provider;
+
 export function useOpsClients(): readonly ClientSummaryRow[] | null {
   return useContext(OpsClientsContext);
 }

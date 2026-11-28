@@ -3,10 +3,9 @@
 // panels name KPIs that exist and packs that are installed. The schema already checked the paths
 // (dotted identifiers). Called by validateBundle, so the builder and the server share it.
 
-import { walkSteps as walkProcessSteps } from "../process/walk";
-import type { AnyAgentBundle } from "../schemas/agent";
-import type { ValidationError } from "../workflow/validate";
-import { walkSteps } from "../workflow/walk";
+import type { ValidationError } from "../process/checks";
+import type { AgentBundle } from "../schemas/agent";
+import { eachStep } from "../steps/walk";
 import { KPI_RATIO_MAX_DEPTH, type Measure, plainMeasures, ratioDepth } from "./schema";
 
 export interface ClientViewContext {
@@ -25,18 +24,16 @@ export interface ClientViewContext {
 // outside the use step sees them (ARCHITECTURE §10.7); a KPI on an automation's work reads the use
 // step's output. Their node ids (`<use>/<inner>`) never match a step measure in compute.ts.
 // R8: a v4 process's steps count the same way (a bundle the builder saves holds processes).
-function stepIds(bundle: Pick<AnyAgentBundle, "workflows">): Set<string> {
+function stepIds(bundle: Pick<AgentBundle, "workflows">): Set<string> {
   const ids = new Set<string>();
   for (const w of bundle.workflows) {
-    if (w.workflow.schemaVersion === 4) {
-      walkProcessSteps(w.workflow, ({ step }) => ids.add(step.id));
-    } else walkSteps(w.workflow, ({ step }) => ids.add(step.id));
+    eachStep(w.workflow.steps, ({ step }) => ids.add(step.id));
   }
   return ids;
 }
 
 export function validateClientView(
-  bundle: Pick<AnyAgentBundle, "definition" | "workflows">,
+  bundle: Pick<AgentBundle, "definition" | "workflows">,
   ctx: ClientViewContext = {},
 ): ValidationError[] {
   const view = bundle.definition.clientView;

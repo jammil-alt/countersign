@@ -341,6 +341,7 @@ export async function embedDueKeys(
       sql`${crmRecordKey.matchText} <> ''`,
       sql`${crmRecordKey.embeddedHash} is distinct from ${crmRecordKey.matchHash}`,
       options.modules ? inArray(crmRecordKey.module, [...options.modules]) : undefined,
+      LIVE,
     );
   const todo = await withTenant(ctx.db, ctx.tenantId, async (tx) => {
     const rows = await tx
@@ -387,6 +388,21 @@ export async function embedDueKeys(
   return { embedded, left: Math.max(0, todo.total - embedded), refused: false };
 }
 
+// ── Records deleted in the CRM (2026-11-24) ─────────────────────────────────────────────────────
+
+// DECISION: a record deleted in the client's CRM (its raw records marked `is_deleted` by the sync)
+// is never a candidate, an alias's record, a look-up's answer or an embedding to make. Its key row
+// stays: matches and aliases already made point at it as their evidence (invariant 10), and a
+// record restored in the CRM comes back with its next version. No migration: the key's own raw
+// record says it.
+/** For a query over `crm_record_key k`: the key's record isn't deleted. */
+const LIVE_K = sql`not exists (select 1 from raw_record r
+  where r.tenant_id = k.tenant_id and r.id = k.raw_record_id and r.is_deleted)`;
+/** The same over the table by name (Drizzle's queries). */
+const LIVE = sql`not exists (select 1 from raw_record r
+  where r.tenant_id = ${crmRecordKey.tenantId} and r.id = ${crmRecordKey.rawRecordId}
+    and r.is_deleted)`;
+
 // ── The match's searches ────────────────────────────────────────────────────────────────────────
 
 /** Records sharing one exact key with a row, per key value, at most this many. */
@@ -417,7 +433,7 @@ export async function exactCandidates(
       select k.id, row_number() over (partition by ${column} order by k.id) as n
       from crm_record_key k
       where k.tenant_id = ${tenantId} and k.module = any(${textArray(modules)})
-        and ${column} = any(${textArray(list)})
+        and ${column} = any(${textArray(list)}) and ${LIVE_K}
     ) x where x.n <= ${EXACT_PER_VALUE}`;
   if (values.emails.length) parts.push(by(sql`k.email`, values.emails));
   if (values.phones.length) parts.push(by(sql`k.phone`, values.phones));
@@ -429,16 +445,27 @@ export async function exactCandidates(
   return keyRowsByIds(tx, tenantId, ids);
 }
 
+/**
+ * The key rows by id. A card showing a match made earlier reads them all, a deleted record's too;
+ * `live` leaves out those whose record was deleted in the CRM (an alias's record).
+ */
 export async function keyRowsByIds(
   tx: Tx,
   tenantId: string,
   ids: readonly string[],
+  options: { live?: boolean } = {},
 ): Promise<KeyRow[]> {
   if (ids.length === 0) return [];
   const rows = await tx
     .select(KEY_COLUMNS)
     .from(crmRecordKey)
-    .where(and(eq(crmRecordKey.tenantId, tenantId), inArray(crmRecordKey.id, [...new Set(ids)])));
+    .where(
+      and(
+        eq(crmRecordKey.tenantId, tenantId),
+        inArray(crmRecordKey.id, [...new Set(ids)]),
+        options.live ? LIVE : undefined,
+      ),
+    );
   return rows.map(keyRow);
 }
 
@@ -466,7 +493,7 @@ export async function textCandidates(
       select k.id, similarity(k.match_text, q.t) as sim
       from crm_record_key k
       where k.tenant_id = ${tenantId} and k.module = any(${textArray(modules)})
-        and k.match_text % q.t
+        and k.match_text % q.t and ${LIVE_K}
       order by similarity(k.match_text, q.t) desc, k.id
       limit ${perRow}
     ) c`);
@@ -510,6 +537,7 @@ export async function meaningCandidates(
         inArray(crmRecordKey.module, [...modules]),
         sql`${crmRecordKey.embedding} is not null`,
         sql`${distance} <= ${1 - MEANING_SIMILARITY_MIN}`,
+        LIVE,
       ),
     )
     .orderBy(distance, asc(crmRecordKey.id))
@@ -543,6 +571,7 @@ export async function aliasesFor(
         tx,
         tenantId,
         aliases.map((a) => a.recordKeyId),
+        { live: true },
       )
     ).map((r) => [r.id, r]),
   );
@@ -619,6 +648,7 @@ export async function lookupRecords(
           eq(crmRecordKey.tenantId, tenantId),
           eq(crmRecordKey.module, input.module),
           email ? eq(crmRecordKey.email, email) : eq(crmRecordKey.phone, phone as string),
+          LIVE,
         ),
       )
       .orderBy(asc(crmRecordKey.id))
@@ -641,6 +671,7 @@ export async function lookupRecords(
           eq(crmRecordKey.tenantId, tenantId),
           eq(crmRecordKey.module, input.module),
           sql`(${crmRecordKey.matchText} % ${text} or ${text} <% ${crmRecordKey.matchText})`,
+          LIVE,
         ),
       )
       .orderBy(sql`${sim} desc`, asc(crmRecordKey.id))

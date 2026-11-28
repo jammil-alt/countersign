@@ -11,14 +11,14 @@
 // is how it goes live), so agent_publish only publishes a new version of an agent already live,
 // with the two-step confirm and the change shown first.
 
+import { agentStepSkillPrefix } from "@countersign/agents";
 import {
-  type AnyAgentBundle,
-  allSteps,
+  type AgentBundle,
   classifyChange,
   isUuid,
-  processes,
   type RouteSpec,
   routes,
+  steps,
 } from "@countersign/core";
 import { z } from "zod";
 import { HttpError, invokeRoute, type RouteInput } from "../http";
@@ -60,7 +60,31 @@ interface Located {
   pointer: (string | number)[];
 }
 
-/** Every step of every workflow in the bundle, v3 workflows and v4 processes alike, in run order. */
+/** Every step of every workflow in the bundle, in run order. */
+/**
+ * The rules and AI written in the bundle's steps, stored behind them as the agent's own step
+ * skills and pinned in its skills, as the workflow builder saves them (stream F): a version whose
+ * pins name older text would run that text, and one with none would run nothing.
+ */
+async function pinWrittenSteps(ctx: OpsToolCtx, agentId: string, bundle: Json): Promise<void> {
+  const pins: string[] = [];
+  for (const w of (bundle.workflows ?? []) as { workflow?: { schemaVersion?: unknown } }[]) {
+    if (w.workflow?.schemaVersion !== 5) continue;
+    const stored = await route(ctx, routes.opsStepSkillsStore, {
+      params: { id: agentId },
+      body: { workflow: w.workflow },
+    });
+    pins.push(...stored.skills.map((x) => x.pin));
+  }
+  const def = (bundle.definition ?? {}) as { skills?: { skill: string }[] };
+  const own = `custom:${agentStepSkillPrefix(agentId)}`;
+  const kept = (def.skills ?? []).filter((x) => !x.skill.startsWith(own));
+  bundle.definition = {
+    ...def,
+    skills: [...kept, ...pins.map((skill) => ({ skill, settings: {} }))],
+  };
+}
+
 export function stepsOf(bundle: unknown): Located[] {
   const out: Located[] = [];
   const workflows = isObj(bundle) && Array.isArray(bundle.workflows) ? bundle.workflows : [];
@@ -69,10 +93,7 @@ export function stepsOf(bundle: unknown): Located[] {
     const wf = w.workflow as { schemaVersion?: number; steps?: unknown };
     if (!Array.isArray(wf.steps)) return;
     const meta = { index, slug: String(w.slug ?? ""), name: String(w.name ?? w.slug ?? "") };
-    const locs =
-      wf.schemaVersion === 4
-        ? processes.allSteps(wf as Parameters<typeof processes.allSteps>[0])
-        : allSteps(wf as Parameters<typeof allSteps>[0]);
+    const locs = steps.stepsWithPointers(wf as Pick<steps.Workflow, "steps">);
     for (const l of locs) out.push({ workflow: meta, step: l.step as Json, pointer: l.pointer });
   });
   return out;
@@ -169,7 +190,7 @@ export function backOfficeOnly(before: unknown, after: unknown): string[] {
   return out;
 }
 
-/** Sets (or, with null, removes) a field by a dotted path such as `approval.required`. */
+/** Sets (or, with null, removes) a field by a dotted path such as `checks.approval.required`. */
 function setPath(target: Json, path: string, value: unknown): void {
   const parts = path.split(".");
   let here: Json = target;
@@ -260,7 +281,7 @@ const agentSteps: Tool<OpsToolCtx> = {
     if (!v) throw new HttpError(404, "not_found", `the agent has no ${a.version} version`);
     const isLive = v.id === read.agent.liveVersionId;
     const steps = stepsOf(v.bundle);
-    const bundle = v.bundle as AnyAgentBundle;
+    const bundle = v.bundle as AgentBundle;
     const version = {
       id: v.id,
       version: v.version,
@@ -312,7 +333,7 @@ const agentStepUpdate: Tool<OpsToolCtx> = {
   name: "agent_step_update",
   title: "Change a step's settings",
   description:
-    "Change one step's settings and save it as a new draft version of the agent (the live version keeps running until agent_publish). set maps fields to new values: top level (input, model, review, settings, name, purpose) or dotted (approval.approver, checks.approval.mode); null removes one. Read the step with agent_steps first: an object given whole replaces it. The step's id, kind and the steps inside it are the builder's and can't be set here, nor can an approval be turned off or taken away (the back office does that). Answers what would stop the draft from publishing.",
+    "Change one step's settings and save it as a new draft version of the agent (the live version keeps running until agent_publish). set maps fields to new values: top level (input, model, review, settings, name, purpose) or dotted (checks.approval.approver, checks.approval.mode); null removes one. Read the step with agent_steps first: an object given whole replaces it. The step's id, kind and the steps inside it are the builder's and can't be set here, nor can an approval be turned off or taken away (the back office does that). Answers what would stop the draft from publishing.",
   input: z.strictObject({
     agent: AgentId,
     step: z.string().min(1).max(100).describe("The step's id"),
@@ -376,6 +397,7 @@ const agentStepUpdate: Tool<OpsToolCtx> = {
         `this ${loosens.join("; ")}: turning an approval off or letting the agent act is done in the back office`,
       );
     }
+    await pinWrittenSteps(ctx, a.agent, bundle);
     const name = String(loc.step.name || loc.step.id);
     const saved = await route(ctx, routes.opsSaveVersion, {
       params: { id: a.agent },

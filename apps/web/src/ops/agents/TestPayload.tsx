@@ -2,7 +2,7 @@
 // payload, one of the client's recent events of the trigger's type (its payload as emitted, so the
 // run reads real records), or input typed by hand. Shared by a client agent's Settings tab and the
 // workflow builder's test-run panel.
-import { allTriggers, type RecentEvent, type Trigger, type Workflow } from "@countersign/core";
+import { allTriggers, type RecentEvent, type Trigger } from "@countersign/core";
 import type { ResponseOf } from "../../api/client";
 import { apiRoutes } from "../../api/routes";
 import { useApi } from "../../api/useApi";
@@ -15,10 +15,8 @@ type CatalogEvent = ResponseOf<typeof apiRoutes.opsEventCatalog>["events"][numbe
 /** `sample`, `manual`, or `event:<id>` for one of the recent events. */
 export type PayloadSource = "sample" | "manual" | `event:${string}`;
 
-/** A v3 workflow (its `trigger` and `moreTriggers`) or a v4 process (its `triggers`). */
-export type Triggered =
-  | Pick<Workflow, "trigger" | "moreTriggers">
-  | { triggers: readonly Trigger[] };
+/** A workflow: anything with its `triggers`. */
+export type Triggered = { triggers: readonly Trigger[] };
 
 /**
  * The trigger a test run's payload stands for: the first event trigger, else the first trigger
@@ -32,8 +30,7 @@ export function testTrigger(workflow: Triggered): Trigger | undefined {
 
 /**
  * The event type a workflow waits for: its first event trigger's, or null when none of its
- * triggers is an event. A v4 process reads its `triggers` (core's `allTriggers`), so a live v4
- * version's Versions tab doesn't fail on a missing `trigger`.
+ * triggers is an event. Read from its `triggers` (core's `allTriggers`).
  */
 export function triggerEventType(workflow: Triggered | null | undefined): string | null {
   if (!workflow) return null;

@@ -116,6 +116,8 @@ function humanPointer(pointer: string, labels: Record<string, string> = {}): str
   }
   if (parts[0] === "checks") return v4Pointer(parts.slice(1));
   if (parts[0] === "deadline") return v4Pointer(parts);
+  // A Do step done by a person: its question's deadline reads as a check's does.
+  if (parts[0] === "person" && parts[1] === "deadline") return v4Pointer(parts.slice(1));
   if (parts[0] === "when") return "rules";
   return parts
     .join(" ")

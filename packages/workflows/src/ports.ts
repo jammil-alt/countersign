@@ -4,23 +4,21 @@
 // database and no model.
 
 import {
-  type ActionStep,
   type AnomalySignal,
   type Approval,
   type Duration,
   type Locale,
   type ModelChoice,
-  type NotifyStep,
   type OwnerCheckEntry,
   type OwnerWatchedStep,
-  type PersonStep,
   processes,
   type SkillDefinition,
-  type SkillStep,
-  type StepKind,
+  type steps,
   type ToolSpec,
 } from "@countersign/core";
 import { z } from "zod";
+import type { ActionStep, NotifyStep, PersonStep, SkillStep } from "./process";
+import type { StepLoop } from "./step-model";
 
 export type RunMode = "live" | "test";
 
@@ -49,6 +47,12 @@ export interface RunInfo {
    * default week, `processes.defaultBusinessHours`). Absent: UTC.
    */
   timeZone?: string | undefined;
+  /**
+   * Owner, 2026-11-27: a Sandbox test run with people in it ("Ask me"): the operator who started
+   * it stands in for everyone. Its writes' approvals wait for their decision (an approved write is
+   * still never made), and its conversations really send, to them only. Test runs only.
+   */
+  testPeople?: { by: string } | undefined;
 }
 
 /** Step-run statuses (packages/db STEP_RUN_STATUSES) the executor writes. */
@@ -152,6 +156,8 @@ export interface SkillStepRequest {
   input: unknown;
   /** The step's approval, or the default (required) when it has none. */
   approval: Approval;
+  /** Signed record saves: `approval` is the step's own check, not the default. */
+  ownApproval?: boolean;
   // v0.12 W2-B
   /**
    * Inside a use step: the automation (`slug@version`). Its skill steps run as the using agent
@@ -184,6 +190,14 @@ export interface SkillStepRequest {
    * the runtime runs on `input`, deterministically. Sent only for that skill's steps.
    */
   reshape?: processes.ReshapeMapping;
+  // The step model (docs/step-model-plan.md §8)
+  /**
+   * A Loop: the runtime's agent loop toward `goal`, with only the Get actions in `reads` (it never
+   * writes: every other tool is refused), at most `maxTurns` model turns, and at the limit either
+   * stopping (the step fails) or handing back what it has. `step.skill` is the saved Loop's skill,
+   * or `steps.loop` for one written in the step.
+   */
+  loop?: StepLoop;
 }
 
 export interface ActionStepRequest {
@@ -193,6 +207,8 @@ export interface ActionStepRequest {
   stepRunId: string;
   input: unknown;
   approval: Approval;
+  /** Signed record saves: `approval` is the step's own check, not the default. */
+  ownApproval?: boolean;
   // Skill model (2026-11-10)
   /**
    * An action write step's channel connection (`ResolvedAction.connectionId`): the tool's call
@@ -304,6 +320,114 @@ export interface AgentPort {
    * account's). Called once per step in a durable step. Ports without it fail action steps.
    */
   resolveAction?(request: ResolveActionRequest): Promise<ResolvedAction>;
+  // The step model (docs/step-model-plan.md §10c)
+  /**
+   * A merged action that isn't one of today's write actions (`spreadsheet.rows.append`,
+   * `teamchat.message.post`): the tool it runs on for the run's agent, from the connectors it is
+   * bound to (`steps.resolveMerged`). Called once per step in a durable step, before the gate.
+   * Ports without it fail such steps (nothing is written).
+   */
+  resolveMerged?(request: ResolveMergedRequest): Promise<ResolvedAction>;
+  /**
+   * A merged action's input in the words of the connector's tool it resolved to (the merge's
+   * mappings: Google Chat's `space` for Team chat's `channel`). Pure. Absent: passed as it is.
+   */
+  mergedInput?(action: string, connector: string, input: unknown): unknown;
+  /** The tool's output back in the merged action's words. Pure. Absent: as the tool gave it. */
+  mergedOutput?(action: string, connector: string, output: unknown): unknown;
+}
+
+/** A merged action to resolve for the run's agent (`AgentPort.resolveMerged`). */
+export interface ResolveMergedRequest {
+  run: RunInfo;
+  /** The step's durable name. */
+  nodeId: string;
+  /** The merged action's id (`spreadsheet.rows.append`). */
+  action: string;
+}
+
+// ── The step model: Match (docs/step-model-plan.md §7; stream D implements it) ─────────────────
+
+/** A Match step to run (`MatchPort.match`). */
+export interface MatchRequest {
+  run: RunInfo;
+  /** The step's durable name: with the run id it keys anything the match saves (learned names). */
+  nodeId: string;
+  stepRunId: string;
+  /** The step's Match settings: the profile (`to`), match type, keys, thresholds, shortlists. */
+  match: steps.MatchSettings;
+  /** The step's input, resolved: the profile's input fields, one item or a list of them. */
+  input: unknown;
+}
+
+/** One item's match (`steps.matchResultFields`). */
+export interface MatchItem {
+  item: unknown;
+  /** The record it matched, by id; null: none. */
+  matched: string | null;
+  how?: (typeof steps.MATCHED_BY)[number] | null | undefined;
+  /** 0 to 100. */
+  confidence?: number | null | undefined;
+  isNew: boolean;
+  unsure: boolean;
+  candidates: { record: string; confidence: number }[];
+}
+
+/** The Match result every profile gives (`steps.matchResultFields`). */
+export interface MatchResult {
+  items: MatchItem[];
+  matched: number;
+  unsure: number;
+  anyUnsure: boolean;
+}
+
+/** What one item's match rests on (`ProfileMatchNote`): its evidence and the records' names. */
+export interface MatchNote {
+  /** The records that are the evidence of its match (invariant 10). */
+  sources: string[];
+  /** What a person reads for each record on its shortlist, by record id. */
+  labels: Record<string, string>;
+}
+
+export type MatchOutcome =
+  | {
+      kind: "done";
+      output: MatchResult;
+      /** One per item, in order. */
+      notes?: MatchNote[];
+      /** The profile's name ("Vendors"), for what a person is asked. */
+      profileName?: string;
+      summary?: string;
+    }
+  | { kind: "failed"; error: string };
+
+/** A person's answer on an unsure item, to save as a learned name (`MatchPort.learn`). */
+export interface MatchLearnRequest {
+  run: RunInfo;
+  /** The durable name of the ask that was answered: with the run it keys what is saved. */
+  nodeId: string;
+  /** The profile (the Match step's `to`). */
+  profile: string;
+  item: unknown;
+  recordId: string;
+  /** Who answered. */
+  personId: string;
+}
+
+/**
+ * Matches the step's input against our records on the step's profile (§7). Deterministic first,
+ * model second, person last (invariant 7); it never writes to a client's tool. In a test run it
+ * saves nothing it learned.
+ */
+// DECISION (wave 1, stream A): the profiles and their engine are stream D's; the executor asks a
+// person about each item the engine leaves unsure, and hands the answer to `learn`.
+export interface MatchPort {
+  match(request: MatchRequest): Promise<MatchOutcome>;
+  /**
+   * Saves a person's answer as a learned name, so the same item is an exact hit next time. False:
+   * the profile learns nothing, or the item gives nothing to learn by. Never called in a test run.
+   */
+  learn?(request: MatchLearnRequest): Promise<boolean>;
 }
 
 /** The lead's answer to a help request, to keep (`AgentPort.keepHelp`). */
@@ -453,11 +577,8 @@ export interface V4Notice {
 export interface StepRunStart {
   runId: string;
   nodeId: string;
-  /**
-   * A v3 step's kind (a converted step keeps its stored kind); R3: a v4 step's kind, or `confer`
-   * for one reviewer's check of a step (`${step}:confer:<n>`).
-   */
-  nodeType: StepKind | processes.StepKind | "confer";
+  /** The step's kind, or `confer` for one reviewer's check of a step (`${step}:confer:<n>`). */
+  nodeType: processes.StepKind | "confer";
   skillRef?: string;
   input?: unknown;
   // v0.13 W2-I
@@ -508,10 +629,7 @@ export interface StepCatalog {
 /** A step for the run's own agent (its owner, R6) to review. */
 export interface OversightRequest {
   run: RunInfo;
-  /**
-   * The step as stored: a v3 skill or action (a converted step's stored v3 step, as before), or
-   * R6: a native v4 read, skill, write or conversation step.
-   */
+  /** The step as the owner watches it: a read, skill, write or conversation step. */
   step: OwnerWatchedStep;
   /** The step's durable name. */
   nodeId: string;
@@ -676,6 +794,8 @@ export interface ConversationRequest {
   tenantId: string;
   agentVersionId: string;
   mode: RunMode;
+  /** A test run with people in it (`RunInfo.testPeople`): the conversation really happens. */
+  testPeople?: boolean;
   /** The step's row, so the engine logs its turns on it. */
   stepRunId?: string;
   /**

@@ -9,7 +9,7 @@ import { agent, connection, externalAction, run, toolCall } from "@countersign/d
 import { FakeModel } from "@countersign/llm";
 import { eq } from "drizzle-orm";
 import { afterAll, describe, expect, it, vi } from "vitest";
-import { admin, createApiHarness, FakeWorkflowStep, OPERATOR } from "./api.test-helper";
+import { admin, createApiHarness, ended, FakeWorkflowStep, OPERATOR } from "./api.test-helper";
 import { executeRun } from "./runs/execute";
 import { cloudflareStepRunner } from "./runs/step-runner";
 
@@ -51,25 +51,29 @@ describe.skipIf(!h)("card numbers in a run's records", () => {
           slug: "main",
           name: "Main",
           workflow: {
-            schemaVersion: 4,
+            schemaVersion: 5,
             triggers: [{ id: "trg-manual", on: { type: "manual", input: {} } }],
+            outputs: [{ id: "out-done", name: "Done", kind: "nothing" }],
             steps: [
               {
                 id: "look",
                 name: "Look up the record",
-                kind: "read",
-                tool: TESTKIT_QUERY_TOOL,
-                input: { ids: ["r1"] },
                 client: { visible: true, label: "Looked up the record" },
+                kind: "do",
+                doneBy: "rules",
+                uses: { type: "action", action: TESTKIT_QUERY_TOOL },
+                input: { ids: ["r1"] },
               },
               {
                 id: "fix",
                 name: "Update the record",
-                kind: "write",
-                tool: TESTKIT_UPDATE_TOOL,
-                input: write,
                 client: { visible: true, label: "Updated the record" },
+                kind: "do",
+                doneBy: "rules",
+                uses: { type: "action", action: TESTKIT_UPDATE_TOOL },
+                input: write,
               },
+              { id: "end", kind: "end", name: "Done", outputs: ["out-done"] },
             ],
           },
         },
@@ -137,7 +141,7 @@ describe.skipIf(!h)("card numbers in a run's records", () => {
       .set({ status: "connected" })
       .where(eq(connection.id, H.A.connectionId));
     const { result, calls, actions } = await runWith("sec-cards", { id: "r1", amount: "12.00" });
-    expect(result, JSON.stringify(result)).toEqual({ status: "succeeded" });
+    expect(result, JSON.stringify(result)).toEqual(ended());
     expect(calls.length).toBeGreaterThan(0);
     expect(actions.length).toBe(1);
     expect(actions[0]?.status).toBe("done");

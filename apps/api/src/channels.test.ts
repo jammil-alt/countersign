@@ -246,15 +246,17 @@ describe.skipIf(!h)("channels through the API", () => {
         ...wf,
         workflow: {
           ...wf.workflow,
-          trigger: {
-            id: "msg",
-            on: {
-              type: "message",
-              channels: ["sms"],
-              from: { contactIds: [dana, bot, tollFree] },
-              reply: { confirm: "We got your message." },
+          triggers: [
+            {
+              id: "msg",
+              on: {
+                type: "message",
+                channels: ["sms"],
+                from: { contactIds: [dana, bot, tollFree] },
+                reply: { confirm: "We got your message." },
+              },
             },
-          },
+          ],
         },
       },
     ];

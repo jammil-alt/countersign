@@ -254,8 +254,11 @@ export function Composer({
   testId = "builder-composer",
   clientId,
   compact = false,
+  initialText = "",
 }: {
   placeholder: string;
+  /** What the box starts with (an issue to fix, to read over before sending). */
+  initialText?: string | undefined;
   /** The small box of the step panel. */
   compact?: boolean | undefined;
   /** §1.109: the client the conversation is about, for voice typing's HIPAA check. */
@@ -265,7 +268,7 @@ export function Composer({
   onSend(text: string): Promise<boolean>;
   testId?: string;
 }) {
-  const [text, setText] = useState("");
+  const [text, setText] = useState(initialText);
   const box = useRef<HTMLTextAreaElement>(null);
   return (
     <ChatComposer

@@ -42,6 +42,17 @@ The "Invoice and receipt intake to vendor items" build on staging (2026-11-18):
 
 ## 3. The flow (phases and screens unchanged)
 
+> **2026-11-27, the owner's decision: from the draft straight to Publish.** "Keep it simple: make
+> sure we can run through all the steps, then publish, and try with real client data and against
+> client systems. Remove POC, client test etc. and just go from draft to publish." A build now goes
+> intake, fit-gap, draft (or straight to its draft by describing), then **Publish**, which publishes
+> the draft's latest version with the publish's own checks and makes the build live. The gate is the
+> draft's: a draft with no problems. The POC test, client test and QA rows below are retired: a
+> build stored in one reads as its draft and is published from there, and moving to one is refused.
+> A client's agent is tried with the client's real data and systems after Publish, in its own
+> go-live stages (bench, a trial that signs every write, sign-off), unchanged. Publishing from the
+> steps page (or Turn on) ends the build the same way.
+
 | Phase | What changes inside it |
 |---|---|
 | Intake | Unchanged since §1.153: the normal case only, strict starting values. |

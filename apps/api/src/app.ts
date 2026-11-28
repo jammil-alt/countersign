@@ -57,6 +57,7 @@ import { accessRoutes } from "./routes/access";
 // v0.12 W2-D: Sloan, the account agent
 import { accountRoutes } from "./routes/account";
 import { accountReportRouteHandlers } from "./routes/account-report";
+import { actionRequestApiRoutes } from "./routes/action-requests";
 import { agentReportRouteHandlers } from "./routes/agent-report";
 import { approverRuleRoutes } from "./routes/approver-rules";
 import { assistDraftRoutes } from "./routes/assist";
@@ -147,8 +148,10 @@ import { opsModelRoutes } from "./routes/ops-models";
 // v0.13 W2-I
 import { opsOversightRoutes } from "./routes/ops-oversight";
 import { opsReadTableRoutes } from "./routes/ops-read-table";
+import { opsRecordRoutes } from "./routes/ops-records";
 import { opsReshapeRoutes } from "./routes/ops-reshape";
 import { opsSkillRoutes } from "./routes/ops-skills";
+import { opsStepSkillRoutes } from "./routes/ops-step-skills";
 import { ownerRoutes } from "./routes/owners";
 import { packInboundRoutes } from "./routes/pack-inbound";
 // M46
@@ -167,12 +170,15 @@ import { requestRouteHandlers } from "./routes/requests";
 import { resendHookRoutes } from "./routes/resend-hooks";
 import { runAuditRouteHandlers } from "./routes/run-audit";
 import { runControlRoutes } from "./routes/run-controls";
+import { sampleCompanyRoutesFor } from "./routes/sample-company";
 import { sandboxRoutesFor } from "./routes/sandbox";
 import {
   claudeConnectionRoutes,
   secondFactorRoutes,
   setupLinkRoutes,
 } from "./routes/second-factor";
+// 2026-11-28: the connector self-test on the Sandbox client's live connections.
+import { selftestRouteHandlers } from "./routes/selftest";
 import { sessionRoutes } from "./routes/session";
 import { signInApprovalRoutes } from "./routes/sign-in-approvals";
 import { opsSkillSampleRoutes } from "./routes/skill-sample";
@@ -228,6 +234,7 @@ import { runSubjectBackfillTick } from "./runs/subject-log";
 // M45: Search Console and Bing, nightly (docs/plan.md §1.75).
 import { searchSyncTick } from "./search-sync";
 import { securityHeaders } from "./security-headers";
+import { selftestDepsFrom, selftestTick } from "./selftest/runner";
 import { sopCheckTick } from "./sop/revisions";
 import {
   TRANSLATION_SWEEP_MINUTE,
@@ -294,12 +301,15 @@ export function createApp(deps: AppDeps = defaultDeps): Hono<AppEnv> {
   opsAgentRoutes(app);
   opsLineageRoutes(app);
   opsSkillRoutes(app);
+  opsStepSkillRoutes(app);
   opsBuilderRoutes(app);
   // Reshape data (2026-11-11): propose a Reshape step's mapping, and its sample values.
   opsReshapeRoutes(app);
   opsReadTableRoutes(app);
   // Collect reports (owner, 2026-11-24): a report's sample file.
   opsCollectRoutes(app);
+  // Step model §10f: record types and custom fields.
+  opsRecordRoutes(app);
   opsSkillSampleRoutes(app);
   opsIntakeReportRoutes(app);
   opsMergeRoutes(app);
@@ -368,6 +378,7 @@ export function createApp(deps: AppDeps = defaultDeps): Hono<AppEnv> {
   buildTryRoutes(app);
   // docs/plan.md §1.125: the Dev queue
   opsCodeRequestRoutes(app);
+  actionRequestApiRoutes(app);
   // §1.124 back office work
   dealRoutes(app);
   // §1.149 onboarding v1: client files and starts, Invite and Sign up now, the intake, the welcome page
@@ -386,6 +397,8 @@ export function createApp(deps: AppDeps = defaultDeps): Hono<AppEnv> {
   ledgerRoutes(app);
   // docs/plan.md §1.216: books health
   booksHealthRoutes(app);
+  // The connector self-test (staging and local only; the Sandbox client only).
+  selftestRouteHandlers(app);
   reachRoutes(app);
   messagingSetupRoutes(app);
   twilioHookRoutes(app);
@@ -410,6 +423,8 @@ export function createApp(deps: AppDeps = defaultDeps): Hono<AppEnv> {
   gettingStartedRoutes(app);
   // docs/plan.md §1.243: a client's sandbox
   sandboxRoutesFor(app);
+  // Owner, 2026-11-27: the Sandbox's sample company
+  sampleCompanyRoutesFor(app);
   exportRoutes(app);
   // v0.12 W1-B: notifications, the Table and the Weekly Table
   notifyRouteHandlers(app);
@@ -695,6 +710,15 @@ export async function runCron(env: Bindings, scheduledTime: Date, deps: AppDeps 
     await staleWritesTick(db, scheduledTime, senseEmitter(platform.events)).catch(
       (error: unknown) => reportHandled("stale writes tick failed", error, { job: "stale_writes" }),
     );
+    // Once a day on staging (and locally), the connector self-test on the Sandbox client's live
+    // connections (selftest/runner.ts): reads and parses only; a failed check is reported by the
+    // health pass at 13:12. Never in production.
+    const selftest = selftestDepsFrom(env, { db, platform, deps });
+    if (selftest) {
+      await selftestTick(selftest, scheduledTime).catch((error: unknown) =>
+        reportHandled("self-test tick failed", error, { job: "selftest" }),
+      );
+    }
     // Last, after every other pass, so their slower work never holds the others up:
     // every 10 minutes, runs that never started are started or failed, runs whose instance ended
     // without finishing them are failed (runs/reconcile.ts);

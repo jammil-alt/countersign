@@ -72,17 +72,20 @@ function draftAnswer() {
               slug: "main",
               name: "Fix a record",
               workflow: {
-                schemaVersion: 4,
+                schemaVersion: 5,
                 triggers: [{ id: "t", on: { type: "manual", input: {} } }],
+                outputs: [{ id: "out-done", name: "Done", kind: "nothing" }],
                 steps: [
                   {
                     id: "update",
-                    kind: "write",
                     name: "Update the record",
-                    tool: TESTKIT_UPDATE_TOOL,
-                    input: { id: "r1", amount: "12.00" },
                     checks: { approval: { required: "required" } },
+                    kind: "do",
+                    doneBy: "rules",
+                    uses: { type: "action", action: TESTKIT_UPDATE_TOOL },
+                    input: { id: "r1", amount: "12.00" },
                   },
+                  { id: "end", kind: "end", name: "Done", outputs: ["out-done"] },
                 ],
               },
             },
@@ -250,7 +253,7 @@ describe.skipIf(!h)("the setup checklist", () => {
     expect(latest?.changeNote).toBe("The manual and setup checklist, written from the build");
     const before = latest?.version;
 
-    // A decision added in the draft joins the checklist when the draft moves to the POC test.
+    // A decision added in the draft joins the checklist when the draft is published.
     model.push(
       turnAnswer({
         text: "Who to email differs by client.",
@@ -265,14 +268,15 @@ describe.skipIf(!h)("the setup checklist", () => {
       }),
     );
     b = await call("POST", `/api/ops/builds/${id}/turns`, { text: "Who do we tell?" });
-    model.push(turnAnswer({ text: "One record will do.", testPlan: { datasets: [] } }));
-    b = await call("POST", `/api/ops/builds/${id}/phase`, { to: "poc" });
+    b = await call("POST", `/api/ops/builds/${id}/publish`);
+    expect(b.build.status).toBe("live");
     [latest] = await versions(agentId);
     expect(latest?.version).toBe((before ?? 0) + 1);
+    expect(latest?.status).toBe("live");
     expect(
       bundleOf(latest).definition.setup?.find((i) => i.id === "decision-contact"),
     ).toMatchObject({ kind: "answer", guards: "setup" });
-    // Nothing changed since: moving on makes no new version (the save is skipped).
+    // Nothing changed since the checklist was written: no version beyond the one published.
     const count = (await versions(agentId)).length;
     expect(count).toBeGreaterThan(1);
   });

@@ -113,7 +113,8 @@ describe("the Close pack's engine", () => {
       extends: "bookkeeping",
     });
     expect(closeManifest.reports).toEqual(["close"]);
-    expect(closeManifest.templates.map((t) => t.slug)).toEqual(["month-end-close"]);
+    // No agent template until the Month-end close is built again in the step model.
+    expect(closeManifest.templates).toEqual([]);
   });
 });
 
@@ -168,7 +169,7 @@ describe.skipIf(!online)("the Close pack (database, as cs_worker)", () => {
     }
     throw new Error("it was not refused");
   };
-  /** The write the template's step proposes for an entry, as the platform keeps it. */
+  /** The write a step of the close proposes for an entry, as the platform keeps it. */
   const proposeWrite = async (books: BooksFixture, entryId: string, input: object, key: string) => {
     const [row] = await t.db
       .insert(externalAction)
@@ -436,7 +437,7 @@ describe.skipIf(!online)("the Close pack (database, as cs_worker)", () => {
     expect(v.entries.find((e) => e.id === recurring.entryId)?.status).toBe("rejected");
     expect(v.items.find((i) => i.key === "entries")).toMatchObject({
       status: "done",
-      summary: "1 journal entries recorded in QuickBooks.",
+      summary: "1 journal entries recorded in the accounting system.",
     });
   });
 

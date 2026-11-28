@@ -3,22 +3,8 @@
 // `browser.script.read` / `browser.script.submit` with the script already named in its input. A
 // write step starts with its approval on, as every write does (invariant 8).
 import type { BrowserScriptTool, JsonObject } from "@countersign/core";
-import { apiRoutes } from "../../api/routes";
-import { useApi } from "../../api/useApi";
 import type { BuilderData } from "./catalog";
 import type { PaletteItem } from "./model";
-
-/** The client's published scripts, for a client agent's builder; none for a template. */
-export function useClientScriptTools(agent: {
-  kind: string;
-  tenantId?: string | null | undefined;
-}): readonly BrowserScriptTool[] | undefined {
-  const state = useApi(
-    apiRoutes.opsClientBrowserScriptTools,
-    agent.kind === "client" && agent.tenantId ? { params: { id: agent.tenantId } } : null,
-  );
-  return state.data?.tools;
-}
 
 /**
  * A placed script step's `inputs`: every input the script declares, each empty for the operator to

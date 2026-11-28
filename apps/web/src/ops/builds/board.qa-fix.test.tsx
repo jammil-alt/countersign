@@ -5,7 +5,7 @@
 // "Nothing open" in green beside a page with three. The board now names what it counts, items, as
 // the page names them, and makes no claim about the issues it can't see.
 import { type BuildDetail, type BuildSummary, buildIssues } from "@countersign/core";
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { describe, expect, it } from "vitest";
 import { BuildsBoard } from "./BuildsBoard";
@@ -72,7 +72,7 @@ const detail: BuildDetail = {
     qa: { accepted: {}, signedBy: null, signedAt: null, decision: null },
   },
   phases: [],
-  gate: { next: "poc", reasons: ["The draft has 2 problems to fix."] },
+  gate: { next: null, reasons: ["The draft has 2 problems to fix."] },
   messages: [],
   items: [],
   draft: {
@@ -154,14 +154,63 @@ describe("where a card on the Drafts board opens", () => {
   });
 
   it("a build started on Describe it opens in the builder once it has a draft", () => {
-    expect(hrefOf({ ...summary, flow: "describe" })).toBe(
-      `/ops/agents/${summary.agentId}/workflow`,
-    );
+    expect(hrefOf({ ...summary, flow: "describe" })).toBe(`/ops/agents/${summary.agentId}/steps`);
   });
 
   it("and on Check the steps until it has one", () => {
     expect(hrefOf({ ...summary, flow: "describe", phase: "intake", agentId: null })).toBe(
       `/ops/lab/check/${ID}`,
     );
+  });
+});
+
+// Owner (2026-11-27): from the draft straight to Publish. The board has Draft and Live, and no POC
+// test, client test or QA column, whatever phase a build from before is stored in.
+describe("the board's columns", () => {
+  const b = (n: number, over: Partial<BuildSummary>): BuildSummary => ({
+    ...summary,
+    id: `00000000-0000-4000-8000-0000000c010${n}`,
+    title: `Build ${n}`,
+    ...over,
+  });
+
+  it("puts every open build in Draft, and live ones in Live", () => {
+    render(
+      <MemoryRouter>
+        <BuildsBoard
+          builds={[
+            b(1, { phase: "intake" }),
+            b(2, { phase: "fitgap" }),
+            b(3, { phase: "draft" }),
+            b(4, { phase: "poc" }),
+            b(5, { phase: "client_test" }),
+            b(6, { phase: "qa" }),
+            b(7, { status: "live" }),
+          ]}
+        />
+      </MemoryRouter>,
+    );
+    const board = screen.getByTestId("builds-board");
+    const columns = within(board).getAllByRole("region");
+    expect(columns.map((c) => c.getAttribute("aria-label"))).toEqual(["Draft", "Live"]);
+    const [draft, live] = columns as [HTMLElement, HTMLElement];
+    expect(within(draft).getByRole("heading")).toHaveTextContent("Draft6");
+    expect(within(draft).getAllByRole("link")).toHaveLength(6);
+    expect(
+      within(live)
+        .getAllByRole("link")
+        .map((l) => l.textContent),
+    ).toEqual([expect.stringContaining("Build 7")]);
+    expect(board).not.toHaveTextContent(/POC test|Client test|QA/);
+  });
+
+  it("shows Draft alone when it is given open builds only, as the Lab does", () => {
+    render(
+      <MemoryRouter>
+        <BuildsBoard builds={[b(1, { phase: "qa" })]} />
+      </MemoryRouter>,
+    );
+    const columns = within(screen.getByTestId("builds-board")).getAllByRole("region");
+    expect(columns.map((c) => c.getAttribute("aria-label"))).toEqual(["Draft"]);
   });
 });

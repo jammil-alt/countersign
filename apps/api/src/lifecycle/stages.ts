@@ -14,11 +14,10 @@ import {
   skillContext,
 } from "@countersign/agents";
 import {
+  type AgentBundle,
   type AgentStage,
-  type AnyAgentBundle,
-  type AnyAutomationDefinition,
+  type AutomationDefinition,
   clientLanguage,
-  eachBundleStep,
   GO_LIVE_SUBJECT,
   type GoLive,
   GoLivePayload,
@@ -36,8 +35,8 @@ import {
   stageMove,
   stagesPassed,
   startTrial,
+  steps,
   trialProgress,
-  walkSteps,
 } from "@countersign/core";
 import {
   type AgentStageState,
@@ -92,7 +91,7 @@ export function stageOf(row: Pick<AgentRow, "kind" | "stage">): AgentStage | nul
 export async function bundleWrites(
   tx: Tx,
   tenantId: string,
-  bundle: AnyAgentBundle,
+  bundle: AgentBundle,
   ctx: RegistryContext,
 ): Promise<boolean> {
   return bundleWritesWith(bundle, await writesContext(tx, tenantId, [bundle], ctx), ctx);
@@ -101,7 +100,7 @@ export async function bundleWrites(
 /** The skills and automations `bundleWritesWith` walks, resolved for one client. */
 export interface WritesContext {
   skills: Record<string, SkillDefinition>;
-  automations: Record<string, AnyAutomationDefinition>;
+  automations: Record<string, AutomationDefinition>;
   automationSkills: Record<string, SkillDefinition>;
 }
 
@@ -115,12 +114,12 @@ export interface WritesContext {
 export async function writesContext(
   tx: Tx,
   tenantId: string,
-  bundles: readonly AnyAgentBundle[],
+  bundles: readonly AgentBundle[],
   ctx: RegistryContext,
 ): Promise<WritesContext> {
   const [first] = bundles;
   if (!first) return { skills: {}, automations: {}, automationSkills: {} };
-  const union = (workflows: AnyAgentBundle["workflows"]): AnyAgentBundle => ({
+  const union = (workflows: AgentBundle["workflows"]): AgentBundle => ({
     ...first,
     definition: { ...first.definition, skills: bundles.flatMap((b) => b.definition.skills) },
     workflows,
@@ -138,7 +137,7 @@ export async function writesContext(
 
 /** Whether a bundle writes (`bundleWrites`), from its client's resolved skills and automations. */
 export function bundleWritesWith(
-  bundle: AnyAgentBundle,
+  bundle: AgentBundle,
   context: WritesContext,
   ctx: RegistryContext,
 ): boolean {
@@ -153,46 +152,35 @@ export function bundleWritesWith(
     for (const t of skillTools(def)) toolIds.add(t);
   };
   for (const s of bundle.definition.skills) addSkill(s.skill);
-  eachBundleStep(
-    bundle,
-    (step) => {
-      if (step.kind === "skill") addSkill(step.skill);
-      // Skill model (2026-11-10): an action write step always writes (every action is external).
-      if (step.kind === "write" && step.tool === undefined) reaches = true;
-      else if (step.kind === "action" || step.kind === "read" || step.kind === "write") {
-        toolIds.add(step.tool as string);
-      }
-      if (step.kind === "conversation") reaches = true;
-    },
-    { enabledOnly: true },
-  );
+  for (const w of bundle.workflows) {
+    if (!w.enabled) continue;
+    for (const action of steps.stepModelActions(w.workflow)) {
+      // A merged action (Email, Accounting) writes through whichever of its tools the agent has.
+      const merged = steps.mergedAction(action);
+      for (const t of merged ? Object.values(merged.tools) : [action]) toolIds.add(t);
+    }
+    for (const ref of steps.stepModelSkills(w.workflow)) addSkill(ref);
+    steps.eachStep(w.workflow.steps, ({ step }) => {
+      if (step.kind !== "do") return;
+      if (step.uses?.type === "collect" || step.doneBy === "contact") reaches = true;
+    });
+  }
   // v0.12 W2-B: the steps of the automations this bundle's enabled workflows use.
   const mine = new Set(
     bundleAutomationRefs({ ...bundle, workflows: bundle.workflows.filter((w) => w.enabled) }),
   );
   for (const [ref, def] of Object.entries(used.automations)) {
     if (!mine.has(ref)) continue;
-    // Wave 3b: a v4 automation's process steps (its reads, writes, skills and conversations).
-    if (def.schemaVersion === 2) {
-      processes.walkSteps(def, ({ step }) => {
-        if (step.kind === "skill") {
-          const inner = used.skills[step.skill] ?? skills[step.skill];
-          if (inner?.reachesPeople) reaches = true;
-          for (const t of inner ? skillTools(inner) : []) toolIds.add(t);
-        }
-        if (step.kind === "conversation") reaches = true;
-        if (step.kind === "write" && step.tool === undefined) reaches = true;
-        else if (step.kind === "write" || step.kind === "read") toolIds.add(step.tool as string);
-      });
-      continue;
-    }
-    walkSteps(def, ({ step }) => {
+    // An automation's process steps (its reads, writes, skills and conversations).
+    processes.walkSteps(def, ({ step }) => {
       if (step.kind === "skill") {
         const inner = used.skills[step.skill] ?? skills[step.skill];
         if (inner?.reachesPeople) reaches = true;
         for (const t of inner ? skillTools(inner) : []) toolIds.add(t);
       }
-      if (step.kind === "action") toolIds.add(step.tool);
+      if (step.kind === "conversation") reaches = true;
+      if (step.kind === "write" && step.tool === undefined) reaches = true;
+      else if (step.kind === "write" || step.kind === "read") toolIds.add(step.tool as string);
     });
   }
   if (reaches) return true;
@@ -203,7 +191,7 @@ export function bundleWritesWith(
   return false;
 }
 
-async function liveBundle(tx: Tx, row: AgentRow): Promise<AnyAgentBundle | null> {
+async function liveBundle(tx: Tx, row: AgentRow): Promise<AgentBundle | null> {
   if (!row.liveVersionId) return null;
   const [v] = await tx
     .select({ bundle: agentVersion.bundle })

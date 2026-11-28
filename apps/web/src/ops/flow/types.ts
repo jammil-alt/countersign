@@ -132,7 +132,17 @@ export interface ChartProps extends ChartEvents {
      * "rules" in the client's view-only chart (docs/sop-plan.md §6a), with its hover title.
      */
     noModel?: { word: string; title: string };
+    /**
+     * A Stop drawn as the step model's End: the word in the pill, and what it delivers under it
+     * (docs/design/step-model.html §1). Absent: "Stop".
+     */
+    pill?: { word: string; under: string };
   };
   /** Read only: no +, no dragging (an older version, the merge screen). */
   readOnly?: boolean;
+  /**
+   * Owner, 2026-11-27: the words of a step's supervisor mark (the agent's owner checks it after it
+   * succeeds), or null for none. Absent: no marks.
+   */
+  supervisor?: ((stepId: string) => string | null) | undefined;
 }

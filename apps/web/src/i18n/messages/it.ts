@@ -36,6 +36,7 @@ export const it: Messages = {
   "common.notFoundBody": "Qui non c'è nessuna pagina.",
   "common.yes": "Sì",
   "common.no": "No",
+  "common.optional": "facoltativo",
   "common.close": "Chiudi",
 
   // ── Error pages (a page that failed to load) ──
@@ -470,6 +471,7 @@ export const it: Messages = {
   "desk.team.undoIs": "Tempo per annullare: {window}.",
   "desk.approvalSettings": "Impostazioni di approvazione",
   "change.now": "Ora",
+  "change.recordSave.why": "Perché attende",
   "change.after": "Dopo la modifica",
   "change.createsIt": "Non esiste ancora: questa modifica lo crea.",
   "change.nothingRecorded": "Niente di registrato.",
@@ -3908,6 +3910,14 @@ export const it: Messages = {
   "connectors.ask.send": "Invia al tuo referente",
   "connectors.ask.sent": "Inviata. Vedi la tua richiesta",
   "connectors.ask.subject": "Un connettore per {tool}",
+  "requestAction.title": "Chiedi qualcosa",
+  "requestAction.label": "Cosa ti serve che faccia?",
+  "requestAction.hint":
+    "Lo esaminiamo, ti diciamo se esiste già qualcosa che lo fa e ti avvisiamo quando è pronto.",
+  "requestAction.send": "Invia",
+  "requestAction.cancel": "Annulla",
+  "requestAction.thanks": "Grazie. L'abbiamo ricevuto e ti avviseremo quando sarà pronto.",
+  "requestAction.another": "Chiedi altro",
   "connectors.browse.title": "Sfoglia",
   "connectors.browse.search": "Cerca connettori",
   "connectors.browse.recommended": "Consigliati per te",

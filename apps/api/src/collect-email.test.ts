@@ -40,31 +40,52 @@ function bundle(owner: string): unknown {
         slug: "main",
         name: "Main",
         workflow: {
-          schemaVersion: 4,
+          schemaVersion: 5,
           triggers: [{ id: "t1", on: { type: "manual", input: { type: "object" } } }],
+          outputs: [{ id: "out-done", name: "Done", kind: "nothing" }],
           steps: [
             {
               id: "C1",
-              kind: "collect",
               name: "Collect the reports",
-              items: [
-                {
-                  id: "bank",
-                  name: "Bank statement",
-                  owner,
-                  formats: ["spreadsheet"],
-                  due: "3 days",
-                  followUp: { after: "1 day", every: "2 days" },
+              kind: "do",
+              doneBy: "person",
+              uses: { type: "collect" },
+              collect: {
+                items: [
+                  {
+                    id: "bank",
+                    name: "Bank statement",
+                    owner: owner,
+                    required: true,
+                    frequency: "monthly",
+                    formats: ["spreadsheet"],
+                    due: "3 days",
+                    hours: "business",
+                    followUp: { after: "1 day", every: "2 days", max: 2 },
+                  },
+                ],
+                escalate: {
+                  to: "client_admin",
+                  after: "5 days",
+                  hours: "business",
+                  deadline: { after: "2 days", hours: "clock", ifNoAnswer: "stop" },
                 },
-              ],
-              escalate: { to: "client_admin", after: "5 days", deadline: { after: "2 days" } },
+                ifMissing: "stop",
+              },
             },
             {
               id: "n1",
-              kind: "notify",
               name: "Tell the team",
-              notify: { to: ["client_admin"], message: "{{steps.C1.output.summary}}" },
+              kind: "do",
+              doneBy: "rules",
+              uses: { type: "tell" },
+              tell: {
+                to: ["client_admin"],
+                channel: "inbox",
+                message: "{{steps.C1.output.summary}}",
+              },
             },
+            { id: "end", kind: "end", name: "Done", outputs: ["out-done"] },
           ],
         },
       },
@@ -363,14 +384,16 @@ describe.skipIf(!h)(
     function reportsBundle(owner: string): unknown {
       const b = bundle(owner) as {
         definition: Record<string, unknown>;
-        workflows: { workflow: { triggers: unknown[]; steps: { items?: unknown[] }[] } }[];
+        workflows: {
+          workflow: { triggers: unknown[]; steps: { collect?: { items?: unknown[] } }[] };
+        }[];
         people?: unknown;
       };
       const wf = b.workflows[0]?.workflow;
       if (!wf) throw new Error("no workflow");
       wf.triggers = [{ id: "t1", on: { type: "report", step: "C1" } }];
-      const first = wf.steps[0] as { items: Record<string, unknown>[] };
-      first.items.push({
+      const first = wf.steps[0] as { collect: { items: Record<string, unknown>[] } };
+      first.collect.items.push({
         id: "card",
         name: "Card statement",
         owner: "seat:card-owner",

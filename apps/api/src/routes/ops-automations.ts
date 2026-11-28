@@ -1,19 +1,13 @@
 // v0.12 W2-B: automations in the back office (ARCHITECTURE §10.7, §14 "Automations"; docs/plan.md
 // §1.45). Shared automations (tenant_id null) and the clients' own; every edit a new immutable
 // `automation_version` (draft → publish → rollback); "used by" from the live versions of agents;
-// the clean-run rate from the last 30 days of live runs; and "Save as automation" from an agent's
-// steps. Every handler runs inside withOperator(the clients served). The clients' snapshot copies
+// and the clean-run rate from the last 30 days of live runs. Every handler runs inside withOperator(the clients served). The clients' snapshot copies
 // of shared automations (`shared:<slug>`) are never listed or edited here.
 
 import {
-  type AgentRow,
   bundleAutomationRefs,
-  bundleStepsToAutomation,
   createAutomation,
   createAutomationVersion,
-  createVersion,
-  getAgent,
-  getVersion,
   publishAutomation,
   resolveAutomation,
   rollbackAutomation,
@@ -21,19 +15,17 @@ import {
   schemaFields,
 } from "@countersign/agents";
 import {
-  type AnyAgentBundle,
+  type AgentBundle,
   AUTOMATION_SKILL_REF_PREFIX,
   type AutomationHealth,
   type AutomationListItem,
   type AutomationUse,
-  automationOutputSchema,
   automationRef,
   type BuilderAutomation,
   parseAutomationRef,
   processes,
   routes,
   type SkillDefinition,
-  uuidv7,
 } from "@countersign/core";
 import {
   agent,
@@ -48,15 +40,7 @@ import {
 import { and, desc, eq, gte, inArray, isNull, or, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import type { Hono } from "hono";
-import {
-  type AppEnv,
-  ensureClient,
-  type HandlerCtx,
-  HttpError,
-  iso,
-  mount,
-  notFound,
-} from "../http";
+import { type AppEnv, ensureClient, type HandlerCtx, iso, mount, notFound } from "../http";
 import type { Platform } from "../platform";
 // F7: the builder's catalog, shared with the agents' route (the two files name each other's
 // functions, used only inside handlers).
@@ -228,7 +212,7 @@ async function healthRows(ctx: Scope) {
       .where(
         and(
           inArray(stepRun.tenantId, [...ctx.tenantIds]),
-          eq(stepRun.nodeType, "use_automation"),
+          eq(stepRun.nodeType, "process"),
           inArray(stepRun.status, ["succeeded", "failed"]),
           eq(run.mode, "live"),
           gte(run.createdAt, since),
@@ -320,46 +304,6 @@ async function itemFor(ctx: Scope, row: AutomationRow) {
   return { item, entry, usedBy: usedByOf(row, c.uses, c.shadowed) };
 }
 
-async function saveFromSteps(ctx: HandlerCtx<typeof routes.opsAutomationFromSteps>, row: AgentRow) {
-  const { tx, body, session, services } = ctx;
-  const registry = services.platform.ctx;
-  const v = await getVersion(tx, body.versionId);
-  if (v.agentId !== row.id) throw notFound("version");
-  // Wave 3b: a v3 workflow's steps become a v3 automation as before; a v4 process's a v4 one.
-  const result = await bundleStepsToAutomation(tx, {
-    tenantId: row.tenantId,
-    bundle: v.bundle as AnyAgentBundle,
-    stepIds: body.stepIds,
-    slug: body.slug,
-    name: body.name,
-    description: body.description,
-    newId: () => uuidv7(),
-    clientAgent: row.kind === "client",
-    ctx: registry,
-  });
-  if (!result.ok) throw new HttpError(422, result.code, result.message);
-  // DECISION: "Save as automation" always makes a new automation (its slug must be free) at v1,
-  // a draft; the agent's new draft pins `slug@1` and publishes once the automation is published.
-  // DECISION: a template's steps become a shared automation; a client agent's become that
-  // client's own, so one client's steps never reach another (invariant 1).
-  const created = await createAutomation(tx, {
-    tenantId: row.tenantId,
-    definition: result.automation,
-    authorId: session.user.id,
-    changeNote: `Saved from ${row.name} v${v.version}`,
-    ctx: registry,
-  });
-  const agentVersionRow = await createVersion(tx, {
-    agentId: row.id,
-    bundle: result.bundle,
-    parentVersionId: v.id,
-    authorType: "operator",
-    authorId: session.user.id,
-    changeNote: `Steps saved as the automation ${body.name}`,
-  });
-  return { created, agentVersion: { id: agentVersionRow.id, version: agentVersionRow.version } };
-}
-
 export function opsAutomationRoutes(app: Hono<AppEnv>): void {
   mount(app, routes.opsAutomations, async (ctx) => {
     if (ctx.query.client) ensureClient(ctx, ctx.query.client);
@@ -418,7 +362,7 @@ export function opsAutomationRoutes(app: Hono<AppEnv>): void {
       .orderBy(desc(automationVersion.version))
       .limit(1);
     const def = latest?.definition ?? null;
-    const requires = def ? processes.anyAutomationRequires(def, {}) : null;
+    const requires = def ? processes.automationRequires(def, {}) : null;
     return builderCatalogFor(ctx, {
       tenantId: row.tenantId,
       testCopy: false,
@@ -464,18 +408,6 @@ export function opsAutomationRoutes(app: Hono<AppEnv>): void {
     });
     return { version: automationVersionView(v) };
   });
-
-  mount(app, routes.opsAutomationFromSteps, async (ctx) => {
-    const row = await getAgent(ctx.tx, ctx.body.agentId);
-    if (row.tenantId !== null && !ctx.tenantIds.includes(row.tenantId)) throw notFound("agent");
-    const { created, agentVersion: next } = await saveFromSteps(ctx, row);
-    const { item } = await itemFor(ctx, created.automation);
-    return {
-      automation: item,
-      version: automationVersionView(created.version),
-      agentVersion: next,
-    };
-  });
 }
 
 /**
@@ -488,7 +420,7 @@ export async function builderAutomations(
   input: {
     tenantId: string | null;
     tenantIds: readonly string[];
-    bundle: AnyAgentBundle | null;
+    bundle: AgentBundle | null;
     skills: Record<string, SkillDefinition>;
     platform: Platform;
   },
@@ -511,11 +443,7 @@ export async function builderAutomations(
       source: row.tenantId === null ? "shared" : "client",
       status: v.status,
       definition: def,
-      // Wave 3b: typed from v3 steps or v4 process steps.
-      outputSchema:
-        def.schemaVersion === 2
-          ? processes.processAutomationOutputSchema(def, typing)
-          : automationOutputSchema(def, typing),
+      outputSchema: processes.processAutomationOutputSchema(def, typing),
     });
   };
   const rows = await tx

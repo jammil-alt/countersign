@@ -6,7 +6,7 @@
 
 import { AgentsError } from "@countersign/agents";
 import {
-  type AnyBundleWorkflow,
+  type BundleWorkflow,
   type HandoffRunPayload,
   isPlainObject,
   MAX_HANDOFF_DEPTH,
@@ -103,7 +103,7 @@ function selfNames(
 }
 
 /** "5 · Itemize the invoice": the step's place among the workflow's top-level steps. */
-function atLabel(workflows: readonly AnyBundleWorkflow[] | undefined, step: string): string {
+function atLabel(workflows: readonly BundleWorkflow[] | undefined, step: string): string {
   const wf = workflows?.find((w) => w.enabled);
   return wf ? processes.handoffStepLabel(wf.workflow.steps, step) : step;
 }

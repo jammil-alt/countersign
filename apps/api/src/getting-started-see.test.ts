@@ -64,7 +64,7 @@ function bundle(): unknown {
         slug: "bills",
         name: "Bills",
         workflow: {
-          schemaVersion: 4,
+          schemaVersion: 5,
           triggers: [
             {
               id: "t",
@@ -78,24 +78,35 @@ function bundle(): unknown {
               },
             },
           ],
+          outputs: [{ id: "out-done", name: "Done", kind: "nothing" }],
           steps: [
             {
               id: "update",
-              kind: "write",
               name: "Update the record",
-              tool: TESTKIT_UPDATE_TOOL,
+              checks: {
+                approval: { required: "required", approvers: [{ who: "seat:bill-approver" }] },
+              },
+              kind: "do",
+              doneBy: "rules",
+              uses: { type: "action", action: TESTKIT_UPDATE_TOOL },
               input: { id: "r1", amount: "12.00" },
-              checks: { approval: { approvers: [{ who: "seat:bill-approver" }] } },
             },
             {
               id: "ask",
-              kind: "person",
               name: "Which job?",
-              mode: "ask",
-              assignee: "seat:job-codes",
-              title: "Which job?",
-              deadline: { after: "1 day", ifNoAnswer: "skip" },
+              kind: "do",
+              doneBy: "person",
+              person: {
+                mode: "ask",
+                who: "seat:job-codes",
+                question: "Which job?",
+                show: {},
+                deadline: { after: "1 day", hours: "clock", ifNoAnswer: "skip" },
+                channel: "inbox",
+                onReject: "stop",
+              },
             },
+            { id: "end", kind: "end", name: "Done", outputs: ["out-done"] },
           ],
         },
       },

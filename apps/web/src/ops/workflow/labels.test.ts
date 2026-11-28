@@ -1,10 +1,9 @@
-import { AgentBundle, type Step } from "@countersign/core";
+import { AgentBundle } from "@countersign/core";
 import { describe, expect, it } from "vitest";
 import { FORK_BUNDLE } from "../../test/fixtures";
 import { type BuilderData, paletteConnectors } from "../builder/catalog";
-import { stepDetail, triggerDetail, triggerTitle } from "./describe";
+import { triggerDetail, triggerTitle } from "./describe";
 import { cronText, eventKind, eventLabel, roleLabel, toolLabel, whenEvent } from "./labels";
-import { forkGridColumns, forkMinWidth, listMinWidth } from "./layout";
 
 describe("plain labels", () => {
   it("names events, tools and roles in words, never by id", () => {
@@ -27,43 +26,10 @@ describe("plain labels", () => {
     expect(cronText("*/5 * * * *")).toBe("*/5 * * * *");
   });
 
-  it("describes triggers and steps with labels", () => {
+  it("describes triggers with labels", () => {
     const trigger = { id: "t", on: { type: "schedule" as const, cron: "0 7 * * 1-5" } };
     expect(triggerTitle(trigger)).toBe("On a schedule");
     expect(triggerDetail(trigger)).toBe("Weekdays at 7:00 AM, in the client's time zone");
-    const action = {
-      id: "a",
-      kind: "action",
-      name: "Itemize",
-      tool: "qbo.bill.update_lines",
-      input: {},
-      approval: { required: "not_required", onReject: "stop" },
-    } as Step;
-    expect(stepDetail(action, { connector: () => "QuickBooks Online" })).toBe(
-      "QuickBooks Online · Itemize a bill · on its own",
-    );
-    const skill = { id: "s", kind: "skill", name: "Match", skill: "docs.match-bill", input: {} };
-    expect(stepDetail(skill as Step, { skill: () => "Find the bill for an invoice" })).toBe(
-      "Find the bill for an invoice",
-    );
-    // No catalog to hand: the reference stays out.
-    expect(stepDetail(skill as Step)).toBeNull();
-  });
-});
-
-describe("fork widths", () => {
-  it("gives every path a card's width and a fork its paths side by side", () => {
-    const fork = FORK_BUNDLE.workflows[0]?.workflow.steps.find((s) => s.kind === "fork");
-    if (fork?.kind !== "fork") throw new Error("fixture has no fork");
-    expect(forkGridColumns(fork)).toBe("minmax(198px, 1fr) minmax(198px, 1fr) minmax(198px, 1fr)");
-    expect(forkMinWidth(fork)).toBe(628);
-    // A fork inside a path widens that path.
-    const nested = {
-      ...fork,
-      paths: [{ ...fork.paths[0], steps: [fork] }, ...fork.paths.slice(1)],
-    };
-    expect(forkMinWidth(nested as typeof fork)).toBe(1076);
-    expect(listMinWidth([])).toBe(180);
   });
 });
 

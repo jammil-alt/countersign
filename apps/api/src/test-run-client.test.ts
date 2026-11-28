@@ -12,6 +12,7 @@ import {
   type ApiHarness,
   admin,
   createApiHarness,
+  ended,
   FakeWorkflowStep,
   OPERATOR,
   OTHER_OPERATOR,
@@ -91,7 +92,7 @@ describe.skipIf(!h)("test runs on a chosen client", () => {
       mode: "test",
     });
 
-    expect(await finish(runId)).toEqual({ status: "succeeded" });
+    expect(await finish(runId)).toEqual(ended());
     // Never written (invariant 8): the change is only proposed, with no inbox item for the client.
     expect(H.backend.writes).toHaveLength(0);
     const actions = await H.t.db
@@ -135,11 +136,10 @@ describe.skipIf(!h)("test runs on a chosen client", () => {
     // Overnight S3.6: the same workflow, started by a document being read.
     const bundle = testBundle("Invoice reader");
     const wf = bundle.workflows[0];
-    if (!wf || wf.workflow.schemaVersion !== 3) throw new Error("no workflow");
-    wf.workflow.trigger = {
-      id: "trg-read",
-      on: { type: "event", event: "document.extracted" },
-    } as typeof wf.workflow.trigger;
+    if (!wf) throw new Error("no workflow");
+    wf.workflow.triggers = [
+      { id: "trg-read", on: { type: "event", event: "document.extracted" } },
+    ] as typeof wf.workflow.triggers;
     // It reads the document the event names.
     const update = wf.workflow.steps[0] as { input: Record<string, unknown> };
     update.input = { ...update.input, id: "{{trigger.documentId}}" };
@@ -223,7 +223,7 @@ describe.skipIf(!h)("test runs on a chosen client", () => {
     expect(["queued", "running"]).toContain(going.testRun.status);
     expect(going.ready).toBe(false);
 
-    expect(await finish(runId)).toEqual({ status: "succeeded" });
+    expect(await finish(runId)).toEqual(ended());
     const after = j((await activation()).json);
     expect(after.testRun).toMatchObject({ id: runId, status: "succeeded" });
     expect(after.problems).toEqual([]);

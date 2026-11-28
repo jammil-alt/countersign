@@ -63,8 +63,9 @@ function matches(href, target) {
  */
 async function walk(browser, email, lookName, name, script, results) {
   const { context, page, problems, look } = await openPage(browser, email, lookName);
-  // Nothing in a walkthrough writes: stop and report any request that would. The one exception is
-  // the seeded Desk item's approve and undo, while the step that does them allows it.
+  // Nothing in a walkthrough writes: stop and report any request that would. The exceptions are
+  // the seeded Desk item's approve and undo, while the step that does them allows it, and the
+  // workflow builder's Suggest, which writes nothing (below).
   await page.route("**/api/**", (route) => {
     const req = route.request();
     const path = new URL(req.url()).pathname;
@@ -72,6 +73,17 @@ async function walk(browser, email, lookName, name, script, results) {
       return route.continue();
     }
     if (w.allowDesk && DESK_WRITES.has(`${req.method()} ${path}`)) return route.continue();
+    // The workflow builder's Suggest (stream G): a step opened with an input that doesn't fit asks
+    // it once to work the translation out (owner: "just do what needs to be done"). Its POST
+    // writes nothing: it answers a step, which the form holds until Save.
+    if (req.method() === "POST" && /^\/api\/ops\/agents\/[^/]+\/suggest$/.test(path)) {
+      return route.continue();
+    }
+    // The step builder's check of its unsaved draft (`opsWorkflowCheck`, declared read only): the
+    // server says what would stop it publishing, and stores nothing.
+    if (req.method() === "POST" && /^\/api\/ops\/agents\/[^/]+\/workflow-check$/.test(path)) {
+      return route.continue();
+    }
     problems.push(`tried to write: ${req.method()} ${path}`);
     return route.abort();
   });
@@ -417,6 +429,10 @@ async function opsWalk(w) {
           );
         }
       }
+      // A step's settings are a modal over the page (owner, 2026-11-26): close the last one
+      // opened, as a person would, before going on through the sidebar.
+      await w.page.keyboard.press("Escape");
+      await w.page.locator('[data-testid="steps-drawer"]').waitFor({ state: "detached" });
     });
   }
 

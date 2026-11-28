@@ -25,6 +25,8 @@ export const OPS_PATHS = {
   build: (id: string) => `/ops/builds/${id}`,
   /** docs/plan.md §1.170: a new agent build's Check the steps, after Describe it. */
   buildCheck: (id: string) => `/ops/lab/check/${id}`,
+  /** An agent's first workflow in the builder, as its list of steps. */
+  agentSteps: (id: string) => `/ops/agents/${id}/steps`,
   // O5 New agent, O6 Workflow builder, O7 Triggers (UI-2c), under the agent page (UI-2b).
   newTemplate: "/ops/templates/new",
   newAgent: (clientId: string) => `/ops/clients/${clientId}/agents/new`,

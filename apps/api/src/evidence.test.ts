@@ -12,6 +12,7 @@ import {
   type ApiHarness,
   admin,
   createApiHarness,
+  ended,
   FakeWorkflowStep,
   OPERATOR,
   testBundle,
@@ -193,9 +194,7 @@ describe.skipIf(!h)("a change's evidence", () => {
         return admin("a");
       }),
     );
-    expect(await executeRun(deps(), params, cloudflareStepRunner(step))).toEqual({
-      status: "succeeded",
-    });
+    expect(await executeRun(deps(), params, cloudflareStepRunner(step))).toEqual(ended());
     expect(checked).toBe(true);
   });
 

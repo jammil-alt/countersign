@@ -26,7 +26,16 @@ const PROBE = process.env.EVAL_PROBE;
 const SCORECARD = resolve(import.meta.dirname, "golden-scorecard.json");
 const WRITE_SCORECARD = process.env.WRITE_EVAL_SCORECARD === "1";
 
-const datasets = loadDatasets().map((d) => d.dataset);
+// The datasets of the templates this build ships. DECISION (step model J): the packs ship no
+// template until they are built again on the step model (docs/step-model-plan.md §12, R0), so a
+// dataset whose template isn't installed has no subject; it runs again, unchanged, the day its
+// template ships.
+const shipped = new Set(
+  h?.platform.packs.flatMap((p) => p.manifest.templates.map((t) => t.slug)) ?? [],
+);
+const datasets = loadDatasets()
+  .map((d) => d.dataset)
+  .filter((d) => shipped.has(d.template));
 const results = new Map<string, GoldenResult[]>();
 const key = (d: EvalDataset) => `${d.template}/${d.workflow}`;
 
@@ -75,8 +84,11 @@ describe.skipIf(!h)("the golden datasets", () => {
       const { msMedian: _m, msP90: _p, ...rest } = evalScorecard(results.get(key(d)) ?? []);
       card[key(d)] = rest;
     }
-    if (WRITE_SCORECARD) writeFileSync(SCORECARD, `${JSON.stringify(card, null, 2)}\n`);
-    expect(JSON.parse(readFileSync(SCORECARD, "utf8"))).toEqual(card);
+    const stored = JSON.parse(readFileSync(SCORECARD, "utf8")) as Record<string, unknown>;
+    // What was measured for a template that doesn't ship now is kept as it was.
+    if (WRITE_SCORECARD)
+      writeFileSync(SCORECARD, `${JSON.stringify({ ...stored, ...card }, null, 2)}\n`);
+    for (const [k, v] of Object.entries(card)) expect(stored[k], k).toEqual(v);
   });
 });
 
@@ -106,44 +118,53 @@ const dataset = (template: string) => {
 };
 
 describe.skipIf(!h)("a deliberately broken skill fails its dataset", () => {
-  it("Check matches that lets every model answer through: the vetoes and unsure lines fail", async () => {
-    const d = dataset("vendor-contracts");
-    let r: GoldenResult[] = [];
-    await withBroken(
-      "materials.matches.check",
-      (out) => ({
-        ...out,
-        anyNeedsReview: false,
-        needsReview: 0,
-        lines: ((out.lines as Record<string, unknown>[]) ?? []).map((l) => ({
-          ...l,
-          needsReview: false,
-        })),
-      }),
-      async () => {
-        r = await runAll(d);
-      },
-    );
-    const failed = r.filter((x) => x.status !== "pass").map((x) => x.caseId);
-    expect(failed).toEqual(
-      expect.arrayContaining(["model-unsure", "model-low-confidence", "model-vetoed"]),
-    );
-    expect(evalScorecard(r).exactRate).toBeLessThan(1);
-  }, 600_000);
+  const ships = (template: string) => datasets.some((x) => x.template === template);
+  it.runIf(ships("vendor-contracts"))(
+    "Check matches that lets every model answer through: the vetoes and unsure lines fail",
+    async () => {
+      const d = dataset("vendor-contracts");
+      let r: GoldenResult[] = [];
+      await withBroken(
+        "materials.matches.check",
+        (out) => ({
+          ...out,
+          anyNeedsReview: false,
+          needsReview: 0,
+          lines: ((out.lines as Record<string, unknown>[]) ?? []).map((l) => ({
+            ...l,
+            needsReview: false,
+          })),
+        }),
+        async () => {
+          r = await runAll(d);
+        },
+      );
+      const failed = r.filter((x) => x.status !== "pass").map((x) => x.caseId);
+      expect(failed).toEqual(
+        expect.arrayContaining(["model-unsure", "model-low-confidence", "model-vetoed"]),
+      );
+      expect(evalScorecard(r).exactRate).toBeLessThan(1);
+    },
+    600_000,
+  );
 
-  it("A Bookkeeper threshold that lets every proposal through: the unsure ones fail", async () => {
-    const d = dataset("bookkeeper");
-    let r: GoldenResult[] = [];
-    await withBroken(
-      "bookkeeping.booking.propose",
-      (out) => ({ ...out, status: "proposed" }),
-      async () => {
-        r = await runAll(d);
-      },
-    );
-    const failed = r.filter((x) => x.status !== "pass").map((x) => x.caseId);
-    expect(failed).toEqual(
-      expect.arrayContaining(["model-unsure", "model-just-under", "injected-payee"]),
-    );
-  }, 600_000);
+  it.runIf(ships("bookkeeper"))(
+    "A Bookkeeper threshold that lets every proposal through: the unsure ones fail",
+    async () => {
+      const d = dataset("bookkeeper");
+      let r: GoldenResult[] = [];
+      await withBroken(
+        "bookkeeping.booking.propose",
+        (out) => ({ ...out, status: "proposed" }),
+        async () => {
+          r = await runAll(d);
+        },
+      );
+      const failed = r.filter((x) => x.status !== "pass").map((x) => x.caseId);
+      expect(failed).toEqual(
+        expect.arrayContaining(["model-unsure", "model-just-under", "injected-payee"]),
+      );
+    },
+    600_000,
+  );
 });

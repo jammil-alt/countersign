@@ -167,33 +167,39 @@ export function defaultWorkflows(): AgentBundleInput["workflows"] {
       slug: "check-record",
       name: "Check a record",
       workflow: {
-        schemaVersion: 3,
-        trigger: {
-          id: TRIGGER_ID,
-          on: {
-            type: "manual",
-            input: {
-              type: "object",
-              properties: { name: { type: "string" }, id: { type: "string" } },
-              required: ["name", "id"],
+        schemaVersion: 5,
+        triggers: [
+          {
+            id: TRIGGER_ID,
+            on: {
+              type: "manual",
+              input: {
+                type: "object",
+                properties: { name: { type: "string" }, id: { type: "string" } },
+                required: ["name", "id"],
+              },
             },
           },
-        },
+        ],
+        outputs: [{ id: "done", name: "Record checked", kind: "nothing" }],
         steps: [
           {
             id: LOOKUP_STEP,
-            kind: "skill",
+            kind: "do",
             name: "Look it up",
-            skill: "test.lookup",
+            doneBy: "ai",
+            uses: { type: "skill", skill: "test.lookup" },
             input: { name: "{{trigger.name}}" },
           },
           {
             id: UPDATE_STEP,
-            kind: "action",
+            kind: "do",
             name: "Update it",
-            tool: TESTKIT_UPDATE_TOOL,
+            doneBy: "rules",
+            uses: { type: "action", action: TESTKIT_UPDATE_TOOL },
             input: { id: "{{trigger.id}}", amount: "1.00" },
           },
+          { id: "step-end", kind: "end", name: "Done", outputs: ["done"] },
         ],
       },
     },

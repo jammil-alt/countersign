@@ -4,18 +4,16 @@
 // rollback rules: every edit is a new immutable version.
 
 import {
-  type AnyAgentBundle,
+  type AgentBundle,
   type BrowserTier,
   hashJson,
-  isToolWrapper,
   newSkillVersionProblems,
   parseSkillRef,
-  processes,
   SkillDefinition,
   Slug,
   skillRuleProblems,
   skillTools,
-  walkSteps,
+  steps,
 } from "@countersign/core";
 import { browserSite, skill, skillVersion, type Tx } from "@countersign/db";
 import { knownModelIds } from "@countersign/llm";
@@ -90,26 +88,6 @@ export function readProblems(
     }
   }
   return problems;
-}
-
-/**
- * What `processes.fromWorkflowV3` needs from the registries: the tool a tool-wrapper skill wraps
- * (built-ins only; operator skills are never `tool` mode) and each tool's side effect. Unknown ids
- * answer null, which the converter treats as a skill step or an external write (the safe side).
- */
-export function convertLookup(
-  skills: Pick<SkillCatalog, "get">,
-  tools: Pick<ToolRegistry, "get">,
-): processes.ConvertLookup {
-  return {
-    wrappedTool(skillId) {
-      const def = skills.get(skillId);
-      return def && isToolWrapper(def) ? (def.handler ?? null) : null;
-    },
-    sideEffect(toolId) {
-      return tools.get(toolId)?.spec.sideEffect ?? null;
-    },
-  };
 }
 
 // ── v0.16: browsing skills' sites (docs/plan.md §1.86) ──────────────────────────────────────────
@@ -459,19 +437,16 @@ export async function resolveCustomSkill(
   const { id, version } = parseSkillRef(input.ref);
   if (!isCustomSkill(id)) return null;
   const slug = customSlug(id);
-  const candidates: [string | null, string, SkillSource][] =
-    input.tenantId === null
-      ? [[null, slug, "shared"]]
-      : [
-          [input.tenantId, slug, "client"],
-          [input.tenantId, `${SHARED_COPY_PREFIX}${slug}`, "shared"],
-          [null, slug, "shared"],
-        ];
+  const candidates = candidatesFor(input.tenantId, slug);
   for (const [tenantId, s, source] of candidates) {
     const row = await skillBySlug(tx, tenantId, s);
     if (row?.status !== "active") continue;
     const v = await versionOf(tx, row, version, input.newest === true);
     if (!v) continue;
+    // Step model §8: a Loop that was never live has not passed its test set. A pinned reference
+    // reaches a draft (`versionOf` takes any version), so a run refuses it here; the newest-version
+    // lookup is the designer's own, never a run.
+    if (!input.newest && isUntestedLoop(v)) continue;
     return {
       ref: input.ref,
       definition: v.definition,
@@ -483,20 +458,56 @@ export async function resolveCustomSkill(
   return null;
 }
 
+/** Where a custom skill's slug is looked up for a client (or among shared skills, for none). */
+function candidatesFor(
+  tenantId: string | null,
+  slug: string,
+): [string | null, string, SkillSource][] {
+  return tenantId === null
+    ? [[null, slug, "shared"]]
+    : [
+        [tenantId, slug, "client"],
+        [tenantId, `${SHARED_COPY_PREFIX}${slug}`, "shared"],
+        [null, slug, "shared"],
+      ];
+}
+
+/**
+ * Step model §8: a Loop skill version that is still a draft was never live, so its test set never
+ * gated it (a published version, live or since retired, passed it). Stored definitions only.
+ */
+function isUntestedLoop(v: Pick<SkillVersionRow, "status" | "definition">): boolean {
+  return v.status === "draft" && v.definition.loop !== undefined;
+}
+
+/**
+ * Why a reference to a custom skill can't run, when it names a Loop version that never passed its
+ * test set (a pinned `custom:slug@N` that is still a draft); null when it can. Checked when an
+ * agent is published, so the refusal is in plain words on the step, and again at run time.
+ */
+export async function untestedLoopReason(
+  tx: Tx,
+  input: { tenantId: string | null; ref: string },
+): Promise<string | null> {
+  const { id, version } = parseSkillRef(input.ref);
+  if (!isCustomSkill(id) || version === null) return null;
+  for (const [tenantId, s] of candidatesFor(input.tenantId, customSlug(id))) {
+    const row = await skillBySlug(tx, tenantId, s);
+    if (row?.status !== "active") continue;
+    const v = await versionOf(tx, row, version);
+    if (!v) continue;
+    return isUntestedLoop(v)
+      ? `${input.ref} is a draft: a Loop is used only after its test set passes and it is published`
+      : null;
+  }
+  return null;
+}
+
 /** Every skill reference in a bundle: the agent's skills and every skill step. */
-export function bundleSkillRefs(bundle: AnyAgentBundle): string[] {
+export function bundleSkillRefs(bundle: AgentBundle): string[] {
   const refs = new Set(bundle.definition.skills.map((s) => s.skill));
-  // R8: a bundle the builder saved holds v4 processes.
   for (const w of bundle.workflows) {
-    if (w.workflow.schemaVersion === 4) {
-      for (const { step } of processes.allSteps(w.workflow)) {
-        if (step.kind === "skill") refs.add(step.skill);
-      }
-      continue;
-    }
-    walkSteps(w.workflow, ({ step }) => {
-      if (step.kind === "skill") refs.add(step.skill);
-    });
+    for (const ref of steps.stepModelSkills(w.workflow)) refs.add(ref);
   }
   return [...refs];
 }
@@ -509,7 +520,7 @@ export async function skillContext(
   tx: Tx,
   input: {
     tenantId: string | null;
-    bundle: AnyAgentBundle;
+    bundle: AgentBundle;
     catalog: SkillCatalog;
     /** Unpinned custom refs take their newest version, saved or live (`resolveCustomSkill`). */
     newest?: boolean;
@@ -548,7 +559,7 @@ export async function skillContext(
  */
 export async function snapshotSharedSkills(
   tx: Tx,
-  input: { tenantId: string; bundle: AnyAgentBundle; catalog?: SkillCatalog },
+  input: { tenantId: string; bundle: AgentBundle; catalog?: SkillCatalog },
 ): Promise<{ ref: string; versionId: string }[]> {
   const made: { ref: string; versionId: string }[] = [];
   for (const ref of bundleSkillRefs(input.bundle)) {
@@ -565,6 +576,12 @@ export async function snapshotSharedSkills(
     }
     const source = await versionOf(tx, shared, version);
     if (!source) throw new AgentsError("unknown_skill", `skill ${ref} has no such version`);
+    if (isUntestedLoop(source)) {
+      throw new AgentsError(
+        "invalid_state",
+        `${ref} is a Loop that was never published: its test set must pass first`,
+      );
+    }
 
     const copySlug = `${SHARED_COPY_PREFIX}${slug}`;
     let copy = await skillBySlug(tx, input.tenantId, copySlug);

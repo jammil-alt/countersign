@@ -15,7 +15,7 @@ import {
   publishSkill,
 } from "@countersign/agents";
 import {
-  type AnyAgentBundle,
+  type AgentBundle,
   bundleHash,
   type ClientPack,
   complianceOf,
@@ -41,6 +41,7 @@ import {
   tenant,
   tenantChange,
   tenantPack,
+  testCase,
 } from "@countersign/db";
 import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 import type { Hono } from "hono";
@@ -205,7 +206,7 @@ async function missingVersions(
   tx: Tx,
   templateId: string,
   t: RegisteredPack["manifest"]["templates"][number],
-): Promise<{ n: number; bundle: AnyAgentBundle }[]> {
+): Promise<{ n: number; bundle: AgentBundle }[]> {
   const later = t.versions ?? [];
   if (later.length === 0) return [];
   const held = new Set(
@@ -216,7 +217,7 @@ async function missingVersions(
         .where(eq(agentVersion.agentId, templateId))
     ).map((r) => r.hash),
   );
-  const out: { n: number; bundle: AnyAgentBundle }[] = [];
+  const out: { n: number; bundle: AgentBundle }[] = [];
   for (const [i, bundle] of later.entries()) {
     if (!held.has(await bundleHash(bundle))) out.push({ n: i + 2, bundle });
   }
@@ -338,6 +339,15 @@ export async function installLibrarySkills(
   const installed: { ref: string; skillId: string }[] = [];
   for (const def of defs) {
     if (have.has(customSlug(def.id))) continue;
+    // Step model §8: a Loop is never published untested, so a pack's Loop comes with its test set.
+    const cases = pack.manifest.loopTests?.[def.id] ?? [];
+    if (def.loop !== undefined && cases.length === 0) {
+      throw new HttpError(
+        422,
+        "loop_without_tests",
+        `${def.id} is a Loop and the ${pack.manifest.name} pack ships it without a test set`,
+      );
+    }
     const made = await createSkill(tx, {
       tenantId: null,
       definition: def,
@@ -346,6 +356,22 @@ export async function installLibrarySkills(
       tools: services.platform.tools,
     });
     await publishSkill(tx, { skillId: made.skill.id, versionId: made.version.id });
+    // Its cases are kept with it, so the lab shows and runs them (shared, synthetic data).
+    for (const c of cases) {
+      await tx.insert(testCase).values({
+        tenantId: null,
+        targetKind: "skill",
+        targetId: made.skill.id,
+        name: c.name,
+        input: c.input ?? null,
+        fixtures: c.fixtures,
+        expected: c.expected ?? null,
+        matcher: c.matcher,
+        required: true,
+        source: "manual",
+        createdBy: actorId,
+      });
+    }
     installed.push({ ref: def.id, skillId: made.skill.id });
   }
   return installed;
@@ -627,6 +653,76 @@ async function decide(
   return inTx(async (tx) => reviewView(tx, services, await find(tx), who));
 }
 
+/**
+ * §1.230: the one install path, the same for every pack and taking only configuration: the
+ * configuration is checked and kept first (a bad one switches nothing on), then the pack is
+ * on for the client, its templates and Library skills installed once for the deployment.
+ * Installing again changes only the configuration.
+ */
+export async function installPack(
+  tx: Tx,
+  services: Services,
+  tenantId: string,
+  packId: string,
+  actorId: string,
+  config: Readonly<Record<string, unknown>>,
+) {
+  const pack = packOf(services, packId);
+  await saveConfig(tx, pack, tenantId, actorId, config);
+  await tx
+    .insert(tenantPack)
+    .values({ tenantId, pack: pack.manifest.id, version: pack.manifest.version })
+    .onConflictDoNothing();
+  const installed = await installTemplates(tx, services, pack, actorId);
+  await installLibrarySkills(tx, services, pack, actorId);
+  const packs = await opsClientPacks(tx, services, tenantId);
+  const view = packs.find((p) => p.id === pack.manifest.id);
+  if (!view) throw notFound("pack");
+  return { pack: view, installed };
+}
+
+/** What switching on a fork's packs did: on now, or left for the operator, with why. */
+export interface PacksSwitched {
+  switchedOn: string[];
+  needsSetup: { pack: string; reason: string }[];
+}
+
+/**
+ * A template forked into a client gets the packs its skills need (owner, 2026-11-24): each one
+ * that is off is switched on as the Areas tab's "Switch on" does (`installPack`, no settings, so
+ * every setting at its default). One that needs settings without a default, or that this
+ * deployment doesn't have, is left off and named, for the operator to set up; the fork goes ahead.
+ */
+// DECISION: on at the fork, not at activation: activation already refuses without it, and the
+// client test forks before it activates. Recorded in the fork's own audit row (its route).
+export async function switchOnPacks(
+  tx: Tx,
+  services: Services,
+  tenantId: string,
+  packIds: readonly string[],
+  actorId: string,
+): Promise<PacksSwitched> {
+  const out: PacksSwitched = { switchedOn: [], needsSetup: [] };
+  if (packIds.length === 0) return out;
+  const on = new Set((await enabledPacks(tx, tenantId)).map((r) => r.pack));
+  for (const id of packIds) {
+    if (on.has(id)) continue;
+    if (!services.platform.packs.some((p) => p.manifest.id === id)) {
+      out.needsSetup.push({ pack: id, reason: "this deployment doesn't have the pack" });
+      continue;
+    }
+    try {
+      await installPack(tx, services, tenantId, id, actorId, {});
+      out.switchedOn.push(id);
+    } catch (e) {
+      // saveConfig refuses before it writes, so the transaction goes on.
+      if (!(e instanceof HttpError)) throw e;
+      out.needsSetup.push({ pack: id, reason: e.message });
+    }
+  }
+  return out;
+}
+
 export function packRouteHandlers(app: Hono<AppEnv>): void {
   // ── Back office ────────────────────────────────────────────────────────────────────────────────
   mount(app, routes.opsPacks, async ({ tx, tenantIds, services }) => {
@@ -687,44 +783,16 @@ export function packRouteHandlers(app: Hono<AppEnv>): void {
     return { packs: await opsClientPacks(ctx.tx, ctx.services, ctx.params.id) };
   });
 
-  /**
-   * §1.230: the one install path, the same for every pack and taking only configuration: the
-   * configuration is checked and kept first (a bad one switches nothing on), then the pack is
-   * on for the client, its templates and Library skills installed once for the deployment.
-   * Installing again changes only the configuration.
-   */
-  async function install(
-    tx: Tx,
-    services: Services,
-    tenantId: string,
-    packId: string,
-    actorId: string,
-    config: Readonly<Record<string, unknown>>,
-  ) {
-    const pack = packOf(services, packId);
-    await saveConfig(tx, pack, tenantId, actorId, config);
-    await tx
-      .insert(tenantPack)
-      .values({ tenantId, pack: pack.manifest.id, version: pack.manifest.version })
-      .onConflictDoNothing();
-    const installed = await installTemplates(tx, services, pack, actorId);
-    await installLibrarySkills(tx, services, pack, actorId);
-    const packs = await opsClientPacks(tx, services, tenantId);
-    const view = packs.find((p) => p.id === pack.manifest.id);
-    if (!view) throw notFound("pack");
-    return { pack: view, installed };
-  }
-
   mount(app, routes.opsEnableClientPack, async (ctx) => {
     const { tx, params, services, session } = ctx;
     ensureClient(ctx, params.id);
-    return install(tx, services, params.id, params.pack, session.user.id, {});
+    return installPack(tx, services, params.id, params.pack, session.user.id, {});
   });
 
   mount(app, routes.opsInstallClientPack, async (ctx) => {
     const { tx, params, services, session, body } = ctx;
     ensureClient(ctx, params.id);
-    return install(tx, services, params.id, params.pack, session.user.id, body.config);
+    return installPack(tx, services, params.id, params.pack, session.user.id, body.config);
   });
 
   mount(app, routes.opsUpdatePackTemplates, async ({ tx, params, services, session }) => {

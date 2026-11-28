@@ -3,12 +3,11 @@
 
 import { describe, expect, it } from "vitest";
 import { mergeBundles } from "../bundle/merge";
-import { toProcessBundle } from "../bundle/normalize";
 import { RESHAPE_SKILL } from "../process/reshape";
 import { proposeReshape, reshapeContext } from "../process/reshape-propose";
 import { Process } from "../process/schema";
 import { validateProcess } from "../process/validate";
-import type { AnyAgentBundle } from "../schemas/agent";
+import type { AgentBundle } from "../schemas/agent";
 import type { JsonSchema } from "../schemas/common";
 import type { SkillDefinition } from "../schemas/skill";
 import { Trigger } from "../schemas/workflow";
@@ -330,18 +329,17 @@ describe("typing a webhook trigger from its sample", () => {
 // ── Versioned and merged with the agent ──────────────────────────────────────────────────────
 
 describe("merging a sample", () => {
-  const lookup = { wrappedTool: () => null, sideEffect: () => null };
-  const base = edit(toProcessBundle(bundle(), lookup), (d) => {
+  const base = edit(bundle(), (d) => {
     const w = d.workflows[0]?.workflow;
-    if (w?.schemaVersion !== 4) throw new Error("not v4");
+    if (!w) throw new Error("no workflow");
     w.triggers.push({ id: "hook", on: { type: "webhook", hookId: HOOK } });
   });
-  const hookOn = (b: AnyAgentBundle) => {
+  const hookOn = (b: AgentBundle) => {
     const w = b.workflows[0]?.workflow;
-    if (w?.schemaVersion !== 4) throw new Error("not v4");
+    if (!w) throw new Error("no workflow");
     return w.triggers.find((t) => t.id === "hook")?.on;
   };
-  const withShape = (b: AnyAgentBundle, sample: unknown) =>
+  const withShape = (b: AgentBundle, sample: unknown) =>
     edit(b, (d) => {
       const on = hookOn(d);
       if (on?.type === "webhook") on.dataSchema = inferSampleSchema(sample);

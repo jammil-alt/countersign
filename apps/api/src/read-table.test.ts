@@ -22,7 +22,7 @@ afterAll(() => h?.close());
 
 /** A draft with one Read table step that sets its own header row. */
 const draft = {
-  schemaVersion: 4,
+  schemaVersion: 5,
   triggers: [
     {
       id: "t1",
@@ -32,15 +32,18 @@ const draft = {
       },
     },
   ],
+  outputs: [{ id: "out-done", name: "Done", kind: "nothing" }],
   steps: [
     {
       id: "read",
       name: "Read table",
-      kind: "skill",
-      skill: processes.READ_TABLE_SKILL,
+      kind: "do",
+      doneBy: "rules",
+      uses: { type: "skill", skill: processes.READ_TABLE_SKILL },
       input: { documentId: "{{trigger.documentId}}" },
-      customize: { parameters: { header_row: 1 } },
+      rules: { values: { header_row: 1 } },
     },
+    { id: "end", kind: "end", name: "Done", outputs: ["out-done"] },
   ],
 };
 

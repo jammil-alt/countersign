@@ -4,22 +4,18 @@
 // `requiresConnectors` that its tools or `needs` don't cover), and every need names a registered
 // connector, a registered tool and a record type its connector declares.
 
-import { convertLookup } from "@countersign/agents";
 import {
-  type AgentBundle,
-  AnyAgentBundle,
+  AgentBundle,
   agentNeeds,
   type ConnectorNeed,
   skillNeeds,
-  toProcessBundle,
   uncoveredConnectors,
 } from "@countersign/core";
-import { loadDemoAgentVersions, loadSeedTemplates, loadSeedVersions } from "@countersign/db/seed";
+import { loadDemoAgent, loadSeedTemplates, loadSeedVersions } from "@countersign/db/seed";
 import { describe, expect, it } from "vitest";
 import { createPlatform, deploymentConnectors } from "./platform";
 
 const platform = createPlatform({ connectors: deploymentConnectors({}, false) });
-const lookup = convertLookup(platform.catalog, platform.tools);
 const connectorIds = new Set(platform.connectors.list().map((c) => c.manifest.id));
 const ctx = {
   skills: Object.fromEntries(platform.catalog.list().map((s) => [s.id, s])),
@@ -31,7 +27,8 @@ const ctx = {
 async function templates(): Promise<{ name: string; bundle: AgentBundle }[]> {
   const out: { name: string; bundle: AgentBundle }[] = [];
   const latest = new Map<string, { version: number; bundle: AgentBundle }>();
-  for (const t of await loadSeedTemplates()) latest.set(t.slug, { version: 1, bundle: t.bundle });
+  for (const t of await loadSeedTemplates())
+    latest.set(t.slug, { version: 1, bundle: t.bundle as AgentBundle });
   for (const v of await loadSeedVersions()) {
     const had = latest.get(v.slug);
     if (!had || v.version > had.version) {
@@ -40,8 +37,8 @@ async function templates(): Promise<{ name: string; bundle: AgentBundle }[]> {
   }
   for (const [slug, v] of latest)
     out.push({ name: `seed ${slug} v${v.version}`, bundle: v.bundle });
-  const demo = (await loadDemoAgentVersions()).at(-1);
-  if (demo) out.push({ name: "seed demo client agent", bundle: demo.bundle as AgentBundle });
+  const demo = await loadDemoAgent();
+  out.push({ name: "seed demo client agent", bundle: demo.bundle as AgentBundle });
   for (const p of platform.packs) {
     for (const t of p.manifest.templates) {
       const last = (t.versions ?? []).at(-1) ?? t.bundle;
@@ -51,9 +48,10 @@ async function templates(): Promise<{ name: string; bundle: AgentBundle }[]> {
   return out;
 }
 
+// A workflow's needs are read from its steps as they are.
 const all = (await templates()).map((t) => ({
   ...t,
-  needs: agentNeeds(toProcessBundle(AnyAgentBundle.parse(t.bundle), lookup), ctx),
+  needs: agentNeeds(AgentBundle.parse(t.bundle), ctx),
 }));
 
 /** A need as one line: `qbo create vendor (ask, via qbo.vendor.create)`. */
@@ -116,7 +114,8 @@ describe("what the platform's skills need", () => {
 
 describe("what the templates need", () => {
   it("covers every seeded and pack template", () => {
-    expect(all.length).toBeGreaterThanOrEqual(10);
+    // The five platform agents and the demo client agent (the packs ship no template yet).
+    expect(all.length).toBeGreaterThanOrEqual(6);
   });
 
   it.each(all)("$name: every need names a registered connector, tool and record type", (t) => {
@@ -128,6 +127,8 @@ describe("what the templates need", () => {
     for (const n of t.needs) expect(n.level).toBe(n.verb === "read" ? "on" : "ask");
   });
 
+  // The vendor is matched on our records (the Vendors profile) and its QuickBooks id read from the
+  // record, so the clerk no longer reads QuickBooks' vendors.
   it("the Bill clerk's needs, read from its steps", () => {
     const clerk = all.find((t) => t.name.startsWith("seed bill-clerk"));
     expect(clerk?.needs.map(line).sort()).toMatchInlineSnapshot(`
@@ -138,7 +139,6 @@ describe("what the templates need", () => {
         "qbo read account (on, via qbo.account.query)",
         "qbo read bill (on, via qbo.bill.query)",
         "qbo read item (on, via qbo.item.query)",
-        "qbo read vendor (on, via qbo.vendor.query)",
         "qbo update bill (ask, via qbo.bill.update_lines)",
         "qbo update bill (ask, via qbo.bill.update_memo)",
       ]

@@ -56,9 +56,11 @@ import {
   admin,
   allowForAgent,
   createApiHarness,
+  ended,
   FakeWorkflowStep,
   OPERATOR,
   user,
+  v5Workflow,
 } from "./api.test-helper";
 import { MemoryQboSyncInstances, type QboSyncParams } from "./qbo/instances";
 import { dispatchByIds, runQboSync } from "./qbo/sync";
@@ -194,11 +196,7 @@ describe.skipIf(!h)("QuickBooks Online through the API", () => {
         {
           slug: "main",
           name: "Main",
-          workflow: {
-            schemaVersion: 3,
-            trigger: { id: "trg", on },
-            steps,
-          },
+          workflow: v5Workflow(steps, { triggers: [{ id: "trg", on }] }),
         },
       ],
     } as AgentBundleInput);
@@ -248,12 +246,13 @@ describe.skipIf(!h)("QuickBooks Online through the API", () => {
   const findBill = (id: string) => ({
     id: "find",
     name: "Find the bill",
-    kind: "skill",
-    skill: QBO_TOOLS.billQuery,
-    input: { ids: [id] },
     client: { visible: true, label: "Found the bill" },
+    kind: "do",
+    doneBy: "rules",
+    uses: { type: "action", action: "qbo.bill.query" },
+    input: { ids: [id] },
   });
-  const B = "{{steps.find.output.bills.0";
+  const _B = "{{steps.find.output.bills.0";
 
   beforeAll(async () => {
     const offer = await call(OPERATOR, "PUT", `/api/ops/clients/${H.A.tenantId}/connectors`, {
@@ -495,10 +494,11 @@ describe.skipIf(!h)("QuickBooks Online through the API", () => {
           {
             id: "note",
             name: "Note it",
-            kind: "notify",
-            channel: "thread",
-            message: "A new bill came in",
             client: { visible: false },
+            kind: "do",
+            doneBy: "rules",
+            uses: { type: "tell" },
+            tell: { to: ["client_admin"], channel: "inbox", message: "A new bill came in" },
           },
         ],
         [],
@@ -901,13 +901,16 @@ describe.skipIf(!h)("QuickBooks Online through the API", () => {
           {
             id: "itemize",
             name: "Itemize the bill",
-            kind: "action",
-            tool: QBO_TOOLS.billUpdateLines,
+            client: { visible: true, label: "Itemized the bill" },
+            checks: { approval: { required: "required" } },
+            kind: "do",
+            doneBy: "rules",
+            uses: { type: "action", action: QBO_TOOLS.billUpdateLines },
             input: {
-              id: `${B}.id}}`,
-              syncToken: `${B}.syncToken}}`,
-              expectedTotal: `${B}.total}}`,
-              replaceLineIds: [`${B}.lines.0.id}}`],
+              id: "{{steps.find.output.bills.0.id}}",
+              syncToken: "{{steps.find.output.bills.0.syncToken}}",
+              expectedTotal: "{{steps.find.output.bills.0.total}}",
+              replaceLineIds: ["{{steps.find.output.bills.0.lines.0.id}}"],
               lines: [
                 {
                   itemId: "21",
@@ -920,17 +923,16 @@ describe.skipIf(!h)("QuickBooks Online through the API", () => {
                 { accountId: "81", description: "Fuel surcharge", amount: "40.75" },
               ],
             },
-            approval: { required: "required" },
-            client: { visible: true, label: "Itemized the bill" },
           },
           {
             id: "attach",
             name: "Attach the invoice",
-            kind: "action",
-            tool: QBO_TOOLS.attachableUpload,
-            input: { documentId: doc.document.id, entity: "Bill", entityId: "145" },
-            approval: { required: "required" },
             client: { visible: true, label: "Attached the invoice" },
+            checks: { approval: { required: "required" } },
+            kind: "do",
+            doneBy: "rules",
+            uses: { type: "action", action: QBO_TOOLS.attachableUpload },
+            input: { documentId: doc.document.id, entity: "Bill", entityId: "145" },
           },
         ],
         [QBO_TOOLS.billUpdateLines, QBO_TOOLS.attachableUpload],
@@ -945,7 +947,7 @@ describe.skipIf(!h)("QuickBooks Online through the API", () => {
       atWaits.push(qbo.apiCalls("POST").length);
     });
     const result = await executeRun(runDeps(), params, cloudflareStepRunner(step));
-    expect(result).toEqual({ status: "succeeded" });
+    expect(result).toEqual(ended());
     expect(atWaits).toEqual([0, 1]);
     expect(qbo.apiCalls("POST", "bill")).toHaveLength(1);
     expect(qbo.apiCalls("POST", "upload")).toHaveLength(1);
@@ -999,15 +1001,16 @@ describe.skipIf(!h)("QuickBooks Online through the API", () => {
           {
             id: "memo",
             name: "Note the invoice",
-            kind: "action",
-            tool: QBO_TOOLS.billUpdateMemo,
+            client: { visible: true, label: "Noted the invoice" },
+            checks: { approval: { required: "required" } },
+            kind: "do",
+            doneBy: "rules",
+            uses: { type: "action", action: QBO_TOOLS.billUpdateMemo },
             input: {
-              id: `${B}.id}}`,
-              syncToken: `${B}.syncToken}}`,
+              id: "{{steps.find.output.bills.0.id}}",
+              syncToken: "{{steps.find.output.bills.0.syncToken}}",
               memo: "Matched to invoice 77812",
             },
-            approval: { required: "required" },
-            client: { visible: true, label: "Noted the invoice" },
           },
         ],
         [QBO_TOOLS.billUpdateMemo],
@@ -1036,20 +1039,21 @@ describe.skipIf(!h)("QuickBooks Online through the API", () => {
           {
             id: "itemize",
             name: "Itemize",
-            kind: "action",
-            tool: QBO_TOOLS.billUpdateLines,
+            client: { visible: true, label: "Itemized the bill" },
+            checks: { approval: { required: "required" } },
+            kind: "do",
+            doneBy: "rules",
+            uses: { type: "action", action: QBO_TOOLS.billUpdateLines },
             input: {
-              id: `${B}.id}}`,
-              syncToken: `${B}.syncToken}}`,
-              expectedTotal: `${B}.total}}`,
+              id: "{{steps.find.output.bills.0.id}}",
+              syncToken: "{{steps.find.output.bills.0.syncToken}}",
+              expectedTotal: "{{steps.find.output.bills.0.total}}",
               replaceLineIds: ["1"],
               lines: [
                 { itemId: "21", qty: "11", unitPrice: "64.00", amount: "704.00" },
                 { accountId: "81", amount: "12.00" },
               ],
             },
-            approval: { required: "required" },
-            client: { visible: true, label: "Itemized the bill" },
           },
         ],
         [QBO_TOOLS.billUpdateLines],
@@ -1075,11 +1079,16 @@ describe.skipIf(!h)("QuickBooks Online through the API", () => {
           {
             id: "memo",
             name: "Note the invoice",
-            kind: "action",
-            tool: QBO_TOOLS.billUpdateMemo,
-            input: { id: `${B}.id}}`, syncToken: `${B}.syncToken}}`, memo: "Granted?" },
-            approval: { required: "required" },
             client: { visible: true, label: "Noted the invoice" },
+            checks: { approval: { required: "required" } },
+            kind: "do",
+            doneBy: "rules",
+            uses: { type: "action", action: QBO_TOOLS.billUpdateMemo },
+            input: {
+              id: "{{steps.find.output.bills.0.id}}",
+              syncToken: "{{steps.find.output.bills.0.syncToken}}",
+              memo: "Granted?",
+            },
           },
         ],
         [QBO_TOOLS.billUpdateMemo],
@@ -1106,11 +1115,12 @@ describe.skipIf(!h)("QuickBooks Online through the API", () => {
           {
             id: "memo",
             name: "Note the invoice",
-            kind: "action",
-            tool: QBO_TOOLS.billUpdateMemo,
-            input: { id: "146", syncToken: "3", memo: "Released?" },
-            approval: { required: "required" },
             client: { visible: true, label: "Noted the invoice" },
+            checks: { approval: { required: "required" } },
+            kind: "do",
+            doneBy: "rules",
+            uses: { type: "action", action: QBO_TOOLS.billUpdateMemo },
+            input: { id: "146", syncToken: "3", memo: "Released?" },
           },
         ],
         [QBO_TOOLS.billUpdateMemo],

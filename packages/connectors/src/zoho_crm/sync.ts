@@ -83,11 +83,17 @@ export const ZOHO_SYNC_PAGE_SIZE = 200;
 /** The deepest page asked for in one window; past it, the window moves on by time. */
 // UNCHECKED (NOTES.md): v8 lists only the first 2,000 records by page number (10 pages of 200).
 export const ZOHO_MAX_PAGE = 10;
-/** A first sync reads this far back, as history: no events. */
-export const ZOHO_INITIAL_DAYS = 90;
+/**
+ * Where a full read's window starts: before any record. A full read sends no `If-Modified-Since`
+ * (zohoSinceHeader), so Zoho lists every record.
+ */
+// DECISION (2026-11-24, owner: "50k client records in zoho we keep 50k client records"): a first
+// sync reads every record of the synced modules, not the last 90 days. A match searches our copy
+// (docs/plan.md §1.164), so a customer nobody touched since the summer must be in it. It is still
+// history: no events.
+export const ZOHO_FULL_READ_SINCE = "2000-01-01T00:00:00.000Z";
 /** Changes are read from a minute before the last pass started, to cover clock drift. */
 const OVERLAP_MS = 60_000;
-const DAY_MS = 24 * 60 * 60 * 1000;
 
 export const ZohoSyncCursor = z.object({
   v: z.literal(1),
@@ -107,6 +113,24 @@ export const ZohoSyncCursor = z.object({
   initial: z.boolean(),
   /** The extra fields this pass reads (zohoSyncFieldsKey); absent: none. */
   fields: z.string().max(20).optional(),
+  /**
+   * Where this pass's window starts for every module. `since` moves on past the deepest page, and
+   * the next module (and the deleted records) start again from here. Absent on cursors stored
+   * before it: `since`.
+   */
+  from: z.iso.datetime({ offset: true }).optional(),
+  /** Reading the module's deleted records, after its list (never on a first sync). */
+  phase: z.literal("deleted").optional(),
+  /**
+   * The connection's records were read in full (ZOHO_FULL_READ_SINCE). Absent on a connection
+   * whose first sync read only 90 days: its next pass reads everything again (zohoCursorFor).
+   */
+  full: z.literal(true).optional(),
+  /**
+   * Records modified at or before this instant raise no event: a pass that reads again records we
+   * may never have held (a connection's first full read after a 90-day one, or new fields).
+   */
+  quietUntil: z.iso.datetime({ offset: true }).optional(),
 });
 export type ZohoSyncCursor = z.infer<typeof ZohoSyncCursor>;
 
@@ -117,40 +141,55 @@ export function readZohoSyncCursor(stored: unknown): ZohoSyncCursor | null {
   return parsed.success ? parsed.data : null;
 }
 
-/** A first sync: every module from ZOHO_INITIAL_DAYS ago. */
+/** A first sync: every record of every module, as history. */
 export function startZohoSync(now: Date, fieldsKey = ""): ZohoSyncCursor {
   return {
     v: 1,
     module: 0,
-    since: new Date(now.getTime() - ZOHO_INITIAL_DAYS * DAY_MS).toISOString(),
+    since: ZOHO_FULL_READ_SINCE,
+    from: ZOHO_FULL_READ_SINCE,
     page: 1,
     next: new Date(now.getTime() - OVERLAP_MS).toISOString(),
     initial: true,
+    full: true,
     ...(fieldsKey ? { fields: fieldsKey } : {}),
   };
 }
 
 /**
- * The cursor a page starts from: the stored one; a first sync when there is none; and when the
- * connection's extra fields changed since the pass began, a pass that reads every module again over
- * the first sync's window, so the records we hold get the new fields. Not history: a change made
- * meanwhile still raises its event, and a record read again only for its fields raises none (the
- * platform compares the versions' times, zohoVersionTime).
+ * The cursor a page starts from: the stored one; a first sync when there is none; and a pass that
+ * reads every record again when the connection's extra fields changed since the pass began (so
+ * the records we hold get the new fields), or when its first sync read only 90 days (so the older
+ * records come in). Not history: a change made after the stored window began still raises its
+ * event. Records modified before it raise none (`quietUntil`), and a record read again only for
+ * its fields raises none either (the platform compares the versions' times, zohoVersionTime).
  */
 // DECISION (docs/plan.md §1.164): fields chosen after a record was synced reach it by reading it
-// again, never by changing a stored raw record (invariant 3). Records older than the first sync's
-// window keep what they were read with until they change.
+// again, never by changing a stored raw record (invariant 3).
+// DECISION (2026-11-24): a connection synced before full reads reads everything once by itself,
+// with no back-office action: the records it never held come in quietly, so no agent starts on a
+// lead that only looks new to us. A cursor stored mid-pass before `from` existed keeps `since` as
+// the quiet line; a change in a later module between the pass's start and that line raises no
+// event (only possible after more than 2,000 changes in one module).
 export function zohoCursorFor(stored: unknown, now: Date, fieldsKey: string): ZohoSyncCursor {
   const cursor = readZohoSyncCursor(stored);
   if (!cursor) return startZohoSync(now, fieldsKey);
-  if ((cursor.fields ?? "") === fieldsKey) return cursor;
-  const { fields: _old, ...rest } = cursor;
+  if ((cursor.fields ?? "") === fieldsKey && cursor.full) return cursor;
+  if (cursor.initial && !cursor.full) {
+    // A first sync of 90 days still under way: start it again as a full one (still history).
+    return startZohoSync(now, fieldsKey);
+  }
+  const { fields: _old, phase: _phase, ...rest } = cursor;
+  const quiet = cursor.quietUntil ?? cursor.from ?? cursor.since;
   return {
     ...rest,
     module: 0,
-    since: new Date(now.getTime() - ZOHO_INITIAL_DAYS * DAY_MS).toISOString(),
+    since: ZOHO_FULL_READ_SINCE,
+    from: ZOHO_FULL_READ_SINCE,
     page: 1,
     next: new Date(now.getTime() - OVERLAP_MS).toISOString(),
+    full: true,
+    quietUntil: quiet,
     ...(fieldsKey ? { fields: fieldsKey } : {}),
   };
 }
@@ -161,26 +200,40 @@ function nextPass(cursor: ZohoSyncCursor, now: Date): ZohoSyncCursor {
     v: 1,
     module: 0,
     since: cursor.next,
+    from: cursor.next,
     page: 1,
     next: new Date(now.getTime() - OVERLAP_MS).toISOString(),
     initial: false,
+    ...(cursor.full ? { full: true as const } : {}),
     ...(cursor.fields ? { fields: cursor.fields } : {}),
   };
 }
 
-/** One list call: which module, the window and the page. */
+/** One call of the poll: which module, the window, the page and whether it lists deletions. */
 export interface ZohoPageRequest {
   module: ZohoSyncedModule;
   since: string;
   page: number;
+  /** List the module's deleted records instead of its records. */
+  deleted: boolean;
 }
 
 export function zohoPageRequest(cursor: ZohoSyncCursor): ZohoPageRequest {
+  const deleted = cursor.phase === "deleted";
   return {
     module: ZOHO_SYNCED_MODULES[cursor.module] as ZohoSyncedModule,
-    since: cursor.since,
+    // The deleted records are read over the pass's whole window, never a moved one.
+    since: deleted ? (cursor.from ?? cursor.since) : cursor.since,
     page: cursor.page,
+    deleted,
   };
+}
+
+/** The `If-Modified-Since` a call sends, or null for a full read (every record). */
+export function zohoSinceHeader(since: string): string | null {
+  if (Date.parse(since) <= Date.parse(ZOHO_FULL_READ_SINCE)) return null;
+  // Zoho's format: no milliseconds, with an offset.
+  return `${since.slice(0, 19)}+00:00`;
 }
 
 const ListedRecord = z.looseObject({
@@ -217,30 +270,70 @@ export function zohoRawRecord(
   };
 }
 
+/** A record deleted in Zoho: its module and id. */
+export interface ZohoDeletedRecord {
+  entityType: ZohoSyncedModule;
+  externalId: string;
+}
+
+const DeletedRecord = z.looseObject({ id: z.union([z.string(), z.number()]).transform(String) });
+
+/** The deleted records of one list of deletions (`GET /{module}/deleted`), ids checked. */
+export function zohoDeletedRecords(module: ZohoSyncedModule, data: unknown[]): ZohoDeletedRecord[] {
+  const out: ZohoDeletedRecord[] = [];
+  for (const raw of data) {
+    const r = DeletedRecord.safeParse(raw);
+    if (r.success && /^\d{1,30}$/.test(r.data.id)) {
+      out.push({ entityType: module, externalId: r.data.id });
+    }
+  }
+  return out;
+}
+
 export interface ZohoSyncPage {
   records: RawRecordInput[];
+  /** Records deleted in Zoho: the platform marks the versions it holds deleted. */
+  deleted: ZohoDeletedRecord[];
   next: ZohoSyncCursor;
   /** The pass is over: every module read up to now. */
   done: boolean;
   /** The records are history (a first sync): no events. */
   initial: boolean;
+  /** Records modified at or before this instant raise no event (the cursor's `quietUntil`). */
+  quietUntil?: string;
 }
 
 /**
- * The cursor after a page: the next page of the same window while Zoho says there are more (up to
- * ZOHO_MAX_PAGE, then a new window from the last record's time), else the next module, else a new
- * pass from when this one began.
+ * The cursor after a page. In a module's list: the next page of the same window while Zoho says
+ * there are more (up to ZOHO_MAX_PAGE, then a new window from the last record's time), else the
+ * module's deleted records (not on a first sync: we hold nothing to delete). In its deleted
+ * records: the next page while there are more. Then the next module, from the pass's window
+ * start, else a new pass from when this one began.
  */
 export function afterZohoPage(
   cursor: ZohoSyncCursor,
-  answer: { records: RawRecordInput[]; more: boolean },
+  answer: { records: RawRecordInput[]; deleted?: ZohoDeletedRecord[]; more: boolean },
   now: Date,
 ): ZohoSyncPage {
   const records = answer.records;
-  const initial = cursor.initial;
+  const deleted = answer.deleted ?? [];
+  const base = {
+    records,
+    deleted,
+    initial: cursor.initial,
+    ...(cursor.quietUntil ? { quietUntil: cursor.quietUntil } : {}),
+  };
+  if (cursor.phase === "deleted") {
+    // UNCHECKED (NOTES.md): deletions are listed by page only; more than ZOHO_MAX_PAGE pages of
+    // them in one module and one pass are left unread.
+    if (answer.more && deleted.length > 0 && cursor.page < ZOHO_MAX_PAGE) {
+      return { ...base, next: { ...cursor, page: cursor.page + 1 }, done: false };
+    }
+    return { ...base, ...nextModule(cursor, now) };
+  }
   if (answer.more && records.length > 0) {
     if (cursor.page < ZOHO_MAX_PAGE) {
-      return { records, next: { ...cursor, page: cursor.page + 1 }, done: false, initial };
+      return { ...base, next: { ...cursor, page: cursor.page + 1 }, done: false };
     }
     // Past the deepest page: a new window from the last record read (oldest first, so nothing
     // in between is skipped; the records at that instant are read again, and stored once).
@@ -248,22 +341,30 @@ export function afterZohoPage(
     const at = last ? Date.parse(last) : Number.NaN;
     if (Number.isFinite(at) && at > Date.parse(cursor.since)) {
       return {
-        records,
+        ...base,
         next: { ...cursor, since: new Date(at).toISOString(), page: 1 },
         done: false,
-        initial,
       };
     }
   }
+  if (!cursor.initial) {
+    return { ...base, next: { ...cursor, phase: "deleted", page: 1 }, done: false };
+  }
+  return { ...base, ...nextModule(cursor, now) };
+}
+
+/** The next module's list from the pass's window start, or a new pass after the last module. */
+function nextModule(cursor: ZohoSyncCursor, now: Date): { next: ZohoSyncCursor; done: boolean } {
+  const { phase: _phase, ...rest } = cursor;
   if (cursor.module + 1 < ZOHO_SYNCED_MODULES.length) {
+    // The window `since` moved past deep pages in this module; the next one starts at the
+    // pass's own start (cursors stored before `from` keep the moved one, as they did).
     return {
-      records,
-      next: { ...cursor, module: cursor.module + 1, page: 1 },
+      next: { ...rest, module: cursor.module + 1, page: 1, since: cursor.from ?? cursor.since },
       done: false,
-      initial,
     };
   }
-  return { records, next: nextPass(cursor, now), done: true, initial };
+  return { next: nextPass(cursor, now), done: true };
 }
 
 // ── Events ──────────────────────────────────────────────────────────────────────────────────────

@@ -1,7 +1,7 @@
 // The agent Overview tab (design screen 7, without pack KPIs): how it works as step chips from the
 // version shown, its mission, the tools it works in, the skills it uses, and its latest runs.
 // Connections, tools and skills read by their names, never their ids; empty parts are left out.
-import { type AnyAgentBundle, allTriggers, processes, type SkillOption } from "@countersign/core";
+import { type AgentBundle, allTriggers, type SkillOption, steps } from "@countersign/core";
 import { Link } from "react-router-dom";
 import { type AgentSummary, apiRoutes } from "../../api/routes";
 import { type ApiState, useApi } from "../../api/useApi";
@@ -15,14 +15,9 @@ import { NeedsPanel } from "../connectors/AgentPanels";
 import { ClientViewCard, WhereItRuns } from "../lab/TemplateParts";
 import { runChip } from "../run/words";
 import type { RunLinkState } from "../screens/RunView";
-import {
-  KIND_LABEL,
-  PROCESS_KIND_LABEL,
-  stepCountWords,
-  triggerTitle,
-  workflowStats,
-} from "../workflow/describe";
+import { KIND_LABEL, stepCountWords, triggerTitle, workflowStats } from "../workflow/describe";
 import { optionFor } from "./definition-form";
+import { stepModelKindWord } from "./NewAgentParts";
 import { useConnectorNames } from "./OperationPanel";
 import { prefetchRun, useIntent } from "./prefetch";
 import { plural } from "./ui";
@@ -35,7 +30,7 @@ export function OverviewTab({
   known,
 }: {
   agent: AgentSummary;
-  bundle: AnyAgentBundle;
+  bundle: AgentBundle;
   /** The agent page's URL. */
   base: string;
   /** The agent's skills, loading beside the agent: only a skill its names miss waits for them. */
@@ -133,7 +128,7 @@ export function OverviewTab({
  * QA (2026-11-22): it waited on the whole skills list, and read "Loading…" until that came.
  */
 export function skillNamesOf(
-  bundle: AnyAgentBundle,
+  bundle: AgentBundle,
   known: Readonly<Record<string, string>> | undefined,
   options: readonly SkillOption[] | undefined,
 ): string[] | null {
@@ -149,39 +144,29 @@ export function skillNamesOf(
 }
 
 /**
- * The tools the agent works in: its definition's extra tools, then the tools of its v4 processes'
- * read and write steps at any depth (a process names its tools on its steps, not in the
- * definition), each once.
+ * The tools the agent works in: its definition's extra tools, then the actions its workflows' steps
+ * and outputs use at any depth (a merged action names no one tool), each once.
  */
-export function toolsItWorksIn(bundle: AnyAgentBundle): string[] {
+export function toolsItWorksIn(bundle: AgentBundle): string[] {
   const ids = [...bundle.definition.extraTools];
   for (const w of bundle.workflows) {
-    if (w.workflow.schemaVersion !== 4) continue;
-    for (const { step } of processes.allSteps(w.workflow)) {
-      if ((step.kind === "read" || step.kind === "write") && step.tool !== undefined) {
-        ids.push(step.tool);
-      }
+    for (const id of steps.stepModelActions(w.workflow)) {
+      if (!steps.mergedAction(id)) ids.push(id);
     }
   }
   return [...new Set(ids)];
 }
 
-/**
- * A workflow's first trigger and its top-level steps as chips. R8: a v4 process too, its steps in
- * the builder's words (an `if`, a write).
- */
-function StepChips({ workflow }: { workflow: AnyAgentBundle["workflows"][number] }) {
+/** A workflow's first trigger and its top-level steps as chips. */
+function StepChips({ workflow }: { workflow: AgentBundle["workflows"][number] }) {
   const w = workflow.workflow;
   const first = allTriggers(w)[0];
-  const steps =
-    w.schemaVersion === 4
-      ? w.steps.map((s) => ({
-          id: s.id,
-          kind: s.kind,
-          label: PROCESS_KIND_LABEL[s.kind],
-          name: s.name,
-        }))
-      : w.steps.map((s) => ({ id: s.id, kind: s.kind, label: KIND_LABEL[s.kind], name: s.name }));
+  const steps = w.steps.map((s) => ({
+    id: s.id,
+    kind: s.kind as string,
+    label: stepModelKindWord(s.kind),
+    name: s.name,
+  }));
   return (
     <div className="mb-3 last:mb-0" data-testid={`agent-chips-${workflow.slug}`}>
       <p className="mb-2 text-sm font-medium text-ink">

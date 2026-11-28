@@ -483,7 +483,7 @@ export function pickMessage(template: MessageTemplate, language: ReachLanguage):
 // DECISION: both email tools take the same input (`to`, `subject`, `text`, `replyTag`), so the
 // reach-out service builds one input whichever connection the agent's email channel is bound to.
 export const CHANNEL_TOOLS: Record<string, Partial<Record<ReachChannel, string>>> = {
-  resend: { email: "email.send" },
+  resend: { email: "resend.send" },
   gmail: { email: "gmail.send" },
   // v0.12 W3-B: Outlook takes the same input (docs/plan.md §1.52).
   outlook: { email: "outlook.send" },
@@ -491,6 +491,18 @@ export const CHANNEL_TOOLS: Record<string, Partial<Record<ReachChannel, string>>
   // v0.14 W4-A: WhatsApp on the client's own number through Meta (docs/plan.md §1.57).
   whatsapp_meta: { whatsapp: "whatsapp.send" },
 };
+/**
+ * Tool ids that were renamed, to their new ids: what `external_action.tool` and `tool_call.tool`
+ * rows written before the rename still say. Resend's send tool was `email.send` until 2026-11-25,
+ * when that id became the merged Email action's (`steps.MERGED_CONNECTORS`).
+ */
+export const LEGACY_TOOL_IDS: Readonly<Record<string, string>> = { "email.send": "resend.send" };
+
+/** The current id of a tool a stored row names. */
+export function currentToolId(id: string): string {
+  return LEGACY_TOOL_IDS[id] ?? id;
+}
+
 /** Connectors planned to carry a channel, refused with "isn't built yet" until then. */
 export const PLANNED_CHANNEL_CONNECTORS: Record<string, ReachChannel[]> = {};
 
@@ -582,3 +594,29 @@ export const ReachOutOutput = z
   })
   .meta({ id: "ReachOutOutput" });
 export type ReachOutOutput = z.infer<typeof ReachOutOutput>;
+
+// ── An email's subject (staging, 2026-11-27) ─────────────────────────────────────────────────────
+
+/** The most an email subject we make may hold. */
+export const SUBJECT_LINE_MAX = 90;
+
+/**
+ * One subject line from a text: its first sentence (or line), whitespace and line breaks folded,
+ * cut at a word under `SUBJECT_LINE_MAX` with an ellipsis. A reach-out with no subject of its own
+ * took its purpose's first 200 characters, and a conversation's purpose is its whole compiled
+ * goal, line breaks and all, which Resend refused ("invalid input").
+ */
+export function emailSubjectFrom(text: string): string {
+  const flat = text.replace(/\s+/g, " ").trim();
+  const firstLine =
+    text
+      .split(/\r?\n/)
+      .find((l) => l.trim() !== "")
+      ?.trim() ?? flat;
+  const sentence = firstLine.replace(/\s+/g, " ").match(/^.*?[.!?](?=\s|$)/)?.[0] ?? firstLine;
+  const one = sentence.replace(/[.]$/, "").trim() || flat;
+  if (one.length <= SUBJECT_LINE_MAX) return one;
+  const cut = one.slice(0, SUBJECT_LINE_MAX - 1);
+  const space = cut.lastIndexOf(" ");
+  return `${(space > 40 ? cut.slice(0, space) : cut).replace(/[\s,;:–-]+$/, "")}…`;
+}

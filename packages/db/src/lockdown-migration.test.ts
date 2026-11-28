@@ -1,4 +1,4 @@
-// Migration 0101 (docs/plan.md §1.243, docs/lockdown-plan.md K0): `tenant.locked_at` and
+// Migration 0103 (docs/plan.md §1.243, docs/lockdown-plan.md K0): `tenant.locked_at` and
 // `tenant.lock`, `platform_lock`, and `app_scope_tenant_ids`. It applies on a database the previous
 // Worker used, leaves its tenant rows unlocked, and the function answers each scope mode as the
 // plan says, as the Worker's role.
@@ -36,7 +36,7 @@ const CLIENT_LOCKED = "MZLCK";
 const CHECK_VIOLATION = "23514";
 const READ_ONLY = "25006";
 
-describe.skipIf(!online)("0101 on a database the previous Worker used", () => {
+describe.skipIf(!online)("0103 on a database the previous Worker used", () => {
   let t: TestDatabase;
   let A: ClientFixture;
   let B: ClientFixture;
@@ -77,8 +77,8 @@ describe.skipIf(!online)("0101 on a database the previous Worker used", () => {
     const created = await createTestDatabase({ migrate: false });
     if (!created) throw new Error("database vanished");
     t = created;
-    await migrateAsOwner(t.url, { upTo: "0100_ap" });
-    // Plain SQL: the schema in this package already has 0101's columns.
+    await migrateAsOwner(t.url, { upTo: "0102_record_data" });
+    // Plain SQL: the schema in this package already has 0103's columns.
     const oldClient = async (name: string): Promise<ClientFixture> => {
       const [tenant] = await t.db.$client<{ id: string }[]>`
         insert into tenant (name) values (${name}) returning id`;
