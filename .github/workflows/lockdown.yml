@@ -1,0 +1,70 @@
+name: Lockdown at the edge
+
+# By hand, from Actions → Lockdown at the edge (docs/plan.md §1.243, docs/lockdown-plan.md §3,
+# docs/operations.md §2). Switches a Cloudflare WAF custom rule that blocks every request to one
+# environment's app host (app.mezonas.com or staging.mezonas.com) but `/api/health`, for when the
+# Worker or the database may itself be compromised and the app's own lockdown can't be trusted.
+# Webhooks fail while it is on and providers retry, as wanted. Email still reaches the Worker's
+# email handler, which the app's lockdown covers. The status page is hosted elsewhere.
+#
+# `status` only reads. `on` makes the rule the first time (first among the zone's custom rules);
+# `off` switches it off and keeps it, so its history stays in Cloudflare's audit log.
+#
+# Needs the environment secret CLOUDFLARE_LOCKDOWN_TOKEN: a Cloudflare API token for the
+# mezonas.com zone only, with Zone: Read and Zone WAF: Edit and nothing else.
+
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: Environment
+        type: choice
+        options: [staging, production]
+        default: production
+      state:
+        description: "on: block everything but /api/health; off: let it through again; status: read only"
+        type: choice
+        options: [status, on, off]
+        default: status
+
+permissions:
+  contents: read
+
+concurrency:
+  group: lockdown-${{ inputs.target }}
+  cancel-in-progress: false
+
+jobs:
+  edge:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    # Production waits for the production environment's approval, like a production deploy.
+    environment: ${{ inputs.target }}
+    env:
+      TARGET: ${{ inputs.target }}
+      STATE: ${{ inputs.state }}
+      CLOUDFLARE_LOCKDOWN_TOKEN: ${{ secrets.CLOUDFLARE_LOCKDOWN_TOKEN }}
+    steps:
+      - uses: actions/checkout@v7
+      - name: Ready?
+        run: |
+          [ -n "$CLOUDFLARE_LOCKDOWN_TOKEN" ] || {
+            echo "::error::CLOUDFLARE_LOCKDOWN_TOKEN secret is missing (docs/operations.md §2, lockdown.yml)"
+            exit 1
+          }
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+      - name: Switch
+        run: |
+          set -euo pipefail
+          out=$(node scripts/edge-lockdown.mjs --target "$TARGET" --state "$STATE")
+          echo "$out"
+          {
+            echo "$out"
+            echo ""
+            echo "Run by ${{ github.actor }} (run ${{ github.run_id }}), state asked: $STATE."
+            if [ "$STATE" = on ]; then
+              echo "Record it in the incident's timeline (docs/policies/incident-response.md §5)."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
