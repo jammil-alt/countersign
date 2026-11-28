@@ -394,6 +394,62 @@ describe("a v5 Do step's incoming side (stream G)", () => {
     expect(h.agentCalls).toHaveLength(1);
   });
 
+  // Staging, 2026-11-28: an AI step's money reached qbo.purchase.create as `{ amount, currency }`.
+  it("hands an action money as its amount and a number as a decimal, as the publish checks allow", async () => {
+    const h = new Harness();
+    const money = (amount: string, currency = "USD") => ({ amount, currency });
+    h.handlers.s_read = () => ({
+      kind: "done",
+      output: { total: money("41.54"), lines: [{ amount: money("41.54"), qty: 2 }] },
+    });
+    const decimal = { type: "string" };
+    const create = tool("qbo.purchase.create", "external", "qbo", {
+      input: {
+        type: "object",
+        properties: {
+          expectedTotal: decimal,
+          lines: {
+            type: "array",
+            items: { type: "object", properties: { amount: decimal, qty: { type: "number" } } },
+          },
+          memo: decimal,
+        },
+      },
+    });
+    const book = {
+      id: "s_book",
+      kind: "do",
+      name: "Book it",
+      doneBy: "rules",
+      uses: { type: "action", action: "qbo.purchase.create" },
+      checks: { approval: { required: "not_required" } },
+      input: {
+        expectedTotal: "{{steps.s_read.output.total}}",
+        lines: "{{steps.s_read.output.lines}}",
+        memo: "{{steps.s_read.output.lines.0.qty}}",
+      },
+    };
+    const catalog = { ...CATALOG, tools: { ...TOOLS, [create.id]: create } };
+    await run(h, wf([read, book, end()]), { id: "7" }, { catalog });
+    expect(h.agentCalls[1]?.input).toEqual({
+      expectedTotal: "41.54",
+      lines: [{ amount: "41.54", qty: 2 }],
+      memo: "2",
+    });
+
+    // Amounts in two currencies are never made into bare decimals: the step fails, saying so.
+    const mixed = new Harness();
+    mixed.handlers.s_read = () => ({
+      kind: "done",
+      output: { total: money("1.00"), lines: [{ amount: money("1.00", "EUR") }] },
+    });
+    const { result } = await run(mixed, wf([read, book, end()]), { id: "7" }, { catalog });
+    expect(result).toMatchObject({ status: "failed", nodeId: "s_book" });
+    expect(result.reason).toContain(
+      `what comes into "Book it" can't be used: its amounts are in USD and EUR`,
+    );
+  });
+
   it("never hands a source key to an engine, with or without a translation", async () => {
     const h = new Harness();
     const plain = { ...read, id: "s_two", input: { id: "1", _s_read: "{{trigger}}" } };

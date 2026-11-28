@@ -6,6 +6,8 @@ export * from "./engine";
 export * from "./match-profile";
 export * from "./range";
 export * from "./schema";
+export * from "./shape";
 export * from "./translate";
 export * from "./validate";
 export * from "./walk";
+export * from "./wiring";
