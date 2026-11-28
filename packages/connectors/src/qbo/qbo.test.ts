@@ -12,7 +12,15 @@ import type { DocumentServices, WriteContext } from "../connector";
 import { CredentialCipher, generateEncryptionKey, memoryTenantKeys } from "../credentials";
 import { encryptedCredentials, memoryCredentials } from "../credentials-accessor";
 import { formDecode } from "../http";
-import { captureBefore, executeWrite, runReadTool, standInOutput, ToolCallError } from "../invoke";
+import {
+  captureBefore,
+  executeWrite,
+  moneyAsDecimals,
+  parseWriteInput,
+  runReadTool,
+  standInOutput,
+  ToolCallError,
+} from "../invoke";
 import { memoryLogger } from "../logger";
 import { beginAuthorization, completeAuthorization } from "../oauth/flow";
 import {
@@ -1290,5 +1298,44 @@ describe("qbo webhooks", () => {
         lastUpdated: null,
       },
     ]);
+  });
+});
+
+// Staging, 2026-11-28: a receipt agent's coded lines reached qbo.purchase.create as money objects.
+describe("money from a step, into a QuickBooks write", () => {
+  const purchase = (amount: unknown, total: unknown) => ({
+    accountId: "42",
+    paymentType: "CreditCard",
+    txnDate: "2026-11-26",
+    currency: "USD",
+    reference: "HH-20481",
+    expectedTotal: total,
+    lines: [{ accountId: "63", amount, description: "Landscape fabric" }],
+  });
+
+  it("takes each money value as its amount when the tool wants a decimal", () => {
+    const s = setup();
+    const parsed = parseWriteInput(
+      s.connector,
+      "qbo.purchase.create",
+      purchase({ amount: "79.25", currency: "USD" }, { amount: "79.25", currency: "USD" }),
+    ) as { expectedTotal: unknown; lines: { amount: unknown }[] };
+    expect(parsed.expectedTotal).toBe("79.25");
+    expect(parsed.lines[0]?.amount).toBe("79.25");
+  });
+
+  it("never drops a currency: another than the input's, or two, is still refused", () => {
+    const s = setup();
+    expect(() =>
+      parseWriteInput(
+        s.connector,
+        "qbo.purchase.create",
+        purchase({ amount: "79.25", currency: "CAD" }, { amount: "79.25", currency: "CAD" }),
+      ),
+    ).toThrow(ToolCallError);
+    expect(
+      moneyAsDecimals({ a: { amount: "1", currency: "USD" }, b: { amount: "2", currency: "EUR" } }),
+    ).toBeUndefined();
+    expect(moneyAsDecimals({ a: "1" })).toBeUndefined();
   });
 });

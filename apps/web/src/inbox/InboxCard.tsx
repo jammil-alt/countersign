@@ -397,6 +397,15 @@ export function InboxCard({
     !open && !!onUndo && !!item.deliverAfter && new Date(item.deliverAfter).getTime() > Date.now();
   const badge = statusBadge(item, outcome ?? null, i18n);
   const isChange = item.kind === "external_action";
+  // A test run's approval of a change: the same change, shown the same way, under its own title
+  // ("… approve it for the test (nothing is written)"). Staging, 2026-11-28: it showed only
+  // "Not written: true".
+  const isTestChange =
+    item.kind === "approval" &&
+    item.payload.testRun === true &&
+    typeof item.payload.tool === "string" &&
+    isPlainObject(item.payload.input);
+  const showsChange = isChange || isTestChange;
   const isRelease =
     typeof item.payload.accessRelease === "object" && item.payload.accessRelease !== null;
   const tool = typeof item.payload.tool === "string" ? item.payload.tool : null;
@@ -423,9 +432,9 @@ export function InboxCard({
         )
       : null;
   // A pack's review (e.g. the Materials match review) brings its own card and its own finish.
-  const ReviewCard = isChange ? null : packReviewCard(item.payload);
+  const ReviewCard = showsChange ? null : packReviewCard(item.payload);
   const facts =
-    isChange || ReviewCard
+    showsChange || ReviewCard
       ? []
       : (suggestionFacts(item.payload, i18n) ??
         // v0.12 W2-D: a change Sloan drafted, as its now and after lines.
@@ -484,7 +493,7 @@ export function InboxCard({
         ) : null}
       </div>
 
-      {isChange ? (
+      {showsChange ? (
         <>
           <ChangeTables
             before={item.payload.before}

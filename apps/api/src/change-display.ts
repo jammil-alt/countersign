@@ -33,9 +33,16 @@ interface ItemLike {
   payload: unknown;
 }
 
-/** An inbox item's view: external actions only. */
+/**
+ * An inbox item's view: an external action's, and a test run's approval of one (which carries the
+ * same tool, input and before, and writes nothing).
+ */
+// Staging, 2026-11-28: a test's approval card showed only "Not written: true", so the person was
+// asked to approve a change they couldn't see.
 export function itemDisplay(platform: Registries, item: ItemLike): ChangeDisplayView | null {
-  if (item.kind !== "external_action" || !isPlainObject(item.payload)) return null;
+  if (!isPlainObject(item.payload)) return null;
+  const testChange = item.kind === "approval" && item.payload.testRun === true;
+  if (item.kind !== "external_action" && !testChange) return null;
   return changeDisplay(platform, item.payload.tool);
 }
 
