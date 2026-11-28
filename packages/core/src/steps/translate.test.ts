@@ -56,6 +56,54 @@ describe("workOutTranslation", () => {
     expect(w.fields[0]?.from).toBe("Read the invoice › currency");
   });
 
+  // Staging, 2026-11-27: a customer search's optional `name` was filled from the sender's name on
+  // every load, so the search only ever found customers named after the employee.
+  it("leaves an optional field as the person left it, even with a same-named source", () => {
+    const w = workOutTranslation({
+      needs: [f("documentId", "record"), f("memo", "text", false)],
+      sources: [trigger],
+    });
+    expect(w.input).toEqual({ documentId: "{{trigger.documentId}}" });
+    expect(w.fields.map((x) => [x.name, x.state])).toEqual([
+      ["documentId", "fits"],
+      ["memo", "empty"],
+    ]);
+    // Set by the person, it stays.
+    const kept = workOutTranslation({
+      needs: [f("memo", "text", false)],
+      sources: [trigger],
+      input: { memo: "{{trigger.memo}}" },
+    });
+    expect(kept.input).toEqual({ memo: "{{trigger.memo}}" });
+  });
+
+  // Staging, 2026-11-28: "Read the invoice" read `{{trigger.documents.0}}`, an email's first
+  // attachment; the builder dropped it as a field the trigger doesn't hand on.
+  it("keeps a reference to a list's item by its position, and to a field of it", () => {
+    const mail: TranslateSource = {
+      ref: "trigger",
+      label: "Trigger",
+      fields: [f("documents", "list"), f("lines", "list", true, [f("qty", "number")])],
+    };
+    const w = workOutTranslation({
+      needs: [f("documentId", "text"), f("qty", "number")],
+      sources: [mail],
+      input: { documentId: "{{trigger.documents.0}}", qty: "{{trigger.lines.1.qty}}" },
+    });
+    expect(w.input).toEqual({
+      documentId: "{{trigger.documents.0}}",
+      qty: "{{trigger.lines.1.qty}}",
+    });
+    expect(w.state).toBe("fits");
+    // A field the item doesn't have is still worked out again.
+    const gone = workOutTranslation({
+      needs: [f("qty", "number")],
+      sources: [mail],
+      input: { qty: "{{trigger.lines.0.nope}}" },
+    });
+    expect(gone.input.qty).not.toBe("{{trigger.lines.0.nope}}");
+  });
+
   it("translates renames, money and lists, and brings the source in under a `_` key", () => {
     const w = workOutTranslation({
       needs: [
@@ -169,6 +217,21 @@ describe("translateStep and the publish check", () => {
   it("returns the same step when nothing changes", () => {
     const first = translateStep(step, needs, [read]).step;
     expect(translateStep(first, needs, [read]).step).toBe(first);
+  });
+
+  // Staging, 2026-11-28: the builder dropped a SKU match's `items` on load.
+  it("leaves a Match given a list as it is: its fields are each item's", () => {
+    const match = DoStep.parse({
+      id: "skus",
+      kind: "do",
+      name: "Match the lines by SKU",
+      doneBy: "rules",
+      uses: { type: "match", match: { to: "vendor-items", type: "exact" } },
+      input: { items: "{{steps.read-1.output.lines}}", vendorId: "{{trigger.documentId}}" },
+    });
+    const out = translateStep(match, [f("vendorId", "record"), f("sku", "text")], [read, trigger]);
+    expect(out.step).toBe(match);
+    expect(out.worked.state).toBe("fits");
   });
 
   it("feeds validateWorkflow: only Doesn't fit is an input_missing issue", () => {

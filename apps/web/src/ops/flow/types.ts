@@ -140,4 +140,9 @@ export interface ChartProps extends ChartEvents {
   };
   /** Read only: no +, no dragging (an older version, the merge screen). */
   readOnly?: boolean;
+  /**
+   * Owner, 2026-11-27: the words of a step's supervisor mark (the agent's owner checks it after it
+   * succeeds), or null for none. Absent: no marks.
+   */
+  supervisor?: ((stepId: string) => string | null) | undefined;
 }

@@ -29,6 +29,7 @@ import {
   type OversightStore,
   overseeStep,
   ownerHistory,
+  runPlan,
   WATCH_PREAMBLE,
 } from "./oversee";
 
@@ -282,6 +283,78 @@ describe("the owner reviews v4 steps", () => {
     expect(String(sent?.system)).toContain(CHECKPOINT_PREAMBLE);
     expect(String(sent?.system)).not.toContain(WATCH_PREAMBLE);
     expect(readStep(sent)).not.toHaveProperty("signals");
+  });
+});
+
+// Owner, 2026-11-27: "it should be more goal oriented… understand the goal of the full run".
+describe("the run's goal and plan in a review", () => {
+  const wf = {
+    schemaVersion: 5,
+    triggers: [{ id: "t", on: { type: "manual", input: {} } }],
+    outputs: [
+      { id: "o", name: "Receipts booked", about: "each receipt as an expense", kind: "nothing" },
+    ],
+    steps: [
+      {
+        id: "s_code",
+        kind: "do",
+        name: "Code each receipt",
+        doneBy: "rules",
+        uses: { type: "action", action: "testkit.thing.read" },
+        purpose: "Chooses the account and project for each receipt.",
+      },
+      { id: "s_end", kind: "end", name: "Done", outputs: ["o"] },
+    ],
+  };
+
+  it("lists what the run delivers and every step with its purpose, this one marked", () => {
+    const plan = runPlan(
+      { workflows: [{ slug: "wf", name: "Book receipts", workflow: wf }] } as never,
+      "wf",
+      "s_code",
+    );
+    expect(plan).toContain('This run is the workflow "Book receipts".');
+    expect(plan).toContain(
+      "It is done when it delivers: Receipts booked: each receipt as an expense.",
+    );
+    expect(plan).toContain(
+      "- Code each receipt: Chooses the account and project for each receipt.  ← the step you are reviewing",
+    );
+    expect(plan).toContain("- Done");
+    // Not a step-model workflow: nothing to show.
+    expect(runPlan({ workflows: [] } as never, "wf", "s_code")).toBeNull();
+  });
+
+  it("puts the plan and the step's purpose in the review's instructions, and judges by the goal", async () => {
+    const model = new FakeModel([finish({ action: "continue", note: "Right.", sources: [] })]);
+    const d = deps(model);
+    const base = (
+      d.ports.store as unknown as {
+        loadAgentVersion: () => Promise<{ bundle: Record<string, unknown> }>;
+      }
+    ).loadAgentVersion;
+    (d.ports.store as { loadAgentVersion: unknown }).loadAgentVersion = async () => {
+      const { bundle } = await base();
+      return {
+        bundle: { ...bundle, workflows: [{ slug: "wf", name: "Book receipts", workflow: wf }] },
+      };
+    };
+    const { s } = store();
+    await overseeStep(
+      d,
+      s,
+      request({ ...fix, id: "s_code" } as OwnerWatchedStep, {
+        cause: "checkpoint",
+        error: "",
+        errorKey: "",
+        output: { count: 0 },
+      }),
+    );
+    const system = String(model.requests[0]?.system);
+    expect(system).toContain("## The run's goal and plan");
+    expect(system).toContain("← the step you are reviewing");
+    expect(system).toContain("What it is for: Chooses the account and project for each receipt.");
+    expect(system).toContain("leaves the goal out of reach");
   });
 });
 

@@ -116,7 +116,11 @@ export function useStepsCatalog(agentId: string): StepsCatalog {
   const uses = useMemo(
     () =>
       actions.data && builder.data
-        ? usesContextFrom({ actions: actions.data.groups, catalog: builder.data })
+        ? usesContextFrom({
+            actions: actions.data.groups,
+            catalog: builder.data,
+            profiles: builder.data.profiles ?? [],
+          })
         : usesContextFrom({ actions: [], catalog: { skills: [], automations: [] } }),
     [actions.data, builder.data],
   );

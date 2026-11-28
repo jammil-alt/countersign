@@ -5,7 +5,7 @@
 import { z } from "zod";
 import { deepEqual, isPlainObject } from "../json";
 import { EDITABLE_KINDS, type ToolDisplay } from "../schemas/tool-display";
-import type { PersonChoice } from "../schemas/workflow";
+import { type PersonChoice, PersonField } from "../schemas/workflow";
 
 // ── Undo window ──────────────────────────────────────────────────────────────────────────────────
 
@@ -172,6 +172,83 @@ export function choiceProblem(
 ): string | null {
   if (typeof answer === "string" && choices.some((c) => c.value === answer)) return null;
   return `answer with one of: ${choices.map((c) => c.value).join(", ")}`;
+}
+
+/** Reads the fields a person is asked for (an inbox item's `payload.fields`); unreadable is none. */
+export function readAnswerFields(value: unknown): PersonField[] | null {
+  const r = z.array(PersonField).min(1).safeParse(value);
+  return r.success ? r.data : null;
+}
+
+/**
+ * A person's answer as the fields they were asked for, each by its name (null where not given).
+ * A form answers with an object; a single value (a choice pressed, a reply typed on a screen that
+ * shows no form) fills the first field.
+ */
+export function answerFields(
+  fields: readonly Pick<PersonField, "name">[],
+  answer: unknown,
+): Record<string, unknown> {
+  const given: Record<string, unknown> = isPlainObject(answer)
+    ? answer
+    : fields[0] && answer !== undefined && answer !== null
+      ? { [fields[0].name]: answer }
+      : {};
+  return Object.fromEntries(fields.map((f) => [f.name, given[f.name] ?? null]));
+}
+
+const DECIMAL = /^-?\d+(\.\d{1,4})?$/;
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
+
+/** Why a value can't fill a field of this type (null: it can). */
+function fieldValueProblem(field: PersonField, value: unknown): string | null {
+  const what = field.about ?? field.name;
+  switch (field.type) {
+    case "text":
+      return typeof value === "string" ? null : `${what}: write it as text`;
+    case "number":
+      return typeof value === "number" && Number.isFinite(value) ? null : `${what}: give a number`;
+    case "money":
+      return typeof value === "string" && DECIMAL.test(value)
+        ? null
+        : `${what}: give an amount, like 125.00`;
+    case "date":
+      return typeof value === "string" && ISO_DATE.test(value)
+        ? null
+        : `${what}: give a date, like 2026-01-15`;
+    case "yes_no":
+      return typeof value === "boolean" ? null : `${what}: answer yes or no`;
+  }
+}
+
+/**
+ * What is wrong with an answer to a person's question (null: nothing): one of its choices when it
+ * has them, and, when it asks for fields, each required one given and each given one of its type.
+ * A single value answers the first field (a screen that shows no form); the rest stay empty.
+ */
+export function answerProblem(payload: unknown, answer: unknown): string | null {
+  const p = isPlainObject(payload) ? payload : {};
+  const choices = readChoices(p.choices);
+  const fields = readAnswerFields(p.fields);
+  if (!fields || !isPlainObject(answer)) return choices ? choiceProblem(choices, answer) : null;
+  const values = answerFields(fields, answer);
+  const first = fields[0];
+  if (choices && first) {
+    const problem = choiceProblem(choices, values[first.name]);
+    if (problem) return problem;
+  }
+  for (const f of fields) {
+    const v = values[f.name];
+    const empty = v === null || (typeof v === "string" && v.trim() === "");
+    if (empty) {
+      if (f.required) return `${f.about ?? f.name}: this is needed`;
+      continue;
+    }
+    if (choices && f === first) continue;
+    const problem = fieldValueProblem(f, v);
+    if (problem) return problem;
+  }
+  return null;
 }
 
 /** Reads stored choices (an inbox item's payload); anything unreadable is none. */

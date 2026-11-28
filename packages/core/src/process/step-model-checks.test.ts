@@ -4,7 +4,11 @@ import { describe, expect, it } from "vitest";
 import type { Step, Workflow } from "../steps/schema";
 import { stepModelSeatProblems } from "./seats";
 import { stepModelHandoffErrors } from "./step-model-handoff";
-import { stepModelFixedInputErrors, stepModelScheduleErrors } from "./step-model-publish";
+import {
+  stepModelFixedInputErrors,
+  stepModelFormErrors,
+  stepModelScheduleErrors,
+} from "./step-model-publish";
 import { stepModelRefErrors } from "./step-model-refs";
 
 const rules = (id: string, extra: Record<string, unknown> = {}) =>
@@ -152,6 +156,36 @@ describe("stepModelScheduleErrors", () => {
     expect(
       stepModelScheduleErrors(schedule("0 7 * * *", "Mars/Olympus")).map((e) => e.code),
     ).toEqual(["invalid_timezone"]);
+  });
+});
+
+describe("stepModelFormErrors", () => {
+  const fork = (name: string) =>
+    ({
+      id: "pick",
+      name: "pick",
+      kind: "fork",
+      paths: [{ id: "p1", name, when: { match: "all", rules: [] }, steps: [] }],
+      otherwise: { id: "p_else", steps: [] },
+    }) as unknown as Step;
+  const forEach = (over: string) =>
+    ({
+      id: "each",
+      name: "each",
+      kind: "for_each",
+      over,
+      concurrency: 1,
+      steps: [rules("inner")],
+    }) as unknown as Step;
+
+  it("holds a Fork's unnamed path and a For each with no list, at any depth", () => {
+    expect(stepModelFormErrors(wf([fork("Big orders"), forEach("{{trigger.lines}}")]))).toEqual([]);
+    expect(
+      stepModelFormErrors(wf([fork(" "), forEach("")])).map((e) => [e.stepId, e.code, e.field]),
+    ).toEqual([
+      ["pick", "fork_path_unnamed", "paths.0.name"],
+      ["each", "for_each_list_missing", "over"],
+    ]);
   });
 });
 

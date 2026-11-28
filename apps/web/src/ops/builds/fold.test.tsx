@@ -100,7 +100,7 @@ describe("a long list", () => {
 
 describe("a working button", () => {
   it("is off, busy and marked to move while its action runs", () => {
-    render(<Button working>Move to the POC test</Button>);
+    render(<Button working>Publish</Button>);
     const b = screen.getByRole("button");
     expect((b as HTMLButtonElement).disabled).toBe(true);
     expect(b.getAttribute("aria-busy")).toBe("true");
@@ -108,7 +108,7 @@ describe("a working button", () => {
   });
 
   it("is a plain button otherwise", () => {
-    render(<Button>Move to the POC test</Button>);
+    render(<Button>Publish</Button>);
     const b = screen.getByRole("button");
     expect(b.getAttribute("aria-busy")).toBeNull();
     expect(b.className).not.toContain("ui-btn--working");

@@ -138,7 +138,10 @@ export function loadStepModel(
   // the publish checks runs. Structural checks only: what needs the registries was checked at
   // publish, against the catalog of that day.
   // DECISION: refused at load, before any step runs, naming the first problem.
-  const problems = steps.validateWorkflow(wf);
+  // DECISION (wiring checks, 2026-11-28): not the wiring between steps: that is checked at publish
+  // against the registries, and a version published before it was checked still loads; what it
+  // can't read fails its step, and the safe conversions are made where its input is resolved.
+  const problems = steps.validateWorkflow(wf, { wiring: false });
   const first = problems[0];
   if (first) {
     throw new ProcessLoadError(
@@ -379,6 +382,11 @@ function loadDo(
         channel: p.channel,
         onReject: p.onReject,
         ...(p.choices ? { choices: p.choices } : {}),
+        // Owner, 2026-11-28: the output fields it lists are what the person is asked for, each
+        // handed on by its name.
+        ...(step.output && step.output.length > 0
+          ? { fields: steps.personFields(step.output) }
+          : {}),
       } as processes.Step;
     }
     case "collect": {
@@ -397,10 +405,7 @@ function loadDo(
       if (!c) throw new ProcessLoadError(`step ${step.id}: nobody is contacted`);
       // What it must find out: its output fields, `?` for optional (the converter's reading).
       const find = Object.fromEntries(
-        (step.output ?? []).map((f) => [
-          f.name,
-          `${f.about ?? f.type}${f.required ? "" : "?"}`.replace(/\?\?$/, "?"),
-        ]),
+        (step.output ?? []).map((f) => [f.name, `${findType(f)}${f.required ? "" : "?"}`]),
       );
       return {
         ...base,
@@ -419,6 +424,31 @@ function loadDo(
       return { ...base, kind: "process", process: engine.automation, input } as processes.Step;
     case "missing":
       return { ...base, kind: "missing", need: engine.need } as processes.Step;
+  }
+}
+
+/**
+ * A Contact step's output field as the conversation's `find` reads it (core `FIND_TYPES`). A field's
+ * `about` is what it means, never its type (staging, 2026-11-27: "What the employee said, in plain
+ * words" was read as one, and the conversation couldn't start). A record is named as the person
+ * names it; a list is a list of plain words; a group is said in words.
+ */
+export function findType(f: steps.Field): string {
+  switch (f.type) {
+    case "text":
+    case "number":
+    case "money":
+    case "date":
+    case "yes_no":
+      return f.type;
+    case "record":
+      return f.record && /^[a-z][a-z0-9_]*(?:\.[a-z][a-z0-9_]*)*$/.test(f.record)
+        ? f.record
+        : "text";
+    case "list":
+      return "text[]";
+    case "group":
+      return "text";
   }
 }
 

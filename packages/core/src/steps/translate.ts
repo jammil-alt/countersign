@@ -116,6 +116,36 @@ function paths(fields: readonly Field[], base: string, out: Map<string, Field>, 
   }
 }
 
+/**
+ * The field a reference reads, a list's item by its position included (`trigger.documents.0`, the
+ * first document; `….lines.0.qty`): a list of plain values gives a text item, a list of records
+ * the record or one of its fields. Undefined when the source doesn't hand it on.
+ */
+// Staging, 2026-11-28: "Read the invoice" read `{{trigger.documents.0}}`, the email's first
+// attachment; the builder took it for a field the trigger no longer hands on, dropped it and said
+// "nothing gives documentId", though the run reads it.
+export function fieldAt(known: ReadonlyMap<string, Field>, ref: string): Field | undefined {
+  const hit = known.get(ref);
+  if (hit) return hit;
+  const parts = ref.split(".");
+  for (let i = 1; i < parts.length; i++) {
+    if (!/^\d+$/.test(parts[i] as string)) continue;
+    const list = known.get(parts.slice(0, i).join("."));
+    if (list?.type !== "list") return undefined;
+    const rest = parts.slice(i + 1);
+    const of = list.of ?? [];
+    if (rest.length === 0) {
+      return of.length > 0
+        ? { name: list.name, type: "group", required: list.required, of }
+        : { name: list.name, type: "text", required: list.required };
+    }
+    const inner = new Map<string, Field>();
+    paths(of, "", inner);
+    return inner.get(rest.join("."));
+  }
+  return undefined;
+}
+
 const WHOLE_REF = /^\{\{\s*([A-Za-z0-9_.-]+)\s*\}\}$/;
 
 /** The reference a value is when it is nothing but one (`{{steps.x.output.a}}` → `steps.x.output.a`). */
@@ -245,7 +275,7 @@ export function workOutTranslation(options: {
       set.set(f.name, { ...base(f), state: "fits", how: "fixed", from: "a fixed value" });
       continue;
     }
-    const field = known.get(ref);
+    const field = fieldAt(known, ref);
     const root = [...roots].find((r) => ref === r || ref.startsWith(`${r}.`));
     // A reference into a source that no longer hands that field on is worked out again; one to
     // something this step can't see from here (a For each's item) is the person's and stays.
@@ -260,7 +290,12 @@ export function workOutTranslation(options: {
   }
 
   // 2. The rest: Reshape's proposal, keeping the current translation where it still type-checks.
-  const rest = needs.filter((f) => !set.has(f.name));
+  // Only required fields are worked out unasked; an optional one stays as the person left it
+  // (staging, 2026-11-27: a QuickBooks customer search's optional `name` was filled from the
+  // message's sender on every load, so the project list only ever held customers named after the
+  // employee, and taking it out never stuck). One the current translation already maps is kept.
+  const mappedBefore = new Set((options.translation?.fields ?? []).map((m) => m.name));
+  const rest = needs.filter((f) => !set.has(f.name) && (f.required || mappedBefore.has(f.name)));
   const fields: FieldSource[] = [];
   const mapped: ReshapeField[] = [];
   if (rest.length > 0) {
@@ -398,8 +433,13 @@ export function translateStep(
   needs: readonly Field[],
   sources: readonly TranslateSource[],
 ): { step: DoStep; worked: WorkedOut } {
+  // A Match given a list (`items`) matches each item: the profile's fields are the items' own (or
+  // given beside the list), never this step's input to work out, and the list stays as it is
+  // (staging, 2026-11-28: the builder dropped a SKU match's `items` on load, then said "nothing
+  // gives sku").
+  const perItem = step.uses?.type === "match" && step.input.items !== undefined;
   const worked = workOutTranslation({
-    needs,
+    needs: perItem ? [] : needs,
     sources,
     input: step.input,
     translation: step.translation,

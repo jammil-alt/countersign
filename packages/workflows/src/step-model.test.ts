@@ -338,6 +338,64 @@ describe("a v5 workflow's Do steps", () => {
   });
 });
 
+// Owner, 2026-11-28: a person step asks for the fields it lists and hands each on by its name.
+describe("a v5 person step's fields", () => {
+  const ask = {
+    id: "s_ask",
+    kind: "do",
+    name: "Ask the bookkeeper",
+    doneBy: "person",
+    output: [
+      { name: "choice", type: "text", required: true },
+      { name: "note", type: "text", required: false },
+    ],
+    person: {
+      mode: "ask",
+      who: "client_admin",
+      question: "Book {{trigger.id}} by hand?",
+      choices: [
+        { value: "booked_by_hand", label: "I booked it by hand" },
+        { value: "missing", label: "Something is missing" },
+      ],
+      deadline: { after: "1 day" },
+    },
+  };
+  const after = {
+    ...read,
+    id: "s_after",
+    name: "After",
+    input: { choice: "{{steps.s_ask.output.choice}}", note: "{{steps.s_ask.output.note}}" },
+  };
+
+  for (const [given, choice, note] of [
+    [{ choice: "missing", note: "No job named" }, "missing", "No job named"],
+    ["missing", "missing", null],
+  ] as const) {
+    it(`asks for them and hands on ${typeof given === "string" ? "a single answer as the first" : "a form's by name"}`, async () => {
+      const h = new Harness();
+      const runner = new FakeStepRunner({ onWait: "block" });
+      runner.onWaitStarted = (_n, type) => runner.deliver(type, { answer: given, by: "u-1" });
+      h.handlers.s_after = () => ({ kind: "done", output: {} });
+      const result = await executeWorkflow(
+        runner,
+        h.context({ catalog: CATALOG }),
+        wf([ask, after, end()]),
+        { id: "7" },
+      );
+      expect(result.status).toBe("succeeded");
+      const asked = [...h.items.values()][0]?.item;
+      expect(asked?.step.fields).toEqual([
+        { name: "choice", type: "text", required: true },
+        { name: "note", type: "text", required: false },
+      ]);
+      expect(h.row("s_ask")?.output).toMatchObject({ choice, note, approved: true, by: "u-1" });
+      expect(h.agentCalls.at(-1)?.input).toEqual(
+        note === null ? { choice, note: null } : { choice, note },
+      );
+    });
+  }
+});
+
 describe("a v5 Do step's incoming side (stream G)", () => {
   const needs = [
     { name: "vendorName", type: "text" as const, required: true },
@@ -394,6 +452,93 @@ describe("a v5 Do step's incoming side (stream G)", () => {
     expect(h.agentCalls).toHaveLength(1);
   });
 
+  // Staging, 2026-11-27: "Check the items" ran with its vendor empty and failed on the tool's own
+  // "expected string, received undefined", three steps from the cause.
+  it("fails a step whose required input came from a reference that gave nothing, naming it", async () => {
+    const h = new Harness();
+    const needsId = {
+      ...TOOLS["testkit.thing.read"],
+      input: { type: "object", properties: { id: { type: "string" } }, required: ["id"] },
+    } as ToolSpec;
+    h.handlers.s_read = () => ({ kind: "done", output: { items: [] } });
+    const next = {
+      ...read,
+      id: "s_next",
+      name: "Check the items",
+      input: { id: "{{steps.s_read.output.items.0.matched}}" },
+    };
+    const catalog = { ...CATALOG, tools: { ...TOOLS, "testkit.thing.read": needsId } };
+    const { result } = await run(h, wf([read, next, end()]), { id: "7" }, { catalog });
+    expect(result.status).toBe("failed");
+    expect(result.nodeId).toBe("s_next");
+    expect(result.reason).toContain(
+      `"Check the items" can't run: id is empty. It comes from {{steps.s_read.output.items.0.matched}} ("Read the thing"), which gave nothing there.`,
+    );
+    expect(h.agentCalls).toHaveLength(1);
+    // An empty text is a value, not nothing.
+    const h2 = new Harness();
+    h2.handlers.s_read = () => ({ kind: "done", output: { items: [{ matched: "" }] } });
+    h2.handlers.s_next = () => ({ kind: "done", output: {} });
+    const ok = await run(h2, wf([read, next, end()]), { id: "7" }, { catalog });
+    expect(ok.result.status).toBe("succeeded");
+  });
+
+  // Staging, 2026-11-28: an AI step's money reached qbo.purchase.create as `{ amount, currency }`.
+  it("hands an action money as its amount and a number as a decimal, as the publish checks allow", async () => {
+    const h = new Harness();
+    const money = (amount: string, currency = "USD") => ({ amount, currency });
+    h.handlers.s_read = () => ({
+      kind: "done",
+      output: { total: money("41.54"), lines: [{ amount: money("41.54"), qty: 2 }] },
+    });
+    const decimal = { type: "string" };
+    const create = tool("qbo.purchase.create", "external", "qbo", {
+      input: {
+        type: "object",
+        properties: {
+          expectedTotal: decimal,
+          lines: {
+            type: "array",
+            items: { type: "object", properties: { amount: decimal, qty: { type: "number" } } },
+          },
+          memo: decimal,
+        },
+      },
+    });
+    const book = {
+      id: "s_book",
+      kind: "do",
+      name: "Book it",
+      doneBy: "rules",
+      uses: { type: "action", action: "qbo.purchase.create" },
+      checks: { approval: { required: "not_required" } },
+      input: {
+        expectedTotal: "{{steps.s_read.output.total}}",
+        lines: "{{steps.s_read.output.lines}}",
+        memo: "{{steps.s_read.output.lines.0.qty}}",
+      },
+    };
+    const catalog = { ...CATALOG, tools: { ...TOOLS, [create.id]: create } };
+    await run(h, wf([read, book, end()]), { id: "7" }, { catalog });
+    expect(h.agentCalls[1]?.input).toEqual({
+      expectedTotal: "41.54",
+      lines: [{ amount: "41.54", qty: 2 }],
+      memo: "2",
+    });
+
+    // Amounts in two currencies are never made into bare decimals: the step fails, saying so.
+    const mixed = new Harness();
+    mixed.handlers.s_read = () => ({
+      kind: "done",
+      output: { total: money("1.00"), lines: [{ amount: money("1.00", "EUR") }] },
+    });
+    const { result } = await run(mixed, wf([read, book, end()]), { id: "7" }, { catalog });
+    expect(result).toMatchObject({ status: "failed", nodeId: "s_book" });
+    expect(result.reason).toContain(
+      `what comes into "Book it" can't be used: its amounts are in USD and EUR`,
+    );
+  });
+
   it("never hands a source key to an engine, with or without a translation", async () => {
     const h = new Harness();
     const plain = { ...read, id: "s_two", input: { id: "1", _s_read: "{{trigger}}" } };
@@ -426,6 +571,88 @@ describe("a v5 Fork, For each and outcomes", () => {
     const { result } = await run(h, wf([read, fork, end()]));
     expect(result).toMatchObject({ status: "succeeded", nodeId: "s_end_empty" });
     expect(steps.ENGINE_OUTCOMES.read).toBe("read");
+  });
+
+  // Owner, 2026-11-27: the employee asked inside a path, the answer read by the coding after it.
+  it("hands on what the path's last step gave, and nothing else from inside it", async () => {
+    const h = new Harness();
+    h.handlers.s_read = () => ({ kind: "done", output: { needs: true } });
+    h.handlers.s_first = () => ({ kind: "done", output: { secret: "inner" } });
+    h.handlers.s_ask = () => ({ kind: "done", output: { answers: "Hall job, company card" } });
+    h.handlers.s_use = () => ({ kind: "done", output: {} });
+    const inPath = (id: string) => ({ ...read, id, name: id, input: { id: "x" } });
+    const fork = {
+      id: "s_fork",
+      kind: "fork",
+      name: "Ask?",
+      paths: [
+        {
+          id: "p_ask",
+          name: "Ask",
+          when: {
+            match: "all",
+            rules: [{ field: "{{steps.s_read.output.needs}}", op: "=", value: true }],
+          },
+          steps: [inPath("s_first"), inPath("s_ask")],
+        },
+      ],
+      otherwise: { id: "p_else", steps: [] },
+    };
+    const use = {
+      ...read,
+      id: "s_use",
+      name: "Use the answers",
+      input: {
+        id: "{{steps.s_fork.output.answers}}",
+        path: "{{steps.s_fork.output.pathName}}",
+        inner: "{{steps.s_fork.output.secret}}",
+      },
+    };
+    const { result } = await run(h, wf([read, fork, use, end()]));
+    expect(result.status).toBe("succeeded");
+    expect(h.agentCalls.find((c) => c.step.id === "s_use")?.input).toEqual({
+      id: "Hall job, company card",
+      path: "Ask",
+    });
+
+    // The other way: nothing asked, so nothing handed on but the path.
+    const h2 = new Harness();
+    h2.handlers.s_read = () => ({ kind: "done", output: { needs: false } });
+    h2.handlers.s_use = () => ({ kind: "done", output: {} });
+    await run(h2, wf([read, fork, use, end()]));
+    expect(h2.agentCalls.find((c) => c.step.id === "s_use")?.input).toEqual({
+      path: "Otherwise",
+    });
+  });
+
+  // Staging, 2026-11-27: "Read each receipt" handed on only its count, so the step after it
+  // never saw what was read.
+  it("hands on each item's last result, in order, and keeps them on its row", async () => {
+    const h = new Harness();
+    h.handlers.s_read = (req) => ({
+      kind: "done",
+      output: { total: (req.input as { id: string }).id === "a" ? "93.00" : "54.52" },
+    });
+    h.handlers.s_use = () => ({ kind: "done", output: {} });
+    const each = {
+      id: "s_each",
+      kind: "for_each",
+      name: "Each receipt",
+      over: "{{trigger.lines}}",
+      concurrency: 2,
+      steps: [{ ...read, input: { id: "{{item.id}}" } }],
+    };
+    const use = {
+      ...read,
+      id: "s_use",
+      name: "Use",
+      input: { id: "{{steps.s_each.output.items}}" },
+    };
+    const { result } = await run(h, wf([each, use, end()]), { lines: [{ id: "a" }, { id: "b" }] });
+    expect(result.status).toBe("succeeded");
+    const items = [{ total: "93.00" }, { total: "54.52" }];
+    expect(h.agentCalls.find((c) => c.step.id === "s_use")?.input).toEqual({ id: items });
+    expect(h.row("s_each")?.output).toEqual({ count: 2, items });
   });
 
   it("runs a For each's Do steps once per item, named by the loop", async () => {
@@ -849,6 +1076,46 @@ describe("loading a v5 workflow", () => {
     };
     const loaded = loadStepModel(wf([ai, end()]), () => undefined);
     expect(loaded.process.steps[0]).toMatchObject({ kind: "skill", agent: "reader" });
+  });
+
+  // Staging, 2026-11-27: a Contact step's field with an `about` couldn't start its conversation.
+  it("asks a Contact step's output fields by their types, never by what they mean", () => {
+    const contact = {
+      id: "s_ask",
+      kind: "do",
+      name: "Ask the employee",
+      doneBy: "contact",
+      contact: {
+        with: "{{trigger.contactId}}",
+        channel: "email",
+        goal: "Get the project each receipt is for.",
+        maxTurns: 4,
+        mayShare: [],
+        messages: { first: "required", later: "required" },
+        deadline: { after: "2 days", hours: "business", ifNoAnswer: "stop" },
+      },
+      output: [
+        { name: "answers", type: "text", required: true, about: "What they said, in plain words" },
+        { name: "total", type: "money", required: false },
+        { name: "vendor", type: "record", record: "vendor", required: true },
+        {
+          name: "lines",
+          type: "list",
+          of: [{ name: "x", type: "text", required: true }],
+          required: false,
+        },
+      ],
+    };
+    const loaded = loadStepModel(wf([contact, end()]), () => undefined);
+    expect(loaded.process.steps[0]).toMatchObject({
+      kind: "conversation",
+      find: { answers: "text", total: "money?", vendor: "vendor", lines: "text[]?" },
+    });
+    for (const spec of Object.values(
+      (loaded.process.steps[0] as { find: Record<string, string> }).find,
+    )) {
+      expect(spec).not.toContain(" ");
+    }
   });
 
   it("keeps every id, so durable names and hand-offs are a v4 step's", () => {

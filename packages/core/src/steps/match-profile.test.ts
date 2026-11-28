@@ -86,4 +86,38 @@ describe("match profiles", () => {
       ["n", "unknown_profile"],
     ]);
   });
+
+  // Staging, 2026-11-28: a SKU match on an invoice's lines read "nothing gives sku": a Match given
+  // a list matches each item, so the profile's fields are the items' (or given beside the list).
+  it("asks for the profile's fields one by one, but not beside a list of items", () => {
+    const step = (input: Record<string, string>) =>
+      Workflow.parse({
+        schemaVersion: 5,
+        triggers: [{ id: "t", on: { type: "manual", input: { type: "object", properties: {} } } }],
+        outputs: [{ id: "o", name: "Done", kind: "nothing" }],
+        steps: [
+          {
+            id: "m",
+            kind: "do",
+            name: "Match lines",
+            doneBy: "rules",
+            uses: { type: "match", match: { to: "vendor-items", type: "exact", keys: ["sku"] } },
+            input,
+          },
+          { id: "e", kind: "end", name: "End", outputs: ["o"] },
+        ],
+      });
+    const ctx = {
+      profile: (id: string) => (id === "vendor-items" ? vendorItems : undefined),
+      requiredInput: () => ["vendorId", "sku"],
+    };
+    const missing = (input: Record<string, string>) =>
+      validateWorkflow(step(input), ctx)
+        .filter((i) => i.code === "input_missing")
+        .map((i) => i.message);
+    expect(missing({ vendorId: "{{trigger.vendorId}}" })).toEqual([
+      'Doesn\'t fit: nothing gives "sku", which this step needs.',
+    ]);
+    expect(missing({ items: "{{trigger.lines}}", vendorId: "{{trigger.vendorId}}" })).toEqual([]);
+  });
 });

@@ -2,6 +2,8 @@
 // §13a): it opens a `schemaVersion: 5` workflow in the same chart and panel, shows what stops
 // Publish on the steps in plain words and refuses while any remain, adds a step from the palette of
 // eight kinds, and fills an End from the workflow's outputs.
+
+import { steps } from "@countersign/core";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes, useParams } from "react-router-dom";
@@ -9,7 +11,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import type { AgentSummary, VersionDetail } from "../../../api/routes";
 import { ApiProvider } from "../../../api/useApi";
 import { rootOrder } from "../../../test/chart";
-import { fakeApi } from "../../../test/fixtures";
+import { fakeApi, Reply } from "../../../test/fixtures";
 import StepsBuilder from "./StepsBuilder";
 
 const AGENT_ID = "00000000-0000-4000-8000-00000000d501";
@@ -85,7 +87,7 @@ const workflow = (over: Record<string, unknown> = {}) => ({
   ...over,
 });
 
-function bundle(w: unknown) {
+function bundle(w: unknown, oversight?: unknown) {
   return {
     schemaVersion: 1,
     definition: {
@@ -97,16 +99,49 @@ function bundle(w: unknown) {
       skills: [],
       extraTools: [],
       permissions: { mode: "suggest_only" },
+      ...(oversight ? { oversight } : {}),
     },
     workflows: [{ slug: "main", name: "Main", workflow: w }],
   };
 }
 
-function setup(w: unknown, more: Parameters<typeof fakeApi>[0] = {}) {
+/**
+ * The server's check of a draft, as `opsWorkflowCheck` answers it: core's step check with what the
+ * server knows of the one action here (it needs `vendorId`), as bundle errors.
+ */
+function serverCheck(body: { slug: string; workflow: unknown }) {
+  const w = steps.Workflow.parse(body.workflow);
+  const issues = steps.validateWorkflow(w, {
+    sideEffect: (a) => (a === "qbo.bill.create" ? "external" : undefined),
+    requiredInput: (u) =>
+      u.type === "action" && u.action === "qbo.bill.create" ? ["vendorId"] : undefined,
+  });
+  return {
+    errors: issues.map((i) => ({
+      stepId: i.at ?? null,
+      field: "",
+      code: "step_model",
+      stepCode: i.code,
+      message: i.message,
+      workflow: body.slug,
+    })),
+  };
+}
+
+const CHECK = `POST /api/ops/agents/${AGENT_ID}/workflow-check`;
+
+function setup(w: unknown, more: Parameters<typeof fakeApi>[0] = {}, oversight?: unknown) {
   const sent: Record<string, unknown>[] = [];
   const stored: Record<string, unknown>[] = [];
+  const checked: { slug: string; workflow: unknown; parentVersionId?: string }[] = [];
+  const { [CHECK]: answer, ...rest } = more;
   const api = fakeApi({
-    ...more,
+    ...rest,
+    [CHECK]: (req) => {
+      const body = JSON.parse(String(req.init.body));
+      checked.push(body);
+      return answer ? answer(req) : serverCheck(body);
+    },
     [`GET /api/ops/agents/${AGENT_ID}/action-catalog`]: () => ACTIONS,
     [`GET /api/ops/agents/${AGENT_ID}/builder-catalog`]: () => ({
       skills: [],
@@ -157,7 +192,7 @@ function setup(w: unknown, more: Parameters<typeof fakeApi>[0] = {}) {
     agentId: AGENT_ID,
     version: 1,
     status: "draft",
-    bundle: bundle(w),
+    bundle: bundle(w, oversight),
     createdAt: at,
   } as unknown as VersionDetail;
   function Page() {
@@ -184,7 +219,7 @@ function setup(w: unknown, more: Parameters<typeof fakeApi>[0] = {}) {
       </MemoryRouter>
     </ApiProvider>,
   );
-  return { sent, stored, user: userEvent.setup() };
+  return { sent, stored, checked, calls: api.calls, user: userEvent.setup() };
 }
 
 beforeEach(() => {
@@ -204,10 +239,106 @@ describe("the step-model builder", () => {
     expect(screen.getByTestId("flow-cap-end").textContent).toBe("Not filled in yet");
   });
 
+  // Staging, 2026-11-28: opening "Invoice price review" worked out a step's input, dropped it,
+  // marked the workflow Unsaved, and a Save stored the broken version.
+  it("opens a stored workflow as it is: nothing changes, nothing is Unsaved", async () => {
+    // "Read the bill" gives the vendorId "Enter the bill" needs: worked out, it would fill the input.
+    const read = {
+      id: "read",
+      kind: "do",
+      name: "Read the bill",
+      doneBy: "ai",
+      input: {},
+      ai: { text: "Read the bill." },
+      output: [{ name: "vendorId", type: "text", required: true }],
+    };
+    const w = workflow() as { steps: unknown[] };
+    const stored = { ...w, steps: [read, ...w.steps] };
+    const { user, sent, checked } = setup(stored);
+    await screen.findByTestId("flow-chart");
+    await waitFor(() => expect(checked.length).toBeGreaterThan(0));
+    // What is checked is what is stored, on the version it opened.
+    expect(checked[0]?.workflow).toEqual(stored);
+    expect(checked[0]).toMatchObject({ slug: "main", parentVersionId: V1 });
+    expect(screen.getByTestId("flow-bar-version")).toHaveTextContent("Draft · v1");
+    // Opening the step offers what it works out; the step stays as stored until asked.
+    await user.click(screen.getByTestId("flow-box-enter"));
+    expect(await screen.findByTestId("do-input-offer")).toBeTruthy();
+    expect(screen.getByTestId("flow-bar-version")).toHaveTextContent("Draft · v1");
+    expect(window.localStorage.length).toBe(0);
+    await user.keyboard("{Escape}");
+    expect(sent).toHaveLength(0);
+    // Asked, it fills the input in: that is the person's edit, and it is Unsaved.
+    await user.click(screen.getByTestId("flow-box-enter"));
+    await user.click(await screen.findByTestId("do-input-offer-apply"));
+    expect(screen.getByTestId("flow-bar-version")).toHaveTextContent("Unsaved");
+    expect(screen.queryByTestId("do-input-offer")).toBeNull();
+  });
+
+  it("shows the server's issues, not its own, and Try it follows them", async () => {
+    const errors = [
+      {
+        stepId: "enter",
+        field: "",
+        code: "step_model",
+        stepCode: "input_missing",
+        message: "The server's own words about this step.",
+        workflow: "main",
+      },
+      // Another workflow's issue isn't this one's.
+      {
+        stepId: "x",
+        field: "",
+        code: "step_model",
+        stepCode: "goal_missing",
+        message: "Another workflow's issue.",
+        workflow: "other",
+      },
+    ];
+    let answer: unknown[] = errors;
+    const { user } = setup(workflow(), { [CHECK]: () => ({ errors: answer }) });
+    const issues = await screen.findByTestId("publish-issues");
+    expect(within(issues).getByText("The server's own words about this step.")).toBeTruthy();
+    expect(within(issues).getAllByTestId("publish-issue")).toHaveLength(1);
+    // What the browser alone would have said (the End delivers nothing) isn't shown.
+    expect(within(issues).queryByText(/Pick what this End delivers/)).toBeNull();
+    expect(screen.getByTestId("flow-bar-try")).toBeDisabled();
+    // The server finds nothing after an edit: nothing stops Publish or Try it.
+    answer = [];
+    await user.click(screen.getByTestId("flow-box-enter"));
+    await user.type(await screen.findByRole("textbox", { name: "Goal" }), " now");
+    await waitFor(() => expect(screen.queryByTestId("publish-issues")).toBeNull());
+    expect(screen.getByTestId("flow-bar-try")).toBeEnabled();
+  });
+
+  it("checks the draft again a moment after an edit", async () => {
+    const { user, checked } = setup(workflow());
+    await screen.findByTestId("publish-issues");
+    const before = checked.length;
+    await user.click(screen.getByTestId("flow-box-enter"));
+    await user.type(await screen.findByRole("textbox", { name: "Goal" }), " now");
+    const lastName = () =>
+      (checked.at(-1)?.workflow as { steps: { name: string }[] } | undefined)?.steps[0]?.name;
+    await waitFor(() => expect(lastName()).toBe("Enter the bill now"));
+    // One check once the typing stops, not one per key.
+    expect(checked.length - before).toBeLessThan(4);
+  });
+
+  it("says quietly when the check fails, and Save still works", async () => {
+    const { user, sent } = setup(workflow(), {
+      [CHECK]: () => new Reply(500, { error: "internal", message: "down" }),
+    });
+    expect(await screen.findByTestId("steps-check-failed")).toBeTruthy();
+    await user.click(screen.getByTestId("flow-box-enter"));
+    await user.type(await screen.findByRole("textbox", { name: "Goal" }), " now");
+    await user.click(screen.getByTestId("flow-bar-save"));
+    await waitFor(() => expect(sent).toHaveLength(1));
+  });
+
   it("says what stops Publish on its steps, in words, and refuses while any remain", async () => {
     const { user, sent } = setup(workflow());
     await screen.findByTestId("flow-chart");
-    const issues = screen.getByTestId("publish-issues");
+    const issues = await screen.findByTestId("publish-issues");
     expect(within(issues).getByText(/Pick what this End delivers/)).toBeTruthy();
     expect(within(issues).getByText(/No End delivers "Bill entered"/)).toBeTruthy();
     expect(within(issues).getAllByText(/vendorId/).length).toBeGreaterThan(0);
@@ -448,6 +579,64 @@ describe("the step-model builder", () => {
     };
     expect(body.bundle.workflows[0]?.workflow.schemaVersion).toBe(5);
     expect(body.bundle.workflows[0]?.workflow.steps[0]?.name).toBe("Enter the bill now");
+  });
+
+  it("sets the supervisor from the bar, marks the steps it checks, and saves it with the draft", async () => {
+    const oversight = { review: "failures", verify: "writes", maxPerRun: 5, maxCostUsd: "0.25" };
+    const { user, sent } = setup(workflow(), {}, oversight);
+    await screen.findByTestId("flow-chart");
+    expect(screen.getByTestId("steps-supervisor-level")).toHaveTextContent("Review failures");
+    // Under failures, no step is checked after it succeeds.
+    expect(screen.queryByTestId("flow-supervisor-enter")).toBeNull();
+    await user.click(screen.getByTestId("steps-supervisor"));
+    const menu = screen.getByTestId("steps-supervisor-menu");
+    expect(menu.textContent).toContain("area's owner agent");
+    await user.click(within(menu).getByTestId("steps-supervisor-all"));
+    expect(screen.getByTestId("steps-supervisor-level")).toHaveTextContent("Review every step");
+    expect(screen.getByTestId("flow-supervisor-enter")).toHaveAttribute(
+      "title",
+      "Supervisor checks this step: it checks every step",
+    );
+    expect(screen.getByTestId("flow-bar-version")).toHaveTextContent("Unsaved");
+    await user.click(screen.getByTestId("flow-bar-save"));
+    await waitFor(() => expect(sent).toHaveLength(1));
+    const body = sent[0] as { bundle: { definition: { oversight: unknown } } };
+    expect(body.bundle.definition.oversight).toEqual({ ...oversight, review: "all" });
+    expect(screen.getByTestId("flow-bar-version")).toHaveTextContent("Draft · v2");
+  });
+
+  it("starts the supervisor from the new-agent default when none is saved", async () => {
+    const { user, sent } = setup(workflow());
+    await screen.findByTestId("flow-chart");
+    expect(screen.getByTestId("steps-supervisor-level")).toHaveTextContent("Review failures");
+    await user.click(screen.getByTestId("steps-supervisor"));
+    await user.click(screen.getByTestId("steps-supervisor-checkpoints"));
+    await user.click(screen.getByTestId("flow-bar-save"));
+    await waitFor(() => expect(sent).toHaveLength(1));
+    const body = sent[0] as { bundle: { definition: { oversight: Record<string, unknown> } } };
+    expect(body.bundle.definition.oversight).toMatchObject({
+      review: "checkpoints",
+      verify: "writes",
+    });
+  });
+
+  it("sets a step's own supervisor setting in its panel", async () => {
+    const { user, sent } = setup(workflow());
+    await screen.findByTestId("flow-chart");
+    await user.click(await screen.findByTestId("flow-box-enter"));
+    const field = await screen.findByTestId("step-supervisor");
+    expect(field).toHaveValue("auto");
+    await user.selectOptions(field, "always");
+    expect(screen.getByTestId("flow-supervisor-enter")).toHaveAttribute(
+      "title",
+      "Supervisor always checks this step",
+    );
+    await user.click(screen.getByTestId("flow-bar-save"));
+    await waitFor(() => expect(sent).toHaveLength(1));
+    const body = sent[0] as {
+      bundle: { workflows: { workflow: { steps: { review?: string }[] } }[] };
+    };
+    expect(body.bundle.workflows[0]?.workflow.steps[0]?.review).toBe("always");
   });
 
   it("stores rules written in a step behind it when the workflow is saved", async () => {

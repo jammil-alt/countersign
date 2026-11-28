@@ -13,6 +13,7 @@
 
 import {
   type Approval,
+  answerFields,
   automationSkillRef,
   collectRefs,
   DEFAULT_APPROVAL,
@@ -812,6 +813,14 @@ class Executor {
     return this.ctx.run.mode === "test";
   }
 
+  /**
+   * Owner, 2026-11-27: a test run with people in it ("Ask me"): its approvals wait for the test
+   * person's decision instead of reading as given. Its writes are still never made.
+   */
+  get testPeople(): boolean {
+    return this.testRun && this.ctx.run.testPeople !== undefined;
+  }
+
   /** The platform's words on the client timeline, in the client's language. */
   get words(): TimelineWords {
     return TIMELINE_WORDS[this.ctx.run.language ?? "en"];
@@ -1197,6 +1206,7 @@ class Executor {
       payload: unknown;
       mode?: "ask" | "approve";
       choices?: PersonStep["choices"];
+      fields?: PersonStep["fields"];
     },
   ): Asker {
     return async (b, who, deadline) => {
@@ -1211,6 +1221,7 @@ class Executor {
           after: d.after,
           ...(item.mode ? { mode: item.mode } : {}),
           ...(item.choices ? { choices: item.choices } : {}),
+          ...(item.fields ? { fields: item.fields } : {}),
         });
         const made = await this.ctx.inbox.createForPerson({
           run: this.ctx.run,
@@ -1290,8 +1301,10 @@ class Executor {
     // R3: a write that went ahead without an answer says so on its row.
     extra: Pick<StepRunUpdate, "proceededWithoutAnswer" | "externalActionId"> = {},
   ): Promise<StepOutcome> {
+    // A test run with people in it waits for the test person's decision; the port never makes
+    // the write once they approve (it comes back done, `notWritten`).
     const done: StepOutcome =
-      outcome.kind === "approval" && this.testRun
+      outcome.kind === "approval" && this.testRun && !this.testPeople
         ? { kind: "done", output: outcome.output ?? null, notWritten: true }
         : outcome;
     // Audit 4.4: an output too large to hand on fails the step on its one row, saying why.
@@ -1738,7 +1751,60 @@ class Executor {
         `what comes into "${v5.name}" can't be translated: ${problem.field}: ${problem.message}`,
       );
     }
-    return t.input;
+    this.requireFilled(v5, t.input);
+    return this.converted(v5, t.input);
+  }
+
+  /**
+   * The step model: a Do step's input in the form its action or skill takes, by the conversions
+   * the publish checks allow (`steps.fitShape`): money as its amount when the currencies agree, a
+   * number as a decimal string. One place, so publish and run agree; the connector's own money
+   * fallback (`moneyAsDecimals`) stays a last resort. A conversion that would lose an amount's
+   * currency fails the step, naming why.
+   */
+  converted(v5: steps.DoStep, input: Record<string, unknown>): Record<string, unknown> {
+    if (!v5.uses) return input;
+    const schema = processes.usesInputSchema(this.ctx.catalog ?? {}, v5.uses);
+    if (!schema) return input;
+    const c = steps.convertToShape(input, steps.schemaShape(schema));
+    const problem = c.problems[0];
+    if (problem) throw new Error(`what comes into "${v5.name}" can't be used: ${problem}`);
+    return c.value as Record<string, unknown>;
+  }
+
+  /**
+   * A v5 Do step's required input that came from another step or the trigger and arrived empty
+   * fails the step here, naming the field and where it should have come from, before the tool or
+   * skill refuses it in its own words (staging, 2026-11-27: "Check the items" failed on its tool's
+   * "vendorId: expected string, received undefined", three steps from the cause).
+   */
+  requireFilled(step: steps.DoStep, input: Record<string, unknown>) {
+    if (!step.uses) return;
+    const schema = processes.usesInputSchema(this.ctx.catalog ?? {}, step.uses);
+    const required = (schema as { required?: unknown } | undefined)?.required;
+    if (!Array.isArray(required)) return;
+    for (const field of required) {
+      if (typeof field !== "string") continue;
+      const value = input[field];
+      // DECISION (2026-11-28): only nothing at all (undefined, null) fails here; an empty text
+      // may be a real value (an email with no words), and the tool's own check still holds.
+      if (value !== undefined && value !== null) continue;
+      const raw = step.input[field];
+      const ref = typeof raw === "string" ? /^\{\{\s*([^{}]+?)\s*\}\}$/.exec(raw)?.[1] : undefined;
+      if (!ref) continue;
+      const [head, id] = ref.split(".");
+      const from =
+        head === "steps" && id !== undefined
+          ? `"${this.stepModel?.byId.get(id)?.name ?? id}"`
+          : head === "trigger"
+            ? "what started the run"
+            : head === "item"
+              ? "the item this step is working on"
+              : ref;
+      throw new Error(
+        `"${step.name}" can't run: ${field} is empty. It comes from {{${ref}}} (${from}), which gave nothing there.`,
+      );
+    }
   }
 
   /** A work step's input for an attempt: resolved, and as an action's tool takes it. */
@@ -2125,7 +2191,9 @@ class Executor {
     opts: WorkOptions,
   ): Promise<Decided> {
     const fallback = approval.timeout ?? this.ctx.approvalTimeout ?? DEFAULT_APPROVAL_TIMEOUT;
-    if (!opts.plan) {
+    // DECISION (owner, 2026-11-27): in a test run with people in it, the test person stands in for
+    // every approver the check names, so their one answer on the port's item decides.
+    if (!opts.plan || this.testPeople) {
       const resolution = await this.awaitResolution(base, pending.inboxItemId, fallback);
       // Wave 5: `unanswered` only says why (for the outcome); it decides as it always did.
       return resolution
@@ -3070,6 +3138,7 @@ class Executor {
         payload: resolveTemplate(step.payload, frame.scope),
         mode: step.mode,
         ...(step.choices ? { choices: step.choices } : {}),
+        ...(step.fields ? { fields: step.fields } : {}),
       });
       const end = await this.escalate(name, deadline.ifNoAnswer, ask);
       if ("resolution" in end) resolution = end.resolution;
@@ -3091,7 +3160,13 @@ class Executor {
     // An answer to an `ask` counts as approved unless the resolver said otherwise.
     const approved =
       step.mode === "approve" ? resolution.approved === true : resolution.approved !== false;
-    const output = { approved, answer: resolution.answer ?? null, by: resolution.by };
+    // The fields it asked for by their names (owner, 2026-11-28), beside its own, which win.
+    const output = {
+      ...(step.fields ? answerFields(step.fields, resolution.answer) : {}),
+      approved,
+      answer: resolution.answer ?? null,
+      by: resolution.by,
+    };
     const summary =
       step.mode === "approve"
         ? `${label}: ${approved ? this.words.approved : this.words.notApproved}`
@@ -3206,6 +3281,7 @@ class Executor {
           tenantId: run.tenantId,
           agentVersionId: run.agentVersionId,
           mode: run.mode,
+          ...(this.testPeople ? { testPeople: true } : {}),
           stepRunId,
         };
         const result = await port.conversation(request);
@@ -3262,7 +3338,15 @@ class Executor {
         result = { ...result, status: "no_answer" };
       }
     }
+    // What it found is handed on under its own names too (staging, 2026-11-27: a v5 Contact step
+    // says its output is `answers`, the fields it finds, but they were only under `found`, so a
+    // step reading `answers` got nothing). The conversation's own fields win a clash.
+    const found =
+      result.found && typeof result.found === "object" && !Array.isArray(result.found)
+        ? (result.found as Record<string, unknown>)
+        : {};
     const output = {
+      ...found,
       status: result.status,
       found: result.found,
       summary: result.summary,
@@ -3808,17 +3892,53 @@ class Executor {
         output,
         summary: `${clientLabel(step)}: ${path ? output.pathName : this.words.otherwise}`,
       });
-      return { index, output };
+      return { index, output, stepRunId };
     });
     const branch = chosen.index >= 0 ? step.paths[chosen.index]?.steps : step.otherwise.steps;
     if (!branch) throw new Error(`fork ${step.id} has no path ${chosen.index}`);
-    // Outputs inside the branch are not visible after the join (ARCHITECTURE §10.2).
+    // Outputs inside the branch are not visible after the join (ARCHITECTURE §10.2), save what
+    // its last step gave, which the fork hands on.
+    const inner = { ...frame.scope, steps: { ...frame.scope.steps } };
     await this.runList(branch, {
       prefix: frame.prefix,
-      scope: { ...frame.scope, steps: { ...frame.scope.steps } },
+      scope: inner,
       ...(frame.checks ? { checks: frame.checks } : {}),
     });
-    this.record(frame, step, chosen.output);
+    await this.join(name, chosen.stepRunId, frame, step, chosen.output, branch, inner);
+  }
+
+  /**
+   * Records a fork after its branch ran: which path ran, and what the branch's last step gave
+   * (owner, 2026-11-27: "Ask the employee" inside a path, its answer read by the coding after the
+   * fork), as a `for_each` hands on its items' results. Nothing else inside the branch is seen
+   * after it. An empty branch (or one whose last step gave no fields) hands on the path only.
+   */
+  async join(
+    name: string,
+    stepRunId: string | undefined,
+    frame: Frame,
+    step: processes.Step,
+    path: { pathId: string; pathName: string },
+    branch: readonly processes.Step[],
+    inner: RunContext,
+  ) {
+    const last = branch.at(-1);
+    const entry = last ? inner.steps[last.id] : undefined;
+    const given = entry?.output;
+    const fields =
+      given && typeof given === "object" && !Array.isArray(given)
+        ? (given as Record<string, unknown>)
+        : {};
+    let output: Record<string, unknown> = { ...fields, ...path };
+    if (jsonBytes(output) > STEP_OUTPUT_MAX_BYTES) output = { ...path };
+    // Kept on the fork's row too, so a retry that reuses the fork hands on the same.
+    if (stepRunId && Object.keys(output).length > Object.keys(path).length) {
+      await this.runner.do(`${name}:joined`, async () => {
+        await this.ctx.log.update(stepRunId, { status: "succeeded", output });
+        return null;
+      });
+    }
+    this.record(frame, step, output, {}, !!entry && this.unwritten.has(entry));
   }
 
   /**
@@ -3912,13 +4032,15 @@ class Executor {
       return null;
     });
     const branch = picked ? picked.steps : step.otherwise.steps;
-    // Outputs inside the branch are not visible after the join (ARCHITECTURE §10.2).
+    // Outputs inside the branch are not visible after the join (ARCHITECTURE §10.2), save what
+    // its last step gave (`join`).
+    const inner = { ...frame.scope, steps: { ...frame.scope.steps } };
     await this.runList(branch, {
       prefix: frame.prefix,
-      scope: { ...frame.scope, steps: { ...frame.scope.steps } },
+      scope: inner,
       ...(frame.checks ? { checks: frame.checks } : {}),
     });
-    this.record(frame, step, output);
+    await this.join(name, opened.stepRunId, frame, step, output, branch, inner);
   }
 
   /** An agent's choice that couldn't be made: its step's row fails with the reason, and the run. */
@@ -3993,19 +4115,26 @@ class Executor {
     const own: OwnerCheckEntry[] | undefined =
       this.ctx.ownerChecks && !frame.checks ? [] : undefined;
     const checks = frame.checks ?? own;
+    // Owner, 2026-11-27: what each item's last step gave, in the items' order, handed on as
+    // `items` ("Read each receipt" then "Work out what's missing" over what was read). Nothing
+    // else inside the loop is seen after it (ARCHITECTURE §10.2); a failed item hands on null.
+    const results: unknown[] = items.map(() => null);
+    const lastId = step.steps.at(-1)?.id;
     try {
       await pool(items.length, step.concurrency ?? 10, async (i) => {
         try {
+          const scope = {
+            ...frame.scope,
+            steps: { ...frame.scope.steps },
+            item: items[i],
+            index: i,
+          };
           await this.runList(step.steps, {
             prefix: `${name}:${i}:`,
-            scope: {
-              ...frame.scope,
-              steps: { ...frame.scope.steps },
-              item: items[i],
-              index: i,
-            },
+            scope,
             ...(checks ? { checks } : {}),
           });
+          if (lastId) results[i] = scope.steps[lastId]?.output ?? null;
         } catch (error) {
           if (!continues || !continuable(error)) throw error;
           failedItems.add(i);
@@ -4021,7 +4150,12 @@ class Executor {
     await this.writeChecks(name, own);
 
     const failed = failedItems.size;
-    const output = failed > 0 ? { count: items.length, failed } : { count: items.length };
+    const counted = failed > 0 ? { count: items.length, failed } : { count: items.length };
+    // Kept on the row too, so a retry that reuses this loop hands on the same (`scopeOutputOfRow`);
+    // over the most a step may hand on, the loop hands on its count only, and says so.
+    const whole = { ...counted, items: results };
+    const output =
+      jsonBytes(whole) > STEP_OUTPUT_MAX_BYTES ? { ...counted, itemsTooLarge: true } : whole;
     await this.runner.do(`${name}:done`, async () => {
       await log.update(stepRunId, {
         status: ended?.result.status === "failed" ? "failed" : "succeeded",

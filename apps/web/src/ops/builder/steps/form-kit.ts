@@ -27,6 +27,12 @@ export interface StepFormEnv {
   agents?: readonly { slug: string; name: string }[] | undefined;
   /** Save as skill; absent where the host can't save one. */
   saveAsSkill?: SaveAsSkill | undefined;
+  /**
+   * Whether the person has changed this step on this page (or added it). Until they have, the
+   * Input box offers the input it works out rather than writing it into the step: opening a stored
+   * step changes nothing (staging, 2026-11-28). Absent: every step counts as changed.
+   */
+  edited?: ((stepId: string) => boolean) | undefined;
 }
 
 /** Save as skill (stream F): a Do step's rules or AI, named, in the library; the step then uses it. */

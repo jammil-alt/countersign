@@ -268,9 +268,23 @@ export function AssignForm({
  * it publishes the version, copies the template there as the Sandbox's own agent (never its test
  * copy, which only test-runs), activates it and starts its trial, so it takes real mail at its own
  * address and test messages, every write waiting for a signature. Then its Workflow tab opens,
- * where the address and Send a test message are.
+ * where the address and Send a test message are. From Try it (`onStarted`), it stays where it is,
+ * and Try it in the sheet only closes it.
  */
-export function TurnOnInSandbox({ templateId, base }: { templateId: string; base: string }) {
+export function TurnOnInSandbox({
+  templateId,
+  base,
+  workflow,
+  onStarted,
+}: {
+  templateId: string;
+  /** The template's page; without it, Try it closes the sheet. */
+  base?: string;
+  /** The workflow the sheet's Try it opens in the step builder, Try it open (`#try`). */
+  workflow?: string;
+  /** In place of opening the Sandbox agent's Workflow tab once its trial started. */
+  onStarted?(): void;
+}) {
   const clients = useApi(apiRoutes.opsClients, { query: { view: "names" } });
   const [open, setOpen] = useState(false);
   const navigate = useNavigate();
@@ -293,10 +307,20 @@ export function TurnOnInSandbox({ templateId, base }: { templateId: string; base
           template
           clients={[{ id: sandbox.id, name: sandbox.name }]}
           clientId={sandbox.id}
-          onTry={() => navigate(`${base}/versions#tests`)}
+          // Staging, 2026-11-28: Try it went to the Versions tab's tests, the page the operator was
+          // usually on, with the sheet still open, so nothing seemed to happen. It closes the sheet
+          // and opens the step builder with Try it open, where a try is made.
+          onTry={() => {
+            setOpen(false);
+            if (base)
+              navigate(workflow ? `${base}/steps/${workflow}#try` : `${base}/versions#tests`);
+          }}
           onStarted={(r) => {
             notifyAgentsChanged();
-            if (r.agentId) navigate(`/ops/agents/${r.agentId}/workflow`);
+            if (onStarted) {
+              setOpen(false);
+              onStarted();
+            } else if (r.agentId) navigate(`/ops/agents/${r.agentId}/workflow`);
           }}
           onClose={() => setOpen(false)}
         />

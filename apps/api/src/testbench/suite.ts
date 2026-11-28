@@ -47,7 +47,6 @@ import {
 import {
   agentVersion,
   buildItem,
-  connection,
   type Db,
   run,
   stepRun,
@@ -60,6 +59,7 @@ import {
 } from "@countersign/db";
 import { requestRun, type StepRunner, WaitTimeoutError } from "@countersign/workflows";
 import { and, asc, type Column, desc, eq, inArray, isNull, sql } from "drizzle-orm";
+import { connectionsToBind } from "../runs/bind-connections";
 import { createRunRow } from "../runs/dispatch";
 import { executeRun, forClient, type RunDeps } from "../runs/execute";
 import { partialMarks } from "./partial";
@@ -227,17 +227,13 @@ async function bindCopy(
 ): Promise<AgentRow> {
   const tenantId = copy.tenantId as string;
   const { skills } = await skillContext(tx, { tenantId, bundle, catalog: deps.platform.catalog });
-  const needed = requiredConnectors(bundle, skills, deps.platform.tools).filter(
-    (c) => !copy.bindings[c],
-  );
-  if (needed.length === 0) return copy;
-  const rows = await tx
-    .select({ id: connection.id, connector: connection.connector })
-    .from(connection)
-    .where(eq(connection.tenantId, tenantId))
-    .orderBy(connection.createdAt);
-  const add: Record<string, string> = {};
-  for (const r of rows) if (needed.includes(r.connector)) add[r.connector] ??= r.id;
+  const needed = requiredConnectors(bundle, skills, deps.platform.tools);
+  const add = await connectionsToBind(tx, {
+    tenantId,
+    needed,
+    bindings: copy.bindings,
+    rebind: copy.testCopy === true,
+  });
   if (Object.keys(add).length === 0) return copy;
   return updateOperational(tx, {
     agentId: copy.id,

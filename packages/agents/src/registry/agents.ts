@@ -95,6 +95,11 @@ export interface RegistryContext {
    * agent's record grants and data sets aren't checked at publish (the gate still holds them).
    */
   recordTypes?: readonly RecordType[];
+  /**
+   * Step model §7: the match profiles the areas declare (the packs' manifests). A Match step's
+   * settings and what it hands on are checked against them at publish. Absent: not checked.
+   */
+  profiles?: readonly steps.MatchProfile[];
 }
 
 /** Parses a bundle (schema only: drafts may be saved with semantic errors, §10.2). */
@@ -399,6 +404,7 @@ export async function validateForPublish(
     tools: ctx.tools.specs(row.kind === "client" ? row.bindings : undefined),
     models: knownModelIds(),
     ...(ctx.events ? { events: ctx.events } : {}),
+    ...(ctx.profiles ? { profiles: ctx.profiles } : {}),
     ...(row.kind === "client"
       ? {
           publish: {

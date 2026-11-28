@@ -191,6 +191,14 @@ async function proceededMark(
 }
 
 /**
+ * A test run's items are the operator's; in one with people in it (owner, 2026-11-27), the
+ * operator's who started it, in their own Your call.
+ */
+export function testAssignee(run: Pick<RunInfo, "testPeople">): ApprovalAssignee {
+  return { assigneeRole: "operator", assigneeUserId: run.testPeople?.by ?? null };
+}
+
+/**
  * Who an item asked of `who` goes to: a role, the client's lead (as an operator's item), or a
  * person of this client by user id. A test run's items go to the operator (test runs are hidden
  * from the portal).
@@ -200,10 +208,10 @@ async function proceededMark(
 // non-member: an item is never left with nobody able to answer it.
 export async function personAssignee(
   tx: Tx,
-  run: Pick<RunInfo, "tenantId" | "mode">,
+  run: Pick<RunInfo, "tenantId" | "mode" | "testPeople">,
   who: string,
 ): Promise<ApprovalAssignee> {
-  if (run.mode === "test") return { assigneeRole: "operator", assigneeUserId: null };
+  if (run.mode === "test") return testAssignee(run);
   if (who === LEAD_ASSIGNEE) {
     const lead = await leadOf(tx, run.tenantId);
     return { assigneeRole: "operator", assigneeUserId: lead?.userId ?? null };
@@ -245,6 +253,81 @@ function firstWaiting(state: PendingState, after = -1): StepOutcome | null {
         pending: { inboxItemId: next.inboxItemId, state, actionId: next.actionId },
       }
     : null;
+}
+
+/** Owner, 2026-11-27: a test run's write waiting for its test person: what it would have done. */
+const TestWriteState = z.object({
+  testWrite: z.object({ kind: z.literal("done"), output: z.unknown() }).passthrough(),
+});
+
+/**
+ * Owner, 2026-11-27: a Sandbox test run with people in it asks its test person (the operator who
+ * started it, in their Your call) to sign a write a live run would have asked a person to sign
+ * (`ask`), on a card of its own: kind `approval`, marked a test run, never an external action's
+ * card, so nothing can execute it. One card per step (a retried step finds the one it made). Null:
+ * nothing to ask.
+ */
+async function askTestPerson(
+  db: Db,
+  run: RunInfo,
+  w: {
+    step: { name: string; tool: string };
+    nodeId: string;
+    stepRunId: string;
+    actionId: string;
+    input: unknown;
+    before: unknown;
+    done: Extract<StepOutcome, { kind: "done" }>;
+    ask: boolean;
+  },
+): Promise<StepOutcome | null> {
+  const id = await withTenant(db, run.tenantId, async (tx) => {
+    const [existing] = await tx
+      .select({ id: inboxItem.id })
+      .from(inboxItem)
+      .where(
+        and(
+          eq(inboxItem.tenantId, run.tenantId),
+          eq(inboxItem.runId, run.id),
+          eq(inboxItem.kind, "approval"),
+          sql`${inboxItem.payload}->>'nodeId' = ${w.nodeId}`,
+        ),
+      )
+      .limit(1);
+    if (existing) return existing.id;
+    if (!w.ask) return null;
+    const [row] = await tx
+      .insert(inboxItem)
+      .values({
+        tenantId: run.tenantId,
+        kind: "approval",
+        agentId: run.agentId,
+        subjectType: "run",
+        subjectId: run.id,
+        runId: run.id,
+        ...testAssignee(run),
+        title: `${w.step.name}: approve it for the test (nothing is written)`.slice(0, 200),
+        payload: {
+          nodeId: w.nodeId,
+          mode: "approve",
+          tool: w.step.tool,
+          actionId: w.actionId,
+          input: (w.input ?? null) as JsonObject[string],
+          before: (w.before ?? null) as JsonObject[string],
+          testRun: true,
+          notWritten: true,
+        } as JsonObject,
+      })
+      .returning({ id: inboxItem.id });
+    if (!row) throw new Error("inbox item insert returned nothing");
+    return row.id;
+  });
+  if (!id) return null;
+  return {
+    kind: "approval",
+    pending: { inboxItemId: id, state: { testWrite: w.done }, actionId: w.actionId },
+    output: w.done.output,
+  };
 }
 
 /**
@@ -474,14 +557,30 @@ export function agentPort(
             ...(o.verification ? { verification: o.verification } : {}),
           };
           // §1.94: the tool's stand-in output, its fields where later steps read the real ones.
-          if (!isPlainObject(o.standIn))
-            return { kind: "done", output: proposed, notWritten: true };
-          return {
-            kind: "done",
-            output: { ...proposed, ...o.standIn, standIn: true },
-            notWritten: true,
-            standIn: true,
-          };
+          const done: Extract<StepOutcome, { kind: "done" }> = !isPlainObject(o.standIn)
+            ? { kind: "done", output: proposed, notWritten: true }
+            : {
+                kind: "done",
+                output: { ...proposed, ...o.standIn, standIn: true },
+                notWritten: true,
+                standIn: true,
+              };
+          // Owner, 2026-11-27: with people in the test, a write a live run would have asked a
+          // person to sign waits for the test person's decision. It is still never made.
+          if (run.mode === "test" && run.testPeople && release) {
+            const asked = await askTestPerson(release.db, run, {
+              step,
+              nodeId,
+              stepRunId,
+              actionId: o.actionId,
+              input,
+              before: o.before ?? null,
+              done,
+              ask: o.asks === true,
+            });
+            if (asked) return asked;
+          }
+          return done;
         }
         case "awaiting_approval":
           return (
@@ -675,6 +774,14 @@ export function agentPort(
       // P-4: a conversation's approvals and hand-over first: its state also names a reach-out.
       if (converse && converseState(pending.state)) return converse.resume(request);
       if (reach && reachOutState(pending.state)) return reach.resume(request);
+      // Owner, 2026-11-27: the test person's decision on a test run's write. A yes still writes
+      // nothing (the write as it would have been); a no, or no answer, takes the rejected path.
+      const tested = TestWriteState.safeParse(pending.state);
+      if (tested.success && run.mode === "test") {
+        return resolution.approved === true
+          ? (tested.data.testWrite as StepOutcome)
+          : { kind: "done", output: null };
+      }
       const state = PendingState.parse(pending.state ?? { actions: [] });
       const index = state.actions.findIndex((a) => a.inboxItemId === pending.inboxItemId);
       const current = state.actions[index];
@@ -885,7 +992,7 @@ export function dbInboxPort(db: Db, run: RunInfo): InboxPort {
             : null;
         const assignee =
           run.mode === "test"
-            ? { assigneeRole: "operator" as const, assigneeUserId: null }
+            ? testAssignee(run)
             : item.step.assignee === LEAD_ASSIGNEE
               ? { assigneeRole: "operator" as const, assigneeUserId: lead?.userId ?? null }
               : resolveApprover([item.step.assignee]);
@@ -896,6 +1003,8 @@ export function dbInboxPort(db: Db, run: RunInfo): InboxPort {
           ...(run.mode === "test" ? { testRun: true } : {}),
           // v0.12 W1-D: quick answers, from the version's step (the answer must be one of them).
           ...(item.step.mode === "ask" && item.step.choices ? { choices: item.step.choices } : {}),
+          // Owner, 2026-11-28: what the person is asked for, each handed on by its name.
+          ...(item.step.mode === "ask" && item.step.fields ? { fields: item.step.fields } : {}),
         };
         const [row] = await tx
           .insert(inboxItem)

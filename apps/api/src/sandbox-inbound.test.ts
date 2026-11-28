@@ -364,5 +364,81 @@ describe.skipIf(!h)("Sandbox inbound", () => {
     expect((await triggers(tess)).address).toMatch(/^tess\.sandbox-/);
     const res = await test({ agentId: tess, channel: "email", fromContactId: employee, text: "x" });
     expect(j(res.json).status).toBe("started");
+    // Try it finds it as the template's copy in the Sandbox, on and current.
+    const used = j(
+      (await H.call(OPERATOR, "GET", `/api/ops/templates/${templateId}/used-by`)).json,
+    );
+    expect(used.agents).toEqual([
+      expect.objectContaining({
+        agent: expect.objectContaining({ id: tess, runStatus: "active", testCopy: false }),
+        client: expect.objectContaining({ id: sandbox }),
+        behind: 0,
+      }),
+    ]);
+  });
+
+  // Try it's From (2026-11-27): someone typed in, as who a test message is from.
+  it("adds someone typed in as a sender to the Sandbox's people, so the trigger takes them", async () => {
+    const add = (body: Record<string, unknown>) =>
+      H.call(OPERATOR, "POST", "/api/ops/sandbox/senders", body);
+    const sam = await add({
+      clientId: sandbox,
+      address: " Sam.Lee@Site.example ",
+      relationship: "employee",
+    });
+    expect(sam.status, JSON.stringify(sam.json)).toBe(200);
+    expect(j(sam.json)).toMatchObject({
+      name: "Sam Lee",
+      email: "sam.lee@site.example",
+      phone: null,
+      created: true,
+    });
+    const samId = j(sam.json).contactId as string;
+    const [row] = await H.t.db.select().from(contact).where(eq(contact.id, samId));
+    expect(row).toMatchObject({ tenantId: sandbox, relationship: "employee", source: "manual" });
+    expect(Object.keys(row?.consent ?? {})).toContain("email");
+    const res = await test({ agentId: remy, channel: "email", fromContactId: samId, text: "x" });
+    expect(j(res.json).status).toBe("started");
+    // Again: the same contact.
+    expect(
+      j((await add({ clientId: sandbox, address: "sam.lee@site.example" })).json),
+    ).toMatchObject({ contactId: samId, created: false });
+    // A number typed as a US one is Erin's, kept as she is.
+    expect(
+      j(
+        (await add({ clientId: sandbox, address: "(555) 777-0011", relationship: "employee" }))
+          .json,
+      ),
+    ).toMatchObject({ contactId: employee, created: false });
+    // A new number: a text from it starts the run.
+    const ty = await add({
+      clientId: sandbox,
+      address: "+1 555 010 9988",
+      relationship: "employee",
+    });
+    expect(j(ty.json)).toMatchObject({ phone: "+15550109988", email: null, created: true });
+    const text = await test({
+      agentId: remy,
+      channel: "sms",
+      fromContactId: j(ty.json).contactId,
+      text: "Hi",
+    });
+    expect(j(text.json).status).toBe("started");
+    // A vendor's rep stays one: the trigger refuses them as it would a real one.
+    const vic = await add({
+      clientId: sandbox,
+      address: "vic@vendor.example",
+      relationship: "employee",
+    });
+    expect(j(vic.json)).toMatchObject({ contactId: vendor, created: false });
+    const [still] = await H.t.db.select().from(contact).where(eq(contact.id, vendor));
+    expect(still?.relationship).toBe("vendor");
+    // Neither an email nor a number; and nowhere but the Sandbox.
+    const bad = await add({ clientId: sandbox, address: "nobody" });
+    expect(bad.status).toBe(422);
+    expect(j(bad.json).error.code).toBe("invalid_phone");
+    const outside = await add({ clientId: H.A.tenantId, address: "x@a.example" });
+    expect(outside.status).toBe(422);
+    expect(j(outside.json).error.code).toBe("not_sandbox");
   });
 });

@@ -60,7 +60,7 @@ function detail(list: Decision[]): BuildDetail {
       kind: "agent",
       title: "Invoice intake",
       client: null,
-      phase: "poc",
+      phase: "draft",
       status: "open",
       agentId: null,
       skillId: null,
@@ -91,12 +91,9 @@ function detail(list: Decision[]): BuildDetail {
     phases: [
       { phase: "intake", label: "Intake", state: "done" },
       { phase: "fitgap", label: "Fit-gap", state: "done" },
-      { phase: "draft", label: "Draft", state: "done" },
-      { phase: "poc", label: "POC test", state: "current" },
-      { phase: "client_test", label: "Client test", state: "todo" },
-      { phase: "qa", label: "QA and go / no-go", state: "todo" },
+      { phase: "draft", label: "Draft", state: "current" },
     ],
-    gate: { next: "client_test", reasons: ["1 high-risk decision hasn't been looked at yet."] },
+    gate: { next: null, reasons: [] },
     messages: [],
     items: [],
     draft: null,
@@ -123,7 +120,7 @@ describe("the Decisions card", () => {
               d.id === "tol" ? { ...d, status: "confirmed" as const, by: "Ann", at } : d,
             ),
           ),
-          gate: { next: "client_test", reasons: [] },
+          gate: { next: null, reasons: [] },
         };
       },
       [`POST /api/ops/builds/${ID}/turns`]: ({ init }) => {
@@ -153,7 +150,7 @@ describe("the Decisions card", () => {
     expect(within(card).queryByTestId("build-decision-freight-check")).toBeNull();
     expect(within(card).queryByTestId("build-decision-post-check")).toBeNull();
     expect(within(card).getByTestId("build-decision-post")).toHaveTextContent("By Ada");
-    // The unreviewed high-risk one is an issue too, holding the client test.
+    // The unreviewed high-risk one is an issue too (it holds nothing: owner, 2026-11-27).
     expect(within(view).getByTestId("build-issue-decision:tol")).toHaveTextContent(
       "Never discussed",
     );
@@ -304,7 +301,7 @@ describe("the Decisions card", () => {
     expect(within(card).queryByTestId("build-decision-tol")).toBeNull();
     // The bar links to each section, with what waits there.
     const bar = within(view).getByTestId("build-bar");
-    expect(within(bar).getByTestId("build-jump-phase")).toHaveTextContent("POC test");
+    expect(within(bar).getByTestId("build-jump-phase")).toHaveTextContent("Draft");
     expect(within(bar).getByTestId("build-jump-decisions")).toHaveTextContent(/^Decisions$/);
     await userEvent.click(within(bar).getByTestId("build-jump-decisions"));
     expect(within(card).getByTestId("build-decision-tol")).toBeTruthy();

@@ -43,6 +43,7 @@ import { Skeleton, SkeletonBlock, SkeletonCard, SkeletonLine } from "../../ui/sk
 import { StatusChip } from "../../ui/status";
 import type { Member } from "../builder/Inspector";
 import { BuildView } from "../builds/BuildView";
+import { StepsBuildBar } from "../builds/PublishBar";
 import { labPath } from "../lab/back";
 import { AssignToClient, TurnOnInSandbox } from "../lab/TemplateParts";
 import { OPS_PATHS } from "../paths";
@@ -346,6 +347,8 @@ export function AgentScreen({
   const keep = search.toString() ? `?${search.toString()}` : "";
   const reload = () => {
     agent.reload();
+    // A publish here ends the agent's open build (owner, 2026-11-27): its bar goes.
+    builds.reload();
     notifyAgentsChanged();
   };
 
@@ -442,7 +445,9 @@ export function AgentScreen({
           above={
             // The workflow's first step is how it starts: the agent's triggers, then the canvas.
             <div className="flex flex-col gap-4" data-testid="agent-workflow-top">
-              {openBuild ? <BackToBuild build={openBuild} /> : null}
+              {/* Owner (2026-11-27): the build's one bar, Draft and what holds Publish; read again
+                  with each version saved here. */}
+              {openBuild ? <StepsBuildBar key={latest.id} build={openBuild} /> : null}
               <TriggersPanel
                 agent={view}
                 latest={latest}
@@ -478,6 +483,7 @@ export function AgentScreen({
             // Wave 3b: the Builder's server sessions draft processes, so any readable version
             // can be revised.
             canRevise={latestAny !== null}
+            workflow={builderStart}
             onChanged={reload}
             onDiscarded={() =>
               navigate(view.kind === "template" ? "/ops/lab" : `/ops/clients/${view.tenantId}`)
@@ -801,6 +807,7 @@ function AgentActions({
   base,
   detail,
   canRevise,
+  workflow,
   onChanged,
   onDiscarded,
 }: {
@@ -808,6 +815,8 @@ function AgentActions({
   base: string;
   detail: AgentDetail;
   canRevise: boolean;
+  /** The workflow the step builder opens first (the Turn on sheet's Try it goes there). */
+  workflow: string;
   onChanged(): void;
   onDiscarded(): void;
 }) {
@@ -849,7 +858,7 @@ function AgentActions({
         </Link>
         {view.kind === "template" && live && view.status === "active" ? (
           <>
-            <TurnOnInSandbox templateId={view.id} base={base} />
+            <TurnOnInSandbox templateId={view.id} base={base} workflow={workflow} />
             <AssignToClient templateId={view.id} version={live.version} />
           </>
         ) : null}

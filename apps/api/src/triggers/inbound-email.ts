@@ -25,6 +25,8 @@ import {
   acceptingTriggers,
   agentAddress,
   agentCommandNames,
+  authenticatedSenders,
+  emailIntakeAdmits,
   inboundText,
   messageTriggersOn,
   parseAgentAddress,
@@ -374,7 +376,23 @@ export async function receiveAgentEmail(
     const proven = trustedFromHeader(from, headers.headers.dmarcPassFrom) ? from : null;
     const sender = proven ? await contactByEmail(tx, tenantId, proven) : null;
     const facts: SenderFacts = sender ? contactFacts(sender) : { kind: "stranger" };
-    const accepting = acceptingTriggers(bundle, "email", facts);
+    // Email intake (owner, 2026-11-28): the agent may take mail only from a domain, only from a
+    // list, or from anyone, in place of its triggers' People filters (`people`, the default).
+    const intake = bundle.definition.emailIntake;
+    const admitted = emailIntakeAdmits(
+      intake,
+      authenticatedSenders({
+        envelopeFrom: message.from,
+        from,
+        auth: headers.headers.auth,
+      }),
+    );
+    const accepting =
+      admitted === null
+        ? acceptingTriggers(bundle, "email", facts)
+        : admitted
+          ? messageTriggersOn(bundle, "email")
+          : [];
     const messageKey = headers.headers.messageId?.slice(0, 300) || (await sha256Hex(message.raw));
     const key = `${found.agentId}:${messageKey}`;
 
@@ -450,6 +468,8 @@ export async function receiveAgentEmail(
         authenticated: proven !== null,
         authenticatedAs: proven,
         agentId: found.agentId,
+        // How it got in: the agent's email intake, when that (not a People filter) took it.
+        ...(admitted ? { intake: intake?.mode } : {}),
       },
     };
     // As forwarded mail: a part whose bytes aren't its type, or that the store refuses (empty, too

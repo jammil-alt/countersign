@@ -38,6 +38,7 @@ import {
   Decimal,
   evaluateSkillRules,
   isoToday,
+  isPlainObject,
   isUuid,
   type JsonSchema,
   LOCALE_ENGLISH_NAMES,
@@ -449,13 +450,54 @@ export function sourcesFromInput(def: SkillDefinition, input: unknown): string[]
   return ids;
 }
 
-/** Validates a skill's output: its schema, and `sources` when it produces alerts (invariant 10). */
+/**
+ * Where a model's answer carries the markup of a tool call inside a field: it wrote several fields
+ * into one ("…</purpose>\n<parameter name=\"missing\">…", staging 2026-11-27), so that field holds
+ * the others and they are missing or wrong. Found by the call's own tags, or a field's name closed
+ * as a tag; null when there is none.
+ */
+const CALL_MARKUP = /<\/?(?:parameter|invoke|function_calls)\b/;
+export function leakedMarkup(output: unknown): string | null {
+  if (!isPlainObject(output)) return null;
+  const names = Object.keys(output);
+  const visit = (value: unknown, at: string, depth: number): string | null => {
+    if (depth > 6) return null;
+    if (typeof value === "string") {
+      const tag = CALL_MARKUP.exec(value)?.[0] ?? names.find((n) => value.includes(`</${n}>`));
+      if (tag === undefined) return null;
+      const shown = tag.startsWith("<") ? tag : `</${tag}>`;
+      return `"${at}" holds the markup of a tool call (${shown}): give each field on its own, as plain values`;
+    }
+    if (Array.isArray(value)) {
+      for (const [i, v] of value.entries()) {
+        const hit = visit(v, `${at}.${i}`, depth + 1);
+        if (hit) return hit;
+      }
+      return null;
+    }
+    if (isPlainObject(value)) {
+      for (const [k, v] of Object.entries(value)) {
+        const hit = visit(v, at ? `${at}.${k}` : k, depth + 1);
+        if (hit) return hit;
+      }
+    }
+    return null;
+  };
+  return visit(output, "", 0);
+}
+
+/**
+ * Validates a skill's output: its schema, no tool-call markup in its fields, and `sources` when it
+ * produces alerts (invariant 10).
+ */
 function checkOutput(
   def: SkillDefinition,
   output: unknown,
 ): { ok: true; value: unknown } | { ok: false; message: string } {
   const r = checkAgainst(def.output, output);
   if (!r.ok) return r;
+  const leak = leakedMarkup(r.value);
+  if (leak) return { ok: false, message: leak };
   if (def.producesAlerts && !sourcesOf(r.value)?.length) {
     return {
       ok: false,

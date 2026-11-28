@@ -15,6 +15,7 @@ import type { ToolSpec } from "../schemas/tool";
 import type { Trigger } from "../schemas/workflow";
 // Skill model (2026-11-10): parameters and models per agent per skill.
 import { parameterValueProblems } from "../skills/parameters";
+import type { MatchProfile } from "../steps/match-profile";
 import { collectRefs, hasTemplate, singleRef } from "../template/template";
 import {
   jsonTypeOf,
@@ -153,6 +154,11 @@ export interface ValidationContext extends TypingContext {
    * `llm`, so the caller passes them; when absent, a step's model id isn't checked.
    */
   models?: readonly string[];
+  /**
+   * The step model §7: the match profiles the areas declare (their manifests'). A Match step's
+   * settings and what it hands on are checked against its profile; absent: not checked.
+   */
+  profiles?: readonly MatchProfile[];
 }
 
 export interface ValidationResult<T> {

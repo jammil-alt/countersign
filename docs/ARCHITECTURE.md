@@ -1830,7 +1830,8 @@ runAgent({ tenantId, agentVersionId, skill | task, input, threadId?, runContext 
    `external_action` (status `proposed`) plus an `inbox_item(kind='external_action')` for the step's
    approver, showing now / after this change; the step waits for `inbox.resolved`, and on approval the
    action executes once by idempotency key, with its before state. Automatic writes record the same
-   action and before state. Test runs (§10.4) never execute external actions.
+   action and before state. Test runs (§10.4) never execute external actions, but for a Sandbox test
+   run's message to its test person.
 6. Log `step_run`, `tool_call`, tokens, cost. Outputs of skills with `producesAlerts` must include
    `sources`; outputs without them are rejected.
 
@@ -2415,11 +2416,25 @@ to other agents' hand-off triggers is a **pass on** output (§10.0), v3's `hando
 rules below are the earlier formats'. For v5, unique ids are a publish check, the input picker offers
 only what runs before a step, and a connection's ceiling is held by the gate when the step runs.
 
+**Wiring (2026-11-28):** every step kind has an output shape (`steps.stepOutputShape`): a Do's
+action, skill or declared fields, a Match's result for its profile, a conversation's findings at
+its top level and under `found`, a Fork's rejoining paths' last steps (their union) with `pathId`
+and `pathName`, a For each's `count`, `failed` and `items`, the triggers' payloads. At publish every
+`{{…}}` a step or an output reads is followed into that shape: a path its source doesn't hand on, a
+value that doesn't fit the field it fills, and a Match's items without a field the profile needs
+(by its key's name or another name, `also`) are issues, in plain words. Two conversions are made
+instead of refused, in one place when the step's input is resolved: money to its amount (only when
+the amounts are in one currency, the input's own if it names one) and a number to a decimal
+string. What can't be known (an untyped field, a registry not given) passes. A run's load doesn't
+repeat these checks, so a version published before them still runs.
+
 A workflow can be saved as a draft with errors, but only a valid one can be test-run or published.
 - One trigger; step and path ids unique across the bundle; every fork has at least one path; a
   `for_each` has at least one step.
 - A template may reference only the trigger and steps that run **before** it on its own path. Outputs of
-  steps inside a fork path or a `for_each` are not visible after it; a fork exposes which path ran.
+  steps inside a fork path or a `for_each` are not visible after it; a fork exposes which path ran
+  and what that path's last step gave, and a `for_each` its count and, as `items`, what each item's
+  last step gave, in order (owner, 2026-11-27).
 - Every `skill` step's input satisfies the skill's input schema (typed from upstream outputs and the
   trigger payload); every skill and tool exists and is allowed by the owning agent (its skills plus
   `extraTools`).
@@ -2460,6 +2475,28 @@ executes external actions** (they are recorded as proposed and shown as "would h
 emit events that start other workflows, and is hidden from the client portal. Internal writes made by
 test runs are tagged with the run. A client agent can't be activated, and an update merge can't be
 published, without one passing test run on that client.
+
+**People in a Sandbox test run (owner, 2026-11-27).** The one exception to "a test run sends nothing
+and waits for nobody". A test run in the **Sandbox client** (`settings.sandbox`), started with "Ask me"
+(`people: "ask_me"` on the test-run route; refused in plain words anywhere else, and when a Contact
+step's channel has no address for the test person), runs as a full simulation with one **test person**
+standing in for everyone: the operator who started it, by their login email and the phone of their
+Sandbox contact, unless the Sandbox's delivery setting (`settings.sandboxDelivery`) says where test
+messages go. It is kept on the run's trigger (`trigger.testPeople`, with the operator's user id).
+- **Messages.** A Contact step really talks, through the Sandbox's channel connection, to the test
+  person only, whoever the step names (made up or real): `[Test · For <name>]` before an email's
+  subject, `Test · For <name>: ` before a text. Every live check holds (the named person's consent,
+  opt-out, autonomy and quiet hours, the test person's own contact's opt-out and consent where there is
+  one, the message's approval). The send is the only external action a test run may execute: the
+  runtime allows it only for a send whose recipient is the test person (`executeAction`). The run
+  waits for the reply as a live run does, and the reply (matched by the address's tag, or by the number
+  the message went to) is that person's answer.
+- **Approvals and decisions.** A write a live run would have asked a person to sign waits for the test
+  person's decision on a card of its own in their Your call (never an external action's card); person
+  steps and a conversation's signatures and hand-overs go to them too. A no takes the reject path. A
+  yes is **still not written**: the step records what it would have written, as any test run's write.
+- Test runs never write to a client's tools, and a client agent's test run in a real client never
+  sends, with or without the flag (invariant 8).
 
 ### 10.5 The workflow builder, run view and merge view (back office)
 
@@ -2565,6 +2602,15 @@ Automation = { schemaVersion: 1, slug, name, description,
 | Manual | A person presses Run | The operator always may; with `client.canRun`, the client admin and signing client users may too, from the portal, with a form generated from `input` (validated with Zod-from-JSON-Schema on the server) |
 | Message | Something is sent to the agent | `email` to the agent's own address; `sms`/`whatsapp` to a number bound as its channel; `command`: `/<agent>` in a client thread (§11.2); `sloan`: a request Sloan passes. Only senders matching `from` (People) start it; anyone else gets a polite fixed reply (to email only when it passes DMARC) and the lead is told. The message is data for step 1: its text through a read tool (`inbound.get`), its attachments as documents; it can't change the agent's rules or access (invariant 9). `reply.confirm` is a fixed template sent within a minute, behind no approval because it goes only to the sender, from the same channel, and says only that it was received |
 | Handoff | Another agent of the same client finishes a live run successfully | The finishing run emits `run.succeeded` with its workflow's `handoff.output` and `sources`; the router starts matching handoff triggers in the same client only, never the same agent, at most 3 handoffs deep (`depth` in the payload) |
+
+**Who can email an agent** (owner, 2026-11-28): the agent's `emailIntake`, set in Settings,
+Definition. `people` (the default, and absent): each email trigger's `from` decides, as above.
+`domain`: only mail proven to come from one domain or its subdomains. `list`: only mail proven to
+come from listed addresses or domains. `open`: anyone, proven or not; the stored message has no
+contact and records how it got in (`meta.email.intake`). Proven is SPF for the envelope's domain or
+DMARC for the From header's, as the forwarding address's allowed senders. `domain` and `list` are
+strict: a known person outside them is refused. Under every setting the sender's words and files
+stay data (invariant 9); `open` changes who may start the agent, never what it may do.
 
 **The agent's address** (v0.12): `<agent>.<client label>-<client id in base32>@<EMAIL_FORWARDING_DOMAIN>`
 (`<agent>` is its command name, below), received by the Worker's `email()` like forwarding. The
@@ -2853,7 +2899,8 @@ thread; portal messages are `message` rows in the agent's thread; each turn's mo
 **Who sees what.** The back office's run page shows the transcript with each turn's model and cost.
 The portal's run timeline shows the client's side of the conversation (the messages and when), never
 a prompt, a model or a cost (invariant 11). Test runs send nothing: the opening is written (one model
-call) and shown as what would have been sent (`not_sent`).
+call) and shown as what would have been sent (`not_sent`), except a Sandbox test run with people in it,
+which talks with its test person only (§10.4).
 
 **Builder.** "Talk with a person" in the palette; the inspector asks who, the channel, what to find out
 (the result's fields), the first message, the WhatsApp template, the limits and the model. Validation

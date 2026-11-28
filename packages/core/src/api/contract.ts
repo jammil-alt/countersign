@@ -33,6 +33,11 @@ export interface RouteSpec<
    * a secret is refused; apps/api's contract test lists every route that uses this.
    */
   secretShownOnce?: readonly string[];
+  /**
+   * A non-`GET` route that changes nothing (a check of a draft sent in its body): the web app's
+   * store doesn't count a call to it as a write, so it doesn't make every stored answer stale.
+   */
+  readOnly?: boolean;
 }
 
 export function defineRoute<

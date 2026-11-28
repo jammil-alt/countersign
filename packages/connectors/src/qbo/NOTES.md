@@ -7,6 +7,22 @@ the QBO v3 API before. The tests run against a fake QuickBooks (`fake.ts`) shape
 and the sandbox company (realm `9341458640918607`) before the shop's production QuickBooks is
 connected.
 
+**The self-test (2026-11-28, `apps/api/src/selftest/`, docs/operations.md).** Once a day on staging
+the Sandbox's connection to the sandbox company runs these reads against the real API, so each one
+below is checked every day and a failure is an `ops_health` finding with Intuit's words: `Account`
+by `AccountType in ('Expense', 'Cost of Goods Sold')` (in words, ingredients item 3);
+`DisplayName like '%…%'` on Vendor; `VendorRef = '…'` on Bill and the in-code payee filter on
+Purchase, each with and without `TxnDate >=` (item 8); `VendorRef` and `POStatus` on PurchaseOrder;
+`AttachableRef.EntityRef.Type` / `.value` on Attachable; `Balance > '0'` on Invoice; the
+AgedReceivableDetail report's shape as read; `TxnDate = '…'` on Purchase (B-4 item 1, banking.find);
+the GeneralLedger register's shape for a bank account (R-1 item 1); `select * from Vendor where
+Active in (true, false) orderby Id` (vendor.create's duplicate read); `Item … Id in (…) and Active in
+(true, false)` with a purchase order's item line (sandbox walk 9, its first part); the `DocNumber =`
+reads of bill.create and purchaseorder.create; and the before reads of the memo, purchase cost and
+invoice note writes (`GET /bill/{id}`, `/purchase/{id}`, `/item/{id}`, `/invoice/{id}`). It writes
+nothing, so every write's own behaviour (sparse updates, `requestid`, created records) is still
+unchecked below.
+
 ## What we built on
 
 | Fact | Where in the code |
@@ -70,7 +86,8 @@ Against the docs:
    second sort key we know of). A file that fails to download is tried by later syncs (one failure
    counted in ten minutes, never a 429); after three its attachment is stored without the file,
    reported ("qbo attachment stored without its file") and tried again once a day;
-   `VendorRef = '…'` on Bill, `EntityRef = '…'` on Purchase, `Id in (…)`,
+   `VendorRef = '…'` on Bill (a Purchase's `EntityRef` is not queryable, checked on staging
+   2026-11-27: its payee is filtered in code), `Id in (…)`,
    `DocNumber`, `TxnDate` ranges, `DisplayName like '%…%'`, `Name like '%…%'`, and
    `AttachableRef.EntityRef.Type` / `.value` on Attachable. Also that `select * from Vendor` returns
    active vendors only.

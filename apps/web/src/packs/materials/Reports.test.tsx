@@ -168,8 +168,10 @@ describe("Price watch", () => {
       { "GET /api/reports/materials/prices": () => ({ report: PRICES }) },
       { ...CLIENT_SESSION, language: { effective: "de", user: "de", client: null } },
     );
+    // The client's language loads on its own (`i18n/catalog.ts`): wait for it, not just the table,
+    // or a slow run reads the English heading first (CI, 2026-11-28).
+    expect(await screen.findByRole("heading", { name: "Preisbeobachtung" })).toBeInTheDocument();
     const table = await screen.findByTestId("materials-prices-table");
-    expect(screen.getByRole("heading", { name: "Preisbeobachtung" })).toBeInTheDocument();
     const [first, second] = within(table).getAllByTestId("materials-price-row");
     expect(first).toHaveTextContent("68,50 $");
     expect(first).toHaveTextContent("/ Platte");

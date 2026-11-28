@@ -45,7 +45,8 @@ import {
 } from "@countersign/core";
 import { agent, agentVersion, build, connection, run, type Tx, tenant } from "@countersign/db";
 import { and, desc, eq, inArray, isNull, ne, or } from "drizzle-orm";
-import { freeSlug, moveToClientTest, type TrialBlock } from "../build/client-test";
+import { freeSlug, type TrialBlock } from "../build/client-test";
+import { liveOnPublish } from "../build/live";
 import { type BuildRow, draftWritingSteps } from "../build/store";
 import { bundleNeeds, connectorName, gapsOf, gapWords } from "../connector-access/service";
 import { ensureClient, type HandlerCtx, HttpError, notFound } from "../http";
@@ -490,8 +491,7 @@ async function attempt<T>(
  * version is published, a template copied (or its copy updated), the client's connections bound,
  * the agent activated and its trial started. A refusal of the copy's publish, its update or the
  * activation (what the client owes) is answered with `started: false` and its reasons; the rest
- * stays done, and the agent's open build moves to its client test with the refusal as an open
- * item, as the client-test move does.
+ * stays done, and the agent's open build goes live with the published version (owner, 2026-11-27).
  */
 export async function turnOn(ctx: Ctx, id: string, body: TurnOnBody): Promise<TurnOnAnswer> {
   const { tx, services } = ctx;
@@ -630,18 +630,20 @@ export async function turnOn(ctx: Ctx, id: string, body: TurnOnBody): Promise<Tu
   }
   running = await getAgent(tx, running.id);
 
-  // 4. The agent's open build, at its client test, as the client-test move leaves it.
-  if (s.build && s.build.phase !== "qa") {
-    const [locked] = await tx.select().from(build).where(eq(build.id, s.build.id)).for("update");
-    if (locked && locked.status === "open") {
-      await moveToClientTest(tx, locked, {
-        clientId: s.clientId,
-        testAgentId: running.id,
-        userId: actorId,
-        blocked,
-        key: `start:${running.id}:${s.version.id}`,
-      });
-    }
+  // 4. Owner (2026-11-27): the agent's open build goes live with the version it published, as
+  // any publish of its draft does; its trial at the client is the agent's own from here.
+  if (s.build && row.liveVersionId === s.version.id) {
+    const n = s.version.version;
+    const trial = blocked
+      ? `Its trial at ${s.clientName} hasn't started yet: ${lower(blocked.title)}.`
+      : `It's turned on at ${s.clientName}: its trial has started, and the client signs every write.`;
+    await liveOnPublish(tx, {
+      agentId: s.row.id,
+      versionId: s.version.id,
+      version: n,
+      userId: actorId,
+      text: () => `Published v${n}. This build is done. ${trial}`,
+    });
   }
 
   // 5. The answer, read again: the agent that runs as it is now (a template's copy is read as the

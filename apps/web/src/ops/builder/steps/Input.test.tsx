@@ -1,7 +1,7 @@
 // Stream G (docs/step-model-plan.md §6): the Input box works out the incoming side by itself:
 // Fits, Translated (saved with the step, no confirming), Doesn't fit (Suggest's Resolve asked once).
 
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { useState } from "react";
 import { describe, expect, it, vi } from "vitest";
 import type { StepFormEnv } from "./form-kit";
@@ -49,7 +49,7 @@ const uses = {
   ]),
 };
 
-function setup(suggest: SuggestFn) {
+function setup(suggest: SuggestFn, edited?: (id: string) => boolean) {
   const step = {
     kind: "do",
     id: "s_make",
@@ -70,6 +70,7 @@ function setup(suggest: SuggestFn) {
     people: { members: [], people: [] },
     suggest,
     models: [],
+    ...(edited ? { edited } : {}),
   };
   const seen: DoStep[] = [];
   function Host() {
@@ -122,5 +123,19 @@ describe("the Input box's translation", () => {
     expect(suggest).toHaveBeenCalledTimes(1);
     expect(suggest.mock.calls[0]?.[0]).toMatchObject({ field: "input", how: "resolve" });
     expect(screen.queryByText(/Doesn't fit/)).toBeNull();
+  });
+});
+
+// Staging, 2026-11-28: opening a stored step rewrote its input. Until the person changes the step,
+// what is worked out is offered, and nothing is asked of Suggest.
+describe("the Input box on a step not changed on this page", () => {
+  it("offers what it works out, changes nothing, and fills it in when asked", () => {
+    const suggest = vi.fn<SuggestFn>(async (r) => ({ step: r.step, summary: "", applied: false }));
+    const seen = setup(suggest, () => false);
+    expect(screen.getByTestId("do-input-offer")).toBeTruthy();
+    expect(seen).toHaveLength(0);
+    expect(suggest).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByTestId("do-input-offer-apply"));
+    expect(seen.at(-1)?.input).toEqual({ _s_read: "{{steps.s_read.output}}" });
   });
 });

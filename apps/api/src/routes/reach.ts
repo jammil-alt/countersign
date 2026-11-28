@@ -17,6 +17,7 @@ import {
   createDomain,
   createSendingKey,
   type FetchLike,
+  forwardingOf,
   getDomain,
   globalFetch,
   RESEND_CONNECTOR_ID,
@@ -47,6 +48,7 @@ import { and, asc, desc, eq } from "drizzle-orm";
 import type { Hono } from "hono";
 import { type AppEnv, ensureClient, HttpError, mount, notFound } from "../http";
 import { reachContactOf } from "../messaging/contacts";
+import { withForwardingAddress } from "../reach/forwarding";
 import { forwardingAddress } from "../reach/replies";
 import { cipherFor, connectionCredentials } from "../secrets";
 import { newConnectionMatrix } from "./ops-connectors";
@@ -256,7 +258,16 @@ export function reachRoutes(app: Hono<AppEnv>): void {
       sendingDomain,
       localPart: ctx.body.localPart,
       fromName: ctx.body.fromName ?? null,
-      replyTo: await forwardingAddress(ctx.tx, tenantId),
+      // Replies come back to the client's forwarding address: made here when the client has none
+      // yet (a client whose portal never opened forwarding, such as the Sandbox).
+      replyTo:
+        forwardingOf(
+          await withForwardingAddress(ctx.tx, {
+            tenantId,
+            domain: env.EMAIL_FORWARDING_DOMAIN,
+            actorId: ctx.session.user.id,
+          }),
+        ).address ?? null,
       checkedAt: new Date().toISOString(),
     };
     const sendingKey = await createSendingKey(fetch, mainKey, {

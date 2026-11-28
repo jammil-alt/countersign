@@ -1,8 +1,8 @@
 // Decisions on a build (docs/builder-plan.md §4) through the API, with scripted model answers: the
 // Builder records its decisions in the fit-gap and while drafting, any decision can be talked
-// about, the risk of one on a step that writes is raised by code, the high-risk ones hold the move
-// from the POC into the client test until the operator marks them discussed or confirmed, and only
-// operators reach the status route.
+// about, the risk of one on a step that writes is raised by code, the high-risk ones are issues
+// until the operator marks them discussed or confirmed (they hold nothing: owner, 2026-11-27, a
+// build goes from its draft straight to Publish), and only operators reach the status route.
 import { TESTKIT_UPDATE_TOOL } from "@countersign/connectors";
 import { type BuildDetail, buildIssues } from "@countersign/core";
 import { buildEvent, build as buildTable } from "@countersign/db";
@@ -100,7 +100,7 @@ describe.skipIf(!h)("decisions on a build", () => {
     return typeof m?.content === "string" ? m.content : JSON.stringify(m?.content);
   };
 
-  it("are recorded by the Builder, raised by code and looked at before the client test", async () => {
+  it("are recorded by the Builder, raised by code and looked at before it is published", async () => {
     let b = await ok("POST", "/api/ops/builds", { kind: "agent", title: "Record review" });
     const id = b.build.id;
     model.push(
@@ -198,18 +198,18 @@ describe.skipIf(!h)("decisions on a build", () => {
     expect(post?.stepId).toBeTruthy();
     expect(post?.stepId).not.toBe("update");
 
-    // POC: the high-risk ones are issues, in the Builder's facts, and hold the client test.
-    model.push(turnAnswer({ text: "One record will do.", testPlan: { datasets: [] } }));
-    b = await ok("POST", `/api/ops/builds/${id}/phase`, { to: "poc" });
+    // The high-risk ones are issues and in the Builder's facts; they don't hold Publish.
+    model.push(turnAnswer({ text: "Two are worth a look." }));
+    b = await ok("POST", `/api/ops/builds/${id}/turns`, { text: "Anything to look at?" });
     expect(lastUserText()).toContain("High-risk decision not looked at yet [decision:post]");
-    expect(b.gate.reasons).toContain("2 high-risk decisions haven't been looked at yet.");
+    expect(b.gate.reasons).toEqual([]);
     expect(
       buildIssues(b)
         .filter((i) => i.source === "decision")
         .map((i) => [i.key, i.blocking]),
     ).toEqual([
-      ["decision:tol", true],
-      ["decision:post", true],
+      ["decision:tol", false],
+      ["decision:post", false],
     ]);
 
     // The operator marks them; only operators may, and only to their own statuses.
@@ -225,7 +225,7 @@ describe.skipIf(!h)("decisions on a build", () => {
       by: expect.any(String),
       at: expect.any(String),
     });
-    expect(b.gate.reasons).toContain("1 high-risk decision hasn't been looked at yet.");
+    expect(buildIssues(b).filter((i) => i.source === "decision")).toHaveLength(1);
     b = await ok("PATCH", path("post"), { status: "discussed" });
     expect(b.gate.reasons.join(" ")).not.toContain("high-risk");
     expect(buildIssues(b).some((i) => i.source === "decision")).toBe(false);

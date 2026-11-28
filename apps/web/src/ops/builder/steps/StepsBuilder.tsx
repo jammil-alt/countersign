@@ -3,7 +3,11 @@
 // pickers and what the new structure needs). One workflow of an agent's version, `schemaVersion: 5`:
 // the chart (the builder's own, `../../flow`), the bar, the step's side panel with its form and Data
 // tab, the palette of eight kinds, the workflow's outputs next to the triggers, and Publish, which
-// shows `validateWorkflow`'s issues on their steps and refuses while any remain.
+// shows the server's publish check of the draft on its steps and refuses while any issue remains.
+//
+// One checker (staging, 2026-11-28): the issues are the server's (`./check`), asked as the page
+// opens and after each edit, and the page never changes the workflow by itself: what opens is what
+// is stored, and "Unsaved" means a person changed it.
 //
 // Feedback, 2026-11-26: a step's settings open in a full-height side drawer over the page; the
 // chart scrolls inside a frame the window's height under the bar; the outputs come after the chart;
@@ -13,11 +17,15 @@
 import {
   type AgentBundle,
   canonicalJson,
+  type OversightReview,
+  type OversightSettings,
+  oversightReviewOf,
   steps,
   triggerOnSchema,
   uuidv7,
   wantsDocument,
   wantsMessage,
+  withOversightReview,
 } from "@countersign/core";
 import {
   type CSSProperties,
@@ -47,19 +55,13 @@ import type { Member, People } from "../people";
 import { AddWorkflowForm, WorkflowSwitcher } from "../workflow-switcher";
 import { BuilderChat, useBuilderSession } from "./BuilderChat";
 import { triggerFields, useStepsCatalog } from "./catalog";
+import { useWorkflowCheck } from "./check";
 import { Drawer, DrawerTab } from "./Drawer";
-import { translateAll } from "./data";
 import { type BoxWords, boxWords, displayProcess } from "./display";
 import { fixFor, type IssueFix } from "./fixes";
 import type { SaveAsSkill, StepFormEnv } from "./form-kit";
 import { canRedo, canUndo, commit, redo, startHistory, undo } from "./history";
-import {
-  type BuilderIssue,
-  canPublish,
-  issuesByStep,
-  publishSummary,
-  workflowIssues,
-} from "./issues";
+import { type BuilderIssue, canPublish, issuesByStep, publishSummary } from "./issues";
 import {
   canRemove,
   findStep,
@@ -76,6 +78,7 @@ import {
 import { OutputsEditor } from "./OutputsEditor";
 import { agentModelsOf, runsOn } from "./runsOn";
 import { StepEditor } from "./StepEditor";
+import { SupervisorControl, SupervisorField, supervisorMarks } from "./Supervisor";
 import { statusesFor, stepCounts } from "./status";
 import { guardedSuggestion, type SuggestFn, suggestBody, withStep } from "./suggest";
 import { TryPanel } from "./TryPanel";
@@ -108,6 +111,19 @@ interface StoredBundle {
 export function withWorkflow(bundle: unknown, slug: string, workflow: Workflow): unknown {
   const b = bundle as StoredBundle;
   return { ...b, workflows: b.workflows.map((w) => (w.slug === slug ? { ...w, workflow } : w)) };
+}
+
+/** The supervisor's settings as the bundle stores them (`definition.oversight`), if any. */
+export function oversightOf(bundle: unknown): OversightSettings | undefined {
+  const d = (bundle as { definition?: { oversight?: OversightSettings } }).definition;
+  return d?.oversight;
+}
+
+/** The bundle with the supervisor's settings replaced; absent leaves them as stored. */
+export function withOversight(bundle: unknown, oversight: OversightSettings | undefined): unknown {
+  if (!oversight) return bundle;
+  const b = bundle as { definition: Record<string, unknown> };
+  return { ...b, definition: { ...b.definition, oversight } };
 }
 
 export default function StepsBuilder(props: StepsBuilderProps) {
@@ -192,25 +208,33 @@ function Body(
         .workflows,
     [props.bundle],
   );
-  // Stream G: every Do step's incoming side worked out on load, opened or not; what changes shows
-  // as unsaved, as an edit would.
-  const [history, setHistory] = useState(() =>
-    startHistory(
-      translateAll(props.start, catalog.uses, triggerFields(props.start, catalog.events)),
-    ),
-  );
+  // The workflow as stored: nothing is worked out or filled in as the page opens (staging,
+  // 2026-11-28: a step's input dropped on load was saved as a broken version).
+  const [history, setHistory] = useState(() => startHistory(props.start));
   const workflow = history.present;
   const edit = useCallback((next: Workflow) => setHistory((h) => commit(h, next)), []);
+  // The supervisor's settings (owner, 2026-11-27): the agent's `definition.oversight`, changed
+  // from the bar and saved with the workflow as a new draft, like any edit.
+  // DECISION: kept beside the workflow's history, not in it: Undo undoes steps, and the bar's
+  // control sets the level back; edits kept in this browser hold the workflow only.
+  const [oversight, setOversight] = useState(() => oversightOf(props.bundle));
   const [saved, setSaved] = useState({
     id: from.id,
     version: from.version,
     status: from.status,
     canon: canonicalJson(props.start),
+    oversight: canonicalJson(oversightOf(props.bundle) ?? null),
   });
-  const dirty = canonicalJson(workflow) !== saved.canon;
-  // What the builder opened on, worked out (stream G): changed by an edit, it is the person's work.
-  const [opened] = useState(() => canonicalJson(history.present));
-  const unsaved = dirty && canonicalJson(workflow) !== opened;
+  const oversightDirty = canonicalJson(oversight ?? null) !== saved.oversight;
+  // Only a person's edit makes the draft differ from what is stored.
+  const dirty = canonicalJson(workflow) !== saved.canon || oversightDirty;
+  // Each step as the page opened it: a step the person hasn't changed is never rewritten by its
+  // form (the Input box offers what it works out instead).
+  const openedSteps = useMemo(
+    () => new Map(walk(props.start).map((l) => [l.step.id, canonicalJson(l.step)])),
+    [props.start],
+  );
+  const review: OversightReview = oversightReviewOf(oversight);
   // Edits kept in this browser from before a reload, offered back (owner, 2026-11-26).
   const [offer, setOffer] = useState(() =>
     keptToOffer(readKept(agent.id, props.workflow), from.id, history.present),
@@ -220,10 +244,10 @@ function Body(
     slug: props.workflow,
     baseId: saved.id,
     workflow,
-    dirty: unsaved,
+    dirty,
     enabled: offer === null,
   });
-  useLeaveGuard(unsaved);
+  useLeaveGuard(dirty);
   const [selection, setSelection] = useState<string | null>(null);
   const [addAt, setAddAt] = useState<InsertPoint | null>(null);
   const [folded, setFolded] = useState<ReadonlySet<string>>(new Set());
@@ -232,7 +256,10 @@ function Body(
   const [showIssues, setShowIssues] = useState(false);
   // The drawer's other two uses: Try it and the Builder (a step's settings and the palette are
   // `selection` and `addAt`). One drawer at a time.
-  const [tool, setTool] = useState<"try" | "builder" | null>(null);
+  // `#try` (the Turn on sheet's Try it) opens with Try it open.
+  const [tool, setTool] = useState<"try" | "builder" | null>(() =>
+    typeof window !== "undefined" && window.location.hash === "#try" ? "try" : null,
+  );
   // The sticky bar's height, measured: one row on a wide window, two or more when it wraps.
   const barRef = useRef<HTMLDivElement>(null);
   const [barHeight, setBarHeight] = useState(76);
@@ -257,7 +284,14 @@ function Body(
   const api = useRef(action);
   api.current = action;
 
-  const issues = useMemo(() => workflowIssues(workflow, catalog.uses), [workflow, catalog.uses]);
+  // What would stop a publish, as the server's save and publish check it.
+  const check = useWorkflowCheck({
+    agentId: agent.id,
+    slug: props.workflow,
+    parentVersionId: saved.id,
+    workflow,
+  });
+  const issues = useMemo(() => check.issues ?? [], [check.issues]);
   const byStep = useMemo(() => issuesByStep(issues), [issues]);
   const statuses = useMemo(() => statusesFor(issues), [issues]);
   // What the chart and the list show: the issues, and the last try's result on each step.
@@ -282,6 +316,12 @@ function Body(
     return out;
   }, [statuses, tried, builderChanged]);
   const counts = useMemo(() => stepCounts(workflow, catalog.uses), [workflow, catalog.uses]);
+  // The steps the supervisor checks after they succeed, with the words of their mark.
+  const supervised = useMemo(
+    () => supervisorMarks(workflow, review, catalog.uses),
+    [workflow, review, catalog.uses],
+  );
+  const supervisor = useCallback((id: string) => supervised.get(id) ?? null, [supervised]);
   const process = useMemo(() => displayProcess(workflow, catalog.uses), [workflow, catalog.uses]);
   // The agent's own model and per-skill models, for what an AI step runs on when it sets none.
   const agentModels = useMemo(() => agentModelsOf(props.bundle), [props.bundle]);
@@ -344,8 +384,22 @@ function Body(
       agentModels,
       agents: props.handoffAgents,
       saveAsSkill,
+      edited: (id) => {
+        const was = openedSteps.get(id);
+        const now = findStep(workflow, id)?.step;
+        return was === undefined || (now !== undefined && canonicalJson(now) !== was);
+      },
     }),
-    [workflow, catalog, props.people, suggest, props.handoffAgents, saveAsSkill, agentModels],
+    [
+      workflow,
+      catalog,
+      props.people,
+      suggest,
+      props.handoffAgents,
+      saveAsSkill,
+      agentModels,
+      openedSteps,
+    ],
   );
 
   const selected = selection ? (findStep(workflow, selection)?.step ?? null) : null;
@@ -411,7 +465,8 @@ function Body(
   // ── Save and publish ──
   const save = async (added: AgentBundle["workflows"] = [], note?: string) => {
     const snapshot = workflow;
-    let bundle = withWorkflow(props.bundle, props.workflow, snapshot);
+    const keptOversight = oversight;
+    let bundle = withOversight(withWorkflow(props.bundle, props.workflow, snapshot), keptOversight);
     if (added.length > 0) {
       const b = bundle as { workflows: unknown[] };
       bundle = { ...b, workflows: [...b.workflows, ...added] };
@@ -453,6 +508,7 @@ function Body(
       version: res.data.version.version,
       status: res.data.version.status,
       canon: canonicalJson(snapshot),
+      oversight: canonicalJson(keptOversight ?? null),
     };
     setSaved(next);
     setBuilderChanged(new Set());
@@ -583,6 +639,14 @@ function Body(
             canRedo={canRedo(history)}
             onUndo={() => setHistory(undo)}
             onRedo={() => setHistory(redo)}
+            extra={
+              <SupervisorControl
+                review={review}
+                set={oversight !== undefined}
+                verifies={oversight === undefined || oversight.verify === "writes"}
+                onChange={(r) => setOversight((o) => withOversightReview(o, r))}
+              />
+            }
             onAskBuilder={() => openTool("builder")}
             onTry={() => openTool("try")}
             tryBlocked={tryBlocked}
@@ -665,6 +729,13 @@ function Body(
             ) : null}
           </Notice>
         ) : null}
+        {check.failed ? (
+          <p className="text-sm text-ink-muted" data-testid="steps-check-failed">
+            We couldn't check this draft just now
+            {check.issues ? ", so what stops Publish below may be out of date" : ""}. Saving still
+            works; we'll check again after your next change.
+          </p>
+        ) : null}
         {showIssues || !canPublish(issues) ? (
           <PublishIssues
             issues={issues}
@@ -713,6 +784,7 @@ function Body(
                 })
               }
               label={label as never}
+              supervisor={supervisor}
               onSelect={select}
               onInsert={(at) => {
                 setSelection(null);
@@ -731,6 +803,7 @@ function Body(
                 selected={selection}
                 onSelect={select}
                 label={label as never}
+                supervisor={supervisor}
                 onAdd={() => {
                   setSelection(null);
                   setToolFolded(true);
@@ -821,6 +894,14 @@ function Body(
               env={env}
               issues={byStep.get(selected.id) ?? []}
               onChange={(next: Step) => edit(updateStep(workflow, selected.id, () => next))}
+              settingsFooter={
+                <SupervisorField
+                  step={selected}
+                  uses={catalog.uses}
+                  review={review}
+                  onChange={(next) => edit(updateStep(workflow, selected.id, () => next))}
+                />
+              }
             />
           </StepPanel>
         </Drawer>
@@ -916,7 +997,7 @@ function Palette({ onPick, onClose }: { onPick(kind: StepKind): void; onClose():
  * where what has to change is elsewhere, and the Builder for the rest.
  */
 export function PublishIssues(props: {
-  issues: ReturnType<typeof workflowIssues>;
+  issues: readonly BuilderIssue[];
   show: boolean;
   name(id: string): string;
   outputName(id: string): string;

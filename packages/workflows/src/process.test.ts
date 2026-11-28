@@ -761,10 +761,18 @@ describe("conversation steps", () => {
           name: "N",
           notify: { to: ["lead"], message: "{{steps.ask.output.found.price}}" },
         },
+        // What it found is read by its own name too (a v5 Contact step's output fields).
+        {
+          id: "n2",
+          kind: "notify",
+          name: "N2",
+          notify: { to: ["lead"], message: "{{steps.ask.output.price}}" },
+        },
       ]),
       { vendor: "c-vendor" },
     );
     expect(result.status).toBe("succeeded");
+    expect(h.sent[1]?.text).toBe("4.20");
     expect(p.calls[0]?.step).toMatchObject({ with: "c-vendor", goal: "Find the price of flour" });
     expect(p.calls[0]).toMatchObject({ stepId: "ask", runId: RUN.id, mode: "live" });
     expect(p.calls[0]?.stepRunId).toBe(h.row("ask")?.id);

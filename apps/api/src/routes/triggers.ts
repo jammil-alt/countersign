@@ -4,9 +4,11 @@
 import { getAgent } from "@countersign/agents";
 import {
   type AgentTriggers,
+  normalizeSignupPhone,
   type PortalTrigger,
   routes,
   type TestMessageAnswer,
+  uuidv7,
 } from "@countersign/core";
 import { contact, document, run } from "@countersign/db";
 import { and, eq, inArray, sql } from "drizzle-orm";
@@ -14,10 +16,47 @@ import type { Hono } from "hono";
 import { ensureSeesAgent } from "../assigned";
 import { type AppEnv, HttpError, mount, mountLong, notFound } from "../http";
 import { dispatchEvents } from "../runs/dispatch";
+import { addSandboxPerson } from "../sandbox/sample-company";
 import { isSandboxClient } from "../sandbox/sandbox";
 import { setInboundName } from "../triggers/inbound-name";
 import { agentTriggers } from "../triggers/list";
 import { receiveTestMessage } from "../triggers/test-message";
+
+/**
+ * A typed sender's address as the directory keeps it: an email lower case (named by the part
+ * before the @), or a phone number in E.164 (named by itself); 422 when it is neither.
+ */
+export function senderAddress(raw: string): {
+  name: string;
+  email: string | null;
+  phone: string | null;
+} {
+  const v = raw.trim();
+  if (v.includes("@")) {
+    const email = v.toLowerCase();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      throw new HttpError(422, "invalid_email", "That isn't an email address");
+    }
+    // DECISION: a typed sender is named from their address ("sam.lee@" is Sam Lee); the operator
+    // can rename them in the Sandbox's directory.
+    const local = email.slice(0, email.indexOf("@"));
+    const name = local
+      .split(/[._\-+]+/)
+      .filter(Boolean)
+      .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+      .join(" ");
+    return { name: name || email, email, phone: null };
+  }
+  const phone = normalizeSignupPhone(v);
+  if (!phone) {
+    throw new HttpError(
+      422,
+      "invalid_phone",
+      "Give an email address, or a phone number in international form (+15551234567) or as a 10-digit US number",
+    );
+  }
+  return { name: phone, email: null, phone };
+}
 
 /** 422 `not_sandbox`: what is only for the Sandbox client. */
 const notSandbox = (what: string) =>
@@ -118,6 +157,49 @@ export function triggerRouteHandlers(app: Hono<AppEnv>): void {
           reply: answer.reply,
         } satisfies TestMessageAnswer)
       : answer;
+  });
+
+  // Try it's From (2026-11-27): someone typed in as who a test message is from, added to the
+  // Sandbox's directory with what the trigger takes, so it takes them.
+  // DECISION: a contact found by the address keeps a relationship it has (a vendor's rep stays
+  // one, and the trigger may refuse them, as it would a real one); one with none is given the
+  // trigger's. The labels the trigger takes are added either way. No organization.
+  mount(app, routes.opsSandboxSender, async (ctx) => {
+    const { body } = ctx;
+    if (!ctx.tenantIds.includes(body.clientId)) throw notFound("client");
+    if (!(await isSandboxClient(ctx.tx, body.clientId))) throw notSandbox("people are added here");
+    const person = senderAddress(body.address);
+    const userId = ctx.session.user.id;
+    const out = await addSandboxPerson(ctx.tx, {
+      tenantId: body.clientId,
+      userId,
+      person,
+      relationship: body.relationship ?? null,
+      tags: body.tags ?? [],
+      organizationId: null,
+      id: uuidv7(),
+      now: new Date(),
+      entry: {
+        title: null,
+        roles: [],
+        notes: "Added in Try it, as who a test message is from.",
+      },
+      conflict: (email, phone) =>
+        `That email is ${email}'s and that number is ${phone}'s in the Sandbox's directory.`,
+      mark: { via: "try" },
+    });
+    const [c] = await ctx.tx
+      .select({ name: contact.name, email: contact.email, phone: contact.phone })
+      .from(contact)
+      .where(and(eq(contact.tenantId, body.clientId), eq(contact.id, out.id)));
+    if (!c) throw notFound("contact");
+    return {
+      contactId: out.id,
+      name: c.name,
+      email: c.email,
+      phone: c.phone,
+      created: out.created,
+    };
   });
 
   mount(app, routes.opsAgentTriggers, async (ctx) => {

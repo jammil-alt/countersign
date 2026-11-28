@@ -594,3 +594,29 @@ export const ReachOutOutput = z
   })
   .meta({ id: "ReachOutOutput" });
 export type ReachOutOutput = z.infer<typeof ReachOutOutput>;
+
+// ── An email's subject (staging, 2026-11-27) ─────────────────────────────────────────────────────
+
+/** The most an email subject we make may hold. */
+export const SUBJECT_LINE_MAX = 90;
+
+/**
+ * One subject line from a text: its first sentence (or line), whitespace and line breaks folded,
+ * cut at a word under `SUBJECT_LINE_MAX` with an ellipsis. A reach-out with no subject of its own
+ * took its purpose's first 200 characters, and a conversation's purpose is its whole compiled
+ * goal, line breaks and all, which Resend refused ("invalid input").
+ */
+export function emailSubjectFrom(text: string): string {
+  const flat = text.replace(/\s+/g, " ").trim();
+  const firstLine =
+    text
+      .split(/\r?\n/)
+      .find((l) => l.trim() !== "")
+      ?.trim() ?? flat;
+  const sentence = firstLine.replace(/\s+/g, " ").match(/^.*?[.!?](?=\s|$)/)?.[0] ?? firstLine;
+  const one = sentence.replace(/[.]$/, "").trim() || flat;
+  if (one.length <= SUBJECT_LINE_MAX) return one;
+  const cut = one.slice(0, SUBJECT_LINE_MAX - 1);
+  const space = cut.lastIndexOf(" ");
+  return `${(space > 40 ? cut.slice(0, space) : cut).replace(/[\s,;:–-]+$/, "")}…`;
+}

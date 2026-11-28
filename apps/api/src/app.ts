@@ -177,6 +177,8 @@ import {
   secondFactorRoutes,
   setupLinkRoutes,
 } from "./routes/second-factor";
+// 2026-11-28: the connector self-test on the Sandbox client's live connections.
+import { selftestRouteHandlers } from "./routes/selftest";
 import { sessionRoutes } from "./routes/session";
 import { signInApprovalRoutes } from "./routes/sign-in-approvals";
 import { opsSkillSampleRoutes } from "./routes/skill-sample";
@@ -232,6 +234,7 @@ import { runSubjectBackfillTick } from "./runs/subject-log";
 // M45: Search Console and Bing, nightly (docs/plan.md §1.75).
 import { searchSyncTick } from "./search-sync";
 import { securityHeaders } from "./security-headers";
+import { selftestDepsFrom, selftestTick } from "./selftest/runner";
 import { sopCheckTick } from "./sop/revisions";
 import {
   TRANSLATION_SWEEP_MINUTE,
@@ -394,6 +397,8 @@ export function createApp(deps: AppDeps = defaultDeps): Hono<AppEnv> {
   ledgerRoutes(app);
   // docs/plan.md §1.216: books health
   booksHealthRoutes(app);
+  // The connector self-test (staging and local only; the Sandbox client only).
+  selftestRouteHandlers(app);
   reachRoutes(app);
   messagingSetupRoutes(app);
   twilioHookRoutes(app);
@@ -705,6 +710,15 @@ export async function runCron(env: Bindings, scheduledTime: Date, deps: AppDeps 
     await staleWritesTick(db, scheduledTime, senseEmitter(platform.events)).catch(
       (error: unknown) => reportHandled("stale writes tick failed", error, { job: "stale_writes" }),
     );
+    // Once a day on staging (and locally), the connector self-test on the Sandbox client's live
+    // connections (selftest/runner.ts): reads and parses only; a failed check is reported by the
+    // health pass at 13:12. Never in production.
+    const selftest = selftestDepsFrom(env, { db, platform, deps });
+    if (selftest) {
+      await selftestTick(selftest, scheduledTime).catch((error: unknown) =>
+        reportHandled("self-test tick failed", error, { job: "selftest" }),
+      );
+    }
     // Last, after every other pass, so their slower work never holds the others up:
     // every 10 minutes, runs that never started are started or failed, runs whose instance ended
     // without finishing them are failed (runs/reconcile.ts);

@@ -1,8 +1,10 @@
 // Made-up data for Try it (docs/plan.md §1.186, rebuilt for the step model 2026-11-26): JSON for a
 // trigger that carries values, and a PDF document kept in the Sandbox for one that carries a
 // document. Scripted model answers only.
+
+import { dbInboundPort, templateTestCopy } from "@countersign/agents";
 import { DEV_USER_HEADER } from "@countersign/auth";
-import { document, rawRecord, tenant, vendor as vendorTable } from "@countersign/db";
+import { contact, document, rawRecord, run, tenant, vendor as vendorTable } from "@countersign/db";
 import { DEFAULT_MODELS, FakeModel } from "@countersign/llm";
 import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
@@ -22,6 +24,7 @@ const j = (v: unknown) => v as Json;
 describe.skipIf(!h)("made-up data for Try it", () => {
   const H = h as NonNullable<typeof h>;
   let templateId = "";
+  let templateVersionId = "";
 
   beforeAll(async () => {
     await H.t.db
@@ -34,6 +37,7 @@ describe.skipIf(!h)("made-up data for Try it", () => {
     });
     expect(created.status, JSON.stringify(created.json)).toBe(200);
     templateId = j(j(created.json).agent).id as string;
+    templateVersionId = j(j(created.json).version).id as string;
   });
 
   const make = (body: unknown) =>
@@ -192,6 +196,210 @@ describe.skipIf(!h)("made-up data for Try it", () => {
       documents: trigger.documents,
       madeUp: true,
     });
+  });
+
+  // Staging, 2026-11-27: a step that asks the sender back had nobody to ask.
+  it("sends the email from one of the Sandbox's people the trigger takes, as that contact", async () => {
+    const [dana] = await H.t.db
+      .insert(contact)
+      .values({
+        tenantId: H.B.tenantId,
+        name: "Dana Whitfield",
+        email: "dana@ridgeline.example.com",
+        relationship: "employee",
+        source: "manual",
+      })
+      .returning({ id: contact.id });
+    const wf = v5Workflow([], {
+      triggers: [
+        {
+          id: "t1",
+          on: { type: "message", channels: ["email"], from: { relationships: ["employee"] } },
+        },
+      ],
+    });
+    model.push({
+      toolUse: {
+        name: "make_test_message",
+        input: {
+          from: { name: "Dana Whitfield", email: "Dana@Ridgeline.example.com" },
+          subject: "Lumber",
+          text: "Lumber for the Hall job, company card.",
+          attachments: [],
+        },
+      },
+    });
+    const res = await make({ workflow: wf, name: "Receipts" });
+    expect(res.status, JSON.stringify(res.json)).toBe(200);
+    expect(lastAsk().user).toContain("Dana Whitfield (dana@ridgeline.example.com)");
+    const trigger = j(j(res.json).trigger);
+    expect(trigger.contactId).toBe(dana?.id);
+    const [rec] = await H.t.db
+      .select()
+      .from(rawRecord)
+      .where(eq(rawRecord.id, trigger.rawRecordId as string));
+    expect(rec?.payload).toMatchObject({ contactId: dana?.id });
+  });
+
+  // Try it's From (2026-11-27): the person picked, by email or by text.
+  it("writes the message from the contact Try it picked, as a text when it comes by phone", async () => {
+    const [sam] = await H.t.db
+      .insert(contact)
+      .values({
+        tenantId: H.B.tenantId,
+        name: "Sam Ortiz",
+        phone: "+15550104477",
+        relationship: "employee",
+        source: "manual",
+      })
+      .returning({ id: contact.id });
+    const wf = v5Workflow([], {
+      triggers: [
+        {
+          id: "t1",
+          on: {
+            type: "message",
+            channels: ["email", "sms"],
+            from: { relationships: ["employee"] },
+          },
+        },
+      ],
+    });
+    model.push({
+      toolUse: {
+        name: "make_test_message",
+        input: {
+          from: { name: "Someone Else", email: "someone@example.com" },
+          subject: "Fuel",
+          text: "Fuel for the truck, $62.",
+          attachments: [],
+        },
+      },
+    });
+    const res = await make({ workflow: wf, name: "Receipts", fromContactId: sam?.id });
+    expect(res.status, JSON.stringify(res.json)).toBe(200);
+    expect(lastAsk().user).toContain("a text from Sam Ortiz (+15550104477)");
+    const out = j(res.json);
+    expect(j(out.trigger)).toMatchObject({ channel: "sms", contactId: sam?.id });
+    expect(j(out.message)).toMatchObject({
+      from: "Sam Ortiz <+15550104477>",
+      text: "Fuel for the truck, $62.",
+      contactId: sam?.id,
+      channel: "sms",
+    });
+    const [rec] = await H.t.db
+      .select()
+      .from(rawRecord)
+      .where(eq(rawRecord.id, j(out.trigger).rawRecordId as string));
+    expect(rec?.payload).toMatchObject({
+      channel: "sms",
+      from: "+15550104477",
+      contactId: sam?.id,
+      subject: null,
+    });
+    // An email asked of someone with no email address is refused before the model is asked.
+    const before = model.requests.length;
+    const noEmail = await make({ workflow: wf, fromContactId: sam?.id, channel: "email" });
+    expect(noEmail.status).toBe(422);
+    expect(j(j(noEmail.json).error).code).toBe("no_address");
+    // Someone who isn't the Sandbox's is refused.
+    const [other] = await H.t.db
+      .insert(contact)
+      .values({ tenantId: H.A.tenantId, name: "Ann", email: "ann@a.example", source: "manual" })
+      .returning({ id: contact.id });
+    const notOurs = await make({ workflow: wf, fromContactId: other?.id });
+    expect(notOurs.status).toBe(422);
+    expect(j(j(notOurs.json).error).code).toBe("invalid_contact");
+    expect(model.requests.length).toBe(before);
+  });
+
+  it("makes up an email for a Sandbox agent, kept with the agent", async () => {
+    const created = await H.call(OPERATOR, "POST", `/api/ops/clients/${H.B.tenantId}/agents`, {
+      slug: "made-up-sandbox",
+      bundle: testBundle("Sandbox clerk"),
+    });
+    expect(created.status, JSON.stringify(created.json)).toBe(200);
+    const agentId = j(j(created.json).agent).id as string;
+    const wf = v5Workflow([], {
+      triggers: [
+        {
+          id: "t1",
+          on: { type: "message", channels: ["email"], from: { relationships: ["employee"] } },
+        },
+      ],
+    });
+    model.push({
+      toolUse: {
+        name: "make_test_message",
+        input: {
+          from: { name: "Priya Shah", email: "priya@example.com" },
+          subject: "Fuel",
+          text: "Fuel for the site truck",
+          attachments: [],
+        },
+      },
+    });
+    const res = await H.call(OPERATOR, "POST", `/api/ops/agents/${agentId}/test-data`, {
+      workflow: wf,
+    });
+    expect(res.status, JSON.stringify(res.json)).toBe(200);
+    const [rec] = await H.t.db
+      .select()
+      .from(rawRecord)
+      .where(eq(rawRecord.id, j(j(res.json).trigger).rawRecordId as string));
+    expect(rec?.tenantId).toBe(H.B.tenantId);
+    expect(rec?.payload).toMatchObject({ agentId, channel: "email", madeUp: true });
+  });
+
+  it("lets the template's test copy, which its test runs run, read the made-up email", async () => {
+    const wf = v5Workflow([], {
+      triggers: [
+        {
+          id: "t1",
+          on: { type: "message", channels: ["email"], from: { relationships: ["employee"] } },
+        },
+      ],
+    });
+    model.push({
+      toolUse: {
+        name: "make_test_message",
+        input: {
+          from: { name: "Priya Shah", email: "priya@example.com" },
+          subject: "Fuel",
+          text: "Fuel for the site truck",
+          attachments: [],
+        },
+      },
+    });
+    const res = await make({ workflow: wf, name: "Receipts" });
+    expect(res.status, JSON.stringify(res.json)).toBe(200);
+    const trigger = j(j(res.json).trigger);
+    const copy = await templateTestCopy(H.t.db as never, {
+      tenantId: H.B.tenantId,
+      templateVersionId,
+    });
+    const runFor = async (agentId: string, agentVersionId: string) => {
+      const [r] = await H.t.db
+        .insert(run)
+        .values({
+          tenantId: H.B.tenantId,
+          agentId,
+          agentVersionId,
+          workflowSlug: "main",
+          mode: "test",
+          status: "running",
+          trigger: { type: "manual", payload: trigger },
+        })
+        .returning({ id: run.id });
+      return r?.id as string;
+    };
+    const copyRun = await runFor(copy.agent.id, copy.version.id);
+    const read = await dbInboundPort(H.db).get(H.B.tenantId, {
+      runId: copyRun,
+      agentId: copy.agent.id,
+    });
+    expect(read).toMatchObject({ channel: "email", subject: "Fuel" });
+    expect(read?.text).toBe("Fuel for the site truck");
   });
 
   it("writes the email around files uploaded for the try, attaching them as they are", async () => {

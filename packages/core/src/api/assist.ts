@@ -10,6 +10,7 @@ import { TEST_DATA_NOTES_MAX, TEST_DATA_VARIATION_IDS } from "../assist/test-dat
 import { isUuid } from "../ids";
 import { storable } from "../text";
 import { defineRoute } from "./contract";
+import { TestMessageChannel } from "./triggers";
 
 const Id = z.string().refine((v) => isUuid(v), "not an id");
 
@@ -76,6 +77,12 @@ export const TestDataMade = z.object({
       from: z.string(),
       attachments: z.array(z.object({ id: z.string(), filename: z.string() })),
       clientId: z.string(),
+      /** What the sender wrote, as kept: for sending the same message live. */
+      text: z.string().optional(),
+      /** The Sandbox's contact it is from; null: an address the Sandbox doesn't know. */
+      contactId: z.string().nullable().optional(),
+      /** What it came in by: an email, or a text from a phone number. */
+      channel: TestMessageChannel.optional(),
     })
     .nullable()
     .optional(),
@@ -105,6 +112,13 @@ export const assistRoutes = {
       attach: z.array(Id).max(5).optional(),
       /** Cases to try (TEST_DATA_VARIATIONS), added to the notes. */
       variations: z.array(z.enum(TEST_DATA_VARIATION_IDS)).max(5).optional(),
+      /**
+       * A message trigger: the Sandbox contact the made-up message is from (Try it's From); left
+       * out, one of the Sandbox's people the trigger takes, picked by the model.
+       */
+      fromContactId: Id.optional(),
+      /** With `fromContactId`: what it comes in by; left out, their email, else their phone. */
+      channel: TestMessageChannel.optional(),
     }),
     response: TestDataMade,
   }),
