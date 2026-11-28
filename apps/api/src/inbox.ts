@@ -18,8 +18,8 @@ import type { JsonObject, ResolveBody } from "@countersign/core";
 import {
   // v0.12 W2-D
   ACCOUNT_CHANGE_SUBJECT,
-  CONNECTION_REQUEST_SUBJECT,
   answerProblem,
+  CONNECTION_REQUEST_SUBJECT,
   FORBIDDEN_PORTAL_FIELD,
   isPlainObject,
   processes,
