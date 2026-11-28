@@ -433,8 +433,13 @@ export function translateStep(
   needs: readonly Field[],
   sources: readonly TranslateSource[],
 ): { step: DoStep; worked: WorkedOut } {
+  // A Match given a list (`items`) matches each item: the profile's fields are the items' own (or
+  // given beside the list), never this step's input to work out, and the list stays as it is
+  // (staging, 2026-11-28: the builder dropped a SKU match's `items` on load, then said "nothing
+  // gives sku").
+  const perItem = step.uses?.type === "match" && step.input.items !== undefined;
   const worked = workOutTranslation({
-    needs,
+    needs: perItem ? [] : needs,
     sources,
     input: step.input,
     translation: step.translation,

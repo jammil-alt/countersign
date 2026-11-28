@@ -219,6 +219,21 @@ describe("translateStep and the publish check", () => {
     expect(translateStep(first, needs, [read]).step).toBe(first);
   });
 
+  // Staging, 2026-11-28: the builder dropped a SKU match's `items` on load.
+  it("leaves a Match given a list as it is: its fields are each item's", () => {
+    const match = DoStep.parse({
+      id: "skus",
+      kind: "do",
+      name: "Match the lines by SKU",
+      doneBy: "rules",
+      uses: { type: "match", match: { to: "vendor-items", type: "exact" } },
+      input: { items: "{{steps.read-1.output.lines}}", vendorId: "{{trigger.documentId}}" },
+    });
+    const out = translateStep(match, [f("vendorId", "record"), f("sku", "text")], [read, trigger]);
+    expect(out.step).toBe(match);
+    expect(out.worked.state).toBe("fits");
+  });
+
   it("feeds validateWorkflow: only Doesn't fit is an input_missing issue", () => {
     const next = translateStep(step, needs, [read]).step;
     const wf = Workflow.parse({
