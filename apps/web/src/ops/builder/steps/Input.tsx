@@ -1,11 +1,14 @@
 // The Input box's body (§5, §6): each field the step's Uses takes, with where it comes from; or,
 // for rules and AI written in the step, a list of named inputs the person adds.
 //
-// Stream G (§6): for the fields a Uses takes, the incoming side is worked out as the box opens and
-// whenever the steps before change (core `steps.translateStep`: Fits, Translated, Doesn't fit) and
-// saved with the step at once, without confirming (owner, 2026-11-25). If a needed field still has
-// no source, Suggest's Resolve is asked once (the Builder AI's Reshape suggestion) and its answer
-// applied as it comes back.
+// Stream G (§6): for the fields a Uses takes, the incoming side is worked out (core
+// `steps.translateStep`: Fits, Translated, Doesn't fit) and saved with the step without confirming
+// (owner, 2026-11-25), once the person has changed the step. If a needed field still has no source,
+// Suggest's Resolve is asked once (the Builder AI's Reshape suggestion) and its answer applied as it
+// comes back.
+// One checker (staging, 2026-11-28: opening the page dropped a stored step's input, and a Save
+// stored it): a step the person hasn't changed on this page is never rewritten by opening it. What
+// would change is offered, and applied only when they say so.
 
 import { steps } from "@countersign/core";
 import { useEffect, useMemo, useRef } from "react";
@@ -26,7 +29,7 @@ export function Input({
   free,
 }: StepFormProps<DoStep> & { takes: readonly Field[]; free: boolean }) {
   const options = inputOptions(env.workflow, step.id, env.uses, env.trigger);
-  const worked = useTranslation({ step, env, onChange, takes, free });
+  const { worked, offer } = useTranslation({ step, env, onChange, takes, free });
   const setValue = (name: string, value: unknown) => {
     const { [name]: _gone, ...rest } = step.input;
     onChange({ ...step, input: value === undefined ? rest : { ...rest, [name]: value } });
@@ -43,6 +46,19 @@ export function Input({
   const names = free ? Object.keys(step.input) : takes.map((f) => f.name);
   return (
     <div className="flex flex-col gap-2" data-testid="do-input">
+      {offer ? (
+        <div
+          className="flex flex-wrap items-center gap-2 text-sm text-ink-muted"
+          data-testid="do-input-offer"
+        >
+          <span>
+            We can fill this input in from the steps before it. Nothing changes until you say so.
+          </span>
+          <Button size="sm" data-testid="do-input-offer-apply" onClick={() => onChange(offer)}>
+            Fill it in
+          </Button>
+        </div>
+      ) : null}
       {names.map((name) => {
         const field = takes.find((f) => f.name === name) ?? {
           name,
@@ -111,8 +127,10 @@ function AddInput({ taken, onAdd }: { taken: readonly string[]; onAdd(name: stri
 }
 
 /**
- * The step's incoming side worked out and kept saved with the step (stream G). Returns each field's
- * source; null for a step that writes its own inputs.
+ * The step's incoming side worked out and kept saved with the step (stream G), once the person has
+ * changed the step (`env.edited`). Returns each field's source (null for a step that writes its own
+ * inputs, or while what was worked out is only offered), and the step as the work-out would leave
+ * it while it is offered.
  */
 function useTranslation({
   step,
@@ -123,16 +141,17 @@ function useTranslation({
 }: Pick<StepFormProps<DoStep>, "step" | "env" | "onChange"> & {
   takes: readonly Field[];
   free: boolean;
-}): steps.WorkedOut | null {
+}): { worked: steps.WorkedOut | null; offer: DoStep | null } {
   const sources = useMemo(
     () => incomingSources(env.workflow, step.id, env.uses, env.trigger),
     [env.workflow, step.id, env.uses, env.trigger],
   );
   const result = free || takes.length === 0 ? null : steps.translateStep(step, takes, sources);
   const next = result?.step;
+  const auto = env.edited?.(step.id) ?? true;
   useEffect(() => {
-    if (next && next !== step) onChange(next);
-  }, [next, step, onChange]);
+    if (auto && next && next !== step) onChange(next);
+  }, [auto, next, step, onChange]);
 
   // Once per step, Uses and set of fields left: the AI's suggestion, applied unless the step was
   // changed meanwhile.
@@ -141,7 +160,7 @@ function useTranslation({
   const asked = useRef(new Set<string>());
   const left = result?.worked.state === "doesnt_fit" ? steps.unfilled(result.worked).join(",") : "";
   const suggest = env.suggest;
-  const key = left ? `${step.id}|${usesKey(step.uses)}|${left}` : "";
+  const key = auto && left ? `${step.id}|${usesKey(step.uses)}|${left}` : "";
   useEffect(() => {
     if (!key || asked.current.has(key)) return;
     asked.current.add(key);
@@ -154,5 +173,6 @@ function useTranslation({
         // Nothing to do: the field stays Doesn't fit and says so.
       });
   }, [key, suggest, onChange]);
-  return result?.worked ?? null;
+  const offer = !auto && next && next !== step ? next : null;
+  return { worked: offer ? null : (result?.worked ?? null), offer };
 }

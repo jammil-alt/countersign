@@ -1,25 +1,56 @@
 // What stops a workflow being published, each on the step it is about, in plain words (§13a,
-// "Checked at publish"): core's `validateWorkflow`, with the parts the builder knows (the action
-// catalog, the skills, the match profiles) put in, plus a few the form itself leaves open (a Fork's
-// unnamed path, a For each with no list). A missing goal, an End with nothing picked, an empty For
-// each and an output still being set up are core's own (the schema parses a draft; publishing holds
-// the rest). Pure.
+// "Checked at publish").
+// - The step builder shows the server's answer (`issuesFromServer`, from `opsWorkflowCheck`): the
+//   same check a save and a publish run, with everything the server knows (one checker, staging
+//   2026-11-28: the page's own copy, with what the browser had loaded, flagged issues the server
+//   didn't have and blocked Try it).
+// - `workflowIssues` is core's `validateWorkflow` with what a screen loaded put in, plus a few the
+//   form itself leaves open; only Check the steps still reads it. Pure.
 
 import { steps } from "@countersign/core";
 import { walk } from "./model";
 import { requiredInput, type UsesContext } from "./options";
 import type { StepIssue, Workflow } from "./types";
 
-/** The builder's own codes, beside core's. */
+/**
+ * An issue's code: core's step check's (`steps.StepIssueCode`), the publish check's own
+ * (`ProcessValidationCode`: `handoff_unknown_agent`, `invalid_cron`, …) or the form's.
+ */
 export type BuilderIssueCode =
   | steps.StepIssueCode
   | "fork_path_unnamed"
   | "for_each_list_missing"
   | "repeat_goal_missing"
-  | "handoff_target_missing";
+  | "handoff_target_missing"
+  | (string & {});
 
 export interface BuilderIssue extends Omit<StepIssue, "code"> {
   code: BuilderIssueCode;
+}
+
+/** A publish error as the server sends it (`ValidationErrorSchema`). */
+export interface ServerError {
+  stepId: string | null;
+  field: string;
+  code: string;
+  message: string;
+  workflow?: string | undefined;
+  stepCode?: string | undefined;
+}
+
+/**
+ * The server's publish errors for a bundle as the issues of one of its workflows: that workflow's
+ * own and the bundle's (they stop its publish too), each on its step, with the step check's code
+ * where it has one.
+ */
+export function issuesFromServer(errors: readonly ServerError[], slug: string): BuilderIssue[] {
+  return errors
+    .filter((e) => e.workflow === undefined || e.workflow === slug)
+    .map((e) => ({
+      ...(e.stepId ? { at: e.stepId } : {}),
+      code: (e.code === "step_model" && e.stepCode) || e.code,
+      message: e.message,
+    }));
 }
 
 /** The registries core's validator reads, from what the builder was given. */
