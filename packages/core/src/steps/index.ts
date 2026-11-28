@@ -3,10 +3,12 @@
 // only workflow schema (build item 2).
 export * from "./catalog";
 export * from "./engine";
-export * from "./hands-on";
 export * from "./match-profile";
+export * from "./person-fields";
 export * from "./range";
 export * from "./schema";
+export * from "./shape";
 export * from "./translate";
 export * from "./validate";
 export * from "./walk";
+export * from "./wiring";

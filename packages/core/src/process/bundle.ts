@@ -4,17 +4,19 @@
 
 import { validateClientView } from "../kpi/validate";
 import { AgentBundle } from "../schemas/agent";
+import type { JsonSchema } from "../schemas/common";
 import { parseSkillRef } from "../schemas/common";
 import { retiredSkillReason, skillWriteTools, toolLookup } from "../skills/kind";
 import { mergedAction } from "../steps/catalog";
-import { Workflow as StepWorkflow } from "../steps/schema";
+import { Workflow as StepWorkflow, type Uses } from "../steps/schema";
+import { schemaShape } from "../steps/shape";
 import {
   type StepContext,
   type StepIssueCode,
   validateWorkflow as validateStepWorkflow,
 } from "../steps/validate";
 import { eachStep, stepModelIds } from "../steps/walk";
-import { lookupSkill } from "../template/typer";
+import { lookupSkill, triggerOnSchema } from "../template/typer";
 import { actionInputSchema, type WriteAction } from "./actions";
 import {
   definitionModelErrors,
@@ -26,6 +28,7 @@ import { stepModelSeatProblems } from "./seats";
 import { type HandoffKnown, stepModelHandoffErrors } from "./step-model-handoff";
 import {
   stepModelFixedInputErrors,
+  stepModelFormErrors,
   stepModelPublishErrors,
   stepModelScheduleErrors,
 } from "./step-model-publish";
@@ -46,30 +49,68 @@ export type BundleValidationError = Omit<ValidationError, "code"> & {
  * an action's side effect (a merged action's, from the first of its tools there is), and the input
  * an action requires.
  */
-// DECISION (step model, wave 1): match profiles are left to stream D; a Match step's settings are
-// checked against its profile once the areas declare them.
-export function stepContext(ctx: Pick<ValidationContext, "tools">): StepContext {
-  const spec = (action: string) => {
-    const own = ctx.tools?.[action];
-    if (own) return own;
-    const merged = mergedAction(action);
-    if (!merged) return undefined;
-    for (const tool of Object.values(merged.tools)) {
-      const s = ctx.tools?.[tool];
-      if (s) return s;
-    }
-    return undefined;
-  };
+// DECISION (wiring checks, 2026-11-28): what each action, skill and trigger takes and hands on is
+// read from the same registries, as shapes (`steps.schemaShape`), so the publish checks follow
+// every reference into it; the run converts with the same input shapes (`stepInputSchema`). Match
+// profiles come from the areas' manifests when the caller passes them (`profiles`).
+export function stepContext(
+  ctx: Pick<ValidationContext, "tools" | "skills" | "events" | "profiles">,
+): StepContext {
   return {
-    sideEffect: (action) => spec(action)?.sideEffect,
+    sideEffect: (action) => actionSpec(ctx, action)?.sideEffect,
     requiredInput: (uses) => {
       if (uses.type !== "action") return undefined;
-      const write = MERGED_WRITE_ACTIONS[uses.action];
-      const input = write ? actionInputSchema(write) : spec(uses.action)?.input;
-      const required = (input as { required?: unknown } | undefined)?.required;
+      const required = (usesInputSchema(ctx, uses) as { required?: unknown } | undefined)?.required;
       return Array.isArray(required) ? required.filter((r) => typeof r === "string") : undefined;
     },
+    inputShape: (uses) => {
+      const schema = usesInputSchema(ctx, uses);
+      return schema ? schemaShape(schema) : undefined;
+    },
+    outputShape: (uses) => {
+      const schema =
+        uses.type === "action"
+          ? actionSpec(ctx, uses.action)?.output
+          : uses.type === "skill"
+            ? lookupSkill(uses.skill, ctx)?.output
+            : undefined;
+      return schema ? schemaShape(schema) : undefined;
+    },
+    triggerShape: (trigger) => {
+      const schema = triggerOnSchema(trigger.on, ctx);
+      return schema ? schemaShape(schema) : undefined;
+    },
+    ...(ctx.profiles ? { profile: (id) => ctx.profiles?.find((p) => p.id === id) } : {}),
   };
+}
+
+/** An action's tool: its own, or a merged action's first tool there is. */
+function actionSpec(ctx: Pick<ValidationContext, "tools">, action: string) {
+  const own = ctx.tools?.[action];
+  if (own) return own;
+  const merged = mergedAction(action);
+  if (!merged) return undefined;
+  for (const tool of Object.values(merged.tools)) {
+    const s = ctx.tools?.[tool];
+    if (s) return s;
+  }
+  return undefined;
+}
+
+/**
+ * What a Do step's Uses takes, as a JSON Schema: an action's tool's input (a write action's own,
+ * `MERGED_WRITE_ACTIONS`), a skill's input. Shared by the publish checks and the run's conversions.
+ */
+export function usesInputSchema(
+  ctx: Pick<ValidationContext, "tools" | "skills">,
+  uses: Uses,
+): JsonSchema | undefined {
+  if (uses.type === "action") {
+    const write = MERGED_WRITE_ACTIONS[uses.action];
+    return write ? actionInputSchema(write) : actionSpec(ctx, uses.action)?.input;
+  }
+  if (uses.type === "skill") return lookupSkill(uses.skill, ctx)?.input;
+  return undefined;
 }
 
 /**
@@ -263,6 +304,8 @@ export function validateBundle(
         stepCode: issue.code,
       });
     }
+    // What the builder's form leaves open (a Fork's unnamed path, a For each with no list).
+    for (const e of stepModelFormErrors(w.workflow)) errors.push({ ...e, workflow: w.slug });
     // A schedule that can't start says so.
     for (const e of stepModelScheduleErrors(w.workflow)) errors.push({ ...e, workflow: w.slug });
     // Input that becomes instructions is written in the step, not filled from a template.
@@ -273,7 +316,7 @@ export function validateBundle(
       errors.push({ ...e, workflow: w.slug });
     }
     // References to other steps name steps that run before the reader.
-    for (const e of stepModelRefErrors(w.workflow, ctx)) errors.push({ ...e, workflow: w.slug });
+    for (const e of stepModelRefErrors(w.workflow)) errors.push({ ...e, workflow: w.slug });
     // Setup-plan §4.1: every seat a step names is one the bundle declares, of a kind that fits.
     for (const e of stepModelSeatProblems(w.workflow, bundle.people ?? [])) {
       errors.push({ ...e, workflow: w.slug });

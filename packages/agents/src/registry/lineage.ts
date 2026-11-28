@@ -170,6 +170,7 @@ async function requireMergeable(
     tools: ctx.tools.specs(),
     models: knownModelIds(),
     ...(ctx.events ? { events: ctx.events } : {}),
+    ...(ctx.profiles ? { profiles: ctx.profiles } : {}),
   });
   if (!valid.valid) {
     throw new AgentsError("invalid_bundle", "the merged bundle does not validate", valid.errors);

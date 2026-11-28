@@ -12,8 +12,8 @@
 // ids never contain `:`.
 
 import {
-  answerFields,
   type Approval,
+  answerFields,
   automationSkillRef,
   collectRefs,
   DEFAULT_APPROVAL,
@@ -1752,7 +1752,24 @@ class Executor {
       );
     }
     this.requireFilled(v5, t.input);
-    return t.input;
+    return this.converted(v5, t.input);
+  }
+
+  /**
+   * The step model: a Do step's input in the form its action or skill takes, by the conversions
+   * the publish checks allow (`steps.fitShape`): money as its amount when the currencies agree, a
+   * number as a decimal string. One place, so publish and run agree; the connector's own money
+   * fallback (`moneyAsDecimals`) stays a last resort. A conversion that would lose an amount's
+   * currency fails the step, naming why.
+   */
+  converted(v5: steps.DoStep, input: Record<string, unknown>): Record<string, unknown> {
+    if (!v5.uses) return input;
+    const schema = processes.usesInputSchema(this.ctx.catalog ?? {}, v5.uses);
+    if (!schema) return input;
+    const c = steps.convertToShape(input, steps.schemaShape(schema));
+    const problem = c.problems[0];
+    if (problem) throw new Error(`what comes into "${v5.name}" can't be used: ${problem}`);
+    return c.value as Record<string, unknown>;
   }
 
   /**
@@ -1762,13 +1779,8 @@ class Executor {
    * "vendorId: expected string, received undefined", three steps from the cause).
    */
   requireFilled(step: steps.DoStep, input: Record<string, unknown>) {
-    const uses = step.uses;
-    const schema =
-      uses?.type === "action"
-        ? this.ctx.catalog?.tools?.[uses.action]?.input
-        : uses?.type === "skill"
-          ? lookupSkill(uses.skill, this.typing())?.input
-          : undefined;
+    if (!step.uses) return;
+    const schema = processes.usesInputSchema(this.ctx.catalog ?? {}, step.uses);
     const required = (schema as { required?: unknown } | undefined)?.required;
     if (!Array.isArray(required)) return;
     for (const field of required) {

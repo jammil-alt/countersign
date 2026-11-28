@@ -233,6 +233,8 @@ export function createPlatform(options: PlatformOptions = {}): Platform {
       actionChannels,
       actionsOff: (tx) => offActionIds(tx, { connectors }),
       recordTypes: records.types,
+      // The step model §7: what a Match step's settings and output are checked against at publish.
+      profiles: packs.flatMap((p) => p.manifest.matchProfiles),
     },
   };
 }

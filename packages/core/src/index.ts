@@ -144,6 +144,7 @@ export * from "./api/sandbox";
 // v0.12 W2-F
 export * from "./api/search";
 export * from "./api/second-factor";
+export * from "./api/selftest";
 // docs/builder-plan.md §6 (B4): the setup checklist
 export * from "./api/setup";
 export * from "./api/skill-model";

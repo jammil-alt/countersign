@@ -2416,6 +2416,18 @@ to other agents' hand-off triggers is a **pass on** output (§10.0), v3's `hando
 rules below are the earlier formats'. For v5, unique ids are a publish check, the input picker offers
 only what runs before a step, and a connection's ceiling is held by the gate when the step runs.
 
+**Wiring (2026-11-28):** every step kind has an output shape (`steps.stepOutputShape`): a Do's
+action, skill or declared fields, a Match's result for its profile, a conversation's findings at
+its top level and under `found`, a Fork's rejoining paths' last steps (their union) with `pathId`
+and `pathName`, a For each's `count`, `failed` and `items`, the triggers' payloads. At publish every
+`{{…}}` a step or an output reads is followed into that shape: a path its source doesn't hand on, a
+value that doesn't fit the field it fills, and a Match's items without a field the profile needs
+(by its key's name or another name, `also`) are issues, in plain words. Two conversions are made
+instead of refused, in one place when the step's input is resolved: money to its amount (only when
+the amounts are in one currency, the input's own if it names one) and a number to a decimal
+string. What can't be known (an untyped field, a registry not given) passes. A run's load doesn't
+repeat these checks, so a version published before them still runs.
+
 A workflow can be saved as a draft with errors, but only a valid one can be test-run or published.
 - One trigger; step and path ids unique across the bundle; every fork has at least one path; a
   `for_each` has at least one step.

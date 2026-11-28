@@ -4,6 +4,7 @@
 
 import { type MatchProfile, matchSettingsProblems } from "./match-profile";
 import type { DoneBy, DoStep, Step, Uses, Workflow, WorkflowOutput } from "./schema";
+import { type ShapeContext, workflowWiring } from "./wiring";
 
 export interface StepIssue {
   /** The step (or output) it is about; absent: the workflow as a whole. */
@@ -31,16 +32,30 @@ export type StepIssueCode =
   | "end_empty"
   | "empty_container"
   | "no_outputs"
-  | "output_incomplete";
+  | "output_incomplete"
+  // The wiring between steps (`./wiring`): a reference to something its source doesn't hand on,
+  // a value that doesn't fit the field it fills, a Match's items without a field it needs.
+  | "reference_unknown"
+  | "reference_type"
+  | "match_item_missing";
 
-/** What the validator may know of the registries; each part optional. */
-export interface StepContext {
+/**
+ * What the validator may know of the registries; each part optional. The shapes (`ShapeContext`:
+ * what actions, skills and triggers take and hand on) are what the wiring checks follow
+ * references into; what isn't given isn't known, and a reference into it passes.
+ */
+export interface StepContext extends ShapeContext {
   /** An action's kind: Get (`none`), Save (`internal`), Change or Send (`external`). */
   sideEffect?(action: string): "none" | "internal" | "external" | undefined;
   /** The input fields an action or a skill requires. */
   requiredInput?(uses: Uses): readonly string[] | undefined;
   /** A match profile by its id. */
   profile?(id: string): MatchProfile | undefined;
+  /**
+   * Whether the wiring between steps is checked (default: yes). The run's load leaves it out: a
+   * version published before a check existed still loads, and what it reads is the run's to find.
+   */
+  wiring?: boolean;
 }
 
 /** Which `uses` each `doneBy` allows (§4, "How a Do step runs"). */
@@ -169,6 +184,7 @@ export function validateWorkflow(workflow: Workflow, context: StepContext = {}):
       });
     }
   }
+  if (context.wiring !== false) issues.push(...workflowWiring(workflow, context).issues);
   return issues;
 }
 

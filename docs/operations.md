@@ -912,6 +912,30 @@ PR that says `Fixes MEZONAS-API-12` resolves the issue in that release, and Sent
 
 A fix ships with a test that fails without it (the error's input as a fixture where it can be).
 
+### The connector self-test (staging)
+
+Every connector is tested against fakes, so a call can pass every test and fail on first real use
+(2026-11-27: `qbo.purchase.query` by `EntityRef`; a Resend subject over its limit). The self-test
+(`apps/api/src/selftest/`) runs a fixed list of checks on the **Sandbox client's own live
+connections** (QuickBooks' sandbox company, Resend, Twilio), with their stored credentials, through
+the connectors' own code: every QuickBooks read with its variants (bills and purchases with and
+without a vendor and a window, purchase orders by vendor and status, attachments, receivables,
+banking marks, a register), each write's "before" read (what the approval card shows; it never
+writes), every other write's input parsed by its schema, Resend's sending domain and the subject
+rule, and Twilio's subaccount, numbers and message search. **It never writes to a tool and never
+sends**, and it refuses any client but the Sandbox and any environment but staging and local
+(`ENVIRONMENT`); a deployment whose `QBO_ENV` is `production` skips QuickBooks.
+
+- **When:** the cron, daily at 12:05 UTC on staging. **Now:** `POST /api/ops/clients/<sandbox
+  id>/selftest` from the back office's session, or the MCP server's `selftest_run` (both audited);
+  `selftest_last` (or `GET` on the same path) reads each connection's latest results.
+- **Where a failure shows:** each check is stored on its connection (`connection_change`, kind
+  `selftest`: pass, fail or skip, time taken, the provider's error scrubbed of anything shaped like a
+  secret), so the connection's history says "Self-test: 2 of 50 checks failed". The platform health
+  pass turns each failed check into an `ops_health` finding (`selftest_failed`, keyed by the check's
+  id): in the MCP server's `ops_health` at once and in Sentry at the 13:12 pass (staging's daily
+  digest). A skip says why (no bill to read, a call the connection has off).
+
 ### The first production release
 
 Production (`https://app.mezonas.com`) is **already live**: Deploy run 207 put `747d7ff` there by
