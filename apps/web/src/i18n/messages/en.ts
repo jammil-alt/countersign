@@ -4307,4 +4307,26 @@ export const en = {
   "sandbox.sent.at": "Sent {when} ({to}).",
   "error.sandbox_running": "This agent is running in the sandbox. Wait for it to finish.",
   "error.sandbox_limit": "You've used today's sandbox runs. Try again tomorrow.",
+  // §1.243: lockdown, the locked page and locking your own account.
+  "error.client_locked":
+    "This account is locked while we look into a security concern. We'll be in touch.",
+  "lockdown.title": "Your account is locked",
+  "lockdown.ours":
+    "We've locked your account while we look into a security concern. Your agents are stopped, and nothing reads or changes your tools until it's unlocked. We'll contact you within 24 hours.",
+  "lockdown.yours":
+    "Your team locked this account on {when}. Your agents are stopped, and nothing reads or changes your tools until it's unlocked.",
+  "lockdown.reason": "Reason: {reason}",
+  "lockdown.contact": "Questions? Reply to our email, or ask your Mezonas lead.",
+  "lockdown.noteLabel": "What happened (we see this)",
+  "lockdown.unlock": "Unlock our account",
+  "lockdown.unlocking": "Unlocking…",
+  "lockdown.unlockFailed": "We couldn't unlock it. Try again.",
+  "lockdown.resume": "Nothing restarts by itself. Once it's unlocked, start again what you need.",
+  "lockdown.settingsTitle": "Lock our account",
+  "lockdown.settingsBody":
+    "If you think someone has your sign-in or a tool's access, lock your account. Your agents stop at once, nothing reads or changes your tools, and your team sees a locked page until you or we unlock it.",
+  "lockdown.reasonLabel": "What happened",
+  "lockdown.lock": "Lock our account",
+  "lockdown.locking": "Locking…",
+  "lockdown.lockFailed": "We couldn't lock it. Try again.",
 } as const;

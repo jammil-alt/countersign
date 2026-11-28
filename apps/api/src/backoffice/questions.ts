@@ -7,8 +7,17 @@
 // 3 times in 30 days is counted here and becomes a to-do to draft a knowledge entry, at draft level.
 
 import { processes } from "@countersign/core";
-import { type Db, membership, message, tenant, thread, todo, withOperator } from "@countersign/db";
-import { and, eq, gt, gte, inArray, isNull, ne, sql } from "drizzle-orm";
+import {
+  activeClient,
+  type Db,
+  membership,
+  message,
+  tenant,
+  thread,
+  todo,
+  withOperator,
+} from "@countersign/db";
+import { and, eq, gt, gte, inArray, ne, sql } from "drizzle-orm";
 import { clientBusinessHours } from "../hours/hours";
 import { reportHandled } from "../observability/report";
 import { logPlay } from "../work/play-log";
@@ -165,7 +174,7 @@ export async function questionsFor(db: Db, tenantId: string, now: Date): Promise
 
 /** Hourly: every live client's questions. */
 export async function questionsTick(db: Db, now: Date): Promise<void> {
-  const clients = await db.select({ id: tenant.id }).from(tenant).where(isNull(tenant.retiredAt));
+  const clients = await db.select({ id: tenant.id }).from(tenant).where(activeClient());
   for (const c of clients) {
     await questionsFor(db, c.id, now).catch((error: unknown) =>
       reportHandled("questions pass failed for a client", error, {

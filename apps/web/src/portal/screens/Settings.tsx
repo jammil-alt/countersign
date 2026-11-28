@@ -40,6 +40,7 @@ import { PortalBusinessHours } from "./BusinessHours";
 import { PortalChannels } from "./Channels";
 import { PortalConversationsScreen } from "./Conversations";
 import { PortalExportsScreen } from "./Exports";
+import { LockAccountCard } from "./Locked";
 // P-8
 import { PortalTextingRegistration } from "./TextingRegistration";
 import { VoiceSamples } from "./VoiceSamples";
@@ -189,6 +190,8 @@ function Body({
             <LanguageMenu />
           </Card>
           {limited ? null : <SloanCard />}
+          {/* §1.243: a client admin may lock the account at once. */}
+          {isAdmin ? <LockAccountCard /> : null}
         </Part>
       );
     case "approvals":

@@ -4,6 +4,7 @@
 // message, dispatches the events after commit and starts the background reading.
 
 import { ContentStore, MAX_FORWARDED_BYTES } from "@countersign/connectors";
+import { countLockedInbound, isClientLocked, withOperator } from "@countersign/db";
 import {
   type ForwardingOutcome,
   isVoiceSampleAddress,
@@ -304,6 +305,18 @@ export async function handleEmail(
       })(),
     );
     return outcome;
+  } catch (error) {
+    // §1.243: mail for a locked client is dropped and counted on its lock, never bounced (above)
+    // and never stored: its client's scope was refused before anything was kept.
+    if (!isClientLocked(error)) throw error;
+    const ids = (error as { tenantIds?: readonly string[] }).tenantIds ?? [];
+    await withOperator(db, [], async (tx) => {
+      for (const id of ids) await countLockedInbound(tx, id, "email");
+    }).catch((counting: unknown) =>
+      reportHandled("counting email for a locked client failed", counting, { job: "email" }),
+    );
+    console.log("email for a locked client dropped", { tenantIds: ids });
+    return null;
   } finally {
     if (!closeLater) await close();
   }

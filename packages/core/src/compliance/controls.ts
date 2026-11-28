@@ -681,6 +681,45 @@ export const CONTROLS: readonly Control[] = [
     },
     routines: ["incident-drill"],
   },
+  {
+    id: "INC-2",
+    area: "incidents",
+    title: "Lockdown: one switch stops everything for a client",
+    statement:
+      "Any operator can lock down one client, or every client, at once. Nothing then reads or changes the client's data, its tools or its AI calls, its runs stop and its people see a locked page, until the security officer unlocks it. A locked client's requests are still audited.",
+    status: "partial",
+    gap: "Not yet on production. The edge rule for when the app itself may be compromised (lockdown.yml) is being added, and the security officer is named in each environment's SECURITY_OFFICER_EMAILS.",
+    tier: "all",
+    evidence: [
+      {
+        kind: "code",
+        ref: "packages/db/migrations/0103_lockdown.sql",
+        note: "app_scope_tenant_ids, the check every scope goes through; audit rows for locked clients",
+      },
+      { kind: "code", ref: "packages/db/src/client.ts", note: "inScope, withInvestigation" },
+      { kind: "code", ref: "packages/db/src/lockdown.ts" },
+      { kind: "code", ref: "apps/api/src/routes/lockdown.ts" },
+      {
+        kind: "code",
+        ref: "apps/api/src/lockdown",
+        note: "inbound answered and counted; who unlocks",
+      },
+      {
+        kind: "code",
+        ref: "apps/api/src/lockdown.test.ts",
+        note: "every portal route answers 423",
+      },
+      { kind: "code", ref: "packages/db/src/lockdown.test.ts" },
+      { kind: "screen", ref: "/ops/security/lockdown" },
+      { kind: "policy", ref: IRP, note: "§5, contain: lock first (draft)" },
+    ],
+    maps: {
+      soc2: ["CC7.3", "CC7.4"],
+      hipaa: ["164.308(a)(6)(ii)"],
+      pci: ["12.10.1"],
+    },
+    routines: ["incident-drill"],
+  },
 
   // ── Backups and continuity ─────────────────────────────────────────────────────────────────────
   {

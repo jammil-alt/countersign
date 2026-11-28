@@ -12,4 +12,6 @@ export const SECURITY_PATHS = {
   evidence: "/ops/security/evidence",
   // Moved from Utilities: /ops/audit and /ops/utilities/audit redirect here.
   audit: "/ops/security/audit",
+  // §1.243: what is locked; lock everything; unlock (the security officer).
+  lockdown: "/ops/security/lockdown",
 } as const;

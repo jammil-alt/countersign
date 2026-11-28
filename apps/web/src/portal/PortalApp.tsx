@@ -10,6 +10,7 @@ import { apiRoutes } from "../api/routes";
 import { useApi, useApiClient } from "../api/useApi";
 import { FeedbackButton } from "../feedback/Feedback";
 import { useI18n } from "../i18n/i18n";
+import { clearLocked, useAccountLocked } from "../lockdown/locked";
 import { usePoll } from "../runs/usePoll";
 import { useAssignedAgents, useSession } from "../session/session";
 import { AgentSwitcher, canSwitch } from "../shell/AgentSwitcher";
@@ -23,6 +24,7 @@ import { useIntentZone } from "./intent";
 import { askSloan, PORTAL_PATHS } from "./paths";
 import { portalRoutes } from "./routes";
 import { SloanPanelProvider, useSloanPanel } from "./SloanPanel";
+import { LockedPage } from "./screens/Locked";
 
 /** A page change asks the overview again only when its answer is older than this. */
 export const OVERVIEW_STALE_MS = 5_000;
@@ -55,7 +57,14 @@ export function PortalLayout({ children }: { children: ReactNode }) {
     firstPath.current = pathname;
     if (Date.now() - answeredAt.current >= OVERVIEW_STALE_MS) reloadOverview();
   }, [pathname, reloadOverview]);
-  usePoll(reloadOverview, true, INBOX_COUNT_POLL_MS, overview.loading);
+  // §1.243: while the account is locked every screen gives way to the locked page, and the count
+  // isn't asked again every 20 s. Choosing another account asks afresh.
+  const locked = useAccountLocked();
+  const activeTenant = session.activeTenantId;
+  useEffect(() => {
+    if (activeTenant !== undefined) clearLocked();
+  }, [activeTenant]);
+  usePoll(reloadOverview, !locked, INBOX_COUNT_POLL_MS, overview.loading);
   // The operator switches the Feedback button on per client; off, there is no button.
   const feedback = useApi(apiRoutes.portalFeedbackStatus);
   const services = overview.data?.services ?? [];
@@ -205,7 +214,7 @@ export function PortalLayout({ children }: { children: ReactNode }) {
           <AgentHuesProvider agents={services}>
             {/* Links and rows to a run, an agent or the Inbox ask for it on hover or focus (1.6). */}
             <div className="contents" {...intentZone}>
-              {children}
+              {locked ? <LockedPage /> : children}
             </div>
           </AgentHuesProvider>
         </InboxCountProvider>

@@ -35,6 +35,9 @@ import {
 } from "./http";
 // v0.12 W1-A: go-live stages and client controls
 import { lifecycleTick } from "./lifecycle/cron";
+import { lockedInboundMiddleware } from "./lockdown/inbound";
+import { securityOfficers } from "./lockdown/officer";
+import { volumeTick } from "./lockdown/volume";
 import { mcpRoutes } from "./mcp/routes";
 // P-8: US texting registration
 import { a2pCronTick } from "./messaging/a2p";
@@ -118,6 +121,7 @@ import { ledgerRoutes } from "./routes/ledger";
 // R8: the Library's banks (docs/plan.md §1.86)
 import { libraryRoutes } from "./routes/library";
 import { lifecycleRoutes } from "./routes/lifecycle";
+import { lockdownRoutes } from "./routes/lockdown";
 // docs/builder-plan.md §5 (B3): the agent manual
 import { manualRouteHandlers } from "./routes/manual";
 import { matchRuleRoutes } from "./routes/match-rules";
@@ -284,6 +288,8 @@ export function createApp(deps: AppDeps = defaultDeps): Hono<AppEnv> {
     });
   });
   // Readiness reaches the database through the request's client, so it comes after requestState.
+  // §1.243: a provider's call for a locked client is answered as usual and counted, not refused.
+  lockedInboundMiddleware(app);
   readyRoutes(app);
   sessionRoutes(app);
   // §1.100
@@ -490,6 +496,8 @@ export function createApp(deps: AppDeps = defaultDeps): Hono<AppEnv> {
   portalIssueRouteHandlers(app);
   todoRoutes(app);
   autopilotRoutes(app);
+  // §1.243: lockdown
+  lockdownRoutes(app);
   // The back office's MCP server (/mcp and its .well-known metadata), after every route it reads.
   mcpRoutes(app, deps);
   app.all("/api/*", (c) => c.json({ error: { code: "not_found", message: "no such route" } }, 404));
@@ -573,6 +581,18 @@ export async function runCron(env: Bindings, scheduledTime: Date, deps: AppDeps 
     // docs/agent-assurance-plan.md §6: nightly, every live client agent's security checks.
     await assuranceTick(db, platform, assuranceEnv(env, deps.objects(env)), scheduledTime).catch(
       (error: unknown) => reportHandled("assurance tick failed", error, { job: "assurance" }),
+    );
+    // §1.245: every 5 minutes, a person reading far more than people do raises an alert.
+    await volumeTick(
+      {
+        db,
+        mailer: mailerFromEnv(env, deps.fetch?.(env)),
+        officers: securityOfficers(env),
+        origin: env.APP_ORIGIN,
+      },
+      scheduledTime,
+    ).catch((error: unknown) =>
+      reportHandled("unusual volume tick failed", error, { job: "audit_volume" }),
     );
     // Sloan on by default (docs/plan.md §1.47): hourly, clients without it get it turned on.
     await sloanTick(db, platform, scheduledTime).catch((error: unknown) =>

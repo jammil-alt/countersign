@@ -3,10 +3,10 @@
 // questions; nightly expansion spotting. Each part's failure is reported and the rest go on.
 
 import { type Processor, readRequirements } from "@countersign/core";
-import { build, type Db, playLog, tenant, todo, withOperator } from "@countersign/db";
+import { activeClient, build, type Db, playLog, tenant, todo, withOperator } from "@countersign/db";
 import type { LlmTransport } from "@countersign/llm";
 import { leadOf, leadThread, postMessage } from "@countersign/threads";
-import { and, eq, gte, isNotNull, isNull, ne } from "drizzle-orm";
+import { and, eq, gte, isNotNull, ne } from "drizzle-orm";
 import type { Mailer } from "../notify/mailer";
 import { reportHandled } from "../observability/report";
 import { logPlay } from "../work/play-log";
@@ -38,7 +38,7 @@ export interface BackOfficeDeps {
 export async function chaseRequirements(db: Db, now: Date): Promise<number> {
   const today = now.toISOString().slice(0, 10);
   const inTwo = new Date(now.getTime() + 2 * DAY).toISOString().slice(0, 10);
-  const clients = await db.select({ id: tenant.id }).from(tenant).where(isNull(tenant.retiredAt));
+  const clients = await db.select({ id: tenant.id }).from(tenant).where(activeClient());
   if (clients.length === 0) return 0;
   const rows = await withOperator(
     db,

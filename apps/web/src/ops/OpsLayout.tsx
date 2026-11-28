@@ -31,6 +31,7 @@ import { useAgentsChanged } from "./agents/ui";
 import { ClientPicker } from "./ClientPicker";
 import { OPS_PATHS } from "./paths";
 import { PickedClientProvider, usePickedClient, useRouteClientId } from "./pickedClient";
+import { LockdownBanner } from "./security/Lockdown";
 
 /** `/ops/clients/:clientId/...`, except the "new client" page. */
 export const useSelectedClientId = useRouteClientId;
@@ -361,7 +362,11 @@ function OpsFrame({ children }: { children: ReactNode }) {
       >
         <OpsClientsContext.Provider value={clientRows}>
           <ShareCountsContext.Provider value={setShared}>
-            <ReloadCallContext.Provider value={reloadCall}>{children}</ReloadCallContext.Provider>
+            <ReloadCallContext.Provider value={reloadCall}>
+              {/* §1.243: while anything is locked, every page says so. */}
+              <LockdownBanner />
+              {children}
+            </ReloadCallContext.Provider>
           </ShareCountsContext.Provider>
         </OpsClientsContext.Provider>
       </AppShell>

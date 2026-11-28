@@ -205,6 +205,12 @@ export interface Vars {
    * what a client in HIPAA mode may send data to. Unset: none, so no client can be in HIPAA mode.
    */
   BAA_PROCESSORS?: string;
+  /**
+   * Lockdown (docs/plan.md §1.243): the security officer's sign-in emails, comma-separated. Only
+   * they unlock a client or everything. Set by hand with `wrangler secret put` (a dashboard
+   * variable is erased by the next deploy). Unset: nobody can unlock in the app; anyone can lock.
+   */
+  SECURITY_OFFICER_EMAILS?: string;
   // §1.77 (docs/marketing-plan.md §11.5): `on` lets `web.search` and `web.fetch` call the model
   // vendor's search and fetch; anything else (or unset) keeps them off.
   MARKETING_RESEARCH?: string;

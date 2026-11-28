@@ -25,9 +25,11 @@ import {
   trialProgress,
 } from "@countersign/core";
 import {
+  admitTenant,
   agent,
   agentVersion,
   appUser,
+  ClientLockedError,
   connection,
   connectionChange,
   externalAction,
@@ -762,10 +764,10 @@ export function opsClientRoutes(app: Hono<AppEnv>): void {
     if (!row) throw new Error("tenant insert returned nothing");
     // DECISION: the operator who creates a client serves it. The new client is added to this
     // transaction's scope so its first membership passes row-level security in the same commit;
-    // the id is the one just inserted, never taken from the request.
-    await tx.execute(
-      sql`select set_config('app.tenant_ids', ${`{${[...tenantIds, row.id].join(",")}}`}, true)`,
-    );
+    // the id is the one just inserted, never taken from the request. Added through the lockdown
+    // check (§1.243): the scope this transaction was given stays as the check left it, and while
+    // everything is locked no client is admitted, so none is made.
+    if (!(await admitTenant(tx, row.id))) throw new ClientLockedError([row.id]);
     await tx
       .insert(membership)
       .values({ tenantId: row.id, userId: session.user.id, role: "operator" });

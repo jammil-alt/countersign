@@ -26,12 +26,14 @@ import {
 } from "@countersign/core";
 import {
   appUser,
+  ClientLockedError,
   clientAsk,
   connection,
   type Db,
   deal,
   dealPerson,
   issue,
+  lockState,
   membership,
   type Tx,
   tenant,
@@ -84,6 +86,17 @@ function senders(mail: InboundMail, parsed: ReplyEmail): string[] {
   return authenticatedSenders({ envelopeFrom: mail.from, from: parsed.from, auth: parsed.auth });
 }
 
+/**
+ * Lockdown (§1.243): mail that would be kept for a locked client (or while everything is locked) is
+ * refused as the lock refuses any transaction, so email() drops it and counts it on the lock.
+ */
+async function refuseIfLocked(db: Db, clientIds: readonly string[]): Promise<void> {
+  if (clientIds.length === 0) return;
+  const state = await withOperator(db, [], (tx) => lockState(tx, clientIds));
+  const locked = state.everything ? [...clientIds] : state.clients.map((c) => c.tenantId);
+  if (locked.length > 0) throw new ClientLockedError(locked);
+}
+
 async function liveClientIds(db: Db): Promise<string[]> {
   const rows = await db.select({ id: tenant.id }).from(tenant).where(isNull(tenant.retiredAt));
   return rows.map((r) => r.id);
@@ -132,6 +145,8 @@ async function sortThis(
   ]
     .join("\n")
     .slice(0, 4000);
+  // §1.243: mail about a locked client is dropped and counted by email(), never kept for it.
+  await refuseIfLocked(db, input.clientIds);
   const each: (string | null)[] = input.clientIds.length ? [...new Set(input.clientIds)] : [null];
   for (const clientId of each) {
     await withOperator(db, clientId ? [clientId] : [], (tx) =>
@@ -258,6 +273,7 @@ export async function receiveBackOfficeEmail(
     const tag = parseTag(addr.tag);
     if (tag.kind === "client" && all.includes(tag.tenantId)) {
       const tenantId = tag.tenantId;
+      await refuseIfLocked(db, [tenantId]);
       const landed = await withOperator(db, [tenantId], async (tx) => {
         const members = (await clientMembers(tx, from)).filter((m) => m.tenantId === tenantId);
         const member = members[0] ?? null;

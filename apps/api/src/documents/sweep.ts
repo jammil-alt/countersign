@@ -7,10 +7,10 @@
 // READING_ATTEMPTS readings that never finished, the document is marked failed with
 // `document.extraction_failed`, so a person sees it.
 
-import { tenant, withTenant } from "@countersign/db";
+import { activeClient, tenant, withTenant } from "@countersign/db";
 import { claimUnreadDocuments, giveUpReading, READING_ATTEMPTS } from "@countersign/documents";
 import { EmittedEvents } from "@countersign/senses";
-import { isNull, type SQL, sql } from "drizzle-orm";
+import { type SQL, sql } from "drizzle-orm";
 import { readsDocuments } from "../compliance/models";
 import { MESSAGE_MEDIA_ENTITY } from "../conversations/capture";
 import type { Services } from "../http";
@@ -136,7 +136,7 @@ export async function readingSweep(
   const clients = await services.db
     .select({ id: tenant.id })
     .from(tenant)
-    .where(isNull(tenant.retiredAt))
+    .where(activeClient())
     .orderBy(sql`random()`);
   for (const client of clients) {
     const left = READINGS_PER_PASS - out.read - out.failed;

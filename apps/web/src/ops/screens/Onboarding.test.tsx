@@ -261,6 +261,8 @@ describe("client settings", () => {
       "Run audit",
       "Custom fields",
       "Exports",
+      // §1.243
+      "Lockdown",
       "Retire client",
     ]);
     expect(within(nav).getByRole("link", { name: "Approvals" })).toHaveAttribute(

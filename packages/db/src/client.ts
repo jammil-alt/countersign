@@ -27,6 +27,85 @@ export class ScopeError extends Error {
   override name = "ScopeError";
 }
 
+/** The SQLSTATE `app_scope_tenant_ids` raises for a locked client (migration 0103). */
+export const CLIENT_LOCKED_SQLSTATE = "MZLCK";
+
+/**
+ * Lockdown (docs/plan.md §1.243): the transaction named a client that is locked, or everything is
+ * locked. Nothing in the transaction ran. Not a fault: the API answers it `423 client_locked`,
+ * Workflow steps stop without retrying, and sweeps skip the client.
+ */
+export class ClientLockedError extends Error {
+  override name = "ClientLockedError";
+  readonly code = "client_locked";
+  constructor(readonly tenantIds: readonly string[]) {
+    super("client_locked: this account is locked down");
+  }
+}
+
+/** Whether `error` (or any error it wraps) is a lockdown refusal. */
+export function isClientLocked(error: unknown): boolean {
+  for (let e = error, depth = 0; e && depth < 5; depth++) {
+    if (e instanceof ClientLockedError) return true;
+    if ((e as { code?: unknown }).code === CLIENT_LOCKED_SQLSTATE) return true;
+    e = (e as { cause?: unknown }).cause;
+  }
+  return false;
+}
+
+/** The database's refusal, as ClientLockedError; anything else as it was. */
+function asLocked(error: unknown, tenantIds: readonly string[]): unknown {
+  return isClientLocked(error) && !(error instanceof ClientLockedError)
+    ? new ClientLockedError(tenantIds)
+    : error;
+}
+
+/**
+ * How a scope treats locked clients (`app_scope_tenant_ids`, migration 0103):
+ * `one` refuses (withTenant, a client's session), `some` leaves them out (sweeps, the back office),
+ * `investigate` keeps them in a read-only transaction (the security officer's investigation).
+ */
+type ScopeMode = "one" | "some" | "investigate";
+
+/**
+ * Waits for the scope and `fn`, which run together (the scope first on the connection). When both
+ * fail, the scope's error is the one thrown: `fn` may fail first (its input checks run before the
+ * scope's answer arrives), and a locked client must be answered as locked whatever `fn` threw.
+ */
+async function scopeFirst<T>(
+  readOnly: Promise<void> | undefined,
+  scoped: Promise<void>,
+  work: Promise<T>,
+): Promise<T> {
+  const scope = Promise.all([readOnly, scoped]);
+  try {
+    const [, out] = await Promise.all([scope, work]);
+    return out;
+  } catch (error) {
+    // Rethrows the scope's own failure if it failed (it settles at once: it was sent first).
+    await scope;
+    throw error;
+  }
+}
+
+/**
+ * The statement that sets a transaction's scope, through the lockdown check. It also keeps, in
+ * `app.locked_tenant_ids`, the clients asked for and left out, so `narrowToTenant` can tell a
+ * locked client from one outside the scope.
+ */
+// DECISION: the check is in the statement that already set the scope, so a lock costs no round trip
+// and is never cached: the next transaction anywhere sees it (docs/lockdown-plan.md §3).
+function scopeStatement(ids: string, mode: ScopeMode, operator: boolean, userId: string) {
+  return sql`select
+    set_config('app.tenant_ids', s.ok::text, true),
+    set_config('app.locked_tenant_ids',
+      array(select unnest(s.asked) except select unnest(s.ok))::text, true),
+    set_config('app.operator', ${operator ? "on" : "off"}, true),
+    set_config('app.user_id', ${userId}, true)
+    from (select a.asked, app_scope_tenant_ids(a.asked, ${mode}) as ok
+      from (select ${ids}::uuid[] as asked) a) s`;
+}
+
 export interface CreateDbOptions {
   /** Pool size. A Worker request needs few: Hyperdrive does the pooling. */
   max?: number;
@@ -112,6 +191,7 @@ function checkIds(ids: readonly string[]): string {
 interface Scope {
   tenantIds: readonly string[];
   operator: boolean;
+  mode: ScopeMode;
   userId?: string;
 }
 
@@ -120,53 +200,94 @@ async function inScope<T>(db: Db, scope: Scope, fn: (tx: Tx) => Promise<T>): Pro
   if (scope.userId !== undefined && !isUuid(scope.userId)) {
     throw new ScopeError(`not a user id: ${scope.userId}`);
   }
-  return db.transaction(async (tx) => {
-    // The scope is sent first, then `fn` starts at once: its first queries travel with the scope
-    // instead of a round trip later.
-    // DECISION: one round trip less per transaction (docs/plan.md §1.82). The transaction holds one
-    // connection, and postgres-js runs a connection's statements in the order they were issued;
-    // `.then` here issues the scope before `fn` can issue anything, so every statement of `fn`
-    // still runs scoped. If the scope fails, the transaction is aborted and `fn`'s statements fail
-    // with it: closed, as before.
-    const scoped = tx
-      .execute(sql`select
-        set_config('app.tenant_ids', ${ids}, true),
-        set_config('app.operator', ${scope.operator ? "on" : "off"}, true),
-        set_config('app.user_id', ${scope.userId ?? ""}, true)`)
-      .then(() => undefined);
-    // An async wrapper, so a `fn` that throws before its first await rejects instead.
-    const [, out] = await Promise.all([scoped, (async () => fn(tx))()]);
-    return out;
-  });
+  return db
+    .transaction(async (tx) => {
+      // The scope is sent first, then `fn` starts at once: its first queries travel with the scope
+      // instead of a round trip later.
+      // DECISION: one round trip less per transaction (docs/plan.md §1.82). The transaction holds one
+      // connection, and postgres-js runs a connection's statements in the order they were issued;
+      // `.then` here issues the scope before `fn` can issue anything, so every statement of `fn`
+      // still runs scoped. If the scope fails, the transaction is aborted and `fn`'s statements fail
+      // with it: closed, as before. A locked client fails the scope the same way (§1.243).
+      // An investigation is read only from its first statement, before the scope that needs it.
+      const readOnly =
+        scope.mode === "investigate"
+          ? tx.execute(sql`set transaction read only`).then(() => undefined)
+          : undefined;
+      const scoped = tx
+        .execute(scopeStatement(ids, scope.mode, scope.operator, scope.userId ?? ""))
+        .then(() => undefined);
+      // An async wrapper, so a `fn` that throws before its first await rejects instead.
+      return scopeFirst(readOnly, scoped, (async () => fn(tx))());
+    })
+    .catch((error: unknown) => {
+      throw asLocked(error, scope.tenantIds);
+    });
 }
 
 /** One client: every run and every portal request. */
+/** One client: every run and every portal request. A locked client: ClientLockedError. */
 export function withTenant<T>(db: Db, tenantId: string, fn: (tx: Tx) => Promise<T>): Promise<T> {
-  return inScope(db, { tenantIds: [tenantId], operator: false }, fn);
+  return inScope(db, { tenantIds: [tenantId], operator: false, mode: "one" }, fn);
 }
 
 /**
  * Several clients without the operator's templates: e.g. a job that sweeps a known set of clients.
- * Back-office requests use `withOperator`.
+ * Back-office requests use `withOperator`. Locked clients are left out of the scope.
  */
 export function withTenants<T>(
   db: Db,
   tenantIds: readonly string[],
   fn: (tx: Tx) => Promise<T>,
 ): Promise<T> {
-  return inScope(db, { tenantIds, operator: false }, fn);
+  return inScope(db, { tenantIds, operator: false, mode: "some" }, fn);
 }
 
 /**
  * A back-office session: the clients this operator serves (from `membership`, narrowed by
- * `?client=`), plus templates and shared skills (rows with tenant_id null).
+ * `?client=`), plus templates and shared skills (rows with tenant_id null). Locked clients are
+ * left out of the scope, so one lockdown doesn't break the back office for the others.
  */
 export function withOperator<T>(
   db: Db,
   tenantIds: readonly string[],
   fn: (tx: Tx) => Promise<T>,
 ): Promise<T> {
-  return inScope(db, { tenantIds, operator: true }, fn);
+  return inScope(db, { tenantIds, operator: true, mode: "some" }, fn);
+}
+
+/**
+ * Lockdown (docs/plan.md §1.243): the security officer's reads of clients that may be locked, as
+ * the back office reads them, in a read-only transaction. Nothing in it can write, the database
+ * holds it to that (`app_scope_tenant_ids`), so its audit rows are written apart (`auditAlone`).
+ * Who may open it is decided by the caller.
+ */
+export function withInvestigation<T>(
+  db: Db,
+  tenantIds: readonly string[],
+  fn: (tx: Tx) => Promise<T>,
+): Promise<T> {
+  return inScope(db, { tenantIds, operator: true, mode: "investigate" }, fn);
+}
+
+/**
+ * Adds a client to this transaction's scope, if it isn't locked: one just created in it, or just
+ * unlocked in it. Answers whether it is in the scope now. Only ever widens by that one client, and
+ * never past the lockdown check.
+ */
+export async function admitTenant(tx: Tx, tenantId: string): Promise<boolean> {
+  checkIds([tenantId]);
+  await tx.execute(sql`select set_config('app.tenant_ids', app_scope_tenant_ids(
+    array(select distinct unnest(app_tenant_ids() || ${tenantId}::uuid)), 'some')::text, true)`);
+  const rows = await tx.execute<{ admitted: boolean }>(sql`select
+    ${tenantId}::uuid = any(app_tenant_ids()) as admitted`);
+  const admitted = [...rows][0]?.admitted === true;
+  if (admitted) {
+    await tx.execute(sql`select set_config('app.locked_tenant_ids', array(
+      select unnest(coalesce(nullif(current_setting('app.locked_tenant_ids', true), ''), '{}')::uuid[])
+      except select ${tenantId}::uuid)::text, true)`);
+  }
+  return admitted;
 }
 
 /**
@@ -209,10 +330,17 @@ export async function narrowToTenant<T>(
   fn: (tx: Tx) => Promise<T>,
 ): Promise<T> {
   const one = checkIds([tenantId]);
-  const rows = await tx.execute<{ ids: string | null; op: string | null }>(sql`select
-    current_setting('app.tenant_ids', true) as ids, current_setting('app.operator', true) as op`);
+  const rows = await tx.execute<{ ids: string | null; op: string | null; locked: string | null }>(
+    sql`select current_setting('app.tenant_ids', true) as ids,
+      current_setting('app.operator', true) as op,
+      current_setting('app.locked_tenant_ids', true) as locked`,
+  );
   const before = [...rows][0];
-  const current = (before?.ids ?? "").replace(/^\{|\}$/g, "").split(",");
+  const list = (value: string | null | undefined) =>
+    (value ?? "").replace(/^\{|\}$/g, "").split(",");
+  const current = list(before?.ids);
+  // A client this transaction asked for and the lockdown left out (§1.243): locked, not foreign.
+  if (list(before?.locked).includes(tenantId)) throw new ClientLockedError([tenantId]);
   if (!current.includes(tenantId)) {
     throw new ScopeError(`client ${tenantId} is outside this transaction's clients`);
   }
@@ -233,7 +361,7 @@ export async function narrowToTenant<T>(
  * For packages/auth, to learn which clients a session may name.
  */
 export function withUser<T>(db: Db, userId: string, fn: (tx: Tx) => Promise<T>): Promise<T> {
-  return inScope(db, { tenantIds: [], operator: false, userId }, fn);
+  return inScope(db, { tenantIds: [], operator: false, mode: "some", userId }, fn);
 }
 
 /** The clients a session request may touch, once its user and memberships have been read. */
@@ -241,6 +369,11 @@ export interface SessionScope {
   readonly tenantIds: readonly string[];
   /** `app.operator`: the back office (templates and shared skills too). */
   readonly operator: boolean;
+  /**
+   * Lockdown (§1.243): the security officer's investigation, read only, locked clients kept in.
+   * Only with `operator`. Whether this person may is the caller's decision.
+   */
+  readonly investigate?: boolean;
 }
 
 /** What `withSession`'s sign-in half decides: a scope (and what it learnt), or a refusal. */
@@ -271,28 +404,46 @@ export async function withSession<D, R, T>(
   fn: (tx: Tx, value: D) => Promise<T>,
 ): Promise<{ readonly ok: true; readonly value: T } | { readonly ok: false; readonly refusal: R }> {
   if (!isUuid(userId)) throw new ScopeError(`not a user id: ${userId}`);
-  return db.transaction(async (tx) => {
-    const signIn = tx
-      .execute(sql`select
+  let asked: readonly string[] = [];
+  return db
+    .transaction(async (tx) => {
+      const signIn = tx
+        .execute(sql`select
         set_config('app.tenant_ids', '{}', true),
         set_config('app.operator', 'off', true),
         set_config('app.user_id', ${userId}, true)`)
-      .then(() => undefined);
-    const [, decided] = await Promise.all([signIn, (async () => decide(tx))()]);
-    if (!decided.ok) return { ok: false as const, refusal: decided.refusal };
-    // A session that is not the back office acts for exactly one client (invariant 1), whatever
-    // the caller checked before.
-    if (!decided.scope.operator && new Set(decided.scope.tenantIds).size !== 1) {
-      throw new ScopeError("a client session acts for exactly one client");
-    }
-    const ids = checkIds(decided.scope.tenantIds);
-    const scoped = tx
-      .execute(sql`select
-        set_config('app.tenant_ids', ${ids}, true),
-        set_config('app.operator', ${decided.scope.operator ? "on" : "off"}, true),
-        set_config('app.user_id', '', true)`)
-      .then(() => undefined);
-    const [, out] = await Promise.all([scoped, (async () => fn(tx, decided.value))()]);
-    return { ok: true as const, value: out };
-  });
+        .then(() => undefined);
+      const [, decided] = await Promise.all([signIn, (async () => decide(tx))()]);
+      if (!decided.ok) return { ok: false as const, refusal: decided.refusal };
+      // A session that is not the back office acts for exactly one client (invariant 1), whatever
+      // the caller checked before.
+      if (!decided.scope.operator && new Set(decided.scope.tenantIds).size !== 1) {
+        throw new ScopeError("a client session acts for exactly one client");
+      }
+      if (decided.scope.investigate && !decided.scope.operator) {
+        throw new ScopeError("an investigation is a back-office session");
+      }
+      asked = decided.scope.tenantIds;
+      const ids = checkIds(decided.scope.tenantIds);
+      // A client's session is refused while its client is locked; the back office's leaves locked
+      // clients out; an investigation keeps them, read only (§1.243). Turning a transaction read
+      // only after its sign-in reads is allowed; the scope statement then holds it to that.
+      const mode: ScopeMode = decided.scope.investigate
+        ? "investigate"
+        : decided.scope.operator
+          ? "some"
+          : "one";
+      const readOnly =
+        mode === "investigate"
+          ? tx.execute(sql`set transaction read only`).then(() => undefined)
+          : undefined;
+      const scoped = tx
+        .execute(scopeStatement(ids, mode, decided.scope.operator, ""))
+        .then(() => undefined);
+      const out = await scopeFirst(readOnly, scoped, (async () => fn(tx, decided.value))());
+      return { ok: true as const, value: out };
+    })
+    .catch((error: unknown) => {
+      throw asLocked(error, asked);
+    });
 }

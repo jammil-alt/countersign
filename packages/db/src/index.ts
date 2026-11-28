@@ -5,10 +5,14 @@
 // from scripts and tests: ./seed (reads the seed files) and ./testing (throwaway databases).
 
 export {
+  admitTenant,
+  CLIENT_LOCKED_SQLSTATE,
+  ClientLockedError,
   type CreateDbOptions,
   closeDb,
   createDb,
   type Db,
+  isClientLocked,
   narrowToTenant,
   readOperatorCatalogue,
   type Schema,
@@ -16,6 +20,7 @@ export {
   type SessionDecision,
   type SessionScope,
   type Tx,
+  withInvestigation,
   withOperator,
   withSession,
   withTenant,
@@ -26,6 +31,8 @@ export * from "./directory";
 // A connection that went away under a query (Neon restarting, Hyperdrive moving it).
 export { isDatabaseDrop } from "./drops";
 export * from "./ledger";
+// §1.243: lockdown of one client or of every client.
+export * from "./lockdown";
 // §1.215: a client's saved match rules (the matching engine's first tier).
 export * from "./match-rules";
 export {

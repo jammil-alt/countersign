@@ -21,6 +21,7 @@ import {
   type WorkUrgency,
 } from "@countersign/core";
 import {
+  activeClient,
   agent,
   agentVersion,
   type Db,
@@ -38,7 +39,7 @@ import {
   type LlmTransport,
 } from "@countersign/llm";
 import { leadOf } from "@countersign/threads";
-import { and, desc, eq, inArray, isNotNull, isNull, lte, ne, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNotNull, lte, ne, sql } from "drizzle-orm";
 import { auditInTx } from "../audit";
 import { clientBusinessHours } from "../hours/hours";
 import { untrusted } from "../mcp/output";
@@ -698,10 +699,7 @@ export async function readPending(
   options: { limit?: number } = {},
 ): Promise<number> {
   const now = deps.now?.() ?? new Date();
-  const clients = await deps.db
-    .select({ id: tenant.id })
-    .from(tenant)
-    .where(isNull(tenant.retiredAt));
+  const clients = await deps.db.select({ id: tenant.id }).from(tenant).where(activeClient());
   if (clients.length === 0) return 0;
   const due = await withOperator(
     deps.db,

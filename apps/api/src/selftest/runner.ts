@@ -23,7 +23,14 @@ import {
   type SelftestConnectionResult,
   type SelftestRun,
 } from "@countersign/core";
-import { connection, connectionChange, type Db, tenant, withTenant } from "@countersign/db";
+import {
+  activeClient,
+  connection,
+  connectionChange,
+  type Db,
+  tenant,
+  withTenant,
+} from "@countersign/db";
 import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import type { Bindings } from "../env";
 import { type AppDeps, HttpError } from "../http";
@@ -273,7 +280,8 @@ export async function selftestTick(deps: SelftestDeps, at: Date): Promise<number
   const clients = await deps.db
     .select({ id: tenant.id })
     .from(tenant)
-    .where(and(isNull(tenant.retiredAt), sql`(${tenant.settings}->>'sandbox')::boolean`));
+    // §1.243: a locked Sandbox client is skipped, as every sweep skips a locked client.
+    .where(and(activeClient(), sql`(${tenant.settings}->>'sandbox')::boolean`));
   let ran = 0;
   for (const c of clients) {
     try {

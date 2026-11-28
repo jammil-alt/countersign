@@ -14,6 +14,8 @@ const CODE_KEYS: Record<string, PlainKey> = {
   session_invalid: "error.unauthenticated",
   no_access: "error.no_access",
   forbidden: "error.forbidden",
+  // §1.243: the account is locked down.
+  client_locked: "error.client_locked",
   tenant_forbidden: "error.forbidden",
   not_found: "error.not_found",
   conflict: "error.conflict",

@@ -84,6 +84,7 @@ import { ledgerRoutes } from "./ledger";
 // R8: the Library's banks
 import { libraryRoutes } from "./library";
 import { GoLive, lifecycleRoutes } from "./lifecycle";
+import { lockdownRoutes } from "./lockdown";
 import { matchRuleRoutes } from "./match-rules";
 import { messagingRoutes } from "./messaging";
 // §1.116: the phone app
@@ -2790,6 +2791,8 @@ export const routes = {
   ...portalRoutes,
   ...feedbackRoutes,
   ...complianceRoutes,
+  // docs/plan.md §1.243: lockdown
+  ...lockdownRoutes,
   ...exportRoutes,
   ...onboardingRoutes,
   // docs/plan.md §1.122: the back office's Users screen

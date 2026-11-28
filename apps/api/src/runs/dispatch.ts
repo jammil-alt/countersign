@@ -13,6 +13,7 @@ import {
   agentVersion,
   type Db,
   isDatabaseDrop,
+  notLocked,
   run,
   type Tx,
   tenant,
@@ -461,9 +462,13 @@ export function usageSweepDays(at: Date): string[] {
 /** Every client: the cron has no session, so it walks clients one at a time. */
 async function allClients(db: Db): Promise<{ id: string; timezone: string; settings: unknown }[]> {
   // v0.12 W2-E: settings, for the client's own holidays.
-  return db
-    .select({ id: tenant.id, timezone: tenant.timezone, settings: tenant.settings })
-    .from(tenant);
+  return (
+    db
+      .select({ id: tenant.id, timezone: tenant.timezone, settings: tenant.settings })
+      .from(tenant)
+      // §1.243: a locked client gets no pass at all (retired ones keep theirs, as before).
+      .where(notLocked())
+  );
 }
 
 /**

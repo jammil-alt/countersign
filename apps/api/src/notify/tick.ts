@@ -5,8 +5,7 @@
 
 import { type FetchLike, globalFetch } from "@countersign/connectors";
 import { NOTIFY_PASS_MINUTES, parseCoveredProcessors } from "@countersign/core";
-import { type Db, tenant, withTenant } from "@countersign/db";
-import { isNull } from "drizzle-orm";
+import { activeClient, type Db, tenant, withTenant } from "@countersign/db";
 import type { Bindings } from "../env";
 import { reportHandled } from "../observability/report";
 import type { Platform } from "../platform";
@@ -62,7 +61,7 @@ export async function notifyTick(
 ): Promise<void> {
   const now = new Date(Math.floor(scheduledTime.getTime() / 60_000) * 60_000);
   const pass = now.getUTCMinutes() % NOTIFY_PASS_MINUTES === 0;
-  const clients = await db.select({ id: tenant.id }).from(tenant).where(isNull(tenant.retiredAt));
+  const clients = await db.select({ id: tenant.id }).from(tenant).where(activeClient());
   for (const client of clients) {
     try {
       const queued = await withTenant(db, client.id, async (tx) => {

@@ -6,8 +6,8 @@
 // Signals: run volume up three months running; a renewal 60 days ahead (a won deal's agreed date
 // plus 12 months). Documents or emails no agent picks up are not countable yet (left for later).
 
-import { type Db, deal, run, tenant, withOperator } from "@countersign/db";
-import { and, desc, eq, gte, isNotNull, isNull, lt, sql } from "drizzle-orm";
+import { activeClient, type Db, deal, run, tenant, withOperator } from "@countersign/db";
+import { and, desc, eq, gte, isNotNull, lt, sql } from "drizzle-orm";
 import { reportHandled } from "../observability/report";
 import { addActivity } from "../work/deals";
 import { logPlay } from "../work/play-log";
@@ -173,7 +173,7 @@ export async function openSpotted(db: Db, tenantId: string, s: Signal): Promise<
 /** Nightly: every live client's signals. */
 export async function spottingTick(db: Db, now: Date): Promise<number> {
   if (now.getUTCHours() !== SPOT_HOUR || now.getUTCMinutes() !== SPOT_MINUTE) return 0;
-  const clients = await db.select({ id: tenant.id }).from(tenant).where(isNull(tenant.retiredAt));
+  const clients = await db.select({ id: tenant.id }).from(tenant).where(activeClient());
   let opened = 0;
   for (const c of clients) {
     try {

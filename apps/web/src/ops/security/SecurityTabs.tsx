@@ -10,6 +10,7 @@ export const SECURITY_TABS = [
   { to: SECURITY_PATHS.policies, label: "Policies and routines" },
   { to: SECURITY_PATHS.clients, label: "Clients" },
   { to: SECURITY_PATHS.audit, label: "Audit log" },
+  { to: SECURITY_PATHS.lockdown, label: "Lockdown" },
 ] as const;
 
 export function SecurityTabs() {

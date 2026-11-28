@@ -248,6 +248,21 @@ then one pass of its "To verify" list against the real service.
 
 ## 4. Everything else
 
+### Lockdown: a kill switch per client and for everything (owner, 2026-11-24; `docs/lockdown-plan.md`, `docs/plan.md` §1.243)
+
+Built in three PRs: #668 (the migration), #666 (the database layer, the API, the screens, the register and the policy) and #705 (the edge rule's workflow). Left: the phone and desktop apps' own locked page. One switch that stops every read and write of a client's data, its tools and
+its AI calls, ends runs in progress, and keeps its people out, until the security officer unlocks
+it; the same for every client at once; and a Cloudflare edge rule for when the app itself may be
+compromised. Enforced in the database on the path every query already takes (`inScope`). Owner: set
+`SECURITY_OFFICER_EMAILS` on staging and production (`docs/operations.md` §1.4), make the
+edge rule's token `CLOUDFLARE_LOCKDOWN_TOKEN` and run `lockdown.yml` with `status` on staging (#705).
+
+### Unusual read volume: an alert on mass downloads (owner, 2026-11-25; `docs/plan.md` §1.245)
+
+Built on #666: every 5 minutes, a person reading a client far past normal use (reads, documents or
+exports) raises a to-do, an email to the security officer and a Sentry warning. It locks nothing.
+Left: limits tuned on production's real use, and per-person baselines.
+
 ### Back office work: Sales, onboarding and Build (merged 2026-11-17; onboarding O1–O3 merged)
 
 One to-do list (Your call), Sales (new accounts and expansion), onboarding and Build (issues, agent

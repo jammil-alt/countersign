@@ -8,11 +8,17 @@
 // background work, `kind` for the Worker's own plumbing (deferred work, response contracts).
 // Ids (a client's, a run's) go in tags or the `what`; never a client's text.
 
+import { isClientLocked } from "@countersign/db";
 import { captureException, captureMessage } from "@sentry/cloudflare";
 
 export type ReportTags = Record<string, string>;
 
 export function reportHandled(what: string, error: unknown, tags: ReportTags = {}): void {
+  // §1.243: work refused because its client is locked is the lockdown doing its job, not a fault.
+  if (isClientLocked(error)) {
+    console.info(what, "(the client is locked)", tags);
+    return;
+  }
   console.error(what, error);
   captureException(error, { tags: { handled: "yes", ...tags }, extra: { what } });
 }
@@ -23,6 +29,10 @@ export function reportHandled(what: string, error: unknown, tags: ReportTags = {
  * but not an error, so one drop pages no one (`isDatabaseDrop`, Sentry MEZONAS-API-3, -A, -B).
  */
 export function reportDrop(what: string, error: unknown, tags: ReportTags = {}): void {
+  if (isClientLocked(error)) {
+    reportHandled(what, error, tags);
+    return;
+  }
   console.warn(what, error);
   captureException(error, {
     level: "warning",

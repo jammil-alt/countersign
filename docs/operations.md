@@ -1545,6 +1545,61 @@ workflow. Then, and only the security officer:
    stores it: every workflow fetches a fresh connection string, and the app uses `cs_worker`
    through Hyperdrive. Delete any copy left in a shell history or `.env` file.
 
+## 1.4 Lockdown: stopping everything for a client, or for every client (`docs/plan.md` §1.243)
+
+The incident response policy's first containment step (`docs/policies/incident-response.md` §5,
+`docs/lockdown-plan.md`). A lock takes effect on the next database transaction everywhere: nothing
+reads or writes the client's data, its tools or its model calls; its runs in progress stop; its
+people see the locked page; what providers send for it is answered and dropped, only counted.
+
+**Set once per environment: who unlocks.** Only the security officer unlocks. Name them, by sign-in
+email (comma-separated for more than one), as a Worker secret, since a dashboard variable is
+erased by the next deploy:
+
+```sh
+cd apps/api && printf '%s' 'officer@example.com' | pnpm exec wrangler secret put SECURITY_OFFICER_EMAILS --env production
+```
+
+Without it anyone can still lock, and nobody can unlock in the app (`no_security_officer`).
+
+**Lock.** Any operator who serves the client: the client's settings → Lockdown (a reason and its
+name typed), or every client at once from Security → Lockdown (a reason and "lock everything"
+typed). The API behind them: `POST /api/ops/clients/<id>/lock` with `{ "reason", "confirmName" }`,
+or `POST /api/ops/lockdown/lock` with `{ "reason", "confirm": "lock everything" }`. Every
+back-office page shows a banner while anything is locked. The client's admins and the security officer are
+emailed. Security → Lockdown (`GET /api/ops/lockdown`) lists what is locked, with who, why and the
+inbound counts. A client admin may lock their own account: the portal's Settings → General, Lock
+our account. Their people then see the locked page in place of every screen.
+
+**Investigate.** The security officer, signed in (or past the second step) in the last 10
+minutes, reads a locked client as the back office does by adding `?investigate=1` to a back-office
+GET: read only (the database refuses any write), each read in the audit log tagged `investigate`.
+
+**Unlock.** The security officer, signed in in the last 10 minutes: Unlock on Security → Lockdown
+or on the client's settings → Lockdown, with a note of what was found, kept in each client's change
+log (`POST /api/ops/clients/<id>/unlock`, `POST /api/ops/lockdown/unlock`). Unlocking resumes nothing: runs stopped by the lock stay
+cancelled (`client_locked`), and what came in while locked isn't replayed; start what's needed by
+hand. A write that was being made when the lock came stays `executing`: check it in the client's
+tool and settle it by hand. A client admin may lift a lock their own side made, from the locked
+page, never ours.
+
+**Unusual activity alerts** (`docs/plan.md` §1.245). Every 5 minutes the audit log's last hour is
+checked: a person past 1,000 reads of a client in an hour, 150 document reads, or 3 exports in a
+day raises a to-do ("Unusual activity: …") for the operators who serve the client, an email to the
+security officer and a Sentry warning, once an hour at most. Open Security → Audit log for that
+person. If it isn't expected, lock the client down (above) and remove the person's access (§1.3 for
+an operator; the client's admin, or Team, for one of theirs). Nothing is locked for you. The limits
+are `VOLUME_LIMITS` in `apps/api/src/lockdown/volume.ts`.
+
+**When the app itself may be compromised.** Lock at the edge: Actions → **Lockdown at the edge**
+(`lockdown.yml`, §2), `on` for the environment. Cloudflare then blocks every request to it but
+`/api/health`. Switch it `off` once the Worker and its keys are known good again.
+
+**Break-glass.** If the app can't be used (no security officer set, sign-in down), unlock as
+`cs_owner` (§1.3, "Break-glass database access") and record it the same day:
+`update tenant set locked_at = null, lock = null where id = '<client id>';` or
+`delete from platform_lock;`.
+
 ## 2. What CI does
 
 - **`ci.yml`**: on every non-draft pull request (and by hand), runs `checks.yml`. Drafts cost nothing;

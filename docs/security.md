@@ -24,6 +24,8 @@ Status, 2026-11-20:
 - The code for every control below is on `main` and on staging: #81–#84, then CodeQL v4 (#315),
   OSV-Scanner and patch deadlines (#316), Node 24 (#317), the register (#318), removing people
   (#325, #370), the model gate (#414) and the MCP connector's HIPAA check (`docs/plan.md` §1.190).
+- Lockdown (§1, "Lockdown"; control INC-2) is on PRs #668 (migration 0103) and #666, not yet on
+  `main`. The edge rule (`lockdown.yml`) is being added in a PR of its own.
 - The first settings outside the code are in place (§10). What the owner still has to set is in
   §10, "Still to set".
 - Plaid's attestations, control by control, are in `docs/plaid-plan.md`.
@@ -39,6 +41,43 @@ Status, 2026-11-20:
 - What agents learn (memory, aliases, catalogs) stays with its client. Forks and promotions never
   carry one client's data to another.
 - Tests: `packages/db/src/rls.test.ts`, and the contract tests in `apps/api`.
+
+### Lockdown (`docs/plan.md` §1.243; control INC-2)
+
+The first step when something may have gone wrong (`docs/policies/incident-response.md` §5).
+How to use it: `docs/operations.md` §1.4. The design: `docs/lockdown-plan.md`.
+
+- **What a lock does.** For one client, or every client at once: nothing reads or changes its
+  data, its tools or its AI calls; its runs in progress stop and its Workflow instances end; its
+  people see a locked page in the portal. What providers send for it is answered as usual and only
+  counted; forwarded email for it is dropped and counted, never bounced or kept.
+- **Where it is enforced.** In the database, in the statement that already sets each
+  transaction's clients (`app_scope_tenant_ids`, migration 0103; `inScope` in
+  `packages/db/src/client.ts`). A transaction for a locked client is refused before anything in it
+  runs, and the next transaction anywhere sees a lock: no cache. The back office's lists leave a
+  locked client out rather than failing.
+- **Who.** Any operator who serves a client may lock it, with its name typed and a reason; every
+  client, with "lock everything" typed. A client admin may lock their own account. Only the
+  security officer unlocks (`SECURITY_OFFICER_EMAILS`), signed in or past the second step in the
+  last 10 minutes; a client admin may lift only a lock their own side made. The client's admins
+  and the security officer are emailed when a client is locked.
+- **Investigating.** The security officer reads a locked client by adding `?investigate=1` to a
+  back-office read. The transaction is read only, which the database enforces, and each read is in
+  the audit log tagged `investigate`.
+- **Audit.** Every request about a locked client is still audited (invariant 14), its refusals
+  included: `audit_write` accepts a row for a client the transaction asked for and the lockdown
+  left out. Each lock and unlock is also in the client's change log, with its reason or note.
+- **If the app itself may be compromised,** the Cloudflare edge rule (`lockdown.yml`, being
+  added) blocks every request to the app but its health check.
+- **Unusual read volume** (`docs/plan.md` §1.245): every 5 minutes the audit log's last hour is
+  checked per person and client; past 1,000 reads in an hour, 150 document reads or 3 exports in a
+  day, the operators who serve the client get a to-do, the security officer an email and Sentry a
+  warning, at most hourly. Polls and the officer's investigation aren't counted. It locks nothing:
+  a person decides, and locks the client down if it isn't expected
+  (`apps/api/src/lockdown/volume.ts`, `apps/api/src/volume.test.ts`).
+- Tests: `packages/db/src/lockdown.test.ts`, `apps/api/src/lockdown.test.ts` (every portal route
+  answers 423 for a locked client), `apps/web/src/ops/security/Lockdown.test.tsx`,
+  `apps/web/src/portal/screens/Locked.test.tsx`.
 
 ## 2. Who can sign in, and for how long
 
