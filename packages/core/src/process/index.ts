@@ -41,6 +41,7 @@ export * from "./schema";
 export * from "./seats";
 // Owner, 2026-11-27: the owner (the supervisor) on a v5 workflow's steps, for the builder.
 export * from "./step-model-owner";
+export * from "./step-model-refs";
 // Data in and out of files (owner, 2026-11-20; docs/plan.md §1.164): Read table and Write table.
 export * from "./table";
 // R5: write tools' undo.

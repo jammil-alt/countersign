@@ -273,7 +273,7 @@ export function validateBundle(
       errors.push({ ...e, workflow: w.slug });
     }
     // References to other steps name steps that run before the reader.
-    for (const e of stepModelRefErrors(w.workflow)) errors.push({ ...e, workflow: w.slug });
+    for (const e of stepModelRefErrors(w.workflow, ctx)) errors.push({ ...e, workflow: w.slug });
     // Setup-plan §4.1: every seat a step names is one the bundle declares, of a kind that fits.
     for (const e of stepModelSeatProblems(w.workflow, bundle.people ?? [])) {
       errors.push({ ...e, workflow: w.slug });
