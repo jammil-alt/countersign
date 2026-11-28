@@ -285,11 +285,15 @@ function doIssues(step: DoStep, context: StepContext): StepIssue[] {
     }
   }
   if (step.uses) {
-    const required = context.requiredInput?.(step.uses) ?? [];
     const mapped = new Set([
       ...Object.keys(step.input),
       ...(step.translation?.fields ?? []).map((f) => f.name),
     ]);
+    // A Match given a list (`items`) matches each item: the profile's fields are each item's, or
+    // given beside the list for every item (`vendorId`), so they aren't asked for here (staging,
+    // 2026-11-28: a SKU match on an invoice's lines read "nothing gives sku").
+    const perItem = step.uses.type === "match" && mapped.has("items");
+    const required = perItem ? [] : (context.requiredInput?.(step.uses) ?? []);
     for (const field of required) {
       if (!mapped.has(field)) {
         out.push({

@@ -212,6 +212,11 @@ describe.skipIf(!online)("the Purchasing area's match profiles", () => {
       unsure: false,
     });
     expect(await vi({ vendorId: northline, sku: "BB34-56" })).toMatchObject({ matched: null });
+    // A line as an invoice is read hands its code on as `vendorSku` (staging, 2026-11-28).
+    expect(await vi({ vendorId: northline, vendorSku: "BB34-55" })).toMatchObject({
+      matched: viBaltic,
+      how: "exact",
+    });
     // A SKU never outvotes the line's own words: 1/2" isn't the 3/4" item.
     const differ = await vi({
       vendorId: northline,

@@ -19,8 +19,22 @@ export const MatchKey = z.strictObject({
   name: z.string().min(1).max(60),
   /** The input field holding the value. */
   field: z.string().min(1).max(64),
+  /**
+   * Other names an item may give the same value under, tried after `field` (an invoice's line as
+   * read names its SKU `vendorSku`). Optional, so stored profiles parse as they were.
+   */
+  also: z.array(z.string().min(1).max(64)).max(5).optional(),
 });
 export type MatchKey = z.infer<typeof MatchKey>;
+
+/** The value an item gives a key: its `field`, else the first of `also` it has. */
+export function keyValue(key: MatchKey, item: Readonly<Record<string, unknown>>): unknown {
+  for (const f of [key.field, ...(key.also ?? [])]) {
+    const v = item[f];
+    if (v !== undefined && v !== null && v !== "") return v;
+  }
+  return undefined;
+}
 
 /** A rule that makes two records never the same, whatever else agrees (§7). */
 export const NeverSame = z.strictObject({
