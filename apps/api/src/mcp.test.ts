@@ -483,6 +483,8 @@ describe.skipIf(!h)("MCP server", () => {
         "connections_list",
         "records_search",
         "ops_health",
+        "selftest_last",
+        "selftest_run",
         "marketing_report",
         "code_requests_list",
         "code_request_get",
@@ -516,6 +518,7 @@ describe.skipIf(!h)("MCP server", () => {
       ]);
       const writes = new Set([
         "feedback_resolve",
+        "selftest_run",
         "code_request_file",
         "code_request_claim",
         "code_request_note",
@@ -653,6 +656,8 @@ describe.skipIf(!h)("MCP server", () => {
         ["connections_list", { client: H.C.tenantId }],
         ["records_search", { client: H.C.tenantId }],
         ["ops_health", { client: H.C.tenantId }],
+        ["selftest_last", { client: H.C.tenantId }],
+        ["selftest_run", { client: H.C.tenantId }],
         ["marketing_report", { client: H.C.tenantId, report: "overview" }],
         ["feedback_list", { client: H.C.tenantId }],
         ["feedback_get", { id: ids.feedbackC }],
@@ -744,6 +749,16 @@ describe.skipIf(!h)("MCP server", () => {
         expect(f.client.name).toMatch(/^Client [AB]$/);
       }
       expect((await tool(opToken, "ops_health", { hours: 0 })).isError).toBe(true);
+    });
+
+    it("selftest_run and selftest_last: the Sandbox only; a real client is refused", async () => {
+      const ran = await tool(opToken, "selftest_run", { client: H.A.tenantId });
+      expect(ran.isError).toBe(true);
+      expect(ran.text).toMatch(/^not_sandbox: /);
+      const last = await tool(opToken, "selftest_last", { client: H.A.tenantId });
+      expect(last.isError).toBe(false);
+      expect(last.text).toContain("hasn't run");
+      expect(last.data()).toMatchObject({ at: null, connections: [] });
     });
 
     it("marketing_report: a client's Marketing report, its query checked", async () => {
