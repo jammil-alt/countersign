@@ -19,6 +19,7 @@ import { EntityPermissions, PermissionEntity, PermissionLevel } from "../schemas
 import { SkillBrowse, SkillDefinition, SkillMethod } from "../schemas/skill";
 import { ToolInputVariants, ToolSpec } from "../schemas/tool";
 import { ToolDisplay } from "../schemas/tool-display";
+import { MatchProfile } from "../steps/match-profile";
 import { Fields as StepFields } from "../steps/schema";
 import { IanaTimeZone } from "../timezone";
 // P-8: US texting registration
@@ -1094,6 +1095,9 @@ export const BuilderCatalog = z.object({
   // docs/plan.md §1.164 step 3: a client agent's tool inputs typed from its client's own
   // connections (a Zoho write's `fields` per module), by tool id; absent for a template.
   toolInputs: z.record(z.string(), ToolInputVariants).optional(),
+  // Staging, 2026-11-28: what a match step can match to (the areas' match profiles). Without it
+  // the step builder flagged every match step "Nothing can be matched to …".
+  profiles: z.array(MatchProfile).optional(),
 });
 export type BuilderCatalog = z.infer<typeof BuilderCatalog>;
 

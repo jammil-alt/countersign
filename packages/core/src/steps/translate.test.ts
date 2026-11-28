@@ -77,6 +77,33 @@ describe("workOutTranslation", () => {
     expect(kept.input).toEqual({ memo: "{{trigger.memo}}" });
   });
 
+  // Staging, 2026-11-28: "Read the invoice" read `{{trigger.documents.0}}`, an email's first
+  // attachment; the builder dropped it as a field the trigger doesn't hand on.
+  it("keeps a reference to a list's item by its position, and to a field of it", () => {
+    const mail: TranslateSource = {
+      ref: "trigger",
+      label: "Trigger",
+      fields: [f("documents", "list"), f("lines", "list", true, [f("qty", "number")])],
+    };
+    const w = workOutTranslation({
+      needs: [f("documentId", "text"), f("qty", "number")],
+      sources: [mail],
+      input: { documentId: "{{trigger.documents.0}}", qty: "{{trigger.lines.1.qty}}" },
+    });
+    expect(w.input).toEqual({
+      documentId: "{{trigger.documents.0}}",
+      qty: "{{trigger.lines.1.qty}}",
+    });
+    expect(w.state).toBe("fits");
+    // A field the item doesn't have is still worked out again.
+    const gone = workOutTranslation({
+      needs: [f("qty", "number")],
+      sources: [mail],
+      input: { qty: "{{trigger.lines.0.nope}}" },
+    });
+    expect(gone.input.qty).not.toBe("{{trigger.lines.0.nope}}");
+  });
+
   it("translates renames, money and lists, and brings the source in under a `_` key", () => {
     const w = workOutTranslation({
       needs: [

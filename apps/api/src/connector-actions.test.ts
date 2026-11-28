@@ -215,6 +215,21 @@ describe.skipIf(!h)("Request an action", () => {
     expect(res.status).toBe(404);
   });
 
+  // Staging, 2026-11-28: the step builder flagged every match step "Nothing can be matched to …"
+  // because its catalog had no match profiles.
+  it("sends the builder what a match step can match to", async () => {
+    const made = await H.call(OPERATOR, "POST", "/api/ops/templates", {
+      slug: "match-clerk",
+      bundle: testBundle("Match clerk"),
+    });
+    expect(made.status, JSON.stringify(made.json)).toBe(200);
+    const id = j(made.json).agent.id;
+    const res = await H.call(OPERATOR, "GET", `/api/ops/agents/${id}/builder-catalog`);
+    expect(res.status).toBe(200);
+    const ids = (j(res.json).profiles as { id: string }[]).map((p) => p.id);
+    expect(ids).toEqual(expect.arrayContaining(["vendors", "vendor-items"]));
+  });
+
   it("leaves a switched-off action out of the builder's pickers, unless the agent already uses it", async () => {
     const made = await H.call(OPERATOR, "POST", "/api/ops/templates", {
       slug: "pickers-clerk",

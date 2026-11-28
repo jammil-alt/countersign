@@ -543,6 +543,8 @@ export async function builderCatalogFor(
       : [],
     // docs/plan.md §1.164: a client agent's Zoho writes typed from its client's own fields.
     ...(await builderToolInputs(tx, platform, subject)),
+    // What a match step can match to, as the Builder's own catalog has them.
+    profiles: platform.packs.flatMap((p) => p.manifest.matchProfiles),
   };
 }
 
