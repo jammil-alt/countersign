@@ -1003,6 +1003,8 @@ export function dbInboxPort(db: Db, run: RunInfo): InboxPort {
           ...(run.mode === "test" ? { testRun: true } : {}),
           // v0.12 W1-D: quick answers, from the version's step (the answer must be one of them).
           ...(item.step.mode === "ask" && item.step.choices ? { choices: item.step.choices } : {}),
+          // Owner, 2026-11-28: what the person is asked for, each handed on by its name.
+          ...(item.step.mode === "ask" && item.step.fields ? { fields: item.step.fields } : {}),
         };
         const [row] = await tx
           .insert(inboxItem)

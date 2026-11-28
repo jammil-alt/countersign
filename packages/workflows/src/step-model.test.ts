@@ -338,6 +338,64 @@ describe("a v5 workflow's Do steps", () => {
   });
 });
 
+// Owner, 2026-11-28: a person step asks for the fields it lists and hands each on by its name.
+describe("a v5 person step's fields", () => {
+  const ask = {
+    id: "s_ask",
+    kind: "do",
+    name: "Ask the bookkeeper",
+    doneBy: "person",
+    output: [
+      { name: "choice", type: "text", required: true },
+      { name: "note", type: "text", required: false },
+    ],
+    person: {
+      mode: "ask",
+      who: "client_admin",
+      question: "Book {{trigger.id}} by hand?",
+      choices: [
+        { value: "booked_by_hand", label: "I booked it by hand" },
+        { value: "missing", label: "Something is missing" },
+      ],
+      deadline: { after: "1 day" },
+    },
+  };
+  const after = {
+    ...read,
+    id: "s_after",
+    name: "After",
+    input: { choice: "{{steps.s_ask.output.choice}}", note: "{{steps.s_ask.output.note}}" },
+  };
+
+  for (const [given, choice, note] of [
+    [{ choice: "missing", note: "No job named" }, "missing", "No job named"],
+    ["missing", "missing", null],
+  ] as const) {
+    it(`asks for them and hands on ${typeof given === "string" ? "a single answer as the first" : "a form's by name"}`, async () => {
+      const h = new Harness();
+      const runner = new FakeStepRunner({ onWait: "block" });
+      runner.onWaitStarted = (_n, type) => runner.deliver(type, { answer: given, by: "u-1" });
+      h.handlers.s_after = () => ({ kind: "done", output: {} });
+      const result = await executeWorkflow(
+        runner,
+        h.context({ catalog: CATALOG }),
+        wf([ask, after, end()]),
+        { id: "7" },
+      );
+      expect(result.status).toBe("succeeded");
+      const asked = [...h.items.values()][0]?.item;
+      expect(asked?.step.fields).toEqual([
+        { name: "choice", type: "text", required: true },
+        { name: "note", type: "text", required: false },
+      ]);
+      expect(h.row("s_ask")?.output).toMatchObject({ choice, note, approved: true, by: "u-1" });
+      expect(h.agentCalls.at(-1)?.input).toEqual(
+        note === null ? { choice, note: null } : { choice, note },
+      );
+    });
+  }
+});
+
 describe("a v5 Do step's incoming side (stream G)", () => {
   const needs = [
     { name: "vendorName", type: "text" as const, required: true },

@@ -86,22 +86,31 @@ describe("references checked against what a step hands on", () => {
     ]);
   });
 
-  it("reads a person step by what the run records, not by the fields it lists", () => {
+  // Owner, 2026-11-28: a person step hands on the fields it lists, by their names.
+  it("reads a person step by the fields it lists, beside its answer and who gave it", () => {
     const person = {
       id: "ask",
       name: "Ask the bookkeeper",
       kind: "do",
       doneBy: "person",
       input: {},
-      output: [{ name: "choice", type: "text", required: true }],
+      output: [
+        { name: "choice", type: "text", required: true },
+        { name: "note", type: "text", required: false },
+      ],
       person: { who: "client_admin", mode: "ask", question: "Book it?" },
     } as unknown as Step;
     const w = wf([
       person,
-      ai("after", [], { a: "{{steps.ask.output.answer}}", b: "{{steps.ask.output.choice}}" }),
+      ai("after", [], {
+        a: "{{steps.ask.output.choice}}",
+        b: "{{steps.ask.output.note}}",
+        c: "{{steps.ask.output.by}}",
+        d: "{{steps.ask.output.reason}}",
+      }),
     ]);
     expect(messages(w)).toEqual([
-      '{{steps.ask.output.choice}}: "Ask the bookkeeper" hands on no field "choice"',
+      '{{steps.ask.output.reason}}: "Ask the bookkeeper" hands on no field "reason"',
     ]);
   });
 

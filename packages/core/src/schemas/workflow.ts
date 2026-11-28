@@ -41,6 +41,19 @@ export const PersonChoice = z.strictObject({
 });
 export type PersonChoice = z.infer<typeof PersonChoice>;
 
+/**
+ * One thing a person step asks for (the step model: the output fields it lists), handed on by
+ * its name. With choices, the first field is filled by the button pressed.
+ */
+export const PERSON_FIELD_TYPES = ["text", "number", "money", "date", "yes_no"] as const;
+export const PersonField = z.strictObject({
+  name: z.string().regex(/^[A-Za-z][A-Za-z0-9_]{0,63}$/),
+  type: z.enum(PERSON_FIELD_TYPES),
+  about: z.string().max(200).optional(),
+  required: z.boolean().default(false),
+});
+export type PersonField = z.infer<typeof PersonField>;
+
 // v0.12 W2-B: automations (ARCHITECTURE §10.7; docs/plan.md §1.45).
 /** An automation pinned to one version: `<slug>@<version>`. */
 export const AutomationRef = z

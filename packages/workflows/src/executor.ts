@@ -12,6 +12,7 @@
 // ids never contain `:`.
 
 import {
+  answerFields,
   type Approval,
   automationSkillRef,
   collectRefs,
@@ -1205,6 +1206,7 @@ class Executor {
       payload: unknown;
       mode?: "ask" | "approve";
       choices?: PersonStep["choices"];
+      fields?: PersonStep["fields"];
     },
   ): Asker {
     return async (b, who, deadline) => {
@@ -1219,6 +1221,7 @@ class Executor {
           after: d.after,
           ...(item.mode ? { mode: item.mode } : {}),
           ...(item.choices ? { choices: item.choices } : {}),
+          ...(item.fields ? { fields: item.fields } : {}),
         });
         const made = await this.ctx.inbox.createForPerson({
           run: this.ctx.run,
@@ -3123,6 +3126,7 @@ class Executor {
         payload: resolveTemplate(step.payload, frame.scope),
         mode: step.mode,
         ...(step.choices ? { choices: step.choices } : {}),
+        ...(step.fields ? { fields: step.fields } : {}),
       });
       const end = await this.escalate(name, deadline.ifNoAnswer, ask);
       if ("resolution" in end) resolution = end.resolution;
@@ -3144,7 +3148,13 @@ class Executor {
     // An answer to an `ask` counts as approved unless the resolver said otherwise.
     const approved =
       step.mode === "approve" ? resolution.approved === true : resolution.approved !== false;
-    const output = { approved, answer: resolution.answer ?? null, by: resolution.by };
+    // The fields it asked for by their names (owner, 2026-11-28), beside its own, which win.
+    const output = {
+      ...(step.fields ? answerFields(step.fields, resolution.answer) : {}),
+      approved,
+      answer: resolution.answer ?? null,
+      by: resolution.by,
+    };
     const summary =
       step.mode === "approve"
         ? `${label}: ${approved ? this.words.approved : this.words.notApproved}`

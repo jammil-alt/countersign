@@ -379,6 +379,9 @@ function loadDo(
         channel: p.channel,
         onReject: p.onReject,
         ...(p.choices ? { choices: p.choices } : {}),
+        // Owner, 2026-11-28: the output fields it lists are what the person is asked for, each
+        // handed on by its name.
+        ...(step.output && step.output.length > 0 ? { fields: steps.personFields(step.output) } : {}),
       } as processes.Step;
     }
     case "collect": {

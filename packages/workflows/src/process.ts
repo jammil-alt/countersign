@@ -47,6 +47,7 @@ export interface ActionStep extends PortStepBase {
 
 /** A quick answer to a person step's question. */
 export type PersonChoice = NonNullable<processes.PersonStep["choices"]>[number];
+export type PersonField = NonNullable<processes.PersonStep["fields"]>[number];
 
 /** A person step as the inbox port takes it (assignee, mode, choices). */
 export interface PersonStep extends PortStepBase {
@@ -61,6 +62,8 @@ export interface PersonStep extends PortStepBase {
   onReject: "stop" | "continue";
   onTimeout: "stop" | "continue" | "notify_operator";
   choices?: PersonChoice[] | undefined;
+  /** What the person is asked for, each handed on by its name (the step model's output fields). */
+  fields?: PersonField[] | undefined;
 }
 
 /** A notice as the notify port takes it. */
@@ -186,6 +189,7 @@ export function personView(step: processes.PersonStep): PersonStep {
     onReject: step.onReject,
     onTimeout: onTimeoutOf(step.deadline),
     ...(step.choices ? { choices: step.choices } : {}),
+    ...(step.fields ? { fields: step.fields } : {}),
   };
 }
 
@@ -201,6 +205,7 @@ export function askView(input: {
   after: string;
   mode?: "ask" | "approve";
   choices?: PersonStep["choices"];
+  fields?: PersonStep["fields"];
 }): PersonStep {
   return {
     id: input.id,
@@ -215,6 +220,7 @@ export function askView(input: {
     onReject: "stop",
     onTimeout: "stop",
     ...(input.choices ? { choices: input.choices } : {}),
+    ...(input.fields ? { fields: input.fields } : {}),
   };
 }
 

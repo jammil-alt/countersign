@@ -17,6 +17,7 @@
 
 import { isPlainObject } from "../json";
 import type { JsonSchema } from "../schemas/common";
+import type { PersonField } from "../schemas/workflow";
 import { lookupSkill, type TypingContext } from "../template/typer";
 import { actionKind } from "./catalog";
 import { doEngine } from "./engine";
@@ -67,6 +68,30 @@ export function fieldsShape(fields: readonly Field[], extra: Record<string, Json
   return closed({ ...Object.fromEntries(fields.map((f) => [f.name, fieldShape(f)])), ...extra });
 }
 
+/**
+ * What a person step asks the person for: the output fields it lists, each by its name. A field a
+ * person can't fill in one box (a list, a group, a record) is asked as text.
+ */
+export function personFields(output: readonly Field[] | undefined): PersonField[] {
+  return (output ?? []).slice(0, 10).map((f) => ({
+    name: f.name,
+    type:
+      f.type === "number" || f.type === "money" || f.type === "date" || f.type === "yes_no"
+        ? f.type
+        : "text",
+    ...(f.about ? { about: f.about } : {}),
+    required: f.required,
+  }));
+}
+
+const PERSON_SHAPES: Record<PersonField["type"], JsonSchema> = {
+  text: { type: ["string", "null"] },
+  number: { type: ["number", "null"] },
+  money: { type: ["string", "null"] },
+  date: { type: ["string", "null"] },
+  yes_no: { type: ["boolean", "null"] },
+};
+
 /** A JSON Schema from a tool or skill, closed only where it declares its properties. */
 function declared(schema: JsonSchema | undefined): JsonSchema {
   if (!isPlainObject(schema)) return UNKNOWN;
@@ -114,8 +139,12 @@ function doShape(step: DoStep, ctx: TypingContext): JsonSchema {
       return fieldsShape(fields, { sources: SOURCES });
     }
     case "person":
-      // What the executor records for a person, whatever the step lists (`Executor.person`).
+      // What the executor records for a person (`Executor.person`): the fields it asked for, by
+      // name, beside whether they said yes, their answer as given, and who.
       return closed({
+        ...Object.fromEntries(
+          personFields(step.output).map((f) => [f.name, PERSON_SHAPES[f.type]]),
+        ),
         approved: { type: "boolean" },
         answer: UNKNOWN,
         by: { type: ["string", "null"] },
