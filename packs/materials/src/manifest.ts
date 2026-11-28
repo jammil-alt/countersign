@@ -3,7 +3,7 @@
 // DECISION: no agent templates (owner, 2026-11-07; docs/plan.md §1.63): agents on the Purchasing
 // area, Pia included, are built by the operator in the Agent lab from these tools and skills.
 // §1.104 (owner, 2026-11-15): one template, "Vendor contracts and invoice review", which the owner
-// asked for; it ships as the Bookkeeper does (installed when the pack is first switched on).
+// asked for; since the step model's purge it ships none until it is built again.
 
 import {
   lazy,
@@ -15,7 +15,6 @@ import {
 import { MATERIALS_REPORTS } from "./api";
 import { MATCH_CONFIDENCE_AUTO } from "./catalog/settings";
 import { CONTRACT_SKILLS } from "./contracts/skills";
-import { VENDOR_CONTRACTS_TEMPLATE } from "./contracts/template";
 import { CONTRACT_TOOLS } from "./contracts/tools";
 import { MATERIALS_EVENTS } from "./events";
 import { PACK_ID } from "./ids";
@@ -23,6 +22,7 @@ import { PURCHASING_INTAKE_SECTION } from "./intake";
 import { PRICE_DEFAULTS } from "./pricing/rules";
 import { PURCHASING_SKILLS } from "./purchasing/skills";
 import { PURCHASING_TOOLS } from "./purchasing/tools";
+import { MATERIALS_RECORD_TYPES } from "./records";
 import { REPLACEMENT_SKILLS, SPLIT_SKILLS, SPLIT_TOOLS } from "./split";
 import {
   catalogDuplicates,
@@ -34,6 +34,7 @@ import {
   pricesDigest,
   pricesRecord,
 } from "./tools";
+import { MATERIALS_MATCHERS, MATERIALS_RETIRED_TOOLS } from "./vendor/matchers";
 import {
   SUPERSEDED_BY_LIBRARY_SKILLS,
   VENDOR_LIBRARY_SKILLS,
@@ -255,7 +256,7 @@ export const materialsManifest: PackManifest = lazyParse(PackManifest, () => ({
   name: "Materials",
   // P-5: 0.2.0 adds purchase requests, quotes, purchase orders and prices from QuickBooks bills.
   // §1.88: 0.3.0 adds the vendor catalog and the vendor-first matching skills.
-  // §1.104: 0.4.0 adds vendor contracts, the contract check and its template.
+  // §1.104: 0.4.0 adds vendor contracts and the contract check.
   version: "0.4.0",
   description:
     "Material cost management and purchasing: the client's catalog of materials, matching invoice lines across vendors, prices and alerts, purchase requests, quotes and purchase orders.",
@@ -284,12 +285,19 @@ export const materialsManifest: PackManifest = lazyParse(PackManifest, () => ({
   events: MATERIALS_EVENTS,
   tools: ALL_TOOLS.map((t) => t.spec),
   skills: MATERIALS_SKILLS,
-  templates: [VENDOR_CONTRACTS_TEMPLATE],
+  // No agent template until Vendor contracts and invoice review is built again in the step model
+  // (docs/step-model-plan.md §12 R0: templates are built again one by one, later).
+  templates: [],
   // §1.88 (the owner's rule of 2026-11-11): the vendor-first AI skills ship as shared Library
   // skills the operator edits (installed once when the pack is first switched on); the built-ins
   // built before stay registered for stored steps, and new steps take the Library ones.
   librarySkills: VENDOR_LIBRARY_SKILLS,
   superseded: SUPERSEDED_BY_LIBRARY_SKILLS,
+  // Step model §7, §10d (stream D): the area's match profiles, and the actions they replace.
+  matchProfiles: MATERIALS_MATCHERS.map((m) => m.profile),
+  retiredTools: MATERIALS_RETIRED_TOOLS,
+  // Step model §10f (stream N): the area's record types; their stores are MATERIALS_RECORD_STORES.
+  recordTypes: [...MATERIALS_RECORD_TYPES],
   // §1.149.2: the area's questions for a client's intake (Getting started's card).
   intakeSection: PURCHASING_INTAKE_SECTION,
   screens: [

@@ -1,6 +1,6 @@
 // Lockdown (docs/plan.md §1.243, docs/lockdown-plan.md, stream K1): locking and unlocking one
 // client or every client, and reading the locks. The enforcement is `app_scope_tenant_ids`
-// (migration 0101), which every scope goes through (./client.ts); these only set and clear what it
+// (migration 0103), which every scope goes through (./client.ts); these only set and clear what it
 // reads. Each runs in the caller's transaction, so a route can lock, stop the client's runs and
 // write its audit row in one commit. Who may lock or unlock is decided by the caller (stream K2).
 

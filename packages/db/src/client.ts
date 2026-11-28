@@ -27,7 +27,7 @@ export class ScopeError extends Error {
   override name = "ScopeError";
 }
 
-/** The SQLSTATE `app_scope_tenant_ids` raises for a locked client (migration 0101). */
+/** The SQLSTATE `app_scope_tenant_ids` raises for a locked client (migration 0103). */
 export const CLIENT_LOCKED_SQLSTATE = "MZLCK";
 
 /**
@@ -61,7 +61,7 @@ function asLocked(error: unknown, tenantIds: readonly string[]): unknown {
 }
 
 /**
- * How a scope treats locked clients (`app_scope_tenant_ids`, migration 0101):
+ * How a scope treats locked clients (`app_scope_tenant_ids`, migration 0103):
  * `one` refuses (withTenant, a client's session), `some` leaves them out (sweeps, the back office),
  * `investigate` keeps them in a read-only transaction (the security officer's investigation).
  */

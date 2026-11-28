@@ -13,7 +13,7 @@ import { seed } from "@countersign/db/seed";
 import { FakeModel, type LlmRequest } from "@countersign/llm";
 import { and, eq, isNull } from "drizzle-orm";
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
-import { type ApiHarness, createApiHarness, OPERATOR } from "./api.test-helper";
+import { type ApiHarness, createApiHarness, OPERATOR, v5Workflow } from "./api.test-helper";
 
 // biome-ignore lint/suspicious/noExplicitAny: response bodies are read loosely in tests.
 const j = (v: unknown) => v as any;
@@ -25,20 +25,22 @@ afterAll(() => h?.close());
 /** A step reading a vendor's quote with `materials.read-quote`, a task skill that writes. */
 const READ_QUOTE_STEP = {
   id: "read-quote",
-  kind: "skill",
   name: "Read the vendor's quote",
-  skill: "materials.read-quote",
+  kind: "do",
+  doneBy: "ai",
+  uses: { type: "skill", skill: "materials.read-quote" },
   input: { quoteRequestId: "{{trigger.quoteRequestId}}", text: "{{trigger.text}}" },
 };
 
 /** A Save to records-free change on the testkit, approval on: nothing new-step checks refuse. */
 const NOTE_STEP = {
   id: "note",
-  kind: "write",
   name: "Note it on the record",
-  tool: TESTKIT_UPDATE_TOOL,
-  input: { id: "r1", name: "Quote read" },
   checks: { approval: { required: "required" } },
+  kind: "do",
+  doneBy: "rules",
+  uses: { type: "action", action: TESTKIT_UPDATE_TOOL },
+  input: { id: "r1", name: "Quote read" },
 };
 
 /** A v4 agent with one manual process of `steps`, listing `skills`. */
@@ -62,11 +64,7 @@ function bundleOf(steps: unknown[], skills: string[] = []) {
       {
         slug: "read",
         name: "Read a quote",
-        workflow: {
-          schemaVersion: 4,
-          triggers: [{ id: "t", on: { type: "manual", input: {} } }],
-          steps,
-        },
+        workflow: v5Workflow(steps, { triggers: [{ id: "t", on: { type: "manual", input: {} } }] }),
       },
     ],
   };
@@ -87,7 +85,16 @@ function catalogOf(req: LlmRequest | undefined): {
   const text = JSON.stringify(req ?? {});
   const start = text.indexOf("<catalog>\\n") + "<catalog>\\n".length;
   const end = text.indexOf("\\n</catalog>");
-  return JSON.parse(JSON.parse(`"${text.slice(start, end)}"`));
+  const catalog = JSON.parse(JSON.parse(`"${text.slice(start, end)}"`)) as {
+    skills: { id: string }[];
+    tools?: { id: string }[];
+    actions?: { actions: { id: string }[] }[];
+  };
+  // The step model (build item 9): the actions the Uses picker offers stand for the tools.
+  return {
+    skills: catalog.skills,
+    tools: catalog.tools ?? (catalog.actions ?? []).flatMap((g) => g.actions),
+  };
 }
 
 describe.skipIf(!h)("new steps in a first version", () => {
@@ -214,9 +221,10 @@ describe.skipIf(!h)("new steps in a first version", () => {
               READ_QUOTE_STEP,
               {
                 id: "extract",
-                kind: "write",
                 name: "Extract the quote document",
-                tool: "docs.extract",
+                kind: "do",
+                doneBy: "rules",
+                uses: { type: "action", action: "docs.extract" },
                 input: { documentId: "{{trigger.documentId}}" },
               },
             ],
@@ -244,11 +252,15 @@ describe.skipIf(!h)("new steps in a first version", () => {
     }
     expect(tools.some((t) => t.startsWith("account."))).toBe(false);
     const out = j(res.json);
-    const steps = out.bundle.workflows[0].workflow.steps as { skill?: string; tool?: string }[];
-    expect(steps.some((s) => s.skill === "materials.read-quote")).toBe(false);
-    expect(steps.some((s) => s.tool === "docs.extract")).toBe(false);
-    // v0.18: each is held as a missing step in its place, saying what was asked for.
-    const holes = JSON.stringify(steps.filter((s) => (s as { kind?: string }).kind === "missing"));
+    // The step model (build item 9): a Do's skill or action is in its Uses.
+    const steps = out.bundle.workflows[0].workflow.steps as {
+      uses?: { type: string; skill?: string; action?: string };
+    }[];
+    expect(steps.some((s) => s.uses?.skill === "materials.read-quote")).toBe(false);
+    expect(steps.some((s) => s.uses?.action === "docs.extract")).toBe(false);
+    // v0.18: each is held as a missing step in its place ("Not built yet"), saying what was asked
+    // for.
+    const holes = JSON.stringify(steps.filter((s) => s.uses?.type === "missing"));
     expect(holes).toContain("materials.read-quote");
     expect(holes).toContain("docs.extract");
   });

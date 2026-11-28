@@ -693,7 +693,7 @@ export const CONTROLS: readonly Control[] = [
     evidence: [
       {
         kind: "code",
-        ref: "packages/db/migrations/0101_lockdown.sql",
+        ref: "packages/db/migrations/0103_lockdown.sql",
         note: "app_scope_tenant_ids, the check every scope goes through; audit rows for locked clients",
       },
       { kind: "code", ref: "packages/db/src/client.ts", note: "inScope, withInvestigation" },

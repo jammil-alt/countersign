@@ -3,9 +3,9 @@
 // The port is a fake here; packages/agents' runtime answers it in apps/api.
 import type { processes } from "@countersign/core";
 import { describe, expect, it } from "vitest";
-import { executeWorkflow, resumePoint } from "./executor";
+import { resumePoint } from "./executor";
 import { FakeStepRunner } from "./fake-runner";
-import { Harness, WRITE_TOOL } from "./fakes.test-helper";
+import { executeProcess, Harness, WRITE_TOOL } from "./fakes.test-helper";
 import type { ChoicePort, ChoiceRequest, JudgeRequest } from "./ports";
 
 const MANUAL = { id: "t", on: { type: "manual", input: {} } };
@@ -75,7 +75,7 @@ describe("an if the agent decides", () => {
     const h = new Harness();
     const { port, chose } = fakePort({ path: "quote" });
     const runner = new FakeStepRunner();
-    const result = await executeWorkflow(
+    const result = await executeProcess(
       runner,
       h.context({ catalog: CATALOG, choice: port }),
       proc([agentIf()]),
@@ -100,7 +100,7 @@ describe("an if the agent decides", () => {
   it("never asks when the rules leave one path, and never takes a path they refuse", async () => {
     const h = new Harness();
     const { port, chose } = fakePort({ path: "reorder" });
-    await executeWorkflow(
+    await executeProcess(
       new FakeStepRunner(),
       h.context({ catalog: CATALOG, choice: port }),
       proc([agentIf()]),
@@ -112,7 +112,7 @@ describe("an if the agent decides", () => {
 
     const h2 = new Harness();
     const refused = fakePort({ path: "reorder" });
-    await executeWorkflow(
+    await executeProcess(
       new FakeStepRunner(),
       h2.context({ catalog: CATALOG, choice: refused.port }),
       proc([
@@ -142,7 +142,7 @@ describe("an if the agent decides", () => {
     const { port } = fakePort({ path: null });
     const runner = new FakeStepRunner({ onWait: "block" });
     runner.onWaitStarted = (_n, type) => runner.deliver(type, { answer: "reorder", by: "u-1" });
-    const result = await executeWorkflow(
+    const result = await executeProcess(
       runner,
       h.context({ catalog: CATALOG, choice: port }),
       proc([agentIf({ ifUnsure: "ask" })]),
@@ -159,21 +159,18 @@ describe("an if the agent decides", () => {
 
   it("without a port, is unsure and takes otherwise; a replay asks nothing again", async () => {
     const h = new Harness();
-    await executeWorkflow(
-      new FakeStepRunner(),
-      h.context({ catalog: CATALOG }),
-      proc([agentIf()]),
-      { total: 500 },
-    );
+    await executeProcess(new FakeStepRunner(), h.context({ catalog: CATALOG }), proc([agentIf()]), {
+      total: 500,
+    });
     expect(ran(h)).toEqual(["o1"]);
 
     const h2 = new Harness();
     const { port, chose } = fakePort({ path: "quote" });
     const runner = new FakeStepRunner();
     const ctx = h2.context({ catalog: CATALOG, choice: port });
-    await executeWorkflow(runner, ctx, proc([agentIf()]), { total: 500 });
+    await executeProcess(runner, ctx, proc([agentIf()]), { total: 500 });
     runner.replay();
-    await executeWorkflow(runner, ctx, proc([agentIf()]), { total: 500 });
+    await executeProcess(runner, ctx, proc([agentIf()]), { total: 500 });
     expect(chose).toHaveLength(1);
   });
 });
@@ -201,7 +198,7 @@ describe("a repeat the agent says is done", () => {
     const h = new Harness();
     h.handlers.draft = (req) => ({ kind: "done", output: { text: `draft ${String(req.input)}` } });
     const { port, judged } = fakePort({ done: [false, true] });
-    const result = await executeWorkflow(
+    const result = await executeProcess(
       new FakeStepRunner(),
       h.context({ catalog: CATALOG, choice: port }),
       proc([judgedRepeat()]),
@@ -222,7 +219,7 @@ describe("a repeat the agent says is done", () => {
   it("ends at its limit when no answer holds, never spending the passes left", async () => {
     const h = new Harness();
     const { port } = fakePort({ done: [null] });
-    const result = await executeWorkflow(
+    const result = await executeProcess(
       new FakeStepRunner(),
       h.context({ catalog: CATALOG, choice: port }),
       proc([judgedRepeat({ onLimit: "proceed" })]),
@@ -249,7 +246,7 @@ describe("a choice the agent couldn't make", () => {
   it("fails an if at that step, never taking otherwise", async () => {
     const h = new Harness();
     const runner = new FakeStepRunner();
-    const result = await executeWorkflow(
+    const result = await executeProcess(
       runner,
       h.context({ catalog: CATALOG, choice: failing() }),
       proc([read("first"), agentIf()]),
@@ -286,7 +283,7 @@ describe("a choice the agent couldn't make", () => {
 
   it("fails a repeat at that step, never ending it as if done", async () => {
     const h = new Harness();
-    const result = await executeWorkflow(
+    const result = await executeProcess(
       new FakeStepRunner(),
       h.context({ catalog: CATALOG, choice: failing() }),
       repeatThenRead,
@@ -318,7 +315,7 @@ describe("a choice the agent couldn't make", () => {
         throw new Error("store unavailable");
       },
     };
-    const result = await executeWorkflow(
+    const result = await executeProcess(
       new FakeStepRunner(),
       h.context({ catalog: CATALOG, choice: throwing }),
       proc([agentIf()]),

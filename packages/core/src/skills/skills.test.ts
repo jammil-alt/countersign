@@ -1,11 +1,12 @@
 import { describe, expect, it } from "vitest";
+import { definitionModelErrors, definitionSkillErrors } from "../process/checks";
 import { Process } from "../process/schema";
 import { validateProcess } from "../process/validate";
 import { SkillDefinition, type SkillRule } from "../schemas/skill";
 import { parameterValueProblem } from "../schemas/skill-model";
 import type { ToolSpec } from "../schemas/tool";
-import { definitionModelErrors, definitionSkillErrors } from "../workflow/validate";
 import {
+  loopSkillProblems,
   newSkillVersionProblems,
   newStepSkillReason,
   retiredSkillReason,
@@ -847,5 +848,68 @@ describe("write steps: Save to records or Change in a client's tool", () => {
     expect(defaultWriteApproval({ sideEffect: "internal" })).toBeUndefined();
     expect(defaultWriteApproval({ sideEffect: "external" })?.required).toBe("required");
     expect(defaultWriteApproval(undefined)?.required).toBe("required");
+  });
+});
+
+describe("Loop skills (step model §8)", () => {
+  const loop = {
+    mode: "agent" as const,
+    tools: [],
+    reads: ["docs.get"],
+    loop: { goal: "Find the match.", maxTurns: 10, atLimit: "stop" as const },
+  };
+  const full = {
+    ...base,
+    id: "custom:find",
+    name: "Find",
+    instructions: "Look until you can say.",
+    input: {},
+    output: {},
+    ...loop,
+  };
+
+  it("brings agent mode back for a skill that only reads", () => {
+    expect(retiredSkillReason(loop)).toBeNull();
+    expect(retiredSkillReason({ mode: "agent" })).toMatch(/write step/);
+    expect(newSkillVersionProblems(loop, TOOLS)).toEqual([]);
+    expect(SkillDefinition.safeParse(full).success).toBe(true);
+  });
+
+  it("refuses any action that is not a Get, and tools of its own", () => {
+    expect(newSkillVersionProblems({ ...loop, reads: ["qbo.bill.create"] }, TOOLS)).toEqual([
+      'A Loop only reads: "qbo.bill.create" changes something. Save what it decides in a step after it.',
+    ]);
+    expect(loopSkillProblems({ ...loop, reads: ["nope"] }, TOOLS)).toEqual([
+      'A Loop can only use actions that exist: "nope" doesn\'t.',
+    ]);
+    expect(loopSkillProblems({ ...loop, reads: [] }, TOOLS)).toEqual([
+      "Pick at least one action the Loop may read.",
+    ]);
+    expect(loopSkillProblems({ ...loop, tools: ["qbo.bill.create"] }, TOOLS)).toContain(
+      "A Loop reads through its read actions only: it has no tools of its own.",
+    );
+    // Without a lookup nothing can be checked, so it isn't trusted.
+    expect(loopSkillProblems(loop)).toEqual([
+      "A Loop's actions can't be checked: it must only read.",
+    ]);
+  });
+
+  it("is only agent mode, with its reads and not tools", () => {
+    expect(SkillDefinition.safeParse({ ...full, mode: "task", model: { id: "x" } }).success).toBe(
+      false,
+    );
+    expect(SkillDefinition.safeParse({ ...full, tools: ["docs.get"] }).success).toBe(false);
+    expect(SkillDefinition.safeParse({ ...full, loop: { goal: "", maxTurns: 10 } }).success).toBe(
+      false,
+    );
+    expect(SkillDefinition.safeParse({ ...full, loop: { goal: "x", maxTurns: 51 } }).success).toBe(
+      false,
+    );
+  });
+
+  it("is offered to a Loop step, not a Do step", () => {
+    expect(newStepSkillReason({ ...loop, id: "custom:find" }, TOOLS)).toBe(
+      "A Loop skill is used in a Loop step.",
+    );
   });
 });

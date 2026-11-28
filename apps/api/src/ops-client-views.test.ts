@@ -52,9 +52,20 @@ function twoWorkflows(): AgentBundle {
         slug: "note",
         name: "Leave a note",
         workflow: {
-          schemaVersion: 3,
-          trigger: { id: "trg-note", on: { type: "manual", input: {} } },
-          steps: [{ id: "n", name: "Note", kind: "notify", channel: "thread", message: "hello" }],
+          schemaVersion: 5,
+          triggers: [{ id: "trg-note", on: { type: "manual", input: {} } }],
+          outputs: [{ id: "out-done-note", name: "Done", kind: "nothing" }],
+          steps: [
+            {
+              id: "n",
+              name: "Note",
+              kind: "do",
+              doneBy: "rules",
+              uses: { type: "tell" },
+              tell: { to: ["client_admin"], channel: "inbox", message: "hello" },
+            },
+            { id: "end-note", kind: "end", name: "Done", outputs: ["out-done-note"] },
+          ],
         },
       },
     ],

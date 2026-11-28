@@ -32,8 +32,10 @@ import {
   type ApiHarness,
   admin,
   createApiHarness,
+  ended,
   FakeWorkflowStep,
   OPERATOR,
+  v5Workflow,
 } from "./api.test-helper";
 import { credentialsFor, executeRun } from "./runs/execute";
 import { cloudflareStepRunner } from "./runs/step-runner";
@@ -81,21 +83,18 @@ function bundle(name: string, tool: string, input: Record<string, unknown>): Age
       {
         slug: "main",
         name: "Main",
-        workflow: {
-          schemaVersion: 3,
-          trigger: { id: "trg-manual", on: { type: "manual", input: {} } },
-          // No `approval` on the step: a write waits for a person by default.
-          steps: [
-            {
-              id: "write",
-              name: "Write",
-              kind: "action",
-              tool,
-              input,
-              client: { visible: true, label: name },
-            },
-          ],
-        },
+        workflow: v5Workflow([
+          {
+            id: "write",
+            name: "Write",
+            client: { visible: true, label: name },
+            checks: { approval: { required: "required" } },
+            kind: "do",
+            doneBy: "rules",
+            uses: { type: "action", action: tool },
+            input: input,
+          },
+        ]),
       },
     ],
   } as AgentBundleInput);
@@ -246,9 +245,7 @@ describe.skipIf(!h)("Google Drive and Outlook through the API", () => {
       );
       const atWait: number[] = [];
       const step = approver(() => atWait.push(drive.uploaded().length));
-      expect(await executeRun(deps(), params, cloudflareStepRunner(step))).toEqual({
-        status: "succeeded",
-      });
+      expect(await executeRun(deps(), params, cloudflareStepRunner(step))).toEqual(ended());
       // Nothing was filed before the approval.
       expect(atWait).toEqual([0]);
       const filed = drive.uploaded();
@@ -327,9 +324,7 @@ describe.skipIf(!h)("Google Drive and Outlook through the API", () => {
       );
       const atWait: number[] = [];
       const step = approver(() => atWait.push(microsoft.sent.length));
-      expect(await executeRun(deps(), params, cloudflareStepRunner(step))).toEqual({
-        status: "succeeded",
-      });
+      expect(await executeRun(deps(), params, cloudflareStepRunner(step))).toEqual(ended());
       expect(atWait).toEqual([0]);
       expect(microsoft.sent).toHaveLength(1);
       expect(microsoft.sent[0]?.account).toBe("pat.lee@acme.example");

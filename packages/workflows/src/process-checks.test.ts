@@ -5,9 +5,8 @@
 // silently; a sign-off nobody answered is a timeout; the lead's help only for native skills.
 import { processes, type SkillDefinition } from "@countersign/core";
 import { describe, expect, it, vi } from "vitest";
-import { executeWorkflow } from "./executor";
 import { FakeStepRunner } from "./fake-runner";
-import { Harness, SKILL, WRITE_TOOL, wf } from "./fakes.test-helper";
+import { executeProcess, Harness, SKILL, WRITE_TOOL } from "./fakes.test-helper";
 import type { AskApproverRequest, HoursPort, OversightRequest } from "./ports";
 
 const MANUAL = { id: "t", on: { type: "manual", input: {} } };
@@ -47,7 +46,7 @@ describe("an `all` approval", () => {
     // Amy has already approved the gate's item: one signature must not stand for two.
     const first = h.approvalItem({ approved: true, by: "amy" });
     h.handlers.write = () => ({ kind: "approval", pending: { inboxItemId: first } });
-    const result = await executeWorkflow(
+    const result = await executeProcess(
       new FakeStepRunner(),
       h.context(),
       proc([write({ checks: { approval: { mode: "all", approvers: TWO } } })]),
@@ -63,7 +62,7 @@ describe("an `all` approval", () => {
     const h = new Harness();
     const first = h.approvalItem({ approved: true, by: "ben" });
     h.handlers.write = () => ({ kind: "approval", pending: { inboxItemId: first } });
-    const result = await executeWorkflow(
+    const result = await executeProcess(
       new FakeStepRunner(),
       h.context({ hours: awayToday("amy") }),
       proc([write({ checks: { approval: { mode: "all", approvers: TWO } } })]),
@@ -106,7 +105,7 @@ describe("a native skill that proposes a write", () => {
       return { kind: "done", output: { posted: req.resolution.approved === true } };
     };
     const reviewed: unknown[] = [];
-    const result = await executeWorkflow(
+    const result = await executeProcess(
       new FakeStepRunner({ onWait: "block" }),
       h.context({
         catalog: { skills: { [writer.id]: writer }, tools: { [WRITE_TOOL.id]: WRITE_TOOL } },
@@ -150,7 +149,7 @@ describe("a native skill that proposes a write", () => {
     h.handlers.post = () => ({ kind: "done", output: { nothing: true } });
     const runner = new FakeStepRunner({ onWait: "block" });
     runner.onWaitStarted = (_name, type) => runner.deliver(type, { approved: true, by: "amy" });
-    const result = await executeWorkflow(
+    const result = await executeProcess(
       runner,
       h.context({ catalog: { skills: { [writer.id]: writer } } }),
       proc([
@@ -170,40 +169,11 @@ describe("a native skill that proposes a write", () => {
 });
 
 describe("away approvers", () => {
-  it("are never skipped on a converted v3 step: the run waits for the stored approver", async () => {
-    const h = new Harness();
-    const item = h.approvalItem({ approved: true, by: "dana" });
-    h.handlers.a = (req) => {
-      expect(req.approval.approver).toBe("dana");
-      return { kind: "approval", pending: { inboxItemId: item } };
-    };
-    const runner = new FakeStepRunner();
-    const result = await executeWorkflow(
-      runner,
-      h.context({ hours: awayToday("dana") }),
-      wf([
-        {
-          id: "a",
-          kind: "action",
-          name: "Update",
-          tool: WRITE_TOOL.id,
-          input: {},
-          approval: { required: "required", approver: "dana", onReject: "stop" },
-        },
-      ]),
-      {},
-    );
-    expect(result.status).toBe("succeeded");
-    expect(h.items.get(item)?.expired).toBe(false);
-    expect(h.resumeCalls[0]?.resolution).toMatchObject({ approved: true, by: "dana" });
-    expect(runner.names()).not.toContain("a:approvers");
-  });
-
   it("are skipped on a native v4 check: everyone away takes ifNoAnswer at once", async () => {
     const h = new Harness();
     const item = h.approvalItem();
     h.handlers.write = () => ({ kind: "approval", pending: { inboxItemId: item } });
-    const result = await executeWorkflow(
+    const result = await executeProcess(
       new FakeStepRunner({ onWait: "block" }),
       h.context({ hours: awayToday("amy", "ben") }),
       proc([write({ checks: { approval: { approvers: TWO, ifNoAnswer: "skip" } } })]),
@@ -233,7 +203,7 @@ describe("customizations", () => {
 
   it("fail the step when the port doesn't apply added instructions or rule rows", async () => {
     const h = new Harness();
-    const result = await executeWorkflow(
+    const result = await executeProcess(
       new FakeStepRunner(),
       h.context({ catalog: { skills: { [def.id]: def } } }),
       proc([step({ addInstructions: "Be short." })]),
@@ -247,7 +217,7 @@ describe("customizations", () => {
   it("fail the step when the skill isn't in the catalog to check them against", async () => {
     const h = new Harness();
     h.agent.appliesCustomization = true;
-    const result = await executeWorkflow(
+    const result = await executeProcess(
       new FakeStepRunner(),
       h.context(),
       proc([step({ keep: ["text"] })]),
@@ -262,7 +232,7 @@ describe("a sign-off nobody answers", () => {
   it("ends the run as a timeout, its row failed, never as a rejection", async () => {
     const h = new Harness();
     h.handlers.get = () => ({ kind: "done", output: { total: 1 } });
-    const result = await executeWorkflow(
+    const result = await executeProcess(
       new FakeStepRunner({ onWait: "timeout" }),
       h.context(),
       proc([
@@ -296,20 +266,6 @@ describe("needs help", () => {
     },
   };
 
-  it("is only a native skill's: a converted v3 skill's output is its output", async () => {
-    const h = new Harness();
-    h.handlers.s = () => helpOutput;
-    const result = await executeWorkflow(
-      new FakeStepRunner(),
-      h.context(),
-      wf([{ id: "s", kind: "skill", name: "S", skill: "web.browse", input: {} }]),
-      {},
-    );
-    expect(result.status).toBe("succeeded");
-    expect(h.items.size).toBe(0);
-    expect(h.agentCalls).toHaveLength(1);
-  });
-
   it("has the port keep the answer under the skill's tag, and says on the row when it couldn't", async () => {
     const h = new Harness();
     let runs = 0;
@@ -327,7 +283,7 @@ describe("needs help", () => {
     };
     const runner = new FakeStepRunner({ onWait: "block" });
     runner.onWaitStarted = (_name, type) => runner.deliver(type, { answer: "Under Reports" });
-    const result = await executeWorkflow(
+    const result = await executeProcess(
       runner,
       h.context(),
       proc([{ id: "find", kind: "skill", name: "Find", skill: "web.browse", input: {} }]),
@@ -361,7 +317,7 @@ describe("needs help", () => {
     };
     const runner = new FakeStepRunner({ onWait: "block" });
     runner.onWaitStarted = (_name, type) => runner.deliver(type, { answer: "Under Reports" });
-    const result = await executeWorkflow(
+    const result = await executeProcess(
       runner,
       h.context(),
       proc([{ id: "find", kind: "skill", name: "Find", skill: "web.browse", input: {} }]),
@@ -392,7 +348,7 @@ describe("needs help", () => {
     };
     const runner = new FakeStepRunner({ onWait: "block" });
     runner.onWaitStarted = (_name, type) => runner.deliver(type, { answer: "Under Reports" });
-    const result = await executeWorkflow(
+    const result = await executeProcess(
       runner,
       h.context(),
       proc([{ id: "find", kind: "skill", name: "Find", skill: "web.browse", input: {} }]),
@@ -430,7 +386,7 @@ describe("needs help", () => {
     h.handlers.stock = () => (++runs === 1 ? scriptHelp : { kind: "done", output: { stock: 42 } });
     const runner = new FakeStepRunner({ onWait: "block" });
     runner.onWaitStarted = (_name, type) => runner.deliver(type, { answer: "Re-recorded it" });
-    const result = await executeWorkflow(
+    const result = await executeProcess(
       runner,
       h.context(),
       proc([
@@ -463,7 +419,7 @@ describe("needs help", () => {
       runs += 1;
       return scriptHelp;
     };
-    const result = await executeWorkflow(
+    const result = await executeProcess(
       new FakeStepRunner(),
       h.context(),
       proc([
@@ -488,7 +444,7 @@ describe("needs help", () => {
     h.handlers.stock = () => (++runs === 1 ? plainHelp : { kind: "done", output: { stock: 42 } });
     const runner = new FakeStepRunner({ onWait: "block" });
     runner.onWaitStarted = (_name, type) => runner.deliver(type, { answer: "Under Reports" });
-    const result = await executeWorkflow(
+    const result = await executeProcess(
       runner,
       h.context(),
       proc([
@@ -507,28 +463,6 @@ describe("needs help", () => {
     expect(h.agentCalls[1]).toMatchObject({ step: { tool: "memory.write" } });
     expect([...h.items.values()][0]?.item?.step).toMatchObject({ assignee: "lead" });
   });
-
-  it("is never a converted v3 action's", async () => {
-    const h = new Harness();
-    h.handlers.stock = () => scriptHelp;
-    const result = await executeWorkflow(
-      new FakeStepRunner(),
-      h.context(),
-      wf([
-        {
-          id: "stock",
-          kind: "action",
-          name: "Check stock",
-          tool: "browser.script.read",
-          input: {},
-          approval: { required: "not_required" },
-        },
-      ]),
-      {},
-    );
-    expect(result.status).toBe("succeeded");
-    expect(h.items.size).toBe(0);
-  });
 });
 
 describe("the owner (R6)", () => {
@@ -538,7 +472,7 @@ describe("the owner (R6)", () => {
     const h = new Harness();
     h.handlers.get = () => ({ kind: "done", output: { lines: [] } });
     const reviews: OversightRequest[] = [];
-    const result = await executeWorkflow(
+    const result = await executeProcess(
       new FakeStepRunner(),
       h.context({
         confer: { ai: async () => ({ verdict: "disagree", note: "nothing came back" }) },
@@ -580,7 +514,7 @@ describe("the owner (R6)", () => {
     const h = new Harness();
     h.handlers.get = () => ({ kind: "done", output: { lines: [] } });
     const reviews: OversightRequest[] = [];
-    await executeWorkflow(
+    await executeProcess(
       new FakeStepRunner(),
       h.context({
         oversight: {
@@ -603,7 +537,7 @@ describe("the owner (R6)", () => {
     const h = new Harness();
     h.handlers.write = () => ({ kind: "failed", error: "rate_limited" });
     const reviews: OversightRequest[] = [];
-    await executeWorkflow(
+    await executeProcess(
       new FakeStepRunner(),
       h.context({
         oversight: {
@@ -628,7 +562,7 @@ describe("the owner (R6)", () => {
 
 describe("an automation's approval override (wave 2c)", () => {
   const SEND = {
-    schemaVersion: 1,
+    schemaVersion: 2,
     slug: "s",
     name: "S",
     description: "",
@@ -637,50 +571,20 @@ describe("an automation's approval override (wave 2c)", () => {
     steps: [
       {
         id: "send",
-        kind: "action",
+        kind: "write",
         name: "Send",
         tool: WRITE_TOOL.id,
         input: {},
-        approval: { required: "required", onReject: "stop" },
       },
     ],
     requires: { connectors: [], packs: [] },
   } as never;
 
-  it("on a stored v3 use_automation is decided as v3 did: an away approver is waited for", async () => {
-    const h = new Harness();
-    const item = h.approvalItem({ approved: true, by: "dana" });
-    h.handlers.send = (req) => {
-      expect(req.approval).toMatchObject({ required: "required", approver: "dana" });
-      return { kind: "approval", pending: { inboxItemId: item } };
-    };
-    const runner = new FakeStepRunner();
-    const result = await executeWorkflow(
-      runner,
-      h.context({ hours: awayToday("dana"), automations: { "s@1": SEND } }),
-      wf([
-        {
-          id: "u",
-          kind: "use_automation",
-          name: "Use",
-          automation: "s@1",
-          input: {},
-          approvals: { send: { required: "required", approver: "dana", onReject: "stop" } },
-        },
-      ]),
-      {},
-    );
-    expect(result.status).toBe("succeeded");
-    expect(h.items.get(item)?.expired).toBe(false);
-    expect(h.resumeCalls[0]?.resolution).toMatchObject({ approved: true, by: "dana" });
-    expect(runner.names()).not.toContain("u/send:approvers");
-  });
-
   it("set by a native v4 process step is a v4 check: an away approver is skipped", async () => {
     const h = new Harness();
     const item = h.approvalItem();
     h.handlers.send = () => ({ kind: "approval", pending: { inboxItemId: item } });
-    const result = await executeWorkflow(
+    const result = await executeProcess(
       new FakeStepRunner({ onWait: "block" }),
       h.context({ hours: awayToday("dana"), automations: { "s@1": SEND } }),
       proc([
@@ -727,7 +631,7 @@ describe("an approval's `when` on a writing skill (wave 2c)", () => {
       gates.push(req.approval);
       return { kind: "approval", pending: { inboxItemId: item }, output: { total: "1" } };
     };
-    const result = await executeWorkflow(
+    const result = await executeProcess(
       new FakeStepRunner(),
       h.context({
         catalog,
@@ -823,7 +727,7 @@ describe("a native skill's confer (wave 2c)", () => {
       return { kind: "done", output: { posted: true } };
     };
     const reviewed: unknown[] = [];
-    const result = await executeWorkflow(
+    const result = await executeProcess(
       new FakeStepRunner(),
       h.context({
         catalog,
@@ -857,7 +761,7 @@ describe("a native skill's confer (wave 2c)", () => {
             output: { line: 1 },
           };
     const inputs: unknown[] = [];
-    const result = await executeWorkflow(
+    const result = await executeProcess(
       new FakeStepRunner(),
       h.context({
         catalog,
@@ -899,7 +803,7 @@ describe("the owner's ask on a native step (wave 2c)", () => {
     const item = h.approvalItem();
     const reviews: OversightRequest[] = [];
     const runner = new FakeStepRunner();
-    await executeWorkflow(
+    await executeProcess(
       runner,
       h.context({
         ...(hours ? { hours } : {}),

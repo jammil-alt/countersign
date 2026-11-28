@@ -6,13 +6,23 @@
 import type { InternalTool, PackToolSource } from "@countersign/agents";
 import type { ContentStore } from "@countersign/connectors";
 import type { PackReviewDecision } from "@countersign/core";
-import { lazy, lazyObjects, type PackManifest, type ToolSpec } from "@countersign/core";
+import {
+  createMatchPort,
+  lazy,
+  lazyObjects,
+  type MatchPort,
+  type PackManifest,
+  type ProfileMatcher,
+  type RecordStore,
+  type ToolSpec,
+} from "@countersign/core";
 import type { Db, Tx } from "@countersign/db";
 import type { LlmTransport } from "@countersign/llm";
 import {
   BOOKKEEPING_ACTIONS,
   BOOKKEEPING_HANDLERS,
   BOOKKEEPING_NIGHTLY,
+  BOOKKEEPING_RECORD_STORES,
   BOOKKEEPING_REPORTS,
   BOOKKEEPING_REVIEWS,
   bookkeepingManifest,
@@ -36,19 +46,24 @@ import {
   apManifest,
   MATERIALS_ACTIONS,
   MATERIALS_HANDLERS,
+  MATERIALS_MATCHERS,
+  MATERIALS_RECORD_STORES,
   MATERIALS_REPORTS,
   MATERIALS_REVIEWS,
   materialsManifest,
   type PackTool,
+  type PackToolContext,
   packToolContext,
 } from "@countersign/pack-materials";
 import {
+  CRM_RECORDS_MATCHER,
   SALES_HANDLERS,
   SALES_REVIEWS,
   SALES_SYNCED,
   salesManifest,
 } from "@countersign/pack-sales";
 import type { z } from "zod";
+import { reportHandled } from "./observability/report";
 import type { SignedWrite } from "./signed-writes";
 
 /**
@@ -169,6 +184,16 @@ export interface RegisteredPack {
    * each item a checked fragment `{ title, description, html, path, domain }`.
    */
   previews?: readonly string[];
+  /**
+   * Step model §7 (stream D): how the Match engine reaches the records of each match profile its
+   * manifest declares (`matchProfiles`), one matcher per profile; `matchPort` gathers them all.
+   */
+  matchers?: readonly ProfileMatcher<PackToolContext>[];
+  /**
+   * Step model §10f: the stores of the record types its manifest declares (`recordTypes`), one per
+   * record type; the platform offers Find, Get by id, Create and Update on each.
+   */
+  records?: readonly RecordStore<Tx>[];
 }
 
 /** What the inbound route hands a pack: the body (capped at `maxBytes`) and the request's facts. */
@@ -230,6 +255,10 @@ export const DEPLOYMENT_PACKS: readonly RegisteredPack[] = lazyObjects([
     // DECISION (§1.88 web): the client sees its vendor catalog read only (it is their data); the
     // preferred and discontinue actions stay the operator's (`/api/ops/…/actions`).
     portalReports: lazy(() => [...screenReports(materialsManifest), "master-vendors"]),
+    // Step model §7: Vendors, Vendor items and Master items.
+    matchers: MATERIALS_MATCHERS,
+    // Step model §10f: Master items and Vendor items.
+    records: MATERIALS_RECORD_STORES,
   },
   // Plan entry §1.233: the AP pack, extending the Purchasing area: bills prepared from invoices,
   // matched to their purchase orders, coded and flagged, and the week's approve-to-pay list (its
@@ -267,6 +296,8 @@ export const DEPLOYMENT_PACKS: readonly RegisteredPack[] = lazyObjects([
     reviews: BOOKKEEPING_REVIEWS,
     actions: BOOKKEEPING_ACTIONS,
     nightly: BOOKKEEPING_NIGHTLY,
+    // Step model §10f: Bank transactions.
+    records: BOOKKEEPING_RECORD_STORES,
     portalReports: lazy(() => screenReports(bookkeepingManifest)),
   },
   // docs/plan.md §1.232: the Close pack, extending the Bookkeeping area: a month's checklist, its
@@ -287,8 +318,26 @@ export const DEPLOYMENT_PACKS: readonly RegisteredPack[] = lazyObjects([
     handlers: SALES_HANDLERS,
     reviews: SALES_REVIEWS,
     synced: SALES_SYNCED,
+    // Step model §7: CRM records.
+    matchers: [CRM_RECORDS_MATCHER],
   },
 ]);
+
+let port: MatchPort<PackToolContext> | null = null;
+
+/**
+ * Step model §7 (stream D): the Match engine behind a Match step, with every registered pack's
+ * profiles. The executor calls `match` with the call's pack tool context (`packToolContext`, as
+ * `adapt` builds it), the step's Match settings, the items, and its model chooser; and `learn`
+ * with a person's answer. A pack's profile is reached whether or not the client has the pack on:
+ * the publish checks and the area's own records decide what a client's step can match.
+ */
+// DECISION: one port for the deployment, built on first use; the platform names no pack here
+// beyond registering it, as for tools and reports (invariant 2).
+export function matchPort(): MatchPort<PackToolContext> {
+  port ??= createMatchPort(DEPLOYMENT_PACKS.flatMap((p) => p.matchers ?? []));
+  return port;
+}
 
 /**
  * The model transport a pack tool's call gets: the run's, only for a tool that declares
@@ -303,6 +352,34 @@ export function packToolTransport(
   return (services?.transport as LlmTransport | null | undefined) ?? null;
 }
 
+/**
+ * Brings what a connector's sync saved up to date for one client before a tool reads it
+ * (`ToolSpec.feed`; apps/api `feeds.ts`). A feed it can't catch up is left as it is.
+ */
+export type FeedCatchUp = (tenantId: string, feed: string) => Promise<void>;
+
+/**
+ * 2026-11-24: before a pack tool that reads a connector's synced records (`feed`), the run's
+ * catch-up (packServices.catchUp) reads what changed in the client's tool. A failed catch-up never
+ * fails the step: the tool reads what we hold, and the failure is reported.
+ */
+export async function catchUpFeed(
+  spec: Pick<ToolSpec, "id" | "feed">,
+  tenantId: string,
+  services: Readonly<Record<string, unknown>> | undefined,
+): Promise<void> {
+  const catchUp = services?.catchUp as FeedCatchUp | null | undefined;
+  if (!spec.feed || !catchUp) return;
+  try {
+    await catchUp(tenantId, spec.feed);
+  } catch (error) {
+    reportHandled(`${spec.feed} catch-up before ${spec.id} failed`, error, {
+      job: "feed_catch_up",
+      client: tenantId,
+    });
+  }
+}
+
 function adapt(tool: PackTool): InternalTool {
   return {
     spec: tool.spec,
@@ -311,6 +388,7 @@ function adapt(tool: PackTool): InternalTool {
     async run(input, ctx) {
       const db = ctx.packServices?.db as Db | undefined;
       if (!db) throw new Error(`${tool.spec.id} needs the run's database, which wasn't passed`);
+      await catchUpFeed(tool.spec, ctx.tenantId, ctx.packServices);
       // Skill model (2026-11-10): only a tool that declares it calls a model (`usesModel`) is
       // handed one; every other pack tool gets `llm: null`, so it can't call a model unlabelled.
       const transport = packToolTransport(tool.spec, ctx.packServices);

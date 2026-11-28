@@ -6,10 +6,10 @@
 // keep the exact references, which they need to fix a draft; only the screen changes.
 // On v4 processes (merge of main, 2026-11-11): the builder edits processes, so a step is found in
 // a process, a trigger is one of its triggers, and a path's owner is its `if`.
-import { type ProcessAgentBundle, problemGroupKey } from "@countersign/core";
+import { problemGroupKey } from "@countersign/core";
 import { connectorLabel, toolLabel } from "../../runs/labels";
 import type { BuilderProblem } from "./catalog";
-import { ifOfBranch, locate, type Process, type Step } from "./model";
+import { locate, type Process, type ProcessAgentBundle, type Step } from "./model";
 
 type ValidationError = BuilderProblem;
 type AgentBundle = ProcessAgentBundle;
@@ -259,75 +259,3 @@ export function readableErrors(
 }
 
 /** Lists "a, b and c"; more than `max` become "a, b, c and 2 more". */
-function list(items: readonly string[], max = 3): string {
-  const shown = items.slice(0, max);
-  const more = items.length - shown.length;
-  if (more > 0) return `${shown.join(", ")} and ${more} more`;
-  if (shown.length <= 1) return shown.join("");
-  return `${shown.slice(0, -1).join(", ")} and ${shown.at(-1)}`;
-}
-
-/** One line of the problems list: its first error, its words, and every error it stands for. */
-export interface ProblemLine {
-  error: ValidationError;
-  text: string;
-  count: number;
-  all: ValidationError[];
-}
-
-/**
- * The problems as lines: references from one step to the same earlier step become one line
- * ("Uses the invoice number, vendor name and reason from “Match”, but …").
- */
-export function problemLines(
-  errors: readonly ValidationError[],
-  bundle: AgentBundle,
-): ProblemLine[] {
-  const lines: ProblemLine[] = [];
-  const groups = new Map<string, { at: number; whats: string[]; from: string; removed: boolean }>();
-  for (const e of errors) {
-    const p = readableProblem(e, bundle);
-    if (!p.group) {
-      lines.push({ error: e, text: p.text, count: 1, all: [e] });
-      continue;
-    }
-    const g = groups.get(p.group.key);
-    if (g) {
-      if (!g.whats.includes(p.group.what)) g.whats.push(p.group.what);
-      const line = lines[g.at];
-      if (line) {
-        line.count += 1;
-        line.all.push(e);
-      }
-      continue;
-    }
-    groups.set(p.group.key, {
-      at: lines.length,
-      whats: [p.group.what],
-      from: p.group.from,
-      removed: p.group.removed,
-    });
-    lines.push({ error: e, text: p.text, count: 1, all: [e] });
-  }
-  for (const g of groups.values()) {
-    const line = lines[g.at];
-    if (!line || line.count === 1) continue;
-    line.text = g.removed
-      ? `Uses the ${list(g.whats)} from a step that is no longer in this workflow. Pick those values again.`
-      : `Uses the ${list(g.whats)} from “${g.from}”, but “${g.from}” doesn't run before this step. Move this step below “${g.from}”, on the same path.`;
-  }
-  return lines;
-}
-
-/** Where a problem is, for the problems list: the step's name, with its workflow when it's another. */
-export function problemPlace(e: ValidationError, bundle: AgentBundle, slug: string): string {
-  if (!e.workflow) return "Agent";
-  const w = bundle.workflows.find((x) => x.slug === e.workflow);
-  if (!w) return e.workflow;
-  const prefix = e.workflow === slug ? "" : `${w.name} · `;
-  if (w.workflow.triggers.some((t) => t.id === e.stepId)) return `${prefix}Trigger`;
-  const owner = e.stepId
-    ? (locate(w.workflow, e.stepId)?.step ?? ifOfBranch(w.workflow, e.stepId))
-    : null;
-  return owner ? `${prefix}${owner.name}` : w.name;
-}

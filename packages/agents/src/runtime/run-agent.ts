@@ -38,6 +38,7 @@ import {
   Decimal,
   evaluateSkillRules,
   isoToday,
+  isPlainObject,
   isUuid,
   type JsonSchema,
   LOCALE_ENGLISH_NAMES,
@@ -93,6 +94,8 @@ export interface RunAgentInput {
   stepRunId?: string;
   /** The step's approval setting (absent: required). */
   approval?: Approval;
+  /** Signed record saves: `approval` is the step's own check (StepContext `ownApproval`). */
+  ownApproval?: boolean;
   threadId?: string;
   /** Defaults to the run's mode. */
   mode?: RunMode;
@@ -138,6 +141,26 @@ export interface RunAgentInput {
    * its handler runs on the input. Ignored for any other skill.
    */
   reshape?: processes.ReshapeMapping | undefined;
+  // The step model (docs/step-model-plan.md §8)
+  /**
+   * A Loop: the model works toward `goal` with only the Get tools in `reads`, for at most
+   * `maxTurns` model calls (and never more than the agent's own budget). It never writes: the step
+   * is read-only, so every tool that writes is refused whatever it lists. At the limit it stops
+   * (the step fails) or hands back what it has (one more call, which must finish). With `skill`,
+   * the saved Loop's skill (its instructions, its output); without, the step's own.
+   */
+  loop?: StepLoopInput | undefined;
+}
+
+/** A Loop's goal, reads and limits (`RunAgentInput.loop`), as the executor sends them. */
+export interface StepLoopInput {
+  goal: string;
+  instructions: string;
+  reads: string[];
+  maxTurns: number;
+  atLimit: "stop" | "hand_back";
+  /** Its output fields as a schema; absent: an answer with its sources. */
+  output?: JsonSchema | undefined;
 }
 
 export interface AskBudget {
@@ -150,6 +173,8 @@ export interface PendingAction {
   inboxItemId: string | null;
   /** `would_have_done`: a test run's write, recorded and never executed. */
   status: "awaiting_approval" | "would_have_done";
+  /** Signed record saves: a save to our own records, `actionId` its card's id. */
+  recordSave?: true;
 }
 
 interface ResultBase {
@@ -308,6 +333,48 @@ function taskSkill(task: string): SkillDefinition {
 }
 
 /**
+ * The step model (§8): a Loop written in the step, as an agent-mode skill: its goal and
+ * instructions, its reads, and its output (an answer with sources when it names none).
+ */
+function loopSkill(loop: StepLoopInput): SkillDefinition {
+  return {
+    schemaVersion: 1,
+    id: "steps.loop",
+    name: "Loop",
+    description: loop.goal,
+    category: "loop",
+    mode: "agent",
+    instructions: loopInstructions(null, loop),
+    tools: loop.reads,
+    input: {},
+    output: loop.output ?? {
+      type: "object",
+      properties: {
+        answer: { type: "string" },
+        sources: { type: "array", items: { type: "string" } },
+      },
+      required: ["answer", "sources"],
+    },
+    settings: [],
+    requiresConnectors: [],
+    requiresPacks: [],
+    producesAlerts: false,
+  };
+}
+
+/** A Loop's instructions: the saved skill's (if any), its goal, the step's own, the read-only rule. */
+function loopInstructions(own: string | null | undefined, loop: StepLoopInput): string {
+  return [
+    own?.trim() || null,
+    `Your goal: ${loop.goal}`,
+    loop.instructions.trim() || null,
+    "You can only read: every tool that writes is refused. Finish when the goal is met.",
+  ]
+    .filter((x): x is string => x !== null)
+    .join("\n\n");
+}
+
+/**
  * The skill an asked agent runs: fixed words in the system prompt, the question as data in the
  * task input (invariant 9), an answer with its sources.
  */
@@ -383,13 +450,54 @@ export function sourcesFromInput(def: SkillDefinition, input: unknown): string[]
   return ids;
 }
 
-/** Validates a skill's output: its schema, and `sources` when it produces alerts (invariant 10). */
+/**
+ * Where a model's answer carries the markup of a tool call inside a field: it wrote several fields
+ * into one ("…</purpose>\n<parameter name=\"missing\">…", staging 2026-11-27), so that field holds
+ * the others and they are missing or wrong. Found by the call's own tags, or a field's name closed
+ * as a tag; null when there is none.
+ */
+const CALL_MARKUP = /<\/?(?:parameter|invoke|function_calls)\b/;
+export function leakedMarkup(output: unknown): string | null {
+  if (!isPlainObject(output)) return null;
+  const names = Object.keys(output);
+  const visit = (value: unknown, at: string, depth: number): string | null => {
+    if (depth > 6) return null;
+    if (typeof value === "string") {
+      const tag = CALL_MARKUP.exec(value)?.[0] ?? names.find((n) => value.includes(`</${n}>`));
+      if (tag === undefined) return null;
+      const shown = tag.startsWith("<") ? tag : `</${tag}>`;
+      return `"${at}" holds the markup of a tool call (${shown}): give each field on its own, as plain values`;
+    }
+    if (Array.isArray(value)) {
+      for (const [i, v] of value.entries()) {
+        const hit = visit(v, `${at}.${i}`, depth + 1);
+        if (hit) return hit;
+      }
+      return null;
+    }
+    if (isPlainObject(value)) {
+      for (const [k, v] of Object.entries(value)) {
+        const hit = visit(v, at ? `${at}.${k}` : k, depth + 1);
+        if (hit) return hit;
+      }
+    }
+    return null;
+  };
+  return visit(output, "", 0);
+}
+
+/**
+ * Validates a skill's output: its schema, no tool-call markup in its fields, and `sources` when it
+ * produces alerts (invariant 10).
+ */
 function checkOutput(
   def: SkillDefinition,
   output: unknown,
 ): { ok: true; value: unknown } | { ok: false; message: string } {
   const r = checkAgainst(def.output, output);
   if (!r.ok) return r;
+  const leak = leakedMarkup(r.value);
+  if (leak) return { ok: false, message: leak };
   if (def.producesAlerts && !sourcesOf(r.value)?.length) {
     return {
       ok: false,
@@ -494,6 +602,8 @@ export async function runAgent(deps: RuntimeDeps, input: RunAgentInput): Promise
   // the skill (`definition.skills[].model`).
   let parameters: Record<string, unknown> = {};
   let agentSkillModel: ModelChoice | undefined;
+  // The step model (§8): the Loop this run is, after a saved Loop skill has narrowed it.
+  let stepLoop: StepLoopInput | undefined = input.loop;
   if (skillRef !== null) {
     const resolved = await resolveSkill(deps, input.tenantId, skillRef);
     if (!resolved) return fail(`skill ${skillRef} is not available to this agent`);
@@ -523,6 +633,31 @@ export async function runAgent(deps: RuntimeDeps, input: RunAgentInput): Promise
       if (!customized.ok) return fail(customized.error);
       def = customized.def;
     }
+    // The step model (§8): a saved Loop runs as an agent loop, with the step's goal and reads.
+    if (def.loop !== undefined && !input.loop) {
+      return fail(`${def.id} is a Loop skill: it runs in a Loop step`);
+    }
+    if (input.loop) {
+      // A saved Loop skill is the ceiling on what its step may read (§8): the step can pick fewer
+      // of its actions, never more, and a Loop never calls what is not a Get.
+      const own = def.loop !== undefined ? new Set(def.reads ?? []) : null;
+      stepLoop = own
+        ? {
+            ...input.loop,
+            reads: input.loop.reads.filter((r) => own.has(r)),
+            maxTurns: Math.min(input.loop.maxTurns, def.loop?.maxTurns ?? input.loop.maxTurns),
+          }
+        : input.loop;
+      def = {
+        ...def,
+        mode: "agent",
+        instructions: loopInstructions(def.instructions, stepLoop),
+        tools: stepLoop.reads,
+        ...(stepLoop.output ? { output: stepLoop.output } : {}),
+      };
+    }
+  } else if (input.loop) {
+    def = loopSkill(input.loop);
   } else if (input.asked) {
     def = askSkill(input.asked.tools);
   } else if (input.task !== undefined) {
@@ -544,6 +679,7 @@ export async function runAgent(deps: RuntimeDeps, input: RunAgentInput): Promise
     stepId: input.stepId,
     mode,
     approval: input.approval,
+    ...(input.ownApproval ? { ownApproval: true } : {}),
     threadId: input.threadId,
     // P-1: the skill's resolved settings, for its tools (a pack's thresholds). Skill model
     // (2026-11-10): a built-in code skill's handler reads its parameter values here too.
@@ -552,29 +688,39 @@ export async function runAgent(deps: RuntimeDeps, input: RunAgentInput): Promise
     settings: { ...settings, ...parameters },
     externalIndex: { next: 0 },
     language: input.language,
-    readOnly: asked !== undefined,
+    // The step model (§8): a Loop never writes, whatever it lists.
+    readOnly: asked !== undefined || stepLoop !== undefined,
     ...(input.retryOf ? { retryOf: input.retryOf } : {}),
     // No asks within an ask: the asked agent can't start a chain.
-    ask: asked
-      ? undefined
-      : (q) =>
-          askAgent(deps, {
-            tenantId: input.tenantId,
-            agentId: agent.agentId,
-            runId: input.runId,
-            language: input.language,
-            ask: q,
-          }),
+    ask:
+      asked || stepLoop
+        ? undefined
+        : (q) =>
+            askAgent(deps, {
+              tenantId: input.tenantId,
+              agentId: agent.agentId,
+              runId: input.runId,
+              language: input.language,
+              ask: q,
+            }),
   };
   const allowed = new Set(
     asked
       ? skillTools(def).filter((t) => deps.tools.get(t)?.spec.sideEffect === "none")
-      : stepToolIds(def, agent.bundle.definition.extraTools, deps.tools),
+      : stepLoop
+        ? // The step model (§8): its reads only, and only those that read.
+          stepLoop.reads.filter((t) => deps.tools.get(t)?.spec.sideEffect === "none")
+        : stepToolIds(def, agent.bundle.definition.extraTools, deps.tools),
   );
   const pending: PendingAction[] = [];
   const track = (o: ToolOutcome) => {
     if (o.status === "awaiting_approval") {
-      pending.push({ actionId: o.actionId, inboxItemId: o.inboxItemId, status: o.status });
+      pending.push({
+        actionId: o.actionId,
+        inboxItemId: o.inboxItemId,
+        status: o.status,
+        ...(o.recordSave ? { recordSave: true as const } : {}),
+      });
     }
     if (o.status === "would_have_done") {
       pending.push({ actionId: o.actionId, inboxItemId: null, status: o.status });
@@ -731,7 +877,10 @@ export async function runAgent(deps: RuntimeDeps, input: RunAgentInput): Promise
   // An ask's budget is the smaller of the ask's and the agent's own.
   const maxSteps = asked
     ? Math.min(definition.budgets.maxSteps, asked.budget.maxSteps)
-    : definition.budgets.maxSteps;
+    : stepLoop
+      ? // The step model (§8): a Loop's most turns, within the agent's own budget.
+        Math.min(definition.budgets.maxSteps, stepLoop.maxTurns)
+      : definition.budgets.maxSteps;
   const agentMaxCost = asked
     ? Decimal.min(definition.budgets.maxCostUsd, asked.budget.maxCostUsd)
     : new Decimal(definition.budgets.maxCostUsd);
@@ -987,11 +1136,52 @@ export async function runAgent(deps: RuntimeDeps, input: RunAgentInput): Promise
     );
   };
 
+  // The step model (§8): at a Loop's limit, `stop` fails the step; `hand_back` asks once more, for
+  // its finish only, and that answer is what it hands back.
+  // DECISION: the hand-back is one call past `maxTurns`, still within the cost budget, offered the
+  // finish tool alone; a hand-back that doesn't finish with a valid result fails the step as
+  // `stop` would.
+  const atLoopLimit = async (limit: StepLoopInput): Promise<AgentResult> => {
+    const reached = `the Loop reached its limit of ${limit.maxTurns} turns`;
+    if (limit.atLimit === "stop" || stepCost().gt(maxCost)) return fail(reached);
+    messages.push({
+      role: "user",
+      content: `You have reached your limit. Call \`${FINISH_TOOL}\` now with what you have.`,
+    });
+    let response: LlmMessage;
+    try {
+      ({ message: response } = await llm.message(
+        {
+          model: model.id,
+          max_tokens: model.maxTokens,
+          system,
+          messages,
+          // Only its finish is offered: a forced tool choice is refused by models that think.
+          tools: tools.filter((t) => t.name === FINISH_TOOL),
+          tool_choice: { type: "auto" },
+        },
+        { label: `${input.stepId}:${def.id}:hand_back` },
+      ));
+    } catch (error) {
+      return fail(`model call failed: ${error instanceof Error ? error.message : String(error)}`);
+    }
+    const done = response.content.find(
+      (b): b is ToolUse => b.type === "tool_use" && b.name === FINISH_TOOL,
+    );
+    const out = done ? checkOutput(def, done.input) : null;
+    if (!out?.ok) return fail(`${reached}, and what it handed back isn't valid`);
+    return succeed(out.value);
+  };
+
   const loop = async (): Promise<AgentResult> => {
     for (;;) {
       const limit = scope?.overLimit();
       if (scope && limit) return helpNeeded(scope.needsHelp());
-      if (stepCalls() >= maxSteps) return overBudget("max_steps");
+      if (stepCalls() >= maxSteps) {
+        // The step model (§8): a Loop at its most turns stops, or hands back what it has.
+        if (stepLoop) return atLoopLimit(stepLoop);
+        return overBudget("max_steps");
+      }
       if (stepCost().gt(maxCost)) return overBudget("max_cost");
       if (overMonthly()) return escalate("max_monthly_cost");
       let response: LlmMessage;

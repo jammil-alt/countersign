@@ -5,7 +5,7 @@
 // its agent's AP mailbox): the approved one makes its write, the corrected one doesn't (the agent
 // still sends to AP), and the scorecard says so. Operators only; once per item.
 
-import { type AnyAgentBundle, WRITES_KEY } from "@countersign/core";
+import { type AgentBundle, WRITES_KEY } from "@countersign/core";
 import {
   agent,
   agentVersion,
@@ -18,7 +18,7 @@ import {
 } from "@countersign/db";
 import { and, eq, isNull } from "drizzle-orm";
 import { afterAll, describe, expect, it } from "vitest";
-import { OPERATOR } from "../api.test-helper";
+import { doAction, doTell, OPERATOR, testBundle, v5Workflow } from "../api.test-helper";
 import { MemoryTestSuiteJobs } from "../testbench/instances";
 import {
   executeSuite,
@@ -42,6 +42,95 @@ const jobs = new MemoryTestSuiteJobs();
 const h = await createEvalHarness({ testSuites: jobs });
 afterAll(() => h?.close());
 
+/**
+ * The invoice review, as a template's live version: the review notes, then the hand-off that
+ * sends them to AP (a write that waits for a signature) or tells the operator no mailbox is set.
+ * DECISION (step model J): the packs ship no template yet (docs/step-model-plan.md §12, R0), so
+ * the test installs the part of the old Vendor contracts template it is about.
+ */
+function vendorContractsBundle(): AgentBundle {
+  const base = testBundle("Vendor contracts");
+  return {
+    ...base,
+    definition: {
+      ...base.definition,
+      skills: [{ skill: "materials.invoice-review", settings: {} }],
+      extraTools: [],
+      oversight: { review: "failures", verify: "writes" },
+    },
+    workflows: [
+      {
+        slug: "invoice-review",
+        name: "When an invoice comes in",
+        enabled: true,
+        workflow: v5Workflow(
+          [
+            {
+              id: "notes",
+              name: "Review notes for AP",
+              kind: "do",
+              doneBy: "rules",
+              uses: { type: "skill", skill: "materials.invoice-review" },
+              input: { documentId: "{{trigger.documentId}}", findings: [] },
+            },
+            {
+              id: "ap-set",
+              name: "Hand off the review",
+              kind: "fork",
+              paths: [
+                {
+                  id: "ap-send-path",
+                  name: "Send it",
+                  when: {
+                    match: "all",
+                    rules: [{ field: "{{steps.notes.output.send}}", op: "=", value: true }],
+                  },
+                  steps: [
+                    doAction(
+                      "send-ap",
+                      "Send the invoice and its review",
+                      "email.send",
+                      {
+                        to: "{{steps.notes.output.to}}",
+                        subject: "{{steps.notes.output.subject}}",
+                        body: "{{steps.notes.output.body}}",
+                        attachments: "{{steps.notes.output.attachments}}",
+                      },
+                      { client: { visible: true, label: "Sent the invoice and its review" } },
+                    ),
+                  ],
+                },
+              ],
+              otherwise: {
+                id: "ap-none",
+                steps: [
+                  doTell(
+                    "tell-no-ap",
+                    "Tell the operator when no mailbox is set",
+                    "Invoice {{steps.notes.output.invoiceNumber}}: {{steps.notes.output.reason}}",
+                    { client: { visible: false } },
+                  ),
+                ],
+              },
+            },
+          ],
+          {
+            triggers: [
+              {
+                id: "trg-invoice",
+                on: {
+                  type: "manual",
+                  input: { type: "object", properties: { documentId: { type: "string" } } },
+                },
+              },
+            ],
+          },
+        ),
+      },
+    ],
+  } as unknown as AgentBundle;
+}
+
 const AP = "ap@golden-millwork.example";
 const PRICING = "pricing@golden-millwork.example";
 
@@ -55,6 +144,18 @@ describe.skipIf(!h)("saving an approved change as a case", () => {
     // The client's world: the invoice, its contract (over the contract price) and the mailboxes.
     const ctx = await seedGoldenClient(H, dataset, golden);
     const tenantId = ctx.tenantId;
+    const made = await H.call(OPERATOR, "POST", "/api/ops/templates", {
+      slug: "vendor-contracts",
+      bundle: vendorContractsBundle(),
+      releaseNote: "First",
+    });
+    expect(made.status, JSON.stringify(made.json)).toBe(200);
+    const published = await H.call(
+      OPERATOR,
+      "POST",
+      `/api/ops/agents/${j(made.json).agent.id}/versions/${j(made.json).version.id}/publish`,
+    );
+    expect(published.status, JSON.stringify(published.json)).toBe(200);
     const [tpl] = await H.t.db
       .select()
       .from(agent)
@@ -72,7 +173,7 @@ describe.skipIf(!h)("saving an approved change as a case", () => {
           s.skill === "materials.invoice-review" ? { ...s, parameters: { ap_email: AP } } : s,
         ),
       },
-    } as AnyAgentBundle;
+    } as AgentBundle;
     const [a] = await H.t.db
       .insert(agent)
       .values({
@@ -154,7 +255,7 @@ describe.skipIf(!h)("saving an approved change as a case", () => {
       await H.t.db.insert(externalAction).values({
         tenantId,
         connectionId: email?.id as string,
-        tool: "email.send",
+        tool: "resend.send",
         runId: r?.id as string,
         stepRunId: s?.id as string,
         agentVersionId: v?.id as string,
@@ -196,7 +297,7 @@ describe.skipIf(!h)("saving an approved change as a case", () => {
           parameters: { "materials.invoice-review": { ap_email: AP } },
         },
         expected: {
-          [WRITES_KEY]: [{ step: "send-ap", expect: { tool: "send_email", input: { to: AP } } }],
+          [WRITES_KEY]: [{ step: "send-ap", expect: { tool: "email.send", input: { to: AP } } }],
           $writesScope: "named",
         },
       },

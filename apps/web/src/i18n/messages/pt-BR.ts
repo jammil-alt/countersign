@@ -36,6 +36,7 @@ export const ptBR: Messages = {
   "common.notFoundBody": "Não há nenhuma página aqui.",
   "common.yes": "Sim",
   "common.no": "Não",
+  "common.optional": "opcional",
   "common.close": "Fechar",
 
   // ── Error pages (a page that failed to load) ──
@@ -465,6 +466,7 @@ export const ptBR: Messages = {
   "desk.team.undoIs": "Prazo para desfazer: {window}.",
   "desk.approvalSettings": "Configurações de aprovação",
   "change.now": "Agora",
+  "change.recordSave.why": "Por que aguarda",
   "change.after": "Depois da mudança",
   "change.createsIt": "Ainda não existe: esta mudança cria.",
   "change.nothingRecorded": "Nada registrado.",
@@ -3890,6 +3892,14 @@ export const ptBR: Messages = {
   "connectors.ask.send": "Enviar ao seu responsável",
   "connectors.ask.sent": "Enviado. Ver sua solicitação",
   "connectors.ask.subject": "Um conector para {tool}",
+  "requestAction.title": "Pedir algo",
+  "requestAction.label": "O que você precisa que seja feito?",
+  "requestAction.send": "Enviar",
+  "requestAction.cancel": "Cancelar",
+  "requestAction.thanks": "Obrigado. Recebemos e avisaremos quando estiver pronto.",
+  "requestAction.another": "Pedir outra coisa",
+  "requestAction.hint":
+    "Diga com suas próprias palavras. Vamos analisar e avisar quando estiver pronto.",
   "connectors.browse.title": "Explorar",
   "connectors.browse.search": "Buscar conectores",
   "connectors.browse.recommended": "Recomendados para você",

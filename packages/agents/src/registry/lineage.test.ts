@@ -1,14 +1,7 @@
 // Template updates (three-way merge into a client draft) and promotion (into a template draft,
 // client-specific values stripped), against a real database as cs_worker.
 
-import {
-  type AgentBundle,
-  type AnyAgentBundle,
-  cloneJson,
-  holdsProcess,
-  selectableBetween,
-  uuidv7,
-} from "@countersign/core";
+import { type AgentBundle, cloneJson, selectableBetween, uuidv7 } from "@countersign/core";
 import { afterAll, describe, expect, it } from "vitest";
 import type { AgentsError } from "../errors";
 import {
@@ -40,20 +33,14 @@ import {
 const harness = await createHarness();
 afterAll(() => harness?.close());
 
-/** A stored bundle these fixtures made of v3 workflows (the column holds v3 or v4). */
-function v3(bundle: AnyAgentBundle): AgentBundle {
-  if (holdsProcess(bundle)) throw new Error("fixture: expected v3 workflows");
-  return bundle as AgentBundle;
-}
-
-function step(bundle: AnyAgentBundle, id: string) {
-  const s = v3(bundle).workflows[0]?.workflow.steps.find((x) => x.id === id);
+function step(bundle: AgentBundle, id: string) {
+  const s = bundle.workflows[0]?.workflow.steps.find((x) => x.id === id);
   if (!s) throw new Error(`no step ${id}`);
   return s;
 }
 
-function edit(bundle: AnyAgentBundle, fn: (b: AgentBundle) => void): AgentBundle {
-  const out = cloneJson(v3(bundle));
+function edit(bundle: AgentBundle, fn: (b: AgentBundle) => void): AgentBundle {
+  const out = cloneJson(bundle);
   fn(out);
   return out;
 }
@@ -175,7 +162,7 @@ describe.skipIf(!harness)("template updates and promotion", () => {
           lookup.settings = { threshold: 7, vendor_list: "Acme, Bolt" };
           step(b, LOOKUP_STEP).name = "Look it up (better)";
           const update = step(b, UPDATE_STEP);
-          if (update.kind !== "action") throw new Error("fixture");
+          if (update.kind !== "do") throw new Error("fixture");
           update.input = { id: recordId, amount: "2.00" };
         }),
       });
@@ -191,7 +178,7 @@ describe.skipIf(!harness)("template updates and promotion", () => {
     expect(step(promoted, LOOKUP_STEP).name).toBe("Look it up (better)");
     // The client's record id is replaced by the template's reference; other edits come along.
     const update = step(promoted, UPDATE_STEP);
-    expect(update.kind === "action" && update.input).toEqual({
+    expect(update.kind === "do" && update.input).toEqual({
       id: "{{trigger.id}}",
       amount: "2.00",
     });
@@ -276,7 +263,7 @@ describe.skipIf(!harness)("template updates and promotion", () => {
           if (!lookup) throw new Error("fixture");
           lookup.settings = { threshold: 7, vendor_list: "Acme, Bolt" };
           const update = step(b, UPDATE_STEP);
-          if (update.kind !== "action") throw new Error("fixture");
+          if (update.kind !== "do") throw new Error("fixture");
           update.input = { id: recordId, amount: "2.00" };
         }),
       });
@@ -296,7 +283,7 @@ describe.skipIf(!harness)("template updates and promotion", () => {
     const lookup = version.bundle.definition.skills.find((s) => s.skill === "test.lookup");
     expect(lookup?.settings).toEqual({ threshold: 7 });
     const update = step(version.bundle, UPDATE_STEP);
-    expect(update.kind === "action" && update.input).toEqual({
+    expect(update.kind === "do" && update.input).toEqual({
       id: "{{trigger.id}}",
       amount: "2.00",
     });

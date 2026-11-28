@@ -1,7 +1,7 @@
 // Test answers for Describe it and Check the steps (F5): a build as `GET /api/ops/builds/:id`
 // answers it, its draft agent as `GET /api/ops/agents/:id`, and the Builder session routes. Only
 // the tests import this.
-import type { AnyAgentBundleInput, BuildDetail } from "@countersign/core";
+import type { AgentBundleInput, BuildDetail, steps } from "@countersign/core";
 import { AGENT_SUMMARY, PROCESS_BUNDLE_INPUT } from "../../test/fixtures";
 import type { Process } from "./types";
 
@@ -55,11 +55,8 @@ export function buildDetail(
       { phase: "intake", label: "Intake", state: agentId ? "done" : "current" },
       { phase: "fitgap", label: "Fit-gap", state: agentId ? "done" : "todo" },
       { phase: "draft", label: "Draft", state: agentId ? "current" : "todo" },
-      { phase: "poc", label: "POC test", state: "todo" },
-      { phase: "client_test", label: "Client test", state: "todo" },
-      { phase: "qa", label: "QA and go / no-go", state: "todo" },
     ],
-    gate: { next: agentId ? "poc" : "fitgap", reasons: [] },
+    gate: { next: agentId ? null : "fitgap", reasons: [] },
     messages: over.words
       ? [
           {
@@ -135,12 +132,12 @@ export function draftProcess(): Process {
   };
 }
 
-export function draftBundle(process: Process = draftProcess()): AnyAgentBundleInput {
+export function draftBundle(process: Process = draftProcess()): AgentBundleInput {
   return {
     ...PROCESS_BUNDLE_INPUT,
     workflows: [
       { slug: "invoice-intake", name: "Invoice intake", workflow: process as never },
-    ] as AnyAgentBundleInput["workflows"],
+    ] as AgentBundleInput["workflows"],
   };
 }
 
@@ -161,7 +158,7 @@ const version = (id: string, n: number) => ({
 });
 
 /** The draft agent: a template with its v1 draft. */
-export function agentDetail(bundle: AnyAgentBundleInput = draftBundle()) {
+export function agentDetail(bundle: AgentBundleInput = draftBundle()) {
   return {
     agent: {
       ...AGENT_SUMMARY,
@@ -235,3 +232,158 @@ export const sessionSave = () => ({
   cases: [],
   errors: [],
 });
+
+// ── The step model (v5) ─────────────────────────────────────────────────────────────────────────
+
+/**
+ * The same draft in the step model: read the invoice (AI, a skill), a Fork on duplicates that
+ * tells Dana, create the bill (Rules, a Change with its approver), and the End delivering it.
+ */
+export function draftWorkflow5(): steps.WorkflowInput {
+  return {
+    schemaVersion: 5,
+    triggers: [{ id: "t-doc", on: { type: "event", event: "document.received" } }],
+    outputs: [
+      {
+        id: "o-bill",
+        name: "The bill in QuickBooks",
+        kind: "write",
+        action: { action: "qbo.bill.create", input: {} },
+      },
+    ],
+    steps: [
+      {
+        id: "s-read",
+        kind: "do",
+        name: "Read the invoice",
+        doneBy: "ai",
+        uses: { type: "skill", skill: "docs.read-document" },
+        input: {},
+      },
+      {
+        id: "s-dup",
+        kind: "fork",
+        name: "Duplicate",
+        paths: [
+          {
+            id: "p-dup",
+            name: "the invoice is a duplicate",
+            when: { match: "all", rules: [] },
+            steps: [
+              {
+                id: "s-tell",
+                kind: "do",
+                name: "Tell Dana",
+                doneBy: "rules",
+                uses: { type: "tell" },
+                tell: { to: ["client_admin"], channel: "inbox", message: "A duplicate" },
+                input: {},
+              },
+            ],
+          },
+        ],
+        otherwise: { id: "o-dup", steps: [] },
+      },
+      {
+        id: "s-bill",
+        kind: "do",
+        name: "Create the bill",
+        doneBy: "rules",
+        uses: { type: "action", action: "qbo.bill.create" },
+        input: { vendorId: "{{steps.s-read.output.vendorId}}" },
+        checks: {
+          approval: { required: "required", mode: "in_turn", ifNoAnswer: "stop", onReject: "stop" },
+        },
+      },
+      { id: "s-end", kind: "end", name: "End", outputs: ["o-bill"], status: "succeeded" },
+    ],
+  };
+}
+
+export function draftBundle5(workflow: unknown = draftWorkflow5()): AgentBundleInput {
+  return {
+    ...PROCESS_BUNDLE_INPUT,
+    workflows: [{ slug: "invoice-intake", name: "Invoice intake", workflow }],
+  } as unknown as AgentBundleInput;
+}
+
+/** What the step model's forms read for the draft agent: actions, skills, models, events. */
+export function stepsCatalog() {
+  return {
+    [`GET /api/ops/agents/${DRAFT_AGENT_ID}/action-catalog`]: () => ({
+      groups: [
+        {
+          type: "connector",
+          id: "qbo",
+          name: "QuickBooks Online",
+          actions: [
+            {
+              id: "qbo.bill.create",
+              label: "Create a bill",
+              description: "",
+              kind: "change",
+              input: [{ name: "vendorId", type: "text", required: true }],
+              output: [],
+            },
+            {
+              id: "qbo.vendor.find",
+              label: "Find a vendor",
+              description: "",
+              kind: "get",
+              input: [],
+              output: [],
+            },
+          ],
+        },
+        {
+          type: "connector",
+          id: "email",
+          name: "Email",
+          actions: [
+            {
+              id: "email.send",
+              label: "Send an email",
+              description: "",
+              kind: "send",
+              input: [],
+              output: [],
+            },
+          ],
+        },
+      ],
+    }),
+    [`GET /api/ops/agents/${DRAFT_AGENT_ID}/builder-catalog`]: () => ({
+      skills: [
+        {
+          ref: "docs.read-document",
+          source: "builtin",
+          version: null,
+          kind: "ai",
+          palette: true,
+          definition: {
+            schemaVersion: 1,
+            id: "docs.read-document",
+            name: "Read a document",
+            description: "Reads one.",
+            category: "documents",
+            mode: "task",
+            model: { id: "claude-haiku-5-5" },
+            tools: [],
+            input: { type: "object", properties: {}, required: [] },
+            output: { type: "object", properties: { vendorId: { type: "string" } }, required: [] },
+            settings: [],
+            requiresConnectors: [],
+            requiresPacks: [],
+            producesAlerts: false,
+          },
+        },
+      ],
+      tools: [],
+      connectors: [],
+      stepTools: [],
+      automations: [],
+    }),
+    "GET /api/ops/models": () => ({ models: [] }),
+    "GET /api/ops/catalog/events": () => ({ events: [] }),
+  };
+}

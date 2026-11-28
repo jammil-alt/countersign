@@ -24,7 +24,7 @@ Status, 2026-11-20:
 - The code for every control below is on `main` and on staging: #81–#84, then CodeQL v4 (#315),
   OSV-Scanner and patch deadlines (#316), Node 24 (#317), the register (#318), removing people
   (#325, #370), the model gate (#414) and the MCP connector's HIPAA check (`docs/plan.md` §1.190).
-- Lockdown (§1, "Lockdown"; control INC-2) is on PRs #668 (migration 0101) and #666, not yet on
+- Lockdown (§1, "Lockdown"; control INC-2) is on PRs #668 (migration 0103) and #666, not yet on
   `main`. The edge rule (`lockdown.yml`) is being added in a PR of its own.
 - The first settings outside the code are in place (§10). What the owner still has to set is in
   §10, "Still to set".
@@ -52,7 +52,7 @@ How to use it: `docs/operations.md` §1.4. The design: `docs/lockdown-plan.md`.
   people see a locked page in the portal. What providers send for it is answered as usual and only
   counted; forwarded email for it is dropped and counted, never bounced or kept.
 - **Where it is enforced.** In the database, in the statement that already sets each
-  transaction's clients (`app_scope_tenant_ids`, migration 0101; `inScope` in
+  transaction's clients (`app_scope_tenant_ids`, migration 0103; `inScope` in
   `packages/db/src/client.ts`). A transaction for a locked client is refused before anything in it
   runs, and the next transaction anywhere sees a lock: no cache. The back office's lists leave a
   locked client out rather than failing.

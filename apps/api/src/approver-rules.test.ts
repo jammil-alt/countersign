@@ -12,6 +12,7 @@ import {
   type ApiHarness,
   admin,
   createApiHarness,
+  ended,
   FakeWorkflowStep,
   OPERATOR,
   OTHER_OPERATOR,
@@ -357,9 +358,7 @@ describe.skipIf(!h)("approver rules: where they apply", () => {
         return user("a");
       }),
     );
-    expect(await executeRun(deps(), params, cloudflareStepRunner(step))).toEqual({
-      status: "succeeded",
-    });
+    expect(await executeRun(deps(), params, cloudflareStepRunner(step))).toEqual(ended());
     expect(seen).toEqual(["external_action", "approval"]);
     const [r] = await H.t.db.select().from(run).where(eq(run.id, runId));
     expect(r?.config).toMatchObject({ approverRules: { revision: 1 } });
@@ -390,8 +389,6 @@ describe.skipIf(!h)("approver rules: where they apply", () => {
         return OPERATOR;
       }),
     );
-    expect(await executeRun(deps(), params, cloudflareStepRunner(step))).toEqual({
-      status: "succeeded",
-    });
+    expect(await executeRun(deps(), params, cloudflareStepRunner(step))).toEqual(ended());
   });
 });

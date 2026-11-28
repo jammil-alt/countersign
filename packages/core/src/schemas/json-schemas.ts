@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { Workflow } from "../steps/schema";
 import { AgentBundle, AgentDefinition } from "./agent";
 import { ConnectorManifest } from "./connector";
 import { EventTypeSpec } from "./event";
@@ -6,7 +7,6 @@ import { PackManifest } from "./pack";
 import { PermissionMatrix } from "./permissions";
 import { SkillDefinition } from "./skill";
 import { ToolSpec } from "./tool";
-import { Workflow } from "./workflow";
 
 const SCHEMAS = {
   AgentBundle,
@@ -27,8 +27,8 @@ export const SCHEMA_NAMES = Object.keys(SCHEMAS) as SchemaName[];
  * prompt and for anything outside TypeScript.
  */
 export function toJsonSchema(name: SchemaName): Record<string, unknown> {
-  return z.toJSONSchema(SCHEMAS[name], { io: "input", unrepresentable: "any" }) as Record<
-    string,
-    unknown
-  >;
+  return z.toJSONSchema(SCHEMAS[name], {
+    io: "input",
+    unrepresentable: "any",
+  }) as Record<string, unknown>;
 }

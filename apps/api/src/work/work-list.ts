@@ -114,8 +114,12 @@ export async function buildFacts(tx: Tx, rows: BuildRow[]): Promise<Map<string, 
   return out;
 }
 
+/**
+ * Owner (2026-11-27): a build is live once its draft is published, but a client's agent is done
+ * only when it is live at the client; until then its go-live stages are still work.
+ */
 export function buildDoneish(r: Pick<BuildRow, "status">, f: BuildFacts | undefined): boolean {
-  return r.status === "live" || f?.agentStage === "live";
+  return f?.agentStage ? f.agentStage === "live" : r.status === "live";
 }
 
 export function buildStageOf(r: BuildRow, f: BuildFacts | undefined) {

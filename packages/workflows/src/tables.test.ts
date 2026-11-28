@@ -15,9 +15,8 @@ import {
   type XlsxCell,
 } from "@countersign/core";
 import { describe, expect, it } from "vitest";
-import { executeWorkflow } from "./executor";
 import { FakeStepRunner } from "./fake-runner";
-import { Harness } from "./fakes.test-helper";
+import { executeProcess, Harness } from "./fakes.test-helper";
 import type { SkillStepRequest } from "./ports";
 
 const DOC = "0190a1b2-0000-7000-8000-0000000000d1";
@@ -296,7 +295,7 @@ describe("Read table → Reshape data → Write table", () => {
       };
     };
 
-    const result = await executeWorkflow(
+    const result = await executeProcess(
       new FakeStepRunner(),
       h.context({ catalog: { skills } }),
       process,
@@ -348,7 +347,7 @@ describe("Read table → Reshape data → Write table", () => {
         return { kind: "failed", error: (error as Error).message };
       }
     };
-    const result = await executeWorkflow(
+    const result = await executeProcess(
       new FakeStepRunner(),
       h.context({ catalog: { skills } }),
       tableProcess(),

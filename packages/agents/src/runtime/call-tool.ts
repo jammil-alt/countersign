@@ -3,9 +3,12 @@
 // same way.
 
 import {
+  actionIsOn,
   BROWSE_NOTE_SCOPE,
   bindingKeyFor,
   browseHelpNote,
+  builtInConnectorOf,
+  builtInManifest,
   type ConnectionRef,
   captureBefore,
   isBrowseHelpTag,
@@ -38,12 +41,14 @@ import {
   releaseOf,
   releaseSettingProblem,
   routeApproval,
+  type ToolSpec,
   thresholdReached,
   undiscussedFor,
   verifiesWrites,
   type WriteVerification,
 } from "@countersign/core";
 import type { RegisteredTool } from "../registry/tools";
+import { recordWriteKey, recordWriteParts } from "../tools/records";
 import { executeAction } from "./actions";
 import { noteReconnect } from "./attention";
 import { carryApproval } from "./carry";
@@ -58,6 +63,7 @@ import {
 } from "./context";
 import { recordModelCall } from "./model-call";
 import type { ExternalActionRecord, ToolCallStatus } from "./ports";
+import { recordGrantRefusal } from "./record-grants";
 import { verifyWrite } from "./verify";
 
 export type ToolOutcome =
@@ -80,6 +86,8 @@ export type ToolOutcome =
       inboxItemId: string | null;
       before: unknown;
       recorded?: RecordedChange;
+      /** A save to our own records waiting for a signature: `actionId` is its card's id. */
+      recordSave?: true;
     }
   /**
    * Test runs: the write was recorded as proposed and will never run. `standIn`: what the tool
@@ -92,6 +100,11 @@ export type ToolOutcome =
       standIn?: unknown;
       /** §1.212: the verifier's outcome on the write, kept on a test run's step (the evals). */
       verification?: WriteVerification;
+      /**
+       * Owner, 2026-11-27: a live run would have asked a person to sign it (the gate didn't let it
+       * run on its own). A Sandbox test run with people in it asks its test person.
+       */
+      asks?: true;
     }
   /**
    * The connection needs a person to release it (docs/plan.md §1.26): a code went to them and their
@@ -295,7 +308,11 @@ export async function callTool(
         : { status: "failed", error: errorText(error) };
   }
   call.scope?.observe?.(call.toolId, input, outcome);
-  const actionId = "actionId" in outcome ? outcome.actionId : undefined;
+  // A record save's card names no external action (its id is the card's).
+  const actionId =
+    "actionId" in outcome && !(outcome.status === "awaiting_approval" && outcome.recordSave)
+      ? outcome.actionId
+      : undefined;
   await log.finishToolCall(step.tenantId, toolCallId, {
     status: LOG_STATUS[outcome.status],
     output:
@@ -356,10 +373,39 @@ async function dispatch(
           toolId: tool.spec.id,
         });
     };
+    // Step model E: a built-in connector's action (Web's search and page read) the operator turned
+    // off on its page is refused, as a connector's is; read fresh like the matrix.
+    const builtIn = builtInConnectorOf(tool.spec.id);
+    if (builtIn && deps.ports.store.actionSwitches) {
+      const switches = await deps.ports.store.actionSwitches(builtIn.id);
+      if (!actionIsOn(builtInManifest(builtIn), tool.spec.id, switches)) {
+        return { status: "refused", reason: `${tool.spec.id} is turned off for agents` };
+      }
+    }
     // Platform and pack tools write only the platform's own records: `none` and `internal` run.
     const parsed = tool.tool.input.safeParse(input);
     if (!parsed.success)
       return { status: "failed", error: `invalid input: ${parsed.error.message}` };
+    // Step model §10f: a record type's standard action runs only within the agent version's
+    // grant on that record type, and a Find within its grant on each record type it follows. The
+    // grant is read from the pinned version only: nothing in a run widens it (invariant 9).
+    const ungranted = recordGrantRefusal(step.agent, tool.spec, parsed.data);
+    if (ungranted) return { status: "refused", reason: ungranted };
+    // Signed record saves (follow-up to #687, invariant 8): a live run's record write runs on its
+    // own only for an agent that acts and is live, on a step that adds no approver. Otherwise it
+    // waits for a person's signature: the records port checks it against the record type's rules
+    // now and puts one approval card per write key; the run resumes on the answer and the write is
+    // made once, under its key (apps/api `runs/ports.ts`). A test run goes on: it checks and saves
+    // nothing.
+    const record = tool.spec.record;
+    if (
+      record &&
+      (record.action === "create" || record.action === "update") &&
+      step.mode !== "test"
+    ) {
+      const signed = await signedRecordSave(deps, step, tool.spec, record.action, parsed.data);
+      if (signed) return signed;
+    }
     const raw = await tool.tool.run(parsed.data, {
       tenantId: step.tenantId,
       agentId: step.agent.agentId,
@@ -391,6 +437,8 @@ async function dispatch(
       translation: deps.ports.translation,
       // §1.77: web research
       web: deps.ports.web,
+      // Step model §10f: the standard record actions.
+      records: deps.ports.records,
       ask: step.ask,
       language: step.language,
       now: deps.now,
@@ -441,6 +489,11 @@ async function dispatch(
       status: "refused",
       reason: `${tool.spec.id} is not in this agent's access to the ${connectorId} connection`,
     };
+  }
+  // Step model E: an action the operator turned off on the connector's page is refused, whatever
+  // the matrix, the grant, the step and the mode say; it only ever narrows (invariant 8).
+  if (!actionIsOn(tool.connector.manifest, tool.spec.id, conn.actionSwitches)) {
+    return { status: "refused", reason: `${tool.spec.id} is turned off for agents` };
   }
   // v0.12 W1-G: a send's recipient's autonomy for the channel is one more ceiling, read fresh.
   const recipient = recipientOf(tool.spec, input);
@@ -672,9 +725,21 @@ async function dispatch(
       : null,
   });
   const settled = await settle(deps, step, tool, action);
-  // §1.212: a test run routes no person, so its verification would go nowhere: it stays on the
-  // step's output, which the eval harness scores (the verifier's agreement).
-  if (settled.status === "would_have_done" && verification) return { ...settled, verification };
+  if (settled.status === "would_have_done") {
+    // Owner, 2026-11-27: whether a live run would have waited for a person, by the gate's own
+    // answer (without the client's routing, which a test run never reads).
+    const asks =
+      decision !== "run" ||
+      step.signAllWrites === true ||
+      (verification !== null && verification.outcome !== "agreed");
+    return {
+      ...settled,
+      // §1.212: a test run routes no person, so its verification would go nowhere: it stays on
+      // the step's output, which the eval harness scores (the verifier's agreement).
+      ...(verification ? { verification } : {}),
+      ...(asks ? { asks: true as const } : {}),
+    };
+  }
   return settled;
 }
 
@@ -1020,4 +1085,75 @@ export async function keepBrowseHelp(
   const saved = await writeScopeNote(deps, step, BROWSE_NOTE_SCOPE, note);
   if (!saved) throw new Error("the note wasn't saved");
   return saved;
+}
+
+/**
+ * Signed record saves: whether a live record write waits for a person, and if so its card (or
+ * what an earlier try of the same write came to). Null: the write runs now, unsigned.
+ */
+async function signedRecordSave(
+  deps: RuntimeDeps,
+  step: StepContext,
+  spec: ToolSpec,
+  action: "create" | "update",
+  input: unknown,
+): Promise<ToolOutcome | null> {
+  const stage = await deps.ports.store.agentStage(step.tenantId, step.agent.agentId);
+  const acts = effectiveMode(step.agent.bundle.definition, stage) === "act";
+  // DECISION (review of #696): a step asks only through its own approval check (an approver the
+  // operator added), carried from the stored step as `ownApproval`; never the default the executor
+  // fills in for a step with none (every skill step's, and a Save output's with no checks).
+  const stepAsks = step.ownApproval === true && step.approval?.required === "required";
+  if (acts && !stepAsks && step.signAllWrites !== true) return null;
+  const why = !acts
+    ? stage === "live"
+      ? "This agent suggests only: its saves to our records wait for you."
+      : `This agent is in its ${stage ?? "bench"} stage: every save waits for you.`
+    : "This step asks for an approval before it saves.";
+  const records = deps.ports.records;
+  if (!records?.propose) {
+    return {
+      status: "refused",
+      reason: `${spec.id} waits for a person, and nothing here can ask one`,
+    };
+  }
+  const parts = recordWriteParts(action, input);
+  const key = await recordWriteKey(step, spec.id, input);
+  const routing = await deps.ports.store.approvalRouting(step.tenantId);
+  const route = routeApproval({
+    rules: routing.rules,
+    facts: changeFacts({ spec, connector: "records", agentId: step.agent.agentId, input }),
+    step: step.approval?.approver,
+    agent: [step.agent.bundle.definition.permissions.approver, step.agent.approver],
+    client: routing.clientDefault,
+    members: routing.members,
+  });
+  const out = await records.propose(step.tenantId, {
+    recordType: spec.record?.type ?? "",
+    action,
+    ...(parts.id ? { id: parts.id } : {}),
+    values: parts.values,
+    meta: {
+      agentVersionId: step.agent.agentVersionId,
+      runId: step.runId,
+      stepRunId: step.stepRunId,
+      key,
+      sources: parts.sources,
+      mode: step.mode,
+    },
+    agentId: step.agent.agentId,
+    why,
+    assignee: route.assignee,
+  });
+  if (out.status === "done") return { status: "done", output: out.record };
+  if (out.status === "rejected") {
+    return { status: "refused", reason: `a person turned this save down (${spec.id})` };
+  }
+  return {
+    status: "awaiting_approval",
+    actionId: out.inboxItemId,
+    inboxItemId: out.inboxItemId,
+    before: null,
+    recordSave: true,
+  };
 }

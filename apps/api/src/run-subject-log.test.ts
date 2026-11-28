@@ -158,7 +158,7 @@ describe.skipIf(!h)("what a run was about, through the API", () => {
       },
       { tools: subjectTools(H.platform), visible: clientShowsNode(workflow) },
     );
-    const shown = await log.start({ runId: r.id, nodeId: "update", nodeType: "action" });
+    const shown = await log.start({ runId: r.id, nodeId: "update", nodeType: "write" });
     await log.update(shown, { status: "running", output: { sources: [ids.vendor] } });
     expect(await kept(r.id)).toEqual([]);
     await log.update(shown, { status: "succeeded", output: { sources: [ids.vendor] } });

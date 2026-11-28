@@ -40,7 +40,7 @@ import {
   ReconnectRequiredError,
 } from "@countersign/connectors";
 import {
-  type AnyAgentBundle,
+  type AgentBundle,
   isPlainObject,
   SANDBOX_RUNS_PER_DAY,
   SANDBOX_SEND_CHANGE,
@@ -243,7 +243,7 @@ export async function portalSandbox(
   for (const row of await clientAgents(tx, input.tenantId, input.sees)) {
     const v = await sandboxVersion(tx, row);
     if (!v) continue;
-    const bundle = v.bundle as AnyAgentBundle;
+    const bundle = v.bundle as AgentBundle;
     const documents = await tryCandidates(tx, row, input, bundle);
     const forms = clientRunnable(bundle);
     // An agent with nothing a person can start it on (a schedule only) is the back office's to try.
@@ -311,7 +311,7 @@ export async function startPortalSandboxRun(
   await ensureSandboxRoom(tx, input.tenantId, row.id);
   const v = await sandboxVersion(tx, row);
   if (!v) throw new HttpError(409, "not_ready", "This agent isn't ready to try yet.");
-  const bundle = v.bundle as AnyAgentBundle;
+  const bundle = v.bundle as AgentBundle;
 
   let slug: string;
   let payload: unknown;
@@ -764,7 +764,7 @@ export async function sandboxRunView(
     .select({ bundle: agentVersion.bundle })
     .from(agentVersion)
     .where(and(eq(agentVersion.id, r.agentVersionId), eq(agentVersion.tenantId, r.tenantId)));
-  const wf = (v?.bundle as AnyAgentBundle | undefined)?.workflows.find(
+  const wf = (v?.bundle as AgentBundle | undefined)?.workflows.find(
     (w) => w.slug === r.workflowSlug,
   );
   const find = stepFinder(wf?.workflow as Parameters<typeof stepFinder>[0]);

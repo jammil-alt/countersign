@@ -3,13 +3,7 @@
 // client's rows are its own under RLS, and its versions, changes and findings keep the platform's
 // invariants.
 
-import {
-  type AgentBundle,
-  bundleHash,
-  holdsProcess,
-  isUuid,
-  validateBundle,
-} from "@countersign/core";
+import { type AgentBundle, bundleHash, isUuid, processes } from "@countersign/core";
 import { and, eq, isNotNull } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { withTenant } from "./client";
@@ -74,7 +68,9 @@ describe.skipIf(!online)("demo seed", () => {
       if (!(key in before)) expect(key.endsWith(`:${first.tenantId}`), key).toBe(true);
     }
 
-    expect(first.counts.runs).toBeGreaterThanOrEqual(100);
+    // Weeks of the three agents' runs (the supervisor's own daily and failure runs went with the
+    // workflows the step model purged: its one workflow is the chat).
+    expect(first.counts.runs).toBeGreaterThanOrEqual(80);
     expect(first.counts.documents).toBe(34);
     expect(afterFirst[`run:${first.tenantId}`]).toBe(first.counts.runs);
     expect(afterFirst[`usage_daily:${first.tenantId}`]).toBeGreaterThan(30);
@@ -157,7 +153,7 @@ describe.skipIf(!online)("demo seed", () => {
         .from(agentVersion)
         .where(eq(agentVersion.tenantId, d.tenantId));
       for (const v of versions) {
-        expect(validateBundle(v.bundle).valid).toBe(true);
+        expect(processes.validateBundle(v.bundle).valid).toBe(true);
         expect(v.bundleHash).toBe(await bundleHash(v.bundle));
         const forked = agents.find((a) => a.id === v.agentId)?.templateId !== null;
         expect(v.basedOnTemplateVersionId !== null).toBe(forked);
@@ -189,13 +185,16 @@ describe.skipIf(!online)("demo seed", () => {
         .from(agentVersion)
         .where(eq(agentVersion.id, must(keeper?.liveVersionId)));
       const stored = must(live).bundle;
-      expect(holdsProcess(stored)).toBe(false);
       const bundle = stored as AgentBundle;
       expect(bundle.definition.extraTools).toEqual([PURCHASE_COST]);
       // Invariant 8: its one write step asks for a signature.
       const writes = bundle.workflows
         .flatMap((w) => w.workflow.steps)
-        .flatMap((s) => (s.kind === "action" ? [[s.tool, s.approval.required]] : []));
+        .flatMap((s) =>
+          s.kind === "do" && s.uses?.type === "action" && s.uses.action === PURCHASE_COST
+            ? [[s.uses.action, s.checks?.approval?.required ?? "required"]]
+            : [],
+        );
       expect(writes).toEqual([[PURCHASE_COST, "required"]]);
       expect(JSON.stringify(bundle)).not.toContain("testkit");
 

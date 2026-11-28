@@ -1,5 +1,6 @@
 // The build page keeps the operator's work and says why a button is off (BUILDER_QA.md, the flow
-// lens of 2026-11-19: FLOW-1, FLOW-2, FLOW-3, FLOW-10 and FLOW-8's POC client picker).
+// lens of 2026-11-19: FLOW-1, FLOW-2, FLOW-3 and FLOW-10). Since 2026-11-27 a build goes from its
+// draft straight to Publish, and the bar says why Publish is off.
 import type { BuildDetail, BuildSummary } from "@countersign/core";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -64,9 +65,6 @@ function intake(messages: Message[] = []): BuildDetail {
       { phase: "intake", label: "Intake", state: "current" },
       { phase: "fitgap", label: "Fit-gap", state: "todo" },
       { phase: "draft", label: "Draft", state: "todo" },
-      { phase: "poc", label: "POC test", state: "todo" },
-      { phase: "client_test", label: "Client test", state: "todo" },
-      { phase: "qa", label: "QA and go / no-go", state: "todo" },
     ],
     gate: { next: "fitgap", reasons: [] },
     messages,
@@ -76,6 +74,30 @@ function intake(messages: Message[] = []): BuildDetail {
     clientTest: null,
     qaChecks: [],
     events: [],
+  };
+}
+
+/** A build in its draft (or stored in an older phase, which the page reads as its draft). */
+function inDraft(reasons: string[], phase: BuildDetail["build"]["phase"] = "draft"): BuildDetail {
+  const base = intake();
+  return {
+    ...base,
+    build: { ...base.build, phase, agentId: "00000000-0000-4000-8000-00000000d001" },
+    phases: base.phases.map((p) => ({
+      ...p,
+      state: p.phase === "draft" ? ("current" as const) : ("done" as const),
+    })),
+    gate: { next: null, reasons },
+    draft: {
+      agentId: "00000000-0000-4000-8000-00000000d001",
+      skillId: null,
+      sessionId: null,
+      versionId: "00000000-0000-4000-8000-00000000d002",
+      version: 2,
+      live: false,
+      steps: [],
+      problems: [],
+    },
   };
 }
 
@@ -171,39 +193,22 @@ describe("the build page keeps the operator's work", () => {
     expect(within(view).getByTestId("build-confirm-brief")).toBeDisabled();
   });
 
-  // FLOW-3: the QA panel's Go live is off while `detail.gate.reasons` holds, but QaPanel never
-  // renders those reasons (only `Next` and the client test panel do).
-  it("says why Go live is off once QA is signed", async () => {
-    const base = intake();
-    const qa: BuildDetail = {
-      ...base,
-      build: {
-        ...base.build,
-        phase: "qa",
-        qa: { accepted: {}, signedBy: "Ann", signedAt: at, decision: null },
-      },
-      phases: base.phases.map((p) => ({
-        ...p,
-        state: p.phase === "qa" ? ("current" as const) : ("done" as const),
-      })),
-      gate: { next: null, reasons: ["1 open item is not done or put off."] },
-      qaChecks: [
-        {
-          id: "tests",
-          label: "Required test cases pass",
-          state: "pass",
-          detail: "3 of 3 pass",
-          reason: null,
-        },
-      ],
-    };
-    const api = fakeApi({ ...common, [`GET /api/ops/builds/${ID}`]: () => qa });
+  // FLOW-3, for the draft's Publish (owner, 2026-11-27): it is off while the gate holds, and the
+  // reason is said beside it, not only in a tooltip.
+  it("says why Publish is off on the draft's bar", async () => {
+    const api = fakeApi({
+      ...common,
+      [`GET /api/ops/builds/${ID}`]: () => inDraft(["The draft has 2 problems to fix."]),
+    });
     renderAt(`/ops/builds/${ID}`, api);
     const view = await screen.findByTestId("build-view");
-    const decision = within(view).getByTestId("build-decision");
-    expect(within(decision).getByTestId("build-go")).toBeDisabled();
-    // Expected: the reason it can't go live is said beside the button.
-    expect(decision).toHaveTextContent("1 open item is not done or put off.");
+    const bar = within(view).getByTestId("build-publish-bar");
+    expect(within(bar).getByTestId("build-publish-bar-publish")).toBeDisabled();
+    expect(within(bar).getByTestId("build-publish-bar-state")).toHaveTextContent(
+      "Draft · The draft has 2 problems to fix.",
+    );
+    // No move to a POC test anywhere on the page.
+    expect(within(view).queryByText(/POC test/)).toBeNull();
   });
 
   // FLOW-10: an open question's "Answer it" (and a try's "Wrong", PocPanel onAbout) calls
@@ -338,70 +343,42 @@ describe("the build page keeps the operator's work", () => {
     expect(within(view).getByTestId("build-proposal-agree")).toBeDisabled();
   });
 
-  // FLOW-8: the POC test's "Promote to ready to test" with no client to test with says why it's
-  // off in words on the page, not only in a tooltip.
-  it("says why Promote is off when there is no client to test with", async () => {
-    const base = intake();
-    const poc: BuildDetail = {
-      ...base,
-      build: { ...base.build, phase: "poc" },
-      phases: base.phases.map((p) => ({
-        ...p,
-        state:
-          p.phase === "poc"
-            ? ("current" as const)
-            : ["intake", "fitgap", "draft"].includes(p.phase)
-              ? ("done" as const)
-              : ("todo" as const),
-      })),
-      gate: { next: "client_test", reasons: [] },
-    };
-    const api = fakeApi({ ...common, [`GET /api/ops/builds/${ID}`]: () => poc });
-    renderAt(`/ops/builds/${ID}`, api);
-    const view = await screen.findByTestId("build-view");
-    expect(within(view).getByTestId("build-promote")).toBeDisabled();
-    expect(await within(view).findByTestId("build-promote-why")).toHaveTextContent(
-      /no client to test it with/i,
-    );
-  });
-
-  it("says why Promote is off until a client is picked", async () => {
-    const base = intake();
-    const poc: BuildDetail = {
-      ...base,
-      build: { ...base.build, phase: "poc" },
-      phases: base.phases.map((p) => ({
-        ...p,
-        state: p.phase === "poc" ? ("current" as const) : ("todo" as const),
-      })),
-      gate: { next: "client_test", reasons: [] },
+  // Owner (2026-11-27): from the draft straight to Publish, one press, and the build is live.
+  it("publishes the draft from its bar, and says the build is done", async () => {
+    const draft = inDraft([]);
+    const live: BuildDetail = {
+      ...draft,
+      build: { ...draft.build, status: "live" },
+      phases: draft.phases.map((p) => ({ ...p, state: "done" as const })),
+      gate: { next: null, reasons: [] },
     };
     const api = fakeApi({
       ...common,
-      "GET /api/ops/clients": () => ({
-        clients: [
-          {
-            id: "00000000-0000-4000-8000-00000000a001",
-            name: "Harbor Millwork",
-            timezone: "America/Chicago",
-            createdAt: at,
-            agents: 1,
-            openInbox: 0,
-          },
-        ],
-      }),
-      [`GET /api/ops/builds/${ID}`]: () => poc,
+      [`GET /api/ops/builds/${ID}`]: () => draft,
+      [`POST /api/ops/builds/${ID}/publish`]: () => live,
     });
     renderAt(`/ops/builds/${ID}`, api);
     const view = await screen.findByTestId("build-view");
-    expect(await within(view).findByTestId("build-promote-why")).toHaveTextContent(
-      "Pick the client it's tested with.",
+    expect(within(view).getByTestId("build-publish-bar-state")).toHaveTextContent(
+      "Draft · Ready to publish",
     );
-    await userEvent.selectOptions(
-      within(view).getByTestId("build-test-client"),
-      "00000000-0000-4000-8000-00000000a001",
+    await userEvent.click(within(view).getByTestId("build-publish-bar-publish"));
+    expect(await within(view).findByTestId("build-closed")).toHaveTextContent(
+      "This build is done: the agent is live.",
     );
-    expect(within(view).queryByTestId("build-promote-why")).toBeNull();
+    expect(api.calls).toContain(`POST /api/ops/builds/${ID}/publish`);
+    expect(within(view).queryByTestId("build-publish-bar")).toBeNull();
+  });
+
+  // A build made before in QA reads as its draft (the API says so): no QA panel, the same bar.
+  it("shows a build stored in QA as its draft, with no QA panel", async () => {
+    const api = fakeApi({ ...common, [`GET /api/ops/builds/${ID}`]: () => inDraft([], "qa") });
+    renderAt(`/ops/builds/${ID}`, api);
+    const view = await screen.findByTestId("build-view");
+    expect(within(view).getByTestId("build-publish-bar")).toBeInTheDocument();
+    expect(within(view).getByTestId("build-draft")).toBeInTheDocument();
+    expect(within(view).queryByTestId("build-decision")).toBeNull();
+    expect(within(view).queryByTestId("build-go")).toBeNull();
   });
 });
 

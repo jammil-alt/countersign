@@ -22,9 +22,11 @@ import {
   type ApiHarness,
   admin,
   createApiHarness,
+  ended,
   FakeWorkflowStep,
   OPERATOR,
   user,
+  v5Workflow,
 } from "./api.test-helper";
 import { credentialsFor, executeRun } from "./runs/execute";
 import { cloudflareStepRunner } from "./runs/step-runner";
@@ -77,21 +79,18 @@ function bundle(name: string, input: Record<string, unknown>): AgentBundle {
       {
         slug: "main",
         name: "Main",
-        workflow: {
-          schemaVersion: 3,
-          trigger: { id: "trg-manual", on: { type: "manual", input: {} } },
-          // No `approval` on the step: a write waits for a person by default.
-          steps: [
-            {
-              id: "write",
-              name: "Write",
-              kind: "action",
-              tool: GSHEETS_TOOLS.append,
-              input,
-              client: { visible: true, label: name },
-            },
-          ],
-        },
+        workflow: v5Workflow([
+          {
+            id: "write",
+            name: "Write",
+            client: { visible: true, label: name },
+            checks: { approval: { required: "required" } },
+            kind: "do",
+            doneBy: "rules",
+            uses: { type: "action", action: GSHEETS_TOOLS.append },
+            input: input,
+          },
+        ]),
       },
     ],
   } as AgentBundleInput);
@@ -259,9 +258,7 @@ describe.skipIf(!h)("Google Sheets through the API", () => {
     });
     const atWait: number[] = [];
     const step = approver(() => atWait.push(sheets.cells(budget.id).length));
-    expect(await executeRun(deps(), params, cloudflareStepRunner(step))).toEqual({
-      status: "succeeded",
-    });
+    expect(await executeRun(deps(), params, cloudflareStepRunner(step))).toEqual(ended());
     // Nothing was added before the approval.
     expect(atWait).toEqual([2]);
     expect(sheets.cells(budget.id)).toEqual([

@@ -39,7 +39,7 @@ const SEATS = [
   { role: "summary", kind: "told", label: "Gets the weekly summary" },
 ];
 
-function bundle(name: string, people = SEATS, onlyApprover = false): unknown {
+function bundle(name: string, people = SEATS, _onlyApprover = false): unknown {
   return {
     schemaVersion: 1,
     definition: {
@@ -58,33 +58,22 @@ function bundle(name: string, people = SEATS, onlyApprover = false): unknown {
         slug: "main",
         name: "Main",
         workflow: {
-          schemaVersion: 4,
+          schemaVersion: 5,
           triggers: [{ id: "t", on: { type: "manual", input: {} } }],
+          outputs: [{ id: "out-done", name: "Done", kind: "nothing" }],
           steps: [
-            ...(onlyApprover
-              ? []
-              : [
-                  {
-                    id: "ask",
-                    kind: "person",
-                    name: "Which job?",
-                    mode: "ask",
-                    assignee: "seat:job-codes",
-                    title: "Which job?",
-                    deadline: { after: "1 day" },
-                  },
-                ]),
             {
               id: "update",
-              kind: "write",
               name: "Update the record",
-              tool: TESTKIT_UPDATE_TOOL,
-              input: { id: "r1", amount: "12.00" },
               checks: {
-                approval: { approvers: [{ who: "seat:bill-approver" }] },
-                ...(onlyApprover ? {} : { notify: [{ to: ["seat:summary"], message: "Done" }] }),
+                approval: { required: "required", approvers: [{ who: "seat:bill-approver" }] },
               },
+              kind: "do",
+              doneBy: "rules",
+              uses: { type: "action", action: TESTKIT_UPDATE_TOOL },
+              input: { id: "r1", amount: "12.00" },
             },
+            { id: "end", kind: "end", name: "Done", outputs: ["out-done"] },
           ],
         },
       },

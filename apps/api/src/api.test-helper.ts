@@ -3,6 +3,7 @@
 // app built over them with the dev sign-in, the testkit connector and in-memory Workflow
 // instances, and a fake WorkflowStep for driving runs.
 
+import { getVersion, parseVersionBundle, publish } from "@countersign/agents";
 import { DEV_USER_HEADER, type WorkOSClient } from "@countersign/auth";
 import type { CodeVerifier } from "@countersign/connectors";
 import {
@@ -25,6 +26,7 @@ import {
   hashJson,
   type SkillDefinition,
   SkillDefinition as SkillDefinitionSchema,
+  steps,
 } from "@countersign/core";
 import {
   appUser,
@@ -36,12 +38,14 @@ import {
   skill,
   skillVersion,
   tenant,
+  withOperator,
 } from "@countersign/db";
 import { createTestDatabase, type TestDatabase } from "@countersign/db/testing";
 import { type LlmTransport, type Transcriber, withRecording } from "@countersign/llm";
 import { fileFixtureStore } from "@countersign/llm/node";
 import { eq } from "drizzle-orm";
 import type { Hono } from "hono";
+import { expect } from "vitest";
 import { createApp } from "./app";
 // v0.12 W2-C
 import type { BrowserDeps } from "./browser/services";
@@ -462,6 +466,17 @@ export async function allowForAgent(
   return res.json;
 }
 
+/**
+ * A signed or sealed token with one character changed, for "a tampered token is refused" tests.
+ * It changes the first character after the last ".", the signature or ciphertext, never the end:
+ * base64url's last character carries bits that decoding drops, so changing it can leave the bytes
+ * as they were and the token still good.
+ */
+export function tamper(token: string): string {
+  const at = token.lastIndexOf(".") + 1;
+  return `${token.slice(0, at)}${token[at] === "A" ? "B" : "A"}${token.slice(at + 1)}`;
+}
+
 export const admin = (c: "a" | "b" | "c") => `admin@${c}.example.com`;
 export const user = (c: "a" | "b" | "c") => `user@${c}.example.com`;
 
@@ -476,6 +491,118 @@ export function forbiddenKeys(value: unknown, also?: RegExp, at = "$"): string[]
     ...(FORBIDDEN_PORTAL_FIELD.test(k) || also?.test(k) ? [`${at}.${k}`] : []),
     ...forbiddenKeys(v, also, `${at}.${k}`),
   ]);
+}
+
+/** The id of the output `v5Workflow`'s End delivers. */
+export const DONE_OUTPUT = "out-done";
+
+/** The manual trigger `v5Workflow` gives a workflow with none of its own. */
+export const MANUAL_TRIGGER = { id: "trg-manual", on: { type: "manual", input: {} } } as const;
+
+/**
+ * A v5 workflow around `list`: a manual trigger unless `triggers` says otherwise, one declared
+ * output ("Done", nothing to deliver) and, unless `end` is false or every path already ends, one
+ * End after the steps that delivers it, so it publishes. Pass `outputs` to declare others (the End then delivers all).
+ */
+export function v5Workflow(
+  list: readonly unknown[],
+  options: {
+    triggers?: readonly unknown[];
+    outputs?: readonly { id: string }[];
+    end?: boolean;
+  } = {},
+): steps.Workflow {
+  const outputs = options.outputs ?? [{ id: DONE_OUTPUT, name: "Done", kind: "nothing" }];
+  const taken = new Set<string>();
+  steps.eachStep(list as steps.Step[], ({ step }) => taken.add(step.id));
+  let endId = "end";
+  for (let n = 2; taken.has(endId); n++) endId = `end-${n}`;
+  // An End after the steps, unless every path through them already ends.
+  const needsEnd = options.end !== false && !steps.endsAlways(list as steps.Step[]);
+  return {
+    schemaVersion: 5,
+    triggers: options.triggers ?? [MANUAL_TRIGGER],
+    outputs,
+    steps: [
+      ...list,
+      ...(needsEnd
+        ? [{ id: endId, kind: "end", name: "Done", outputs: outputs.map((o) => o.id) }]
+        : []),
+    ],
+  } as unknown as steps.Workflow;
+}
+
+/**
+ * What a run that finished on an End step returns: succeeded, stopped there. Pass the End's id to
+ * pin it; without one any End the helpers name ("end", "end-<workflow>") matches.
+ */
+export function ended(nodeId?: string) {
+  return {
+    status: "succeeded" as const,
+    nodeId: nodeId ?? expect.stringMatching(/^end(-[\w-]+)?$/),
+    reason: "stop",
+  };
+}
+
+/** A Do step done by rules that calls an action (a Change or a Send waits for a person by default). */
+export function doAction(
+  id: string,
+  name: string,
+  action: string,
+  input: Record<string, unknown> = {},
+  extra: Record<string, unknown> = {},
+): steps.DoStep {
+  return {
+    id,
+    name,
+    kind: "do",
+    doneBy: "rules",
+    uses: { type: "action", action },
+    input,
+    checks: { approval: { required: "required" } },
+    ...extra,
+  } as unknown as steps.DoStep;
+}
+
+/** A Do step a person does: approve (or answer) a question; the deadline stops the run. */
+export function doPerson(
+  id: string,
+  name: string,
+  person: Record<string, unknown> = {},
+  extra: Record<string, unknown> = {},
+): steps.DoStep {
+  return {
+    id,
+    name,
+    kind: "do",
+    doneBy: "person",
+    person: {
+      mode: "approve",
+      who: "client_admin",
+      question: name,
+      deadline: { after: "1 day", ifNoAnswer: "stop" },
+      ...person,
+    },
+    ...extra,
+  } as unknown as steps.DoStep;
+}
+
+/** A Do step that tells the team (the thread, by default) and waits for nobody. */
+export function doTell(
+  id: string,
+  name: string,
+  message: string,
+  extra: Record<string, unknown> = {},
+): steps.DoStep {
+  return {
+    id,
+    name,
+    kind: "do",
+    doneBy: "rules",
+    uses: { type: "tell" },
+    tell: { to: ["lead"], channel: "inbox", message },
+    ...extra,
+  } as unknown as steps.DoStep;
 }
 
 /**
@@ -502,39 +629,23 @@ export function testBundle(name = "Records clerk"): AgentBundle {
       {
         slug: "fix-record",
         name: "Fix a record",
-        workflow: {
-          schemaVersion: 3,
-          trigger: { id: "trg-manual", on: { type: "manual", input: {} } },
-          steps: [
-            {
-              id: "update",
-              name: "Update the record",
-              kind: "action",
-              tool: TESTKIT_UPDATE_TOOL,
-              input: { id: "r1", amount: "12.00" },
-              approval: { required: "required" },
-              client: { visible: true, label: "Corrected the record" },
-            },
-            {
-              id: "confirm",
-              name: "Confirm",
-              kind: "person",
-              mode: "approve",
-              assignee: "client_admin",
-              title: "Is the record right now?",
-              timeout: "1 day",
-              onTimeout: "stop",
-            },
-            {
-              id: "internal",
-              name: "Operator note",
-              kind: "notify",
-              channel: "thread",
-              message: "Record fixed",
-              client: { visible: false },
-            },
-          ],
-        },
+        workflow: v5Workflow([
+          doAction(
+            "update",
+            "Update the record",
+            TESTKIT_UPDATE_TOOL,
+            { id: "r1", amount: "12.00" },
+            { client: { visible: true, label: "Corrected the record" } },
+          ),
+          doPerson("confirm", "Confirm", {
+            who: "client_admin",
+            question: "Is the record right now?",
+            deadline: { after: "1 day", ifNoAnswer: "stop" },
+          }),
+          doTell("internal", "Operator note", "Record fixed", {
+            client: { visible: false },
+          }),
+        ]),
       },
     ],
   } satisfies AgentBundleInput);
@@ -594,5 +705,35 @@ export class FakeWorkflowStep implements WorkflowStepLike {
     const payload = await this.onWait(name, options.type);
     this.results.set(key, payload);
     return { type: options.type, payload, timestamp: new Date() };
+  }
+}
+
+/**
+ * Publishes a version as one stored before the skill model: a step that uses a built-in skill
+ * which writes (`comms.reach-out`, `comms.converse`, the packs' readers) is refused in new work,
+ * and a stored version keeps running (invariant 3), so every step of it counts as already there
+ * (`existingFrom`). Answers as `H.call` does: 200 with the version, or 422 with the refusal.
+ */
+export async function publishStored(
+  H: ApiHarness,
+  tenantId: string,
+  agentId: string,
+  versionId: string,
+): Promise<{ status: number; json: unknown }> {
+  try {
+    const version = await withOperator(H.db, [tenantId], async (tx) =>
+      publish(tx, {
+        agentId,
+        versionId,
+        ctx: H.platform.ctx,
+        existingFrom: parseVersionBundle((await getVersion(tx, versionId)).bundle),
+      }),
+    );
+    return { status: 200, json: { version } };
+  } catch (error) {
+    return {
+      status: 422,
+      json: { error: { message: error instanceof Error ? error.message : String(error) } },
+    };
   }
 }

@@ -47,6 +47,11 @@ export interface ConnectionRef {
   config: JsonObject;
   /** The connection's matrix; its `scope` is passed through for the connector to enforce. */
   permissions: Partial<PermissionMatrix>;
+  /**
+   * The operator's switches for the connector's actions (`connector_setting.actions`), read with the
+   * connection; an action switched off is refused (`action_off`). Absent: none were switched.
+   */
+  actionSwitches?: Readonly<Record<string, boolean>> | null;
 }
 
 /**
@@ -736,6 +741,7 @@ export function defineConnector(
     credentialFields,
     permissionEntities,
     testOnly,
+    offByDefault,
     multiple,
     tools,
     askFirst,
@@ -772,6 +778,7 @@ export function defineConnector(
     // v0.12 W2-A
     ...(permissionEntities === undefined ? {} : { permissionEntities }),
     ...(testOnly === undefined ? {} : { testOnly }),
+    ...(offByDefault === undefined ? {} : { offByDefault }),
     // B-5 (docs/plan.md §1.79)
     ...(multiple === undefined ? {} : { multiple }),
   });

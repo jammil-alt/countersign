@@ -1,9 +1,10 @@
-// A build (docs/plan.md §1.108): the six phases as a stepper, the build's conversation with the
-// Builder on the left (the one conversation component, ui/chat.tsx), and the phase's work on the
-// right: the brief, the fit-gap, the draft's problems, the test plan and results, the client's
-// trial, and QA with go / no-go. Open items run under every phase. A phase that's done can be
-// looked at again; going back to it needs a reason. Used on its own page and as the agent page's
-// Build tab.
+// A build (docs/plan.md §1.108): its phases as a stepper (intake, fit-gap and the draft), the
+// build's conversation with the Builder on the left (the one conversation component, ui/chat.tsx),
+// and the phase's work on the right: the brief, the fit-gap, the draft and its problems. From the
+// draft the one move is Publish (owner, 2026-11-27), on one bar over the page; a build made before
+// in the POC test, client test or QA reads as its draft. Open items run under every phase. A phase
+// that's done can be looked at again; going back to it needs a reason. Used on its own page and as
+// the agent page's Build tab.
 
 import type { RouteSpec } from "@countersign/core";
 import {
@@ -20,8 +21,6 @@ import {
   type BuildLink,
   type BuildPhase,
   buildIssues,
-  DATA_SOURCES,
-  type Dataset,
   decisionUnreviewed,
   FIT_REASON_MIN,
   FIT_SCOPE_WORDS,
@@ -40,7 +39,6 @@ import {
   itemOpen,
   OWNER_WORDS,
   PHASE_WORDS,
-  type QaCheckId,
   SETTLE_WAYS,
   SETTLE_WORDS,
   SETUP_GUARDS,
@@ -51,7 +49,7 @@ import {
   type SetupGuard,
   type SetupKind,
   settledByStep,
-  type TestPlan,
+  shownPhase,
   withFitScope,
 } from "@countersign/core";
 import {
@@ -83,10 +81,10 @@ import { DecisionsCard } from "./decisions";
 import { type Fold, useFirstRows, useFold } from "./fold";
 import { AboutLink, FocusBar, ProposalCard } from "./issues";
 import type { DraftNowState } from "./NewBuild";
+import { PublishBar } from "./PublishBar";
 import { problemAdvice, problemWhere } from "./problems";
 import { RequirementsCard } from "./RequirementsCard";
 import { ShortText } from "./short";
-import { TryCard } from "./TryCard";
 import {
   BRIEF_STATE_TONE,
   BRIEF_STATE_WORDS,
@@ -95,9 +93,6 @@ import {
   ITEM_KIND_WORDS,
   ITEM_TONE,
   plural,
-  QA_STATE_WORDS,
-  QA_TONE,
-  SOURCE_WORDS,
   TO_BUILDER,
   VERDICT_TONE,
 } from "./words";
@@ -121,10 +116,20 @@ function retryable(error: unknown): boolean {
 export const TESTS_POLL_MS = 5000;
 
 /**
+ * A build made before in the POC test, client test or QA reads as its draft (owner, 2026-11-27),
+ * as the API reads it; this keeps the page right with an answer from before that change too.
+ */
+function asDraft(d: BuildDetail): BuildDetail {
+  const phase = shownPhase(d.build.phase);
+  return phase === d.build.phase ? d : { ...d, build: { ...d.build, phase } };
+}
+
+/**
  * The build read again, keeping the records it had where they're the same, so a panel's unsaved
  * edits of them (the brief, the fit-gap, the test plan) aren't reset by a refresh.
  */
-function sameRecords(prev: BuildDetail | null, next: BuildDetail): BuildDetail {
+function sameRecords(prev: BuildDetail | null, read: BuildDetail): BuildDetail {
+  const next = asDraft(read);
   if (!prev) return next;
   const keep = <K extends "brief" | "fitgap" | "testPlan">(k: K) =>
     JSON.stringify(prev.build[k]) === JSON.stringify(next.build[k]) ? prev.build[k] : next.build[k];
@@ -184,7 +189,9 @@ function useWorkingCopy<T extends object>(server: T): [T, Dispatch<SetStateActio
 export function BuildView({ id, embedded = false }: { id: string; embedded?: boolean }) {
   const api = useApiClient();
   const loaded = useApi(apiRoutes.opsBuild, { params: { id } });
-  const [detail, setDetail] = useState<BuildDetail | null>(loaded.data ?? null);
+  const [detail, setDetail] = useState<BuildDetail | null>(
+    loaded.data ? sameRecords(null, loaded.data) : null,
+  );
   const [viewing, setViewing] = useState<BuildPhase | null>(null);
   // FLOW-2 (QA 2026-11-19): every request on its way, not one slot. A chat turn sent while a move
   // ran cleared the one slot when it answered, and the move's button came back on while the move
@@ -337,7 +344,7 @@ export function BuildView({ id, embedded = false }: { id: string; embedded?: boo
     }
   }
 
-  const moving = busy === apiRoutes.opsMoveBuild.path || busy === apiRoutes.opsBuildClientTest.path;
+  const moving = busy === apiRoutes.opsMoveBuild.path || busy === apiRoutes.opsPublishBuild.path;
   const retrying = inFlight.some((f) => f.path === apiRoutes.opsBuildTurn.path) && !pending;
   const lastId = detail.messages.at(-1)?.id;
   const decide = (messageId: string, d: "agree" | "decline" | "undo") =>
@@ -430,6 +437,13 @@ export function BuildView({ id, embedded = false }: { id: string; embedded?: boo
         <p className="text-sm text-ink-muted">
           Not yet: {PHASE_WORDS[shown].closes.replace("Closes", "This phase closes")}
         </p>
+      ) : b.phase === "draft" ? (
+        <PublishBar
+          reasons={detail.gate.reasons}
+          busy={isBusy(busy)}
+          publishing={busy === apiRoutes.opsPublishBuild.path}
+          onPublish={() => void act(apiRoutes.opsPublishBuild, { params: { id } })}
+        />
       ) : null}
       {error ? (
         <div ref={errorBox} className="flex flex-col gap-2" data-testid="build-error">
@@ -792,9 +806,9 @@ const PLACEHOLDER: Record<BuildPhase, string> = {
   intake: "Describe the work, or answer the question",
   fitgap: "Ask about a verdict, or drop something from scope",
   draft: "Ask about the draft, or note something left to do",
-  poc: "Change the test data, or ask about a failure",
-  client_test: "Ask how the trial is going",
-  qa: "Ask about a check",
+  poc: "Ask about the draft, or note something left to do",
+  client_test: "Ask about the draft, or note something left to do",
+  qa: "Ask about the draft, or note something left to do",
 };
 
 /**
@@ -989,7 +1003,7 @@ function WorkingStrip({
   const label =
     busy === apiRoutes.opsDraftBuildNow.path
       ? DRAFTING_NOW
-      : busy === apiRoutes.opsMoveBuild.path
+      : busy === apiRoutes.opsMoveBuild.path || busy === apiRoutes.opsPublishBuild.path
         ? NEXT_WORKING[phase]
         : busy === apiRoutes.opsBuildTurn.path ||
             busy === apiRoutes.opsBuildProposal.path ||
@@ -1068,10 +1082,10 @@ const DRAFTING_NOW =
 const NEXT_WORKING: Record<BuildPhase, string> = {
   intake: "The Builder is giving the brief a second look, then checking it against the catalog…",
   fitgap: "The Builder is drafting the workflow from the brief and the fit-gap…",
-  draft: "The Builder is setting up the POC test…",
-  poc: "Moving on…",
-  client_test: "Moving to QA…",
-  qa: "Saving…",
+  draft: "Publishing it…",
+  poc: "Publishing it…",
+  client_test: "Publishing it…",
+  qa: "Publishing it…",
 };
 
 /** The move out of a phase: its button, off with the gate's reasons while they hold. */
@@ -1175,14 +1189,9 @@ function PhaseBody(props: {
       return <IntakePanel {...props} />;
     case "fitgap":
       return <FitGapPanel {...props} />;
-    case "draft":
+    // A build made before in the POC test, client test or QA reads as its draft.
+    default:
       return <DraftPanel {...props} />;
-    case "poc":
-      return <PocPanel {...props} />;
-    case "client_test":
-      return <ClientTestPanel {...props} />;
-    case "qa":
-      return <QaPanel {...props} />;
   }
 }
 
@@ -1194,8 +1203,7 @@ const isBusy = (busy: string | null) => busy !== null;
 const MOVES: readonly string[] = [
   apiRoutes.opsMoveBuild.path,
   apiRoutes.opsDraftBuildNow.path,
-  apiRoutes.opsBuildClientTest.path,
-  apiRoutes.opsBuildDecision.path,
+  apiRoutes.opsPublishBuild.path,
 ];
 
 /**
@@ -2050,7 +2058,7 @@ function VerdictChange({
 
 // ── 3 Draft ─────────────────────────────────────────────────────────────────────────────────────
 
-function DraftPanel({ detail, current, busy, act }: PanelProps) {
+function DraftPanel({ detail, busy, act }: PanelProps) {
   const d = detail.draft;
   const b = detail.build;
   const problems = useFirstRows(d?.problems ?? [], {
@@ -2107,19 +2115,6 @@ function DraftPanel({ detail, current, busy, act }: PanelProps) {
               {b.kind === "skill" ? "Open the skill's conversation" : "Open the workflow"}
             </Link>
           </span>
-        ) : null
-      }
-      footer={
-        current ? (
-          <Next
-            label={b.kind === "skill" ? "Move to the POC test" : "Move to the POC test"}
-            detail={detail}
-            busy={isBusy(busy)}
-            testId="build-to-poc"
-            onClick={() =>
-              void act(apiRoutes.opsMoveBuild, { params: { id: b.id }, body: { to: "poc" } })
-            }
-          />
         ) : null
       }
     >
@@ -2217,673 +2212,6 @@ function DraftSteps({ steps }: { steps: NonNullable<BuildDetail["draft"]>["steps
           </ol>
         </div>
       ))}
-    </div>
-  );
-}
-
-// ── 4 POC test ──────────────────────────────────────────────────────────────────────────────────
-
-function PocPanel({ detail, current, busy, act, onAbout }: PanelProps) {
-  const b = detail.build;
-  const id = b.id;
-  const [plan, setPlan] = useWorkingCopy<TestPlan>(b.testPlan);
-  const dirty = JSON.stringify(plan) !== JSON.stringify(b.testPlan);
-  const poc = detail.poc;
-  const clients = useApi(
-    apiRoutes.opsClients,
-    b.kind === "agent" && !b.client ? { query: { view: "names" } } : null,
-  );
-  const [clientId, setClientId] = useState("");
-  const setRow = (i: number, patch: Partial<Dataset>) =>
-    setPlan((p) => ({ datasets: p.datasets.map((d, j) => (j === i ? { ...d, ...patch } : d)) }));
-  return (
-    <div className="flex flex-col gap-5">
-      {/* builder-plan.md B1: real examples first; model-made cases stay below. */}
-      <TryCard
-        detail={detail}
-        live={current}
-        busy={isBusy(busy)}
-        act={act}
-        {...(onAbout ? { onWrong: onAbout } : {})}
-      />
-      <Card
-        testId="build-test-plan"
-        title="Test data plan"
-        meta={
-          <span className="text-sm text-ink-muted">
-            Synthetic data, on the Sandbox. Nothing is written anywhere.
-          </span>
-        }
-        footer={
-          current ? (
-            <div className="flex flex-wrap gap-2">
-              {dirty ? (
-                <>
-                  <Button
-                    size="sm"
-                    disabled={isBusy(busy)}
-                    onClick={() =>
-                      void act(apiRoutes.opsUpdateBuild, {
-                        params: { id },
-                        body: { testPlan: plan },
-                      })
-                    }
-                    data-testid="build-plan-save"
-                  >
-                    Save the plan
-                  </Button>
-                  <Button size="sm" variant="ghost" onClick={() => setPlan(b.testPlan)}>
-                    Undo changes
-                  </Button>
-                </>
-              ) : null}
-              <Button
-                size="sm"
-                variant="ghost"
-                onClick={() =>
-                  setPlan((p) => ({
-                    datasets: [
-                      ...p.datasets,
-                      {
-                        id: `data-${p.datasets.length + 1}`,
-                        name: "",
-                        count: 5,
-                        covers: "",
-                        source: "generate",
-                      },
-                    ],
-                  }))
-                }
-              >
-                Add a dataset
-              </Button>
-              {poc?.mode === "suite" ? (
-                <>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    disabled={isBusy(busy) || dirty}
-                    working={busy === apiRoutes.opsBuildCases.path}
-                    onClick={() => void act(apiRoutes.opsBuildCases, { params: { id } })}
-                    data-testid="build-make-cases"
-                  >
-                    {busy === apiRoutes.opsBuildCases.path
-                      ? "Making the cases…"
-                      : "Make the test cases"}
-                  </Button>
-                  <Button
-                    size="sm"
-                    disabled={isBusy(busy) || (poc?.cases ?? 0) === 0}
-                    working={busy === apiRoutes.opsBuildRunTests.path}
-                    onClick={() => void act(apiRoutes.opsBuildRunTests, { params: { id } })}
-                    data-testid="build-run-cases"
-                  >
-                    Run the test cases
-                  </Button>
-                </>
-              ) : null}
-            </div>
-          ) : null
-        }
-      >
-        {plan.datasets.length === 0 ? (
-          <p className="px-6 py-5 text-sm text-ink-muted">
-            The Builder plans the test data when the draft has no problems left.
-          </p>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-line bg-surface-subtle text-left text-xs text-ink-muted">
-                  <th className="px-4 py-2.5 font-medium">Data</th>
-                  <th className="px-4 py-2.5 text-right font-medium">How many</th>
-                  <th className="px-4 py-2.5 font-medium">Must cover</th>
-                  <th className="px-4 py-2.5 font-medium">Source</th>
-                </tr>
-              </thead>
-              <tbody>
-                {plan.datasets.map((d, i) => (
-                  <tr
-                    key={d.id}
-                    className="border-b border-line align-top last:border-b-0"
-                    data-testid={`build-dataset-${d.id}`}
-                  >
-                    <td className="px-4 py-3">
-                      {current ? (
-                        <TextInput
-                          aria-label="Data"
-                          value={d.name}
-                          onChange={(e) => setRow(i, { name: e.target.value })}
-                        />
-                      ) : (
-                        d.name
-                      )}
-                    </td>
-                    <td className="figures px-4 py-3 text-right">
-                      {current ? (
-                        <TextInput
-                          aria-label="How many"
-                          type="number"
-                          min={1}
-                          max={200}
-                          className="w-20"
-                          value={d.count}
-                          onChange={(e) =>
-                            setRow(i, {
-                              count: Math.max(1, Math.min(200, Number(e.target.value) || 1)),
-                            })
-                          }
-                        />
-                      ) : (
-                        d.count
-                      )}
-                    </td>
-                    <td className="px-4 py-3 text-ink-muted">
-                      {current ? (
-                        <TextInput
-                          aria-label="Must cover"
-                          value={d.covers}
-                          onChange={(e) => setRow(i, { covers: e.target.value })}
-                        />
-                      ) : (
-                        d.covers
-                      )}
-                    </td>
-                    <td className="px-4 py-3">
-                      <fieldset className="ds-seg" aria-label="Source" disabled={!current}>
-                        {DATA_SOURCES.map((s) => (
-                          <button
-                            key={s}
-                            type="button"
-                            aria-pressed={d.source === s}
-                            onClick={() => setRow(i, { source: s })}
-                          >
-                            {SOURCE_WORDS[s]}
-                          </button>
-                        ))}
-                      </fieldset>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </Card>
-
-      {poc ? (
-        <Card
-          testId="build-poc-results"
-          title={poc.mode === "suite" ? "Test results" : "Test runs"}
-          meta={
-            <Badge tone={poc.passed ? "positive" : "warning"}>
-              {poc.passed ? "Passing" : "Not passing yet"}
-            </Badge>
-          }
-        >
-          <div className="flex flex-col gap-3 px-6 py-5 text-sm">
-            <p className="text-ink" data-testid="build-poc-detail">
-              {poc.detail}
-            </p>
-            {poc.mode === "suite" ? (
-              <p className="text-ink-muted">
-                {plural(poc.cases, "case")} · {poc.required} required
-                {poc.latest ? ` · latest run ${poc.latest.passed} of ${poc.latest.total} pass` : ""}
-              </p>
-            ) : poc.testRuns ? (
-              <p className="text-ink-muted">
-                {plural(poc.testRuns.total, "test run")} of the latest version ·{" "}
-                {poc.testRuns.succeeded} passed.{" "}
-                {b.agentId ? (
-                  <Link
-                    to={`/ops/agents/${b.agentId}`}
-                    className="font-medium text-slate hover:underline"
-                  >
-                    Test-run it on the agent page
-                  </Link>
-                ) : null}
-              </p>
-            ) : null}
-          </div>
-          {poc.failures.length > 0 ? (
-            <ul className="flex flex-col border-t border-line">
-              {poc.failures.map((f) => {
-                const made = detail.items.some((i) => i.ref.testCaseId === f.caseId);
-                return (
-                  <li
-                    key={f.caseId}
-                    className="flex flex-wrap items-center justify-between gap-3 border-b border-line px-6 py-3 text-sm last:border-b-0"
-                  >
-                    <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-                      <span className="text-ink">
-                        {f.name}{" "}
-                        <span className="text-ink-muted">
-                          · {f.status === "fail" ? "fails" : "errored"}
-                        </span>
-                      </span>
-                      {/* builder-plan.md B0: why, in its words (an error, or the fields that differ). */}
-                      {f.why ? (
-                        <span
-                          className="break-words text-ink-muted"
-                          data-testid={`build-poc-why-${f.caseId}`}
-                        >
-                          {f.why}
-                        </span>
-                      ) : null}
-                    </span>
-                    {made ? (
-                      <Badge tone="neutral">Open item</Badge>
-                    ) : (
-                      <Button
-                        size="sm"
-                        disabled={isBusy(busy)}
-                        onClick={() =>
-                          void act(apiRoutes.opsAddBuildItem, {
-                            params: { id },
-                            body: {
-                              title: `Test fails: ${f.name}`,
-                              kind: "test",
-                              ref: { testCaseId: f.caseId },
-                            },
-                          })
-                        }
-                      >
-                        Make it an issue
-                      </Button>
-                    )}
-                  </li>
-                );
-              })}
-            </ul>
-          ) : null}
-        </Card>
-      ) : null}
-
-      {current ? (
-        b.kind === "skill" ? (
-          <Next
-            label="Move to QA"
-            detail={detail}
-            busy={isBusy(busy)}
-            testId="build-to-qa"
-            onClick={() => void act(apiRoutes.opsMoveBuild, { params: { id }, body: { to: "qa" } })}
-          />
-        ) : (
-          <Next
-            label="Promote to ready to test"
-            detail={detail}
-            busy={isBusy(busy) || (!b.client && !clientId)}
-            testId="build-promote"
-            // FLOW-8 (QA 2026-11-19): off with no word why but a tooltip. Said on the page: the
-            // clients couldn't be read, there is none to test with, or none is picked yet.
-            why={
-              b.client || clientId ? null : clients.error ? (
-                <ErrorNotice error={clients.error} onRetry={clients.reload} />
-              ) : clients.loading ? null : (clients.data?.clients ?? []).length === 0 ? (
-                <>
-                  There's no client to test it with yet.{" "}
-                  <Link to="/ops/clients/new" className="font-medium text-slate hover:underline">
-                    Add a client
-                  </Link>{" "}
-                  first.
-                </>
-              ) : (
-                "Pick the client it's tested with."
-              )
-            }
-            onClick={() =>
-              void act(apiRoutes.opsBuildClientTest, {
-                params: { id },
-                body: b.client ? {} : { clientId },
-              })
-            }
-            extra={
-              b.client ? (
-                <span className="text-sm text-ink">Tested at {b.client.name}</span>
-              ) : (
-                <Select
-                  aria-label="The client it's tested with"
-                  value={clientId}
-                  onChange={(e) => setClientId(e.target.value)}
-                  data-testid="build-test-client"
-                >
-                  <option value="">Pick the client it's tested with</option>
-                  {(clients.data?.clients ?? []).map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.name}
-                    </option>
-                  ))}
-                </Select>
-              )
-            }
-          />
-        )
-      ) : null}
-    </div>
-  );
-}
-
-// ── 5 Client test ───────────────────────────────────────────────────────────────────────────────
-
-function ClientTestPanel({ detail, current, busy, act }: PanelProps) {
-  const t = detail.clientTest;
-  const id = detail.build.id;
-  const [reason, setReason] = useState("");
-  if (!t) {
-    return (
-      <Card title="Client test" pad>
-        <p className="text-sm text-ink-muted">
-          The client test starts when the POC test passes: the draft is published and put at the
-          client, every write signed there.
-        </p>
-      </Card>
-    );
-  }
-  const bar = (n: number, of: number) => (
-    <div className="h-2 overflow-hidden rounded-full bg-surface-subtle" aria-hidden>
-      <span
-        className="block h-full rounded-full bg-slate"
-        style={{ width: `${Math.min(100, of > 0 ? (n / of) * 100 : 0)}%` }}
-      />
-    </div>
-  );
-  return (
-    <div className="flex flex-col gap-5">
-      <Card
-        testId="build-client-test"
-        title={`${t.client.name}, on real data`}
-        meta={
-          <Link
-            to={`/ops/agents/${t.agentId}`}
-            className="text-sm font-medium text-slate hover:underline"
-          >
-            Open the client's copy
-          </Link>
-        }
-      >
-        <div className="grid gap-4 px-6 py-5 md:grid-cols-3">
-          <div className="flex flex-col gap-1.5 rounded-md border border-line px-4 py-3">
-            <span className="text-xs text-ink-muted">Stage</span>
-            <span className="type-subheading text-ink">
-              {t.stage ? STAGE_WORDS[t.stage] : "Not started"}
-            </span>
-          </div>
-          {t.trial ? (
-            <>
-              <div className="flex flex-col gap-1.5 rounded-md border border-line px-4 py-3">
-                <span className="text-xs text-ink-muted">Days</span>
-                <span className="figures type-subheading text-ink">
-                  {t.trial.days} of {t.trial.minDays}
-                </span>
-                {bar(t.trial.days, t.trial.minDays)}
-              </div>
-              <div className="flex flex-col gap-1.5 rounded-md border border-line px-4 py-3">
-                <span className="text-xs text-ink-muted">Runs</span>
-                <span className="figures type-subheading text-ink">
-                  {t.trial.runs} of {t.trial.minRuns}
-                </span>
-                {bar(t.trial.runs, t.trial.minRuns)}
-              </div>
-            </>
-          ) : null}
-        </div>
-        <p
-          className="border-t border-line px-6 py-3 text-sm text-ink"
-          data-testid="build-client-writes"
-        >
-          {t.writes.signed} signed · {t.writes.rejected} rejected · {t.writes.waiting} waiting on
-          the client
-        </p>
-      </Card>
-      {t.rejections.length > 0 ? (
-        <Card title="What the client rejected" meta={plural(t.rejections.length, "write")}>
-          <ul className="flex flex-col">
-            {t.rejections.map((r) => {
-              const made = detail.items.some((i) => i.ref.actionId === r.actionId);
-              return (
-                <li
-                  key={r.actionId}
-                  className="flex flex-wrap items-center justify-between gap-3 border-b border-line px-6 py-3 text-sm last:border-b-0"
-                >
-                  <span className="min-w-0 text-ink">
-                    {r.reason ? `"${r.reason}"` : "No reason given"}{" "}
-                    <span className="text-ink-muted">· {r.tool}</span>
-                  </span>
-                  {made ? (
-                    <Badge tone="neutral">Open item</Badge>
-                  ) : (
-                    <Button
-                      size="sm"
-                      disabled={isBusy(busy)}
-                      onClick={() =>
-                        void act(apiRoutes.opsAddBuildItem, {
-                          params: { id },
-                          body: {
-                            title: `Rejected: ${r.reason ?? r.tool}`,
-                            kind: "feedback",
-                            owner: "operator",
-                            ref: { actionId: r.actionId, ...(r.runId ? { runId: r.runId } : {}) },
-                          },
-                        })
-                      }
-                    >
-                      Make it an issue
-                    </Button>
-                  )}
-                </li>
-              );
-            })}
-          </ul>
-        </Card>
-      ) : null}
-      {current ? (
-        detail.gate.reasons.length === 0 ? (
-          <Next
-            label="Move to QA"
-            detail={detail}
-            busy={isBusy(busy)}
-            testId="build-to-qa"
-            onClick={() => void act(apiRoutes.opsMoveBuild, { params: { id }, body: { to: "qa" } })}
-          />
-        ) : (
-          <div className="flex flex-wrap items-center gap-2" data-testid="build-skip-trial">
-            <span className="text-sm text-ink-muted">
-              {detail.gate.reasons.join(" ")} Move on anyway:
-            </span>
-            <TextInput
-              aria-label="Why it moves on"
-              placeholder="Why it moves on"
-              className="w-auto min-w-0 flex-1"
-              value={reason}
-              onChange={(e) => setReason(e.target.value)}
-            />
-            <Button
-              size="sm"
-              disabled={isBusy(busy) || !reason.trim()}
-              onClick={() =>
-                void act(apiRoutes.opsMoveBuild, {
-                  params: { id },
-                  body: { to: "qa", reason: reason.trim() },
-                })
-              }
-            >
-              Move to QA
-            </Button>
-          </div>
-        )
-      ) : null}
-    </div>
-  );
-}
-
-const STAGE_WORDS = {
-  bench: "On the bench",
-  trial: "In trial",
-  signoff: "Waiting for sign-off",
-  live: "Live",
-} as const;
-
-// ── 6 QA and go / no-go ─────────────────────────────────────────────────────────────────────────
-
-function QaPanel({ detail, current, busy, act }: PanelProps) {
-  const b = detail.build;
-  const id = b.id;
-  const [accepting, setAccepting] = useState<QaCheckId | null>(null);
-  const [reason, setReason] = useState("");
-  const [noGo, setNoGo] = useState<{ to: BuildPhase | ""; reason: string }>({ to: "", reason: "" });
-  const signed = !!b.qa.signedAt;
-  const earlier = detail.phases.filter((p) => p.phase !== "qa");
-  return (
-    <div className="flex flex-col gap-5">
-      <Card testId="build-qa" title="QA checklist">
-        <ul className="flex flex-col">
-          {detail.qaChecks.map((c) => (
-            <li
-              key={c.id}
-              className="flex flex-col gap-2 border-b border-line px-6 py-3 text-sm last:border-b-0"
-              data-testid={`build-qa-${c.id}`}
-            >
-              <div className="flex flex-wrap items-start justify-between gap-3">
-                <span className="min-w-0">
-                  <span className="text-ink">{c.label}</span>
-                  <span className="block text-xs text-ink-muted">
-                    {c.reason ? `Accepted: "${c.reason}"` : c.detail}
-                  </span>
-                </span>
-                <span className="flex items-center gap-2">
-                  <Badge tone={QA_TONE[c.state]}>{QA_STATE_WORDS[c.state]}</Badge>
-                  {current && c.state === "fail" && !signed ? (
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      onClick={() => setAccepting(accepting === c.id ? null : c.id)}
-                    >
-                      Accept
-                    </Button>
-                  ) : null}
-                </span>
-              </div>
-              {accepting === c.id ? (
-                <div className="flex flex-wrap gap-2">
-                  <TextInput
-                    aria-label="Why it's accepted"
-                    placeholder="Why it's accepted"
-                    className="w-auto min-w-0 flex-1"
-                    value={reason}
-                    onChange={(e) => setReason(e.target.value)}
-                  />
-                  <Button
-                    size="sm"
-                    disabled={isBusy(busy) || !reason.trim()}
-                    onClick={async () => {
-                      if (
-                        await act(apiRoutes.opsBuildQa, {
-                          params: { id },
-                          body: { accept: c.id, reason: reason.trim() },
-                        })
-                      ) {
-                        setAccepting(null);
-                        setReason("");
-                      }
-                    }}
-                  >
-                    Accept it
-                  </Button>
-                </div>
-              ) : null}
-            </li>
-          ))}
-        </ul>
-      </Card>
-      <Card title="Go / no-go" testId="build-decision">
-        <div className="flex flex-col gap-4 px-6 py-5 text-sm">
-          <p className="text-ink">
-            {signed ? "QA is signed." : "QA isn't signed yet."}{" "}
-            {detail.clientTest
-              ? detail.clientTest.stage === "live"
-                ? `${detail.clientTest.client.name}'s copy is live.`
-                : `It goes live when ${detail.clientTest.client.name} signs off: the go-live sign-off is on their Desk.`
-              : null}
-          </p>
-          {current ? (
-            <div className="flex flex-wrap gap-2">
-              {!signed ? (
-                <Button
-                  variant="primary"
-                  disabled={isBusy(busy) || detail.qaChecks.some((c) => c.state === "fail")}
-                  onClick={() =>
-                    void act(apiRoutes.opsBuildQa, { params: { id }, body: { sign: true } })
-                  }
-                  data-testid="build-sign-qa"
-                >
-                  Sign QA
-                </Button>
-              ) : (
-                <Button
-                  variant="primary"
-                  disabled={isBusy(busy) || detail.gate.reasons.length > 0}
-                  onClick={() =>
-                    void act(apiRoutes.opsBuildDecision, { params: { id }, body: { go: true } })
-                  }
-                  data-testid="build-go"
-                >
-                  Go live
-                </Button>
-              )}
-            </div>
-          ) : null}
-          {/* FLOW-3 (QA 2026-11-19): Go live was off with no word why. The gate's reasons, as
-              `Next` says them. */}
-          {current && signed && detail.gate.reasons.length > 0 ? (
-            <ul
-              className="flex flex-col gap-0.5 text-sm text-ink-muted"
-              data-testid="build-go-reasons"
-            >
-              {detail.gate.reasons.map((r) => (
-                <li key={r}>{r}</li>
-              ))}
-            </ul>
-          ) : null}
-          {current ? (
-            <div className="flex flex-wrap items-center gap-2 border-t border-line pt-4">
-              <span className="text-ink-muted">No-go: back to</span>
-              <Select
-                aria-label="Back to"
-                value={noGo.to}
-                onChange={(e) => setNoGo((n) => ({ ...n, to: e.target.value as BuildPhase }))}
-              >
-                <option value="">a phase…</option>
-                {earlier.map((p) => (
-                  <option key={p.phase} value={p.phase}>
-                    {p.label}
-                  </option>
-                ))}
-              </Select>
-              <TextInput
-                aria-label="Why not"
-                placeholder="Why not"
-                className="w-auto min-w-0 flex-1"
-                value={noGo.reason}
-                onChange={(e) => setNoGo((n) => ({ ...n, reason: e.target.value }))}
-              />
-              <Button
-                size="sm"
-                disabled={isBusy(busy) || !noGo.to || !noGo.reason.trim()}
-                onClick={() =>
-                  noGo.to &&
-                  void act(apiRoutes.opsBuildDecision, {
-                    params: { id },
-                    body: { go: false, to: noGo.to, reason: noGo.reason.trim() },
-                  })
-                }
-                data-testid="build-no-go"
-              >
-                No-go
-              </Button>
-            </div>
-          ) : null}
-        </div>
-      </Card>
     </div>
   );
 }

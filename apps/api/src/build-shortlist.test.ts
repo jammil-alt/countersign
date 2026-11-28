@@ -39,17 +39,20 @@ const draft = {
             slug: "main",
             name: "Fix a record",
             workflow: {
-              schemaVersion: 4,
+              schemaVersion: 5,
               triggers: [{ id: "t", on: { type: "manual", input: {} } }],
+              outputs: [{ id: "out-done", name: "Done", kind: "nothing" }],
               steps: [
                 {
                   id: "update",
-                  kind: "write",
                   name: "Update the record",
-                  tool: TESTKIT_UPDATE_TOOL,
-                  input: { id: "r1", amount: "12.00" },
                   checks: { approval: { required: "required" } },
+                  kind: "do",
+                  doneBy: "rules",
+                  uses: { type: "action", action: TESTKIT_UPDATE_TOOL },
+                  input: { id: "r1", amount: "12.00" },
                 },
+                { id: "end", kind: "end", name: "Done", outputs: ["out-done"] },
               ],
             },
           },
@@ -111,7 +114,9 @@ describe.skipIf(!h)("the Builder's two rounds", () => {
       const content = req.messages[0]?.content as string;
       const from = content.indexOf("<current_bundle>") + "<current_bundle>".length;
       const bundle = JSON.parse(content.slice(from, content.indexOf("</current_bundle>")));
-      return { toolUse: { name: "submit_turn", input: { text: "Noted.", bundle } } };
+      return {
+        toolUse: { name: "submit_turn", input: { text: "Noted.", bundle } },
+      };
     };
     const from = model.requests.length;
     model.push(

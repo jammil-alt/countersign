@@ -22,6 +22,7 @@ import {
   admin,
   allowForAgent,
   createApiHarness,
+  ended,
   FakeWorkflowStep,
   OPERATOR,
 } from "./api.test-helper";
@@ -234,29 +235,34 @@ describe.skipIf(!h)("Ramp and HubSpot through the API", () => {
             slug: "main",
             name: "Main",
             workflow: {
-              schemaVersion: 3,
-              trigger: { id: "trg-manual", on: { type: "manual", input: {} } },
+              schemaVersion: 5,
+              triggers: [{ id: "trg-manual", on: { type: "manual", input: {} } }],
+              outputs: [{ id: "out-done", name: "Done", kind: "nothing" }],
               steps: [
                 {
                   id: "read",
                   name: "Read the deal",
-                  kind: "skill",
-                  skill: HUBSPOT_TOOLS.get,
-                  input: { objectType: "deals", id: FAKE_HUBSPOT.deal },
                   client: { visible: true, label: "Read the deal" },
+                  kind: "do",
+                  doneBy: "rules",
+                  uses: { type: "action", action: "hubspot.record.get" },
+                  input: { objectType: "deals", id: FAKE_HUBSPOT.deal },
                 },
                 {
                   id: "note",
                   name: "Note the quote",
-                  kind: "action",
-                  tool: HUBSPOT_TOOLS.note,
+                  client: { visible: true, label: "Noted the quote on the deal" },
+                  checks: { approval: { required: "required" } },
+                  kind: "do",
+                  doneBy: "rules",
+                  uses: { type: "action", action: HUBSPOT_TOOLS.note },
                   input: {
                     objectType: "deals",
                     recordId: "{{steps.read.output.record.id}}",
                     text: "Quote sent.",
                   },
-                  client: { visible: true, label: "Noted the quote on the deal" },
                 },
+                { id: "end", kind: "end", name: "Done", outputs: ["out-done"] },
               ],
             },
           },
@@ -307,9 +313,7 @@ describe.skipIf(!h)("Ramp and HubSpot through the API", () => {
         instances: H.instances,
         credentials: credentials(),
       };
-      expect(await executeRun(deps, params, cloudflareStepRunner(approver))).toEqual({
-        status: "succeeded",
-      });
+      expect(await executeRun(deps, params, cloudflareStepRunner(approver))).toEqual(ended());
       expect(asked).toBe(1);
       const notes = () => hubspot.objects.filter((o) => o.type === "notes");
       expect(notes()).toHaveLength(1);

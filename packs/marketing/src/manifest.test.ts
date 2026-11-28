@@ -1,15 +1,9 @@
 // The manifest adds up the pack's areas (docs/marketing-plan.md §11): it is a valid PackManifest,
 // every tool has its handler and is the pack's own read or record (never a write outside), every
-// skill uses tools that exist, every template keeps approval on, and the areas' names never clash.
+// skill uses tools that exist, and the areas' names never clash. It ships no agent template for now.
 // Later milestones' tools, skills and templates are checked here as they arrive.
 
-import {
-  type AgentBundle,
-  PackManifest,
-  SkillDefinition,
-  type Step,
-  walkSteps,
-} from "@countersign/core";
+import { PackManifest, SkillDefinition } from "@countersign/core";
 import { describe, expect, it } from "vitest";
 import {
   MARKETING_ACTIONS,
@@ -65,17 +59,8 @@ describe("the Marketing manifest", () => {
     }
   });
 
-  it("ships templates with approval on in every step (invariant 8)", () => {
-    for (const t of marketingManifest.templates) {
-      const bundle: AgentBundle = t.bundle;
-      for (const wf of bundle.workflows) {
-        walkSteps(wf.workflow, ({ step }: { step: Step }) => {
-          if (step.kind === "skill" || step.kind === "action") {
-            expect(step.approval?.required ?? "required", `${t.slug} ${step.id}`).toBe("required");
-          }
-        });
-      }
-    }
+  it("ships no agent template until the agent set is built again in the step model", () => {
+    expect(marketingManifest.templates).toEqual([]);
   });
 
   it("adds up its areas, each name once", () => {

@@ -9,7 +9,7 @@
 // with the reason and reported once.
 
 import { closeRunApprovalsTx } from "@countersign/agents";
-import { isPlainObject } from "@countersign/core";
+import { isPlainObject, readTestPeople, TEST_PEOPLE_TRIGGER } from "@countersign/core";
 import {
   activeClient,
   agent,
@@ -76,7 +76,13 @@ export interface Reconciled {
 
 /** A run's start parameters, from its row: what the API or the dispatcher started it with. */
 export function paramsOfRow(r: typeof run.$inferSelect): RunParams {
-  const { payload, range, ...trigger } = (r.trigger ?? {}) as Record<string, unknown>;
+  const {
+    payload,
+    range,
+    [TEST_PEOPLE_TRIGGER]: _people,
+    ...trigger
+  } = (r.trigger ?? {}) as Record<string, unknown>;
+  const testPeople = r.mode === "test" ? readTestPeople(r.trigger) : null;
   return {
     runId: r.id,
     tenantId: r.tenantId,
@@ -89,6 +95,8 @@ export function paramsOfRow(r: typeof run.$inferSelect): RunParams {
     ...(r.retryOf ? { retryOf: r.retryOf, resumeFrom: r.resumeFrom ?? null } : {}),
     // A test of some of the steps (docs/plan.md §1.185), kept with the trigger.
     ...(isPlainObject(range) ? { range: range as RunRange } : {}),
+    // Owner, 2026-11-27: the test person, kept with the trigger too.
+    ...(testPeople ? { testPeople } : {}),
   };
 }
 

@@ -38,14 +38,17 @@ const outOfOrder = {
       slug: "main",
       name: "Main",
       workflow: {
-        schemaVersion: 4,
+        schemaVersion: 5,
         triggers: [{ id: "t", on: { type: "manual", input: {} } }],
+        outputs: [{ id: "out-done", name: "Done", kind: "nothing" }],
         steps: [
           {
             id: "tell",
-            kind: "notify",
             name: "Tell",
-            notify: {
+            kind: "do",
+            doneBy: "rules",
+            uses: { type: "tell" },
+            tell: {
               to: ["client_admin"],
               channel: "inbox",
               message:
@@ -54,16 +57,20 @@ const outOfOrder = {
           },
           {
             id: "ask",
-            kind: "person",
             name: "Ask",
-            mode: "ask",
-            assignee: "client_admin",
-            title: "Which vendor?",
-            payload: {},
-            deadline: { after: "1 day" },
-            channel: "inbox",
-            onReject: "stop",
+            kind: "do",
+            doneBy: "person",
+            person: {
+              mode: "ask",
+              who: "client_admin",
+              question: "Which vendor?",
+              show: {},
+              deadline: { after: "1 day", hours: "clock", ifNoAnswer: "stop" },
+              channel: "inbox",
+              onReject: "stop",
+            },
           },
+          { id: "end", kind: "end", name: "Done", outputs: ["out-done"] },
         ],
       },
     },

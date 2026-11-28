@@ -4,25 +4,23 @@
 // draft is made and when it moves to the POC test. A client copy forked from the template carries
 // it; each client's progress is the copy's (`apps/api/src/setup/checklist.ts`).
 
-import { convertLookup } from "@countersign/agents";
 import {
-  AnyAgentBundle,
+  AgentBundle,
   buildSetupItems,
   deepEqual,
-  draftWriteUses,
   type FitGap,
   parseSkillRef,
-  processes,
   type SetupItem,
   type SkillDefinition,
   settingForDecision,
-  toProcessBundle,
+  stepModelWriteUses,
+  steps,
 } from "@countersign/core";
 import type { Services } from "../http";
 
 /**
  * The checklist for a draft's latest bundle (stored, as `agent_version.bundle` holds it), from the
- * build's fit-gap record. Null when the bundle doesn't read as processes: then nothing is saved.
+ * build's fit-gap record. Null when the bundle doesn't read: then nothing is saved.
  */
 export function draftSetupItems(
   services: Pick<Services, "platform">,
@@ -30,12 +28,9 @@ export function draftSetupItems(
   stored: unknown,
 ): SetupItem[] | null {
   const { platform } = services;
-  let bundle: ReturnType<typeof toProcessBundle>;
+  let bundle: AgentBundle;
   try {
-    bundle = toProcessBundle(
-      AnyAgentBundle.parse(stored),
-      convertLookup(platform.catalog, platform.tools),
-    );
+    bundle = AgentBundle.parse(stored);
   } catch {
     return null;
   }
@@ -47,16 +42,14 @@ export function draftSetupItems(
     if (def) skills[ref] = def;
   };
   for (const s of bundle.definition.skills) addSkill(s.skill);
-  for (const w of bundle.workflows) {
-    for (const { step } of processes.allSteps(w.workflow)) {
-      if (step.kind === "skill") addSkill(step.skill);
-    }
+  for (const ref of bundle.workflows.flatMap((w) => steps.stepModelSkills(w.workflow))) {
+    addSkill(ref);
   }
   const tools = platform.tools.specs();
   return buildSetupItems({
     form: fitgap.setup,
     decisions: fitgap.decisions,
-    writes: draftWriteUses(bundle, { tools, skills }),
+    writes: stepModelWriteUses(bundle, tools),
     connectors: platform.connectors.list().map((c) => ({
       id: c.manifest.id,
       name: c.manifest.name,

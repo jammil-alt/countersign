@@ -28,7 +28,7 @@ function documentBundle(): AgentBundle {
         ...wf,
         workflow: {
           ...wf.workflow,
-          trigger: { id: "trg-read", on: { type: "event", event: "document.extracted" } },
+          triggers: [{ id: "trg-read", on: { type: "event", event: "document.extracted" } }],
         },
       },
     ],

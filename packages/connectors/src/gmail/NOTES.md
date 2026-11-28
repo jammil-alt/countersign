@@ -132,7 +132,7 @@ Google's review:
 - Replying inside an existing Gmail thread (`threadId`, `In-Reply-To`, `References`): each reach-out
   email starts its own thread.
 - Send-as aliases and a display name in `From`: we send as the bare connected address.
-- HTML: plain text only, like `email.send` (PDFs and images can be attached, P-3).
+- HTML: plain text only, like `resend.send` (PDFs and images can be attached, P-3).
 - Counting sends against Gmail's daily limits, and bounces (they arrive in the mailbox, which we
   can't read).
 - More than one Gmail connection per client: v1 keeps one connection per connector per client, so a

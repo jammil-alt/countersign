@@ -2,6 +2,10 @@
 // The phases and their words, the records each phase keeps (the brief, the fit-gap, the test plan,
 // the QA record), the open items, and the gates: what must be true to move on. The API and the
 // screen share these, so the screen says why a move is off with the server's own reasons.
+//
+// Owner (2026-11-27): "go from draft to publish". A build is moved through intake, fit-gap and
+// its draft; from the draft its one move is Publish, which ends the build. The POC test, client
+// test and QA phases stay in the stored enum for the builds made before; they read as the draft.
 
 import { z } from "zod";
 import { SetupGuard } from "../setup/item";
@@ -23,7 +27,10 @@ export type BuildStatus = z.infer<typeof BuildStatus>;
 export const PHASE_WORDS: Record<BuildPhase, { label: string; closes: string }> = {
   intake: { label: "Intake", closes: "Closes when you confirm the brief." },
   fitgap: { label: "Fit-gap", closes: "Closes when you agree the direction; the draft is made." },
-  draft: { label: "Draft", closes: "Closes when the draft has no missing or invalid steps." },
+  draft: {
+    label: "Draft",
+    closes: "Closes when it is published, with no missing or invalid steps.",
+  },
   poc: { label: "POC test", closes: "Closes when every required test passes." },
   client_test: {
     label: "Client test",
@@ -32,20 +39,33 @@ export const PHASE_WORDS: Record<BuildPhase, { label: string; closes: string }> 
   qa: { label: "QA and go / no-go", closes: "Closes when QA is signed and the client signs off." },
 };
 
-/** The phases a build goes through: a skill is tested inside the agents that use it. */
-// DECISION: a skill build skips the client test (plan §1.108).
-export function phasesOf(kind: BuildKind): readonly BuildPhase[] {
-  return kind === "skill" ? BUILD_PHASES.filter((p) => p !== "client_test") : BUILD_PHASES;
+/** The phases a build is moved through (owner, 2026-11-27): from the draft it is published. */
+export const OPEN_PHASES = ["intake", "fitgap", "draft"] as const satisfies readonly BuildPhase[];
+
+/** A phase no build moves to any more: the POC test, the client test and QA. */
+export function retiredPhase(phase: BuildPhase): boolean {
+  return !(OPEN_PHASES as readonly BuildPhase[]).includes(phase);
 }
 
+/** The phase a build reads as: one stored in a retired phase reads as its draft. */
+export function shownPhase(phase: BuildPhase): BuildPhase {
+  return retiredPhase(phase) ? "draft" : phase;
+}
+
+/** The phases a build goes through, an agent's and a skill's alike. */
+export function phasesOf(_kind: BuildKind): readonly BuildPhase[] {
+  return OPEN_PHASES;
+}
+
+/** The phase after this one; none after the draft, which is published instead. */
 export function nextPhase(kind: BuildKind, phase: BuildPhase): BuildPhase | null {
   const list = phasesOf(kind);
-  const i = list.indexOf(phase);
+  const i = list.indexOf(shownPhase(phase));
   return i >= 0 && i < list.length - 1 ? (list[i + 1] ?? null) : null;
 }
 
 export function phaseIndex(kind: BuildKind, phase: BuildPhase): number {
-  return phasesOf(kind).indexOf(phase);
+  return phasesOf(kind).indexOf(shownPhase(phase));
 }
 
 // ── Intake: the brief ────────────────────────────────────────────────────────────────────────────
@@ -636,13 +656,6 @@ export function changeDecisionWords(
   return decisions.map((x, k) => (k === i ? next : x));
 }
 
-/** "2 high-risk decisions haven't been looked at yet." */
-export function unreviewedWords(n: number): string {
-  return n === 1
-    ? "1 high-risk decision hasn't been looked at yet."
-    : `${n} high-risk decisions haven't been looked at yet.`;
-}
-
 /** Decisions as stored: a row that no longer reads is left out rather than losing the record. */
 function readDecisions(raw: unknown): Decision[] {
   if (!Array.isArray(raw)) return [];
@@ -1039,7 +1052,7 @@ export function withNote(detail: string, note: string, max = 2000): string {
 
 // ── Gates ───────────────────────────────────────────────────────────────────────────────────────
 
-/** What a gate reads: the build's records and what the API read about its draft and tests. */
+/** What a gate reads: the build's records and what the API read about its draft. */
 export interface GateFacts {
   kind: BuildKind;
   phase: BuildPhase;
@@ -1049,25 +1062,19 @@ export interface GateFacts {
   draft: boolean;
   /** The draft's latest version's validation errors (missing steps included). */
   draftErrors: number;
-  /** The POC passed (suite or test run), and why not. */
-  poc: { passed: boolean; detail: string };
-  /** The copy under test reached sign-off or live. */
-  trialDone: boolean;
-  qaSigned: boolean;
-  /** Items not done and not put off. */
-  openItems: number;
 }
 
 /**
- * Why the build can't move on from its phase (empty: it can). Moving back needs no gate. Open
- * items carry over from phase to phase; they hold only the go-live.
+ * Why the build can't move on from its phase (empty: it can); in the draft, why it can't be
+ * published. Moving back needs no gate. Open items and decisions don't hold Publish.
  */
-// DECISION (owner, 2026-11-17, happy path first): open items no longer hold the POC test. A
-// question such as a tolerance is answered by what the POC shows, so it can't be a reason not to
-// run one; the client's trial signs every write, and QA still needs every item done or put off.
+// DECISION (owner, 2026-11-27, "just go from draft to publish"): the draft's gate is the only one
+// after the fit-gap. No tests, trial, QA sign-off or rollback version are asked for: a client's
+// agent is tried with the client's real data and systems in its own go-live stages after it is
+// published (bench, then a trial that signs every write, then sign-off).
 export function gateReasons(f: GateFacts): string[] {
   const out: string[] = [];
-  switch (f.phase) {
+  switch (shownPhase(f.phase)) {
     case "intake":
       for (const key of BRIEF_REQUIRED) {
         const field = f.brief[key];
@@ -1090,7 +1097,7 @@ export function gateReasons(f: GateFacts): string[] {
         }
       }
       break;
-    case "draft":
+    default:
       if (!f.draft) out.push("There is no draft yet.");
       else if (f.draftErrors > 0) {
         out.push(
@@ -1100,29 +1107,8 @@ export function gateReasons(f: GateFacts): string[] {
         );
       }
       break;
-    case "poc": {
-      if (!f.poc.passed) out.push(f.poc.detail);
-      // docs/builder-plan.md §4.2: a high-risk decision is looked at before the client test.
-      // DECISION: a skill build (no client test) is held the same way, before QA.
-      const unreviewed = f.fitgap.decisions.filter(decisionUnreviewed).length;
-      if (unreviewed > 0) out.push(unreviewedWords(unreviewed));
-      break;
-    }
-    case "client_test":
-      if (!f.trialDone) out.push("The client's trial isn't done yet.");
-      break;
-    case "qa":
-      if (!f.qaSigned) out.push("QA isn't signed yet.");
-      if (f.openItems > 0) out.push(openWords(f.openItems));
-      break;
   }
   return out;
-}
-
-function openWords(n: number): string {
-  return n === 1
-    ? "1 open item is not done or put off."
-    : `${n} open items are not done or put off.`;
 }
 
 // ── Issues and the Builder's proposals ──────────────────────────────────────────────────────────

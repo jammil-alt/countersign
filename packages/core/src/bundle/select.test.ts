@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { type AgentBundle, AgentBundle as AgentBundleSchema } from "../schemas/agent";
-import type { ForkStep, Step, Workflow } from "../schemas/workflow";
+import type { ForkStep, Step, Workflow } from "../steps/schema";
 import { bundle, edit } from "../testing/fixtures";
 import { diffBundles } from "./diff";
 import { mergeBundles } from "./merge";
@@ -12,8 +12,9 @@ const wait = (id: string): Step => ({ id, name: id.toUpperCase(), kind: "wait", 
 function base(): AgentBundle {
   const b = bundle();
   const main: Workflow = {
-    schemaVersion: 3,
-    trigger: { id: "tm", on: { type: "manual", input: { type: "object" } } },
+    schemaVersion: 5,
+    triggers: [{ id: "tm", on: { type: "manual", input: { type: "object" } } }],
+    outputs: [],
     steps: [
       wait("a"),
       {

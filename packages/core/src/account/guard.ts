@@ -4,22 +4,22 @@
 // `external` tool among its extra tools, its skills' tools and its action steps, and any
 // connection binding: Sloan sees only what the portal shows and writes only internal records.
 
+import type { ValidationError } from "../process/checks";
 import type { Step as ProcessStep } from "../process/schema";
 import { walkSteps as walkProcessSteps } from "../process/walk";
-import type { AnyAgentBundle } from "../schemas/agent";
-import type { AnyAutomationDefinition } from "../schemas/automation";
+import type { AgentBundle } from "../schemas/agent";
+import type { AutomationDefinition } from "../schemas/automation";
 import { parseSkillRef } from "../schemas/common";
 import { type SkillDefinition, skillTools } from "../schemas/skill";
 import type { ToolSpec } from "../schemas/tool";
-import type { Step } from "../schemas/workflow";
+import { mergedAction } from "../steps/catalog";
+import { eachStep } from "../steps/walk";
 import { ACCOUNT_AGENT_SLUG } from "../threads/schemas";
-import type { ValidationError } from "../workflow/validate";
-import { walkSteps } from "../workflow/walk";
 
 /** Whether the guard applies: the account agent's slug on a `platform` definition. */
 export function isAccountAgent(
   slug: string | null | undefined,
-  bundle: Pick<AnyAgentBundle, "definition">,
+  bundle: Pick<AgentBundle, "definition">,
 ): boolean {
   return slug === ACCOUNT_AGENT_SLUG && bundle.definition.kind === "platform";
 }
@@ -44,12 +44,12 @@ export function accountToolProblem(spec: ToolSpec | undefined, id: string): stri
  */
 export function accountAgentProblems(input: {
   slug: string | null | undefined;
-  bundle: AnyAgentBundle;
+  bundle: AgentBundle;
   skills: Readonly<Record<string, SkillDefinition>>;
   tools: Readonly<Record<string, ToolSpec>>;
   bindings?: Readonly<Record<string, string>> | undefined;
   /** The automations its use steps pin, by reference (W2-B); wave 3b: v3 or v4 steps. */
-  automations?: Readonly<Record<string, AnyAutomationDefinition>> | undefined;
+  automations?: Readonly<Record<string, AutomationDefinition>> | undefined;
 }): ValidationError[] {
   const { bundle, tools } = input;
   if (!isAccountAgent(input.slug, bundle)) return [];
@@ -74,14 +74,6 @@ export function accountAgentProblems(input: {
       refuse(id, `definition.skills.${i}.skill`, null);
     }
   });
-  /** A v3 step's tools: an action's, a skill's; `at` is the bundle's step that holds it. */
-  const check = (step: Step, at: { id: string; field: string }, slug: string) => {
-    if (step.kind === "action") refuse(step.tool, at.field || "tool", at.id, slug);
-    if (step.kind === "skill") {
-      const skill = input.skills[step.skill] ?? input.skills[parseSkillRef(step.skill).id];
-      for (const id of skill ? skillTools(skill) : []) refuse(id, at.field || "skill", at.id, slug);
-    }
-  };
   /** v0.12 W2-B: an automation's steps count as the step's own that pins it. */
   const opening = new Set<string>();
   const checkPinned = (ref: string, at: { id: string; field: string }, slug: string) => {
@@ -97,16 +89,11 @@ export function accountAgentProblems(input: {
     }
   };
   const checkPinnedSteps = (
-    automation: AnyAutomationDefinition,
+    automation: AutomationDefinition,
     at: { id: string; field: string },
     slug: string,
   ) => {
-    // Wave 3b: a v4 automation (schemaVersion 2) holds process steps, checked as a process's are.
-    if (automation.schemaVersion === 2) {
-      walkProcessSteps(automation, ({ step: inner }) => checkProcessStep(inner, slug, at));
-      return;
-    }
-    walkSteps({ steps: automation.steps }, ({ step: inner }) => check(inner, at, slug));
+    walkProcessSteps(automation, ({ step: inner }) => checkProcessStep(inner, slug, at));
   };
   /**
    * Wave 3b: a v4 process step's tools: a read's or a write's tool, a skill's tools, and a
@@ -149,16 +136,45 @@ export function accountAgentProblems(input: {
     }
   };
   for (const w of bundle.workflows) {
-    if (w.workflow.schemaVersion === 4) {
-      walkProcessSteps(w.workflow, ({ step }) => checkProcessStep(step, w.slug));
-      continue;
-    }
-    walkSteps(w.workflow, ({ step }) => {
-      check(step, { id: step.id, field: "" }, w.slug);
-      if (step.kind === "use_automation") {
-        checkPinned(step.automation, { id: step.id, field: "automation" }, w.slug);
+    // The step model: a Do's action or skill, a Loop's reads, an automation opened as above; a
+    // person's collect or an outside contact messages people, which the account agent never
+    // does; a write or save output is refused as its action.
+    eachStep(w.workflow.steps, ({ step }) => {
+      if (step.kind === "loop") {
+        for (const t of step.reads) refuse(t, "reads", step.id, w.slug);
+        return;
+      }
+      if (step.kind !== "do") return;
+      const uses = step.uses;
+      if (uses?.type === "action") {
+        if (mergedAction(uses.action)) {
+          errors.push({
+            stepId: step.id,
+            field: "uses.action",
+            code: "tool_not_allowed",
+            message: `the account agent only reads what the portal shows: "${uses.action}" writes to a client's tool`,
+            workflow: w.slug,
+          });
+        } else refuse(uses.action, "uses.action", step.id, w.slug);
+      } else if (uses?.type === "skill") {
+        const skill = input.skills[uses.skill] ?? input.skills[parseSkillRef(uses.skill).id];
+        for (const t of skill ? skillTools(skill) : []) refuse(t, "uses.skill", step.id, w.slug);
+      } else if (uses?.type === "automation") {
+        checkPinned(uses.automation, { id: step.id, field: "uses.automation" }, w.slug);
+      } else if (uses?.type === "collect" || step.doneBy === "contact") {
+        errors.push({
+          stepId: step.id,
+          field: "doneBy",
+          code: "tool_not_allowed",
+          message:
+            "the account agent only reads what the portal shows: a conversation messages someone outside",
+          workflow: w.slug,
+        });
       }
     });
+    for (const o of w.workflow.outputs) {
+      if (o.action) refuse(o.action.action, "action", o.id, w.slug);
+    }
   }
   if (input.bindings && Object.keys(input.bindings).length > 0) {
     errors.push({

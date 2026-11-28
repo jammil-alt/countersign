@@ -1,5 +1,5 @@
 // The Close pack's manifest (docs/plan.md §1.232), in core's one pack shape (§1.230): its tools and
-// skills for a month's close, its report screen, its configuration and the Month-end close template.
+// skills for a month's close, its report screen, and its configuration.
 // It extends the Bookkeeping area (`extends: "bookkeeping"`): the same business area, its own pack.
 
 import {
@@ -14,7 +14,6 @@ import type { PackTool } from "../pack";
 import { CLOSE_REPORTS } from "./api";
 import { CLOSE_CONFIG_FIELDS } from "./config";
 import { CLOSE_PACK_ID } from "./ids";
-import { MONTH_END_CLOSE_TEMPLATE } from "./template";
 import { CLOSE_TOOLS, checkTool, proposeTool, readyTool, writtenTool } from "./tools";
 
 const schema = (tool: PackTool, key: "input" | "output") =>
@@ -54,13 +53,15 @@ export const CLOSE_SKILLS: readonly SkillDefinition[] = lazyObjects([
   toolSkill(readyTool, {
     id: "close.entries-to-record",
     name: "Journal entries to record",
-    description: "The month's proposed journal entries, each as the QuickBooks entry it becomes.",
+    description:
+      "The month's proposed journal entries, each as the entry in the accounting system it becomes.",
     summary: "{{count}} journal entries to record",
   }),
   toolSkill(writtenTool, {
     id: "close.record-written",
     name: "Record a written entry",
-    description: "Records the QuickBooks journal entry an entry became, or what a person decided.",
+    description:
+      "Records the journal entry an entry became in the accounting system, or what a person decided.",
     summary: "Recorded the entry as {{status}}",
   }),
   toolSkill(proposeTool, {
@@ -77,7 +78,7 @@ export const closeManifest: PackManifest = lazyParse(PackManifest, () => ({
   name: "Close",
   version: "0.1.0",
   description:
-    "A month's close of the client's QuickBooks books: a checklist (accounts reconciled, nothing uncategorized or entered twice, bank transactions booked), accruals and recurring journals proposed and recorded after approval, and the month signed off by a person, with a close report in the portal.",
+    "A month's close of the client's books in the accounting system: a checklist (accounts reconciled, nothing uncategorized or entered twice, bank transactions booked), accruals and recurring journals proposed and recorded after approval, and the month signed off by a person, with a close report in the portal.",
   area: "bookkeeping",
   // §1.232: the same business area as the Bookkeeping pack, whose reconciliations it reads.
   extends: "bookkeeping",
@@ -96,7 +97,9 @@ export const closeManifest: PackManifest = lazyParse(PackManifest, () => ({
   events: [],
   tools: CLOSE_TOOLS.map((t) => t.spec),
   skills: CLOSE_SKILLS,
-  templates: [MONTH_END_CLOSE_TEMPLATE],
+  // No agent template until the Month-end close is built again in the step model (docs/step-model-plan.md
+  // §12 R0).
+  templates: [],
   screens: [
     {
       route: "/reports/close/close",

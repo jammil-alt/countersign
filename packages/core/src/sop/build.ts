@@ -16,7 +16,7 @@ import { effectiveMatrix, type GrantLimits } from "../permissions/grants";
 import { ACTION_SPECS } from "../process/actions";
 import { loopStepNumber, pathLetter, pathStepNumber } from "../process/numbers";
 import { SELF_AGENT } from "../process/schema";
-import type { AgentDefinition, AnyAgentBundle } from "../schemas/agent";
+import type { AgentBundle, AgentDefinition } from "../schemas/agent";
 import type { PermissionLevel, PermissionMatrix, Verb } from "../schemas/permissions";
 import type { Rules } from "../schemas/rules";
 import { type SkillDefinition, skillMethod, skillTools } from "../schemas/skill";
@@ -24,6 +24,7 @@ import { isAlwaysSigned, type ToolSpec } from "../schemas/tool";
 import { runModel } from "../skills/model";
 import { scheduleText } from "../triggers/schedule";
 import { type SopSay, type SopSayKey, say, sopEntityKey } from "./say";
+import { chartSteps, kindOfAction } from "./step-model";
 import type {
   SopApprover,
   SopChartKind,
@@ -74,7 +75,7 @@ export interface SopInput {
   client: string;
   /** "SOP-PUR-03": worked out by the caller from the client's agents in the area. */
   code: string;
-  bundle: AnyAgentBundle;
+  bundle: AgentBundle;
   skills: Readonly<Record<string, SkillDefinition>>;
   tools: Readonly<Record<string, ToolSpec>>;
   connections: readonly SopConnection[];
@@ -399,7 +400,10 @@ interface Visited {
 }
 
 /** The steps in run order with their numbers, and a line before each path of an `if`. */
-function walk(bundle: AnyAgentBundle): {
+function walk(
+  bundle: AgentBundle,
+  tools: Readonly<Record<string, ToolSpec>> = {},
+): {
   visited: Visited[];
   lines: (Visited | Omit<SopPathLine, "line">)[];
 } {
@@ -408,7 +412,9 @@ function walk(bundle: AnyAgentBundle): {
   const enabled = bundle.workflows.filter((w) => w.enabled !== false);
   const many = enabled.length > 1;
   for (const w of enabled) {
-    const v4 = (w.workflow as { schemaVersion: number }).schemaVersion === 4;
+    // A v5 workflow is read as the chart's kinds (`chartSteps`): the engine each Do step runs on.
+    const v5 = w.workflow.schemaVersion === 5;
+    const v4 = v5 || (w.workflow as { schemaVersion: number }).schemaVersion === 4;
     const workflow = many ? w.name : null;
     // One step, then what it holds, at any depth: an `if`'s paths, lettered A, B… then Otherwise,
     // each numbered from 1 ("5 A1"), a `for_each`'s or a `repeat`'s steps ("6.2"). The chart's
@@ -459,7 +465,10 @@ function walk(bundle: AnyAgentBundle): {
         });
       }
     };
-    ((w.workflow as { steps: unknown[] }).steps ?? []).forEach((step, i) => {
+    const top = v5
+      ? chartSteps(w.workflow.steps, kindOfAction(tools))
+      : ((w.workflow as { steps: unknown[] }).steps ?? []);
+    top.forEach((step, i) => {
       visit(step as AnyStep, String(i + 1), 0, "root");
     });
   }
@@ -593,7 +602,7 @@ function modelOf(step: AnyStep, method: SopMethod | null, input: SopInput): stri
  */
 export function sopStepModels(input: SopInput): { stepId: string; model: string }[] {
   const out: { stepId: string; model: string }[] = [];
-  for (const v of walk(input.bundle).visited) {
+  for (const v of walk(input.bundle, input.tools).visited) {
     const id = modelIdOf(v.step, methodOf(v.step, input), input);
     if (id && id !== "tool") out.push({ stepId: String(v.step.id), model: id });
   }
@@ -769,7 +778,7 @@ export function sopView(input: SopInput): SopView {
     tool.connector ? conns.find((c) => c.connector === tool.connector) : undefined;
   const systemName = (tool: ToolSpec): string | null => connFor(tool)?.name ?? null;
 
-  const { visited, lines } = walk(input.bundle);
+  const { visited, lines } = walk(input.bundle, input.tools);
   const numberOf = new Map(visited.map((v) => [v.step.id, v.number]));
 
   // Controls collected while the steps are read; numbered at the end.
@@ -1382,7 +1391,7 @@ export function sopView(input: SopInput): SopView {
       moreTriggers?: { on: Record<string, unknown> & { type: string } }[];
     };
     const list =
-      wf.schemaVersion === 4
+      wf.schemaVersion === 4 || wf.schemaVersion === 5
         ? (wf.triggers ?? [])
         : [wf.trigger, ...(wf.moreTriggers ?? [])].filter((t) => t !== undefined);
     for (const t of list) {

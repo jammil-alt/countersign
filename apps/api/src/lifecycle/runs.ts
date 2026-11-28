@@ -8,13 +8,7 @@
 // Writes behave as in any live run: behind approval, and in trial or signoff every one is signed.
 
 import { checkAgainst } from "@countersign/agents";
-import {
-  type AnyAgentBundle,
-  allTriggers,
-  type Role,
-  type RunForm,
-  uuidv7,
-} from "@countersign/core";
+import { type AgentBundle, allTriggers, type Role, type RunForm, uuidv7 } from "@countersign/core";
 import { agent, agentChange, agentVersion, event, run, type Tx } from "@countersign/db";
 import {
   eventTypesRouted,
@@ -39,7 +33,7 @@ async function clientAgent(tx: Tx, tenantId: string, agentId: string): Promise<A
   return row;
 }
 
-export async function liveBundleOf(tx: Tx, row: AgentRow): Promise<AnyAgentBundle | null> {
+export async function liveBundleOf(tx: Tx, row: AgentRow): Promise<AgentBundle | null> {
   if (!row.liveVersionId) return null;
   const [v] = await tx
     .select({ bundle: agentVersion.bundle })
@@ -53,7 +47,7 @@ export async function liveBundleOf(tx: Tx, row: AgentRow): Promise<AnyAgentBundl
   return v?.bundle ?? null;
 }
 
-function routable(row: AgentRow, bundle: AnyAgentBundle | null): RoutableAgent {
+function routable(row: AgentRow, bundle: AgentBundle | null): RoutableAgent {
   return {
     id: row.id,
     tenantId: row.tenantId,
@@ -328,10 +322,10 @@ export async function runMissedEvents(
  * A workflow's first trigger. R9: a v4 process (a template's v4 version, or its fork) lists its
  * triggers in `triggers`, so its first is read the same way.
  */
-const firstTrigger = (w: AnyAgentBundle["workflows"][number]) => allTriggers(w.workflow)[0];
+const firstTrigger = (w: AgentBundle["workflows"][number]) => allTriggers(w.workflow)[0];
 
 /** The workflows of the agent's live version the client may start, with their forms. */
-export function clientRunnable(bundle: AnyAgentBundle | null): RunForm[] {
+export function clientRunnable(bundle: AgentBundle | null): RunForm[] {
   const out: RunForm[] = [];
   for (const w of bundle?.workflows ?? []) {
     if (!w.enabled) continue;
@@ -348,7 +342,7 @@ export function clientRunnable(bundle: AnyAgentBundle | null): RunForm[] {
  */
 // DECISION (owner, 2026-11-11): any trigger counts, not only the first. AP bill clerk starts by
 // hand first and on "a document arrives" second, and its page hid the upload and forwarding card.
-export function readsDocuments(bundle: AnyAgentBundle | null): boolean {
+export function readsDocuments(bundle: AgentBundle | null): boolean {
   return (bundle?.workflows ?? []).some(
     (w) =>
       w.enabled &&
@@ -366,9 +360,9 @@ export function readsDocuments(bundle: AnyAgentBundle | null): boolean {
 // DECISION (wave 3b): 422 `no_trigger` for a workflow with no trigger (a stored draft can hold
 // one, though publishing refuses it), so no run is ever recorded without the trigger it started on.
 export function startable(
-  bundle: AnyAgentBundle | null,
+  bundle: AgentBundle | null,
   slug: string,
-): { wf: AnyAgentBundle["workflows"][number]; form: RunForm; trigger: { id: string } } {
+): { wf: AgentBundle["workflows"][number]; form: RunForm; trigger: { id: string } } {
   const wf = bundle?.workflows.find((w) => w.slug === slug);
   if (!wf) throw notFound("workflow");
   const trigger = firstTrigger(wf);

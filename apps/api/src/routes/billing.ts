@@ -236,7 +236,7 @@ async function opsClient(
   const t = await tenantBilling(tx, tenantId);
   if (!t) throw notFound("client");
   const through = today();
-  const period = through.slice(0, 7) + "-01";
+  const period = `${through.slice(0, 7)}-01`;
   const month = await monthFor(tx, { tenantId, period, through, config, billing: t.billing });
   const agents = await clientAgents(tx, tenantId);
   const [latest] = await tx

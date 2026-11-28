@@ -68,19 +68,20 @@ describe("buildIssues", () => {
         messages: [{ about: "item:b" }, { about: "item:b" }, {}] as BuildDetail["messages"],
       }),
     );
-    // In the POC test the failing case holds the move and the draft problem doesn't, as the gate
-    // says (BUILDER_QA CONS-1): the case comes first.
+    // A build made in the POC test reads as its draft: the draft problem holds Publish, as the
+    // gate says (BUILDER_QA CONS-1), and comes first; a failing case holds nothing.
     expect(issues.map((i) => i.key)).toEqual([
-      "case:k1",
       "problem:p1",
+      "case:k1",
       "item:b",
       "item:c",
       "item:a",
     ]);
+    expect(issues.filter((i) => i.blocking).map((i) => i.key)).toEqual(["problem:p1"]);
     expect(issues.find((i) => i.key === "problem:p1")?.detail).toBe("In “Pay” of “Main”");
     expect(issues.find((i) => i.key === "item:a")).toMatchObject({ open: false, state: "Done" });
     expect(issues.find((i) => i.key === "item:b")?.talk).toBe(2);
-    // QA's checklist is an issue only in QA.
+    // A build has no QA checklist any more (owner, 2026-11-27).
     expect(issues.some((i) => i.source === "check")).toBe(false);
   });
 
@@ -146,13 +147,12 @@ describe("buildIssues", () => {
     expect(step("case:k1")).toBeNull();
   });
 
-  it("takes failing and accepted QA checks in QA, and names each by its key", () => {
-    const issues = buildIssues(detail({}, "qa"));
-    expect(issues).toEqual([
-      expect.objectContaining({ key: "check:tests", open: true, blocking: true }),
-    ]);
-    expect(issueLine(issues[0] as never)).toBe(
-      "[check:tests] QA check (Fails, holds the next move): Required test cases pass. 1 fails",
-    );
+  it("lists no QA checks for a build stored in QA: it reads as its draft", () => {
+    expect(buildIssues(detail({}, "qa"))).toEqual([]);
+  });
+
+  it("names each issue by its key in the Builder's line", () => {
+    const issues = buildIssues(detail({ items: [item("b")] }, "draft"));
+    expect(issueLine(issues[0] as never)).toBe("[item:b] Open item (Open, operator): Item b");
   });
 });

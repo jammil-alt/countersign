@@ -13,16 +13,23 @@ export { NEEDS_HELP_KEY } from "@countersign/connectors";
 export * from "./build/reuse";
 export * from "./build/review";
 export * from "./build/turn";
-export * from "./builder/aliases";
 export * from "./builder/builder";
 export * from "./builder/changes";
 export * from "./builder/commands";
 export * from "./builder/context";
-export * from "./builder/conversation";
 export * from "./builder/guards";
 export * from "./builder/reshape";
 export * from "./builder/shortlist";
 export * from "./builder/skill-draft";
+export * from "./builder/step-model/answer";
+export * from "./builder/step-model/catalog";
+export * from "./builder/step-model/conversation";
+export * from "./builder/step-model/draft";
+export * from "./builder/step-model/guards";
+export * from "./builder/step-model/rules";
+export * from "./builder/step-model/suggestions";
+export * from "./builder/suggest";
+export * from "./builder/translate";
 export * from "./errors";
 // docs/plan.md §1.217: the process interview
 export * from "./interview/interviewer";
@@ -60,9 +67,11 @@ export * from "./registry/grants";
 // Hand off (owner, 2026-11-11): the client's agents a hand-off step can start.
 export * from "./registry/handoff";
 export * from "./registry/lineage";
+export * from "./registry/offered";
 export * from "./registry/people";
 export * from "./registry/runtime-store";
 export * from "./registry/skills";
+export * from "./registry/step-skills";
 export * from "./registry/tools";
 export * from "./runtime/actions";
 export * from "./runtime/attention";
@@ -79,6 +88,8 @@ export * from "./runtime/converse";
 export { documentInputFields } from "./runtime/documents";
 export * from "./runtime/json-schema";
 export * from "./runtime/model";
+// The step model: the Match port records its model calls at its step, as the runtime does.
+export { recordModelCall } from "./runtime/model-call";
 // v0.13 W2-I
 export * from "./runtime/oversee";
 export * from "./runtime/planned";
@@ -110,6 +121,8 @@ export * from "./tools/knowledge";
 export * from "./tools/ledger";
 export * from "./tools/platform";
 export * from "./tools/reach";
+// Step model §10f: the standard record actions and the port they reach records through.
+export * from "./tools/records";
 export * from "./tools/reshape";
 export * from "./tools/supervisor";
 // §1.164: Read table and Write table.

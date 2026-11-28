@@ -2,8 +2,9 @@
 // its areas (§11, the wave contract): measure (M43–M44), search (M45), content (M46), the agent
 // set (M47–M49) and the forum watch (M48). Each area's index.ts exports one AreaModule; nothing
 // here changes when an area grows.
-// DECISION (owner, 2026-11-08): the pack ships the agent set as templates, unlike Materials; until
-// those milestones there are none, so enabling it installs nothing.
+// DECISION (owner, 2026-11-08): the pack ships the agent set as templates, unlike Materials. Since
+// the step model's purge there are none until they are built again (docs/step-model-plan.md §12 R0),
+// so enabling it installs nothing.
 
 import { lazyParse, PackManifest } from "@countersign/core";
 import type { Db } from "@countersign/db";

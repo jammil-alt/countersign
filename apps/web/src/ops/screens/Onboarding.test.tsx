@@ -259,6 +259,7 @@ describe("client settings", () => {
       "Compliance",
       // Wave 6 (plan §1.86)
       "Run audit",
+      "Custom fields",
       "Exports",
       // §1.243
       "Lockdown",

@@ -36,6 +36,7 @@ export const de: Messages = {
   "common.notFoundBody": "Hier gibt es keine Seite.",
   "common.yes": "Ja",
   "common.no": "Nein",
+  "common.optional": "optional",
   "common.close": "Schließen",
 
   // ── Error pages (a page that failed to load) ──
@@ -495,6 +496,7 @@ export const de: Messages = {
   "desk.team.undoIs": "Zeit zum Rückgängigmachen: {window}.",
   "desk.approvalSettings": "Freigabe-Einstellungen",
   "change.now": "Jetzt",
+  "change.recordSave.why": "Warum es wartet",
   "change.after": "Nach der Änderung",
   "change.createsIt": "Noch nicht vorhanden: Diese Änderung legt es an.",
   "change.nothingRecorded": "Nichts erfasst.",
@@ -3973,6 +3975,14 @@ export const de: Messages = {
   "connectors.ask.send": "An Ihre Ansprechperson senden",
   "connectors.ask.sent": "Gesendet. Ihre Anfrage ansehen",
   "connectors.ask.subject": "Ein Konnektor für {tool}",
+  "requestAction.title": "Etwas anfragen",
+  "requestAction.label": "Was soll es tun?",
+  "requestAction.send": "Senden",
+  "requestAction.cancel": "Abbrechen",
+  "requestAction.thanks": "Danke. Wir haben es und melden uns, sobald es fertig ist.",
+  "requestAction.another": "Etwas anderes anfragen",
+  "requestAction.hint":
+    "Sagen Sie es mit Ihren eigenen Worten. Wir sehen es uns an und melden uns, sobald es fertig ist.",
   "connectors.browse.title": "Durchsuchen",
   "connectors.browse.search": "Konnektoren suchen",
   "connectors.browse.recommended": "Für Sie empfohlen",

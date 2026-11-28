@@ -344,6 +344,9 @@ describe("the client page", () => {
             available: true,
             clientsConnected: 1,
             tools: [],
+            actions: [],
+            syncs: [],
+            builtIn: false,
             permissionEntities: [],
             errors: { toolCalls: 0, connections: 0 },
             defaultAccess: {

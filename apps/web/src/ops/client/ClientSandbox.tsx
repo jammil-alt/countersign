@@ -4,7 +4,7 @@
 // (`…/sandbox/:runId`) shows its steps, what it would do and the notices it would send, the same
 // view the client has. "Send to me" is ours only in the Sandbox client: in a real client only the
 // client's own people send from its tools, and the server says so on each change.
-import type { AnyAgentBundle, SandboxRunSummary } from "@countersign/core";
+import type { AgentBundle, SandboxRunSummary } from "@countersign/core";
 import { useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { type AgentSummary, apiRoutes } from "../../api/routes";
@@ -30,7 +30,7 @@ import {
 } from "../agents/TestPayload";
 import { Field, Notice, Select, TextArea } from "../agents/ui";
 import { OPS_PATHS } from "../paths";
-import { parseAnyBundle } from "../versions";
+import { parseBundle } from "../versions";
 import { ClientFrame, useClientPage } from "./ClientFrame";
 
 /** How often a running sandbox run, or a list with one, is read again. */
@@ -173,7 +173,7 @@ function AgentRunForm({
         if (!version) {
           return <p className="text-sm text-ink-muted">This agent has no version to run yet.</p>;
         }
-        const parsed = parseAnyBundle(version);
+        const parsed = parseBundle(version);
         if (!parsed.ok) return <Notice tone="warning">{parsed.message}</Notice>;
         const workflows = parsed.bundle.workflows ?? [];
         if (workflows.length === 0) {
@@ -197,7 +197,7 @@ function AgentRunForm({
   );
 }
 
-type Workflows = NonNullable<AnyAgentBundle["workflows"]>;
+type Workflows = NonNullable<AgentBundle["workflows"]>;
 
 function WorkflowInput({
   clientId,

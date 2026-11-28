@@ -10,6 +10,7 @@ import {
   CUSTOM_PREFIX,
   createSkill,
   createSkillVersion,
+  isStepSkill,
   publishSkill,
   rollbackSkill,
   SHARED_COPY_PREFIX,
@@ -32,10 +33,18 @@ import {
 import { agent, agentVersion, skill, skillVersion, tenant } from "@countersign/db";
 import { and, desc, eq, inArray, isNull, or } from "drizzle-orm";
 import type { Hono } from "hono";
-import { type AppEnv, ensureClient, type HandlerCtx, iso, mount, notFound } from "../http";
+import {
+  type AppEnv,
+  ensureClient,
+  type HandlerCtx,
+  HttpError,
+  iso,
+  mount,
+  notFound,
+} from "../http";
 import type { Platform } from "../platform";
 // v0.12 W2-C: the publish gate
-import { assertSkillTestsPass } from "../testbench/gate";
+import { assertLoopTestsPass, assertSkillTestsPass, isLoopSkill } from "../testbench/gate";
 
 type Scope = Pick<HandlerCtx<never>, "tx" | "tenantIds">;
 type SkillRow = typeof skill.$inferSelect;
@@ -363,6 +372,8 @@ export function opsSkillRoutes(app: Hono<AppEnv>): void {
     for (const e of rows) {
       const shown = e.live ?? e.latest;
       if (!shown) continue;
+      // The rules or text a step holds is stored as a skill behind it; it isn't one to list.
+      if (isStepSkill(shown.definition)) continue;
       items.push(
         listItem(
           {
@@ -492,13 +503,35 @@ export function opsSkillRoutes(app: Hono<AppEnv>): void {
     const row = await skillInScope(ctx, ctx.params.id);
     // v0.12 W2-C: the publish gate. With `require_tests`, the latest suite run of this version
     // must have passed every required case (422 tests_failing).
-    await assertSkillTestsPass(ctx.tx, row, ctx.params.vid);
+    // Step model §8: a Loop skill has no switch: its whole test set must pass on this version.
+    const [target] = await ctx.tx
+      .select({ definition: skillVersion.definition })
+      .from(skillVersion)
+      .where(and(eq(skillVersion.id, ctx.params.vid), eq(skillVersion.skillId, row.id)));
+    if (target && isLoopSkill(target.definition)) {
+      await assertLoopTestsPass(ctx.tx, row, ctx.params.vid);
+    } else {
+      await assertSkillTestsPass(ctx.tx, row, ctx.params.vid);
+    }
     const v = await publishSkill(ctx.tx, { skillId: row.id, versionId: ctx.params.vid });
     return { version: skillVersionView(v) };
   });
 
   mount(app, routes.opsRollbackSkill, async (ctx) => {
     const row = await skillInScope(ctx, ctx.params.id);
+    // A rollback copies an older version and publishes it at once, with no test run on the copy:
+    // a Loop skill's way back is a new draft that passes its test set (§8).
+    const [older] = await ctx.tx
+      .select({ definition: skillVersion.definition })
+      .from(skillVersion)
+      .where(and(eq(skillVersion.id, ctx.body.versionId), eq(skillVersion.skillId, row.id)));
+    if (older && isLoopSkill(older.definition)) {
+      throw new HttpError(
+        422,
+        "loop_rollback",
+        "A Loop can't be rolled back in one step: save the older version as a new draft, run its test set, then publish it",
+      );
+    }
     const v = await rollbackSkill(ctx.tx, {
       skillId: row.id,
       toVersionId: ctx.body.versionId,

@@ -1,0 +1,92 @@
+name: Purge agents
+
+# By hand, from Actions → Purge agents: the step model's one-off release (docs/step-model-plan.md
+# §12, R0; CLAUDE.md invariant 3's single exception). Deletes every agent, version, run, build,
+# skill and automation, the platform's own included, and clears the links to them on the client
+# records that stay. It never touches audit_event; it adds one `agents.purge` row. Once per
+# environment, when the new model ships: a dry run first, then the real one.
+#
+# The database's name is typed again (countersign), so a run meant for staging can't purge
+# production by mistake; the purge itself refuses when it doesn't match. A dry run does everything,
+# prints what would go, and rolls back. It can't be undone: Neon's point-in-time history keeps the
+# rows until its window passes.
+#
+# Afterwards the platform's agents come back in the new model:
+# - staging: Add operator with "Run the seed first", or `db:seed`;
+# - production: the platform templates' install route (docs/operations.md, "The first production
+#   release", step 5), then each client's Sloan.
+#
+# cs_owner's connection is fetched from Neon's API inside the job and masked, so no person holds
+# it (docs/operations.md, "Break-glass database access").
+
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: Environment
+        type: choice
+        options: [staging, production]
+        default: staging
+      database:
+        description: The database's name, typed again (countersign)
+        type: string
+        required: true
+      dry_run:
+        description: Dry run (report what would go, change nothing)
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: purge-agents-${{ inputs.target }}
+  cancel-in-progress: false
+
+jobs:
+  purge-agents:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    # Production waits for the production environment's approval, like a production deploy.
+    environment: ${{ inputs.target }}
+    env:
+      TARGET: ${{ inputs.target }}
+      DATABASE: ${{ inputs.database }}
+      DRY_RUN: ${{ inputs.dry_run }}
+      BY: "${{ github.actor }}, run ${{ github.run_id }}"
+      NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
+      NEON_PROJECT_ID: ${{ vars.NEON_PROJECT_ID }}
+    steps:
+      - uses: actions/checkout@v7
+      - name: Ready?
+        run: |
+          [ -n "$NEON_API_KEY" ] || { echo "::error::NEON_API_KEY secret is missing"; exit 1; }
+          [ -n "$NEON_PROJECT_ID" ] || { echo "::error::NEON_PROJECT_ID variable is missing"; exit 1; }
+          [[ "$DATABASE" =~ ^[a-z0-9_]+$ ]] || { echo "::error::Type the database's name"; exit 1; }
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1 (third-party: pinned to a commit)
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Purge
+        run: |
+          set -euo pipefail
+          branch=$([ "$TARGET" = production ] && echo main || echo staging)
+          url=$(npx --yes neonctl@4.22.0 connection-string "$branch" \
+            --project-id "$NEON_PROJECT_ID" --role-name cs_owner --database-name countersign)
+          echo "::add-mask::$url"
+          export DIRECT_DATABASE_URL="$url"
+          flag=$([ "$DRY_RUN" = true ] && echo --dry-run || echo)
+          pnpm --filter @countersign/db run db:purge-agents -- "$DATABASE" $flag 2>&1 | tee purge.log
+          {
+            if [ "$DRY_RUN" = true ]; then
+              echo "Dry run of the agent purge on $TARGET (by $BY): nothing changed."
+            else
+              echo "Purged every agent on $TARGET (by $BY). Bring the platform's agents back next."
+            fi
+            echo
+            echo '```'
+            cat purge.log
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

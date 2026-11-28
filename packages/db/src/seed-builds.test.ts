@@ -1,7 +1,7 @@
 // The draft builds (SEED_DEMO=1): three builds in the Draft phase, each with its Builder-made draft
 // agent; running it twice changes nothing, and each holds what the build routes would have written.
 
-import { AnyAgentBundle } from "@countersign/core";
+import { AgentBundle } from "@countersign/core";
 import { eq, inArray } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { agent, agentVersion, build, buildEvent, buildItem, buildMessage } from "./schema";
@@ -82,7 +82,7 @@ describe.skipIf(!online)("draft builds seed", () => {
         .where(eq(agentVersion.agentId, r.agentId as string));
       expect(versions).toHaveLength(1);
       expect(versions[0]).toMatchObject({ status: "draft", authorType: "builder", version: 1 });
-      expect(AnyAgentBundle.safeParse(versions[0]?.bundle).success).toBe(true);
+      expect(AgentBundle.safeParse(versions[0]?.bundle).success).toBe(true);
     }
   });
 

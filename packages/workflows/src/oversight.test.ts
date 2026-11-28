@@ -2,21 +2,18 @@
 // executor applies the agent's verdicts on the fake runner; it never calls a model.
 
 import {
-  ActionStep,
   OVERSIGHT_REVIEWS,
   OversightSettings,
   type OwnerWatchedStep,
   processes,
   reviewsAfterSuccess,
   reviewsFailures,
-  SkillStep,
   STEP_REVIEWS,
   successReviewDue,
 } from "@countersign/core";
 import { describe, expect, it } from "vitest";
-import { executeWorkflow } from "./executor";
 import { FakeStepRunner } from "./fake-runner";
-import { Harness, RUN, SKILL, WRITE_TOOL, wf } from "./fakes.test-helper";
+import { executeProcess, Harness, RUN, SKILL, WRITE_TOOL, wf } from "./fakes.test-helper";
 // R6
 import {
   ownerAfterSuccess,
@@ -54,7 +51,7 @@ const lookup = (over: Record<string, unknown> = {}) => ({
 
 const write = (over: Record<string, unknown> = {}) => ({
   id: "write",
-  kind: "action",
+  kind: "write",
   name: "Update the record",
   tool: WRITE_TOOL.id,
   input: { name: "{{steps.lookup.output.name}}" },
@@ -77,12 +74,13 @@ describe("run oversight on failures", () => {
       const h = new Harness();
       trims(h);
       const runner = new FakeStepRunner();
-      const result = await executeWorkflow(runner, h.context(ctx), wf([lookup()]), {
+      const result = await executeProcess(runner, h.context(ctx), wf([lookup()]), {
         vendor: "Acme ",
       });
       expect(result).toMatchObject({ status: "failed", reason: 'no vendor named "Acme "' });
       expect(result).not.toHaveProperty("diagnosis");
-      expect(runner.names()).toEqual(["lookup", "lookup:failed"].slice(0, 1));
+      // The failed skill is asked whether it wrote anything before the run ends.
+      expect(runner.names()).toEqual(["lookup", "lookup:writes"]);
     }
   });
 
@@ -95,7 +93,7 @@ describe("run oversight on failures", () => {
         : { kind: "done", output: { name: "Acme" } };
     const o = port({ action: "retry", after: "30 seconds", note: "A rate limit: try again." });
     const runner = new FakeStepRunner();
-    const result = await executeWorkflow(
+    const result = await executeProcess(
       runner,
       h.context({ oversight: { port: o.port, settings: settings() } }),
       wf([lookup()]),
@@ -139,7 +137,7 @@ describe("run oversight on failures", () => {
       note: "The vendor name had a trailing space.",
     });
     const runner = new FakeStepRunner();
-    const result = await executeWorkflow(
+    const result = await executeProcess(
       runner,
       h.context({ oversight: { port: o.port, settings: settings() } }),
       wf([lookup(), write()]),
@@ -165,7 +163,7 @@ describe("run oversight on failures", () => {
     ]) {
       const h = new Harness();
       trims(h);
-      const result = await executeWorkflow(
+      const result = await executeProcess(
         new FakeStepRunner(),
         h.context({ oversight: { port: p, settings: settings() } }),
         wf([lookup(), write()]),
@@ -189,7 +187,7 @@ describe("run oversight on failures", () => {
       { action: "retry", after: "1 second", note: "second" },
       { action: "retry", after: "1 second", note: "third" },
     );
-    const result = await executeWorkflow(
+    const result = await executeProcess(
       new FakeStepRunner(),
       h.context({ oversight: { port: o.port, settings: settings({ maxPerRun: 5 }) } }),
       wf([lookup()]),
@@ -216,7 +214,7 @@ describe("run oversight on failures", () => {
         (id): OversightVerdict => ({ action: "retry", after: "1 second", note: id }),
       ),
     );
-    const result = await executeWorkflow(
+    const result = await executeProcess(
       new FakeStepRunner(),
       h.context({ oversight: { port: o.port, settings: settings() } }),
       wf(["a", "b", "c", "d"].map((id) => lookup({ id, input: {} }))),
@@ -239,11 +237,11 @@ describe("run oversight on failures", () => {
     const runner = new FakeStepRunner();
     const ctx = h.context({ oversight: { port: o.port, settings: settings() } });
     const workflow = wf([lookup()]);
-    expect(await executeWorkflow(runner, ctx, workflow, { vendor: "Acme " })).toEqual({
+    expect(await executeProcess(runner, ctx, workflow, { vendor: "Acme " })).toEqual({
       status: "succeeded",
     });
     runner.replay();
-    expect(await executeWorkflow(runner, ctx, workflow, { vendor: "Acme " })).toEqual({
+    expect(await executeProcess(runner, ctx, workflow, { vendor: "Acme " })).toEqual({
       status: "succeeded",
     });
     expect(o.requests).toHaveLength(1);
@@ -257,7 +255,7 @@ describe("run oversight on failures", () => {
       throw new Error("connection reset");
     };
     const o = port({ action: "stop", note: "The connection keeps failing; a person should look." });
-    const result = await executeWorkflow(
+    const result = await executeProcess(
       new FakeStepRunner(),
       h.context({ oversight: { port: o.port, settings: settings() } }),
       wf([lookup()]),
@@ -282,7 +280,7 @@ describe("run oversight on failures", () => {
     const item = h.approvalItem({ approved: true, by: "u-1" });
     const o = port({ action: "ask", inboxItemId: item, note: "Ask whether it is unlocked." });
     const runner = new FakeStepRunner();
-    const result = await executeWorkflow(
+    const result = await executeProcess(
       runner,
       h.context({ oversight: { port: o.port, settings: settings() } }),
       wf([lookup()]),
@@ -308,11 +306,11 @@ describe("run oversight on failures", () => {
       runner.onWaitStarted = (_name, type) => {
         if (type === inboxEventType(item)) runner.deliver(type, { approved: false, by: "u-1" });
       };
-      const result = await executeWorkflow(
+      const result = await executeProcess(
         runner,
         h.context({ oversight: { port: o.port, settings: settings() } }),
         wf([
-          lookup({ approval: { required: "required", onReject } }),
+          lookup({ checks: { approval: { onReject } } }),
           { id: "after", kind: "skill", name: "After", skill: SKILL.id, input: {} },
         ]),
         {},
@@ -332,7 +330,7 @@ describe("run oversight on failures", () => {
     const off = new Harness();
     trims(off);
     const o1 = port({ action: "retry_with", input: { name: "Acme" }, note: "n" });
-    await executeWorkflow(
+    await executeProcess(
       new FakeStepRunner(),
       off.context({ oversight: { port: o1.port, settings: settings() } }),
       wf([lookup({ review: "off" })]),
@@ -343,7 +341,7 @@ describe("run oversight on failures", () => {
     const always = new Harness();
     trims(always);
     const o2 = port({ action: "retry_with", input: { name: "Acme" }, note: "n" });
-    const result = await executeWorkflow(
+    const result = await executeProcess(
       new FakeStepRunner(),
       always.context({ oversight: { port: o2.port } }),
       wf([lookup({ review: "always" })]),
@@ -358,7 +356,7 @@ describe("run oversight on failures", () => {
     const h = new Harness();
     h.handlers.lookup = () => ({ kind: "escalated", reason: "max_cost" });
     const o = port({ action: "retry", after: "1 second", note: "n" });
-    const result = await executeWorkflow(
+    const result = await executeProcess(
       new FakeStepRunner(),
       h.context({ oversight: { port: o.port, settings: settings() } }),
       wf([lookup()]),
@@ -370,9 +368,6 @@ describe("run oversight on failures", () => {
 });
 
 // ── R6: the owner's watch (docs/plan.md §1.86, §9; ARCHITECTURE §10.14) ─────────────────────────
-
-const v3Skill = SkillStep.parse(lookup());
-const v3Action = ActionStep.parse(write());
 
 /** A v4 process's watched steps, parsed (defaults applied). */
 const v4 = processes.Process.parse({
@@ -408,17 +403,17 @@ function step(id: string): OwnerWatchedStep {
 }
 
 describe("the owner's watch", () => {
-  it("decides v3 steps exactly as the executor's v0.13 rule does (the regression guard)", () => {
+  it("decides skill and write steps exactly as the executor's v0.13 rule does (the regression guard)", () => {
     for (const review of OVERSIGHT_REVIEWS) {
       const s = settings({ review });
       for (const stepReview of [undefined, ...STEP_REVIEWS]) {
-        for (const base of [v3Skill, v3Action]) {
+        for (const base of [step("think"), step("put")]) {
           const st = stepReview ? { ...base, review: stepReview } : base;
           // The executor: a port, and the step's failures reviewed.
           expect(ownerReviewsFailureOf({ settings: s }, st)).toBe(reviewsFailures(s, st));
           expect(ownerReviewsFailureOf(undefined, st)).toBe(false);
           for (const checkpoint of [false, true]) {
-            // No watch on a v3 run: an empty output asks for nothing.
+            // No watch: an empty output asks for nothing.
             expect(
               ownerAfterSuccess({ settings: s }, st, { name: st.id, checkpoint, output: {} }),
             ).toEqual({
@@ -516,7 +511,6 @@ describe("the owner's watch", () => {
   it("builds the review request: v4 reads and writes key errors by tool, signals only after success", () => {
     expect(ownerErrorKey(step("put"), "rate limited")).toBe(`${WRITE_TOOL.id}:rate_limited`);
     expect(ownerErrorKey(step("think"), "rate limited")).toBe("skill:rate_limited");
-    expect(ownerErrorKey(v3Action, "rate limited")).toBe(`${WRITE_TOOL.id}:rate_limited`);
     expect(ownerStepInput(step("talk"))).toEqual({
       with: "{{trigger.vendor}}",
       goal: "Get the price",

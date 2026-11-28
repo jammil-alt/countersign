@@ -13,7 +13,13 @@ import type {
   OpsAgentNeedsState,
   OpsConnectionPageView,
 } from "@countersign/core";
-import { connectionLabel, isPlainObject, MezonasMay, requestStale } from "@countersign/core";
+import {
+  connectionLabel,
+  isPlainObject,
+  MezonasMay,
+  requestStale,
+  SELFTEST_CHANGE,
+} from "@countersign/core";
 import { connectionChange, type Tx } from "@countersign/db";
 import { and, desc, eq } from "drizzle-orm";
 import { iso } from "../http";
@@ -173,6 +179,14 @@ export async function connectionHistory(
       note = typeof j.words === "string" ? j.words : "Changes by Mezonas changed";
     } else if (j.kind === "status") {
       note = STATUS_WORDS[String(j.after)] ?? null;
+    } else if (j.kind === SELFTEST_CHANGE) {
+      // The connector self-test (the Sandbox client only): how its checks came out.
+      const failed = Number(j.failed) || 0;
+      const passed = Number(j.passed) || 0;
+      note =
+        failed > 0
+          ? `Self-test: ${failed} of ${failed + passed} checks failed`
+          : `Self-test: all ${passed} checks passed`;
     }
     const auth = MezonasMay.safeParse(j.authorization);
     return {

@@ -1,7 +1,7 @@
-import { gateReasons, groupProblems, ProcessAgentBundle } from "@countersign/core";
 import { describe, expect, it } from "vitest";
-import { type BuilderProblem, validateProcessesLikeServer } from "./catalog";
-import { fieldLabel, problemLines, problemPlace, readableProblem } from "./problems";
+import type { BuilderProblem } from "./catalog";
+import type { ProcessAgentBundle } from "./model";
+import { fieldLabel, readableProblem } from "./problems";
 
 type ValidationError = BuilderProblem;
 
@@ -40,24 +40,6 @@ describe("workflow problems in plain words", () => {
       "Uses the bill record id from “Match the invoice”, but “Match the invoice” doesn't run before this step. Move this step below “Match the invoice”, on the same path.",
     );
     expect(fieldLabel("input.ids.0")).toBe("Ids");
-    expect(problemPlace(p.error, bundle, "bill")).toBe("Read the bill");
-  });
-
-  it("joins one step's references to the same step into one line", () => {
-    const lines = problemLines(
-      [
-        order("ask", "steps.match.output.invoice.number"),
-        order("ask", "steps.match.output.invoice.vendorName"),
-        order("ask", "steps.match.output.reason"),
-        order("ask", "steps.match.output.sources"),
-        order("read", "steps.match.output.bill.recordId"),
-      ],
-      bundle,
-    );
-    expect(lines).toHaveLength(2);
-    expect(lines[0]?.text).toBe(
-      "Uses the invoice number, invoice vendor name, reason and 1 more from “Match the invoice”, but “Match the invoice” doesn't run before this step. Move this step below “Match the invoice”, on the same path.",
-    );
   });
 
   it("says when the step a reference needs was removed", () => {
@@ -86,86 +68,5 @@ describe("workflow problems in plain words", () => {
         bundle,
       ).text,
     ).toBe("Uses the trigger's doc id, but there is no doc id there.");
-  });
-});
-
-// BUILDER_QA CONS-6: the build's draft gate (fed core's grouped count by apps/api's
-// `draftProblems`) and the workflow builder count one draft's problems the same.
-describe("the draft's problem count, builder and build", () => {
-  /** "Tell" reads three fields of "Ask", which runs after it. */
-  const outOfOrder = ProcessAgentBundle.parse({
-    schemaVersion: 1,
-    definition: {
-      schemaVersion: 2,
-      identity: { name: "Vendor check", role: "checks vendors", mission: "Vendors checked." },
-      kind: "functional",
-      model: { id: "claude-opus-5-5", maxTokens: 1024 },
-      instructions: "Only do what the process says.",
-      skills: [],
-      permissions: { mode: "suggest_only" },
-    },
-    workflows: [
-      {
-        slug: "main",
-        name: "Main",
-        workflow: {
-          schemaVersion: 4,
-          triggers: [{ id: "t", on: { type: "manual", input: {} } }],
-          steps: [
-            {
-              id: "tell",
-              kind: "notify",
-              name: "Tell",
-              notify: {
-                to: ["client_admin"],
-                channel: "inbox",
-                message:
-                  "{{steps.ask.output.vendor}} {{steps.ask.output.total}} {{steps.ask.output.number}}",
-              },
-            },
-            {
-              id: "ask",
-              kind: "person",
-              name: "Ask",
-              mode: "ask",
-              assignee: "client_admin",
-              title: "Which vendor?",
-              payload: {},
-              deadline: { after: "1 day" },
-              channel: "inbox",
-              onReject: "stop",
-            },
-          ],
-        },
-      },
-    ],
-  });
-
-  it("the workflow builder and the build's draft gate count the same problems", () => {
-    const r = validateProcessesLikeServer(
-      outOfOrder,
-      { tools: {}, skills: {} },
-      { clientAgent: true },
-    );
-    expect(r.errors.length).toBe(3);
-    // The build's gate, as buildDetail feeds it: one per group of validator errors.
-    const gate = gateReasons({
-      kind: "agent",
-      phase: "draft",
-      brief: {},
-      fitgap: { rows: [], needsTrue: [], setup: [], decisions: [] },
-      draft: true,
-      draftErrors: groupProblems(r.errors).length,
-      poc: { passed: false, detail: "" },
-      trialDone: false,
-      qaSigned: false,
-      openItems: 0,
-    });
-    // The workflow builder's header and Publish line: plural(problemCount, "problem").
-    const builder = problemLines(r.errors, outOfOrder).length;
-    expect(
-      gate,
-      `the workflow builder shows ${builder === 1 ? "1 problem" : `${builder} problems`}`,
-    ).toEqual([`The draft has ${builder === 1 ? "1 problem" : `${builder} problems`} to fix.`]);
   });
 });

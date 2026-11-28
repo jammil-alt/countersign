@@ -1,10 +1,13 @@
-// The Bill clerk end to end (docs/plan.md §1.30, "Bill clerk"), against the fake QuickBooks with
-// the golden invoices read in replay and the line mapping's model faked: the seeded template
-// validates against the platform and forks into a client; an invoice is read; its one bill is
-// found by vendor, total, number and date; itemizing, attaching and the memo each wait for
-// approval and are written once; a re-read invoice changes nothing; a different total or two
-// equal bills write nothing and ask the client admin, with the candidates as sources; and a test
-// run proposes everything and writes nothing.
+// The Bill clerk end to end (docs/plan.md §1.30, "Bill clerk"), as the seed holds it (its v1, in
+// the step model), against the fake QuickBooks with the golden invoices read in replay and the
+// model's choices faked: the seeded template validates against the platform and forks into a
+// client; an invoice is read; its one bill is found by vendor, total, number and date; itemizing,
+// attaching and the memo each wait for approval and are written once; a re-read invoice changes
+// nothing; an invoice whose number is on a bill that doesn't match writes nothing and asks; an
+// invoice with no bill gets one, for the vendor matched on our records (asked of the person in
+// the bill-questions seat when the model isn't sure, and learned), after approval; two equal
+// bills write nothing and ask the client admin, with the candidates as sources; and a test run
+// proposes everything and writes nothing.
 
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
@@ -16,7 +19,7 @@ import {
   QBO_TOOLS,
 } from "@countersign/connectors";
 import { FAKE_QBO_CLIENT, FAKE_QBO_REALM, fakeQbo } from "@countersign/connectors/testing";
-import { RECORD_INVOICE_TOOL, type Step, validateBundle, walkSteps } from "@countersign/core";
+import { normalizeVendorName, processes, RECORD_INVOICE_TOOL, steps } from "@countersign/core";
 import {
   agent,
   docExtraction,
@@ -28,11 +31,12 @@ import {
   stepRun,
   thread,
   transaction,
+  vendor,
   withTenant,
 } from "@countersign/db";
 import { loadSeedTemplates } from "@countersign/db/seed";
 import { extractDocument, storeDocument } from "@countersign/documents";
-import { createLlmClient, FakeModel } from "@countersign/llm";
+import { createLlmClient, FakeModel, knownModelIds } from "@countersign/llm";
 import { DEFAULT_FIXTURE_DIR } from "@countersign/llm/node";
 import { and, desc, eq, inArray } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -43,6 +47,7 @@ import {
   createApiHarness,
   FakeWorkflowStep,
   OPERATOR,
+  user,
 } from "./api.test-helper";
 import { defaultDeps } from "./http";
 import { MemoryQboSyncInstances } from "./qbo/instances";
@@ -160,24 +165,38 @@ describe.skipIf(!h)("the Bill clerk", () => {
   // biome-ignore lint/suspicious/noExplicitAny: response bodies are read loosely in tests.
   const seen: { item: any; count: number; open: number }[] = [];
 
-  /** Approves every item the run waits on, as client A's admin; `before` runs first. */
-  function approver(before: () => void) {
+  /**
+   * Approves every item the run waits on, as client A's admin; `before` runs first. A question
+   * (`answer` gives its answer) is answered by whoever it was put to: the admin, or client A's
+   * user when they sit in the seat it names.
+   */
+  function approver(before: () => void, answer?: (item: { title: string }) => string | undefined) {
     return new FakeWorkflowStep(async (_name, type) => {
       before();
-      const res = await H.call(admin("a"), "GET", "/api/inbox");
-      const item = j(res.json).items.find(
-        (i: { id: string }) => `inbox-${i.id.replace(/-/g, "")}` === type,
-      );
+      const own = (i: { id: string }) => `inbox-${i.id.replace(/-/g, "")}` === type;
+      // The user's own items first: the admin sees the seat's question too, but can't answer it.
+      let who = user("a");
+      let res = await H.call(who, "GET", "/api/inbox");
+      let item = j(res.json).items.find(own);
+      if (!item) {
+        who = admin("a");
+        res = await H.call(who, "GET", "/api/inbox");
+        item = j(res.json).items.find(own);
+      }
       if (!item) throw new Error(`no open item for ${type}`);
-      const overview = await H.call(admin("a"), "GET", "/api/overview");
+      const overview = await H.call(who, "GET", "/api/overview");
       seen.push({
         item,
         count: j(overview.json).needsYou.inbox,
         open: j(res.json).items.length,
       });
-      const done = await H.call(admin("a"), "POST", `/api/inbox/${item.id}/resolve`, {
-        decision: "approve",
-      });
+      const reply = answer?.(item);
+      const done = await H.call(
+        who,
+        "POST",
+        `/api/inbox/${item.id}/resolve`,
+        reply === undefined ? { decision: "approve" } : { answer: reply },
+      );
       expect(done.status, JSON.stringify(done.json)).toBe(200);
       return H.instances.events.find((e) => e.event.type === type)?.event.payload;
     });
@@ -209,8 +228,13 @@ describe.skipIf(!h)("the Bill clerk", () => {
     return [...H.instances.started.values()].slice(before).filter((p) => p.agentId === clerkId);
   }
 
+  // In the order they were proposed: the rows have no order of their own.
   const actionsOf = (runId: string) =>
-    H.t.db.select().from(externalAction).where(eq(externalAction.runId, runId));
+    H.t.db
+      .select()
+      .from(externalAction)
+      .where(eq(externalAction.runId, runId))
+      .orderBy(externalAction.createdAt);
   const itemsOf = (runId: string) =>
     H.t.db.select().from(inboxItem).where(eq(inboxItem.runId, runId));
   const txnOf = async (externalId: string) =>
@@ -237,7 +261,8 @@ describe.skipIf(!h)("the Bill clerk", () => {
 
     // The bills the invoices belong to, synced before the invoices arrive.
     bill("150", NORTHLINE, 9742.35, "2026-10-28", "20418");
-    bill("151", CEDAR, 5800, "2026-10-30", "CR-7731"); // not the invoice's 5,843.35
+    // A Cedar Ridge bill with the invoice's number but not its total (5,800, not 5,843.35).
+    bill("151", CEDAR, 5800, "2026-10-30", "CR-7731");
     bill("152", KEYSTONE, 8832.4, "2026-11-02"); // two equal bills, no numbers
     bill("153", KEYSTONE, 8832.4, "2026-11-04");
     const inline = { do: <T>(_name: string, fn: () => Promise<T>) => fn() };
@@ -253,10 +278,10 @@ describe.skipIf(!h)("the Bill clerk", () => {
     );
     expect((await txnOf("Bill:150"))?.total).toBe("9742.3500");
 
-    // The template, installed as the seed installs it, then forked into client A. R9: its live
-    // version is v2, the same workflow as a v4 process (v1, of v3 workflows, runs in e2e.test.ts).
+    // The template as the seed holds it (its v1, in the step model), installed from the back
+    // office as the seed installs it, then forked into client A.
     const tpl = await H.call(OPERATOR, "POST", "/api/ops/platform-templates/bill-clerk/install", {
-      version: 2,
+      version: 1,
     });
     expect(tpl.status, JSON.stringify(tpl.json)).toBe(200);
     templateId = j(tpl.json).template.id;
@@ -265,50 +290,48 @@ describe.skipIf(!h)("the Bill clerk", () => {
   it("validates against the platform, with approval on every write", async () => {
     const seeded = (await loadSeedTemplates()).find((t) => t.slug === "bill-clerk");
     if (!seeded) throw new Error("no bill-clerk seed");
-    const result = validateBundle(seeded.bundle, {
+    const result = processes.validateBundle(seeded.bundle, {
       skills: Object.fromEntries(H.platform.catalog.list().map((s) => [s.id, s])),
       tools: H.platform.tools.specs(),
       events: H.platform.events.byType(),
+      models: knownModelIds(),
     });
     expect(result.errors).toEqual([]);
     const def = seeded.bundle.definition;
     expect(def.kind).toBe("platform");
     expect(def.permissions.mode).toBe("suggest_only");
-    const [wf] = seeded.bundle.workflows;
-    expect(wf?.workflow.trigger.on).toEqual({
-      type: "event",
-      event: "document.extracted",
-      filter: {
-        match: "all",
-        rules: [{ field: "{{trigger.totalsValid}}", op: "is", value: true }],
+    const w = steps.Workflow.parse(seeded.bundle.workflows[0]?.workflow);
+    expect(w.triggers.map((t) => t.on)).toEqual([
+      {
+        type: "event",
+        event: "document.extracted",
+        filter: {
+          match: "all",
+          rules: [{ field: "{{trigger.totalsValid}}", op: "is", value: true }],
+        },
       },
-    });
-    // Every step that can write to QuickBooks is an action with approval required (invariant 8),
-    // and the only model step is the line mapping, which reads.
-    const steps: Step[] = [];
-    walkSteps(wf?.workflow as never, ({ step }) => void steps.push(step));
-    const writes = steps.filter(
-      (s) => s.kind === "action" && H.platform.tools.get(s.tool)?.spec.sideEffect === "external",
-    );
-    expect(writes.map((s) => (s.kind === "action" ? s.tool : ""))).toEqual([
-      QBO_TOOLS.billUpdateLines,
-      QBO_TOOLS.attachableUpload,
-      QBO_TOOLS.billUpdateMemo,
     ]);
-    for (const s of writes) {
-      expect(s.kind === "action" && s.approval.required, s.id).toBe("required");
-    }
-    const agentSteps = steps.filter(
-      (s) => s.kind === "skill" && H.platform.catalog.get(s.skill)?.mode === "agent",
-    );
-    expect(agentSteps.map((s) => s.id)).toEqual(["map"]);
-    for (const s of steps) {
-      if (s.kind !== "skill") continue;
-      const skill = H.platform.catalog.get(s.skill);
-      for (const t of [...(skill?.tools ?? []), ...(skill?.handler ? [skill.handler] : [])]) {
-        expect(H.platform.tools.get(t)?.spec.sideEffect, `${s.id}: ${t}`).not.toBe("external");
-      }
-    }
+    // Every step that can change the client's books is an action with approval required by the
+    // bill approver (invariant 8); the model only chooses (the lines, and a new bill's layout).
+    const writes: [string, string, string | undefined][] = [];
+    const ai: string[] = [];
+    steps.eachStep(w.steps, ({ step }) => {
+      if (step.kind !== "do") return;
+      if (step.doneBy === "ai") ai.push(step.id);
+      if (step.uses?.type !== "action") return;
+      const spec = H.platform.tools.get(step.uses.action)?.spec;
+      if (spec?.sideEffect !== "external" && !steps.mergedAction(step.uses.action)) return;
+      writes.push([step.id, step.uses.action, step.checks?.approval?.required]);
+      expect(step.checks?.approval?.approvers, step.id).toEqual([{ who: "seat:bill-approver" }]);
+    });
+    expect(writes).toEqual([
+      ["itemize", QBO_TOOLS.billUpdateLines, "required"],
+      ["attach", QBO_TOOLS.attachableUpload, "required"],
+      ["memo", QBO_TOOLS.billUpdateMemo, "required"],
+      ["create", "accounting.bill.create", "required"],
+      ["attach-new", QBO_TOOLS.attachableUpload, "required"],
+    ]);
+    expect(ai).toEqual(["map", "prepare"]);
   });
 
   it("forks into a client, binds its QuickBooks and publishes", async () => {
@@ -409,7 +432,7 @@ describe.skipIf(!h)("the Bill clerk", () => {
       params,
       cloudflareStepRunner(new FakeWorkflowStep()),
     );
-    expect(result).toEqual({ status: "succeeded" });
+    expect(result).toMatchObject({ status: "succeeded" });
     expect(qbo.apiCalls("POST")).toEqual([]);
     const actions = await actionsOf(params.runId);
     expect(actions.map((a) => [a.tool, a.status, a.inboxItemId])).toEqual(
@@ -424,16 +447,19 @@ describe.skipIf(!h)("the Bill clerk", () => {
 
     // The timeline says what would have been done, with no empty slots, and the notice was
     // never posted: no thread message for the run, for anyone.
-    const steps = await H.t.db
+    const logged = await H.t.db
       .select({ nodeId: stepRun.nodeId, summary: stepRun.summary, output: stepRun.output })
       .from(stepRun)
       .where(eq(stepRun.runId, params.runId));
-    const summary = (nodeId: string) => steps.find((s) => s.nodeId === nodeId)?.summary;
+    const summary = (nodeId: string) => logged.find((s) => s.nodeId === nodeId)?.summary;
     expect(summary("itemize")).toBe("Would itemize the bill (test run, not written)");
     expect(summary("attach")).toBe("Would attach the invoice (test run, not written)");
     expect(summary("memo")).toBe("Would note the invoice on the bill (test run, not written)");
-    expect(summary("done")).toBe("Would say what changed (test run, not sent)");
-    expect(j(steps.find((s) => s.nodeId === "done")?.output)).toEqual({ sent: false });
+    // The End delivers its report as a step of its own: in a test run, never sent.
+    expect(summary("done:out:out-itemized")).toContain("(test run, not sent)");
+    expect(j(logged.find((s) => s.nodeId === "done:out:out-itemized")?.output)).toEqual({
+      sent: false,
+    });
     const posted = await H.t.db
       .select({ id: message.id })
       .from(message)
@@ -455,7 +481,7 @@ describe.skipIf(!h)("the Bill clerk", () => {
     const atWaits: number[] = [];
     seen.length = 0;
     const step = approver(() => void atWaits.push(qbo.apiCalls("POST").length));
-    expect(await executeRun(runDeps(model), params, cloudflareStepRunner(step))).toEqual({
+    expect(await executeRun(runDeps(model), params, cloudflareStepRunner(step))).toMatchObject({
       status: "succeeded",
     });
     // The mapping step's model calls are the run's, and account for all the tokens it spent.
@@ -559,15 +585,17 @@ describe.skipIf(!h)("the Bill clerk", () => {
       "279.00",
     ]);
 
-    // Untrusted invoice text reached the model only in a tool result (invariant 9).
-    const first = JSON.stringify([model.requests[0]?.system, model.requests[0]?.messages]);
-    expect(first).not.toContain("Baltic Birch");
-    const results = (model.requests[1]?.messages ?? []).flatMap((m) =>
-      Array.isArray(m.content) ? m.content : [],
+    // Untrusted invoice text reached the model only in a tool result (invariant 9): never in the
+    // instructions, and in the messages only inside tool results (the task's input is read with
+    // a tool, as every one-answer skill reads it).
+    const [first] = model.requests;
+    expect(JSON.stringify(first?.system)).not.toContain("Baltic Birch");
+    const blocks = (first?.messages ?? []).flatMap((m): unknown[] =>
+      Array.isArray(m.content) ? m.content : [{ type: "text", text: m.content }],
     );
-    expect(
-      JSON.stringify(results.filter((b) => (b as { type: string }).type === "tool_result")),
-    ).toContain("Baltic Birch");
+    const isResult = (b: unknown) => (b as { type: string }).type === "tool_result";
+    expect(JSON.stringify(blocks.filter((b) => !isResult(b)))).not.toContain("Baltic Birch");
+    expect(JSON.stringify(blocks.filter(isResult))).toContain("Baltic Birch");
 
     // The notice cites the document, its reading and the bill.
     const txn150 = await txnOf("Bill:150");
@@ -581,7 +609,8 @@ describe.skipIf(!h)("the Bill clerk", () => {
       .from(message)
       .where(eq(message.tenantId, H.A.tenantId))
       .orderBy(desc(message.createdAt));
-    const notice = notices.find((m) => j(m.body).nodeId === "done");
+    // The End "done" delivers the report "The bill, itemized" as a step of its own.
+    const notice = notices.find((m) => j(m.body).nodeId === "done:out:out-itemized");
     expect(j(notice?.body).text).toBe(
       "Bill 20418 now has the 6 lines of Northline Panel Supply invoice 20418. The total is unchanged at 9742.35 USD.",
     );
@@ -621,11 +650,11 @@ describe.skipIf(!h)("the Bill clerk", () => {
         params,
         cloudflareStepRunner(new FakeWorkflowStep()),
       ),
-    ).toEqual({ status: "succeeded" });
+    ).toMatchObject({ status: "succeeded" });
     expect(qbo.apiCalls("POST")).toHaveLength(posts);
     expect(await actionsOf(params.runId)).toEqual([]);
     const notes = await H.t.db.select().from(message).where(eq(message.tenantId, H.A.tenantId));
-    expect(notes.some((m) => j(m.body).nodeId === "nothing")).toBe(true);
+    expect(notes.some((m) => j(m.body).nodeId === "nothing:out:out-already-done")).toBe(true);
   });
 
   it("lists the invoice as matched to its bill, as the run found it", async () => {
@@ -743,40 +772,236 @@ describe.skipIf(!h)("the Bill clerk", () => {
     );
   });
 
-  it("a different total or two equal bills write nothing and ask the client admin", async () => {
+  // Cedar Ridge's invoice CR-7731 is for 5,843.35; their bill CR-7731 in QuickBooks is for 5,800.
+  // No bill matches, and a new one with that number would be refused by QuickBooks as a duplicate:
+  // the bill-questions seat (empty: the client admin) is asked, and nothing is written.
+  it("an invoice whose number is on a bill that doesn't match writes nothing and asks", async () => {
     const posts = qbo.apiCalls("POST").length;
-    const expectAsked = async (documentId: string, title: string, candidates: string[]) => {
-      const [params] = await dispatchExtracted(documentId);
-      if (!params) throw new Error("the invoice started no run");
-      // Nobody answers within the week: the run ends, having written nothing.
-      expect(
-        await executeRun(
-          runDeps(new FakeModel()),
-          params,
-          cloudflareStepRunner(new FakeWorkflowStep()),
-        ),
-      ).toEqual({ status: "succeeded" });
-      expect(await actionsOf(params.runId)).toEqual([]);
-      const [item] = await itemsOf(params.runId);
-      expect(item).toMatchObject({ kind: "request", assigneeRole: "client_admin", title });
-      expect(j(item?.payload).candidates).toEqual(candidates);
-      expect(j(item?.payload).sources).toEqual(expect.arrayContaining([documentId, ...candidates]));
-      return item;
-    };
-    const cedar = await expectAsked(
-      docs.cedar,
-      "We couldn't match invoice CR-7731 from Cedar Ridge Hardwoods to a bill",
-      [(await txnOf("Bill:151"))?.id as string],
+    const [params, ...more] = await dispatchExtracted(docs.cedar);
+    expect(more).toEqual([]);
+    if (!params) throw new Error("the invoice started no run");
+    // Nobody answers within the week: the run ends, having written nothing.
+    expect(
+      await executeRun(
+        runDeps(new FakeModel()),
+        params,
+        cloudflareStepRunner(new FakeWorkflowStep()),
+      ),
+    ).toMatchObject({ status: "succeeded", nodeId: "end-asked-same-number" });
+    expect(await actionsOf(params.runId)).toEqual([]);
+    expect(qbo.apiCalls("POST")).toHaveLength(posts);
+    const bill151 = (await txnOf("Bill:151"))?.id as string;
+    const [found] = await H.t.db
+      .select({ output: stepRun.output })
+      .from(stepRun)
+      .where(and(eq(stepRun.runId, params.runId), eq(stepRun.nodeId, "match")));
+    expect(j(found?.output)).toMatchObject({ status: "none", sameNumber: [bill151] });
+    const [item] = await itemsOf(params.runId);
+    expect(item).toMatchObject({ kind: "request", assigneeRole: "client_admin" });
+    expect(item?.title).toBe(
+      "A bill from Cedar Ridge Hardwoods already has the number CR-7731, but it doesn't match the invoice, so we didn't add another",
     );
-    expect(j(cedar?.payload).reason).toMatch(
-      /^No bill from Cedar Ridge Hardwoods for USD 5843\.35/,
+    expect(j(item?.payload).sources).toEqual(expect.arrayContaining([docs.cedar, bill151]));
+    // The vendor was never looked up: the question comes first.
+    const ran = await H.t.db
+      .select({ nodeId: stepRun.nodeId })
+      .from(stepRun)
+      .where(eq(stepRun.runId, params.runId));
+    expect(ran.map((r) => r.nodeId)).not.toContain("vendor");
+  });
+
+  // The seed's Bill clerk takes an invoice with no bill down the new-bill path: the vendor matched
+  // on our records (the Vendors profile) and its QuickBooks id read from the record (Get by id),
+  // Prepare bill (the model lays the invoice out for that vendor), Check bill (rules veto the
+  // model, invariant 7), then Create bill through the Accounting action, which runs on the
+  // client's QuickBooks, and the invoice attached; each change waits for the bill approver (an
+  // empty seat: the client admin), and the End reports the new bill.
+  it("an invoice with no bill is added as a new one through Accounting, only after approval", async () => {
+    // The client renumbers their other Cedar Ridge bill in QuickBooks; it syncs.
+    const earlier = qbo.get("Bill", "151");
+    if (!earlier) throw new Error("no bill 151");
+    qbo.put("Bill", { ...earlier, SyncToken: "1", DocNumber: "CR-7702" });
+    await runQboSync(
+      {
+        db: H.db,
+        platform: H.platform,
+        content: new ContentStore(H.objects),
+        credentials: credentialsFor(H.db, { current: ENCRYPTION_KEY }),
+      },
+      { tenantId: H.A.tenantId, connectionId, reason: "operator" },
+      { do: <T>(_name: string, fn: () => Promise<T>) => fn() },
     );
-    const keystone = await expectAsked(
-      docs.keystone,
-      "We couldn't match invoice 55102 from Keystone Hardware & Finishes to a bill",
-      [(await txnOf("Bill:152"))?.id as string, (await txnOf("Bill:153"))?.id as string],
+    expect(j((await txnOf("Bill:151"))?.ext).qbo.docNumber).toBe("CR-7702");
+    // And sends the invoice again: it is read again, and its run finds no bill with its number.
+    await extractDocument(
+      {
+        db: H.db,
+        content: new ContentStore(H.objects),
+        llm: createLlmClient({ transport: H.extraction.transport as never }),
+      },
+      { tenantId: H.A.tenantId, documentId: docs.cedar },
     );
-    expect(j(keystone?.payload).reason).toMatch(/^2 bills from Keystone/);
+    // Our record of the vendor carries the name QuickBooks had before ("Cedar Ridge Hardwood
+    // Co."), not the invoice's: no exact hit, so the model chooses, and isn't sure.
+    const [cedar] = await H.t.db
+      .select()
+      .from(vendor)
+      .where(and(eq(vendor.tenantId, H.A.tenantId), eq(vendor.name, CEDAR[1])));
+    if (!cedar) throw new Error("no Cedar Ridge vendor");
+    const older = "Cedar Ridge Hardwood Co.";
+    await H.t.db
+      .update(vendor)
+      .set({ name: older, normalizedName: normalizeVendorName(older), aliases: [] })
+      .where(eq(vendor.id, cedar.id));
+    // The client puts their user in the bill-questions seat (Your people).
+    await H.t.db
+      .update(agent)
+      .set({
+        people: { "bill-questions": { userIds: [H.A.user], backupUserIds: [], contactIds: [] } },
+      })
+      .where(eq(agent.id, clerkId));
+    const [params, ...more] = await dispatchExtracted(docs.cedar);
+    expect(more).toEqual([]);
+    if (!params) throw new Error("the invoice started no run");
+    const accounts = [
+      ["1", '4/4 Hard Maple FAS S2S 13/16"', "1507.00"],
+      ["2", "8/4 White Oak Qtr Sawn FAS Rough", "1596.00"],
+      ["3", "4/4 Black Walnut Select & Better S2S", "1192.50"],
+      ["4", '5/4 Poplar FAS S2S 1-1/16"', "504.00"],
+      ["5", "4/4 Cherry FAS Rough", "667.50"],
+      ["6", "Freight", "185.00"],
+      ["7", "Fuel surcharge 3.5%", "191.35"],
+    ].map(([, description, amount]) => ({ description, amount, account: "80" }));
+    // The model's parts: which vendor it is (not sure: 60), then the bill laid out from the
+    // invoice for that vendor and the accounts given.
+    const model = new FakeModel([
+      {
+        toolUse: {
+          name: "record_choice",
+          input: { record_id: cedar.id, confidence: 0.6, reason: "The same name, older." },
+        },
+      },
+      {
+        toolUse: {
+          name: "finish",
+          input: {
+            vendorId: CEDAR[0],
+            invoiceNumber: "CR-7731",
+            date: "2026-10-30",
+            dueDate: "2026-11-29",
+            lines: accounts,
+            total: "5843.35",
+            currency: "USD",
+            memo: "Cedar Ridge Hardwoods invoice CR-7731, PO J-1185",
+            sources: [docs.cedar],
+          },
+        },
+      },
+    ]);
+    const posts = qbo.apiCalls("POST").length;
+    const atWaits: number[] = [];
+    seen.length = 0;
+    const step = approver(
+      () => void atWaits.push(qbo.apiCalls("POST").length),
+      (item) => (item.title.includes("which one is") ? cedar.id : undefined),
+    );
+    try {
+      expect(await executeRun(runDeps(model), params, cloudflareStepRunner(step))).toMatchObject({
+        status: "succeeded",
+      });
+    } finally {
+      await H.t.db.update(agent).set({ people: {} }).where(eq(agent.id, clerkId));
+    }
+    // The vendor was asked of the person in the bill-questions seat, with the shortlist, before
+    // anything else; then nothing was written before its approval: one write after each.
+    expect(atWaits).toEqual([posts, posts, posts + 1]);
+    const [asked] = seen;
+    expect(asked?.item.title).toBe('Vendors: which one is "Cedar Ridge Hardwoods"?');
+    const [question] = await H.t.db
+      .select()
+      .from(inboxItem)
+      .where(and(eq(inboxItem.runId, params.runId), eq(inboxItem.title, asked?.item.title)));
+    expect(question?.assigneeUserId).toBe(H.A.user);
+    // Their answer is learned: next time the invoice's name is a hit with nobody asked.
+    const [taught] = await H.t.db.select().from(vendor).where(eq(vendor.id, cedar.id));
+    expect(taught?.aliases).toContain(normalizeVendorName(CEDAR[1]));
+    expect(qbo.apiCalls("POST")).toHaveLength(posts + 2);
+    const check = await H.t.db
+      .select({ output: stepRun.output })
+      .from(stepRun)
+      .where(and(eq(stepRun.runId, params.runId), eq(stepRun.nodeId, "check-bill")));
+    expect(j(check[0]?.output)).toMatchObject({ ok: true, problems: [] });
+    // The vendor: matched on our records by name, then its QuickBooks id read from the record.
+    const logged = await H.t.db
+      .select({ nodeId: stepRun.nodeId, input: stepRun.input, output: stepRun.output })
+      .from(stepRun)
+      .where(eq(stepRun.runId, params.runId));
+    const out = (nodeId: string) => j(logged.find((r) => r.nodeId === nodeId)?.output);
+    expect(out("vendor").items).toEqual([
+      expect.objectContaining({ matched: cedar.id, how: "person", unsure: false }),
+    ]);
+    expect(out("vendor").sources).toContain(cedar.id);
+    expect(out("vendor-record")).toMatchObject({
+      id: cedar.id,
+      name: older,
+      externalRefs: { qbo: CEDAR[0] },
+    });
+    expect(j(logged.find((r) => r.nodeId === "prepare")?.input).vendors).toEqual([
+      { id: CEDAR[0], name: older },
+    ]);
+    // Create bill ran on QuickBooks, then the invoice was attached to the new bill: each one an
+    // external action written once, after the client admin signed it.
+    const actions = await actionsOf(params.runId);
+    expect(actions.map((a) => [a.tool, a.status])).toEqual([
+      [QBO_TOOLS.billCreate, "done"],
+      [QBO_TOOLS.attachableUpload, "done"],
+    ]);
+    expect(seen.slice(1).map((c) => c.item.payload.tool)).toEqual([
+      QBO_TOOLS.billCreate,
+      QBO_TOOLS.attachableUpload,
+    ]);
+    const created = actions[0];
+    expect(j(created?.input)).toMatchObject({
+      vendorId: CEDAR[0],
+      docNumber: "CR-7731",
+      expectedTotal: "5843.35",
+    });
+    // The End "created" reports the new bill to the client admin.
+    const notes = await H.t.db.select().from(message).where(eq(message.tenantId, H.A.tenantId));
+    const note = notes.find((m) => j(m.body).nodeId === "created:out:out-added");
+    expect(j(note?.body).text).toBe(
+      "We added bill CR-7731 from Cedar Ridge Hardwoods for 5843.35 USD, with its 7 lines.",
+    );
+  });
+
+  it("two equal bills write nothing and ask the client admin which it is", async () => {
+    const posts = qbo.apiCalls("POST").length;
+    const [params] = await dispatchExtracted(docs.keystone);
+    if (!params) throw new Error("the invoice started no run");
+    // Nobody answers within the week: the run ends, having written nothing.
+    expect(
+      await executeRun(
+        runDeps(new FakeModel()),
+        params,
+        cloudflareStepRunner(new FakeWorkflowStep()),
+      ),
+    ).toMatchObject({ status: "succeeded" });
+    expect(await actionsOf(params.runId)).toEqual([]);
+    const [item] = await itemsOf(params.runId);
+    const candidates = [
+      (await txnOf("Bill:152"))?.id as string,
+      (await txnOf("Bill:153"))?.id as string,
+    ];
+    expect(item).toMatchObject({
+      kind: "request",
+      assigneeRole: "client_admin",
+      title: "We couldn't match invoice 55102 from Keystone Hardware & Finishes to a bill",
+    });
+    expect(j(item?.payload).candidates).toEqual(candidates);
+    expect(j(item?.payload).sources).toEqual(
+      expect.arrayContaining([docs.keystone, ...candidates]),
+    );
+    expect(j(item?.payload).reason).toMatch(/^2 bills from Keystone/);
     expect(qbo.apiCalls("POST")).toHaveLength(posts);
   });
 });

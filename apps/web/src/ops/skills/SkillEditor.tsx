@@ -124,7 +124,7 @@ function Check({
   );
 }
 
-function FieldsEditor({
+export function FieldsEditor({
   side,
   rows,
   errors,

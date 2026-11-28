@@ -5,9 +5,9 @@
 // gate's approval item names the step (`payload.stepId`), the others their node (`payload.nodeId`).
 import { isPlainObject, outcomeOfStepRow, type processes, reusedStepOf } from "@countersign/core";
 import { describe, expect, it } from "vitest";
-import { executeWorkflow, type RunResume } from "./executor";
+import type { RunResume } from "./executor";
 import { FakeStepRunner } from "./fake-runner";
-import { Harness, WRITE_TOOL } from "./fakes.test-helper";
+import { executeProcess, Harness, WRITE_TOOL } from "./fakes.test-helper";
 import type { ConversationResult, InboxResolution } from "./ports";
 import { inboxEventType } from "./runner";
 
@@ -473,7 +473,7 @@ describe("the executor's record and what its rows read back agree", () => {
     const extra = c.setup?.(h) ?? {};
     const runner = c.runner?.(h) ?? new FakeStepRunner();
     const steps = [c.step, PROBE];
-    const result = await executeWorkflow(
+    const result = await executeProcess(
       runner,
       h.context(c.extra?.(h) ?? {}),
       proc(steps),
@@ -526,7 +526,7 @@ describe("an if routes on each outcome", () => {
       ],
       otherwise: { id: "no", steps: [] },
     };
-    const result = await executeWorkflow(
+    const result = await executeProcess(
       runner,
       h.context(c.extra?.(h) ?? {}),
       proc([c.step, route]),
@@ -576,7 +576,7 @@ async function retried(
   trigger: unknown = {},
 ) {
   first.h.handlers.boom = () => ({ kind: "failed", error: "the vendor's site is down" });
-  const one = await executeWorkflow(
+  const one = await executeProcess(
     first.runner ?? new FakeStepRunner(),
     first.h.context(first.extra ?? {}),
     proc(steps),
@@ -592,7 +592,7 @@ async function retried(
     h.handlers[id] = () => ({ kind: "failed", error: `${id} ran again` });
   }
   h.resumeHandler = () => ({ kind: "failed", error: "a write was made again" });
-  const two = await executeWorkflow(
+  const two = await executeProcess(
     new FakeStepRunner({ onWait: "timeout" }),
     h.context({ ...(first.extra ?? {}), resume }),
     proc(steps),
@@ -681,7 +681,7 @@ describe("a retry routes on the whole record of the steps it reuses", () => {
     first.handlers.boom = () => ({ kind: "failed", error: "the vendor's site is down" });
     const steps = [sub(), routeThenBoom("steps.x.stopStatus", "cancelled")];
     const automations = automation([{ id: "end", kind: "stop", name: "End", status: "cancelled" }]);
-    const one = await executeWorkflow(
+    const one = await executeProcess(
       new FakeStepRunner(),
       first.context({ automations }),
       proc(steps),
@@ -699,7 +699,7 @@ describe("a retry routes on the whole record of the steps it reuses", () => {
       const h = new Harness({ ...of.run, id: `0192f7a0-0000-7000-8000-00000000a00${n}` });
       h.handlers.boom = boom;
       h.handlers.end = () => ({ kind: "failed", error: "the process ran again" });
-      const result = await executeWorkflow(
+      const result = await executeProcess(
         new FakeStepRunner(),
         h.context({ automations, resume }),
         proc(steps),
@@ -739,7 +739,7 @@ describe("an if inside a for each", () => {
       (req.input as { i: number }).i === 2
         ? { kind: "done", output: { items: [] } }
         : { kind: "done", output: { items: [1] } };
-    const result = await executeWorkflow(
+    const result = await executeProcess(
       new FakeStepRunner(),
       h.context(),
       proc([

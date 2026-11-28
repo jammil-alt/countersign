@@ -4,6 +4,7 @@
 // access tests walk this whole list, so none of them skips a check.
 
 import { accountReportRoutes } from "./account-report";
+import { actionRequestRoutes } from "./action-requests";
 import { adjustRoutes } from "./adjust";
 import { agentReportRoutes } from "./agent-report";
 import { assistRoutes } from "./assist";
@@ -20,6 +21,7 @@ import { inviteRoutes } from "./invite";
 import { manualRoutes } from "./manual";
 import { portalViewRoutes } from "./portal-views";
 import { routes } from "./routes";
+import { selftestRoutes } from "./selftest";
 import { setupRoutes } from "./setup";
 import { soc2Routes } from "./soc2";
 import { sopRoutes } from "./sop";
@@ -34,6 +36,7 @@ import { workStatementRoutes } from "./work-statement";
 export const allRoutes = {
   ...routes,
   ...codeRequestRoutes,
+  ...actionRequestRoutes,
   ...clientFileRoutes,
   ...startRoutes,
   ...inviteRoutes,
@@ -76,4 +79,6 @@ export const allRoutes = {
   ...portalViewRoutes,
   // docs/plan.md §1.217: the process interview; its page and its back-office screen load lazily.
   ...interviewRoutes,
+  // The connector self-test (2026-11-28): read by the MCP server and the back office on demand.
+  ...selftestRoutes,
 } as const;

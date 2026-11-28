@@ -8,7 +8,7 @@
 import {
   type AdjustableSetting,
   type AdjustTarget,
-  type AnyAgentBundle,
+  type AgentBundle,
   adjustableId,
   allTriggers,
   DECIMAL_RE,
@@ -176,7 +176,7 @@ export function withAdjustable<D extends { adjustable?: unknown }>(
 }
 
 /** The agent's schedule triggers, by workflow, for the schedules card. */
-export function scheduleTargets(bundle: Pick<AnyAgentBundle, "workflows">) {
+export function scheduleTargets(bundle: Pick<AgentBundle, "workflows">) {
   const out: { target: AdjustTarget; workflow: string; cron: string }[] = [];
   for (const w of bundle.workflows) {
     for (const t of allTriggers(w.workflow as TriggerHolder)) {

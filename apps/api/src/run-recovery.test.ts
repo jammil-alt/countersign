@@ -17,7 +17,7 @@ import {
 import { and, eq, inArray } from "drizzle-orm";
 import { afterAll, describe, expect, it } from "vitest";
 import { SLOAN_SWEEP_MINUTE } from "./account/sloan";
-import { type ApiHarness, createApiHarness, OPERATOR } from "./api.test-helper";
+import { type ApiHarness, createApiHarness, OPERATOR, v5Workflow } from "./api.test-helper";
 import { BANKFEED_CRON_MINUTE } from "./bankfeed/sync";
 import { CAPTURE_CRON_MINUTE } from "./conversations/cron";
 import { A2P_CRON_MINUTE } from "./messaging/a2p";
@@ -63,7 +63,7 @@ function bundle(name: string, on: unknown): AgentBundle {
       {
         slug: "main",
         name: "Main",
-        workflow: { schemaVersion: 3, trigger: { id: "t", on }, steps: [] },
+        workflow: v5Workflow([], { triggers: [{ id: "t", on }] }),
       },
     ],
   } as AgentBundleInput);

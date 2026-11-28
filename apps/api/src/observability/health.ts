@@ -8,10 +8,11 @@
 // One query set for both: it reads the clients it is given, inside the caller's scope (the cron's
 // withTenant per client, the MCP tool's operator scope), and filters by tenant_id (invariant 1).
 
-import { errorGroupKey, runErrorKey } from "@countersign/core";
+import { errorGroupKey, runErrorKey, SELFTEST_CHANGE, SelftestChange } from "@countersign/core";
 import {
   activeClient,
   connection,
+  connectionChange,
   type Db,
   event,
   externalAction,
@@ -34,6 +35,8 @@ export const HEALTH_KINDS = [
   "connection_broken",
   // Audit 4.6: events whose dispatch failed DISPATCH_ATTEMPTS times, left for a person.
   "events_set_aside",
+  // 2026-11-28: a check of the connector self-test on the Sandbox's live connections failed.
+  "selftest_failed",
 ] as const;
 export type HealthKind = (typeof HEALTH_KINDS)[number];
 
@@ -153,6 +156,38 @@ export async function healthFindings(
         return { id: a.id, tenantId: a.tenantId, key, unconfirmed: e.unconfirmed === true };
       }),
       "action_failed",
+    ),
+  );
+
+  // The connector self-test (selftest/runner.ts): each failed check of a run in the window, by its
+  // check id, with the connection as its id. Only the Sandbox client ever has these rows.
+  const selftests = await tx
+    .select({
+      tenantId: connectionChange.tenantId,
+      connectionId: connectionChange.connectionId,
+      change: connectionChange.change,
+    })
+    .from(connectionChange)
+    .where(
+      and(
+        inArray(connectionChange.tenantId, ids),
+        sql`${connectionChange.change}->>'kind' = ${SELFTEST_CHANGE}`,
+        sql`(${connectionChange.change}->>'failed')::int > 0`,
+        gte(connectionChange.createdAt, w.from),
+        lt(connectionChange.createdAt, w.to),
+      ),
+    )
+    .orderBy(sql`${connectionChange.createdAt} desc`);
+  findings.push(
+    ...group(
+      selftests.flatMap((r) => {
+        const c = SelftestChange.safeParse(r.change);
+        if (!c.success) return [];
+        return c.data.checks
+          .filter((k) => k.status === "fail")
+          .map((k) => ({ id: r.connectionId, tenantId: r.tenantId, key: k.id }));
+      }),
+      "selftest_failed",
     ),
   );
 
@@ -276,6 +311,7 @@ const TITLES: Record<HealthKind, string> = {
   delivery_stuck: "Signed items not taken by their run",
   connection_broken: "Connections need attention",
   events_set_aside: "Events set aside after failing to dispatch",
+  selftest_failed: "Connector self-test failed",
 };
 
 /** One Sentry event per finding: grouped by kind and key across clients, the client as a tag. */

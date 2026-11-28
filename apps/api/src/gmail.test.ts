@@ -16,7 +16,15 @@ import {
 } from "@countersign/connectors";
 import { FAKE_GOOGLE, fakeGoogle, readSentEmail } from "@countersign/connectors/testing";
 import { AgentBundle, type AgentBundleInput } from "@countersign/core";
-import { agent, connection, externalAction, rawRecord, reachOut, stepRun } from "@countersign/db";
+import {
+  agent,
+  connection,
+  externalAction,
+  inboxItem,
+  rawRecord,
+  reachOut,
+  stepRun,
+} from "@countersign/db";
 import { FakeModel } from "@countersign/llm";
 import { and, eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -24,8 +32,10 @@ import {
   type ApiHarness,
   admin,
   createApiHarness,
+  ended,
   FakeWorkflowStep,
   OPERATOR,
+  publishStored,
   signatureOf,
   unsigned,
   user,
@@ -45,8 +55,8 @@ const ORIGIN = "https://app.mezonas.test";
 const FORWARDING = "in.mezonas.test";
 const MAILBOX = "pat.lee@gmail.test";
 const MARIA = "maria@proveedor.example";
-const PURPOSE = "Confirm Friday's delivery of the oak order";
-const SUBJECT = "Entrega del viernes: pedido nº {{trigger.order}}";
+const _PURPOSE = "Confirm Friday's delivery of the oak order";
+const _SUBJECT = "Entrega del viernes: pedido nº {{trigger.order}}";
 const SPANISH = "Hola, ¿confirma la entrega del viernes? Responda SÍ o NO. Gracias.";
 const google = fakeGoogle();
 
@@ -82,42 +92,47 @@ function bundle(): AgentBundle {
         slug: "main",
         name: "Main",
         workflow: {
-          schemaVersion: 3,
-          trigger: {
-            id: "trg",
-            on: {
-              type: "manual",
-              input: {
-                type: "object",
-                properties: { order: { type: "string" } },
-                required: ["order"],
+          schemaVersion: 5,
+          triggers: [
+            {
+              id: "trg",
+              on: {
+                type: "manual",
+                input: {
+                  type: "object",
+                  properties: { order: { type: "string" } },
+                  required: ["order"],
+                },
               },
             },
-          },
+          ],
+          outputs: [{ id: "out-done", name: "Done", kind: "nothing" }],
           steps: [
             {
               id: "reach",
               name: "Ask the vendor",
-              kind: "skill",
-              skill: "comms.reach-out",
+              client: { visible: true, label: "Asked the vendor" },
+              checks: { approval: { required: "required" } },
+              kind: "do",
+              doneBy: "rules",
+              uses: { type: "skill", skill: "comms.reach-out" },
               input: {
                 to: { role: "vendor" },
                 about: ["{{trigger.order}}"],
-                purpose: PURPOSE,
-                subject: SUBJECT,
+                purpose: "Confirm Friday's delivery of the oak order",
+                subject: "Entrega del viernes: pedido nº {{trigger.order}}",
                 message: {
                   template: {
                     en: "Can you confirm Friday's delivery? Reply YES or NO.",
-                    es: SPANISH,
+                    es: "Hola, ¿confirma la entrega del viernes? Responda SÍ o NO. Gracias.",
                   },
                 },
                 urgency: "fyi",
                 expectReply: true,
                 timeout: "2 days",
               },
-              approval: { required: "required" },
-              client: { visible: true, label: "Asked the vendor" },
             },
+            { id: "end", kind: "end", name: "Done", outputs: ["out-done"] },
           ],
         },
       },
@@ -334,11 +349,7 @@ describe.skipIf(!h)("Gmail, send only, through the API", () => {
     expect(j(created.json).errors ?? []).toEqual([]);
     agentId = j(created.json).agent.id;
     versionId = j(created.json).version.id;
-    const pub = await call(
-      OPERATOR,
-      "POST",
-      `/api/ops/agents/${agentId}/versions/${versionId}/publish`,
-    );
+    const pub = await publishStored(H, H.A.tenantId, agentId, versionId);
     expect(pub.status, JSON.stringify(pub.json)).toBe(200);
     const bound = await call(admin("a"), "PUT", `/api/people/${agentId}`, {
       people: { vendor: { contactIds: [maria], conditions: { maxPerDay: 10 } } },
@@ -369,8 +380,20 @@ describe.skipIf(!h)("Gmail, send only, through the API", () => {
 
   it("never sends from a test run", async () => {
     const params = await startRun("PO-T1", "test");
-    const result = await executeRun(deps(), params, cloudflareStepRunner(new FakeWorkflowStep()));
-    expect(result.status).toBe("succeeded");
+    // The step asks for its sign-off as in a live run; what a person approves in a test run is
+    // never sent.
+    const step = new FakeWorkflowStep(async (_name, type) => {
+      const items = await H.t.db.select().from(inboxItem).where(eq(inboxItem.runId, params.runId));
+      const item = items.find((i) => `inbox-${i.id.replace(/-/g, "")}` === type);
+      if (!item) throw new Error(`no item for ${type}`);
+      const done = await call(OPERATOR, "POST", `/api/ops/inbox/${item.id}/resolve`, {
+        decision: "approve",
+      });
+      expect(done.status, JSON.stringify(done.json)).toBe(200);
+      return H.instances.events.find((e) => e.event.type === type)?.event.payload;
+    });
+    const result = await executeRun(deps(), params, cloudflareStepRunner(step));
+    expect(result, JSON.stringify(result)).toMatchObject({ status: "succeeded" });
     expect(await stepOutput(params.runId)).toMatchObject({
       testRun: true,
       plan: ["email"],
@@ -455,7 +478,7 @@ describe.skipIf(!h)("Gmail, send only, through the API", () => {
       return H.instances.events.find((e) => e.event.type === type)?.event.payload;
     });
     const result = await executeRun(deps(), params, cloudflareStepRunner(step));
-    expect(result).toEqual({ status: "succeeded" });
+    expect(result).toEqual(ended());
     expect(reachEvent).not.toBe("");
     expect(await stepOutput(params.runId)).toMatchObject({
       outcome: "replied",
@@ -546,9 +569,9 @@ describe.skipIf(!h)("Gmail, send only, through the API", () => {
     // needs the person to connect again.
     google.expireRefreshTokens();
     google.expireAccessTokens();
-    const ended = await runWithoutReply("PO-3002");
+    const runEnded = await runWithoutReply("PO-3002");
     expect(google.sent).toHaveLength(2);
-    expect((await actionsOf(ended.runId)).map((a) => a.status)).toEqual(["failed"]);
+    expect((await actionsOf(runEnded.runId)).map((a) => a.status)).toEqual(["failed"]);
     const list = await call(user("a"), "GET", "/api/connections");
     expect(
       j(list.json).connections.find((c: { connector: string }) => c.connector === "gmail")

@@ -16,6 +16,7 @@ export * from "./api/access";
 export * from "./api/account";
 // R5: the report per account and every account side by side (docs/plan.md §1.235).
 export * from "./api/account-report";
+export * from "./api/action-requests";
 // docs/builder-plan.md §7 (B5): client adjustments and feedback on the manual
 export * from "./api/adjust";
 // R4: the report per agent (docs/plan.md §1.214).
@@ -120,6 +121,8 @@ export * from "./api/prompt-preview";
 export * from "./api/qbo";
 export * from "./api/reach";
 export * from "./api/read-table";
+// Step model §10f: record types and custom fields in the back office.
+export * from "./api/record-types";
 export * from "./api/records";
 export * from "./api/reggie";
 export * from "./api/requests";
@@ -137,10 +140,12 @@ export * from "./api/run-subject";
 // v0.12 W2-F
 export * from "./api/runs-ask";
 export * from "./api/runs-filter";
+export * from "./api/sample-company";
 export * from "./api/sandbox";
 // v0.12 W2-F
 export * from "./api/search";
 export * from "./api/second-factor";
+export * from "./api/selftest";
 // docs/builder-plan.md §6 (B4): the setup checklist
 export * from "./api/setup";
 export * from "./api/skill-model";
@@ -336,12 +341,18 @@ export * from "./permissions/release";
 // R1: processes, workflow schemaVersion 4 (docs/plan.md §1.86, §9), as the `processes` namespace.
 export * as processes from "./process";
 export * from "./process/change-class";
+// v0.12 W2-B
+export * from "./process/checks";
 export * from "./process/numbers";
 // Agent motion (docs/plan.md §1.106): the thinking state a running step shows.
 export { THINKING_STATES, type ThinkingState, thinkingOf } from "./process/thinking";
 // Invariant 9: what a prompt puts between its tags can't close them.
 export * from "./prompt-data";
+// Owner, 2026-11-27: the Sandbox's messages to made-up people.
+export * from "./reach/made-up";
 export * from "./reach/rules";
+// Step model §10f: record types, their standard actions, grants, data sets and custom fields.
+export * from "./records/index";
 export * from "./roles";
 export * from "./rules/compile";
 export * from "./run-audit/sampling";
@@ -385,12 +396,15 @@ export * from "./setup/view";
 export * from "./skills/index";
 // docs/sop-plan.md: the agent's SOP, made by code from its setup, and its revisions
 export * from "./sop/index";
+// The step model (docs/step-model-plan.md), workflow schemaVersion 5, as the `steps` namespace.
+export * as steps from "./steps";
 export * from "./supervisor/health";
 // §1.164: reading and writing table files, outside `processes` (kept out of the web first load).
 export * as tableFiles from "./tables";
 export * from "./template/template";
 export * from "./template/typer";
 export * from "./testbench/case";
+export * from "./testbench/loop-tests";
 export * from "./testbench/match";
 export * from "./testbench/suite";
 // BUILDER_QA INPUT-1, INPUT-3: text Postgres can store, and cutting it on whole characters
@@ -408,7 +422,3 @@ export * from "./units";
 export * from "./weekly/schemas";
 export * from "./weekly/week";
 export * from "./work";
-// v0.12 W2-B
-export * from "./workflow/automation";
-export * from "./workflow/validate";
-export * from "./workflow/walk";

@@ -12,7 +12,15 @@ import type { DocumentServices, WriteContext } from "../connector";
 import { CredentialCipher, generateEncryptionKey, memoryTenantKeys } from "../credentials";
 import { encryptedCredentials, memoryCredentials } from "../credentials-accessor";
 import { formDecode } from "../http";
-import { captureBefore, executeWrite, runReadTool, standInOutput, ToolCallError } from "../invoke";
+import {
+  captureBefore,
+  executeWrite,
+  moneyAsDecimals,
+  parseWriteInput,
+  runReadTool,
+  standInOutput,
+  ToolCallError,
+} from "../invoke";
 import { memoryLogger } from "../logger";
 import { beginAuthorization, completeAuthorization } from "../oauth/flow";
 import {
@@ -636,6 +644,40 @@ describe("qbo connector: read tools", () => {
     expect(query).toContain("minorversion=75");
   });
 
+  // Staging, 2026-11-27: QuickBooks refuses `EntityRef` in a Purchase query ("property
+  // 'EntityRef' is not queryable"), so a payee's purchases are filtered after the query.
+  it("finds one payee's purchases without asking QuickBooks to filter by payee", async () => {
+    const s = setup();
+    const { ctx } = await signedIn(s);
+    const out = (await runReadTool(s.connector, QBO_TOOLS.purchaseQuery, { vendorId: "58" }, ctx()))
+      .output as { purchases: { id: string; vendor: { id: string } }[]; more: boolean };
+    expect(out.purchases.map((p) => p.id).sort()).toEqual(["201", "203"]);
+    expect(out.purchases.every((p) => p.vendor.id === "58")).toBe(true);
+    expect(out.more).toBe(false);
+    const queries = s.qbo
+      .apiCalls("GET", "query")
+      .map((r) => decodeURIComponent(r.url.replace(/\+/g, " ")))
+      .filter((u) => u.includes("from Purchase"));
+    expect(queries.some((u) => u.includes("EntityRef"))).toBe(false);
+    // Paged over the payee's own purchases.
+    const first = (
+      await runReadTool(s.connector, QBO_TOOLS.purchaseQuery, { vendorId: "58", limit: 1 }, ctx())
+    ).output as { purchases: { id: string }[]; more: boolean };
+    expect(first.purchases).toHaveLength(1);
+    expect(first.more).toBe(true);
+    const second = (
+      await runReadTool(
+        s.connector,
+        QBO_TOOLS.purchaseQuery,
+        { vendorId: "58", limit: 1, start: 2 },
+        ctx(),
+      )
+    ).output as { purchases: { id: string }[]; more: boolean };
+    expect(second.purchases).toHaveLength(1);
+    expect(second.purchases[0]?.id).not.toBe(first.purchases[0]?.id);
+    expect(second.more).toBe(false);
+  });
+
   it("finds items and attachments, and escapes quotes in what an agent types", async () => {
     const s = setup();
     const { ctx } = await signedIn(s);
@@ -1256,5 +1298,44 @@ describe("qbo webhooks", () => {
         lastUpdated: null,
       },
     ]);
+  });
+});
+
+// Staging, 2026-11-28: a receipt agent's coded lines reached qbo.purchase.create as money objects.
+describe("money from a step, into a QuickBooks write", () => {
+  const purchase = (amount: unknown, total: unknown) => ({
+    accountId: "42",
+    paymentType: "CreditCard",
+    txnDate: "2026-11-26",
+    currency: "USD",
+    reference: "HH-20481",
+    expectedTotal: total,
+    lines: [{ accountId: "63", amount, description: "Landscape fabric" }],
+  });
+
+  it("takes each money value as its amount when the tool wants a decimal", () => {
+    const s = setup();
+    const parsed = parseWriteInput(
+      s.connector,
+      "qbo.purchase.create",
+      purchase({ amount: "79.25", currency: "USD" }, { amount: "79.25", currency: "USD" }),
+    ) as { expectedTotal: unknown; lines: { amount: unknown }[] };
+    expect(parsed.expectedTotal).toBe("79.25");
+    expect(parsed.lines[0]?.amount).toBe("79.25");
+  });
+
+  it("never drops a currency: another than the input's, or two, is still refused", () => {
+    const s = setup();
+    expect(() =>
+      parseWriteInput(
+        s.connector,
+        "qbo.purchase.create",
+        purchase({ amount: "79.25", currency: "CAD" }, { amount: "79.25", currency: "CAD" }),
+      ),
+    ).toThrow(ToolCallError);
+    expect(
+      moneyAsDecimals({ a: { amount: "1", currency: "USD" }, b: { amount: "2", currency: "EUR" } }),
+    ).toBeUndefined();
+    expect(moneyAsDecimals({ a: "1" })).toBeUndefined();
   });
 });

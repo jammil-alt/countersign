@@ -242,7 +242,9 @@ async function routeFor(
   // Wave 3b: a v3 step's own approver, or a v4 step's first approver (core's rule for both).
   const step = workflow ? findNodeStep(workflow, leaf) : undefined;
   const stepApprover =
-    step && ownerWatches(step) ? ownerStepApproval(step as OwnerWatchedStep).approver : undefined;
+    step && ownerWatches(step)
+      ? ownerStepApproval(step as unknown as OwnerWatchedStep).approver
+      : undefined;
   // DECISION (wave 3b review): a v4 approval names approvers in turn; the executor can ask a later
   // one (the first is away, or past their deadline). The edit is routed against each named
   // approver, and it stays with the item's assignee if any of those routes still goes to them.

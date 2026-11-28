@@ -3,14 +3,12 @@
 // workflows untouched. Pure, so the checks are tested without rendering.
 import {
   type AgentBundle,
-  type AgentBundleInput,
-  AgentBundle as AgentBundleSchema,
-  type AnyAgentBundle,
-  AnyAgentBundle as AnyAgentBundleSchema,
+  AgentBundle as AnyAgentBundleSchema,
   DECIMAL_RE,
+  EmailIntake,
+  type EmailIntakeMode,
   MODEL_PROVIDER_NAMES,
-  modelProvider,
-  // v0.13 W2-I
+  modelProvider, // v0.13 W2-I
   NEW_AGENT_OVERSIGHT,
   type OversightReview,
   OversightSettings,
@@ -21,6 +19,7 @@ import {
   uuidv7,
 } from "@countersign/core";
 
+import { newStepWorkflow } from "../builder/steps/model";
 import { type AdjustDraft, draftProblems, draftsFrom, withAdjustable } from "./adjustable-form";
 
 export type SettingValue = string | boolean;
@@ -53,6 +52,12 @@ export interface DefinitionForm {
   memory: boolean;
   /** Wave 6: what the agent's owner reviews (`definition.oversight.review`); none set reads `off`. */
   ownerReview: OversightReview;
+  /** Email intake (owner, 2026-11-28): who may start the agent by emailing its own address. */
+  intakeMode: EmailIntakeMode;
+  /** For `domain`: the one domain, as typed. */
+  intakeDomain: string;
+  /** For `list`: addresses and domains, one per line (or comma separated), as typed. */
+  intakeSenders: string;
   /**
    * B5 (docs/builder-plan.md §7): the settings the client may adjust, with their bounds as typed.
    * Absent: the definition's are kept as they are.
@@ -89,7 +94,7 @@ export const DEFAULT_MODEL = "claude-opus-5-5";
 /** Approvers the editor offers besides a user id. */
 export const APPROVER_ROLES = ["client_admin", "operator"] as const;
 
-export function formFromBundle(bundle: Pick<AnyAgentBundle, "definition">): DefinitionForm {
+export function formFromBundle(bundle: Pick<AgentBundle, "definition">): DefinitionForm {
   const d = bundle.definition;
   return {
     name: d.identity.name,
@@ -112,6 +117,9 @@ export function formFromBundle(bundle: Pick<AnyAgentBundle, "definition">): Defi
     maxCostUsd: d.budgets.maxCostUsd,
     memory: d.memory.enabled,
     ownerReview: d.oversight?.review ?? "off",
+    intakeMode: d.emailIntake?.mode ?? "people",
+    intakeDomain: d.emailIntake?.mode === "domain" ? d.emailIntake.domain : "",
+    intakeSenders: d.emailIntake?.mode === "list" ? d.emailIntake.senders.join("\n") : "",
     adjustable: draftsFrom(d),
   };
 }
@@ -122,9 +130,9 @@ export function formFromBundle(bundle: Pick<AnyAgentBundle, "definition">): Defi
  * or the schema's defaults when it had none.
  */
 export function oversightWith(
-  current: AnyAgentBundle["definition"]["oversight"],
+  current: AgentBundle["definition"]["oversight"],
   review: OversightReview,
-): AnyAgentBundle["definition"]["oversight"] {
+): AgentBundle["definition"]["oversight"] {
   if (review === (current?.review ?? "off")) return current;
   return current ? { ...current, review } : OversightSettings.parse({ review });
 }
@@ -155,6 +163,13 @@ export function validateForm(form: DefinitionForm, options: readonly SkillOption
   }
   if (form.approver !== form.approver.trim()) {
     errors.approver = "No spaces around the approver.";
+  }
+  const intake = emailIntakeOf(form);
+  if (intake && !EmailIntake.safeParse(intake).success) {
+    errors.intake =
+      form.intakeMode === "domain"
+        ? "A domain such as client.com."
+        : "One or more addresses (ap@client.com) or domains (client.com).";
   }
 
   const seen = new Set<string>();
@@ -210,7 +225,7 @@ function settingValue(
  * (extra tools, agents it may ask, avatar) are kept as they were. Overrides left empty are
  * dropped, so the skill's default applies.
  */
-export function applyForm<B extends AnyAgentBundle>(
+export function applyForm<B extends AgentBundle>(
   bundle: B,
   form: DefinitionForm,
   options: readonly SkillOption[],
@@ -252,7 +267,8 @@ export function applyForm<B extends AnyAgentBundle>(
   };
   if (d.identity.avatar !== undefined) identity.avatar = d.identity.avatar;
   const oversight = oversightWith(d.oversight, form.ownerReview);
-  const { oversight: _was, ...kept } = d;
+  const emailIntake = emailIntakeOf(form);
+  const { oversight: _was, emailIntake: _intakeWas, ...kept } = d;
   // B5: the client-adjustable marks as the form has them (kept as stored when it has none).
   const rest = form.adjustable ? withAdjustable(kept, form.adjustable) : kept;
   return {
@@ -260,6 +276,8 @@ export function applyForm<B extends AnyAgentBundle>(
     definition: {
       ...rest,
       ...(oversight ? { oversight } : {}),
+      // The default (`people`) is left out, so an agent that never set it hashes as before.
+      ...(emailIntake ? { emailIntake } : {}),
       identity,
       model: { id: form.modelId.trim(), maxTokens: Number(form.maxTokens) },
       instructions: form.instructions,
@@ -271,8 +289,27 @@ export function applyForm<B extends AnyAgentBundle>(
   };
 }
 
+/** The form's email intake as the definition stores it; undefined for the default (`people`). */
+export function emailIntakeOf(form: DefinitionForm): EmailIntake | undefined {
+  if (form.intakeMode === "domain") {
+    return {
+      mode: "domain",
+      domain: form.intakeDomain.trim().toLowerCase().replace(/^@/, ""),
+    };
+  }
+  if (form.intakeMode === "list") {
+    const senders = form.intakeSenders
+      .split(/[\n,;]+/)
+      .map((v) => v.trim().toLowerCase().replace(/^@/, ""))
+      .filter((v) => v !== "");
+    return { mode: "list", senders: [...new Set(senders)] };
+  }
+  if (form.intakeMode === "open") return { mode: "open" };
+  return undefined;
+}
+
 /** The applied bundle checked against core's schema (the last guard before saving). */
-export function checkBundle(bundle: AnyAgentBundle): string | null {
+export function checkBundle(bundle: AgentBundle): string | null {
   const parsed = AnyAgentBundleSchema.safeParse(bundle);
   if (parsed.success) return null;
   const first = parsed.error.issues[0];
@@ -289,12 +326,13 @@ export interface NewAgentFields {
 
 /**
  * A new agent's v1 from scratch: the definition with the schema's defaults (suggest only, so every
- * write waits for a person), and one blank workflow started by hand that the builder fills in.
+ * write waits for a person), and one workflow started by hand that the builder fills in, in the step
+ * model (`newStepWorkflow`: its trigger, a "Nothing to do" output and the End that delivers it).
  */
-// DECISION: "blank workflow" is one workflow, `main`, with a manual trigger and no steps. Its
-// trigger id is a fresh uuid v7, generated once and never regenerated (CLAUDE.md invariant 3).
+// DECISION: "blank workflow" is one workflow, `main`, with a manual trigger and only its End. Its
+// ids are fresh uuid v7s, generated once and never regenerated (CLAUDE.md invariant 3).
 export function blankBundle(fields: NewAgentFields, newId: () => string = () => uuidv7()) {
-  const input: AgentBundleInput = {
+  const input = {
     schemaVersion: 1,
     definition: {
       schemaVersion: 2,
@@ -315,15 +353,11 @@ export function blankBundle(fields: NewAgentFields, newId: () => string = () => 
       {
         slug: "main",
         name: "Main",
-        workflow: {
-          schemaVersion: 3,
-          trigger: { id: newId(), on: { type: "manual", input: { type: "object" } } },
-          steps: [],
-        },
+        workflow: newStepWorkflow({ type: "manual", input: { type: "object" } }, newId),
       },
     ],
   };
-  return AgentBundleSchema.parse(input);
+  return AnyAgentBundleSchema.parse(input);
 }
 
 /** `Material costs` → `material-costs` (the slug schema: lowercase letters, digits, dashes). */

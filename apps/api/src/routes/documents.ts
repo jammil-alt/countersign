@@ -8,13 +8,11 @@ import {
   ContentStore,
   documentMimeType,
   ensureUploadConnection,
-  forwardingAddress,
   forwardingOf,
   forwardingStatsOf,
   importPurchasesCsv,
   isDocumentType,
   isPurchasesCsv,
-  newForwardingSecret,
   normalizeSender,
   PurchasesCsvError,
   type UploadConnectionRow,
@@ -35,7 +33,6 @@ import {
   run,
   stepRun,
   type Tx,
-  tenant,
   toolCall,
   transaction,
   withTenant,
@@ -67,6 +64,7 @@ import {
 } from "../http";
 import { meterModelCalls } from "../metering";
 import { reportHandled } from "../observability/report";
+import { withForwardingAddress } from "../reach/forwarding";
 import { dispatchAfterCommit, dispatchEvents } from "../runs/dispatch";
 import { signerFor, verifyFileToken } from "../storage";
 import { sandboxClient } from "./ops-clients";
@@ -77,7 +75,7 @@ const SIGNED_TTL_MS = 300_000;
 
 type ExtractionRow = typeof docExtraction.$inferSelect;
 
-function isCsv(file: File): boolean {
+function isCsv(file: { type: string; name: string }): boolean {
   const t = file.type.toLowerCase();
   return t === "text/csv" || t === "application/csv" || file.name.toLowerCase().endsWith(".csv");
 }
@@ -318,19 +316,10 @@ async function forwardingView(
   actorId: string | null,
 ) {
   const domain = services.env.EMAIL_FORWARDING_DOMAIN?.trim().toLowerCase();
-  let conn = row;
   // DECISION: a client's forwarding address is made the first time its portal asks for it (once
-  // the deployment has a forwarding domain), so every client gets one without an extra step.
-  if (domain && !forwardingOf(conn).address) {
-    const [t] = await tx.select({ name: tenant.name }).from(tenant).where(eq(tenant.id, tenantId));
-    const address = forwardingAddress({
-      tenantId,
-      clientName: t?.name ?? "client",
-      secret: newForwardingSecret(),
-      domain,
-    });
-    conn = await updateForwarding(tx, conn, { address }, actorId);
-  }
+  // the deployment has a forwarding domain), so every client gets one without an extra step; the
+  // back office's email setup makes it too (`withForwardingAddress`).
+  const conn = await withForwardingAddress(tx, { tenantId, domain, actorId, row });
   const f = forwardingOf(conn);
   const s = forwardingStatsOf(conn);
   return {
@@ -433,14 +422,39 @@ export async function receiveUploads(
   // it. It is still read in the background, as an upload is.
   forTry = false,
 ) {
-  const { c, tx, session, services, defer } = ctx;
   let form: FormData;
   try {
-    form = await c.req.formData();
+    form = await ctx.c.req.formData();
   } catch {
     throw new HttpError(400, "invalid_request", "send the files as multipart/form-data");
   }
   const files = form.getAll("files").filter((f): f is File => typeof f !== "string");
+  const uploads: UploadFile[] = [];
+  for (const f of files) {
+    uploads.push({ name: f.name, type: f.type, bytes: new Uint8Array(await f.arrayBuffer()) });
+  }
+  return storeUploads(ctx, tenantId, uploads, forChat, forTry);
+}
+
+/** A file to store as an upload: its name, its declared type and its bytes. */
+export interface UploadFile {
+  name: string;
+  type: string;
+  bytes: Uint8Array;
+}
+
+/**
+ * Stores uploaded files in one client, as `receiveUploads` describes, whichever way they came:
+ * a multipart form from the app, or base64 in a JSON body (the MCP server's Sandbox upload).
+ */
+export async function storeUploads(
+  ctx: Pick<HandlerCtx<typeof routes.portalUploads>, "tx" | "session" | "services" | "defer">,
+  tenantId: string,
+  files: readonly UploadFile[],
+  forChat = false,
+  forTry = false,
+) {
+  const { tx, session, services, defer } = ctx;
   if (files.length === 0) throw new HttpError(400, "invalid_request", "no files in `files`");
   if (files.length > MAX_UPLOAD_FILES) {
     throw new HttpError(400, "invalid_request", `at most ${MAX_UPLOAD_FILES} files at once`);
@@ -451,7 +465,7 @@ export async function receiveUploads(
   const extract: string[] = [];
   const results = [];
   for (const file of files) {
-    const bytes = new Uint8Array(await file.arrayBuffer());
+    const bytes = file.bytes;
     const base = {
       filename: file.name,
       document: null,
@@ -573,6 +587,24 @@ export function documentRoutes(app: Hono<AppEnv>): void {
     );
     return narrowToTenant(ctx.tx, t.id, (tx) =>
       receiveUploads({ ...ctx, tx }, t.id, false, ctx.query.for === "try"),
+    );
+  });
+
+  // The same upload with the bytes as base64 in JSON, for a build's try from the MCP server
+  // (sandbox_upload): stored quietly, as `for=try` is.
+  mount(app, routes.opsSandboxUploadsJson, async (ctx) => {
+    const t = await sandboxClient(
+      ctx,
+      ctx.params.id,
+      "only the Sandbox client's documents are uploaded from the back office",
+    );
+    const files: UploadFile[] = ctx.body.files.map((f) => ({
+      name: f.filename,
+      type: f.mimeType ?? "",
+      bytes: Uint8Array.from(atob(f.contentBase64), (ch) => ch.charCodeAt(0)),
+    }));
+    return narrowToTenant(ctx.tx, t.id, (tx) =>
+      storeUploads({ ...ctx, tx }, t.id, files, false, true),
     );
   });
 

@@ -31,7 +31,12 @@ function bundle(workflows: { slug: string; enabled?: boolean; on: unknown }[]): 
       slug: w.slug,
       name: w.slug,
       enabled: w.enabled ?? true,
-      workflow: { schemaVersion: 3, trigger: { id: `t-${w.slug}`, on: w.on }, steps: [] },
+      workflow: {
+        schemaVersion: 5,
+        triggers: [{ id: `t-${w.slug}`, on: w.on }],
+        steps: [],
+        outputs: [],
+      },
     })),
   });
 }

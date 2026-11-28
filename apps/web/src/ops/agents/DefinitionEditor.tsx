@@ -3,7 +3,9 @@
 // budgets. Saving makes a new draft version from the version it was opened on; the workflows are
 // kept as they are (the builder edits them). The same editor serves templates and client agents.
 import {
-  type AnyAgentBundle,
+  type AgentBundle,
+  type AgentData,
+  type EmailIntakeMode,
   type OversightReview,
   OWNER_REVIEW_CHOICES,
   SKILL_KIND_LABEL,
@@ -17,6 +19,7 @@ import { Badge, Button, Card, SectionLabel, Tag } from "../../ui/primitives";
 import { ParameterValueInput, parameterText } from "../skills/parameters";
 import { canAdjust, ParameterAdjust, ScheduleAdjustCard } from "./AdjustableFields";
 import type { AdjustDraft } from "./adjustable-form";
+import { DataSetsCard } from "./DataSetsCard";
 import {
   APPROVER_ROLES,
   applyForm,
@@ -30,6 +33,18 @@ import {
   validateForm,
 } from "./definition-form";
 import { Field, isCode, Notice, Select, TextArea, TextInput, useAction } from "./ui";
+
+/** The bundle with the agent's data sets (left out when it grants nothing, so it hashes as before). */
+export function withData(next: AgentBundle, data: AgentData | undefined): AgentBundle {
+  const { data: _old, ...definition } = next.definition as typeof next.definition & {
+    data?: AgentData;
+  };
+  const empty = !data || (data.grants.length === 0 && data.sets.length === 0);
+  return {
+    ...next,
+    definition: (empty ? definition : { ...definition, data }) as typeof next.definition,
+  };
+}
 
 /** POST /api/ops/agents/:id/versions: the draft, and what would stop it from publishing. */
 export type SaveResult = ResponseOf<typeof apiRoutes.opsSaveVersion>;
@@ -45,13 +60,16 @@ export function DefinitionEditor({
   agent: AgentSummary;
   /** The version the editor was opened on: the new draft's parent. */
   from: VersionSummary;
-  bundle: AnyAgentBundle;
+  bundle: AgentBundle;
   /** The skills this agent may use (GET /api/ops/agents/:id/skills). */
   skills: readonly SkillOption[];
   onSaved(result: SaveResult): void;
   onNoChange(): void;
 }) {
   const [form, setForm] = useState<DefinitionForm>(() => formFromBundle(bundle));
+  // Step model §10f: the agent's data sets, saved with its version beside the form's fields.
+  const opened = (bundle.definition as { data?: AgentData }).data;
+  const [data, setData] = useState<AgentData | undefined>(opened);
   const [changeNote, setChangeNote] = useState("");
   const [releaseNote, setReleaseNote] = useState("");
   const [touched, setTouched] = useState(false);
@@ -66,7 +84,7 @@ export function DefinitionEditor({
   async function onSave() {
     setTouched(true);
     if (hasErrors) return;
-    const next = applyForm(bundle, form, skills);
+    const next = withData(applyForm(bundle, form, skills), data);
     if (checkBundle(next)) return;
     const res = await save.call(apiRoutes.opsSaveVersion, {
       params: { id: agent.id },
@@ -87,7 +105,8 @@ export function DefinitionEditor({
     }
   }
 
-  const bundleProblem = touched && !hasErrors ? checkBundle(applyForm(bundle, form, skills)) : null;
+  const bundleProblem =
+    touched && !hasErrors ? checkBundle(withData(applyForm(bundle, form, skills), data)) : null;
 
   return (
     <div className="flex flex-col gap-5" data-testid="agent-editor">
@@ -174,6 +193,13 @@ export function DefinitionEditor({
         onChange={(next) => set("adjustable", next)}
       />
 
+      <DataSetsCard
+        value={data}
+        opened={opened}
+        area={(bundle.definition as { area?: string }).area ?? form.role.trim().toLowerCase()}
+        onChange={setData}
+      />
+
       <Card className="p-5">
         <SectionLabel>Permissions</SectionLabel>
         <fieldset className="flex flex-col gap-2">
@@ -244,6 +270,15 @@ export function DefinitionEditor({
       </Card>
 
       <OwnerReviewCard value={form.ownerReview} onChange={(v) => set("ownerReview", v)} />
+      <EmailIntakeCard
+        mode={form.intakeMode}
+        domain={form.intakeDomain}
+        senders={form.intakeSenders}
+        error={shown.intake}
+        onMode={(v) => set("intakeMode", v)}
+        onDomain={(v) => set("intakeDomain", v)}
+        onSenders={(v) => set("intakeSenders", v)}
+      />
 
       <Card className="p-5">
         <SectionLabel>Save as a draft</SectionLabel>
@@ -400,6 +435,120 @@ function OwnerReviewCard({
           );
         })}
       </fieldset>
+    </Card>
+  );
+}
+
+const INTAKE_CHOICES: { value: EmailIntakeMode; label: string; description: string }[] = [
+  {
+    value: "people",
+    label: "The people its triggers name",
+    description:
+      "Each email trigger says who may start it, from the client's people. The sender must be proven.",
+  },
+  {
+    value: "domain",
+    label: "Only from one domain",
+    description:
+      "Only mail proven to come from this domain, such as the client's own AP mailbox forwarding to us.",
+  },
+  {
+    value: "list",
+    label: "Only from a list",
+    description: "Only mail proven to come from the addresses and domains you list.",
+  },
+  {
+    value: "open",
+    label: "Anyone",
+    description:
+      "Mail from anyone starts it. A run from someone the client doesn't know says so, and what they send is read as data, never as instructions.",
+  },
+];
+
+/**
+ * Email intake (owner, 2026-11-28): who may start the agent by emailing its own address. Proven
+ * means the sender's domain passed SPF or DMARC; anyone can type any From address.
+ */
+// DECISION: in Settings, Definition, beside the owner, as `definition.emailIntake`, so a change
+// is a new draft version and is reviewed and published as every definition change is.
+function EmailIntakeCard({
+  mode,
+  domain,
+  senders,
+  error,
+  onMode,
+  onDomain,
+  onSenders,
+}: {
+  mode: EmailIntakeMode;
+  domain: string;
+  senders: string;
+  error?: string | undefined;
+  onMode(value: EmailIntakeMode): void;
+  onDomain(value: string): void;
+  onSenders(value: string): void;
+}) {
+  return (
+    <Card className="p-5" testId="agent-editor-intake">
+      <SectionLabel>Who can email it</SectionLabel>
+      <p className="mb-3 text-sm text-ink-muted">
+        Mail to the agent's own address starts its email triggers. Choose whose mail it takes.
+      </p>
+      <fieldset className="flex flex-col gap-2">
+        <legend className="sr-only">Who can email the agent</legend>
+        {INTAKE_CHOICES.map((c) => {
+          const selected = mode === c.value;
+          return (
+            <label
+              key={c.value}
+              className={`flex cursor-pointer items-start gap-3 rounded-md border px-4 py-3 ${
+                selected
+                  ? "border-slate bg-slate-tint"
+                  : "border-line bg-surface hover:bg-surface-subtle"
+              }`}
+            >
+              <input
+                type="radio"
+                name="email-intake"
+                className="mt-1 size-4 accent-slate"
+                data-testid={`agent-editor-intake-${c.value}`}
+                checked={selected}
+                onChange={() => onMode(c.value)}
+              />
+              <span>
+                <span className="block font-medium text-ink">{c.label}</span>
+                <span className="block text-sm text-ink-muted">{c.description}</span>
+              </span>
+            </label>
+          );
+        })}
+      </fieldset>
+      {mode === "domain" && (
+        <div className="mt-3">
+          <Field label="Domain" error={error}>
+            <TextInput
+              data-testid="agent-editor-intake-domain-input"
+              value={domain}
+              placeholder="client.com"
+              invalid={Boolean(error)}
+              onChange={(e) => onDomain(e.target.value)}
+            />
+          </Field>
+        </div>
+      )}
+      {mode === "list" && (
+        <div className="mt-3">
+          <Field label="Addresses and domains, one per line" error={error}>
+            <TextArea
+              data-testid="agent-editor-intake-senders"
+              rows={4}
+              value={senders}
+              placeholder={"ap@client.com\nsupplier.com"}
+              onChange={(e) => onSenders(e.target.value)}
+            />
+          </Field>
+        </div>
+      )}
     </Card>
   );
 }

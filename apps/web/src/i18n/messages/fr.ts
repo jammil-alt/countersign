@@ -36,6 +36,7 @@ export const fr: Messages = {
   "common.notFoundBody": "Il n'y a pas de page ici.",
   "common.yes": "Oui",
   "common.no": "Non",
+  "common.optional": "facultatif",
   "common.close": "Fermer",
 
   // ── Error pages (a page that failed to load) ──
@@ -480,6 +481,7 @@ export const fr: Messages = {
   "desk.team.undoIs": "Délai d'annulation : {window}.",
   "desk.approvalSettings": "Réglages d'approbation",
   "change.now": "Maintenant",
+  "change.recordSave.why": "Pourquoi il attend",
   "change.after": "Après la modification",
   "change.createsIt": "N'existe pas encore : cette modification le crée.",
   "change.nothingRecorded": "Rien d'enregistré.",
@@ -3952,6 +3954,14 @@ export const fr: Messages = {
   "connectors.ask.send": "Envoyer à votre responsable",
   "connectors.ask.sent": "Envoyé. Voir votre demande",
   "connectors.ask.subject": "Un connecteur pour {tool}",
+  "requestAction.title": "Demander quelque chose",
+  "requestAction.label": "Que faut-il faire ?",
+  "requestAction.send": "Envoyer",
+  "requestAction.cancel": "Annuler",
+  "requestAction.thanks": "Merci. Nous l'avons bien reçu et vous préviendrons quand ce sera prêt.",
+  "requestAction.another": "Demander autre chose",
+  "requestAction.hint":
+    "Dites-le avec vos propres mots. Nous l'examinerons et vous préviendrons quand ce sera prêt.",
   "connectors.browse.title": "Parcourir",
   "connectors.browse.search": "Rechercher des connecteurs",
   "connectors.browse.recommended": "Recommandés pour vous",

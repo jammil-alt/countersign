@@ -37,7 +37,7 @@ import {
   unusableAnswer,
 } from "./builder";
 import type { BuilderContext } from "./context";
-import type { HistoryLine } from "./conversation";
+import type { HistoryLine } from "./step-model/conversation";
 
 export const SKILL_TOOL = "submit_skill";
 

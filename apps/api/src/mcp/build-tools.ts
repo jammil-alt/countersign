@@ -3,26 +3,27 @@
 // Every tool runs the build's own route as this operator (`invokeRoute`: the same roles, client
 // scope, checks, Builder and audit row), so nothing here decides anything a build page doesn't.
 //
-// DECISION (owner, 2026-11-24): drafting and testing only. Putting a build at the client (the
-// client test), signing QA and the go/no-go stay in the back office, so a build reaches a client
-// only by a person's click there; moving a build is limited to the phases before the client test.
-// Stopping a build takes the two-step confirm. Drafts start with approval on as they always do,
+// DECISION (owner, 2026-11-24): drafting and testing only. A build goes from its draft to Publish
+// (owner, 2026-11-27), and its Publish is in the back office (agent_publish only publishes a new
+// version of an agent already live). Moving a build is limited to its draft: back to it, or into
+// it from the fit-gap. Stopping a build takes the two-step confirm. Drafts start with approval on as they always do,
 // and tries and test runs never write (invariant 8).
 
 import {
-  BUILD_PHASES,
   type BuildDetail as BuildDetailT,
   BuildItemKind,
   BuildItemOwner,
   BuildItemState,
   BuildKind,
   BuildPath,
+  type BuildPhase,
   BuildStatus,
   DecisionOperatorStatus,
   FitVerdict,
   isUuid,
   type RouteSpec,
   routes,
+  SandboxUploadJsonBody,
   SettleWay,
   TryRecordKind,
   UpdateBuild,
@@ -57,11 +58,8 @@ const ConfirmToken = z
   .optional()
   .describe("From the first call's answer; leave out to preview");
 
-/** The phases a build may be moved to from here: the ones before the client test. */
-export const MCP_BUILD_PHASES = BUILD_PHASES.slice(0, BUILD_PHASES.indexOf("client_test")) as [
-  (typeof BUILD_PHASES)[number],
-  ...(typeof BUILD_PHASES)[number][],
-];
+/** The phase a build may be moved to from here: its draft (owner, 2026-11-27). */
+export const MCP_BUILD_PHASES = ["draft"] as const satisfies readonly BuildPhase[];
 
 function route<R extends RouteSpec>(ctx: OpsToolCtx, spec: R, raw: RouteInput = {}) {
   return invokeRoute(ctx.app, ctx.c, ctx.session, spec, raw, ctx.via ?? "mcp");
@@ -196,7 +194,7 @@ const buildsList: Tool<OpsToolCtx> = {
   name: "builds_list",
   title: "List builds",
   description:
-    "Builds of agents and skills with the Builder, newest first: what each is, for which client, its phase (intake, fitgap, draft, poc, client_test, qa), status and open items, and the open items across them. path: new (the Agent lab's drafts, default), template (forks of a template for a client) or all.",
+    "Builds of agents and skills with the Builder, newest first: what each is, for which client, its phase (intake, fitgap or draft; from the draft it is published), status and open items, and the open items across them. path: new (the Agent lab's drafts, default), template (forks of a template for a client) or all.",
   input: z.strictObject({
     status: BuildStatus.optional(),
     path: z.enum(["new", "template", "all"]).default("all"),
@@ -240,7 +238,7 @@ const buildGet: Tool<OpsToolCtx> = {
   name: "build_get",
   title: "Get a build",
   description:
-    "One build in full: its phase and what stops it moving on (gate), the conversation with the Builder (message ids for build_proposal), open items, the Builder's decisions, the brief, fit-gap and test plan, the draft's steps and problems, tests and tries, the client test and QA. The draft's agentId opens its steps with agent_steps.",
+    "One build in full: its phase and what stops it moving on (gate), the conversation with the Builder (message ids for build_proposal), open items, the Builder's decisions, the brief, fit-gap and test plan, the draft's steps and problems, and its tests and tries. The draft's agentId opens its steps with agent_steps.",
   input: z.strictObject({
     id: BuildId,
     messages: z
@@ -392,7 +390,8 @@ const buildVerdict: Tool<OpsToolCtx> = {
 const buildMove: Tool<OpsToolCtx> = {
   name: "build_move",
   title: "Move a build",
-  description: `Move a build to the next phase when its gate passes (into the draft, the Builder drafts it), or back to an earlier phase with a reason. From here only ${MCP_BUILD_PHASES.join(", ")}: the client test, QA and going live are done in the back office.`,
+  description:
+    "Move a build back to its draft with a reason, or on into its draft from the fit-gap when its gate passes (the Builder drafts it). Its only move from the draft is Publish, in the back office, which makes it live.",
   input: z.strictObject({
     id: BuildId,
     to: z.enum(MCP_BUILD_PHASES),
@@ -495,6 +494,34 @@ const buildTry: Tool<OpsToolCtx> = {
   },
 };
 
+// Owner, 2026-11-28: a test invoice made outside Mezonas is tried from the MCP server without a
+// trip to the back office's Try it: stored in the Sandbox as a try's upload is, then `build_try`.
+const sandboxUpload: Tool<OpsToolCtx> = {
+  name: "sandbox_upload",
+  title: "Upload a test file to the Sandbox",
+  description:
+    "Store up to 5 files (PDFs, images, .csv, .xlsx, .json; at most 8 MB each, as base64) in the Sandbox client as a try's upload: quietly, so no agent starts on them; PDFs and images are read in the background. client is the Sandbox's id (clients_list). Answers each file's document id, to try with build_try's document. Any other client is refused.",
+  input: z.strictObject({
+    client: Id,
+    files: SandboxUploadJsonBody.shape.files,
+  }),
+  annotations: WRITE,
+  async run(ctx, args) {
+    const a = args as { client: string; files: SandboxUploadJsonBody["files"] };
+    ctx.audit.target = { client: a.client };
+    const d = await route(ctx, routes.opsSandboxUploadsJson, {
+      params: { id: a.client },
+      body: { files: a.files },
+    });
+    const stored = d.results.filter((r) => r.document).length;
+    return dataResult(
+      "sandbox_upload",
+      `Stored ${stored} of ${d.results.length} file${d.results.length === 1 ? "" : "s"} in the Sandbox.`,
+      d,
+    );
+  },
+};
+
 const buildTryDecide: Tool<OpsToolCtx> = {
   name: "build_try_decide",
   title: "Keep or discard a try",
@@ -556,7 +583,7 @@ const buildDecision: Tool<OpsToolCtx> = {
   name: "build_decision",
   title: "Look at a Builder decision",
   description:
-    "One of the Builder's decisions (ids in build_get's decisions): mark it discussed, confirmed or never_discussed (status), or put it in your own words (what, and optionally value and why; it is marked changed, by you). A high-risk decision must be looked at before the client test.",
+    "One of the Builder's decisions (ids in build_get's decisions): mark it discussed, confirmed or never_discussed (status), or put it in your own words (what, and optionally value and why; it is marked changed, by you). A high-risk decision is worth a look before the draft is published.",
   input: z.strictObject({
     id: BuildId,
     decision: z.string().min(1).max(40),
@@ -649,6 +676,7 @@ export const BUILD_TOOLS: readonly Tool<OpsToolCtx>[] = [
   buildDraftNow,
   buildTests,
   buildTry,
+  sandboxUpload,
   buildTryDecide,
   buildItem,
   buildDecision,

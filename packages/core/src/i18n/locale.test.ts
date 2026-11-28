@@ -152,4 +152,32 @@ describe("timeline words for a test run", () => {
       expect(words.wouldWrite("x")).not.toBe(words.wouldSend("x"));
     }
   });
+
+  it("quote a delivered output's name instead of reading it as a sentence", () => {
+    const en = TIMELINE_WORDS.en;
+    const n = "The bill, itemized";
+    expect(en.delivered("report", n, true)).toBe(
+      "Would send “The bill, itemized” (test run, not sent)",
+    );
+    expect(en.delivered("report", n, false)).toBe("Sent “The bill, itemized”");
+    expect(en.delivered("save", n, true)).toBe(
+      "Would save “The bill, itemized” (test run, not saved)",
+    );
+    expect(en.delivered("save", n, false)).toBe("Saved “The bill, itemized”");
+    expect(en.delivered("handoff", n, true)).toBe(
+      "Would hand off “The bill, itemized” (test run, not handed off)",
+    );
+    expect(en.delivered("handoff", n, false)).toBe("Handed off “The bill, itemized”");
+    expect(en.delivered("pass_on", n, true)).toBe(
+      "Would pass on “The bill, itemized” (test run, not passed on)",
+    );
+    expect(en.delivered("pass_on", n, false)).toBe("Passed on “The bill, itemized”");
+    for (const locale of LOCALES) {
+      for (const kind of ["report", "save", "handoff", "pass_on"] as const) {
+        for (const test of [true, false]) {
+          expect(TIMELINE_WORDS[locale].delivered(kind, n, test)).toContain("“The bill, itemized”");
+        }
+      }
+    }
+  });
 });

@@ -2,14 +2,10 @@
 // §1.45, M22). "Polite follow-up" is published once, used by two client agents forked from one
 // template, runs expanded in both with the same node ids (its inner write asking for approval),
 // shows its clean-run rate and usage, and a template update to a newer version merges with a
-// client's change to the use step's input. "Save as automation" refuses what it must.
+// client's change to the use step's input.
 
 import { TESTKIT_UPDATE_TOOL } from "@countersign/connectors";
-import {
-  type AgentBundle,
-  AgentBundle as AgentBundleSchema,
-  type UseAutomationStep,
-} from "@countersign/core";
+import { type AgentBundle, AgentBundle as AgentBundleSchema, type steps } from "@countersign/core";
 import { agentVersion, auditEvent, automation, inboxItem, run, stepRun } from "@countersign/db";
 import { FakeModel } from "@countersign/llm";
 import { and, eq } from "drizzle-orm";
@@ -18,10 +14,12 @@ import {
   type ApiHarness,
   admin,
   createApiHarness,
+  ended,
   FakeWorkflowStep,
   OPERATOR,
   OTHER_OPERATOR,
   testBundle,
+  v5Workflow,
 } from "./api.test-helper";
 import { executeRun } from "./runs/execute";
 import { cloudflareStepRunner } from "./runs/step-runner";
@@ -31,7 +29,7 @@ const j = (v: unknown) => v as any;
 
 function followUp(over: Record<string, unknown> = {}) {
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     slug: "polite-follow-up",
     name: "Polite follow-up",
     description: "Say a word, then correct the record",
@@ -46,13 +44,12 @@ function followUp(over: Record<string, unknown> = {}) {
         id: "say",
         name: "Say it",
         kind: "notify",
-        channel: "thread",
-        message: "{{input.note}}",
+        notify: { to: ["lead"], channel: "inbox", message: "{{input.note}}" },
       },
       {
         id: "update",
         name: "Correct the record",
-        kind: "action",
+        kind: "write",
         tool: TESTKIT_UPDATE_TOOL,
         input: { id: "r1", amount: "{{input.amount}}" },
       },
@@ -67,19 +64,19 @@ function usingBundle(ref = "polite-follow-up@1", note = "Hello"): AgentBundle {
   const wf = b.workflows[0];
   if (!wf) throw new Error("no workflow");
   wf.slug = "follow-up";
-  wf.workflow.steps = [
+  wf.workflow.steps = v5Workflow([
     {
       id: "follow",
       name: "Follow up",
-      kind: "use_automation",
-      automation: ref,
+      kind: "do",
+      uses: { type: "automation", automation: ref },
       input: { note, amount: "12.00" },
     },
-  ];
+  ]).steps;
   return AgentBundleSchema.parse(b);
 }
 
-const useOf = (b: AgentBundle) => b.workflows[0]?.workflow.steps[0] as UseAutomationStep;
+const useOf = (b: AgentBundle) => b.workflows[0]?.workflow.steps[0] as steps.DoStep;
 
 const h = await createApiHarness();
 afterAll(() => h?.close());
@@ -242,7 +239,7 @@ describe.skipIf(!h)("automations", () => {
       if (!testParams) throw new Error("the test run was not started");
       expect(
         await executeRun(deps(), testParams, cloudflareStepRunner(new FakeWorkflowStep())),
-      ).toEqual({ status: "succeeded" });
+      ).toEqual(ended());
       const act = await H.call(OPERATOR, "POST", `/api/ops/agents/${client.agentId}/activate`);
       expect(act.status, JSON.stringify(act.json)).toBe(200);
 
@@ -259,7 +256,7 @@ describe.skipIf(!h)("automations", () => {
         params,
         cloudflareStepRunner(new FakeWorkflowStep(approveAs(admin(c), seen))),
       );
-      expect(result).toEqual({ status: "succeeded" });
+      expect(result).toEqual(ended());
       // The inner write kept approval on: the client approved it once.
       expect(seen).toHaveLength(1);
       expect(H.backend.company(client.conn).get("r1")).toMatchObject({ amount: "12.00" });
@@ -271,13 +268,14 @@ describe.skipIf(!h)("automations", () => {
         .orderBy(stepRun.startedAt, stepRun.id);
       nodeIds.push(rows.map((r) => r.nodeId).sort());
       expect(rows.find((r) => r.nodeId === "follow")).toMatchObject({
-        nodeType: "use_automation",
+        nodeType: "process",
         skillRef: "automation:polite-follow-up@1",
         status: "succeeded",
         output: { amount: "12.00" },
       });
     }
-    expect(nodeIds[0]).toEqual(["follow", "follow/say", "follow/update"]);
+    // The workflow's End is a step of its own.
+    expect(nodeIds[0]).toEqual(["end", "follow", "follow/say", "follow/update"]);
     expect(nodeIds[1]).toEqual(nodeIds[0]);
 
     const detail = await H.call(OPERATOR, "GET", `/api/ops/automations/${automationId}`);
@@ -371,70 +369,11 @@ describe.skipIf(!h)("automations", () => {
     const step = useOf(AgentBundleSchema.parse(merged?.bundle));
     expect(step).toMatchObject({
       id: "follow",
-      automation: "polite-follow-up@3",
+      uses: { type: "automation", automation: "polite-follow-up@3" },
       input: { note: "Thanks for your patience", amount: "12.00" },
     });
   });
 
-  it("saves steps as an automation, and refuses a selection it can't save", async () => {
-    const tpl = await H.call(OPERATOR, "POST", "/api/ops/templates", {
-      slug: "records-for-automation",
-      bundle: testBundle(),
-    });
-    const agentId = j(tpl.json).agent.id;
-    const versionId = j(tpl.json).version.id;
-    const from = (stepIds: string[], slug = "fix-and-note") =>
-      H.call(OPERATOR, "POST", "/api/ops/automations/from-steps", {
-        agentId,
-        versionId,
-        stepIds,
-        slug,
-        name: "Fix and note",
-      });
-    const gap = await from(["update", "internal"]);
-    expect(gap.status).toBe(422);
-    expect(j(gap.json).error.code).toBe("not_contiguous");
-
-    const ok = await from(["update", "confirm"]);
-    expect(ok.status, JSON.stringify(ok.json)).toBe(200);
-    expect(j(ok.json)).toMatchObject({
-      automation: { slug: "fix-and-note", source: "shared", latestStatus: "draft" },
-      version: { version: 1, status: "draft" },
-      agentVersion: { version: 2 },
-    });
-    const def = j(ok.json).version.definition;
-    expect(def.steps.map((s: { kind: string }) => s.kind)).toEqual(["action", "person"]);
-    expect(def.steps[0].id).not.toBe("update");
-    expect(def.steps[0].approval.required).toBe("required");
-    const [next] = await H.t.db
-      .select()
-      .from(agentVersion)
-      .where(eq(agentVersion.id, j(ok.json).agentVersion.id));
-    const steps = AgentBundleSchema.parse(next?.bundle).workflows[0]?.workflow.steps ?? [];
-    expect(steps.map((s) => s.kind)).toEqual(["use_automation", "notify"]);
-    expect(steps[1]?.id).toBe("internal");
-    expect(useOf(AgentBundleSchema.parse(next?.bundle)).automation).toBe("fix-and-note@1");
-
-    // A person step assigned to a named person can't travel in an automation.
-    const named = testBundle("Named");
-    const confirm = named.workflows[0]?.workflow.steps[1];
-    if (confirm?.kind === "person") confirm.assignee = "0190a3c4-1111-7000-8000-000000000001";
-    const tpl2 = await H.call(OPERATOR, "POST", "/api/ops/templates", {
-      slug: "records-named",
-      bundle: named,
-    });
-    const refused = await H.call(OPERATOR, "POST", "/api/ops/automations/from-steps", {
-      agentId: j(tpl2.json).agent.id,
-      versionId: j(tpl2.json).version.id,
-      stepIds: ["confirm"],
-      slug: "named",
-      name: "Named",
-    });
-    expect(refused.status).toBe(422);
-    expect(j(refused.json).error.code).toBe("named_person");
-  });
-
-  // The builder on one screen, F7 (docs/plan.md §1.170): an automation opens in the builder.
   it("answers the builder's catalog for an automation's own steps, to operators only", async () => {
     const path = (id: string) => `/api/ops/automations/${id}/builder-catalog`;
     const ids = (list: { id: string }[]) => list.map((x) => x.id);

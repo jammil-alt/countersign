@@ -19,6 +19,8 @@ import { EntityPermissions, PermissionEntity, PermissionLevel } from "../schemas
 import { SkillBrowse, SkillDefinition, SkillMethod } from "../schemas/skill";
 import { ToolInputVariants, ToolSpec } from "../schemas/tool";
 import { ToolDisplay } from "../schemas/tool-display";
+import { MatchProfile } from "../steps/match-profile";
+import { Fields as StepFields } from "../steps/schema";
 import { IanaTimeZone } from "../timezone";
 // P-8: US texting registration
 import { a2pRoutes } from "./a2p";
@@ -104,6 +106,7 @@ import { qboRoutes } from "./qbo";
 import { reachRoutes } from "./reach";
 // §1.164: the builder's sample-file check for a Read table step.
 import { readTableRoutes } from "./read-table";
+import { recordTypeRoutes } from "./record-types";
 import { recordRoutes } from "./records";
 import { reggieRoutes } from "./reggie";
 import { requestRoutes } from "./requests";
@@ -124,6 +127,7 @@ import {
   RunStatusSchema,
   RunsPerDay,
 } from "./runs-filter";
+import { sampleCompanyRoutes } from "./sample-company";
 import { sandboxRoutes } from "./sandbox";
 import { secondFactorRoutes } from "./second-factor";
 // The skill model (owner, 2026-11-10)
@@ -255,6 +259,8 @@ export const ValidationErrorSchema = z.object({
   message: z.string(),
   code: z.string(),
   workflow: z.string().optional(),
+  /** The step model's own check (`steps.StepIssueCode`) when `code` is `step_model`. */
+  stepCode: z.string().optional(),
 });
 
 // v0.12 W1-E: RunStatusSchema lives with RunFilter (./runs-filter.ts).
@@ -889,6 +895,28 @@ export const InboundHookResponse = z.object({
 
 // DocumentSummary and DocumentExtractionView live in ./documents (shared with the records routes).
 
+/** Files sent as base64 in JSON (the MCP server can't send a multipart form). */
+// DECISION: 8 MB of bytes a file, as base64 in one JSON body: room for any invoice or receipt
+// without letting one call carry the 32 MB a document may be.
+export const SandboxUploadJsonBody = z.strictObject({
+  files: z
+    .array(
+      z.strictObject({
+        filename: z.string().trim().min(1).max(255),
+        /** The file's type; worked out from the name when left out. */
+        mimeType: z.string().trim().max(100).optional(),
+        contentBase64: z
+          .string()
+          .min(1)
+          .max(Math.ceil((8 * 1024 * 1024 * 4) / 3) + 4)
+          .regex(/^[A-Za-z0-9+/]+={0,2}$/, "base64 only"),
+      }),
+    )
+    .min(1)
+    .max(5),
+});
+export type SandboxUploadJsonBody = z.infer<typeof SandboxUploadJsonBody>;
+
 export const UploadResult = z.object({
   filename: z.string(),
   kind: z.enum(["document", "purchases", "refused"]),
@@ -1068,8 +1096,117 @@ export const BuilderCatalog = z.object({
   // docs/plan.md §1.164 step 3: a client agent's tool inputs typed from its client's own
   // connections (a Zoho write's `fields` per module), by tool id; absent for a template.
   toolInputs: z.record(z.string(), ToolInputVariants).optional(),
+  // Staging, 2026-11-28: what a match step can match to (the areas' match profiles). Without it
+  // the step builder flagged every match step "Nothing can be matched to …".
+  profiles: z.array(MatchProfile).optional(),
 });
 export type BuilderCatalog = z.infer<typeof BuilderCatalog>;
+
+/**
+ * Step model (docs/step-model-plan.md §10c): the action catalog the Uses picker reads, as
+ * `steps.buildActionCatalog` makes it: connectors first, then areas, each with its actions.
+ */
+export const ActionCatalog = z.object({
+  groups: z.array(
+    z.object({
+      type: z.enum(["connector", "area"]),
+      id: z.string(),
+      name: z.string(),
+      actions: z.array(
+        z.object({
+          id: z.string(),
+          label: z.string(),
+          description: z.string(),
+          kind: z.enum(["get", "save", "change", "send"]),
+          input: StepFields,
+          output: StepFields,
+        }),
+      ),
+    }),
+  ),
+});
+export type ActionCatalog = z.infer<typeof ActionCatalog>;
+
+/** What Suggest is asked: the workflow as drawn, the step, and the field (absent: the whole step). */
+export const StepSuggestRequest = z.strictObject({
+  workflow: z.unknown(),
+  stepId: z.string().min(1),
+  /** The field it works on: `goal`, `input.vendorId`, `checks.approval`. Absent: the whole step. */
+  field: z.string().min(1).max(120).optional(),
+  how: z.enum(["tell", "default", "resolve"]),
+  /** "Tell it what you need", in the person's words (`how: tell`). */
+  text: z.string().trim().min(1).max(2000).optional(),
+});
+export type StepSuggestRequest = z.infer<typeof StepSuggestRequest>;
+
+/**
+ * Suggest's answer: the step as it should now be (applied at once, with Undo), and a line on what
+ * changed. `applied: false` says nothing was changed and why (`summary`).
+ */
+export const StepSuggestion = z.object({
+  step: z.unknown(),
+  summary: z.string(),
+  applied: z.boolean(),
+});
+export type StepSuggestion = z.infer<typeof StepSuggestion>;
+
+/**
+ * Rules and AI written in a step are stored behind it as the agent's own skill, as a draft, when
+ * the workflow is saved (docs/step-model-plan.md §5, §10): the workflow as drawn goes in, and each
+ * step written in itself comes back with the skill version that backs it. The saved agent version
+ * pins each one in its skills; publishing that version makes them live.
+ */
+/**
+ * The step builder's check of its draft (`opsWorkflowCheck`): one workflow as it stands on the
+ * page, in place of `slug` in the version it was edited from (absent: the agent's latest).
+ */
+export const WorkflowCheckRequest = z.strictObject({
+  slug: SlugSchema,
+  /** The workflow, `schemaVersion: 5`; read by the step model's schema on the server. */
+  workflow: z.unknown(),
+  parentVersionId: ApiId.optional(),
+});
+export type WorkflowCheckRequest = z.infer<typeof WorkflowCheckRequest>;
+
+export const StepSkillsStoreRequest = z.strictObject({ workflow: z.unknown() });
+export const StepSkillsStored = z.object({
+  skills: z.array(
+    z.object({
+      stepId: z.string(),
+      /** The skill behind the step (`custom:step-<agent id>-<step id>`). */
+      ref: z.string(),
+      /** The draft version holding what the step wrote now. */
+      version: z.number().int(),
+      /** What the agent version pins in its skills: `<ref>@<version>`. */
+      pin: z.string(),
+      /** False when what the step wrote is what was already stored. */
+      changed: z.boolean(),
+    }),
+  ),
+});
+export type StepSkillsStored = z.infer<typeof StepSkillsStored>;
+
+/** Save as skill: a Do step's rules or AI, named, in the library, this client's or shared. */
+export const StepSaveAsSkillRequest = z.strictObject({
+  workflow: z.unknown(),
+  stepId: z.string().min(1),
+  name: z.string().trim().min(1).max(120),
+  description: z.string().trim().min(1).max(500),
+  /** `client`: this client's only (a client agent's); `shared`: every client's. */
+  scope: z.enum(["client", "shared"]),
+});
+export type StepSaveAsSkillRequest = z.infer<typeof StepSaveAsSkillRequest>;
+export const StepSavedAsSkill = z.object({
+  /** The step as it is now: it uses the skill. */
+  step: z.unknown(),
+  skill: z.object({
+    ref: z.string(),
+    name: z.string(),
+    description: z.string(),
+    scope: z.enum(["client", "shared"]),
+  }),
+});
+export type StepSavedAsSkill = z.infer<typeof StepSavedAsSkill>;
 
 // ── Skills library and the Builder (ARCHITECTURE §9.2, §9.6) ─────────────────────────────────────
 
@@ -1167,6 +1304,43 @@ const BuilderOutcome = z.object({
   /** USD, the model calls' cost (operator only). */
   costUsd: z.string().nullable(),
 });
+
+/**
+ * Step model (build item 9): what the Builder offers beside a v5 draft, never does by itself:
+ * Save as skill where another agent of the client (or a template) writes the same instructions,
+ * and the Loop designer for each Loop written in the step (it is tested there before publishing).
+ */
+const BuilderOffers = {
+  saveAsSkill: z
+    .array(
+      z.object({
+        workflow: z.string(),
+        stepId: z.string(),
+        stepName: z.string(),
+        doneBy: z.enum(["rules", "ai"]),
+        alsoIn: z.array(
+          z.object({
+            agent: z.object({ slug: z.string(), name: z.string(), template: z.boolean() }),
+            stepId: z.string(),
+            stepName: z.string(),
+          }),
+        ),
+        text: z.string(),
+      }),
+    )
+    .optional(),
+  /** Each Loop's form as the Loop designer takes it (`location.state.loop`). */
+  loops: z
+    .array(
+      z.object({
+        workflow: z.string(),
+        stepId: z.string(),
+        loop: z.record(z.string(), z.unknown()),
+        text: z.string(),
+      }),
+    )
+    .optional(),
+};
 
 // ── Routes ───────────────────────────────────────────────────────────────────────────────────────
 
@@ -1394,6 +1568,17 @@ export const opsRoutes = {
     query: z.object({ for: z.enum(["try"]).optional() }),
     response: z.object({ results: z.array(UploadResult) }),
   }),
+  opsSandboxUploadsJson: defineRoute({
+    method: "POST",
+    path: "/api/ops/clients/:id/uploads/json",
+    auth: "session",
+    roles: OPS,
+    summary:
+      "Upload files to the Sandbox client with their bytes as base64 in a JSON body, for a build's try (the MCP server's sandbox_upload): stored quietly, as `for=try` does, so no agent starts on them; PDFs and images are read in the background (403 not_sandbox in any other client)",
+    params: IdParams,
+    body: SandboxUploadJsonBody,
+    response: z.object({ results: z.array(UploadResult) }),
+  }),
   opsSandboxAuthorizeCallback: defineRoute({
     method: "POST",
     path: "/api/ops/connections/:connector/callback",
@@ -1462,7 +1647,20 @@ export const opsRoutes = {
       serviceName: z.string().max(200).optional(),
       serviceDescription: z.string().max(2000).optional(),
     }),
-    response: z.object({ agent: AgentSummary, version: VersionSummary }),
+    response: z.object({
+      agent: AgentSummary,
+      version: VersionSummary,
+      /**
+       * The packs its skills need that were off for the client (owner, 2026-11-24): switched on
+       * now, or left off for the operator to set up, with why.
+       */
+      packs: z
+        .object({
+          switchedOn: z.array(z.string()),
+          needsSetup: z.array(z.object({ pack: z.string(), reason: z.string() })),
+        })
+        .optional(),
+    }),
   }),
   opsClientAgents: defineRoute({
     method: "GET",
@@ -1827,6 +2025,13 @@ export const opsRoutes = {
        * sandbox on both sides, with what it would have changed and sent.
        */
       sandbox: z.literal(true).optional(),
+      /**
+       * Owner, 2026-11-27: the people in the test. `ask_me` (the Sandbox only): every message goes
+       * to the operator who started it (or the Sandbox's delivery setting), and the run waits for
+       * their answers, approvals and decisions; approved writes are still never made. `skip`
+       * (default): messages are composed and not sent, and approvals read as given.
+       */
+      people: z.enum(["ask_me", "skip"]).optional(),
     }),
     // For a template, the run belongs to its test copy: agentId and versionId name that copy.
     response: z.object({ runId: z.string(), agentId: z.string(), versionId: z.string() }),
@@ -1880,15 +2085,6 @@ export const opsRoutes = {
     body: z.strictObject({ eventIds: z.array(ApiId).min(1).max(100).optional() }),
     response: z.object({ retried: z.number().int() }),
   }),
-  opsValidateWorkflow: defineRoute({
-    method: "POST",
-    path: "/api/ops/workflows/validate",
-    auth: "session",
-    roles: OPS,
-    summary: "Validate a workflow (as the builder does), optionally against an agent",
-    body: z.strictObject({ workflow: z.unknown(), agentId: ApiId.optional() }),
-    response: z.object({ valid: z.boolean(), errors: z.array(ValidationErrorSchema) }),
-  }),
   opsEventCatalog: defineRoute({
     method: "GET",
     path: "/api/ops/catalog/events",
@@ -1921,6 +2117,66 @@ export const opsRoutes = {
     summary: "What the workflow builder needs for an agent: skills with schemas, tools, connectors",
     params: IdParams,
     response: BuilderCatalog,
+  }),
+  // Step model (docs/step-model-plan.md §10c, §13c; stream B): the actions a Do step's Uses picker
+  // offers, grouped by connector and by area, with each action's kind and fields.
+  opsActionCatalog: defineRoute({
+    method: "GET",
+    path: "/api/ops/agents/:id/action-catalog",
+    auth: "session",
+    roles: OPS,
+    summary: "The actions a step can use, by connector and by area (the Uses picker)",
+    params: IdParams,
+    response: ActionCatalog,
+  }),
+  // Step model (docs/step-model-plan.md §5, "Suggest"): the AI icon on a step's form and beside each
+  // field. Wave 1 fixes the call's shape; the answer is wave 2's (stream F), so the server returns
+  // the step unchanged and says so.
+  opsStepSuggest: defineRoute({
+    method: "POST",
+    path: "/api/ops/agents/:id/suggest",
+    auth: "session",
+    roles: OPS,
+    summary:
+      "Suggest a step's settings: from what you tell it, the default, or a fix for what is flagged",
+    params: IdParams,
+    body: StepSuggestRequest,
+    response: StepSuggestion,
+  }),
+  // Step model, stream F (docs/step-model-plan.md §5): rules and AI written in a step are stored
+  // behind it as the agent's skill when the workflow is saved; Save as skill names them.
+  opsStepSkillsStore: defineRoute({
+    method: "POST",
+    path: "/api/ops/agents/:id/step-skills",
+    auth: "session",
+    roles: OPS,
+    summary: "Store the rules and the AI written in a workflow's steps behind them, as skills",
+    params: IdParams,
+    body: StepSkillsStoreRequest,
+    response: StepSkillsStored,
+  }),
+  // One checker (staging, 2026-11-28): the step builder asks the server what would stop its draft
+  // publishing, rather than checking it in the browser with what the browser loaded. Read only.
+  opsWorkflowCheck: defineRoute({
+    method: "POST",
+    path: "/api/ops/agents/:id/workflow-check",
+    auth: "session",
+    roles: OPS,
+    summary: "What would stop a workflow's unsaved draft publishing, as a save would say it",
+    params: IdParams,
+    body: WorkflowCheckRequest,
+    response: z.object({ errors: z.array(ValidationErrorSchema) }),
+    readOnly: true,
+  }),
+  opsStepSaveAsSkill: defineRoute({
+    method: "POST",
+    path: "/api/ops/agents/:id/save-as-skill",
+    auth: "session",
+    roles: OPS,
+    summary: "Save a step's rules or AI as a skill in the library; the step then uses it",
+    params: IdParams,
+    body: StepSaveAsSkillRequest,
+    response: StepSavedAsSkill,
   }),
   // The builder on one screen, F7 (docs/plan.md §1.170): an automation opens in the same builder.
   opsAutomationBuilderCatalog: defineRoute({
@@ -2143,6 +2399,7 @@ export const opsRoutes = {
        * Builder said stands for it, or null.
        */
       gapSteps: z.array(z.string().nullable()).optional(),
+      ...BuilderOffers,
     }),
   }),
   opsReviseAgent: defineRoute({
@@ -2170,6 +2427,7 @@ export const opsRoutes = {
       changeClass: z
         .object({ class: z.enum(["none", "process", "never"]), reasons: z.array(z.string()) })
         .optional(),
+      ...BuilderOffers,
     }),
   }),
   opsDiscardAgent: defineRoute({
@@ -2587,6 +2845,8 @@ export const routes = {
   ...gettingStartedRoutes,
   // docs/plan.md §1.243: a client's sandbox
   ...sandboxRoutes,
+  // Owner, 2026-11-27: the Sandbox's sample company
+  ...sampleCompanyRoutes,
   // v0.12 W1-B: notifications, the Table and the Weekly Table
   ...notifyRoutes,
   // §1.116: the phone app
@@ -2665,6 +2925,8 @@ export const routes = {
   ...readTableRoutes,
   // Collect reports (owner, 2026-11-24): a report's sample file.
   ...collectRoutes,
+  // Step model §10f: record types and custom fields.
+  ...recordTypeRoutes,
   // File and email intake (owner, 2026-11-22; docs/plan.md §1.213): report profiles.
   ...intakeReportRoutes,
   // docs/plan.md §1.124: back office work

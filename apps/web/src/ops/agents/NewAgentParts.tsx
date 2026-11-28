@@ -1,10 +1,10 @@
 // Parts shared by the "new template" and "new client agent" pages (design screen 4): the job's
 // fields, the start-from choices (the Builder's "my description", blank, a template), the
 // stepper, and the starting workflow on the right.
-import { type AnyAgentBundle, allTriggers } from "@countersign/core";
+import { type AgentBundle, allTriggers } from "@countersign/core";
 import type { ReactNode } from "react";
-import { Badge, Card, cx, SectionLabel, StepKindTag } from "../../ui/primitives";
-import { KIND_LABEL, PROCESS_KIND_LABEL, triggerTitle } from "../workflow/describe";
+import { Card, cx, SectionLabel, StepKindTag } from "../../ui/primitives";
+import { KIND_LABEL, triggerTitle } from "../workflow/describe";
 import { MODEL_OPTIONS, modelOptionLabel, type NewAgentFields } from "./definition-form";
 import { Field, Select, TextArea, TextInput } from "./ui";
 
@@ -186,12 +186,11 @@ export function WorkflowPreview({
   title = "Starting workflow",
   note,
 }: {
-  bundle: AnyAgentBundle | null;
+  bundle: AgentBundle | null;
   title?: string;
   note?: ReactNode;
 }) {
-  // R8: a template's v4 version too: its first trigger, its steps in the builder's words, and a
-  // write with no approval check needing the default approver (invariant 8).
+  // Its first trigger, then its steps in the builder's words.
   const steps =
     bundle?.workflows.flatMap((w) => {
       const wf = w.workflow;
@@ -203,27 +202,15 @@ export function WorkflowPreview({
               kind: KIND_LABEL.trigger,
               kindId: "trigger",
               name: triggerTitle(first),
-              approval: false,
             },
           ]
         : [];
-      const body =
-        wf.schemaVersion === 4
-          ? wf.steps.map((s) => ({
-              key: `${w.slug}:${s.id}`,
-              kind: PROCESS_KIND_LABEL[s.kind],
-              kindId: s.kind as string,
-              name: s.name,
-              approval:
-                s.kind === "write" ? s.checks?.approval?.required !== "not_required" : false,
-            }))
-          : wf.steps.map((s) => ({
-              key: `${w.slug}:${s.id}`,
-              kind: KIND_LABEL[s.kind],
-              kindId: s.kind as string,
-              name: s.name,
-              approval: s.kind === "action" ? s.approval.required === "required" : false,
-            }));
+      const body = wf.steps.map((s) => ({
+        key: `${w.slug}:${s.id}`,
+        kind: stepModelKindWord(s.kind),
+        kindId: s.kind as string,
+        name: s.name,
+      }));
       return [...trigger, ...body];
     }) ?? [];
   return (
@@ -244,11 +231,16 @@ export function WorkflowPreview({
               <StepKindTag kind={s.kindId} label={s.kind} />
             </span>
             <span className="min-w-0 truncate text-ink">{s.name}</span>
-            {s.approval ? <Badge tone="person">Approval</Badge> : null}
           </li>
         ))}
       </ol>
       {note ? <div className="mt-4">{note}</div> : null}
     </Card>
   );
+}
+
+/** The step model's kind, as a word, until the builder's forms name it (stream B). */
+export function stepModelKindWord(kind: string): string {
+  const word = kind.replace("_", " ");
+  return word.charAt(0).toUpperCase() + word.slice(1);
 }

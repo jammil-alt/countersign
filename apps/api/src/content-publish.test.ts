@@ -23,6 +23,7 @@ import {
   createApiHarness,
   forbiddenKeys,
   OPERATOR,
+  tamper,
 } from "./api.test-helper";
 import { deploymentConnectors } from "./platform";
 
@@ -194,7 +195,7 @@ describe.skipIf(!h)("publishing a guide (M46)", () => {
     expect(html).toContain('<h2 id="why-sign">Why sign</h2>');
 
     // A changed token, a report that isn't a preview, and another client's version: no link.
-    const tampered = await H.app.request(`${url.pathname.slice(0, -2)}xx`, {}, H.env);
+    const tampered = await H.app.request(tamper(url.pathname), {}, H.env);
     expect(tampered.status).toBe(404);
     const notPreview = await H.call(
       OPERATOR,

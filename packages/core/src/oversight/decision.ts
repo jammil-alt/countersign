@@ -17,7 +17,6 @@ import type {
 } from "../process/schema";
 import { type Approval, DEFAULT_APPROVAL } from "../schemas/approval";
 import { ModelChoice } from "../schemas/skill";
-import type { ActionStep, SkillStep } from "../schemas/workflow";
 import { VerifyMode } from "./verify";
 import type { AnomalySignal } from "./watch";
 
@@ -72,6 +71,29 @@ export type OversightSettingsInput = z.input<typeof OversightSettings>;
 // drafts start with failures reviewed (docs/plan.md §1.54).
 // Round 4 D (§1.211): and with every write verified, as the owner asked (2026-11-22).
 export const NEW_AGENT_OVERSIGHT: OversightSettingsInput = { review: "failures", verify: "writes" };
+
+/**
+ * Owner, 2026-11-27 (the step builder's Supervisor): the level an agent's owner reviews at, as a
+ * run with no area owner of its own reads it: the saved `review`, else the new-agent default.
+ */
+// DECISION: the builder doesn't load the area owner's own default (`runOwnerOf`), so an agent with
+// no `oversight` shows the new-agent default and says it isn't set.
+export function oversightReviewOf(
+  saved: Pick<OversightSettingsInput, "review"> | undefined,
+): OversightReview {
+  return saved?.review ?? (NEW_AGENT_OVERSIGHT.review as OversightReview);
+}
+
+/**
+ * `definition.oversight` with a new `review`: everything else kept as saved (the verifier, the
+ * model, the limits), or, when none was saved, the new-agent default with that review.
+ */
+export function withOversightReview(
+  saved: OversightSettings | undefined,
+  review: OversightReview,
+): OversightSettings {
+  return saved ? { ...saved, review } : OversightSettings.parse({ ...NEW_AGENT_OVERSIGHT, review });
+}
 
 /** Whether a failure of this step is reviewed: the step's own setting, else the agent's. */
 export function reviewsFailures(
@@ -288,14 +310,8 @@ export function oversightFinishSchema(
 export const OWNER_WATCHED_KINDS = ["skill", "action", "read", "write", "conversation"] as const;
 export type OwnerWatchedKind = (typeof OWNER_WATCHED_KINDS)[number];
 
-/** A step the owner watches, v3 or v4. */
-export type OwnerWatchedStep =
-  | SkillStep
-  | ActionStep
-  | ReadStep
-  | ProcessSkillStep
-  | WriteStep
-  | ConversationStep;
+/** A step the owner watches. */
+export type OwnerWatchedStep = ReadStep | ProcessSkillStep | WriteStep | ConversationStep;
 
 export function ownerWatches(step: { kind: string }): boolean {
   return (OWNER_WATCHED_KINDS as readonly string[]).includes(step.kind);
@@ -348,14 +364,12 @@ export function ownerAllowedActions(
 }
 
 /**
- * The approval an owner's `ask` follows: who is asked, how long they have, what a "no" does. A
- * v3 step's own `approval`; a v4 step's `checks.approval`, by its first approver.
+ * The approval an owner's `ask` follows: who is asked, how long they have, what a "no" does. The
+ * step's `checks.approval`, by its first approver.
  */
 // DECISION: an ask is one question, so it goes to the first approver and waits on that approver's
 // deadline (clock time); `in_turn`, `any` and `all` belong to the step's own approval.
 export function ownerStepApproval(step: OwnerWatchedStep): Approval {
-  if (step.kind === "action") return step.approval;
-  if ("approval" in step && step.approval) return step.approval;
   const check = "checks" in step ? step.checks?.approval : undefined;
   const first = check?.approvers?.[0];
   return {

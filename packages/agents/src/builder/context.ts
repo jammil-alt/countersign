@@ -5,7 +5,13 @@
 // the only place that wires the registries and the database together); this module only shapes it
 // for the prompt. Nothing here touches the database.
 
-import type { EventTypeSpec, JsonSchema, SkillDefinition, ToolSpec } from "@countersign/core";
+import type {
+  EventTypeSpec,
+  JsonSchema,
+  SkillDefinition,
+  steps,
+  ToolSpec,
+} from "@countersign/core";
 
 export interface BuilderSkill {
   /** The reference a bundle names it by (`docs.extract`, `custom:<slug>`). */
@@ -59,6 +65,37 @@ export interface BuilderContext {
   models?: string[];
   /** The client's people, by name and relationship (no contact details). */
   people?: { name: string; relationship: string | null }[];
+  /**
+   * The step model (docs/step-model-plan.md §10, build item 9): what a v5 draft is built from, as
+   * the builder's pickers offer it. Absent: the API hasn't gathered it, and a draft builds its
+   * catalog from `tools` alone.
+   */
+  stepModel?: StepModelContext;
+}
+
+/** What the Builder drafts a v5 workflow from: the Uses picker's catalog, and what it reuses. */
+export interface StepModelContext {
+  /** The action catalog as the Uses picker shows it (`steps.buildActionCatalog`). */
+  actions: steps.CatalogGroup[];
+  /** The match profiles the areas declare (a Match step's "Match to"). */
+  profiles: steps.MatchProfile[];
+  /** Saved Loops (live Loop skills) a Loop step may use. */
+  loops: BuilderSkill[];
+  /**
+   * The rules and AI written in the steps of the client's other agents (a client draft) and of the
+   * templates: what "Save as skill" is suggested from when a draft writes the same again.
+   */
+  written?: WrittenElsewhere[];
+}
+
+/** A Do step written in the step (rules or AI, no Uses) in another agent or a template. */
+export interface WrittenElsewhere {
+  agent: { slug: string; name: string; template: boolean };
+  stepId: string;
+  stepName: string;
+  doneBy: "rules" | "ai";
+  /** `writtenKey`: the same key means the same instructions. */
+  key: string;
 }
 
 /** v0.12 W3-A: an automation the Builder may place. */

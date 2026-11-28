@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { Step } from "../schemas/workflow";
+import type { Step } from "../steps/schema";
 import { bundle, edit } from "../testing/fixtures";
 import { diffBundles, lcs } from "./diff";
 
@@ -41,7 +41,7 @@ describe("diffBundles", () => {
     });
     expect(changes.find((c) => c.kind === "removed")?.before).toMatchObject({
       id: "s4",
-      kind: "notify",
+      kind: "wait",
     });
   });
 });

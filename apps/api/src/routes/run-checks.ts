@@ -10,35 +10,27 @@ import {
   checkKindOf,
   clientLabel,
   conferOf,
-  findStep,
   noAnswerOf,
   outcomeOfStepRow,
-  processes,
   routeOfRow,
-  type Step,
   shownOnTimeline,
   stepNodeOf,
+  steps,
   type TimelineChecks,
   urgentOf,
-  type Workflow,
 } from "@countersign/core";
 import { appUser, type stepRun, type Tx } from "@countersign/db";
 import { inArray } from "drizzle-orm";
 
-type StoredWorkflow = Workflow | processes.Process;
+/** What the timeline reads of a step: its id, kind, name and client label. */
+export type TimelineStepDef = steps.Step;
 
-/** What the timeline reads of a step, v3 or v4: its id, kind, name and client label. */
-export type TimelineStepDef = Step | processes.Step;
-
-/** Finds a step by id in a stored v3 workflow or a v4 process. */
+/** Finds a step by id in a stored workflow. */
 export function stepFinder(
-  workflow: StoredWorkflow | undefined,
+  workflow: Pick<steps.Workflow, "steps"> | undefined,
 ): (id: string) => TimelineStepDef | undefined {
   if (!workflow) return () => undefined;
-  if (workflow.schemaVersion === 4) {
-    return (id) => processes.findStep(workflow, id)?.step;
-  }
-  return (id) => findStep(workflow, id)?.step;
+  return (id) => steps.findStep(workflow.steps, id);
 }
 
 /** The step a row belongs to: its own node, or the step a check row (`:confer:`…) checks. */

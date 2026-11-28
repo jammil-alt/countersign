@@ -1,25 +1,17 @@
-// Wave 3b (docs/plan.md §1.86): automations whose steps are v4 process steps, "Save as automation"
-// on a process, and process steps that pin a v3 or a v4 automation.
+// Wave 3b (docs/plan.md §1.86): automations whose steps are process steps, "Save as automation"
+// on a process, and process steps that pin an automation.
 import { describe, expect, it } from "vitest";
-import {
-  AnyAutomationDefinition,
-  type AutomationDefinition,
-  type ProcessAutomationDefinition,
-} from "../schemas/automation";
+import { AutomationDefinition } from "../schemas/automation";
 import { ctx as baseCtx } from "../testing/fixtures";
-import { type ValidationContext, validateWorkflow } from "../workflow/validate";
-import {
-  anyAutomationRequires,
-  stepsToProcessAutomation,
-  validateAnyAutomation,
-} from "./automation";
+import { automationRequires, validateAutomation } from "./automation";
+import type { ValidationContext } from "./checks";
 import { processPathsAt } from "./paths";
-import { Process, type Step } from "./schema";
+import { Process } from "./schema";
 import { approvalLoosenings, tightenedApproval, validateProcess } from "./validate";
 
 /** Summarize a note, then attach the document (a write). */
-function followUp(): ProcessAutomationDefinition {
-  return AnyAutomationDefinition.parse({
+function followUp(): AutomationDefinition {
+  return AutomationDefinition.parse({
     schemaVersion: 2,
     slug: "follow-up",
     name: "Follow up",
@@ -46,34 +38,35 @@ function followUp(): ProcessAutomationDefinition {
         checks: { approval: { required: "required" } },
       },
     ],
-  }) as ProcessAutomationDefinition;
+  }) as AutomationDefinition;
 }
 
-const v3FollowUp: AutomationDefinition = {
-  schemaVersion: 1,
-  slug: "follow-up",
-  name: "Follow up",
-  description: "",
-  input: { type: "object", properties: { customer: { type: "string" } } },
-  output: { summary: "{{steps.d1.output.summary}}" },
-  steps: [
-    {
-      id: "d1",
-      name: "Draft the note",
-      kind: "skill",
-      skill: "test.summarize",
-      input: { text: "{{input.customer}}" },
-    },
-  ],
-  requires: { skills: [], tools: [], connectors: [] },
-};
+/** A shorter automation: one skill step, its summary the output. */
+function summarizer(): AutomationDefinition {
+  return AutomationDefinition.parse({
+    schemaVersion: 2,
+    slug: "follow-up",
+    name: "Follow up",
+    input: { type: "object", properties: { customer: { type: "string" } } },
+    output: { summary: "{{steps.d1.output.summary}}" },
+    steps: [
+      {
+        id: "d1",
+        name: "Draft the note",
+        kind: "skill",
+        skill: "test.summarize",
+        input: { text: "{{input.customer}}" },
+      },
+    ],
+  });
+}
 
 const codes = (r: { errors: { code: string; stepId: string | null; field: string }[] }) =>
   r.errors.map((e) => `${e.code}@${e.stepId ?? ""}:${e.field}`);
 
-describe("a v4 automation", () => {
+describe("an automation", () => {
   it("validates with {{input}} in place of the trigger, and refuses nesting", () => {
-    expect(validateAnyAutomation(followUp(), baseCtx).errors).toEqual([]);
+    expect(validateAutomation(followUp(), baseCtx).errors).toEqual([]);
     const bad = followUp();
     bad.steps.push(
       {
@@ -85,7 +78,7 @@ describe("a v4 automation", () => {
       { id: "n", name: "Nested", kind: "process", process: "other@1", input: {} },
     );
     bad.output = { gone: "{{steps.zz.output}}" };
-    expect(codes(validateAnyAutomation(bad, baseCtx))).toEqual([
+    expect(codes(validateAutomation(bad, baseCtx))).toEqual([
       "automation_nested@n:",
       "template_scope@t:notify.message",
       "template_scope@:output.gone",
@@ -97,7 +90,7 @@ describe("a v4 automation", () => {
       const def = followUp();
       (def.steps[0] as Record<string, unknown>).onError = "continue";
       def.output = output;
-      return codes(validateAnyAutomation(def, baseCtx)).filter((c) =>
+      return codes(validateAutomation(def, baseCtx)).filter((c) =>
         c.startsWith("error_message_not_here"),
       );
     };
@@ -114,135 +107,15 @@ describe("a v4 automation", () => {
     ).toEqual([]);
   });
 
-  it("validates a v1 automation exactly as before", () => {
-    expect(validateAnyAutomation(v3FollowUp, baseCtx).errors).toEqual([]);
+  it("validates a short one with a single skill step", () => {
+    expect(validateAutomation(summarizer(), baseCtx).errors).toEqual([]);
   });
 
   it("requires its skills, its read and write tools, and their connectors", () => {
-    expect(anyAutomationRequires(followUp(), baseCtx)).toEqual({
+    expect(automationRequires(followUp(), baseCtx)).toEqual({
       skills: ["test.summarize"],
       tools: ["qbo.attachable.upload"],
       connectors: ["qbo"],
-    });
-  });
-});
-
-/** A process: extract, then the selection (summarize, attach), then a step reading the summary. */
-function process(attach: Partial<Step> = {}): Process {
-  return Process.parse({
-    schemaVersion: 4,
-    triggers: [{ id: "t1", on: { type: "event", event: "document.received" } }],
-    steps: [
-      {
-        id: "s1",
-        name: "Summarize",
-        kind: "skill",
-        skill: "test.summarize",
-        input: { text: "{{trigger.vendor}}" },
-      },
-      {
-        id: "s2",
-        name: "Attach",
-        kind: "write",
-        tool: "qbo.attachable.upload",
-        input: { documentId: "{{trigger.documentId}}" },
-        ...attach,
-      },
-      {
-        id: "s3",
-        name: "Tell",
-        kind: "notify",
-        notify: { to: ["lead"], message: "Done: {{steps.s1.output.summary}}" },
-      },
-    ],
-  });
-}
-
-describe("save as automation, from a process", () => {
-  let n = 0;
-  const newId = () => `n${++n}`;
-
-  it("copies the steps with new ids, infers input and output, and puts a process step there", () => {
-    n = 0;
-    const r = stepsToProcessAutomation({
-      process: process(),
-      stepIds: ["s1", "s2"],
-      slug: "summarize-attach",
-      name: "Summarize and attach",
-      newId,
-      ctx: baseCtx,
-    });
-    if (!r.ok) throw new Error(r.message);
-    expect(r.automation.schemaVersion).toBe(2);
-    expect(r.automation.steps.map((s) => s.id)).toEqual(["n1", "n2"]);
-    expect(r.automation.input).toMatchObject({
-      properties: { vendor: { type: "string" }, documentid: { type: "string" } },
-    });
-    expect(r.automation.steps[0]).toMatchObject({ input: { text: "{{input.vendor}}" } });
-    expect(r.automation.output).toEqual({ summarize: "{{steps.n1.output}}" });
-    expect(r.step).toMatchObject({
-      id: "n3",
-      kind: "process",
-      process: "summarize-attach@1",
-      input: { vendor: "{{trigger.vendor}}", documentid: "{{trigger.documentId}}" },
-    });
-    expect(r.process.steps.map((s) => s.id)).toEqual(["n3", "s3"]);
-    expect(r.process.steps[1]).toMatchObject({
-      notify: { message: "Done: {{steps.n3.output.summarize.summary}}" },
-    });
-    // The automation validates, and the process validates with it pinned.
-    expect(validateAnyAutomation(r.automation, baseCtx).errors).toEqual([]);
-    const pinned = { ...baseCtx, automations: { "summarize-attach@1": r.automation } };
-    expect(validateProcess(r.process, pinned).errors).toEqual([]);
-  });
-
-  it("starts the copy with approval on; a client agent keeps its loosening on the step", () => {
-    const loose = {
-      checks: {
-        approval: {
-          required: "not_required" as const,
-          mode: "in_turn" as const,
-          ifNoAnswer: "proceed" as const,
-          onReject: "stop" as const,
-        },
-      },
-    };
-    for (const clientAgent of [false, true]) {
-      n = 0;
-      const r = stepsToProcessAutomation({
-        process: process(loose as Partial<Step>),
-        stepIds: ["s2"],
-        slug: "attach",
-        name: "Attach",
-        newId,
-        ctx: baseCtx,
-        clientAgent,
-      });
-      if (!r.ok) throw new Error(r.message);
-      const inner = r.automation.steps[0];
-      expect(approvalLoosenings(inner?.checks?.approval, "a")).toEqual([]);
-      expect(r.step.approvals).toEqual(clientAgent ? { n1: loose.checks.approval } : undefined);
-    }
-  });
-
-  it("refuses a step that isn't at the top, a gap, and a process step", () => {
-    const p = process();
-    const base = { slug: "x", name: "X", newId, ctx: baseCtx };
-    expect(stepsToProcessAutomation({ ...base, process: p, stepIds: ["zz"] })).toMatchObject({
-      ok: false,
-      code: "not_top_level",
-    });
-    expect(stepsToProcessAutomation({ ...base, process: p, stepIds: ["s1", "s3"] })).toMatchObject({
-      ok: false,
-      code: "not_contiguous",
-    });
-    const nested = Process.parse({
-      ...p,
-      steps: [{ id: "u", name: "Use", kind: "process", process: "x@1", input: {} }],
-    });
-    expect(stepsToProcessAutomation({ ...base, process: nested, stepIds: ["u"] })).toMatchObject({
-      ok: false,
-      code: "nested",
     });
   });
 });
@@ -273,10 +146,10 @@ describe("tightenedApproval", () => {
   });
 });
 
-describe("a process step pins a v3 or a v4 automation; a v3 use step only a v3 one", () => {
+describe("a process step pins an automation", () => {
   const ctx: ValidationContext = {
     ...baseCtx,
-    automations: { "follow-up@1": v3FollowUp, "follow-up@2": followUp() },
+    automations: { "follow-up@1": summarizer(), "follow-up@2": followUp() },
   };
 
   it("types each one's output and checks its input", () => {
@@ -313,7 +186,7 @@ describe("a process step pins a v3 or a v4 automation; a v3 use step only a v3 o
     expect(codes(validateProcess(p, ctx))).toEqual(["template_path@tell:notify.message"]);
   });
 
-  it("checks an override on a v4 automation's inner write", () => {
+  it("checks an override on an automation's inner write", () => {
     const p = Process.parse({
       schemaVersion: 4,
       triggers: [{ id: "t1", on: { type: "event", event: "document.received" } }],
@@ -331,26 +204,6 @@ describe("a process step pins a v3 or a v4 automation; a v3 use step only a v3 o
     expect(codes(validateProcess(p, { ...ctx, clientAgent: true }))).toEqual([
       "approval_not_write@new:approvals.d1.required",
     ]);
-  });
-
-  it("refuses a v4 automation on a v3 use step", () => {
-    const r = validateWorkflow(
-      {
-        schemaVersion: 3,
-        trigger: { id: "t1", on: { type: "event", event: "document.received" } },
-        steps: [
-          {
-            id: "u",
-            name: "Use",
-            kind: "use_automation",
-            automation: "follow-up@2",
-            input: {},
-          },
-        ],
-      },
-      ctx,
-    );
-    expect(codes(r)).toEqual(["unknown_automation@u:automation"]);
   });
 });
 

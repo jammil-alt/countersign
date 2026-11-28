@@ -19,6 +19,7 @@ import {
   // Reshape data (2026-11-11)
   RESHAPE_SKILLS,
   type RegistryContext,
+  recordToolsFor,
   SkillCatalog,
   SUPERVISOR_SKILLS,
   // Read table and Write table (2026-11-20)
@@ -86,9 +87,11 @@ import {
 import { readToolWords, SkillDefinition } from "@countersign/core";
 import { EventTypeRegistry } from "@countersign/senses";
 // Skill model (2026-11-10): publish checks a message action against the agent's channels.
+import { offActionIds } from "./actions-off";
 import { actionChannels } from "./channels/resolve";
 import type { Bindings } from "./env";
 import { DEPLOYMENT_PACKS, packToolSource, type RegisteredPack } from "./packs";
+import { type RecordCatalog, recordCatalog } from "./records/registry";
 
 export interface Platform {
   connectors: ConnectorRegistry;
@@ -99,6 +102,8 @@ export interface Platform {
   /** §1.88: the packs' skills replaced for new steps (id → its replacement), for the palette. */
   superseded: Readonly<Record<string, string>>;
   packs: readonly RegisteredPack[];
+  /** Step model §10f: every record type the platform and the packs declare, with its store. */
+  records: RecordCatalog;
   /** What publishing and validation need: tools, skills, event types. */
   ctx: RegistryContext;
 }
@@ -158,8 +163,11 @@ export function createPlatform(options: PlatformOptions = {}): Platform {
   const connectors = new ConnectorRegistry(options.connectors ?? []);
   // P-1: each registered pack's tools join the registry (docs/plan.md §1.63).
   const packs = options.packs ?? DEPLOYMENT_PACKS;
+  // Step model §10f: each declared record type's standard actions (Find, Get by id, Create, Update)
+  // are platform tools; the gate checks the agent version's grant on each.
+  const records = recordCatalog(packs);
   const tools = new ToolRegistry({
-    platform: PLATFORM_TOOLS,
+    platform: [...PLATFORM_TOOLS, ...recordToolsFor(records.types)],
     connectors,
     packs: packs.map(packToolSource),
   });
@@ -217,7 +225,17 @@ export function createPlatform(options: PlatformOptions = {}): Platform {
     events,
     packs,
     superseded: Object.assign({}, ...packs.map((p) => p.manifest.superseded ?? {})),
-    ctx: { tools, catalog, events: events.byType(), actionChannels },
+    records,
+    ctx: {
+      tools,
+      catalog,
+      events: events.byType(),
+      actionChannels,
+      actionsOff: (tx) => offActionIds(tx, { connectors }),
+      recordTypes: records.types,
+      // The step model §7: what a Match step's settings and output are checked against at publish.
+      profiles: packs.flatMap((p) => p.manifest.matchProfiles),
+    },
   };
 }
 

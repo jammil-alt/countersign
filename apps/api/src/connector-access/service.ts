@@ -7,7 +7,7 @@
 // go-ahead, else it is a change request the client admin answers. Every function runs in the
 // caller's transaction, scoped to the client (invariant 1), and filters by `tenant_id` besides.
 
-import { convertLookup, grantsOfClient, skillContext } from "@countersign/agents";
+import { grantsOfClient, skillContext } from "@countersign/agents";
 import {
   applyMatrixChange,
   BROWSER_CONNECTOR_ID,
@@ -17,7 +17,7 @@ import {
 } from "@countersign/connectors";
 import {
   type AccessGap,
-  AnyAgentBundle,
+  AgentBundle,
   accessGaps,
   activeMezonasMay,
   agentNeeds,
@@ -57,7 +57,6 @@ import {
   rowChangeView,
   rowWords,
   type SettingsLike,
-  toProcessBundle,
   type Verb,
 } from "@countersign/core";
 import {
@@ -186,15 +185,14 @@ export async function bundleNeeds(
   platform: Pick<Platform, "catalog" | "tools">,
 ): Promise<ConnectorNeed[]> {
   try {
-    const parsed = AnyAgentBundle.parse(stored);
-    const bundle = toProcessBundle(parsed, convertLookup(platform.catalog, platform.tools));
+    const parsed = AgentBundle.parse(stored);
     const { skills } = await skillContext(tx, {
       tenantId,
       bundle: parsed,
       catalog: platform.catalog,
     });
     const all = Object.fromEntries(platform.catalog.list().map((s) => [s.id, s]));
-    return agentNeeds(bundle, {
+    return agentNeeds(parsed, {
       skills: { ...all, ...skills },
       tools: platform.tools.specs(),
       connectors: new Set(platform.tools.connectors.list().map((c) => c.manifest.id)),

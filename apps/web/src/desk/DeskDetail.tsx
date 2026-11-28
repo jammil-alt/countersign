@@ -31,6 +31,7 @@ import {
   payloadFacts,
   quickAnswers,
   type ResolveInput,
+  recordSaveFacts,
   suggestionFacts,
 } from "../inbox/InboxCard";
 import { LateAnswer } from "../inbox/LateAnswer";
@@ -663,6 +664,8 @@ function ItemBody({
   const form = formOf(item.payload);
   const facts =
     suggestionFacts(item.payload, i18n) ??
+    // Signed record saves: why it waits and each field it sets.
+    recordSaveFacts(item.payload, i18n) ??
     payloadFacts(
       Object.fromEntries(Object.entries(item.payload).filter(([k]) => !DESK_PLUMBING.has(k))),
     );

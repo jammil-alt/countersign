@@ -1,12 +1,5 @@
-// Draft (docs/plan.md §1.168): a long text field in the back office written from the operator's
-// notes. The field's descriptor (core's `ASSIST_FIELDS`) makes the system prompt; the records the
-// field may use are loaded here by id, inside the operator's own clients (row-level security and
-// the scope checks the field's own routes use), never taken as text from the browser. The notes,
-// the field's text and the records go to the model as data (invariant 9). A client in HIPAA mode
-// is refused until the model's vendor is covered (`DRAFT_ASSIST_FEATURE`). A slow route: the model
-// runs outside any transaction; the audit row is the route's own (`mountLong`).
-
 import { getAgent } from "@countersign/agents";
+import { ContentStore, ensureUploadConnection, UPLOAD_CONNECTOR_ID } from "@countersign/connectors";
 import {
   ASSIST_FIELDS,
   ASSIST_TOOL,
@@ -25,33 +18,74 @@ import {
   DRAFT_ASSIST_FEATURE,
   FIT_WORDS,
   fitToLength,
+  INBOUND_MESSAGE_ENTITY,
+  inboundText,
   isUuid,
   LOCALE_ENGLISH_NAMES,
   parseCoveredProcessors,
-  processes,
   processingRefusal,
   readBrief,
   readFitGap,
   readTestData,
+  type SandboxRecords,
   SETUP_WORDS,
+  steps as stepModel,
   TEST_DATA_SYSTEM,
   TEST_DATA_TOOL,
+  TEST_DOCUMENT_SYSTEM,
+  TEST_DOCUMENT_TOOL,
+  TEST_MESSAGE_SYSTEM,
+  TEST_MESSAGE_TOOL,
   TestDataAnswer,
-  testDataPieces,
+  TestDocument,
+  TestMessage,
+  type TestMessageChannel,
   testDataUserMessage,
+  testDocumentFilename,
+  triggerOnSchema,
+  triggerReads,
+  uuidv7,
+  variationNotes,
+  wantsDocument,
+  wantsMessage,
 } from "@countersign/core";
-import { buildItem, clientFact, dealPerson, type Tx, tenant } from "@countersign/db";
+import {
+  buildItem,
+  clientFact,
+  contact,
+  dealPerson,
+  document as documentTable,
+  ledgerAccount,
+  narrowToTenant,
+  rawRecord,
+  type Tx,
+  tenant,
+  vendor,
+} from "@countersign/db";
+import { storeDocument } from "@countersign/documents";
 import { DEFAULT_MODELS } from "@countersign/llm";
+import { vendorItem } from "@countersign/pack-materials";
 import { and, asc, desc, eq, inArray } from "drizzle-orm";
 import type { Hono } from "hono";
 import { type BuildRow, readBuild } from "../build/store";
 import { clientModels } from "../compliance/models";
-import { type AppEnv, ensureClient, HttpError, mountLong, notFound, type Services } from "../http";
+import {
+  type AppEnv,
+  ensureClient,
+  HttpError,
+  mountLong,
+  notFound,
+  type Scoped,
+  type Services,
+} from "../http";
 import { claimMetered } from "../metered";
 import { meterDepsOf, meteredLlm } from "../metering";
 import { reportHandled } from "../observability/report";
 import { readFile } from "../onboarding/files";
+import { renderTestDocument } from "../try/test-document";
 import { readDeal } from "../work/deals";
+import { extractInBackground } from "./documents";
+import { sandboxClient } from "./testbench";
 
 /** At most this many of a client file's current facts go with a fact's draft. */
 const FILE_FACTS_MAX = 20;
@@ -63,6 +97,131 @@ interface Gathered {
   /** The client the text is about (its language, the allowance), if one. */
   primary: string | null;
   language: string;
+}
+
+/**
+ * Who a made-up email is from, in words for the model: one of the Sandbox's people the message
+ * trigger takes (by relationship), named, when the trigger takes only certain people and the
+ * Sandbox has some; nothing otherwise.
+ */
+export function senderHint(on: unknown, records: SandboxRecords | null): string | null {
+  const from = (on as { type?: unknown; from?: { relationships?: unknown } } | undefined)?.from;
+  const wanted = Array.isArray(from?.relationships)
+    ? from.relationships.filter((r): r is string => typeof r === "string")
+    : [];
+  if (wanted.length === 0 || !records) return null;
+  const fit = records.people.filter(
+    (p) => p.email && p.relationship && wanted.includes(p.relationship),
+  );
+  if (fit.length === 0) return null;
+  const names = fit
+    .slice(0, 5)
+    .map((p) => `${p.name} (${p.email})`)
+    .join(", ");
+  return `The email is from one of these people in <records>, exactly as listed, since the workflow takes messages only from its ${wanted.join(" or ")}s: ${names}`;
+}
+
+interface ChosenSender {
+  contactId: string;
+  name: string;
+  channel: TestMessageChannel;
+  address: string;
+}
+
+/**
+ * The Sandbox contact Try it says a made-up message is from, with the address it comes in from on
+ * the channel asked (else their email, else their phone): 422 when they aren't the Sandbox's or
+ * have no address on it.
+ */
+async function chosenSender(
+  ctx: { inTx<T>(work: (scoped: Scoped) => Promise<T>): Promise<T> },
+  body: { fromContactId?: string | undefined; channel?: TestMessageChannel | undefined },
+): Promise<ChosenSender> {
+  const id = body.fromContactId as string;
+  const [c] = await ctx.inTx(async (scoped) => {
+    const sandbox = await sandboxClient(scoped);
+    return narrowToTenant(scoped.tx, sandbox, (tx) =>
+      tx
+        .select()
+        .from(contact)
+        .where(and(eq(contact.tenantId, sandbox), eq(contact.id, id))),
+    );
+  });
+  if (!c) throw new HttpError(422, "invalid_contact", "not one of the Sandbox's contacts");
+  // DECISION: left out, the channel is their email, else a text to their phone, else WhatsApp.
+  const channel: TestMessageChannel =
+    body.channel ?? (c.email ? "email" : c.phone ? "sms" : c.whatsapp ? "whatsapp" : "email");
+  const address = channel === "email" ? c.email : channel === "sms" ? c.phone : c.whatsapp;
+  if (!address) {
+    const what = channel === "email" ? "email address" : "phone number";
+    throw new HttpError(422, "no_address", `${c.name} has no ${what} in the Sandbox`);
+  }
+  return { contactId: c.id, name: c.name, channel, address };
+}
+
+/** Who the made-up message is from, in words for the model: the person Try it named. */
+export function chosenWords(c: Pick<ChosenSender, "name" | "address" | "channel">): string {
+  return c.channel === "email"
+    ? `The email is from ${c.name} (${c.address}), exactly as named`
+    : `The message is a text from ${c.name} (${c.address}), exactly as named: a line or two in plain words, with no greeting or sign-off`;
+}
+
+/** At most this many of each kind of the Sandbox's records go to the model with made-up data. */
+const SANDBOX_RECORDS_MAX = 30;
+
+/** What the Sandbox holds, by name: its vendors, people, items and accounts (all made up). */
+async function sandboxRecords(ctx: {
+  inTx<T>(work: (scoped: Scoped) => Promise<T>): Promise<T>;
+}): Promise<SandboxRecords | null> {
+  return ctx.inTx(async (scoped) => {
+    const sandbox = await sandboxClient(scoped);
+    return narrowToTenant(scoped.tx, sandbox, async (tx) => {
+      const vendors = await tx
+        .select({ id: vendor.id, name: vendor.name, ext: vendor.ext })
+        .from(vendor)
+        .where(eq(vendor.tenantId, sandbox))
+        .orderBy(asc(vendor.name))
+        .limit(SANDBOX_RECORDS_MAX);
+      const people = await tx
+        .select({ name: contact.name, email: contact.email, relationship: contact.relationship })
+        .from(contact)
+        .where(eq(contact.tenantId, sandbox))
+        .orderBy(asc(contact.name))
+        .limit(SANDBOX_RECORDS_MAX);
+      const items = await tx
+        .select({ name: vendorItem.name, sku: vendorItem.sku, vendorId: vendorItem.vendorId })
+        .from(vendorItem)
+        .where(eq(vendorItem.tenantId, sandbox))
+        .orderBy(asc(vendorItem.name))
+        .limit(SANDBOX_RECORDS_MAX);
+      const accounts = await tx
+        .select({ name: ledgerAccount.name })
+        .from(ledgerAccount)
+        .where(and(eq(ledgerAccount.tenantId, sandbox), eq(ledgerAccount.active, true)))
+        .orderBy(asc(ledgerAccount.name))
+        .limit(SANDBOX_RECORDS_MAX);
+      if (vendors.length + people.length + items.length + accounts.length === 0) return null;
+      const vendorName = new Map(vendors.map((v) => [v.id, v.name]));
+      return {
+        vendors: vendors.map((v) => {
+          const domains = (v.ext as { domains?: unknown } | null)?.domains;
+          return {
+            name: v.name,
+            ...(Array.isArray(domains)
+              ? { domains: domains.filter((d) => typeof d === "string") }
+              : {}),
+          };
+        }),
+        people: people.map((p) => ({ name: p.name, email: p.email, relationship: p.relationship })),
+        items: items.map((i) => ({
+          name: i.name,
+          sku: i.sku,
+          vendor: vendorName.get(i.vendorId) ?? null,
+        })),
+        accounts: accounts.map((a) => a.name),
+      };
+    });
+  });
 }
 
 /** The one thing on the build `ref` names, in lines; null when it names nothing there. */
@@ -251,12 +410,14 @@ async function gather(
 }
 
 export function assistDraftRoutes(app: Hono<AppEnv>): void {
-  // Made-up data to try steps on (owner, 2026-11-22; docs/plan.md §1.186): from the draft's
-  // shapes alone. The model is sent the step names, each piece's JSON Schema and how the steps
-  // read it; no record of any client's is read here.
-  // DECISION: counted and limited as a Draft is (the same kind of call, by the same person), and
-  // held to the agent's client's HIPAA mode as a Draft about that client is, though no client
-  // data goes: a client's own process is still that client's.
+  // Made-up data to try a draft workflow on (docs/plan.md §1.186; rebuilt for the step model on
+  // 2026-11-26). The model is given the workflow's name, its steps' names, the trigger's shape and
+  // what the steps read of it; nothing of a client's. Where the trigger carries a stored document,
+  // the model writes a document's contents instead, drawn here as a PDF and kept in the Sandbox
+  // quietly (no `document.received`, so no agent starts on it), read in the background as a try's
+  // upload is, and its id is the trigger's data.
+  // DECISION: a made-up document is kept in the Sandbox only, as the back office's uploads are
+  // (§1.16): a client agent, which test-runs on its own client's data, is refused one (422).
   mountLong(app, assistRoutes.opsAssistTestData, async (ctx) => {
     const { services, body } = ctx;
     const row = await ctx.inTx(async (scoped) => {
@@ -268,7 +429,12 @@ export function assistDraftRoutes(app: Hono<AppEnv>): void {
             .from(tenant)
             .where(eq(tenant.id, a.tenantId))
         : [];
-      return { tenantId: a.tenantId, settings: client?.settings ?? null };
+      return {
+        tenantId: a.tenantId,
+        kind: a.kind,
+        settings: client?.settings ?? null,
+        sandbox: (client?.settings as { sandbox?: unknown } | null)?.sandbox === true,
+      };
     });
     if (row.settings) {
       const refusal = processingRefusal(
@@ -279,17 +445,44 @@ export function assistDraftRoutes(app: Hono<AppEnv>): void {
       );
       if (refusal) throw new HttpError(409, "hipaa", refusal);
     }
-    const parsed = processes.Process.safeParse(body.process);
+    const parsed = stepModel.Workflow.safeParse(body.workflow);
     if (!parsed.success) {
-      throw new HttpError(422, "invalid_process", "the workflow doesn't read in the new format");
+      throw new HttpError(422, "invalid_workflow", "the workflow doesn't read in the step model");
     }
-    const ask = testDataPieces(parsed.data, { tools: services.platform.tools.specs() }, body.range);
-    if (ask.problems.length > 0) {
-      throw new HttpError(422, "invalid_range", ask.problems.join("; "), {
-        problems: ask.problems,
-      });
+    const wf = parsed.data;
+    const on = wf.triggers[0]?.on;
+    const events = Object.fromEntries(services.platform.events.list().map((e) => [e.type, e]));
+    const schema = on ? triggerOnSchema(on as never, { events }) : undefined;
+    const document = wantsDocument(schema);
+    // A message trigger (owner, 2026-11-26: "we were supposed to be able to fabricate attachments
+    // too, like PDFs of a receipt or invoice"): its data is ids of a stored message and its
+    // documents, so a whole email is made up and stored, attachments and all.
+    const message = !document && wantsMessage(schema);
+    // A Sandbox agent's try runs in the Sandbox, where made-up files are kept: it is offered them.
+    if ((document || message) && row.kind === "client" && !row.sandbox) {
+      throw new HttpError(
+        422,
+        "sandbox_only",
+        "a made-up document is kept in the Sandbox only: try the template there, or upload one of the client's documents",
+      );
     }
-    if (ask.pieces.length === 0) return { given: {}, missing: [] };
+    const stepNames: string[] = [];
+    const walk = (list: readonly unknown[]) => {
+      for (const s of list as {
+        name?: string;
+        steps?: unknown[];
+        paths?: { steps: unknown[] }[];
+        otherwise?: { steps: unknown[] };
+      }[]) {
+        if (s.name?.trim()) stepNames.push(s.name.trim());
+        if (s.steps) walk(s.steps);
+        for (const p of s.paths ?? []) walk(p.steps);
+        if (s.otherwise) walk(s.otherwise.steps);
+      }
+    };
+    walk(wf.steps);
+    // Try it's From (2026-11-27): the Sandbox's contact the message is from, on the channel picked.
+    const chosen = message && body.fromContactId ? await chosenSender(ctx, body) : null;
     await ctx.inTx((scoped) =>
       claimMetered(scoped.tx, ctx.c, {
         kind: "assist.draft",
@@ -307,28 +500,210 @@ export function assistDraftRoutes(app: Hono<AppEnv>): void {
       tenantId: row.tenantId,
       source: "assist",
     });
+    // The Sandbox's own records (owner, 2026-11-26: variations "so that we can see different cases
+    // of a flow"): the model uses them so lookups and matches find something, or misses them on
+    // purpose. Only when the try runs in the Sandbox (a template's, or a Sandbox agent's), so no
+    // client's records ever reach the model this way.
+    const records =
+      row.kind === "template" || row.sandbox ? await sandboxRecords(ctx).catch(() => null) : null;
+    const ask = {
+      workflow: body.name,
+      steps: stepNames.slice(0, 60),
+      ...(document || message ? {} : { schema, reads: triggerReads(wf.steps) }),
+      notes: variationNotes(body.notes, body.variations),
+      ...(records ? { records } : {}),
+    };
     try {
+      const content = new ContentStore(services.deps.objects(services.env));
+      /** Draws each made-up document as a PDF and keeps it quietly in the Sandbox. */
+      const keep = async (docs: readonly TestDocument[]) => {
+        const files = await Promise.all(
+          docs.map(async (d) => ({
+            bytes: await renderTestDocument(d),
+            filename: testDocumentFilename(d),
+          })),
+        );
+        return ctx.inTx(async (scoped) => {
+          const sandbox = await sandboxClient(scoped);
+          return narrowToTenant(scoped.tx, sandbox, async (tx) => {
+            const conn = await ensureUploadConnection(tx, sandbox);
+            const stored = [];
+            for (const f of files) {
+              const doc = await storeDocument(tx, content, {
+                tenantId: sandbox,
+                source: "upload",
+                connectionId: conn.id,
+                bytes: f.bytes,
+                filename: f.filename,
+                mimeType: "application/pdf",
+                meta: { uploadedBy: ctx.session.user.id, via: "try", madeUp: true },
+                announce: false,
+              });
+              stored.push(doc);
+            }
+            return { sandbox, connectionId: conn.id, stored };
+          });
+        });
+      };
+      if (message) {
+        // Files the operator uploaded for this try: attached as they are, the email written about them.
+        const given = body.attach?.length
+          ? await ctx.inTx(async (scoped) => {
+              const sandbox = await sandboxClient(scoped);
+              return narrowToTenant(scoped.tx, sandbox, (tx) =>
+                tx
+                  .select()
+                  .from(documentTable)
+                  .where(
+                    and(
+                      eq(documentTable.tenantId, sandbox),
+                      inArray(documentTable.id, body.attach ?? []),
+                    ),
+                  ),
+              );
+            })
+          : [];
+        if (body.attach?.length && given.length !== body.attach.length) {
+          throw new HttpError(
+            422,
+            "invalid_request",
+            "an attached file isn't one of the Sandbox's",
+          );
+        }
+        // Staging, 2026-11-27: a message from an invented sender has no contact, so a step that
+        // asks the sender back had nobody to ask. Where the trigger takes only certain people, the
+        // email is from one of the Sandbox's people who fit, and is kept as from that contact.
+        const sender = chosen ? chosenWords(chosen) : senderHint(on, records);
+        const notes = [ask.notes, sender].filter(Boolean).join(". ");
+        const words = given.length
+          ? `${notes ? `${notes}. ` : ""}These files are attached already (attach nothing more): ${given
+              .map((d) => d.filename)
+              .join(", ")}.`
+          : notes || undefined;
+        const out = await llm.callTool({
+          model: DEFAULT_MODELS.assist,
+          system: TEST_MESSAGE_SYSTEM,
+          messages: [{ role: "user", content: testDataUserMessage({ ...ask, notes: words }) }],
+          tool: { ...TEST_MESSAGE_TOOL, schema: TestMessage },
+          maxTokens: 8000,
+          label: "assist.test_message",
+        });
+        const made = out.value;
+        const kept = await keep(given.length ? [] : made.attachments);
+        const fromEmail = made.from.email.trim().toLowerCase();
+        const [fromContact] = chosen
+          ? [{ id: chosen.contactId }]
+          : await ctx.inTx((scoped) =>
+              narrowToTenant(scoped.tx, kept.sandbox, (tx) =>
+                tx
+                  .select({ id: contact.id })
+                  .from(contact)
+                  .where(and(eq(contact.tenantId, kept.sandbox), eq(contact.email, fromEmail)))
+                  .limit(1),
+              ),
+            );
+        const contactId = fromContact?.id ?? null;
+        const channel = chosen?.channel ?? "email";
+        const from = chosen ? chosen.address : made.from.email;
+        const fromName = chosen ? chosen.name : made.from.name;
+        const docs = given.length ? given : kept.stored.map((d) => d.document);
+        const ids = docs.map((d) => d.id);
+        const fresh = kept.stored.filter((d) => d.created).map((d) => d.document.id);
+        if (fresh.length > 0) ctx.defer(() => extractInBackground(services, kept.sandbox, fresh));
+        // The email is kept as an inbound one (`InboundMessage`), so the workflow's first step reads
+        // its words with `inbound.get` as it would a real one's. Marked as made up for a test.
+        const [rec] = await ctx.inTx((scoped) =>
+          narrowToTenant(scoped.tx, kept.sandbox, (tx) =>
+            tx
+              .insert(rawRecord)
+              .values({
+                tenantId: kept.sandbox,
+                connectionId: kept.connectionId,
+                connector: UPLOAD_CONNECTOR_ID,
+                entityType: INBOUND_MESSAGE_ENTITY,
+                externalId: `test-${uuidv7()}`,
+                externalVersion: null,
+                payload: {
+                  agentId: ctx.params.id,
+                  channel,
+                  from,
+                  contactId,
+                  authenticated: false,
+                  subject: channel === "email" ? made.subject : null,
+                  date: new Date().toUTCString(),
+                  messageId: null,
+                  text: inboundText(made.text),
+                  documents: ids,
+                  madeUp: true,
+                },
+              })
+              .returning({ id: rawRecord.id }),
+          ),
+        );
+        if (!rec) throw new Error("the made-up message wasn't stored");
+        return {
+          trigger: {
+            channel,
+            contactId,
+            userId: null,
+            rawRecordId: rec.id,
+            threadId: null,
+            messageId: null,
+            documents: ids,
+          },
+          missing: false,
+          document: null,
+          message: {
+            subject: made.subject,
+            from: `${fromName} <${from}>`,
+            attachments: docs.map((d) => ({ id: d.id, filename: d.filename })),
+            clientId: kept.sandbox,
+            text: made.text,
+            contactId,
+            channel,
+          },
+        };
+      }
+      if (!document) {
+        const out = await llm.callTool({
+          model: DEFAULT_MODELS.assist,
+          system: TEST_DATA_SYSTEM,
+          messages: [{ role: "user", content: testDataUserMessage(ask) }],
+          tool: { ...TEST_DATA_TOOL, schema: TestDataAnswer },
+          maxTokens: 6000,
+          label: "assist.test_data",
+        });
+        return { ...readTestData(schema, out.value), document: null };
+      }
       const out = await llm.callTool({
         model: DEFAULT_MODELS.assist,
-        system: TEST_DATA_SYSTEM,
-        messages: [
-          {
-            role: "user",
-            content: testDataUserMessage({
-              workflow: body.workflow,
-              picked: ask.picked,
-              pieces: ask.pieces,
-              notes: body.notes,
-            }),
-          },
-        ],
-        tool: { ...TEST_DATA_TOOL, schema: TestDataAnswer },
-        maxTokens: 6000,
-        label: "assist.test_data",
+        system: TEST_DOCUMENT_SYSTEM,
+        messages: [{ role: "user", content: testDataUserMessage(ask) }],
+        tool: { ...TEST_DOCUMENT_TOOL, schema: TestDocument },
+        maxTokens: 4000,
+        label: "assist.test_document",
       });
-      return readTestData(ask.pieces, out.value);
+      const kept = await keep([out.value]);
+      const one = kept.stored[0];
+      if (!one) throw new Error("the made-up document wasn't stored");
+      const stored = { sandbox: kept.sandbox, doc: one.document, created: one.created };
+      if (stored.created) {
+        ctx.defer(() => extractInBackground(services, stored.sandbox, [stored.doc.id]));
+      }
+      return {
+        // The payload `document.received` carries, as a try's upload sends it.
+        trigger: {
+          documentId: stored.doc.id,
+          source: stored.doc.source,
+          filename: stored.doc.filename,
+          mimeType: stored.doc.mimeType,
+          sha256: stored.doc.sha256,
+        },
+        missing: false,
+        document: { id: stored.doc.id, filename: stored.doc.filename, clientId: stored.sandbox },
+      };
     } catch (error) {
-      if (error instanceof ComplianceRefusal) throw error;
+      if (error instanceof ComplianceRefusal || error instanceof HttpError) throw error;
       reportHandled("making up test data failed", error, { kind: "assist.test_data" });
       throw new HttpError(502, "draft_failed", "we couldn't make up the data: try again");
     }

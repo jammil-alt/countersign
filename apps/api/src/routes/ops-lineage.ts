@@ -11,21 +11,24 @@ import {
   activationProblems,
   bundleSkillRefs,
   CUSTOM_PREFIX,
+  catalogSpecs,
   getAgent,
   getVersion,
+  isStepSkill,
   latestVersion,
-  lineageReadOptions,
   previewStepPrompt,
   requiredConnectors,
   resolveCustomSkill,
   retire,
   SHARED_COPY_PREFIX,
+  STEP_ONLY_SKILLS,
   skillContext,
+  withWriteActionFields,
 } from "@countersign/agents";
+import { BUILTIN_CONNECTORS } from "@countersign/connectors";
 import {
   type AgentBundle,
   AgentDefinition,
-  type AnyAgentBundle,
   type BuilderCatalog,
   type BundleChange,
   connectorShown,
@@ -44,12 +47,14 @@ import {
   skillKind,
   skillModelFacts,
   skillMoveImpact,
+  steps,
   type ToolInputVariants,
   toolLookup,
 } from "@countersign/core";
 import {
   agent,
   connection,
+  connectorSetting,
   memoryNote,
   run,
   skill,
@@ -58,11 +63,14 @@ import {
   tenant,
 } from "@countersign/db";
 import { clientGovernance } from "@countersign/documents";
+import { catalogKindOf, draftProcess, ProcessLoadError } from "@countersign/workflows";
 import { and, desc, eq, inArray, isNotNull, isNull, or } from "drizzle-orm";
 import type { Hono } from "hono";
+import { offActionIds } from "../actions-off";
 import { returnAgentLine } from "../channels/agent-line";
 import { type AppEnv, type HandlerCtx, HttpError, mount, notFound } from "../http";
 import type { Platform } from "../platform";
+import { recordActionsFor } from "../records/catalog";
 import { zohoToolInputsFor } from "../zoho/fields";
 import { tenantLocale } from "./language";
 import { agentSummary, versionSummary } from "./mappers";
@@ -86,6 +94,19 @@ export async function builderToolInputs(
 }
 
 /** The agent, if it is visible to this request (templates, or a client agent of a served client). */
+/**
+ * A builder draft (a v5 workflow, unsaved) as the engine process the typing, sample and preview
+ * routes read steps from: no publish checks, so an unfinished draft still reads.
+ */
+export function draftEngineProcess(platform: Platform, workflow: unknown): processes.Process {
+  try {
+    return draftProcess(workflow, catalogKindOf(platform.tools.specs()));
+  } catch (error) {
+    if (!(error instanceof ProcessLoadError)) throw error;
+    throw new HttpError(422, "invalid_process", "the workflow doesn't read in the new format");
+  }
+}
+
 export async function agentInScope(ctx: Scope, id: string): Promise<AgentRow> {
   const row = await getAgent(ctx.tx, id);
   if (row.tenantId !== null && !ctx.tenantIds.includes(row.tenantId)) throw notFound("agent");
@@ -103,7 +124,7 @@ async function currentVersion(ctx: Scope, row: AgentRow): Promise<AgentVersionRo
  * A name for every entity either bundle has, so the screens can say "Step Ask Jammil changed"
  * instead of `step:9f…`. Skills are labelled by their reference; otherwise branches "Otherwise".
  */
-export function bundleLabels(...bundles: AnyAgentBundle[]): Record<string, string> {
+export function bundleLabels(...bundles: AgentBundle[]): Record<string, string> {
   const out: Record<string, string> = {};
   for (const b of bundles) {
     for (const [key, e] of flattenBundle(b).entities) {
@@ -121,17 +142,10 @@ export function bundleLabels(...bundles: AnyAgentBundle[]): Record<string, strin
   return out;
 }
 
-/**
- * diffBundles, refusing cleanly when a stored draft can't be flattened (duplicate ids). R9: `read`
- * reads v3 workflows as v4 when the two versions are one of each (an agent updated to v4).
- */
-function diff(
-  a: AnyAgentBundle,
-  b: AnyAgentBundle,
-  read: ReturnType<typeof lineageReadOptions>,
-): { changes: BundleChange[] } {
+/** diffBundles, refusing cleanly when a stored draft can't be flattened (duplicate ids). */
+function diff(a: AgentBundle, b: AgentBundle): { changes: BundleChange[] } {
   try {
-    return { changes: diffBundles(a, b, read) };
+    return { changes: diffBundles(a, b) };
   } catch (error) {
     throw new HttpError(
       422,
@@ -141,7 +155,7 @@ function diff(
   }
 }
 
-export function labels(...bundles: AnyAgentBundle[]): Record<string, string> {
+export function labels(...bundles: AgentBundle[]): Record<string, string> {
   try {
     return bundleLabels(...bundles);
   } catch {
@@ -178,6 +192,8 @@ export async function operatorSkills(
   >();
   for (const r of rows) {
     if (r.skill.slug.startsWith(SHARED_COPY_PREFIX)) continue;
+    // A skill that only holds a step's own rules or text is no skill to pick (stream F).
+    if (isStepSkill(r.version.definition)) continue;
     const source = r.skill.tenantId === null ? "shared" : "client";
     const existing = bySlug.get(r.skill.slug);
     if (existing?.source === "client") continue;
@@ -204,7 +220,7 @@ export async function operatorSkills(
 // step (`used`), so a stored step still types and reads by name.
 export function stepTools(platform: Platform, used: ReadonlySet<string> = new Set()): string[] {
   const stepOnly = new Set(
-    processes.STEP_ONLY_SKILLS.map((id) => platform.catalog.get(id)?.handler).filter(
+    STEP_ONLY_SKILLS.map((id) => platform.catalog.get(id)?.handler).filter(
       (h): h is string => h !== undefined,
     ),
   );
@@ -254,13 +270,13 @@ export const SPLIT_MODEL_TOOLS: ReadonlySet<string> = new Set([
 /** The account agent's (Sloan's) handlers: steps of its own processes, never general tools. */
 export const ACCOUNT_TOOL_PREFIX = "account.";
 
-/** The tools an agent's processes call as read or write steps (core's `processTools`). */
-export function bundleStepTools(bundle: AnyAgentBundle | null | undefined): Set<string> {
-  if (!bundle) return new Set();
-  const v4 = bundle.workflows
-    .map((w) => w.workflow)
-    .filter((w): w is processes.Process => w.schemaVersion === 4);
-  return new Set(processes.processTools(v4));
+/** The tools (actions) an agent's workflows call. */
+export function bundleStepTools(bundle: AgentBundle | null | undefined): Set<string> {
+  const out = new Set<string>();
+  for (const w of bundle?.workflows ?? []) {
+    for (const action of steps.stepModelActions(w.workflow)) out.add(action);
+  }
+  return out;
 }
 
 function skillOption(
@@ -290,6 +306,78 @@ function skillOption(
     parameters: def.parameters ?? [],
     recommendedModel: recommendedModel(def),
   };
+}
+
+/**
+ * The action catalog the Uses picker offers for an agent (or, for the Builder, an agent not yet
+ * saved: its client and no bundle): by connector and by area, from the registered tools. A
+ * test-only connector's actions are held back as in the builder's catalog.
+ */
+// Step model E: what the operator turned off on a connector's page, and what the new model folded
+// into another action, is left out; Web's actions sit under the Web connector.
+export async function actionCatalogFor(
+  ctx: Pick<HandlerCtx<never>, "tx" | "services">,
+  row: Pick<AgentRow, "tenantId" | "testCopy"> & { id?: string },
+  /** The bundle a test-only connector may be in use in; absent: the agent's latest version's. */
+  bundle?: unknown,
+  options: { testConnectors?: "hidden" | "shown" } = {},
+): Promise<steps.CatalogGroup[]> {
+  const { platform } = ctx.services;
+  const read =
+    bundle !== undefined
+      ? bundle
+      : row.id
+        ? ((await latestVersion(ctx.tx, row.id))?.bundle ?? null)
+        : null;
+  const hidden =
+    options.testConnectors === "shown"
+      ? new Set<string>()
+      : await hiddenTestConnectors(ctx.tx, row, read, platform);
+  const settings = await ctx.tx.select().from(connectorSetting);
+  // Step model §10f: a record type's standard actions are typed with the client's custom fields
+  // (a template's with the shared ones), and offered as the agent's grants and data sets allow.
+  const records = await recordActionsFor(
+    ctx.tx,
+    platform.records,
+    row.tenantId,
+    read as Parameters<typeof recordActionsFor>[3],
+  );
+  return actionCatalogOf(
+    platform,
+    Object.fromEntries(settings.map((r) => [r.connector, r.actions])),
+    hidden,
+    records,
+  );
+}
+
+/**
+ * The action catalog from the platform alone: `switches` is each connector's action switches
+ * (`connector_setting.actions`), `hidden` the connectors held back. What the Builder's evals read
+ * with no database; `actionCatalogFor` reads the switches and the test-only connectors first.
+ */
+export function actionCatalogOf(
+  platform: Platform,
+  switches: Parameters<typeof catalogSpecs>[1],
+  hidden: ReadonlySet<string> = new Set(),
+  /** The record types' standard actions this agent may use (`recordActionsFor`). */
+  records: readonly Parameters<typeof steps.buildActionCatalog>[0][number][] = [],
+): steps.CatalogGroup[] {
+  const connectors = platform.connectors.list().filter((c) => !hidden.has(c.manifest.id));
+  const specs = catalogSpecs(platform.tools, switches);
+  const shown = specs.filter((spec) => {
+    const owner = platform.connectors.findTool(spec.id)?.connector.manifest.id;
+    return owner === undefined || !hidden.has(owner);
+  });
+  // The merged Accounting actions take their write action's own fields, as runs map them.
+  return withWriteActionFields(
+    steps.buildActionCatalog([...shown.filter((spec) => !spec.record), ...records], {
+      connectors: {
+        ...Object.fromEntries(connectors.map((c) => [c.manifest.id, connectorTitle(c.manifest)])),
+        ...Object.fromEntries(BUILTIN_CONNECTORS.map((b) => [b.id, b.name])),
+      },
+      areas: AREA_NAMES,
+    }),
+  );
 }
 
 /**
@@ -357,7 +445,7 @@ export interface CatalogSubject {
   /** The tools its steps call as read or write steps. */
   stepTools: ReadonlySet<string>;
   /** An agent's latest bundle, for the automations it already pins; null for an automation. */
-  bundle: AnyAgentBundle | null;
+  bundle: AgentBundle | null;
   /** Whether a use step may be placed: never inside an automation (no nesting). */
   automations: boolean;
 }
@@ -417,8 +505,12 @@ export async function builderCatalogFor(
   // Test-only connectors (the testkit) and their tools only for the Sandbox and test copies, or
   // where the agent or its client already uses them (core's connectorShown).
   const hidden = await hiddenTestConnectors(tx, subject, subject.latest, platform);
+  // Step model E: an action the operator turned off on its connector's page is left out of the
+  // pickers (an agent already using it keeps it, so its steps still type; the gate refuses the call).
+  const off = await offActionIds(tx, platform);
   const toolHidden = (id: string) => {
     const owner = platform.connectors.findTool(id)?.connector.manifest.id;
+    if (off.has(id) && !subject.stepTools.has(id)) return true;
     return owner !== undefined && hidden.has(owner);
   };
   return {
@@ -451,8 +543,22 @@ export async function builderCatalogFor(
       : [],
     // docs/plan.md §1.164: a client agent's Zoho writes typed from its client's own fields.
     ...(await builderToolInputs(tx, platform, subject)),
+    // What a match step can match to, as the Builder's own catalog has them.
+    profiles: platform.packs.flatMap((p) => p.manifest.matchProfiles),
   };
 }
+
+export { offActionIds };
+
+/** The areas' names in the Uses picker (`shared` is the records every area builds on). */
+const AREA_NAMES: Readonly<Record<string, string>> = {
+  purchasing: "Purchasing",
+  bookkeeping: "Bookkeeping",
+  sales: "Sales",
+  marketing: "Marketing",
+  receivables: "Receivables",
+  shared: "Shared",
+};
 
 export function opsLineageRoutes(app: Hono<AppEnv>): void {
   mount(app, routes.opsRetire, async (ctx) => {
@@ -554,16 +660,22 @@ export function opsLineageRoutes(app: Hono<AppEnv>): void {
     });
   });
 
+  // Step model (docs/step-model-plan.md §10c; stream B): the actions the Uses picker offers, by
+  // connector and by area, from the registered tools. A test-only connector's actions are held
+  // back as in the builder's catalog.
+  // DECISION: area names are the owner areas' words, and `shared` is "Shared"; an area a pack
+  // names that isn't listed shows its id with a capital.
+  mount(app, routes.opsActionCatalog, async (ctx) => {
+    const row = await agentInScope(ctx, ctx.params.id);
+    return { groups: await actionCatalogFor(ctx, row) };
+  });
+
   // Skill model (2026-11-10): what moves if a skill step goes to another version of its skill.
   mount(app, routes.opsSkillStepMove, async (ctx) => {
     const { tx, services, body } = ctx;
     const { platform } = services;
     const row = await agentInScope(ctx, ctx.params.id);
-    const parsed = processes.Process.safeParse(body.process);
-    if (!parsed.success) {
-      throw new HttpError(422, "invalid_process", "the workflow doesn't read in the new format");
-    }
-    const process = parsed.data;
+    const process = draftEngineProcess(platform, body.process);
     const step = processes.findStep(process, body.stepId)?.step;
     if (step?.kind !== "skill") {
       throw new HttpError(
@@ -617,11 +729,8 @@ export function opsLineageRoutes(app: Hono<AppEnv>): void {
     const { tx, services, body } = ctx;
     const { platform } = services;
     const row = await agentInScope(ctx, ctx.params.id);
-    const parsed = processes.Process.safeParse(body.process);
-    if (!parsed.success) {
-      throw new HttpError(422, "invalid_process", "the workflow doesn't read in the new format");
-    }
-    const step = processes.findStep(parsed.data, body.stepId)?.step;
+    const process = draftEngineProcess(platform, body.process);
+    const step = processes.findStep(process, body.stepId)?.step;
     if (step?.kind !== "skill") {
       throw new HttpError(
         422,
@@ -684,8 +793,7 @@ export function opsLineageRoutes(app: Hono<AppEnv>): void {
     const from = fromId ? await getVersion(tx, fromId) : null;
     if (from && from.agentId !== row.id) throw notFound("version");
     // The first version has nothing to compare against: no changes, `from` null.
-    const read = lineageReadOptions(ctx.services.platform.ctx);
-    const { changes } = from ? diff(from.bundle, to.bundle, read) : { changes: [] };
+    const { changes } = from ? diff(from.bundle, to.bundle) : { changes: [] };
     return {
       from: from ? versionSummary(from) : null,
       to: versionSummary(to),
@@ -714,7 +822,7 @@ export function opsLineageRoutes(app: Hono<AppEnv>): void {
     return {
       base: versionSummary(base),
       version: versionSummary(v),
-      ...diff(base.bundle, v.bundle, lineageReadOptions(ctx.services.platform.ctx)),
+      ...diff(base.bundle, v.bundle),
       labels: labels(base.bundle, v.bundle),
     };
   });
@@ -754,7 +862,6 @@ export function opsLineageRoutes(app: Hono<AppEnv>): void {
 
     const agents = [];
     // R9: a v3 client agent against a template version of v4 processes.
-    const read = lineageReadOptions(ctx.services.platform.ctx);
     for (const row of rows) {
       const v = await currentVersion(ctx, row);
       const base = v?.basedOnTemplateVersionId
@@ -766,9 +873,9 @@ export function opsLineageRoutes(app: Hono<AppEnv>): void {
       let conflicts: number | null = null;
       if (v && base) {
         try {
-          customizations = diffBundles(base.bundle, v.bundle, read).length;
+          customizations = diffBundles(base.bundle, v.bundle).length;
           if (behind > 0 && templateLive) {
-            conflicts = mergeBundles(base.bundle, v.bundle, templateLive.bundle, [], read).conflicts
+            conflicts = mergeBundles(base.bundle, v.bundle, templateLive.bundle, []).conflicts
               .length;
           }
         } catch {

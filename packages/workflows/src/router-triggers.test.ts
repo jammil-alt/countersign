@@ -38,10 +38,10 @@ function multi(slug: string, triggers: { id: string; on: unknown }[]): AgentBund
         slug,
         name: slug,
         workflow: {
-          schemaVersion: 3,
-          trigger: first,
-          ...(more.length ? { moreTriggers: more } : {}),
+          schemaVersion: 5,
+          triggers: [first, ...more],
           steps: [],
+          outputs: [],
         },
       },
     ],

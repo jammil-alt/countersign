@@ -77,6 +77,19 @@ follow-up if clients hit the cap.
 | Notifications: `POST /crm/v8/actions/watch` `{watch:[{channel_id (number), events:["Leads.all",…], channel_expiry (≤ 1 day), token (≤ 50 chars), notify_url}]}`, answered under `watch` | **UNCHECKED**: the shapes, the one-day expiry, the token length; we renew after 20 hours |
 | A notification is a POST to `notify_url` with `channel_id`, `token` (as given), `module`, `operation`, `ids` | **UNCHECKED** shape; we only check the token and channel, then poll |
 | Scopes `ZohoCRM.notifications.READ` and `.CREATE` for the watch | **UNCHECKED**; added to the sign-in, so connections made before need a new sign-in for notifications (the poll works without) |
+| A list call without `If-Modified-Since` lists every record of the module (a first sync's full read, 2026-11-24) | **UNCHECKED** |
+| Deleted records: `GET /crm/v8/{module}/deleted?type=all&page&per_page` with `If-Modified-Since` → `{data:[{id, deleted_time, type, display_name, …}], info:{more_records}}`, 204 when none; `all` covers the recycle bin and permanently deleted records | **UNCHECKED**: the path, `type`, the shape, whether the header filters by `deleted_time`, and the order; at most 10 pages (2,000) of deletions per module and pass are read, any beyond are left |
+| What `ZohoCRM.modules.ALL` (or the module scopes we ask for) grants covers `/deleted` | **UNCHECKED**; a refusal (the scope, or a 400, 403 or 404) skips that pass's deletions with a warning, so changes keep coming; a deleted record then stays in our copy until a pass reads its deletion |
+| A record restored from the recycle bin comes back with a newer `Modified_Time` | **UNCHECKED**; we mark every version we hold of a record in the deleted list deleted, so a record restored inside the same pass's window stays out of matches until its next change is read |
+
+When and how often (2026-11-24, owner: poll once a day, and again when an agent needs the
+records). The first sync reads every record (history, no events); a connection whose first sync
+read only 90 days reads everything once more by itself, records older than its window coming in
+quietly (`quietUntil`). Each later pass lists each module's changes, then its deletions, which
+mark the raw records deleted. apps/api polls a connection once a day, every 15 minutes while a
+pass is unfinished, and every 15 minutes when an agent starts on Zoho's changes and the watch
+isn't live; a step whose tool reads the synced records (`feed: "zoho_crm"`) catches up first
+(apps/api `zoho/sync.ts` and `feeds.ts`).
 
 ## Field metadata and custom-field sync (docs/plan.md §1.164 step 3, 2026-11-20; nothing below was checked against live docs)
 

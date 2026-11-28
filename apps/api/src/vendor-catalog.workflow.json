@@ -1,0 +1,1777 @@
+{
+  "schemaVersion": 5,
+  "triggers": [
+    {
+      "id": "trg-document",
+      "on": {
+        "type": "manual",
+        "input": {
+          "type": "object",
+          "properties": {
+            "documentId": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          "required": ["documentId"],
+          "additionalProperties": false
+        }
+      }
+    }
+  ],
+  "outputs": [
+    {
+      "id": "out-done",
+      "name": "Done",
+      "kind": "nothing"
+    }
+  ],
+  "steps": [
+    {
+      "id": "vendor",
+      "name": "Match vendor",
+      "client": {
+        "visible": false
+      },
+      "kind": "do",
+      "doneBy": "rules",
+      "uses": {
+        "type": "skill",
+        "skill": "materials.match-vendor"
+      },
+      "input": {
+        "documentId": "{{trigger.documentId}}"
+      }
+    },
+    {
+      "id": "no-vendor",
+      "name": "No vendor found?",
+      "kind": "fork",
+      "paths": [
+        {
+          "id": "no-vendor-path",
+          "name": "None",
+          "when": {
+            "match": "all",
+            "rules": [
+              {
+                "field": "{{steps.vendor.output.matched}}",
+                "op": "=",
+                "value": false
+              }
+            ]
+          },
+          "steps": [
+            {
+              "id": "vendor-person",
+              "name": "Ask a person which vendor sent it",
+              "client": {
+                "visible": true,
+                "label": "Asked you which vendor sent an invoice"
+              },
+              "kind": "do",
+              "doneBy": "person",
+              "person": {
+                "mode": "ask",
+                "who": "client_admin",
+                "question": "Which vendor sent the invoice from {{steps.vendor.output.read.name}}?",
+                "show": {
+                  "documentId": "{{trigger.documentId}}",
+                  "candidates": "{{steps.vendor.output.candidates}}",
+                  "answer": "vendorId: the vendor's id (reject if we don't have this vendor yet)"
+                },
+                "deadline": {
+                  "after": "3 days",
+                  "hours": "business",
+                  "remind": ["1 day"],
+                  "ifNoAnswer": "stop"
+                },
+                "channel": "inbox",
+                "onReject": "stop"
+              }
+            },
+            {
+              "id": "vendor-named",
+              "name": "Match vendor: the vendor you named",
+              "client": {
+                "visible": false
+              },
+              "kind": "do",
+              "doneBy": "rules",
+              "uses": {
+                "type": "skill",
+                "skill": "materials.match-vendor"
+              },
+              "input": {
+                "documentId": "{{trigger.documentId}}",
+                "vendorId": "{{steps.vendor-person.output.answer.vendorId}}"
+              }
+            },
+            {
+              "id": "n-sku",
+              "name": "Match by SKU (vendor)",
+              "client": {
+                "visible": false
+              },
+              "kind": "do",
+              "doneBy": "rules",
+              "uses": {
+                "type": "skill",
+                "skill": "materials.match-sku-vendor"
+              },
+              "input": {
+                "documentId": "{{trigger.documentId}}",
+                "vendorId": "{{steps.vendor-named.output.vendorId}}"
+              }
+            },
+            {
+              "id": "n-similar",
+              "name": "Find the vendor's closest items",
+              "client": {
+                "visible": false
+              },
+              "kind": "do",
+              "doneBy": "rules",
+              "uses": {
+                "type": "action",
+                "action": "materials.vendor_items.similar"
+              },
+              "input": {
+                "vendorId": "{{steps.vendor-named.output.vendorId}}",
+                "lines": "{{steps.n-sku.output.lines}}",
+                "limit": "{{steps.n-sku.output.shortlist.vendorItems}}"
+              }
+            },
+            {
+              "id": "n-semantic-needed",
+              "name": "Any line for the semantic match?",
+              "kind": "fork",
+              "paths": [
+                {
+                  "id": "n-semantic-path",
+                  "name": "Some",
+                  "when": {
+                    "match": "all",
+                    "rules": [
+                      {
+                        "field": "{{steps.n-similar.output.openCount}}",
+                        "op": ">",
+                        "value": 0
+                      }
+                    ]
+                  },
+                  "steps": [
+                    {
+                      "id": "n-semantic",
+                      "name": "Semantic match (vendor)",
+                      "client": {
+                        "visible": false
+                      },
+                      "kind": "do",
+                      "doneBy": "ai",
+                      "uses": {
+                        "type": "skill",
+                        "skill": "custom:semantic-match-vendor"
+                      },
+                      "input": {
+                        "lines": "{{steps.n-similar.output.open}}"
+                      }
+                    },
+                    {
+                      "id": "n-check",
+                      "name": "Check matches",
+                      "client": {
+                        "visible": false
+                      },
+                      "kind": "do",
+                      "doneBy": "rules",
+                      "uses": {
+                        "type": "skill",
+                        "skill": "materials.check-matches"
+                      },
+                      "input": {
+                        "lines": "{{steps.n-similar.output.lines}}",
+                        "answers": "{{steps.n-semantic.output.answers}}"
+                      }
+                    },
+                    {
+                      "id": "n-o-masters",
+                      "name": "Find master items for new lines",
+                      "client": {
+                        "visible": false
+                      },
+                      "kind": "do",
+                      "doneBy": "rules",
+                      "uses": {
+                        "type": "action",
+                        "action": "materials.master_items.candidates"
+                      },
+                      "input": {
+                        "vendorId": "{{steps.vendor-named.output.vendorId}}",
+                        "lines": "{{steps.n-check.output.lines}}",
+                        "limit": "{{steps.n-sku.output.shortlist.masterItems}}"
+                      }
+                    },
+                    {
+                      "id": "n-o-manager-needed",
+                      "name": "Any new line for the master item manager?",
+                      "kind": "fork",
+                      "paths": [
+                        {
+                          "id": "n-o-manager-path",
+                          "name": "Some",
+                          "when": {
+                            "match": "all",
+                            "rules": [
+                              {
+                                "field": "{{steps.n-o-masters.output.openCount}}",
+                                "op": ">",
+                                "value": 0
+                              }
+                            ]
+                          },
+                          "steps": [
+                            {
+                              "id": "n-o-manager",
+                              "name": "Master item manager",
+                              "client": {
+                                "visible": false
+                              },
+                              "kind": "do",
+                              "doneBy": "ai",
+                              "uses": {
+                                "type": "skill",
+                                "skill": "custom:master-item-manager"
+                              },
+                              "input": {
+                                "lines": "{{steps.n-o-masters.output.open}}"
+                              }
+                            },
+                            {
+                              "id": "n-o-check-masters",
+                              "name": "Check matches",
+                              "client": {
+                                "visible": false
+                              },
+                              "kind": "do",
+                              "doneBy": "rules",
+                              "uses": {
+                                "type": "skill",
+                                "skill": "materials.check-matches"
+                              },
+                              "input": {
+                                "lines": "{{steps.n-o-masters.output.lines}}",
+                                "answers": "{{steps.n-o-manager.output.answers}}"
+                              }
+                            },
+                            {
+                              "id": "n-o-m-register",
+                              "name": "Save to records: register the items",
+                              "client": {
+                                "visible": false
+                              },
+                              "kind": "do",
+                              "doneBy": "rules",
+                              "uses": {
+                                "type": "action",
+                                "action": "materials.vendor_items.register"
+                              },
+                              "input": {
+                                "documentId": "{{trigger.documentId}}",
+                                "vendorId": "{{steps.vendor-named.output.vendorId}}",
+                                "lines": "{{steps.n-check.output.lines}}",
+                                "resolved": "{{steps.n-o-check-masters.output.lines}}",
+                                "hints": "{{steps.n-semantic.output.answers}}"
+                              }
+                            },
+                            {
+                              "id": "n-o-m-embed",
+                              "name": "Save to records: embeddings",
+                              "client": {
+                                "visible": false
+                              },
+                              "kind": "do",
+                              "doneBy": "rules",
+                              "uses": {
+                                "type": "action",
+                                "action": "materials.embeddings.write"
+                              },
+                              "input": {
+                                "catalogItemIds": "{{steps.n-o-m-register.output.catalogItemIds}}",
+                                "vendorItemIds": "{{steps.n-o-m-register.output.vendorItemIds}}",
+                                "missing": 50
+                              }
+                            },
+                            {
+                              "id": "n-o-m-unsure",
+                              "name": "Anyone unsure?",
+                              "kind": "fork",
+                              "paths": [
+                                {
+                                  "id": "n-o-m-unsure-path",
+                                  "name": "Some lines",
+                                  "when": {
+                                    "match": "all",
+                                    "rules": [
+                                      {
+                                        "field": "{{steps.n-o-m-register.output.anyNeedsPerson}}",
+                                        "op": "=",
+                                        "value": true
+                                      }
+                                    ]
+                                  },
+                                  "steps": [
+                                    {
+                                      "id": "n-o-m-person",
+                                      "name": "Ask a person which items these are",
+                                      "client": {
+                                        "visible": true,
+                                        "label": "Asked you which items some invoice lines are"
+                                      },
+                                      "kind": "do",
+                                      "doneBy": "person",
+                                      "person": {
+                                        "mode": "ask",
+                                        "who": "client_admin",
+                                        "question": "{{steps.n-o-m-register.output.needsPersonCount}} invoice lines need you",
+                                        "show": {
+                                          "documentId": "{{trigger.documentId}}",
+                                          "vendorId": "{{steps.vendor-named.output.vendorId}}",
+                                          "lines": "{{steps.n-o-m-register.output.needsPerson}}",
+                                          "answer": "lines: [{ lineNo, catalogItemId }] or [{ lineNo, newItem: true }]"
+                                        },
+                                        "deadline": {
+                                          "after": "3 days",
+                                          "hours": "business",
+                                          "remind": ["1 day"],
+                                          "ifNoAnswer": "stop"
+                                        },
+                                        "channel": "inbox",
+                                        "onReject": "stop"
+                                      }
+                                    },
+                                    {
+                                      "id": "n-o-m-register-answer",
+                                      "name": "Save to records: your answer",
+                                      "client": {
+                                        "visible": false
+                                      },
+                                      "kind": "do",
+                                      "doneBy": "rules",
+                                      "uses": {
+                                        "type": "action",
+                                        "action": "materials.vendor_items.register"
+                                      },
+                                      "input": {
+                                        "documentId": "{{trigger.documentId}}",
+                                        "vendorId": "{{steps.vendor-named.output.vendorId}}",
+                                        "answers": "{{steps.n-o-m-person.output.answer.lines}}",
+                                        "decidedBy": "{{steps.n-o-m-person.output.by}}"
+                                      }
+                                    },
+                                    {
+                                      "id": "n-o-m-embed-answer",
+                                      "name": "Save to records: embeddings",
+                                      "client": {
+                                        "visible": false
+                                      },
+                                      "kind": "do",
+                                      "doneBy": "rules",
+                                      "uses": {
+                                        "type": "action",
+                                        "action": "materials.embeddings.write"
+                                      },
+                                      "input": {
+                                        "catalogItemIds": "{{steps.n-o-m-register-answer.output.catalogItemIds}}",
+                                        "vendorItemIds": "{{steps.n-o-m-register-answer.output.vendorItemIds}}"
+                                      }
+                                    }
+                                  ]
+                                }
+                              ],
+                              "otherwise": {
+                                "id": "n-o-m-unsure-none",
+                                "steps": []
+                              }
+                            }
+                          ]
+                        }
+                      ],
+                      "otherwise": {
+                        "id": "n-o-manager-none",
+                        "steps": [
+                          {
+                            "id": "n-o-check-masters-settled",
+                            "name": "Check matches",
+                            "client": {
+                              "visible": false
+                            },
+                            "kind": "do",
+                            "doneBy": "rules",
+                            "uses": {
+                              "type": "skill",
+                              "skill": "materials.check-matches"
+                            },
+                            "input": {
+                              "lines": "{{steps.n-o-masters.output.lines}}",
+                              "answers": []
+                            }
+                          },
+                          {
+                            "id": "n-o-r-register",
+                            "name": "Save to records: register the items",
+                            "client": {
+                              "visible": false
+                            },
+                            "kind": "do",
+                            "doneBy": "rules",
+                            "uses": {
+                              "type": "action",
+                              "action": "materials.vendor_items.register"
+                            },
+                            "input": {
+                              "documentId": "{{trigger.documentId}}",
+                              "vendorId": "{{steps.vendor-named.output.vendorId}}",
+                              "lines": "{{steps.n-check.output.lines}}",
+                              "resolved": "{{steps.n-o-check-masters-settled.output.lines}}",
+                              "hints": "{{steps.n-semantic.output.answers}}"
+                            }
+                          },
+                          {
+                            "id": "n-o-r-embed",
+                            "name": "Save to records: embeddings",
+                            "client": {
+                              "visible": false
+                            },
+                            "kind": "do",
+                            "doneBy": "rules",
+                            "uses": {
+                              "type": "action",
+                              "action": "materials.embeddings.write"
+                            },
+                            "input": {
+                              "catalogItemIds": "{{steps.n-o-r-register.output.catalogItemIds}}",
+                              "vendorItemIds": "{{steps.n-o-r-register.output.vendorItemIds}}",
+                              "missing": 50
+                            }
+                          },
+                          {
+                            "id": "n-o-r-unsure",
+                            "name": "Anyone unsure?",
+                            "kind": "fork",
+                            "paths": [
+                              {
+                                "id": "n-o-r-unsure-path",
+                                "name": "Some lines",
+                                "when": {
+                                  "match": "all",
+                                  "rules": [
+                                    {
+                                      "field": "{{steps.n-o-r-register.output.anyNeedsPerson}}",
+                                      "op": "=",
+                                      "value": true
+                                    }
+                                  ]
+                                },
+                                "steps": [
+                                  {
+                                    "id": "n-o-r-person",
+                                    "name": "Ask a person which items these are",
+                                    "client": {
+                                      "visible": true,
+                                      "label": "Asked you which items some invoice lines are"
+                                    },
+                                    "kind": "do",
+                                    "doneBy": "person",
+                                    "person": {
+                                      "mode": "ask",
+                                      "who": "client_admin",
+                                      "question": "{{steps.n-o-r-register.output.needsPersonCount}} invoice lines need you",
+                                      "show": {
+                                        "documentId": "{{trigger.documentId}}",
+                                        "vendorId": "{{steps.vendor-named.output.vendorId}}",
+                                        "lines": "{{steps.n-o-r-register.output.needsPerson}}",
+                                        "answer": "lines: [{ lineNo, catalogItemId }] or [{ lineNo, newItem: true }]"
+                                      },
+                                      "deadline": {
+                                        "after": "3 days",
+                                        "hours": "business",
+                                        "remind": ["1 day"],
+                                        "ifNoAnswer": "stop"
+                                      },
+                                      "channel": "inbox",
+                                      "onReject": "stop"
+                                    }
+                                  },
+                                  {
+                                    "id": "n-o-r-register-answer",
+                                    "name": "Save to records: your answer",
+                                    "client": {
+                                      "visible": false
+                                    },
+                                    "kind": "do",
+                                    "doneBy": "rules",
+                                    "uses": {
+                                      "type": "action",
+                                      "action": "materials.vendor_items.register"
+                                    },
+                                    "input": {
+                                      "documentId": "{{trigger.documentId}}",
+                                      "vendorId": "{{steps.vendor-named.output.vendorId}}",
+                                      "answers": "{{steps.n-o-r-person.output.answer.lines}}",
+                                      "decidedBy": "{{steps.n-o-r-person.output.by}}"
+                                    }
+                                  },
+                                  {
+                                    "id": "n-o-r-embed-answer",
+                                    "name": "Save to records: embeddings",
+                                    "client": {
+                                      "visible": false
+                                    },
+                                    "kind": "do",
+                                    "doneBy": "rules",
+                                    "uses": {
+                                      "type": "action",
+                                      "action": "materials.embeddings.write"
+                                    },
+                                    "input": {
+                                      "catalogItemIds": "{{steps.n-o-r-register-answer.output.catalogItemIds}}",
+                                      "vendorItemIds": "{{steps.n-o-r-register-answer.output.vendorItemIds}}"
+                                    }
+                                  }
+                                ]
+                              }
+                            ],
+                            "otherwise": {
+                              "id": "n-o-r-unsure-none",
+                              "steps": []
+                            }
+                          }
+                        ]
+                      }
+                    }
+                  ]
+                }
+              ],
+              "otherwise": {
+                "id": "n-semantic-none",
+                "steps": [
+                  {
+                    "id": "n-check-settled",
+                    "name": "Check matches",
+                    "client": {
+                      "visible": false
+                    },
+                    "kind": "do",
+                    "doneBy": "rules",
+                    "uses": {
+                      "type": "skill",
+                      "skill": "materials.check-matches"
+                    },
+                    "input": {
+                      "lines": "{{steps.n-similar.output.lines}}",
+                      "answers": []
+                    }
+                  },
+                  {
+                    "id": "n-s-masters",
+                    "name": "Find master items for new lines",
+                    "client": {
+                      "visible": false
+                    },
+                    "kind": "do",
+                    "doneBy": "rules",
+                    "uses": {
+                      "type": "action",
+                      "action": "materials.master_items.candidates"
+                    },
+                    "input": {
+                      "vendorId": "{{steps.vendor-named.output.vendorId}}",
+                      "lines": "{{steps.n-check-settled.output.lines}}",
+                      "limit": "{{steps.n-sku.output.shortlist.masterItems}}"
+                    }
+                  },
+                  {
+                    "id": "n-s-manager-needed",
+                    "name": "Any new line for the master item manager?",
+                    "kind": "fork",
+                    "paths": [
+                      {
+                        "id": "n-s-manager-path",
+                        "name": "Some",
+                        "when": {
+                          "match": "all",
+                          "rules": [
+                            {
+                              "field": "{{steps.n-s-masters.output.openCount}}",
+                              "op": ">",
+                              "value": 0
+                            }
+                          ]
+                        },
+                        "steps": [
+                          {
+                            "id": "n-s-manager",
+                            "name": "Master item manager",
+                            "client": {
+                              "visible": false
+                            },
+                            "kind": "do",
+                            "doneBy": "ai",
+                            "uses": {
+                              "type": "skill",
+                              "skill": "custom:master-item-manager"
+                            },
+                            "input": {
+                              "lines": "{{steps.n-s-masters.output.open}}"
+                            }
+                          },
+                          {
+                            "id": "n-s-check-masters",
+                            "name": "Check matches",
+                            "client": {
+                              "visible": false
+                            },
+                            "kind": "do",
+                            "doneBy": "rules",
+                            "uses": {
+                              "type": "skill",
+                              "skill": "materials.check-matches"
+                            },
+                            "input": {
+                              "lines": "{{steps.n-s-masters.output.lines}}",
+                              "answers": "{{steps.n-s-manager.output.answers}}"
+                            }
+                          },
+                          {
+                            "id": "n-s-m-register",
+                            "name": "Save to records: register the items",
+                            "client": {
+                              "visible": false
+                            },
+                            "kind": "do",
+                            "doneBy": "rules",
+                            "uses": {
+                              "type": "action",
+                              "action": "materials.vendor_items.register"
+                            },
+                            "input": {
+                              "documentId": "{{trigger.documentId}}",
+                              "vendorId": "{{steps.vendor-named.output.vendorId}}",
+                              "lines": "{{steps.n-check-settled.output.lines}}",
+                              "resolved": "{{steps.n-s-check-masters.output.lines}}"
+                            }
+                          },
+                          {
+                            "id": "n-s-m-embed",
+                            "name": "Save to records: embeddings",
+                            "client": {
+                              "visible": false
+                            },
+                            "kind": "do",
+                            "doneBy": "rules",
+                            "uses": {
+                              "type": "action",
+                              "action": "materials.embeddings.write"
+                            },
+                            "input": {
+                              "catalogItemIds": "{{steps.n-s-m-register.output.catalogItemIds}}",
+                              "vendorItemIds": "{{steps.n-s-m-register.output.vendorItemIds}}",
+                              "missing": 50
+                            }
+                          },
+                          {
+                            "id": "n-s-m-unsure",
+                            "name": "Anyone unsure?",
+                            "kind": "fork",
+                            "paths": [
+                              {
+                                "id": "n-s-m-unsure-path",
+                                "name": "Some lines",
+                                "when": {
+                                  "match": "all",
+                                  "rules": [
+                                    {
+                                      "field": "{{steps.n-s-m-register.output.anyNeedsPerson}}",
+                                      "op": "=",
+                                      "value": true
+                                    }
+                                  ]
+                                },
+                                "steps": [
+                                  {
+                                    "id": "n-s-m-person",
+                                    "name": "Ask a person which items these are",
+                                    "client": {
+                                      "visible": true,
+                                      "label": "Asked you which items some invoice lines are"
+                                    },
+                                    "kind": "do",
+                                    "doneBy": "person",
+                                    "person": {
+                                      "mode": "ask",
+                                      "who": "client_admin",
+                                      "question": "{{steps.n-s-m-register.output.needsPersonCount}} invoice lines need you",
+                                      "show": {
+                                        "documentId": "{{trigger.documentId}}",
+                                        "vendorId": "{{steps.vendor-named.output.vendorId}}",
+                                        "lines": "{{steps.n-s-m-register.output.needsPerson}}",
+                                        "answer": "lines: [{ lineNo, catalogItemId }] or [{ lineNo, newItem: true }]"
+                                      },
+                                      "deadline": {
+                                        "after": "3 days",
+                                        "hours": "business",
+                                        "remind": ["1 day"],
+                                        "ifNoAnswer": "stop"
+                                      },
+                                      "channel": "inbox",
+                                      "onReject": "stop"
+                                    }
+                                  },
+                                  {
+                                    "id": "n-s-m-register-answer",
+                                    "name": "Save to records: your answer",
+                                    "client": {
+                                      "visible": false
+                                    },
+                                    "kind": "do",
+                                    "doneBy": "rules",
+                                    "uses": {
+                                      "type": "action",
+                                      "action": "materials.vendor_items.register"
+                                    },
+                                    "input": {
+                                      "documentId": "{{trigger.documentId}}",
+                                      "vendorId": "{{steps.vendor-named.output.vendorId}}",
+                                      "answers": "{{steps.n-s-m-person.output.answer.lines}}",
+                                      "decidedBy": "{{steps.n-s-m-person.output.by}}"
+                                    }
+                                  },
+                                  {
+                                    "id": "n-s-m-embed-answer",
+                                    "name": "Save to records: embeddings",
+                                    "client": {
+                                      "visible": false
+                                    },
+                                    "kind": "do",
+                                    "doneBy": "rules",
+                                    "uses": {
+                                      "type": "action",
+                                      "action": "materials.embeddings.write"
+                                    },
+                                    "input": {
+                                      "catalogItemIds": "{{steps.n-s-m-register-answer.output.catalogItemIds}}",
+                                      "vendorItemIds": "{{steps.n-s-m-register-answer.output.vendorItemIds}}"
+                                    }
+                                  }
+                                ]
+                              }
+                            ],
+                            "otherwise": {
+                              "id": "n-s-m-unsure-none",
+                              "steps": []
+                            }
+                          }
+                        ]
+                      }
+                    ],
+                    "otherwise": {
+                      "id": "n-s-manager-none",
+                      "steps": [
+                        {
+                          "id": "n-s-check-masters-settled",
+                          "name": "Check matches",
+                          "client": {
+                            "visible": false
+                          },
+                          "kind": "do",
+                          "doneBy": "rules",
+                          "uses": {
+                            "type": "skill",
+                            "skill": "materials.check-matches"
+                          },
+                          "input": {
+                            "lines": "{{steps.n-s-masters.output.lines}}",
+                            "answers": []
+                          }
+                        },
+                        {
+                          "id": "n-s-r-register",
+                          "name": "Save to records: register the items",
+                          "client": {
+                            "visible": false
+                          },
+                          "kind": "do",
+                          "doneBy": "rules",
+                          "uses": {
+                            "type": "action",
+                            "action": "materials.vendor_items.register"
+                          },
+                          "input": {
+                            "documentId": "{{trigger.documentId}}",
+                            "vendorId": "{{steps.vendor-named.output.vendorId}}",
+                            "lines": "{{steps.n-check-settled.output.lines}}",
+                            "resolved": "{{steps.n-s-check-masters-settled.output.lines}}"
+                          }
+                        },
+                        {
+                          "id": "n-s-r-embed",
+                          "name": "Save to records: embeddings",
+                          "client": {
+                            "visible": false
+                          },
+                          "kind": "do",
+                          "doneBy": "rules",
+                          "uses": {
+                            "type": "action",
+                            "action": "materials.embeddings.write"
+                          },
+                          "input": {
+                            "catalogItemIds": "{{steps.n-s-r-register.output.catalogItemIds}}",
+                            "vendorItemIds": "{{steps.n-s-r-register.output.vendorItemIds}}",
+                            "missing": 50
+                          }
+                        },
+                        {
+                          "id": "n-s-r-unsure",
+                          "name": "Anyone unsure?",
+                          "kind": "fork",
+                          "paths": [
+                            {
+                              "id": "n-s-r-unsure-path",
+                              "name": "Some lines",
+                              "when": {
+                                "match": "all",
+                                "rules": [
+                                  {
+                                    "field": "{{steps.n-s-r-register.output.anyNeedsPerson}}",
+                                    "op": "=",
+                                    "value": true
+                                  }
+                                ]
+                              },
+                              "steps": [
+                                {
+                                  "id": "n-s-r-person",
+                                  "name": "Ask a person which items these are",
+                                  "client": {
+                                    "visible": true,
+                                    "label": "Asked you which items some invoice lines are"
+                                  },
+                                  "kind": "do",
+                                  "doneBy": "person",
+                                  "person": {
+                                    "mode": "ask",
+                                    "who": "client_admin",
+                                    "question": "{{steps.n-s-r-register.output.needsPersonCount}} invoice lines need you",
+                                    "show": {
+                                      "documentId": "{{trigger.documentId}}",
+                                      "vendorId": "{{steps.vendor-named.output.vendorId}}",
+                                      "lines": "{{steps.n-s-r-register.output.needsPerson}}",
+                                      "answer": "lines: [{ lineNo, catalogItemId }] or [{ lineNo, newItem: true }]"
+                                    },
+                                    "deadline": {
+                                      "after": "3 days",
+                                      "hours": "business",
+                                      "remind": ["1 day"],
+                                      "ifNoAnswer": "stop"
+                                    },
+                                    "channel": "inbox",
+                                    "onReject": "stop"
+                                  }
+                                },
+                                {
+                                  "id": "n-s-r-register-answer",
+                                  "name": "Save to records: your answer",
+                                  "client": {
+                                    "visible": false
+                                  },
+                                  "kind": "do",
+                                  "doneBy": "rules",
+                                  "uses": {
+                                    "type": "action",
+                                    "action": "materials.vendor_items.register"
+                                  },
+                                  "input": {
+                                    "documentId": "{{trigger.documentId}}",
+                                    "vendorId": "{{steps.vendor-named.output.vendorId}}",
+                                    "answers": "{{steps.n-s-r-person.output.answer.lines}}",
+                                    "decidedBy": "{{steps.n-s-r-person.output.by}}"
+                                  }
+                                },
+                                {
+                                  "id": "n-s-r-embed-answer",
+                                  "name": "Save to records: embeddings",
+                                  "client": {
+                                    "visible": false
+                                  },
+                                  "kind": "do",
+                                  "doneBy": "rules",
+                                  "uses": {
+                                    "type": "action",
+                                    "action": "materials.embeddings.write"
+                                  },
+                                  "input": {
+                                    "catalogItemIds": "{{steps.n-s-r-register-answer.output.catalogItemIds}}",
+                                    "vendorItemIds": "{{steps.n-s-r-register-answer.output.vendorItemIds}}"
+                                  }
+                                }
+                              ]
+                            }
+                          ],
+                          "otherwise": {
+                            "id": "n-s-r-unsure-none",
+                            "steps": []
+                          }
+                        }
+                      ]
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "id": "vendor-stop",
+              "name": "Stop here",
+              "kind": "end",
+              "outputs": ["out-done"]
+            }
+          ]
+        }
+      ],
+      "otherwise": {
+        "id": "vendor-found",
+        "steps": []
+      }
+    },
+    {
+      "id": "sku",
+      "name": "Match by SKU (vendor)",
+      "client": {
+        "visible": false
+      },
+      "kind": "do",
+      "doneBy": "rules",
+      "uses": {
+        "type": "skill",
+        "skill": "materials.match-sku-vendor"
+      },
+      "input": {
+        "documentId": "{{trigger.documentId}}",
+        "vendorId": "{{steps.vendor.output.vendorId}}"
+      }
+    },
+    {
+      "id": "similar",
+      "name": "Find the vendor's closest items",
+      "client": {
+        "visible": false
+      },
+      "kind": "do",
+      "doneBy": "rules",
+      "uses": {
+        "type": "action",
+        "action": "materials.vendor_items.similar"
+      },
+      "input": {
+        "vendorId": "{{steps.vendor.output.vendorId}}",
+        "lines": "{{steps.sku.output.lines}}",
+        "limit": "{{steps.sku.output.shortlist.vendorItems}}"
+      }
+    },
+    {
+      "id": "semantic-needed",
+      "name": "Any line for the semantic match?",
+      "kind": "fork",
+      "paths": [
+        {
+          "id": "semantic-path",
+          "name": "Some",
+          "when": {
+            "match": "all",
+            "rules": [
+              {
+                "field": "{{steps.similar.output.openCount}}",
+                "op": ">",
+                "value": 0
+              }
+            ]
+          },
+          "steps": [
+            {
+              "id": "semantic",
+              "name": "Semantic match (vendor)",
+              "client": {
+                "visible": false
+              },
+              "kind": "do",
+              "doneBy": "ai",
+              "uses": {
+                "type": "skill",
+                "skill": "custom:semantic-match-vendor"
+              },
+              "input": {
+                "lines": "{{steps.similar.output.open}}"
+              }
+            },
+            {
+              "id": "check",
+              "name": "Check matches",
+              "client": {
+                "visible": false
+              },
+              "kind": "do",
+              "doneBy": "rules",
+              "uses": {
+                "type": "skill",
+                "skill": "materials.check-matches"
+              },
+              "input": {
+                "lines": "{{steps.similar.output.lines}}",
+                "answers": "{{steps.semantic.output.answers}}"
+              }
+            },
+            {
+              "id": "o-masters",
+              "name": "Find master items for new lines",
+              "client": {
+                "visible": false
+              },
+              "kind": "do",
+              "doneBy": "rules",
+              "uses": {
+                "type": "action",
+                "action": "materials.master_items.candidates"
+              },
+              "input": {
+                "vendorId": "{{steps.vendor.output.vendorId}}",
+                "lines": "{{steps.check.output.lines}}",
+                "limit": "{{steps.sku.output.shortlist.masterItems}}"
+              }
+            },
+            {
+              "id": "o-manager-needed",
+              "name": "Any new line for the master item manager?",
+              "kind": "fork",
+              "paths": [
+                {
+                  "id": "o-manager-path",
+                  "name": "Some",
+                  "when": {
+                    "match": "all",
+                    "rules": [
+                      {
+                        "field": "{{steps.o-masters.output.openCount}}",
+                        "op": ">",
+                        "value": 0
+                      }
+                    ]
+                  },
+                  "steps": [
+                    {
+                      "id": "o-manager",
+                      "name": "Master item manager",
+                      "client": {
+                        "visible": false
+                      },
+                      "kind": "do",
+                      "doneBy": "ai",
+                      "uses": {
+                        "type": "skill",
+                        "skill": "custom:master-item-manager"
+                      },
+                      "input": {
+                        "lines": "{{steps.o-masters.output.open}}"
+                      }
+                    },
+                    {
+                      "id": "o-check-masters",
+                      "name": "Check matches",
+                      "client": {
+                        "visible": false
+                      },
+                      "kind": "do",
+                      "doneBy": "rules",
+                      "uses": {
+                        "type": "skill",
+                        "skill": "materials.check-matches"
+                      },
+                      "input": {
+                        "lines": "{{steps.o-masters.output.lines}}",
+                        "answers": "{{steps.o-manager.output.answers}}"
+                      }
+                    },
+                    {
+                      "id": "o-m-register",
+                      "name": "Save to records: register the items",
+                      "client": {
+                        "visible": false
+                      },
+                      "kind": "do",
+                      "doneBy": "rules",
+                      "uses": {
+                        "type": "action",
+                        "action": "materials.vendor_items.register"
+                      },
+                      "input": {
+                        "documentId": "{{trigger.documentId}}",
+                        "vendorId": "{{steps.vendor.output.vendorId}}",
+                        "lines": "{{steps.check.output.lines}}",
+                        "resolved": "{{steps.o-check-masters.output.lines}}",
+                        "hints": "{{steps.semantic.output.answers}}"
+                      }
+                    },
+                    {
+                      "id": "o-m-embed",
+                      "name": "Save to records: embeddings",
+                      "client": {
+                        "visible": false
+                      },
+                      "kind": "do",
+                      "doneBy": "rules",
+                      "uses": {
+                        "type": "action",
+                        "action": "materials.embeddings.write"
+                      },
+                      "input": {
+                        "catalogItemIds": "{{steps.o-m-register.output.catalogItemIds}}",
+                        "vendorItemIds": "{{steps.o-m-register.output.vendorItemIds}}",
+                        "missing": 50
+                      }
+                    },
+                    {
+                      "id": "o-m-unsure",
+                      "name": "Anyone unsure?",
+                      "kind": "fork",
+                      "paths": [
+                        {
+                          "id": "o-m-unsure-path",
+                          "name": "Some lines",
+                          "when": {
+                            "match": "all",
+                            "rules": [
+                              {
+                                "field": "{{steps.o-m-register.output.anyNeedsPerson}}",
+                                "op": "=",
+                                "value": true
+                              }
+                            ]
+                          },
+                          "steps": [
+                            {
+                              "id": "o-m-person",
+                              "name": "Ask a person which items these are",
+                              "client": {
+                                "visible": true,
+                                "label": "Asked you which items some invoice lines are"
+                              },
+                              "kind": "do",
+                              "doneBy": "person",
+                              "person": {
+                                "mode": "ask",
+                                "who": "client_admin",
+                                "question": "{{steps.o-m-register.output.needsPersonCount}} invoice lines need you",
+                                "show": {
+                                  "documentId": "{{trigger.documentId}}",
+                                  "vendorId": "{{steps.vendor.output.vendorId}}",
+                                  "lines": "{{steps.o-m-register.output.needsPerson}}",
+                                  "answer": "lines: [{ lineNo, catalogItemId }] or [{ lineNo, newItem: true }]"
+                                },
+                                "deadline": {
+                                  "after": "3 days",
+                                  "hours": "business",
+                                  "remind": ["1 day"],
+                                  "ifNoAnswer": "stop"
+                                },
+                                "channel": "inbox",
+                                "onReject": "stop"
+                              }
+                            },
+                            {
+                              "id": "o-m-register-answer",
+                              "name": "Save to records: your answer",
+                              "client": {
+                                "visible": false
+                              },
+                              "kind": "do",
+                              "doneBy": "rules",
+                              "uses": {
+                                "type": "action",
+                                "action": "materials.vendor_items.register"
+                              },
+                              "input": {
+                                "documentId": "{{trigger.documentId}}",
+                                "vendorId": "{{steps.vendor.output.vendorId}}",
+                                "answers": "{{steps.o-m-person.output.answer.lines}}",
+                                "decidedBy": "{{steps.o-m-person.output.by}}"
+                              }
+                            },
+                            {
+                              "id": "o-m-embed-answer",
+                              "name": "Save to records: embeddings",
+                              "client": {
+                                "visible": false
+                              },
+                              "kind": "do",
+                              "doneBy": "rules",
+                              "uses": {
+                                "type": "action",
+                                "action": "materials.embeddings.write"
+                              },
+                              "input": {
+                                "catalogItemIds": "{{steps.o-m-register-answer.output.catalogItemIds}}",
+                                "vendorItemIds": "{{steps.o-m-register-answer.output.vendorItemIds}}"
+                              }
+                            }
+                          ]
+                        }
+                      ],
+                      "otherwise": {
+                        "id": "o-m-unsure-none",
+                        "steps": []
+                      }
+                    }
+                  ]
+                }
+              ],
+              "otherwise": {
+                "id": "o-manager-none",
+                "steps": [
+                  {
+                    "id": "o-check-masters-settled",
+                    "name": "Check matches",
+                    "client": {
+                      "visible": false
+                    },
+                    "kind": "do",
+                    "doneBy": "rules",
+                    "uses": {
+                      "type": "skill",
+                      "skill": "materials.check-matches"
+                    },
+                    "input": {
+                      "lines": "{{steps.o-masters.output.lines}}",
+                      "answers": []
+                    }
+                  },
+                  {
+                    "id": "o-r-register",
+                    "name": "Save to records: register the items",
+                    "client": {
+                      "visible": false
+                    },
+                    "kind": "do",
+                    "doneBy": "rules",
+                    "uses": {
+                      "type": "action",
+                      "action": "materials.vendor_items.register"
+                    },
+                    "input": {
+                      "documentId": "{{trigger.documentId}}",
+                      "vendorId": "{{steps.vendor.output.vendorId}}",
+                      "lines": "{{steps.check.output.lines}}",
+                      "resolved": "{{steps.o-check-masters-settled.output.lines}}",
+                      "hints": "{{steps.semantic.output.answers}}"
+                    }
+                  },
+                  {
+                    "id": "o-r-embed",
+                    "name": "Save to records: embeddings",
+                    "client": {
+                      "visible": false
+                    },
+                    "kind": "do",
+                    "doneBy": "rules",
+                    "uses": {
+                      "type": "action",
+                      "action": "materials.embeddings.write"
+                    },
+                    "input": {
+                      "catalogItemIds": "{{steps.o-r-register.output.catalogItemIds}}",
+                      "vendorItemIds": "{{steps.o-r-register.output.vendorItemIds}}",
+                      "missing": 50
+                    }
+                  },
+                  {
+                    "id": "o-r-unsure",
+                    "name": "Anyone unsure?",
+                    "kind": "fork",
+                    "paths": [
+                      {
+                        "id": "o-r-unsure-path",
+                        "name": "Some lines",
+                        "when": {
+                          "match": "all",
+                          "rules": [
+                            {
+                              "field": "{{steps.o-r-register.output.anyNeedsPerson}}",
+                              "op": "=",
+                              "value": true
+                            }
+                          ]
+                        },
+                        "steps": [
+                          {
+                            "id": "o-r-person",
+                            "name": "Ask a person which items these are",
+                            "client": {
+                              "visible": true,
+                              "label": "Asked you which items some invoice lines are"
+                            },
+                            "kind": "do",
+                            "doneBy": "person",
+                            "person": {
+                              "mode": "ask",
+                              "who": "client_admin",
+                              "question": "{{steps.o-r-register.output.needsPersonCount}} invoice lines need you",
+                              "show": {
+                                "documentId": "{{trigger.documentId}}",
+                                "vendorId": "{{steps.vendor.output.vendorId}}",
+                                "lines": "{{steps.o-r-register.output.needsPerson}}",
+                                "answer": "lines: [{ lineNo, catalogItemId }] or [{ lineNo, newItem: true }]"
+                              },
+                              "deadline": {
+                                "after": "3 days",
+                                "hours": "business",
+                                "remind": ["1 day"],
+                                "ifNoAnswer": "stop"
+                              },
+                              "channel": "inbox",
+                              "onReject": "stop"
+                            }
+                          },
+                          {
+                            "id": "o-r-register-answer",
+                            "name": "Save to records: your answer",
+                            "client": {
+                              "visible": false
+                            },
+                            "kind": "do",
+                            "doneBy": "rules",
+                            "uses": {
+                              "type": "action",
+                              "action": "materials.vendor_items.register"
+                            },
+                            "input": {
+                              "documentId": "{{trigger.documentId}}",
+                              "vendorId": "{{steps.vendor.output.vendorId}}",
+                              "answers": "{{steps.o-r-person.output.answer.lines}}",
+                              "decidedBy": "{{steps.o-r-person.output.by}}"
+                            }
+                          },
+                          {
+                            "id": "o-r-embed-answer",
+                            "name": "Save to records: embeddings",
+                            "client": {
+                              "visible": false
+                            },
+                            "kind": "do",
+                            "doneBy": "rules",
+                            "uses": {
+                              "type": "action",
+                              "action": "materials.embeddings.write"
+                            },
+                            "input": {
+                              "catalogItemIds": "{{steps.o-r-register-answer.output.catalogItemIds}}",
+                              "vendorItemIds": "{{steps.o-r-register-answer.output.vendorItemIds}}"
+                            }
+                          }
+                        ]
+                      }
+                    ],
+                    "otherwise": {
+                      "id": "o-r-unsure-none",
+                      "steps": []
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      ],
+      "otherwise": {
+        "id": "semantic-none",
+        "steps": [
+          {
+            "id": "check-settled",
+            "name": "Check matches",
+            "client": {
+              "visible": false
+            },
+            "kind": "do",
+            "doneBy": "rules",
+            "uses": {
+              "type": "skill",
+              "skill": "materials.check-matches"
+            },
+            "input": {
+              "lines": "{{steps.similar.output.lines}}",
+              "answers": []
+            }
+          },
+          {
+            "id": "s-masters",
+            "name": "Find master items for new lines",
+            "client": {
+              "visible": false
+            },
+            "kind": "do",
+            "doneBy": "rules",
+            "uses": {
+              "type": "action",
+              "action": "materials.master_items.candidates"
+            },
+            "input": {
+              "vendorId": "{{steps.vendor.output.vendorId}}",
+              "lines": "{{steps.check-settled.output.lines}}",
+              "limit": "{{steps.sku.output.shortlist.masterItems}}"
+            }
+          },
+          {
+            "id": "s-manager-needed",
+            "name": "Any new line for the master item manager?",
+            "kind": "fork",
+            "paths": [
+              {
+                "id": "s-manager-path",
+                "name": "Some",
+                "when": {
+                  "match": "all",
+                  "rules": [
+                    {
+                      "field": "{{steps.s-masters.output.openCount}}",
+                      "op": ">",
+                      "value": 0
+                    }
+                  ]
+                },
+                "steps": [
+                  {
+                    "id": "s-manager",
+                    "name": "Master item manager",
+                    "client": {
+                      "visible": false
+                    },
+                    "kind": "do",
+                    "doneBy": "ai",
+                    "uses": {
+                      "type": "skill",
+                      "skill": "custom:master-item-manager"
+                    },
+                    "input": {
+                      "lines": "{{steps.s-masters.output.open}}"
+                    }
+                  },
+                  {
+                    "id": "s-check-masters",
+                    "name": "Check matches",
+                    "client": {
+                      "visible": false
+                    },
+                    "kind": "do",
+                    "doneBy": "rules",
+                    "uses": {
+                      "type": "skill",
+                      "skill": "materials.check-matches"
+                    },
+                    "input": {
+                      "lines": "{{steps.s-masters.output.lines}}",
+                      "answers": "{{steps.s-manager.output.answers}}"
+                    }
+                  },
+                  {
+                    "id": "s-m-register",
+                    "name": "Save to records: register the items",
+                    "client": {
+                      "visible": false
+                    },
+                    "kind": "do",
+                    "doneBy": "rules",
+                    "uses": {
+                      "type": "action",
+                      "action": "materials.vendor_items.register"
+                    },
+                    "input": {
+                      "documentId": "{{trigger.documentId}}",
+                      "vendorId": "{{steps.vendor.output.vendorId}}",
+                      "lines": "{{steps.check-settled.output.lines}}",
+                      "resolved": "{{steps.s-check-masters.output.lines}}"
+                    }
+                  },
+                  {
+                    "id": "s-m-embed",
+                    "name": "Save to records: embeddings",
+                    "client": {
+                      "visible": false
+                    },
+                    "kind": "do",
+                    "doneBy": "rules",
+                    "uses": {
+                      "type": "action",
+                      "action": "materials.embeddings.write"
+                    },
+                    "input": {
+                      "catalogItemIds": "{{steps.s-m-register.output.catalogItemIds}}",
+                      "vendorItemIds": "{{steps.s-m-register.output.vendorItemIds}}",
+                      "missing": 50
+                    }
+                  },
+                  {
+                    "id": "s-m-unsure",
+                    "name": "Anyone unsure?",
+                    "kind": "fork",
+                    "paths": [
+                      {
+                        "id": "s-m-unsure-path",
+                        "name": "Some lines",
+                        "when": {
+                          "match": "all",
+                          "rules": [
+                            {
+                              "field": "{{steps.s-m-register.output.anyNeedsPerson}}",
+                              "op": "=",
+                              "value": true
+                            }
+                          ]
+                        },
+                        "steps": [
+                          {
+                            "id": "s-m-person",
+                            "name": "Ask a person which items these are",
+                            "client": {
+                              "visible": true,
+                              "label": "Asked you which items some invoice lines are"
+                            },
+                            "kind": "do",
+                            "doneBy": "person",
+                            "person": {
+                              "mode": "ask",
+                              "who": "client_admin",
+                              "question": "{{steps.s-m-register.output.needsPersonCount}} invoice lines need you",
+                              "show": {
+                                "documentId": "{{trigger.documentId}}",
+                                "vendorId": "{{steps.vendor.output.vendorId}}",
+                                "lines": "{{steps.s-m-register.output.needsPerson}}",
+                                "answer": "lines: [{ lineNo, catalogItemId }] or [{ lineNo, newItem: true }]"
+                              },
+                              "deadline": {
+                                "after": "3 days",
+                                "hours": "business",
+                                "remind": ["1 day"],
+                                "ifNoAnswer": "stop"
+                              },
+                              "channel": "inbox",
+                              "onReject": "stop"
+                            }
+                          },
+                          {
+                            "id": "s-m-register-answer",
+                            "name": "Save to records: your answer",
+                            "client": {
+                              "visible": false
+                            },
+                            "kind": "do",
+                            "doneBy": "rules",
+                            "uses": {
+                              "type": "action",
+                              "action": "materials.vendor_items.register"
+                            },
+                            "input": {
+                              "documentId": "{{trigger.documentId}}",
+                              "vendorId": "{{steps.vendor.output.vendorId}}",
+                              "answers": "{{steps.s-m-person.output.answer.lines}}",
+                              "decidedBy": "{{steps.s-m-person.output.by}}"
+                            }
+                          },
+                          {
+                            "id": "s-m-embed-answer",
+                            "name": "Save to records: embeddings",
+                            "client": {
+                              "visible": false
+                            },
+                            "kind": "do",
+                            "doneBy": "rules",
+                            "uses": {
+                              "type": "action",
+                              "action": "materials.embeddings.write"
+                            },
+                            "input": {
+                              "catalogItemIds": "{{steps.s-m-register-answer.output.catalogItemIds}}",
+                              "vendorItemIds": "{{steps.s-m-register-answer.output.vendorItemIds}}"
+                            }
+                          }
+                        ]
+                      }
+                    ],
+                    "otherwise": {
+                      "id": "s-m-unsure-none",
+                      "steps": []
+                    }
+                  }
+                ]
+              }
+            ],
+            "otherwise": {
+              "id": "s-manager-none",
+              "steps": [
+                {
+                  "id": "s-check-masters-settled",
+                  "name": "Check matches",
+                  "client": {
+                    "visible": false
+                  },
+                  "kind": "do",
+                  "doneBy": "rules",
+                  "uses": {
+                    "type": "skill",
+                    "skill": "materials.check-matches"
+                  },
+                  "input": {
+                    "lines": "{{steps.s-masters.output.lines}}",
+                    "answers": []
+                  }
+                },
+                {
+                  "id": "s-r-register",
+                  "name": "Save to records: register the items",
+                  "client": {
+                    "visible": false
+                  },
+                  "kind": "do",
+                  "doneBy": "rules",
+                  "uses": {
+                    "type": "action",
+                    "action": "materials.vendor_items.register"
+                  },
+                  "input": {
+                    "documentId": "{{trigger.documentId}}",
+                    "vendorId": "{{steps.vendor.output.vendorId}}",
+                    "lines": "{{steps.check-settled.output.lines}}",
+                    "resolved": "{{steps.s-check-masters-settled.output.lines}}"
+                  }
+                },
+                {
+                  "id": "s-r-embed",
+                  "name": "Save to records: embeddings",
+                  "client": {
+                    "visible": false
+                  },
+                  "kind": "do",
+                  "doneBy": "rules",
+                  "uses": {
+                    "type": "action",
+                    "action": "materials.embeddings.write"
+                  },
+                  "input": {
+                    "catalogItemIds": "{{steps.s-r-register.output.catalogItemIds}}",
+                    "vendorItemIds": "{{steps.s-r-register.output.vendorItemIds}}",
+                    "missing": 50
+                  }
+                },
+                {
+                  "id": "s-r-unsure",
+                  "name": "Anyone unsure?",
+                  "kind": "fork",
+                  "paths": [
+                    {
+                      "id": "s-r-unsure-path",
+                      "name": "Some lines",
+                      "when": {
+                        "match": "all",
+                        "rules": [
+                          {
+                            "field": "{{steps.s-r-register.output.anyNeedsPerson}}",
+                            "op": "=",
+                            "value": true
+                          }
+                        ]
+                      },
+                      "steps": [
+                        {
+                          "id": "s-r-person",
+                          "name": "Ask a person which items these are",
+                          "client": {
+                            "visible": true,
+                            "label": "Asked you which items some invoice lines are"
+                          },
+                          "kind": "do",
+                          "doneBy": "person",
+                          "person": {
+                            "mode": "ask",
+                            "who": "client_admin",
+                            "question": "{{steps.s-r-register.output.needsPersonCount}} invoice lines need you",
+                            "show": {
+                              "documentId": "{{trigger.documentId}}",
+                              "vendorId": "{{steps.vendor.output.vendorId}}",
+                              "lines": "{{steps.s-r-register.output.needsPerson}}",
+                              "answer": "lines: [{ lineNo, catalogItemId }] or [{ lineNo, newItem: true }]"
+                            },
+                            "deadline": {
+                              "after": "3 days",
+                              "hours": "business",
+                              "remind": ["1 day"],
+                              "ifNoAnswer": "stop"
+                            },
+                            "channel": "inbox",
+                            "onReject": "stop"
+                          }
+                        },
+                        {
+                          "id": "s-r-register-answer",
+                          "name": "Save to records: your answer",
+                          "client": {
+                            "visible": false
+                          },
+                          "kind": "do",
+                          "doneBy": "rules",
+                          "uses": {
+                            "type": "action",
+                            "action": "materials.vendor_items.register"
+                          },
+                          "input": {
+                            "documentId": "{{trigger.documentId}}",
+                            "vendorId": "{{steps.vendor.output.vendorId}}",
+                            "answers": "{{steps.s-r-person.output.answer.lines}}",
+                            "decidedBy": "{{steps.s-r-person.output.by}}"
+                          }
+                        },
+                        {
+                          "id": "s-r-embed-answer",
+                          "name": "Save to records: embeddings",
+                          "client": {
+                            "visible": false
+                          },
+                          "kind": "do",
+                          "doneBy": "rules",
+                          "uses": {
+                            "type": "action",
+                            "action": "materials.embeddings.write"
+                          },
+                          "input": {
+                            "catalogItemIds": "{{steps.s-r-register-answer.output.catalogItemIds}}",
+                            "vendorItemIds": "{{steps.s-r-register-answer.output.vendorItemIds}}"
+                          }
+                        }
+                      ]
+                    }
+                  ],
+                  "otherwise": {
+                    "id": "s-r-unsure-none",
+                    "steps": []
+                  }
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "end",
+      "kind": "end",
+      "name": "Done",
+      "outputs": ["out-done"]
+    }
+  ]
+}

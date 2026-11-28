@@ -17,7 +17,7 @@ import {
   type AdjustResult,
   type AdjustRowView,
   type AdjustTarget,
-  type AnyAgentBundle,
+  type AgentBundle,
   adjustValue,
   adjustView,
   applyAdjustValue,
@@ -66,7 +66,7 @@ export async function adjustableView(
 ): Promise<AdjustRowView[]> {
   const v = await shownVersion(tx, row);
   if (!v) return [];
-  return adjustView(v.bundle as AnyAgentBundle, defaultsFrom(ctx), "client");
+  return adjustView(v.bundle as AgentBundle, defaultsFrom(ctx), "client");
 }
 
 export async function portalAdjustable(
@@ -117,7 +117,7 @@ export async function adjustSetting(
   const now = input.now ?? new Date();
   const row = await clientAgent(tx, input.tenantId, input.agentId, true);
   const shown = await shownVersion(tx, row);
-  const bundle = shown?.bundle as AnyAgentBundle | undefined;
+  const bundle = shown?.bundle as AgentBundle | undefined;
   const setting = readAdjustable(bundle?.definition.adjustable).find(
     (s) => s.id === input.settingId,
   );
@@ -209,7 +209,7 @@ export async function adjustSetting(
         now.toISOString(),
       ),
     },
-  } as AnyAgentBundle;
+  } as AgentBundle;
   // The last guard: the new version may differ only in this setting and the manual's record of it.
   if (!onlyAdjusted(bundle, next, setting.target)) {
     throw new HttpError(409, "not_adjustable", "That would change more than this setting.");
@@ -276,7 +276,7 @@ export async function manualFeedback(
 ): Promise<{ id: string; number: number }> {
   const row = await clientAgent(tx, input.tenantId, input.agentId);
   const v: VersionRow | null = await shownVersion(tx, row);
-  const manual = (v?.bundle as AnyAgentBundle | undefined)?.definition.manual;
+  const manual = (v?.bundle as AgentBundle | undefined)?.definition.manual;
   let decisionId: string | null = null;
   if (input.body.section === "decision") {
     // A decision is linked by its id; one the manual doesn't hold is "not found".

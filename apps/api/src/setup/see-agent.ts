@@ -2,8 +2,8 @@
 // as Getting started reads it (the client's own copy, inside the request's one client: invariant
 // 1), the steps its SOP numbers, and its guide in `stage_state.guide`, written with the row locked.
 import {
+  type AgentBundle,
   type AgentGuideState,
-  type AnyAgentBundle,
   readAgentGuide,
   type StoredTry,
 } from "@countersign/core";
@@ -57,9 +57,11 @@ type AnyStep = { id: string; name?: string; kind: string } & Record<string, unkn
  * Every step of the version's workflows that are on, in run order, as the SOP numbers them: the
  * top-level steps and what an `if` (or a v3 `fork`), a `for_each` or a `repeat` holds.
  */
-export function walkStepsOf(bundle: Pick<AnyAgentBundle, "workflows">): WalkStep[] {
+export function walkStepsOf(bundle: Pick<AgentBundle, "workflows">): WalkStep[] {
   const out: WalkStep[] = [];
   const visit = (step: AnyStep, top: boolean) => {
+    // An End card is where a path finishes, not a step the client reads or marks.
+    if (step.kind === "end") return;
     out.push({ id: step.id, name: typeof step.name === "string" ? step.name : step.id, top });
     if (step.kind === "if" || step.kind === "fork") {
       for (const p of (step.paths as { steps?: AnyStep[] }[] | undefined) ?? []) {
@@ -82,7 +84,7 @@ export function walkStepsOf(bundle: Pick<AnyAgentBundle, "workflows">): WalkStep
 /** The steps of the version the SOP reads (the live one, else the one being set up). */
 export async function sopStepsOf(tx: Tx, row: AgentRow): Promise<WalkStep[]> {
   const v = await sopVersion(tx, row);
-  return v ? walkStepsOf(v.bundle as AnyAgentBundle) : [];
+  return v ? walkStepsOf(v.bundle as AgentBundle) : [];
 }
 
 export function guideOf(row: Pick<AgentRow, "stageState">): AgentGuideState {

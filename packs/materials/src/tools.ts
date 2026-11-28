@@ -625,7 +625,7 @@ export const pricesHistory = defineTool({
 export const pricesCompareVendors = defineTool({
   id: "materials.prices.compare_vendors",
   description:
-    "What each vendor charged for an item over the last `days` (default 90): last and average price, purchases and quantity, in each price's currency, cheapest first. Prices whose unit was assumed (a line with no unit, a QuickBooks bill line) are left out.",
+    "What each vendor charged for an item over the last `days` (default 90): last and average price, purchases and quantity, in each price's currency, cheapest first. Prices whose unit was assumed (a line with no unit, a bill line from the accounting system) are left out.",
   sideEffect: "none",
   entity: "price",
   summary: "Compared {{vendors.length}} vendors",

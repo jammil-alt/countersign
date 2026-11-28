@@ -1,9 +1,8 @@
 // R6 (docs/plan.md §1.86, §9; ARCHITECTURE §10.14 "Agents and their owner"): the owner's watch in
 // the executor. The owner is v0.13's run oversight (§10.11) under its proper name, so this module
 // adds no loop and no port: the executor's `overseen` loop and the `OversightPort` stay the one way
-// a step is reviewed. What is here is which steps go to the owner and when, for v3 skill and action
-// steps exactly as v0.13 decides it, and for v4 read, skill, write and conversation steps the same
-// way, plus the cheap watch on every v4 step's result (core `anomalySignals`), which asks for a
+// a step is reviewed. What is here is which steps go to the owner and when, for read, skill, write
+// and conversation steps, plus the cheap watch on every step's result (core `anomalySignals`), which asks for a
 // checkpoint review when a result is plainly off. A step's checks (confer, approval, notify) run
 // inside the step, so they are watched with it: a confer that disagreed is one of the signals.
 //
@@ -28,13 +27,12 @@ import {
 } from "@countersign/core";
 import type { OversightRequest } from "./ports";
 
-/** The owner as the executor sees it: v0.13's settings, and (v4) the cheap watch. */
+/** The owner as the executor sees it: v0.13's settings, and the cheap watch. */
 export interface OwnerWatch {
   /** The agent's `definition.oversight` (core `ownerOf(…).settings`); absent means `off`. */
   settings?: OversightSettings | undefined;
   /**
-   * The cheap watch on every step's result, for v4 processes (core `ownerOf(…).watch`). Absent:
-   * no signals, so a v3 run is reviewed exactly as v0.13 reviews it.
+   * The cheap watch on every step's result, (core `ownerOf(…).watch`). Absent: no signals.
    */
   watch?:
     | {
@@ -46,7 +44,7 @@ export interface OwnerWatch {
 
 /**
  * Whether a failure of this step goes to the owner: the executor's v0.13 rule (a port, and the
- * step's failures reviewed) for any watched step, v3 or v4.
+ * step's failures reviewed) for any watched step.
  */
 export function ownerReviewsFailureOf(
   owner: OwnerWatch | undefined,
@@ -70,7 +68,7 @@ export interface AfterSuccess {
 }
 
 /**
- * After an attempt that succeeded: the cheap watch's signals (v4 only), then whether the owner
+ * After an attempt that succeeded: the cheap watch's signals, then whether the owner
  * reviews it as a checkpoint: v0.13's rule (a checkpoint under `checkpoints`, `all`, `always`), or
  * a signal while the owner reviews anything. `name` is the step's durable name; its history is
  * found by step path, so every iteration of a loop shares one.
@@ -117,19 +115,16 @@ export function ownerStepInput(step: OwnerWatchedStep): unknown {
 }
 
 /**
- * `<tool id or step kind>:<code>` (ARCHITECTURE §10.10): a step that calls one tool (v3 action,
- * v4 read and write) names it, any other its kind; the executor's rule for v3, kept.
+ * `<tool id or step kind>:<code>` (ARCHITECTURE §10.10): a step that calls one tool (a read or a
+ * write) names it, any other its kind.
  */
 export function ownerErrorKey(step: OwnerWatchedStep, reason: string | undefined): string {
-  const tool =
-    step.kind === "action" || step.kind === "read" || step.kind === "write"
-      ? (step.tool ?? null)
-      : null;
+  const tool = step.kind === "read" || step.kind === "write" ? (step.tool ?? null) : null;
   return runErrorKey({ tool, kind: step.kind }, reason ?? null);
 }
 
 /**
- * The review request for any watched step: `OversightRequest` with the step widened to v4 kinds
+ * The review request for any watched step: `OversightRequest` with the step's kinds
  * and the watch's signals. packages/agents' `OverseeRequest` takes exactly these fields.
  */
 // R3 widened `OversightRequest.step` to `OwnerWatchedStep` and added `signals`: this is it.

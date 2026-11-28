@@ -651,6 +651,8 @@ function StepBox(p: {
   const tools = glyph && !grouped ? boxTools(step, words, t) : [];
   const badgeIcon = glyph?.type === "connector" ? kindIcon(step) : null;
   // The chip says the model, so the line under the name doesn't say it again.
+  // Owner, 2026-11-27: the supervisor checks this step after it succeeds (a quiet mark, in ink).
+  const watched = box.shape === "box" ? (p.props.supervisor?.(step.id) ?? null) : null;
   const under = doer?.model
     ? (words.detail ?? "").replace(/(^| · )runs on [^·]+$/, "").trim()
     : (words.detail ?? "");
@@ -708,7 +710,14 @@ function StepBox(p: {
       onMouseLeave={() => p.onHover(null)}
     >
       {box.shape === "pill" ? (
-        <span className="flow-box__t">{t("flow.stop")}</span>
+        <>
+          <span className="flow-box__t">{words.pill?.word ?? t("flow.stop")}</span>
+          {words.pill?.under ? (
+            <span className="flow-box__cap" data-testid={`flow-cap-${step.id}`}>
+              {words.pill.under}
+            </span>
+          ) : null}
+        </>
       ) : box.shape === "diamond" ? (
         <span className="flow-box__t">{words.title}</span>
       ) : (
@@ -746,8 +755,19 @@ function StepBox(p: {
               </span>
             )}
           </span>
-          {doer || tools.length > 0 ? (
+          {doer || tools.length > 0 || watched ? (
             <span className="flow-box__side" data-testid={`flow-side-${step.id}`}>
+              {watched ? (
+                <span
+                  className="flow-box__mark flow-box__mark--tool"
+                  role="img"
+                  title={watched}
+                  aria-label={watched}
+                  data-testid={`flow-supervisor-${step.id}`}
+                >
+                  <Icon name="search" size={14} />
+                </span>
+              ) : null}
               {doer ? (
                 <span
                   className={cx("flow-box__doer", !doer.model && "flow-box__doer--none")}

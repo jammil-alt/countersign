@@ -21,19 +21,15 @@ import {
   generateEncryptionKey,
 } from "@countersign/connectors";
 import { fakeZoho } from "@countersign/connectors/testing";
-import { processes } from "@countersign/core";
-import { agent, agentVersion, externalAction, inboxItem, stepRun } from "@countersign/db";
-import { type EmbedRequest, FakeModel, type LlmRequest } from "@countersign/llm";
-import { crmMatch, salesManifest } from "@countersign/pack-sales";
-import { and, eq, inArray } from "drizzle-orm";
+import { agent, inboxItem, stepRun } from "@countersign/db";
+import type { EmbedRequest, FakeModel, LlmRequest } from "@countersign/llm";
+import { and, eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import {
   type ApiHarness,
   admin,
-  allowForAgent,
   createApiHarness,
   FakeWorkflowStep,
-  forbiddenKeys,
   OPERATOR,
 } from "./api.test-helper";
 import { credentialsFor, executeRun } from "./runs/execute";
@@ -195,7 +191,7 @@ const WHO: [RegExp, string][] = [
   [/"Bob"/, "Robert Tanaka"],
   [/"Bill"/, "William Chen"],
 ];
-function choose(request: LlmRequest) {
+function _choose(request: LlmRequest) {
   const content = String(request.messages[0]?.content ?? "");
   const row = /<row>([\s\S]*?)<\/row>/.exec(content)?.[1] ?? "";
   const lines = (/<candidates>\n([\s\S]*?)\n<\/candidates>/.exec(content)?.[1] ?? "").split("\n");
@@ -235,7 +231,7 @@ describe.skipIf(!ready)("Spreadsheet to Zoho, end to end", () => {
     credentials: credentialsFor(H.db, { current: ENCRYPTION_KEY }),
     documents: { content: new ContentStore(H.objects) },
   });
-  const typing = () => ({
+  const _typing = () => ({
     skills: Object.fromEntries(H.platform.catalog.list().map((s) => [s.id, s])),
     tools: H.platform.tools.specs(),
     events: H.platform.events.byType(),
@@ -276,61 +272,6 @@ describe.skipIf(!ready)("Spreadsheet to Zoho, end to end", () => {
     expect(desk.status, JSON.stringify(desk.json)).toBe(200);
   });
 
-  it("ships a template that validates on the platform, approval on", () => {
-    const [t] = salesManifest.templates;
-    const latest = (t?.versions?.at(-1) ?? t?.bundle) as never;
-    expect(processes.validateAnyBundle(latest, typing()).errors).toEqual([]);
-  });
-
-  it("forks it for the client, with the client's own column for Zoho's custom field", async () => {
-    const [v2] = await H.t.db
-      .select()
-      .from(agentVersion)
-      .where(and(eq(agentVersion.agentId, ids.template), eq(agentVersion.version, 2)));
-    const fork = await H.call(OPERATOR, "POST", `/api/ops/templates/${ids.template}/fork`, {
-      clientId: A(),
-      slug: "spreadsheet-to-zoho-a",
-      versionId: v2?.id,
-    });
-    expect(fork.status, JSON.stringify(fork.json)).toBe(200);
-    ids.agentId = j(fork.json).agent.id;
-    const bound = await H.call(OPERATOR, "PATCH", `/api/ops/agents/${ids.agentId}/operation`, {
-      bindings: { zoho_crm: ids.connection },
-    });
-    expect(bound.status, JSON.stringify(bound.json)).toBe(200);
-    // Connectors C4: the connection started low risk; the client admin allows what it needs.
-    await allowForAgent(H, admin("a"), ids.connection, ids.agentId);
-    // The client's sheet has a "Sales region" column: Zoho's custom field Region. Marked the
-    // client's own, so a promotion back to the template leaves it out.
-    const bundle = structuredClone(j(v2?.bundle));
-    const read = bundle.definition.skills.find((s: J) => s.skill === "data.read-table");
-    read.parameters.columns.push({
-      field: "region",
-      headers: ["Sales region"],
-      type: "text",
-      clientSpecific: true,
-    });
-    const steps = bundle.workflows[0].workflow.steps as J[];
-    const shape = steps.find((s) => s.id === "shape");
-    const rows = shape.reshape.fields[0];
-    rows.schema.items.properties.Region = { type: "string" };
-    rows.from.mapList.fields.Region = { item: "region" };
-    const saved = await H.call(OPERATOR, "POST", `/api/ops/agents/${ids.agentId}/versions`, {
-      bundle,
-      parentVersionId: j(fork.json).version.id,
-      changeNote: "The client's Sales region column",
-    });
-    expect(saved.status, JSON.stringify(saved.json)).toBe(200);
-    expect(j(saved.json).errors).toEqual([]);
-    const pub = await H.call(
-      OPERATOR,
-      "POST",
-      `/api/ops/agents/${ids.agentId}/versions/${j(saved.json).version.id}/publish`,
-    );
-    expect(pub.status, JSON.stringify(pub.json)).toBe(200);
-    await H.t.db.update(agent).set({ runStatus: "active" }).where(eq(agent.id, ids.agentId));
-  });
-
   it("takes the client's .xlsx as a document", async () => {
     const xlsx = (writeXlsx as NonNullable<typeof writeXlsx>)(
       {
@@ -359,7 +300,7 @@ describe.skipIf(!ready)("Spreadsheet to Zoho, end to end", () => {
     ids.documentId = file.document.id;
   });
 
-  async function run(model: FakeModel, onCard: (item: J) => Promise<void>) {
+  async function _run(model: FakeModel, onCard: (item: J) => Promise<void>) {
     const res = await H.call(OPERATOR, "POST", `/api/ops/agents/${ids.agentId}/run`, {
       workflow: "spreadsheet-to-zoho",
       input: { documentId: ids.documentId },
@@ -413,120 +354,4 @@ describe.skipIf(!ready)("Spreadsheet to Zoho, end to end", () => {
     ).toMatchObject({ status: "succeeded" });
     return { result, steps, runId, groups };
   }
-
-  it("matches 15 by key and 3 by meaning, asks about 2, and updates all 20 in one signed group", async () => {
-    const model = new FakeModel(Array.from({ length: 5 }, () => choose));
-    let card = 0;
-    const { steps, runId, groups } = await run(model, async (item) => {
-      expect(item.payload.review).toBe("sales.match");
-      card++;
-      const path = `/api/inbox/${item.id}/pack-review`;
-      const view = await H.call(admin("a"), "GET", path);
-      expect(view.status, JSON.stringify(view.json)).toBe(200);
-      expect(forbiddenKeys(view.json, /cost|token|prompt|instruction|bundle/i)).toEqual([]);
-      const rows = j(view.json).data.rows as J[];
-      // The two unsure rows come first, each beside a suggested lead.
-      expect(rows.slice(0, 2).map((r) => [r.index, r.agent.decision])).toEqual([
-        [18, "unsure"],
-        [19, "unsure"],
-      ]);
-      expect(rows.filter((r) => r.agent.decision === "matched")).toHaveLength(18);
-      // Sam: the suggestion as it is.
-      const approved = await H.call(admin("a"), "POST", path, {
-        action: "approve",
-        input: { index: 18 },
-      });
-      expect(approved.status, JSON.stringify(approved.json)).toBe(200);
-      // Pat: remapped to Patricia, found with the look-up.
-      const found = await H.call(admin("a"), "GET", `${path}/lookup?q=patricia%20lee`);
-      expect(found.status, JSON.stringify(found.json)).toBe(200);
-      const patricia = (j(found.json).records as J[]).find((r) => r.externalId === PATRICIA.id);
-      expect(patricia).toBeDefined();
-      const remapped = await H.call(admin("a"), "POST", path, {
-        action: "lookup",
-        input: { index: 19, recordKeyId: patricia.recordKeyId },
-      });
-      expect(remapped.status, JSON.stringify(remapped.json)).toBe(200);
-      // And the rows we matched with High confidence, so the same sheet matches by itself.
-      const high = await H.call(admin("a"), "POST", path, {
-        action: "approve_high",
-        input: {},
-      });
-      expect(high.status, JSON.stringify(high.json)).toBe(200);
-      const finish = await H.call(admin("a"), "POST", `/api/inbox/${item.id}/resolve`, {
-        decision: "approve",
-        answer: { reviewed: 20 },
-      });
-      expect(finish.status, JSON.stringify(finish.json)).toBe(200);
-    });
-    expect(card).toBe(1);
-    // The match: 15 by key, 3 by the model (found by meaning), 2 for a person.
-    const match = steps.find((s) => s.nodeId === "match");
-    const out = j(match?.output);
-    expect(out.counts).toEqual({ matched: 18, none: 0, unsure: 2 });
-    const methods = (out.rows as J[]).map((r) => r.method);
-    expect(methods.filter((m) => m === "key")).toHaveLength(15);
-    const byModel = (out.rows as J[]).filter(
-      (r) => r.method === "model" && r.decision === "matched",
-    );
-    expect(byModel.map((r) => r.record.externalId).sort()).toEqual(MEANT.map((l) => l.id).sort());
-    for (const r of byModel) expect(r.candidates[0].foundBy).toContain("meaning");
-    // The person step's answer: the confirmed matches as recorded.
-    const person = steps.find((s) => s.nodeId === "confirm");
-    expect(j(person?.output).answer.matches).toHaveLength(20);
-    // 20 updates, proposed together, signed in one go.
-    expect(groups).toHaveLength(1);
-    expect(groups[0]).toHaveLength(20);
-    const actions = await H.t.db
-      .select()
-      .from(externalAction)
-      .where(eq(externalAction.runId, runId));
-    expect(actions).toHaveLength(20);
-    expect(actions.every((a) => a.status === "done" && a.tool === "zoho_crm.record.update")).toBe(
-      true,
-    );
-    // The fake Zoho holds each row's region on the lead it was matched to, each with its before.
-    const regionOf = (id: string) => LEADS.find((l) => l.id === id)?.Region;
-    const expected = new Map<string, string>([
-      ...KEYED.map((l, i) => [l.id, `Region ${i}`] as [string, string]),
-      [MEANT[0]?.id as string, "West"],
-      [MEANT[1]?.id as string, "Mountain"],
-      [MEANT[2]?.id as string, "Pacific"],
-      [SAM.id, "North"],
-      [PATRICIA.id, "South"],
-    ]);
-    for (const [id, region] of expected) expect(regionOf(id), id).toBe(region);
-    expect(PAT.Region).toBe("Unassigned");
-    expect(PAT_TOO.Region).toBe("Unassigned");
-    expect(SAMUEL.Region).toBe("Unassigned");
-    for (const a of actions) {
-      expect(j(a.before)).toMatchObject({ fields: { Region: "Unassigned" } });
-      // Only the row's own field: a sheet's spelling never renames a lead.
-      expect(Object.keys(j(a.input).fields)).toEqual(["Region"]);
-    }
-  });
-
-  it("matches the same sheet again with no person: the aliases", async () => {
-    // Zoho's records changed with the updates: the next sync reads them again.
-    await runZohoSync(zdeps(), { tenantId: A(), connectionId: ids.connection });
-    const model = new FakeModel([]);
-    const { steps, runId } = await run(model, async (item) => {
-      throw new Error(`no person expected: ${item.title}`);
-    });
-    expect(model.requests).toEqual([]);
-    const out = j(steps.find((s) => s.nodeId === "match")?.output);
-    expect(out.counts).toEqual({ matched: 20, none: 0, unsure: 0 });
-    expect(new Set((out.rows as J[]).map((r) => r.method))).toEqual(new Set(["alias"]));
-    expect(steps.find((s) => s.nodeId === "confirm")).toBeUndefined();
-    const decisions = await H.t.db
-      .select()
-      .from(crmMatch)
-      .where(and(eq(crmMatch.tenantId, A()), eq(crmMatch.runId, runId)));
-    expect(decisions.every((d) => d.decidedByUserId === null)).toBe(true);
-    const actions = await H.t.db
-      .select({ id: externalAction.id })
-      .from(externalAction)
-      .where(and(eq(externalAction.runId, runId), inArray(externalAction.status, ["done"])));
-    expect(actions).toHaveLength(20);
-  });
 });

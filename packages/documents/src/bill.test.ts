@@ -318,9 +318,14 @@ describe.skipIf(!h)("matchBill", () => {
   it("names the vendor's other bills when none fits, and both when two do", async () => {
     const C = await freshClient("Two bills shop");
     const documentId = await read(C, x);
-    const off = await syncedBill(C, "160", { total: "9700.00" });
+    const off = await syncedBill(C, "160", { total: "9700.00", doc: "20417" });
     const none = await match(C, documentId);
-    expect(none).toMatchObject({ status: "none", bill: null, candidates: [off.id] });
+    expect(none).toMatchObject({
+      status: "none",
+      bill: null,
+      candidates: [off.id],
+      sameNumber: [],
+    });
     expect(none.reason).toMatch(/^No bill from Northline Panel Supply for USD 9742\.35/);
     expect(none.sources).toContain(off.id);
 
@@ -336,13 +341,42 @@ describe.skipIf(!h)("matchBill", () => {
     });
   });
 
+  it("names the vendor's bills of any date that have the invoice's number but don't match", async () => {
+    const C = await freshClient("Same number shop");
+    const documentId = await read(C, x);
+    // The invoice's number on another total, and on a bill a year back (out of the window).
+    const other = await syncedBill(C, "180", { total: "9700.00", doc: "20-418" });
+    const old = await syncedBill(C, "181", { date: shiftDate(x.header.invoiceDate, -365) });
+    // Not the same number: a prefix only, another number, none, deleted, another vendor's.
+    await syncedBill(C, "182", { total: "1.00", doc: "418" });
+    await syncedBill(C, "183", { total: "1.00", doc: "20419" });
+    await syncedBill(C, "184", {
+      total: "1.00",
+      doc: null,
+      date: shiftDate(x.header.invoiceDate, -30),
+    });
+    await syncedBill(C, "185", { total: "1.00", deleted: true });
+    await syncedBill(C, "186", { total: "1.00", vendor: "Cedar Ridge Hardwoods" });
+    const r = await match(C, documentId);
+    expect(r).toMatchObject({ status: "none", bill: null, sameNumber: [old.id, other.id] });
+    expect(r.reason).toMatch(/2 bills from them already have the number 20418\.$/);
+    expect(r.sources).toEqual(expect.arrayContaining([old.id, other.id]));
+    // A bill that matches has nothing "the same number" to ask about.
+    const b = await syncedBill(C, "187", {});
+    expect(await match(C, documentId)).toMatchObject({
+      status: "matched",
+      bill: { transactionId: b.id },
+      sameNumber: [],
+    });
+  });
+
   it("matches nothing for a vendor it doesn't know, and nothing of another client", async () => {
     const C = await freshClient("Unknown vendor shop");
     const D = await freshClient("Other client");
     const documentId = await read(C, x);
     await syncedBill(D, "170", {});
     const r = await match(C, documentId);
-    expect(r).toMatchObject({ status: "none", candidates: [] });
+    expect(r).toMatchObject({ status: "none", candidates: [], sameNumber: [] });
     expect(r.reason).toBe("No vendor in your records is named Northline Panel Supply.");
     await expect(match(D, documentId)).rejects.toThrow(/not found/);
   });

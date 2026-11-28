@@ -57,19 +57,9 @@ function detailAt(opts: {
     fitgap,
     draft: true,
     draftErrors: problems.length,
-    poc: { passed: true, detail: "Every required case passes." },
-    trialDone: true,
-    qaSigned: true,
-    openItems: opts.openItems,
   });
-  const next =
-    opts.phase === "draft"
-      ? "poc"
-      : opts.phase === "poc"
-        ? "client_test"
-        : opts.phase === "client_test"
-          ? "qa"
-          : null;
+  // Owner (2026-11-27): no phase comes after the draft; it is published.
+  const next = null;
   return {
     build: { phase: opts.phase, fitgap },
     gate: { next, reasons },
@@ -96,25 +86,23 @@ const blocking = (d: BuildDetail) =>
     .map((i) => i.key);
 
 describe("issues that hold the next move", () => {
-  it("an agent build in the POC test: open items hold nothing, as the gate says (owner, 2026-11-17)", () => {
-    const d = detailAt({ phase: "poc", openItems: 2, problems: 0 });
-    expect(d.gate.reasons).toEqual([]);
-    expect(blocking(d), "issues marked blocking while the gate holds nothing").toEqual([]);
-  });
-
-  it("an agent build in the client test: draft problems hold nothing the gate checks", () => {
-    // A draft edited in the POC test (edit_draft) can carry a problem into later phases.
-    const d = detailAt({ phase: "client_test", openItems: 0, problems: 1 });
-    expect(d.gate.reasons).toEqual([]);
-    expect(blocking(d), "issues marked blocking while the gate holds nothing").toEqual([]);
-  });
-
-  it("holds where the gate holds: draft problems in the draft, open items in QA", () => {
+  it("an agent build in the draft: its problems hold Publish, open items don't", () => {
     const draft = detailAt({ phase: "draft", openItems: 1, problems: 1 });
     expect(draft.gate.reasons).toHaveLength(1);
     expect(blocking(draft)).toEqual(["problem:main|s0|input.amount|input_missing"]);
-    const qa = detailAt({ phase: "qa", openItems: 1, problems: 0 });
-    expect(qa.gate.reasons).toHaveLength(1);
-    expect(blocking(qa)).toEqual(["item:item-0"]);
+    const clean = detailAt({ phase: "draft", openItems: 2, problems: 0 });
+    expect(clean.gate.reasons).toEqual([]);
+    expect(blocking(clean), "issues marked blocking while the gate holds nothing").toEqual([]);
+  });
+
+  it("a build made before in the POC test, client test or QA is held as its draft is", () => {
+    for (const phase of ["poc", "client_test", "qa"] as const) {
+      const d = detailAt({ phase, openItems: 1, problems: 1 });
+      expect(d.gate.reasons).toHaveLength(1);
+      expect(blocking(d)).toEqual(["problem:main|s0|input.amount|input_missing"]);
+      const clean = detailAt({ phase, openItems: 2, problems: 0 });
+      expect(clean.gate.reasons).toEqual([]);
+      expect(blocking(clean)).toEqual([]);
+    }
   });
 });

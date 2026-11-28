@@ -8,6 +8,7 @@ import { ATTENTION_ISSUE_KINDS } from "@countersign/agents";
 import type { Session } from "@countersign/auth";
 import type { ObjectStore } from "@countersign/connectors";
 import {
+  allRoutes,
   FEEDBACK_SCREENSHOT_TYPE,
   InboxStatusSchema,
   isUuid,
@@ -746,7 +747,7 @@ const opsHealth: Tool<OpsToolCtx> = {
   name: "ops_health",
   title: "Platform health",
   description:
-    "What went wrong across the clients you serve, or for one client, in the last `hours` (default 24): failed live runs and failed writes to clients' tools grouped by error key, and what is stuck now (runs that stopped before finishing, signed items their run never took, connections in error or not syncing, events set aside after failing to dispatch, by type with the oldest). Each finding has sample ids: runs for run_get, signed items for inbox_list, connections for connections_list; a set-aside finding's ids are event ids, which none of those tools reads (the client's Health page in the back office lists them).",
+    "What went wrong across the clients you serve, or for one client, in the last `hours` (default 24): failed live runs and failed writes to clients' tools grouped by error key, failed checks of the connector self-test on the Sandbox (selftest_failed, by check id; its ids are connections: selftest_last has the provider's error), and what is stuck now (runs that stopped before finishing, signed items their run never took, connections in error or not syncing, events set aside after failing to dispatch, by type with the oldest). Each finding has sample ids: runs for run_get, signed items for inbox_list, connections for connections_list; a set-aside finding's ids are event ids, which none of those tools reads (the client's Health page in the back office lists them).",
   input: z.strictObject({
     client: ClientId.optional(),
     hours: z.int().min(1).max(168).default(24),
@@ -770,7 +771,9 @@ const opsHealth: Tool<OpsToolCtx> = {
         }),
     );
     findings.sort((a, b) => b.count - a.count);
-    const failures = findings.filter((f) => f.kind === "run_failed" || f.kind === "action_failed");
+    const failures = findings.filter(
+      (f) => f.kind === "run_failed" || f.kind === "action_failed" || f.kind === "selftest_failed",
+    );
     const stuck = findings.length - failures.length;
     return dataResult(
       "ops_health",
@@ -790,6 +793,57 @@ const opsHealth: Tool<OpsToolCtx> = {
         })),
       },
     );
+  },
+};
+
+// ── The connector self-test (2026-11-28) ────────────────────────────────────────────────────────
+// Over the back office's own routes (operators only, audited), on the Sandbox client only.
+
+function selftestSummary(out: {
+  at: string | null;
+  passed: number;
+  failed: number;
+  skipped: number;
+}): string {
+  if (!out.at) return "The self-test hasn't run on this client yet.";
+  return `Self-test of ${out.at}: ${out.passed} passed, ${out.failed} failed, ${out.skipped} skipped.`;
+}
+
+const selftestLast: Tool<OpsToolCtx> = {
+  name: "selftest_last",
+  title: "Connector self-test results",
+  description:
+    "The connector self-test's latest results on the Sandbox client: for each live connection (QuickBooks' sandbox company, Resend, Twilio), every check with pass, fail or skip, its time and the provider's error. It runs daily on staging at 12:05 UTC; selftest_run runs it now.",
+  input: z.strictObject({
+    client: ClientId.describe("The Sandbox client's id, from clients_list"),
+  }),
+  annotations: READ,
+  async run(ctx, args) {
+    const { client } = args as { client: string };
+    const out = await route(ctx, allRoutes.opsClientSelftestLast, { params: { id: client } });
+    return dataResult("selftest_last", selftestSummary(out), out);
+  },
+};
+
+const selftestRun: Tool<OpsToolCtx> = {
+  name: "selftest_run",
+  title: "Run the connector self-test",
+  description:
+    "Run the connector self-test now on the Sandbox client's live connections and answer its results (as selftest_last). Staging only; any other client is refused. It reads and parses only: nothing is written to the tools and nothing is sent. Takes up to a minute.",
+  input: z.strictObject({
+    client: ClientId.describe("The Sandbox client's id, from clients_list"),
+  }),
+  annotations: {
+    readOnlyHint: false,
+    destructiveHint: false,
+    idempotentHint: false,
+    openWorldHint: true,
+  },
+  async run(ctx, args) {
+    const { client } = args as { client: string };
+    ctx.audit.target = { client };
+    const out = await route(ctx, allRoutes.opsClientSelftestRun, { params: { id: client } });
+    return dataResult("selftest_run", selftestSummary(out), out);
   },
 };
 
@@ -862,6 +916,8 @@ export const OPS_TOOLS: readonly Tool<OpsToolCtx>[] = [
   connectionsList,
   recordsSearch,
   opsHealth,
+  selftestLast,
+  selftestRun,
   marketingReport,
   // docs/plan.md §1.125: the Dev queue
   ...DEV_QUEUE_TOOLS,

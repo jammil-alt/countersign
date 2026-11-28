@@ -13,20 +13,18 @@ import { levelFor } from "../permissions/decide";
 import { bindingConnector } from "../permissions/grants";
 import type { AgentDefinition } from "../schemas/agent";
 import {
-  type AnyAutomationDefinition,
-  type ProcessAutomationDefinition,
-  ProcessAutomationDefinition as ProcessAutomationDefinitionSchema,
+  type AutomationDefinition,
+  AutomationDefinition as ProcessAutomationDefinitionSchema,
 } from "../schemas/automation";
 import type { JsonSchema } from "../schemas/common";
 import { parseSkillRef } from "../schemas/common";
 import type { AgentMode } from "../schemas/permissions";
 import type { Rules } from "../schemas/rules";
 import { isAlwaysSigned, type ToolSpec } from "../schemas/tool";
-import type { Trigger, Step as V3Step } from "../schemas/workflow";
+import type { Trigger } from "../schemas/workflow";
 import { retiredSkillReason, skillWriteTools, toolLookup } from "../skills/kind";
 import { collectRefs, hasTemplate, singleRef } from "../template/template";
 import {
-  automationOutputSchema,
   FOR_EACH_OUTPUT,
   FORK_OUTPUT,
   lookupSkill,
@@ -39,6 +37,17 @@ import {
   triggerOnSchema,
 } from "../template/typer";
 import { mergeTriggerSchemas } from "../triggers/typing";
+// Skill model (2026-11-10): action write steps, resolved from the agent's bindings.
+import {
+  ACCOUNTING_CONNECTORS,
+  type ActionBindings,
+  type ActionProblemCode,
+  type ActionResolution,
+  actionBindingsFromMatrices,
+  actionInputSchema,
+  isAccountingAction,
+  resolveActionConnector,
+} from "./actions";
 // One copy of the checks v3 and v4 share (the v3 validator exports them).
 import {
   allowedTools,
@@ -60,21 +69,8 @@ import {
   type ValidationCode,
   type ValidationContext,
   VERB_NOUN,
-  stepWrites as v3StepWrites,
   valueTypes,
-} from "../workflow/validate";
-import { walkSteps as walkV3Steps } from "../workflow/walk";
-// Skill model (2026-11-10): action write steps, resolved from the agent's bindings.
-import {
-  ACCOUNTING_CONNECTORS,
-  type ActionBindings,
-  type ActionProblemCode,
-  type ActionResolution,
-  actionBindingsFromMatrices,
-  actionInputSchema,
-  isAccountingAction,
-  resolveActionConnector,
-} from "./actions";
+} from "./checks";
 // Collect reports (owner, 2026-11-24): its reports' checks, its output and its size.
 import {
   type CollectProblemCode,
@@ -143,6 +139,9 @@ import { isLogic, stepCount, walkSteps } from "./walk";
 /** v3's codes (same meaning, same names) plus what v4 adds. */
 export type ProcessValidationCode =
   | ValidationCode
+  // The step model (docs/step-model-plan.md §13a): a v5 workflow's publish check, its own code in
+  // the bundle error's `stepCode`.
+  | "step_model"
   // Setup-plan §4.1: a seat the bundle doesn't declare, or one whose kind can't do what is asked.
   | "unknown_seat"
   | "seat_kind"
@@ -170,6 +169,8 @@ export type ProcessValidationCode =
   | ActionProblemCode
   // Reshape data (2026-11-11): a mapping that doesn't type-check, or doesn't fit the next step.
   | "reshape_mapping"
+  // The step model (publish checks): a Do's or an output's action switched off on its connector.
+  | "action_off"
   // Hand off (2026-11-11): the agent and step a hand-off starts (`checkHandoffStep`).
   | "handoff_same_agent"
   | "handoff_unknown_agent"
@@ -178,6 +179,10 @@ export type ProcessValidationCode =
   | "handoff_entry_kind"
   // Ways in, ways out (2026-11-23): a hand-off to this agent's own workflow (`checkHandoffStep`)
   // and the loops such hand-offs make between workflows (bundle.ts).
+  // One checker (2026-11-28): what the step builder's form leaves open, held at publish too: a
+  // Fork's path with no name, a For each with no list to go through.
+  | "fork_path_unnamed"
+  | "for_each_list_missing"
   | "handoff_unknown_workflow"
   | "handoff_same_workflow"
   | "handoff_workflow_off"
@@ -320,7 +325,7 @@ export interface ProcessValidationContext extends TypingContext {
   /**
    * Ways in, ways out (2026-11-23): this agent's own workflows a self hand-off (`to.agent:
    * "@self"`) can start, and the slug of the workflow being checked. Needs no client, so it is
-   * passed for templates too (`validateAnyBundle`). Absent: only the step's own fields are checked.
+   * passed for templates too (`validateBundle`). Absent: only the step's own fields are checked.
    */
   ownWorkflows?: { workflow: string; workflows: readonly HandoffWorkflow[] };
 }
@@ -482,10 +487,7 @@ export function stepOutputSchema(step: Step, ctx: TypingContext): JsonSchema | u
     case "process": {
       const def = ctx.automations?.[step.process];
       if (!def) return undefined;
-      // Wave 3b: a process step pins a v3 automation or a v4 one.
-      return def.schemaVersion === 2
-        ? processAutomationOutputSchema(def, ctx)
-        : automationOutputSchema(def, ctx);
+      return processAutomationOutputSchema(def, ctx);
     }
     // R7: `{ status, found, conversationId, summary }`, `found` typed by the step's `find`.
     case "conversation":
@@ -1524,13 +1526,6 @@ function checkNotify(
     checkRules(c, nodeId, n.urgent.when, [...where, "urgent", "when"], scope, false);
 }
 
-/** A v3 automation's steps, nested ones included. */
-function automationSteps(steps: readonly V3Step[]): V3Step[] {
-  const out: V3Step[] = [];
-  walkV3Steps({ steps: [...steps] }, ({ step }) => out.push(step));
-  return out;
-}
-
 /** An automation's inner step as a process step's `approvals` reads it, whichever its schema. */
 interface InnerStep {
   id: string;
@@ -1540,51 +1535,35 @@ interface InnerStep {
   writes: ToolSpec[] | undefined;
   /** It contacts people (a skill that reaches people, a conversation). */
   reaches: boolean;
-  /** Its kind has an approval an override can set (v3 skill or action; v4 skill, read or write). */
+  /** Its kind has an approval an override can set (skill, read or write). */
   approvable: boolean;
   /** Skill model: a v4 action write step (its connection resolves from the using agent). */
   action?: Pick<WriteStep, "action" | "via">;
 }
 
-/** Every inner step of a pinned automation by id: v3 steps (v1) or v4 process steps (v2). */
+/** Every inner step of a pinned automation by id. */
 function innerSteps(
-  def: AnyAutomationDefinition,
+  def: AutomationDefinition,
   ctx: TypingContext & Pick<ProcessValidationContext, "actions" | "publish">,
 ): Map<string, InnerStep> {
   const out = new Map<string, InnerStep>();
-  if (def.schemaVersion === 2) {
-    walkSteps(def, ({ step }) => {
-      out.set(step.id, {
-        id: step.id,
-        ownLoose: approvalLoosenings(step.checks?.approval, `approvals.${step.id}`),
-        writes: stepWrites(step, ctx),
-        reaches: stepReaches(step, ctx),
-        approvable: step.kind === "skill" || step.kind === "write" || step.kind === "read",
-        ...(step.kind === "write" && step.action !== undefined
-          ? { action: { action: step.action, ...(step.via ? { via: step.via } : {}) } }
-          : {}),
-      });
+  walkSteps(def, ({ step }) => {
+    out.set(step.id, {
+      id: step.id,
+      ownLoose: approvalLoosenings(step.checks?.approval, `approvals.${step.id}`),
+      writes: stepWrites(step, ctx),
+      reaches: stepReaches(step, ctx),
+      approvable: step.kind === "skill" || step.kind === "write" || step.kind === "read",
+      ...(step.kind === "write" && step.action !== undefined
+        ? { action: { action: step.action, ...(step.via ? { via: step.via } : {}) } }
+        : {}),
     });
-    return out;
-  }
-  for (const s of automationSteps(def.steps)) {
-    const own = s.kind === "skill" || s.kind === "action" ? s.approval : undefined;
-    out.set(s.id, {
-      id: s.id,
-      ownLoose:
-        own?.required === "not_required"
-          ? [{ field: `approvals.${s.id}.required`, what: "not_required" }]
-          : [],
-      writes: v3StepWrites(s, ctx),
-      reaches: s.kind === "skill" && lookupSkill(s.skill, ctx)?.reachesPeople === true,
-      approvable: s.kind === "skill" || s.kind === "action",
-    });
-  }
+  });
   return out;
 }
 
 /**
- * A sub-process step (v3's use step): its process exists, its input against the process's input,
+ * A sub-process step: its process exists, its input against the process's input,
  * `approvals` only on client agents and only for inner write steps, never loosening a verb a
  * person always signs, and at publish the agent's bindings cover the process's connectors.
  */
@@ -1608,7 +1587,6 @@ function checkSubProcess(c: Checker, step: SubProcessStep, scope: ProcessScope) 
   if (!def) return;
   checkInput(c, step.id, step.input, def.input, scope);
 
-  // Wave 3b: the pinned automation holds v3 steps or v4 process steps.
   const inner = innerSteps(def, ctx);
   for (const [innerId, approval] of approvals) {
     const target = inner.get(innerId);
@@ -2366,7 +2344,7 @@ function splitWarnings(process: Process): ProcessWarning[] {
 
 /** What an automation's `output` reads: its input and every top-level step. */
 function automationEndScope(
-  def: Pick<ProcessAutomationDefinition, "input" | "steps">,
+  def: Pick<AutomationDefinition, "input" | "steps">,
   ctx: TypingContext,
 ): ProcessScope {
   const scope: ProcessScope = {
@@ -2381,7 +2359,7 @@ function automationEndScope(
 
 /** The schema of a process step's output when it pins a v4 automation (as v3's use step's). */
 export function processAutomationOutputSchema(
-  def: Pick<ProcessAutomationDefinition, "input" | "steps" | "output">,
+  def: Pick<AutomationDefinition, "input" | "steps" | "output">,
   ctx: TypingContext = {},
 ): JsonSchema {
   // No nesting (validation refuses it): an inner process step is typed as unknown.
@@ -2401,7 +2379,7 @@ export function validateProcessAutomation(
 ): {
   valid: boolean;
   errors: ProcessValidationError[];
-  value?: ProcessAutomationDefinition;
+  value?: AutomationDefinition;
 } {
   const parsed = ProcessAutomationDefinitionSchema.safeParse(input);
   if (!parsed.success) {

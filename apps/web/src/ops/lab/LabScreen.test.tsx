@@ -9,7 +9,7 @@ import { describe, expect, it, vi } from "vitest";
 import { ApiProvider } from "../../api/useApi";
 import { AGENT_DETAIL, AGENT_SUMMARY, fakeApi, versionId } from "../../test/fixtures";
 import { LabScreen, useSlow } from "./LabScreen";
-import { AssignToClient, ClientViewCard, WhereItRuns } from "./TemplateParts";
+import { AssignToClient, ClientViewCard, TurnOnInSandbox, WhereItRuns } from "./TemplateParts";
 
 const TEMPLATE_ID = "00000000-0000-4000-8000-00000000f001";
 const DRAFT_ID = "00000000-0000-4000-8000-00000000f002";
@@ -113,7 +113,11 @@ function Probe() {
   return <span data-testid="location">{pathname}</span>;
 }
 
-function setup(path = "/ops/lab", page: React.ReactNode = <LabScreen />) {
+function setup(
+  path = "/ops/lab",
+  page: React.ReactNode = <LabScreen />,
+  extra: Parameters<typeof fakeApi>[0] = {},
+) {
   const forks: unknown[] = [];
   const api = fakeApi({
     "GET /api/ops/lab": () => LAB,
@@ -150,6 +154,7 @@ function setup(path = "/ops/lab", page: React.ReactNode = <LabScreen />) {
         version: AGENT_DETAIL.versions[1],
       };
     },
+    ...extra,
   });
   render(
     <MemoryRouter initialEntries={[path]}>
@@ -304,6 +309,52 @@ describe("a template's panels on its page", () => {
     expect(forks).toEqual([{ clientId: CLIENT_ID }]);
     expect(await screen.findByTestId("location")).toHaveTextContent(
       `/ops/clients/${CLIENT_ID}/agents/purchasing`,
+    );
+  });
+
+  it("turns a template on in the Sandbox and opens the Sandbox's copy", async () => {
+    const SANDBOX = "00000000-0000-4000-8000-00000000cafe";
+    const started: unknown[] = [];
+    const answer = (done: boolean) => ({
+      agentId: done ? FORK_ID : null,
+      clientId: SANDBOX,
+      clientName: "Sandbox",
+      versionId: versionId(1),
+      version: 1,
+      started: done,
+      stage: done ? "trial" : "bench",
+      items: [],
+    });
+    const { user } = setup("/ops/lab", <TurnOnInSandbox templateId={TEMPLATE_ID} base="/x" />, {
+      "GET /api/ops/clients": () => ({
+        clients: [
+          {
+            id: SANDBOX,
+            name: "Sandbox",
+            timezone: "UTC",
+            createdAt: "2026-11-01T00:00:00.000Z",
+            agents: 0,
+            openInbox: 0,
+            sandbox: true,
+          },
+        ],
+      }),
+      [`GET /api/ops/agents/${TEMPLATE_ID}/turn-on`]: () => answer(false),
+      [`POST /api/ops/agents/${TEMPLATE_ID}/turn-on`]: ({ init }) => {
+        started.push(JSON.parse(String(init.body)));
+        return answer(true);
+      },
+    });
+    await user.click(await screen.findByTestId("lab-turn-on-sandbox"));
+    expect(await screen.findByTestId("flow-turn-on")).toHaveTextContent(
+      "Start the trial at Sandbox",
+    );
+    const start = screen.getByTestId("flow-turn-on-start");
+    await waitFor(() => expect(start).toBeEnabled());
+    await user.click(start);
+    expect(started).toEqual([{ clientId: SANDBOX }]);
+    expect(await screen.findByTestId("location")).toHaveTextContent(
+      `/ops/agents/${FORK_ID}/workflow`,
     );
   });
 });

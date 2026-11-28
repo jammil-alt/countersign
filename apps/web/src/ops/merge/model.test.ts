@@ -1,17 +1,8 @@
-import {
-  AgentBundle,
-  type AnyAgentBundle,
-  cloneJson,
-  diffBundles,
-  type MergeConflict,
-  SkillDefinition,
-  toProcessBundle,
-} from "@countersign/core";
+import { AgentBundle, cloneJson, diffBundles, type MergeConflict } from "@countersign/core";
 import { describe, expect, it } from "vitest";
 import { FORK_BUNDLE } from "../../test/fixtures";
 import {
   activeResolutions,
-  catalogLookup,
   conflictChoices,
   conflictTarget,
   conflictText,
@@ -21,7 +12,7 @@ import {
   triggerLabels,
 } from "./model";
 
-const edit = (b: AnyAgentBundle, fn: (d: AnyAgentBundle) => void): AnyAgentBundle => {
+const edit = (b: AgentBundle, fn: (d: AgentBundle) => void): AgentBundle => {
   const d = cloneJson(b);
   fn(d);
   return d;
@@ -86,20 +77,20 @@ describe("merge model", () => {
       })(),
     );
     const changes = diffBundles(FORK_BUNDLE, after);
-    const marks = sideMarks(changes, after);
+    const marks = sideMarks(changes);
     expect(marks.get("find")).toBe("removed");
     expect(marks.get("read")).toBe("changed");
     expect(removedSteps(changes, after, {}).map((r) => r.key)).toEqual(["step:find"]);
   });
 });
 
-// R8 (ARCHITECTURE §10.14): v4 processes in the merge view.
-describe("merge model: v4 processes", () => {
-  const v4 = toProcessBundle(FORK_BUNDLE, { wrappedTool: () => null, sideEffect: () => null });
+// Triggers and Fork paths in the merge view.
+describe("merge model: triggers and paths", () => {
+  const base = FORK_BUNDLE;
   const withTriggers = (order: string[]) =>
-    edit(v4, (b) => {
+    edit(base, (b) => {
       const p = b.workflows[0]?.workflow;
-      if (p?.schemaVersion !== 4) throw new Error("fixture");
+      if (!p) throw new Error("fixture");
       const t1 = p.triggers[0];
       if (!t1) throw new Error("fixture");
       const t2 = { id: "t2", on: { type: "manual" as const, input: { type: "object" } } };
@@ -139,10 +130,10 @@ describe("merge model: v4 processes", () => {
   it("marks the trigger a side added and those a reorder moved", () => {
     const a = withTriggers(["t1", "t2"]);
     const b = withTriggers(["t2", "t1"]);
-    const marks = sideMarks(diffBundles(a, b), b);
+    const marks = sideMarks(diffBundles(a, b));
     expect(marks.get("t1")).toBe("moved");
     expect(marks.get("t2")).toBe("moved");
-    const added = sideMarks(diffBundles(v4, a), a);
+    const added = sideMarks(diffBundles(base, a));
     expect(added.get("t2")).toBe("changed");
   });
 
@@ -176,43 +167,14 @@ describe("merge model: v4 processes", () => {
     ).toBe("asks client admin (1 day)");
   });
 
-  it("reads tool-wrapper skills and side effects from the builder catalog", () => {
-    const lookup = catalogLookup({
-      skills: [
-        {
-          ref: "docs.extract",
-          source: "builtin",
-          version: null,
-          definition: SkillDefinition.parse({
-            schemaVersion: 1,
-            id: "docs.extract",
-            name: "Read a document",
-            description: "Reads it",
-            category: "documents",
-            mode: "tool",
-            handler: "docs.extract",
-            tools: [],
-            input: { type: "object" },
-            output: { type: "object" },
-          }),
-        },
-      ],
-      tools: [],
-    });
-    expect(lookup.wrappedTool("docs.extract")).toBe("docs.extract");
-    expect(lookup.wrappedTool("nope")).toBeNull();
-    expect(lookup.sideEffect("nope")).toBeNull();
-  });
-
-  it("lists a removed step inside an if path", () => {
-    const after = edit(v4, (b) => {
+  it("lists a removed step inside a Fork path", () => {
+    const after = edit(base, (b) => {
       const p = b.workflows[0]?.workflow;
-      if (p?.schemaVersion !== 4) throw new Error("fixture");
-      const fork = p.steps.find((s) => s.kind === "if");
-      if (fork?.kind !== "if") throw new Error("fixture");
+      const fork = p?.steps.find((s) => s.kind === "fork");
+      if (fork?.kind !== "fork") throw new Error("fixture");
       if (fork.paths[0]) fork.paths[0].steps = [];
     });
-    const changes = diffBundles(v4, after);
+    const changes = diffBundles(base, after);
     expect(removedSteps(changes, after, {}).map((r) => r.key)).toEqual(["step:ask"]);
   });
 });
