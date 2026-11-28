@@ -483,6 +483,7 @@ export function AgentScreen({
             // Wave 3b: the Builder's server sessions draft processes, so any readable version
             // can be revised.
             canRevise={latestAny !== null}
+            workflow={builderStart}
             onChanged={reload}
             onDiscarded={() =>
               navigate(view.kind === "template" ? "/ops/lab" : `/ops/clients/${view.tenantId}`)
@@ -806,6 +807,7 @@ function AgentActions({
   base,
   detail,
   canRevise,
+  workflow,
   onChanged,
   onDiscarded,
 }: {
@@ -813,6 +815,8 @@ function AgentActions({
   base: string;
   detail: AgentDetail;
   canRevise: boolean;
+  /** The workflow the step builder opens first (the Turn on sheet's Try it goes there). */
+  workflow: string;
   onChanged(): void;
   onDiscarded(): void;
 }) {
@@ -854,7 +858,7 @@ function AgentActions({
         </Link>
         {view.kind === "template" && live && view.status === "active" ? (
           <>
-            <TurnOnInSandbox templateId={view.id} base={base} />
+            <TurnOnInSandbox templateId={view.id} base={base} workflow={workflow} />
             <AssignToClient templateId={view.id} version={live.version} />
           </>
         ) : null}

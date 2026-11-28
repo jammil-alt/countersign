@@ -274,11 +274,14 @@ export function AssignForm({
 export function TurnOnInSandbox({
   templateId,
   base,
+  workflow,
   onStarted,
 }: {
   templateId: string;
-  /** The template's page, for the sheet's Try it; without it, Try it closes the sheet. */
+  /** The template's page; without it, Try it closes the sheet. */
   base?: string;
+  /** The workflow the sheet's Try it opens in the step builder, Try it open (`#try`). */
+  workflow?: string;
   /** In place of opening the Sandbox agent's Workflow tab once its trial started. */
   onStarted?(): void;
 }) {
@@ -304,7 +307,14 @@ export function TurnOnInSandbox({
           template
           clients={[{ id: sandbox.id, name: sandbox.name }]}
           clientId={sandbox.id}
-          onTry={() => (base ? navigate(`${base}/versions#tests`) : setOpen(false))}
+          // Staging, 2026-11-28: Try it went to the Versions tab's tests, the page the operator was
+          // usually on, with the sheet still open, so nothing seemed to happen. It closes the sheet
+          // and opens the step builder with Try it open, where a try is made.
+          onTry={() => {
+            setOpen(false);
+            if (base)
+              navigate(workflow ? `${base}/steps/${workflow}#try` : `${base}/versions#tests`);
+          }}
           onStarted={(r) => {
             notifyAgentsChanged();
             if (onStarted) {

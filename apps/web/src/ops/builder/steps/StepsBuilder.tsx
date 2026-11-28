@@ -260,7 +260,10 @@ function Body(
   const [showIssues, setShowIssues] = useState(false);
   // The drawer's other two uses: Try it and the Builder (a step's settings and the palette are
   // `selection` and `addAt`). One drawer at a time.
-  const [tool, setTool] = useState<"try" | "builder" | null>(null);
+  // `#try` (the Turn on sheet's Try it) opens with Try it open.
+  const [tool, setTool] = useState<"try" | "builder" | null>(() =>
+    typeof window !== "undefined" && window.location.hash === "#try" ? "try" : null,
+  );
   // The sticky bar's height, measured: one row on a wide window, two or more when it wraps.
   const barRef = useRef<HTMLDivElement>(null);
   const [barHeight, setBarHeight] = useState(76);
